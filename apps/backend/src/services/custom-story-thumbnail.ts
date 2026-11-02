@@ -1,3 +1,4 @@
+import type { ChartPluginManifestEntry } from '@nao/shared';
 import type { StoryQueryResult } from '@nao/shared/story-app';
 import { STORY_THEME_MODES, type StoryThemeMode, type StoryThemePair } from '@nao/shared/story-theme';
 import { createHash } from 'crypto';
@@ -10,6 +11,7 @@ import { logger } from '../utils/logger';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { isBrokenRender, renderStoryScreenshot } from '../utils/story-screenshot';
 import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
+import { listStoryChartPlugins } from './chart-plugin';
 import {
 	type CustomStoryVersionView,
 	getActiveThemeForStory,
@@ -223,20 +225,22 @@ async function saveThumbnails(versionId: string, images: ModeThumbnails, renderK
 	return storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(images), renderKey);
 }
 
-/** Live data and shared state change in place, without a new version, so they are part of the key. */
+/** Live data, shared state and project chart plugins change in place, without a new version, so they are part of the key. */
 async function thumbnailRenderKey(
 	story: Pick<DBStory, 'id' | 'isLive'>,
 	theme: StoryThemePair | null,
 ): Promise<string> {
-	const [dataCachedAt, sharedState] = await Promise.all([
+	const [dataCachedAt, sharedState, chartPlugins] = await Promise.all([
 		story.isLive ? storyQueries.getStoryDataCachedAt(story.id) : null,
 		storyAppStateQueries.listProjectStoryAppState(story.id),
+		listStoryChartPlugins(story.id),
 	]);
 	return [
 		`${THUMBNAIL_VIEWPORT.width}x${THUMBNAIL_VIEWPORT.height}`,
 		storyThemeFingerprint(theme),
 		dataCachedAt?.getTime(),
 		sharedState.length > 0 ? sharedStateFingerprint(sharedState) : undefined,
+		chartPlugins.length > 0 ? chartPluginsFingerprint(chartPlugins) : undefined,
 	]
 		.filter((part) => part !== undefined)
 		.join('.');
@@ -247,6 +251,11 @@ function sharedStateFingerprint(state: DBStoryAppState[]): string {
 		.map((entry) => [entry.key, entry.value])
 		.sort(([left], [right]) => String(left).localeCompare(String(right)));
 	return createHash('sha256').update(JSON.stringify(entries)).digest('hex').slice(0, 12);
+}
+
+function chartPluginsFingerprint(plugins: ChartPluginManifestEntry[]): string {
+	const versions = plugins.map((plugin) => `${plugin.type}@${plugin.version}`).sort();
+	return createHash('sha256').update(versions.join('\n')).digest('hex').slice(0, 12);
 }
 
 function parseThumbnails(raw: string | undefined): ModeThumbnails {

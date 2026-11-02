@@ -16,6 +16,7 @@ import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { agentService } from '../services/agent';
+import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
 	getActiveThemeForProject,
@@ -477,6 +478,10 @@ export const storyRoutes = {
 				throw toCustomStoryTrpcError(error);
 			}
 		}),
+
+	getCustomStoryChartPlugins: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(({ input }) => readCustomStoryChartPluginSources(input.chatId, input.storySlug)),
 
 	getCustomStoryState: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))

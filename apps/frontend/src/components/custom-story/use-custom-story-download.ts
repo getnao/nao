@@ -88,7 +88,7 @@ async function fetchExportData(
 		),
 		queryClient.fetchQuery(narrativesOptions(dataSource)).catch(() => ({})),
 		queryClient.fetchQuery(stateOptions(dataSource)).catch(() => undefined),
-		fetchChartPluginSources(queryClient).catch(() => undefined),
+		fetchChartPluginSources(queryClient, dataSource).catch(() => undefined),
 	]);
 	return {
 		queries: Object.fromEntries(results.filter((entry) => entry !== null)),

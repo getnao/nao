@@ -348,12 +348,27 @@ function findRenderedRoot(program: Program, kitImport: KitImport): RenderedRoot 
 	const component = findDefaultExportedFunction(program);
 	const rendered = component ? renderedExpression(component) : null;
 	if (rendered?.type === 'JSXFragment') {
-		return { isDeck: false, childrenEnd: rendered.closingFragment.start! };
+		const deck = findFragmentDeck(rendered.children, kitImport);
+		return deck ? deckRoot(deck) : { isDeck: false, childrenEnd: rendered.closingFragment.start! };
 	}
 	if (rendered?.type !== 'JSXElement' || !rendered.closingElement) {
 		return null;
 	}
-	return { isDeck: isKitDeck(rendered, kitImport), childrenEnd: rendered.closingElement.start! };
+	return isKitDeck(rendered, kitImport)
+		? deckRoot(rendered)
+		: { isDeck: false, childrenEnd: rendered.closingElement.start! };
+}
+
+/** A fragment wrapping a deck (with a header beside it, say) still adds its blocks as slides of that deck. */
+function findFragmentDeck(children: Node[], kitImport: KitImport): JSXElement | null {
+	const deck = children.find(
+		(child): child is JSXElement => child.type === 'JSXElement' && isKitDeck(child, kitImport),
+	);
+	return deck?.closingElement ? deck : null;
+}
+
+function deckRoot(deck: JSXElement): RenderedRoot {
+	return { isDeck: true, childrenEnd: deck.closingElement!.start! };
 }
 
 function findDefaultExportedFunction(program: Program): Node | null {

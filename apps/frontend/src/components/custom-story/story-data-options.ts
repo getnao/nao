@@ -83,34 +83,38 @@ export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: stri
 	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId });
 }
 
-/** Chart plugins come from the project's `agent/charts` folder, like the chat's custom charts, whoever's story it is. */
-export async function fetchChartPluginSource(queryClient: QueryClient, chartType: string): Promise<string> {
-	const plugins = await fetchChartPlugins(queryClient);
-	const plugin = plugins.find((entry) => entry.type === chartType);
-	if (!plugin) {
+/** Chart plugins come from the story's own project `agent/charts` folder, whichever project the viewer has selected. */
+export async function fetchChartPluginSource(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+	chartType: string,
+): Promise<string> {
+	const sources = await fetchChartPluginSources(queryClient, dataSource);
+	const source = sources[chartType];
+	if (source === undefined) {
 		throw new Error(`Custom chart "${chartType}" is not available.`);
 	}
-	return fetchPluginSource(queryClient, plugin);
+	return source;
 }
 
 /** Every chart plugin's source by type, so a downloaded story draws its `<Chart type>` blocks offline. */
-export async function fetchChartPluginSources(queryClient: QueryClient): Promise<Record<string, string>> {
-	const plugins = await fetchChartPlugins(queryClient);
-	const sources = await Promise.all(
-		plugins.map(async (plugin) => [plugin.type, await fetchPluginSource(queryClient, plugin)] as const),
-	);
-	return Object.fromEntries(sources);
+export function fetchChartPluginSources(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+): Promise<Record<string, string>> {
+	return queryClient.fetchQuery({ ...chartPluginsOptions(dataSource), staleTime: 0 });
 }
 
-function fetchChartPlugins(queryClient: QueryClient) {
-	return queryClient.fetchQuery({ ...trpc.chartPlugin.list.queryOptions(), staleTime: 0 });
-}
-
-async function fetchPluginSource(queryClient: QueryClient, plugin: { type: string; version: string }) {
-	const { source } = await queryClient.fetchQuery(
-		trpc.chartPlugin.source.queryOptions({ type: plugin.type, version: plugin.version }),
-	);
-	return source;
+function chartPluginsOptions(dataSource: CustomStoryDataSource) {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		return trpc.customStoryViewer.getChartPlugins.queryOptions({ access, storySlug });
+	}
+	if (dataSource.kind === 'share') {
+		return trpc.storyShare.getCustomStoryChartPlugins.queryOptions({ storyId: dataSource.storyId });
+	}
+	const { chatId, storySlug } = dataSource;
+	return trpc.story.getCustomStoryChartPlugins.queryOptions({ chatId, storySlug });
 }
 
 export function narrativesOptions(dataSource: CustomStoryDataSource) {

@@ -107,7 +107,9 @@ function PluginChartBody({ chartType, height, rows, config }: PluginChartBodyPro
 		let disposed = false;
 		let cleanup: ChartPluginCleanup;
 		setRenderError(null);
-		Promise.resolve(plugin.module.render(element, context))
+		const { render } = plugin.module;
+		Promise.resolve()
+			.then(() => render(element, context))
 			.then((nextCleanup) => {
 				if (disposed) {
 					nextCleanup?.();
@@ -127,18 +129,26 @@ function PluginChartBody({ chartType, height, rows, config }: PluginChartBodyPro
 		};
 	}, [plugin.module, context]);
 
-	const error = plugin.error ?? renderError;
-	if (error) {
-		return (
-			<div className='nao-block__state nao-block__state--error' role='alert'>
-				Could not render custom chart: {error}
-			</div>
-		);
+	if (plugin.error) {
+		return <PluginChartError error={plugin.error} />;
 	}
 	if (plugin.status === 'loading') {
 		return <div className='nao-skeleton' aria-busy='true' />;
 	}
-	return <div ref={containerRef} className='nao-chart' style={{ height }} />;
+	return (
+		<>
+			{renderError && <PluginChartError error={renderError} />}
+			<div ref={containerRef} className='nao-chart' style={{ height }} hidden={renderError !== null} />
+		</>
+	);
+}
+
+function PluginChartError({ error }: { error: string }) {
+	return (
+		<div className='nao-block__state nao-block__state--error' role='alert'>
+			Could not render custom chart: {error}
+		</div>
+	);
 }
 
 function useChartPlugin(chartType: string): PluginState {

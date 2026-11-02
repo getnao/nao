@@ -55,6 +55,7 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
 import { ExportDataMenu } from '@/components/export-data-menu';
 import { useSourceQuery } from '@/hooks/use-source-query';
+import { useAppendCustomStoryBlock } from '@/hooks/use-append-custom-story-block';
 import { kitBlockFromConfig } from '@/story-runtime/story-kit/block-config';
 
 const LEGEND_SCROLL_OFFSET = 120;
@@ -107,21 +108,10 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		}),
 	);
 
-	const { mutate: addToCustomStory, error: addToCustomStoryError } = useMutation(
-		trpc.story.appendCustomStoryBlock.mutationOptions({
-			onSuccess: (_data, { chatId: storyChatId, storySlug }) => {
-				queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId: storyChatId, storySlug }),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.story.getCustomVersion.queryKey({ chatId: storyChatId, storySlug }),
-				});
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-			},
-		}),
-	);
+	const { mutate: addToCustomStory, error: addToCustomStoryError } = useAppendCustomStoryBlock();
 
 	const [isDownloading, setIsDownloading] = useState(false);
+	const [classicStoryError, setClassicStoryError] = useState<string | null>(null);
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && isBuiltinChart);
 
@@ -233,6 +223,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		if (!targetId || !chartConfig || !chatId) {
 			return;
 		}
+		setClassicStoryError(null);
 
 		const data = await queryClient.fetchQuery({
 			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
@@ -254,6 +245,11 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 			if (!usingVisibleStory) {
 				openSidePanel(<StoryViewer chatId={chatId} storySlug={targetId} />, targetId);
 			}
+			return;
+		}
+
+		if (!isBuiltinChart) {
+			setClassicStoryError('Custom charts can only be added to custom stories.');
 			return;
 		}
 
@@ -412,9 +408,9 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				</div>
 			</div>
 
-			{addToCustomStoryError && (
+			{(addToCustomStoryError || classicStoryError) && (
 				<div className='text-xs text-red-400' role='alert'>
-					Could not add the chart to the story: {addToCustomStoryError.message}
+					Could not add the chart to the story: {addToCustomStoryError?.message ?? classicStoryError}
 				</div>
 			)}
 

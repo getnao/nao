@@ -98,6 +98,28 @@ export default function App() {
 		);
 	});
 
+	it('adds the slide inside a deck wrapped in a fragment', () => {
+		const source = `import { Slide, Slides } from '@nao/story-kit';
+
+export default function App() {
+	return (
+		<>
+			<h1>Report</h1>
+			<Slides>
+				<Slide title="Intro">Hello</Slide>
+			</Slides>
+		</>
+	);
+}
+`;
+
+		const appended = appendKitBlock('app.jsx', source, PLUGIN_CHART);
+
+		expect(appended).toMatch(
+			/<Slide title="Top customers">\s*<Chart queryId="query_2"[^>]*\/>\s*<\/Slide>\s*<\/Slides>\s*<\/>/,
+		);
+	});
+
 	it('refuses a layout it cannot find instead of guessing', () => {
 		const source = "import { memo } from 'react';\n\nexport default memo(() => <main />);\n";
 

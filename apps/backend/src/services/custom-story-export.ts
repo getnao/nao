@@ -2,13 +2,11 @@ import type { StoryExportData, StoryQueryResult } from '@nao/shared/story-app';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { DEFAULT_STORY_THEME_PAIR, type StoryThemeMode } from '@nao/shared/story-theme';
 
-import * as projectQueries from '../queries/project.queries';
-import * as storyQueries from '../queries/story.queries';
 import { formatDownloadFilename } from '../utils/story-download';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { renderStoryPdf } from '../utils/story-snapshot';
 import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
-import { readChartPluginSources } from './chart-plugin';
+import { readStoryChartPluginSources } from './chart-plugin';
 import {
 	type CustomStoryVersionView,
 	getCustomStoryNarratives,
@@ -35,7 +33,7 @@ export async function renderCustomStoryPdf(
 		getCustomStoryNarratives(chatId, storySlug),
 		getUnattendedCustomStoryState(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
-		loadStoryChartPlugins(version.storyId),
+		readStoryChartPluginSources(version.storyId),
 	]);
 	const html = buildCustomStoryDocumentHtml(
 		version,
@@ -57,7 +55,7 @@ export async function buildCustomStoryDocumentByStoryId(
 		getStoredCustomStoryNarrativesByStoryId(storyId),
 		loadStandaloneStoryRuntime(),
 		getUnattendedCustomStoryStateByStoryId(storyId),
-		loadStoryChartPlugins(storyId),
+		readStoryChartPluginSources(storyId),
 	]);
 	return buildCustomStoryDocumentHtml(version, { queryData, narratives, runtime, state, chartPlugins }, mode);
 }
@@ -85,12 +83,6 @@ function buildCustomStoryDocumentHtml(
 		runtime,
 		data,
 	});
-}
-
-async function loadStoryChartPlugins(storyId: string): Promise<Record<string, string>> {
-	const projectId = await storyQueries.getStoryProjectId(storyId);
-	const project = projectId ? await projectQueries.getProjectById(projectId) : null;
-	return project?.path ? readChartPluginSources(project.path) : {};
 }
 
 function pickQueries(

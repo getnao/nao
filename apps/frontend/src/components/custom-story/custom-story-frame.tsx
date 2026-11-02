@@ -175,13 +175,13 @@ export function CustomStoryFrame({
 	const answerChartPlugin = useCallback(
 		async (requestId: string, chartType: string) => {
 			try {
-				const source = await fetchChartPluginSource(queryClient, chartType);
+				const source = await fetchChartPluginSource(queryClient, dataSource, chartType);
 				reply({ type: 'nao-story:chart-plugin-result', requestId, source });
 			} catch (error) {
 				reply({ type: 'nao-story:chart-plugin-error', requestId, message: describeError(error) });
 			}
 		},
-		[queryClient, reply],
+		[dataSource, queryClient, reply],
 	);
 
 	const answerNarratives = useCallback(
