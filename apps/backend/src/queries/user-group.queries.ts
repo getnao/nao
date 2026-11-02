@@ -413,12 +413,6 @@ export const updateUserGroup = async (
 		dbConfig.dialect === Dialect.Postgres && data.rowPolicies !== undefined
 			? (data.rowPoliciesRegistry ?? (await getProjectRowSecurity(projectId)))
 			: undefined;
-	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
-	const resultingDatabaseAccess = data.databaseAccess ?? currentContext.databaseAccess;
-	const resultingRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(
-		data.rowPolicies ?? parseStoredUserGroupRowPolicies(group.rowPolicies),
-		resultingDatabaseAccess,
-	);
 	if (group.isDefault && data.name !== undefined && data.name !== group.name) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be renamed.');
 	}
@@ -431,11 +425,9 @@ export const updateUserGroup = async (
 	}
 	const serializedSsoMappings =
 		data.ssoMappings === undefined ? undefined : serializeUserGroupSsoMappings(data.ssoMappings);
-	const changedProviders =
-		serializedSsoMappings === undefined ? [] : getChangedSsoProviders(group.ssoMappings, serializedSsoMappings);
-	// The feature blob is rewritten only when one of its own fields is set, and always from the
-	// group read inside the transaction: a rename must leave a concurrent grants change alone, and
-	// a partial write must not restore the snapshot read above.
+	// The feature and context blobs are rewritten only when one of their own fields is set, always
+	// from the group read inside the transaction: a rename must leave a concurrent grants change
+	// alone, and a partial write must not restore the snapshot read above.
 	const updatesFeatureGrants =
 		data.featureGrants !== undefined ||
 		data.toolCallDensityPolicy !== undefined ||
@@ -457,25 +449,30 @@ export const updateUserGroup = async (
 			),
 		};
 	};
+	const updatesContextGrants =
+		data.databaseAccess !== undefined ||
+		data.docsAccess !== undefined ||
+		data.filesAccess !== undefined ||
+		data.mcpAccess !== undefined ||
+		data.skillsAccess !== undefined;
+	const contextGrantsValues = (storedGroup: DBUserGroup) => {
+		if (!updatesContextGrants) {
+			return {};
+		}
+		const storedContext = parseStoredUserGroupContextAccess(storedGroup.contextGrants, storedGroup.isDefault);
+		return {
+			contextGrants: serializeUserGroupContextAccess({
+				databaseAccess: data.databaseAccess ?? storedContext.databaseAccess,
+				docsAccess: data.docsAccess ?? storedContext.docsAccess,
+				filesAccess: data.filesAccess ?? storedContext.filesAccess,
+				mcpAccess: data.mcpAccess ?? storedContext.mcpAccess,
+				skillsAccess: data.skillsAccess ?? storedContext.skillsAccess,
+			}),
+		};
+	};
 	const updateValues = {
 		...(data.name === undefined ? {} : { name: data.name }),
-		...(data.databaseAccess === undefined &&
-		data.docsAccess === undefined &&
-		data.filesAccess === undefined &&
-		data.mcpAccess === undefined &&
-		data.skillsAccess === undefined
-			? {}
-			: {
-					contextGrants: serializeUserGroupContextAccess({
-						databaseAccess: data.databaseAccess ?? currentContext.databaseAccess,
-						docsAccess: data.docsAccess ?? currentContext.docsAccess,
-						filesAccess: data.filesAccess ?? currentContext.filesAccess,
-						mcpAccess: data.mcpAccess ?? currentContext.mcpAccess,
-						skillsAccess: data.skillsAccess ?? currentContext.skillsAccess,
-					}),
-				}),
 		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
-		rowPolicies: serializeUserGroupRowPolicies(resultingRowPolicies),
 		updatedAt: new Date(),
 	};
 	const updated = await executeUserGroupNameMutation(() => {
@@ -483,16 +480,33 @@ export const updateUserGroup = async (
 			return db.transaction(
 				(transaction) => {
 					const lockedGroup = getUserGroupSqlite(transaction, projectId, groupId);
+					const lockedContext = parseStoredUserGroupContextAccess(
+						lockedGroup.contextGrants,
+						lockedGroup.isDefault,
+					);
+					const lockedRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(
+						data.rowPolicies ?? parseStoredUserGroupRowPolicies(lockedGroup.rowPolicies),
+						data.databaseAccess ?? lockedContext.databaseAccess,
+					);
 					if (data.name !== undefined && data.name !== lockedGroup.name) {
 						assertNameAvailableSqlite(transaction, projectId, data.name, groupId);
 					}
 					const stored = transaction
 						.update(s.userGroup)
-						.set({ ...updateValues, ...featureGrantsValues(lockedGroup) })
+						.set({
+							...updateValues,
+							...featureGrantsValues(lockedGroup),
+							...contextGrantsValues(lockedGroup),
+							rowPolicies: serializeUserGroupRowPolicies(lockedRowPolicies),
+						})
 						.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
 						.returning()
 						.get();
-					deleteChangedSsoMembershipsSqlite(transaction, groupId, changedProviders);
+					const lockedChangedProviders =
+						serializedSsoMappings === undefined
+							? []
+							: getChangedSsoProviders(lockedGroup.ssoMappings, serializedSsoMappings);
+					deleteChangedSsoMembershipsSqlite(transaction, groupId, lockedChangedProviders);
 					return stored;
 				},
 				{ behavior: 'immediate' },
@@ -519,6 +533,7 @@ export const updateUserGroup = async (
 				.set({
 					...updateValues,
 					...featureGrantsValues(lockedGroup),
+					...contextGrantsValues(lockedGroup),
 					rowPolicies: serializeUserGroupRowPolicies(lockedRowPolicies),
 				})
 				.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
