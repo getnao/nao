@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	adminCount: 2,
 	deletes: 0,
 	userDeleteRows: 1,
+	pendingRows: 1,
 }));
 
 vi.mock('../src/db/dbConfig', () => ({
@@ -55,6 +56,7 @@ describe('PostgreSQL organization admin guards', () => {
 		mocks.adminCount = 2;
 		mocks.deletes = 0;
 		mocks.userDeleteRows = 1;
+		mocks.pendingRows = 1;
 	});
 
 	it('locks the organization row before the last-admin delete', async () => {
@@ -77,7 +79,9 @@ describe('PostgreSQL organization admin guards', () => {
 	});
 
 	it('re-tests the pending invitation under the user lock, after the organization lock', async () => {
-		await removeOrganizationMember('org-1', 'user-1', { deleteSessions: true, purgePendingInvitation: true });
+		await expect(
+			removeOrganizationMember('org-1', 'user-1', { deleteSessions: true, purgePendingInvitation: true }),
+		).resolves.toBeUndefined();
 
 		expect(mocks.events).toEqual([
 			'lock-org',
@@ -91,11 +95,9 @@ describe('PostgreSQL organization admin guards', () => {
 	});
 
 	it('keeps the account when the invitation stopped being pending before the delete', async () => {
-		mocks.userDeleteRows = 0;
+		mocks.pendingRows = 0;
 
-		await expect(
-			removeOrganizationMember('org-1', 'user-1', { deleteSessions: true, purgePendingInvitation: true }),
-		).resolves.toBeUndefined();
+		await removeOrganizationMember('org-1', 'user-1', { deleteSessions: true, purgePendingInvitation: true });
 
 		expect(mocks.events).toEqual([
 			'lock-org',
@@ -104,7 +106,6 @@ describe('PostgreSQL organization admin guards', () => {
 			'delete-member',
 			'delete-project-members',
 			'delete-sessions',
-			'delete-user',
 		]);
 	});
 
@@ -170,6 +171,7 @@ function transaction() {
 					if (!countsAdmins) {
 						if (onUserTable && !locking) {
 							mocks.events.push('check-pending');
+							return mocks.pendingRows ? [{ id: 'org-1' }] : [];
 						}
 						return [{ id: 'org-1' }];
 					}
