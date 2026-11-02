@@ -6,8 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileViewer, isRootRulesPath } from './file-viewer';
 import type { ReactNode } from 'react';
 
+const mocks = vi.hoisted(() => ({
+	syncStatus: { data: undefined as { run: { status: string } | null; syncingBy: string | null } | undefined },
+}));
+
 vi.mock('@tanstack/react-query', () => ({
 	useMutation: vi.fn(() => ({ isPending: false, mutate: vi.fn() })),
+	useQuery: vi.fn(() => mocks.syncStatus),
 	useQueryClient: vi.fn(() => ({
 		invalidateQueries: vi.fn(),
 		setQueryData: vi.fn(),
@@ -47,6 +52,9 @@ vi.mock('@/main', () => ({
 			readFile: { queryOptions: vi.fn(() => ({ queryKey: [] })) },
 			writeFile: { mutationOptions: vi.fn(() => ({})) },
 		},
+		projectSync: {
+			getStatus: { queryOptions: vi.fn(() => ({ queryKey: ['project-sync-status'] })) },
+		},
 	},
 }));
 
@@ -74,6 +82,23 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
+	mocks.syncStatus.data = undefined;
+});
+
+describe('FileViewer saving', () => {
+	it.each([
+		{ name: 'their own sync is running', run: { status: 'running' }, syncingBy: null },
+		{ name: 'another admin is syncing a nao-managed project', run: null, syncingBy: 'Marie' },
+	])('pauses saving while $name', ({ run, syncingBy }) => {
+		mocks.syncStatus.data = { run, syncingBy };
+		renderViewer({ filePath: '/databases/sales.yaml', content: 'name: sales\n' });
+
+		fireEvent.change(screen.getByLabelText('File source'), { target: { value: 'name: edited\n' } });
+
+		const saveButton = screen.getByRole('button', { name: /Save/ });
+		expect(saveButton.hasAttribute('disabled')).toBe(true);
+		expect(saveButton.getAttribute('title')).toBe('Saving is paused until the project sync finishes.');
+	});
 });
 
 describe('FileViewer RULES preview', () => {

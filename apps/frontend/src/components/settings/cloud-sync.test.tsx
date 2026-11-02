@@ -32,6 +32,12 @@ vi.mock('@/main', () => ({
 					...options,
 				}),
 			},
+			cancel: {
+				mutationOptions: (options: object) => ({
+					mutationFn: vi.fn(),
+					...options,
+				}),
+			},
 		},
 	},
 }));

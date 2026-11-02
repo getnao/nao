@@ -12,7 +12,9 @@ vi.mock('../src/queries/activity.queries', () => ({
 	startProjectSyncActivity: vi.fn(async () => ({ id: crypto.randomUUID() })),
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
+	cancelActivity: vi.fn(),
 	getLatestCompletedProjectSync: vi.fn(async () => null),
+	getRunningProjectSync: vi.fn(async () => null),
 }));
 vi.mock('../src/services/context-explorer-git.service', () => ({
 	resolveContextExplorerGitSafely: vi.fn(),
@@ -37,7 +39,12 @@ vi.mock('../src/utils/logger', () => ({
 }));
 
 import type { DBProject } from '../src/db/abstractSchema';
-import { completeActivity, failActivity, getLatestCompletedProjectSync } from '../src/queries/activity.queries';
+import {
+	cancelActivity,
+	completeActivity,
+	failActivity,
+	getLatestCompletedProjectSync,
+} from '../src/queries/activity.queries';
 import {
 	type ContextExplorerGitContext,
 	resolveContextExplorerGitSafely,
@@ -51,6 +58,8 @@ import { getProjectRuntimeEnvVars } from '../src/services/project-runtime-env';
 import {
 	__resetProjectSyncRunsForTesting,
 	assertNoProjectSyncRunning,
+	assertNoProjectSyncWritingFiles,
+	cancelProjectSync,
 	getProjectSyncState,
 	startProjectSync,
 } from '../src/services/project-sync.service';
@@ -92,6 +101,7 @@ describe('project sync', () => {
 			worktreeRoot,
 			{ POSTGRES_PASSWORD: 'super-secret' },
 			expect.any(Function),
+			expect.any(AbortSignal),
 		);
 		expect(state.run?.logs).toContain('Connecting with [REDACTED:POSTGRES_PASSWORD]');
 		expect(state.run?.logs).toContain('✓ Synced files are ready to review in your changes');
@@ -120,6 +130,60 @@ describe('project sync', () => {
 		finishSync();
 		await waitForStatus('user-1', 'succeeded');
 		expect(() => assertNoProjectSyncRunning(project.id, 'user-1')).not.toThrow();
+	});
+
+	it("pauses saves in the syncing user's worktree, and every admin's saves for nao-managed projects", async () => {
+		let finishSync: () => void = () => undefined;
+		vi.mocked(runNaoCommand).mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					finishSync = resolve;
+				}),
+		);
+
+		await startProjectSync(project, gitContext('user-1'));
+
+		const saveBlockedMessage = 'Wait for the project sync to finish before saving files.';
+		expect(() => assertNoProjectSyncWritingFiles(project.id, 'user-1', false)).toThrow(saveBlockedMessage);
+		expect(() => assertNoProjectSyncWritingFiles(project.id, 'user-2', false)).not.toThrow();
+		expect(() => assertNoProjectSyncWritingFiles(project.id, 'user-2', true)).toThrow(saveBlockedMessage);
+		expect(() => assertNoProjectSyncWritingFiles('other-project', 'user-2', true)).not.toThrow();
+		await vi.waitFor(() => expect(runNaoCommand).toHaveBeenCalled());
+		finishSync();
+		await waitForStatus('user-1', 'succeeded');
+		expect(() => assertNoProjectSyncWritingFiles(project.id, 'user-2', true)).not.toThrow();
+	});
+
+	it('stops a running sync without publishing when the user cancels it', async () => {
+		vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue({
+			status: 'unavailable',
+			reason: 'no-repo',
+			message: 'Connect a repository first.',
+			repo: null,
+		});
+		vi.mocked(readManagedGithubRepositoryFullName).mockResolvedValue('nao-projects/sales');
+		vi.mocked(runNaoCommand).mockImplementation(
+			(_args, _cwd, _env, _onOutput, signal) =>
+				new Promise<void>((_resolve, reject) => {
+					const cancel = () => reject(new Error('nao sync was cancelled.'));
+					if (signal?.aborted) {
+						cancel();
+					}
+					signal?.addEventListener('abort', cancel);
+				}),
+		);
+		const managedContext = gitContext('user-1', worktreeRoot);
+
+		const run = await startProjectSync(project, managedContext);
+		await vi.waitFor(() => expect(runNaoCommand).toHaveBeenCalled());
+		cancelProjectSync(project.id, 'user-1');
+
+		await vi.waitFor(async () => {
+			expect((await getProjectSyncState(project, managedContext)).run?.status).toBe('cancelled');
+		});
+		expect(cancelActivity).toHaveBeenCalledWith(run.id);
+		expect(failActivity).not.toHaveBeenCalled();
+		expect(publishManagedGithubRepositoryUpdate).not.toHaveBeenCalled();
 	});
 
 	it('keeps what synced and fails the run when one source fails, like the CLI', async () => {
@@ -155,7 +219,13 @@ describe('project sync', () => {
 			expect((await getProjectSyncState(project, managedContext)).run?.status).toBe('succeeded');
 		});
 
-		expect(runNaoCommand).toHaveBeenCalledWith(['sync'], worktreeRoot, expect.anything(), expect.any(Function));
+		expect(runNaoCommand).toHaveBeenCalledWith(
+			['sync'],
+			worktreeRoot,
+			expect.anything(),
+			expect.any(Function),
+			expect.any(AbortSignal),
+		);
 		expect(publishManagedGithubRepositoryUpdate).toHaveBeenCalledWith({
 			projectDir: worktreeRoot,
 			repoFullName: 'nao-projects/sales',

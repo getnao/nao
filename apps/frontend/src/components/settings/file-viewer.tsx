@@ -1,5 +1,5 @@
 import { isRootRulesPath, renderConditionalGroupBlocks } from '@nao/shared/rules-template';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Code, File, Loader2, Save } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
@@ -179,6 +179,10 @@ function EditableFileViewer({
 	activePathRef.current = filePath;
 
 	const saveMutation = useMutation(trpc.contextExplorer.writeFile.mutationOptions());
+	const syncState = useQuery({ ...trpc.projectSync.getStatus.queryOptions(), enabled: isEditable });
+	const syncRunStatus = syncState.data?.run?.status;
+	const isSyncWritingFiles =
+		syncRunStatus === 'queued' || syncRunStatus === 'running' || Boolean(syncState.data?.syncingBy);
 	const isMarkdown = isMarkdownPath(filePath);
 	const isRootRules = isRootRulesPath(filePath);
 	const isSourceOpen = isSourceOpenPreference || isSourceAutoOpened;
@@ -235,7 +239,7 @@ function EditableFileViewer({
 	}, [isDirty, onDirtyChange]);
 
 	const handleSave = useCallback(() => {
-		if (!isEditable || !isDirty || saveMutation.isPending || saveInProgressRef.current) {
+		if (!isEditable || !isDirty || isSyncWritingFiles || saveMutation.isPending || saveInProgressRef.current) {
 			return;
 		}
 
@@ -279,7 +283,7 @@ function EditableFileViewer({
 				},
 			},
 		);
-	}, [draft, expectedHash, filePath, isDirty, isEditable, queryClient, saveMutation]);
+	}, [draft, expectedHash, filePath, isDirty, isEditable, isSyncWritingFiles, queryClient, saveMutation]);
 
 	const handleReload = useCallback(async () => {
 		setIsReloading(true);
@@ -352,7 +356,10 @@ function EditableFileViewer({
 								size='sm'
 								className='h-7 gap-1.5'
 								onClick={handleSave}
-								disabled={!isDirty || saveMutation.isPending}
+								disabled={!isDirty || isSyncWritingFiles || saveMutation.isPending}
+								title={
+									isSyncWritingFiles ? 'Saving is paused until the project sync finishes.' : undefined
+								}
 							>
 								{saveMutation.isPending ? (
 									<Loader2 className='size-3.5 animate-spin' />

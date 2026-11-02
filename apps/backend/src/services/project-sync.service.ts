@@ -127,9 +127,18 @@ export function cancelProjectSync(projectId: string, userId: string): void {
 
 /** Sync writes into the user's worktree, so Git actions there wait until it finishes. */
 export function assertNoProjectSyncRunning(projectId: string, userId: string): void {
-	const run = runs.get(getRunKey(projectId, userId));
-	if (run && isRunActive(run)) {
+	if (isUserSyncActive(projectId, userId)) {
 		throw new TRPCError({ code: 'CONFLICT', message: 'Wait for the project sync to finish before using Git.' });
+	}
+}
+
+/** nao-managed syncs write the shared live folder, so they pause every admin's saves, not just their own. */
+export function assertNoProjectSyncWritingFiles(projectId: string, userId: string, isManaged: boolean): void {
+	const isSyncWriting = isManaged
+		? [...runs].some(([runKey, run]) => runKey.startsWith(`${projectId}:`) && isRunActive(run))
+		: isUserSyncActive(projectId, userId);
+	if (isSyncWriting) {
+		throw new TRPCError({ code: 'CONFLICT', message: 'Wait for the project sync to finish before saving files.' });
 	}
 }
 
@@ -282,6 +291,11 @@ function isRunActive(run: ProjectSyncRun): boolean {
 	return run.status === 'queued' || run.status === 'running';
 }
 
+function isUserSyncActive(projectId: string, userId: string): boolean {
+	const run = runs.get(getRunKey(projectId, userId));
+	return run !== undefined && isRunActive(run);
+}
+
 function appendRunLog(runKey: string, runId: string, message: string): void {
 	const current = runs.get(runKey);
 	if (!current || current.id !== runId) {
@@ -301,4 +315,5 @@ function updateRun(runKey: string, runId: string, changes: Partial<ProjectSyncRu
 
 export function __resetProjectSyncRunsForTesting(): void {
 	runs.clear();
+	controllers.clear();
 }

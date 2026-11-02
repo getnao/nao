@@ -36,7 +36,7 @@ import {
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
 import { assertRepositoryEditable, readManagedGithubRepositoryFullName } from '../services/managed-github-repository';
-import { assertNoProjectSyncRunning } from '../services/project-sync.service';
+import { assertNoProjectSyncRunning, assertNoProjectSyncWritingFiles } from '../services/project-sync.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
 import {
@@ -213,6 +213,7 @@ export const contextExplorerRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+			assertNoProjectSyncWritingFiles(ctx.project.id, ctx.user.id, Boolean(access.managedRepository));
 			return writeFileContent(input.path, input.content, input.expectedHash, access);
 		}),
 
