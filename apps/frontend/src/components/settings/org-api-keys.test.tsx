@@ -1,95 +1,121 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { OrgApiKeys } from './org-api-keys';
-import type { ReactNode } from 'react';
 
+type ApiKey = {
+	id: string;
+	name: string;
+	keyPrefix: string;
+	scope: string;
+	createdAt: number;
+	lastUsedAt: number | null;
+};
 type CreateVariables = { name: string; scope: string };
 type CreateResult = { plaintext: string; scope: string };
 
 const mocks = vi.hoisted(() => ({
-	invalidateQueries: vi.fn(),
+	apiKeys: [] as ApiKey[],
 	createVariables: undefined as CreateVariables | undefined,
-	createOnSuccess: undefined as ((result: CreateResult) => Promise<void>) | undefined,
 }));
 
 vi.mock('@/main', () => ({
 	trpc: {
 		apiKey: {
 			list: { queryOptions: () => ({ queryKey: ['api-key-list'] }) },
-			create: {
-				mutationOptions: (options: { onSuccess: (result: CreateResult) => Promise<void> }) => {
-					mocks.createOnSuccess = options.onSuccess;
-					return options;
-				},
-			},
+			create: { mutationOptions: (options: unknown) => options },
 			revoke: { mutationOptions: (options: unknown) => options },
 		},
 	},
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: () => ({ data: [], isLoading: false }),
-	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+	useQuery: () => ({ data: mocks.apiKeys, isLoading: false }),
+	useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 	useMutation: (options: { onSuccess?: (result: CreateResult) => Promise<void> }) => ({
 		mutate: vi.fn(),
-		// Run the success handler like react-query does, so the test covers the real submit path.
 		mutateAsync: async (variables: CreateVariables) => {
 			mocks.createVariables = variables;
-			await options.onSuccess?.({ plaintext: 'nao_um_key', scope: variables.scope });
+			await options.onSuccess?.({ plaintext: 'nao_plaintext_key', scope: variables.scope });
 		},
 		isPending: false,
 	}),
 }));
 
-// Radix's select needs a real pointer stack in jsdom; a native select keeps the interaction real
-// without reaching into the component's own handlers.
-vi.mock('@/components/ui/select', () => ({
-	Select: ({
-		value,
-		onValueChange,
-		children,
-	}: {
-		value: string;
-		onValueChange: (value: string) => void;
-		children: ReactNode;
-	}) => (
-		<select aria-label='API key scope' value={value} onChange={(event) => onValueChange(event.target.value)}>
-			{children}
-		</select>
-	),
-	SelectTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-	SelectValue: () => null,
-	SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-	SelectItem: ({ value, children }: { value: string; children: ReactNode }) => (
-		<option value={value}>{children}</option>
-	),
-}));
+const DEPLOY_KEY: ApiKey = {
+	id: 'deploy-key',
+	name: 'CI deploy',
+	keyPrefix: 'nao_dep',
+	scope: 'deploy',
+	createdAt: 0,
+	lastUsedAt: null,
+};
+
+const USER_MANAGEMENT_KEY: ApiKey = {
+	id: 'user-management-key',
+	name: 'HR admin',
+	keyPrefix: 'nao_usr',
+	scope: 'user_management',
+	createdAt: 0,
+	lastUsedAt: null,
+};
+
+const cardOf = (title: string) => within(screen.getByText(title).closest('div.flex.flex-col') as HTMLElement);
 
 afterEach(() => {
+	mocks.apiKeys = [];
 	mocks.createVariables = undefined;
-	mocks.createOnSuccess = undefined;
 	cleanup();
 });
 
-it('sends the selected scope and drops the deploy command for a user-management key', async () => {
-	render(<OrgApiKeys isAdmin deployUrl='https://nao.example.com/deploy' />);
+it('lists only its own scope keys in each card', () => {
+	mocks.apiKeys = [DEPLOY_KEY, USER_MANAGEMENT_KEY];
 
-	// A deploy key is the default, so the command is offered with a placeholder.
-	expect(screen.getByText(/nao deploy https:\/\/nao\.example\.com\/deploy/)).toBeTruthy();
+	render(
+		<>
+			<OrgApiKeys isAdmin scope='deploy' />
+			<OrgApiKeys isAdmin scope='user_management' />
+		</>,
+	);
 
-	fireEvent.change(screen.getByLabelText('API key scope'), { target: { value: 'user_management' } });
+	expect(cardOf('Deploy keys').getByText('CI deploy')).toBeTruthy();
+	expect(cardOf('Deploy keys').queryByText('HR admin')).toBeNull();
+	expect(cardOf('User management API keys').getByText('HR admin')).toBeTruthy();
+	expect(cardOf('User management API keys').queryByText('CI deploy')).toBeNull();
+});
+
+it('creates a user management key from the user management card', async () => {
+	render(<OrgApiKeys isAdmin scope='user_management' deployUrl='https://nao.example.com/deploy' />);
+
 	fireEvent.click(screen.getByRole('button', { name: 'Generate API key' }));
 
 	await waitFor(() =>
 		expect(mocks.createVariables).toEqual({ name: 'User management key', scope: 'user_management' }),
 	);
-	await screen.findByText('nao_um_key');
+	await screen.findByText('nao_plaintext_key');
+	expect(cardOf('User management API keys').queryByText('Deploy command')).toBeNull();
+});
 
-	// A user-management key cannot deploy: the command has to go, and the field stops calling itself
-	// a deploy key.
-	expect(screen.queryByText(/nao deploy https:\/\/nao\.example\.com\/deploy/)).toBeNull();
-	expect((screen.getByLabelText('API key name') as HTMLInputElement).value).toBe('User management key');
+it('creates a deploy key from the deploy card and offers the deploy command', async () => {
+	render(<OrgApiKeys isAdmin scope='deploy' deployUrl='https://nao.example.com/deploy' />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Generate API key' }));
+
+	await waitFor(() => expect(mocks.createVariables).toEqual({ name: 'Deploy key', scope: 'deploy' }));
+	await screen.findByText(/nao deploy https:\/\/nao\.example\.com\/deploy --api-key nao_plaintext_key/);
+});
+
+it('never shows the deploy command on the user management card', () => {
+	render(
+		<>
+			<OrgApiKeys isAdmin scope='deploy' deployUrl='https://nao.example.com/deploy' />
+			<OrgApiKeys isAdmin scope='user_management' deployUrl='https://nao.example.com/deploy' />
+		</>,
+	);
+
+	expect(cardOf('Deploy keys').getByText('Deploy command')).toBeTruthy();
+	expect(cardOf('User management API keys').queryByText('Deploy command')).toBeNull();
+	expect(screen.getAllByText(/nao deploy https:\/\/nao\.example\.com\/deploy/)).toHaveLength(1);
 });

@@ -8,16 +8,28 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { trpc } from '@/main';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
 
-const DEFAULT_KEY_NAMES: Record<ApiKeyScope, string> = {
-	deploy: 'Deploy key',
-	user_management: 'User management key',
-};
+const KEY_CARDS: Record<ApiKeyScope, { defaultName: string; title: string; description: string; emptyState: string }> =
+	{
+		deploy: {
+			defaultName: 'Deploy key',
+			title: 'Deploy keys',
+			description: 'Organization keys that can run nao deploy to upload a project context.',
+			emptyState: 'No deploy keys yet.',
+		},
+		user_management: {
+			defaultName: 'User management key',
+			title: 'User management API keys',
+			description:
+				'Keys for the user management REST API at /api/user-management. They can list, invite and remove users and manage groups and roles, but cannot deploy.',
+			emptyState: 'No user management keys yet.',
+		},
+	};
 
 interface OrgApiKeysProps {
 	isAdmin?: boolean;
+	scope: ApiKeyScope;
 	deployUrl?: string;
 	title?: string;
 	description?: string;
@@ -25,9 +37,10 @@ interface OrgApiKeysProps {
 
 export function OrgApiKeys({
 	isAdmin = false,
+	scope,
 	deployUrl,
-	title = 'Organization API keys',
-	description = 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
+	title = KEY_CARDS[scope].title,
+	description = KEY_CARDS[scope].description,
 }: OrgApiKeysProps) {
 	const queryClient = useQueryClient();
 	const [latestPlaintextKey, setLatestPlaintextKey] = useState<string | null>(null);
@@ -49,11 +62,13 @@ export function OrgApiKeys({
 		return null;
 	}
 
+	const scopedApiKeys = apiKeys.data?.filter((apiKey) => apiKey.scope === scope) ?? [];
+
 	return (
 		<SettingsCard title={title} description={description}>
-			<DeployKeyGenerator
+			<ApiKeyGenerator
+				scope={scope}
 				deployUrl={deployUrl}
-				scopes={['deploy', 'user_management']}
 				latestPlaintextKey={latestPlaintextKey}
 				onPlaintextKeyCreated={setLatestPlaintextKey}
 			/>
@@ -62,9 +77,9 @@ export function OrgApiKeys({
 				<div className='text-sm font-medium text-foreground'>Existing keys</div>
 				{apiKeys.isLoading ? (
 					<div className='text-sm text-muted-foreground'>Loading API keys...</div>
-				) : apiKeys.data?.length ? (
+				) : scopedApiKeys.length ? (
 					<div className='space-y-2'>
-						{apiKeys.data.map((apiKey) => (
+						{scopedApiKeys.map((apiKey) => (
 							<div
 								key={apiKey.id}
 								className='flex flex-col gap-3 rounded-lg border border-border/60 bg-background p-3 sm:flex-row sm:items-center sm:justify-between'
@@ -74,9 +89,6 @@ export function OrgApiKeys({
 										{apiKey.name}{' '}
 										<span className='text-xs font-mono text-muted-foreground'>
 											{apiKey.keyPrefix}...
-										</span>
-										<span className='ml-2 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase text-muted-foreground'>
-											{apiKey.scope === 'user_management' ? 'user management' : 'deploy'}
 										</span>
 									</div>
 									<div className='text-xs text-muted-foreground'>
@@ -99,51 +111,41 @@ export function OrgApiKeys({
 						))}
 					</div>
 				) : (
-					<div className='text-sm text-muted-foreground'>No API keys created yet.</div>
+					<div className='text-sm text-muted-foreground'>{KEY_CARDS[scope].emptyState}</div>
 				)}
 			</div>
 		</SettingsCard>
 	);
 }
 
-interface DeployKeyGeneratorProps {
+interface ApiKeyGeneratorProps {
+	scope: ApiKeyScope;
 	deployUrl?: string;
-	scopes?: ApiKeyScope[];
 	latestPlaintextKey: string | null;
 	onPlaintextKeyCreated: (plaintextKey: string) => void;
 }
 
-export function DeployKeyGenerator({
-	deployUrl,
-	scopes = ['deploy'],
-	latestPlaintextKey,
-	onPlaintextKeyCreated,
-}: DeployKeyGeneratorProps) {
+export function ApiKeyGenerator({ scope, deployUrl, latestPlaintextKey, onPlaintextKeyCreated }: ApiKeyGeneratorProps) {
 	const queryClient = useQueryClient();
-	const [scope, setScope] = useState<ApiKeyScope>(scopes[0] ?? 'deploy');
-	const [name, setName] = useState(DEFAULT_KEY_NAMES[scopes[0] ?? 'deploy']);
+	const [name, setName] = useState(KEY_CARDS[scope].defaultName);
 	const { isCopied: isKeyCopied, copy: copyKey } = useCopyToClipboard();
 	const { isCopied: isCommandCopied, copy: copyCommand } = useCopyToClipboard();
-	// The deploy command is only useful for a deploy-scoped key, so remember what was just created.
-	const [latestKeyScope, setLatestKeyScope] = useState<ApiKeyScope>('deploy');
 	const createApiKey = useMutation(
 		trpc.apiKey.create.mutationOptions({
 			onSuccess: async (result) => {
-				const createdScope: ApiKeyScope = result.scope === 'user_management' ? 'user_management' : 'deploy';
 				onPlaintextKeyCreated(result.plaintext);
-				setLatestKeyScope(createdScope);
-				setName(DEFAULT_KEY_NAMES[createdScope]);
+				setName(KEY_CARDS[scope].defaultName);
 				await queryClient.invalidateQueries({ queryKey: trpc.apiKey.list.queryOptions().queryKey });
 			},
 		}),
 	);
 	const deployCommand = useMemo(() => {
-		if (!deployUrl || latestKeyScope !== 'deploy') {
+		if (scope !== 'deploy' || !deployUrl) {
 			return null;
 		}
 
 		return `nao deploy ${deployUrl} --api-key ${latestPlaintextKey ?? '<your-api-key>'}`;
-	}, [deployUrl, latestPlaintextKey, latestKeyScope]);
+	}, [scope, deployUrl, latestPlaintextKey]);
 
 	const handleCreate = async () => {
 		const trimmedName = name.trim();
@@ -152,13 +154,6 @@ export function DeployKeyGenerator({
 		}
 
 		await createApiKey.mutateAsync({ name: trimmedName, scope });
-	};
-
-	const handleScopeChange = (value: string) => {
-		const nextScope = value as ApiKeyScope;
-		// Only rename a name the user never touched: swapping the scope must not overwrite their own label.
-		setName((current) => (current === DEFAULT_KEY_NAMES[scope] ? DEFAULT_KEY_NAMES[nextScope] : current));
-		setScope(nextScope);
 	};
 
 	return (
@@ -170,7 +165,7 @@ export function DeployKeyGenerator({
 					</div>
 					<div className='min-w-0 flex-1 space-y-1'>
 						<div className='text-sm font-medium text-foreground'>
-							{scope === 'deploy' ? 'Generate a deploy key' : 'Generate a user management key'}
+							{scope === 'deploy' ? 'Generate a deploy key' : 'Generate a user management API key'}
 						</div>
 						<p className='text-sm text-muted-foreground'>
 							{scope === 'deploy' ? (
@@ -180,8 +175,9 @@ export function DeployKeyGenerator({
 								</>
 							) : (
 								<>
-									Create an API key for the user management API: it can list, invite and remove users,
-									purge an account and its stories, and manage groups and roles, but cannot deploy.
+									Create an API key for the user management REST API at{' '}
+									<code>/api/user-management</code>: it can list, invite and remove users, manage
+									groups and roles, and purge an account with its stories, but it cannot deploy.
 								</>
 							)}
 						</p>
@@ -189,21 +185,10 @@ export function DeployKeyGenerator({
 				</div>
 
 				<div className='flex flex-col gap-2 sm:flex-row'>
-					{scopes.length > 1 && (
-						<Select value={scope} onValueChange={handleScopeChange}>
-							<SelectTrigger aria-label='API key scope'>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value='deploy'>Deploy</SelectItem>
-								<SelectItem value='user_management'>User management</SelectItem>
-							</SelectContent>
-						</Select>
-					)}
 					<Input
 						value={name}
 						onChange={(event) => setName(event.target.value)}
-						placeholder={DEFAULT_KEY_NAMES[scope]}
+						placeholder={KEY_CARDS[scope].defaultName}
 						aria-label='API key name'
 					/>
 					<Button

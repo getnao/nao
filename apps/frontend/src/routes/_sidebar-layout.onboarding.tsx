@@ -17,7 +17,7 @@ import {
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
-import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
+import { ApiKeyGenerator } from '@/components/settings/org-api-keys';
 import { isStoppedStatus } from '@/components/tool-calls/warehouse-setup-progress';
 import { Button } from '@/components/ui/button';
 import {
@@ -324,7 +324,8 @@ function OnboardingPage() {
 									</DialogDescription>
 								</DialogHeader>
 								{isOrgAdmin && (
-									<DeployKeyGenerator
+									<ApiKeyGenerator
+										scope='deploy'
 										deployUrl={window.location.origin}
 										latestPlaintextKey={latestPlaintextDeployKey}
 										onPlaintextKeyCreated={setLatestPlaintextDeployKey}
