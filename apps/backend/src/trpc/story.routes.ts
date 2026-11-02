@@ -479,7 +479,7 @@ export const storyRoutes = {
 			}
 		}),
 
-	getCustomStoryChartPlugins: chatOwnerProcedure
+	getCustomStoryChartPlugins: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(({ input }) => readCustomStoryChartPluginSources(input.chatId, input.storySlug)),
 

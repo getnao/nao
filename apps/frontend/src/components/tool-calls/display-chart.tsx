@@ -408,9 +408,9 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				</div>
 			</div>
 
-			{(addToCustomStoryError || classicStoryError) && (
+			{(classicStoryError || addToCustomStoryError) && (
 				<div className='text-xs text-red-400' role='alert'>
-					Could not add the chart to the story: {addToCustomStoryError?.message ?? classicStoryError}
+					Could not add the chart to the story: {classicStoryError ?? addToCustomStoryError?.message}
 				</div>
 			)}
 
