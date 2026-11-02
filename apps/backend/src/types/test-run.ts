@@ -61,11 +61,40 @@ export interface TestVerdict {
 
 export interface TestRunResultDetails {
 	responseText: string | null;
+	/** Rows in the order the verdict compares them, cut to the first stored rows. */
 	actualData: Record<string, unknown>[] | null;
 	expectedData: Record<string, unknown>[] | null;
+	/** Row counts before the rows were cut, missing on results recorded before they were stored. */
+	actualRowCount?: number | null;
+	expectedRowCount?: number | null;
 	comparison: string | null;
 	referenceSql: string | null;
 	verificationSql: string | null;
+}
+
+export type TestDataCell = number | string | boolean | null;
+export type TestDataCellStatus = 'match' | 'close' | 'differ';
+
+/** The expected and actual rows side by side, normalized and sorted the way the verdict compares them. */
+export interface TestDataDiff {
+	/** Expected columns, in the order of the reference query. */
+	columns: string[];
+	/** Expected columns the answer does not have. */
+	missingColumns: string[];
+	/** Answer columns the test does not expect, which do not fail it. */
+	extraColumns: string[];
+	expectedRowCount: number;
+	actualRowCount: number;
+	rows: TestDataDiffRow[];
+	/** Rows past the stored ones are not compared. */
+	isTruncated: boolean;
+}
+
+export interface TestDataDiffRow {
+	expected: TestDataCell[] | null;
+	actual: TestDataCell[] | null;
+	/** One status per column, null when only one side has this row. */
+	statuses: TestDataCellStatus[] | null;
 }
 
 export type TestRunModels = LlmSelectedModel[];

@@ -17,6 +17,7 @@ import {
 import { resolveDefaultChatModel } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
+import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
 import {
 	createDraftContextSnapshot,
 	type DraftSource,
@@ -57,7 +58,7 @@ export interface StartTestRunInput {
 	tests?: TestDefinition[];
 }
 
-export interface StartComparisonRunInput extends Omit<StartTestRunInput, 'tests'> {
+export interface StartComparisonRunInput extends StartTestRunInput {
 	/** The user's File Explorer changes, tested against the production context. */
 	draft: DraftSource;
 }
@@ -99,8 +100,8 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 }
 
 /**
- * Runs the tests of the user's draft against both the production context and the production context with
- * the user's changes, interleaving the attempts so both variants face the same warehouse data and model.
+ * Runs the tests of the user's draft, or the given ones, against both the production context and the production
+ * context with the user's changes, interleaving the attempts so both variants face the same warehouse data and model.
  */
 export async function startComparisonRun(input: StartComparisonRunInput): Promise<DBTestRun> {
 	const projectFolder = await getProjectFolder(input.projectId);
@@ -112,7 +113,8 @@ export async function startComparisonRun(input: StartComparisonRunInput): Promis
 		if (snapshot.changes.length === 0) {
 			throw new TestRunInputError(NO_CONTEXT_CHANGES_MESSAGE);
 		}
-		const plan = await planTestRun(input, projectFolder, discoverTests(snapshot.folder));
+		const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(snapshot.folder);
+		const plan = await planTestRun(input, projectFolder, suite);
 		return await createAndExecuteRun(
 			input,
 			{ ...plan, variants: [...TEST_CONTEXT_VARIANTS], draftFolder: snapshot.folder },
@@ -328,7 +330,7 @@ async function runAttempt(
 			totalCost: agentResult.cost.totalCost ?? null,
 			durationMs: agentResult.durationMs,
 			toolCallCount: evaluation.toolCalls.length,
-			details: buildResultDetails(test, agentResult.text, evaluation),
+			details: buildResultDetails(test, agentResult.text, evaluation, plan.tolerances),
 		};
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
@@ -344,11 +346,18 @@ function buildResultDetails(
 	test: TestDefinition,
 	responseText: string,
 	evaluation: TestAttemptEvaluation,
+	tolerances: TestComparisonTolerances,
 ): TestRunResultDetails {
+	const { verification } = evaluation;
+	const columns = verification ? comparedColumns(verification.expectedData, verification.expectedColumns) : [];
+	const storedRows = (records: Record<string, unknown>[] | null | undefined) =>
+		records ? orderRecordsForComparison(records, columns, tolerances.decimals).slice(0, MAX_STORED_ROWS) : null;
 	return {
 		responseText,
-		actualData: evaluation.verification?.data?.slice(0, MAX_STORED_ROWS) ?? null,
-		expectedData: evaluation.verification?.expectedData?.slice(0, MAX_STORED_ROWS) ?? null,
+		actualData: storedRows(verification?.data),
+		expectedData: storedRows(verification?.expectedData),
+		actualRowCount: verification?.data?.length ?? null,
+		expectedRowCount: verification?.expectedData.length ?? null,
 		comparison: evaluation.verdict.comparison,
 		referenceSql: test.sql,
 		verificationSql: evaluation.verification?.sql ?? null,

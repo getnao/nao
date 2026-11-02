@@ -129,6 +129,18 @@ export async function listResults(runId: string): Promise<DBTestRunResult[]> {
 		.execute();
 }
 
+export async function listResultsOfTest(runIds: string[], testPath: string): Promise<DBTestRunResult[]> {
+	if (runIds.length === 0) {
+		return [];
+	}
+	return db
+		.select()
+		.from(s.testRunResult)
+		.where(and(inArray(s.testRunResult.runId, runIds), eq(s.testRunResult.testPath, testPath)))
+		.orderBy(asc(s.testRunResult.llmModelId), asc(s.testRunResult.attempt), desc(s.testRunResult.contextVariant))
+		.execute();
+}
+
 export async function markRunRunning(runId: string, totalAttempts: number): Promise<boolean> {
 	const rows = await db
 		.update(s.testRun)
