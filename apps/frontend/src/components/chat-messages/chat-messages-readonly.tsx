@@ -151,8 +151,10 @@ const MessageBlockReadonly = ({
 		return <CitationBlockReadonly citation={citation} />;
 	}
 
+	const showTimestamp = showTimestamps && hasOriginalTimestamp(message);
+
 	if (message.role === 'user') {
-		return <UserMessageReadonly message={message} showTimestamp={showTimestamps} />;
+		return <UserMessageReadonly message={message} showTimestamp={showTimestamp} />;
 	}
 
 	return (
@@ -160,11 +162,18 @@ const MessageBlockReadonly = ({
 			message={message}
 			linkedRecommendation={feedbackRecommendations?.[message.id]}
 			model={messageModels?.[message.id]}
-			answerStartedAt={previousMessage?.createdAt}
-			showTimestamp={showTimestamps}
+			answerStartedAt={
+				previousMessage && hasOriginalTimestamp(previousMessage) ? previousMessage.createdAt : undefined
+			}
+			showTimestamp={showTimestamp}
 		/>
 	);
 };
+
+/** Forked messages are copies stamped with the fork time, so their timestamps say nothing about the original chat. */
+function hasOriginalTimestamp(message: UIMessage): boolean {
+	return !message.isForked;
+}
 
 const UserMessageReadonly = memo(({ message, showTimestamp }: { message: UIMessage; showTimestamp: boolean }) => {
 	return (
