@@ -429,7 +429,6 @@ export const updateUserGroup = async (
 		dbConfig.dialect === Dialect.Postgres && data.rowPolicies !== undefined
 			? (data.rowPoliciesRegistry ?? (await getProjectRowSecurity(projectId)))
 			: undefined;
-	const currentConfig = parseStoredUserGroupConfig(group.featureGrants, group.isDefault);
 	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
 	const resultingDatabaseAccess = data.databaseAccess ?? currentContext.databaseAccess;
 	const resultingRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(
@@ -450,8 +449,9 @@ export const updateUserGroup = async (
 		data.ssoMappings === undefined ? undefined : serializeUserGroupSsoMappings(data.ssoMappings);
 	const changedProviders =
 		serializedSsoMappings === undefined ? [] : getChangedSsoProviders(group.ssoMappings, serializedSsoMappings);
-	// The feature blob is rewritten only when one of its own fields is set: a rename must leave a
-	// concurrent grants change alone instead of restoring the snapshot read above.
+	// The feature blob is rewritten only when one of its own fields is set, and always from the
+	// group read inside the transaction: a rename must leave a concurrent grants change alone, and
+	// a partial write must not restore the snapshot read above.
 	const updatesFeatureGrants =
 		data.featureGrants !== undefined ||
 		data.toolCallDensityPolicy !== undefined ||
@@ -460,21 +460,26 @@ export const updateUserGroup = async (
 		data.preloadedSkills !== undefined ||
 		data.shareTargets !== undefined ||
 		data.advancedContextExplorer !== undefined;
+	const featureGrantsValues = (storedGroup: DBUserGroup) => {
+		if (!updatesFeatureGrants) {
+			return {};
+		}
+		const storedConfig = parseStoredUserGroupConfig(storedGroup.featureGrants, storedGroup.isDefault);
+		return {
+			featureGrants: serializeUserGroupConfig(
+				data.featureGrants ?? storedConfig.features,
+				data.toolCallDensityPolicy ?? storedConfig.toolCallDensity,
+				data.projectSharing ?? storedConfig.projectSharing,
+				data.showAllSettings ?? storedConfig.showAllSettings,
+				data.preloadedSkills ?? storedConfig.preloadedSkills,
+				data.shareTargets ?? storedConfig.shareTargets,
+				data.advancedContextExplorer ?? storedConfig.advancedContextExplorer,
+			),
+		};
+	};
 	const updateValues = {
 		...(data.name === undefined ? {} : { name: data.name }),
-		...(updatesFeatureGrants
-			? {
-					featureGrants: serializeUserGroupConfig(
-						data.featureGrants ?? currentConfig.features,
-						data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
-						data.projectSharing ?? currentConfig.projectSharing,
-						data.showAllSettings ?? currentConfig.showAllSettings,
-						data.preloadedSkills ?? currentConfig.preloadedSkills,
-						data.shareTargets ?? currentConfig.shareTargets,
-						data.advancedContextExplorer ?? currentConfig.advancedContextExplorer,
-					),
-				}
-			: {}),
+
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
 		data.filesAccess === undefined &&
@@ -498,12 +503,13 @@ export const updateUserGroup = async (
 		if (dbConfig.dialect === Dialect.Sqlite) {
 			return db.transaction(
 				(transaction) => {
-					if (data.name !== undefined && data.name !== group.name) {
+					const lockedGroup = getUserGroupSqlite(transaction, projectId, groupId);
+					if (data.name !== undefined && data.name !== lockedGroup.name) {
 						assertNameAvailableSqlite(transaction, projectId, data.name, groupId);
 					}
 					const stored = transaction
 						.update(s.userGroup)
-						.set(updateValues)
+						.set({ ...updateValues, ...featureGrantsValues(lockedGroup) })
 						.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
 						.returning()
 						.get();
@@ -533,6 +539,7 @@ export const updateUserGroup = async (
 				.update(s.userGroup)
 				.set({
 					...updateValues,
+					...featureGrantsValues(lockedGroup),
 					rowPolicies: serializeUserGroupRowPolicies(lockedRowPolicies),
 				})
 				.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
@@ -687,6 +694,18 @@ const getUserGroup = async (projectId: string, groupId: string, executor: DBExec
 	}
 	return group;
 };
+
+function getUserGroupSqlite(transaction: DBTransaction, projectId: string, groupId: string): DBUserGroup {
+	const group = transaction
+		.select()
+		.from(s.userGroup)
+		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+		.get();
+	if (!group) {
+		throw new UserGroupQueryError('NOT_FOUND', 'User group not found.');
+	}
+	return group;
+}
 
 const assertNameAvailable = async (
 	executor: DBExecutor,
