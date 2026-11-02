@@ -479,6 +479,26 @@ describe('Phase 6 billing commands', () => {
 		);
 	});
 
+	it('changes trial seats after Free was scheduled', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization({ cancellationScheduled: true }));
+		mocks.getSubscription.mockResolvedValue({
+			id: 'sub_team',
+			status: 'trialing',
+			currency: 'usd',
+			cancel_at_period_end: true,
+			trial_end: 1_800_000_000,
+		});
+		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 5 });
+
+		await changeCloudSeatQuantityForAdmin({
+			...adminInput,
+			previewToken: preview.previewToken,
+			requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+		});
+
+		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledWith(expect.objectContaining({ targetQuantity: 5 }));
+	});
+
 	it('switches to Free and keeps the paid plan through explicit cancellation updates', async () => {
 		mocks.getSubscription
 			.mockResolvedValueOnce({

@@ -29,6 +29,7 @@ export type CloudBillingChangePreview = {
 	expiresAt: Date;
 	effective: 'immediate' | 'period_end';
 	effectiveAt: Date;
+	firstChargeAt: Date | null;
 	readOnlyUsersAfterChange: Array<{ userId: string; name: string; email: string }>;
 } | null;
 
@@ -112,8 +113,16 @@ export function CloudBillingChangeDialog({
 							<dd className='text-right'>{formatBillingPrice(preview.tax, preview.currency)}</dd>
 							<dt className='font-semibold'>Due now</dt>
 							<dd className='text-right font-semibold'>
-								{formatBillingPrice(preview.amountDue, preview.currency)}
+								{formatBillingPrice(preview.firstChargeAt ? 0 : preview.amountDue, preview.currency)}
 							</dd>
+							{preview.firstChargeAt && (
+								<>
+									<dt>First charge on {formatBillingDate(preview.firstChargeAt)}</dt>
+									<dd className='text-right'>
+										{formatBillingPrice(preview.amountDue, preview.currency)}
+									</dd>
+								</>
+							)}
 						</dl>
 						{preview.readOnlyUsersAfterChange.length > 0 && (
 							<div>

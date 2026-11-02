@@ -1520,6 +1520,66 @@ describe('cloud billing recovery', () => {
 		);
 	});
 
+	it('previews and applies a trial plan change without proration and keeps the trial end', async () => {
+		const trialEnd = 1_800_000_000;
+		const subscription = cloudSubscription({
+			status: 'trialing',
+			trial_end: trialEnd,
+			items: {
+				data: [{ id: 'si_team', price: teamMonthlyPrice(), quantity: 4 }],
+			} as Stripe.Subscription['items'],
+		});
+		const prorationDate = new Date('2026-10-30T12:00:00.000Z');
+		stripeMocks.createInvoicePreview.mockResolvedValue({
+			amount_due: 10_000,
+			subtotal: 10_000,
+			currency: 'usd',
+			lines: { data: [] },
+		});
+		stripeMocks.updateSubscription.mockResolvedValue(subscription);
+
+		await previewCloudSubscriptionChange({
+			subscription,
+			targetPlanKey: 'cloud_unlimited_monthly_v1',
+			targetQuantity: 1,
+			prorationDate,
+			prorationBehavior: 'none',
+		});
+		await updateCloudSubscriptionPlan({
+			organizationId: 'org-id',
+			subscription,
+			targetPlanKey: 'cloud_unlimited_monthly_v1',
+			targetQuantity: 1,
+			prorationDate,
+			requestId: 'request-id',
+			chargeImmediately: false,
+		});
+		await updateCloudSubscriptionQuantity({
+			organizationId: 'org-id',
+			subscription,
+			targetQuantity: 6,
+			prorationDate,
+			requestId: 'request-id',
+		});
+
+		const trialParams = { proration_behavior: 'none', cancel_at_period_end: false, trial_end: trialEnd };
+		const items = [{ id: 'si_team', price: 'price_unlimited_monthly', quantity: 1 }];
+		expect(stripeMocks.createInvoicePreview).toHaveBeenCalledWith({
+			subscription: 'sub_cloud',
+			subscription_details: { items, ...trialParams },
+		});
+		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
+			'sub_cloud',
+			{ items, ...trialParams },
+			expect.anything(),
+		);
+		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
+			'sub_cloud',
+			{ items: [{ id: 'si_team', quantity: 6 }], ...trialParams },
+			expect.anything(),
+		);
+	});
+
 	it('keeps a paid subscription unchanged when Stripe rejects an immediate upgrade with 402', async () => {
 		const subscription = cloudSubscription({
 			status: 'active',
@@ -1666,7 +1726,7 @@ describe('cloud billing recovery', () => {
 		});
 	});
 
-	it('lists a safe invoice history for the organization Customer', async () => {
+	it('lists useful invoice history and hides empty subscription update artifacts', async () => {
 		const stripeInvoices = [
 			{
 				id: 'in_cloud',
@@ -1784,18 +1844,6 @@ describe('cloud billing recovery', () => {
 				currency: 'usd',
 				hostedInvoiceUrl: 'https://invoice.stripe.com/in_trial',
 				invoicePdf: 'https://pay.stripe.com/invoice/in_trial/pdf',
-			},
-			{
-				id: 'in_trial_extension',
-				number: 'NAO-0003',
-				invoiceKind: 'no_charge',
-				promotionCodes: [],
-				status: 'paid',
-				createdAt: new Date(1_793_000_000_000),
-				total: 0,
-				currency: 'usd',
-				hostedInvoiceUrl: 'https://invoice.stripe.com/in_trial_extension',
-				invoicePdf: 'https://pay.stripe.com/invoice/in_trial_extension/pdf',
 			},
 			{
 				id: 'in_discounted_resubscription',

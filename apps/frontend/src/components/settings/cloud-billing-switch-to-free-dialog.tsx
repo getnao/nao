@@ -122,7 +122,7 @@ export function CloudBillingSwitchToFreeDialog({
 				)}
 				<DialogFooter>
 					<Button variant='secondary' disabled={isPending} onClick={() => onOpenChange(false)}>
-						{trialing ? 'Keep paid plan after trial' : 'Keep current plan'}
+						{trialing ? 'Cancel' : 'Keep current plan'}
 					</Button>
 					<Button isLoading={isPending} onClick={() => void confirm()}>
 						{trialing ? 'Confirm Free after trial' : 'Confirm Switch to Free'}

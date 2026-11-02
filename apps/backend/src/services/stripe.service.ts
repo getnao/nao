@@ -407,7 +407,10 @@ export async function listCloudInvoices(stripeCustomerId: string): Promise<Cloud
 		limit: 100,
 	})) {
 		const subscriptionId = invoiceSubscriptionId(invoice);
-		if (!subscriptionId || !placeholderSubscriptionIds.has(subscriptionId)) {
+		if (
+			(!subscriptionId || !placeholderSubscriptionIds.has(subscriptionId)) &&
+			!isEmptySubscriptionUpdateInvoice(invoice)
+		) {
 			invoices.push(invoice);
 		}
 	}
@@ -457,8 +460,8 @@ export async function previewCloudSubscriptionChange(input: {
 		subscription: input.subscription.id,
 		subscription_details: {
 			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
-			proration_date: stripeTimestamp(input.prorationDate),
-			proration_behavior: input.prorationBehavior,
+			...prorationParams(input.prorationBehavior, input.prorationDate),
+			...trialPreservationParams(input.subscription),
 		},
 	});
 	const currency = assertCloudBillingCurrency(invoice.currency);
@@ -494,9 +497,9 @@ export async function updateCloudSubscriptionQuantity(input: {
 		input.subscription.id,
 		{
 			items: [{ id: paidItem.item.id, quantity: input.targetQuantity }],
-			proration_behavior: paidIncrease ? 'always_invoice' : 'none',
-			proration_date: stripeTimestamp(input.prorationDate),
+			...prorationParams(paidIncrease ? 'always_invoice' : 'none', input.prorationDate),
 			...(paidIncrease ? { payment_behavior: 'error_if_incomplete' as const } : {}),
+			...trialPreservationParams(input.subscription),
 		},
 		{
 			idempotencyKey: `cloud-seat-quantity-v1:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetQuantity}`,
@@ -521,12 +524,9 @@ export async function updateCloudSubscriptionPlan(input: {
 		input.subscription.id,
 		{
 			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
-			proration_behavior: paidUpgrade ? 'always_invoice' : 'none',
-			proration_date: stripeTimestamp(input.prorationDate),
+			...prorationParams(paidUpgrade ? 'always_invoice' : 'none', input.prorationDate),
 			...(paidUpgrade ? { payment_behavior: 'error_if_incomplete' as const } : {}),
-			...(input.subscription.status === 'trialing' && input.subscription.trial_end
-				? { cancel_at_period_end: false, trial_end: input.subscription.trial_end }
-				: {}),
+			...trialPreservationParams(input.subscription),
 		},
 		{
 			idempotencyKey: `cloud-plan-change-v1:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetPlanKey}:${input.targetQuantity}`,
@@ -1305,6 +1305,19 @@ function stripeTimestamp(date: Date): number {
 	return Math.floor(date.getTime() / 1_000);
 }
 
+/** Stripe rejects `proration_date` when `proration_behavior` is `none`. */
+function prorationParams(behavior: 'always_invoice' | 'none', prorationDate: Date) {
+	return behavior === 'none'
+		? { proration_behavior: behavior }
+		: { proration_behavior: behavior, proration_date: stripeTimestamp(prorationDate) };
+}
+
+function trialPreservationParams(subscription: Stripe.Subscription) {
+	return subscription.status === 'trialing' && subscription.trial_end
+		? { cancel_at_period_end: false, trial_end: subscription.trial_end }
+		: {};
+}
+
 async function reuseOrExpireOpenCheckoutSessions(
 	input: {
 		organizationId: string;
@@ -1400,6 +1413,12 @@ async function findCheckoutSession(
 
 function isCreditTopUpInvoice(invoice: Pick<Stripe.Invoice, 'metadata'>): boolean {
 	return invoice.metadata?.[CHECKOUT_KIND_METADATA_KEY] === CREDIT_TOP_UP_CHECKOUT_KIND;
+}
+
+function isEmptySubscriptionUpdateInvoice(
+	invoice: Pick<Stripe.Invoice, 'billing_reason' | 'subtotal' | 'total'>,
+): boolean {
+	return invoice.billing_reason === 'subscription_update' && invoice.subtotal === 0 && invoice.total === 0;
 }
 
 function invoicePromotionCodes(invoice: Pick<Stripe.Invoice, 'discounts'>): string[] {

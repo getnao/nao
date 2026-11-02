@@ -98,6 +98,7 @@ export type BillingChangePreview = CloudSubscriptionChangePreview & {
 	prorationDate: Date;
 	effective: 'immediate' | 'period_end';
 	effectiveAt: Date;
+	firstChargeAt: Date | null;
 	targetPlanKey: CloudBillingPlanKey;
 	targetSeatQuantity: number | null;
 	readOnlyUsersAfterChange: ReturnType<typeof toSeatCandidate>[];
@@ -341,7 +342,7 @@ export async function previewCloudSeatChangeForAdmin(
 			throw new CloudBillingManagementInputError('Seat quantity can only be changed on Team');
 		}
 		validateTeamQuantity(input.targetQuantity);
-		assertNoBillingCommandConflict(state.billing);
+		assertNoBillingCommandConflict(state.billing, state.subscription.status === 'trialing');
 		const targetPlanKey = requireCurrentPlanKey(state.billing.billingPlan);
 		return createBillingChangePreview(state, {
 			operation: 'seat_change',
@@ -597,7 +598,7 @@ export async function previewCloudMemberSeatPurchaseForAdmin(
 		if (!state.billing.billingPlan.startsWith('cloud_team_') || state.billing.seatQuantity === null) {
 			throw new CloudBillingManagementInputError('An added seat is available only on Team');
 		}
-		assertNoBillingCommandConflict(state.billing);
+		assertNoBillingCommandConflict(state.billing, state.subscription.status === 'trialing');
 		const memberFingerprint = await createMemberFingerprint(input.organizationId, user.id, input.requestedRole);
 		const targetSeatQuantity = validateTeamQuantity(
 			await getMemberSeatTargetQuantity(input.organizationId, user.id, state.billing.seatQuantity),
@@ -678,6 +679,7 @@ async function createBillingChangePreview(
 		prorationDate,
 		effective: target.immediate ? 'immediate' : 'period_end',
 		effectiveAt: target.immediate ? prorationDate : state.billing.currentPeriodEndsAt,
+		firstChargeAt: state.subscription.status === 'trialing' ? state.billing.trialEndsAt : null,
 		targetPlanKey: target.targetPlanKey,
 		targetSeatQuantity: target.targetSeatQuantity,
 		readOnlyUsersAfterChange: candidates.readOnlyUsers,

@@ -378,8 +378,9 @@ it('shows the selected Team capacity and first payment after the free trial', ()
 	expect(screen.getByRole('region', { name: 'Team plan' }).textContent).toContain('After trial');
 	expect(screen.getByRole('button', { name: 'Starts after trial' })).toBeTruthy();
 
-	fireEvent.click(screen.getByRole('button', { name: 'Use Free after trial' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Choose Free' }));
 	expect(screen.getByRole('dialog', { name: 'Use Free after trial' })).toBeTruthy();
+	expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
 });
 
 it('keeps post-trial plan and interval selection enabled for the default Free destination', () => {
@@ -391,6 +392,9 @@ it('keeps post-trial plan and interval selection enabled for the default Free de
 	render(<OrganizationBillingSettings search={{}} />);
 
 	expect(screen.getByRole('region', { name: 'Free plan' }).textContent).toContain('After trial');
+	expect(
+		screen.getByText('3 full-access seats and unlimited viewers. Everyone else keeps read-only access.'),
+	).toBeTruthy();
 	expect((screen.getByRole('button', { name: 'Monthly' }) as HTMLButtonElement).disabled).toBe(false);
 	expect((screen.getByRole('button', { name: /Yearly/ }) as HTMLButtonElement).disabled).toBe(false);
 	expect((screen.getByRole('button', { name: 'Choose Team' }) as HTMLButtonElement).disabled).toBe(false);
@@ -520,6 +524,7 @@ it('keeps paid choices editable when Free was scheduled during an active trial',
 	expect((screen.getByRole('button', { name: /Yearly/ }) as HTMLButtonElement).disabled).toBe(false);
 	expect((screen.getByRole('button', { name: 'Choose Team' }) as HTMLButtonElement).disabled).toBe(false);
 	expect((screen.getByRole('button', { name: 'Choose Unlimited' }) as HTMLButtonElement).disabled).toBe(false);
+	expect(screen.queryByRole('button', { name: 'Keep paid plan after trial' })).toBeNull();
 
 	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
 	expect(mocks.cloudPreviewPlanChange).toHaveBeenCalledWith('cloud_unlimited_monthly_v1', undefined);

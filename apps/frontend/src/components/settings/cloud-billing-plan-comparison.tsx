@@ -139,7 +139,7 @@ export function CloudBillingPlanComparison({
 							? planStatusActionLabel[freeStatus]
 							: onChooseFree
 								? trialing
-									? 'Use Free after trial'
+									? 'Choose Free'
 									: 'Switch to Free'
 								: undefined
 					}

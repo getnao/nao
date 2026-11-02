@@ -544,16 +544,13 @@ function getNextCloudPlanOverview(
 			description: getCloudPlanDescription('free', data.access.seatLimit),
 			dateLabel: 'Free starts',
 			date: effectiveAt,
-			action: data.cancellationScheduled
-				? { label: 'Keep paid plan after trial', onClick: onKeepPlan }
-				: undefined,
 		};
 	}
 	if (data.cancellationScheduled) {
 		return {
 			badge: 'At renewal',
 			name: 'Free',
-			description: '3 full-access seats and unlimited viewers. Nobody or their data is removed.',
+			description: getCloudPlanDescription('free', data.access.seatLimit),
 			dateLabel: 'Free starts',
 			date: effectiveAt,
 			action: { label: 'Keep my plan', onClick: onKeepPlan },
@@ -603,7 +600,7 @@ function getCloudPlanDescription(tier: CloudBillingData['access']['tier'], seatQ
 	if (tier === 'unlimited' || tier === 'bypass') {
 		return 'Full access for everyone in your organization.';
 	}
-	return `${seatQuantity ?? 3} full-access seats and unlimited viewers.`;
+	return `${seatQuantity ?? 3} full-access seats and unlimited viewers. Everyone else keeps read-only access.`;
 }
 
 function BillingFeedback({ billingState }: { billingState: BillingState }) {
