@@ -48,16 +48,22 @@ describe('WarehouseCredentialsForm', () => {
 
 	it('submits a Snowflake private key after switching authentication', async () => {
 		const onSubmit = vi.fn().mockResolvedValue(undefined);
-		render(
+		const { container } = render(
 			<WarehouseCredentialsForm
 				provider='snowflake'
 				onSubmit={onSubmit}
 				isValidating={false}
 				isPending={false}
 				error={null}
-				initialValues={{ ...getWarehouseCredentialsDefaults('snowflake'), authMode: 'private_key' }}
 			/>,
 		);
+
+		fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'secret' } });
+		fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: '' } });
+		await screen.findByText('Required');
+		fireEvent.change(container.querySelector('select') as HTMLSelectElement, {
+			target: { value: 'private_key' },
+		});
 
 		expect(screen.queryByLabelText(/^Password/)).toBeNull();
 		fireEvent.change(screen.getByLabelText(/Database Name/), { target: { value: 'analytics' } });

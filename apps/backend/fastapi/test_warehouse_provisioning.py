@@ -432,6 +432,10 @@ def test_prepare_snowflake_programmatic_access_token_sets_authenticator():
         },
     )
 
+    assert (
+        database_config["authenticator"]
+        == "${{ env('NAO_ONBOARDING_SNOWFLAKE_AUTHENTICATOR') }}"
+    )
     assert env_vars["NAO_ONBOARDING_SNOWFLAKE_AUTHENTICATOR"] == json.dumps(
         "programmatic_access_token"
     )
