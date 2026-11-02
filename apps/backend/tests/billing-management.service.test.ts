@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	findPromotionCode: vi.fn(),
 	getBilling: vi.fn(),
 	getMember: vi.fn(),
+	getProrationDate: vi.fn(),
 	getSubscription: vi.fn(),
 	getUpcomingInvoice: vi.fn(),
 	getPlanChangeSchedule: vi.fn(),
@@ -96,6 +97,7 @@ vi.mock('../src/services/stripe.service', () => ({
 	createCloudPlanChangeSchedule: mocks.createPlanChangeSchedule,
 	findActiveCloudPromotionCode: mocks.findPromotionCode,
 	getCloudPlanChangeSchedule: mocks.getPlanChangeSchedule,
+	getCloudProrationDate: mocks.getProrationDate,
 	getCloudSubscription: mocks.getSubscription,
 	getCloudUpcomingInvoice: mocks.getUpcomingInvoice,
 	listCloudInvoices: mocks.listInvoices,
@@ -378,6 +380,7 @@ describe('Phase 6 billing commands', () => {
 		});
 		mocks.listSeatCandidates.mockResolvedValue([]);
 		mocks.findPromotionCode.mockResolvedValue(null);
+		mocks.getProrationDate.mockResolvedValue(new Date());
 		mocks.previewSubscriptionChange.mockResolvedValue({
 			amountDue: 1_000,
 			subtotal: 1_000,
@@ -685,6 +688,43 @@ describe('Phase 6 billing commands', () => {
 				chargeImmediately: false,
 			}),
 		);
+	});
+
+	it('reactivates a canceled-at-period-end Team subscription while upgrading to Unlimited', async () => {
+		const simulatedNow = new Date('2026-11-17T15:05:40.000Z');
+		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization({ cancellationScheduled: true }));
+		mocks.getProrationDate.mockResolvedValue(simulatedNow);
+		mocks.getSubscription.mockResolvedValue({
+			id: 'sub_team',
+			status: 'active',
+			currency: 'usd',
+			cancel_at_period_end: true,
+		});
+		const preview = await previewCloudPlanChangeForAdmin({
+			...adminInput,
+			targetPlanKey: 'cloud_unlimited_monthly_v1',
+		});
+
+		expect(preview.effective).toBe('immediate');
+		expect(preview.prorationDate).toEqual(simulatedNow);
+		expect(mocks.previewSubscriptionChange).toHaveBeenCalledWith(
+			expect.objectContaining({ prorationDate: simulatedNow }),
+		);
+		await changeCloudPlanForAdmin({
+			...adminInput,
+			previewToken: preview.previewToken,
+			requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+		});
+
+		expect(mocks.updateSubscriptionPlan).toHaveBeenCalledWith(
+			expect.objectContaining({
+				targetPlanKey: 'cloud_unlimited_monthly_v1',
+				targetQuantity: 1,
+				chargeImmediately: true,
+				prorationDate: simulatedNow,
+			}),
+		);
+		expect(mocks.setSubscriptionCancellation).not.toHaveBeenCalled();
 	});
 
 	it('previews and applies a promotion code while changing a trial plan', async () => {

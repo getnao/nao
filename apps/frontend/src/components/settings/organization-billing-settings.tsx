@@ -1,4 +1,5 @@
 import { ArrowRightIcon, RefreshCwIcon } from 'lucide-react';
+import { FREE_TIER_SEAT_LIMIT } from '@nao/shared/billing';
 import { useState } from 'react';
 
 import type { ReactNode } from 'react';
@@ -165,6 +166,9 @@ function CloudOrganizationBillingSettings({
 
 	const plans = data.availablePlans as CloudPlanOffer[];
 	const currentPlanOffer = data.current ? plans.find((plan) => plan.planKey === data.current?.planKey) : undefined;
+	const teamPlanOffer = plans.find(
+		(plan) => plan.tier === 'team' && plan.interval === billingState.selectedBillingInterval,
+	);
 	const upcomingPayment =
 		billingState.canLoadUpcomingInvoice &&
 		!billingState.upcomingInvoice.isLoading &&
@@ -214,6 +218,18 @@ function CloudOrganizationBillingSettings({
 			billingState.resubscribeForPlan(plan.planKey, seatQuantity);
 		}
 	};
+	const choosePlan = (plan: CloudPlanOffer) => {
+		billingState.setSelectedBillingTier(plan.tier);
+		if (data.current) {
+			setSelectedPlanChange(plan);
+			return;
+		}
+		if (plan.tier === 'team') {
+			setSelectedTeamPlan(plan);
+			return;
+		}
+		void startPlanCheckout(plan);
+	};
 
 	return (
 		<>
@@ -233,7 +249,6 @@ function CloudOrganizationBillingSettings({
 								data={data}
 								billingState={billingState}
 								disabled={billingState.isPlanSelectionPending}
-								onKeepPlan={() => void billingState.keepPlan()}
 								onCancelPendingChange={() => void billingState.cancelPendingPlanChange()}
 							/>
 							<CloudBillingPlanComparison
@@ -253,23 +268,14 @@ function CloudOrganizationBillingSettings({
 								}
 								disabled={
 									billingState.isPlanSelectionPending ||
-									data.scheduleConflict ||
-									(data.access.tier !== 'trial' && data.cancellationScheduled)
+									billingState.isPortalPending ||
+									data.scheduleConflict
 								}
 								onIntervalChange={billingState.setSelectedBillingInterval}
-								onChoose={(plan) => {
-									billingState.setSelectedBillingTier(plan.tier);
-									if (data.current) {
-										setSelectedPlanChange(plan);
-										return;
-									}
-									if (plan.tier === 'team') {
-										setSelectedTeamPlan(plan);
-										return;
-									}
-									void startPlanCheckout(plan);
-								}}
+								onChoose={choosePlan}
 								onChooseFree={data.current ? () => setSwitchToFreeOpen(true) : undefined}
+								onCancelPlan={() => setSwitchToFreeOpen(true)}
+								onKeepPlan={billingState.openPortal}
 							/>
 						</>
 					)}
@@ -295,6 +301,11 @@ function CloudOrganizationBillingSettings({
 								disabled={
 									billingState.isBillingCommandPending ||
 									(data.scheduleConflict && !seatOnlyPendingChange)
+								}
+								onAddSeats={
+									data.access.tier === 'free' && teamPlanOffer
+										? () => choosePlan(teamPlanOffer)
+										: undefined
 								}
 								onPreviewSeatChange={
 									data.current?.tier === 'team' ? billingState.previewSeatChange : undefined
@@ -428,19 +439,16 @@ function CloudCurrentPlanCard({
 	data,
 	billingState,
 	disabled,
-	onKeepPlan,
 	onCancelPendingChange,
 }: {
 	data: CloudBillingData;
 	billingState: BillingState;
 	disabled: boolean;
-	onKeepPlan: () => void;
 	onCancelPendingChange: () => void;
 }) {
 	const currentPlan = getCurrentCloudPlanOverview(data);
-	const nextPlan = getNextCloudPlanOverview(data, onKeepPlan, onCancelPendingChange);
-	const paidPlanAfterTrial = data.access.tier === 'trial' && data.current && !data.cancellationScheduled;
-	const firstPaymentEstimate =
+	const nextPlan = getNextCloudPlanOverview(data, onCancelPendingChange);
+	const nextPaymentEstimate =
 		billingState.canLoadUpcomingInvoice &&
 		!billingState.upcomingInvoice.isLoading &&
 		!billingState.upcomingInvoice.isError
@@ -457,13 +465,11 @@ function CloudCurrentPlanCard({
 				<CloudPlanOverviewColumn
 					plan={nextPlan}
 					price={
-						paidPlanAfterTrial && firstPaymentEstimate
-							? formatBillingPrice(firstPaymentEstimate.amountDue, firstPaymentEstimate.currency)
+						nextPaymentEstimate
+							? formatBillingPrice(nextPaymentEstimate.amountDue, nextPaymentEstimate.currency)
 							: undefined
 					}
-					promotions={
-						paidPlanAfterTrial && firstPaymentEstimate ? firstPaymentEstimate.promotionCodes : undefined
-					}
+					promotions={nextPaymentEstimate?.promotionCodes}
 					action={
 						nextPlan.action ? (
 							<Button
@@ -477,11 +483,7 @@ function CloudCurrentPlanCard({
 							</Button>
 						) : null
 					}
-				>
-					{!paidPlanAfterTrial && (
-						<UpcomingPaymentEstimate billingState={billingState} promotionPrefix={false} />
-					)}
-				</CloudPlanOverviewColumn>
+				/>
 			</div>
 		</SettingsCard>
 	);
@@ -491,6 +493,7 @@ type CloudPlanOverview = {
 	badge: string;
 	name: string;
 	description: string;
+	status?: string;
 	note?: string;
 	dateLabel?: string;
 	date?: Date | null;
@@ -515,6 +518,14 @@ function CloudPlanOverviewColumn({
 			<Badge variant='secondary'>{plan.badge}</Badge>
 			<p className='mt-2 flex flex-wrap items-center gap-x-2 text-2xl font-semibold leading-none text-foreground'>
 				<span>{plan.name}</span>
+				{plan.status && (
+					<Badge
+						variant='outline'
+						className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+					>
+						{plan.status}
+					</Badge>
+				)}
 				{price && <span className='text-base font-medium leading-none text-muted-foreground'>{price}</span>}
 				{promotions?.map((promotion) => (
 					<Badge key={promotion} variant='outline' className='self-center text-xs'>
@@ -544,6 +555,7 @@ function getCurrentCloudPlanOverview(data: CloudBillingData): CloudPlanOverview 
 		badge: 'Now',
 		name: getCloudPlanName(tier, data.access.seatQuantity ?? data.access.seatLimit),
 		description: getCloudPlanDescription(tier, data.access.seatQuantity ?? data.access.seatLimit),
+		status: paidAccess && data.cancellationScheduled ? 'Canceled' : undefined,
 		note: data.current?.legacy ? 'Legacy Unlimited keeps its existing price and terms.' : undefined,
 		dateLabel:
 			tier === 'trial'
@@ -557,11 +569,7 @@ function getCurrentCloudPlanOverview(data: CloudBillingData): CloudPlanOverview 
 	};
 }
 
-function getNextCloudPlanOverview(
-	data: CloudBillingData,
-	onKeepPlan: () => void,
-	onCancelPendingChange: () => void,
-): CloudPlanOverview {
+function getNextCloudPlanOverview(data: CloudBillingData, onCancelPendingChange: () => void): CloudPlanOverview {
 	const trialing = data.access.tier === 'trial';
 	const effectiveAt = trialing
 		? (data.access.trialEndsAt ?? data.trialEndsAt)
@@ -591,7 +599,6 @@ function getNextCloudPlanOverview(
 			description: getCloudPlanDescription('free', data.access.seatLimit),
 			dateLabel: 'Free starts',
 			date: effectiveAt,
-			action: { label: 'Keep my plan', onClick: onKeepPlan },
 		};
 	}
 	if (data.pending) {
@@ -651,7 +658,7 @@ function getCloudPlanDescription(tier: CloudBillingData['access']['tier'], seatQ
 	if (tier === 'unlimited' || tier === 'bypass') {
 		return 'Full access for everyone in your organization.';
 	}
-	return `${seatQuantity ?? 3} full-access seats and unlimited viewers. Everyone else keeps read-only access.`;
+	return `${FREE_TIER_SEAT_LIMIT} full-access seats and unlimited viewers. Everyone else keeps read-only access.`;
 }
 
 function BillingFeedback({ billingState }: { billingState: BillingState }) {
@@ -761,13 +768,7 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 	);
 }
 
-function UpcomingPaymentEstimate({
-	billingState,
-	promotionPrefix = true,
-}: {
-	billingState: BillingState;
-	promotionPrefix?: boolean;
-}) {
+function UpcomingPaymentEstimate({ billingState }: { billingState: BillingState }) {
 	if (!billingState.canLoadUpcomingInvoice) {
 		return null;
 	}
@@ -804,7 +805,7 @@ function UpcomingPaymentEstimate({
 				</p>
 				{upcomingInvoice.data.promotionCodes.map((code) => (
 					<Badge key={code} variant='outline'>
-						{promotionPrefix ? `Code ${code}` : code}
+						Code {code}
 					</Badge>
 				))}
 			</div>
@@ -916,7 +917,7 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 
 function BillingIntervalSelector({ billingState }: { billingState: BillingState }) {
 	const plans = billingState.billing.data?.availablePlans;
-	if (!plans) {
+	if (!plans || Array.isArray(plans)) {
 		return null;
 	}
 	const yearlySavings = 1 - plans.yearly.amount / (plans.monthly.amount * 12);
@@ -1065,12 +1066,16 @@ function InvoicesCard({ billingState }: { billingState: BillingState }) {
 												? 'No charge'
 												: invoice.invoiceKind === 'credit_top_up'
 													? 'Nao credits'
-													: 'Subscription'}
+													: invoice.planTier === 'team'
+														? 'Team'
+														: invoice.planTier === 'unlimited'
+															? 'Unlimited'
+															: 'Subscription'}
 									</Badge>
 									{invoice.invoiceKind === 'subscription' &&
 										invoice.promotionCodes.map((code) => (
 											<Badge key={code} variant='outline'>
-												Code {code}
+												{code}
 											</Badge>
 										))}
 								</div>
@@ -1117,7 +1122,8 @@ function BillingManagementCard({ billingState }: { billingState: BillingState })
 
 	const shouldResume = status === 'paused' && billing.data.hasDefaultPaymentMethod === true;
 	const canOpenPortal = billing.data.portalAvailable || billing.data.paymentMethodManagementAvailable;
-	const hasManagementAction = billing.data.resubscribeAvailable || shouldResume || canOpenPortal;
+	const legacyResubscribeAvailable = billing.data.resubscribeAvailable && !('access' in billing.data);
+	const hasManagementAction = legacyResubscribeAvailable || shouldResume || canOpenPortal;
 
 	return (
 		<SettingsCard title='Billing management'>
@@ -1128,13 +1134,13 @@ function BillingManagementCard({ billingState }: { billingState: BillingState })
 							<p className='text-sm text-muted-foreground'>
 								{getBillingManagementDescription(status, billing.data.hasDefaultPaymentMethod === true)}
 							</p>
-							{billing.data.resubscribeAvailable && (
+							{legacyResubscribeAvailable && (
 								<div className='w-full'>
 									<BillingIntervalSelector billingState={billingState} />
 								</div>
 							)}
 							<div className='flex flex-wrap gap-2'>
-								{billing.data.resubscribeAvailable && (
+								{legacyResubscribeAvailable && (
 									<Button
 										onClick={billingState.resubscribe}
 										isLoading={billingState.isResubscribePending}
@@ -1143,12 +1149,12 @@ function BillingManagementCard({ billingState }: { billingState: BillingState })
 										Start new subscription
 									</Button>
 								)}
-								{!billing.data.resubscribeAvailable && shouldResume && (
+								{!legacyResubscribeAvailable && shouldResume && (
 									<Button onClick={billingState.resume} isLoading={billingState.isResumePending}>
 										Resume subscription
 									</Button>
 								)}
-								{!billing.data.resubscribeAvailable && !shouldResume && canOpenPortal && (
+								{!legacyResubscribeAvailable && !shouldResume && canOpenPortal && (
 									<Button
 										onClick={
 											billing.data.portalAvailable

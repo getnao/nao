@@ -61,6 +61,7 @@ export function CloudBillingSeatsCard({
 	currentPlanPrice,
 	currentPromotionCodes,
 	disabled,
+	onAddSeats,
 	onPreviewSeatChange,
 	onConfirmSeatChange,
 	onCancelPendingSeatChange,
@@ -77,6 +78,7 @@ export function CloudBillingSeatsCard({
 	currentPlanPrice?: string;
 	currentPromotionCodes?: string[];
 	disabled?: boolean;
+	onAddSeats?: () => void;
 	onPreviewSeatChange?: (quantity: number, promotionCode?: string) => Promise<CloudBillingChangePreview>;
 	onConfirmSeatChange?: (token: string) => Promise<unknown>;
 	onCancelPendingSeatChange?: () => Promise<unknown>;
@@ -133,6 +135,19 @@ export function CloudBillingSeatsCard({
 				</div>
 				{capacity !== null && <SeatUsageBar used={seatedMembers.length} capacity={capacity} />}
 				{seatsSummary && <p className='text-xs text-muted-foreground'>{seatsSummary}</p>}
+				{tier === 'free' && onAddSeats && (
+					<div className='flex flex-col items-start gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between'>
+						<div>
+							<p className='text-sm font-medium text-foreground'>Need more seats?</p>
+							<p className='mt-1 text-xs text-muted-foreground'>
+								Upgrade to Team and pay only for the full-access seats you need.
+							</p>
+						</div>
+						<Button disabled={disabled} onClick={onAddSeats}>
+							Add seats
+						</Button>
+					</div>
+				)}
 				{seatQuantity !== null && plan && onPreviewSeatChange && (
 					<div className='flex flex-col items-start gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between'>
 						<div>

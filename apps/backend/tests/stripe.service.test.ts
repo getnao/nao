@@ -10,6 +10,7 @@ const stripeMocks = vi.hoisted(() => ({
 	createSubscription: vi.fn(),
 	createSubscriptionSchedule: vi.fn(),
 	expireCheckoutSession: vi.fn(),
+	listPortalConfigurations: vi.fn(),
 	listCheckoutSessions: vi.fn(),
 	listInvoices: vi.fn(),
 	listPrices: vi.fn(),
@@ -24,6 +25,8 @@ const stripeMocks = vi.hoisted(() => ({
 	retrieveSubscriptionSchedule: vi.fn(),
 	releaseSubscriptionSchedule: vi.fn(),
 	retrieveTaxSettings: vi.fn(),
+	retrieveTestClock: vi.fn(),
+	updatePortalConfiguration: vi.fn(),
 	updateSubscription: vi.fn(),
 	updateSubscriptionSchedule: vi.fn(),
 }));
@@ -34,7 +37,13 @@ vi.mock('stripe', () => ({
 			stripeMocks.construct();
 		}
 
-		billingPortal = { sessions: { create: stripeMocks.createPortalSession } };
+		billingPortal = {
+			configurations: {
+				list: stripeMocks.listPortalConfigurations,
+				update: stripeMocks.updatePortalConfiguration,
+			},
+			sessions: { create: stripeMocks.createPortalSession },
+		};
 		checkout = {
 			sessions: {
 				create: stripeMocks.createCheckoutSession,
@@ -76,6 +85,7 @@ vi.mock('stripe', () => ({
 			update: stripeMocks.updateSubscriptionSchedule,
 		};
 		tax = { settings: { retrieve: stripeMocks.retrieveTaxSettings } };
+		testHelpers = { testClocks: { retrieve: stripeMocks.retrieveTestClock } };
 	},
 }));
 
@@ -103,6 +113,7 @@ import {
 	getCloudBillingPlans,
 	getCloudPlanChangeSchedule,
 	getCloudPrice,
+	getCloudProrationDate,
 	getCloudSubscriptionCurrency,
 	getCloudUpcomingInvoice,
 	getStripeClient,
@@ -164,6 +175,7 @@ beforeEach(() => {
 		data: [priceForLookupKey(lookup_keys?.[0])],
 	}));
 	stripeMocks.listCheckoutSessions.mockReturnValue(paginatedList([]));
+	stripeMocks.listPortalConfigurations.mockResolvedValue({ data: [{ id: 'bpc_default' }] });
 	stripeMocks.listPromotionCodes.mockResolvedValue({ data: [] });
 	stripeMocks.listSubscriptions.mockReturnValue(paginatedList([]));
 	stripeMocks.expireCheckoutSession.mockResolvedValue({});
@@ -1122,6 +1134,25 @@ describe('cloud Checkout', () => {
 		await expect(findManagedCloudSubscription('sub_unrelated')).resolves.toBeNull();
 	});
 
+	it('uses Stripe simulated time only for test-clock subscriptions', async () => {
+		const serverNow = new Date('2026-11-02T15:46:42.000Z');
+		const frozenTime = 1_794_927_940;
+		vi.useFakeTimers();
+		vi.setSystemTime(serverNow);
+		stripeMocks.retrieveTestClock.mockResolvedValue({ frozen_time: frozenTime });
+		try {
+			await expect(getCloudProrationDate(cloudSubscription({ test_clock: null }))).resolves.toEqual(serverNow);
+			await expect(getCloudProrationDate(cloudSubscription({ test_clock: 'clock_simulated' }))).resolves.toEqual(
+				new Date(frozenTime * 1_000),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		expect(stripeMocks.retrieveTestClock).toHaveBeenCalledOnce();
+		expect(stripeMocks.retrieveTestClock).toHaveBeenCalledWith('clock_simulated');
+	});
+
 	it('retrieves a subscription currency from Stripe once and drops failed lookups', async () => {
 		stripeMocks.retrieveSubscription
 			.mockRejectedValueOnce(new Error('stripe down'))
@@ -1701,6 +1732,7 @@ describe('cloud billing recovery', () => {
 	it('keeps a paid subscription unchanged when Stripe rejects an immediate upgrade with 402', async () => {
 		const subscription = cloudSubscription({
 			status: 'active',
+			cancel_at_period_end: true,
 			items: {
 				data: [{ id: 'si_team', price: teamMonthlyPrice(), quantity: 4 }],
 			} as Stripe.Subscription['items'],
@@ -1723,6 +1755,7 @@ describe('cloud billing recovery', () => {
 		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
 			'sub_cloud',
 			expect.objectContaining({
+				cancel_at_period_end: false,
 				items: [{ id: 'si_team', price: 'price_unlimited_monthly', quantity: 1 }],
 				payment_behavior: 'error_if_incomplete',
 				proration_behavior: 'always_invoice',
@@ -1857,6 +1890,9 @@ describe('cloud billing recovery', () => {
 				subtotal: 200_000,
 				total: 100_000,
 				currency: 'usd',
+				lines: {
+					data: [{ subtotal: 200_000, pricing: { price_details: { product: 'prod_team' } } }],
+				},
 				discounts: [
 					{
 						id: 'di_early_customer',
@@ -1865,6 +1901,22 @@ describe('cloud billing recovery', () => {
 				],
 				hosted_invoice_url: 'https://invoice.stripe.com/in_cloud',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_cloud/pdf',
+			},
+			{
+				id: 'in_unlimited',
+				number: 'NAO-0006',
+				billing_reason: 'subscription_cycle',
+				status: 'paid',
+				created: 1_794_500_000,
+				subtotal: 300_000,
+				total: 300_000,
+				currency: 'usd',
+				lines: {
+					data: [{ subtotal: 300_000, pricing: { price_details: { product: 'prod_unlimited' } } }],
+				},
+				discounts: [],
+				hosted_invoice_url: 'https://invoice.stripe.com/in_unlimited',
+				invoice_pdf: 'https://pay.stripe.com/invoice/in_unlimited/pdf',
 			},
 			{
 				id: 'in_trial',
@@ -1879,6 +1931,7 @@ describe('cloud billing recovery', () => {
 				subtotal: 0,
 				total: 0,
 				currency: 'usd',
+				lines: { data: [] },
 				discounts: [],
 				hosted_invoice_url: 'https://invoice.stripe.com/in_trial',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_trial/pdf',
@@ -1892,6 +1945,7 @@ describe('cloud billing recovery', () => {
 				subtotal: 0,
 				total: 0,
 				currency: 'usd',
+				lines: { data: [] },
 				discounts: [],
 				hosted_invoice_url: 'https://invoice.stripe.com/in_trial_extension',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_trial_extension/pdf',
@@ -1905,6 +1959,9 @@ describe('cloud billing recovery', () => {
 				subtotal: 200_000,
 				total: 0,
 				currency: 'usd',
+				lines: {
+					data: [{ subtotal: 200_000, pricing: { price_details: { product: 'prod_team' } } }],
+				},
 				discounts: [
 					{
 						id: 'di_free_resubscription',
@@ -1927,6 +1984,7 @@ describe('cloud billing recovery', () => {
 				subtotal: 0,
 				total: 0,
 				currency: 'usd',
+				lines: { data: [] },
 				discounts: [],
 				hosted_invoice_url: 'https://invoice.stripe.com/in_placeholder_trial',
 				invoice_pdf: 'https://pay.stripe.com/invoice/in_placeholder_trial/pdf',
@@ -1945,6 +2003,7 @@ describe('cloud billing recovery', () => {
 				id: 'in_cloud',
 				number: 'NAO-0001',
 				invoiceKind: 'subscription',
+				planTier: 'team',
 				promotionCodes: ['EARLY50'],
 				status: 'paid',
 				createdAt: new Date(1_795_000_000_000),
@@ -1954,9 +2013,23 @@ describe('cloud billing recovery', () => {
 				invoicePdf: 'https://pay.stripe.com/invoice/in_cloud/pdf',
 			},
 			{
+				id: 'in_unlimited',
+				number: 'NAO-0006',
+				invoiceKind: 'subscription',
+				planTier: 'unlimited',
+				promotionCodes: [],
+				status: 'paid',
+				createdAt: new Date(1_794_500_000_000),
+				total: 300_000,
+				currency: 'usd',
+				hostedInvoiceUrl: 'https://invoice.stripe.com/in_unlimited',
+				invoicePdf: 'https://pay.stripe.com/invoice/in_unlimited/pdf',
+			},
+			{
 				id: 'in_trial',
 				number: 'NAO-0002',
 				invoiceKind: 'trial',
+				planTier: null,
 				promotionCodes: [],
 				status: 'paid',
 				createdAt: new Date(1_794_000_000_000),
@@ -1969,6 +2042,7 @@ describe('cloud billing recovery', () => {
 				id: 'in_discounted_resubscription',
 				number: 'NAO-0004',
 				invoiceKind: 'no_charge',
+				planTier: 'team',
 				promotionCodes: ['FREE100'],
 				status: 'paid',
 				createdAt: new Date(1_792_000_000_000),
@@ -2003,11 +2077,29 @@ describe('cloud billing recovery', () => {
 
 		expect(stripeMocks.createPortalSession).toHaveBeenCalledWith(
 			{
+				configuration: 'bpc_default',
 				customer: 'cus_cloud',
 				return_url: 'https://cloud.getnao.io/settings/organization/billing?portal=returned',
 			},
 			{ idempotencyKey: 'cloud-portal-v2:org-id:request-id' },
 		);
+		expect(stripeMocks.listPortalConfigurations).toHaveBeenCalledWith({
+			is_default: true,
+			limit: 1,
+		});
+		expect(stripeMocks.updatePortalConfiguration).toHaveBeenCalledWith('bpc_default', {
+			features: {
+				customer_update: { enabled: false },
+				invoice_history: { enabled: false },
+				payment_method_update: { enabled: true },
+				subscription_cancel: {
+					enabled: true,
+					mode: 'at_period_end',
+					proration_behavior: 'none',
+				},
+				subscription_update: { enabled: false },
+			},
+		});
 	});
 
 	it('creates a payment-method management Portal Session', async () => {
@@ -2023,6 +2115,7 @@ describe('cloud billing recovery', () => {
 
 		expect(stripeMocks.createPortalSession).toHaveBeenCalledWith(
 			{
+				configuration: 'bpc_default',
 				customer: 'cus_cloud',
 				return_url: 'https://cloud.getnao.io/settings/organization/billing?portal=returned',
 				flow_data: {

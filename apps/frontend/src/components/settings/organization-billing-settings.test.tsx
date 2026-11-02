@@ -20,12 +20,15 @@ const mocks = vi.hoisted(() => ({
 	isCheckoutPolling: false,
 	invoiceHistoryAvailable: false,
 	invoiceKind: 'subscription' as 'trial' | 'subscription' | 'no_charge',
+	invoicePlanTier: null as 'team' | 'unlimited' | null,
 	invoicePromotionCodes: [] as string[],
 	invoiceTotal: 100_000,
 	paymentMethodManagementAvailable: false,
 	portalAvailable: false,
 	freeTierEnabled: false,
 	cloudTrialActive: false,
+	cloudFreeActive: false,
+	cloudCanceled: false,
 	cloudPaidPlanSelected: true,
 	cloudCancellationScheduled: false,
 	cloudPendingPlan: null as {
@@ -94,12 +97,15 @@ beforeEach(() => {
 	mocks.isCheckoutPolling = false;
 	mocks.invoiceHistoryAvailable = false;
 	mocks.invoiceKind = 'subscription';
+	mocks.invoicePlanTier = null;
 	mocks.invoicePromotionCodes = [];
 	mocks.invoiceTotal = 100_000;
 	mocks.paymentMethodManagementAvailable = false;
 	mocks.portalAvailable = false;
 	mocks.freeTierEnabled = false;
 	mocks.cloudTrialActive = false;
+	mocks.cloudFreeActive = false;
+	mocks.cloudCanceled = false;
 	mocks.cloudPaidPlanSelected = true;
 	mocks.cloudCancellationScheduled = false;
 	mocks.cloudPendingPlan = null;
@@ -217,7 +223,21 @@ it('shows a promotion code on the invoice it discounted', () => {
 
 	render(<OrganizationBillingSettings search={{ tab: 'invoices' }} />);
 
-	expect(screen.getByText('Code EARLY50')).toBeTruthy();
+	expect(screen.getByText('EARLY50')).toBeTruthy();
+	expect(screen.queryByText('Code EARLY50')).toBeNull();
+});
+
+it.each([
+	['team', 'Team'],
+	['unlimited', 'Unlimited'],
+] as const)('labels a %s plan invoice by its plan', (planTier, label) => {
+	mocks.invoiceHistoryAvailable = true;
+	mocks.invoicePlanTier = planTier;
+
+	render(<OrganizationBillingSettings search={{ tab: 'invoices' }} />);
+
+	expect(screen.getByText(label)).toBeTruthy();
+	expect(screen.queryByText('Subscription')).toBeNull();
 });
 
 it('labels a zero-value follow-up invoice as no charge', () => {
@@ -257,6 +277,18 @@ it('uses one Stripe portal action for subscription and payment management', () =
 	expect(mocks.openPaymentMethodPortal).not.toHaveBeenCalled();
 	expect(screen.queryByRole('button', { name: 'Manage payment method' })).toBeNull();
 	expect(screen.queryByRole('button', { name: 'Manage subscription' })).toBeNull();
+});
+
+it('uses the Plan tab for cloud resubscription after a terminal cancellation', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudFreeActive = true;
+	mocks.cloudCanceled = true;
+
+	render(<OrganizationBillingSettings search={{ tab: 'invoices' }} />);
+
+	expect(screen.getByRole('button', { name: 'Manage billing in Stripe' })).toBeTruthy();
+	expect(screen.queryByRole('button', { name: 'Start new subscription' })).toBeNull();
+	expect(screen.queryByRole('group', { name: 'Billing interval' })).toBeNull();
 });
 
 it('shows the Stripe-calculated next payment separately from the list price', () => {
@@ -347,6 +379,9 @@ it('renders the backend-priced Free, Team, and Unlimited comparison when enabled
 	expect(screen.getByRole('region', { name: 'Unlimited plan' }).textContent).toContain('$2,000');
 	expect(screen.getByText('4 using seats · 4 purchased · 0 available')).toBeTruthy();
 	expect(screen.queryByText('4 purchased seats')).toBeNull();
+
+	fireEvent.click(screen.getByRole('button', { name: 'Cancel Plan' }));
+	expect(screen.getByRole('dialog', { name: 'Switch to Free' })).toBeTruthy();
 });
 
 it('shows yearly discounts on paid plan cards without recommending Team', () => {
@@ -399,6 +434,23 @@ it('shows the selected Team capacity and first payment after the free trial', ()
 
 	fireEvent.click(screen.getByRole('button', { name: 'Confirm Free after trial' }));
 	expect(mocks.cloudSwitchToFree).toHaveBeenCalledWith(undefined);
+});
+
+it('shows the next Team payment and promotion inline with the renewal plan', () => {
+	mocks.freeTierEnabled = true;
+	mocks.upcomingInvoice = {
+		amountDue: 18_000,
+		currency: 'usd',
+		nextPaymentAt: new Date('2026-11-01T00:00:00.000Z'),
+		promotionCodes: ['TEAM10'],
+	};
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	const renewalPlanName = screen.getAllByText('Team · 4 seats')[1];
+	expect(renewalPlanName.parentElement?.textContent).toContain('$180');
+	expect(renewalPlanName.parentElement?.textContent).toContain('TEAM10');
+	expect(screen.queryByText('Next payment estimate from Stripe')).toBeNull();
 });
 
 it('keeps post-trial plan and interval selection enabled for the default Free destination', () => {
@@ -640,18 +692,37 @@ it('keeps paid choices editable when Free was scheduled during an active trial',
 it('marks Free as the next plan and offers to keep the paid plan when a switch is scheduled', () => {
 	mocks.freeTierEnabled = true;
 	mocks.cloudCancellationScheduled = true;
+	mocks.cloudSeatQuantity = 35;
 
 	render(<OrganizationBillingSettings search={{}} />);
 
 	expect(screen.getByText('Current plan ends')).toBeTruthy();
 	expect(screen.getByText('At renewal')).toBeTruthy();
 	expect(screen.getByText('Free starts')).toBeTruthy();
+	expect(screen.getByText('Team · 35 seats').parentElement?.textContent).toContain('Canceled');
+	expect(
+		screen.getByText('3 full-access seats and unlimited viewers. Everyone else keeps read-only access.'),
+	).toBeTruthy();
+	expect(screen.queryByText(/35 full-access seats/)).toBeNull();
 	expect(screen.getByRole('region', { name: 'Free plan' }).textContent).toContain('Scheduled');
 	expect(screen.queryByRole('button', { name: 'Switch to Free' })).toBeNull();
-	expect((screen.getByRole('button', { name: 'Choose Unlimited' }) as HTMLButtonElement).disabled).toBe(true);
+	expect((screen.getByRole('button', { name: 'Choose Unlimited' }) as HTMLButtonElement).disabled).toBe(false);
 
-	fireEvent.click(screen.getByRole('button', { name: 'Keep my plan' }));
-	expect(mocks.cloudKeepPlan).toHaveBeenCalledOnce();
+	const keepPlan = screen.getByRole('button', { name: 'Keep my plan' });
+	expect(keepPlan.closest('section')?.getAttribute('aria-label')).toBe('Team plan');
+	fireEvent.click(keepPlan);
+	expect(mocks.openPortal).toHaveBeenCalledOnce();
+	expect(mocks.cloudKeepPlan).not.toHaveBeenCalled();
+});
+
+it('allows a canceled-at-period-end Team subscription to upgrade to Unlimited', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudCancellationScheduled = true;
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
+	expect(screen.getByRole('dialog', { name: 'Change to Unlimited' })).toBeTruthy();
 });
 
 it('shows unlimited seat availability during a trial', () => {
@@ -663,6 +734,22 @@ it('shows unlimited seat availability during a trial', () => {
 	expect(screen.getByText('Available seats').parentElement?.textContent).toContain('Unlimited');
 	expect(screen.queryByText(/No seat limit/)).toBeNull();
 	expect(screen.queryByRole('progressbar', { name: 'Seat usage' })).toBeNull();
+});
+
+it('opens the selected Team seat offer from Free seat usage', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudFreeActive = true;
+	mocks.cloudPaidPlanSelected = false;
+	mocks.cloudSeatUserCount = 3;
+	mocks.selectedBillingInterval = 'yearly';
+
+	render(<OrganizationBillingSettings search={{ tab: 'seats' }} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Add seats' }));
+
+	const dialog = screen.getByRole('dialog', { name: 'Choose Team seats' });
+	expect(dialog.textContent).toContain('$500 per seat / year');
+	expect(screen.getByLabelText('Paid seats')).toHaveProperty('value', '');
 });
 
 it('opens a URL-selected billing tab and emits top-level tab changes', () => {
@@ -901,6 +988,7 @@ function billingState(): BillingState {
 							id: 'in_cloud',
 							number: 'NAO-0001',
 							invoiceKind: mocks.invoiceKind,
+							planTier: mocks.invoicePlanTier,
 							promotionCodes: mocks.invoicePromotionCodes,
 							status: 'paid',
 							createdAt: new Date('2026-10-01T00:00:00.000Z'),
@@ -964,8 +1052,8 @@ function billingState(): BillingState {
 }
 
 function cloudBillingState(): BillingState {
-	const cloudTier = mocks.cloudTrialActive ? 'trial' : 'team';
-	const cloudStatus = mocks.cloudTrialActive ? 'trialing' : 'active';
+	const cloudTier = mocks.cloudTrialActive ? 'trial' : mocks.cloudFreeActive ? 'free' : 'team';
+	const cloudStatus = mocks.cloudCanceled ? 'canceled' : mocks.cloudTrialActive ? 'trialing' : 'active';
 	const cloudTrialEndsAt = mocks.cloudTrialActive ? new Date('2099-10-08T00:00:00.000Z') : null;
 	const currentPlan = mocks.cloudPaidPlanSelected
 		? {
@@ -1014,6 +1102,7 @@ function cloudBillingState(): BillingState {
 	return {
 		...billingStateDefaults(),
 		freeTierEnabled: true,
+		paidPlanSelected: mocks.cloudPaidPlanSelected,
 		canLoadUpcomingInvoice:
 			currentPlan !== null &&
 			!mocks.cloudCancellationScheduled &&
@@ -1033,7 +1122,7 @@ function cloudBillingState(): BillingState {
 					accessEndsAt: null,
 					seatUserCount: mocks.cloudSeatUserCount,
 					seatQuantity: currentPlan?.seatQuantity ?? null,
-					seatLimit: mocks.cloudTrialActive ? null : 4,
+					seatLimit: mocks.cloudTrialActive ? null : mocks.cloudFreeActive ? 3 : mocks.cloudSeatQuantity,
 					availableSeats: mocks.cloudTrialActive ? null : 0,
 					overCapacity: false,
 					isReadOnly: false,
@@ -1069,8 +1158,9 @@ function cloudBillingState(): BillingState {
 				status: cloudStatus,
 				trialEndsAt: cloudTrialEndsAt,
 				hasDefaultPaymentMethod: true,
-				portalAvailable: false,
+				portalAvailable: mocks.cloudCanceled,
 				paymentMethodManagementAvailable: false,
+				resubscribeAvailable: mocks.cloudCanceled,
 			},
 			isError: false,
 			isLoading: false,
@@ -1092,6 +1182,7 @@ function billingStateDefaults(): Partial<BillingState> {
 		setSelectedBillingTier: vi.fn(),
 		isBillingCommandPending: false,
 		isPlanSelectionPending: false,
+		isPortalPending: false,
 		previewPlanChange: mocks.cloudPreviewPlanChange,
 		confirmPlanChange: mocks.cloudConfirmPlanChange,
 		previewSeatChange: mocks.cloudPreviewSeatChange,
@@ -1103,5 +1194,6 @@ function billingStateDefaults(): Partial<BillingState> {
 		openTrialCheckoutForPlan: mocks.cloudOpenTrialCheckoutForPlan,
 		resubscribeForPlan: vi.fn(),
 		openPaymentMethodPortal: vi.fn(),
+		openPortal: mocks.openPortal,
 	};
 }

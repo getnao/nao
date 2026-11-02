@@ -18,8 +18,8 @@ export type CloudPlanOffer = {
 
 type PlanStatus = 'current' | 'after-trial' | 'scheduled';
 
-const planStatusBadge: Record<PlanStatus, { label: string; variant: 'success' | 'secondary' }> = {
-	current: { label: 'Current plan', variant: 'success' },
+const planStatusBadge: Record<PlanStatus, { label: string; variant: 'default' | 'secondary' }> = {
+	current: { label: 'Current plan', variant: 'default' },
 	'after-trial': { label: 'After trial', variant: 'secondary' },
 	scheduled: { label: 'Scheduled', variant: 'secondary' },
 };
@@ -45,6 +45,8 @@ export function CloudBillingPlanComparison({
 	onIntervalChange,
 	onChoose,
 	onChooseFree,
+	onCancelPlan,
+	onKeepPlan,
 }: {
 	plans: CloudPlanOffer[];
 	currentTier: string;
@@ -60,6 +62,8 @@ export function CloudBillingPlanComparison({
 	onIntervalChange: (interval: CloudBillingInterval) => void;
 	onChoose: (plan: CloudPlanOffer) => void;
 	onChooseFree?: () => void;
+	onCancelPlan?: () => void;
+	onKeepPlan?: () => void;
 }) {
 	const selectedPlans = plans.filter((plan) => plan.interval === interval);
 	const team = selectedPlans.find((plan) => plan.tier === 'team');
@@ -85,6 +89,21 @@ export function CloudBillingPlanComparison({
 					: undefined;
 	const teamStatus = team ? paidStatus(team) : undefined;
 	const unlimitedStatus = unlimited ? paidStatus(unlimited) : undefined;
+	const paidPlanAction = (plan: CloudPlanOffer, status: PlanStatus | undefined) => {
+		if (status === 'current') {
+			return cancellationScheduled
+				? { label: 'Keep my plan', disabled: disabled || !onKeepPlan, onAction: onKeepPlan }
+				: { label: 'Cancel Plan', disabled: disabled || !onCancelPlan, onAction: onCancelPlan };
+		}
+		const replacesCanceledTeam = cancellationScheduled && currentTier === 'team' && plan.tier === 'unlimited';
+		return {
+			label: status ? planStatusActionLabel[status] : `Choose ${plan.tier === 'team' ? 'Team' : 'Unlimited'}`,
+			disabled: disabled || (cancellationScheduled && !trialing && !replacesCanceledTeam) || status !== undefined,
+			onAction: () => onChoose(plan),
+		};
+	};
+	const teamAction = team ? paidPlanAction(team, teamStatus) : undefined;
+	const unlimitedAction = unlimited ? paidPlanAction(unlimited, unlimitedStatus) : undefined;
 	const teamTotal = team
 		? `${formatBillingPrice(team.unitAmount * (seatQuantity ?? 4), team.currency)} total for ${seatQuantity ?? 4} seats / ${intervalLabel}`
 		: '';
@@ -165,9 +184,9 @@ export function CloudBillingPlanComparison({
 								? `${seatUserCount} using seats · ${seatQuantity ?? '—'} purchased · ${availableSeats ?? '—'} available`
 								: undefined
 						}
-						actionLabel={teamStatus ? planStatusActionLabel[teamStatus] : 'Choose Team'}
-						actionDisabled={disabled || teamStatus !== undefined}
-						onAction={() => onChoose(team)}
+						actionLabel={teamAction?.label}
+						actionDisabled={teamAction?.disabled}
+						onAction={teamAction?.onAction}
 					/>
 				)}
 				{unlimited && (
@@ -185,9 +204,9 @@ export function CloudBillingPlanComparison({
 							'Predictable flat price as you grow',
 							'Unlimited viewers',
 						]}
-						actionLabel={unlimitedStatus ? planStatusActionLabel[unlimitedStatus] : 'Choose Unlimited'}
-						actionDisabled={disabled || unlimitedStatus !== undefined}
-						onAction={() => onChoose(unlimited)}
+						actionLabel={unlimitedAction?.label}
+						actionDisabled={unlimitedAction?.disabled}
+						onAction={unlimitedAction?.onAction}
 					/>
 				)}
 			</div>

@@ -46,6 +46,7 @@ import {
 	createCloudResubscribeSession,
 	findActiveCloudPromotionCode,
 	getCloudPlanChangeSchedule,
+	getCloudProrationDate,
 	getCloudSubscription,
 	getCloudUpcomingInvoice,
 	listCloudInvoices,
@@ -429,8 +430,15 @@ export async function previewCloudPlanChangeForAdmin(
 	return withOrganizationBillingLock(input.organizationId, async () => {
 		await requireOrganizationAdmin(input);
 		const state = await loadCurrentPaidState(input.organizationId);
-		assertNoBillingCommandConflict(state.billing, state.subscription.status === 'trialing');
 		const target = CLOUD_BILLING_PLANS[input.targetPlanKey];
+		const currentPlanKey = requireCurrentPlanKey(state.billing.billingPlan);
+		const current = CLOUD_BILLING_PLANS[currentPlanKey];
+		const reactivatesWithUpgrade =
+			Boolean(state.billing.cancellationScheduled) && current.tier === 'team' && target.tier === 'unlimited';
+		assertNoBillingCommandConflict(
+			state.billing,
+			state.subscription.status === 'trialing' || reactivatesWithUpgrade,
+		);
 		const targetSeatQuantity = target.tier === 'team' ? validateTeamQuantity(input.targetSeatQuantity) : null;
 		const promotionCode = await resolvePromotionCode(
 			input.promotionCode,
@@ -439,8 +447,7 @@ export async function previewCloudPlanChangeForAdmin(
 			targetSeatQuantity ?? 1,
 		);
 		const immediate =
-			state.subscription.status === 'trialing' ||
-			isImmediatePlanChange(requireCurrentPlanKey(state.billing.billingPlan), input.targetPlanKey);
+			state.subscription.status === 'trialing' || isImmediatePlanChange(currentPlanKey, input.targetPlanKey);
 		return createBillingChangePreview(state, {
 			operation: 'plan_change',
 			targetPlanKey: input.targetPlanKey,
@@ -697,7 +704,7 @@ async function createBillingChangePreview(
 		memberFingerprint?: string;
 	},
 ): Promise<BillingChangePreview> {
-	const prorationDate = new Date();
+	const prorationDate = await getCloudProrationDate(state.subscription);
 	const expiresAt = new Date(prorationDate.getTime() + 5 * 60_000);
 	const targetQuantity = target.targetSeatQuantity ?? 1;
 	const currentPlanKey = requireCurrentPlanKey(state.billing.billingPlan);

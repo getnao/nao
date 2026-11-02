@@ -72,6 +72,7 @@ interface CloudInvoice {
 	id: string;
 	number: string | null;
 	invoiceKind: 'trial' | 'subscription' | 'credit_top_up' | 'no_charge';
+	planTier: PaidCloudBillingTier | null;
 	promotionCodes: string[];
 	status: Stripe.Invoice.Status | null;
 	createdAt: Date;
@@ -403,11 +404,12 @@ export async function createCloudPortalSession(input: {
 	stripeCustomerId: string;
 	requestId: string;
 }): Promise<string> {
+	const configuration = await configureCloudPortal();
 	const session = await getStripeClient().billingPortal.sessions.create(
 		{
 			customer: input.stripeCustomerId,
 			return_url: `${billingPageUrl()}?portal=returned`,
-			...(env.STRIPE_PORTAL_CONFIGURATION_ID ? { configuration: env.STRIPE_PORTAL_CONFIGURATION_ID } : {}),
+			configuration,
 		},
 		{ idempotencyKey: `cloud-portal-v2:${input.organizationId}:${input.requestId}` },
 	);
@@ -420,6 +422,7 @@ export async function createCloudPaymentMethodSession(input: {
 	requestId: string;
 }): Promise<string> {
 	const returnUrl = `${billingPageUrl()}?portal=returned`;
+	const configuration = await configureCloudPortal();
 	const session = await getStripeClient().billingPortal.sessions.create(
 		{
 			customer: input.stripeCustomerId,
@@ -431,11 +434,40 @@ export async function createCloudPaymentMethodSession(input: {
 					redirect: { return_url: returnUrl },
 				},
 			},
-			...(env.STRIPE_PORTAL_CONFIGURATION_ID ? { configuration: env.STRIPE_PORTAL_CONFIGURATION_ID } : {}),
+			configuration,
 		},
 		{ idempotencyKey: `cloud-payment-method-v2:${input.organizationId}:${input.requestId}` },
 	);
 	return session.url;
+}
+
+async function configureCloudPortal(): Promise<string> {
+	const stripe = getStripeClient();
+	const configurationId =
+		env.STRIPE_PORTAL_CONFIGURATION_ID ??
+		(
+			await stripe.billingPortal.configurations.list({
+				is_default: true,
+				limit: 1,
+			})
+		).data[0]?.id;
+	if (!configurationId) {
+		throw new Error('Stripe Customer Portal must have an active default configuration');
+	}
+	await stripe.billingPortal.configurations.update(configurationId, {
+		features: {
+			customer_update: { enabled: false },
+			invoice_history: { enabled: false },
+			payment_method_update: { enabled: true },
+			subscription_cancel: {
+				enabled: true,
+				mode: 'at_period_end',
+				proration_behavior: 'none',
+			},
+			subscription_update: { enabled: false },
+		},
+	});
+	return configurationId;
 }
 
 export async function listCloudInvoices(stripeCustomerId: string): Promise<CloudInvoice[]> {
@@ -468,6 +500,7 @@ export async function listCloudInvoices(stripeCustomerId: string): Promise<Cloud
 				: invoice.billing_reason === 'subscription_create' && invoice.subtotal === 0
 					? 'trial'
 					: 'no_charge',
+		planTier: invoicePaidTier(invoice),
 		promotionCodes: invoicePromotionCodes(invoice),
 		status: invoice.status,
 		createdAt: new Date(invoice.created * 1_000),
@@ -572,6 +605,7 @@ export async function updateCloudSubscriptionPlan(input: {
 	return getStripeClient().subscriptions.update(
 		input.subscription.id,
 		{
+			cancel_at_period_end: false,
 			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
 			...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
 			...prorationParams(paidUpgrade ? 'always_invoice' : 'none', input.prorationDate),
@@ -579,7 +613,7 @@ export async function updateCloudSubscriptionPlan(input: {
 			...trialPreservationParams(input.subscription),
 		},
 		{
-			idempotencyKey: `cloud-plan-change-v2:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetPlanKey}:${input.targetQuantity}:${input.promotionCodeId ?? 'keep-discounts'}`,
+			idempotencyKey: `cloud-plan-change-v3:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetPlanKey}:${input.targetQuantity}:${input.promotionCodeId ?? 'keep-discounts'}`,
 		},
 	);
 }
@@ -818,6 +852,17 @@ export async function getCloudSubscription(stripeSubscriptionId: string): Promis
 		throw new Error(`Stripe Subscription "${stripeSubscriptionId}" does not use the configured cloud Product`);
 	}
 	return subscription;
+}
+
+export async function getCloudProrationDate(subscription: Stripe.Subscription): Promise<Date> {
+	if (!subscription.test_clock) {
+		return new Date();
+	}
+	const testClock =
+		typeof subscription.test_clock === 'string'
+			? await getStripeClient().testHelpers.testClocks.retrieve(subscription.test_clock)
+			: subscription.test_clock;
+	return new Date(testClock.frozen_time * 1_000);
 }
 
 /** A subscription's currency never changes, so entries only need eviction to bound memory. */
@@ -1486,6 +1531,18 @@ function invoiceSubscriptionId(invoice: Pick<Stripe.Invoice, 'parent'>): string 
 	return stripeId(invoice.parent.subscription_details.subscription);
 }
 
+function invoicePaidTier(invoice: Pick<Stripe.Invoice, 'lines'>): PaidCloudBillingTier | null {
+	let selectedLine: { subtotal: number; tier: PaidCloudBillingTier } | undefined;
+	for (const line of invoice.lines.data) {
+		const productId = line.pricing?.price_details?.product;
+		const product = productId ? cloudPaidProductForId(productId) : null;
+		if (product && (!selectedLine || line.subtotal > selectedLine.subtotal)) {
+			selectedLine = { subtotal: line.subtotal, tier: product.tier };
+		}
+	}
+	return selectedLine?.tier ?? null;
+}
+
 function cloudPaidProductItem(subscription: Stripe.Subscription): CloudPaidProductItem | null {
 	const paidItems = subscription.items.data.flatMap((item) => {
 		const product = cloudPaidProductForPrice(item.price);
@@ -1516,7 +1573,10 @@ function cloudPaidProductItem(subscription: Stripe.Subscription): CloudPaidProdu
 }
 
 function cloudPaidProductForPrice(price: Stripe.Price): Pick<CloudPaidProductItem, 'tier' | 'legacy'> | null {
-	const productId = stripeProductId(price.product);
+	return cloudPaidProductForId(stripeProductId(price.product));
+}
+
+function cloudPaidProductForId(productId: string): Pick<CloudPaidProductItem, 'tier' | 'legacy'> | null {
 	const productIds = configuredCloudPaidProductIds();
 	if (productId === productIds.team) {
 		return { tier: 'team', legacy: false };
