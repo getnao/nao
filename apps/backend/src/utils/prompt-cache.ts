@@ -18,8 +18,7 @@ export function cachedSystemInstructions(text: string, modelSelection: LlmSelect
 		return text;
 	}
 
-	const instructions: SystemModelMessage = { role: 'system', content: text };
-	return withPromptCache(instructions, cacheProvider, '1h');
+	return withPromptCache<SystemModelMessage>({ role: 'system', content: text }, cacheProvider, '1h');
 }
 
 export function addPromptCache(messages: ModelMessage[], modelSelection: LlmSelectedModel): ModelMessage[] {
@@ -57,10 +56,8 @@ export function getPromptCacheProvider(modelSelection: LlmSelectedModel): Prompt
 }
 
 /**
- * The artifacts block only exists on the current user message, so an entry written past it is
- * never read by the next turn. One breakpoint right before the block writes the entry that turn
- * reads, and one on the previous user message reads it back even when the turn in between added
- * more blocks than the 20 the cache looks back over.
+ * The artifacts block moves to the last user message every turn: cache the part just before it, and
+ * the previous user message so the next turn still finds that entry after a long tool loop.
  */
 function withCrossTurnBreakpoints(messages: ModelMessage[], provider: PromptCacheProvider): ModelMessage[] {
 	const userIndices = messages.flatMap((message, index) => (message.role === 'user' ? [index] : []));
