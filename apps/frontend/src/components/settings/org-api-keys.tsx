@@ -10,22 +10,26 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 
-const KEY_CARDS: Record<ApiKeyScope, { defaultName: string; title: string; description: string; emptyState: string }> =
-	{
-		deploy: {
-			defaultName: 'Deploy key',
-			title: 'Deploy keys',
-			description: 'Organization keys that can run nao deploy to upload a project context.',
-			emptyState: 'No deploy keys yet.',
-		},
-		user_management: {
-			defaultName: 'User management key',
-			title: 'User management API keys',
-			description:
-				'Keys for the user management REST API at /api/user-management. They can list, invite and remove users and manage groups and roles, but cannot deploy.',
-			emptyState: 'No user management keys yet.',
-		},
-	};
+const KEY_CARDS: Record<
+	ApiKeyScope,
+	{ defaultName: string; scopeLabel: string; title: string; description: string; emptyState: string }
+> = {
+	deploy: {
+		defaultName: 'Deploy key',
+		scopeLabel: 'deploy',
+		title: 'Deploy keys',
+		description: 'Organization keys that can run nao deploy to upload a project context.',
+		emptyState: 'No deploy keys yet.',
+	},
+	user_management: {
+		defaultName: 'User management key',
+		scopeLabel: 'user management',
+		title: 'User management API keys',
+		description:
+			'Keys for the user management REST API at /api/user-management. They can list, invite and remove users and manage groups and roles, but cannot deploy.',
+		emptyState: 'No user management keys yet.',
+	},
+};
 
 interface OrgApiKeysProps {
 	isAdmin?: boolean;
@@ -74,7 +78,7 @@ export function OrgApiKeys({
 			/>
 
 			<div className='space-y-3'>
-				<div className='text-sm font-medium text-foreground'>Existing keys</div>
+				<div className='text-sm font-medium text-foreground'>Existing {KEY_CARDS[scope].scopeLabel} keys</div>
 				{apiKeys.isLoading ? (
 					<div className='text-sm text-muted-foreground'>Loading API keys...</div>
 				) : scopedApiKeys.length ? (
@@ -189,7 +193,7 @@ export function ApiKeyGenerator({ scope, deployUrl, latestPlaintextKey, onPlaint
 						value={name}
 						onChange={(event) => setName(event.target.value)}
 						placeholder={KEY_CARDS[scope].defaultName}
-						aria-label='API key name'
+						aria-label={`API key name (${KEY_CARDS[scope].scopeLabel})`}
 					/>
 					<Button
 						variant='primary-gradient'
@@ -197,7 +201,7 @@ export function ApiKeyGenerator({ scope, deployUrl, latestPlaintextKey, onPlaint
 						disabled={!name.trim()}
 						isLoading={createApiKey.isPending}
 					>
-						Generate API key
+						Generate {KEY_CARDS[scope].scopeLabel} key
 					</Button>
 				</div>
 			</div>
