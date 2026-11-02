@@ -290,8 +290,14 @@ async function commitSelectedChanges(
 	const metadataRepoPaths = metadataPaths.map((filePath) => toRepoPath(repo, filePath));
 	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	const author = await provider.getUserGitIdentity({ token: context.token, user: context.user });
-	for (const batch of chunk([...new Set([...repoPaths, ...metadataRepoPaths])], GIT_ADD_BATCH_SIZE)) {
-		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...batch]);
+	const addPaths = [...new Set([...repoPaths, ...metadataRepoPaths])];
+	try {
+		for (const batch of chunk(addPaths, GIT_ADD_BATCH_SIZE)) {
+			runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...batch]);
+		}
+	} catch (error) {
+		tryRunGit(repo.worktreeRoot, ['reset', '-q', '--', ...addPaths]);
+		throw error;
 	}
 	if (tryRunGit(repo.worktreeRoot, ['diff', '--cached', '--quiet'])) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The selected files have no changes to commit.' });
