@@ -1,9 +1,17 @@
 import { Link } from '@tanstack/react-router';
 import { ChevronDown, ChevronRight, CircleCheck, CircleX, MessageSquare, X } from 'lucide-react';
 import { Fragment, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import type { TestRunResult, TestRunWithResults } from '@/components/settings/test-run-types';
-import { formatCost, formatPassRate, isActiveRun, onEnterOrSpace } from '@/components/settings/test-run-types';
+import { TestDataDiffView } from '@/components/settings/test-data-diff';
+import {
+	formatCost,
+	formatPassRate,
+	isActiveRun,
+	onEnterOrSpace,
+	toExplorerTestPath,
+} from '@/components/settings/test-run-types';
 import { TestRunStatusBadge } from '@/components/settings/test-runs-table';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { Button } from '@/components/ui/button';
@@ -137,7 +145,7 @@ function ResultRow({ result, showAttempt, isExpanded, onToggle }: ResultRowProps
 				<Chevron className='size-3.5 text-muted-foreground' />
 			</TableCell>
 			<TableCell className='max-w-[220px] truncate font-medium' title={result.testPath}>
-				{result.testName}
+				<TestFileLink testPath={result.testPath}>{result.testName}</TestFileLink>
 			</TableCell>
 			<TableCell className='text-xs text-muted-foreground'>{result.llmModelId}</TableCell>
 			{showAttempt && <TableCell className='text-xs text-muted-foreground'>{result.attempt}</TableCell>}
@@ -161,6 +169,21 @@ function ResultRow({ result, showAttempt, isExpanded, onToggle }: ResultRowProps
 				<AttemptChatLink result={result} />
 			</TableCell>
 		</TableRow>
+	);
+}
+
+/** Opens the test in the File Explorer, where it can be edited and run with its results below. */
+export function TestFileLink({ testPath, children }: { testPath: string; children: ReactNode }) {
+	return (
+		<Link
+			to='/settings/context-explorer'
+			search={{ path: toExplorerTestPath(testPath) }}
+			onClick={(event) => event.stopPropagation()}
+			className='underline-offset-4 hover:underline'
+			title='Open in the File Explorer'
+		>
+			{children}
+		</Link>
 	);
 }
 
@@ -193,7 +216,14 @@ export function ResultDetails({
 	return (
 		<div className='flex flex-col gap-3 py-1 text-xs'>
 			<DetailBlock label='Result' value={result.errorMessage ?? result.message} />
-			<DetailBlock label='Differences' value={details?.comparison} isCode />
+			{result.dataDiff ? (
+				<div className='flex flex-col gap-1'>
+					<span className='font-medium text-foreground'>Data</span>
+					<TestDataDiffView diff={result.dataDiff} />
+				</div>
+			) : (
+				<DetailBlock label='Differences' value={details?.comparison} isCode />
+			)}
 			<DetailBlock label='Answer' value={details?.responseText} />
 			{showReferenceSql && <DetailBlock label='Reference SQL' value={details?.referenceSql} isCode />}
 			<DetailBlock label='Verification SQL' value={details?.verificationSql} isCode />

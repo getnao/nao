@@ -1,6 +1,7 @@
 import { CircleCheck, CircleDashed, CircleX, History } from 'lucide-react';
 
 import type { LatestTestOutcome, TestDefinition } from '@/components/settings/test-run-types';
+import { TestFileLink } from '@/components/settings/test-run-results';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Empty } from '@/components/ui/empty';
@@ -74,7 +75,7 @@ export function TestsTable({
 						</TableCell>
 						<TableCell className='max-w-[320px]'>
 							<div className='truncate font-medium' title={test.prompt}>
-								{test.name}
+								<TestFileLink testPath={test.path}>{test.name}</TestFileLink>
 							</div>
 							<div className='truncate text-xs text-muted-foreground'>tests/{test.path}</div>
 						</TableCell>

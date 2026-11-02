@@ -4,11 +4,14 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useDefaultLayout } from 'react-resizable-panels';
 
 import type { FileSelectionOptions } from '@/components/settings/file-tree';
+import type { TestDrawerRequest } from '@/components/settings/test-drawer';
 
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { FileTree } from '@/components/settings/file-tree';
 import { FileViewer } from '@/components/settings/file-viewer';
+import { TestDrawerLayout } from '@/components/settings/test-drawer';
+import { isTestFilePath } from '@/components/settings/test-run-types';
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -60,6 +63,8 @@ function ContextExplorerPage() {
 	const [sourceAutoOpenRequest, setSourceAutoOpenRequest] = useState<SourceAutoOpenRequest | null>(null);
 	const [viewerRevision, setViewerRevision] = useState(0);
 	const [isViewerDirty, setIsViewerDirty] = useState(false);
+	const [editorDraft, setEditorDraft] = useState<{ path: string; content: string } | null>(null);
+	const [testDrawerRequest, setTestDrawerRequest] = useState<TestDrawerRequest | null>(null);
 	const [search, setSearch] = useState('');
 	const [isContentSearchEnabled, setIsContentSearchEnabled] = useLocalStorage(contentSearchStorage);
 	const trimmedSearch = search.trim();
@@ -71,6 +76,12 @@ function ContextExplorerPage() {
 		id: 'context-explorer',
 		storage: localStorage,
 	});
+	const selectedTestPath =
+		!historicalDiff && !selectedDiffPath && selectedPath && isTestFilePath(selectedPath) ? selectedPath : null;
+	const selectedTestFile = selectedTestPath && editorDraft?.path === selectedTestPath ? editorDraft : null;
+	const handleEditorDraftChange = useCallback((path: string, content: string) => {
+		setEditorDraft({ path, content });
+	}, []);
 	const shouldBlockNavigation = useCallback(() => isViewerDirty, [isViewerDirty]);
 	const navigationBlocker = useBlocker({
 		shouldBlockFn: shouldBlockNavigation,
@@ -287,6 +298,12 @@ function ContextExplorerPage() {
 									onDiscarded={handleLocalChangeDiscarded}
 									onDiscardAll={handleAllLocalChangesDiscarded}
 									onRepositoryChanged={handleRepositoryChanged}
+									onOpenTests={() =>
+										setTestDrawerRequest((current) => ({
+											tab: 'suite',
+											id: (current?.id ?? 0) + 1,
+										}))
+									}
 								/>
 							</>
 						)}
@@ -296,47 +313,55 @@ function ContextExplorerPage() {
 				<ResizableSeparator />
 
 				<ResizablePanel id='viewer' minSize={300}>
-					<div className='h-full bg-background'>
-						{historicalDiff ? (
-							<ContextFileDiff
-								path={historicalDiff.path}
-								range={{ from: historicalDiff.from, to: historicalDiff.to }}
-							/>
-						) : selectedDiffPath ? (
-							<ContextFileDiff path={selectedDiffPath} />
-						) : (
-							<FileViewer
-								key={`${selectedPath ?? 'empty'}:${viewerRevision}`}
-								filePath={selectedPath}
-								content={fileContent.data?.content}
-								hash={fileContent.data?.hash}
-								isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
-								isError={fileContent.isError && !fileContent.data}
-								isEditable={fileContent.data?.isEditable === true}
-								editabilityGuidance={fileContent.data?.guidance ?? null}
-								searchQuery={shouldSearchContent ? debouncedSearch : ''}
-								sourceAutoOpenRequestId={
-									sourceAutoOpenRequest?.path === selectedPath ? sourceAutoOpenRequest.id : null
-								}
-								onDirtyChange={setIsViewerDirty}
-								onOpenGuidancePath={(path, kind) => {
-									if (kind === 'route') {
-										void navigate({ to: path });
-										return;
+					<TestDrawerLayout
+						testFilePath={selectedTestPath}
+						testFile={selectedTestFile}
+						request={testDrawerRequest}
+						onOpenTest={(path) => requestViewerTarget({ type: 'file', path, openSource: false })}
+					>
+						<div className='h-full bg-background'>
+							{historicalDiff ? (
+								<ContextFileDiff
+									path={historicalDiff.path}
+									range={{ from: historicalDiff.from, to: historicalDiff.to }}
+								/>
+							) : selectedDiffPath ? (
+								<ContextFileDiff path={selectedDiffPath} />
+							) : (
+								<FileViewer
+									key={`${selectedPath ?? 'empty'}:${viewerRevision}`}
+									filePath={selectedPath}
+									content={fileContent.data?.content}
+									hash={fileContent.data?.hash}
+									isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
+									isError={fileContent.isError && !fileContent.data}
+									isEditable={fileContent.data?.isEditable === true}
+									editabilityGuidance={fileContent.data?.guidance ?? null}
+									searchQuery={shouldSearchContent ? debouncedSearch : ''}
+									sourceAutoOpenRequestId={
+										sourceAutoOpenRequest?.path === selectedPath ? sourceAutoOpenRequest.id : null
 									}
-									requestViewerTarget({ type: 'file', path, openSource: false });
-								}}
-								onReload={async () => {
-									const result = await fileContent.refetch();
-									if (result.error) {
-										throw result.error;
-									}
-									return result.data;
-								}}
-								rulesPreviewGroups={rulesPreviewGroupsState}
-							/>
-						)}
-					</div>
+									onDirtyChange={setIsViewerDirty}
+									onOpenGuidancePath={(path, kind) => {
+										if (kind === 'route') {
+											void navigate({ to: path });
+											return;
+										}
+										requestViewerTarget({ type: 'file', path, openSource: false });
+									}}
+									onReload={async () => {
+										const result = await fileContent.refetch();
+										if (result.error) {
+											throw result.error;
+										}
+										return result.data;
+									}}
+									rulesPreviewGroups={rulesPreviewGroupsState}
+									onDraftChange={handleEditorDraftChange}
+								/>
+							)}
+						</div>
+					</TestDrawerLayout>
 				</ResizablePanel>
 			</ResizablePanelGroup>
 			<DiscardChangesDialog

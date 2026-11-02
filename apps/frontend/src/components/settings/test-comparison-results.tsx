@@ -22,6 +22,7 @@ import {
 	AttemptChatLink,
 	DetailBlock,
 	ResultDetails,
+	TestFileLink,
 	TestRunActions,
 	TestRunProgress,
 } from '@/components/settings/test-run-results';
@@ -236,7 +237,6 @@ interface ComparisonRowProps {
 
 function ComparisonRow({ test, attemptsPerVariant, isActive, isExpanded, onToggle }: ComparisonRowProps) {
 	const Chevron = isExpanded ? ChevronDown : ChevronRight;
-	const badge = CHANGE_BADGES[test.change];
 	return (
 		<TableRow
 			className='cursor-pointer'
@@ -250,7 +250,9 @@ function ComparisonRow({ test, attemptsPerVariant, isActive, isExpanded, onToggl
 			</TableCell>
 			<TableCell className='max-w-[260px]'>
 				<div className='flex flex-col'>
-					<span className='truncate font-medium'>{test.testName}</span>
+					<span className='truncate font-medium'>
+						<TestFileLink testPath={test.testPath}>{test.testName}</TestFileLink>
+					</span>
 					<span className='truncate font-mono text-xs text-muted-foreground'>tests/{test.testPath}</span>
 				</div>
 			</TableCell>
@@ -261,15 +263,24 @@ function ComparisonRow({ test, attemptsPerVariant, isActive, isExpanded, onToggl
 				<VariantOutcomeCell outcome={test.draft} attemptsPerVariant={attemptsPerVariant} />
 			</TableCell>
 			<TableCell>
-				<Badge variant={badge.variant}>
-					{test.change === 'pending' && !isActive ? 'Incomplete' : badge.label}
-				</Badge>
+				<ComparisonChangeBadge change={test.change} isActive={isActive} />
 			</TableCell>
 		</TableRow>
 	);
 }
 
-function VariantOutcomeCell({ outcome, attemptsPerVariant }: { outcome: VariantOutcome; attemptsPerVariant: number }) {
+export function ComparisonChangeBadge({ change, isActive }: { change: TestComparisonChange; isActive: boolean }) {
+	const badge = CHANGE_BADGES[change];
+	return <Badge variant={badge.variant}>{change === 'pending' && !isActive ? 'Incomplete' : badge.label}</Badge>;
+}
+
+export function VariantOutcomeCell({
+	outcome,
+	attemptsPerVariant,
+}: {
+	outcome: VariantOutcome;
+	attemptsPerVariant: number;
+}) {
 	if (outcome.total === 0) {
 		return (
 			<span className='flex items-center gap-1 text-xs text-muted-foreground'>
