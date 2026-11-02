@@ -130,9 +130,9 @@ export function CloudBillingPlanComparison({
 					supportingText='No card required'
 					status={freeStatus}
 					features={[
-						'3 full-access seats included',
+						'Full access for up to 3 people',
 						'Unlimited viewers',
-						'Use your own model keys or nao credits',
+						'Best for individuals and small teams',
 					]}
 					actionLabel={
 						freeStatus
@@ -155,9 +155,10 @@ export function CloudBillingPlanComparison({
 						status={teamStatus}
 						discount={interval === 'yearly' ? teamYearlyDiscount : null}
 						features={[
-							'Starts at 4 full-access seats',
-							'Viewers are free',
-							'Reuse seats as your team changes',
+							'Full access for 4–40 people',
+							'Add seats as your team grows',
+							'Reassign seats whenever your team changes',
+							'Unlimited viewers',
 						]}
 						notice={
 							currentTier === 'team'
@@ -178,7 +179,12 @@ export function CloudBillingPlanComparison({
 						status={unlimitedStatus}
 						recommended={recommendation === 'unlimited'}
 						discount={interval === 'yearly' ? unlimitedYearlyDiscount : null}
-						features={['Unlimited full-access users', 'Unlimited viewers', 'No seat management']}
+						features={[
+							'Full access for your whole organization',
+							'No seat limits or seat management',
+							'Predictable flat price as you grow',
+							'Unlimited viewers',
+						]}
 						actionLabel={unlimitedStatus ? planStatusActionLabel[unlimitedStatus] : 'Choose Unlimited'}
 						actionDisabled={disabled || unlimitedStatus !== undefined}
 						onAction={() => onChoose(unlimited)}
@@ -242,10 +248,7 @@ function PlanCard({
 			<ul className='flex-1 space-y-2.5 text-sm text-muted-foreground'>
 				{features.map((feature) => (
 					<li key={feature} className='flex gap-2'>
-						<Check
-							className='mt-0.5 size-4 shrink-0 text-green-600 dark:text-green-500'
-							aria-hidden='true'
-						/>
+						<Check className='mt-0.5 size-4 shrink-0 text-primary' aria-hidden='true' />
 						<span>{feature}</span>
 					</li>
 				))}
