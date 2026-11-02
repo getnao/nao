@@ -4,7 +4,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { listOrgSeatCandidates, listReadOnlyOrgUsers, listSeatedOrgUserIds } from '../src/queries/organization.queries';
+import {
+	listOrgSeatCandidates,
+	listReadOnlyOrgUsers,
+	resolveSeatedOrgUserIds,
+} from '../src/queries/organization.queries';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -112,7 +116,8 @@ describe('organization seat queries', () => {
 	});
 
 	it('never lets a selected lower class displace an organization member', async () => {
-		await expect(listSeatedOrgUserIds(ORG_ID, 6)).resolves.toEqual([
+		const candidates = await listOrgSeatCandidates(ORG_ID);
+		expect(resolveSeatedOrgUserIds(candidates, 6)).toEqual([
 			'admin-first',
 			'admin-second',
 			'org-selected-first',
@@ -138,7 +143,8 @@ describe('organization seat queries', () => {
 				set: { isReadOnly: true },
 			});
 
-		await expect(listSeatedOrgUserIds(ORG_ID, 8)).resolves.not.toContain('org-unselected');
+		const candidates = await listOrgSeatCandidates(ORG_ID);
+		expect(resolveSeatedOrgUserIds(candidates, 8)).not.toContain('org-unselected');
 		await expect(listReadOnlyOrgUsers(ORG_ID, 8)).resolves.toMatchObject([{ id: 'org-unselected' }]);
 	});
 });

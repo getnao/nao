@@ -211,7 +211,6 @@ function CloudOrganizationBillingSettings({
 		data.pending?.planKey === data.current.planKey &&
 		data.pending.seatQuantity !== null;
 	const startPlanCheckout = async (plan: CloudPlanOffer, seatQuantity?: number) => {
-		billingState.setSelectedBillingTier(plan.tier);
 		if (data.trialAvailable || data.needsPaidPlanSelection) {
 			billingState.openTrialCheckoutForPlan(plan.planKey, seatQuantity);
 		} else {
@@ -219,7 +218,6 @@ function CloudOrganizationBillingSettings({
 		}
 	};
 	const choosePlan = (plan: CloudPlanOffer) => {
-		billingState.setSelectedBillingTier(plan.tier);
 		if (data.current) {
 			setSelectedPlanChange(plan);
 			return;

@@ -54,7 +54,6 @@ vi.mock('@/main', () => {
 				changePlan: mutation('changePlan'),
 				selectSeats: mutation('selectSeats'),
 				switchToFree: mutation('switchToFree'),
-				keepPlan: mutation('keepPlan'),
 				cancelPendingPlanChange: mutation('cancelPendingPlanChange'),
 			},
 			organization: {

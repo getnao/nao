@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TEAM_MAX_SEATS, TEAM_MIN_SEATS } from '@nao/shared/billing';
 
-import type { CloudBillingChangePreview } from '@/components/settings/cloud-billing-change-dialog';
+import type { CloudBillingChangePreview } from '@/components/settings/cloud-billing-change-preview';
 import type { CloudPlanOffer } from '@/components/settings/cloud-billing-plan-comparison';
 
 import { CloudBillingPlanTransition } from '@/components/settings/cloud-billing-plan-change-dialog';

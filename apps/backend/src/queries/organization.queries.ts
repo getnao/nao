@@ -630,11 +630,6 @@ export const listOrgSeatCandidates = async (orgId: string): Promise<OrgSeatCandi
 		.sort(compareOrgSeatCandidates);
 };
 
-export const listSeatedOrgUserIds = async (orgId: string, seatLimit: number | null): Promise<string[]> => {
-	const candidates = await listOrgSeatCandidates(orgId);
-	return resolveSeatedOrgUserIds(candidates, seatLimit);
-};
-
 export const listReadOnlyOrgUsers = async (orgId: string, seatLimit: number | null): Promise<OrgSeatCandidate[]> => {
 	if (seatLimit === null) {
 		return [];

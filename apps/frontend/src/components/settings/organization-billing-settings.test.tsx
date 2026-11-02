@@ -41,7 +41,6 @@ const mocks = vi.hoisted(() => ({
 	cloudSeatCandidates: [] as CloudSeatCandidate[],
 	cloudSaveSeatSelection: vi.fn(),
 	cloudSwitchToFree: vi.fn(),
-	cloudKeepPlan: vi.fn(),
 	cloudCancelPendingPlanChange: vi.fn(),
 	cloudOpenTrialCheckoutForPlan: vi.fn(),
 	cloudConfirmPlanChange: vi.fn(),
@@ -114,7 +113,6 @@ beforeEach(() => {
 	mocks.cloudSeatCandidates = [];
 	mocks.cloudSaveSeatSelection.mockReset();
 	mocks.cloudSwitchToFree.mockReset();
-	mocks.cloudKeepPlan.mockReset();
 	mocks.cloudCancelPendingPlanChange.mockReset();
 	mocks.cloudOpenTrialCheckoutForPlan.mockReset();
 	mocks.cloudConfirmPlanChange.mockReset();
@@ -712,7 +710,6 @@ it('marks Free as the next plan and offers to keep the paid plan when a switch i
 	expect(keepPlan.closest('section')?.getAttribute('aria-label')).toBe('Team plan');
 	fireEvent.click(keepPlan);
 	expect(mocks.openPortal).toHaveBeenCalledOnce();
-	expect(mocks.cloudKeepPlan).not.toHaveBeenCalled();
 });
 
 it('allows a canceled-at-period-end Team subscription to upgrade to Unlimited', () => {
@@ -1027,9 +1024,6 @@ function billingState(): BillingState {
 		resubscribeForPlan: vi.fn(),
 		selectedBillingInterval: mocks.selectedBillingInterval,
 		setSelectedBillingInterval: mocks.setSelectedBillingInterval,
-		selectedBillingTier: 'unlimited',
-		setSelectedBillingTier: vi.fn(),
-		selectedPlanKey: 'cloud_unlimited_monthly_v1',
 		freeTierEnabled: false,
 		previewSeatChange: vi.fn(),
 		confirmSeatChange: vi.fn(),
@@ -1037,7 +1031,6 @@ function billingState(): BillingState {
 		confirmPlanChange: vi.fn(),
 		saveSeatSelection: vi.fn(),
 		switchToFree: mocks.cloudSwitchToFree,
-		keepPlan: vi.fn(),
 		cancelPendingPlanChange: vi.fn(),
 		isBillingCommandPending: false,
 		isPlanSelectionPending: false,
@@ -1178,8 +1171,6 @@ function billingStateDefaults(): Partial<BillingState> {
 		} as BillingState['upcomingInvoice'],
 		selectedBillingInterval: mocks.selectedBillingInterval,
 		setSelectedBillingInterval: mocks.setSelectedBillingInterval,
-		selectedBillingTier: 'team',
-		setSelectedBillingTier: vi.fn(),
 		isBillingCommandPending: false,
 		isPlanSelectionPending: false,
 		isPortalPending: false,
@@ -1189,7 +1180,6 @@ function billingStateDefaults(): Partial<BillingState> {
 		confirmSeatChange: mocks.cloudConfirmSeatChange,
 		saveSeatSelection: mocks.cloudSaveSeatSelection,
 		switchToFree: mocks.cloudSwitchToFree,
-		keepPlan: mocks.cloudKeepPlan,
 		cancelPendingPlanChange: mocks.cloudCancelPendingPlanChange,
 		openTrialCheckoutForPlan: mocks.cloudOpenTrialCheckoutForPlan,
 		resubscribeForPlan: vi.fn(),

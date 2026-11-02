@@ -64,12 +64,11 @@ export const organizationRoutes = {
 	}),
 
 	getUserCounts: orgAdminProcedure.query(async ({ ctx }) => {
-		const [totalUsers, activeUsers, seatUsers] = await Promise.all([
+		const [totalUsers, activeUsers] = await Promise.all([
 			orgQueries.countOrgUsers(ctx.org.id),
 			usageQueries.getOrgActiveUserCount(ctx.org.id, LICENSE_ACTIVITY_WINDOW),
-			orgQueries.countOrgSeatUsers(ctx.org.id),
 		]);
-		return { totalUsers, activeUsers, seatUsers };
+		return { totalUsers, activeUsers };
 	}),
 
 	getSignInDomains: orgAdminProcedure.query(async ({ ctx }) => ({

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { isCloudBillingEnabled, isCloudFreeTierEnabled } from '../src/env';
+
 const contextSources = ['local', 'git', 'api'] as const;
 const cloudCompatibleContextSources = ['local', 'api'] as const;
 const gitCloudError = 'NAO_CONTEXT_SOURCE=git cannot be set when NAO_MODE=cloud.';
@@ -63,13 +65,21 @@ describe('cloud billing environment', () => {
 		}
 	});
 
-	it('remains inactive in self-hosted mode', () => {
+	it('keeps cloud billing and seat enforcement inactive in self-hosted mode', () => {
 		const result = loadEnvWithOverrides({
 			CLOUD_BILLING_ENABLED: 'true',
+			CLOUD_FREE_TIER_ENABLED: 'true',
 			NAO_MODE: 'self-hosted',
 		});
+		const config = {
+			CLOUD_BILLING_ENABLED: true,
+			CLOUD_FREE_TIER_ENABLED: true,
+			NAO_MODE: 'self-hosted',
+		} as const;
 
 		expect(result.status).toBe(0);
+		expect(isCloudBillingEnabled(config)).toBe(false);
+		expect(isCloudFreeTierEnabled(config)).toBe(false);
 	});
 
 	it.each(['true', 'false'] as const)('accepts an explicit free-tier flag of %s', (flag) => {

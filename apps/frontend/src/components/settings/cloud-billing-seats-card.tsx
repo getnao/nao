@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
-import type { CloudBillingChangePreview } from '@/components/settings/cloud-billing-change-dialog';
+import type { CloudBillingChangePreview } from '@/components/settings/cloud-billing-change-preview';
 import type { CloudPlanOffer } from '@/components/settings/cloud-billing-plan-comparison';
 import type { TeamMember } from '@/components/settings/team/types';
 import { CloudBillingSeatAdjustmentDialog } from '@/components/settings/cloud-billing-seat-adjustment-dialog';
