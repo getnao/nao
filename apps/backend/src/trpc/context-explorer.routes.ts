@@ -49,6 +49,7 @@ import { cloudBillingAdminProcedure, cloudBillingContextAdminProcedure, contextA
 
 const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
+const commitPathsSchema = z.union([pathsSchema, z.literal('all')]);
 const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
 const MAX_PULL_HISTORY_FILES = 1_000;
 const fileDiffInputSchema = z
@@ -217,7 +218,9 @@ export const contextExplorerRoutes = {
 
 	searchContent: contextAdminProtectedProcedure
 		.input(z.object({ query: z.string().min(2).max(200) }))
-		.query(({ ctx, input }) => searchFileContents(input.query, requireProjectPath(ctx.project.path))),
+		.query(async ({ ctx, input }) =>
+			searchFileContents(input.query, await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user)),
+		),
 
 	getChangedFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		return getChangedContextFiles(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
@@ -276,7 +279,7 @@ export const contextExplorerRoutes = {
 		.input(
 			z.object({
 				branch: branchSchema.optional(),
-				paths: pathsSchema,
+				paths: commitPathsSchema,
 				message: z.string().trim().min(1).max(500),
 			}),
 		)
@@ -288,7 +291,7 @@ export const contextExplorerRoutes = {
 		}),
 
 	commitChanges: cloudBillingContextAdminProcedure
-		.input(z.object({ paths: pathsSchema, message: z.string().trim().min(1).max(500) }))
+		.input(z.object({ paths: commitPathsSchema, message: z.string().trim().min(1).max(500) }))
 		.mutation(async ({ ctx, input }) => {
 			return commitContextChanges(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
 		}),
