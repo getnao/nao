@@ -9,9 +9,8 @@ import type {
 } from '@/hooks/use-organization-billing';
 import type { OrganizationCreditsTab } from '@/components/settings/credits-wallet-content';
 import type { CloudPlanOffer } from '@/components/settings/cloud-billing-plan-comparison';
-import type { CloudBillingChangePreview } from '@/components/settings/cloud-billing-change-dialog';
 
-import { CloudBillingChangeDialog } from '@/components/settings/cloud-billing-change-dialog';
+import { CloudBillingPlanChangeDialog } from '@/components/settings/cloud-billing-plan-change-dialog';
 import { CloudBillingPlanComparison } from '@/components/settings/cloud-billing-plan-comparison';
 import { CloudBillingSeatsCard } from '@/components/settings/cloud-billing-seats-card';
 import { CloudBillingSwitchToFreeDialog } from '@/components/settings/cloud-billing-switch-to-free-dialog';
@@ -152,15 +151,9 @@ function CloudOrganizationBillingSettings({
 	onTabChange?: (tab: OrganizationBillingTab) => void;
 	onCreditsTabChange?: (tab: OrganizationCreditsTab) => void;
 }) {
-	const [changePreview, setChangePreview] = useState<CloudBillingChangePreview>(null);
-	const [changeTitle, setChangeTitle] = useState('Confirm plan change');
-	const [changeTier, setChangeTier] = useState<CloudPlanOffer['tier'] | null>(null);
-	const [refreshPreview, setRefreshPreview] = useState<() => Promise<CloudBillingChangePreview>>(
-		() => async () => null,
-	);
-	const [activatingPlan, setActivatingPlan] = useState<BillingState['selectedBillingTier'] | null>(null);
 	const [switchToFreeOpen, setSwitchToFreeOpen] = useState(false);
 	const [selectedTeamPlan, setSelectedTeamPlan] = useState<CloudPlanOffer | null>(null);
+	const [selectedPlanChange, setSelectedPlanChange] = useState<CloudPlanOffer | null>(null);
 	const data = billingState.billing.data;
 	if (!data || !('access' in data)) {
 		return (
@@ -171,159 +164,192 @@ function CloudOrganizationBillingSettings({
 	}
 
 	const plans = data.availablePlans as CloudPlanOffer[];
+	const currentPlanOffer = data.current ? plans.find((plan) => plan.planKey === data.current?.planKey) : undefined;
+	const upcomingPayment =
+		billingState.canLoadUpcomingInvoice &&
+		!billingState.upcomingInvoice.isLoading &&
+		!billingState.upcomingInvoice.isError
+			? billingState.upcomingInvoice.data
+			: null;
+	const discountedCurrentAmount =
+		upcomingPayment &&
+		upcomingPayment.promotionCodes.length > 0 &&
+		upcomingPayment.currency === currentPlanOffer?.currency
+			? upcomingPayment.amountDue
+			: undefined;
+	const currentPlanSummary = data.current
+		? {
+				name: getCloudPlanName(data.current.tier, data.current.seatQuantity),
+				price: currentPlanOffer
+					? formatCloudPlanRecurringPrice(
+							currentPlanOffer,
+							data.current.seatQuantity,
+							discountedCurrentAmount,
+						)
+					: undefined,
+				promotionCodes: discountedCurrentAmount !== undefined ? upcomingPayment?.promotionCodes : undefined,
+			}
+		: null;
+	const planChangeBaseline =
+		data.access.tier === 'trial'
+			? data.cancellationScheduled
+				? {
+						badge: 'Selected after trial',
+						name: 'Free',
+						price: `${formatBillingPrice(0, selectedPlanChange?.currency ?? 'usd')} forever`,
+					}
+				: currentPlanSummary && { ...currentPlanSummary, badge: 'Selected after trial' }
+			: currentPlanSummary;
 	const currentPlanEndsAt =
 		data.access.tier === 'trial' ? (data.access.trialEndsAt ?? data.currentPeriodEndsAt) : data.currentPeriodEndsAt;
-	const previewPlan = async (plan: CloudPlanOffer, seatQuantity?: number) => {
-		setChangeTier(plan.tier);
+	const seatOnlyPendingChange =
+		data.current?.tier === 'team' &&
+		data.pending?.planKey === data.current.planKey &&
+		data.pending.seatQuantity !== null;
+	const startPlanCheckout = async (plan: CloudPlanOffer, seatQuantity?: number) => {
 		billingState.setSelectedBillingTier(plan.tier);
-		const runPreview = () =>
-			billingState.previewPlanChange(plan.planKey, plan.tier === 'team' ? seatQuantity : undefined);
-		if (!data.current) {
-			if (data.trialAvailable || data.needsPaidPlanSelection) {
-				billingState.openTrialCheckoutForPlan(plan.planKey, seatQuantity);
-			} else {
-				billingState.resubscribeForPlan(plan.planKey, seatQuantity);
-			}
-			return;
+		if (data.trialAvailable || data.needsPaidPlanSelection) {
+			billingState.openTrialCheckoutForPlan(plan.planKey, seatQuantity);
+		} else {
+			billingState.resubscribeForPlan(plan.planKey, seatQuantity);
 		}
-		setChangeTitle(`Change to ${plan.tier === 'team' ? 'Team' : 'Unlimited'}`);
-		setRefreshPreview(() => runPreview);
-		setChangePreview(await runPreview());
 	};
 
 	return (
 		<>
-			{activatingPlan ? (
-				<BillingActivationState plan={activatingPlan} />
-			) : (
-				<SettingsPageWrapper wide>
-					<div className='flex flex-col gap-5'>
-						<div>
-							<h1 className='text-lg font-semibold text-foreground'>Billing & Credits</h1>
-							<p className='text-sm text-muted-foreground'>
-								Manage plans, paid capacity, invoices, and your organization&apos;s nao credits.
-							</p>
-						</div>
-						<BillingTabs activeTab={activeTab} showSeats onTabChange={onTabChange} />
-						<BillingFeedback billingState={billingState} />
-						{activeTab === 'plans' && (
-							<>
-								<CloudCurrentPlanCard
-									data={data}
-									billingState={billingState}
-									disabled={billingState.isPlanSelectionPending}
-									onKeepPlan={() => void billingState.keepPlan()}
-									onCancelPendingChange={() => void billingState.cancelPendingPlanChange()}
-								/>
-								<CloudBillingPlanComparison
-									plans={plans}
-									currentTier={data.access.tier}
-									currentPlanKey={data.current?.planKey ?? null}
-									pendingPlanKey={data.pending?.planKey ?? null}
-									cancellationScheduled={data.cancellationScheduled}
-									interval={billingState.selectedBillingInterval}
-									seatUserCount={data.access.seatUserCount}
-									seatQuantity={data.access.seatQuantity}
-									availableSeats={data.access.availableSeats}
-									recommendation={
-										data.recommendation === 'team' || data.recommendation === 'unlimited'
-											? data.recommendation
-											: null
-									}
-									disabled={
-										billingState.isPlanSelectionPending ||
-										data.scheduleConflict ||
-										(data.access.tier !== 'trial' && data.cancellationScheduled)
-									}
-									onIntervalChange={billingState.setSelectedBillingInterval}
-									onChoose={(plan) => {
-										if (plan.tier === 'team') {
-											setSelectedTeamPlan(plan);
-											return;
-										}
-										void previewPlan(plan);
-									}}
-									onChooseFree={data.current ? () => setSwitchToFreeOpen(true) : undefined}
-								/>
-							</>
-						)}
-						{activeTab === 'seats' && (
-							<>
-								{data.access.tier === 'team' && data.access.seatQuantity === null && (
-									<Callout role='alert'>
-										Team seat quantity is unavailable. Refresh billing details before changing
-										membership.
-									</Callout>
-								)}
-								<CloudBillingSeatsCard
-									tier={data.access.tier}
-									seatQuantity={data.access.seatQuantity}
-									seatLimit={data.access.seatLimit}
-									availableSeats={data.access.availableSeats}
-									candidates={data.seatCandidates}
-									disabled={billingState.isBillingCommandPending || data.scheduleConflict}
-									onPreviewSeatChange={
-										data.access.tier === 'team' ? billingState.previewSeatChange : undefined
-									}
-									onConfirmSeatChange={billingState.confirmSeatChange}
-									onSaveSeatSelection={
-										data.access.tier === 'unlimited' || data.access.tier === 'bypass'
-											? undefined
-											: billingState.saveSeatSelection
-									}
-								/>
-							</>
-						)}
-						{activeTab === 'credits' && (
-							<section className='flex flex-col gap-4'>
-								<div>
-									<h2 className='text-base font-semibold text-foreground'>Organization credits</h2>
-									<p className='text-sm text-muted-foreground'>
-										Fund and review the shared nao AI wallet for this organization.
-									</p>
-								</div>
-								<OrganizationCreditsContent
-									creditCheckout={search.creditCheckout}
-									canViewReplay={canViewChatReplay}
-									activeTab={search.creditsTab ?? 'history'}
-									onTabChange={onCreditsTabChange}
-								/>
-							</section>
-						)}
-						{activeTab === 'invoices' && (
-							<div className='flex flex-col gap-12'>
-								<InvoicesCard billingState={billingState} />
-								<BillingManagementCard billingState={billingState} />
-							</div>
-						)}
+			<SettingsPageWrapper wide>
+				<div className='flex flex-col gap-5'>
+					<div>
+						<h1 className='text-lg font-semibold text-foreground'>Billing & Credits</h1>
+						<p className='text-sm text-muted-foreground'>
+							Manage plans, paid capacity, invoices, and your organization&apos;s nao credits.
+						</p>
 					</div>
-				</SettingsPageWrapper>
-			)}
-			<CloudBillingChangeDialog
-				open={changePreview !== null}
-				onOpenChange={(open) => !open && setChangePreview(null)}
-				title={changeTitle}
-				preview={changePreview}
-				onRefresh={async () => setChangePreview(await refreshPreview())}
-				onConfirm={async (token) => {
-					const preview = changePreview;
-					const immediate = preview?.effective === 'immediate';
-					if (immediate && changeTier) {
-						setActivatingPlan(changeTier);
-						setChangePreview(null);
+					<BillingTabs activeTab={activeTab} showSeats onTabChange={onTabChange} />
+					<BillingFeedback billingState={billingState} />
+					{activeTab === 'plans' && (
+						<>
+							<CloudCurrentPlanCard
+								data={data}
+								billingState={billingState}
+								disabled={billingState.isPlanSelectionPending}
+								onKeepPlan={() => void billingState.keepPlan()}
+								onCancelPendingChange={() => void billingState.cancelPendingPlanChange()}
+							/>
+							<CloudBillingPlanComparison
+								plans={plans}
+								currentTier={data.access.tier}
+								currentPlanKey={data.current?.planKey ?? null}
+								pendingPlanKey={data.pending?.planKey ?? null}
+								cancellationScheduled={data.cancellationScheduled}
+								interval={billingState.selectedBillingInterval}
+								seatUserCount={data.access.seatUserCount}
+								seatQuantity={data.access.seatQuantity}
+								availableSeats={data.access.availableSeats}
+								recommendation={
+									data.recommendation === 'team' || data.recommendation === 'unlimited'
+										? data.recommendation
+										: null
+								}
+								disabled={
+									billingState.isPlanSelectionPending ||
+									data.scheduleConflict ||
+									(data.access.tier !== 'trial' && data.cancellationScheduled)
+								}
+								onIntervalChange={billingState.setSelectedBillingInterval}
+								onChoose={(plan) => {
+									billingState.setSelectedBillingTier(plan.tier);
+									if (data.current) {
+										setSelectedPlanChange(plan);
+										return;
+									}
+									if (plan.tier === 'team') {
+										setSelectedTeamPlan(plan);
+										return;
+									}
+									void startPlanCheckout(plan);
+								}}
+								onChooseFree={data.current ? () => setSwitchToFreeOpen(true) : undefined}
+							/>
+						</>
+					)}
+					{activeTab === 'seats' && (
+						<>
+							{data.access.tier === 'team' && data.access.seatQuantity === null && (
+								<Callout role='alert'>
+									Team seat quantity is unavailable. Refresh billing details before changing
+									membership.
+								</Callout>
+							)}
+							<CloudBillingSeatsCard
+								tier={data.access.tier}
+								seatQuantity={data.access.seatQuantity}
+								seatLimit={data.access.seatLimit}
+								availableSeats={data.access.availableSeats}
+								candidates={data.seatCandidates}
+								pendingSeatQuantity={seatOnlyPendingChange ? data.pending?.seatQuantity : null}
+								pendingSeatEffectiveAt={seatOnlyPendingChange ? data.pending?.effectiveAt : null}
+								plan={currentPlanOffer}
+								currentPlanPrice={currentPlanSummary?.price}
+								currentPromotionCodes={currentPlanSummary?.promotionCodes}
+								disabled={
+									billingState.isBillingCommandPending ||
+									(data.scheduleConflict && !seatOnlyPendingChange)
+								}
+								onPreviewSeatChange={
+									data.current?.tier === 'team' ? billingState.previewSeatChange : undefined
+								}
+								onConfirmSeatChange={billingState.confirmSeatChange}
+								onCancelPendingSeatChange={
+									seatOnlyPendingChange ? billingState.cancelPendingPlanChange : undefined
+								}
+								onSaveSeatSelection={
+									data.access.tier === 'unlimited' || data.access.tier === 'bypass'
+										? undefined
+										: billingState.saveSeatSelection
+								}
+							/>
+						</>
+					)}
+					{activeTab === 'credits' && (
+						<section className='flex flex-col gap-4'>
+							<div>
+								<h2 className='text-base font-semibold text-foreground'>Organization credits</h2>
+								<p className='text-sm text-muted-foreground'>
+									Fund and review the shared nao AI wallet for this organization.
+								</p>
+							</div>
+							<OrganizationCreditsContent
+								creditCheckout={search.creditCheckout}
+								canViewReplay={canViewChatReplay}
+								activeTab={search.creditsTab ?? 'history'}
+								onTabChange={onCreditsTabChange}
+							/>
+						</section>
+					)}
+					{activeTab === 'invoices' && (
+						<div className='flex flex-col gap-12'>
+							<InvoicesCard billingState={billingState} />
+							<BillingManagementCard billingState={billingState} />
+						</div>
+					)}
+				</div>
+			</SettingsPageWrapper>
+			<CloudBillingPlanChangeDialog
+				open={selectedPlanChange !== null}
+				onOpenChange={(open) => !open && setSelectedPlanChange(null)}
+				plan={selectedPlanChange}
+				currentPlan={planChangeBaseline}
+				disabled={billingState.isPlanSelectionPending}
+				onPreview={(seatQuantity, promotionCode) => {
+					if (!selectedPlanChange) {
+						return Promise.resolve(null);
 					}
-					try {
-						await billingState.confirmPlanChange(token);
-						setChangePreview(null);
-					} catch (error) {
-						if (immediate && changeTier) {
-							setChangePreview(preview);
-						}
-						throw error;
-					} finally {
-						setActivatingPlan(null);
-					}
+					return promotionCode
+						? billingState.previewPlanChange(selectedPlanChange.planKey, seatQuantity, promotionCode)
+						: billingState.previewPlanChange(selectedPlanChange.planKey, seatQuantity);
 				}}
+				onConfirm={(preview) => billingState.confirmPlanChange(preview.previewToken)}
 				onFixPayment={billingState.openPaymentMethodPortal}
 			/>
 			<CloudBillingTeamSeatsDialog
@@ -334,7 +360,7 @@ function CloudOrganizationBillingSettings({
 				redirectsToCheckout={!data.current}
 				disabled={billingState.isPlanSelectionPending}
 				onOpenChange={(open) => !open && setSelectedTeamPlan(null)}
-				onConfirm={previewPlan}
+				onConfirm={startPlanCheckout}
 			/>
 			<CloudBillingSwitchToFreeDialog
 				open={switchToFreeOpen}
@@ -435,6 +461,9 @@ function CloudCurrentPlanCard({
 							? formatBillingPrice(firstPaymentEstimate.amountDue, firstPaymentEstimate.currency)
 							: undefined
 					}
+					promotions={
+						paidPlanAfterTrial && firstPaymentEstimate ? firstPaymentEstimate.promotionCodes : undefined
+					}
 					action={
 						nextPlan.action ? (
 							<Button
@@ -449,7 +478,9 @@ function CloudCurrentPlanCard({
 						) : null
 					}
 				>
-					<UpcomingPaymentEstimate billingState={billingState} embedded={Boolean(paidPlanAfterTrial)} />
+					{!paidPlanAfterTrial && (
+						<UpcomingPaymentEstimate billingState={billingState} promotionPrefix={false} />
+					)}
 				</CloudPlanOverviewColumn>
 			</div>
 		</SettingsCard>
@@ -469,20 +500,27 @@ type CloudPlanOverview = {
 function CloudPlanOverviewColumn({
 	plan,
 	price,
+	promotions,
 	action,
 	children,
 }: {
 	plan: CloudPlanOverview;
 	price?: string;
+	promotions?: string[];
 	action?: ReactNode;
 	children?: ReactNode;
 }) {
 	return (
 		<div className='sm:col-start-auto'>
 			<Badge variant='secondary'>{plan.badge}</Badge>
-			<p className='mt-2 flex flex-wrap items-baseline gap-x-2 text-2xl font-semibold text-foreground'>
+			<p className='mt-2 flex flex-wrap items-center gap-x-2 text-2xl font-semibold leading-none text-foreground'>
 				<span>{plan.name}</span>
-				{price && <span className='text-base font-medium text-muted-foreground'>{price}</span>}
+				{price && <span className='text-base font-medium leading-none text-muted-foreground'>{price}</span>}
+				{promotions?.map((promotion) => (
+					<Badge key={promotion} variant='outline' className='self-center text-xs'>
+						{promotion}
+					</Badge>
+				))}
 			</p>
 			<p className='mt-1 text-sm text-muted-foreground'>{plan.description}</p>
 			{plan.note && <p className='mt-1 text-xs text-muted-foreground'>{plan.note}</p>}
@@ -557,11 +595,15 @@ function getNextCloudPlanOverview(
 		};
 	}
 	if (data.pending) {
+		const seatOnlyChange =
+			data.current?.planKey === data.pending.planKey && data.pending.seatQuantity !== data.current.seatQuantity;
 		return {
 			badge: 'At renewal',
 			name: getCloudPlanName(data.pending.tier, data.pending.seatQuantity),
 			description: getCloudPlanDescription(data.pending.tier, data.pending.seatQuantity),
-			dateLabel: `${data.pending.tier === 'team' ? 'Team' : 'Unlimited'} starts`,
+			dateLabel: seatOnlyChange
+				? `Renews with ${data.pending.seatQuantity} seats`
+				: `${data.pending.tier === 'team' ? 'Team' : 'Unlimited'} starts`,
 			date: effectiveAt,
 			action: { label: 'Cancel change', onClick: onCancelPendingChange },
 		};
@@ -588,6 +630,15 @@ function getCloudPlanName(tier: CloudBillingData['access']['tier'], seatQuantity
 		return 'Unlimited';
 	}
 	return 'Free';
+}
+
+function formatCloudPlanRecurringPrice(
+	plan: CloudPlanOffer,
+	seatQuantity: number | null,
+	amount = plan.unitAmount * (plan.tier === 'team' ? (seatQuantity ?? 1) : 1),
+): string {
+	const interval = plan.interval === 'monthly' ? 'month' : 'year';
+	return `${formatBillingPrice(amount, plan.currency)} / ${interval}`;
 }
 
 function getCloudPlanDescription(tier: CloudBillingData['access']['tier'], seatQuantity: number | null) {
@@ -712,10 +763,10 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 
 function UpcomingPaymentEstimate({
 	billingState,
-	embedded = false,
+	promotionPrefix = true,
 }: {
 	billingState: BillingState;
-	embedded?: boolean;
+	promotionPrefix?: boolean;
 }) {
 	if (!billingState.canLoadUpcomingInvoice) {
 		return null;
@@ -741,18 +792,6 @@ function UpcomingPaymentEstimate({
 		? (trialEndsAt ?? upcomingInvoice.data.nextPaymentAt)
 		: upcomingInvoice.data.nextPaymentAt;
 
-	if (embedded) {
-		return upcomingInvoice.data.promotionCodes.length > 0 ? (
-			<div className='mt-2 flex flex-wrap gap-2'>
-				{upcomingInvoice.data.promotionCodes.map((code) => (
-					<Badge key={code} variant='outline'>
-						Code {code}
-					</Badge>
-				))}
-			</div>
-		) : null;
-	}
-
 	return (
 		<div className='mt-2 rounded-md border border-border bg-muted/40 px-3 py-2'>
 			<p className='text-xs text-muted-foreground'>
@@ -765,7 +804,7 @@ function UpcomingPaymentEstimate({
 				</p>
 				{upcomingInvoice.data.promotionCodes.map((code) => (
 					<Badge key={code} variant='outline'>
-						Code {code}
+						{promotionPrefix ? `Code ${code}` : code}
 					</Badge>
 				))}
 			</div>

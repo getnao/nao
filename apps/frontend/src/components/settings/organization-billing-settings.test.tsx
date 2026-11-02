@@ -28,15 +28,23 @@ const mocks = vi.hoisted(() => ({
 	cloudTrialActive: false,
 	cloudPaidPlanSelected: true,
 	cloudCancellationScheduled: false,
-	cloudPendingPlan: null as { tier: 'team' | 'unlimited'; seatQuantity: number | null } | null,
+	cloudPendingPlan: null as {
+		tier: 'team' | 'unlimited';
+		seatQuantity: number | null;
+		samePlan?: boolean;
+	} | null,
 	cloudSeatUserCount: 4,
 	cloudSeatQuantity: 4,
 	cloudSeatCandidates: [] as CloudSeatCandidate[],
 	cloudSaveSeatSelection: vi.fn(),
+	cloudSwitchToFree: vi.fn(),
 	cloudKeepPlan: vi.fn(),
+	cloudCancelPendingPlanChange: vi.fn(),
 	cloudOpenTrialCheckoutForPlan: vi.fn(),
 	cloudConfirmPlanChange: vi.fn(),
 	cloudPreviewPlanChange: vi.fn(),
+	cloudConfirmSeatChange: vi.fn(),
+	cloudPreviewSeatChange: vi.fn(),
 	localTrialActive: false,
 	openPaymentMethodPortal: vi.fn(),
 	openPortal: vi.fn(),
@@ -99,10 +107,14 @@ beforeEach(() => {
 	mocks.cloudSeatQuantity = 4;
 	mocks.cloudSeatCandidates = [];
 	mocks.cloudSaveSeatSelection.mockReset();
+	mocks.cloudSwitchToFree.mockReset();
 	mocks.cloudKeepPlan.mockReset();
+	mocks.cloudCancelPendingPlanChange.mockReset();
 	mocks.cloudOpenTrialCheckoutForPlan.mockReset();
 	mocks.cloudConfirmPlanChange.mockReset();
 	mocks.cloudPreviewPlanChange.mockReset();
+	mocks.cloudConfirmSeatChange.mockReset();
+	mocks.cloudPreviewSeatChange.mockReset();
 	mocks.localTrialActive = false;
 	mocks.selectedBillingInterval = 'monthly';
 	mocks.stripeTrialPlaceholder = false;
@@ -359,7 +371,7 @@ it('shows the selected Team capacity and first payment after the free trial', ()
 		amountDue: 30_000,
 		currency: 'usd',
 		nextPaymentAt: new Date('2099-10-01T00:00:00.000Z'),
-		promotionCodes: [],
+		promotionCodes: ['EARLY50'],
 	};
 
 	render(<OrganizationBillingSettings search={{}} />);
@@ -370,6 +382,8 @@ it('shows the selected Team capacity and first payment after the free trial', ()
 	expect(screen.getByText('Free trial')).toBeTruthy();
 	expect(screen.getByText('Team · 6 seats')).toBeTruthy();
 	expect(screen.getByText('$300')).toBeTruthy();
+	expect(screen.getByText('EARLY50')).toBeTruthy();
+	expect(screen.queryByText('Code EARLY50')).toBeNull();
 	expect(
 		screen.getByText('Nothing is charged during your trial; the estimate includes discounts, credits, and tax.'),
 	).toBeTruthy();
@@ -381,6 +395,10 @@ it('shows the selected Team capacity and first payment after the free trial', ()
 	fireEvent.click(screen.getByRole('button', { name: 'Choose Free' }));
 	expect(screen.getByRole('dialog', { name: 'Use Free after trial' })).toBeTruthy();
 	expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+	expect(screen.queryByText('Choose who keeps full access')).toBeNull();
+
+	fireEvent.click(screen.getByRole('button', { name: 'Confirm Free after trial' }));
+	expect(mocks.cloudSwitchToFree).toHaveBeenCalledWith(undefined);
 });
 
 it('keeps post-trial plan and interval selection enabled for the default Free destination', () => {
@@ -447,6 +465,17 @@ it('shows a scheduled plan change as the next subscription', () => {
 	expect(screen.getByRole('button', { name: 'Cancel change' })).toBeTruthy();
 });
 
+it('shows a scheduled seat reduction as the next renewal capacity', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudSeatQuantity = 6;
+	mocks.cloudPendingPlan = { tier: 'team', seatQuantity: 4, samePlan: true };
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	expect(screen.getByText('Renews with 4 seats')).toBeTruthy();
+	expect(screen.getByRole('button', { name: 'Cancel change' })).toBeTruthy();
+});
+
 it('allows Team capacity below trial occupancy and explains the read-only outcome', () => {
 	mocks.freeTierEnabled = true;
 	mocks.cloudTrialActive = true;
@@ -472,13 +501,81 @@ it('reviews an existing subscription Team change after seat selection', () => {
 	render(<OrganizationBillingSettings search={{}} />);
 
 	fireEvent.click(screen.getByRole('button', { name: 'Choose Team' }));
+	expect(screen.getByLabelText(/Promotion code/)).toBeTruthy();
 	fireEvent.change(screen.getByLabelText('Paid seats'), { target: { value: '6' } });
+	expect(screen.getByRole('dialog', { name: 'Change to Team' }).textContent).toContain('$3,000 / year');
 	fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
 
 	expect(mocks.cloudPreviewPlanChange).toHaveBeenCalledWith('cloud_team_yearly_v1', 6);
 });
 
-it('shows the focused activation state during an immediate in-app plan change', async () => {
+it('re-previews a plan change with a replacement promotion code before confirming', async () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudSeatQuantity = 8;
+	mocks.upcomingInvoice = {
+		amountDue: 36_000,
+		currency: 'usd',
+		nextPaymentAt: new Date('2026-11-01T00:00:00.000Z'),
+		promotionCodes: ['CURRENT10'],
+	};
+	const preview = {
+		amountDue: 10_000,
+		subtotal: 10_000,
+		tax: 0,
+		discount: 0,
+		currency: 'usd',
+		lines: [],
+		previewToken: 'initial-preview-token',
+		expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+		effective: 'immediate' as const,
+		effectiveAt: new Date('2026-10-30T00:00:00.000Z'),
+		firstChargeAt: new Date('2026-11-15T00:00:00.000Z'),
+		promotionCodeDiscount: null,
+		readOnlyUsersAfterChange: [],
+	};
+	mocks.cloudPreviewPlanChange.mockResolvedValue({
+		...preview,
+		amountDue: 8_000,
+		discount: 2_000,
+		previewToken: 'promotion-preview-token',
+		promotionCodeDiscount: { amount: 160_000, duration: 'forever' },
+	});
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
+	const dialog = screen.getByRole('dialog', { name: 'Change to Unlimited' });
+	expect(dialog.textContent).toContain('Team · 8 seats');
+	expect(dialog.textContent).toContain('$360 / month');
+	expect(dialog.textContent).toContain('CURRENT10');
+	expect(dialog.textContent).toContain('Unlimited');
+	expect(dialog.textContent).toContain('$2,000 / month');
+	expect(screen.queryByLabelText('Paid seats')).toBeNull();
+	const promotionCode = await screen.findByLabelText(/Promotion code/);
+	fireEvent.change(promotionCode, { target: { value: 'LAUNCH20' } });
+
+	fireEvent.click(screen.getByRole('button', { name: 'Apply code' }));
+
+	await waitFor(() =>
+		expect(mocks.cloudPreviewPlanChange).toHaveBeenLastCalledWith(
+			'cloud_unlimited_monthly_v1',
+			undefined,
+			'LAUNCH20',
+		),
+	);
+	expect(screen.getByRole('status').textContent).toContain('Valid');
+	expect(screen.queryByRole('button', { name: 'Apply code' })).toBeNull();
+	expect(dialog.textContent).toContain('$1,600 / month');
+	expect(dialog.textContent).toContain('LAUNCH20');
+	expect(dialog.textContent).not.toContain('Subtotal');
+	expect(dialog.textContent).not.toContain('Tax');
+	expect(dialog.textContent).not.toContain('Due now');
+	fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }));
+
+	await waitFor(() => expect(mocks.cloudConfirmPlanChange).toHaveBeenCalledWith('promotion-preview-token'));
+});
+
+it('keeps the plan dialog pending during an immediate in-app plan change', async () => {
 	mocks.freeTierEnabled = true;
 	mocks.cloudPreviewPlanChange.mockResolvedValue({
 		amountDue: 100,
@@ -491,6 +588,7 @@ it('shows the focused activation state during an immediate in-app plan change', 
 		expiresAt: new Date('2099-01-01T00:00:00.000Z'),
 		effective: 'immediate',
 		effectiveAt: new Date('2026-10-30T00:00:00.000Z'),
+		promotionCodeDiscount: null,
 		readOnlyUsersAfterChange: [],
 	});
 	let finishChange = () => {};
@@ -504,13 +602,16 @@ it('shows the focused activation state during an immediate in-app plan change', 
 	render(<OrganizationBillingSettings search={{}} />);
 
 	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
 	fireEvent.click(await screen.findByRole('button', { name: 'Confirm change' }));
 
-	expect(await screen.findByRole('status', { name: 'Activating your Unlimited plan…' })).toBeTruthy();
 	expect(mocks.cloudConfirmPlanChange).toHaveBeenCalledWith('preview-token');
+	await waitFor(() =>
+		expect((screen.getByRole('button', { name: 'Confirm change' }) as HTMLButtonElement).disabled).toBe(true),
+	);
 
 	await act(async () => finishChange());
-	await waitFor(() => expect(screen.queryByText('Activating your Unlimited plan…')).toBeNull());
+	await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change to Unlimited' })).toBeNull());
 });
 
 it('keeps paid choices editable when Free was scheduled during an active trial', () => {
@@ -525,8 +626,14 @@ it('keeps paid choices editable when Free was scheduled during an active trial',
 	expect((screen.getByRole('button', { name: 'Choose Team' }) as HTMLButtonElement).disabled).toBe(false);
 	expect((screen.getByRole('button', { name: 'Choose Unlimited' }) as HTMLButtonElement).disabled).toBe(false);
 	expect(screen.queryByRole('button', { name: 'Keep paid plan after trial' })).toBeNull();
+	expect(screen.queryByRole('button', { name: 'Keep my plan' })).toBeNull();
 
 	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
+	const dialog = screen.getByRole('dialog', { name: 'Change to Unlimited' });
+	expect(dialog.textContent).toContain('Selected after trialFree');
+	expect(dialog.textContent).toContain('$0 forever');
+	expect(dialog.textContent).not.toContain('CurrentTeam');
+	fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
 	expect(mocks.cloudPreviewPlanChange).toHaveBeenCalledWith('cloud_unlimited_monthly_v1', undefined);
 });
 
@@ -604,10 +711,12 @@ it('opens a URL-selected billing tab and emits top-level tab changes', () => {
 	expect(screen.queryByRole('link', { name: 'Manage members' })).toBeNull();
 	expect(screen.getByRole('row', { name: /admin@example.com/ }).textContent).toContain('Seated');
 	expect(screen.getByRole('row', { name: /project@example.com/ }).textContent).toContain('Read-only');
-	expect(screen.getByLabelText('Number of seats')).toHaveProperty('value', '4');
-	expect(screen.getByLabelText('Number of seats')).toHaveProperty('max', '40');
+	fireEvent.click(screen.getByRole('button', { name: 'Adjust seats' }));
+	expect(screen.getByRole('dialog', { name: 'Adjust seats' })).toBeTruthy();
+	expect(screen.getByLabelText('Paid seats')).toHaveProperty('value', '4');
 	expect(screen.queryByRole('button', { name: 'Actions for Admin' })).toBeNull();
 	expect(screen.queryByText('Compare plans')).toBeNull();
+	fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
 	fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Employee' }), { button: 0, ctrlKey: false });
 	fireEvent.click(screen.getByRole('menuitem', { name: 'Make read-only' }));
@@ -616,6 +725,106 @@ it('opens a URL-selected billing tab and emits top-level tab changes', () => {
 	fireEvent.click(screen.getByRole('tab', { name: 'Credits' }));
 	expect(onTabChange).toHaveBeenCalledWith('credits');
 });
+
+it('previews and confirms an immediate paid-seat increase', async () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudPreviewSeatChange.mockResolvedValue(
+		billingChangePreview({
+			effective: 'immediate',
+			promotionCodeDiscount: { amount: 24_000, duration: 'forever' },
+		}),
+	);
+
+	render(<OrganizationBillingSettings search={{ tab: 'seats' }} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Adjust seats' }));
+	fireEvent.change(screen.getByLabelText('Paid seats'), { target: { value: '6' } });
+	fireEvent.change(screen.getByLabelText('Promotion code (optional)'), {
+		target: { value: 'SAVE20' },
+	});
+	fireEvent.click(screen.getByRole('button', { name: 'Apply code' }));
+
+	await waitFor(() => expect(mocks.cloudPreviewSeatChange).toHaveBeenCalledWith(6, 'SAVE20'));
+	const dialog = screen.getByRole('dialog', { name: 'Adjust seats' });
+	expect(dialog.textContent).toContain('CurrentTeam · 4 seats');
+	expect(dialog.textContent).toContain('New planTeam · 6 seats');
+	expect(dialog.textContent).toContain('$240 / month');
+	expect(dialog.textContent).toContain('SAVE20');
+	expect(screen.getByRole('status').textContent).toContain('Valid');
+	expect(dialog.textContent).toContain('This change takes effect immediately');
+	expect(dialog.textContent).not.toContain('Subtotal');
+	expect(dialog.textContent).not.toContain('Tax');
+	expect(dialog.textContent).not.toContain('Discounts');
+
+	fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }));
+	await waitFor(() => expect(mocks.cloudConfirmSeatChange).toHaveBeenCalledWith('seat-preview-token'));
+});
+
+it('replaces or cancels a seat reduction scheduled for renewal', async () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudSeatQuantity = 6;
+	mocks.cloudPendingPlan = { tier: 'team', seatQuantity: 4, samePlan: true };
+	mocks.cloudPreviewSeatChange.mockResolvedValue(
+		billingChangePreview({
+			effective: 'period_end',
+			effectiveAt: new Date('2026-11-01T00:00:00.000Z'),
+		}),
+	);
+
+	const { unmount } = render(<OrganizationBillingSettings search={{ tab: 'seats' }} />);
+
+	const adjustButton = screen.getByRole('button', { name: 'Adjust seats' }) as HTMLButtonElement;
+	expect(adjustButton.disabled).toBe(false);
+	fireEvent.click(adjustButton);
+	expect(screen.getByText(/4 seats are scheduled/)).toBeTruthy();
+	expect(screen.getByLabelText('Paid seats')).toHaveProperty('value', '4');
+	fireEvent.change(screen.getByLabelText('Paid seats'), { target: { value: '5' } });
+	fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
+	await waitFor(() => expect(mocks.cloudPreviewSeatChange).toHaveBeenCalledWith(5));
+	expect(screen.getByRole('dialog', { name: 'Adjust seats' }).textContent).toContain(
+		'This change takes effect on Nov 1, 2026',
+	);
+
+	unmount();
+	render(<OrganizationBillingSettings search={{ tab: 'seats' }} />);
+	fireEvent.click(screen.getByRole('button', { name: 'Adjust seats' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Cancel scheduled change' }));
+	await waitFor(() => expect(mocks.cloudCancelPendingPlanChange).toHaveBeenCalledOnce());
+});
+
+it('disables seat adjustments while a different plan change is pending', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudPendingPlan = { tier: 'unlimited', seatQuantity: null };
+
+	render(<OrganizationBillingSettings search={{ tab: 'seats' }} />);
+
+	expect((screen.getByRole('button', { name: 'Adjust seats' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+function billingChangePreview(
+	overrides: Partial<{
+		effective: 'immediate' | 'period_end';
+		effectiveAt: Date;
+		promotionCodeDiscount: { amount: number; duration: 'forever' | 'once' | 'repeating' } | null;
+	}> = {},
+) {
+	return {
+		amountDue: 1_000,
+		subtotal: 1_000,
+		tax: 0,
+		discount: 0,
+		currency: 'usd',
+		lines: [],
+		previewToken: 'seat-preview-token',
+		expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+		effective: 'immediate' as const,
+		effectiveAt: new Date('2026-10-01T00:00:00.000Z'),
+		firstChargeAt: null,
+		promotionCodeDiscount: null,
+		readOnlyUsersAfterChange: [],
+		...overrides,
+	};
+}
 
 function billingState(): BillingState {
 	if (mocks.freeTierEnabled) {
@@ -739,7 +948,7 @@ function billingState(): BillingState {
 		previewPlanChange: vi.fn(),
 		confirmPlanChange: vi.fn(),
 		saveSeatSelection: vi.fn(),
-		switchToFree: vi.fn(),
+		switchToFree: mocks.cloudSwitchToFree,
 		keepPlan: vi.fn(),
 		cancelPendingPlanChange: vi.fn(),
 		isBillingCommandPending: false,
@@ -837,19 +1046,20 @@ function cloudBillingState(): BillingState {
 				current: currentPlan,
 				pending: mocks.cloudPendingPlan
 					? {
-							planKey:
-								mocks.cloudPendingPlan.tier === 'team'
+							planKey: mocks.cloudPendingPlan.samePlan
+								? ('cloud_team_monthly_v1' as const)
+								: mocks.cloudPendingPlan.tier === 'team'
 									? ('cloud_team_yearly_v1' as const)
 									: ('cloud_unlimited_yearly_v1' as const),
 							tier: mocks.cloudPendingPlan.tier,
-							interval: 'yearly' as const,
+							interval: mocks.cloudPendingPlan.samePlan ? ('monthly' as const) : ('yearly' as const),
 							seatQuantity: mocks.cloudPendingPlan.seatQuantity,
 							effectiveAt: new Date('2026-11-01T00:00:00.000Z'),
 						}
 					: null,
 				recommendation: 'team',
 				cancellationScheduled: mocks.cloudCancellationScheduled,
-				scheduleConflict: false,
+				scheduleConflict: mocks.cloudPendingPlan !== null,
 				currentPeriodEndsAt: new Date('2026-11-01T00:00:00.000Z'),
 				invoiceHistoryAvailable: false,
 				canManageBilling: true,
@@ -884,12 +1094,12 @@ function billingStateDefaults(): Partial<BillingState> {
 		isPlanSelectionPending: false,
 		previewPlanChange: mocks.cloudPreviewPlanChange,
 		confirmPlanChange: mocks.cloudConfirmPlanChange,
-		previewSeatChange: vi.fn(),
-		confirmSeatChange: vi.fn(),
+		previewSeatChange: mocks.cloudPreviewSeatChange,
+		confirmSeatChange: mocks.cloudConfirmSeatChange,
 		saveSeatSelection: mocks.cloudSaveSeatSelection,
-		switchToFree: vi.fn(),
+		switchToFree: mocks.cloudSwitchToFree,
 		keepPlan: mocks.cloudKeepPlan,
-		cancelPendingPlanChange: vi.fn(),
+		cancelPendingPlanChange: mocks.cloudCancelPendingPlanChange,
 		openTrialCheckoutForPlan: mocks.cloudOpenTrialCheckoutForPlan,
 		resubscribeForPlan: vi.fn(),
 		openPaymentMethodPortal: vi.fn(),

@@ -4,6 +4,7 @@ import * as billingQueries from '../queries/billing.queries';
 import { getCreditPurchaseByPaymentIntent } from '../queries/credit-wallet.queries';
 import { settleCreditTopUpCheckout } from '../services/billing-management.service';
 import {
+	isPendingBillingChangeActivated,
 	reconcileCloudBillingCustomer,
 	reconcileCloudBillingCustomerUnderLock,
 } from '../services/billing-reconciliation.service';
@@ -320,9 +321,9 @@ async function processSubscription(stripeSubscriptionId: string, eventType?: str
 			organizationIdHint: organizationId,
 		});
 		if (
-			result.before?.pendingBillingPlan &&
-			result.after?.billingPlan === result.before.pendingBillingPlan &&
-			result.after.stripeSubscriptionScheduleId
+			result.before &&
+			result.after?.stripeSubscriptionScheduleId &&
+			isPendingBillingChangeActivated(result.before, result.after)
 		) {
 			await releaseCloudPlanChangeSchedule(result.after.stripeSubscriptionScheduleId);
 			await reconcileCloudBillingCustomerUnderLock({

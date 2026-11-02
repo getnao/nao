@@ -347,7 +347,12 @@ export const billingRoutes = {
 	}),
 
 	previewSeatChange: cloudFreeTierAdminProcedure
-		.input(z.object({ targetQuantity: z.number().int().min(4) }))
+		.input(
+			z.object({
+				targetQuantity: z.number().int().min(4),
+				promotionCode: z.string().trim().min(1).max(200).optional(),
+			}),
+		)
 		.mutation(async ({ ctx, input }) =>
 			previewCloudSeatChangeForAdmin({
 				...input,
@@ -371,6 +376,7 @@ export const billingRoutes = {
 					Object.keys(CLOUD_BILLING_PLANS) as [CloudBillingPlanKey, ...CloudBillingPlanKey[]],
 				),
 				targetSeatQuantity: z.number().int().min(4).optional(),
+				promotionCode: z.string().trim().min(1).max(200).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) =>
@@ -515,7 +521,7 @@ async function getCanonicalBillingStatus(
 		entitlement.tier === 'team' && entitlement.seatQuantity === null
 			? 0
 			: entitlement.tier === 'trial'
-				? entitlement.seatUserCount
+				? null
 				: entitlement.seatLimit;
 	const seatedIds = new Set(organizationQueries.resolveSeatedOrgUserIds(candidates, effectiveSeatLimit));
 	const seatCandidates = candidates.map((candidate) => ({
@@ -531,13 +537,14 @@ async function getCanonicalBillingStatus(
 		isSeated: seatedIds.has(candidate.id),
 		isReadOnly: !seatedIds.has(candidate.id),
 	}));
-	const currentDefinition = billing?.billingPlan
-		? isCloudBillingPlanKey(billing.billingPlan)
-			? CLOUD_BILLING_PLANS[billing.billingPlan]
-			: isLegacyCloudBillingPlanKey(billing.billingPlan)
-				? LEGACY_CLOUD_BILLING_PLANS[billing.billingPlan]
-				: null
-		: null;
+	const currentDefinition =
+		billing?.billingPlan && !isTerminalBillingStatus(billing.billingStatus)
+			? isCloudBillingPlanKey(billing.billingPlan)
+				? CLOUD_BILLING_PLANS[billing.billingPlan]
+				: isLegacyCloudBillingPlanKey(billing.billingPlan)
+					? LEGACY_CLOUD_BILLING_PLANS[billing.billingPlan]
+					: null
+			: null;
 	const pendingDefinition =
 		billing?.pendingBillingPlan && isCloudBillingPlanKey(billing.pendingBillingPlan)
 			? CLOUD_BILLING_PLANS[billing.pendingBillingPlan]

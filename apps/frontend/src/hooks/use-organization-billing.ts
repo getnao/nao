@@ -161,11 +161,12 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 			}),
 		resubscribeForPlan: (planKey: CloudBillingPlanKey, seatQuantity?: number) =>
 			resubscribe.mutate({ planKey, seatQuantity, currency: selectedBillingCurrency }),
-		previewSeatChange: (targetQuantity: number) => previewSeatChange.mutateAsync({ targetQuantity }),
+		previewSeatChange: (targetQuantity: number, promotionCode?: string) =>
+			previewSeatChange.mutateAsync({ targetQuantity, promotionCode }),
 		confirmSeatChange: (previewToken: string) =>
 			changeSeatQuantity.mutateAsync({ previewToken, requestId: crypto.randomUUID() }),
-		previewPlanChange: (targetPlanKey: CloudBillingPlanKey, targetSeatQuantity?: number) =>
-			previewPlanChange.mutateAsync({ targetPlanKey, targetSeatQuantity }),
+		previewPlanChange: (targetPlanKey: CloudBillingPlanKey, targetSeatQuantity?: number, promotionCode?: string) =>
+			previewPlanChange.mutateAsync({ targetPlanKey, targetSeatQuantity, promotionCode }),
 		confirmPlanChange: (previewToken: string) =>
 			changePlan.mutateAsync({ previewToken, requestId: crypto.randomUUID() }),
 		saveSeatSelection: (selectedUserIds: string[]) => selectSeats.mutateAsync({ selectedUserIds }),

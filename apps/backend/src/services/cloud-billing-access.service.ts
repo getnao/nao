@@ -312,14 +312,16 @@ export async function isUserReadOnlyInOrganization(
 	if (!entitlement || !entitlement.hasAccess || entitlement.tier === 'bypass' || entitlement.tier === 'unlimited') {
 		return false;
 	}
+	if (entitlement.tier === 'trial') {
+		return false;
+	}
 	if (entitlement.tier === 'team' && entitlement.seatQuantity === null) {
 		return (await listOrgSeatCandidates(organizationId)).some(({ id }) => id === userId);
 	}
-	const effectiveSeatLimit = entitlement.tier === 'trial' ? entitlement.seatUserCount : entitlement.seatLimit;
-	if (effectiveSeatLimit === null) {
+	if (entitlement.seatLimit === null) {
 		return false;
 	}
-	return (await listReadOnlyOrgUsers(organizationId, effectiveSeatLimit)).some(({ id }) => id === userId);
+	return (await listReadOnlyOrgUsers(organizationId, entitlement.seatLimit)).some(({ id }) => id === userId);
 }
 
 export async function assertOrganizationCloudBillingAccess(

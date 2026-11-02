@@ -348,6 +348,30 @@ describe('cloud billing reconciliation', () => {
 		);
 	});
 
+	it('restores full access when a trial has a stale read-only assignment', async () => {
+		mocks.isCloudFreeTierEnabled.mockReturnValue(true);
+		mocks.getOrganizationById.mockResolvedValue({ id: 'org-id', bypassBilling: false });
+		mocks.countOrgSeatUsers.mockResolvedValue(4);
+		mocks.listSubscriptions.mockResolvedValue([buildSubscription({ status: 'trialing' })]);
+		mocks.subscriptionProjection.mockResolvedValue({
+			...subscriptionProjection(),
+			billingStatus: 'trialing',
+			trialEndsAt: new Date('2999-01-01T00:00:00.000Z'),
+		});
+		mocks.listOrgSeatCandidates.mockResolvedValue([
+			{ id: 'user-4', storedReadOnly: true },
+			{ id: 'user-1', storedReadOnly: false },
+		]);
+
+		await expect(reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' })).resolves.toMatchObject({
+			newlyReadOnlyUserIds: [],
+		});
+		expect(mocks.syncOrganizationSeatState).toHaveBeenCalledOnce();
+		expect(mocks.syncOrganizationSeatState).toHaveBeenCalledWith(
+			expect.objectContaining({ orgId: 'org-id', userId: 'user-4', isReadOnly: false }),
+		);
+	});
+
 	it('syncs read-only users back to seated when capacity expands', async () => {
 		const billing = buildBilling({
 			billingPlan: 'cloud_team_monthly_v1',

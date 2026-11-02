@@ -13,6 +13,7 @@ const stripeMocks = vi.hoisted(() => ({
 	listCheckoutSessions: vi.fn(),
 	listInvoices: vi.fn(),
 	listPrices: vi.fn(),
+	listPromotionCodes: vi.fn(),
 	listSubscriptions: vi.fn(),
 	retrieveCheckoutSession: vi.fn(),
 	retrievePrice: vi.fn(),
@@ -57,6 +58,9 @@ vi.mock('stripe', () => ({
 		products = {
 			retrieve: stripeMocks.retrieveProduct,
 		};
+		promotionCodes = {
+			list: stripeMocks.listPromotionCodes,
+		};
 		subscriptions = {
 			cancel: stripeMocks.cancelSubscription,
 			create: stripeMocks.createSubscription,
@@ -93,6 +97,7 @@ import {
 	createCloudPortalSession,
 	createCloudResubscribeSession,
 	createCloudTrialPlaceholderSubscription,
+	findActiveCloudPromotionCode,
 	findCloudSubscription,
 	findManagedCloudSubscription,
 	getCloudBillingPlans,
@@ -159,6 +164,7 @@ beforeEach(() => {
 		data: [priceForLookupKey(lookup_keys?.[0])],
 	}));
 	stripeMocks.listCheckoutSessions.mockReturnValue(paginatedList([]));
+	stripeMocks.listPromotionCodes.mockResolvedValue({ data: [] });
 	stripeMocks.listSubscriptions.mockReturnValue(paginatedList([]));
 	stripeMocks.expireCheckoutSession.mockResolvedValue({});
 	stripeMocks.retrieveCustomer.mockResolvedValue({
@@ -782,6 +788,35 @@ describe('cloud Checkout', () => {
 			expect.anything(),
 		);
 		expect(stripeMocks.listCheckoutSessions).toHaveBeenCalledTimes(2);
+	});
+
+	it('expires an open initial Checkout before creating a resubscribe Checkout', async () => {
+		stripeMocks.listSubscriptions.mockReturnValue(paginatedList([cloudSubscription({ status: 'canceled' })]));
+		stripeMocks.listCheckoutSessions.mockImplementation((params: Stripe.Checkout.SessionListParams) =>
+			paginatedList(
+				params.status === 'open'
+					? [
+							{
+								id: 'cs_initial',
+								metadata: {
+									nao_org_id: 'org-id',
+									nao_plan_key: 'cloud_monthly_v2',
+									nao_checkout_kind: 'initial',
+								},
+							},
+						]
+					: [],
+			),
+		);
+		stripeMocks.createCheckoutSession.mockResolvedValue({ url: 'https://checkout.stripe.com/resubscribe' });
+
+		await createCloudResubscribeSession({
+			billingInterval: 'monthly',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+		});
+
+		expect(stripeMocks.expireCheckoutSession).toHaveBeenCalledWith('cs_initial');
 	});
 
 	it('continues when a superseded Checkout expires during an expiration race', async () => {
@@ -1516,7 +1551,36 @@ describe('cloud billing recovery', () => {
 				proration_behavior: 'always_invoice',
 				proration_date: prorationTimestamp,
 			},
-			{ idempotencyKey: 'cloud-seat-quantity-v1:org-id:sub_cloud:request-id:5' },
+			{
+				idempotencyKey: 'cloud-seat-quantity-v2:org-id:sub_cloud:request-id:5:keep-discounts',
+			},
+		);
+	});
+
+	it('replaces the subscription discount when applying a seat promotion code', async () => {
+		const subscription = cloudSubscription({
+			status: 'active',
+			items: {
+				data: [{ id: 'si_team', price: teamMonthlyPrice(), quantity: 4 }],
+			} as Stripe.Subscription['items'],
+		});
+		stripeMocks.updateSubscription.mockResolvedValue(subscription);
+
+		await updateCloudSubscriptionQuantity({
+			organizationId: 'org-id',
+			subscription,
+			targetQuantity: 5,
+			prorationDate: new Date('2026-10-30T12:00:00.000Z'),
+			requestId: 'request-id',
+			promotionCodeId: 'promo_team',
+		});
+
+		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
+			'sub_cloud',
+			expect.objectContaining({ discounts: [{ promotion_code: 'promo_team' }] }),
+			{
+				idempotencyKey: 'cloud-seat-quantity-v2:org-id:sub_cloud:request-id:5:promo_team',
+			},
 		);
 	});
 
@@ -1537,13 +1601,49 @@ describe('cloud billing recovery', () => {
 			lines: { data: [] },
 		});
 		stripeMocks.updateSubscription.mockResolvedValue(subscription);
+		stripeMocks.listPromotionCodes
+			.mockResolvedValueOnce({
+				data: [{ id: 'promo_other_customer', customer: 'cus_other' }],
+			})
+			.mockResolvedValueOnce({
+				data: [
+					{
+						id: 'promo_launch',
+						customer: 'cus_cloud',
+						promotion: {
+							type: 'coupon',
+							coupon: {
+								amount_off: null,
+								applies_to: null,
+								currency: null,
+								currency_options: null,
+								duration: 'forever',
+								percent_off: 20,
+							},
+						},
+					},
+				],
+			});
 
+		await expect(
+			findActiveCloudPromotionCode({
+				code: 'LAUNCH20',
+				stripeCustomerId: 'cus_cloud',
+				targetPlanKey: 'cloud_unlimited_monthly_v1',
+				targetQuantity: 1,
+			}),
+		).resolves.toEqual({
+			id: 'promo_launch',
+			discountedPlanAmount: 160_000,
+			duration: 'forever',
+		});
 		await previewCloudSubscriptionChange({
 			subscription,
 			targetPlanKey: 'cloud_unlimited_monthly_v1',
 			targetQuantity: 1,
 			prorationDate,
 			prorationBehavior: 'none',
+			promotionCodeId: 'promo_launch',
 		});
 		await updateCloudSubscriptionPlan({
 			organizationId: 'org-id',
@@ -1553,6 +1653,7 @@ describe('cloud billing recovery', () => {
 			prorationDate,
 			requestId: 'request-id',
 			chargeImmediately: false,
+			promotionCodeId: 'promo_launch',
 		});
 		await updateCloudSubscriptionQuantity({
 			organizationId: 'org-id',
@@ -1564,13 +1665,30 @@ describe('cloud billing recovery', () => {
 
 		const trialParams = { proration_behavior: 'none', cancel_at_period_end: false, trial_end: trialEnd };
 		const items = [{ id: 'si_team', price: 'price_unlimited_monthly', quantity: 1 }];
+		expect(stripeMocks.listPromotionCodes).toHaveBeenNthCalledWith(1, {
+			active: true,
+			code: 'LAUNCH20',
+			expand: ['data.promotion.coupon'],
+			limit: 1,
+		});
+		expect(stripeMocks.listPromotionCodes).toHaveBeenNthCalledWith(2, {
+			active: true,
+			code: 'LAUNCH20',
+			customer: 'cus_cloud',
+			expand: ['data.promotion.coupon'],
+			limit: 1,
+		});
 		expect(stripeMocks.createInvoicePreview).toHaveBeenCalledWith({
 			subscription: 'sub_cloud',
-			subscription_details: { items, ...trialParams },
+			discounts: [{ promotion_code: 'promo_launch' }],
+			subscription_details: {
+				items,
+				...trialParams,
+			},
 		});
 		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
 			'sub_cloud',
-			{ items, ...trialParams },
+			{ items, discounts: [{ promotion_code: 'promo_launch' }], ...trialParams },
 			expect.anything(),
 		);
 		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
@@ -1671,6 +1789,7 @@ describe('cloud billing recovery', () => {
 			targetPlanKey: 'cloud_team_monthly_v1',
 			targetQuantity: 6,
 			effectiveAt: new Date(1_800_000_000_000),
+			promotionCodeId: 'promo_launch',
 		});
 		await releaseCloudPlanChangeSchedule(schedule.id);
 
@@ -1689,6 +1808,7 @@ describe('cloud billing recovery', () => {
 					expect.objectContaining({ items: expect.any(Array) }),
 					expect.objectContaining({
 						items: [{ price: 'price_team_monthly', quantity: 6 }],
+						discounts: [{ promotion_code: 'promo_launch' }],
 						proration_behavior: 'none',
 					}),
 				]),
@@ -1717,7 +1837,7 @@ describe('cloud billing recovery', () => {
 		await expect(getCloudUpcomingInvoice('sub_cloud')).resolves.toEqual({
 			amountDue: 100_000,
 			currency: 'usd',
-			nextPaymentAt: new Date(1_796_000_000_000),
+			nextPaymentAt: new Date(1_798_592_000_000),
 			promotionCodes: ['EARLY50'],
 		});
 		expect(stripeMocks.createInvoicePreview).toHaveBeenCalledWith({

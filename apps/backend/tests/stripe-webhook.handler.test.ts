@@ -43,7 +43,8 @@ vi.mock('../src/services/credit-wallet.service', () => ({
 	setCreditPurchaseMovement: mocks.setCreditPurchaseMovement,
 }));
 
-vi.mock('../src/services/billing-reconciliation.service', () => ({
+vi.mock('../src/services/billing-reconciliation.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/billing-reconciliation.service')>()),
 	reconcileCloudBillingCustomer: mocks.reconcileCustomer,
 	reconcileCloudBillingCustomerUnderLock: mocks.reconcileCustomer,
 }));
@@ -363,6 +364,33 @@ describe('stripeWebhookProcessHandler', () => {
 		expect(mocks.releaseSchedule).toHaveBeenCalledWith('sched_cloud');
 		expect(mocks.reconcileCustomer).toHaveBeenCalledTimes(2);
 		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
+	});
+
+	it('keeps a scheduled seat decrease that has not reached its renewal', async () => {
+		mocks.getEvent.mockResolvedValue({
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_cloud' } },
+		});
+		mocks.findManagedSubscription.mockResolvedValue({
+			id: 'sub_cloud',
+			customer: 'cus_cloud',
+			metadata: { nao_org_id: 'org-id' },
+		});
+		mocks.reconcileCustomer.mockResolvedValueOnce({
+			applied: true,
+			ignored: false,
+			before: { pendingBillingPlan: 'cloud_team_monthly_v1', pendingSeatQuantity: 4 },
+			after: {
+				billingPlan: 'cloud_team_monthly_v1',
+				seatQuantity: 6,
+				pendingBillingPlan: 'cloud_team_monthly_v1',
+				stripeSubscriptionScheduleId: 'sched_cloud',
+			},
+		});
+
+		await stripeWebhookProcessHandler({ eventId: 'evt_123' }, {} as never);
+
+		expect(mocks.releaseSchedule).not.toHaveBeenCalled();
 	});
 
 	it.each(CHECKOUT_EVENT_TYPES)('reconciles subscription state after %s', async (eventType) => {

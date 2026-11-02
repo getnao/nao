@@ -135,12 +135,8 @@ export function useOrganizationBillingSync(
 
 	const checkoutFeedback = getCheckoutFeedback(search.checkout, isCheckoutConfirmed, isCheckoutPolling);
 	const portalFeedback =
-		search.portal === 'returned'
-			? syncStripeBilling.isError
-				? 'Unable to refresh billing details from Stripe.'
-				: syncStripeBilling.isPending || isBillingRefreshPolling
-					? 'Refreshing billing changes from Stripe…'
-					: 'Billing details refreshed from Stripe.'
+		search.portal === 'returned' && syncStripeBilling.isError
+			? 'Unable to refresh billing details from Stripe.'
 			: null;
 
 	const invalidateBillingAndMembers = () =>

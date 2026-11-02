@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
-import { TEAM_MAX_SEATS, TEAM_MIN_SEATS } from '@nao/shared/billing';
+import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
+import type { CloudBillingChangePreview } from '@/components/settings/cloud-billing-change-dialog';
+import type { CloudPlanOffer } from '@/components/settings/cloud-billing-plan-comparison';
 import type { TeamMember } from '@/components/settings/team/types';
-import { CloudBillingChangeDialog } from '@/components/settings/cloud-billing-change-dialog';
+import { CloudBillingSeatAdjustmentDialog } from '@/components/settings/cloud-billing-seat-adjustment-dialog';
 import { TeamMembersList } from '@/components/settings/team/team-members-list';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { cn } from '@/lib/utils';
 
@@ -21,8 +21,6 @@ export type CloudSeatCandidate = {
 	isSeated: boolean;
 	isReadOnly: boolean;
 };
-
-type BillingPreview = React.ComponentProps<typeof CloudBillingChangeDialog>['preview'];
 
 export function seatCandidateToTeamMember(candidate: CloudSeatCandidate): TeamMember {
 	return {
@@ -57,9 +55,15 @@ export function CloudBillingSeatsCard({
 	seatLimit,
 	availableSeats,
 	candidates,
+	pendingSeatQuantity,
+	pendingSeatEffectiveAt,
+	plan,
+	currentPlanPrice,
+	currentPromotionCodes,
 	disabled,
 	onPreviewSeatChange,
 	onConfirmSeatChange,
+	onCancelPendingSeatChange,
 	onSaveSeatSelection,
 }: {
 	tier: string;
@@ -67,17 +71,19 @@ export function CloudBillingSeatsCard({
 	seatLimit: number | null;
 	availableSeats: number | null;
 	candidates: CloudSeatCandidate[];
+	pendingSeatQuantity?: number | null;
+	pendingSeatEffectiveAt?: Date | null;
+	plan?: CloudPlanOffer | null;
+	currentPlanPrice?: string;
+	currentPromotionCodes?: string[];
 	disabled?: boolean;
-	onPreviewSeatChange?: (quantity: number) => Promise<BillingPreview>;
+	onPreviewSeatChange?: (quantity: number, promotionCode?: string) => Promise<CloudBillingChangePreview>;
 	onConfirmSeatChange?: (token: string) => Promise<unknown>;
+	onCancelPendingSeatChange?: () => Promise<unknown>;
 	onSaveSeatSelection?: (selectedUserIds: string[]) => Promise<unknown>;
 }) {
-	const [quantity, setQuantity] = useState(Math.min(TEAM_MAX_SEATS, seatQuantity ?? TEAM_MIN_SEATS));
-	const [preview, setPreview] = useState<BillingPreview>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [adjustmentOpen, setAdjustmentOpen] = useState(false);
 	const [accessError, setAccessError] = useState<string | null>(null);
-
-	useEffect(() => setQuantity(Math.min(TEAM_MAX_SEATS, seatQuantity ?? TEAM_MIN_SEATS)), [seatQuantity]);
 
 	const seatedMembers = candidates.filter(({ isSeated }) => isSeated);
 	const capacity = tier === 'team' ? seatQuantity : tier === 'free' ? (seatLimit ?? 3) : null;
@@ -112,18 +118,6 @@ export function CloudBillingSeatsCard({
 					? null
 					: 'No seat limit';
 
-	const previewSeatChange = async () => {
-		if (!onPreviewSeatChange) {
-			return;
-		}
-		setError(null);
-		try {
-			setPreview(await onPreviewSeatChange(quantity));
-		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : 'Unable to preview the seat change.');
-		}
-	};
-
 	return (
 		<div className='flex flex-col gap-6'>
 			<SettingsCard
@@ -139,51 +133,17 @@ export function CloudBillingSeatsCard({
 				</div>
 				{capacity !== null && <SeatUsageBar used={seatedMembers.length} capacity={capacity} />}
 				{seatsSummary && <p className='text-xs text-muted-foreground'>{seatsSummary}</p>}
-				{tier === 'team' && onPreviewSeatChange && (
-					<div className='flex flex-col gap-3 border-t border-border pt-4'>
+				{seatQuantity !== null && plan && onPreviewSeatChange && (
+					<div className='flex flex-col items-start gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between'>
 						<div>
 							<p className='text-sm font-medium text-foreground'>Paid capacity</p>
 							<p className='mt-1 text-xs text-muted-foreground'>
-								Team supports {TEAM_MIN_SEATS} to {TEAM_MAX_SEATS} seats. You will review the price
-								before any billing change is applied.
+								Add seats now or schedule fewer seats for your next renewal.
 							</p>
 						</div>
-						<div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
-							<label className='flex flex-col gap-1 text-sm font-medium'>
-								Number of seats
-								<Input
-									type='number'
-									min={TEAM_MIN_SEATS}
-									max={TEAM_MAX_SEATS}
-									value={quantity}
-									onChange={(event) =>
-										setQuantity(
-											Number.isFinite(event.target.valueAsNumber)
-												? Math.min(
-														TEAM_MAX_SEATS,
-														Math.max(
-															TEAM_MIN_SEATS,
-															Math.trunc(event.target.valueAsNumber),
-														),
-													)
-												: TEAM_MIN_SEATS,
-										)
-									}
-									className='w-full sm:w-28'
-								/>
-							</label>
-							<Button
-								disabled={disabled || quantity === seatQuantity}
-								onClick={() => void previewSeatChange()}
-							>
-								Review seat change
-							</Button>
-						</div>
-						{error && (
-							<p className='text-sm text-destructive' role='alert'>
-								{error}
-							</p>
-						)}
+						<Button variant='secondary' disabled={disabled} onClick={() => setAdjustmentOpen(true)}>
+							Adjust seats
+						</Button>
 					</div>
 				)}
 			</SettingsCard>
@@ -211,21 +171,22 @@ export function CloudBillingSeatsCard({
 				/>
 			</SettingsCard>
 
-			<CloudBillingChangeDialog
-				open={preview !== null}
-				onOpenChange={(open) => !open && setPreview(null)}
-				title='Confirm seat change'
-				preview={preview}
-				onRefresh={previewSeatChange}
-				onConfirm={
-					onConfirmSeatChange
-						? async (token) => {
-								await onConfirmSeatChange(token);
-								setPreview(null);
-							}
-						: undefined
-				}
-			/>
+			{seatQuantity !== null && plan && onPreviewSeatChange && onConfirmSeatChange && (
+				<CloudBillingSeatAdjustmentDialog
+					open={adjustmentOpen}
+					onOpenChange={setAdjustmentOpen}
+					currentQuantity={seatQuantity}
+					pendingQuantity={pendingSeatQuantity ?? null}
+					pendingEffectiveAt={pendingSeatEffectiveAt ?? null}
+					plan={plan}
+					currentPlanPrice={currentPlanPrice}
+					currentPromotionCodes={currentPromotionCodes}
+					disabled={disabled}
+					onPreview={onPreviewSeatChange}
+					onConfirm={onConfirmSeatChange}
+					onCancelPending={onCancelPendingSeatChange}
+				/>
+			)}
 		</div>
 	);
 }

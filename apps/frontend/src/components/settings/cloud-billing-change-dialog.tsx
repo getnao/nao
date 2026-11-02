@@ -30,6 +30,10 @@ export type CloudBillingChangePreview = {
 	effective: 'immediate' | 'period_end';
 	effectiveAt: Date;
 	firstChargeAt: Date | null;
+	promotionCodeDiscount: {
+		amount: number;
+		duration: string;
+	} | null;
 	readOnlyUsersAfterChange: Array<{ userId: string; name: string; email: string }>;
 } | null;
 
@@ -53,6 +57,9 @@ export function CloudBillingChangeDialog({
 	const [isPending, setIsPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const expired = preview ? preview.expiresAt.getTime() <= Date.now() : false;
+	const futureChargeAt = preview
+		? (preview.firstChargeAt ?? (preview.effective === 'period_end' ? preview.effectiveAt : null))
+		: null;
 
 	const confirm = async () => {
 		if (!preview || !onConfirm) {
@@ -113,11 +120,14 @@ export function CloudBillingChangeDialog({
 							<dd className='text-right'>{formatBillingPrice(preview.tax, preview.currency)}</dd>
 							<dt className='font-semibold'>Due now</dt>
 							<dd className='text-right font-semibold'>
-								{formatBillingPrice(preview.firstChargeAt ? 0 : preview.amountDue, preview.currency)}
+								{formatBillingPrice(futureChargeAt ? 0 : preview.amountDue, preview.currency)}
 							</dd>
-							{preview.firstChargeAt && (
+							{futureChargeAt && (
 								<>
-									<dt>First charge on {formatBillingDate(preview.firstChargeAt)}</dt>
+									<dt>
+										{preview.firstChargeAt ? 'First charge' : 'Estimated charge'} on{' '}
+										{formatBillingDate(futureChargeAt)}
+									</dt>
 									<dd className='text-right'>
 										{formatBillingPrice(preview.amountDue, preview.currency)}
 									</dd>

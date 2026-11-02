@@ -12,17 +12,25 @@ const mocks = vi.hoisted(() => ({
 	createPaymentMethod: vi.fn(),
 	createPortal: vi.fn(),
 	createResubscribe: vi.fn(),
+	findPromotionCode: vi.fn(),
 	getBilling: vi.fn(),
 	getMember: vi.fn(),
 	getSubscription: vi.fn(),
 	getUpcomingInvoice: vi.fn(),
+	getPlanChangeSchedule: vi.fn(),
 	listSeatCandidates: vi.fn(),
 	listInvoices: vi.fn(),
 	previewSubscriptionChange: vi.fn(),
 	putMember: vi.fn(),
 	reconcileCustomerUnderLock: vi.fn(),
+	createPlanChangeSchedule: vi.fn(),
+	updatePlanChangeSchedule: vi.fn(),
+	releasePlanChangeSchedule: vi.fn(),
 	resumeSubscription: vi.fn(),
 	setSubscriptionCancellation: vi.fn(),
+	setPendingBillingChange: vi.fn(),
+	attachSubscriptionSchedule: vi.fn(),
+	clearPendingBillingChange: vi.fn(),
 	updateSubscriptionPlan: vi.fn(),
 	updateSubscriptionQuantity: vi.fn(),
 	getUser: vi.fn(),
@@ -39,8 +47,11 @@ vi.mock('../src/queries/user.queries', () => ({
 
 vi.mock('../src/queries/billing.queries', () => ({
 	attachStripeCustomer: mocks.attachCustomer,
+	attachSubscriptionSchedule: mocks.attachSubscriptionSchedule,
+	clearPendingBillingChange: mocks.clearPendingBillingChange,
 	getOrganizationBilling: mocks.getBilling,
 	getOrganizationWithBilling: mocks.getOrganizationWithBilling,
+	setPendingBillingChange: mocks.setPendingBillingChange,
 }));
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
@@ -82,14 +93,19 @@ vi.mock('../src/services/stripe.service', () => ({
 	createCloudPaymentMethodSession: mocks.createPaymentMethod,
 	createCloudPortalSession: mocks.createPortal,
 	createCloudResubscribeSession: mocks.createResubscribe,
+	createCloudPlanChangeSchedule: mocks.createPlanChangeSchedule,
+	findActiveCloudPromotionCode: mocks.findPromotionCode,
+	getCloudPlanChangeSchedule: mocks.getPlanChangeSchedule,
 	getCloudSubscription: mocks.getSubscription,
 	getCloudUpcomingInvoice: mocks.getUpcomingInvoice,
 	listCloudInvoices: mocks.listInvoices,
 	previewCloudSubscriptionChange: mocks.previewSubscriptionChange,
+	releaseCloudPlanChangeSchedule: mocks.releasePlanChangeSchedule,
 	resumeCloudSubscription: mocks.resumeSubscription,
 	setCloudSubscriptionCancellation: mocks.setSubscriptionCancellation,
 	updateCloudSubscriptionPlan: mocks.updateSubscriptionPlan,
 	updateCloudSubscriptionQuantity: mocks.updateSubscriptionQuantity,
+	updateCloudPlanChangeSchedule: mocks.updatePlanChangeSchedule,
 }));
 
 import {
@@ -361,6 +377,7 @@ describe('Phase 6 billing commands', () => {
 			currency: 'usd',
 		});
 		mocks.listSeatCandidates.mockResolvedValue([]);
+		mocks.findPromotionCode.mockResolvedValue(null);
 		mocks.previewSubscriptionChange.mockResolvedValue({
 			amountDue: 1_000,
 			subtotal: 1_000,
@@ -374,6 +391,10 @@ describe('Phase 6 billing commands', () => {
 		mocks.setSubscriptionCancellation.mockResolvedValue({});
 		mocks.updateSubscriptionPlan.mockResolvedValue({});
 		mocks.updateSubscriptionQuantity.mockResolvedValue({});
+		mocks.createPlanChangeSchedule.mockResolvedValue({ id: 'sub_sched_team' });
+		mocks.getPlanChangeSchedule.mockResolvedValue({ id: 'sub_sched_team', phases: [] });
+		mocks.updatePlanChangeSchedule.mockResolvedValue({});
+		mocks.releasePlanChangeSchedule.mockResolvedValue({});
 	});
 
 	it('rejects a tampered signed preview before calling Stripe', async () => {
@@ -434,6 +455,193 @@ describe('Phase 6 billing commands', () => {
 		expect(mocks.previewSubscriptionChange).not.toHaveBeenCalled();
 	});
 
+	it('previews and applies a promotion code to an immediate seat increase', async () => {
+		mocks.findPromotionCode.mockResolvedValue({
+			id: 'promo_team',
+			discountedPlanAmount: 20_000,
+			duration: 'forever',
+		});
+		const preview = await previewCloudSeatChangeForAdmin({
+			...adminInput,
+			targetQuantity: 5,
+			promotionCode: ' TEAM20 ',
+		});
+
+		await changeCloudSeatQuantityForAdmin({
+			...adminInput,
+			previewToken: preview.previewToken,
+			requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+		});
+
+		expect(mocks.findPromotionCode).toHaveBeenCalledWith({
+			code: 'TEAM20',
+			stripeCustomerId: 'cus_cloud',
+			targetPlanKey: 'cloud_team_monthly_v1',
+			targetQuantity: 5,
+		});
+		expect(preview.promotionCodeDiscount).toEqual({ amount: 20_000, duration: 'forever' });
+		expect(mocks.previewSubscriptionChange).toHaveBeenCalledWith(
+			expect.objectContaining({ promotionCodeId: 'promo_team' }),
+		);
+		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledWith(
+			expect.objectContaining({ promotionCodeId: 'promo_team' }),
+		);
+	});
+
+	it('schedules a seat decrease for the next renewal', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization({ seatQuantity: 6 }));
+		mocks.findPromotionCode.mockResolvedValue({
+			id: 'promo_renewal',
+			discountedPlanAmount: 16_000,
+			duration: 'once',
+		});
+		const preview = await previewCloudSeatChangeForAdmin({
+			...adminInput,
+			targetQuantity: 4,
+			promotionCode: 'RENEWAL',
+		});
+
+		expect(preview).toMatchObject({
+			effective: 'period_end',
+			effectiveAt: new Date('2027-02-01T00:00:00.000Z'),
+			targetSeatQuantity: 4,
+		});
+
+		await changeCloudSeatQuantityForAdmin({
+			...adminInput,
+			previewToken: preview.previewToken,
+			requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+		});
+
+		expect(mocks.updateSubscriptionQuantity).not.toHaveBeenCalled();
+		expect(mocks.setPendingBillingChange).toHaveBeenCalledWith('org-id', 'cloud_team_monthly_v1', 4);
+		expect(mocks.createPlanChangeSchedule).toHaveBeenCalledOnce();
+		expect(mocks.updatePlanChangeSchedule).toHaveBeenCalledWith(
+			expect.objectContaining({
+				targetPlanKey: 'cloud_team_monthly_v1',
+				targetQuantity: 4,
+				promotionCodeId: 'promo_renewal',
+			}),
+		);
+	});
+
+	it('replaces an existing scheduled seat decrease', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(
+			teamOrganization({
+				seatQuantity: 6,
+				stripeSubscriptionScheduleId: 'sub_sched_team',
+				pendingBillingPlan: 'cloud_team_monthly_v1',
+				pendingSeatQuantity: 5,
+			}),
+		);
+		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 4 });
+
+		await changeCloudSeatQuantityForAdmin({
+			...adminInput,
+			previewToken: preview.previewToken,
+			requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+		});
+
+		expect(mocks.createPlanChangeSchedule).not.toHaveBeenCalled();
+		expect(mocks.getPlanChangeSchedule).toHaveBeenCalledWith('sub_sched_team');
+		expect(mocks.setPendingBillingChange).toHaveBeenCalledWith('org-id', 'cloud_team_monthly_v1', 4);
+		expect(mocks.updatePlanChangeSchedule).toHaveBeenCalledWith(expect.objectContaining({ targetQuantity: 4 }));
+	});
+
+	it('applies an increase before releasing a scheduled seat decrease', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(
+			teamOrganization({
+				seatQuantity: 5,
+				stripeSubscriptionScheduleId: 'sub_sched_team',
+				pendingBillingPlan: 'cloud_team_monthly_v1',
+				pendingSeatQuantity: 4,
+			}),
+		);
+		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 6 });
+
+		await changeCloudSeatQuantityForAdmin({
+			...adminInput,
+			previewToken: preview.previewToken,
+			requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+		});
+
+		expect(preview.effective).toBe('immediate');
+		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledWith(expect.objectContaining({ targetQuantity: 6 }));
+		expect(mocks.releasePlanChangeSchedule).toHaveBeenCalledWith('sub_sched_team');
+		expect(mocks.updateSubscriptionQuantity.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.releasePlanChangeSchedule.mock.invocationCallOrder[0],
+		);
+		expect(mocks.clearPendingBillingChange).toHaveBeenCalledWith('org-id');
+	});
+
+	it('preserves a scheduled decrease when payment for an increase fails', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(
+			teamOrganization({
+				seatQuantity: 5,
+				stripeSubscriptionScheduleId: 'sub_sched_team',
+				pendingBillingPlan: 'cloud_team_monthly_v1',
+				pendingSeatQuantity: 4,
+			}),
+		);
+		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 6 });
+		mocks.updateSubscriptionQuantity.mockRejectedValueOnce({ statusCode: 402 });
+
+		await expect(
+			changeCloudSeatQuantityForAdmin({
+				...adminInput,
+				previewToken: preview.previewToken,
+				requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+			}),
+		).rejects.toMatchObject({ codeMessage: 'BAD_REQUEST' });
+
+		expect(mocks.releasePlanChangeSchedule).not.toHaveBeenCalled();
+		expect(mocks.clearPendingBillingChange).not.toHaveBeenCalled();
+	});
+
+	it('rejects a seat adjustment while a different plan change is pending', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(
+			teamOrganization({
+				stripeSubscriptionScheduleId: 'sub_sched_unlimited',
+				pendingBillingPlan: 'cloud_unlimited_monthly_v1',
+				pendingSeatQuantity: null,
+			}),
+		);
+
+		await expect(previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 5 })).rejects.toThrow(
+			'Cancel the pending plan change first',
+		);
+		expect(mocks.previewSubscriptionChange).not.toHaveBeenCalled();
+	});
+
+	it('rejects a seat preview after its pending schedule baseline changes', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(
+			teamOrganization({
+				seatQuantity: 6,
+				stripeSubscriptionScheduleId: 'sub_sched_team',
+				pendingBillingPlan: 'cloud_team_monthly_v1',
+				pendingSeatQuantity: 5,
+			}),
+		);
+		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 4 });
+		mocks.getOrganizationWithBilling.mockResolvedValue(
+			teamOrganization({
+				seatQuantity: 6,
+				stripeSubscriptionScheduleId: 'sub_sched_team',
+				pendingBillingPlan: 'cloud_team_monthly_v1',
+				pendingSeatQuantity: 4,
+			}),
+		);
+
+		await expect(
+			changeCloudSeatQuantityForAdmin({
+				...adminInput,
+				previewToken: preview.previewToken,
+				requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+			}),
+		).rejects.toMatchObject({ codeMessage: 'CONFLICT' });
+		expect(mocks.updatePlanChangeSchedule).not.toHaveBeenCalled();
+	});
+
 	it('maps a Stripe 402 without reconciling a partial local change', async () => {
 		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 5 });
 		mocks.updateSubscriptionQuantity.mockRejectedValueOnce({ statusCode: 402 });
@@ -479,7 +687,73 @@ describe('Phase 6 billing commands', () => {
 		);
 	});
 
-	it('changes trial seats after Free was scheduled', async () => {
+	it('previews and applies a promotion code while changing a trial plan', async () => {
+		mocks.getSubscription.mockResolvedValue({
+			id: 'sub_team',
+			status: 'trialing',
+			currency: 'usd',
+			cancel_at_period_end: false,
+			trial_end: 1_800_000_000,
+		});
+		mocks.findPromotionCode.mockResolvedValue({
+			id: 'promo_launch',
+			discountedPlanAmount: 160_000,
+			duration: 'forever',
+		});
+		const preview = await previewCloudPlanChangeForAdmin({
+			...adminInput,
+			targetPlanKey: 'cloud_unlimited_monthly_v1',
+			promotionCode: ' LAUNCH20 ',
+		});
+
+		await changeCloudPlanForAdmin({
+			...adminInput,
+			previewToken: preview.previewToken,
+			requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+		});
+
+		expect(mocks.findPromotionCode).toHaveBeenCalledWith({
+			code: 'LAUNCH20',
+			stripeCustomerId: 'cus_cloud',
+			targetPlanKey: 'cloud_unlimited_monthly_v1',
+			targetQuantity: 1,
+		});
+		expect(preview.promotionCodeDiscount).toEqual({ amount: 160_000, duration: 'forever' });
+		expect(mocks.previewSubscriptionChange).toHaveBeenCalledWith(
+			expect.objectContaining({ promotionCodeId: 'promo_launch' }),
+		);
+		expect(mocks.updateSubscriptionPlan).toHaveBeenCalledWith(
+			expect.objectContaining({
+				chargeImmediately: false,
+				promotionCodeId: 'promo_launch',
+			}),
+		);
+	});
+
+	it('rejects an unknown promotion code before previewing the change', async () => {
+		await expect(
+			previewCloudPlanChangeForAdmin({
+				...adminInput,
+				targetPlanKey: 'cloud_unlimited_monthly_v1',
+				promotionCode: 'UNKNOWN',
+			}),
+		).rejects.toThrow('Promotion code is invalid or expired');
+
+		expect(mocks.previewSubscriptionChange).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		['seat change', () => previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 5 })],
+		[
+			'member seat purchase',
+			() =>
+				previewCloudMemberSeatPurchaseForAdmin({
+					...adminInput,
+					memberUserId: 'member-id',
+					requestedRole: 'user',
+				}),
+		],
+	])('keeps Free after the trial by rejecting a trial %s', async (_operation, preview) => {
 		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization({ cancellationScheduled: true }));
 		mocks.getSubscription.mockResolvedValue({
 			id: 'sub_team',
@@ -488,7 +762,35 @@ describe('Phase 6 billing commands', () => {
 			cancel_at_period_end: true,
 			trial_end: 1_800_000_000,
 		});
-		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 5 });
+
+		await expect(preview()).rejects.toThrow('Keep your plan before making another billing change');
+		expect(mocks.previewSubscriptionChange).not.toHaveBeenCalled();
+	});
+
+	it('rejects plan changes for a subscription Stripe has already canceled', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization());
+		mocks.getSubscription.mockResolvedValue({ id: 'sub_team', status: 'canceled', currency: 'usd' });
+
+		await expect(
+			previewCloudPlanChangeForAdmin({ ...adminInput, targetPlanKey: 'cloud_unlimited_monthly_v1' }),
+		).rejects.toThrow('No current paid subscription is available');
+	});
+
+	it('schedules a trial seat decrease for the trial end', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(
+			teamOrganization({
+				seatQuantity: 6,
+				trialEndsAt: new Date('2027-02-01T00:00:00.000Z'),
+			}),
+		);
+		mocks.getSubscription.mockResolvedValue({
+			id: 'sub_team',
+			status: 'trialing',
+			currency: 'usd',
+			cancel_at_period_end: false,
+			trial_end: 1_801_440_000,
+		});
+		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 4 });
 
 		await changeCloudSeatQuantityForAdmin({
 			...adminInput,
@@ -496,7 +798,40 @@ describe('Phase 6 billing commands', () => {
 			requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
 		});
 
-		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledWith(expect.objectContaining({ targetQuantity: 5 }));
+		expect(preview.effective).toBe('period_end');
+		expect(preview.firstChargeAt).toEqual(new Date('2027-02-01T00:00:00.000Z'));
+		expect(mocks.updateSubscriptionQuantity).not.toHaveBeenCalled();
+		expect(mocks.createPlanChangeSchedule).toHaveBeenCalledOnce();
+	});
+
+	it('does not carry a stale trial read-only assignment into a covered Team preview', async () => {
+		mocks.getSubscription.mockResolvedValue({
+			id: 'sub_team',
+			status: 'trialing',
+			currency: 'usd',
+			cancel_at_period_end: false,
+		});
+		mocks.listSeatCandidates.mockResolvedValue(
+			Array.from({ length: 4 }, (_, index) => ({
+				id: `user-${index}`,
+				name: `User ${index}`,
+				email: `user-${index}@example.com`,
+				membershipClass: index === 0 ? 'org_admin' : 'org_member',
+				orgRole: index === 0 ? 'admin' : 'user',
+				projectRoles: [],
+				joinedAt: new Date(),
+				selectedAt: null,
+				storedReadOnly: index === 3,
+			})),
+		);
+
+		const preview = await previewCloudPlanChangeForAdmin({
+			...adminInput,
+			targetPlanKey: 'cloud_team_monthly_v1',
+			targetSeatQuantity: 7,
+		});
+
+		expect(preview.readOnlyUsersAfterChange).toEqual([]);
 	});
 
 	it('switches to Free and keeps the paid plan through explicit cancellation updates', async () => {
@@ -524,6 +859,24 @@ describe('Phase 6 billing commands', () => {
 		expect(mocks.setSubscriptionCancellation).toHaveBeenNthCalledWith(
 			2,
 			expect.objectContaining({ cancelAtPeriodEnd: false }),
+		);
+	});
+
+	it('does not apply a Free seat selection while scheduling Free after a trial', async () => {
+		mocks.getSubscription.mockResolvedValue({
+			id: 'sub_team',
+			status: 'trialing',
+			currency: 'usd',
+			cancel_at_period_end: false,
+		});
+
+		await switchCloudSubscriptionToFreeForAdmin({
+			...adminInput,
+			selectedUserIds: ['member-id'],
+		});
+
+		expect(mocks.setSubscriptionCancellation).toHaveBeenCalledWith(
+			expect.objectContaining({ cancelAtPeriodEnd: true }),
 		);
 	});
 
@@ -629,6 +982,8 @@ function teamOrganization(billingOverrides: Record<string, unknown> = {}) {
 			billingUpdatedAt: new Date('2027-01-01T00:00:00.000Z'),
 			cancellationScheduled: false,
 			stripeSubscriptionScheduleId: null,
+			pendingBillingPlan: null,
+			pendingSeatQuantity: null,
 			...billingOverrides,
 		},
 	};

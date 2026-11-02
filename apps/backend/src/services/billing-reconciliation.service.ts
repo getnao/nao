@@ -110,6 +110,19 @@ export async function reconcileCloudBillingCustomerUnderLock(input: {
 	};
 }
 
+/** A seat-only change keeps the plan key, so activation also requires the pending quantity and no future phase. */
+export function isPendingBillingChangeActivated(
+	pending: Pick<DBOrganizationBilling, 'pendingBillingPlan' | 'pendingSeatQuantity'>,
+	projection: Pick<billingQueries.SubscriptionProjection, 'billingPlan' | 'seatQuantity' | 'pendingBillingPlan'>,
+): boolean {
+	return (
+		pending.pendingBillingPlan !== null &&
+		!projection.pendingBillingPlan &&
+		projection.billingPlan === pending.pendingBillingPlan &&
+		(pending.pendingSeatQuantity === null || projection.seatQuantity === pending.pendingSeatQuantity)
+	);
+}
+
 async function notifyPendingCapacityContraction(organizationId: string): Promise<void> {
 	const userIds = (await listOrganizationSeatStates(organizationId))
 		.filter(({ isReadOnly, adminEmailNotifiedAt }) => isReadOnly && adminEmailNotifiedAt === null)
@@ -158,6 +171,17 @@ async function syncReconciledOrganizationSeatState(
 	};
 	const before = resolveCloudEntitlement({ ...entitlementInput, billing: beforeBilling });
 	const after = resolveCloudEntitlement({ ...entitlementInput, billing: afterBilling });
+	if (after.tier === 'trial') {
+		const changedAt = new Date();
+		await Promise.all(
+			(await organizationQueries.listOrgSeatCandidates(organizationId))
+				.filter(({ storedReadOnly }) => storedReadOnly === true)
+				.map(({ id }) =>
+					syncOrganizationSeatState({ orgId: organizationId, userId: id, isReadOnly: false, changedAt }),
+				),
+		);
+		return [];
+	}
 	const [beforeReadOnlyIds, afterReadOnlyIds] = await Promise.all([
 		readOnlyUserIds(organizationId, before),
 		readOnlyUserIds(organizationId, after),

@@ -466,7 +466,7 @@ describe('user cloud billing access', () => {
 		await expect(isUserReadOnlyInOrganization('organization-1', 'read-only-user', resolved)).resolves.toBe(true);
 	});
 
-	it('honors explicit seat assignments during the trial', async () => {
+	it('keeps every user fully active during the trial', async () => {
 		const resolved = resolveCloudEntitlement({
 			billing: entitlement('trialing', {
 				trialEndsAt: future,
@@ -480,7 +480,8 @@ describe('user cloud billing access', () => {
 		});
 		mocks.listReadOnlyOrgUsers.mockResolvedValue([{ id: 'read-only-user' }]);
 
-		await expect(isUserReadOnlyInOrganization('organization-1', 'read-only-user', resolved)).resolves.toBe(true);
+		await expect(isUserReadOnlyInOrganization('organization-1', 'read-only-user', resolved)).resolves.toBe(false);
+		expect(mocks.listReadOnlyOrgUsers).not.toHaveBeenCalled();
 	});
 
 	it('fails closed for Team seat users when purchased quantity is missing', async () => {

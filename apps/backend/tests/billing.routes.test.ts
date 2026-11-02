@@ -35,6 +35,8 @@ vi.mock('../src/queries/organization.queries', () => ({
 	getUserOrgMembership: vi.fn(async () => testState.membership),
 	getOrgMember: vi.fn(async () => testState.membership),
 	getOrganizationById: vi.fn(async () => testState.membership?.organization ?? null),
+	countOrgSeatUsers: vi.fn(async () => 0),
+	listOrgSeatCandidates: vi.fn(async () => []),
 	listReadOnlyOrgUsers: vi.fn(async () => []),
 	resolveSeatedOrgUserIds: (
 		candidates: Array<{ id: string; membershipClass: string; storedReadOnly?: boolean }>,
@@ -78,6 +80,16 @@ vi.mock('../src/services/stripe.service', () => ({
 	createCloudPortalSession: stripeMocks.createPortal,
 	createCloudResubscribeSession: stripeMocks.createResubscribe,
 	getCloudBillingPlans: stripeMocks.getBillingPlans,
+	getCurrentCloudBillingPlans: vi.fn(async () =>
+		(['monthly', 'yearly'] as const).map((interval) => ({
+			planKey: `cloud_unlimited_${interval}_v1`,
+			tier: 'unlimited',
+			interval,
+			currency: 'usd',
+			unitAmount: 100_000,
+			perSeat: false,
+		})),
+	),
 	getCloudSubscriptionCurrency: stripeMocks.getSubscriptionCurrency,
 	getCloudUpcomingInvoice: stripeMocks.getUpcomingInvoice,
 	listCloudInvoices: stripeMocks.listInvoices,
@@ -272,6 +284,22 @@ describe('billing.getStatus', () => {
 			paidPlanSelected: false,
 			resubscribeAvailable: true,
 			status: 'trialing',
+		});
+	});
+
+	it('offers a new subscription instead of plan changes after the paid subscription ended', async () => {
+		testState.freeTierEnabled = true;
+		testState.membership = membership({
+			billingPlan: 'cloud_team_monthly_v1',
+			billingStatus: 'canceled',
+			seatQuantity: 4,
+			stripeCustomerId: 'cus_cloud',
+			stripeSubscriptionId: 'sub_cloud',
+		});
+
+		await expect(caller().billing.getStatus()).resolves.toMatchObject({
+			current: null,
+			resubscribeAvailable: true,
 		});
 	});
 

@@ -26,7 +26,7 @@ export function CloudBillingSwitchToFreeDialog({
 	effectiveAt: Date | null;
 	candidates: CloudSeatCandidate[];
 	trialing?: boolean;
-	onConfirm: (selectedUserIds: string[]) => Promise<unknown>;
+	onConfirm: (selectedUserIds?: string[]) => Promise<unknown>;
 }) {
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [error, setError] = useState<string | null>(null);
@@ -61,7 +61,7 @@ export function CloudBillingSwitchToFreeDialog({
 		setIsPending(true);
 		setError(null);
 		try {
-			await onConfirm(selectedIds);
+			await onConfirm(trialing ? undefined : selectedIds);
 			onOpenChange(false);
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : 'Unable to switch to Free.');
@@ -81,39 +81,49 @@ export function CloudBillingSwitchToFreeDialog({
 							: `Your current plan and capacity remain active through ${formatBillingDate(effectiveAt)}. There is no refund.`}
 					</DialogDescription>
 				</DialogHeader>
-				<div className='space-y-2'>
-					<p className='text-sm font-medium'>Choose who keeps full access</p>
-					{candidates.map((candidate) => {
-						const admin = automaticAdmins.some((item) => item.userId === candidate.userId);
-						const checked = admin || selectedIds.includes(candidate.userId);
-						return (
-							<label
-								key={candidate.userId}
-								className='flex items-center gap-3 rounded-lg border p-3 text-sm'
-							>
-								<Checkbox
-									checked={checked}
-									disabled={admin || (!checked && selectedIds.length >= selectableLimit) || isPending}
-									aria-label={`Keep ${candidate.name} seated on Free`}
-									onCheckedChange={(nextChecked) =>
-										setSelectedIds((current) =>
-											nextChecked
-												? [...new Set([...current, candidate.userId])]
-												: current.filter((id) => id !== candidate.userId),
-										)
-									}
-								/>
-								<span>{candidate.name}</span>
-								{admin && <span className='text-xs text-muted-foreground'>Organization admin</span>}
-							</label>
-						);
-					})}
-				</div>
-				{readOnlyCandidates.length > 0 && (
-					<p className='text-sm text-muted-foreground'>
-						{readOnlyCandidates.map((candidate) => candidate.name).join(', ')} will have read-only access.
-						No memberships or data will be removed.
-					</p>
+				{!trialing && (
+					<>
+						<div className='space-y-2'>
+							<p className='text-sm font-medium'>Choose who keeps full access</p>
+							{candidates.map((candidate) => {
+								const admin = automaticAdmins.some((item) => item.userId === candidate.userId);
+								const checked = admin || selectedIds.includes(candidate.userId);
+								return (
+									<label
+										key={candidate.userId}
+										className='flex items-center gap-3 rounded-lg border p-3 text-sm'
+									>
+										<Checkbox
+											checked={checked}
+											disabled={
+												admin ||
+												(!checked && selectedIds.length >= selectableLimit) ||
+												isPending
+											}
+											aria-label={`Keep ${candidate.name} seated on Free`}
+											onCheckedChange={(nextChecked) =>
+												setSelectedIds((current) =>
+													nextChecked
+														? [...new Set([...current, candidate.userId])]
+														: current.filter((id) => id !== candidate.userId),
+												)
+											}
+										/>
+										<span>{candidate.name}</span>
+										{admin && (
+											<span className='text-xs text-muted-foreground'>Organization admin</span>
+										)}
+									</label>
+								);
+							})}
+						</div>
+						{readOnlyCandidates.length > 0 && (
+							<p className='text-sm text-muted-foreground'>
+								{readOnlyCandidates.map((candidate) => candidate.name).join(', ')} will have read-only
+								access. No memberships or data will be removed.
+							</p>
+						)}
+					</>
 				)}
 				{error && (
 					<p className='text-sm text-destructive' role='alert'>

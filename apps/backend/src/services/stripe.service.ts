@@ -104,6 +104,50 @@ export interface CloudSubscriptionChangePreview {
 	}>;
 }
 
+export interface CloudPromotionCodeMatch {
+	id: string;
+	discountedPlanAmount: number;
+	duration: Stripe.Coupon.Duration;
+}
+
+export async function findActiveCloudPromotionCode(input: {
+	code: string;
+	stripeCustomerId: string;
+	targetPlanKey: CloudBillingPlanKey;
+	targetQuantity: number;
+}): Promise<CloudPromotionCodeMatch | null> {
+	const promotionCodes = await getStripeClient().promotionCodes.list({
+		active: true,
+		code: input.code,
+		expand: ['data.promotion.coupon'],
+		limit: 1,
+	});
+	const first = promotionCodes.data[0];
+	let promotionCode = first;
+	if (!first?.customer || stripeId(first.customer) === input.stripeCustomerId) {
+		promotionCode = first;
+	} else {
+		const customerPromotionCodes = await getStripeClient().promotionCodes.list({
+			active: true,
+			code: input.code,
+			customer: input.stripeCustomerId,
+			expand: ['data.promotion.coupon'],
+			limit: 1,
+		});
+		promotionCode = customerPromotionCodes.data[0];
+	}
+	if (!promotionCode) {
+		return null;
+	}
+	const price = await getCloudPrice(input.targetPlanKey);
+	const coupon = expandedPromotionCodeCoupon(promotionCode);
+	return {
+		id: promotionCode.id,
+		discountedPlanAmount: discountedPlanAmount(price, input.targetQuantity, coupon),
+		duration: coupon.duration,
+	};
+}
+
 export interface StripeAccountInvoice {
 	id: string;
 	number: string | null;
@@ -442,7 +486,7 @@ export async function getCloudUpcomingInvoice(stripeSubscriptionId: string): Pro
 	return {
 		amountDue: invoice.amount_due,
 		currency: invoice.currency,
-		nextPaymentAt: new Date(invoice.period_start * 1_000),
+		nextPaymentAt: new Date(invoice.period_end * 1_000),
 		promotionCodes: invoicePromotionCodes(invoice),
 	};
 }
@@ -453,11 +497,13 @@ export async function previewCloudSubscriptionChange(input: {
 	targetQuantity: number;
 	prorationDate: Date;
 	prorationBehavior: 'always_invoice' | 'none';
+	promotionCodeId?: string;
 }): Promise<CloudSubscriptionChangePreview> {
 	const paidItem = requireCloudPaidProductItem(input.subscription);
 	const price = await getCloudPrice(input.targetPlanKey);
 	const invoice = await getStripeClient().invoices.createPreview({
 		subscription: input.subscription.id,
+		...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
 		subscription_details: {
 			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
 			...prorationParams(input.prorationBehavior, input.prorationDate),
@@ -488,6 +534,7 @@ export async function updateCloudSubscriptionQuantity(input: {
 	targetQuantity: number;
 	prorationDate: Date;
 	requestId: string;
+	promotionCodeId?: string;
 }): Promise<Stripe.Subscription> {
 	const paidItem = requireCloudPaidProductItem(input.subscription);
 	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
@@ -497,12 +544,13 @@ export async function updateCloudSubscriptionQuantity(input: {
 		input.subscription.id,
 		{
 			items: [{ id: paidItem.item.id, quantity: input.targetQuantity }],
+			...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
 			...prorationParams(paidIncrease ? 'always_invoice' : 'none', input.prorationDate),
 			...(paidIncrease ? { payment_behavior: 'error_if_incomplete' as const } : {}),
 			...trialPreservationParams(input.subscription),
 		},
 		{
-			idempotencyKey: `cloud-seat-quantity-v1:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetQuantity}`,
+			idempotencyKey: `cloud-seat-quantity-v2:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetQuantity}:${input.promotionCodeId ?? 'keep-discounts'}`,
 		},
 	);
 }
@@ -515,6 +563,7 @@ export async function updateCloudSubscriptionPlan(input: {
 	prorationDate: Date;
 	requestId: string;
 	chargeImmediately: boolean;
+	promotionCodeId?: string;
 }): Promise<Stripe.Subscription> {
 	const paidItem = requireCloudPaidProductItem(input.subscription);
 	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
@@ -524,12 +573,13 @@ export async function updateCloudSubscriptionPlan(input: {
 		input.subscription.id,
 		{
 			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
+			...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
 			...prorationParams(paidUpgrade ? 'always_invoice' : 'none', input.prorationDate),
 			...(paidUpgrade ? { payment_behavior: 'error_if_incomplete' as const } : {}),
 			...trialPreservationParams(input.subscription),
 		},
 		{
-			idempotencyKey: `cloud-plan-change-v1:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetPlanKey}:${input.targetQuantity}`,
+			idempotencyKey: `cloud-plan-change-v2:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetPlanKey}:${input.targetQuantity}:${input.promotionCodeId ?? 'keep-discounts'}`,
 		},
 	);
 }
@@ -576,6 +626,7 @@ export async function updateCloudPlanChangeSchedule(input: {
 	targetPlanKey: CloudBillingPlanKey;
 	targetQuantity: number;
 	effectiveAt: Date;
+	promotionCodeId?: string;
 }): Promise<Stripe.SubscriptionSchedule> {
 	const price = await getCloudPrice(input.targetPlanKey);
 	const currentPhase = input.schedule.phases.find(
@@ -606,6 +657,7 @@ export async function updateCloudPlanChangeSchedule(input: {
 				...futurePhaseSettings,
 				start_date: stripeTimestamp(input.effectiveAt),
 				items: [{ price: price.id, quantity: input.targetQuantity }],
+				...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
 				proration_behavior: 'none',
 			},
 		],
@@ -1348,16 +1400,9 @@ async function reuseOrExpireOpenCheckoutSessions(
 	return reusableSession;
 }
 
-function isOrganizationCheckoutSession(
-	session: Stripe.Checkout.Session,
-	input: {
-		organizationId: string;
-		kind: 'initial' | 'resubscribe';
-	},
-): boolean {
+function isOrganizationCheckoutSession(session: Stripe.Checkout.Session, input: { organizationId: string }): boolean {
 	return (
 		session.metadata?.[ORGANIZATION_METADATA_KEY] === input.organizationId &&
-		session.metadata?.[CHECKOUT_KIND_METADATA_KEY] === input.kind &&
 		(isCloudBillingPlanKey(session.metadata?.[PLAN_METADATA_KEY]) ||
 			isLegacyCloudBillingPlanKey(session.metadata?.[PLAN_METADATA_KEY]))
 	);
@@ -1552,6 +1597,32 @@ function assertCloudBillingCurrency(currency: string): CloudBillingCurrency {
 		throw new Error(`Stripe returned unsupported billing currency "${currency}"`);
 	}
 	return currency as CloudBillingCurrency;
+}
+
+function expandedPromotionCodeCoupon(promotionCode: Stripe.PromotionCode): Stripe.Coupon {
+	if (
+		promotionCode.promotion.type !== 'coupon' ||
+		!promotionCode.promotion.coupon ||
+		typeof promotionCode.promotion.coupon === 'string'
+	) {
+		throw new Error(`Stripe Promotion Code "${promotionCode.id}" has no expanded Coupon`);
+	}
+	return promotionCode.promotion.coupon;
+}
+
+function discountedPlanAmount(price: CloudRecurringPriceDetails, quantity: number, coupon: Stripe.Coupon): number {
+	const amount = price.unit_amount * quantity;
+	if (coupon.applies_to?.products.length && !coupon.applies_to.products.includes(stripeProductId(price.product))) {
+		return amount;
+	}
+	if (coupon.percent_off !== null) {
+		return Math.max(0, amount - Math.round((amount * coupon.percent_off) / 100));
+	}
+	const amountOff =
+		coupon.currency_options?.[price.currency]?.amount_off ??
+		(coupon.currency === price.currency ? coupon.amount_off : null) ??
+		0;
+	return Math.max(0, amount - amountOff);
 }
 
 function copyCloudSchedulePhase(phase: Stripe.SubscriptionSchedule.Phase, startDate: number, endDate: number) {

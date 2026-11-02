@@ -29,7 +29,8 @@ vi.mock('../src/queries/billing.queries', () => ({
 	listOrganizationTrialsPendingStripeProvisioning: mocks.listPendingTrials,
 }));
 
-vi.mock('../src/services/billing-reconciliation.service', () => ({
+vi.mock('../src/services/billing-reconciliation.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/billing-reconciliation.service')>()),
 	reconcileCloudBillingCustomerUnderLock: mocks.reconcileCustomer,
 }));
 
@@ -201,6 +202,32 @@ describe('cloud billing lifecycle', () => {
 		});
 		expect(mocks.attachSchedule).toHaveBeenCalledWith('org-one', 'sched_one');
 		expect(mocks.releaseSchedule).not.toHaveBeenCalled();
+	});
+
+	it('keeps a scheduled seat decrease before its renewal', async () => {
+		mocks.listMappedOrganizations.mockResolvedValue([{ orgId: 'org-one', stripeCustomerId: 'cus_one' }]);
+		mocks.getBilling.mockResolvedValue({
+			orgId: 'org-one',
+			stripeCustomerId: 'cus_one',
+			stripeSubscriptionId: 'sub_one',
+			stripeSubscriptionScheduleId: 'sched_one',
+			pendingBillingPlan: 'cloud_team_monthly_v1',
+			pendingSeatQuantity: 4,
+		});
+		mocks.getSubscription.mockResolvedValue({ id: 'sub_one', schedule: 'sched_one' });
+		mocks.projectSubscription.mockResolvedValue({
+			stripeSubscriptionScheduleId: 'sched_one',
+			billingPlan: 'cloud_team_monthly_v1',
+			seatQuantity: 6,
+			pendingBillingPlan: 'cloud_team_monthly_v1',
+			pendingSeatQuantity: 4,
+		});
+		mocks.reconcileCustomer.mockResolvedValue({ applied: true, ignored: false });
+
+		await runCloudBillingLifecycle();
+
+		expect(mocks.releaseSchedule).not.toHaveBeenCalled();
+		expect(mocks.clearPending).not.toHaveBeenCalled();
 	});
 
 	it('releases an activated schedule that Stripe still reports as attached', async () => {

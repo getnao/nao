@@ -4,6 +4,7 @@ import { CLOUD_BILLING_PLANS, isCloudBillingPlanKey } from '../types/billing';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger, serializeError } from '../utils/logger';
 import {
+	isPendingBillingChangeActivated,
 	reconcileCloudBillingCustomer,
 	reconcileCloudBillingCustomerUnderLock,
 } from './billing-reconciliation.service';
@@ -120,8 +121,7 @@ async function repairCloudPlanChangeSchedule(
 	if (!scheduleId) {
 		return;
 	}
-	const activated = billing.pendingBillingPlan !== null && projection.billingPlan === billing.pendingBillingPlan;
-	if (activated) {
+	if (isPendingBillingChangeActivated(billing, projection)) {
 		await releaseCloudPlanChangeSchedule(scheduleId);
 		await billingQueries.clearPendingBillingChange(billing.orgId);
 		return;

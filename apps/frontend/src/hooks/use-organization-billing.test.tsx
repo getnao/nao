@@ -106,6 +106,21 @@ describe('useOrganizationBilling', () => {
 		await waitFor(() => expect(mocks.syncStripeBilling).toHaveBeenCalledOnce());
 	});
 
+	it('does not show redundant Stripe portal refresh feedback', async () => {
+		mocks.getStatus.mockResolvedValue({
+			hasStripeSubscription: true,
+			paidPlanSelected: true,
+			status: 'active',
+			canManageBilling: true,
+		});
+
+		const { result } = renderHook(() => useOrganizationBilling({ portal: 'returned' }), { wrapper });
+
+		expect(result.current.portalFeedback).toBeNull();
+		await waitFor(() => expect(mocks.syncStripeBilling).toHaveBeenCalledOnce());
+		await waitFor(() => expect(result.current.portalFeedback).toBeNull());
+	});
+
 	it('uses the selected available plan when no Stripe subscription exists', async () => {
 		const yearlyPlan = {
 			key: 'cloud_yearly',
