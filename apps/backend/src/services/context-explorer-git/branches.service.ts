@@ -281,9 +281,9 @@ async function commitSelectedChanges(
 		validateWorktreePath(repo, filePath);
 		return toRepoPath(repo, filePath);
 	});
-	const metadataRepoPaths = [...changedPaths]
-		.filter(isGeneratedMetadataPath)
-		.map((filePath) => toRepoPath(repo, filePath));
+	const metadataPaths = [...changedPaths].filter(isGeneratedMetadataPath);
+	assertMetadataCommittedWithAllFiles(changedPaths, paths, metadataPaths);
+	const metadataRepoPaths = metadataPaths.map((filePath) => toRepoPath(repo, filePath));
 	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	const author = await provider.getUserGitIdentity({ token: context.token, user: context.user });
 	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
@@ -301,6 +301,23 @@ async function commitSelectedChanges(
 		author,
 	);
 	return runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+}
+
+function assertMetadataCommittedWithAllFiles(
+	changedPaths: Set<string>,
+	selectedPaths: string[],
+	metadataPaths: string[],
+): void {
+	const selected = new Set(selectedPaths);
+	const hasUnselectedFile = [...changedPaths].some(
+		(filePath) => !isGeneratedMetadataPath(filePath) && !selected.has(filePath),
+	);
+	if (metadataPaths.length > 0 && hasUnselectedFile) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Generated files and metadata must be committed together. Select all synced files.',
+		});
+	}
 }
 
 async function assertCommitBranch(

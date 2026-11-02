@@ -105,7 +105,7 @@ export async function readFileContent(
 		worktreePath && (trackedPaths.has(normalizeProjectPath(filePath)) || fsSync.existsSync(worktreePath))
 			? worktreePath
 			: livePath;
-	const editability = getFileEditability(filePath, readPath, access, repo, trackedPaths);
+	const editability = getFileEditability(filePath, livePath, access, repo, trackedPaths);
 	const contentBuffer = await readValidatedFile(readPath, filePath);
 	return {
 		content: decodeTextContent(contentBuffer),
@@ -282,9 +282,36 @@ function getLiveCommittedPaths(projectFolder: string): Set<string> {
 	return getCommittedProjectPaths({ worktreeRoot: projectFolder, projectPrefix: '' });
 }
 
-export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {
-	const args = buildSearchArguments(query, projectFolder);
-	return runContentSearch(getRipgrepPath(), args, projectFolder);
+export async function searchFileContents(
+	query: string,
+	access: ContextExplorerFileAccess | string,
+): Promise<FileContentSearchResponse> {
+	if (typeof access === 'string') {
+		return searchFolder(query, access);
+	}
+	const repo = availableRepo(access.git);
+	if (!repo) {
+		return searchFolder(query, access.projectFolder);
+	}
+	const worktreeRoot = getWorktreeProjectRoot(repo);
+	const trackedPaths = getCommittedProjectPaths(repo);
+	const [worktree, live] = await Promise.all([
+		searchFolder(query, worktreeRoot),
+		searchFolder(query, access.projectFolder),
+	]);
+	const liveOnlyResults = live.results.filter((result) => {
+		const projectPath = normalizeProjectPath(result.path);
+		return !trackedPaths.has(projectPath) && !fsSync.existsSync(path.join(worktreeRoot, projectPath));
+	});
+	const results = [...worktree.results, ...liveOnlyResults];
+	return {
+		results: results.slice(0, MAX_SEARCH_FILES),
+		truncated: worktree.truncated || live.truncated || results.length > MAX_SEARCH_FILES,
+	};
+}
+
+function searchFolder(query: string, folder: string): Promise<FileContentSearchResponse> {
+	return runContentSearch(getRipgrepPath(), buildSearchArguments(query, folder), folder);
 }
 
 function buildSearchArguments(query: string, projectFolder: string): string[] {

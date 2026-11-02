@@ -216,7 +216,9 @@ export const contextExplorerRoutes = {
 
 	searchContent: contextAdminProtectedProcedure
 		.input(z.object({ query: z.string().min(2).max(200) }))
-		.query(({ ctx, input }) => searchFileContents(input.query, requireProjectPath(ctx.project.path))),
+		.query(async ({ ctx, input }) =>
+			searchFileContents(input.query, await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user)),
+		),
 
 	getChangedFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		return getChangedContextFiles(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));

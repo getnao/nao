@@ -75,15 +75,15 @@ export async function discardContextFileChange(
 	filePath: string,
 ): Promise<{ hash: string | null }> {
 	const { repo } = await requireContextExplorerGit(context);
-	await discardPath(repo, context.projectFolder, filePath);
+	await discardPath(repo, context.projectFolder, filePath, readChangedPaths(repo));
 	return { hash: readWorkingTreeHash(repo, filePath) };
 }
 
 export async function discardAllContextChanges(context: ContextExplorerGitContext): Promise<void> {
 	const { repo } = await requireContextExplorerGit(context);
-	const changedFiles = parseChangedFiles(readStatus(repo), repo);
-	for (const file of changedFiles) {
-		await discardPath(repo, context.projectFolder, file.path);
+	const changedPaths = readChangedPaths(repo);
+	for (const filePath of changedPaths) {
+		await discardPath(repo, context.projectFolder, filePath, changedPaths);
 	}
 }
 
@@ -158,8 +158,16 @@ function readHistoricalText(repo: ResolvedContextRepo, commit: string, projectPa
 	return decodeTextContent(content);
 }
 
-async function discardPath(repo: ResolvedContextRepo, projectFolder: string, filePath: string): Promise<void> {
+async function discardPath(
+	repo: ResolvedContextRepo,
+	projectFolder: string,
+	filePath: string,
+	changedPaths: Set<string>,
+): Promise<void> {
 	validateWorktreePath(repo, filePath);
+	if (!changedPaths.has(`/${normalizeProjectPath(filePath)}`)) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'This file has no changes.' });
+	}
 	const repoPath = toRepoPath(repo, filePath);
 	const { root, target } = resolveDiscardTarget(repo, filePath);
 	if (tryRunGit(repo.worktreeRoot, ['ls-files', '--error-unmatch', '--', repoPath]) !== null) {
@@ -199,6 +207,10 @@ export function readStatus(repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'pro
 		'--',
 		repo.projectPrefix || '.',
 	]);
+}
+
+function readChangedPaths(repo: ResolvedContextRepo): Set<string> {
+	return new Set(parseChangedFiles(readStatus(repo), repo).map((file) => file.path));
 }
 
 export function isGeneratedMetadataPath(projectPath: string): boolean {
