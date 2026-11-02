@@ -158,14 +158,17 @@ export const userManagementRoutes = async (app: App) => {
 			if (query.purge && !confined) {
 				throw new HandlerError('CONFLICT', FOREIGN_ORGANIZATION_PURGE_MESSAGE);
 			}
-			const deletesAccount = confined && (query.purge || (await userQueries.isPendingInvitation(params.userId)));
 			// Sessions and the account die in the same transaction as the membership row: a failed
 			// removal cannot sign the member out, and a removed member cannot keep a live session.
 			// purge stays opt-in: the cascade also takes the person's stories, which a membership sync
-			// has no business doing.
+			// has no business doing. The invitation read above is only a snapshot — the service
+			// re-tests it inside the transaction, so an invitee who signed in meanwhile keeps the
+			// account and their stories.
 			await removeOrganizationMember(org.id, params.userId, {
 				deleteSessions: true,
-				purgeAccount: deletesAccount,
+				purgeAccount: query.purge,
+				purgePendingInvitation:
+					!query.purge && confined && (await userQueries.isPendingInvitation(params.userId)),
 			});
 			return true;
 		});
@@ -214,10 +217,11 @@ export const userManagementRoutes = async (app: App) => {
 		return run(reply, async () => {
 			const project = await requireProjectInOrg(request, params.projectId);
 			await assertUserGroupManageable(project.id, params.groupId);
-			const group = await requireGroup(project.id, params.groupId);
+			await requireGroup(project.id, params.groupId);
+			// A rename must not write the permission blob back: the read above is a snapshot, and a
+			// concurrent grants change by another admin would be silently reverted.
 			const updated = await userGroupQueries.updateUserGroup(project.id, params.groupId, {
 				name: body.name,
-				featureGrants: group.featureGrants,
 			});
 			await revokeUnauthorizedProjectWideShares(project.id);
 			return updated;

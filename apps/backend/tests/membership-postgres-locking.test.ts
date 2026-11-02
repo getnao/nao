@@ -33,6 +33,7 @@ vi.mock('../src/queries/organization.queries', () => ({
 vi.mock('../src/queries/user.queries', () => ({
 	getUser: async () => ({ id: 'user-1' }),
 	confinedToOrganization: () => undefined,
+	neverAcceptedInvitation: () => [],
 }));
 
 vi.mock('../src/services/context-explorer-git.service', () => ({ cleanupContextWorktree: vi.fn() }));
@@ -67,10 +68,42 @@ describe('PostgreSQL organization admin guards', () => {
 
 		expect(mocks.events).toEqual([
 			'lock-org',
+			'lock-user',
 			'delete-member',
 			'delete-project-members',
 			'delete-sessions',
+			'delete-user',
+		]);
+	});
+
+	it('re-tests the pending invitation under the user lock, after the organization lock', async () => {
+		await removeOrganizationMember('org-1', 'user-1', { deleteSessions: true, purgePendingInvitation: true });
+
+		expect(mocks.events).toEqual([
+			'lock-org',
 			'lock-user',
+			'check-pending',
+			'delete-member',
+			'delete-project-members',
+			'delete-sessions',
+			'delete-user',
+		]);
+	});
+
+	it('keeps the account when the invitation stopped being pending before the delete', async () => {
+		mocks.userDeleteRows = 0;
+
+		await expect(
+			removeOrganizationMember('org-1', 'user-1', { deleteSessions: true, purgePendingInvitation: true }),
+		).resolves.toBeUndefined();
+
+		expect(mocks.events).toEqual([
+			'lock-org',
+			'lock-user',
+			'check-pending',
+			'delete-member',
+			'delete-project-members',
+			'delete-sessions',
 			'delete-user',
 		]);
 	});
@@ -85,9 +118,9 @@ describe('PostgreSQL organization admin guards', () => {
 
 		expect(mocks.events).toEqual([
 			'lock-org',
+			'lock-user',
 			'delete-member',
 			'delete-project-members',
-			'lock-user',
 			'delete-user',
 		]);
 	});
@@ -120,19 +153,24 @@ function transaction() {
 	return {
 		select: (selection?: Record<string, unknown>) => {
 			const countsAdmins = selection !== undefined && 'count' in selection;
-			let locksUser = false;
+			let onUserTable = false;
+			let locking = false;
 			const builder = {
 				from: (table?: Record<string, unknown>) => {
-					locksUser = table !== undefined && 'email' in table;
+					onUserTable = table !== undefined && 'email' in table;
 					return builder;
 				},
 				where: () => builder,
 				for: (_strength: string) => {
-					mocks.events.push(locksUser ? 'lock-user' : 'lock-org');
+					locking = true;
+					mocks.events.push(onUserTable ? 'lock-user' : 'lock-org');
 					return builder;
 				},
 				execute: async () => {
 					if (!countsAdmins) {
+						if (onUserTable && !locking) {
+							mocks.events.push('check-pending');
+						}
 						return [{ id: 'org-1' }];
 					}
 					mocks.events.push('count-admins');

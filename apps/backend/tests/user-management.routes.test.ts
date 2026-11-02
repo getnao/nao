@@ -30,6 +30,8 @@ const idp = vi.hoisted(() => ({ rolesManagedByIdp: false }));
 
 const hooks = vi.hoisted(() => ({
 	afterConfinedCheck: null as null | ((userId: string) => Promise<void>),
+	pendingInvitation: null as null | boolean,
+	beforeGroupUpdate: null as null | (() => Promise<void>),
 }));
 
 vi.mock('../src/queries/user.queries', async (importOriginal) => {
@@ -40,6 +42,22 @@ vi.mock('../src/queries/user.queries', async (importOriginal) => {
 			const confined = await mod.isUserConfinedToOrganization(userId, orgId);
 			await hooks.afterConfinedCheck?.(userId);
 			return confined;
+		},
+		isPendingInvitation: async (id: string) => hooks.pendingInvitation ?? mod.isPendingInvitation(id),
+	};
+});
+
+vi.mock('../src/queries/user-group.queries', async (importOriginal) => {
+	const mod = await importOriginal<typeof import('../src/queries/user-group.queries')>();
+	return {
+		...mod,
+		updateUserGroup: async (
+			projectId: string,
+			groupId: string,
+			data: Parameters<typeof mod.updateUserGroup>[2],
+		) => {
+			await hooks.beforeGroupUpdate?.();
+			return mod.updateUserGroup(projectId, groupId, data);
 		},
 	};
 });
@@ -86,6 +104,8 @@ describe('user management API', () => {
 	beforeEach(async () => {
 		idp.rolesManagedByIdp = false;
 		hooks.afterConfinedCheck = null;
+		hooks.pendingInvitation = null;
+		hooks.beforeGroupUpdate = null;
 		await allowGroupInsert();
 		await clearData();
 		await seedData();
@@ -467,6 +487,41 @@ describe('user management API', () => {
 		expect(await db.select().from(s.user).where(eq(s.user.id, invitedId)).execute()).toHaveLength(1);
 	});
 
+	it('keeps the account and its stories when the invitee signs in before the removal', async () => {
+		// The route decided "still an invitation" a moment ago; the invitee signed in since, so the
+		// removal has to ask again under its own transaction instead of trusting that snapshot.
+		const invited = await post('/user-management/users', { email: 'signed-in@example.com', name: 'Signed In' });
+		const invitedId = invited.json().user.id;
+		hooks.pendingInvitation = true;
+		await db
+			.insert(s.session)
+			.values({
+				id: 'sess-signed-in',
+				token: 'tok-signed-in',
+				userId: invitedId,
+				expiresAt: new Date(Date.now() + 86_400_000),
+			})
+			.execute();
+		await db
+			.insert(s.story)
+			.values({
+				id: 'story-signed-in',
+				projectId: PROJECT_ID,
+				userId: invitedId,
+				slug: 'first-story',
+				title: 'First',
+			})
+			.execute();
+
+		const removed = await del(`/user-management/users/${invitedId}`);
+
+		expect(removed.statusCode).toBe(204);
+		expect(await selectOrgMember(invitedId)).toHaveLength(0);
+		expect(await db.select().from(s.session).where(eq(s.session.userId, invitedId)).execute()).toHaveLength(0);
+		expect(await db.select().from(s.user).where(eq(s.user.id, invitedId)).execute()).toHaveLength(1);
+		expect(await db.select().from(s.story).where(eq(s.story.userId, invitedId)).execute()).toHaveLength(1);
+	});
+
 	it('deletes the account only when purge says so in words', async () => {
 		// An accepted member survives an ordinary revocation, purge spelled out as false included.
 		expect((await del(`/user-management/users/${ACCEPTED_ID}?purge=false`)).statusCode).toBe(204);
@@ -593,6 +648,33 @@ describe('user management API', () => {
 		expect(
 			(await get(`/user-management/projects/${PROJECT_ID}/groups`)).json().items.map((g: { id: string }) => g.id),
 		).not.toContain(groupId);
+	});
+
+	it('leaves the grants and the members alone when another admin changes grants during a rename', async () => {
+		const groupId = await createGroup('Renamed Later');
+		await db
+			.update(s.userGroup)
+			.set({ featureGrants: sharingConfig('blocked') })
+			.where(eq(s.userGroup.id, groupId))
+			.execute();
+		await db.insert(s.userGroupMember).values({ groupId, userId: MEMBER_ID }).execute();
+		hooks.beforeGroupUpdate = async () => {
+			await db
+				.update(s.userGroup)
+				.set({ featureGrants: sharingConfig('allowed') })
+				.where(eq(s.userGroup.id, groupId))
+				.execute();
+		};
+
+		const renamed = await patch(`/user-management/projects/${PROJECT_ID}/groups/${groupId}`, { name: 'Renamed' });
+
+		expect(renamed.statusCode).toBe(200);
+		expect(renamed.json().name).toBe('Renamed');
+		const [stored] = await db.select().from(s.userGroup).where(eq(s.userGroup.id, groupId)).execute();
+		expect(stored?.featureGrants).toEqual(sharingConfig('allowed'));
+		expect(
+			await db.select().from(s.userGroupMember).where(eq(s.userGroupMember.groupId, groupId)).execute(),
+		).toHaveLength(1);
 	});
 
 	it('unshares a project-wide chat when a group membership takes project sharing away', async () => {
