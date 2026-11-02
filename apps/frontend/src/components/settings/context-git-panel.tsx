@@ -167,7 +167,7 @@ export function ContextGitPanel({
 	const commitChanges = useMutation(
 		trpc.contextExplorer.commitChanges.mutationOptions({
 			onSuccess: async (_result, variables) => {
-				await handleCommitSuccess(variables.paths, currentBranch, false);
+				await handleCommitSuccess(toCommittedPaths(variables.paths), currentBranch, false);
 				await refreshExplorer(false);
 			},
 		}),
@@ -176,7 +176,7 @@ export function ContextGitPanel({
 	const createBranchAndCommit = useMutation(
 		trpc.contextExplorer.createBranchAndCommit.mutationOptions({
 			onSuccess: async (result, variables) => {
-				await handleCommitSuccess(variables.paths, result.branch, result.usedFallbackBase);
+				await handleCommitSuccess(toCommittedPaths(variables.paths), result.branch, result.usedFallbackBase);
 				await refreshExplorer(false);
 			},
 		}),
@@ -219,12 +219,17 @@ export function ContextGitPanel({
 		setFallbackBaseNotice(usedFallbackBase);
 	};
 
+	const toCommittedPaths = (paths: string[] | 'all') => {
+		return paths === 'all' ? changedFileList.map((file) => file.path) : paths;
+	};
+
 	const handleCommit = () => {
-		const paths = changedFileList.filter((file) => selectedPaths.has(file.path)).map((file) => file.path);
+		const selected = changedFileList.filter((file) => selectedPaths.has(file.path)).map((file) => file.path);
 		const message = commitMessage.trim();
-		if (!message || paths.length === 0 || !currentBranch || !defaultBranch) {
+		if (!message || selected.length === 0 || !currentBranch || !defaultBranch) {
 			return;
 		}
+		const paths = selected.length === changedFileList.length ? 'all' : selected;
 		setFallbackBaseNotice(false);
 		commitChanges.reset();
 		createBranchAndCommit.reset();

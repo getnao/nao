@@ -8,6 +8,7 @@ import { getContextWorktreePath, invalidateContextProjectPrefix, toRepoPath } fr
 import type { GitIdentity } from '../../utils/git-identity';
 import { withCoAuthors } from '../../utils/git-identity';
 import { runGit, tryRunGit } from '../../utils/git-repo';
+import { chunk } from '../../utils/utils';
 import type { OpenReviewRequestResult } from '../review-request-provider';
 import { REVIEW_REQUEST_PROVIDERS } from '../review-request-provider';
 import {
@@ -34,6 +35,7 @@ import {
 	validateBranch,
 } from './git-guards';
 import type {
+	CommitInput,
 	ContextExplorerGitContext,
 	ContextRepositoryProvider,
 	CreateBranchAndCommitInput,
@@ -42,6 +44,8 @@ import type {
 	OwnedContextBranchDeletionResult,
 } from './types';
 import { fetchContextRepository, requireContextExplorerGit, resolveAfterBranchChange } from './worktree.service';
+
+const GIT_ADD_BATCH_SIZE = 500;
 
 export async function getContextBranches(
 	repo: ResolvedContextRepo,
@@ -142,7 +146,7 @@ export async function createContextBranchAndCommit(
 
 export async function commitContextChanges(
 	context: ContextExplorerGitContext,
-	input: { paths: string[]; message: string },
+	input: CommitInput,
 ): Promise<{ commit: string }> {
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const commit = await commitSelectedChanges(repo, context.projectFolder, availableContext, input);
@@ -269,11 +273,11 @@ async function commitSelectedChanges(
 	repo: ResolvedContextRepo,
 	projectFolder: string,
 	context: ContextExplorerGitContext & { token: string },
-	input: { paths: string[]; message: string },
+	input: CommitInput,
 ): Promise<string> {
 	await assertCommitBranch(repo, context);
 	const changedPaths = new Set(parseChangedFiles(readStatus(repo), repo).map((file) => file.path));
-	const paths = [...new Set(input.paths.map(normalizeVirtualPath))];
+	const paths = input.paths === 'all' ? [...changedPaths] : [...new Set(input.paths.map(normalizeVirtualPath))];
 	if (paths.length === 0 || paths.some((filePath) => !changedPaths.has(filePath))) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Select one or more changed context files to commit.' });
 	}
@@ -286,11 +290,9 @@ async function commitSelectedChanges(
 	const metadataRepoPaths = metadataPaths.map((filePath) => toRepoPath(repo, filePath));
 	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	const author = await provider.getUserGitIdentity({ token: context.token, user: context.user });
-	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
-		'add',
-		'--',
-		...new Set([...repoPaths, ...metadataRepoPaths]),
-	]);
+	for (const batch of chunk([...new Set([...repoPaths, ...metadataRepoPaths])], GIT_ADD_BATCH_SIZE)) {
+		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...batch]);
+	}
 	if (tryRunGit(repo.worktreeRoot, ['diff', '--cached', '--quiet'])) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The selected files have no changes to commit.' });
 	}

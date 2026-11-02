@@ -295,23 +295,27 @@ export async function searchFileContents(
 	}
 	const worktreeRoot = getWorktreeProjectRoot(repo);
 	const trackedPaths = getCommittedProjectPaths(repo);
+	const isLiveOnly = (virtualPath: string) => {
+		const projectPath = normalizeProjectPath(virtualPath);
+		return !trackedPaths.has(projectPath) && !fsSync.existsSync(path.join(worktreeRoot, projectPath));
+	};
 	const [worktree, live] = await Promise.all([
 		searchFolder(query, worktreeRoot),
-		searchFolder(query, access.projectFolder),
+		searchFolder(query, access.projectFolder, isLiveOnly),
 	]);
-	const liveOnlyResults = live.results.filter((result) => {
-		const projectPath = normalizeProjectPath(result.path);
-		return !trackedPaths.has(projectPath) && !fsSync.existsSync(path.join(worktreeRoot, projectPath));
-	});
-	const results = [...worktree.results, ...liveOnlyResults];
+	const results = [...worktree.results, ...live.results];
 	return {
 		results: results.slice(0, MAX_SEARCH_FILES),
 		truncated: worktree.truncated || live.truncated || results.length > MAX_SEARCH_FILES,
 	};
 }
 
-function searchFolder(query: string, folder: string): Promise<FileContentSearchResponse> {
-	return runContentSearch(getRipgrepPath(), buildSearchArguments(query, folder), folder);
+function searchFolder(
+	query: string,
+	folder: string,
+	includePath: (virtualPath: string) => boolean = () => true,
+): Promise<FileContentSearchResponse> {
+	return runContentSearch(getRipgrepPath(), buildSearchArguments(query, folder), folder, includePath);
 }
 
 function buildSearchArguments(query: string, projectFolder: string): string[] {
@@ -351,6 +355,7 @@ function runContentSearch(
 	ripgrepPath: string,
 	args: string[],
 	projectFolder: string,
+	includePath: (virtualPath: string) => boolean,
 ): Promise<FileContentSearchResponse> {
 	return new Promise((resolve, reject) => {
 		const results = new Map<string, FileContentSearchResult>();
@@ -398,6 +403,9 @@ function runContentSearch(
 				}
 
 				const virtualPath = toVirtualPath(filePath, projectFolder);
+				if (!includePath(virtualPath)) {
+					return;
+				}
 				const existing = results.get(virtualPath);
 				if (existing) {
 					existing.count += entry.data.submatches.length;

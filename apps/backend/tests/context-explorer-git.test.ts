@@ -1807,6 +1807,26 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		]);
 	});
 
+	it('finds live-only files even when tracked live files fill the search limit', async () => {
+		const trackedFiles = Object.fromEntries(
+			Array.from({ length: 300 }, (_, index) => [`databases/table_${index}.md`, 'shared term\n']),
+		);
+		const fixture = createFixture(temporaryRoots, { 'nao_config.yaml': 'name: test\n', ...trackedFiles });
+		writeFiles(fixture.live, trackedFiles);
+		fs.mkdirSync(path.join(fixture.live, 'zz'));
+		fs.writeFileSync(path.join(fixture.live, 'zz', 'live-only.md'), 'shared term\n');
+		const access = await fileAccess(fixture.context);
+		const repo = await ensureContextWorktree(fixture.context);
+		for (const filePath of Object.keys(trackedFiles)) {
+			fs.writeFileSync(path.join(repo.worktreeRoot, filePath), 'edited on the branch\n');
+		}
+
+		const response = await searchFileContents('shared term', access);
+
+		expect(response.results.map((result) => result.path)).toEqual(['/zz/live-only.md']);
+		expect(response.truncated).toBe(false);
+	});
+
 	it('hides generated .meta changes behind visible changes and commits them alongside', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const access = await fileAccess(fixture.context);
@@ -1843,10 +1863,31 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 			createContextBranchAndCommit(fixture.context, { paths: ['/context.md'], message: 'Partial sync' }),
 		).rejects.toThrow('Generated files and metadata must be committed together. Select all synced files.');
 
-		await commitContextChanges(fixture.context, { paths: ['/context.md', '/other.md'], message: 'Sync' });
+		await commitContextChanges(fixture.context, { paths: 'all', message: 'Sync' });
 
 		expect(runGit(worktreeRoot, ['show', 'HEAD:.meta/databases/columns.json']).toString()).toBe('{"version":1}\n');
 		expect(await getChangedContextFiles(fixture.context)).toEqual([]);
+	});
+
+	it('commits every change of a large sync together with its metadata', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		fs.mkdirSync(path.join(repo.worktreeRoot, 'databases'));
+		for (let index = 0; index < 501; index++) {
+			fs.writeFileSync(path.join(repo.worktreeRoot, 'databases', `table_${index}.md`), `table ${index}\n`);
+		}
+		fs.mkdirSync(path.join(repo.worktreeRoot, '.meta', 'databases'), { recursive: true });
+		fs.writeFileSync(path.join(repo.worktreeRoot, '.meta', 'databases', 'columns.json'), '{"version":1}\n');
+
+		await createContextBranchAndCommit(fixture.context, { paths: 'all', message: 'Large sync' });
+
+		expect(await getChangedContextFiles(fixture.context)).toEqual([]);
+		expect(
+			runGit(repo.worktreeRoot, ['ls-tree', '-r', '--name-only', 'HEAD', 'databases'])
+				.toString()
+				.trim()
+				.split('\n'),
+		).toHaveLength(501);
 	});
 
 	it('uses the logged-in nao user as the commit identity', async () => {
