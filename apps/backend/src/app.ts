@@ -51,6 +51,7 @@ import {
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
+import { failInterruptedProjectSyncActivities } from './queries/activity.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
@@ -599,6 +600,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	startScheduler();
 	await startLicenseHeartbeat();
+	await failInterruptedProjectSyncActivities().catch((error) => {
+		logger.error(`Failed to close interrupted project syncs: ${describeError(error)}`, { source: 'system' });
+	});
 
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);

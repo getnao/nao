@@ -66,6 +66,59 @@ export const startContextPullActivity = async (projectId: string, userId: string
 	});
 };
 
+export const startProjectSyncActivity = async (projectId: string, userId: string): Promise<DBActivity> => {
+	return createActivity({ projectId, userId, type: 'project.synced', trigger: 'manual', status: 'running' });
+};
+
+export const getLatestCompletedProjectSync = async (
+	projectId: string,
+): Promise<{ completedAt: Date; actorName: string | null } | null> => {
+	const [latest] = await db
+		.select({ completedAt: s.activity.completedAt, actorName: s.user.name })
+		.from(s.activity)
+		.leftJoin(s.user, eq(s.user.id, s.activity.userId))
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'project.synced'),
+				eq(s.activity.status, 'completed'),
+			),
+		)
+		.orderBy(desc(s.activity.completedAt))
+		.limit(1)
+		.execute();
+	return latest?.completedAt ? { completedAt: latest.completedAt, actorName: latest.actorName } : null;
+};
+
+export const getRunningProjectSync = async (
+	projectId: string,
+	excludedUserId: string,
+): Promise<{ actorName: string | null } | null> => {
+	const [running] = await db
+		.select({ actorName: s.user.name })
+		.from(s.activity)
+		.leftJoin(s.user, eq(s.user.id, s.activity.userId))
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'project.synced'),
+				eq(s.activity.status, 'running'),
+				ne(s.activity.userId, excludedUserId),
+			),
+		)
+		.limit(1)
+		.execute();
+	return running ?? null;
+};
+
+export const cancelActivity = async (activityId: string): Promise<void> => {
+	await db
+		.update(s.activity)
+		.set({ status: 'cancelled', completedAt: new Date() })
+		.where(eq(s.activity.id, activityId))
+		.execute();
+};
+
 export const listContextPullActivities = async (projectId: string): Promise<ContextPullActivityRow[]> => {
 	await failStaleActivities();
 
@@ -166,10 +219,25 @@ export const failStaleActivities = async (): Promise<number> => {
 	const rows = await db
 		.update(s.activity)
 		.set({ status: 'failed', completedAt: new Date(), errorMessage: ACTIVITY_RUN_STALE_MESSAGE })
-		.where(and(eq(s.activity.status, 'running'), lte(s.activity.startedAt, cutoff)))
+		.where(
+			and(
+				eq(s.activity.status, 'running'),
+				lte(s.activity.startedAt, cutoff),
+				ne(s.activity.type, 'project.synced'),
+			),
+		)
 		.returning({ id: s.activity.id })
 		.execute();
 	return rows.length;
+};
+
+/** Project syncs run inside the backend process, so any still running at startup were killed by the restart. */
+export const failInterruptedProjectSyncActivities = async (): Promise<void> => {
+	await db
+		.update(s.activity)
+		.set({ status: 'failed', completedAt: new Date(), errorMessage: 'Interrupted by a server restart.' })
+		.where(and(eq(s.activity.status, 'running'), eq(s.activity.type, 'project.synced')))
+		.execute();
 };
 
 export const linkStoryScheduledJob = async (storyId: string, scheduledJobId: string | null): Promise<void> => {

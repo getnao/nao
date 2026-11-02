@@ -29,13 +29,14 @@ export function runNaoCommand(
 	args: string[],
 	cwd: string,
 	env: NodeJS.ProcessEnv,
-	timeoutMs: number,
 	onOutput?: (output: string) => Promise<unknown>,
+	signal?: AbortSignal,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const child = spawn('nao', args, {
 			cwd,
 			env,
+			signal,
 			stdio: ['ignore', 'pipe', 'pipe'],
 		});
 		let settled = false;
@@ -72,30 +73,24 @@ export function runNaoCommand(
 		};
 		child.stdout.on('data', captureOutput);
 		child.stderr.on('data', captureOutput);
-		const timeout = setTimeout(() => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			child.kill('SIGTERM');
-			void flushOutput().finally(() => reject(new Error('nao command timed out')));
-		}, timeoutMs);
 
 		child.once('error', async (error) => {
 			if (settled) {
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
 			await flushOutput();
-			reject(new Error(`Could not start nao ${args[0]}: ${error.message}`));
+			reject(
+				error.name === 'AbortError'
+					? new Error(`nao ${args[0]} was cancelled.`)
+					: new Error(`Could not start nao ${args[0]}: ${error.message}`),
+			);
 		});
 		child.once('close', async (code) => {
 			if (settled) {
 				return;
 			}
 			settled = true;
-			clearTimeout(timeout);
 			await flushOutput();
 			if (code === 0) {
 				resolve();

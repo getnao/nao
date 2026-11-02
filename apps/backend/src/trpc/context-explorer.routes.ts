@@ -36,6 +36,7 @@ import {
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
 import { assertRepositoryEditable, readManagedGithubRepositoryFullName } from '../services/managed-github-repository';
+import { assertNoProjectSyncRunning } from '../services/project-sync.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
 import {
@@ -244,7 +245,7 @@ export const contextExplorerRoutes = {
 		.input(z.object({ requiredCommits: z.array(commitSchema).max(2).default([]) }))
 		.mutation(async ({ ctx, input }) => {
 			return updateContextWorktree(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.requiredCommits,
 			);
 		}),
@@ -253,7 +254,7 @@ export const contextExplorerRoutes = {
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return switchContextBranch(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.branch,
 			);
 		}),
@@ -262,7 +263,7 @@ export const contextExplorerRoutes = {
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return createContextBranch(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.branch,
 			);
 		}),
@@ -281,7 +282,7 @@ export const contextExplorerRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			return createContextBranchAndCommit(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input,
 			);
 		}),
@@ -289,24 +290,24 @@ export const contextExplorerRoutes = {
 	commitChanges: cloudBillingContextAdminProcedure
 		.input(z.object({ paths: pathsSchema, message: z.string().trim().min(1).max(500) }))
 		.mutation(async ({ ctx, input }) => {
-			return commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
+			return commitContextChanges(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
 		}),
 
 	discardLocalChange: cloudBillingContextAdminProcedure
 		.input(z.object({ path: z.string() }))
 		.mutation(async ({ ctx, input }) => {
 			return discardContextFileChange(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.path,
 			);
 		}),
 
 	discardAllChanges: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
-		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		return discardAllContextChanges(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
 	pushBranch: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
-		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		return pushContextExplorerBranch(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 };
 
@@ -382,6 +383,15 @@ async function resolveManagedRepository(
 	}
 	const repoFullName = await readManagedGithubRepositoryFullName(context.projectFolder);
 	return repoFullName ? { repoFullName, author: context.user } : null;
+}
+
+function createIdleGitContext(
+	projectId: string,
+	projectPath: string | null,
+	user: { id: string; name: string; email: string },
+): Promise<ContextExplorerGitContext> {
+	assertNoProjectSyncRunning(projectId, user.id);
+	return createGitContext(projectId, projectPath, user);
 }
 
 export async function createGitContext(

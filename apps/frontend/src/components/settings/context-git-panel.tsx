@@ -96,6 +96,13 @@ export function ContextGitPanel({
 		...trpc.contextExplorer.suggestBranchName.queryOptions(),
 		enabled: isGitAvailable && currentBranch === defaultBranch,
 	});
+	const projectSync = useQuery({
+		...trpc.projectSync.getStatus.queryOptions(),
+		enabled: isGitAvailable,
+	});
+	const syncStatus = projectSync.data?.run?.status;
+	const isProjectSyncing = syncStatus === 'queued' || syncStatus === 'running';
+	const syncPausedReason = isProjectSyncing ? 'Git actions are paused until the project sync finishes.' : null;
 	const changedFileList = changedFiles.data ?? [];
 	const hasUncommittedChanges = changedFileList.length > 0;
 	const hasKnownDirtyWorktree = hasUnsavedFileChanges || hasUncommittedChanges;
@@ -273,6 +280,7 @@ export function ContextGitPanel({
 	const commitPending = commitChanges.isPending || createBranchAndCommit.isPending;
 	const commitError = commitChanges.error?.message ?? createBranchAndCommit.error?.message;
 	const branchChangeDisabled =
+		isProjectSyncing ||
 		changedFiles.isLoading ||
 		changedFiles.isError ||
 		hasUncommittedChanges ||
@@ -280,16 +288,19 @@ export function ContextGitPanel({
 		switchBranch.isPending ||
 		createBranch.isPending ||
 		commitPending;
-	const branchChangeReason = hasUnsavedFileChanges
-		? 'Save or discard the open file before changing branches.'
-		: changedFiles.isLoading
-			? 'Checking for uncommitted changes before changing branches.'
-			: changedFiles.isError
-				? 'Reload changed files before changing branches.'
-				: hasUncommittedChanges
-					? 'Commit or discard changes before switching branches.'
-					: null;
+	const branchChangeReason =
+		syncPausedReason ??
+		(hasUnsavedFileChanges
+			? 'Save or discard the open file before changing branches.'
+			: changedFiles.isLoading
+				? 'Checking for uncommitted changes before changing branches.'
+				: changedFiles.isError
+					? 'Reload changed files before changing branches.'
+					: hasUncommittedChanges
+						? 'Commit or discard changes before switching branches.'
+						: null);
 	const canCommit =
+		!isProjectSyncing &&
 		selectedChangedPaths.length > 0 &&
 		commitMessage.trim().length > 0 &&
 		currentBranch !== null &&
@@ -316,9 +327,9 @@ export function ContextGitPanel({
 				? `Open ${reviewRequestAbbreviation}. The git token cannot open ${reviewRequestName}s, so you can open it yourself.`
 				: `Open ${reviewRequestAbbreviation}`
 			: `View ${reviewRequestName}${reviewRequestNumber ? ` #${reviewRequestNumber}` : ''}`;
-	const discardDisabledReason = hasUnsavedFileChanges
-		? 'Save or discard the open file before discarding saved changes.'
-		: null;
+	const discardDisabledReason =
+		syncPausedReason ??
+		(hasUnsavedFileChanges ? 'Save or discard the open file before discarding saved changes.' : null);
 	const handleOpenReviewRequest = () => {
 		if (reviewRequestUrl) {
 			window.open(reviewRequestUrl, '_blank', 'noopener,noreferrer');
@@ -341,7 +352,8 @@ export function ContextGitPanel({
 							variant='default'
 							size='icon-sm'
 							aria-label='Update File Explorer'
-							title='Update File Explorer'
+							title={syncPausedReason ?? 'Update File Explorer'}
+							disabled={isProjectSyncing}
 							onClick={(event) => {
 								event.stopPropagation();
 								updateWorktree.reset();
@@ -467,7 +479,9 @@ export function ContextGitPanel({
 													size='icon-sm'
 													className='shrink-0'
 													aria-label='Edit branch name'
-													disabled={createBranch.isPending || commitPending}
+													disabled={
+														isProjectSyncing || createBranch.isPending || commitPending
+													}
 													onClick={() => {
 														createBranch.reset();
 														setNewBranchName(commitBranchName);
@@ -515,7 +529,9 @@ export function ContextGitPanel({
 											size='sm'
 											className='h-6 gap-1 px-1.5 text-[11px]'
 											aria-label='Push commits'
-											disabled={!canPush || commitPending || pushBranch.isPending}
+											disabled={
+												!canPush || isProjectSyncing || commitPending || pushBranch.isPending
+											}
 											isLoading={pushBranch.isPending}
 											onClick={handlePush}
 										>

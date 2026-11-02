@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, CircleAlert, RefreshCw, Terminal } from 'lucide-react';
+import { CheckCircle2, CircleAlert, RefreshCw, Terminal, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import { invalidateExplorerQueries } from '@/components/settings/context-git-panel';
@@ -18,10 +18,12 @@ export function CloudSyncPanel() {
 	const syncState = useQuery({
 		...trpc.projectSync.getStatus.queryOptions(),
 		refetchInterval: (query) => {
-			const status = query.state.data?.run?.status;
-			return status === 'queued' || status === 'running' ? 1000 : false;
+			const data = query.state.data;
+			const isOwnRunActive = data?.run?.status === 'queued' || data?.run?.status === 'running';
+			return isOwnRunActive || data?.syncingBy ? 1000 : false;
 		},
 	});
+	const syncingBy = syncState.data?.syncingBy ?? null;
 	const startSync = useMutation(
 		trpc.projectSync.start.mutationOptions({
 			onSuccess: async () => {
@@ -29,10 +31,20 @@ export function CloudSyncPanel() {
 			},
 		}),
 	);
+	const cancelSync = useMutation(
+		trpc.projectSync.cancel.mutationOptions({
+			onSuccess: async () => {
+				await queryClient.invalidateQueries({ queryKey: trpc.projectSync.getStatus.queryKey() });
+			},
+		}),
+	);
 	const run = syncState.data?.run ?? null;
+	const lastSyncedAt = syncState.data?.lastSyncedAt ?? null;
+	const lastSyncedBy = syncState.data?.lastSyncedBy ?? null;
 	const isSyncing = startSync.isPending || run?.status === 'queued' || run?.status === 'running';
 	const isComplete = run?.status === 'succeeded';
 	const isFailed = run?.status === 'failed';
+	const isCancelled = run?.status === 'cancelled';
 	const error = startSync.error?.message ?? run?.error ?? syncState.error?.message;
 
 	useEffect(() => {
@@ -88,11 +100,24 @@ export function CloudSyncPanel() {
 										<>
 											<span className='size-1.5 animate-pulse rounded-full bg-violet' />
 											<span className='text-zinc-400'>Running</span>
+											<button
+												type='button'
+												className='ml-1 text-zinc-500 hover:text-zinc-200'
+												disabled={cancelSync.isPending}
+												onClick={() => cancelSync.mutate()}
+											>
+												Stop
+											</button>
 										</>
 									) : isFailed ? (
 										<>
 											<CircleAlert className='size-3 text-red-400' />
 											<span className='text-red-400'>Failed</span>
+										</>
+									) : isCancelled ? (
+										<>
+											<X className='size-3' />
+											<span>Cancelled</span>
 										</>
 									) : (
 										<>
@@ -118,17 +143,21 @@ export function CloudSyncPanel() {
 					)}
 					{error && <p className='pr-2 pl-[13px] px-2 text-[11px] leading-4 text-destructive'>{error}</p>}
 					<div className='flex items-center justify-end gap-2 px-2'>
-						{isComplete && run.finishedAt && (
-							<span className='text-[10px] text-muted-foreground'>
-								Updated {getTimeAgo(run.finishedAt.getTime()).humanReadable.toLowerCase()}
-							</span>
-						)}
+						<span className='text-[10px] text-muted-foreground'>
+							{isSyncing
+								? null
+								: syncingBy
+									? `Project is currently being synced by ${syncingBy}`
+									: lastSyncedAt
+										? `Last synced ${getTimeAgo(lastSyncedAt.getTime()).humanReadable.toLowerCase()}${lastSyncedBy ? ` by ${lastSyncedBy}` : ''}`
+										: null}
+						</span>
 						<Button
 							type='button'
 							size='sm'
 							variant='secondary'
 							className='h-6 w-fit gap-1 px-1.5 text-[11px]'
-							disabled={isSyncing || syncState.isLoading || syncState.isError}
+							disabled={isSyncing || syncState.isLoading || syncState.isError || !!syncingBy}
 							isLoading={isSyncing}
 							onClick={() => {
 								startSync.reset();

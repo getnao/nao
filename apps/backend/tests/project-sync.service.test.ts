@@ -8,6 +8,12 @@ vi.mock('../src/env', () => ({ env: { NAO_MODE: 'cloud' } }));
 vi.mock('../src/utils/context-repo', () => ({
 	getWorktreeProjectRoot: (repo: { worktreeRoot: string }) => repo.worktreeRoot,
 }));
+vi.mock('../src/queries/activity.queries', () => ({
+	startProjectSyncActivity: vi.fn(async () => ({ id: crypto.randomUUID() })),
+	completeActivity: vi.fn(),
+	failActivity: vi.fn(),
+	getLatestCompletedProjectSync: vi.fn(async () => null),
+}));
 vi.mock('../src/services/context-explorer-git.service', () => ({
 	resolveContextExplorerGitSafely: vi.fn(),
 }));
@@ -31,6 +37,7 @@ vi.mock('../src/utils/logger', () => ({
 }));
 
 import type { DBProject } from '../src/db/abstractSchema';
+import { completeActivity, failActivity, getLatestCompletedProjectSync } from '../src/queries/activity.queries';
 import {
 	type ContextExplorerGitContext,
 	resolveContextExplorerGitSafely,
@@ -43,6 +50,7 @@ import { NaoCommandExitError, runNaoCommand } from '../src/services/nao-command.
 import { getProjectRuntimeEnvVars } from '../src/services/project-runtime-env';
 import {
 	__resetProjectSyncRunsForTesting,
+	assertNoProjectSyncRunning,
 	getProjectSyncState,
 	startProjectSync,
 } from '../src/services/project-sync.service';
@@ -68,7 +76,7 @@ afterEach(() => {
 
 describe('project sync', () => {
 	it("runs nao sync in the user's editor worktree and leaves the results there", async () => {
-		vi.mocked(runNaoCommand).mockImplementation(async (_args, cwd, _env, _timeout, onOutput) => {
+		vi.mocked(runNaoCommand).mockImplementation(async (_args, cwd, _env, onOutput) => {
 			fs.mkdirSync(path.join(cwd, 'databases'));
 			fs.writeFileSync(path.join(cwd, 'databases', 'sales.md'), 'synced');
 			await onOutput?.('Connecting with super-secret\n');
@@ -83,13 +91,35 @@ describe('project sync', () => {
 			['sync'],
 			worktreeRoot,
 			{ POSTGRES_PASSWORD: 'super-secret' },
-			30 * 60_000,
 			expect.any(Function),
 		);
 		expect(state.run?.logs).toContain('Connecting with [REDACTED:POSTGRES_PASSWORD]');
 		expect(state.run?.logs).toContain('✓ Synced files are ready to review in your changes');
+		expect(completeActivity).toHaveBeenCalledWith(run.id, { logs: state.run?.logs });
+		expect(failActivity).not.toHaveBeenCalled();
 		expect(fs.readFileSync(path.join(worktreeRoot, 'databases', 'sales.md'), 'utf8')).toBe('synced');
 		expect((await getProjectSyncState(project, gitContext('user-2'))).run).toBeNull();
+	});
+
+	it("blocks the user's Git actions only while their sync is running", async () => {
+		let finishSync: () => void = () => undefined;
+		vi.mocked(runNaoCommand).mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					finishSync = resolve;
+				}),
+		);
+
+		await startProjectSync(project, gitContext('user-1'));
+
+		expect(() => assertNoProjectSyncRunning(project.id, 'user-1')).toThrow(
+			'Wait for the project sync to finish before using Git.',
+		);
+		expect(() => assertNoProjectSyncRunning(project.id, 'user-2')).not.toThrow();
+		await vi.waitFor(() => expect(runNaoCommand).toHaveBeenCalled());
+		finishSync();
+		await waitForStatus('user-1', 'succeeded');
+		expect(() => assertNoProjectSyncRunning(project.id, 'user-1')).not.toThrow();
 	});
 
 	it('keeps what synced and fails the run when one source fails, like the CLI', async () => {
@@ -98,11 +128,13 @@ describe('project sync', () => {
 			throw new NaoCommandExitError('nao sync failed: Failed to sync 1 database: finance');
 		});
 
-		await startProjectSync(project, gitContext('user-1'));
+		const run = await startProjectSync(project, gitContext('user-1'));
 		await waitForStatus('user-1', 'failed');
 
 		const state = await getProjectSyncState(project, gitContext('user-1'));
 		expect(state.run?.error).toBe('nao sync failed: Failed to sync 1 database: finance');
+		expect(failActivity).toHaveBeenCalledWith(run.id, 'nao sync failed: Failed to sync 1 database: finance');
+		expect(completeActivity).not.toHaveBeenCalled();
 		expect(fs.readFileSync(path.join(worktreeRoot, 'sales.md'), 'utf8')).toBe('synced');
 	});
 
@@ -123,13 +155,7 @@ describe('project sync', () => {
 			expect((await getProjectSyncState(project, managedContext)).run?.status).toBe('succeeded');
 		});
 
-		expect(runNaoCommand).toHaveBeenCalledWith(
-			['sync'],
-			worktreeRoot,
-			expect.anything(),
-			expect.any(Number),
-			expect.any(Function),
-		);
+		expect(runNaoCommand).toHaveBeenCalledWith(['sync'], worktreeRoot, expect.anything(), expect.any(Function));
 		expect(publishManagedGithubRepositoryUpdate).toHaveBeenCalledWith({
 			projectDir: worktreeRoot,
 			repoFullName: 'nao-projects/sales',
@@ -140,6 +166,18 @@ describe('project sync', () => {
 		expect((await getProjectSyncState(project, managedContext)).run?.logs).toContain(
 			'✓ Synced files were published',
 		);
+	});
+
+	it("reports the project's last completed sync to every user", async () => {
+		const completedAt = new Date('2026-10-30T12:00:00Z');
+		vi.mocked(getLatestCompletedProjectSync).mockResolvedValue({ completedAt, actorName: 'Leo' });
+
+		await expect(getProjectSyncState(project, gitContext('user-2'))).resolves.toMatchObject({
+			run: null,
+			lastSyncedAt: completedAt,
+			lastSyncedBy: 'Leo',
+		});
+		expect(getLatestCompletedProjectSync).toHaveBeenCalledWith(project.id);
 	});
 
 	it('is unavailable when the editor has no Git access to the project', async () => {
