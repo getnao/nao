@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query';
 import type { CustomStoryViewerAccess, StoryStateChange } from '@nao/shared/story-app';
 import { trpc, trpcClient } from '@/main';
 import { chatActivityStore } from '@/stores/chat-activity';
@@ -80,6 +81,36 @@ export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: stri
 	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId });
+}
+
+/** Chart plugins come from the project's `agent/charts` folder, like the chat's custom charts, whoever's story it is. */
+export async function fetchChartPluginSource(queryClient: QueryClient, chartType: string): Promise<string> {
+	const plugins = await fetchChartPlugins(queryClient);
+	const plugin = plugins.find((entry) => entry.type === chartType);
+	if (!plugin) {
+		throw new Error(`Custom chart "${chartType}" is not available.`);
+	}
+	return fetchPluginSource(queryClient, plugin);
+}
+
+/** Every chart plugin's source by type, so a downloaded story draws its `<Chart type>` blocks offline. */
+export async function fetchChartPluginSources(queryClient: QueryClient): Promise<Record<string, string>> {
+	const plugins = await fetchChartPlugins(queryClient);
+	const sources = await Promise.all(
+		plugins.map(async (plugin) => [plugin.type, await fetchPluginSource(queryClient, plugin)] as const),
+	);
+	return Object.fromEntries(sources);
+}
+
+function fetchChartPlugins(queryClient: QueryClient) {
+	return queryClient.fetchQuery({ ...trpc.chartPlugin.list.queryOptions(), staleTime: 0 });
+}
+
+async function fetchPluginSource(queryClient: QueryClient, plugin: { type: string; version: string }) {
+	const { source } = await queryClient.fetchQuery(
+		trpc.chartPlugin.source.queryOptions({ type: plugin.type, version: plugin.version }),
+	);
+	return source;
 }
 
 export function narrativesOptions(dataSource: CustomStoryDataSource) {

@@ -29,6 +29,10 @@ export function hasChartPlugin(projectFolder: string, type: string): boolean {
 	return readChartPlugin(projectFolder, type) !== null;
 }
 
+export function readChartPluginSources(projectFolder: string): Record<string, string> {
+	return Object.fromEntries(discoverChartPlugins(projectFolder).map((plugin) => [plugin.entry.type, plugin.source]));
+}
+
 function discoverChartPlugins(projectFolder: string): DiscoveredChartPlugin[] {
 	const chartsFolder = resolveChartsFolder(projectFolder);
 	if (!chartsFolder) {

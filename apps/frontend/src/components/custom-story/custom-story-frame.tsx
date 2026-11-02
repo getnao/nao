@@ -10,7 +10,13 @@ import {
 import { CODE_CITATION_KIND } from '@nao/shared/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { narrativesOptions, queryDataOptions, querySqlOptions, stateOptions } from './story-data-options';
+import {
+	fetchChartPluginSource,
+	narrativesOptions,
+	queryDataOptions,
+	querySqlOptions,
+	stateOptions,
+} from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
 import { RememberStateHeader } from './remember-state-header';
 import { useStoryStateRecorder } from './use-story-state-recorder';
@@ -166,6 +172,18 @@ export function CustomStoryFrame({
 		[dataSource, queryClient, reply],
 	);
 
+	const answerChartPlugin = useCallback(
+		async (requestId: string, chartType: string) => {
+			try {
+				const source = await fetchChartPluginSource(queryClient, chartType);
+				reply({ type: 'nao-story:chart-plugin-result', requestId, source });
+			} catch (error) {
+				reply({ type: 'nao-story:chart-plugin-error', requestId, message: describeError(error) });
+			}
+		},
+		[queryClient, reply],
+	);
+
 	const answerNarratives = useCallback(
 		async (requestId: string) => {
 			const narratives = await queryClient.fetchQuery(narrativesOptions(dataSource)).catch(() => ({}));
@@ -258,6 +276,9 @@ export function CustomStoryFrame({
 				case 'nao-story:query-sql':
 					void answerQuerySql(message.requestId, message.queryId);
 					break;
+				case 'nao-story:chart-plugin':
+					void answerChartPlugin(message.requestId, message.chartType);
+					break;
 				case 'nao-story:set-state':
 					recordStateChange({ key: message.key, value: message.value, shared: message.shared === true });
 					break;
@@ -272,6 +293,7 @@ export function CustomStoryFrame({
 		window.addEventListener('message', handleMessage);
 		return () => window.removeEventListener('message', handleMessage);
 	}, [
+		answerChartPlugin,
 		answerNarratives,
 		answerQuery,
 		answerQuerySql,

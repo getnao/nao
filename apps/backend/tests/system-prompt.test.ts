@@ -119,6 +119,7 @@ describe('SystemPrompt timezone rendering', () => {
 
 		expect(markdown).toContain('**bubble**: Shows three numeric dimensions.');
 		expect(markdown).toContain('interactive web chats only');
+		expect(markdown).toContain('in a custom story as <Chart type="...">');
 	});
 
 	it('bounds the custom chart list and truncates long descriptions', () => {

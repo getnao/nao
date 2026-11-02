@@ -2,10 +2,13 @@ import type { StoryExportData, StoryQueryResult } from '@nao/shared/story-app';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { DEFAULT_STORY_THEME_PAIR, type StoryThemeMode } from '@nao/shared/story-theme';
 
+import * as projectQueries from '../queries/project.queries';
+import * as storyQueries from '../queries/story.queries';
 import { formatDownloadFilename } from '../utils/story-download';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { renderStoryPdf } from '../utils/story-snapshot';
 import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
+import { readChartPluginSources } from './chart-plugin';
 import {
 	type CustomStoryVersionView,
 	getCustomStoryNarratives,
@@ -14,18 +17,31 @@ import {
 } from './custom-story';
 import { getUnattendedCustomStoryState, getUnattendedCustomStoryStateByStoryId } from './custom-story-state';
 
+interface StoryExportContext {
+	queryData: Record<string, StoryQueryResult>;
+	narratives: Record<string, string>;
+	runtime: string;
+	state?: StoryExportData['state'];
+	chartPlugins: Record<string, string>;
+}
+
 export async function renderCustomStoryPdf(
 	chatId: string,
 	storySlug: string,
 	queryData: Record<string, StoryQueryResult>,
 ): Promise<{ filename: string; buffer: Buffer }> {
-	const [version, narratives, state, runtime] = await Promise.all([
-		getCustomStoryVersion(chatId, storySlug),
+	const version = await getCustomStoryVersion(chatId, storySlug);
+	const [narratives, state, runtime, chartPlugins] = await Promise.all([
 		getCustomStoryNarratives(chatId, storySlug),
 		getUnattendedCustomStoryState(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
+		loadStoryChartPlugins(version.storyId),
 	]);
-	const html = buildCustomStoryDocumentHtml(version, queryData, narratives, runtime, 'light', state);
+	const html = buildCustomStoryDocumentHtml(
+		version,
+		{ queryData, narratives, runtime, state, chartPlugins },
+		'light',
+	);
 	const buffer = await renderStoryPdf(html, themeFontStylesheets(version.theme));
 	return { filename: formatDownloadFilename(version.title, 'pdf'), buffer };
 }
@@ -37,27 +53,30 @@ export async function buildCustomStoryDocumentByStoryId(
 	queryData: Record<string, StoryQueryResult>,
 	mode: StoryThemeMode,
 ): Promise<string> {
-	const [narratives, runtime, state] = await Promise.all([
+	const [narratives, runtime, state, chartPlugins] = await Promise.all([
 		getStoredCustomStoryNarrativesByStoryId(storyId),
 		loadStandaloneStoryRuntime(),
 		getUnattendedCustomStoryStateByStoryId(storyId),
+		loadStoryChartPlugins(storyId),
 	]);
-	return buildCustomStoryDocumentHtml(version, queryData, narratives, runtime, mode, state);
+	return buildCustomStoryDocumentHtml(version, { queryData, narratives, runtime, state, chartPlugins }, mode);
 }
 
 function buildCustomStoryDocumentHtml(
 	version: CustomStoryVersionView,
-	queryData: Record<string, StoryQueryResult>,
-	narratives: Record<string, string>,
-	runtime: string,
-	mode: StoryThemeMode = 'light',
-	state?: StoryExportData['state'],
+	{ queryData, narratives, runtime, state, chartPlugins }: StoryExportContext,
+	mode: StoryThemeMode,
 ): string {
 	if (!version.app) {
 		throw new Error(version.bundleError ?? 'The latest version of this story did not build.');
 	}
 
-	const data: StoryExportData = { queries: pickQueries(queryData, version.queryIds), narratives, state };
+	const data: StoryExportData = {
+		queries: pickQueries(queryData, version.queryIds),
+		narratives,
+		state,
+		chartPlugins,
+	};
 	return buildStoryExportDocument({
 		title: version.title,
 		app: version.app,
@@ -66,6 +85,12 @@ function buildCustomStoryDocumentHtml(
 		runtime,
 		data,
 	});
+}
+
+async function loadStoryChartPlugins(storyId: string): Promise<Record<string, string>> {
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	const project = projectId ? await projectQueries.getProjectById(projectId) : null;
+	return project?.path ? readChartPluginSources(project.path) : {};
 }
 
 function pickQueries(

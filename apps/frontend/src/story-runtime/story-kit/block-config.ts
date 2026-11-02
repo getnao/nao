@@ -57,6 +57,8 @@ export interface KitBlockElement {
 	props: Record<string, unknown>;
 }
 
+export type KitBlockSourceConfig = Omit<StoryBlockChartConfig, 'chart_type'> & { chart_type: string };
+
 export function blockRef<Component extends StoryKitEditableBlock>(
 	component: Component,
 	props: object,
@@ -160,7 +162,7 @@ export function kpiBlockConfig(
 	});
 }
 
-export function kitBlockFromConfig(config: StoryBlockChartConfig): KitBlockElement {
+export function kitBlockFromConfig(config: KitBlockSourceConfig): KitBlockElement {
 	if (config.chart_type === 'kpi_card') {
 		const [value] = config.series;
 		return {
@@ -198,7 +200,7 @@ export function kitBlockFromConfig(config: StoryBlockChartConfig): KitBlockEleme
 	};
 }
 
-function presetForChartType(chartType: ChartType): KitBlockElement {
+function presetForChartType(chartType: string): KitBlockElement {
 	switch (chartType) {
 		case 'bar':
 			return { component: 'BarChart', props: {} };
