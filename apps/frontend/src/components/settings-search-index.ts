@@ -188,9 +188,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/organization',
 		pageLabel: 'Organization Settings',
-		title: 'Organization API Keys',
-		description: 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
+		title: 'Deploy keys',
+		description: 'Organization keys that can run nao deploy to upload a project context.',
 		keywords: ['api key', 'deploy key', 'token', 'credentials'],
+		orgAdminOnly: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		title: 'User management API keys',
+		description:
+			'Keys for the user management REST API at /api/user-management. They can list, invite and remove users and manage groups and roles, but cannot deploy.',
+		keywords: ['api key', 'user management', 'invite', 'remove user', 'groups', 'roles', 'token'],
 		orgAdminOnly: true,
 	},
 
