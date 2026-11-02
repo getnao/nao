@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { compareTestData, normalizeFormattedNumber } from '../src/utils/test-data-comparison';
+import { DEFAULT_TEST_COMPARISON_TOLERANCES } from '../src/types/test-run';
+import {
+	buildTestDataDiff,
+	compareTestData,
+	normalizeFormattedNumber,
+	orderRecordsForComparison,
+} from '../src/utils/test-data-comparison';
 
 describe('compareTestData', () => {
 	it('treats comma-formatted numbers as equal to raw numbers', () => {
@@ -175,5 +181,109 @@ describe('normalizeFormattedNumber', () => {
 		[',', ','],
 	])('normalizes %j to %j', (value, expected) => {
 		expect(normalizeFormattedNumber(value)).toBe(expected);
+	});
+});
+
+describe('buildTestDataDiff', () => {
+	it('pairs the rows in the order the verdict compares them, columns as the test declares them', () => {
+		const diff = buildTestDataDiff({
+			actual: [
+				{ total: 200, month: 'feb' },
+				{ total: 100.004, month: 'jan' },
+			],
+			expected: [
+				{ month: 'jan', total: 100 },
+				{ month: 'feb', total: 210 },
+			],
+			expectedColumns: ['total', 'month'],
+		});
+
+		expect(diff).toEqual({
+			columns: ['total', 'month'],
+			missingColumns: [],
+			extraColumns: [],
+			expectedRowCount: 2,
+			actualRowCount: 2,
+			isTruncated: false,
+			rows: [
+				{ expected: [210, 'feb'], actual: [200, 'feb'], statuses: ['differ', 'match'] },
+				{ expected: [100, 'jan'], actual: [100, 'jan'], statuses: ['match', 'match'] },
+			],
+		});
+	});
+
+	it('marks numbers within the tolerances as close', () => {
+		const diff = buildTestDataDiff(
+			{ actual: [{ total: 100.5 }], expected: [{ total: 100 }], expectedColumns: [] },
+			{ ...DEFAULT_TEST_COMPARISON_TOLERANCES, rtol: 0.01 },
+		);
+
+		expect(diff?.rows[0].statuses).toEqual(['close']);
+	});
+
+	it('reports the expected columns the answer misses and the ones it adds', () => {
+		const diff = buildTestDataDiff({
+			actual: [{ month: 'jan', orders: 3 }],
+			expected: [{ month: 'jan', total: 100 }],
+			expectedColumns: [],
+		});
+
+		expect(diff).toMatchObject({
+			columns: ['month', 'total'],
+			missingColumns: ['total'],
+			extraColumns: ['orders'],
+			rows: [{ expected: ['jan', 100], actual: ['jan', null], statuses: ['match', 'differ'] }],
+		});
+	});
+
+	it('lines up identical rows when the row counts differ, so the missing and extra ones stand out', () => {
+		const diff = buildTestDataDiff({
+			actual: [
+				{ month: 'jan', total: 100 },
+				{ month: 'mar', total: 300 },
+				{ month: 'may', total: 500 },
+			],
+			expected: [
+				{ month: 'jan', total: 100 },
+				{ month: 'feb', total: 200 },
+				{ month: 'mar', total: 300 },
+				{ month: 'apr', total: 400 },
+			],
+			expectedColumns: [],
+		});
+
+		expect(diff?.rows).toEqual([
+			{ expected: ['apr', 400], actual: null, statuses: null },
+			{ expected: ['feb', 200], actual: null, statuses: null },
+			{ expected: ['jan', 100], actual: ['jan', 100], statuses: ['match', 'match'] },
+			{ expected: ['mar', 300], actual: ['mar', 300], statuses: ['match', 'match'] },
+			{ expected: null, actual: ['may', 500], statuses: null },
+		]);
+	});
+
+	it('flags rows cut before they were stored', () => {
+		const diff = buildTestDataDiff(
+			{ actual: [{ total: 1 }], expected: [{ total: 1 }], expectedColumns: [] },
+			DEFAULT_TEST_COMPARISON_TOLERANCES,
+			{ actual: 120, expected: 1 },
+		);
+
+		expect(diff).toMatchObject({ actualRowCount: 120, expectedRowCount: 1, isTruncated: true });
+	});
+
+	it('has nothing to show without an answer', () => {
+		expect(buildTestDataDiff({ actual: null, expected: [{ total: 1 }], expectedColumns: [] })).toBeNull();
+	});
+});
+
+describe('orderRecordsForComparison', () => {
+	it('sorts the raw records the way the verdict sorts their normalized rows', () => {
+		const records = [
+			{ month: 'mar', total: '3,000' },
+			{ month: 'jan', total: '1,000' },
+			{ month: 'feb', total: '2,000' },
+		];
+
+		expect(orderRecordsForComparison(records, ['total'])).toEqual([records[1], records[2], records[0]]);
 	});
 });

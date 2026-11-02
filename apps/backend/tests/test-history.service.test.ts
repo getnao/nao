@@ -4,8 +4,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getLatestOutcomesByTest } from '../src/services/test-history.service';
-import type { TestDefinition, TestRunStatus, TestRunTrigger } from '../src/types/test-run';
+import { getLatestOutcomesByTest, getTestHistory } from '../src/services/test-history.service';
+import {
+	DEFAULT_TEST_COMPARISON_TOLERANCES,
+	type TestContextVariant,
+	type TestDefinition,
+	type TestRunStatus,
+	type TestRunTrigger,
+} from '../src/types/test-run';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -37,19 +43,19 @@ const LATEST_RUN_AT = new Date('2026-10-26T10:00:00Z');
 const PREVIOUS_RUN_AT = new Date('2026-10-25T10:00:00Z');
 const ACTIVE_RUN_AT = new Date('2026-10-27T10:00:00Z');
 
+beforeAll(async () => {
+	await db.insert(s.project).values({ id: PROJECT_ID, name: 'History', type: 'local', path: '/tmp/history' });
+});
+
+beforeEach(async () => {
+	await db.delete(s.testRun).execute();
+});
+
+afterAll(() => {
+	db.$client.close();
+});
+
 describe('getLatestOutcomesByTest', () => {
-	beforeAll(async () => {
-		await db.insert(s.project).values({ id: PROJECT_ID, name: 'History', type: 'local', path: '/tmp/history' });
-	});
-
-	beforeEach(async () => {
-		await db.delete(s.testRun).execute();
-	});
-
-	afterAll(() => {
-		db.$client.close();
-	});
-
 	it('counts the attempts of the latest completed run that included each test', async () => {
 		await insertRun('run-1', PREVIOUS_RUN_AT, 'completed', [
 			['revenue.yml', 'hash-revenue', true],
@@ -106,24 +112,100 @@ describe('getLatestOutcomesByTest', () => {
 	});
 });
 
+describe('getTestHistory', () => {
+	it('lists the runs that included the test, newest first, with only its results', async () => {
+		await insertRun('run-1', PREVIOUS_RUN_AT, 'completed', [
+			['revenue.yml', 'hash-revenue', true],
+			['orders.yml', 'hash-orders', false],
+		]);
+		await insertRun('run-2', LATEST_RUN_AT, 'completed', [['orders.yml', 'hash-orders', true]]);
+		await insertRun('run-3', ACTIVE_RUN_AT, 'running', [], 'draft', ['revenue.yml']);
+
+		const history = await getTestHistory(PROJECT_ID, 'revenue.yml', DEFAULT_TEST_COMPARISON_TOLERANCES);
+
+		expect(history.map((run) => [run.id, run.results.map((result) => result.testPath)])).toEqual([
+			['run-3', []],
+			['run-1', ['revenue.yml']],
+		]);
+		expect(history.every((run) => run.comparison === null)).toBe(true);
+	});
+
+	it('compares the two variants of a comparison run', async () => {
+		await insertRun(
+			'run-1',
+			LATEST_RUN_AT,
+			'completed',
+			[
+				['revenue.yml', 'hash-revenue', true, 'production'],
+				['revenue.yml', 'hash-revenue', false, 'draft'],
+			],
+			'comparison',
+		);
+
+		const [run] = await getTestHistory(PROJECT_ID, 'revenue.yml', DEFAULT_TEST_COMPARISON_TOLERANCES);
+
+		expect(run.comparison).toMatchObject({
+			change: 'regressed',
+			production: { passed: 1, total: 1 },
+			draft: { passed: 0, total: 1 },
+		});
+	});
+
+	it('diffs the stored rows of each result', async () => {
+		await insertRun('run-1', LATEST_RUN_AT, 'completed', [['revenue.yml', 'hash-revenue', false]]);
+		await db
+			.update(s.testRunResult)
+			.set({
+				details: {
+					responseText: null,
+					actualData: [{ month: 'jan', total: 90 }],
+					expectedData: [{ month: 'jan', total: 100 }],
+					comparison: null,
+					referenceSql: null,
+					verificationSql: null,
+				},
+			})
+			.execute();
+
+		const [run] = await getTestHistory(PROJECT_ID, 'revenue.yml', DEFAULT_TEST_COMPARISON_TOLERANCES);
+
+		expect(run.results[0].dataDiff).toMatchObject({
+			columns: ['month', 'total'],
+			rows: [{ expected: ['jan', 100], actual: ['jan', 90], statuses: ['match', 'differ'] }],
+		});
+	});
+});
+
 async function insertRun(
 	id: string,
 	createdAt: Date,
 	status: TestRunStatus,
-	results: [testPath: string, testHash: string, passed: boolean][],
+	results: [testPath: string, testHash: string, passed: boolean, contextVariant?: TestContextVariant][],
 	trigger: TestRunTrigger = 'manual',
+	selection = [...new Set(results.map(([testPath]) => testPath))],
 ) {
-	await db
-		.insert(s.testRun)
-		.values({ id, projectId: PROJECT_ID, status, trigger, createdAt, models: [], totalAttempts: results.length });
+	await db.insert(s.testRun).values({
+		id,
+		projectId: PROJECT_ID,
+		status,
+		trigger,
+		createdAt,
+		models: [{ provider: 'openai', modelId: 'gpt-4.1' }],
+		selection,
+		totalAttempts: results.length,
+	});
+	if (results.length === 0) {
+		return;
+	}
 	await db.insert(s.testRunResult).values(
-		results.map(([testPath, testHash, passed], index) => ({
+		results.map(([testPath, testHash, passed, contextVariant = 'production'], index) => ({
 			runId: id,
 			testPath,
 			testName: testPath,
 			testHash,
 			llmProvider: 'openai',
 			llmModelId: 'gpt-4.1',
+			contextVariant,
 			attempt: index + 1,
 			passed,
 			message: passed ? 'match' : 'values differ',

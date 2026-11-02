@@ -10,7 +10,12 @@ import {
 import { createSafeFileAccess, createStrictFileAccess } from '../services/context-explorer-access.service';
 import { type DraftSource, hasContextWorktree, readGitDraft } from '../services/draft-context.service';
 import { hasContextRepository, readNaoDraft } from '../services/nao-draft.service';
-import { getLatestOutcomesByTest, listRunsWithVariantTotals } from '../services/test-history.service';
+import {
+	getLatestOutcomesByTest,
+	getTestHistory,
+	listRunsWithVariantTotals,
+	withDataDiffs,
+} from '../services/test-history.service';
 import {
 	cancelTestRun,
 	startComparisonRun,
@@ -27,7 +32,12 @@ import {
 	toTestPath,
 } from '../services/test-suite.service';
 import { llmSelectedModelSchema } from '../types/llm';
-import { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS } from '../types/test-run';
+import {
+	DEFAULT_TEST_COMPARISON_TOLERANCES,
+	MAX_TEST_RUN_ATTEMPTS,
+	MAX_TEST_RUN_MODELS,
+	type TestComparisonTolerances,
+} from '../types/test-run';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { compareContextVariants } from '../utils/test-comparison';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
@@ -51,6 +61,11 @@ const draftTestFileSchema = z.object({
 	content: z.string().refine((content) => Buffer.byteLength(content, 'utf8') <= MAX_CONTEXT_FILE_SIZE, {
 		message: `The test file must be at most ${MAX_CONTEXT_FILE_SIZE} bytes.`,
 	}),
+});
+
+const comparisonRunSchema = runSelectionSchema.extend({
+	/** A test being edited, compared as it is in the editor rather than as saved in the draft. */
+	testFile: draftTestFileSchema.optional(),
 });
 
 export const testRunRoutes = {
@@ -85,24 +100,34 @@ export const testRunRoutes = {
 		}
 	}),
 
-	startComparisonRun: cloudBillingContextAdminProcedure.input(runSelectionSchema).mutation(async ({ ctx, input }) => {
-		const projectFolder = requireProjectFolder(ctx.project.path);
-		const draft = await readUserDraft(ctx, projectFolder, createStrictFileAccess);
-		if ('message' in draft) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: draft.message });
-		}
-		try {
-			return await startComparisonRun({ ...input, projectId: ctx.project.id, userId: ctx.user.id, draft });
-		} catch (error) {
-			throw toTestRunTrpcError(error);
-		}
-	}),
+	startComparisonRun: cloudBillingContextAdminProcedure
+		.input(comparisonRunSchema)
+		.mutation(async ({ ctx, input }) => {
+			const projectFolder = requireProjectFolder(ctx.project.path);
+			const { testFile, ...selection } = input;
+			const tests = testFile ? [parseValidDraftTest(testFile.path, testFile.content)] : undefined;
+			const draft = await readUserDraft(ctx, projectFolder, createStrictFileAccess);
+			if ('message' in draft) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: draft.message });
+			}
+			try {
+				return await startComparisonRun({
+					...selection,
+					tests,
+					projectId: ctx.project.id,
+					userId: ctx.user.id,
+					draft,
+				});
+			} catch (error) {
+				throw toTestRunTrpcError(error);
+			}
+		}),
 
 	listRuns: contextAdminProtectedProcedure.query(({ ctx }) => listRunsWithVariantTotals(ctx.project.id)),
 
 	getRun: contextAdminProtectedProcedure.input(z.object({ runId: z.string() })).query(async ({ ctx, input }) => {
 		const run = await getProjectRun(ctx.project.id, input.runId);
-		const results = await testRunQueries.listResults(run.id);
+		const results = withDataDiffs(await testRunQueries.listResults(run.id), projectTolerances(ctx.project.path));
 		return {
 			...run,
 			results,
@@ -111,18 +136,25 @@ export const testRunRoutes = {
 		};
 	}),
 
+	getTestHistory: contextAdminProtectedProcedure
+		.input(z.object({ path: z.string() }))
+		.query(async ({ ctx, input }) => {
+			const testPath = toTestPath(input.path);
+			if (!testPath) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Tests are YAML files in the tests/ folder.' });
+			}
+			return getTestHistory(ctx.project.id, testPath, projectTolerances(ctx.project.path));
+		}),
+
 	validateTestFile: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(({ input }) => {
 		const parsed = parseDraftTest(input.path, input.content);
 		return isInvalidTestFile(parsed) ? { test: null, error: parsed.error } : { test: parsed, error: null };
 	}),
 
 	startDraftRun: cloudBillingContextAdminProcedure.input(draftTestFileSchema).mutation(async ({ ctx, input }) => {
-		const parsed = parseDraftTest(input.path, input.content);
-		if (isInvalidTestFile(parsed)) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error });
-		}
+		const test = parseValidDraftTest(input.path, input.content);
 		try {
-			return await startTestRun({ projectId: ctx.project.id, userId: ctx.user.id, tests: [parsed] });
+			return await startTestRun({ projectId: ctx.project.id, userId: ctx.user.id, tests: [test] });
 		} catch (error) {
 			throw toTestRunTrpcError(error);
 		}
@@ -177,6 +209,19 @@ function parseDraftTest(projectPath: string, content: string) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Tests are YAML files in the tests/ folder.' });
 	}
 	return parseTestContent(testPath, content);
+}
+
+function parseValidDraftTest(projectPath: string, content: string) {
+	const parsed = parseDraftTest(projectPath, content);
+	if (isInvalidTestFile(parsed)) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error });
+	}
+	return parsed;
+}
+
+/** Diffs use the tolerances the project configures now, as runs do not record theirs. */
+function projectTolerances(projectFolder: string | null): TestComparisonTolerances {
+	return projectFolder ? extractConfiguredTestSettings(projectFolder).tolerances : DEFAULT_TEST_COMPARISON_TOLERANCES;
 }
 
 async function createFirstFreeTestFile(

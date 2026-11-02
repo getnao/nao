@@ -83,7 +83,13 @@ beforeEach(() => {
 	});
 	mocks.evaluateTestAttempt.mockResolvedValue({
 		toolCalls: [{ toolName: 'execute_sql' }],
-		verification: { data: [{ total: 1 }], expectedData: [{ total: 1 }], sql: 'select 1' },
+		verification: {
+			data: [{ total: 1 }],
+			expectedData: [{ total: 1 }],
+			expectedColumns: [],
+			error: null,
+			sql: 'select 1',
+		},
 		verdict: { passed: true, message: 'match', comparison: null },
 	});
 });
@@ -123,7 +129,12 @@ describe('startTestRun', () => {
 				totalTokens: 100,
 				totalCost: 0.01,
 				toolCallCount: 1,
-				details: expect.objectContaining({ responseText: 'The answer', referenceSql: 'select 1' }),
+				details: expect.objectContaining({
+					responseText: 'The answer',
+					referenceSql: 'select 1',
+					actualData: [{ total: 1 }],
+					actualRowCount: 1,
+				}),
 			}),
 		);
 		expect(mocks.failRun).not.toHaveBeenCalled();
@@ -287,6 +298,39 @@ describe('startComparisonRun', () => {
 		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
 			expect.objectContaining({ testPath: 'revenue.yml', contextVariant: 'production' }),
 		);
+	});
+
+	it('compares only the given tests, as they are in the editor', async () => {
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeDraftTestFile('margin.yml', 'prompt: What is the margin?');
+		const editedTest = {
+			path: 'revenue.yml',
+			name: 'revenue',
+			prompt: 'What is the revenue in 2026?',
+			sql: null,
+			databaseId: null,
+			assertions: [],
+			tags: [],
+			owner: null,
+			hash: 'edited-hash',
+		};
+
+		const run = await startComparisonRun({
+			projectId: 'project-1',
+			userId: 'user-1',
+			draft: gitDraft(),
+			tests: [editedTest],
+		});
+		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
+
+		expect(run.totalAttempts).toBe(2);
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(
+			expect.objectContaining({ trigger: 'comparison', selection: ['revenue.yml'] }),
+		);
+		expect(mocks.createChat).toHaveBeenCalledWith(expect.anything(), {
+			text: 'What is the revenue in 2026?',
+			source: 'test',
+		});
 	});
 
 	it('rejects a draft without changes and removes its snapshot', async () => {
