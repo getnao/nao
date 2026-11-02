@@ -407,7 +407,7 @@ export const updateUserGroup = async (
 	groupId: string,
 	data: {
 		name?: string;
-		featureGrants: UserGroupFeature[];
+		featureGrants?: UserGroupFeature[];
 		toolCallDensityPolicy?: ToolCallDensityPolicy;
 		showAllSettings?: boolean;
 		advancedContextExplorer?: boolean;
@@ -450,17 +450,31 @@ export const updateUserGroup = async (
 		data.ssoMappings === undefined ? undefined : serializeUserGroupSsoMappings(data.ssoMappings);
 	const changedProviders =
 		serializedSsoMappings === undefined ? [] : getChangedSsoProviders(group.ssoMappings, serializedSsoMappings);
+	// The feature blob is rewritten only when one of its own fields is set: a rename must leave a
+	// concurrent grants change alone instead of restoring the snapshot read above.
+	const updatesFeatureGrants =
+		data.featureGrants !== undefined ||
+		data.toolCallDensityPolicy !== undefined ||
+		data.projectSharing !== undefined ||
+		data.showAllSettings !== undefined ||
+		data.preloadedSkills !== undefined ||
+		data.shareTargets !== undefined ||
+		data.advancedContextExplorer !== undefined;
 	const updateValues = {
 		...(data.name === undefined ? {} : { name: data.name }),
-		featureGrants: serializeUserGroupConfig(
-			data.featureGrants,
-			data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
-			data.projectSharing ?? currentConfig.projectSharing,
-			data.showAllSettings ?? currentConfig.showAllSettings,
-			data.preloadedSkills ?? currentConfig.preloadedSkills,
-			data.shareTargets ?? currentConfig.shareTargets,
-			data.advancedContextExplorer ?? currentConfig.advancedContextExplorer,
-		),
+		...(updatesFeatureGrants
+			? {
+					featureGrants: serializeUserGroupConfig(
+						data.featureGrants ?? currentConfig.features,
+						data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
+						data.projectSharing ?? currentConfig.projectSharing,
+						data.showAllSettings ?? currentConfig.showAllSettings,
+						data.preloadedSkills ?? currentConfig.preloadedSkills,
+						data.shareTargets ?? currentConfig.shareTargets,
+						data.advancedContextExplorer ?? currentConfig.advancedContextExplorer,
+					),
+				}
+			: {}),
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
 		data.filesAccess === undefined &&

@@ -100,11 +100,21 @@ export const FOREIGN_ORGANIZATION_PURGE_MESSAGE =
  * `purgeAccount` takes the account itself in that same transaction, and the confinement guard rides
  * on the user DELETE: whoever added the user to a second organization waits on the user row (its
  * foreign key needs `user`), so a membership added after the caller's check still keeps the account.
+ *
+ * `purgePendingInvitation` is the automatic purge — cancelling an invitation — and re-tests "still an
+ * unused invitation" inside this transaction, after the user row is locked: an invitee who signed in
+ * between the caller's read and the removal keeps the account and its stories, and the request still
+ * succeeds.
  */
 export async function removeOrganizationMember(
 	orgId: string,
 	userId: string,
-	options: { ignoreMissing?: boolean; deleteSessions?: boolean; purgeAccount?: boolean } = {},
+	options: {
+		ignoreMissing?: boolean;
+		deleteSessions?: boolean;
+		purgeAccount?: boolean;
+		purgePendingInvitation?: boolean;
+	} = {},
 ): Promise<void> {
 	await requireOrganization(orgId);
 
@@ -122,6 +132,16 @@ export async function removeOrganizationMember(
 		if (dbConfig.dialect === Dialect.Postgres) {
 			return (async () => {
 				await lockOrganizationRow(tx, orgId);
+				// The invitation test reads `session`, which this transaction is about to delete, so it
+				// has to run first — and under the user lock, or a sign-in landing in between is lost.
+				if (options.purgeAccount || options.purgePendingInvitation) {
+					await lockUserRow(tx, userId);
+				}
+				const purgesAccount =
+					options.purgeAccount ||
+					(options.purgePendingInvitation &&
+						(await tx.select({ id: s.user.id }).from(s.user).where(pendingInvitation(userId)).execute())
+							.length > 0);
 				const [row] = await tx.delete(s.orgMember).where(guard).returning().execute();
 				if (!row) {
 					return false;
@@ -143,10 +163,9 @@ export async function removeOrganizationMember(
 				if (options.deleteSessions) {
 					await tx.delete(s.session).where(eq(s.session.userId, userId)).execute();
 				}
-				if (options.purgeAccount) {
-					await lockUserRow(tx, userId);
+				if (purgesAccount) {
 					const [purged] = await tx.delete(s.user).where(purgeGuard()).returning({ id: s.user.id }).execute();
-					if (!purged) {
+					if (!purged && options.purgeAccount) {
 						throw new HandlerError('CONFLICT', FOREIGN_ORGANIZATION_PURGE_MESSAGE);
 					}
 				}
@@ -154,6 +173,10 @@ export async function removeOrganizationMember(
 			})();
 		}
 
+		const purgesAccount =
+			options.purgeAccount ||
+			(options.purgePendingInvitation &&
+				!!tx.select({ id: s.user.id }).from(s.user).where(pendingInvitation(userId)).get());
 		const row = tx.delete(s.orgMember).where(guard).returning().get();
 		if (!row) {
 			return false;
@@ -172,11 +195,11 @@ export async function removeOrganizationMember(
 		if (options.deleteSessions) {
 			tx.delete(s.session).where(eq(s.session.userId, userId)).run();
 		}
-		if (options.purgeAccount) {
+		if (purgesAccount) {
 			// SQLite has one writer, so the guard in this DELETE is enough: no membership can appear
 			// between the check and the delete.
 			const purged = tx.delete(s.user).where(purgeGuard()).returning({ id: s.user.id }).get();
-			if (!purged) {
+			if (!purged && options.purgeAccount) {
 				throw new HandlerError('CONFLICT', FOREIGN_ORGANIZATION_PURGE_MESSAGE);
 			}
 		}
@@ -301,6 +324,9 @@ async function lockOrganizationRow(tx: DBExecutor, orgId: string): Promise<void>
 async function lockUserRow(tx: DBExecutor, userId: string): Promise<void> {
 	await lockForUpdate(tx.select({ id: s.user.id }).from(s.user).where(eq(s.user.id, userId))).execute();
 }
+
+/** The same "never used" test `isPendingInvitation` asks, as a predicate the removal re-runs itself. */
+const pendingInvitation = (userId: string) => and(eq(s.user.id, userId), ...userQueries.neverAcceptedInvitation());
 
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
 	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;

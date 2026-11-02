@@ -232,7 +232,7 @@ export const deleteUserSessions = async (id: string): Promise<void> => {
 };
 
 /** Shared predicate for "this row was never used": `deleteExpiredInvitations` and the revoke path agree. */
-const neverAcceptedInvitation = () => [
+export const neverAcceptedInvitation = () => [
 	eq(s.user.requiresPasswordReset, true),
 	sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
 	sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
