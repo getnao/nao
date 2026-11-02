@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
@@ -17,7 +17,6 @@ import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { SidePanel } from '@/components/side-panel/side-panel';
-import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,8 +35,6 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { storyBlockEditStore } from '@/stores/story-block-edit';
-import { STORY_BLOCK_EDIT_PANEL_MIN_WIDTH } from '@/lib/side-panel';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
@@ -119,8 +116,6 @@ function ChatPage() {
 	const inputAreaHeight = useHeight(inputAreaRef);
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
-	const isEditingStoryBlock =
-		useSyncExternalStore(storyBlockEditStore.subscribe, storyBlockEditStore.getSnapshot) !== null;
 	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
@@ -299,7 +294,6 @@ function ChatPage() {
 								<ChatMessages />
 							</>
 						)}
-						<StoryBlockEditPanel chatId={chatId} />
 						<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 pt-8'>
 							<div
 								ref={inputAreaRef}
@@ -341,7 +335,6 @@ function ChatPage() {
 							isAnimating={sidePanel.isAnimating}
 							sidePanelRef={sidePanelRef}
 							resizeHandleRef={sidePanel.resizeHandleRef}
-							chatPanelMinWidth={isEditingStoryBlock ? STORY_BLOCK_EDIT_PANEL_MIN_WIDTH : undefined}
 						>
 							{sidePanel.content}
 						</SidePanel>
