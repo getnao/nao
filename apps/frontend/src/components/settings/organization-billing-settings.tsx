@@ -1,4 +1,4 @@
-import { RefreshCwIcon } from 'lucide-react';
+import { ArrowRightIcon, RefreshCwIcon } from 'lucide-react';
 import { useState } from 'react';
 
 import type {
@@ -436,47 +436,111 @@ function CloudCurrentPlanCard({
 			: data.pending
 				? { label: 'Plan changes', value: data.currentPeriodEndsAt }
 				: { label: 'Renews', value: data.currentPeriodEndsAt };
+	const paidPlanAfterTrial = trialing && data.current && !data.cancellationScheduled ? data.current : null;
+	const firstPaymentEstimate =
+		billingState.canLoadUpcomingInvoice &&
+		!billingState.upcomingInvoice.isLoading &&
+		!billingState.upcomingInvoice.isError
+			? billingState.upcomingInvoice.data
+			: null;
 	const nextStep = getCloudNextStep(data, onKeepPlan, onCancelPendingChange);
 
 	return (
-		<SettingsCard title='Current plan'>
-			<div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
-				<div>
-					<p className='text-2xl font-semibold text-foreground'>{planName}</p>
-					<p className='mt-1 text-sm text-muted-foreground'>{description}</p>
-					{data.current?.legacy && (
-						<p className='mt-1 text-xs text-muted-foreground'>
-							Legacy Unlimited keeps its existing price and terms.
+		<SettingsCard title={paidPlanAfterTrial ? 'Plan overview' : 'Current plan'}>
+			{paidPlanAfterTrial ? (
+				<div className='grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-x-4'>
+					<div className='sm:col-start-1 sm:row-start-1'>
+						<Badge variant='secondary'>Now</Badge>
+					</div>
+					<p className='mt-2 text-2xl font-semibold text-foreground sm:col-start-1 sm:row-start-2'>
+						Free trial
+					</p>
+					<p className='mt-1 text-sm text-muted-foreground sm:col-start-1 sm:row-start-3'>
+						Full nao Cloud access for everyone while you try nao. No seat limits apply during the trial.
+					</p>
+					{trialEndsAt && (
+						<p className='mt-3 text-sm text-muted-foreground sm:col-start-1 sm:row-start-4'>
+							Trial ends{' '}
+							<span className='font-medium text-foreground'>{formatBillingDate(trialEndsAt)}</span>
 						</p>
 					)}
-				</div>
-				{tier !== 'free' && keyDate.value && (
-					<div className='shrink-0 rounded-lg bg-muted/60 px-3 py-2 sm:text-right'>
-						<p className='text-xs text-muted-foreground'>{keyDate.label}</p>
-						<p className='text-sm font-medium text-foreground'>{formatBillingDate(keyDate.value)}</p>
+					<div className='my-4 flex justify-center sm:col-start-2 sm:row-span-4 sm:row-start-1 sm:my-0 sm:self-center'>
+						<ArrowRightIcon
+							className='size-5 rotate-90 text-muted-foreground sm:rotate-0'
+							aria-hidden='true'
+						/>
 					</div>
-				)}
-			</div>
-			{nextStep && (
-				<div className='flex flex-col gap-3 rounded-lg border border-border bg-muted/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between'>
-					<div>
-						<p className='text-sm font-medium text-foreground'>{nextStep.title}</p>
-						<p className='mt-1 text-sm text-muted-foreground'>{nextStep.description}</p>
+					<div className='sm:col-start-3 sm:row-start-1'>
+						<Badge variant='secondary'>After trial</Badge>
 					</div>
-					{nextStep.action && (
-						<Button
-							className='shrink-0'
-							variant='secondary'
-							size='sm'
-							disabled={disabled}
-							onClick={nextStep.action.onClick}
-						>
-							{nextStep.action.label}
-						</Button>
+					<p className='mt-2 flex flex-wrap items-baseline gap-x-2 text-2xl font-semibold text-foreground sm:col-start-3 sm:row-start-2'>
+						<span>
+							{paidPlanAfterTrial.tier === 'team'
+								? `Team · ${paidPlanAfterTrial.seatQuantity ?? '—'} seats`
+								: 'Unlimited'}
+						</span>
+						{firstPaymentEstimate && (
+							<span className='text-base font-medium text-muted-foreground'>
+								{formatBillingPrice(firstPaymentEstimate.amountDue, firstPaymentEstimate.currency)}
+							</span>
+						)}
+					</p>
+					<p className='mt-1 text-sm text-muted-foreground sm:col-start-3 sm:row-start-3'>
+						Nothing is charged during your trial; the estimate includes discounts, credits, and tax.
+					</p>
+					{trialEndsAt && (
+						<p className='mt-3 text-sm text-muted-foreground sm:col-start-3 sm:row-start-4'>
+							{paidPlanAfterTrial.tier === 'team' ? 'Team' : 'Unlimited'} starts{' '}
+							<span className='font-medium text-foreground'>{formatBillingDate(trialEndsAt)}</span>
+						</p>
 					)}
+					<div className='sm:col-start-3 sm:row-start-5'>
+						<UpcomingPaymentEstimate billingState={billingState} embedded />
+					</div>
 				</div>
+			) : (
+				<>
+					<div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
+						<div>
+							<p className='text-2xl font-semibold text-foreground'>{planName}</p>
+							<p className='mt-1 text-sm text-muted-foreground'>{description}</p>
+							{data.current?.legacy && (
+								<p className='mt-1 text-xs text-muted-foreground'>
+									Legacy Unlimited keeps its existing price and terms.
+								</p>
+							)}
+						</div>
+						{tier !== 'free' && keyDate.value && (
+							<div className='shrink-0 rounded-lg bg-muted/60 px-3 py-2 sm:text-right'>
+								<p className='text-xs text-muted-foreground'>{keyDate.label}</p>
+								<p className='text-sm font-medium text-foreground'>
+									{formatBillingDate(keyDate.value)}
+								</p>
+							</div>
+						)}
+					</div>
+					{nextStep && (
+						<div className='flex flex-col gap-3 rounded-lg border border-border bg-muted/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between'>
+							<div>
+								<p className='text-sm font-medium text-foreground'>{nextStep.title}</p>
+								<p className='mt-1 text-sm text-muted-foreground'>{nextStep.description}</p>
+							</div>
+							{nextStep.action && (
+								<Button
+									className='shrink-0'
+									variant='secondary'
+									size='sm'
+									disabled={disabled}
+									onClick={nextStep.action.onClick}
+								>
+									{nextStep.action.label}
+								</Button>
+							)}
+						</div>
+					)}
+					<UpcomingPaymentEstimate billingState={billingState} />
+				</>
 			)}
-			<UpcomingPaymentEstimate billingState={billingState} />
 		</SettingsCard>
 	);
 }
@@ -634,7 +698,13 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 	);
 }
 
-function UpcomingPaymentEstimate({ billingState }: { billingState: BillingState }) {
+function UpcomingPaymentEstimate({
+	billingState,
+	embedded = false,
+}: {
+	billingState: BillingState;
+	embedded?: boolean;
+}) {
 	if (!billingState.canLoadUpcomingInvoice) {
 		return null;
 	}
@@ -658,6 +728,18 @@ function UpcomingPaymentEstimate({ billingState }: { billingState: BillingState 
 	const paymentAt = trialing
 		? (trialEndsAt ?? upcomingInvoice.data.nextPaymentAt)
 		: upcomingInvoice.data.nextPaymentAt;
+
+	if (embedded) {
+		return upcomingInvoice.data.promotionCodes.length > 0 ? (
+			<div className='mt-2 flex flex-wrap gap-2'>
+				{upcomingInvoice.data.promotionCodes.map((code) => (
+					<Badge key={code} variant='outline'>
+						Code {code}
+					</Badge>
+				))}
+			</div>
+		) : null;
+	}
 
 	return (
 		<div className='mt-2 rounded-md border border-border bg-muted/40 px-3 py-2'>

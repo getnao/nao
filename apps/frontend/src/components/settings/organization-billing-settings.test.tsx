@@ -362,10 +362,15 @@ it('shows the selected Team capacity and first payment after the free trial', ()
 
 	render(<OrganizationBillingSettings search={{}} />);
 
+	expect(screen.getByText('Plan overview')).toBeTruthy();
 	expect(screen.getByText('Free trial')).toBeTruthy();
-	expect(screen.getByText('Team (6 seats) starts after your trial')).toBeTruthy();
-	expect(screen.getByText('Estimated first payment after trial')).toBeTruthy();
-	expect(screen.getByText(`$300 on ${formatBillingDate(new Date('2099-10-08T00:00:00.000Z'))}`)).toBeTruthy();
+	expect(screen.getByText('Team · 6 seats')).toBeTruthy();
+	expect(screen.getByText('$300')).toBeTruthy();
+	expect(
+		screen.getByText('Nothing is charged during your trial; the estimate includes discounts, credits, and tax.'),
+	).toBeTruthy();
+	expect(screen.getByText('Team starts')).toBeTruthy();
+	expect(screen.getAllByText(formatBillingDate(new Date('2099-10-08T00:00:00.000Z')))).toHaveLength(2);
 	expect(screen.getByRole('region', { name: 'Team plan' }).textContent).toContain('After trial');
 	expect(screen.getByRole('button', { name: 'Starts after trial' })).toBeTruthy();
 
