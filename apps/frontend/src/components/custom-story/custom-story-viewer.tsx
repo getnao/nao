@@ -112,6 +112,12 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	useEffect(() => {
 		setCurrentStorySlug(storySlug);
 	}, [setCurrentStorySlug, storySlug]);
+	useEffect(() => {
+		if (!canEditBlocks) {
+			setEditTarget(null);
+			setTableFormatTarget(null);
+		}
+	}, [canEditBlocks]);
 
 	return (
 		<div className='flex h-full w-full min-w-0 flex-1 flex-col'>
