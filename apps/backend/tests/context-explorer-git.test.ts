@@ -581,6 +581,20 @@ describe('deployment context source', () => {
 			expectedApiUrl: 'https://api.ghe.example.com',
 		},
 		{
+			label: 'an SSH shorthand remote with a GitHub Enterprise base on a custom port',
+			url: 'git@ghe.example.com:nao/context.git',
+			baseUrl: 'https://ghe.example.com:8443',
+			apiUrl: undefined,
+			expectedApiUrl: 'https://ghe.example.com:8443/api/v3',
+		},
+		{
+			label: 'an HTTPS remote on another port of the GitHub Enterprise host',
+			url: 'https://ghe.example.com:9443/nao/context.git',
+			baseUrl: 'https://ghe.example.com:8443',
+			apiUrl: 'https://api.ghe.example.com',
+			expectedApiUrl: 'https://ghe.example.com:9443/api/v3',
+		},
+		{
 			label: 'a github.com remote with an API override',
 			url: 'https://github.com/nao/context.git',
 			baseUrl: undefined,
