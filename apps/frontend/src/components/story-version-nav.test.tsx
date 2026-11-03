@@ -9,7 +9,9 @@ const mocks = vi.hoisted(() => ({
 	openChat: vi.fn(),
 }));
 
-vi.mock('@/hooks/use-open-story-chat', () => ({ useOpenStoryChat: () => ({ openChat: mocks.openChat }) }));
+vi.mock('@/hooks/use-open-story-chat', () => ({
+	useOpenStoryChat: () => ({ openChat: mocks.openChat, isReady: true }),
+}));
 vi.mock('@/lib/auth-client', () => ({ useSession: () => ({ data: { user: { id: 'viewer' } } }) }));
 
 const VIEWER = { id: 'viewer', name: 'Test' };
@@ -84,14 +86,34 @@ describe('StoryVersionNav', () => {
 		expect(mocks.openChat).toHaveBeenCalledWith('origin-chat');
 		expect(onOpenQuickQuestion).toHaveBeenCalledTimes(1);
 	});
+
+	it('keeps the original chat reachable when the story has a single version', async () => {
+		renderNav(vi.fn(), undefined, VERSIONS.slice(0, 1));
+
+		openHistory();
+		const [originButton] = await findOpenChatButtons();
+		clickWithPointer(originButton);
+
+		expect(mocks.openChat).toHaveBeenCalledWith('origin-chat');
+	});
+
+	it('shows only the version date when a single version has no chat', () => {
+		renderNav(vi.fn(), undefined, VERSIONS.slice(2));
+
+		expect(screen.queryByRole('button', { name: 'Version history' })).toBeNull();
+	});
 });
 
-function renderNav(onSelectVersion = vi.fn(), onOpenQuickQuestion?: (chatId: string) => void) {
+function renderNav(
+	onSelectVersion = vi.fn(),
+	onOpenQuickQuestion?: (chatId: string) => void,
+	versions: StoryVersionEntry[] = VERSIONS,
+) {
 	render(
 		<StoryVersionNav
 			storyId='story-1'
-			currentVersion={3}
-			versions={VERSIONS}
+			currentVersion={versions.length}
+			versions={versions}
 			onSelectVersion={onSelectVersion}
 			onOpenQuickQuestion={onOpenQuickQuestion}
 		/>,

@@ -25,5 +25,5 @@ export function useOpenStoryChat(storyId: string | null) {
 		navigate({ to: '/$chatId', params: { chatId }, state: openStorySlug ? { openStorySlug } : undefined });
 	};
 
-	return { story, switchToStoryProject, openChat };
+	return { story, switchToStoryProject, openChat, isReady: Boolean(story && currentProject) };
 }

@@ -166,10 +166,10 @@ function useStoryChatLists(storyId: string | null, canChat: boolean) {
 
 function useStoryChatActions(storyId: string | null, onOpenInChat: (() => void) | undefined) {
 	const startChatWithStories = useStartChatWithStories();
-	const { story, switchToStoryProject, openChat } = useOpenStoryChat(storyId);
+	const { story, switchToStoryProject, openChat, isReady } = useOpenStoryChat(storyId);
 
 	const run = async (mode: StoryChatMode) => {
-		if (!storyId || !story) {
+		if (!storyId || !isReady) {
 			return;
 		}
 		if (mode === 'mention') {
@@ -184,6 +184,6 @@ function useStoryChatActions(storyId: string | null, onOpenInChat: (() => void) 
 		run,
 		openChat,
 		openInNewChat: story && !story.chatId ? onOpenInChat : undefined,
-		isReady: Boolean(story),
+		isReady,
 	};
 }

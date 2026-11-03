@@ -68,7 +68,7 @@ export function StoryVersionNav({
 	const [isOpen, setIsOpen] = useState(false);
 	const currentVersionDate = versions[currentVersion - 1]?.createdAt;
 
-	if (versions.length <= 1) {
+	if (versions.length === 0 || (versions.length === 1 && !versions[0].change?.chat)) {
 		return currentVersionDate ? (
 			<span
 				className={cn(
@@ -124,7 +124,7 @@ function VersionHistory({
 	onClose,
 }: StoryVersionNavProps & { onClose: () => void }) {
 	const { data: session } = useSession();
-	const { openChat } = useOpenStoryChat(storyId ?? null);
+	const { openChat, isReady } = useOpenStoryChat(storyId ?? null);
 	const days = groupByDay(versions.map((entry, index) => ({ ...entry, version: index + 1 })).reverse());
 
 	return (
@@ -144,6 +144,7 @@ function VersionHistory({
 							key={entry.version}
 							entry={entry}
 							viewerId={session?.user.id}
+							canOpenChat={isReady || !storyId}
 							onOpenChat={(chatId) => {
 								onClose();
 								if (onOpenQuickQuestion && entry.change?.via === 'quick_question') {
@@ -163,14 +164,16 @@ function VersionHistory({
 function VersionItem({
 	entry,
 	viewerId,
+	canOpenChat,
 	onOpenChat,
 }: {
 	entry: NumberedVersion;
 	viewerId: string | undefined;
+	canOpenChat: boolean;
 	onOpenChat: (chatId: string) => void;
 }) {
 	const { change } = entry;
-	const chat = change?.chat ?? null;
+	const chat = canOpenChat ? (change?.chat ?? null) : null;
 
 	return (
 		<DropdownMenuRadioItem
@@ -215,6 +218,7 @@ function OpenChatButton({ onOpen }: { onOpen: () => void }) {
 			className='absolute -inset-y-0.5 -right-6.5 -left-1 hidden items-center justify-between rounded-md pr-0.5 pl-1 text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-xs group-data-[highlighted]:flex'
 			onPointerDown={keepFromRow}
 			onPointerUp={keepFromRow}
+			onKeyDown={keepFromRow}
 			onClick={(event) => {
 				event.stopPropagation();
 				onOpen();
