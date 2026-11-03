@@ -7,6 +7,7 @@ import { IntegrationStatusBadge } from '@/components/settings/integration-card';
 import { integrations, isIntegrationId, useIntegrationStatuses } from '@/components/settings/integrations';
 import { LinkingCodesCard } from '@/components/settings/linking-code-section';
 import { DiscordConfigSection } from '@/components/settings/discord-config-section';
+import { GoogleChatConfigSection } from '@/components/settings/google-chat-config-section';
 import { MattermostConfigSection } from '@/components/settings/mattermost-config-section';
 import { SlackConfigSection } from '@/components/settings/slack-config-section';
 import { TeamsConfigSection } from '@/components/settings/teams-config-section';
@@ -126,6 +127,10 @@ function IntegrationConfiguration({
 				<LinkingCodesCard provider='discord' />
 			</div>
 		);
+	}
+
+	if (integrationId === 'google-chat') {
+		return <GoogleChatConfigSection isAdmin={isAdmin} onCancelSetup={onCancelSetup} />;
 	}
 
 	if (integrationId === 'whatsapp') {

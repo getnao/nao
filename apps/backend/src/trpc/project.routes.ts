@@ -13,6 +13,7 @@ import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as discordConfigQueries from '../queries/project-discord-config.queries';
 import * as discordLinkQueries from '../queries/project-discord-link.queries';
+import * as googleChatConfigQueries from '../queries/project-google-chat-config.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as mattermostConfigQueries from '../queries/project-mattermost-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
@@ -32,6 +33,7 @@ import {
 } from '../services/default-models.service';
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject, DiscordConnectionError, validateDiscordConnection } from '../services/discord-helpers';
+import { googleChatService } from '../services/google-chat';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
 import { mcpService } from '../services/mcp';
@@ -68,6 +70,7 @@ import {
 	getProjectModelNameResolver,
 	resolveDefaultChatModel,
 } from '../utils/llm';
+import { getMessagingProviderWebhookUrl } from '../utils/messaging-provider';
 import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
@@ -117,6 +120,14 @@ function toIntegrationModelSelection(input: z.infer<typeof integrationModelInput
 const httpUrlSchema = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
 	message: 'Enter a valid HTTP or HTTPS URL',
 });
+
+function toGoogleChatConfigResponse(config: googleChatConfigQueries.GoogleChatConfig) {
+	return {
+		serviceAccountEmail: config.credentials.client_email,
+		googleCloudProjectNumber: config.googleCloudProjectNumber ?? '',
+		modelSelection: config.modelSelection,
+	};
+}
 
 function toDiscordConfigResponse(config: discordConfigQueries.DiscordConfig) {
 	return {
@@ -812,6 +823,69 @@ export const projectRoutes = {
 		await discordConfigQueries.deleteProjectDiscordConfig(ctx.project.id);
 		await discordService.stopProject(ctx.project.id);
 		await discordLinkQueries.deleteLinkedDiscordUsers(ctx.project.id);
+		return { success: true };
+	}),
+
+	getGoogleChatConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '' };
+		}
+
+		const config = await googleChatConfigQueries.getProjectGoogleChatConfig(ctx.project.id);
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		return {
+			projectConfig: config ? toGoogleChatConfigResponse(config) : null,
+			projectId: ctx.project.id,
+			webhookUrl: getMessagingProviderWebhookUrl(baseUrl, 'google-chat', ctx.project.id),
+		};
+	}),
+
+	upsertGoogleChatConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				serviceAccountKey: z
+					.string()
+					.trim()
+					.refine((value) => googleChatConfigQueries.parseGoogleChatServiceAccountKey(value) !== null, {
+						message:
+							'Paste the full JSON key of the service account, including client_email and private_key.',
+					}),
+				googleCloudProjectNumber: z
+					.string()
+					.trim()
+					.regex(/^\d*$/, 'The Google Cloud project number only contains digits.')
+					.optional(),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const config = await googleChatConfigQueries.upsertProjectGoogleChatConfig({
+				projectId: ctx.project.id,
+				serviceAccountKey: input.serviceAccountKey,
+				googleCloudProjectNumber: input.googleCloudProjectNumber,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			posthog.capture(ctx.user.id, PostHogEvent.GoogleChatConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			return toGoogleChatConfigResponse(config);
+		}),
+
+	updateGoogleChatModelConfig: adminProtectedProcedure
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'google-chat', toIntegrationModelSelection(input)),
+		),
+
+	deleteGoogleChatConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await googleChatConfigQueries.deleteProjectGoogleChatConfig(ctx.project.id);
+		googleChatService.stopProject(ctx.project.id);
 		return { success: true };
 	}),
 

@@ -57,6 +57,7 @@
 		"@better-auth/core": "1.6.30",
 		"@better-auth/oauth-provider": "~1.6.30",
 		"@chat-adapter/discord": "4.38.1",
+		"@chat-adapter/gchat": "4.38.1",
 		"@chat-adapter/slack": "^4.15.0",
 		"@chat-adapter/state-memory": "^4.29.0",
 		"@chat-adapter/state-redis": "^4.29.0",

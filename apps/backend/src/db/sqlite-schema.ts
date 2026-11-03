@@ -91,6 +91,7 @@ import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import {
 	DiscordSettings,
+	GoogleChatSettings,
 	MattermostSettings,
 	SlackSettings,
 	TeamsSettings,
@@ -308,6 +309,7 @@ export const project = sqliteTable(
 		mattermostSettings: text('mattermost_settings', { mode: 'json' }).$type<MattermostSettings>(),
 		discordSettings: text('discord_settings', { mode: 'json' }).$type<DiscordSettings>(),
 		whatsappSettings: text('whatsapp_settings', { mode: 'json' }).$type<WhatsappSettings>(),
+		googleChatSettings: text('google_chat_settings', { mode: 'json' }).$type<GoogleChatSettings>(),
 		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
@@ -480,6 +482,7 @@ export const chat = sqliteTable(
 		mattermostThreadId: text('mattermost_thread_id'),
 		discordThreadId: text('discord_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
+		googleChatThreadId: text('google_chat_thread_id'),
 		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<ForkMetadata>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -498,6 +501,7 @@ export const chat = sqliteTable(
 		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
 		index('chat_discord_thread_idx').on(table.discordThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
+		index('chat_google_chat_thread_idx').on(table.googleChatThreadId),
 	],
 );
 

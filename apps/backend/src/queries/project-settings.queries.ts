@@ -12,7 +12,8 @@ export type ProjectMessagingSettingsKey =
 	| 'telegramSettings'
 	| 'mattermostSettings'
 	| 'whatsappSettings'
-	| 'discordSettings';
+	| 'discordSettings'
+	| 'googleChatSettings';
 
 /**
  * Rebuilds one of a project's messaging settings blobs in a transaction.

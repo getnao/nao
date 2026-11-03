@@ -68,6 +68,7 @@ import { discordRoutes } from './routes/discord';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
+import { googleChatRoutes } from './routes/google-chat';
 import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
@@ -309,6 +310,10 @@ app.register(discordRoutes, {
 
 app.register(whatsappRoutes, {
 	prefix: '/api/webhooks/whatsapp',
+});
+
+app.register(googleChatRoutes, {
+	prefix: '/api/webhooks/google-chat',
 });
 
 if (isCloudBillingEnabled()) {

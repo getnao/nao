@@ -264,6 +264,7 @@ const sourceLabels: Record<UsageSource, string> = {
 	mattermost: 'Mattermost',
 	discord: 'Discord',
 	whatsapp: 'WhatsApp',
+	'google-chat': 'Google Chat',
 	admin: 'Admin mode',
 	mcp: 'MCP',
 	contextRecommendations: 'Context recommendations',

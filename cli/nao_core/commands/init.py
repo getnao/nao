@@ -52,6 +52,7 @@ One file per surface:
 - `telegram.md` — Telegram Bot only.
 - `mattermost.md` — Mattermost Bot only.
 - `discord.md` — Discord Bot only.
+- `google-chat.md` — Google Chat App only.
 - `whatsapp.md` — WhatsApp Bot only.
 - `automation.md` — scheduled automations only.
 

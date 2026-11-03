@@ -29,7 +29,8 @@ export type SourcePlatform =
 	| 'WhatsApp'
 	| 'Telegram'
 	| 'Mattermost'
-	| 'Discord';
+	| 'Discord'
+	| 'Google Chat';
 
 export function deriveSourcePlatform(threadIds: {
 	slackThreadId?: string | null;
@@ -37,6 +38,7 @@ export function deriveSourcePlatform(threadIds: {
 	telegramThreadId?: string | null;
 	mattermostThreadId?: string | null;
 	discordThreadId?: string | null;
+	googleChatThreadId?: string | null;
 	whatsappThreadId?: string | null;
 }): SourcePlatform {
 	if (threadIds.slackThreadId) {
@@ -56,6 +58,9 @@ export function deriveSourcePlatform(threadIds: {
 	}
 	if (threadIds.discordThreadId) {
 		return 'Discord';
+	}
+	if (threadIds.googleChatThreadId) {
+		return 'Google Chat';
 	}
 	return 'Web';
 }
@@ -149,6 +154,7 @@ const SOURCE_PLATFORM_ORDER: SourcePlatform[] = [
 	'Telegram',
 	'Mattermost',
 	'Discord',
+	'Google Chat',
 ];
 
 function groupBySourcePlatform(items: EnrichedChat[]): ChatGroup[] {

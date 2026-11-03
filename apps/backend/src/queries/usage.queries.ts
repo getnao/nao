@@ -167,6 +167,10 @@ export const getMessagesUsage = async (
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'discord' then ${s.chatMessage.id} end)`.as(
 						'discord_message_count',
 					),
+				googleChatMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'google-chat' then ${s.chatMessage.id} end)`.as(
+						'google_chat_message_count',
+					),
 				whatsappMessageCount:
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'whatsapp' then ${s.chatMessage.id} end)`.as(
 						'whatsapp_message_count',
@@ -211,6 +215,7 @@ export const getMessagesUsage = async (
 				telegramMessageCount: sql<number>`0`.as('telegram_message_count'),
 				mattermostMessageCount: sql<number>`0`.as('mattermost_message_count'),
 				discordMessageCount: sql<number>`0`.as('discord_message_count'),
+				googleChatMessageCount: sql<number>`0`.as('google_chat_message_count'),
 				whatsappMessageCount: sql<number>`0`.as('whatsapp_message_count'),
 				adminMessageCount: sql<number>`0`.as('admin_message_count'),
 				mcpMessageCount: sql<number>`0`.as('mcp_message_count'),
@@ -250,6 +255,7 @@ export const getMessagesUsage = async (
 			telegramMessageCount: sum(combinedUsage.telegramMessageCount),
 			mattermostMessageCount: sum(combinedUsage.mattermostMessageCount),
 			discordMessageCount: sum(combinedUsage.discordMessageCount),
+			googleChatMessageCount: sum(combinedUsage.googleChatMessageCount),
 			whatsappMessageCount: sum(combinedUsage.whatsappMessageCount),
 			adminMessageCount: sum(combinedUsage.adminMessageCount),
 			mcpMessageCount: sum(combinedUsage.mcpMessageCount),
@@ -436,6 +442,7 @@ function normalizeMessageUsageRow(row: {
 	telegramMessageCount: unknown;
 	mattermostMessageCount: unknown;
 	discordMessageCount: unknown;
+	googleChatMessageCount: unknown;
 	whatsappMessageCount: unknown;
 	adminMessageCount: unknown;
 	mcpMessageCount: unknown;
@@ -464,6 +471,7 @@ function normalizeMessageUsageRow(row: {
 		telegramMessageCount: Number(row.telegramMessageCount ?? 0),
 		mattermostMessageCount: Number(row.mattermostMessageCount ?? 0),
 		discordMessageCount: Number(row.discordMessageCount ?? 0),
+		googleChatMessageCount: Number(row.googleChatMessageCount ?? 0),
 		whatsappMessageCount: Number(row.whatsappMessageCount ?? 0),
 		adminMessageCount: Number(row.adminMessageCount ?? 0),
 		mcpMessageCount: Number(row.mcpMessageCount ?? 0),

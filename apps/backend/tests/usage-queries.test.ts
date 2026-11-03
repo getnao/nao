@@ -229,6 +229,7 @@ describe('usage query results', () => {
 			'telegram',
 			'mattermost',
 			'discord',
+			'google-chat',
 			'whatsapp',
 			'admin',
 			'mcp',
@@ -249,13 +250,14 @@ describe('usage query results', () => {
 		const record = records.find((item) => item.date === formatDate(now, 'day'));
 
 		expect(record).toMatchObject({
-			messageCount: 10,
+			messageCount: 11,
 			webMessageCount: 1,
 			slackMessageCount: 1,
 			teamsMessageCount: 1,
 			telegramMessageCount: 1,
 			mattermostMessageCount: 1,
 			discordMessageCount: 1,
+			googleChatMessageCount: 1,
 			whatsappMessageCount: 1,
 			adminMessageCount: 1,
 			mcpMessageCount: 1,

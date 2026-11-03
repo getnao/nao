@@ -27,6 +27,12 @@ export function MessagingProviderSystemPrompt({
 					Discord renders standard Markdown: bold, italics, inline code and fenced code blocks. It does not
 					render [label](url) links or tables, so paste bare URLs and prefer short bulleted lists.
 				</ProviderFormattingPrompt>
+			) : provider === 'google-chat' ? (
+				<ProviderFormattingPrompt provider='Google Chat'>
+					Google Chat supports *bold*, _italics_, ~strikethrough~, inline code and fenced code blocks. It does
+					not render Markdown headers, tables or [label](url) links, so paste bare URLs and prefer short
+					bulleted lists.
+				</ProviderFormattingPrompt>
 			) : (
 				<DefaultSystemPrompt provider={provider} />
 			)}

@@ -455,6 +455,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'telegram model',
 			'whatsapp model',
 			'mattermost model',
+			'google chat model',
 			'mcp model',
 			'ask_nao',
 			'background',
@@ -990,6 +991,22 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Link manually',
 		description: 'The bot sends a connect link by direct message; send login <code> if your DMs are closed.',
 		keywords: ['link', 'login', 'discord', 'email', 'connect', 'direct message'],
+	},
+	{
+		page: '/settings/project/integrations/google-chat',
+		pageLabel: 'Integrations & MCP',
+		section: 'Google Chat',
+		title: 'Google Chat Integration',
+		description: 'Connect a Google Chat app so nao answers when mentioned in a space or messaged directly.',
+		keywords: ['google chat bot', 'gchat', 'google workspace', 'service account', 'messaging'],
+	},
+	{
+		page: '/settings/project/integrations/google-chat',
+		pageLabel: 'Integrations & MCP',
+		section: 'Google Chat',
+		title: 'HTTP Endpoint URL',
+		description: 'Set this URL as the app URL in the Google Chat API configuration.',
+		keywords: ['google chat', 'gchat', 'endpoint', 'webhook', 'app url'],
 	},
 
 	{

@@ -4,6 +4,7 @@ import type { ComponentType } from 'react';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
 import DiscordIcon from '@/components/icons/discord.svg';
+import GoogleChatIcon from '@/components/icons/google-chat.svg';
 import MattermostIcon from '@/components/icons/mattermost.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import SlackIcon from '@/components/icons/slack.svg';
@@ -11,7 +12,15 @@ import TelegramIcon from '@/components/icons/telegram.svg';
 import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 import { trpc } from '@/main';
 
-export const integrationIds = ['slack', 'teams', 'telegram', 'whatsapp', 'mattermost', 'discord'] as const;
+export const integrationIds = [
+	'slack',
+	'teams',
+	'telegram',
+	'whatsapp',
+	'mattermost',
+	'discord',
+	'google-chat',
+] as const;
 
 export type IntegrationId = (typeof integrationIds)[number];
 
@@ -59,6 +68,11 @@ export const integrations: IntegrationMetadata[] = [
 		name: 'Discord',
 		icon: DiscordIcon,
 	},
+	{
+		id: 'google-chat',
+		name: 'Google Chat',
+		icon: GoogleChatIcon,
+	},
 ];
 
 export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatus> {
@@ -69,6 +83,7 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 	const whatsappLinks = useQuery(trpc.project.getCurrentUserWhatsappLinks.queryOptions());
 	const mattermostConfig = useQuery(trpc.project.getMattermostConfig.queryOptions());
 	const discordConfig = useQuery(trpc.project.getDiscordConfig.queryOptions());
+	const googleChatConfig = useQuery(trpc.project.getGoogleChatConfig.queryOptions());
 
 	const slackProjectConfig = slackConfig.data?.projectConfig;
 	const teamsProjectConfig = teamsConfig.data?.projectConfig;
@@ -76,6 +91,7 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 	const whatsappProjectConfig = whatsappConfig.data?.projectConfig;
 	const mattermostProjectConfig = mattermostConfig.data?.projectConfig;
 	const discordProjectConfig = discordConfig.data?.projectConfig;
+	const googleChatProjectConfig = googleChatConfig.data?.projectConfig;
 
 	return {
 		slack: {
@@ -115,6 +131,12 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 					: discordProjectConfig
 						? 'Saved configuration is not connected'
 						: 'Chat with nao from Discord',
+		},
+		'google-chat': {
+			connected: Boolean(googleChatProjectConfig),
+			summary: googleChatProjectConfig
+				? 'App connected · mention it in a space or DM it'
+				: 'Chat with nao from Google Chat',
 		},
 	};
 }

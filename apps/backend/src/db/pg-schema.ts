@@ -95,6 +95,7 @@ import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
 import {
 	DiscordSettings,
+	GoogleChatSettings,
 	MattermostSettings,
 	SlackSettings,
 	TeamsSettings,
@@ -292,6 +293,7 @@ export const project = pgTable(
 		mattermostSettings: jsonb('mattermost_settings').$type<MattermostSettings>(),
 		discordSettings: jsonb('discord_settings').$type<DiscordSettings>(),
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
+		googleChatSettings: jsonb('google_chat_settings').$type<GoogleChatSettings>(),
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
@@ -452,6 +454,7 @@ export const chat = pgTable(
 		mattermostThreadId: text('mattermost_thread_id'),
 		discordThreadId: text('discord_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
+		googleChatThreadId: text('google_chat_thread_id'),
 		forkMetadata: jsonb('fork_metadata').$type<ForkMetadata>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -468,6 +471,7 @@ export const chat = pgTable(
 		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
 		index('chat_discord_thread_idx').on(table.discordThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
+		index('chat_google_chat_thread_idx').on(table.googleChatThreadId),
 	],
 );
 

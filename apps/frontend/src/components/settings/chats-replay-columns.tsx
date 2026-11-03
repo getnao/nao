@@ -6,6 +6,7 @@ import type { ProjectChatListItem } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import DiscordIcon from '@/components/icons/discord.svg';
+import GoogleChatIcon from '@/components/icons/google-chat.svg';
 import MattermostIcon from '@/components/icons/mattermost.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
@@ -21,6 +22,7 @@ const sourceConfig = {
 	mattermost: { label: 'Mattermost', icon: <MattermostIcon className='size-3.5' /> },
 	discord: { label: 'Discord', icon: <DiscordIcon className='size-3.5' /> },
 	whatsapp: { label: 'WhatsApp', icon: <WhatsAppIcon className='size-3.5' /> },
+	'google-chat': { label: 'Google Chat', icon: <GoogleChatIcon className='size-3.5' /> },
 	admin: { label: 'Admin mode', icon: <Shield className='size-3.5' /> },
 	mcp: { label: 'MCP', icon: <McpIcon className='size-3.5' /> },
 	contextRecommendations: {

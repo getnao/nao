@@ -63,6 +63,7 @@ export const MESSAGE_SOURCES = [
 	'mattermost',
 	'discord',
 	'whatsapp',
+	'google-chat',
 	'web',
 	'mcp',
 	'contextRecommendations',

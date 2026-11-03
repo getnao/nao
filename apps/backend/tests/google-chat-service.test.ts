@@ -1,0 +1,201 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { GoogleChatConfig } from '../src/queries/project-google-chat-config.queries';
+import { parseGoogleChatServiceAccountKey } from '../src/queries/project-google-chat-config.queries';
+import { googleChatService } from '../src/services/google-chat';
+
+type MentionHandler = (
+	thread: { id: string; post: ReturnType<typeof vi.fn> },
+	message: { raw: unknown; text: string; author: { isBot: boolean } },
+) => Promise<void>;
+
+const harness = vi.hoisted(() => ({
+	adapterConfigs: [] as unknown[],
+	assertProjectCloudBillingAccess: vi.fn(),
+	createAgent: vi.fn(),
+	createChat: vi.fn(),
+	getChat: vi.fn(),
+	getChatByGoogleChatThread: vi.fn(),
+	getUser: vi.fn(),
+	mentionHandlers: [] as MentionHandler[],
+	projectRole: vi.fn(),
+	upsertMessage: vi.fn(),
+}));
+
+vi.mock('@chat-adapter/gchat', () => ({
+	createGoogleChatAdapter: vi.fn((config: unknown) => {
+		harness.adapterConfigs.push(config);
+		return {};
+	}),
+}));
+
+vi.mock('@chat-adapter/state-memory', () => ({
+	createMemoryState: vi.fn(() => ({})),
+}));
+
+vi.mock('chat', () => ({
+	Card: vi.fn(),
+	Chat: class {
+		webhooks = { gchat: vi.fn() };
+
+		onAction(): void {}
+
+		onNewMention(handler: MentionHandler): void {
+			harness.mentionHandlers.push(handler);
+		}
+	},
+}));
+
+vi.mock('../src/components/generate-chart', () => ({
+	generateChartImage: vi.fn(),
+}));
+vi.mock('../src/queries/chart-image', () => ({}));
+vi.mock('../src/queries/chat.queries', () => ({
+	createChat: harness.createChat,
+	getChat: harness.getChat,
+	getChatByGoogleChatThread: harness.getChatByGoogleChatThread,
+	upsertMessage: harness.upsertMessage,
+}));
+vi.mock('../src/queries/feedback.queries', () => ({}));
+vi.mock('../src/queries/project.queries', () => ({
+	getUserRoleInProject: harness.projectRole,
+}));
+vi.mock('../src/queries/user.queries', () => ({
+	getUser: harness.getUser,
+}));
+vi.mock('../src/services/agent', () => ({
+	agentService: { create: harness.createAgent, get: vi.fn() },
+}));
+vi.mock('../src/services/branding.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/branding.service')>()),
+	getAppName: vi.fn(async () => 'nao'),
+}));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: harness.assertProjectCloudBillingAccess,
+}));
+vi.mock('../src/utils/logger', () => ({
+	logger: { error: vi.fn() },
+}));
+vi.mock('../src/utils/messaging-provider', () => ({
+	createTextBlock: vi.fn((text: string) => ({ text })),
+	formatMessagingError: vi.fn(() => 'processing failed'),
+	getMessagingProviderWebhookUrl: vi.fn(
+		(baseUrl: string, provider: string, projectId: string) => `${baseUrl}api/webhooks/${provider}/${projectId}`,
+	),
+}));
+
+const PROJECT_A: GoogleChatConfig = {
+	projectId: 'project-a',
+	credentials: { client_email: 'bot-a@example.iam.gserviceaccount.com', private_key: 'key-a' },
+	googleCloudProjectNumber: '111',
+	redirectUrl: 'https://a.example/',
+};
+
+const PROJECT_B: GoogleChatConfig = {
+	projectId: 'project-b',
+	credentials: { client_email: 'bot-b@example.iam.gserviceaccount.com', private_key: 'key-b' },
+	redirectUrl: 'https://b.example/',
+};
+
+function createThread() {
+	return { id: 'gchat:spaces/AAA:threads/BBB', post: vi.fn(async () => ({ edit: vi.fn() })) };
+}
+
+function createMention(email: string | undefined, text = '@nao how many orders?') {
+	return {
+		text,
+		author: { isBot: false },
+		raw: { chat: { user: { email }, messagePayload: { message: { sender: { email } } } } },
+	};
+}
+
+describe('GoogleChatService', () => {
+	beforeEach(() => {
+		(googleChatService as unknown as { _bots: Map<string, unknown> })._bots.clear();
+		harness.adapterConfigs.length = 0;
+		harness.mentionHandlers.length = 0;
+		harness.assertProjectCloudBillingAccess.mockReset().mockResolvedValue(undefined);
+		harness.createAgent.mockReset().mockRejectedValue(new Error('stop after agent creation'));
+		harness.createChat.mockReset().mockResolvedValue([{ id: 'chat-id' }]);
+		harness.getChat.mockReset().mockResolvedValue([{ id: 'chat-id', messages: [] }]);
+		harness.getChatByGoogleChatThread.mockReset().mockResolvedValue(null);
+		harness.getUser.mockReset().mockResolvedValue({ id: 'user-id' });
+		harness.projectRole.mockReset().mockResolvedValue('user');
+		harness.upsertMessage.mockReset();
+	});
+
+	it('verifies webhooks against the project endpoint URL and Google Cloud project number', () => {
+		googleChatService.getWebhooks(PROJECT_A);
+
+		expect(harness.adapterConfigs[0]).toMatchObject({
+			credentials: PROJECT_A.credentials,
+			endpointUrl: 'https://a.example/api/webhooks/google-chat/project-a',
+			googleChatProjectNumber: '111',
+			workspaceAddOnServiceAccountEmail: 'service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com',
+		});
+	});
+
+	it('keeps one bot per project and reuses it while the configuration is unchanged', () => {
+		googleChatService.getWebhooks(PROJECT_A);
+		googleChatService.getWebhooks(PROJECT_B);
+		googleChatService.getWebhooks(PROJECT_A);
+
+		expect(harness.adapterConfigs).toHaveLength(2);
+		expect(harness.mentionHandlers).toHaveLength(2);
+	});
+
+	it('answers as the nao user matching the sender email, without the bot mention', async () => {
+		googleChatService.getWebhooks(PROJECT_A);
+		const thread = createThread();
+
+		await harness.mentionHandlers[0](thread, createMention('Analyst@Example.com'));
+
+		expect(harness.getUser).toHaveBeenCalledWith({ email: 'analyst@example.com' });
+		expect(harness.projectRole).toHaveBeenCalledWith('project-a', 'user-id');
+		expect(harness.createChat).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: 'project-a', googleChatThreadId: thread.id }),
+			{ text: 'how many orders?', source: 'google-chat' },
+		);
+	});
+
+	it('tells unknown senders how to sign up instead of answering', async () => {
+		harness.getUser.mockResolvedValue(null);
+		googleChatService.getWebhooks(PROJECT_A);
+		const thread = createThread();
+
+		await harness.mentionHandlers[0](thread, createMention('stranger@example.com'));
+
+		expect(thread.post).toHaveBeenCalledWith(expect.stringContaining('stranger@example.com'));
+		expect(harness.createChat).not.toHaveBeenCalled();
+	});
+
+	it('ignores messages sent by bots', async () => {
+		googleChatService.getWebhooks(PROJECT_A);
+		const thread = createThread();
+
+		await harness.mentionHandlers[0](thread, { ...createMention('bot@example.com'), author: { isBot: true } });
+
+		expect(thread.post).not.toHaveBeenCalled();
+	});
+});
+
+describe('parseGoogleChatServiceAccountKey', () => {
+	it('extracts the credentials from a service account JSON key', () => {
+		const key = JSON.stringify({
+			type: 'service_account',
+			client_email: 'bot@example.iam.gserviceaccount.com',
+			private_key: 'private-key',
+			project_id: 'my-project',
+		});
+
+		expect(parseGoogleChatServiceAccountKey(key)).toEqual({
+			client_email: 'bot@example.iam.gserviceaccount.com',
+			private_key: 'private-key',
+			project_id: 'my-project',
+		});
+	});
+
+	it.each(['', 'not json', JSON.stringify({ client_email: 'bot@example.com' })])('rejects %j', (key) => {
+		expect(parseGoogleChatServiceAccountKey(key)).toBeNull();
+	});
+});

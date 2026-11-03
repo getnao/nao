@@ -41,6 +41,7 @@ export enum PostHogEvent {
 	TelegramConfigured = 'telegram_configured',
 	MattermostConfigured = 'mattermost_configured',
 	DiscordConfigured = 'discord_configured',
+	GoogleChatConfigured = 'google_chat_configured',
 	WhatsappConfigured = 'whatsapp_configured',
 }
 

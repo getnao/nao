@@ -26,6 +26,7 @@ import { trpc } from '@/main';
 import { customStoryMentionOption, storyMentionOption } from '@/components/chat-input-prompt';
 import { useMentionedStoryOptions, useReferenceMentionMenu } from '@/hooks/use-reference-mention-menu';
 import DiscordIcon from '@/components/icons/discord.svg';
+import GoogleChatIcon from '@/components/icons/google-chat.svg';
 import MattermostIcon from '@/components/icons/mattermost.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
@@ -58,6 +59,7 @@ const MESSAGE_SOURCES = {
 	mattermost: { icon: <MattermostIcon className='size-4' />, label: 'sent in Mattermost' },
 	discord: { icon: <DiscordIcon className='size-4' />, label: 'sent in Discord' },
 	whatsapp: { icon: <WhatsAppIcon className='size-4' />, label: 'sent in WhatsApp' },
+	'google-chat': { icon: <GoogleChatIcon className='size-4' />, label: 'sent in Google Chat' },
 	mcp: { icon: <McpIcon className='size-4' />, label: 'sent via MCP' },
 } as const;
 

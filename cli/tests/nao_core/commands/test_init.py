@@ -98,6 +98,7 @@ class TestCreateEmptyStructure:
         assert "slack.md" in content
         assert "mattermost.md" in content
         assert "discord.md" in content
+        assert "google-chat.md" in content
         assert "{{ nao_prompt }}" in content
 
     def test_creates_example_slack_prompt_file(self, tmp_path: Path):
