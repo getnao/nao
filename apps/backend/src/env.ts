@@ -134,6 +134,16 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	GITHUB_BASE_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_BASE_URL must be a valid URL' }).optional()),
+	GITHUB_API_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_API_URL must be a valid URL' }).optional()),
 
 	GITLAB_CLIENT_ID: z.string().optional(),
 	GITLAB_CLIENT_SECRET: z.string().optional(),
@@ -625,6 +635,15 @@ export function isCloudBillingEnabled(
 	data: Pick<z.output<typeof baseRawEnvSchema>, 'NAO_MODE' | 'CLOUD_BILLING_ENABLED'> = env,
 ): boolean {
 	return data.NAO_MODE === 'cloud' && data.CLOUD_BILLING_ENABLED;
+}
+
+export function isCloudWelcomeEmailEnabled(
+	data: Pick<
+		z.output<typeof baseRawEnvSchema>,
+		'NAO_MODE' | 'CLOUD_BILLING_ENABLED' | 'SMTP_HOST' | 'SMTP_MAIL_FROM' | 'SMTP_PASSWORD'
+	> = env,
+): boolean {
+	return isCloudBillingEnabled(data) && Boolean(data.SMTP_HOST && data.SMTP_MAIL_FROM && data.SMTP_PASSWORD);
 }
 
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');

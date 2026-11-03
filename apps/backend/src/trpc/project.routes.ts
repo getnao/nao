@@ -1,12 +1,6 @@
 import { BACKGROUND_MODEL_CATEGORIES, type CustomBoundarySet } from '@nao/shared';
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
-import {
-	type LlmProvider,
-	type LlmSelectedModel,
-	MAX_PYTHON_EXECUTION_DURATION_SECS,
-	MIN_PYTHON_EXECUTION_DURATION_SECS,
-	SEMANTIC_LAYER_MODES,
-} from '@nao/shared/types';
+import { type LlmProvider, type LlmSelectedModel, SEMANTIC_LAYER_MODES } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -44,6 +38,7 @@ import { mcpService } from '../services/mcp';
 import { removeProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { reconcileProjectReadiness, updateProjectEnvVars } from '../services/project.service';
+import { isProjectSetupComplete } from '../services/project-readiness.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
@@ -198,6 +193,11 @@ export const projectRoutes = {
 				throw new TRPCError({ code: 'CONFLICT', message: `A project named "${input.name}" already exists.` });
 			}
 		}),
+
+	isCurrentSetupComplete: protectedProcedure.query(async ({ ctx }) => {
+		const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
+		return project ? isProjectSetupComplete(project) : false;
+	}),
 
 	getDatabaseObjects: projectProtectedProcedure
 		.output(
@@ -1048,13 +1048,12 @@ export const projectRoutes = {
 			return null;
 		}
 
-		const { isPythonAvailable, isSandboxAvailable } = await import('../agents/tools');
+		const { isSandboxAvailable } = await import('../agents/tools');
 		const settings = await projectQueries.getAgentSettings(ctx.project.id);
 
 		return {
 			...settings,
 			capabilities: {
-				pythonSandbox: isPythonAvailable,
 				sandbox: isSandboxAvailable,
 				semanticLayer: ctx.project.path ? extractConfiguredSemanticLayer(ctx.project.path) !== null : false,
 			},
@@ -1066,7 +1065,7 @@ export const projectRoutes = {
 			z.object({
 				experimental: z
 					.object({
-						pythonSandboxing: z.boolean().optional(),
+						codemode: z.boolean().optional(),
 						sandboxes: z.boolean().optional(),
 					})
 					.optional(),
@@ -1082,16 +1081,6 @@ export const projectRoutes = {
 					.object({
 						dangerouslyWritePermEnabled: z.boolean().optional(),
 						enforceExcludedColumns: z.boolean().optional(),
-					})
-					.optional(),
-				pythonExecution: z
-					.object({
-						maxDurationSecs: z
-							.number()
-							.int()
-							.min(MIN_PYTHON_EXECUTION_DURATION_SECS)
-							.max(MAX_PYTHON_EXECUTION_DURATION_SECS)
-							.optional(),
 					})
 					.optional(),
 				memoryEnabled: z.boolean().optional(),
@@ -1121,7 +1110,6 @@ export const projectRoutes = {
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
-				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
 				semanticLayer: { ...existing.semanticLayer, ...input.semanticLayer },
 				subagent: { ...existing.subagent, ...input.subagent },
@@ -1133,8 +1121,7 @@ export const projectRoutes = {
 				transcribe_model_id: merged.transcribe?.modelId,
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				sql_enforce_excluded_columns: merged.sql?.enforceExcludedColumns,
-				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
-				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
+				codemode_enabled: merged.experimental?.codemode,
 				map_enabled: merged.mapEnabled,
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,

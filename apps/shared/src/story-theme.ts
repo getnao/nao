@@ -45,6 +45,8 @@ const MAX_STORY_LOGO_DATA_URI_LENGTH = 64 + Math.ceil(MAX_STORY_LOGO_BYTES / 3) 
 const STORY_LOGO_DATA_URI = /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/;
 
 const LEAD_ACCENT_CONTRAST = 3;
+const FLAT_BLOCK_STEP = 1.03;
+const MIN_FLAT_FRAME_BORDER_WIDTH = 1;
 const MIN_HEADER_INK_CONTRAST = 4.5;
 
 export const MIN_CHART_SERIES_COLORS = 3;
@@ -313,6 +315,7 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 		'--border': theme.block.borderColor,
 		'--input': theme.block.borderColor,
 		'--story-block-border-width': `${theme.block.borderWidth}px`,
+		'--story-frame-border-width': `${frameBorderWidth(theme)}px`,
 		...radiusScale(theme.block.radius),
 
 		'--story-table-bg': theme.table.background,
@@ -346,6 +349,18 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 		vars[`--chart-${index + 1}`] = theme.charts.series[index % theme.charts.series.length];
 	}
 	return vars;
+}
+
+/** Blocks whose fill cannot be told from the page. */
+export function hasFlatBlocks(theme: StoryTheme): boolean {
+	return contrastRatio(theme.block.background, theme.surfaces.page) < FLAT_BLOCK_STEP;
+}
+
+/** Filter panels and tabs follow the block border, but keep a hairline when flat blocks would leave them invisible. */
+function frameBorderWidth(theme: StoryTheme): number {
+	return hasFlatBlocks(theme)
+		? Math.max(theme.block.borderWidth, MIN_FLAT_FRAME_BORDER_WIDTH)
+		: theme.block.borderWidth;
 }
 
 /** Concrete colours rather than `var()` chains: the lead tile re-points `--foreground`, which must not refer to itself. */

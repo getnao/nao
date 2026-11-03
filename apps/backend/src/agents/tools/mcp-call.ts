@@ -4,22 +4,32 @@ import { McpArgsValidationError, mcpService } from '../../services/mcp';
 import { McpAuthRequiredError } from '../../services/mcp-oauth';
 import { createTool } from '../../utils/tools';
 
-const DESCRIPTION = [
-	'Call a tool exposed by a configured MCP server.',
-	'',
-	'MCP tools are NOT preloaded into context. Each server has a folder /agent/mcps/<server>/ with one',
-	'OpenAPI JSON file per available tool (the file name is the tool name). First discover the tool you',
-	'need: list the server folder, then read (or grep) the relevant tool file (use the list, read and',
-	"grep tools). Then call it here: set `tool` to the operation's operationId and `arguments` to an",
-	"object that matches that operation's request body schema.",
-	'',
-	'`arguments` are validated against that schema before the call runs. A VALIDATION_ERROR result',
-	'means the arguments are malformed — read the reported issues, fix them, and call again.',
-	'',
-	'Some servers require the user to connect their account first. If a call returns an AUTH_REQUIRED',
-	'result, stop and ask the user to connect — a Connect button is shown to them automatically.',
-	'An empty server folder means its tools are not discovered yet: run `mcp_connect` on that server.',
-].join('\n');
+function buildDescription({ codemode }: { codemode: boolean }): string {
+	return [
+		'Call a tool exposed by a configured MCP server.',
+		'',
+		'MCP tools are NOT preloaded into context. Each server has a folder /agent/mcps/<server>/ with one',
+		'OpenAPI JSON file per available tool (the file name is the tool name). First discover the tool you',
+		'need: list the server folder, then read (or grep) the relevant tool file (use the list, read and',
+		"grep tools). Then call it here: set `tool` to the operation's operationId and `arguments` to an",
+		"object that matches that operation's request body schema.",
+		...(codemode
+			? [
+					'',
+					'Use this tool for a single call whose full result you need. When the next call needs the result',
+					'of this one, when you would call a tool once per item of a list, when calls can run in parallel,',
+					'or when you only need part of a large result, write one `codemode` script instead.',
+				]
+			: []),
+		'',
+		'`arguments` are validated against that schema before the call runs. A VALIDATION_ERROR result',
+		'means the arguments are malformed — read the reported issues, fix them, and call again.',
+		'',
+		'Some servers require the user to connect their account first. If a call returns an AUTH_REQUIRED',
+		'result, stop and ask the user to connect — a Connect button is shown to them automatically.',
+		'An empty server folder means its tools are not discovered yet: run `mcp_connect` on that server.',
+	].join('\n');
+}
 
 type McpContentBlock = { type: string; text?: string };
 const MCP_AUTH_REQUIRED_MARKER = Symbol('nao.mcp.authRequired');
@@ -93,9 +103,9 @@ const extractText = (output: unknown): string => {
 };
 
 /** Single generic tool to invoke any discovered MCP tool, optionally restricted to `allowedServers`. */
-export const createMcpCallTool = (allowedServers: string[] | null) =>
+export const createMcpCallTool = (allowedServers: string[] | null, { codemode = false }: { codemode?: boolean } = {}) =>
 	createTool<mcpCall.Input, unknown>({
-		description: DESCRIPTION,
+		description: buildDescription({ codemode }),
 		inputSchema: mcpCall.InputSchema,
 		execute: async ({ server, tool, arguments: args }, context) => {
 			try {

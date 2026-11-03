@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { DBProject } from '../db/abstractSchema';
-import { extractRequiredEnvVars } from '../utils/nao-config';
+import { extractConfiguredDatabases, extractRequiredEnvVars } from '../utils/nao-config';
+import { getProjectRuntimeEnvVars } from './project-runtime-env';
 
 export type ProjectReadiness = {
 	ready: boolean;
@@ -13,6 +14,17 @@ export type ProjectReadiness = {
 	setEnvVarNames: string[];
 	missingEnvVars: string[];
 };
+
+export async function isProjectSetupComplete(project: Pick<DBProject, 'id' | 'path'>): Promise<boolean> {
+	if (!project.path) {
+		return false;
+	}
+	const envVars = await getProjectRuntimeEnvVars(project.id);
+	return (
+		assessProjectReadiness({ path: project.path, envVars }).ready &&
+		extractConfiguredDatabases(project.path).length > 0
+	);
+}
 
 export function assessProjectReadiness(project: Pick<DBProject, 'path' | 'envVars'>): ProjectReadiness {
 	const hasPath = isSet(project.path);

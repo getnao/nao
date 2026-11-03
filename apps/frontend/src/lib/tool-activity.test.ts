@@ -72,8 +72,8 @@ describe('getLatestToolActivityLabel', () => {
 	});
 
 	it('falls back to the tool name for tools without a dedicated label', () => {
-		expect(getLatestToolActivityLabel([toolPart('execute_python', { code: 'print(1)' })])).toBe(
-			'Running execute python',
+		expect(getLatestToolActivityLabel([toolPart('execute_sandboxed_code', { code: 'print(1)' })])).toBe(
+			'Running execute sandboxed code',
 		);
 	});
 

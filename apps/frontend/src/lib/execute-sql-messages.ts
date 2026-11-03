@@ -1,8 +1,25 @@
+import { executeSemanticQuery } from '@nao/shared/tools';
 import { areStructurallyEqual } from './ai';
-import type { executeSemanticQuery, executeSql } from '@nao/shared/tools';
+import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage, UIMessagePart, UIToolPart } from '@nao/backend/chat';
 
-export type SourceQuery = { input?: executeSql.Input; output: executeSql.Output; toolCallId?: string };
+export type SourceQuery = {
+	input?: executeSql.Input;
+	output: executeSql.Output;
+	toolCallId?: string;
+	/** The metric query the semantic layer compiled `input.sql_query` from. */
+	semanticQuery?: executeSemanticQuery.SemanticQuery;
+};
+
+export type SemanticSourceQuery = SourceQuery & {
+	input: executeSql.Input;
+	semanticQuery: executeSemanticQuery.SemanticQuery;
+};
+
+export function isSemanticSourceQuery(sourceQuery: SourceQuery): sourceQuery is SemanticSourceQuery {
+	return Boolean(sourceQuery.input && sourceQuery.semanticQuery);
+}
+
 const sourceQueryIndex = new WeakMap<UIMessage[], Map<string, SourceQuery>>();
 
 /**
@@ -45,12 +62,14 @@ function toSourceQuery(part: UIMessagePart): SourceQuery | null {
 }
 
 export function semanticQueryAsSql(
-	input: Pick<executeSemanticQuery.Input, 'name'> | undefined,
+	input: { name?: string } | undefined,
 	output: executeSemanticQuery.Output,
 ): SourceQuery {
+	const semanticQuery = executeSemanticQuery.SemanticQuerySchema.safeParse(input);
 	return {
 		input: { sql_query: output.compiled_sql, database_id: output.database_id, name: input?.name },
 		output,
+		...(semanticQuery.success && { semanticQuery: semanticQuery.data }),
 	};
 }
 
@@ -65,15 +84,35 @@ export function areSourceQueriesEqual(left: SourceQuery | null, right: SourceQue
 		left.output.id === right.output.id &&
 		left.toolCallId === right.toolCallId &&
 		left.output.revision === right.output.revision &&
-		areStructurallyEqual(left.input, right.input)
+		areStructurallyEqual(left.input, right.input) &&
+		areStructurallyEqual(left.semanticQuery, right.semanticQuery)
 	);
 }
 
-/** Update only the latest matching execute_sql part for a query id. */
 export function applyExecuteSqlResultToMessages(
 	messages: UIMessage[],
 	queryId: string,
 	input: executeSql.Input,
+	output: executeSql.Output,
+): UIMessage[] {
+	return applyQueryResultToMessages(messages, 'tool-execute_sql', queryId, input, output);
+}
+
+export function applySemanticQueryResultToMessages(
+	messages: UIMessage[],
+	queryId: string,
+	input: executeSemanticQuery.Input,
+	output: executeSemanticQuery.Output,
+): UIMessage[] {
+	return applyQueryResultToMessages(messages, 'tool-execute_semantic_query', queryId, input, output);
+}
+
+/** Update only the latest query part of this type for a query id. */
+function applyQueryResultToMessages(
+	messages: UIMessage[],
+	partType: 'tool-execute_sql' | 'tool-execute_semantic_query',
+	queryId: string,
+	input: executeSql.Input | executeSemanticQuery.Input,
 	output: executeSql.Output,
 ): UIMessage[] {
 	let latestMessageIndex = -1;
@@ -83,7 +122,7 @@ export function applyExecuteSqlResultToMessages(
 		const message = messages[messageIndex];
 		for (let partIndex = 0; partIndex < message.parts.length; partIndex++) {
 			const part = message.parts[partIndex];
-			if (part.type !== 'tool-execute_sql') {
+			if (part.type !== partType) {
 				continue;
 			}
 			const toolPart = part as UIToolPart<'execute_sql'>;

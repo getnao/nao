@@ -3,6 +3,7 @@ import { executeSemanticQuery as schemas } from '@nao/shared/tools';
 
 import { ExecuteSemanticQueryOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { compileSemanticQuery } from '../../services/semantic-layer.service';
+import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
 import { executeQuery } from './execute-sql';
 
@@ -16,14 +17,21 @@ export default createTool<executeSemanticQuery.Input, executeSemanticQuery.Outpu
 	description: DESCRIPTION,
 	inputSchema: schemas.InputSchema,
 	outputSchema: schemas.OutputSchema,
-	execute: async ({ name, ...query }, context) => {
-		const compiled = await compileSemanticQuery(query, context);
-		const output = await executeQuery(
-			{ sql_query: compiled.sql, database_id: compiled.database_id, name },
-			context,
-			{ compiledBySemanticLayer: true },
-		);
-		return { ...output, compiled_sql: compiled.sql, database_id: compiled.database_id };
-	},
+	execute: (input, context) => runSemanticQuery(input, context),
 	toModelOutput: ({ output }) => renderToModelOutput(ExecuteSemanticQueryOutput({ output }), output),
 });
+
+/** Compiles the metric query with the current semantic layer definitions, then runs the SQL like execute_sql. */
+export async function runSemanticQuery(
+	{ name, ...query }: executeSemanticQuery.Input,
+	context: ToolContext,
+	queryId?: `query_${string}`,
+): Promise<executeSemanticQuery.Output> {
+	const compiled = await compileSemanticQuery(query, context);
+	const output = await executeQuery(
+		{ sql_query: compiled.sql, database_id: compiled.database_id, name, query_id: queryId },
+		context,
+		{ semanticQuery: query },
+	);
+	return { ...output, compiled_sql: compiled.sql, database_id: compiled.database_id };
+}

@@ -33,6 +33,7 @@ import { buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { runQueryOnLocalFiles } from './local-query.service';
+import { compileSemanticQuery, type SemanticQuery } from './semantic-layer.service';
 import { executeWarehouseSql } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
@@ -43,7 +44,12 @@ interface StoryRefreshTarget {
 	chatId: string;
 }
 
-export type StorySqlQuery = { sqlQuery: string; databaseId?: string; adminMode: boolean };
+export type StorySqlQuery = {
+	sqlQuery: string;
+	databaseId?: string;
+	adminMode: boolean;
+	semanticQuery?: SemanticQuery;
+};
 export type StorySqlQueries = Record<string, StorySqlQuery>;
 export type StoryQueryData = Record<string, { data: unknown[]; columns: string[] }>;
 
@@ -133,7 +139,7 @@ async function refreshStoryDataWithContext(
 async function getVersionSqlQueries(
 	chatId: string,
 	version: { id: string; code: string; format: StoryFormat },
-): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
+): Promise<StorySqlQueries> {
 	if (version.format === 'classic') {
 		return storyQueries.getSqlQueriesFromCode(chatId, version.code);
 	}
@@ -299,6 +305,9 @@ export async function executeStoryQueries(
 		if (!executionContext) {
 			throw new Error('Live Story warehouse query has no execution context.');
 		}
+		if (query.semanticQuery) {
+			return compileAndExecuteSemanticQuery(query.semanticQuery, executionContext);
+		}
 		if (query.databaseId !== LOCAL_DATABASE_ID) {
 			return executeBillingValidatedRawSql(sql, { executionContext, databaseId: query.databaseId });
 		}
@@ -371,6 +380,15 @@ async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlEx
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	});
 	return { data: data.data, columns: data.columns };
+}
+
+/** Compiled again on every run, so the story follows the semantic layer's current metric definitions. */
+async function compileAndExecuteSemanticQuery(
+	semanticQuery: SemanticQuery,
+	executionContext: StoryExecutionContext,
+): Promise<QueryResult> {
+	const compiled = await compileSemanticQuery(semanticQuery, executionContext.toolContext);
+	return executeBillingValidatedRawSql(compiled.sql, { executionContext, databaseId: compiled.database_id });
 }
 
 async function executeLocalSql(sqlQuery: string, context: ToolContext): Promise<QueryResult> {

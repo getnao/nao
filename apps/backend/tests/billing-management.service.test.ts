@@ -150,6 +150,21 @@ describe('billing management organization loading', () => {
 		expect(mocks.createCheckout).not.toHaveBeenCalled();
 	});
 
+	it('requires project setup to start the trial before initial Checkout', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue({
+			id: 'org-id',
+			name: 'Organization',
+			billing: null,
+		});
+
+		await expect(
+			createCloudTrialCheckoutForAdmin({ ...adminInput, billingInterval: 'monthly', currency: 'usd' }),
+		).rejects.toThrow('Finish setting up your first project');
+
+		expect(mocks.createCustomer).not.toHaveBeenCalled();
+		expect(mocks.createCheckout).not.toHaveBeenCalled();
+	});
+
 	it('reconciles a Stripe Customer before allowing recovery Checkout', async () => {
 		mocks.getOrganizationWithBilling
 			.mockResolvedValueOnce({

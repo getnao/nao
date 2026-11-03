@@ -51,6 +51,7 @@ export function GenerateOnboardingRulesToolCall({ toolPart }: ToolCallComponentP
 		setActiveProjectId(projectId);
 		void Promise.all([
 			queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.isCurrentSetupComplete.queryKey() }),
 			queryClient.invalidateQueries({ queryKey: trpc.organization.getProjects.queryKey() }),
 		]);
 	}, [isRunning, projectId, queryClient]);

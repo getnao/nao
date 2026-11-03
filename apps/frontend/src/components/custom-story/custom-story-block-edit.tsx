@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
-import type { StoryBlockChartConfig } from '@nao/shared/story-app';
-import type { StoryBlockEditTarget, StoryTableFormatEditTarget } from '@/stores/story-block-edit';
+import type { StoryBlockChartConfig, StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
+import type { StoryTheme } from '@nao/shared/story-theme';
 
-import { ChartConfigEditDialog, ChartConfigEditForm } from '@/components/tool-calls/display-chart-edit-dialog';
-import { TableFormatEditDialog, TableFormatEditForm } from '@/components/tool-calls/display-table-edit-dialog';
+import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
+import { TableFormatEditDialog } from '@/components/tool-calls/display-table-edit-dialog';
 import {
 	diffKitBlock,
 	fromDialogConfig,
@@ -15,29 +15,30 @@ import {
 } from '@/lib/story-kit-block-edit';
 import { trpc } from '@/main';
 
-export const BLOCK_EDIT_DESCRIPTION = 'Changes are saved to the story as a new version.';
-export const TABLE_FORMAT_EDIT_DESCRIPTION = `Apply conditional formatting to columns. ${BLOCK_EDIT_DESCRIPTION}`;
+const BLOCK_EDIT_DESCRIPTION = 'Changes are saved to the story as a new version.';
+const TABLE_FORMAT_EDIT_DESCRIPTION = `Apply conditional formatting to columns. ${BLOCK_EDIT_DESCRIPTION}`;
 
-interface CustomStoryBlockEditFormProps {
-	target: StoryBlockEditTarget;
-	onCancel: () => void;
-	onSaved: () => void;
+interface StoryEditTargetBase {
+	chatId: string;
+	storySlug: string;
+	versionNumber: number;
 }
 
-export function CustomStoryBlockEditForm({ target, onCancel, onSaved }: CustomStoryBlockEditFormProps) {
-	const edit = useChartConfigEdit(target);
-	if (!edit) {
-		return null;
-	}
-	return <ChartConfigEditForm {...edit} onCancel={onCancel} onSaved={onSaved} />;
+export interface StoryBlockEditTarget extends StoryEditTargetBase {
+	payload: StoryBlockEditPayload;
+}
+
+export interface StoryTableFormatEditTarget extends StoryEditTargetBase {
+	request: StoryTableFormatEditRequest;
 }
 
 interface CustomStoryBlockEditDialogProps {
 	target: StoryBlockEditTarget | null;
+	theme: StoryTheme;
 	onClose: () => void;
 }
 
-export function CustomStoryBlockEditDialog({ target, onClose }: CustomStoryBlockEditDialogProps) {
+export function CustomStoryBlockEditDialog({ target, theme, onClose }: CustomStoryBlockEditDialogProps) {
 	const edit = useChartConfigEdit(target);
 	if (!edit) {
 		return null;
@@ -48,22 +49,9 @@ export function CustomStoryBlockEditDialog({ target, onClose }: CustomStoryBlock
 			open
 			onOpenChange={closeOnDismiss(onClose)}
 			description={BLOCK_EDIT_DESCRIPTION}
+			previewTheme={theme}
 		/>
 	);
-}
-
-interface CustomStoryTableFormatFormProps {
-	target: StoryTableFormatEditTarget;
-	onCancel: () => void;
-	onSaved: () => void;
-}
-
-export function CustomStoryTableFormatForm({ target, onCancel, onSaved }: CustomStoryTableFormatFormProps) {
-	const edit = useTableFormatEdit(target);
-	if (!edit) {
-		return null;
-	}
-	return <TableFormatEditForm {...edit} onCancel={onCancel} onSaved={onSaved} />;
 }
 
 interface CustomStoryTableFormatDialogProps {

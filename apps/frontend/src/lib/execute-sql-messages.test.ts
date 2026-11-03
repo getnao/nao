@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	applyExecuteSqlResultToMessages,
+	applySemanticQueryResultToMessages,
 	areSourceQueriesEqual,
 	findLatestExecuteSqlInMessages,
+	isSemanticSourceQuery,
 } from './execute-sql-messages';
 import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage } from '@nao/backend/chat';
@@ -107,30 +109,7 @@ describe('applyExecuteSqlResultToMessages', () => {
 
 describe('findLatestExecuteSqlInMessages', () => {
 	it('reads a semantic query result as the SQL the layer compiled', () => {
-		const messages = [
-			{
-				id: 'assistant-1',
-				role: 'assistant',
-				parts: [
-					{
-						type: 'tool-execute_semantic_query',
-						toolCallId: 'call-1',
-						state: 'output-available',
-						input: { metrics: ['revenue'], group_by: ['metric_time__month'], name: 'Revenue by month' },
-						output: {
-							id: 'query_sem1',
-							data: [{ revenue: 100 }],
-							row_count: 1,
-							columns: ['revenue'],
-							compiled_sql: 'SELECT SUM(amount) AS revenue FROM orders',
-							database_id: 'warehouse',
-						},
-					},
-				],
-			},
-		] as unknown as UIMessage[];
-
-		const sourceQuery = findLatestExecuteSqlInMessages(messages, 'query_sem1');
+		const sourceQuery = findLatestExecuteSqlInMessages(createSemanticQueryMessages(), 'query_sem1');
 
 		expect(sourceQuery?.input).toEqual({
 			sql_query: 'SELECT SUM(amount) AS revenue FROM orders',
@@ -139,4 +118,104 @@ describe('findLatestExecuteSqlInMessages', () => {
 		});
 		expect(sourceQuery?.output.data).toEqual([{ revenue: 100 }]);
 	});
+
+	it('keeps the metric query a semantic result was compiled from', () => {
+		const sourceQuery = findLatestExecuteSqlInMessages(createSemanticQueryMessages(), 'query_sem1');
+
+		expect(sourceQuery?.semanticQuery).toEqual({ metrics: ['revenue'], group_by: ['metric_time__month'] });
+		expect(sourceQuery && isSemanticSourceQuery(sourceQuery)).toBe(true);
+	});
+
+	it('does not read a plain SQL result as a semantic one', () => {
+		expect(isSemanticSourceQuery(createSourceQuery({ sql_query: 'select revenue' }))).toBe(false);
+	});
 });
+
+describe('applySemanticQueryResultToMessages', () => {
+	it('replaces the semantic part with the edited metric query and its new result', () => {
+		const messages = createSemanticQueryMessages();
+		const input = { metrics: ['revenue'], group_by: ['metric_time__week'], name: 'Revenue by month' };
+		const output = {
+			id: 'query_sem1' as const,
+			data: [{ revenue: 40 }, { revenue: 60 }],
+			row_count: 2,
+			columns: ['revenue'],
+			compiled_sql: 'SELECT SUM(amount) AS revenue FROM orders GROUP BY week',
+			database_id: 'warehouse',
+		};
+
+		const updated = applySemanticQueryResultToMessages(messages, 'query_sem1', input, output);
+		const sourceQuery = findLatestExecuteSqlInMessages(updated, 'query_sem1');
+
+		expect(sourceQuery?.semanticQuery).toEqual({ metrics: ['revenue'], group_by: ['metric_time__week'] });
+		expect(sourceQuery?.input?.sql_query).toBe(output.compiled_sql);
+		expect(sourceQuery?.output.data).toEqual(output.data);
+		expect(sourceQuery?.output.revision).toBe(1);
+	});
+
+	it('leaves execute_sql parts with the same query id untouched', () => {
+		const sqlOutput: executeSql.Output = { id: 'query_sem1', data: [], row_count: 0, columns: [] };
+		const messages = [
+			{
+				id: 'assistant-1',
+				role: 'assistant',
+				parts: [
+					{
+						type: 'tool-execute_sql',
+						toolCallId: 'call-1',
+						state: 'output-available',
+						input: {},
+						output: sqlOutput,
+					},
+				],
+			},
+		] as unknown as UIMessage[];
+
+		const updated = applySemanticQueryResultToMessages(
+			messages,
+			'query_sem1',
+			{ metrics: ['revenue'] },
+			{
+				...sqlOutput,
+				compiled_sql: 'SELECT 1',
+				database_id: 'warehouse',
+			},
+		);
+
+		expect(updated).toBe(messages);
+	});
+});
+
+describe('areSourceQueriesEqual with semantic queries', () => {
+	it('detects metric query changes behind the same compiled SQL', () => {
+		const left = { ...createSourceQuery({ sql_query: 'select revenue' }), semanticQuery: { metrics: ['revenue'] } };
+		const right = { ...left, semanticQuery: { metrics: ['revenue'], limit: 10 } };
+
+		expect(areSourceQueriesEqual(left, right)).toBe(false);
+	});
+});
+
+function createSemanticQueryMessages(): UIMessage[] {
+	return [
+		{
+			id: 'assistant-1',
+			role: 'assistant',
+			parts: [
+				{
+					type: 'tool-execute_semantic_query',
+					toolCallId: 'call-1',
+					state: 'output-available',
+					input: { metrics: ['revenue'], group_by: ['metric_time__month'], name: 'Revenue by month' },
+					output: {
+						id: 'query_sem1',
+						data: [{ revenue: 100 }],
+						row_count: 1,
+						columns: ['revenue'],
+						compiled_sql: 'SELECT SUM(amount) AS revenue FROM orders',
+						database_id: 'warehouse',
+					},
+				},
+			],
+		},
+	] as unknown as UIMessage[];
+}

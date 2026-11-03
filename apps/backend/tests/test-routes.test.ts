@@ -17,7 +17,7 @@ vi.mock('../src/agents/tools/execute-sql', () => ({
 	executeQuery: mocks.executeQuery,
 }));
 vi.mock('../src/middleware/auth', () => ({
-	authMiddleware: vi.fn(),
+	sessionOrApiKeyAuthMiddleware: vi.fn(),
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,

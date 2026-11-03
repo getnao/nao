@@ -22,9 +22,9 @@ const REPEATABLE_TOOLS = new Set(['read', 'list', 'grep', 'search']);
 
 /**
  * Ends the turn once `suggest_follow_ups` is called alongside visible text. Some models call it
- * before writing their answer; letting the loop run on hides the stray call from them (it is
- * pruned from the next step's context) so they write the answer and call it again. A second
- * textless call ends the turn anyway so the loop cannot spin.
+ * before writing their answer, and Claude 5.x leaves its answer in a hidden progress update right
+ * before the call; letting the loop run on shows them the tool result, which asks for the answer.
+ * A second textless call ends the turn anyway so the loop cannot spin.
  */
 export const hasFollowUpsWithText: StopCondition<AgentTools> = ({ steps }) => {
 	const lastStep = steps.at(-1);

@@ -5,6 +5,7 @@ import {
 	getClickHouseDefaultPort,
 	getTrinoDefaultPort,
 	getWarehouseCredentialsDefaults,
+	SNOWFLAKE_AUTH_MODES,
 } from './warehouse-credentials';
 import { providerHasField, SQL_PROVIDER_SETTINGS } from './warehouse-provider-config';
 import type { WarehouseCredentialsFormValues } from './warehouse-credentials';
@@ -206,6 +207,78 @@ export function WarehouseCredentialsForm({
 							placeholder='Enter your password'
 							required={provider !== 'clickhouse' && provider !== 'starrocks' && provider !== 'trino'}
 						/>
+					)}
+					{provider === 'snowflake' && (
+						<>
+							<form.Field name='authMode'>
+								{(field) => (
+									<div className='grid gap-2'>
+										<label htmlFor='warehouse-auth-mode' className='text-sm font-medium'>
+											Authentication
+										</label>
+										<Select value={field.state.value} onValueChange={field.handleChange}>
+											<SelectTrigger id='warehouse-auth-mode' className='w-full'>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												{SNOWFLAKE_AUTH_MODES.map((mode) => (
+													<SelectItem key={mode.value} value={mode.value}>
+														{mode.label}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</div>
+								)}
+							</form.Field>
+							<form.Subscribe selector={(state) => state.values.authMode}>
+								{(authMode) => (
+									<>
+										{authMode === 'password' && (
+											<PasswordField
+												form={form}
+												name='password'
+												label='Password'
+												placeholder='Enter your password'
+												required={true}
+											/>
+										)}
+										{authMode === 'private_key' && (
+											<>
+												<PasswordField
+													form={form}
+													name='privateKeyPassphrase'
+													label='Private Key Passphrase'
+													hint='(optional)'
+													placeholder='Enter your key passphrase'
+												/>
+												<div className='sm:col-span-2 [&_textarea]:max-h-40 [&_textarea]:field-sizing-fixed [&_textarea]:overflow-y-auto'>
+													<TextareaField
+														form={form}
+														name='privateKey'
+														label='Private Key'
+														placeholder={
+															'-----BEGIN PRIVATE KEY-----\n…\n-----END PRIVATE KEY-----'
+														}
+														required={true}
+														rows={6}
+													/>
+												</div>
+											</>
+										)}
+										{authMode === 'programmatic_access_token' && (
+											<PasswordField
+												form={form}
+												name='accessToken'
+												label='Programmatic Access Token'
+												placeholder='Enter your access token'
+												required={true}
+											/>
+										)}
+									</>
+								)}
+							</form.Subscribe>
+						</>
 					)}
 					{hasField('schemaName') && (
 						<TextField
