@@ -1,13 +1,13 @@
 import { createGoogleChatAdapter } from '@chat-adapter/gchat';
 import { createMemoryState } from '@chat-adapter/state-memory';
-import { stripAssistantTags } from '@nao/shared';
 import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart } from '@nao/shared/tools';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { type ActionEvent, Card, Chat, Message, SentMessage, Thread } from 'chat';
+import { type ActionEvent, Chat, Message, Thread } from 'chat';
 
 import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
+import { generateKpiCardImage } from '../components/generate-kpi-card';
 import type { User } from '../db/abstractSchema';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
@@ -16,17 +16,11 @@ import * as projectQueries from '../queries/project.queries';
 import type { GoogleChatConfig } from '../queries/project-google-chat-config.queries';
 import { getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
-import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
+import type { StreamState } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
 import { logger } from '../utils/logger';
 import {
-	createCompletionCard,
-	createImageBlock,
-	createLiveToolCall,
-	createMapLinkCard,
-	createStopButtonCard,
-	createSummaryToolCalls,
-	createTextBlock,
+	escapeMarkdownText,
 	EXCLUDED_TOOLS,
 	formatClarificationText,
 	formatMessagingError,
@@ -36,12 +30,13 @@ import {
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { GoogleChatAnswer } from './google-chat-answer';
 
 const BOT_USER_NAME = 'nao';
 const BOT_MENTION_PATTERN = new RegExp(`@${BOT_USER_NAME}\\b\\s*`, 'g');
 
-/** Google Chat allows about one message write per second in a space, so streamed edits are spaced out. */
-const UPDATE_INTERVAL_MS = 1500;
+/** Google Chat shows card images about 512px wide, so charts are drawn small enough for their labels to stay legible. */
+const CHART_IMAGE_SIZE = { width: 560, height: 360 };
 
 interface GoogleChatRawSpace {
 	name?: string;
@@ -57,9 +52,17 @@ interface GoogleChatRawEvent {
 	};
 }
 
-type GoogleChatConversationContext = ConversationContext & {
+type GoogleChatConversationContext = {
+	thread: Thread;
+	userMessage: Message;
 	config: GoogleChatConfig;
+	user: User | null;
+	chatId: string;
+	isNewChat: boolean;
+	answer: GoogleChatAnswer | null;
 };
+
+type ToolPart = Extract<UIMessagePart, { toolCallId: string }>;
 
 type ProjectBot = {
 	bot: Chat;
@@ -68,7 +71,7 @@ type ProjectBot = {
 
 class GoogleChatService {
 	private _bots = new Map<string, ProjectBot>();
-	private _lastCompletionCards = new Map<string, { card: SentMessage; chatUrl: string }>();
+	private _lastAnswers = new Map<string, { answer: GoogleChatAnswer; chatUrl: string }>();
 
 	public getWebhooks(config: GoogleChatConfig) {
 		const configFingerprint = this._fingerprint(config);
@@ -148,7 +151,8 @@ class GoogleChatService {
 			return;
 		}
 		await feedbackQueries.upsertFeedback({ messageId, vote });
-		await this._updateCompletionCardVote(action.threadId, vote);
+		const lastAnswer = this._lastAnswers.get(action.threadId);
+		await lastAnswer?.answer.finish(lastAnswer.chatUrl, vote);
 	}
 
 	/** Resolves the chat a card button belongs to, provided the person who clicked it may use this project. */
@@ -171,15 +175,6 @@ class GoogleChatService {
 		return chat ? { chatId: chat.id, threadId } : null;
 	}
 
-	private async _updateCompletionCardVote(threadId: string, vote: 'up' | 'down'): Promise<void> {
-		const completion = this._lastCompletionCards.get(threadId);
-		if (!completion) {
-			return;
-		}
-		const appName = await getAppName();
-		await completion.card.edit(createCompletionCard(completion.chatUrl, { vote, appName }));
-	}
-
 	private async _handleWorkFlow(thread: Thread, userMessage: Message, config: GoogleChatConfig): Promise<void> {
 		userMessage.text = userMessage.text.replace(BOT_MENTION_PATTERN, '').trim();
 
@@ -189,19 +184,14 @@ class GoogleChatService {
 			config,
 			user: null,
 			chatId: '',
-			convMessage: null,
-			blocks: [],
-			textBlockIndex: -1,
-			textBlockCount: 0,
 			isNewChat: false,
-			modelId: undefined,
-			timezone: undefined,
+			answer: null,
 		};
 
 		try {
 			await this._validateUserAccess(ctx);
 			await assertProjectCloudBillingAccess(ctx.config.projectId);
-			ctx.convMessage = await ctx.thread.post(`✨ ${await getAppName()} is answering...`);
+			ctx.answer = await GoogleChatAnswer.start(ctx.thread, await getAppName());
 			await this._saveOrUpdateUserMessage(ctx);
 
 			const [chat] = await chatQueries.getChat(ctx.chatId);
@@ -209,7 +199,7 @@ class GoogleChatService {
 				throw new Error('Chat not found after saving message');
 			}
 
-			await this._handleStreamAgent(chat, ctx);
+			await this._streamAnswer(chat, ctx, ctx.answer);
 		} catch (error) {
 			await this._reportError(error, ctx);
 		}
@@ -225,11 +215,15 @@ class GoogleChatService {
 			context: { projectId: ctx.config.projectId, chatId: ctx.chatId },
 		});
 		const errorMessage = formatMessagingError(error);
-		if (ctx.convMessage) {
-			ctx.blocks.push(createTextBlock(errorMessage));
-			await ctx.convMessage.edit(Card({ children: ctx.blocks }));
-		} else {
+		if (!ctx.answer) {
 			await ctx.thread.post(errorMessage);
+			return;
+		}
+		ctx.answer.appendText(errorMessage);
+		if (ctx.chatId) {
+			await this._completeAnswer(ctx, ctx.answer);
+		} else {
+			await ctx.answer.abandon();
 		}
 	}
 
@@ -287,21 +281,48 @@ class GoogleChatService {
 		ctx.isNewChat = true;
 	}
 
-	private async _handleStreamAgent(chat: UIChat, ctx: GoogleChatConversationContext): Promise<void> {
+	private async _streamAnswer(
+		chat: UIChat,
+		ctx: GoogleChatConversationContext,
+		answer: GoogleChatAnswer,
+	): Promise<void> {
 		const stream = await this._createAgentStream(chat, ctx);
-		const stopCard = await ctx.thread.post(createStopButtonCard());
+		const state: StreamState = {
+			renderedToolCallIds: new Set(),
+			sqlOutputs: new Map(),
+			lastUpdateAt: Date.now(),
+			toolGroup: new Map(),
+			toolGroupBlockIndex: -1,
+		};
+		this._rememberEarlierQueryResults(chat, state);
 
-		try {
-			await this._readStreamAndUpdateMessage(stream, ctx);
-		} finally {
-			await stopCard.delete();
+		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
+			const part = uiMessage.parts[uiMessage.parts.length - 1];
+			if (part) {
+				await this._handlePart(part, state, ctx, answer);
+			}
 		}
 
-		await this._lastCompletionCards.get(ctx.thread.id)?.card.delete();
-		const chatUrl = new URL(ctx.chatId, ctx.config.redirectUrl).toString();
-		const appName = await getAppName();
-		const card = await ctx.thread.post(createCompletionCard(chatUrl, { appName }));
-		this._lastCompletionCards.set(ctx.thread.id, { card, chatUrl });
+		await this._completeAnswer(ctx, answer);
+	}
+
+	/** A chart can display a query run earlier in the conversation, so those results are kept alongside new ones. */
+	private _rememberEarlierQueryResults(chat: UIChat, state: StreamState): void {
+		for (const message of chat.messages) {
+			for (const part of message.parts) {
+				if (isQueryResultPart(part)) {
+					this._handleSqlPart(part, state);
+				}
+			}
+		}
+	}
+
+	private async _completeAnswer(ctx: GoogleChatConversationContext, answer: GoogleChatAnswer): Promise<void> {
+		const chatUrl = this._chatUrl(ctx);
+		const previousAnswer = this._lastAnswers.get(ctx.thread.id);
+		await previousAnswer?.answer.retire(previousAnswer.chatUrl);
+		await answer.finish(chatUrl);
+		this._lastAnswers.set(ctx.thread.id, { answer, chatUrl });
 	}
 
 	private async _createAgentStream(
@@ -314,78 +335,53 @@ class GoogleChatService {
 			messagingAgent('google-chat'),
 			{ billingAccessVerifiedProjectId: ctx.config.projectId },
 		);
-		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, {
-			timezone: ctx.timezone,
 			tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(ctx.config.redirectUrl).host },
 		});
-	}
-
-	private async _readStreamAndUpdateMessage(
-		stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
-		ctx: GoogleChatConversationContext,
-	): Promise<void> {
-		const state: StreamState = {
-			renderedToolCallIds: new Set(),
-			sqlOutputs: new Map(),
-			lastUpdateAt: Date.now(),
-			toolGroup: new Map(),
-			toolGroupBlockIndex: -1,
-		};
-
-		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
-			const part = uiMessage.parts[uiMessage.parts.length - 1];
-			if (part) {
-				await this._handlePart(part, state, ctx);
-			}
-		}
-
-		await this._sendFinalText(ctx);
 	}
 
 	private async _handlePart(
 		part: UIMessagePart,
 		state: StreamState,
 		ctx: GoogleChatConversationContext,
+		answer: GoogleChatAnswer,
 	): Promise<void> {
 		if (part.type.startsWith('tool-') && !EXCLUDED_TOOLS.includes(part.type)) {
-			await this._handleCollapsibleToolPart(part as Extract<UIMessagePart, { toolCallId: string }>, state, ctx);
+			this._handleExplorationToolPart(part as ToolPart, state, answer);
 		}
 		if (part.type === 'text') {
-			this._flushToolGroup(state, ctx);
-			await this._handleTextPart(part, state, ctx);
+			this._closeToolGroup(state, answer);
+			answer.setText(part.text);
 		} else if (isQueryResultPart(part)) {
 			this._handleSqlPart(part, state);
 		} else if (part.type === 'tool-display_chart') {
-			await this._handleChartPart(part, state, ctx);
+			await this._handleChartPart(part, state, ctx, answer);
 		} else if (part.type === 'tool-display_map') {
-			await this._handleMapPart(part, state, ctx);
-		} else if (part.type === 'tool-clarification') {
-			this._handleClarificationPart(part, ctx);
+			await this._handleMapPart(part, state, ctx, answer);
+		} else if (part.type === 'tool-clarification' && part.state !== 'input-streaming' && part.input) {
+			answer.setText(formatClarificationText(part.input.question, part.input.options));
 		}
+		answer.update();
 	}
 
-	private _handleClarificationPart(
-		part: Extract<UIMessagePart, { type: 'tool-clarification' }>,
-		ctx: ConversationContext,
-	): void {
-		if (part.state === 'input-streaming' || !part.input) {
+	private _handleExplorationToolPart(part: ToolPart, state: StreamState, answer: GoogleChatAnswer): void {
+		if (part.state === 'input-streaming') {
 			return;
 		}
-		const text = formatClarificationText(part.input.question, part.input.options);
-		this._updateTextBlock(text, ctx);
+		state.toolGroup.set(part.toolCallId, {
+			type: part.type,
+			input: ('input' in part ? part.input : {}) as Record<string, string>,
+			toolCallId: part.toolCallId,
+		});
+		answer.setToolActivity(state.toolGroup, false);
 	}
 
-	private async _handleTextPart(
-		part: Extract<UIMessagePart, { type: 'text' }>,
-		state: StreamState,
-		ctx: ConversationContext,
-	): Promise<void> {
-		this._updateTextBlock(part.text, ctx);
-		if (!part.text) {
+	private _closeToolGroup(state: StreamState, answer: GoogleChatAnswer): void {
+		if (state.toolGroup.size === 0) {
 			return;
 		}
-		await this._editIfDue(state, ctx);
+		answer.setToolActivity(state.toolGroup, true);
+		state.toolGroup = new Map();
 	}
 
 	private _handleSqlPart(part: Extract<UIMessagePart, { type: QueryResultPartType }>, state: StreamState): void {
@@ -401,6 +397,7 @@ class GoogleChatService {
 		part: Extract<UIMessagePart, { type: 'tool-display_chart' }>,
 		state: StreamState,
 		ctx: GoogleChatConversationContext,
+		answer: GoogleChatAnswer,
 	): Promise<void> {
 		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
 			return;
@@ -408,31 +405,47 @@ class GoogleChatService {
 		if (!part.output?.success || displayChart.isTableInput(part.input)) {
 			return;
 		}
+		state.renderedToolCallIds.add(part.toolCallId);
 		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
 		if (!sqlOutput) {
+			await this._appendChartLink(part.input.title, ctx, answer);
 			return;
 		}
 		try {
-			const displaySettings = await projectQueries.getDisplaySettings(ctx.config.projectId);
-			const png = generateChartImage({
-				config: part.input,
-				data: sqlOutput.rows,
-				dateFormat: displaySettings.dateFormat,
-			});
-			state.renderedToolCallIds.add(part.toolCallId);
-			await this._pushImage(part.toolCallId, png, ctx);
+			const png =
+				part.input.chart_type === 'kpi_card'
+					? generateKpiCardImage({ config: part.input, rows: sqlOutput.rows, width: CHART_IMAGE_SIZE.width })
+					: generateChartImage({
+							config: part.input,
+							data: sqlOutput.rows,
+							dateFormat: (await projectQueries.getDisplaySettings(ctx.config.projectId)).dateFormat,
+							...CHART_IMAGE_SIZE,
+						});
+			answer.addImage(await this._saveImage(part.toolCallId, png, ctx));
 		} catch (error) {
 			logger.error(`Chart image generation failed: ${String(error)}`, {
 				source: 'system',
 				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
 			});
+			await this._appendChartLink(part.input.title, ctx, answer);
 		}
+	}
+
+	/** A chart that cannot be drawn as an image still points to the interactive one in nao instead of vanishing. */
+	private async _appendChartLink(
+		title: string | undefined,
+		ctx: GoogleChatConversationContext,
+		answer: GoogleChatAnswer,
+	): Promise<void> {
+		const label = title ? `**${escapeMarkdownText(title)}**: ` : '';
+		answer.appendText(`📊 ${label}[view the chart in ${await getAppName()}](${this._chatUrl(ctx)})`);
 	}
 
 	private async _handleMapPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 		state: StreamState,
 		ctx: GoogleChatConversationContext,
+		answer: GoogleChatAnswer,
 	): Promise<void> {
 		if (
 			part.state !== 'output-available' ||
@@ -446,109 +459,30 @@ class GoogleChatService {
 			chatId: ctx.chatId,
 			toolCallId: part.toolCallId,
 		});
-		if (!png) {
-			await this._pushMapLinkCard(part, ctx);
-			return;
-		}
 		try {
-			await this._pushImage(part.toolCallId, png, ctx);
+			if (png) {
+				answer.addImage(await this._saveImage(part.toolCallId, png, ctx));
+				return;
+			}
 		} catch (error) {
 			logger.error(`Map image rendering failed: ${String(error)}`, {
 				source: 'system',
 				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
 			});
-			await this._pushMapLinkCard(part, ctx);
 		}
+		const appName = await getAppName();
+		answer.appendText(
+			`🗺️ **${escapeMarkdownText(part.input.title)}**: [view the interactive map in ${appName}](${this._chatUrl(ctx)})`,
+		);
 	}
 
-	private async _pushImage(toolCallId: string, png: Buffer, ctx: GoogleChatConversationContext): Promise<void> {
+	private async _saveImage(toolCallId: string, png: Buffer, ctx: GoogleChatConversationContext): Promise<string> {
 		const imageId = await chartImageQueries.saveChart(toolCallId, png.toString('base64'));
-		const imageUrl = new URL(`c/${ctx.chatId}/${imageId}.png`, ctx.config.redirectUrl).toString();
-		ctx.textBlockIndex = -1;
-		ctx.blocks.push(createImageBlock(imageUrl));
-		await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
+		return new URL(`c/${ctx.chatId}/${imageId}.png`, ctx.config.redirectUrl).toString();
 	}
 
-	private async _pushMapLinkCard(
-		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
-		ctx: GoogleChatConversationContext,
-	): Promise<void> {
-		if (part.state !== 'output-available') {
-			return;
-		}
-		try {
-			const chatUrl = new URL(ctx.chatId, ctx.config.redirectUrl).toString();
-			const appName = await getAppName();
-			ctx.textBlockIndex = -1;
-			ctx.blocks.push(...createMapLinkCard(part.input.title, chatUrl, appName));
-			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
-		} catch (error) {
-			logger.error(`Map link card failed: ${String(error)}`, {
-				source: 'system',
-				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
-			});
-		}
-	}
-
-	private async _handleCollapsibleToolPart(
-		part: Extract<UIMessagePart, { toolCallId: string }>,
-		state: StreamState,
-		ctx: ConversationContext,
-	): Promise<void> {
-		if (part.state === 'input-streaming') {
-			return;
-		}
-
-		const entry: ToolCallEntry = {
-			type: part.type,
-			input: ('input' in part ? part.input : {}) as Record<string, string>,
-			toolCallId: part.toolCallId,
-		};
-		state.toolGroup.set(part.toolCallId, entry);
-
-		if (state.toolGroupBlockIndex === -1) {
-			state.toolGroupBlockIndex = ctx.blocks.length;
-			ctx.blocks.push(createLiveToolCall(state.toolGroup));
-		} else {
-			ctx.blocks[state.toolGroupBlockIndex] = createLiveToolCall(state.toolGroup);
-		}
-
-		await this._editIfDue(state, ctx);
-	}
-
-	private async _editIfDue(state: StreamState, ctx: ConversationContext): Promise<void> {
-		if (Date.now() - state.lastUpdateAt < UPDATE_INTERVAL_MS) {
-			return;
-		}
-		await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
-		state.lastUpdateAt = Date.now();
-	}
-
-	private _flushToolGroup(state: StreamState, ctx: ConversationContext): void {
-		if (state.toolGroup.size === 0) {
-			return;
-		}
-		ctx.blocks[state.toolGroupBlockIndex] = createSummaryToolCalls(state.toolGroup);
-		state.toolGroup = new Map();
-		state.toolGroupBlockIndex = -1;
-		ctx.textBlockIndex = -1;
-	}
-
-	private async _sendFinalText(ctx: ConversationContext): Promise<void> {
-		if (ctx.blocks.length === 0) {
-			return;
-		}
-		await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
-	}
-
-	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createTextBlock(stripAssistantTags(text));
-		if (ctx.textBlockIndex === -1) {
-			ctx.textBlockIndex = ctx.blocks.length;
-			ctx.blocks.push(block);
-		} else {
-			ctx.blocks[ctx.textBlockIndex] = block;
-		}
+	private _chatUrl(ctx: GoogleChatConversationContext): string {
+		return new URL(ctx.chatId, ctx.config.redirectUrl).toString();
 	}
 }
 

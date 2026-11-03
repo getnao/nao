@@ -32,7 +32,7 @@ export const createSummaryToolCalls = (toolGroup: Map<string, ToolCallEntry>): C
 	return CardText(`_Explored ${parts.join(', ')}._`, { style: 'muted' });
 };
 
-const countToolsByNoun = (toolGroup: Map<string, ToolCallEntry>): Map<string, number> => {
+export const countToolsByNoun = (toolGroup: Map<string, ToolCallEntry>): Map<string, number> => {
 	const countByNoun = new Map<string, number>();
 	for (const entry of toolGroup.values()) {
 		const noun = TOOL_LABELS[entry.type] ?? entry.type.replace('tool-', '');

@@ -29,9 +29,9 @@ export function MessagingProviderSystemPrompt({
 				</ProviderFormattingPrompt>
 			) : provider === 'google-chat' ? (
 				<ProviderFormattingPrompt provider='Google Chat'>
-					Google Chat supports *bold*, _italics_, ~strikethrough~, inline code and fenced code blocks. It does
-					not render Markdown headers, tables or [label](url) links, so paste bare URLs and prefer short
-					bulleted lists.
+					Write standard Markdown: **bold**, _italics_, inline code, fenced code blocks, bulleted lists and
+					[label](url) links are converted to Google Chat formatting. Google Chat has no headings or tables:
+					use a bold line instead of a heading and a short bulleted list instead of a table.
 				</ProviderFormattingPrompt>
 			) : (
 				<DefaultSystemPrompt provider={provider} />

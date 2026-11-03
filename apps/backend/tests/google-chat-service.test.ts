@@ -19,6 +19,8 @@ const harness = vi.hoisted(() => ({
 	createAgent: vi.fn(),
 	createChat: vi.fn(),
 	getChat: vi.fn(),
+	generateChartImage: vi.fn(),
+	generateKpiCardImage: vi.fn(),
 	getChatByGoogleChatThread: vi.fn(),
 	getLastAssistantMessageId: vi.fn(),
 	getUser: vi.fn(),
@@ -55,9 +57,14 @@ vi.mock('chat', () => ({
 }));
 
 vi.mock('../src/components/generate-chart', () => ({
-	generateChartImage: vi.fn(),
+	generateChartImage: harness.generateChartImage,
 }));
-vi.mock('../src/queries/chart-image', () => ({}));
+vi.mock('../src/components/generate-kpi-card', () => ({
+	generateKpiCardImage: harness.generateKpiCardImage,
+}));
+vi.mock('../src/queries/chart-image', () => ({
+	saveChart: vi.fn(async () => 'chart-image-id'),
+}));
 vi.mock('../src/queries/chat.queries', () => ({
 	createChat: harness.createChat,
 	getChat: harness.getChat,
@@ -69,6 +76,7 @@ vi.mock('../src/queries/feedback.queries', () => ({
 	upsertFeedback: harness.upsertFeedback,
 }));
 vi.mock('../src/queries/project.queries', () => ({
+	getDisplaySettings: vi.fn(async () => ({ dateFormat: undefined })),
 	getUserRoleInProject: harness.projectRole,
 }));
 vi.mock('../src/queries/user.queries', () => ({
@@ -81,6 +89,16 @@ vi.mock('../src/services/branding.service', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/services/branding.service')>()),
 	getAppName: vi.fn(async () => 'nao'),
 }));
+vi.mock('../src/services/google-chat-answer', () => ({
+	GoogleChatAnswer: {
+		start: vi.fn(async () => ({
+			appendText: vi.fn(),
+			abandon: vi.fn(),
+			finish: vi.fn(),
+			retire: vi.fn(),
+		})),
+	},
+}));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: harness.assertProjectCloudBillingAccess,
 }));
@@ -88,7 +106,8 @@ vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn() },
 }));
 vi.mock('../src/utils/messaging-provider', () => ({
-	createTextBlock: vi.fn((text: string) => ({ text })),
+	EXCLUDED_TOOLS: [],
+	escapeMarkdownText: vi.fn((text: string) => text),
 	formatMessagingError: vi.fn(() => 'processing failed'),
 	getMessagingProviderWebhookUrl: vi.fn(
 		(baseUrl: string, provider: string, projectId: string) => `${baseUrl}api/webhooks/${provider}/${projectId}`,
@@ -269,5 +288,107 @@ describe('parseGoogleChatServiceAccountKey', () => {
 		JSON.stringify({ client_email: 'bot@example.com', private_key: '' }),
 	])('rejects %j', (key) => {
 		expect(parseGoogleChatServiceAccountKey(key)).toBeNull();
+	});
+});
+
+describe('GoogleChatService charts', () => {
+	type ChartPart = Record<string, unknown>;
+	type ChartAnswer = { addImage: ReturnType<typeof vi.fn>; appendText: ReturnType<typeof vi.fn> };
+	type ChartService = {
+		_rememberEarlierQueryResults(chat: { messages: { parts: unknown[] }[] }, state: unknown): void;
+		_handleChartPart(part: ChartPart, state: unknown, ctx: unknown, answer: ChartAnswer): Promise<void>;
+	};
+
+	const service = googleChatService as unknown as ChartService;
+	const ctx = { chatId: 'chat-id', config: PROJECT_A };
+
+	function createState() {
+		return { renderedToolCallIds: new Set<string>(), sqlOutputs: new Map(), toolGroup: new Map() };
+	}
+
+	function createAnswer(): ChartAnswer {
+		return { addImage: vi.fn(), appendText: vi.fn() };
+	}
+
+	function chartPart(input: Record<string, unknown>): ChartPart {
+		return {
+			type: 'tool-display_chart',
+			state: 'output-available',
+			toolCallId: `chart-${Math.random()}`,
+			input: { query_id: 'query-1', ...input },
+			output: { success: true },
+		};
+	}
+
+	const earlierQuery = {
+		type: 'tool-execute_sql',
+		state: 'output-available',
+		input: { name: 'Orders by month' },
+		output: { id: 'query-1', data: [{ month: '2018-01-01', orders: 29 }] },
+	};
+
+	beforeEach(() => {
+		harness.generateChartImage.mockReset().mockReturnValue(Buffer.from('png'));
+		harness.generateKpiCardImage.mockReset().mockReturnValue(Buffer.from('png'));
+	});
+
+	it('draws a chart of a query that ran earlier in the conversation', async () => {
+		const state = createState();
+		const answer = createAnswer();
+		service._rememberEarlierQueryResults({ messages: [{ parts: [earlierQuery] }] }, state);
+
+		await service._handleChartPart(
+			chartPart({ chart_type: 'bar', x_axis_key: 'month', series: [{ data_key: 'orders' }] }),
+			state,
+			ctx,
+			answer,
+		);
+
+		expect(harness.generateChartImage).toHaveBeenCalledWith(
+			expect.objectContaining({ data: earlierQuery.output.data, width: 560, height: 360 }),
+		);
+		expect(answer.addImage).toHaveBeenCalledWith('https://a.example/c/chat-id/chart-image-id.png');
+	});
+
+	it('draws a KPI card with its own renderer, which the chart renderer cannot draw', async () => {
+		const state = createState();
+		const answer = createAnswer();
+		const rows = [{ orders: 1234 }];
+		service._rememberEarlierQueryResults(
+			{ messages: [{ parts: [{ ...earlierQuery, output: { id: 'query-1', data: rows } }] }] },
+			state,
+		);
+
+		await service._handleChartPart(
+			chartPart({ chart_type: 'kpi_card', series: [{ data_key: 'orders', label: 'Orders' }] }),
+			state,
+			ctx,
+			answer,
+		);
+
+		expect(harness.generateChartImage).not.toHaveBeenCalled();
+		expect(harness.generateKpiCardImage).toHaveBeenCalledWith(expect.objectContaining({ rows, width: 560 }));
+		expect(answer.addImage).toHaveBeenCalledWith('https://a.example/c/chat-id/chart-image-id.png');
+	});
+
+	it('links to the chart in nao when it cannot be drawn', async () => {
+		harness.generateChartImage.mockImplementation(() => {
+			throw new Error('Recharts did not render SVG content');
+		});
+		const state = createState();
+		const answer = createAnswer();
+		service._rememberEarlierQueryResults({ messages: [{ parts: [earlierQuery] }] }, state);
+
+		await service._handleChartPart(
+			chartPart({ chart_type: 'bar', title: 'Orders', x_axis_key: 'month', series: [{ data_key: 'orders' }] }),
+			state,
+			ctx,
+			answer,
+		);
+
+		expect(answer.addImage).not.toHaveBeenCalled();
+		expect(answer.appendText).toHaveBeenCalledWith(
+			'📊 **Orders**: [view the chart in nao](https://a.example/chat-id)',
+		);
 	});
 });
