@@ -12,6 +12,7 @@ import { useDateFormat } from '@/hooks/use-date-format';
 import { tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 interface DataTableCardProps {
 	columns: string[];
@@ -50,7 +51,7 @@ export const DataTableCard = memo(
 			return null;
 		}
 
-		const handleCopy = () => navigator.clipboard.writeText(tableToTsv(resolvedColumns, data, dateFormat));
+		const handleCopy = () => copyTextToClipboard(tableToTsv(resolvedColumns, data, dateFormat));
 		const handleExport = (format: DataExportFormat) => {
 			if (chatId) {
 				logDownload.mutate({ chatId, format, title });

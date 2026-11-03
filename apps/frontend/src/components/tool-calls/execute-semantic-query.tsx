@@ -18,6 +18,7 @@ import { SemanticQuerySidePanelContent } from '@/components/side-panel/semantic-
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
 import { isSemanticSourceQuery, semanticQueryAsSql } from '@/lib/execute-sql-messages';
 import { trpc } from '@/main';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 type ViewMode = 'results' | 'definition' | 'sql';
 
@@ -97,7 +98,7 @@ export const ExecuteSemanticQueryToolCall = ({
 			id: 'copy',
 			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
-				navigator.clipboard.writeText(output?.compiled_sql ?? '');
+				copyTextToClipboard(output?.compiled_sql ?? '');
 			},
 			title: 'Copy compiled SQL',
 		},

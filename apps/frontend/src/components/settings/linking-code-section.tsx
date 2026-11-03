@@ -5,6 +5,7 @@ import { SettingsCard } from '../ui/settings-card';
 import { Button } from '@/components/ui/button';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 type MessagingProvider = 'discord' | 'mattermost' | 'telegram' | 'whatsapp';
 
@@ -107,7 +108,7 @@ export function LinkingCodesCard({ provider }: LinkingCodesCardProps) {
 		if (!code) {
 			return;
 		}
-		await navigator.clipboard.writeText(code);
+		await copyTextToClipboard(code);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
 	};

@@ -30,6 +30,7 @@ import { useDateFormat } from '@/hooks/use-date-format';
 import { getAppWideShortcuts, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 export interface CustomStoryRuntimeError {
 	message: string;
@@ -187,7 +188,7 @@ export function CustomStoryFrame({
 					break;
 				case 'nao-story:copy-table':
 					if (isUserGesture()) {
-						void navigator.clipboard.writeText(tableToTsv(message.columns, message.rows, dateFormat));
+						void copyTextToClipboard(tableToTsv(message.columns, message.rows, dateFormat));
 					}
 					break;
 				case 'nao-story:export-table':

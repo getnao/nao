@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 export function CopyableUrl({ label, url }: { label?: string; url: string }) {
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = async () => {
-		await navigator.clipboard.writeText(url);
+		await copyTextToClipboard(url);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
 	};

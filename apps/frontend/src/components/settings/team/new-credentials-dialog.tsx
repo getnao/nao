@@ -3,6 +3,7 @@ import { Check, Copy, AlertTriangle, Mail } from 'lucide-react';
 
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 interface NewCredentialsDialogProps {
 	open: boolean;
@@ -15,7 +16,7 @@ export function NewCredentialsDialog({ open, onOpenChange, credentials }: NewCre
 
 	const handleCopy = async () => {
 		if (credentials?.password) {
-			await navigator.clipboard.writeText(credentials.password);
+			await copyTextToClipboard(credentials.password);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		}

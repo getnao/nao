@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 import { useGroupPicker, useMemberPicker, useCopyWithFeedback, useShareAudience } from '@/hooks/use-share-dialog';
+import { copyDeferredTextToClipboard } from '@/lib/clipboard';
 
 export type ShareStoryIntent = 'share' | 'pin';
 
@@ -138,9 +139,9 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 			});
 
 		if (!isPinIntent) {
-			const blobPromise = promise.then((data) => new Blob([buildStoryUrl(data.storyId)], { type: 'text/plain' }));
-			blobPromise.catch(() => {});
-			navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
+			const urlPromise = promise.then((data) => buildStoryUrl(data.storyId));
+			urlPromise.catch(() => {});
+			copyDeferredTextToClipboard(urlPromise).catch(() => {});
 		}
 
 		promise.catch(() => {});

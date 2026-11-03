@@ -6,6 +6,7 @@ import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { cn } from '@/lib/utils';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 type ViewMode = 'output' | 'code';
 
@@ -40,7 +41,7 @@ export const ExecuteSandboxedCodeToolCall = ({
 			id: 'copy',
 			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
-				navigator.clipboard.writeText(input?.code ?? '');
+				copyTextToClipboard(input?.code ?? '');
 			},
 			title: 'Copy code',
 		},
