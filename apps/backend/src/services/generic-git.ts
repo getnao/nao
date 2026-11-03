@@ -240,7 +240,7 @@ async function findPlatformReviewRequest(
 	branch: string,
 ): Promise<{ url: string } | null> {
 	if (platform === 'github') {
-		const apiBaseUrl = repository.host === 'github.com' ? 'https://api.github.com' : `${repository.origin}/api/v3`;
+		const apiBaseUrl = githubApiBaseUrl(repository);
 		return github.findOpenPullRequest(token, repository.repositoryPath, branch, apiBaseUrl);
 	}
 	if (platform === 'gitlab') {
@@ -259,7 +259,7 @@ async function createReviewRequest(
 ): Promise<OpenReviewRequestResult> {
 	const body = `${args.body}${args.body ? '\n\n' : ''}Requested by ${args.requester.name}`;
 	if (platform === 'github') {
-		const apiBaseUrl = repository.host === 'github.com' ? 'https://api.github.com' : `${repository.origin}/api/v3`;
+		const apiBaseUrl = githubApiBaseUrl(repository);
 		const pullRequest = await github.createPullRequest(
 			token,
 			repository.repositoryPath,
@@ -340,6 +340,16 @@ async function findOpenBitbucketPullRequest(
 	const result = (await response.json()) as { values?: Array<{ links?: { html?: { href?: string } } }> };
 	const url = result.values?.[0]?.links?.html?.href;
 	return url ? { url } : null;
+}
+
+function githubApiBaseUrl(repository: ParsedGenericRepository): string {
+	if (repository.host === 'github.com') {
+		return 'https://api.github.com';
+	}
+	if (repository.origin === new URL(github.githubBaseUrl()).origin) {
+		return github.githubApiUrl();
+	}
+	return `${repository.origin}/api/v3`;
 }
 
 function hasPlatformApiAuthentication(platform: GitPlatform, token: string, repositoryUrl: string): boolean {
