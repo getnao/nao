@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 }));
 
@@ -10,6 +11,7 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: mocks.assertProjectUserCloudBillingAccess,
 }));
 
 import { adminAgent } from '../src/agents/profiles/admin';

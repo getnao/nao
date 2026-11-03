@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	assertProjectSetupCloudBillingAccess: vi.fn(),
 	generateText: vi.fn(),
 	getProjectById: vi.fn(),
 	resolveProviderModel: vi.fn(),
@@ -34,6 +35,10 @@ vi.mock('../src/utils/safe-fetch', () => ({
 	safeFetch: vi.fn(),
 }));
 
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectSetupCloudBillingAccess: mocks.assertProjectSetupCloudBillingAccess,
+}));
+
 import { generateOnboardingRules } from '../src/services/onboarding-rules';
 
 let projectPath: string;
@@ -57,7 +62,7 @@ describe('generateOnboardingRules', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'model-project-1',
-			'user-1',
+			{ organizationId: 'org-1', userId: 'user-1' },
 		);
 
 		const systemPrompt = mocks.generateText.mock.calls[0]?.[0].system as string;
@@ -67,17 +72,15 @@ describe('generateOnboardingRules', () => {
 		expect(systemPrompt).toContain('## RULES.md template');
 		expect(systemPrompt).toContain('## Business overview');
 		expect(systemPrompt).not.toContain('The document should:');
+		expect(mocks.assertProjectSetupCloudBillingAccess).toHaveBeenCalledTimes(2);
 		expect(fs.readFileSync(path.join(projectPath, 'RULES.md'), 'utf8')).toBe('# Generated rules\n');
 	});
 
 	it('resolves managed models as unbilled usage for the onboarding user', async () => {
-		await generateOnboardingRules(
-			'project-1',
-			{},
-			{ provider: 'nao', modelId: 'gpt-6-sol' },
-			'model-project-1',
-			'user-1',
-		);
+		await generateOnboardingRules('project-1', {}, { provider: 'nao', modelId: 'gpt-6-sol' }, 'model-project-1', {
+			organizationId: 'org-1',
+			userId: 'user-1',
+		});
 
 		expect(mocks.resolveProviderModel).toHaveBeenCalledWith('model-project-1', 'nao', 'gpt-6-sol', false, {
 			userId: 'user-1',

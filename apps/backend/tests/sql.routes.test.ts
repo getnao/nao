@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as EnvModule from '../src/env';
+
 const mocks = vi.hoisted(() => ({
+	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
 	buildToolContext: vi.fn(),
 	compileSemanticQuery: vi.fn(),
 	describeSemanticLayer: vi.fn(),
 	executeQuery: vi.fn(),
+	getOrganizationCloudEntitlement: vi.fn(),
 	getLatestExecuteSqlByQueryId: vi.fn(),
 	updateExecuteSqlPart: vi.fn(),
 	updateSemanticQueryPart: vi.fn(),
@@ -13,6 +18,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/auth', () => ({ getSession: vi.fn() }));
 vi.mock('../src/agents/tools/execute-sql', () => ({ executeQuery: mocks.executeQuery }));
+vi.mock('../src/env', async (importOriginal) => {
+	const actual = await importOriginal<typeof EnvModule>();
+	return {
+		...actual,
+		isCloudBillingEnabled: () => true,
+		isCloudFreeTierEnabled: () => false,
+	};
+});
 vi.mock('../src/queries/execute-sql.queries', () => ({
 	EXECUTE_SEMANTIC_QUERY_TOOL_NAME: 'execute_semantic_query',
 	getLatestExecuteSqlByQueryId: mocks.getLatestExecuteSqlByQueryId,
@@ -20,11 +33,15 @@ vi.mock('../src/queries/execute-sql.queries', () => ({
 	updateSemanticQueryPart: mocks.updateSemanticQueryPart,
 }));
 vi.mock('../src/queries/organization.queries', () => ({}));
-vi.mock('../src/queries/project.queries', () => ({}));
+vi.mock('../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async () => ({ id: 'project-id', orgId: 'organization-id' })),
+}));
 vi.mock('../src/services/agent', () => ({ buildToolContext: mocks.buildToolContext }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
-	assertOrganizationCloudBillingAccess: vi.fn(),
+	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
+	getOrganizationCloudEntitlement: mocks.getOrganizationCloudEntitlement,
 }));
 vi.mock('../src/services/semantic-layer.service', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/services/semantic-layer.service')>()),
@@ -75,7 +92,8 @@ describe('SQL edit routes', () => {
 
 		expect(mocks.getLatestExecuteSqlByQueryId).toHaveBeenCalledTimes(1);
 		expect(mocks.getLatestExecuteSqlByQueryId).toHaveBeenCalledWith('query_1');
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('organization-id', undefined);
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('organization-id', 'user-id', undefined);
 	});
 });
 
@@ -105,7 +123,8 @@ describe('semantic query edit routes', () => {
 			expect.objectContaining({ id: 'query_1', compiled_sql: compiled.sql, database_id: 'warehouse' }),
 		);
 		expect(result.output.compiled_sql).toBe(compiled.sql);
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('organization-id', undefined);
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('organization-id', 'user-id', undefined);
 	});
 
 	it('previews without saving', async () => {

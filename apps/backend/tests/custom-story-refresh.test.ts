@@ -43,6 +43,7 @@ import { getCustomStoryQueryData, getCustomStoryVersion } from '../src/services/
 const CACHED_ORDERS = { columns: ['id'], data: [{ id: 1 }] };
 const CHAT_ORDERS = { columns: ['id'], data: [{ id: 2 }] };
 const REFRESHED_ORDERS = { columns: ['id'], data: [{ id: 3 }] };
+const LIVE_ORDERS = { columns: ['id'], data: [{ id: 4 }] };
 const FAILURE = { errorMessage: 'Warehouse unavailable', failedAt: new Date('2026-10-01T10:00:00.000Z') };
 
 describe('custom story background refresh', () => {
@@ -79,11 +80,35 @@ describe('custom story background refresh', () => {
 		},
 	);
 
+	it('runs the query for an uncached live story instead of serving stored chat data', async () => {
+		mocks.getStoryByChatAndSlug.mockResolvedValue({
+			id: 'story-1',
+			format: 'custom',
+			isLive: true,
+			isLiveTextDynamic: false,
+			cacheSchedule: 'no-cache',
+		});
+		mocks.executeLiveQuery.mockResolvedValue(LIVE_ORDERS);
+
+		await expect(
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				principalUserId: 'actor-1',
+			}),
+		).resolves.toEqual(LIVE_ORDERS);
+		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'query_orders', {
+			principalUserId: 'actor-1',
+		});
+		expect(mocks.getLatestSqlQueryDataByIds).not.toHaveBeenCalled();
+	});
+
 	it('serves the chat data of a never-cached story without refreshing it', async () => {
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue(null);
 
 		await expect(
-			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { deferRefresh: true }),
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				deferRefresh: true,
+				principalUserId: 'actor-1',
+			}),
 		).resolves.toEqual(CHAT_ORDERS);
 		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
 	});
@@ -97,7 +122,10 @@ describe('custom story background refresh', () => {
 		mocks.getLatestStoryRefreshFailure.mockResolvedValue(FAILURE);
 
 		await expect(
-			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { deferRefresh: true }),
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				deferRefresh: true,
+				principalUserId: 'actor-1',
+			}),
 		).resolves.toEqual(CACHED_ORDERS);
 		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
 	});
@@ -110,8 +138,30 @@ describe('custom story background refresh', () => {
 		mocks.isCacheExpired.mockReturnValue(true);
 
 		await expect(
-			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { deferRefresh: true }),
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				deferRefresh: true,
+				principalUserId: 'actor-1',
+			}),
 		).resolves.toEqual(REFRESHED_ORDERS);
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
+		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
+			deferRefresh: true,
+			principalUserId: 'actor-1',
+		});
+	});
+
+	it('serves stale cached data without refreshing for cached-only viewers', async () => {
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
+			queryData: { query_orders: CACHED_ORDERS },
+			cachedAt: new Date(0),
+		});
+		mocks.isCacheExpired.mockReturnValue(true);
+
+		await expect(
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				cachedOnly: true,
+				principalUserId: 'viewer-1',
+			}),
+		).resolves.toEqual(CACHED_ORDERS);
+		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
 	});
 });

@@ -16,6 +16,7 @@ import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { agentService } from '../services/agent';
+import { isProjectUserReadOnly } from '../services/cloud-billing-access.service';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
 	getActiveThemeForProject,
@@ -295,7 +296,10 @@ export const storyRoutes = {
 		}
 
 		const storyData = story.chatId
-			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
+					deferRefresh: true,
+					principalUserId: ctx.user.id,
+				})
 			: null;
 		const queryData =
 			storyData?.allowsPersistedFallback && story.chatId
@@ -331,7 +335,11 @@ export const storyRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
-				{ deferRefresh: lastRefreshFailure !== null, deferFirstRefresh: true },
+				{
+					deferRefresh: lastRefreshFailure !== null,
+					deferFirstRefresh: true,
+					principalUserId: ctx.user.id,
+				},
 			);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
@@ -443,10 +451,13 @@ export const storyRoutes = {
 
 	getCustomStoryQueryData: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			try {
+				const projectId = await chatQueries.getChatProjectId(input.chatId);
 				return await getCustomStoryQueryData(input.chatId, input.storySlug, input.queryId, {
+					cachedOnly: projectId ? await isProjectUserReadOnly(projectId, ctx.user.id) : false,
 					deferRefresh: true,
+					principalUserId: ctx.user.id,
 				});
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
@@ -465,9 +476,12 @@ export const storyRoutes = {
 
 	getCustomStoryNarratives: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			try {
-				return await getCustomStoryNarratives(input.chatId, input.storySlug, { deferRefresh: true });
+				return await getCustomStoryNarratives(input.chatId, input.storySlug, {
+					deferRefresh: true,
+					principalUserId: ctx.user.id,
+				});
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
 			}
@@ -483,7 +497,7 @@ export const storyRoutes = {
 			}
 		}),
 
-	setCustomStoryState: chatOwnerProcedure
+	setCustomStoryState: cloudBillingChatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), change: storyStateChange }))
 		.mutation(async ({ input, ctx }) => {
 			try {
@@ -923,6 +937,7 @@ export const storyRoutes = {
 				return await withKeyedLock(`story:${story.id}`, async () => {
 					const { queryData } = await refreshStoryData(input.chatId, input.storySlug, {
 						billingAccessVerifiedProjectId: ctx.projectId,
+						principalUserId: ctx.user.id,
 					});
 					const queriesRefreshed = Object.keys(queryData).length;
 					await activityQueries.completeActivity(activity.id, { queriesRefreshed });
@@ -981,6 +996,7 @@ export const storyRoutes = {
 		.query(async ({ input, ctx }) => {
 			return executeLiveQuery(input.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: ctx.projectId,
+				principalUserId: ctx.user.id,
 			});
 		}),
 
@@ -990,6 +1006,7 @@ export const storyRoutes = {
 			assertStoryFiltersEnabled();
 			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId, {
 				billingAccessVerifiedProjectId: ctx.projectId,
+				principalUserId: ctx.user.id,
 			});
 		}),
 
@@ -1005,6 +1022,7 @@ export const storyRoutes = {
 			assertStoryFiltersEnabled();
 			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections, {
 				billingAccessVerifiedProjectId: ctx.projectId,
+				principalUserId: ctx.user.id,
 			});
 		}),
 
@@ -1144,7 +1162,10 @@ export const storyRoutes = {
 			}
 
 			const storyData = story.chatId
-				? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+				? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
+						deferRefresh: true,
+						principalUserId: ctx.user.id,
+					})
 				: null;
 			const [displaySettings, theme] = story.projectId
 				? await Promise.all([
@@ -1198,6 +1219,7 @@ export const storyRoutes = {
 						version.code,
 						version.isLive,
 						version.cacheSchedule,
+						{ deferRefresh: true, principalUserId: ctx.user.id },
 					);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);

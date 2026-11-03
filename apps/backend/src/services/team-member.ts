@@ -1,3 +1,4 @@
+import type { UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { hashPassword } from 'better-auth/crypto';
 
@@ -7,10 +8,11 @@ import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import type { CreatedEmail } from '../types/email';
 import { emailService } from './email';
-import { addProjectMember } from './membership.service';
+import { addProjectMember, type MembershipMutationResult, type SeatActivationOutcome } from './membership.service';
 
 export interface AddMemberResult {
-	newUser: { id: string; name: string; email: string; role: string };
+	newUser: { id: string; name: string; email: string; role: UserRole | null };
+	outcome: SeatActivationOutcome | null;
 	password?: string;
 }
 
@@ -18,7 +20,7 @@ interface AddMemberOptions {
 	email: string;
 	name?: string;
 	checkExisting: (userId: string) => Promise<boolean>;
-	addMember: (userId: string) => Promise<void>;
+	addMember: (userId: string) => Promise<MembershipMutationResult>;
 	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => Promise<CreatedEmail>;
 }
 
@@ -47,11 +49,14 @@ export async function addTeamMember({
 			{ id: accountId, userId, accountId: userId, providerId: 'credential', password: hashedPassword },
 		);
 
-		await addMember(newUser.id);
-		await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
+		const membership = await addMember(newUser.id);
+		if (membership.role) {
+			await emailService.sendEmail(newUser.email, await buildEmail(newUser, password));
+		}
 
 		return {
-			newUser: { id: newUser.id, name: newUser.name, email: newUser.email, role: env.DEFAULT_USER_ROLE },
+			newUser: { id: newUser.id, name: newUser.name, email: newUser.email, role: membership.role },
+			outcome: membership.outcome,
 			password,
 		};
 	}
@@ -61,11 +66,14 @@ export async function addTeamMember({
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'User is already a member.' });
 	}
 
-	await addMember(user.id);
-	await emailService.sendEmail(user.email, await buildEmail(user));
+	const membership = await addMember(user.id);
+	if (membership.role) {
+		await emailService.sendEmail(user.email, await buildEmail(user));
+	}
 
 	return {
-		newUser: { id: user.id, name: user.name, email: user.email, role: env.DEFAULT_USER_ROLE },
+		newUser: { id: user.id, name: user.name, email: user.email, role: membership.role },
+		outcome: membership.outcome,
 	};
 }
 
@@ -88,7 +96,11 @@ export async function ensureMessagingProviderUser({
 	name,
 	projectId,
 	buildEmail,
-}: EnsureMessagingProviderUserOptions): Promise<User> {
+}: EnsureMessagingProviderUserOptions): Promise<{
+	user: User;
+	role: UserRole;
+	outcome: SeatActivationOutcome | null;
+}> {
 	const normalizedEmail = email.toLowerCase();
 	const existingUser = await userQueries.getUser({ email: normalizedEmail });
 	const { user, temporaryPassword } = existingUser
@@ -96,8 +108,9 @@ export async function ensureMessagingProviderUser({
 		: await createUserWithPassword(normalizedEmail, name);
 
 	const projectMember = await projectQueries.getProjectMember(projectId, user.id);
+	let membership: MembershipMutationResult | null = null;
 	if (!projectMember) {
-		await addProjectMember({ projectId, userId: user.id, role: env.DEFAULT_USER_ROLE });
+		membership = await addProjectMember({ projectId, userId: user.id, role: env.DEFAULT_USER_ROLE });
 	}
 
 	const alreadyHadAccess = !!existingUser && !!projectMember;
@@ -105,7 +118,11 @@ export async function ensureMessagingProviderUser({
 		await emailService.sendEmail(user.email, await buildEmail(user, temporaryPassword));
 	}
 
-	return user;
+	return {
+		user,
+		role: membership?.role ?? projectMember?.role ?? 'viewer',
+		outcome: membership?.outcome ?? null,
+	};
 }
 
 async function createUserWithPassword(email: string, name: string): Promise<{ user: User; temporaryPassword: string }> {

@@ -27,7 +27,9 @@ export async function storyRefreshHandler(payload: StoryRefreshJobPayload, _job?
 	await runScheduledStoryRefresh(storyId);
 }
 
-export async function resolveStoryRefreshProjectId(payload: StoryRefreshJobPayload): Promise<string> {
+export async function resolveStoryRefreshProjectPrincipal(
+	payload: StoryRefreshJobPayload,
+): Promise<{ projectId: string; principalUserId: string }> {
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
@@ -39,7 +41,11 @@ export async function resolveStoryRefreshProjectId(payload: StoryRefreshJobPaylo
 	if (!projectId) {
 		throw new Error(`Story ${payload.storyId} is missing a project; cannot schedule refresh.`);
 	}
-	return projectId;
+	const principalUserId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id));
+	if (!principalUserId) {
+		throw new Error(`Story ${payload.storyId} is missing an owner; cannot schedule refresh.`);
+	}
+	return { projectId, principalUserId };
 }
 
 /**
@@ -80,6 +86,7 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	try {
 		const { queryData } = await refreshStoryData(story.chatId, story.slug, {
 			billingAccessVerifiedProjectId: projectId,
+			principalUserId: userId,
 		});
 		const queriesRefreshed = Object.keys(queryData).length;
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });

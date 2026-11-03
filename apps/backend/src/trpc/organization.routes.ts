@@ -99,11 +99,17 @@ export const organizationRoutes = {
 		.input(z.object({ userId: z.string(), role: z.enum(ORG_ROLES) }))
 		.mutation(async ({ input, ctx }) => {
 			await assertOrganizationRolesAreEditable();
-			await putOrganizationMember(ctx.org.id, input.userId, input.role, { addIfMissing: false });
+			return putOrganizationMember(ctx.org.id, input.userId, input.role, { addIfMissing: false });
 		}),
 
 	addMember: orgAdminOnlyProcedure
-		.input(z.object({ email: z.string().min(1), name: z.string().min(1).optional() }))
+		.input(
+			z.object({
+				email: z.string().min(1),
+				name: z.string().min(1).optional(),
+				role: z.enum(ORG_ROLES).optional(),
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
 			const orgId = ctx.org.id;
 
@@ -112,7 +118,7 @@ export const organizationRoutes = {
 				name: input.name,
 				checkExisting: async (userId) => !!(await orgQueries.getOrgMember(orgId, userId)),
 				addMember: async (userId) => {
-					await addOrganizationMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
+					return addOrganizationMember({ orgId, userId, role: input.role ?? env.DEFAULT_USER_ROLE });
 				},
 				buildEmail: (user, password) =>
 					buildUserAddedEmail(user, ctx.org.name, 'organization', password, ctx.user.email),
@@ -143,13 +149,15 @@ export const organizationRoutes = {
 				await assertCanRenameUser(ctx.user.id, input.userId, ctx.org.id);
 			}
 
-			if (input.newRole && input.newRole !== currentRole) {
-				await putOrganizationMember(ctx.org.id, input.userId, input.newRole);
-			}
+			const membership =
+				input.newRole && input.newRole !== currentRole
+					? await putOrganizationMember(ctx.org.id, input.userId, input.newRole)
+					: { userId: input.userId, role: currentRole, outcome: null };
 
 			if (shouldRename) {
 				await userQueries.updateUser(input.userId, input.name!);
 			}
+			return membership;
 		}),
 
 	resetMemberPassword: orgAdminOnlyProcedure

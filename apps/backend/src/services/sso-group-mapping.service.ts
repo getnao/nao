@@ -12,6 +12,7 @@ import {
 	resolveOrganizationRoleFromGroups,
 } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { putOrganizationMember } from './membership.service';
 import { isMicrosoftConfigured } from './microsoft-auth.service';
 import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
 import { readDecodedIdTokenClaims, readVerifiedOidcIdTokenClaims } from './sso-token.service';
@@ -191,7 +192,7 @@ async function applyOrganizationRole(userId: string, role: OrgRole): Promise<voi
 	}
 
 	if (await canDemoteOrgMember(membership.orgId, membership.role, role)) {
-		await orgQueries.updateOrgMemberRole(membership.orgId, userId, role);
+		await putOrganizationMember(membership.orgId, userId, role, { addIfMissing: false });
 	}
 }
 

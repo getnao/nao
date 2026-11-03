@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
+import { assertProjectSetupCloudBillingAccess } from '../services/cloud-billing-access.service';
 import { restartOnboarding } from '../services/onboarding-restart';
 import {
 	getActiveWarehouseProvisioningJob,
@@ -14,13 +15,21 @@ import {
 import { warehouseCredentialsSchema, warehouseProvisioningInputSchema } from '../types/warehouse';
 import { organizationProtectedProcedure, protectedProcedure, router } from './trpc';
 
+const onboardingMutationProcedure = organizationProtectedProcedure.use(async ({ ctx, next }) => {
+	if (ctx.orgRole === 'viewer') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot provision a warehouse project' });
+	}
+	await assertProjectSetupCloudBillingAccess(ctx.organization.id, ctx.user.id);
+	return next({ ctx });
+});
+
 export const onboardingRoutes = router({
-	validateWarehouseCredentials: organizationProtectedProcedure
+	validateWarehouseCredentials: onboardingMutationProcedure
 		.input(warehouseCredentialsSchema)
 		.output(z.object({ valid: z.literal(true) }))
 		.mutation(({ ctx, input }) => validateWarehouseCredentials(ctx.user.id, input)),
 
-	startWarehouseProvisioning: organizationProtectedProcedure
+	startWarehouseProvisioning: onboardingMutationProcedure
 		.input(warehouseProvisioningInputSchema)
 		.output(
 			z.object({

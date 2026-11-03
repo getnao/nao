@@ -8,7 +8,6 @@ import { renderStoryPdf } from '../utils/story-snapshot';
 import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
 import {
 	type CustomStoryVersionView,
-	getCustomStoryNarratives,
 	getCustomStoryVersion,
 	getStoredCustomStoryNarrativesByStoryId,
 } from './custom-story';
@@ -19,9 +18,9 @@ export async function renderCustomStoryPdf(
 	storySlug: string,
 	queryData: Record<string, StoryQueryResult>,
 ): Promise<{ filename: string; buffer: Buffer }> {
-	const [version, narratives, state, runtime] = await Promise.all([
-		getCustomStoryVersion(chatId, storySlug),
-		getCustomStoryNarratives(chatId, storySlug),
+	const version = await getCustomStoryVersion(chatId, storySlug);
+	const [narratives, state, runtime] = await Promise.all([
+		getStoredCustomStoryNarrativesByStoryId(version.storyId),
 		getUnattendedCustomStoryState(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
 	]);

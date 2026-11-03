@@ -17,6 +17,7 @@ import { resolveDefaultModelSelection } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { readProjectContext } from '../utils/nao-config';
 import { agentService } from './agent';
+import { assertProjectUserCloudBillingAccess } from './cloud-billing-access.service';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
 import { ensureFeedbackCoverage, normalizeFeedbackLinks } from './context-recommendations.feedback-coverage';
 import { flagExpensiveContextFiles } from './context-recommendations.file-costs';
@@ -49,6 +50,7 @@ export async function runContextRecommendations(
 	const periodStart = period?.start ?? (await resolvePeriodStart(projectId, periodEnd));
 
 	const userId = options?.triggeredByUserId ?? (await crQueries.getFirstProjectAdminUserId(projectId));
+	await assertProjectUserCloudBillingAccess(projectId, userId);
 	const config = await crQueries.getConfig(projectId);
 	const configuredModel = await resolveDefaultModelSelection(projectId, 'context_recommendation');
 	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined);

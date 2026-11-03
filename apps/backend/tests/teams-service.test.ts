@@ -10,6 +10,7 @@ type MessageHandler = (
 
 const teamsHarness = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 	createChat: vi.fn(),
 	createAgent: vi.fn(),
 	credentials: [] as Array<[string, string, string]>,
@@ -90,6 +91,8 @@ vi.mock('../src/services/agent', () => ({
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: teamsHarness.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: teamsHarness.assertProjectUserCloudBillingAccess,
+	CloudBillingSeatRestrictedError: class CloudBillingSeatRestrictedError extends Error {},
 }));
 vi.mock('../src/services/posthog', () => ({
 	PostHogEvent: { MessageSent: 'message_sent' },

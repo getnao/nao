@@ -1,17 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as EnvModule from '../src/env';
+
 const mocks = vi.hoisted(() => ({
 	getSharedStoryByStoryId: vi.fn(),
 	canUserAccessSharedStory: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	executeLiveQuery: vi.fn(),
-	assertProjectCloudBillingAccess: vi.fn(),
+	assertOrganizationCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/env', async (importOriginal) => {
+	const actual = await importOriginal<typeof EnvModule>();
+	return {
+		...actual,
+		isCloudBillingEnabled: () => true,
+		isCloudFreeTierEnabled: () => false,
+	};
+});
 vi.mock('../src/queries/activity.queries', () => ({}));
-vi.mock('../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
+vi.mock('../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async (projectId: string) => ({ id: projectId, orgId: 'org-1' })),
+	getUserRoleInProject: mocks.getUserRoleInProject,
+}));
 vi.mock('../src/queries/shared-story.queries', () => ({
 	getSharedStory: vi.fn(),
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
@@ -21,7 +35,10 @@ vi.mock('../src/queries/story.queries', () => ({}));
 vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
-	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
+	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
+	isUserReadOnlyInOrganization: vi.fn(async () => false),
 }));
 vi.mock('../src/services/live-story', () => ({ executeLiveQuery: mocks.executeLiveQuery }));
 vi.mock('../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));
@@ -57,9 +74,11 @@ describe('storyShare.getLiveQueryData', () => {
 		await expect(
 			createCaller('recipient-1').storyShare.getLiveQueryData({ storyId: 'story-1', queryId: 'q_customers' }),
 		).resolves.toEqual({ data: [{ n: 100 }], columns: ['n'] });
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-1', undefined);
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('org-1', 'recipient-1', undefined);
 		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'q_customers', {
 			billingAccessVerifiedProjectId: 'project-1',
+			principalUserId: 'recipient-1',
 		});
 	});
 

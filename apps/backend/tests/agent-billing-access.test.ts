@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	addHook: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 	assertUserIsActive: vi.fn(),
 	getChatProjectId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: mocks.assertProjectUserCloudBillingAccess,
 }));
 vi.mock('../src/services/account-status.service', () => ({
 	assertUserIsActive: mocks.assertUserIsActive,
@@ -38,6 +40,7 @@ const CHAT = { id: 'chat-1', projectId: 'project-1', userId: 'user-1' };
 describe('agent billing access', () => {
 	beforeEach(() => {
 		mocks.assertProjectCloudBillingAccess.mockReset();
+		mocks.assertProjectUserCloudBillingAccess.mockReset();
 		mocks.assertUserIsActive.mockReset();
 	});
 
@@ -50,6 +53,7 @@ describe('agent billing access', () => {
 
 		expect(mocks.assertUserIsActive).toHaveBeenCalledWith('user-1');
 		expect(mocks.assertProjectCloudBillingAccess).not.toHaveBeenCalled();
+		expect(mocks.assertProjectUserCloudBillingAccess).not.toHaveBeenCalled();
 	});
 
 	it('preserves an existing agent when billing rejects its replacement', async () => {
@@ -87,6 +91,7 @@ describe('agent billing access', () => {
 		if (expectedChecks === 1) {
 			expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 		}
+		expect(mocks.assertProjectUserCloudBillingAccess).toHaveBeenCalledWith('project-1', 'user-1');
 	});
 });
 
@@ -94,6 +99,7 @@ describe('agent route billing access', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.assertProjectCloudBillingAccess.mockReset();
+		mocks.assertProjectUserCloudBillingAccess.mockReset();
 	});
 
 	it.each([
@@ -131,6 +137,32 @@ describe('agent route billing access', () => {
 		).rejects.toBe(accessError);
 
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertProjectUserCloudBillingAccess).not.toHaveBeenCalled();
+		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
+	});
+
+	it('checks the HTTP actor seat before persisting a message', async () => {
+		const accessError = new Error('Cloud billing seat access is restricted');
+		mocks.getChatProjectId.mockResolvedValue('project-1');
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.isOnboardingChat.mockResolvedValue(false);
+		mocks.assertProjectUserCloudBillingAccess.mockRejectedValue(accessError);
+		await agentRoutes({ addHook: mocks.addHook, post: mocks.post } as never);
+		const handler = mocks.post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
+
+		await expect(
+			handler(
+				{
+					user: { id: 'user-1' },
+					project: { id: 'project-1' },
+					body: { message: { text: 'Hello' }, mode: 'default', adminMode: false },
+					headers: {},
+				},
+				{},
+			),
+		).rejects.toBe(accessError);
+
+		expect(mocks.assertProjectUserCloudBillingAccess).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
 	});
 });

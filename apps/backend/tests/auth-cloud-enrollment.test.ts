@@ -176,6 +176,11 @@ describe('Cloud Google organization enrollment', () => {
 	});
 
 	it('adds a matched organization member and queues a welcome for a verified social user', async () => {
+		mocks.addOrgMemberIfMissing.mockResolvedValue({
+			userId: 'google-user',
+			role: 'viewer',
+			outcome: { status: 'viewer_fallback', role: 'viewer', reason: 'capacity_full' },
+		});
 		const options = await getAuthOptions();
 
 		await options.databaseHooks.user.create.after(

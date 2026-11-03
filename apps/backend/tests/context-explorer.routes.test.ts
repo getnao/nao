@@ -63,6 +63,8 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
 }));
 
 vi.mock('../src/services/sso-group-mapping.service', () => ({

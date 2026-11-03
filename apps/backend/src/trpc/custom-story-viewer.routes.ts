@@ -7,6 +7,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
+import { assertProjectUserCloudBillingAccess } from '../services/cloud-billing-access.service';
 import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
@@ -80,6 +81,7 @@ export const customStoryViewerRoutes = {
 					ctx.viewer.chatId,
 					input.storySlug,
 					input.queryId,
+					{ cachedOnly: true, principalUserId: ctx.user.id },
 					input.versionNumber,
 				);
 			} catch (error) {
@@ -113,6 +115,7 @@ export const customStoryViewerRoutes = {
 
 	setState: viewerProcedure.input(z.object({ change: storyStateChange })).mutation(async ({ ctx, input }) => {
 		try {
+			await assertProjectUserCloudBillingAccess(ctx.viewer.projectId, ctx.user.id);
 			await setCustomStoryState(ctx.viewer.chatId, input.storySlug, ctx.user.id, input.change);
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
@@ -121,7 +124,10 @@ export const customStoryViewerRoutes = {
 
 	getNarratives: viewerProcedure.query(async ({ ctx, input }) => {
 		try {
-			return await getCustomStoryNarratives(ctx.viewer.chatId, input.storySlug);
+			return await getCustomStoryNarratives(ctx.viewer.chatId, input.storySlug, {
+				cachedOnly: true,
+				principalUserId: ctx.user.id,
+			});
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}

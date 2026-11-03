@@ -43,6 +43,7 @@ vi.mock('../src/env', () => ({
 			return mocks.automationsEnabled;
 		},
 	},
+	isCloudFreeTierEnabled: vi.fn(() => false),
 }));
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -107,6 +108,8 @@ vi.mock('../src/agents/profiles/messaging', () => ({ messagingAgent: vi.fn() }))
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
 }));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
@@ -244,7 +247,7 @@ describe('user group feature route enforcement', () => {
 			code: 'FORBIDDEN',
 			message: 'Cloud billing access is restricted',
 		});
-		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id', undefined);
 	});
 
 	it('preserves the Automation beta check before the creation grant', async () => {
@@ -393,6 +396,7 @@ describe('user group feature route enforcement', () => {
 			'# Latest version',
 			true,
 			'* * * * *',
+			{ deferRefresh: true, principalUserId: 'user-id' },
 		);
 		expect(mocks.buildDownloadResponse).toHaveBeenCalledWith(
 			'html',

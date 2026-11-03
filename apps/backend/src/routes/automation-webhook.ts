@@ -4,7 +4,7 @@ import { startAutomationRun } from '../handlers/automation.handler';
 import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
-import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
+import { assertProjectActorCloudBillingAccess } from '../services/cloud-billing-guard';
 import { logger } from '../utils/logger';
 
 /**
@@ -49,7 +49,7 @@ export const automationWebhookRoutes = async (app: App) => {
 			return reply.status(409).send({ error: 'Automation is paused' });
 		}
 
-		await assertProjectCloudBillingAccess(automation.projectId);
+		await assertProjectActorCloudBillingAccess(automation.projectId, automation.userId);
 		const run = await startAutomationRun(automationId, {
 			billingAccessVerifiedProjectId: automation.projectId,
 			requireEnabled: false,

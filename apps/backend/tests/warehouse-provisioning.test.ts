@@ -33,10 +33,14 @@ type MockWarehouseJob = {
 
 const warehouseJobs = vi.hoisted(() => new Map<string, MockWarehouseJob>());
 const controls = vi.hoisted(() => ({ failReadyUpdate: false }));
+const billingAccess = vi.hoisted(() => ({
+	assertProjectSetupCloudBillingAccess: vi.fn(),
+}));
 
 vi.mock('../src/handlers/context-recommendations.handler', () => ({
 	contextRecommendationsJobUniqueKey: (projectId: string) => `context.recommendations:${projectId}`,
 }));
+vi.mock('../src/services/cloud-billing-access.service', () => billingAccess);
 vi.mock('../src/queries/project.queries', () => ({
 	deleteProject: vi.fn(),
 	getProjectById: vi.fn(),
@@ -275,6 +279,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	warehouseJobs.clear();
 	controls.failReadyUpdate = false;
+	billingAccess.assertProjectSetupCloudBillingAccess.mockResolvedValue(undefined);
 	vi.mocked(projectQueries.listUserProjects).mockResolvedValue([]);
 });
 
@@ -442,6 +447,26 @@ describe('warehouse provisioning', () => {
 		});
 		expect(await getWarehouseProvisioningJob(jobId, 'another-user')).toBeNull();
 		expect(JSON.stringify(await getWarehouseProvisioningJob(jobId, 'user-1'))).not.toContain('super-secret');
+	});
+
+	it('rechecks organization and seat billing access when the queued worker starts', async () => {
+		vi.useFakeTimers();
+		billingAccess.assertProjectSetupCloudBillingAccess
+			.mockResolvedValueOnce(undefined)
+			.mockRejectedValueOnce(new Error('Cloud billing access is restricted'));
+
+		const { jobId } = await startWarehouseProvisioning({
+			userId: 'user-1',
+			orgId: 'org-1',
+			projectName: 'analytics',
+			provider: 'postgres',
+			credentials: { host: 'warehouse.example.com', password: 'secret' },
+		});
+		await vi.runAllTimersAsync();
+
+		expect(billingAccess.assertProjectSetupCloudBillingAccess).toHaveBeenNthCalledWith(2, 'org-1', 'user-1');
+		expect(spawn).not.toHaveBeenCalled();
+		expect(warehouseJobs.get(jobId)?.status).toBe('failed');
 	});
 
 	it('restores the latest failed job for an onboarding chat', async () => {
@@ -655,7 +680,7 @@ describe('warehouse provisioning', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'example-project',
-			'user-1',
+			{ organizationId: 'org-1', userId: 'user-1' },
 		);
 		expect(provisionManagedGithubRepository).toHaveBeenCalledWith({
 			projectId: 'project-2',
@@ -1027,7 +1052,7 @@ describe('warehouse provisioning', () => {
 			{ additionalContext: 'A bicycle rental company.' },
 			{ provider: 'openai', modelId: 'gpt-4o-mini' },
 			'example-project',
-			'user-1',
+			{ organizationId: 'org-1', userId: 'user-1' },
 		);
 		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
 	});

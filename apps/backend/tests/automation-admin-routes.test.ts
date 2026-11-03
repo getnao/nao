@@ -17,7 +17,10 @@ const mocks = vi.hoisted(() => ({
 	roles: {} as Record<string, 'admin' | 'user' | 'viewer' | null>,
 }));
 
-vi.mock('../src/env', () => ({ env: { BETA_AUTOMATIONS_ENABLED: true } }));
+vi.mock('../src/env', () => ({
+	env: { BETA_AUTOMATIONS_ENABLED: true },
+	isCloudFreeTierEnabled: vi.fn(() => false),
+}));
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/handlers/automation.handler', () => ({
@@ -48,6 +51,8 @@ vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
 }));
 
 import { automationRoutes } from '../src/trpc/automation.routes';
@@ -134,7 +139,7 @@ describe('automation admin routes', () => {
 
 		await createCaller('admin-id').automation.setEnabledAsAdmin({ id: 'scheduled-id', enabled: true });
 
-		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id', undefined);
 		expect(mocks.upsertRecurringJob).toHaveBeenCalledWith(expect.objectContaining({ status: 'pending' }));
 	});
 
@@ -143,7 +148,7 @@ describe('automation admin routes', () => {
 
 		const result = await createCaller('admin-id').automation.setEnabledAsAdmin({ id: 'webhook-id', enabled: true });
 
-		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id', undefined);
 		expect(mocks.setAutomationWebhookEnabled).toHaveBeenCalledWith('webhook-id', true);
 		expect(result.webhookEnabled).toBe(true);
 	});

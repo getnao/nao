@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	addTeamMember: vi.fn(),
 	hasFeature: vi.fn(),
 	organizationRoleMappingActive: false,
+	putProjectMember: vi.fn(),
 	updateProjectMemberRole: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
 		constructor(
@@ -42,6 +43,7 @@ vi.mock('../src/services/license.service', () => ({
 }));
 vi.mock('../src/services/membership.service', () => ({
 	addProjectMember: mocks.addProjectMember,
+	putProjectMember: mocks.putProjectMember,
 }));
 vi.mock('../src/services/team-member', () => ({ addTeamMember: mocks.addTeamMember }));
 vi.mock('../src/services/user-group-availability.service', () => ({
@@ -63,6 +65,11 @@ describe('add user to project groups', () => {
 		mocks.organizationRoleMappingActive = false;
 		mocks.hasFeature.mockResolvedValue(true);
 		mocks.validateAssignableUserGroupIds.mockImplementation(async (_projectId, groupIds) => groupIds);
+		mocks.putProjectMember.mockResolvedValue({
+			userId: 'member-id',
+			role: 'viewer',
+			outcome: null,
+		});
 		mocks.addTeamMember.mockImplementation(async ({ addMember }) => {
 			await addMember('added-user-id');
 			return {
@@ -79,8 +86,10 @@ describe('add user to project groups', () => {
 	it('allows project role changes while organization roles are managed by the identity provider', async () => {
 		mocks.organizationRoleMappingActive = true;
 
-		await expect(createCaller().modify({ userId: 'member-id', newRole: 'viewer' })).resolves.toBeUndefined();
-		expect(mocks.updateProjectMemberRole).toHaveBeenCalledWith('project-id', 'member-id', 'viewer');
+		await expect(createCaller().modify({ userId: 'member-id', newRole: 'viewer' })).resolves.toMatchObject({
+			role: 'viewer',
+		});
+		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-id', 'member-id', 'viewer');
 	});
 
 	it('rejects organization role changes through the editability helper when managed by the identity provider', async () => {

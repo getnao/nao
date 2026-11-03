@@ -32,6 +32,7 @@ import {
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { describeError, logger, serializeError } from '../utils/logger';
 import { createWarehouseLogRedactor, type WarehouseLogRedactor } from '../utils/warehouse-setup';
+import { assertProjectSetupCloudBillingAccess } from './cloud-billing-access.service';
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
@@ -349,6 +350,7 @@ export async function startWarehouseProvisioning(
 	input: StartWarehouseProvisioningInput,
 ): Promise<{ jobId: string; status: 'queued' }> {
 	await assertNoWarehouseSetupInProgress(input.userId);
+	await assertProjectSetupCloudBillingAccess(input.orgId, input.userId);
 
 	const connection = warehouseCredentialsSchema.parse({
 		provider: input.provider,
@@ -393,6 +395,7 @@ export async function retryWarehouseProvisioning(
 		});
 	}
 	await assertNoWarehouseSetupInProgress(userId);
+	await assertProjectSetupCloudBillingAccess(previousJob.orgId, userId);
 
 	const connection = decryptJobConnection(previousJob);
 	const job = await createQueuedJob({
@@ -499,6 +502,7 @@ export async function submitWarehouseBusinessContext(
 	if (job.status === 'ready' || job.status === 'finalizing' || job.status === 'publishing') {
 		return { jobId: job.id, status: job.status };
 	}
+	await assertProjectSetupCloudBillingAccess(job.orgId, job.userId);
 
 	await updateJob(job.id, {
 		businessContext: finalization.businessContext,
@@ -699,11 +703,13 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 			throw new ProjectNameConflictError(input.projectName);
 		}
 
+		await assertProjectSetupCloudBillingAccess(input.orgId, input.userId);
 		const provisionConfig = await prepareWarehouseConfig(input.provider, input.credentials);
 
 		await updateJob(jobId, { status: 'initializing' });
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 		const commandEnvironment = createCommandEnvironment(provisionConfig.env_vars);
+		await assertProjectSetupCloudBillingAccess(input.orgId, input.userId);
 		const commandLogs: CommandLogs = {
 			redactor: createWarehouseLogRedactor(provisionConfig.env_vars),
 			publish: (logs) => updateJob(jobId, { logs }),
@@ -714,15 +720,18 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 		writeWarehouseConfig(projectDir, input.projectName, input.provider, provisionConfig.database_config);
 
 		await updateJob(jobId, { status: 'debugging', logs: '' });
+		await assertProjectSetupCloudBillingAccess(input.orgId, input.userId);
 		await runNaoCommand(['debug'], projectDir, commandEnvironment, DEBUG_TIMEOUT_MS, commandLogs);
 
 		await updateJob(jobId, { status: 'syncing', logs: '' });
+		await assertProjectSetupCloudBillingAccess(input.orgId, input.userId);
 		await runNaoCommand(['sync', '--provider', 'databases'], projectDir, commandEnvironment, null, commandLogs);
 
 		const projectId = crypto.randomUUID();
 		registeredProjectId = projectId;
 		registeredProjectPath = path.resolve(env.NAO_PROJECTS_DIR, projectId);
 		await updateJob(jobId, { status: 'registering' });
+		await assertProjectSetupCloudBillingAccess(input.orgId, input.userId);
 		const project = await createNewProject({
 			sourceDir: projectDir,
 			projectName: input.projectName,
@@ -816,15 +825,14 @@ async function finalizeWarehouseProvisioning(jobId: string): Promise<void> {
 			throw new Error('The onboarding model is unavailable');
 		}
 
-		await generateOnboardingRules(
-			job.projectId,
-			job.businessContext,
-			job.modelSelection,
-			job.modelProjectId,
-			job.userId,
-		);
+		await assertProjectSetupCloudBillingAccess(job.orgId, job.userId);
+		await generateOnboardingRules(job.projectId, job.businessContext, job.modelSelection, job.modelProjectId, {
+			organizationId: job.orgId,
+			userId: job.userId,
+		});
 
 		await updateJob(jobId, { status: 'publishing' });
+		await assertProjectSetupCloudBillingAccess(job.orgId, job.userId);
 		managedRepository = await publishProject({
 			projectId: job.projectId,
 			projectName: job.projectName,

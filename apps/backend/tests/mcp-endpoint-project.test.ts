@@ -8,6 +8,7 @@ const testState = vi.hoisted(() => ({
 	roles: {} as Record<string, string | null>,
 	createdForProjects: [] as string[],
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -36,6 +37,7 @@ vi.mock('../src/queries/mcp-endpoint.queries', () => ({
 
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: testState.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: testState.assertProjectUserCloudBillingAccess,
 }));
 
 vi.mock('../src/mcp/server', () => ({
@@ -140,6 +142,7 @@ describe('MCP endpoint project scoping', () => {
 		testState.roles = { 'project-a': 'admin', 'project-b': 'user' };
 		testState.createdForProjects = [];
 		testState.assertProjectCloudBillingAccess.mockReset();
+		testState.assertProjectUserCloudBillingAccess.mockReset();
 		app = await createApp();
 	});
 
@@ -155,6 +158,7 @@ describe('MCP endpoint project scoping', () => {
 		expect(testState.createdForProjects).toEqual(['project-b']);
 		expect(testState.assertProjectCloudBillingAccess).toHaveBeenCalledOnce();
 		expect(testState.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-b');
+		expect(testState.assertProjectUserCloudBillingAccess).toHaveBeenCalledWith('project-b', 'user-1');
 	});
 
 	it('rejects a project with restricted cloud billing before creating the server', async () => {

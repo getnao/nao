@@ -202,8 +202,9 @@ export const sharedStoryRoutes = {
 			shared.format === 'custom'
 				? { queryData: null, cachedAt: null, code: shared.code, needsRefresh: false }
 				: await getStoryQueryData(shared.chatId!, shared.slug, shared.code, isLive, cacheSchedule, {
-						deferRefresh: canRefresh && lastRefreshFailure !== null,
+						deferRefresh: true,
 						deferFirstRefresh: canRefresh,
+						principalUserId: ctx.user.id,
 					});
 
 		if (ctx.user.id !== shared.userId) {
@@ -286,6 +287,7 @@ export const sharedStoryRoutes = {
 					shared.chatId!,
 					shared.slug,
 					input.queryId,
+					{ cachedOnly: true, principalUserId: ctx.user.id },
 					input.versionNumber,
 				);
 			} catch (error) {
@@ -296,7 +298,10 @@ export const sharedStoryRoutes = {
 	getCustomStoryNarratives: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;
 		try {
-			return await getCustomStoryNarratives(shared.chatId!, shared.slug);
+			return await getCustomStoryNarratives(shared.chatId!, shared.slug, {
+				cachedOnly: true,
+				principalUserId: ctx.user.id,
+			});
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}
@@ -311,7 +316,7 @@ export const sharedStoryRoutes = {
 		}
 	}),
 
-	setCustomStoryState: shareAccessProcedure
+	setCustomStoryState: cloudBillingShareAccessProcedure
 		.input(z.object({ storyId: z.string(), change: storyStateChange }))
 		.mutation(async ({ input, ctx }) => {
 			const shared = ctx.resource;
@@ -379,6 +384,7 @@ export const sharedStoryRoutes = {
 			}
 			return executeLiveQuery(shared.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				principalUserId: ctx.user.id,
 			});
 		}),
 
@@ -392,6 +398,7 @@ export const sharedStoryRoutes = {
 			}
 			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				principalUserId: ctx.user.id,
 			});
 		}),
 
@@ -410,6 +417,7 @@ export const sharedStoryRoutes = {
 			}
 			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				principalUserId: ctx.user.id,
 			});
 		}),
 
@@ -456,6 +464,7 @@ export const sharedStoryRoutes = {
 			return await withKeyedLock(`story:${story.id}`, async () => {
 				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, {
 					billingAccessVerifiedProjectId: shared.projectId,
+					principalUserId: ctx.user.id,
 				});
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
@@ -609,6 +618,7 @@ export const sharedStoryRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				{ deferRefresh: true, principalUserId: ctx.user.id },
 			);
 
 			logAnalyticsEvent({

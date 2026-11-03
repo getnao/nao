@@ -42,6 +42,7 @@ import {
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertMessagingUserCloudBillingAccess } from './cloud-billing-guard';
 import {
 	buildDiscordAnswerPayload,
 	canUseDiscordInProject,
@@ -278,6 +279,13 @@ class ProjectDiscordBot {
 
 		try {
 			if (!(await this._validateUserAccess(ctx))) {
+				return;
+			}
+			if (
+				!(await assertMessagingUserCloudBillingAccess(this._config.projectId, ctx.user!.id, (message) =>
+					ctx.thread.post(message),
+				))
+			) {
 				return;
 			}
 			await assertProjectCloudBillingAccess(this._config.projectId);

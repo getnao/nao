@@ -30,7 +30,7 @@ import type { StoryNarrativeSource } from '../utils/story-kit-narratives';
 import { extractStoryNarratives } from '../utils/story-kit-narratives';
 import { backfillMissingQueryData, extractCustomStoryQueryIds, findMissingQueryIds } from '../utils/story-query-data';
 import { buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertProjectActorCloudBillingAccess } from './cloud-billing-guard';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { runQueryOnLocalFiles } from './local-query.service';
 import { compileSemanticQuery, type SemanticQuery } from './semantic-layer.service';
@@ -56,7 +56,7 @@ export type StoryQueryData = Record<string, { data: unknown[]; columns: string[]
 export async function executeLiveQuery(
 	chatId: string,
 	queryId: string,
-	options: StoryRefreshOptions = {},
+	options: StoryRefreshOptions,
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
@@ -66,7 +66,11 @@ export async function executeLiveQuery(
 	const queryData = await executeStoryQueries(
 		chatId,
 		{ [queryId]: query },
-		{ renderSql: stripSqlFilterBlocks, billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId },
+		{
+			renderSql: stripSqlFilterBlocks,
+			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+			principalUserId: options.principalUserId,
+		},
 	);
 	return queryData[queryId]!;
 }
@@ -78,12 +82,13 @@ export interface RefreshResult {
 
 interface StoryRefreshOptions {
 	billingAccessVerifiedProjectId?: string;
+	principalUserId: string;
 }
 
 export async function refreshStoryData(
 	chatId: string,
 	slug: string,
-	options: StoryRefreshOptions = {},
+	options: StoryRefreshOptions,
 ): Promise<RefreshResult> {
 	const { queryData, narratives } = await refreshStoryDataWithContext(chatId, slug, undefined, options);
 	return { queryData, narratives };
@@ -93,7 +98,7 @@ async function refreshStoryDataWithContext(
 	chatId: string,
 	slug: string,
 	existingExecutionContext?: StoryExecutionContext,
-	options: StoryRefreshOptions = {},
+	options?: StoryRefreshOptions,
 ): Promise<RefreshResult & { code: string }> {
 	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
 	if (!version) {
@@ -114,7 +119,8 @@ async function refreshStoryDataWithContext(
 		renderSql: stripSqlFilterBlocks,
 		executionContext: existingExecutionContext,
 		projectId: chat.projectId,
-		billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+		billingAccessVerifiedProjectId: options?.billingAccessVerifiedProjectId,
+		principalUserId: requirePrincipalUserId(options),
 	});
 
 	let refreshedCode = version.code;
@@ -160,6 +166,8 @@ interface StoryQueryDataOptions {
 	deferRefresh?: boolean;
 	/** Same, but only for a story that was never cached, so going live does not block on its first refresh. */
 	deferFirstRefresh?: boolean;
+	principalUserId: string;
+	billingAccessVerifiedProjectId?: string;
 }
 
 export async function getStoryQueryData(
@@ -168,7 +176,7 @@ export async function getStoryQueryData(
 	code: string,
 	isLive: boolean,
 	cacheSchedule: string | null,
-	options: StoryQueryDataOptions = {},
+	options: StoryQueryDataOptions,
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
 		return {
@@ -189,7 +197,10 @@ export async function getStoryQueryData(
 	}
 
 	try {
-		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug);
+		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug, undefined, {
+			principalUserId: options.principalUserId,
+			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+		});
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
 			cachedAt: new Date(),
@@ -267,6 +278,7 @@ interface StoryQueryExecutionOptions {
 	executionContext?: StoryExecutionContext;
 	projectId?: string;
 	billingAccessVerifiedProjectId?: string;
+	principalUserId: string;
 }
 
 /**
@@ -281,9 +293,9 @@ export async function executeStoryQueries(
 ): Promise<StoryQueryData> {
 	const projectId =
 		options.executionContext?.toolContext.projectId ?? options.projectId ?? (await requireChatProjectId(chatId));
-	if (options.billingAccessVerifiedProjectId !== projectId) {
-		await assertProjectCloudBillingAccess(projectId);
-	}
+	await assertProjectActorCloudBillingAccess(projectId, options.principalUserId, {
+		verifiedProjectId: options.billingAccessVerifiedProjectId,
+	});
 	const queries = { ...(await loadUpstreamQueries(chatId, sqlQueries)), ...sqlQueries };
 	const executionContext = Object.values(queries).some((query) => !query.adminMode)
 		? (options.executionContext ?? (await createStoryExecutionContext(chatId)))
@@ -306,10 +318,14 @@ export async function executeStoryQueries(
 			throw new Error('Live Story warehouse query has no execution context.');
 		}
 		if (query.semanticQuery) {
-			return compileAndExecuteSemanticQuery(query.semanticQuery, executionContext);
+			return compileAndExecuteSemanticQuery(query.semanticQuery, executionContext, options.principalUserId);
 		}
 		if (query.databaseId !== LOCAL_DATABASE_ID) {
-			return executeBillingValidatedRawSql(sql, { executionContext, databaseId: query.databaseId });
+			return executeBillingValidatedRawSql(sql, {
+				executionContext,
+				databaseId: query.databaseId,
+				principalUserId: options.principalUserId,
+			});
 		}
 
 		const lineage = new Set([...ancestors, queryId]);
@@ -354,14 +370,22 @@ interface RawSqlExecutionOptions {
 	executionContext: StoryExecutionContext;
 	databaseId?: string;
 	billingAccessVerifiedProjectId?: string;
+	principalUserId: string;
 }
 
 export async function executeRawSql(sqlQuery: string, options: RawSqlExecutionOptions): Promise<QueryResult> {
 	const projectId = options.executionContext.toolContext.projectId;
-	if (options.billingAccessVerifiedProjectId !== projectId) {
-		await assertProjectCloudBillingAccess(projectId);
-	}
+	await assertProjectActorCloudBillingAccess(projectId, options.principalUserId, {
+		verifiedProjectId: options.billingAccessVerifiedProjectId,
+	});
 	return executeBillingValidatedRawSql(sqlQuery, options);
+}
+
+function requirePrincipalUserId(options: StoryRefreshOptions | undefined): string {
+	if (!options?.principalUserId) {
+		throw new Error('Live story execution requires an explicit principal user.');
+	}
+	return options.principalUserId;
 }
 
 async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlExecutionOptions): Promise<QueryResult> {
@@ -386,9 +410,14 @@ async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlEx
 async function compileAndExecuteSemanticQuery(
 	semanticQuery: SemanticQuery,
 	executionContext: StoryExecutionContext,
+	principalUserId: string,
 ): Promise<QueryResult> {
 	const compiled = await compileSemanticQuery(semanticQuery, executionContext.toolContext);
-	return executeBillingValidatedRawSql(compiled.sql, { executionContext, databaseId: compiled.database_id });
+	return executeBillingValidatedRawSql(compiled.sql, {
+		executionContext,
+		databaseId: compiled.database_id,
+		principalUserId,
+	});
 }
 
 async function executeLocalSql(sqlQuery: string, context: ToolContext): Promise<QueryResult> {

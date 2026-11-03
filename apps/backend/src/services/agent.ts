@@ -92,7 +92,7 @@ import { replaceForeignWebToolParts } from '../utils/web-tool-parts';
 import { assertUserIsActive } from './account-status.service';
 import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertProjectActorCloudBillingAccess } from './cloud-billing-guard';
 import { compactionService, RunCompaction } from './compaction';
 import { assertManagedAiCreditsAvailable } from './credit-wallet.service';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
@@ -308,9 +308,9 @@ export class AgentService {
 		} = {},
 	): Promise<AgentManager> {
 		await assertUserIsActive(chat.userId);
-		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
-			await assertProjectCloudBillingAccess(chat.projectId);
-		}
+		await assertProjectActorCloudBillingAccess(chat.projectId, chat.userId, {
+			verifiedProjectId: options.billingAccessVerifiedProjectId,
+		});
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		if (!options.isBudgetChecked) {

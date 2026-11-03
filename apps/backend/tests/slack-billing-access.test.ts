@@ -7,8 +7,10 @@ import type { ConversationContext } from '../src/types/messaging-provider';
 const slackHarness = vi.hoisted(() => ({
 	billingAccess: vi.fn(),
 	clearSlackMainThread: vi.fn(),
+	CloudBillingSeatRestrictedError: class CloudBillingSeatRestrictedError extends Error {},
 	ensureMessagingProviderUser: vi.fn(),
 	getProjectById: vi.fn(),
+	seatAccess: vi.fn(),
 	usersInfo: vi.fn(),
 }));
 
@@ -27,6 +29,8 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: slackHarness.billingAccess,
+	assertProjectUserCloudBillingAccess: slackHarness.seatAccess,
+	CloudBillingSeatRestrictedError: slackHarness.CloudBillingSeatRestrictedError,
 }));
 vi.mock('../src/services/team-member', () => ({
 	ensureMessagingProviderUser: slackHarness.ensureMessagingProviderUser,
@@ -52,9 +56,40 @@ describe('ProjectSlackBot billing access', () => {
 		slackHarness.billingAccess.mockRejectedValue(new Error('billing restricted'));
 		slackHarness.clearSlackMainThread.mockResolvedValue([]);
 		slackHarness.getProjectById.mockResolvedValue({ name: 'Project' });
+		slackHarness.seatAccess.mockResolvedValue(undefined);
+		slackHarness.ensureMessagingProviderUser.mockResolvedValue({
+			user: { id: 'user-1' },
+			role: 'user',
+			outcome: { status: 'activated', role: 'user', usedExistingSeat: true },
+		});
 		slackHarness.usersInfo.mockResolvedValue({
 			user: { id: 'slack-user', profile: { email: 'user@example.com' } },
 		});
+	});
+
+	it('reports full seat capacity after auto-provisioning the sender as a viewer', async () => {
+		slackHarness.billingAccess.mockResolvedValue(undefined);
+		slackHarness.ensureMessagingProviderUser.mockResolvedValue({
+			user: { id: 'user-1' },
+			role: 'viewer',
+			outcome: { status: 'viewer_fallback', role: 'viewer', reason: 'capacity_full' },
+		});
+		const bot = new ProjectSlackBot(config);
+		const post = vi.fn();
+		const thread = {
+			id: 'slack:C123:1700000000.000100',
+			post,
+		} as unknown as ConversationContext['thread'];
+		const userMessage = {
+			text: 'question',
+			author: { userId: 'slack-user' },
+		} as ConversationContext['userMessage'];
+
+		await expect(
+			bot['_handleWorkFlow'](thread, userMessage, { fetchUnseenMessages: false }),
+		).resolves.toBeUndefined();
+
+		expect(post).toHaveBeenCalledWith("❌ Your organization's seats are full. Ask an administrator to add a seat.");
 	});
 
 	it('checks billing before validating and auto-provisioning a message sender', async () => {

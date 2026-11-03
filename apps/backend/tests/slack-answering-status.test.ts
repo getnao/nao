@@ -33,6 +33,8 @@ vi.mock('../src/services/branding.service', async (importOriginal) => ({
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: vi.fn().mockResolvedValue(undefined),
+	assertProjectUserCloudBillingAccess: vi.fn().mockResolvedValue(undefined),
+	CloudBillingSeatRestrictedError: class CloudBillingSeatRestrictedError extends Error {},
 }));
 vi.mock('../src/services/team-member', () => ({
 	ensureMessagingProviderUser: slackHarness.ensureMessagingProviderUser,
@@ -58,7 +60,11 @@ describe('ProjectSlackBot answering status', () => {
 		slackHarness.usersInfo.mockResolvedValue({
 			user: { id: 'slack-user', profile: { email: 'user@example.com' } },
 		});
-		slackHarness.ensureMessagingProviderUser.mockResolvedValue({ id: 'user-1' });
+		slackHarness.ensureMessagingProviderUser.mockResolvedValue({
+			user: { id: 'user-1' },
+			role: 'user',
+			outcome: { status: 'activated', role: 'user', usedExistingSeat: true },
+		});
 		slackHarness.chatPostMessage.mockResolvedValue({ ok: true, ts: '1700000000.000200' });
 		slackHarness.chatUpdate.mockResolvedValue({ ok: true });
 		slackHarness.getChatBySlackThread.mockRejectedValue(new Error('stop after placeholder'));

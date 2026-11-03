@@ -1,20 +1,27 @@
 import { CronExpressionParser } from 'cron-parser';
 
 import type { DBScheduledJob } from '../db/abstractSchema';
+import { isCloudFreeTierEnabled } from '../env';
+import { syncOrganizationSeatState } from '../queries/organization-seat-state.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { logger, serializeError } from '../utils/logger';
-import { hasProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { hasProjectCloudBillingAccess, isUserReadOnlyInOrganization } from './cloud-billing-access.service';
+import { notifyScheduledWorkPaused } from './scheduled-work-paused-notification.service';
 
 export type JobHandler<T = unknown> = (payload: T, job: DBScheduledJob) => Promise<void>;
-export type ProjectIdResolver<T = unknown> = (payload: T) => string | null | Promise<string | null>;
+export type ProjectPrincipal = { projectId: string; principalUserId: string };
+export type ProjectPrincipalResolver<T = unknown> = (
+	payload: T,
+) => ProjectPrincipal | null | Promise<ProjectPrincipal | null>;
 
 interface JobRegistration<T = unknown> {
 	handler: JobHandler<T>;
-	resolveProjectId?: ProjectIdResolver<T>;
+	resolveProjectPrincipal?: ProjectPrincipalResolver<T>;
 }
 
 interface RegisterJobOptions<T> {
-	resolveProjectId?: ProjectIdResolver<T>;
+	resolveProjectPrincipal?: ProjectPrincipalResolver<T>;
 }
 
 const POLL_INTERVAL_MS = 30_000;
@@ -37,7 +44,7 @@ export function registerJob<T = unknown>(
 ): void {
 	handlers.set(name, {
 		handler: handler as JobHandler,
-		resolveProjectId: options.resolveProjectId as ProjectIdResolver | undefined,
+		resolveProjectPrincipal: options.resolveProjectPrincipal as ProjectPrincipalResolver | undefined,
 	});
 }
 
@@ -161,12 +168,8 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 
 	try {
 		const payload = job.payload ?? {};
-		const projectId = await registration.resolveProjectId?.(payload);
-		if (projectId && !(await hasProjectCloudBillingAccess(projectId))) {
-			logger.info(`Scheduler skipped job '${job.name}': cloud billing access is restricted`, {
-				source: 'system',
-				context: { jobId: job.id, name: job.name, projectId },
-			});
+		const principal = await registration.resolveProjectPrincipal?.(payload);
+		if (principal && (await isSkippedByCloudBilling(job, principal))) {
 			await onJobSuccess(job);
 			return;
 		}
@@ -175,6 +178,70 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 	} catch (err) {
 		await onJobFailure(job, err);
 	}
+}
+
+async function isSkippedByCloudBilling(job: DBScheduledJob, principal: ProjectPrincipal): Promise<boolean> {
+	if (!(await hasProjectCloudBillingAccess(principal.projectId))) {
+		logger.info(`Scheduler skipped job '${job.name}': cloud billing access is restricted`, {
+			source: 'system',
+			context: { jobId: job.id, name: job.name, projectId: principal.projectId },
+		});
+		return true;
+	}
+	return skipReadOnlyPrincipal(job, principal);
+}
+
+async function skipReadOnlyPrincipal(job: DBScheduledJob, principal: ProjectPrincipal): Promise<boolean> {
+	if (!isCloudFreeTierEnabled()) {
+		return false;
+	}
+	const project = await projectQueries.getProjectById(principal.projectId);
+	if (!project?.orgId) {
+		return false;
+	}
+	const isReadOnly = await isUserReadOnlyInOrganization(project.orgId, principal.principalUserId);
+	if (!isReadOnly) {
+		await syncOrganizationSeatState({
+			orgId: project.orgId,
+			userId: principal.principalUserId,
+			isReadOnly: false,
+			changedAt: new Date(),
+		});
+		return false;
+	}
+	await notifyScheduledWorkPaused({
+		organizationId: project.orgId,
+		userId: principal.principalUserId,
+		projectId: principal.projectId,
+		resources: [{ type: job.name, id: resourceIdFromPayload(job.payload) }],
+	}).catch((error) => {
+		logger.error(`Scheduler could not notify owner of skipped job '${job.name}'`, {
+			source: 'system',
+			context: { jobId: job.id, name: job.name, error: serializeError(error) },
+		});
+	});
+	logger.info(`Scheduler skipped job '${job.name}': owner has read-only access`, {
+		source: 'system',
+		context: {
+			jobId: job.id,
+			name: job.name,
+			projectId: principal.projectId,
+			principalUserId: principal.principalUserId,
+		},
+	});
+	return true;
+}
+
+function resourceIdFromPayload(payload: Record<string, unknown> | null): string | null {
+	if (!payload) {
+		return null;
+	}
+	for (const [key, value] of Object.entries(payload)) {
+		if (key.endsWith('Id') && typeof value === 'string') {
+			return value;
+		}
+	}
+	return null;
 }
 
 async function onJobSuccess(job: DBScheduledJob): Promise<void> {

@@ -13,6 +13,7 @@ import { llmTelemetry } from '../agents/telemetry';
 import * as projectQueries from '../queries/project.queries';
 import { resolveProviderModel } from '../utils/llm';
 import { safeFetch } from '../utils/safe-fetch';
+import { assertProjectSetupCloudBillingAccess } from './cloud-billing-access.service';
 
 const MAX_CONTEXT_FILES = 60;
 const MAX_CONTEXT_CHARACTERS = 60_000;
@@ -26,20 +27,21 @@ export async function generateOnboardingRules(
 	businessContext: BusinessContext,
 	modelSelection: LlmSelectedModel,
 	modelProjectId: string,
-	userId: string,
+	principal: { organizationId: string; userId: string },
 ): Promise<void> {
 	const project = await projectQueries.getProjectById(projectId);
 	if (!project?.path) {
 		throw new Error('Project path not found');
 	}
 
+	await assertProjectSetupCloudBillingAccess(principal.organizationId, principal.userId);
 	const llmModel = await resolveProviderModel(
 		modelProjectId,
 		modelSelection.provider,
 		modelSelection.modelId,
 		false,
 		{
-			userId,
+			userId: principal.userId,
 			projectId: modelProjectId,
 			category: 'chat',
 			billingMode: 'unbilled',
@@ -51,6 +53,7 @@ export async function generateOnboardingRules(
 
 	const projectContext = readProjectContext(project.path);
 	const additionalContext = await resolveAdditionalContext(businessContext);
+	await assertProjectSetupCloudBillingAccess(principal.organizationId, principal.userId);
 	const { text } = await generateText({
 		...disableModelReasoning(modelSelection.provider, llmModel),
 		system: `${writeContextRulesSkill}

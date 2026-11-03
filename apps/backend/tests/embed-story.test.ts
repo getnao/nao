@@ -73,6 +73,7 @@ describe('embedded Story query data', () => {
 			'<table query_id="query_orders" />',
 			false,
 			undefined,
+			{ deferRefresh: true, principalUserId: 'owner-1' },
 		);
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});
@@ -153,6 +154,7 @@ describe('embedded Story query data', () => {
 			'<table query_id="query_orders" />',
 			true,
 			'0 * * * *',
+			{ deferRefresh: true, principalUserId: 'owner-1' },
 		);
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});

@@ -28,14 +28,23 @@ export const contextRecommendationsHandler: JobHandler<ContextRecommendationsJob
 		);
 		return;
 	}
-	await runContextRecommendations(payload.projectId, { billingAccessVerifiedProjectId: payload.projectId });
+	const principalUserId = await crQueries.getFirstProjectAdminUserId(payload.projectId);
+	await runContextRecommendations(payload.projectId, {
+		billingAccessVerifiedProjectId: payload.projectId,
+		triggeredByUserId: principalUserId,
+	});
 };
 
-export function resolveContextRecommendationsProjectId(payload: ContextRecommendationsJobPayload): string {
+export async function resolveContextRecommendationsProjectPrincipal(
+	payload: ContextRecommendationsJobPayload,
+): Promise<{ projectId: string; principalUserId: string }> {
 	if (typeof payload.projectId !== 'string') {
 		throw new Error('Context recommendations job is missing a projectId payload.');
 	}
-	return payload.projectId;
+	return {
+		projectId: payload.projectId,
+		principalUserId: await crQueries.getFirstProjectAdminUserId(payload.projectId),
+	};
 }
 
 /**

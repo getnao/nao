@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectModelProvider: vi.fn(),
 	resolveDefaultModelSelection: vi.fn(),
 	resolveProviderModel: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 }));
 
 vi.mock('ai', async (importOriginal) => ({
@@ -66,6 +67,7 @@ vi.mock('../src/services/agent', () => ({
 
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: mocks.assertProjectUserCloudBillingAccess,
 }));
 
 vi.mock('../src/services/local-query.service', () => ({
@@ -100,6 +102,8 @@ import {
 	getStoryQueryData,
 	refreshStoryData,
 } from '../src/services/live-story';
+
+const ACTOR = { principalUserId: 'actor-1' };
 
 function stubSemanticLayerFetch(compiledSql: string, result: { columns: string[]; data: unknown[] }) {
 	const fetchMock = vi.fn(async (url: string, _init: { body: string }) =>
@@ -206,7 +210,7 @@ describe('live story SQL execution', () => {
 			rowCount: 1,
 		});
 
-		await expect(refreshStoryData('chat-1', 'usage')).resolves.toEqual({
+		await expect(refreshStoryData('chat-1', 'usage', ACTOR)).resolves.toEqual({
 			queryData: {
 				query_admin: {
 					columns: ['chat_id'],
@@ -256,7 +260,7 @@ describe('live story SQL execution', () => {
 		});
 		vi.stubGlobal('fetch', fetchMock);
 
-		await expect(getStoryQueryData('chat-1', 'orders', code, true, null)).resolves.toMatchObject({
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, null, ACTOR)).resolves.toMatchObject({
 			queryData: {
 				query_warehouse: {
 					columns: ['order_id'],
@@ -333,7 +337,7 @@ describe('live story SQL execution', () => {
 			}),
 		);
 
-		await expect(refreshStoryData('chat-1', 'sales')).resolves.toEqual({
+		await expect(refreshStoryData('chat-1', 'sales', ACTOR)).resolves.toEqual({
 			queryData: {
 				query_local: {
 					columns: ['region', 'total'],
@@ -371,7 +375,7 @@ describe('live story SQL execution', () => {
 			data: [{ revenue: 90 }],
 		});
 
-		await expect(refreshStoryData('chat-1', 'revenue')).resolves.toEqual({
+		await expect(refreshStoryData('chat-1', 'revenue', ACTOR)).resolves.toEqual({
 			queryData: { query_revenue: { columns: ['revenue'], data: [{ revenue: 90 }] } },
 			narratives: {},
 		});
@@ -402,7 +406,7 @@ describe('live story SQL execution', () => {
 			data: [{ orders: 3 }],
 		});
 
-		await expect(executeLiveQuery('chat-1', 'query_orders')).resolves.toEqual({
+		await expect(executeLiveQuery('chat-1', 'query_orders', ACTOR)).resolves.toEqual({
 			columns: ['orders'],
 			data: [{ orders: 3 }],
 		});
@@ -423,7 +427,7 @@ describe('live story SQL execution', () => {
 			result: { columns: ['id'], data: [{ id: 1 }] },
 		});
 
-		await expect(executeLiveQuery('chat-1', 'query_local')).resolves.toEqual({
+		await expect(executeLiveQuery('chat-1', 'query_local', ACTOR)).resolves.toEqual({
 			columns: ['id'],
 			data: [{ id: 1 }],
 		});
@@ -440,7 +444,7 @@ describe('live story SQL execution', () => {
 		};
 		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
 
-		await expect(getStoryQueryData('chat-1', 'orders', code, false, null)).resolves.toEqual({
+		await expect(getStoryQueryData('chat-1', 'orders', code, false, null, ACTOR)).resolves.toEqual({
 			queryData,
 			cachedAt: null,
 			code,
@@ -467,7 +471,7 @@ describe('live story SQL execution', () => {
 		};
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(cache);
 
-		await expect(getStoryQueryData('chat-1', 'orders', code, true, null)).resolves.toEqual({
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, null, ACTOR)).resolves.toEqual({
 			queryData: cache.queryData,
 			cachedAt: cache.cachedAt,
 			code,
@@ -492,7 +496,7 @@ describe('live story SQL execution', () => {
 		mocks.findMissingQueryIds.mockReturnValue(['query_warehouse']);
 		mocks.backfillMissingQueryData.mockResolvedValue(backfilled);
 
-		await expect(getStoryQueryData('chat-1', 'orders', code, true, null)).resolves.toEqual({
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, null, ACTOR)).resolves.toEqual({
 			queryData: backfilled,
 			cachedAt,
 			code,
@@ -515,7 +519,7 @@ describe('live story SQL execution', () => {
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(cache);
 		mocks.getLatestVersionByChatAndSlug.mockRejectedValue(new Error('Warehouse unavailable'));
 
-		await expect(getStoryQueryData('chat-1', 'orders', code, true, '* * * * *')).resolves.toEqual({
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, '* * * * *', ACTOR)).resolves.toEqual({
 			queryData: cache.queryData,
 			cachedAt: cache.cachedAt,
 			code,
@@ -528,7 +532,9 @@ describe('live story SQL execution', () => {
 		vi.stubGlobal('fetch', fetchMock);
 		const executionContext = await createStoryExecutionContext('chat-1');
 
-		await expect(executeRawSql('SELECT * FROM orders', { executionContext })).rejects.toThrow('restricted');
+		await expect(executeRawSql('SELECT * FROM orders', { executionContext, ...ACTOR })).rejects.toThrow(
+			'restricted',
+		);
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
@@ -542,7 +548,7 @@ describe('live story SQL execution', () => {
 		});
 		vi.mocked(assertProjectCloudBillingAccess).mockRejectedValueOnce(new Error('restricted'));
 
-		await expect(refreshStoryData('chat-1', 'orders')).rejects.toThrow('restricted');
+		await expect(refreshStoryData('chat-1', 'orders', ACTOR)).rejects.toThrow('restricted');
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
@@ -561,7 +567,7 @@ describe('live story SQL execution', () => {
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(cache);
 
 		await expect(
-			getStoryQueryData('chat-1', 'orders', code, true, '* * * * *', { deferRefresh: true }),
+			getStoryQueryData('chat-1', 'orders', code, true, '* * * * *', { deferRefresh: true, ...ACTOR }),
 		).resolves.toEqual({
 			queryData: cache.queryData,
 			cachedAt: cache.cachedAt,
@@ -583,7 +589,7 @@ describe('live story SQL execution', () => {
 		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
 
 		await expect(
-			getStoryQueryData('chat-1', 'orders', code, true, null, { deferFirstRefresh: true }),
+			getStoryQueryData('chat-1', 'orders', code, true, null, { deferFirstRefresh: true, ...ACTOR }),
 		).resolves.toEqual({
 			queryData,
 			cachedAt: null,
@@ -599,7 +605,10 @@ describe('live story SQL execution', () => {
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
 		mocks.getSqlQueriesFromCode.mockResolvedValue({});
 
-		const result = await getStoryQueryData('chat-1', 'orders', code, true, null, { deferRefresh: true });
+		const result = await getStoryQueryData('chat-1', 'orders', code, true, null, {
+			deferRefresh: true,
+			...ACTOR,
+		});
 
 		expect(result.needsRefresh).toBeUndefined();
 	});
@@ -611,7 +620,7 @@ describe('live story SQL execution', () => {
 		mocks.getSqlQueriesFromCode.mockResolvedValue({});
 
 		await expect(
-			getStoryQueryData('chat-1', 'orders', code, true, null, { deferFirstRefresh: true }),
+			getStoryQueryData('chat-1', 'orders', code, true, null, { deferFirstRefresh: true, ...ACTOR }),
 		).resolves.toEqual({
 			queryData: null,
 			cachedAt: expect.any(Date),
@@ -632,6 +641,7 @@ describe('live story SQL execution', () => {
 
 		const result = await getStoryQueryData('chat-1', 'orders', code, true, '* * * * *', {
 			deferFirstRefresh: true,
+			...ACTOR,
 		});
 
 		expect(result.needsRefresh).toBeUndefined();
@@ -649,7 +659,7 @@ describe('live story SQL execution', () => {
 		mocks.getLatestVersionByChatAndSlug.mockRejectedValue(new Error('Warehouse unavailable'));
 		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
 
-		await expect(getStoryQueryData('chat-1', 'orders', code, true, null)).resolves.toEqual({
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, null, ACTOR)).resolves.toEqual({
 			queryData,
 			cachedAt: null,
 			code,
@@ -668,10 +678,17 @@ describe('live story SQL execution', () => {
 			rowCount: 1,
 		});
 
-		await expect(executeLiveQuery('chat-1', 'query_admin')).resolves.toEqual({
+		await expect(
+			executeLiveQuery('chat-1', 'query_admin', {
+				...ACTOR,
+				billingAccessVerifiedProjectId: 'project-1',
+			}),
+		).resolves.toEqual({
 			columns: ['chat_id'],
 			data: [{ chat_id: 'chat-1' }],
 		});
+		expect(assertProjectCloudBillingAccess).not.toHaveBeenCalled();
+		expect(mocks.assertProjectUserCloudBillingAccess).toHaveBeenCalledWith('project-1', 'actor-1');
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 });

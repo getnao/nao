@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 	executeQuery: vi.fn(),
 	extractToolCalls: vi.fn(() => []),
 	getAzureAccessTokenForUser: vi.fn(),
@@ -26,6 +28,10 @@ vi.mock('../src/queries/project.queries', () => ({
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: { sso: 'sso' },
+}));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: mocks.assertProjectUserCloudBillingAccess,
 }));
 vi.mock('../src/services/microsoft-auth.service', () => ({
 	getAzureAccessTokenForUser: mocks.getAzureAccessTokenForUser,
@@ -83,6 +89,8 @@ describe('test routes', () => {
 		const reply = await runExpectedQuery();
 
 		expect(mocks.retrieveProjectById).toHaveBeenCalledWith('project-id');
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-id');
+		expect(mocks.assertProjectUserCloudBillingAccess).toHaveBeenCalledWith('project-id', 'user-id');
 		expect(mocks.getProjectRuntimeEnvVars).toHaveBeenCalledWith('project-id');
 		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
 		expect(mocks.getAzureAccessTokenForUser).toHaveBeenCalledWith('user-id');
