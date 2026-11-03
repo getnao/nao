@@ -1,3 +1,4 @@
+import { isTestFileName } from '@nao/shared/test-paths';
 import { GitBranch, History } from 'lucide-react';
 
 import type { TestRunSummary } from '@/components/settings/test-run-types';
@@ -8,7 +9,7 @@ import { SimpleTooltip } from '@/components/ui/tooltip';
 import { getTimeAgo } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 
-/** A run of the suite, or of one test in its history, which then counts only that test. */
+/** A run of the suite, or of one test in its history, which then counts only that test and may not name its author. */
 export type RunListSource = Pick<
 	TestRunSummary,
 	| 'status'
@@ -20,15 +21,13 @@ export type RunListSource = Pick<
 	| 'totalAttempts'
 	| 'contextRef'
 	| 'errorMessage'
-	| 'triggeredByName'
 	| 'createdAt'
 	| 'testTotals'
+	| 'triggeredByName'
 >;
 
 type VariantTotals = TestRunSummary['testTotals'][number];
 type TestTotals = Omit<VariantTotals, 'contextVariant' | 'models'>;
-
-export type RunListState = 'running' | 'passed' | 'failed' | 'flaky' | 'cancelled' | 'error' | 'empty';
 
 interface RunListChip {
 	label: string;
@@ -38,7 +37,7 @@ interface RunListChip {
 }
 
 interface RunListItemView {
-	state: RunListState;
+	tone: Tone;
 	scope: string;
 	result: { label: string; tooltip: string } | null;
 	/** Share of the run done, while it runs. */
@@ -56,19 +55,6 @@ export interface RunListContext {
 	testPath?: string;
 }
 
-const TEST_FILE_EXTENSION = /\.ya?ml$/;
-
-const STATE_TONES: Record<RunListState, Tone> = {
-	running: 'pending',
-	passed: 'pass',
-	failed: 'fail',
-	flaky: 'mixed',
-	cancelled: 'cancelled',
-	error: 'error',
-	empty: 'neutral',
-};
-
-/** A run of the Recent runs list: its state, what it ran, its result and chips for what was special about it. */
 export function RunListItem({
 	view,
 	isSelected,
@@ -106,7 +92,7 @@ export function RunListItem({
 				}
 			>
 				<span className='mt-px flex shrink-0'>
-					<ToneIcon tone={STATE_TONES[view.state]} isLabelled />
+					<ToneIcon tone={view.tone} isLabelled />
 				</span>
 			</SimpleTooltip>
 			<span className='flex min-w-0 flex-1 flex-col gap-1'>
@@ -117,7 +103,7 @@ export function RunListItem({
 							<span
 								className={cn(
 									'ml-auto shrink-0 tabular-nums',
-									view.state === 'running' ? 'text-muted-foreground' : 'text-foreground',
+									view.tone === 'pending' ? 'text-muted-foreground' : 'text-foreground',
 								)}
 							>
 								{view.result.label}
@@ -153,20 +139,17 @@ export function RunListItem({
 
 /** How the Recent runs list shows a run, judged on the user's changes for a comparison and on its best model. */
 export function describeRunListItem(run: RunListSource, context: RunListContext): RunListItemView {
-	const state = getRunListState(run);
+	const tone = getRunListTone(run);
 	return {
-		state,
+		tone,
 		scope: context.testPath
 			? describeTestPath(context.testPath)
 			: describeRunTests(run.selection ?? [], context.suiteTestPaths),
-		result: describeRunResult(run, state, context.mainBranch),
-		progress: state === 'running' ? run.completedAttempts / Math.max(run.totalAttempts, 1) : null,
+		result: describeRunResult(run, tone, context.mainBranch),
+		progress: tone === 'pending' ? run.completedAttempts / Math.max(run.totalAttempts, 1) : null,
 		chips: listRunChips(run, context.mainBranch),
 		statusTooltip: {
-			status:
-				run.status === 'failed' && run.errorMessage
-					? `Error: ${run.errorMessage}`
-					: TONE_LABELS[STATE_TONES[state]],
+			status: run.status === 'failed' && run.errorMessage ? `Error: ${run.errorMessage}` : TONE_LABELS[tone],
 			startedBy: [run.triggeredByName, getTimeAgo(new Date(run.createdAt).getTime()).humanReadable]
 				.filter(Boolean)
 				.join(' · '),
@@ -175,9 +158,9 @@ export function describeRunListItem(run: RunListSource, context: RunListContext)
 }
 
 /** Whether a run is still going, stopped, or passed when every test it judges passed on each of their attempts. */
-export function getRunListState(run: RunListSource): RunListState {
+export function getRunListTone(run: RunListSource): Tone {
 	if (isActiveRun(run)) {
-		return 'running';
+		return 'pending';
 	}
 	if (run.status === 'cancelled') {
 		return 'cancelled';
@@ -187,12 +170,12 @@ export function getRunListState(run: RunListSource): RunListState {
 	}
 	const judged = getJudgedTotals(run);
 	if (!judged || judged.testCount === 0) {
-		return 'empty';
+		return 'neutral';
 	}
 	if (judged.passedTests === judged.testCount) {
-		return 'passed';
+		return 'pass';
 	}
-	return isFlakyTest(run, judged) ? 'flaky' : 'failed';
+	return isFlakyTest(run, judged) ? 'mixed' : 'fail';
 }
 
 function RunChip({ chip }: { chip: RunListChip }) {
@@ -205,23 +188,23 @@ function RunChip({ chip }: { chip: RunListChip }) {
 	);
 }
 
-function describeRunResult(run: RunListSource, state: RunListState, mainBranch: string): RunListItemView['result'] {
-	if (state === 'running') {
+function describeRunResult(run: RunListSource, tone: Tone, mainBranch: string): RunListItemView['result'] {
+	if (tone === 'pending') {
 		return {
 			label: `${Math.round((run.completedAttempts / Math.max(run.totalAttempts, 1)) * 100)}%`,
 			tooltip: `${run.completedAttempts} of ${run.totalAttempts} answers checked`,
 		};
 	}
-	if (state === 'cancelled' || state === 'error') {
+	if (tone === 'cancelled' || tone === 'error') {
 		return null;
 	}
-	if (state === 'empty') {
+	if (tone === 'neutral') {
 		return { label: '—', tooltip: 'The run recorded no result' };
 	}
 	if (run.trigger === 'comparison') {
 		return describeComparisonResult(run, mainBranch);
 	}
-	return run.models.length > 1 ? describeBenchmarkResult(run) : describeSingleModelResult(run, state);
+	return run.models.length > 1 ? describeBenchmarkResult(run) : describeSingleModelResult(run, tone);
 }
 
 function describeComparisonResult(run: RunListSource, mainBranch: string): RunListItemView['result'] {
@@ -275,12 +258,12 @@ function describeBenchmarkResult(run: RunListSource): RunListItemView['result'] 
 	};
 }
 
-function describeSingleModelResult(run: RunListSource, state: RunListState): RunListItemView['result'] {
+function describeSingleModelResult(run: RunListSource, tone: Tone): RunListItemView['result'] {
 	const totals = findVariant(run, getSingleRunVariant(run));
 	if (!totals) {
 		return null;
 	}
-	if (state === 'flaky') {
+	if (tone === 'mixed') {
 		return { label: 'flaky', tooltip: `Passed ${totals.passedAttempts} of ${totals.totalAttempts} times` };
 	}
 	if (totals.testCount === 1) {
@@ -330,7 +313,7 @@ function describeRunTests(selection: string[], suiteTestPaths: string[] | undefi
 }
 
 function describeTestPath(testPath: string): string {
-	return testPath.replace(TEST_FILE_EXTENSION, '');
+	return isTestFileName(testPath) ? testPath.slice(0, testPath.lastIndexOf('.')) : testPath;
 }
 
 /** The user's changes for a comparison, the best model when several ran, else the tests over all their attempts. */

@@ -1,16 +1,21 @@
+import { fromExplorerTestPath } from '@nao/shared/test-paths';
 import { useMutation } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 
+import type { TrpcRouter } from '@nao/backend/trpc';
+import type { inferRouterInputs } from '@trpc/server';
 import type { DraftContext, TestRunSummary } from '@/components/settings/test-run-types';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
-import { fromExplorerTestPath, getContextChanges } from '@/components/settings/test-run-types';
+import { getContextChanges } from '@/components/settings/test-run-types';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 
-export type ContextRunMode = 'compare' | 'changes' | 'production';
+type StartRunInput = inferRouterInputs<TrpcRouter>['testRun']['startRun'];
+
+export type ContextRunMode = StartRunInput['mode'];
 
 /** The tests a run covers: one test as it is in the editor, or saved tests, the whole suite when `paths` is undefined. */
-type RunTarget = { testFile: { path: string; content: string } } | { paths: string[] | undefined };
+type RunTarget = StartRunInput['target'];
 
 interface TestRunStartOptions {
 	target: RunTarget;
@@ -45,41 +50,19 @@ export function useTestRunStart({
 	activeRun,
 	onRunStarted,
 }: TestRunStartOptions) {
-	const startRun = useMutation(trpc.testRun.startRun.mutationOptions({ onSuccess: onRunStarted }));
-	const startDraftRun = useMutation(trpc.testRun.startDraftRun.mutationOptions({ onSuccess: onRunStarted }));
-	const startComparison = useMutation(trpc.testRun.startComparisonRun.mutationOptions({ onSuccess: onRunStarted }));
-	const startChangesRun = useMutation(trpc.testRun.startChangesRun.mutationOptions({ onSuccess: onRunStarted }));
-	const allStarts = [startRun, startDraftRun, startComparison, startChangesRun];
+	const runStart = useMutation(trpc.testRun.startRun.mutationOptions({ onSuccess: onRunStarted }));
 	const [contextRunMode] = useContextRunMode();
 	const hasContextChanges = getContextChanges(draft).length > 0;
 	const mode: ContextRunMode = hasContextChanges ? contextRunMode : 'production';
-	const isStarting = allStarts.some((runStart) => runStart.isPending);
-	const runSettings = { models: settings.models, attempts: settings.attempts };
-
-	const startInMode = () => {
-		if (mode === 'compare') {
-			startComparison.mutate({ ...target, ...runSettings });
-		} else if (mode === 'changes') {
-			startChangesRun.mutate({ ...target, ...runSettings });
-		} else if ('testFile' in target) {
-			startDraftRun.mutate({ ...target.testFile, ...runSettings });
-		} else {
-			startRun.mutate({ paths: target.paths, ...runSettings });
-		}
-	};
-
-	const run = () => {
-		allStarts.forEach((runStart) => runStart.reset());
-		startInMode();
-	};
+	const isStarting = runStart.isPending;
 
 	return {
 		mode,
 		hasContextChanges,
 		isStarting,
-		error: allStarts.find((runStart) => runStart.error)?.error?.message,
+		error: runStart.error?.message,
 		disabledReason: getRunDisabledReason({ activeRun, blockedReason, settings, isStarting }),
-		run,
+		run: () => runStart.mutate({ mode, target, models: settings.models, attempts: settings.attempts }),
 	};
 }
 

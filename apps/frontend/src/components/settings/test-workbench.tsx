@@ -1,3 +1,4 @@
+import { fromExplorerTestPath } from '@nao/shared/test-paths';
 import { useQuery } from '@tanstack/react-query';
 import { CircleAlert, Play } from 'lucide-react';
 import { useState } from 'react';
@@ -15,7 +16,7 @@ import { RunDetails } from '@/components/settings/test-run-details';
 import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
 import { BranchCode, BranchName, getMainBranch, getRunBranches } from '@/components/settings/test-run-labels';
 import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
-import { ACTIVE_RUN_REFETCH_MS, fromExplorerTestPath, isActiveRun } from '@/components/settings/test-run-types';
+import { ACTIVE_RUN_REFETCH_MS, isActiveRun } from '@/components/settings/test-run-types';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
@@ -25,7 +26,6 @@ import { trpc } from '@/main';
 
 interface TestWorkbenchProps {
 	testFile: { path: string; content: string };
-	/** The check of the test as it is in the editor. */
 	validation: TestFileValidationState;
 	draft: DraftContext | null;
 	/** The run shown, or `null` for the latest one. */
@@ -36,7 +36,6 @@ interface TestWorkbenchProps {
 	onRunStarted: (run: { id: string }) => void;
 }
 
-/** Shows how the latest runs of the test open in the editor went, attempt by attempt. */
 export function TestWorkbench({
 	testFile,
 	validation,

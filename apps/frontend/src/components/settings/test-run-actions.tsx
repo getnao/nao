@@ -1,4 +1,5 @@
 import { pluralize } from '@nao/shared';
+import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, FilePen, GitCompareArrows, Play, X } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -50,7 +51,6 @@ export interface SuiteRunScope {
 	label: string;
 }
 
-/** Runs the test suite, or the tests picked in it, from the drawer's tab row. */
 export function SuiteRunActions({
 	settings,
 	draft,
@@ -60,7 +60,7 @@ export function SuiteRunActions({
 }: RunActionsBaseProps & { scope: SuiteRunScope }) {
 	const testRun = useTestRunStart({
 		target: { paths: scope.paths },
-		blockedReason: scope.testCount === 0 ? 'Add a test to the tests/ folder first.' : null,
+		blockedReason: scope.testCount === 0 ? `Add a test to the ${TESTS_FOLDER}/ folder first.` : null,
 		settings,
 		draft,
 		activeRun,
@@ -287,7 +287,6 @@ function ContextRunButton({
 	actions: Record<ContextRunMode, ContextRunAction>;
 	disabledReason: string | null;
 	isStarting: boolean;
-	/** Starts the run in the mode picked, which the button shows. */
 	onRun: () => void;
 }) {
 	const [selectedMode, setMode] = useContextRunMode();

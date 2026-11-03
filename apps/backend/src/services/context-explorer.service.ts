@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fsSync from 'node:fs';
 import path from 'node:path';
 
+import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import type {
 	ContextGitUnavailableReason,
 	FileContentResponse,
@@ -41,7 +42,7 @@ export const MAX_CONTEXT_FILE_SIZE = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const FRONTMATTER_READ_SIZE = 8 * 1024;
 /** Context admins manage tests here, while .naoignore keeps them away from the agent. */
-const EXPLORER_NAOIGNORE_OPTIONS: NaoignoreOptions = { naoignoreExemptFolders: ['tests'] };
+const EXPLORER_NAOIGNORE_OPTIONS: NaoignoreOptions = { naoignoreExemptFolders: [TESTS_FOLDER] };
 const EDITABLE: FileEditability = { isEditable: true, reason: null, guidance: null };
 
 export interface FileEditability {

@@ -28,8 +28,8 @@ describe('compareContextVariants', () => {
 			['churn', 'improved'],
 			['signups', 'unchanged'],
 		]);
-		expect(comparison.production).toEqual({ passed: 7, total: 10 });
-		expect(comparison.draft).toEqual({ passed: 7, total: 10 });
+		expect(comparison.production).toEqual({ passedAttempts: 7, totalAttempts: 10 });
+		expect(comparison.draft).toEqual({ passedAttempts: 7, totalAttempts: 10 });
 	});
 
 	it('keeps a test pending until both variants recorded all their attempts', () => {
@@ -40,8 +40,8 @@ describe('compareContextVariants', () => {
 
 		expect(comparison.tests[0]).toMatchObject({
 			change: 'pending',
-			production: { passed: 2, total: 2 },
-			draft: { passed: 0, total: 1 },
+			production: { passedAttempts: 2, totalAttempts: 2 },
+			draft: { passedAttempts: 0, totalAttempts: 1 },
 		});
 	});
 });

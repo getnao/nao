@@ -1,3 +1,6 @@
+import { isInTestsFolder } from '@nao/shared/test-paths';
+import { isSameModel } from '@nao/shared/types';
+
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -10,13 +13,15 @@ export type TestDefinition = TestSuiteListing['tests'][number];
 export type LatestTestOutcome = TestSuiteListing['latestOutcomes'][string];
 export type TestRunSummary = TestRunOutputs['listRuns'][number];
 export type TestRunWithResults = TestRunOutputs['getRun'];
-export type TestRunResult = TestRunWithResults['results'][number];
+/** An attempt of a run as the suite views list it, without the details only the view of a single attempt shows. */
+export type TestResultOutcome = TestRunWithResults['results'][number];
 type TestComparison = NonNullable<TestRunWithResults['comparison']>;
 export type TestComparisonRow = TestComparison['tests'][number];
 export type TestComparisonChange = TestComparisonRow['change'];
 type DraftContextStatus = TestRunOutputs['getDraftContext'];
 export type DraftContext = Extract<DraftContextStatus, { status: 'available' }>;
 export type TestHistoryRun = TestRunOutputs['getTestHistory'][number];
+export type TestRunResult = TestHistoryRun['results'][number];
 export type TestDataDiff = NonNullable<TestRunResult['dataDiff']>;
 export type TestDataDiffRow = TestDataDiff['rows'][number];
 export type TestFileValidation = TestRunOutputs['validateTestFile'];
@@ -24,7 +29,6 @@ export type TestModelSummary = TestRunWithResults['modelSummaries'][number];
 export type TestModelStats = TestRunOutputs['getModelStats'][number];
 export type TestModelOutcome = LatestTestOutcome['models'][number];
 export type ContextVariant = TestRunResult['contextVariant'];
-/** The attempts of a test that passed against one context of a comparison. */
 export type VariantOutcome = TestComparison['production'];
 
 export const ACTIVE_RUN_REFETCH_MS = 2_000;
@@ -69,25 +73,15 @@ const OTHER_MODEL_COLOR = {
 export type TestModelColor = (typeof TEST_MODEL_COLORS)[number] | typeof OTHER_MODEL_COLOR;
 
 export function getTestModelColor(models: LlmSelectedModel[], model: LlmSelectedModel): TestModelColor {
-	return getTestModelColorAt(models.findIndex((candidate) => isSameTestModel(candidate, model)));
+	return getTestModelColorAt(models.findIndex((candidate) => isSameModel(candidate, model)));
 }
 
-/** The color of the model at this position in its run's models. */
 export function getTestModelColorAt(index: number): TestModelColor {
 	return TEST_MODEL_COLORS[index] ?? OTHER_MODEL_COLOR;
 }
 
-export function isSameTestModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
-	return model.provider === other.provider && model.modelId === other.modelId;
-}
-
 export function testModelKey(model: LlmSelectedModel): string {
 	return `${model.provider}:${model.modelId}`;
-}
-
-/** The model of a run result, under the shape of a selected model. */
-export function resultModel(result: Pick<TestRunResult, 'llmProvider' | 'llmModelId'>): LlmSelectedModel {
-	return { provider: result.llmProvider, modelId: result.llmModelId };
 }
 
 export function isActiveRun(run: Pick<TestRunSummary, 'status'>): boolean {
@@ -101,27 +95,7 @@ export function getSingleRunVariant(run: Pick<TestRunSummary, 'trigger'>): Conte
 
 /** The changed files that are context, as edited tests alone answer the same on production and on the draft. */
 export function getContextChanges(draft: DraftContext | null): DraftContext['changes'] {
-	return draft?.changes.filter((change) => !change.path.startsWith('tests/')) ?? [];
-}
-
-export function toExplorerTestPath(testPath: string): string {
-	return `/tests/${testPath}`;
-}
-
-export function fromExplorerTestPath(explorerPath: string): string {
-	return explorerPath.replace(/^\/?tests\//, '');
-}
-
-/** Whether the explorer path is a test definition, mirroring the files `nao test` discovers. */
-export function isTestFilePath(filePath: string): boolean {
-	const segments = filePath.replaceAll('\\', '/').replace(/^\/+/, '').split('/');
-	const fileName = segments.at(-1) ?? '';
-	return (
-		segments.length > 1 &&
-		segments[0] === 'tests' &&
-		!segments.slice(1, -1).includes('outputs') &&
-		/\.ya?ml$/.test(fileName)
-	);
+	return draft?.changes.filter((change) => !isInTestsFolder(change.path)) ?? [];
 }
 
 export function formatPassRate(passed: number, total: number): string {
@@ -132,7 +106,6 @@ export function formatCost(cost: number | null | undefined): string {
 	return cost === null || cost === undefined ? '—' : `$${cost.toFixed(cost < 1 ? 4 : 2)}`;
 }
 
-/** A cost per question, short enough for a table cell. */
 export function formatUnitCost(cost: number | null | undefined): string {
 	return cost === null || cost === undefined ? '—' : `$${cost.toFixed(cost < 0.1 ? 3 : 2)}`;
 }
@@ -154,8 +127,8 @@ export function average(values: (number | null | undefined)[]): number | null {
 }
 
 /** The results of each test, in the order the tests first appear. */
-export function groupResultsByTest(results: TestRunResult[]): Map<string, TestRunResult[]> {
-	const groups = new Map<string, TestRunResult[]>();
+export function groupResultsByTest(results: TestResultOutcome[]): Map<string, TestResultOutcome[]> {
+	const groups = new Map<string, TestResultOutcome[]>();
 	for (const result of results) {
 		groups.set(result.testPath, [...(groups.get(result.testPath) ?? []), result]);
 	}
@@ -166,7 +139,6 @@ export function getAccuracy(summary: Pick<TestModelSummary, 'passedAttempts' | '
 	return summary.attempts === 0 ? null : summary.passedAttempts / summary.attempts;
 }
 
-/** Activates a clickable row from the keyboard, like a button. */
 export function onEnterOrSpace(activate: () => void) {
 	return (event: KeyboardEvent) => {
 		if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {

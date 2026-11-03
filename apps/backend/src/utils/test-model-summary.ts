@@ -1,7 +1,8 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import { resultModel } from '@nao/shared/types';
 
 import type { DBTestRunResult } from '../db/abstractSchema';
 import { TEST_CONTEXT_VARIANTS, type TestModelSummary } from '../types/test-run';
+import { countAttemptsByTest, toAttemptCounts } from './test-run-totals';
 
 export type SummarizedTestResult = Pick<
 	DBTestRunResult,
@@ -29,26 +30,18 @@ export function summarizeModels(results: SummarizedTestResult[]): TestModelSumma
 	return [...groups.values()].map(summarizeModel).sort(compareSummaries);
 }
 
-export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
-	return model.provider === other.provider && model.modelId === other.modelId;
-}
-
-export function resultModel(result: Pick<DBTestRunResult, 'llmProvider' | 'llmModelId'>): LlmSelectedModel {
-	return { provider: result.llmProvider, modelId: result.llmModelId };
-}
-
 function summarizeModel(results: SummarizedTestResult[]): TestModelSummary {
 	const [first] = results;
 	const passedAttempts = results.filter((result) => result.passed).length;
 	const totalCost = sumOrNull(results.map((result) => result.totalCost));
-	const tests = countAttemptsByTest(results);
+	const tests = [...countAttemptsByTest(results.map(toAttemptCounts)).values()];
 	return {
 		...resultModel(first),
 		contextVariant: first.contextVariant,
 		attempts: results.length,
 		passedAttempts,
 		testCount: tests.length,
-		reliableTestCount: tests.filter((test) => test.passed === test.total).length,
+		reliableTestCount: tests.filter((test) => test.passedAttempts === test.totalAttempts).length,
 		totalCost,
 		costPerQuestion: averageOrNull(results.map((result) => result.totalCost)),
 		costPerCorrectAnswer: totalCost !== null && passedAttempts > 0 ? totalCost / passedAttempts : null,
@@ -56,17 +49,6 @@ function summarizeModel(results: SummarizedTestResult[]): TestModelSummary {
 		medianDurationMs: medianOrNull(results.map((result) => result.durationMs)),
 		averageTokens: averageOrNull(results.map((result) => result.totalTokens)),
 	};
-}
-
-function countAttemptsByTest(results: SummarizedTestResult[]): { passed: number; total: number }[] {
-	const tests = new Map<string, { passed: number; total: number }>();
-	for (const result of results) {
-		const test = tests.get(result.testPath) ?? { passed: 0, total: 0 };
-		test.total++;
-		test.passed += result.passed ? 1 : 0;
-		tests.set(result.testPath, test);
-	}
-	return [...tests.values()];
 }
 
 function compareSummaries(left: TestModelSummary, right: TestModelSummary): number {

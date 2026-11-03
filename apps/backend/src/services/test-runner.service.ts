@@ -31,8 +31,11 @@ import { testAgentService } from './test-agent.service';
 import { evaluateTestAttempt, type TestAttemptEvaluation } from './test-evaluation.service';
 import { discoverTests, filterTests } from './test-suite.service';
 
-/** Attempts in flight per model, so that a run of several models does not wait on one provider's rate limit. */
-const TEST_RUN_STALE_MS = 6 * 60 * 60_000;
+const TEST_RUN_HEARTBEAT_MS = 30_000;
+/** Several missed heartbeats, so that a slow database write does not fail a run that is still executing. */
+const TEST_RUN_STALE_MS = 4 * TEST_RUN_HEARTBEAT_MS;
+/** Snapshots left by a crashed process are removed once older than any run lasts, as another process's run may read one. */
+const CONTEXT_SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60_000;
 const TEST_RUN_STALE_MESSAGE = 'The test run was interrupted before it finished.';
 const MAX_STORED_ROWS = 50;
 const NO_CONTEXT_CHANGES_MESSAGE = 'Your File Explorer has no context changes to compare with production.';
@@ -78,7 +81,6 @@ interface TestSuitePlan {
 
 interface TestRunPlan extends TestSuitePlan {
 	variants: TestContextVariant[];
-	/** The context folder of the draft variant. */
 	draftFolder: string | null;
 }
 
@@ -94,7 +96,7 @@ interface TestAttemptJob {
 /** Creates a run against the production context and executes it in the background. */
 export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun> {
 	const projectFolder = await getProjectFolder(input.projectId);
-	await failStaleRuns(input.projectId);
+	await failStaleTestRuns(input.projectId);
 
 	const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(projectFolder);
 	const plan = await planTestRun(input, projectFolder, suite);
@@ -124,8 +126,8 @@ async function startDraftContextRun(
 	trigger: 'comparison' | 'changes',
 ): Promise<DBTestRun> {
 	const projectFolder = await getProjectFolder(input.projectId);
-	await failStaleRuns(input.projectId);
-	removeContextSnapshotsOlderThan(projectFolder, input.projectId, TEST_RUN_STALE_MS);
+	await failStaleTestRuns(input.projectId);
+	removeContextSnapshotsOlderThan(projectFolder, input.projectId, CONTEXT_SNAPSHOT_MAX_AGE_MS);
 
 	const snapshot = createDraftContextSnapshot({ projectId: input.projectId, projectFolder, draft: input.draft });
 	try {
@@ -158,12 +160,12 @@ export async function cancelTestRun(run: DBTestRun): Promise<boolean> {
 	return true;
 }
 
-async function failStaleRuns(projectId: string): Promise<void> {
+/** Runs left active by a stopped process would otherwise show as in progress and block new runs. */
+export async function failStaleTestRuns(projectId: string): Promise<void> {
 	await testRunQueries.failStaleRuns({
 		projectId,
 		staleAfterMs: TEST_RUN_STALE_MS,
 		errorMessage: TEST_RUN_STALE_MESSAGE,
-		liveRunIds: [...liveRuns.keys()],
 	});
 }
 
@@ -256,6 +258,7 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 
 	const abortController = new AbortController();
 	liveRuns.set(run.id, abortController);
+	const heartbeat = setInterval(() => void recordHeartbeat(run), TEST_RUN_HEARTBEAT_MS);
 	try {
 		await mcpService.initializeMcpState(run.projectId);
 		await skillService.initializeSkills(run.projectId);
@@ -267,7 +270,19 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 	} catch (error) {
 		await testRunQueries.failRun(run.id, error instanceof Error ? error.message : String(error));
 	} finally {
+		clearInterval(heartbeat);
 		liveRuns.delete(run.id);
+	}
+}
+
+async function recordHeartbeat(run: DBTestRun): Promise<void> {
+	try {
+		await testRunQueries.recordHeartbeat(run.id);
+	} catch (error) {
+		logger.error(`Test run ${run.id} heartbeat failed: ${String(error)}`, {
+			source: 'agent',
+			projectId: run.projectId,
+		});
 	}
 }
 

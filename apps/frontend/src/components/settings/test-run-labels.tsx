@@ -40,7 +40,6 @@ const TONE_ICONS = {
 	error: TriangleAlert,
 } as const;
 
-/** The two sides of a comparison, named after their branches as in the Recent runs list. */
 export interface RunBranches {
 	main: string;
 	changes: string;
@@ -59,21 +58,19 @@ export function getMainBranch(draft: DraftContext | null): string {
 }
 
 /** A git branch, inline with the text around it so that its monospace name sits on the same baseline. */
-export function BranchName({ name, className }: { name: string; className?: string }) {
+export function BranchName({ name }: { name: string }) {
 	return (
-		<span className={cn('whitespace-nowrap', className)}>
+		<span className='whitespace-nowrap'>
 			<GitBranch aria-hidden className='mr-0.5 inline size-3 align-[-2px]' />
 			<BranchCode name={name} className='text-foreground' />
 		</span>
 	);
 }
 
-/** The monospace name of a branch, in the color of the text around it. */
 export function BranchCode({ name, className }: { name: string; className?: string }) {
 	return <span className={cn('font-mono text-[0.92em]', className)}>{name}</span>;
 }
 
-/** The title of one side of a compared attempt: whether it passed, on which branch, and what follows. */
 export function AttemptSideHeader({
 	result,
 	branch,

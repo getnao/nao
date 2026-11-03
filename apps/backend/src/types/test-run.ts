@@ -69,14 +69,14 @@ export interface TestRunResultDetails {
 	/** Rows in the order the verdict compares them, cut to the first stored rows. */
 	actualData: Record<string, unknown>[] | null;
 	expectedData: Record<string, unknown>[] | null;
-	/** Row counts before the rows were cut, missing on results recorded before they were stored. */
-	actualRowCount?: number | null;
-	expectedRowCount?: number | null;
+	/** Row counts before the rows were cut. */
+	actualRowCount: number | null;
+	expectedRowCount: number | null;
 	comparison: string | null;
 	referenceSql: string | null;
 	verificationSql: string | null;
-	/** The agent's queries the verification SQL reads from, missing on results recorded before they were stored. */
-	sourceQueries?: TestSourceQuery[] | null;
+	/** The agent's queries the verification SQL reads from. */
+	sourceQueries: TestSourceQuery[];
 }
 
 /** A query the agent ran in the chat, whose result the verification SQL selects from under its id. */

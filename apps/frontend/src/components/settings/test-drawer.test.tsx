@@ -49,9 +49,6 @@ vi.mock('@/main', () => ({
 		testRun: {
 			getModelStats: { queryOptions: () => ({ queryKey: ['model-stats'], queryFn: () => [] }) },
 			startRun: { mutationOptions: (options: object) => ({ mutationFn: mocks.startRun, ...options }) },
-			startComparisonRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
-			startChangesRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
-			startDraftRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
 			cancelRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
 			validateTestFile: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
 			listRuns: {
@@ -160,7 +157,8 @@ describe('TestDrawerLayout', () => {
 		expect(onSelectTab).toHaveBeenLastCalledWith('/tests/sales/churn.yml');
 		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
 		expect(mocks.startRun.mock.calls[0][0]).toEqual({
-			paths: ['sales/churn.yml'],
+			mode: 'production',
+			target: { paths: ['sales/churn.yml'] },
 			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
 			attempts: 1,
 		});

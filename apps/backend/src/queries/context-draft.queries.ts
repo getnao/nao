@@ -37,7 +37,6 @@ export async function saveDraftFile(
 		.execute();
 }
 
-/** Returns false when the draft already has a file at this path. */
 export async function addDraftFile(owner: DraftOwner, file: { path: string; content: string }): Promise<boolean> {
 	const inserted = await db
 		.insert(s.contextDraftFile)

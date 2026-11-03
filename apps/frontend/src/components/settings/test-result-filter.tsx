@@ -3,9 +3,8 @@ import { cn } from '@/lib/utils';
 export type TestResultFilter = 'all' | 'passed' | 'failed' | 'disagree';
 
 interface TestOutcome {
-	passed: number;
-	total: number;
-	/** The models of the run do not agree on this test, in a run of several models. */
+	passedAttempts: number;
+	totalAttempts: number;
 	modelsDisagree?: boolean;
 }
 
@@ -24,7 +23,6 @@ const FILTERS: { id: TestResultFilter; label: string; countClassName: string }[]
 	},
 ];
 
-/** Pills that narrow the tests of a run to the ones that passed or failed, with how many there are of each. */
 export function TestResultFilterPills({
 	outcomes,
 	filter,
@@ -74,9 +72,9 @@ export function matchesResultFilter(outcome: TestOutcome, filter: TestResultFilt
 		case 'all':
 			return true;
 		case 'passed':
-			return outcome.total > 0 && outcome.passed === outcome.total;
+			return outcome.totalAttempts > 0 && outcome.passedAttempts === outcome.totalAttempts;
 		case 'failed':
-			return outcome.total > 0 && outcome.passed < outcome.total;
+			return outcome.totalAttempts > 0 && outcome.passedAttempts < outcome.totalAttempts;
 		case 'disagree':
 			return outcome.modelsDisagree === true;
 	}

@@ -176,29 +176,38 @@ export const isIgnoredByNaoignore = (
 	if (isInNaoignoreExemptFolder(normalizedPath, options)) {
 		return false;
 	}
-	return loadNaoignorePatterns(projectFolder).some((pattern) => matchesNaoignorePattern(normalizedPath, pattern));
-};
 
-/**
- * Checks if a single .naoignore pattern matches a path relative to the project folder.
- */
-const matchesNaoignorePattern = (normalizedPath: string, pattern: string): boolean => {
-	// Handle directory patterns (ending with /)
-	if (pattern.endsWith('/')) {
-		const dirPattern = pattern.slice(0, -1);
-		// Check if path starts with or is exactly the directory
-		return (
-			normalizedPath === dirPattern ||
-			normalizedPath.startsWith(dirPattern + '/') ||
-			normalizedPath.split('/').includes(dirPattern)
-		);
+	const patterns = loadNaoignorePatterns(projectFolder);
+
+	for (const pattern of patterns) {
+		// Handle directory patterns (ending with /)
+		if (pattern.endsWith('/')) {
+			const dirPattern = pattern.slice(0, -1);
+			// Check if path starts with or is exactly the directory
+			if (
+				normalizedPath === dirPattern ||
+				normalizedPath.startsWith(dirPattern + '/') ||
+				normalizedPath.split('/').includes(dirPattern)
+			) {
+				return true;
+			}
+		} else {
+			// Use minimatch for glob pattern matching
+			// Match against the full path
+			if (minimatch(normalizedPath, pattern, { matchBase: true, dot: true })) {
+				return true;
+			}
+			// Also check if the pattern matches any directory in the path
+			if (minimatch(normalizedPath, `**/${pattern}`, { dot: true })) {
+				return true;
+			}
+			if (minimatch(normalizedPath, `**/${pattern}/**`, { dot: true })) {
+				return true;
+			}
+		}
 	}
-	// Match against the full path, then against any directory in the path
-	return (
-		minimatch(normalizedPath, pattern, { matchBase: true, dot: true }) ||
-		minimatch(normalizedPath, `**/${pattern}`, { dot: true }) ||
-		minimatch(normalizedPath, `**/${pattern}/**`, { dot: true })
-	);
+
+	return false;
 };
 
 const isInNaoignoreExemptFolder = (normalizedPath: string, options: NaoignoreOptions): boolean => {

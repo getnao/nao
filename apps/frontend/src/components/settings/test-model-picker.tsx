@@ -1,12 +1,13 @@
 import { getTestRunConcurrency } from '@nao/backend/test-run';
 import { pluralize } from '@nao/shared';
+import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Cpu, Minus, Plus } from 'lucide-react';
 
 import type { LlmSelectedModel } from '@nao/shared/types';
 import type { TestModelStats } from '@/components/settings/test-run-types';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
-import { formatDuration, formatUnitCost, isSameTestModel } from '@/components/settings/test-run-types';
+import { formatDuration, formatUnitCost } from '@/components/settings/test-run-types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
@@ -14,27 +15,23 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS } from '@/hooks/use-test-run-settings';
 import { trpc } from '@/main';
 
-/** Attempts the server runs at once for each model, to estimate how long a run takes. */
-
 interface TestModelPickerProps {
 	settings: TestRunSettings;
-	/** Tests the next run covers, to estimate it. */
 	testCount: number;
 	/** Context variants the next run tries, 2 when it compares the user's changes with production. */
 	variantCount: number;
 	disabled?: boolean;
 }
 
-/** Picks the models and attempts the tests run with, and estimates what the next run costs and takes. */
 export function TestModelPicker({ settings, testCount, variantCount, disabled }: TestModelPickerProps) {
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 	const stats = useQuery(trpc.testRun.getModelStats.queryOptions());
 	const { models, attempts } = settings;
 
 	const toggleModel = (model: LlmSelectedModel) => {
-		const isSelected = models.some((selected) => isSameTestModel(selected, model));
+		const isSelected = models.some((selected) => isSameModel(selected, model));
 		const nextModels = isSelected
-			? models.filter((selected) => !isSameTestModel(selected, model))
+			? models.filter((selected) => !isSameModel(selected, model))
 			: [...models, { provider: model.provider, modelId: model.modelId }];
 		if (nextModels.length > 0 && nextModels.length <= MAX_TEST_RUN_MODELS) {
 			settings.update({ models: nextModels });
@@ -74,7 +71,7 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 				</div>
 				<ul className='flex max-h-64 flex-col overflow-y-auto pb-1'>
 					{(availableModels.data ?? []).map((model) => {
-						const isSelected = models.some((selected) => isSameTestModel(selected, model));
+						const isSelected = models.some((selected) => isSameModel(selected, model));
 						return (
 							<li key={`${model.provider}:${model.modelId}`}>
 								<label className='flex cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-accent/50'>
@@ -210,5 +207,5 @@ function RunEstimate({
 }
 
 function findStats(stats: TestModelStats[] | undefined, model: LlmSelectedModel): TestModelStats | undefined {
-	return stats?.find((entry) => isSameTestModel(entry, model));
+	return stats?.find((entry) => isSameModel(entry, model));
 }

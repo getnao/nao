@@ -1,3 +1,4 @@
+import { TESTS_FOLDER, toTestPath } from '@nao/shared/test-paths';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -16,11 +17,10 @@ import {
 	getPreviousModelSummaries,
 	getTestHistory,
 	listRunsWithTestTotals,
-	withDataDiffs,
-	withSourceQueries,
 } from '../services/test-history.service';
 import {
 	cancelTestRun,
+	failStaleTestRuns,
 	startChangesRun,
 	startComparisonRun,
 	startTestRun,
@@ -33,7 +33,6 @@ import {
 	newTestFilePaths,
 	parseTestContent,
 	serializeTestFile,
-	toTestPath,
 } from '../services/test-suite.service';
 import { llmSelectedModelSchema } from '../types/llm';
 import {
@@ -49,18 +48,12 @@ import { draftOwnerOf, requireProjectPath } from './route-context';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with production.';
+const NOT_A_TEST_FILE_MESSAGE = `Tests are YAML files in the ${TESTS_FOLDER}/ folder.`;
 
 interface TestRunRouteContext {
 	project: { id: string };
 	user: { id: string; name: string; email: string };
 }
-
-const runSelectionSchema = z.object({
-	paths: z.array(z.string()).optional(),
-	tags: z.array(z.string()).optional(),
-	models: z.array(llmSelectedModelSchema).max(MAX_TEST_RUN_MODELS).optional(),
-	attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
-});
 
 const draftTestFileSchema = z.object({
 	path: z.string(),
@@ -69,14 +62,16 @@ const draftTestFileSchema = z.object({
 	}),
 });
 
-const draftRunSchema = draftTestFileSchema.extend({
-	models: runSelectionSchema.shape.models,
-	attempts: runSelectionSchema.shape.attempts,
-});
-
-const draftContextRunSchema = runSelectionSchema.extend({
-	/** A test being edited, run as it is in the editor rather than as saved in the draft. */
-	testFile: draftTestFileSchema.optional(),
+/**
+ * `production` runs against the production context, `changes` against it with the user's changes, and `compare`
+ * against both side by side. The target is a test being edited, run as it is in the editor, or saved tests, the
+ * whole suite when `paths` is omitted.
+ */
+const startRunSchema = z.object({
+	mode: z.enum(['production', 'changes', 'compare']),
+	target: z.union([z.object({ testFile: draftTestFileSchema }), z.object({ paths: z.array(z.string()).optional() })]),
+	models: z.array(llmSelectedModelSchema).max(MAX_TEST_RUN_MODELS).optional(),
+	attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
 });
 
 export const testRunRoutes = {
@@ -90,9 +85,16 @@ export const testRunRoutes = {
 		};
 	}),
 
-	startRun: cloudBillingContextAdminProcedure.input(runSelectionSchema).mutation(async ({ ctx, input }) => {
+	startRun: cloudBillingContextAdminProcedure.input(startRunSchema).mutation(async ({ ctx, input }) => {
+		const { mode, target, ...settings } = input;
+		const runInput = { ...settings, ...parseRunTarget(target), projectId: ctx.project.id, userId: ctx.user.id };
+		const draft = mode === 'production' ? null : await requireUserDraft(ctx);
 		try {
-			return await startTestRun({ ...input, projectId: ctx.project.id, userId: ctx.user.id });
+			if (!draft) {
+				return await startTestRun(runInput);
+			}
+			const startDraftContextRun = mode === 'compare' ? startComparisonRun : startChangesRun;
+			return await startDraftContextRun({ ...runInput, draft });
 		} catch (error) {
 			throw toTestRunTrpcError(error);
 		}
@@ -111,27 +113,21 @@ export const testRunRoutes = {
 		}
 	}),
 
-	startComparisonRun: cloudBillingContextAdminProcedure
-		.input(draftContextRunSchema)
-		.mutation(({ ctx, input }) => startRunWithDraft(ctx, input, startComparisonRun)),
-
-	startChangesRun: cloudBillingContextAdminProcedure
-		.input(draftContextRunSchema)
-		.mutation(({ ctx, input }) => startRunWithDraft(ctx, input, startChangesRun)),
-
-	listRuns: contextAdminProtectedProcedure.query(({ ctx }) => listRunsWithTestTotals(ctx.project.id)),
+	listRuns: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		await failStaleTestRuns(ctx.project.id);
+		return listRunsWithTestTotals(ctx.project.id);
+	}),
 
 	getRun: contextAdminProtectedProcedure.input(z.object({ runId: z.string() })).query(async ({ ctx, input }) => {
 		const run = await getProjectRun(ctx.project.id, input.runId);
-		const storedResults = await withSourceQueries(await testRunQueries.listResults(run.id));
-		const results = withDataDiffs(storedResults, projectTolerances(ctx.project.path));
+		const results = await testRunQueries.listResultOutcomes(run.id);
 		return {
 			...run,
 			results,
 			comparison:
 				run.trigger === 'comparison' ? compareContextVariants(results, run.models.length * run.attempts) : null,
-			modelSummaries: summarizeModels(storedResults),
-			previousModelSummaries: await getPreviousModelSummaries(run, storedResults),
+			modelSummaries: summarizeModels(results),
+			previousModelSummaries: await getPreviousModelSummaries(run, results),
 		};
 	}),
 
@@ -142,29 +138,14 @@ export const testRunRoutes = {
 		.query(async ({ ctx, input }) => {
 			const testPath = toTestPath(input.path);
 			if (!testPath) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Tests are YAML files in the tests/ folder.' });
+				throw new TRPCError({ code: 'BAD_REQUEST', message: NOT_A_TEST_FILE_MESSAGE });
 			}
 			return getTestHistory(ctx.project.id, testPath, projectTolerances(ctx.project.path));
 		}),
 
 	validateTestFile: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(({ input }) => {
-		const parsed = parseDraftTest(input.path, input.content);
+		const parsed = parseDraftTest(input);
 		return isInvalidTestFile(parsed) ? { test: null, error: parsed.error } : { test: parsed, error: null };
-	}),
-
-	startDraftRun: cloudBillingContextAdminProcedure.input(draftRunSchema).mutation(async ({ ctx, input }) => {
-		const test = parseValidDraftTest(input.path, input.content);
-		try {
-			return await startTestRun({
-				projectId: ctx.project.id,
-				userId: ctx.user.id,
-				tests: [test],
-				models: input.models,
-				attempts: input.attempts,
-			});
-		} catch (error) {
-			throw toTestRunTrpcError(error);
-		}
 	}),
 
 	createTestFile: cloudBillingContextAdminProcedure
@@ -191,23 +172,17 @@ export const testRunRoutes = {
 		}),
 };
 
-async function startRunWithDraft(
-	ctx: TestRunRouteContext & { project: { path: string | null } },
-	input: z.infer<typeof draftContextRunSchema>,
-	startRun: typeof startComparisonRun,
-) {
+function parseRunTarget(target: z.infer<typeof startRunSchema>['target']) {
+	return 'testFile' in target ? { tests: [parseValidDraftTest(target.testFile)] } : { paths: target.paths };
+}
+
+async function requireUserDraft(ctx: TestRunRouteContext & { project: { path: string | null } }): Promise<DraftSource> {
 	const projectFolder = requireProjectPath(ctx.project.path);
-	const { testFile, ...selection } = input;
-	const tests = testFile ? [parseValidDraftTest(testFile.path, testFile.content)] : undefined;
 	const draft = await readUserDraft(ctx, projectFolder, createStrictFileAccess);
 	if ('message' in draft) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: draft.message });
 	}
-	try {
-		return await startRun({ ...selection, tests, projectId: ctx.project.id, userId: ctx.user.id, draft });
-	} catch (error) {
-		throw toTestRunTrpcError(error);
-	}
+	return draft;
 }
 
 /** Without a context repository nao keeps the draft, otherwise it is the user's File Explorer worktree. */
@@ -229,16 +204,16 @@ async function readUserDraft(
 	return readGitDraft(access.git.repo, projectFolder);
 }
 
-function parseDraftTest(projectPath: string, content: string) {
-	const testPath = toTestPath(projectPath);
+function parseDraftTest(testFile: z.infer<typeof draftTestFileSchema>) {
+	const testPath = toTestPath(testFile.path);
 	if (!testPath) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Tests are YAML files in the tests/ folder.' });
+		throw new TRPCError({ code: 'BAD_REQUEST', message: NOT_A_TEST_FILE_MESSAGE });
 	}
-	return parseTestContent(testPath, content);
+	return parseTestContent(testPath, testFile.content);
 }
 
-function parseValidDraftTest(projectPath: string, content: string) {
-	const parsed = parseDraftTest(projectPath, content);
+function parseValidDraftTest(testFile: z.infer<typeof draftTestFileSchema>) {
+	const parsed = parseDraftTest(testFile);
 	if (isInvalidTestFile(parsed)) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error });
 	}

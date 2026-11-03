@@ -16,7 +16,6 @@ import { cn } from '@/lib/utils';
 
 type AttemptTab = 'data' | 'answer' | 'sql';
 
-/** One attempt of a run, or in a comparison the same attempt on both branches. */
 export type ShownAttempt =
 	| { kind: 'single'; attempt: number; result: TestRunResult }
 	| { kind: 'comparison'; attempt: number; production: TestRunResult | null; draft: TestRunResult | null };
@@ -29,7 +28,6 @@ const ATTEMPT_TABS: { id: AttemptTab; label: string }[] = [
 
 const REFERENCE_SIDES = { removed: 'the reference', added: "the agent's answer" };
 
-/** What an attempt answered: its data against the reference or the other branch, its chat and its SQL. */
 export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: ShownAttempt; branches: RunBranches }) {
 	const [tab, setTab] = useState<AttemptTab>(() =>
 		listAttemptResults(shownAttempt).some((result) => result.details?.referenceSql) ? 'data' : 'answer',
@@ -102,7 +100,6 @@ export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: S
 	);
 }
 
-/** Opens the chat of an attempt, to replay how the agent answered. */
 function AttemptChatLink({ result }: { result: TestRunResult }) {
 	if (!result.chatId) {
 		return null;
@@ -171,7 +168,6 @@ function AttemptData({ result }: { result: TestRunResult }) {
 	);
 }
 
-/** The rows of the attempt with the user's changes against the same attempt on the main branch. */
 function ComparedAttemptData({
 	production,
 	draft,

@@ -1,31 +1,34 @@
 import { CircleDashed } from 'lucide-react';
 
+import type { ComponentProps } from 'react';
+
 import type { DraftContext, TestComparisonChange, VariantOutcome } from '@/components/settings/test-run-types';
+import type { Tone } from '@/components/settings/test-run-verdict';
 import { TONE_COLORS, ToneIcon } from '@/components/settings/test-run-labels';
-import { outcomeTone } from '@/components/settings/test-run-verdict';
+import { COMPARISON_CHANGES, outcomeTone } from '@/components/settings/test-run-verdict';
 import { Badge } from '@/components/ui/badge';
 import { Callout } from '@/components/ui/callout';
 import { cn } from '@/lib/utils';
 
-const CHANGE_BADGES: Record<
-	TestComparisonChange,
-	{ label: string; variant: 'success' | 'error' | 'viewer' | 'secondary' }
-> = {
-	regressed: { label: 'Regressed', variant: 'error' },
-	worsened: { label: 'Less reliable', variant: 'error' },
-	fixed: { label: 'Fixed', variant: 'success' },
-	improved: { label: 'More reliable', variant: 'success' },
-	unchanged: { label: 'No change', variant: 'viewer' },
-	pending: { label: 'Running', variant: 'secondary' },
+type BadgeVariant = ComponentProps<typeof Badge>['variant'];
+
+const TONE_BADGES: Record<Tone, BadgeVariant> = {
+	pass: 'success',
+	fail: 'error',
+	mixed: 'context_admin',
+	pending: 'secondary',
+	neutral: 'viewer',
+	cancelled: 'viewer',
+	error: 'error',
 };
 
-/** How the user's changes moved a test, from its attempts on production and with the changes. */
+const RUNNING_CHANGE = { tone: 'pending', label: 'Running' } as const;
+
 export function ComparisonChangeBadge({ change, isActive }: { change: TestComparisonChange; isActive: boolean }) {
-	const badge = CHANGE_BADGES[change];
-	return <Badge variant={badge.variant}>{change === 'pending' && !isActive ? 'Incomplete' : badge.label}</Badge>;
+	const { tone, label } = change === 'pending' && isActive ? RUNNING_CHANGE : COMPARISON_CHANGES[change];
+	return <Badge variant={TONE_BADGES[tone]}>{label}</Badge>;
 }
 
-/** The attempts of a test that passed against one context, or that it still waits for them. */
 export function VariantOutcomeCell({
 	outcome,
 	attemptsPerVariant,
@@ -33,7 +36,7 @@ export function VariantOutcomeCell({
 	outcome: VariantOutcome;
 	attemptsPerVariant: number;
 }) {
-	if (outcome.total === 0) {
+	if (outcome.totalAttempts === 0) {
 		return (
 			<span className='flex items-center gap-1 text-xs text-muted-foreground'>
 				<CircleDashed className='size-3.5' />
@@ -41,13 +44,13 @@ export function VariantOutcomeCell({
 			</span>
 		);
 	}
-	const tone = outcomeTone(outcome.passed, outcome.total);
+	const tone = outcomeTone(outcome.passedAttempts, outcome.totalAttempts);
 	const label =
 		attemptsPerVariant === 1
 			? tone === 'pass'
 				? 'Passed'
 				: 'Failed'
-			: `${outcome.passed}/${outcome.total} passed`;
+			: `${outcome.passedAttempts}/${outcome.totalAttempts} passed`;
 	return (
 		<span className={cn('flex items-center gap-1 text-xs', TONE_COLORS[tone])}>
 			<ToneIcon tone={tone} />

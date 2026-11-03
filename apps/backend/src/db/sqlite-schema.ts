@@ -1252,6 +1252,10 @@ export const testRun = sqliteTable(
 			.notNull(),
 		startedAt: integer('started_at', { mode: 'timestamp_ms' }),
 		completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+		/** Refreshed by the process executing the run, so other processes can tell a run left behind by a restart. */
+		heartbeatAt: integer('heartbeat_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
 	},
 	(t) => [
 		index('test_run_projectId_idx').on(t.projectId),

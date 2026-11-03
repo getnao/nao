@@ -10,9 +10,11 @@ import {
 	createRunUnlessActive,
 	failStaleRuns,
 	getRunStatus,
-	listResults,
+	listResultOutcomes,
+	listRunsOfTest,
 	listTestAttemptTotals,
 	markRunRunning,
+	recordHeartbeat,
 	recordResultWhileRunning,
 } from '../src/queries/test-run.queries';
 
@@ -42,12 +44,13 @@ vi.mock('../src/db/db', async () => {
 });
 
 const PROJECT_ID = 'test-run-project';
-const SIX_HOURS_MS = 6 * 60 * 60_000;
+const STALE_AFTER_MS = 2 * 60_000;
 const RUN_INPUT = {
 	projectId: PROJECT_ID,
 	models: [{ provider: 'openai' as const, modelId: 'gpt-4.1' }],
 	totalAttempts: 1,
 };
+const STALE_INPUT = { projectId: PROJECT_ID, staleAfterMs: STALE_AFTER_MS, errorMessage: 'interrupted' };
 
 describe('test run queries', () => {
 	beforeAll(async () => {
@@ -82,26 +85,51 @@ describe('test run queries', () => {
 
 		const [stored] = await db.select().from(s.testRun).where(eq(s.testRun.id, run.id)).execute();
 		expect(stored).toMatchObject({ completedAttempts: 1, passedAttempts: 1, totalTokens: 10 });
-		expect((await listResults(run.id)).map((result) => result.attempt)).toEqual([1]);
+		expect(await listResultOutcomes(run.id)).toHaveLength(1);
 	});
 
-	it('fails runs queued or started too long ago, except the ones this process is executing', async () => {
-		const longAgo = new Date(Date.now() - SIX_HOURS_MS - 60_000);
+	it('fails the active runs whose process stopped refreshing their heartbeat', async () => {
+		const longAgo = new Date(Date.now() - STALE_AFTER_MS - 60_000);
 		const queued = (await createRunUnlessActive(RUN_INPUT))!;
-		await db.update(s.testRun).set({ createdAt: longAgo }).where(eq(s.testRun.id, queued.id)).execute();
+		await db.update(s.testRun).set({ heartbeatAt: longAgo }).where(eq(s.testRun.id, queued.id)).execute();
 
-		await expect(failStaleRuns(staleInput([]))).resolves.toBe(1);
+		await expect(failStaleRuns(STALE_INPUT)).resolves.toBe(1);
 		await expect(getRunStatus(queued.id)).resolves.toBe('failed');
 
 		const live = (await createRunUnlessActive(RUN_INPUT))!;
 		await markRunRunning(live.id, 1);
-		await db.update(s.testRun).set({ createdAt: longAgo }).where(eq(s.testRun.id, live.id)).execute();
+		await db
+			.update(s.testRun)
+			.set({ createdAt: longAgo, startedAt: longAgo })
+			.where(eq(s.testRun.id, live.id))
+			.execute();
 
-		await expect(failStaleRuns(staleInput([]))).resolves.toBe(0);
+		await expect(failStaleRuns(STALE_INPUT)).resolves.toBe(0);
 
-		await db.update(s.testRun).set({ startedAt: longAgo }).where(eq(s.testRun.id, live.id)).execute();
-		await expect(failStaleRuns(staleInput([live.id]))).resolves.toBe(0);
-		await expect(failStaleRuns(staleInput([]))).resolves.toBe(1);
+		await db.update(s.testRun).set({ heartbeatAt: longAgo }).where(eq(s.testRun.id, live.id)).execute();
+		await recordHeartbeat(live.id);
+		await expect(failStaleRuns(STALE_INPUT)).resolves.toBe(0);
+
+		await db.update(s.testRun).set({ heartbeatAt: longAgo }).where(eq(s.testRun.id, live.id)).execute();
+		await expect(failStaleRuns(STALE_INPUT)).resolves.toBe(1);
+	});
+
+	it('lists the runs that selected a test, newest first, even before they recorded a result of it', async () => {
+		const older = (await createRunUnlessActive({ ...RUN_INPUT, selection: ['revenue.yml', 'orders.yml'] }))!;
+		await cancelRun(older.id);
+		const other = (await createRunUnlessActive({ ...RUN_INPUT, selection: ['orders.yml'] }))!;
+		await cancelRun(other.id);
+		const newer = (await createRunUnlessActive({ ...RUN_INPUT, selection: ['revenue.yml'] }))!;
+		await db
+			.update(s.testRun)
+			.set({ createdAt: new Date(Date.now() - 60_000) })
+			.where(eq(s.testRun.id, older.id))
+			.execute();
+
+		const runs = await listRunsOfTest(PROJECT_ID, 'revenue.yml', 10);
+
+		expect(runs.map((run) => run.id)).toEqual([newer.id, older.id]);
+		expect(await listRunsOfTest(PROJECT_ID, 'revenue.yml', 1)).toHaveLength(1);
 	});
 
 	it('totals the attempts of each test of a comparison run per context variant', async () => {
@@ -129,7 +157,7 @@ describe('test run queries', () => {
 				}),
 			]),
 		);
-		expect((await listResults(run.id)).map((result) => result.contextVariant)).toEqual([
+		expect((await listResultOutcomes(run.id)).map((result) => result.contextVariant)).toEqual([
 			'production',
 			'draft',
 			'draft',
@@ -150,8 +178,4 @@ function attemptResult(runId: string, attempt: number) {
 		message: 'match',
 		totalTokens: 10,
 	};
-}
-
-function staleInput(liveRunIds: string[]) {
-	return { projectId: PROJECT_ID, staleAfterMs: SIX_HOURS_MS, errorMessage: 'interrupted', liveRunIds };
 }

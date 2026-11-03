@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, useBlocker, useNavigate } from '@tanstack/react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDefaultLayout } from 'react-resizable-panels';
+import { isTestFilePath } from '@nao/shared/test-paths';
 import type { ShouldBlockFn } from '@tanstack/react-router';
 
 import type { FileSelectionOptions } from '@/components/settings/file-tree';
@@ -12,7 +13,6 @@ import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { FileTree } from '@/components/settings/file-tree';
 import { FileViewer } from '@/components/settings/file-viewer';
 import { TestDrawerLayout } from '@/components/settings/test-drawer';
-import { isTestFilePath } from '@/components/settings/test-run-types';
 import {
 	AlertDialog,
 	AlertDialogAction,

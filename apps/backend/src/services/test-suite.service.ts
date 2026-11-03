@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { isTestFileName, TEST_OUTPUTS_FOLDER, TESTS_FOLDER, toExplorerTestPath } from '@nao/shared/test-paths';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
@@ -12,10 +13,6 @@ import {
 	type TestDefinition,
 	type TestSuite,
 } from '../types/test-run';
-
-const TESTS_FOLDER = 'tests';
-const OUTPUTS_FOLDER = 'outputs';
-const TEST_FILE_EXTENSIONS = new Set(['.yml', '.yaml']);
 
 const testFileSchema = z.object({
 	name: z.string().trim().min(1).nullish(),
@@ -48,18 +45,6 @@ export function isInvalidTestFile(parsed: TestDefinition | InvalidTestFile): par
 	return 'error' in parsed;
 }
 
-/** The path of a test relative to the tests folder, or null when the project path is not a test file. */
-export function toTestPath(projectPath: string): string | null {
-	const normalized = projectPath.replaceAll('\\', '/').replace(/^\/+/, '');
-	if (!normalized.startsWith(`${TESTS_FOLDER}/`)) {
-		return null;
-	}
-	const relativePath = normalized.slice(TESTS_FOLDER.length + 1);
-	const isTestFile = TEST_FILE_EXTENSIONS.has(path.extname(relativePath));
-	const isInOutputs = relativePath.split('/').slice(0, -1).includes(OUTPUTS_FOLDER);
-	return isTestFile && !isInOutputs && !relativePath.split('/').includes('..') ? relativePath : null;
-}
-
 export function serializeTestFile(test: NewTestFile): string {
 	const document: Record<string, unknown> = { name: test.name, prompt: test.prompt };
 	if (test.sql) {
@@ -87,7 +72,7 @@ export function newTestFilePaths(name: string, maxCandidates = 20): string[] {
 			.replace(/^-+|-+$/g, '')
 			.slice(0, 60) || 'test';
 	return Array.from({ length: maxCandidates }, (_, index) =>
-		index === 0 ? `/${TESTS_FOLDER}/${slug}.yml` : `/${TESTS_FOLDER}/${slug}-${index + 1}.yml`,
+		toExplorerTestPath(index === 0 ? `${slug}.yml` : `${slug}-${index + 1}.yml`),
 	);
 }
 
@@ -116,9 +101,11 @@ function collectTestFiles(folder: string, relativeFolder: string): string[] {
 	return fs.readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
 		const relativePath = relativeFolder ? `${relativeFolder}/${entry.name}` : entry.name;
 		if (entry.isDirectory()) {
-			return entry.name === OUTPUTS_FOLDER ? [] : collectTestFiles(path.join(folder, entry.name), relativePath);
+			return entry.name === TEST_OUTPUTS_FOLDER
+				? []
+				: collectTestFiles(path.join(folder, entry.name), relativePath);
 		}
-		return entry.isFile() && TEST_FILE_EXTENSIONS.has(path.extname(entry.name)) ? [relativePath] : [];
+		return entry.isFile() && isTestFileName(entry.name) ? [relativePath] : [];
 	});
 }
 
@@ -132,7 +119,6 @@ function parseTestFile(testsFolder: string, relativePath: string): TestDefinitio
 	return parseTestContent(relativePath, content);
 }
 
-/** Parses a test from its YAML content, given its path relative to the tests folder. */
 export function parseTestContent(relativePath: string, content: string): TestDefinition | InvalidTestFile {
 	let data: unknown;
 	try {

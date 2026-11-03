@@ -27,9 +27,6 @@ vi.mock('@/main', () => ({
 				queryKey: (input: { path: string }) => ['test-history', input.path],
 			},
 			startRun: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.startRun }) },
-			startDraftRun: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.startRun }) },
-			startComparisonRun: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.startRun }) },
-			startChangesRun: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.startRun }) },
 		},
 	},
 }));
@@ -129,7 +126,11 @@ describe('TestWorkbench', () => {
 		fireEvent.click(compare);
 
 		await vi.waitFor(() => expect(onRunStarted).toHaveBeenCalled());
-		expect(mocks.startRun.mock.calls[0][0]).toMatchObject({ testFile: TEST_FILE, attempts: 1 });
+		expect(mocks.startRun.mock.calls[0][0]).toMatchObject({
+			mode: 'compare',
+			target: { testFile: TEST_FILE },
+			attempts: 1,
+		});
 	});
 
 	it('stops showing the variants as loading once the run is cancelled', async () => {
@@ -140,8 +141,8 @@ describe('TestWorkbench', () => {
 				comparison: {
 					testPath: 'revenue.yml',
 					testName: 'revenue',
-					production: { passed: 0, total: 0 },
-					draft: { passed: 0, total: 0 },
+					production: { passedAttempts: 0, totalAttempts: 0 },
+					draft: { passedAttempts: 0, totalAttempts: 0 },
 					change: 'pending',
 				},
 			},
@@ -273,11 +274,15 @@ function comparisonRun(results: TestRunResult[]): TestHistoryRun {
 		comparison: {
 			testPath: 'revenue.yml',
 			testName: 'revenue',
-			production: { passed: production.filter((entry) => entry.passed).length, total: production.length },
-			draft: { passed: draft.filter((entry) => entry.passed).length, total: draft.length },
+			production: countAttempts(production),
+			draft: countAttempts(draft),
 			change: 'regressed',
 		},
 	} as unknown as TestHistoryRun;
+}
+
+function countAttempts(results: TestRunResult[]) {
+	return { passedAttempts: results.filter((entry) => entry.passed).length, totalAttempts: results.length };
 }
 
 function countTestAttempts(results: TestRunResult[]) {
@@ -326,9 +331,12 @@ function result({
 			responseText: 'The revenue is 100.',
 			actualData: [{ total: actualTotal }],
 			expectedData: [{ total: 100 }],
+			actualRowCount: 1,
+			expectedRowCount: 1,
 			comparison: null,
 			referenceSql: 'select 100 as total',
 			verificationSql: 'select sum(amount) as total from orders',
+			sourceQueries: [],
 		},
 		dataDiff: totalDiff(100, actualTotal),
 		variantDiff: null,

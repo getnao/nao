@@ -44,7 +44,6 @@ export interface TradeoffSeries {
 	/** Where the model was before, on production, or null when the run has nothing to compare it with. */
 	before: TradeoffPoint | null;
 	after: TradeoffPoint;
-	/** Says what changed, next to the label. */
 	change: string | null;
 	/** Lines of the tooltip shown on hover. */
 	details: string[];

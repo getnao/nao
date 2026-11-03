@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	getProjectById: vi.fn(),
 	failStaleRuns: vi.fn(),
+	recordHeartbeat: vi.fn(),
 	createRunUnlessActive: vi.fn(),
 	markRunRunning: vi.fn(),
 	getRunStatus: vi.fn(),
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../src/queries/project.queries', () => ({ getProjectById: mocks.getProjectById }));
 vi.mock('../src/queries/test-run.queries', () => ({
 	failStaleRuns: mocks.failStaleRuns,
+	recordHeartbeat: mocks.recordHeartbeat,
 	createRunUnlessActive: mocks.createRunUnlessActive,
 	markRunRunning: mocks.markRunRunning,
 	getRunStatus: mocks.getRunStatus,

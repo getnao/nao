@@ -1,8 +1,8 @@
+import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 
 import type { LlmSelectedModel } from '@nao/shared/types';
-import { isSameTestModel } from '@/components/settings/test-run-types';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 
@@ -34,7 +34,7 @@ export function useTestRunSettings(): TestRunSettings {
 
 	const stored = projectId ? testRunSettingsStorage(projectId).get() : null;
 	const availableStoredModels = stored?.models.filter(
-		(model) => !availableModels.data || availableModels.data.some((available) => isSameTestModel(available, model)),
+		(model) => !availableModels.data || availableModels.data.some((available) => isSameModel(available, model)),
 	);
 	const projectModels = suite.data?.settings.models ?? (defaultModel.data ? [defaultModel.data] : []);
 	const models = availableStoredModels?.length ? availableStoredModels : projectModels;

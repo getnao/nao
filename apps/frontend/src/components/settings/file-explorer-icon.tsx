@@ -23,8 +23,8 @@ import {
 	IconTerminal2,
 	IconTestPipe,
 } from '@tabler/icons-react';
+import { isTestFilePath } from '@nao/shared/test-paths';
 
-import { isTestFilePath } from '@/components/settings/test-run-types';
 import { cn } from '@/lib/utils';
 
 interface FileExplorerIconProps {

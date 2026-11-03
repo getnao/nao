@@ -104,7 +104,6 @@ function DiffGrid({ diff, rows, sides }: { diff: TestDataDiff; rows: GridRow[]; 
 	);
 }
 
-/** A column header like a spreadsheet's: its name, a sort arrow once sorted or hovered, and a border to drag. */
 function DiffGridHeader({ header, isMissing }: { header: Header<GridRow, unknown>; isMissing: boolean }) {
 	const { column } = header;
 	const sorted = column.getIsSorted();
@@ -205,7 +204,6 @@ function buildColumns(diff: TestDataDiff, sides: DiffSides): ColumnDef<GridRow>[
 	return [gutterColumn, ...dataColumns];
 }
 
-/** The row number, as in a spreadsheet, or the mark of a row that differs between the two sides. */
 function RowGutter({ kind, position, sides }: { kind: RowKind; position: number; sides: DiffSides }) {
 	const marker = ROW_MARKERS[kind];
 	return (

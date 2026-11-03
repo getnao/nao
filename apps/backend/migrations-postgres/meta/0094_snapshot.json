@@ -10440,6 +10440,13 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
+        },
+        "heartbeat_at": {
+          "name": "heartbeat_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {

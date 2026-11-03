@@ -18,6 +18,7 @@
 		"./date": "./src/date.ts",
 		"./keyboard-shortcut": "./src/keyboard-shortcut.ts",
 		"./map": "./src/map.ts",
+		"./test-paths": "./src/test-paths.ts",
 		"./types": "./src/types.ts",
 		"./member-budget": "./src/member-budget.ts",
 		"./posthog": "./src/posthog.ts",

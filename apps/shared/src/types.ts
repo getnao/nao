@@ -245,6 +245,15 @@ export type LlmSelectedModel = {
 	modelId: string;
 };
 
+export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
+	return model.provider === other.provider && model.modelId === other.modelId;
+}
+
+/** The model a stored result names in its own columns, under the shape of a selected model. */
+export function resultModel(result: { llmProvider: LlmProvider; llmModelId: string }): LlmSelectedModel {
+	return { provider: result.llmProvider, modelId: result.llmModelId };
+}
+
 export type SummarySegment =
 	| { type: 'text'; content: string }
 	| {

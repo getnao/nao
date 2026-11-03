@@ -1,14 +1,23 @@
-import { and, asc, desc, eq, gte, inArray, lte, max, notInArray, or, sql } from 'drizzle-orm';
+import type { LlmSelectedModel } from '@nao/shared/types';
+import { and, asc, desc, eq, gte, inArray, lt, lte, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { DBTestRun, DBTestRunResult, NewTestRun, NewTestRunResult } from '../db/abstractSchema';
 import { db } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 
 const ACTIVE_STATUSES: DBTestRun['status'][] = ['queued', 'running'];
+
+type TestRunWithAuthor = DBTestRun & { triggeredByName: string | null };
 const DEFAULT_RUN_LIST_LIMIT = 50;
 
 /** Returns null when the project already has an active run, which a partial unique index enforces. */
 export async function createRunUnlessActive(input: NewTestRun): Promise<DBTestRun | null> {
-	const [run] = await db.insert(s.testRun).values(input).onConflictDoNothing().returning().execute();
+	const [run] = await db
+		.insert(s.testRun)
+		.values({ ...input, heartbeatAt: new Date() })
+		.onConflictDoNothing()
+		.returning()
+		.execute();
 	return run ?? null;
 }
 
@@ -32,19 +41,8 @@ export async function getRunStatus(runId: string): Promise<DBTestRun['status'] |
 	return run?.status ?? null;
 }
 
-export async function listRuns(
-	projectId: string,
-	limit = DEFAULT_RUN_LIST_LIMIT,
-): Promise<(DBTestRun & { triggeredByName: string | null })[]> {
-	const rows = await db
-		.select({ run: s.testRun, triggeredByName: s.user.name })
-		.from(s.testRun)
-		.leftJoin(s.user, eq(s.user.id, s.testRun.triggeredByUserId))
-		.where(eq(s.testRun.projectId, projectId))
-		.orderBy(desc(s.testRun.createdAt))
-		.limit(limit)
-		.execute();
-	return rows.map(({ run, triggeredByName }) => ({ ...run, triggeredByName }));
+export async function listRuns(projectId: string, limit = DEFAULT_RUN_LIST_LIMIT): Promise<TestRunWithAuthor[]> {
+	return selectRunsWithAuthor(eq(s.testRun.projectId, projectId), limit);
 }
 
 /**
@@ -109,7 +107,6 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 		.execute();
 }
 
-/** Passed and recorded attempts of each test of each run, per context variant and model. */
 export async function listTestAttemptTotals(runIds: string[]) {
 	if (runIds.length === 0) {
 		return [];
@@ -136,7 +133,6 @@ export async function listTestAttemptTotals(runIds: string[]) {
 		.execute();
 }
 
-/** Average cost and duration of an attempt of each model in the project's runs since a date. */
 export async function listRecentModelStats(projectId: string, since: Date) {
 	return db
 		.select({
@@ -153,9 +149,24 @@ export async function listRecentModelStats(projectId: string, since: Date) {
 		.execute();
 }
 
-export async function listResults(runId: string): Promise<DBTestRunResult[]> {
+/** The results of a run without their stored details, which only the view of a single attempt shows. */
+export async function listResultOutcomes(runId: string) {
 	return db
-		.select()
+		.select({
+			id: s.testRunResult.id,
+			testPath: s.testRunResult.testPath,
+			testName: s.testRunResult.testName,
+			llmProvider: s.testRunResult.llmProvider,
+			llmModelId: s.testRunResult.llmModelId,
+			contextVariant: s.testRunResult.contextVariant,
+			passed: s.testRunResult.passed,
+			message: s.testRunResult.message,
+			errorMessage: s.testRunResult.errorMessage,
+			totalTokens: s.testRunResult.totalTokens,
+			totalCost: s.testRunResult.totalCost,
+			durationMs: s.testRunResult.durationMs,
+			toolCallCount: s.testRunResult.toolCallCount,
+		})
 		.from(s.testRunResult)
 		.where(eq(s.testRunResult.runId, runId))
 		.orderBy(
@@ -164,6 +175,73 @@ export async function listResults(runId: string): Promise<DBTestRunResult[]> {
 			asc(s.testRunResult.attempt),
 			desc(s.testRunResult.contextVariant),
 		)
+		.execute();
+}
+
+/** The project's latest runs that selected a test, newest first, including those that recorded no result of it yet. */
+export async function listRunsOfTest(projectId: string, testPath: string, limit: number): Promise<TestRunWithAuthor[]> {
+	return selectRunsWithAuthor(and(eq(s.testRun.projectId, projectId), selectionIncludes(testPath)), limit);
+}
+
+/**
+ * The production attempts of some models on some tests, in the latest completed runs of the test suite created before
+ * a date, newest run first.
+ */
+export async function listEarlierModelAttempts(input: {
+	projectId: string;
+	createdBefore: Date;
+	testPaths: string[];
+	models: LlmSelectedModel[];
+	scannedRuns: number;
+}) {
+	if (input.testPaths.length === 0 || input.models.length === 0) {
+		return [];
+	}
+	const earlierRuns = db
+		.select({ id: s.testRun.id })
+		.from(s.testRun)
+		.where(
+			and(
+				eq(s.testRun.projectId, input.projectId),
+				eq(s.testRun.status, 'completed'),
+				eq(s.testRun.trigger, 'manual'),
+				lt(s.testRun.createdAt, input.createdBefore),
+			),
+		)
+		.orderBy(desc(s.testRun.createdAt))
+		.limit(input.scannedRuns);
+	return db
+		.select({
+			runId: s.testRunResult.runId,
+			runCreatedAt: s.testRun.createdAt,
+			testPath: s.testRunResult.testPath,
+			llmProvider: s.testRunResult.llmProvider,
+			llmModelId: s.testRunResult.llmModelId,
+			contextVariant: s.testRunResult.contextVariant,
+			passed: s.testRunResult.passed,
+			totalCost: s.testRunResult.totalCost,
+			totalTokens: s.testRunResult.totalTokens,
+			durationMs: s.testRunResult.durationMs,
+			toolCallCount: s.testRunResult.toolCallCount,
+		})
+		.from(s.testRunResult)
+		.innerJoin(s.testRun, eq(s.testRun.id, s.testRunResult.runId))
+		.where(
+			and(
+				inArray(s.testRunResult.runId, earlierRuns),
+				eq(s.testRunResult.contextVariant, 'production'),
+				inArray(s.testRunResult.testPath, input.testPaths),
+				or(
+					...input.models.map((model) =>
+						and(
+							eq(s.testRunResult.llmProvider, model.provider),
+							eq(s.testRunResult.llmModelId, model.modelId),
+						),
+					),
+				),
+			),
+		)
+		.orderBy(desc(s.testRun.createdAt))
 		.execute();
 }
 
@@ -182,7 +260,7 @@ export async function listResultsOfTest(runIds: string[], testPath: string): Pro
 export async function markRunRunning(runId: string, totalAttempts: number): Promise<boolean> {
 	const rows = await db
 		.update(s.testRun)
-		.set({ status: 'running', startedAt: new Date(), totalAttempts })
+		.set({ status: 'running', startedAt: new Date(), heartbeatAt: new Date(), totalAttempts })
 		.where(and(eq(s.testRun.id, runId), eq(s.testRun.status, 'queued')))
 		.returning({ id: s.testRun.id })
 		.execute();
@@ -237,31 +315,52 @@ export async function cancelRun(runId: string): Promise<boolean> {
 	return rows.length > 0;
 }
 
+export async function recordHeartbeat(runId: string): Promise<void> {
+	await db
+		.update(s.testRun)
+		.set({ heartbeatAt: new Date() })
+		.where(and(eq(s.testRun.id, runId), inArray(s.testRun.status, ACTIVE_STATUSES)))
+		.execute();
+}
+
 /**
- * Fails runs left active by a server restart, which would otherwise block new runs forever.
- * Queued runs age from their creation and running ones from their start; runs this process is executing are kept.
+ * Fails the active runs of a project whose process stopped refreshing their heartbeat, such as runs left behind by a
+ * restart, which would otherwise block new runs.
  */
 export async function failStaleRuns(input: {
 	projectId: string;
 	staleAfterMs: number;
 	errorMessage: string;
-	liveRunIds: string[];
 }): Promise<number> {
-	const cutoff = new Date(Date.now() - input.staleAfterMs);
 	const rows = await db
 		.update(s.testRun)
 		.set({ status: 'failed', completedAt: new Date(), errorMessage: input.errorMessage })
 		.where(
 			and(
 				eq(s.testRun.projectId, input.projectId),
-				or(
-					and(eq(s.testRun.status, 'queued'), lte(s.testRun.createdAt, cutoff)),
-					and(eq(s.testRun.status, 'running'), lte(s.testRun.startedAt, cutoff)),
-				),
-				input.liveRunIds.length > 0 ? notInArray(s.testRun.id, input.liveRunIds) : undefined,
+				inArray(s.testRun.status, ACTIVE_STATUSES),
+				lte(s.testRun.heartbeatAt, new Date(Date.now() - input.staleAfterMs)),
 			),
 		)
 		.returning({ id: s.testRun.id })
 		.execute();
 	return rows.length;
+}
+
+function selectionIncludes(testPath: string): SQL {
+	return dbConfig.dialect === Dialect.Postgres
+		? sql`${s.testRun.selection} @> jsonb_build_array(${testPath}::text)`
+		: sql`exists (select 1 from json_each(${s.testRun.selection}) where json_each.value = ${testPath})`;
+}
+
+async function selectRunsWithAuthor(where: SQL | undefined, limit: number): Promise<TestRunWithAuthor[]> {
+	const rows = await db
+		.select({ run: s.testRun, triggeredByName: s.user.name })
+		.from(s.testRun)
+		.leftJoin(s.user, eq(s.user.id, s.testRun.triggeredByUserId))
+		.where(where)
+		.orderBy(desc(s.testRun.createdAt))
+		.limit(limit)
+		.execute();
+	return rows.map(({ run, triggeredByName }) => ({ ...run, triggeredByName }));
 }

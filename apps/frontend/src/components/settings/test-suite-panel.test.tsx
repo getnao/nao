@@ -211,7 +211,6 @@ function multiModelRun(results: [testPath: string, modelId: string, passed: bool
 			llmProvider: 'anthropic',
 			llmModelId: modelId,
 			contextVariant: 'production',
-			attempt: 1,
 			passed,
 			message: passed ? 'match' : 'values differ',
 			errorMessage: null,

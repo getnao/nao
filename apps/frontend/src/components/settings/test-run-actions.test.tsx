@@ -14,9 +14,6 @@ import { isMac } from '@/lib/platform';
 
 const mocks = vi.hoisted(() => ({
 	startRun: vi.fn(),
-	startDraftRun: vi.fn(),
-	startComparisonRun: vi.fn(),
-	startChangesRun: vi.fn(),
 	cancelRun: vi.fn(),
 }));
 
@@ -29,9 +26,6 @@ vi.mock('@/main', () => ({
 			getModelStats: { queryOptions: () => ({ queryKey: ['model-stats'], queryFn: () => [] }) },
 			listRuns: { queryKey: () => ['test-runs'] },
 			startRun: { mutationOptions: mutationOptions(mocks.startRun) },
-			startDraftRun: { mutationOptions: mutationOptions(mocks.startDraftRun) },
-			startComparisonRun: { mutationOptions: mutationOptions(mocks.startComparisonRun) },
-			startChangesRun: { mutationOptions: mutationOptions(mocks.startChangesRun) },
 			cancelRun: { mutationOptions: mutationOptions(mocks.cancelRun) },
 		},
 	},
@@ -50,9 +44,7 @@ const VALID: TestFileValidationState = {
 describe('TestFileRunActions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.startDraftRun.mockResolvedValue({ id: 'run-new' });
-		mocks.startComparisonRun.mockResolvedValue({ id: 'run-new' });
-		mocks.startChangesRun.mockResolvedValue({ id: 'run-new' });
+		mocks.startRun.mockResolvedValue({ id: 'run-new' });
 	});
 
 	afterEach(() => {
@@ -76,7 +68,12 @@ describe('TestFileRunActions', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Run test' }));
 
 		await waitFor(() => expect(onRunStarted.mock.calls[0]?.[0]).toEqual({ id: 'run-new' }));
-		expect(mocks.startDraftRun.mock.calls[0][0]).toEqual({ ...TEST_FILE, models: MODELS, attempts: 3 });
+		expect(mocks.startRun.mock.calls[0][0]).toEqual({
+			mode: 'production',
+			target: { testFile: TEST_FILE },
+			models: MODELS,
+			attempts: 3,
+		});
 		expect(screen.getByRole('button', { name: 'Models to test' }).textContent).toBe('2 models · ×3');
 	});
 
@@ -94,8 +91,13 @@ describe('TestFileRunActions', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Compare with production' }));
 
-		await waitFor(() => expect(mocks.startComparisonRun).toHaveBeenCalled());
-		expect(mocks.startComparisonRun.mock.calls[0][0]).toEqual({ testFile: TEST_FILE, models: MODELS, attempts: 3 });
+		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
+		expect(mocks.startRun.mock.calls[0][0]).toEqual({
+			mode: 'compare',
+			target: { testFile: TEST_FILE },
+			models: MODELS,
+			attempts: 3,
+		});
 		expect(screen.getByRole('button', { name: 'More ways to run' })).toBeTruthy();
 	});
 
@@ -133,13 +135,17 @@ describe('TestFileRunActions', () => {
 
 		openMenu(screen.getByRole('button', { name: 'More ways to run' }));
 		fireEvent.click(await screen.findByRole('menuitem', { name: 'Run with your changes only' }));
-		expect(mocks.startChangesRun).not.toHaveBeenCalled();
+		expect(mocks.startRun).not.toHaveBeenCalled();
 
 		fireEvent.click(await screen.findByRole('button', { name: 'Run with your changes' }));
 
-		await waitFor(() => expect(mocks.startChangesRun).toHaveBeenCalled());
-		expect(mocks.startChangesRun.mock.calls[0][0]).toEqual({ testFile: TEST_FILE, models: MODELS, attempts: 3 });
-		expect(mocks.startComparisonRun).not.toHaveBeenCalled();
+		await waitFor(() => expect(mocks.startRun).toHaveBeenCalledTimes(1));
+		expect(mocks.startRun.mock.calls[0][0]).toEqual({
+			mode: 'changes',
+			target: { testFile: TEST_FILE },
+			models: MODELS,
+			attempts: 3,
+		});
 	});
 
 	it('starts the button action with the run shortcut, from anywhere on the page', async () => {
@@ -156,8 +162,8 @@ describe('TestFileRunActions', () => {
 
 		pressRunShortcut();
 
-		await waitFor(() => expect(mocks.startComparisonRun).toHaveBeenCalled());
-		expect(mocks.startDraftRun).not.toHaveBeenCalled();
+		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
+		expect(mocks.startRun.mock.calls[0][0]).toMatchObject({ mode: 'compare' });
 	});
 
 	it('does not run an invalid test', () => {
@@ -175,7 +181,7 @@ describe('TestFileRunActions', () => {
 		expect(screen.getByRole('button', { name: 'Run test' }).hasAttribute('disabled')).toBe(true);
 
 		pressRunShortcut();
-		expect(mocks.startDraftRun).not.toHaveBeenCalled();
+		expect(mocks.startRun).not.toHaveBeenCalled();
 	});
 
 	it('offers to cancel the run in progress instead of starting another', async () => {
@@ -220,7 +226,8 @@ describe('SuiteRunActions', () => {
 
 		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
 		expect(mocks.startRun.mock.calls[0][0]).toEqual({
-			paths: ['revenue.yml', 'churn.yml'],
+			mode: 'production',
+			target: { paths: ['revenue.yml', 'churn.yml'] },
 			models: MODELS,
 			attempts: 3,
 		});

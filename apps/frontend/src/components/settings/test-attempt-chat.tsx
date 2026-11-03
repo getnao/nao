@@ -12,7 +12,6 @@ import { trpc } from '@/main';
 /** The chat reads as in a drawer pane rather than a page, so all of it is scaled down, tool calls included. */
 const REPLAY_CONTENT_CLASS = 'px-3 py-3 [zoom:0.85]';
 
-/** How the agent answered an attempt, as its chat shows it: the question, the tool calls and the rendered answer. */
 export function AttemptAnswer({ result }: { result: TestRunResult }) {
 	return (
 		<div className='flex min-h-0 flex-1 flex-col'>

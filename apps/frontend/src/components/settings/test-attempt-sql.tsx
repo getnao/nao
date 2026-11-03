@@ -17,7 +17,6 @@ const VERIFICATION_DIALECT = 'duckdb';
 
 type LineChange = 'removed' | 'added';
 
-/** The query the agent ran to answer, next to the reference SQL of the test. */
 export function AttemptSql({ result }: { result: TestRunResult }) {
 	const referenceSql = result.details?.referenceSql;
 	if (!agentQueryOf(result) && !referenceSql) {
@@ -178,19 +177,20 @@ function SqlCode({
 }
 
 /**
- * The agent's queries the verification read its answer from, formatted one after the other. Only when their chat is
- * gone does the verification's own selection show instead.
+ * The agent's queries the verification read its answer from, formatted one after the other, or the verification's own
+ * selection for attempts recorded before those queries were stored.
  */
 function agentQueryOf(result: TestRunResult): string | null {
-	const sourceQueries = result.details?.sourceQueries ?? [];
-	if (sourceQueries.length > 0) {
-		return sourceQueries.map((query) => formatSQLInAnyDialect(query.sql)).join('\n\n');
+	const details = result.details;
+	if (!details) {
+		return null;
 	}
-	const verificationSql = result.details?.verificationSql;
-	return verificationSql ? formatSQL(verificationSql, VERIFICATION_DIALECT) : null;
+	if (details.sourceQueries.length > 0) {
+		return details.sourceQueries.map((query) => formatSQLInAnyDialect(query.sql)).join('\n\n');
+	}
+	return details.verificationSql ? formatSQL(details.verificationSql, VERIFICATION_DIALECT) : null;
 }
 
-/** Cuts the colored tokens of a line where its changed stretches start and end, so that they can be highlighted. */
 function splitTokensByRanges(line: SqlToken[], ranges: ChangedRange[]): { token: SqlToken; isChanged: boolean }[] {
 	const pieces: { token: SqlToken; isChanged: boolean }[] = [];
 	let offset = 0;

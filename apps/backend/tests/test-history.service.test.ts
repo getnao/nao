@@ -10,7 +10,6 @@ import {
 	getPreviousModelSummaries,
 	getTestHistory,
 	listRunsWithTestTotals,
-	withSourceQueries,
 } from '../src/services/test-history.service';
 import {
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
@@ -19,10 +18,6 @@ import {
 	type TestRunStatus,
 	type TestRunTrigger,
 } from '../src/types/test-run';
-
-const executeSqlMocks = vi.hoisted(() => ({ getLatestSqlQueriesByChats: vi.fn() }));
-
-vi.mock('../src/queries/execute-sql.queries', () => executeSqlMocks);
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -280,8 +275,8 @@ describe('getTestHistory', () => {
 
 		expect(run.comparison).toMatchObject({
 			change: 'regressed',
-			production: { passed: 1, total: 1 },
-			draft: { passed: 0, total: 1 },
+			production: { passedAttempts: 1, totalAttempts: 1 },
+			draft: { passedAttempts: 0, totalAttempts: 1 },
 		});
 	});
 
@@ -294,9 +289,12 @@ describe('getTestHistory', () => {
 					responseText: null,
 					actualData: [{ month: 'jan', total: 90 }],
 					expectedData: [{ month: 'jan', total: 100 }],
+					actualRowCount: 1,
+					expectedRowCount: 1,
 					comparison: null,
 					referenceSql: null,
 					verificationSql: null,
+					sourceQueries: [],
 				},
 			})
 			.execute();
@@ -379,9 +377,12 @@ function storedRows(actualData: Record<string, unknown>[]) {
 		responseText: null,
 		actualData,
 		expectedData: [{ month: 'jan', total: 100 }],
+		actualRowCount: actualData.length,
+		expectedRowCount: 1,
 		comparison: null,
 		referenceSql: null,
 		verificationSql: null,
+		sourceQueries: [],
 	};
 }
 
@@ -475,36 +476,3 @@ function testDefinition(path: string, hash: string): TestDefinition {
 		hash,
 	};
 }
-
-describe('withSourceQueries', () => {
-	it("fills in the queries that the verification selected from, read from the attempt's chat", async () => {
-		executeSqlMocks.getLatestSqlQueriesByChats.mockResolvedValue(
-			new Map([['chat-1', { query_6921ded7: { sqlQuery: 'SELECT month FROM orders', adminMode: false } }]]),
-		);
-		const result = {
-			chatId: 'chat-1',
-			details: {
-				...storedRows([]),
-				verificationSql: 'SELECT month AS order_month FROM query_6921ded7 ORDER BY order_month',
-			},
-		} as unknown as Parameters<typeof withSourceQueries>[0][number];
-
-		const [filled] = await withSourceQueries([result]);
-
-		expect(executeSqlMocks.getLatestSqlQueriesByChats).toHaveBeenCalledWith(
-			new Map([['chat-1', new Set(['query_6921ded7'])]]),
-		);
-		expect(filled.details?.sourceQueries).toEqual([{ id: 'query_6921ded7', sql: 'SELECT month FROM orders' }]);
-	});
-
-	it('leaves results that already stored their queries untouched', async () => {
-		const result = {
-			chatId: 'chat-1',
-			details: { ...storedRows([]), verificationSql: 'SELECT 1 FROM query_1', sourceQueries: [] },
-		} as unknown as Parameters<typeof withSourceQueries>[0][number];
-		executeSqlMocks.getLatestSqlQueriesByChats.mockClear();
-
-		expect(await withSourceQueries([result])).toEqual([result]);
-		expect(executeSqlMocks.getLatestSqlQueriesByChats).not.toHaveBeenCalled();
-	});
-});

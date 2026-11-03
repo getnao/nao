@@ -10,7 +10,6 @@ import {
 	newTestFilePaths,
 	parseTestContent,
 	serializeTestFile,
-	toTestPath,
 } from '../src/services/test-suite.service';
 import { extractConfiguredTestSettings } from '../src/utils/nao-config';
 
@@ -118,19 +117,6 @@ describe('filterTests', () => {
 		expect(filterTests(tests, { paths: ['b.yml', 'c.yml'], tags: ['sales'] }).map((test) => test.path)).toEqual([
 			'b.yml',
 		]);
-	});
-});
-
-describe('toTestPath', () => {
-	it.each([
-		['/tests/revenue.yml', 'revenue.yml'],
-		['tests/sales/orders.yaml', 'sales/orders.yaml'],
-		['/tests/outputs/results.yml', null],
-		['/tests/notes.md', null],
-		['/semantics/revenue.yml', null],
-		['/tests/../nao_config.yaml', null],
-	])('maps %s to %s', (projectPath, expected) => {
-		expect(toTestPath(projectPath)).toBe(expected);
 	});
 });
 

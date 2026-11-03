@@ -1170,6 +1170,8 @@ export const testRun = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		startedAt: timestamp('started_at'),
 		completedAt: timestamp('completed_at'),
+		/** Refreshed by the process executing the run, so other processes can tell a run left behind by a restart. */
+		heartbeatAt: timestamp('heartbeat_at').defaultNow().notNull(),
 	},
 	(t) => [
 		index('test_run_projectId_idx').on(t.projectId),

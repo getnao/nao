@@ -29,7 +29,8 @@ CREATE TABLE "test_run" (
 	"error_message" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"started_at" timestamp,
-	"completed_at" timestamp
+	"completed_at" timestamp,
+	"heartbeat_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "test_run_result" (

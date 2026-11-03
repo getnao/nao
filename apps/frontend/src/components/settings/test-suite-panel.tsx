@@ -1,73 +1,36 @@
 import { pluralize } from '@nao/shared';
+import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import { useQuery } from '@tanstack/react-query';
 import { CircleAlert, CircleDashed, History } from 'lucide-react';
 import { useState } from 'react';
-import type { ReactNode } from 'react';
 
-import type { TestResultFilter } from '@/components/settings/test-result-filter';
 import type { SuiteRunScope } from '@/components/settings/test-run-actions';
 import type { RunFilters } from '@/components/settings/test-run-filter-menu';
 import type {
 	DraftContext,
 	LatestTestOutcome,
-	TestComparisonRow,
 	TestDefinition,
 	TestModelOutcome,
-	TestRunResult,
 	TestRunSummary,
-	TestRunWithResults,
 	TestSuiteListing,
 } from '@/components/settings/test-run-types';
-import {
-	ComparisonChangeBadge,
-	DraftContextWarnings,
-	hasDraftContextWarnings,
-	VariantOutcomeCell,
-} from '@/components/settings/test-draft-comparison';
-import {
-	listTestsWhereModelsDisagree,
-	ModelChangesChart,
-	ModelDot,
-	ModelLeaderboard,
-	RunStatStrip,
-	summarizeTestMetrics,
-	TestModelMatrix,
-} from '@/components/settings/test-model-results';
-import { matchesResultFilter, TestResultFilterPills } from '@/components/settings/test-result-filter';
+import { DraftContextWarnings, hasDraftContextWarnings } from '@/components/settings/test-draft-comparison';
+import { PanelHeader, RecentRunsHeader, RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
+import { ModelDot } from '@/components/settings/test-model-labels';
+import { TestRow } from '@/components/settings/test-row';
 import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
 import { getMainBranch, ToneIcon } from '@/components/settings/test-run-labels';
 import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
-import {
-	ACTIVE_RUN_REFETCH_MS,
-	formatCount,
-	formatDuration,
-	formatPassRate,
-	formatUnitCost,
-	getTestModelColorAt,
-	groupResultsByTest,
-	isActiveRun,
-	testModelKey,
-	toExplorerTestPath,
-} from '@/components/settings/test-run-types';
-import { outcomeTone, variantTone } from '@/components/settings/test-run-verdict';
+import { TestRunResults } from '@/components/settings/test-run-results';
+import { getTestModelColorAt, testModelKey } from '@/components/settings/test-run-types';
+import { outcomeTone } from '@/components/settings/test-run-verdict';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
 import { getTimeAgo } from '@/lib/time-ago';
-import { PanelHeader, RecentRunsHeader, RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
-
-interface RunTest {
-	testPath: string;
-	testName: string;
-	outcome: { passed: number; total: number; modelsDisagree: boolean };
-	failure: string | null;
-	comparison: TestComparisonRow | null;
-}
-
-type TestMetrics = ReturnType<typeof summarizeTestMetrics>;
 
 const MAX_LISTED_RUNS = 10;
 
@@ -89,7 +52,6 @@ interface TestSuitePanelProps {
 	onOpenTest: (explorerPath: string) => void;
 }
 
-/** Lists the tests and the latest runs of the suite, with the results of the run picked in that list. */
 export function TestSuitePanel({
 	draft,
 	runs,
@@ -99,11 +61,6 @@ export function TestSuitePanel({
 	onOpenTest,
 }: TestSuitePanelProps) {
 	const suite = useQuery(trpc.testRun.listTests.queryOptions());
-	const openedRun = useQuery({
-		...trpc.testRun.getRun.queryOptions({ runId: selectedRunId ?? '' }),
-		enabled: selectedRunId !== null,
-		refetchInterval: (query) => (query.state.data && isActiveRun(query.state.data) ? ACTIVE_RUN_REFETCH_MS : false),
-	});
 	const runListContext = {
 		mainBranch: getMainBranch(draft),
 		suiteTestPaths: suite.data?.tests.map((test) => test.path),
@@ -146,14 +103,8 @@ export function TestSuitePanel({
 							selection={selection}
 							onOpenTest={onOpenTest}
 						/>
-					) : openedRun.isLoading ? (
-						<div className='flex h-full items-center justify-center'>
-							<Spinner />
-						</div>
-					) : openedRun.data ? (
-						<RunTests key={openedRun.data.id} run={openedRun.data} onOpenTest={onOpenTest} />
 					) : (
-						<Empty className='h-full'>Could not open this run: {openedRun.error?.message}</Empty>
+						<TestRunResults key={selectedRunId} runId={selectedRunId} onOpenTest={onOpenTest} />
 					)}
 				</div>
 			</div>
@@ -214,7 +165,7 @@ function SuiteTests({
 		return (
 			<Empty className='h-full whitespace-normal'>
 				No tests yet. Add YAML files with a <code className='font-mono'>prompt</code> and a reference{' '}
-				<code className='font-mono'>sql</code> to the <code className='font-mono'>tests/</code> folder.
+				<code className='font-mono'>sql</code> to the <code className='font-mono'>{TESTS_FOLDER}/</code> folder.
 			</Empty>
 		);
 	}
@@ -266,7 +217,6 @@ function SuiteTests({
 	);
 }
 
-/** Picks every shown test at once, and narrows the tests to some tags. */
 function SuiteTestsHeader({
 	tests,
 	visibleTests,
@@ -412,271 +362,6 @@ function ModelOutcomes({ models }: { models: TestModelOutcome[] }) {
 			))}
 		</span>
 	);
-}
-
-function RunTests({ run, onOpenTest }: { run: TestRunWithResults; onOpenTest: (explorerPath: string) => void }) {
-	const [filter, setFilter] = useState<TestResultFilter>('all');
-	const isActive = isActiveRun(run);
-	const hasSeveralModels = run.models.length > 1;
-	const tests = listRunTests(run);
-	const visibleTests = tests.filter((test) => matchesResultFilter(test.outcome, filter));
-	const openTest = (testPath: string) => onOpenTest(toExplorerTestPath(testPath));
-	return (
-		<div className='flex flex-col text-xs'>
-			<PanelHeader className='gap-3'>
-				<TestResultFilterPills
-					outcomes={tests.map((test) => test.outcome)}
-					filter={filter}
-					onChange={setFilter}
-					hasSeveralModels={hasSeveralModels && !run.comparison}
-				/>
-				<RunDescription run={run} />
-			</PanelHeader>
-			<RunModelsOverview run={run} />
-			{hasSeveralModels && !run.comparison ? (
-				<TestModelMatrix
-					run={run}
-					testPaths={visibleTests.map((test) => test.testPath)}
-					onOpenTest={openTest}
-				/>
-			) : (
-				<RunTestList run={run} tests={visibleTests} onOpenTest={onOpenTest} />
-			)}
-			{tests.length === 0 ? (
-				<Empty className='py-6'>{isActive ? 'Waiting for the first results…' : 'No results recorded.'}</Empty>
-			) : (
-				visibleTests.length === 0 && <Empty className='py-6'>No test matches this filter.</Empty>
-			)}
-		</div>
-	);
-}
-
-/**
- * How the models of a run did: a leaderboard when several models ran, the chart of what the user's changes did to
- * each model for a comparison of several models, else the stat strip of the single model.
- */
-function RunModelsOverview({ run }: { run: TestRunWithResults }) {
-	if (run.modelSummaries.length === 0) {
-		return null;
-	}
-	if (run.comparison) {
-		if (run.models.length > 1) {
-			return <ModelChangesChart run={run} />;
-		}
-		const production = run.modelSummaries.find((summary) => summary.contextVariant === 'production') ?? null;
-		const draft = run.modelSummaries.find((summary) => summary.contextVariant === 'draft');
-		return draft ? (
-			<RunStatStrip
-				summary={draft}
-				baseline={production}
-				baselineLabel='With your changes, compared with production'
-			/>
-		) : null;
-	}
-	if (run.models.length > 1) {
-		return <ModelLeaderboard run={run} />;
-	}
-	const [summary] = run.modelSummaries;
-	const previous = run.previousModelSummaries.at(0);
-	return (
-		<RunStatStrip
-			summary={summary}
-			baseline={previous?.summary ?? null}
-			baselineLabel={
-				previous
-					? `Compared with the previous run of ${summary.modelId} on these tests, ${getTimeAgo(new Date(previous.runCreatedAt).getTime()).humanReadable}`
-					: null
-			}
-		/>
-	);
-}
-
-function RunTestList({
-	run,
-	tests,
-	onOpenTest,
-}: {
-	run: TestRunWithResults;
-	tests: RunTest[];
-	onOpenTest: (explorerPath: string) => void;
-}) {
-	const isActive = isActiveRun(run);
-	const metrics = run.comparison ? null : summarizeTestMetrics(run.results);
-	return (
-		<ul className='flex flex-col'>
-			{metrics && tests.length > 0 && (
-				<li className='flex justify-end border-b px-3 py-1 text-[11px] text-muted-foreground'>
-					<MetricColumns cost='$ / question' toolCalls='Tool calls' duration='Time' />
-				</li>
-			)}
-			{tests.map((test) => (
-				<TestRow
-					key={test.testPath}
-					icon={<ToneIcon tone={variantTone(run, test.outcome)} isLabelled />}
-					name={test.testName}
-					path={test.testPath}
-					detail={
-						test.comparison ? (
-							<ComparisonDetail
-								comparison={test.comparison}
-								attemptsPerVariant={run.models.length * run.attempts}
-								isActive={isActive}
-							/>
-						) : (
-							<span className='flex items-center gap-4'>
-								<AttemptsDetail {...test.outcome} failure={test.failure} />
-								{metrics && <TestMetricColumns metrics={metrics} testPath={test.testPath} />}
-							</span>
-						)
-					}
-					onOpen={onOpenTest}
-				/>
-			))}
-		</ul>
-	);
-}
-
-function TestMetricColumns({ metrics, testPath }: { metrics: TestMetrics; testPath: string }) {
-	const testMetrics = metrics.get(testPath);
-	return (
-		<MetricColumns
-			cost={formatUnitCost(testMetrics?.costPerQuestion)}
-			toolCalls={formatCount(testMetrics?.toolCalls)}
-			duration={formatDuration(testMetrics?.durationMs)}
-		/>
-	);
-}
-
-function MetricColumns({ cost, toolCalls, duration }: { cost: string; toolCalls: string; duration: string }) {
-	return (
-		<span className='flex shrink-0 text-muted-foreground tabular-nums'>
-			<span className='w-20 text-right'>{cost}</span>
-			<span className='w-16 text-right'>{toolCalls}</span>
-			<span className='w-14 text-right'>{duration}</span>
-		</span>
-	);
-}
-
-function RunDescription({ run }: { run: TestRunWithResults }) {
-	const models = run.models.length > 1 ? `${run.models.length} models` : (run.models[0]?.modelId ?? '');
-	return (
-		<span className='min-w-0 flex-1 truncate text-right'>
-			{isActiveRun(run) && `Running ${run.completedAttempts}/${run.totalAttempts} · `}
-			{run.comparison &&
-				`Production ${formatPassRate(run.comparison.production.passed, run.comparison.production.total)} → your changes ${formatPassRate(run.comparison.draft.passed, run.comparison.draft.total)} · `}
-			{models}
-			{run.attempts > 1 && ` × ${run.attempts} ${pluralize('attempt', run.attempts)}`}
-			{run.errorMessage && <span className='text-destructive'> · {run.errorMessage}</span>}
-		</span>
-	);
-}
-
-function ComparisonDetail({
-	comparison,
-	attemptsPerVariant,
-	isActive,
-}: {
-	comparison: TestComparisonRow;
-	attemptsPerVariant: number;
-	isActive: boolean;
-}) {
-	return (
-		<span className='flex items-center gap-3'>
-			<span className='flex items-center gap-1.5'>
-				<span className='text-muted-foreground'>Production</span>
-				<VariantOutcomeCell outcome={comparison.production} attemptsPerVariant={attemptsPerVariant} />
-			</span>
-			<span className='flex items-center gap-1.5'>
-				<span className='text-muted-foreground'>Yours</span>
-				<VariantOutcomeCell outcome={comparison.draft} attemptsPerVariant={attemptsPerVariant} />
-			</span>
-			<ComparisonChangeBadge change={comparison.change} isActive={isActive} />
-		</span>
-	);
-}
-
-function AttemptsDetail({ passed, total, failure }: { passed: number; total: number; failure: string | null }) {
-	const reason = passed < total ? failure : null;
-	return (
-		<span className='flex min-w-0 items-center gap-1 text-muted-foreground'>
-			{total > 1 && (
-				<span className='shrink-0'>
-					{passed}/{total} passed{reason && ' ·'}
-				</span>
-			)}
-			{reason && (
-				<span className='max-w-80 truncate text-destructive' title={reason}>
-					{reason}
-				</span>
-			)}
-		</span>
-	);
-}
-
-function TestRow({
-	leading,
-	icon,
-	name,
-	path,
-	detail,
-	onOpen,
-}: {
-	/** Shown before the row, outside the button that opens the test. */
-	leading?: ReactNode;
-	icon: ReactNode;
-	name: string;
-	path: string;
-	detail: ReactNode;
-	onOpen: (explorerPath: string) => void;
-}) {
-	return (
-		<li className='flex items-center border-b'>
-			{leading && <span className='flex shrink-0 items-center pl-3'>{leading}</span>}
-			<button
-				type='button'
-				onClick={() => onOpen(toExplorerTestPath(path))}
-				className='flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-accent/50'
-				title='Open this test'
-			>
-				{icon}
-				<span className='flex min-w-0 flex-1 flex-col'>
-					<span className='truncate font-medium text-foreground'>{name}</span>
-					<span className='truncate font-mono text-[11px] text-muted-foreground'>tests/{path}</span>
-				</span>
-				<span className='flex min-w-0 shrink-0 items-center'>{detail}</span>
-			</button>
-		</li>
-	);
-}
-
-/** The tests of a run with their outcome: with the user's changes for a comparison, else over all their attempts. */
-function listRunTests(run: TestRunWithResults): RunTest[] {
-	if (run.comparison) {
-		return run.comparison.tests.map((test) => ({
-			testPath: test.testPath,
-			testName: test.testName,
-			outcome: { ...test.draft, modelsDisagree: false },
-			failure: null,
-			comparison: test,
-		}));
-	}
-	const disagreeing = run.models.length > 1 ? listTestsWhereModelsDisagree(run) : new Set<string>();
-	return [...groupResultsByTest(run.results)].map(([testPath, results]) => ({
-		testPath,
-		testName: results[0].testName,
-		outcome: {
-			passed: results.filter((result) => result.passed).length,
-			total: results.length,
-			modelsDisagree: disagreeing.has(testPath),
-		},
-		failure: findFailureReason(results),
-		comparison: null,
-	}));
-}
-
-function findFailureReason(results: TestRunResult[]): string | null {
-	const reasons = results.filter((result) => !result.passed).map((result) => result.errorMessage ?? result.message);
-	return reasons.find((reason) => reason !== null && reason !== undefined) ?? null;
 }
 
 function filterByTags(tests: TestDefinition[], tags: string[]): TestDefinition[] {

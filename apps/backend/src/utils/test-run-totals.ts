@@ -1,13 +1,18 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import { isSameModel, type LlmSelectedModel } from '@nao/shared/types';
 
 import type { TestContextVariant, TestRunTestTotals, TestRunVariantTotals } from '../types/test-run';
-import { isSameModel } from './test-model-summary';
 
-export interface TestAttemptTotals extends LlmSelectedModel {
-	testPath: string;
-	contextVariant: TestContextVariant;
+export interface AttemptCounts {
 	passedAttempts: number;
 	totalAttempts: number;
+}
+
+export interface TestAttemptCounts extends AttemptCounts {
+	testPath: string;
+}
+
+export interface TestAttemptTotals extends LlmSelectedModel, TestAttemptCounts {
+	contextVariant: TestContextVariant;
 }
 
 /**
@@ -20,34 +25,46 @@ export function summarizeRunTests(rows: TestAttemptTotals[], runModels: LlmSelec
 		const variantRows = rows.filter((row) => row.contextVariant === contextVariant);
 		return {
 			contextVariant,
-			...countTests(sumAttemptsByTest(variantRows)),
+			...countTests(variantRows),
 			models: runModels
 				.map((model) => ({ ...model, rows: variantRows.filter((row) => isSameModel(row, model)) }))
 				.filter(({ rows: modelRows }) => modelRows.length > 0)
-				.map(({ rows: modelRows, ...model }) => ({ ...model, ...countTests(sumAttemptsByTest(modelRows)) })),
+				.map(({ rows: modelRows, ...model }) => ({ ...model, ...countTests(modelRows) })),
 		};
 	});
 }
 
-function sumAttemptsByTest(rows: TestAttemptTotals[]): { passedAttempts: number; totalAttempts: number }[] {
-	const attemptsByTest = new Map<string, { passedAttempts: number; totalAttempts: number }>();
+/** Sums the attempts of each test, from rows that each count one or several attempts of a test. */
+export function countAttemptsByTest(rows: TestAttemptCounts[]): Map<string, AttemptCounts> {
+	const attemptsByTest = new Map<string, AttemptCounts>();
 	for (const row of rows) {
 		const attempts = attemptsByTest.get(row.testPath) ?? { passedAttempts: 0, totalAttempts: 0 };
 		attempts.passedAttempts += row.passedAttempts;
 		attempts.totalAttempts += row.totalAttempts;
 		attemptsByTest.set(row.testPath, attempts);
 	}
-	return [...attemptsByTest.values()];
+	return attemptsByTest;
 }
 
-function countTests(tests: { passedAttempts: number; totalAttempts: number }[]): TestRunTestTotals {
+export function toAttemptCounts(result: { testPath: string; passed: boolean }): TestAttemptCounts {
+	return { testPath: result.testPath, passedAttempts: result.passed ? 1 : 0, totalAttempts: 1 };
+}
+
+export function sumAttemptCounts(counts: AttemptCounts[]): AttemptCounts {
+	return {
+		passedAttempts: sum(counts.map((count) => count.passedAttempts)),
+		totalAttempts: sum(counts.map((count) => count.totalAttempts)),
+	};
+}
+
+function countTests(rows: TestAttemptCounts[]): TestRunTestTotals {
+	const tests = [...countAttemptsByTest(rows).values()];
 	return {
 		testCount: tests.length,
 		passedTests: tests.filter((test) => test.totalAttempts > 0 && test.passedAttempts === test.totalAttempts)
 			.length,
 		flakyTests: tests.filter((test) => test.passedAttempts > 0 && test.passedAttempts < test.totalAttempts).length,
-		passedAttempts: sum(tests.map((test) => test.passedAttempts)),
-		totalAttempts: sum(tests.map((test) => test.totalAttempts)),
+		...sumAttemptCounts(tests),
 	};
 }
 

@@ -150,11 +150,12 @@ export function buildTestDataDiff(
 	};
 }
 
-/** Sorts records the way the verdict compares them, so keeping the first ones keeps rows that pair up. */
+/** The columns the verdict compares: the declared ones, else every column of the expected rows. */
 export function comparedColumns(expected: Record<string, unknown>[], expectedColumns: string[]): string[] {
 	return expectedColumns.length > 0 ? expectedColumns : collectColumns(expected);
 }
 
+/** Sorts records the way the verdict compares them, so keeping the first ones keeps rows that pair up. */
 export function orderRecordsForComparison(
 	records: Record<string, unknown>[],
 	columns: string[],

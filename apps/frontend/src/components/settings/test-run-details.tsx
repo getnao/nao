@@ -1,5 +1,6 @@
 import { History } from 'lucide-react';
 import { useState } from 'react';
+import { isSameModel, resultModel } from '@nao/shared/types';
 import type { LlmSelectedModel } from '@nao/shared/types';
 
 import type { ShownAttempt } from '@/components/settings/test-attempt-details';
@@ -8,7 +9,7 @@ import type { ContextVariant, TestHistoryRun } from '@/components/settings/test-
 import type { Tone } from '@/components/settings/test-run-verdict';
 import { TestAttemptDetails } from '@/components/settings/test-attempt-details';
 import { PanelHeader } from '@/components/settings/test-drawer-layout';
-import { AttemptDots, ModelName } from '@/components/settings/test-model-results';
+import { AttemptDots, ModelName } from '@/components/settings/test-model-labels';
 import { BranchName, ToneIcon } from '@/components/settings/test-run-labels';
 import {
 	average,
@@ -16,9 +17,7 @@ import {
 	formatDuration,
 	formatUnitCost,
 	isActiveRun,
-	isSameTestModel,
 	onEnterOrSpace,
-	resultModel,
 	testModelKey,
 } from '@/components/settings/test-run-types';
 import { describeRun, variantTone } from '@/components/settings/test-run-verdict';
@@ -28,7 +27,6 @@ import { cn } from '@/lib/utils';
 /** The run header sits right above the model table and tabs, so a full border would cut the view in two. */
 const LIGHT_HEADER_BORDER_CLASS = 'border-border/50';
 
-/** One run of the test: what it found, the model and attempt picked, and what that attempt answered. */
 export function RunDetails({
 	run,
 	isOutdated,
@@ -115,16 +113,15 @@ function RunHeader({ run, branches }: { run: TestHistoryRun; branches: RunBranch
 	);
 }
 
-/** How one branch of a comparison did, with its count of passed attempts when there are several. */
 function VariantPill({ run, variant, branch }: { run: TestHistoryRun; variant: ContextVariant; branch: string }) {
 	const outcome = run.comparison?.[variant];
 	return (
 		<span className='inline-flex items-center gap-1 rounded-full border py-px pr-2 pl-1 text-[11px]'>
 			<ToneIcon tone={variantTone(run, outcome)} />
 			<BranchName name={branch} />
-			{outcome && outcome.total > 1 && (
+			{outcome && outcome.totalAttempts > 1 && (
 				<span className='text-muted-foreground tabular-nums'>
-					{outcome.passed}/{outcome.total}
+					{outcome.passedAttempts}/{outcome.totalAttempts}
 				</span>
 			)}
 		</span>
@@ -204,13 +201,11 @@ function TestModelStrip({
 				</thead>
 				<tbody>
 					{run.models.map((model) => {
-						const modelResults = run.results.filter((result) =>
-							isSameTestModel(resultModel(result), model),
-						);
+						const modelResults = run.results.filter((result) => isSameModel(resultModel(result), model));
 						const measuredResults = isComparison
 							? modelResults.filter((result) => result.contextVariant === 'draft')
 							: modelResults;
-						const isSelected = isSameTestModel(model, selectedModel);
+						const isSelected = isSameModel(model, selectedModel);
 						return (
 							<tr
 								key={testModelKey(model)}
@@ -263,7 +258,7 @@ function TestModelStrip({
 
 /** The attempts of the model shown, each paired with the same attempt on the main branch in a comparison. */
 function listShownAttempts(run: TestHistoryRun, model: LlmSelectedModel | null): ShownAttempt[] {
-	const results = model ? run.results.filter((result) => isSameTestModel(resultModel(result), model)) : run.results;
+	const results = model ? run.results.filter((result) => isSameModel(resultModel(result), model)) : run.results;
 	if (run.trigger !== 'comparison') {
 		return results.map((result) => ({ kind: 'single', attempt: result.attempt, result }));
 	}

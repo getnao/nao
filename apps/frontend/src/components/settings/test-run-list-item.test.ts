@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeRunListItem, getRunListState } from './test-run-list-item';
+import { describeRunListItem, getRunListTone } from './test-run-list-item';
 import type { TestRunSummary } from './test-run-types';
 
 const SONNET = { provider: 'anthropic', modelId: 'claude-sonnet-5' };
@@ -15,7 +15,7 @@ describe('describeRunListItem', () => {
 		const view = describeRunListItem(run({ production: totals({ testCount: 3, passedTests: 2 }) }), CONTEXT);
 
 		expect(view).toMatchObject({
-			state: 'failed',
+			tone: 'fail',
 			scope: 'All tests',
 			result: { label: '2/3', tooltip: '2 of 3 tests passed' },
 			chips: [{ label: 'master', isBranch: true }],
@@ -29,7 +29,7 @@ describe('describeRunListItem', () => {
 			CONTEXT,
 		);
 
-		expect(view).toMatchObject({ state: 'passed', scope: 'revenue', result: null });
+		expect(view).toMatchObject({ tone: 'pass', scope: 'revenue', result: null });
 	});
 
 	it('calls a single test flaky when it passed only some of the times it was asked', () => {
@@ -42,7 +42,7 @@ describe('describeRunListItem', () => {
 			CONTEXT,
 		);
 
-		expect(view.state).toBe('flaky');
+		expect(view.tone).toBe('mixed');
 		expect(view.result).toEqual({ label: 'flaky', tooltip: 'Passed 2 of 3 times' });
 		expect(view.chips.map((chip) => chip.label)).toEqual(['master', 'asked 3×']);
 	});
@@ -59,7 +59,7 @@ describe('describeRunListItem', () => {
 			CONTEXT,
 		);
 
-		expect(view.state).toBe('passed');
+		expect(view.tone).toBe('pass');
 		expect(view.result).toEqual({
 			label: 'best 3/3',
 			tooltip: 'Best of 2 models: claude-sonnet-5 passed 3 of 3 tests',
@@ -77,7 +77,7 @@ describe('describeRunListItem', () => {
 			CONTEXT,
 		);
 
-		expect(view.state).toBe('failed');
+		expect(view.tone).toBe('fail');
 		expect(view.result).toEqual({
 			label: '3 → 1',
 			tooltip: '3 of 3 tests pass on master, 1 with your changes',
@@ -117,7 +117,7 @@ describe('describeRunListItem', () => {
 
 		expect(describeRunListItem(onBranch, CONTEXT).chips[0].label).toBe('improve-revenue');
 		expect(describeRunListItem(withoutGit, CONTEXT).chips[0].label).toBe('your changes');
-		expect(describeRunListItem(onBranch, CONTEXT).state).toBe('passed');
+		expect(describeRunListItem(onBranch, CONTEXT).tone).toBe('pass');
 	});
 
 	it('marks a test run as it was in the editor', () => {
@@ -132,22 +132,22 @@ describe('describeRunListItem', () => {
 	it('shows the progress of a running run', () => {
 		const view = describeRunListItem(run({ status: 'running', completedAttempts: 3, totalAttempts: 12 }), CONTEXT);
 
-		expect(view).toMatchObject({ state: 'running', progress: 0.25, result: { label: '25%' } });
+		expect(view).toMatchObject({ tone: 'pending', progress: 0.25, result: { label: '25%' } });
 	});
 
 	it('leaves the result of a stopped run to its icon and explains an error in its tooltip', () => {
 		const cancelled = describeRunListItem(run({ status: 'cancelled' }), CONTEXT);
 		const broken = describeRunListItem(run({ status: 'failed', errorMessage: 'Warehouse unreachable' }), CONTEXT);
 
-		expect(cancelled).toMatchObject({ state: 'cancelled', result: null });
-		expect(broken).toMatchObject({ state: 'error', result: null });
+		expect(cancelled).toMatchObject({ tone: 'cancelled', result: null });
+		expect(broken).toMatchObject({ tone: 'error', result: null });
 		expect(broken.statusTooltip.status).toBe('Error: Warehouse unreachable');
 	});
 });
 
-describe('getRunListState', () => {
+describe('getRunListTone', () => {
 	it('counts a completed run without results as empty', () => {
-		expect(getRunListState(run({}))).toBe('empty');
+		expect(getRunListTone(run({}))).toBe('neutral');
 	});
 });
 

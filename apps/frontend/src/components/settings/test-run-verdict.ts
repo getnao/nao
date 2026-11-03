@@ -1,5 +1,12 @@
-import type { TestHistoryRun, TestRunSummary, VariantOutcome } from '@/components/settings/test-run-types';
-import { isActiveRun, isSameTestModel, resultModel } from '@/components/settings/test-run-types';
+import { isSameModel, resultModel } from '@nao/shared/types';
+
+import type {
+	TestComparisonChange,
+	TestHistoryRun,
+	TestRunSummary,
+	VariantOutcome,
+} from '@/components/settings/test-run-types';
+import { isActiveRun } from '@/components/settings/test-run-types';
 
 export type Tone = 'pass' | 'fail' | 'mixed' | 'pending' | 'neutral' | 'cancelled' | 'error';
 
@@ -8,6 +15,16 @@ interface RunVerdict {
 	title: string;
 	detail: string | null;
 }
+
+/** How the user's changes moved a test: a short label for a row of a comparison, a title for the run verdict. */
+export const COMPARISON_CHANGES: Record<TestComparisonChange, { tone: Tone; label: string; title: string }> = {
+	regressed: { tone: 'fail', label: 'Regressed', title: 'Broken by your changes' },
+	worsened: { tone: 'fail', label: 'Less reliable', title: 'Less reliable with your changes' },
+	fixed: { tone: 'pass', label: 'Fixed', title: 'Fixed by your changes' },
+	improved: { tone: 'pass', label: 'More reliable', title: 'More reliable with your changes' },
+	unchanged: { tone: 'neutral', label: 'No change', title: 'Same results on both' },
+	pending: { tone: 'neutral', label: 'Incomplete', title: 'Incomplete' },
+};
 
 /**
  * What a run says about the test, in a few words, from the attempts recorded so far. A comparison says nothing more,
@@ -32,10 +49,10 @@ export function describeRun(run: TestHistoryRun): RunVerdict {
 
 /** Attempts not recorded yet are still pending while the run is active, and left unfinished once it stopped. */
 export function variantTone(run: Pick<TestRunSummary, 'status'>, outcome: VariantOutcome | undefined): Tone {
-	if (!outcome || outcome.total === 0) {
+	if (!outcome || outcome.totalAttempts === 0) {
 		return isActiveRun(run) ? 'pending' : 'neutral';
 	}
-	return outcomeTone(outcome.passed, outcome.total);
+	return outcomeTone(outcome.passedAttempts, outcome.totalAttempts);
 }
 
 export function outcomeTone(passed: number, total: number): Tone {
@@ -64,7 +81,7 @@ function describeAttempts(run: TestHistoryRun): RunVerdict {
 /** What a run of several models says about the test: on which models every attempt passed. */
 function describeModels(run: TestHistoryRun): RunVerdict {
 	const outcomes = run.models.map((model) => {
-		const results = run.results.filter((result) => isSameTestModel(resultModel(result), model));
+		const results = run.results.filter((result) => isSameModel(resultModel(result), model));
 		return { model, passed: results.filter((result) => result.passed).length, total: results.length };
 	});
 	const passingCount = outcomes.filter((outcome) => outcome.total > 0 && outcome.passed === outcome.total).length;
@@ -85,23 +102,14 @@ function describeModels(run: TestHistoryRun): RunVerdict {
 }
 
 function describeComparison(comparison: NonNullable<TestHistoryRun['comparison']>): RunVerdict {
-	switch (comparison.change) {
-		case 'regressed':
-			return { tone: 'fail', title: 'Broken by your changes', detail: null };
-		case 'worsened':
-			return { tone: 'fail', title: 'Less reliable with your changes', detail: null };
-		case 'fixed':
-			return { tone: 'pass', title: 'Fixed by your changes', detail: null };
-		case 'improved':
-			return { tone: 'pass', title: 'More reliable with your changes', detail: null };
-		case 'unchanged':
-			return describeUnchanged(outcomeTone(comparison.draft.passed, comparison.draft.total));
-		case 'pending':
-			return { tone: 'neutral', title: 'Incomplete', detail: null };
+	if (comparison.change === 'unchanged') {
+		return describeUnchanged(outcomeTone(comparison.draft.passedAttempts, comparison.draft.totalAttempts));
 	}
+	const { tone, title } = COMPARISON_CHANGES[comparison.change];
+	return { tone, title, detail: null };
 }
 
 function describeUnchanged(tone: Tone): RunVerdict {
 	const titles: Partial<Record<Tone, string>> = { pass: 'Passes on both', fail: 'Fails on both' };
-	return { tone, title: titles[tone] ?? 'Same results on both', detail: null };
+	return { tone, title: titles[tone] ?? COMPARISON_CHANGES.unchanged.title, detail: null };
 }
