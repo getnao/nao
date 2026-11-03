@@ -1,10 +1,13 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { getOrganizationBilling } from '../queries/billing.queries';
 import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import {
 	assertOrganizationCloudBillingAccess,
 	assertUserCloudBillingAccess,
+	getOrganizationCloudEntitlement,
 } from '../services/cloud-billing-access.service';
 import { restartOnboarding } from '../services/onboarding-restart';
 import {
@@ -15,6 +18,7 @@ import {
 	startWarehouseProvisioning,
 	validateWarehouseCredentials,
 } from '../services/warehouse-provisioning';
+import { isTrialAvailable } from '../types/billing';
 import { warehouseCredentialsSchema, warehouseProvisioningInputSchema } from '../types/warehouse';
 import { organizationProtectedProcedure, protectedProcedure, router } from './trpc';
 
@@ -22,7 +26,13 @@ const onboardingMutationProcedure = organizationProtectedProcedure.use(async ({ 
 	if (ctx.orgRole === 'viewer') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot provision a warehouse project' });
 	}
-	await assertOrganizationCloudBillingAccess(ctx.organization.id);
+	if (await projectQueries.organizationHasProjects(ctx.organization.id)) {
+		const billing = await getOrganizationBilling(ctx.organization.id);
+		if (!isTrialAvailable(billing)) {
+			const entitlement = await getOrganizationCloudEntitlement(ctx.organization.id);
+			await assertOrganizationCloudBillingAccess(ctx.organization.id, entitlement);
+		}
+	}
 	await assertUserCloudBillingAccess(ctx.organization.id, ctx.user.id);
 	return next({ ctx });
 });

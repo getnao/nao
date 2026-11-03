@@ -7,7 +7,7 @@ import {
 import type { UserRole } from '@nao/shared/types';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 
-import type { DBUserGroup } from '../db/abstractSchema';
+import type { DBUserGroup, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
@@ -30,7 +30,7 @@ export interface SsoUserGroupMapping {
 	defaultProjectRole: UserRole | null;
 	hasProjectMembership: boolean;
 	hasProjectAccess: boolean;
-	projectRole: UserRole | null;
+	capacityFallbackRole: UserRole | null;
 }
 
 export interface SsoUserGroupReconciliationOptions {
@@ -98,8 +98,7 @@ export async function reconcileSsoUserGroupMemberships(
 				);
 				insertMissingProjectMembershipsSqlite(
 					transaction,
-					userId,
-					safeDirectProjectRoles(desired.projectRoles),
+					directProjectMemberships(userId, desired.projectRoles),
 				);
 				const existingGroupIds = transaction
 					.select({ groupId: s.userGroupMember.groupId })
@@ -152,8 +151,7 @@ export async function reconcileSsoUserGroupMemberships(
 		);
 		await insertMissingProjectMembershipsPostgres(
 			transaction,
-			userId,
-			safeDirectProjectRoles(desired.projectRoles),
+			directProjectMemberships(userId, desired.projectRoles),
 		);
 		const existingGroupIds = await transaction
 			.select({ groupId: s.userGroupMember.groupId })
@@ -214,7 +212,7 @@ function buildSsoUserGroupMappingsQuery(executor: DBExecutor, userId: string) {
 			ssoMappings: s.userGroup.ssoMappings,
 			createdAt: s.userGroup.createdAt,
 			projectMemberUserId: s.projectMember.userId,
-			projectMemberRole: s.projectMember.role,
+			projectMemberCapacityFallbackRole: s.projectMember.capacityFallbackRole,
 			orgMemberUserId: s.orgMember.userId,
 		})
 		.from(s.userGroup)
@@ -232,7 +230,7 @@ function normalizeSsoUserGroupMappings(
 		ssoMappings: DBUserGroup['ssoMappings'];
 		createdAt: Date;
 		projectMemberUserId: string | null;
-		projectMemberRole: UserRole | null;
+		projectMemberCapacityFallbackRole: UserRole | null;
 		orgMemberUserId: string | null;
 	}>,
 	provider: SsoGroupProvider,
@@ -253,7 +251,7 @@ function normalizeSsoUserGroupMappings(
 				defaultProjectRole: mappings.defaultProjectRole ?? null,
 				hasProjectMembership: group.projectMemberUserId !== null,
 				hasProjectAccess: group.projectMemberUserId !== null || group.orgMemberUserId !== null,
-				projectRole: group.projectMemberRole,
+				capacityFallbackRole: group.projectMemberCapacityFallbackRole,
 			},
 		];
 	});
@@ -346,8 +344,8 @@ function getDesiredMemberships(
 		if (!hasProjectAccess && !role) {
 			continue;
 		}
-		const hasViewerMembership = projectMappings.some((mapping) => mapping.projectRole === 'viewer');
-		if (role && (!hasProjectMembership || (hasViewerMembership && role !== 'viewer'))) {
+		const hasCapacityFallback = projectMappings.some((mapping) => mapping.capacityFallbackRole !== null);
+		if (role && (!hasProjectMembership || hasCapacityFallback)) {
 			projectRoles.set(projectId, role);
 		}
 		for (const mapping of projectMappings) {
@@ -436,41 +434,31 @@ function getActiveCustomGroupIds(
 	);
 }
 
-function insertMissingProjectMembershipsSqlite(
-	transaction: DBTransaction,
-	userId: string,
-	projectRoles: Map<string, UserRole>,
-): void {
-	if (projectRoles.size === 0) {
+function insertMissingProjectMembershipsSqlite(transaction: DBTransaction, members: NewProjectMember[]): void {
+	if (members.length === 0) {
 		return;
 	}
-	transaction
-		.insert(s.projectMember)
-		.values([...projectRoles].map(([projectId, role]) => ({ projectId, userId, role })))
-		.onConflictDoNothing()
-		.run();
+	transaction.insert(s.projectMember).values(members).onConflictDoNothing().run();
 }
 
 async function insertMissingProjectMembershipsPostgres(
 	transaction: DBTransaction,
-	userId: string,
-	projectRoles: Map<string, UserRole>,
+	members: NewProjectMember[],
 ): Promise<void> {
-	if (projectRoles.size === 0) {
+	if (members.length === 0) {
 		return;
 	}
-	await transaction
-		.insert(s.projectMember)
-		.values([...projectRoles].map(([projectId, role]) => ({ projectId, userId, role })))
-		.onConflictDoNothing()
-		.execute();
+	await transaction.insert(s.projectMember).values(members).onConflictDoNothing().execute();
 }
 
-function safeDirectProjectRoles(projectRoles: Map<string, UserRole>): Map<string, UserRole> {
-	if (!isCloudFreeTierEnabled()) {
-		return projectRoles;
-	}
-	return new Map([...projectRoles].map(([projectId]) => [projectId, 'viewer' as const]));
+function directProjectMemberships(userId: string, projectRoles: Map<string, UserRole>): NewProjectMember[] {
+	const requiresSeatActivation = isCloudFreeTierEnabled();
+	return [...projectRoles].map(([projectId, requestedRole]) => ({
+		projectId,
+		userId,
+		role: requiresSeatActivation ? 'viewer' : requestedRole,
+		...(requiresSeatActivation && requestedRole !== 'viewer' ? { capacityFallbackRole: requestedRole } : {}),
+	}));
 }
 
 async function lockUserForSsoReconciliation(transaction: DBTransaction, userId: string): Promise<void> {

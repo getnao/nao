@@ -2,6 +2,7 @@ CREATE TABLE `organization_seat_state` (
 	`org_id` text NOT NULL,
 	`user_id` text NOT NULL,
 	`selected_at` integer,
+	`selection_explicit` integer DEFAULT false NOT NULL,
 	`is_read_only` integer DEFAULT false NOT NULL,
 	`state_changed_at` integer,
 	`owner_in_app_notified_at` integer,
@@ -13,6 +14,7 @@ CREATE TABLE `organization_seat_state` (
 );
 --> statement-breakpoint
 CREATE INDEX `organization_seat_state_userId_idx` ON `organization_seat_state` (`user_id`);--> statement-breakpoint
+ALTER TABLE `project_member` ADD `capacity_fallback_role` text;--> statement-breakpoint
 ALTER TABLE `organization_billing` ADD `stripe_subscription_item_id` text;--> statement-breakpoint
 ALTER TABLE `organization_billing` ADD `seat_quantity` integer;--> statement-breakpoint
 ALTER TABLE `organization_billing` ADD `stripe_subscription_schedule_id` text;--> statement-breakpoint

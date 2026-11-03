@@ -133,10 +133,15 @@ export const removeProjectMember = async (projectId: string, userId: string): Pr
 		.execute();
 };
 
-export const updateProjectMemberRole = async (projectId: string, userId: string, newRole: UserRole): Promise<void> => {
+export const updateProjectMemberRole = async (
+	projectId: string,
+	userId: string,
+	newRole: UserRole,
+	capacityFallbackRole: UserRole | null = null,
+): Promise<void> => {
 	await db
 		.update(s.projectMember)
-		.set({ role: newRole })
+		.set({ role: newRole, capacityFallbackRole })
 		.where(and(eq(s.projectMember.projectId, projectId), eq(s.projectMember.userId, userId)))
 		.execute();
 };

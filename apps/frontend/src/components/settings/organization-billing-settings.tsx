@@ -270,7 +270,7 @@ function CloudOrganizationBillingSettings({
 									data.scheduleConflict
 								}
 								onIntervalChange={billingState.setSelectedBillingInterval}
-								onChoose={choosePlan}
+								onChoose={data.current?.legacy ? undefined : choosePlan}
 								onChooseFree={data.current ? () => setSwitchToFreeOpen(true) : undefined}
 								onCancelPlan={() => setSwitchToFreeOpen(true)}
 								onKeepPlan={billingState.openPortal}

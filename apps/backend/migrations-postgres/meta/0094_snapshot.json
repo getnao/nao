@@ -6450,6 +6450,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "capacity_fallback_role": {
+          "name": "capacity_fallback_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -6790,6 +6796,13 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
+        },
+        "selection_explicit": {
+          "name": "selection_explicit",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "is_read_only": {
           "name": "is_read_only",

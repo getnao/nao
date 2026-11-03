@@ -12,13 +12,16 @@ const mocks = vi.hoisted(() => ({
 	getOrganizationBilling: vi.fn(),
 	getUserOrgMembership: vi.fn(),
 	getUserRoleInProject: vi.fn(),
+	isCloudBillingEnabled: vi.fn(() => true),
 	isCloudFreeTierEnabled: vi.fn(() => true),
 	isUserReadOnlyInOrganization: vi.fn(),
 	organizationHasProjects: vi.fn(),
+	validateWarehouseCredentials: vi.fn(),
 }));
 
 vi.mock('../src/env', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/env')>()),
+	isCloudBillingEnabled: mocks.isCloudBillingEnabled,
 	isCloudFreeTierEnabled: mocks.isCloudFreeTierEnabled,
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
@@ -40,7 +43,16 @@ vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	organizationHasProjects: mocks.organizationHasProjects,
 }));
+vi.mock('../src/services/warehouse-provisioning', () => ({
+	getActiveWarehouseProvisioningJob: vi.fn(),
+	getLatestWarehouseProvisioningJob: vi.fn(),
+	getWarehouseProvisioningJob: vi.fn(),
+	retryWarehouseProvisioning: vi.fn(),
+	startWarehouseProvisioning: vi.fn(),
+	validateWarehouseCredentials: mocks.validateWarehouseCredentials,
+}));
 
+import { onboardingRoutes } from '../src/trpc/onboarding.routes';
 import {
 	cloudBillingMiddleware,
 	cloudBillingProjectImportProcedure,
@@ -67,6 +79,7 @@ const testRouter = router({
 		)
 		.query(() => 'ok'),
 	importProject: cloudBillingProjectImportProcedure.query(() => 'ok'),
+	onboarding: onboardingRoutes,
 	projectRole: projectProtectedProcedure.query(({ ctx }) => ctx.userRole),
 	resourceRole: resourceProjectProcedure('resourceId', async () => ({ projectId: 'project-1' }), 'Resource')
 		.input(z.object({ resourceId: z.string() }))
@@ -77,6 +90,7 @@ const testRouter = router({
 describe('cloud billing tRPC middleware', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.isCloudBillingEnabled.mockReturnValue(true);
 		mocks.getUserOrgMembership.mockResolvedValue({
 			organization: { id: 'organization-1' },
 			role: 'admin',
@@ -107,6 +121,16 @@ describe('cloud billing tRPC middleware', () => {
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledOnce();
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it('does not require a project organization when cloud billing is disabled', async () => {
+		mocks.isCloudBillingEnabled.mockReturnValue(false);
+		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: null });
+
+		await expect(authenticatedCaller().run({ projectId: 'project-1' })).resolves.toBe('ok');
+
+		expect(mocks.getProjectById).not.toHaveBeenCalled();
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 	});
 
 	it('asserts the acting user when a cloud billing session exists', async () => {
@@ -140,6 +164,20 @@ describe('cloud billing tRPC middleware', () => {
 
 		await expect(authenticatedCaller().importProject()).resolves.toBe('ok');
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it('allows first warehouse setup while retaining the acting-user billing check', async () => {
+		mocks.organizationHasProjects.mockResolvedValue(false);
+		mocks.validateWarehouseCredentials.mockResolvedValue({ valid: true });
+
+		await expect(
+			authenticatedCaller().onboarding.validateWarehouseCredentials({
+				provider: 'postgres',
+				credentials: { host: 'warehouse.example.com' },
+			}),
+		).resolves.toEqual({ valid: true });
+		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('organization-1', 'user-1');
 	});
 
 	it('allows an unfinished project to be replaced before the trial starts', async () => {

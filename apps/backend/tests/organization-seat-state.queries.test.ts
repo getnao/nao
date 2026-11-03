@@ -31,6 +31,7 @@ import { db } from '../src/db/db';
 import {
 	claimOrganizationSeatEmailNotification,
 	claimPausedWorkInAppNotification,
+	clearOrganizationSeatSelection,
 	listOrganizationSeatStates,
 	releaseOrganizationSeatEmailNotification,
 	setOrganizationSeatSelection,
@@ -58,10 +59,16 @@ describe('organization seat state queries', () => {
 		const selectedAt = new Date('2026-10-30T10:00:00.000Z');
 		await expect(setOrganizationSeatSelection('org-id', 'user-id', selectedAt)).resolves.toMatchObject({
 			selectedAt,
+			selectionExplicit: true,
 			isReadOnly: false,
 		});
 		await expect(setOrganizationSeatSelection('org-id', 'user-id', null)).resolves.toMatchObject({
 			selectedAt: null,
+			selectionExplicit: true,
+		});
+		await expect(clearOrganizationSeatSelection('org-id', 'user-id')).resolves.toMatchObject({
+			selectedAt: null,
+			selectionExplicit: false,
 		});
 		await expect(listOrganizationSeatStates('org-id')).resolves.toHaveLength(1);
 	});

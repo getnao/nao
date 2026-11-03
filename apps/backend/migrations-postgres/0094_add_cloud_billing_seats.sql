@@ -2,6 +2,7 @@ CREATE TABLE "organization_seat_state" (
 	"org_id" text NOT NULL,
 	"user_id" text NOT NULL,
 	"selected_at" timestamp,
+	"selection_explicit" boolean DEFAULT false NOT NULL,
 	"is_read_only" boolean DEFAULT false NOT NULL,
 	"state_changed_at" timestamp,
 	"owner_in_app_notified_at" timestamp,
@@ -10,6 +11,7 @@ CREATE TABLE "organization_seat_state" (
 	CONSTRAINT "organization_seat_state_org_id_user_id_pk" PRIMARY KEY("org_id","user_id")
 );
 --> statement-breakpoint
+ALTER TABLE "project_member" ADD COLUMN "capacity_fallback_role" text;--> statement-breakpoint
 ALTER TABLE "organization_billing" ADD COLUMN "stripe_subscription_item_id" text;--> statement-breakpoint
 ALTER TABLE "organization_billing" ADD COLUMN "seat_quantity" integer;--> statement-breakpoint
 ALTER TABLE "organization_billing" ADD COLUMN "stripe_subscription_schedule_id" text;--> statement-breakpoint

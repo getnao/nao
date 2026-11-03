@@ -62,10 +62,23 @@ export async function setOrganizationSeatSelection(
 ): Promise<DBOrganizationSeatState> {
 	const [state] = await db
 		.insert(s.organizationSeatState)
-		.values({ orgId, userId, selectedAt })
+		.values({ orgId, userId, selectedAt, selectionExplicit: true })
 		.onConflictDoUpdate({
 			target: [s.organizationSeatState.orgId, s.organizationSeatState.userId],
-			set: { selectedAt },
+			set: { selectedAt, selectionExplicit: true },
+		})
+		.returning()
+		.execute();
+	return state;
+}
+
+export async function clearOrganizationSeatSelection(orgId: string, userId: string): Promise<DBOrganizationSeatState> {
+	const [state] = await db
+		.insert(s.organizationSeatState)
+		.values({ orgId, userId, selectedAt: null, selectionExplicit: false })
+		.onConflictDoUpdate({
+			target: [s.organizationSeatState.orgId, s.organizationSeatState.userId],
+			set: { selectedAt: null, selectionExplicit: false },
 		})
 		.returning()
 		.execute();

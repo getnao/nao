@@ -300,6 +300,7 @@ export const organizationSeatState = sqliteTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		selectedAt: integer('selected_at', { mode: 'timestamp_ms' }),
+		selectionExplicit: integer('selection_explicit', { mode: 'boolean' }).default(false).notNull(),
 		isReadOnly: integer('is_read_only', { mode: 'boolean' }).default(false).notNull(),
 		stateChangedAt: integer('state_changed_at', { mode: 'timestamp_ms' }),
 		ownerInAppNotifiedAt: integer('owner_in_app_notified_at', { mode: 'timestamp_ms' }),
@@ -656,6 +657,7 @@ export const projectMember = sqliteTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: USER_ROLES }).notNull(),
+		capacityFallbackRole: text('capacity_fallback_role', { enum: USER_ROLES }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

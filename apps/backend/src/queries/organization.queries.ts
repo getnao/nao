@@ -513,6 +513,7 @@ export type OrgSeatCandidate = {
 	membershipClass: 'org_admin' | 'org_member' | 'project_only';
 	joinedAt: Date;
 	selectedAt: Date | null;
+	selectionExplicit: boolean | null;
 	storedReadOnly: boolean | null;
 };
 
@@ -572,6 +573,7 @@ export const listOrgSeatCandidates = async (orgId: string): Promise<OrgSeatCandi
 			name: s.user.name,
 			email: s.user.email,
 			selectedAt: s.organizationSeatState.selectedAt,
+			selectionExplicit: s.organizationSeatState.selectionExplicit,
 			storedReadOnly: s.organizationSeatState.isReadOnly,
 		})
 		.from(memberships)
@@ -593,6 +595,7 @@ export const listOrgSeatCandidates = async (orgId: string): Promise<OrgSeatCandi
 			orgJoinedAt: Date | null;
 			projectJoinedAt: Date | null;
 			selectedAt: Date | null;
+			selectionExplicit: boolean | null;
 			storedReadOnly: boolean | null;
 		}
 	>();
@@ -606,6 +609,7 @@ export const listOrgSeatCandidates = async (orgId: string): Promise<OrgSeatCandi
 			orgJoinedAt: null,
 			projectJoinedAt: null,
 			selectedAt: row.selectedAt,
+			selectionExplicit: row.selectionExplicit,
 			storedReadOnly: row.storedReadOnly,
 		};
 		if (row.source === 'organization') {
@@ -644,7 +648,10 @@ export function resolveSeatedOrgUserIds(candidates: OrgSeatCandidate[], seatLimi
 		seatLimit === null
 			? candidates
 			: candidates.filter(
-					(candidate) => candidate.membershipClass === 'org_admin' || candidate.storedReadOnly !== true,
+					(candidate) =>
+						candidate.membershipClass === 'org_admin' ||
+						candidate.selectedAt !== null ||
+						candidate.selectionExplicit !== true,
 				);
 	return eligibleCandidates.slice(0, seatLimit === null ? undefined : Math.max(0, seatLimit)).map(({ id }) => id);
 }
@@ -658,6 +665,7 @@ function toOrgSeatCandidate(candidate: {
 	orgJoinedAt: Date | null;
 	projectJoinedAt: Date | null;
 	selectedAt: Date | null;
+	selectionExplicit: boolean | null;
 	storedReadOnly: boolean | null;
 }): OrgSeatCandidate {
 	const projectRoles = [...candidate.projectRoles].sort(compareRoles);
@@ -681,6 +689,7 @@ function toOrgSeatCandidate(candidate: {
 		membershipClass,
 		joinedAt,
 		selectedAt: candidate.selectedAt,
+		selectionExplicit: candidate.selectionExplicit,
 		storedReadOnly: candidate.storedReadOnly,
 	};
 }

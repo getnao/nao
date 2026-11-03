@@ -248,7 +248,7 @@ async function readOnlyUserIds(organizationId: string, entitlement: CloudEntitle
 	if (entitlement.tier === 'team' && entitlement.seatQuantity === null) {
 		return new Set((await organizationQueries.listOrgSeatCandidates(organizationId)).map(({ id }) => id));
 	}
-	if (!entitlement.overCapacity || entitlement.seatLimit === null) {
+	if (entitlement.seatLimit === null) {
 		return new Set();
 	}
 	return new Set(

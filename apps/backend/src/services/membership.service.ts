@@ -4,8 +4,8 @@ import type { NewOrgMember, NewProjectMember } from '../db/abstractSchema';
 import { isCloudFreeTierEnabled } from '../env';
 import * as orgQueries from '../queries/organization.queries';
 import {
+	clearOrganizationSeatSelection,
 	listOrganizationSeatStates,
-	setOrganizationSeatSelection,
 	syncOrganizationSeatState,
 } from '../queries/organization-seat-state.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -66,7 +66,8 @@ export async function addProjectMember(
 ): Promise<MembershipMutationResult> {
 	const [project] = await Promise.all([requireProject(member.projectId), requireUser(member.userId)]);
 	if (!project.orgId) {
-		throw new HandlerError('BAD_REQUEST', "Project doesn't belong to an organization");
+		await createProjectMember(member, groupIds);
+		return { userId: member.userId, role: member.role, outcome: null };
 	}
 	const result = await withOrganizationSeatLock(project.orgId, () =>
 		mutateProjectMembership(project.orgId!, member.projectId, member.userId, member.role, {
@@ -130,12 +131,11 @@ export async function putProjectMember(
 	role: UserRole,
 ): Promise<MembershipMutationResult> {
 	const [project] = await Promise.all([requireProject(projectId), requireUser(userId)]);
-	if (!project.orgId) {
-		throw new HandlerError('BAD_REQUEST', "Project doesn't belong to an organization");
-	}
-	const result = await withOrganizationSeatLock(project.orgId, () =>
-		mutateProjectMembership(project.orgId!, projectId, userId, role, { addIfMissing: true }),
-	);
+	const result = project.orgId
+		? await withOrganizationSeatLock(project.orgId, () =>
+				mutateProjectMembership(project.orgId!, projectId, userId, role, { addIfMissing: true }),
+			)
+		: await putProjectMemberWithoutBilling(projectId, userId, role);
 	if (project.path && isContextRole(result.previousRole) && !isContextRole(result.role)) {
 		await cleanupContextWorktree(projectId, project.path, userId);
 	}
@@ -144,17 +144,21 @@ export async function putProjectMember(
 
 export async function removeProjectMember(projectId: string, userId: string): Promise<void> {
 	const project = await requireProject(projectId);
-	if (!project.orgId) {
-		throw new HandlerError('BAD_REQUEST', "Project doesn't belong to an organization");
-	}
-	await withOrganizationSeatLock(project.orgId, async () => {
+	const remove = async () => {
 		const role = await projectQueries.getUserRoleInProject(projectId, userId);
 		if (role === 'admin') {
 			throw new HandlerError('CONFLICT', 'Cannot remove an admin from the project.');
 		}
 		await projectQueries.removeProjectMember(projectId, userId);
-		await clearSeatSelectionAndSync(project.orgId!, userId);
-	});
+		if (project.orgId) {
+			await clearSeatSelectionAndSync(project.orgId, userId);
+		}
+	};
+	if (project.orgId) {
+		await withOrganizationSeatLock(project.orgId, remove);
+	} else {
+		await remove();
+	}
 	const remainingRole = await projectQueries.getUserRoleInProject(projectId, userId);
 	if (project.path && !isContextRole(remainingRole)) {
 		await cleanupContextWorktree(projectId, project.path, userId);
@@ -217,10 +221,19 @@ async function mutateProjectMembership(
 		readRole: async () => (await projectQueries.getProjectMember(projectId, userId))?.role ?? null,
 		readPreviousRole: () => projectQueries.getUserRoleInProject(projectId, userId),
 		persistRole: async (nextRole, existingRole) => {
+			const capacityFallbackRole = nextRole === 'viewer' && role !== 'viewer' ? role : null;
 			if (existingRole) {
-				await projectQueries.updateProjectMemberRole(projectId, userId, nextRole);
+				await projectQueries.updateProjectMemberRole(projectId, userId, nextRole, capacityFallbackRole);
 			} else if (options.addIfMissing) {
-				await createProjectMember({ projectId, userId, role: nextRole }, options.groupIds);
+				await createProjectMember(
+					{
+						projectId,
+						userId,
+						role: nextRole,
+						...(capacityFallbackRole ? { capacityFallbackRole } : {}),
+					},
+					options.groupIds,
+				);
 			}
 		},
 		addIfMissing: options.addIfMissing,
@@ -234,6 +247,28 @@ async function mutateProjectMembership(
 			}
 		},
 	});
+}
+
+async function putProjectMemberWithoutBilling(
+	projectId: string,
+	userId: string,
+	role: UserRole,
+): Promise<SeatMutationResult> {
+	const existing = await projectQueries.getProjectMember(projectId, userId);
+	if (
+		existing?.role === 'admin' &&
+		role !== 'admin' &&
+		!(await projectQueries.checkProjectHasMoreThanOneAdmin(projectId))
+	) {
+		throw new HandlerError('BAD_REQUEST', 'The project must have at least one admin user.');
+	}
+	const previousRole = existing?.role ?? (await projectQueries.getUserRoleInProject(projectId, userId));
+	if (existing) {
+		await projectQueries.updateProjectMemberRole(projectId, userId, role);
+	} else {
+		await createProjectMember({ projectId, userId, role });
+	}
+	return { userId, role, outcome: null, previousRole };
 }
 
 async function mutateMembership(input: {
@@ -311,7 +346,7 @@ async function mutateMembership(input: {
 	}
 
 	if (existingRole === 'viewer') {
-		await setOrganizationSeatSelection(input.orgId, input.userId, null);
+		await clearOrganizationSeatSelection(input.orgId, input.userId);
 		await syncMembershipSeatState(input.orgId);
 		return {
 			userId: input.userId,
@@ -343,7 +378,7 @@ async function clearSeatSelectionAndSync(orgId: string, userId: string): Promise
 	if (!isCloudFreeTierEnabled()) {
 		return;
 	}
-	await setOrganizationSeatSelection(orgId, userId, null);
+	await clearOrganizationSeatSelection(orgId, userId);
 	await syncMembershipSeatState(orgId);
 }
 

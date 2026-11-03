@@ -134,17 +134,30 @@ describe('organization seat queries', () => {
 		]);
 	});
 
-	it('keeps an explicitly unassigned user read-only when capacity is available', async () => {
+	it('restores automatic overflow but keeps an explicit deselection read-only when capacity expands', async () => {
 		await db
 			.insert(s.organizationSeatState)
-			.values({ orgId: ORG_ID, userId: 'org-unselected', isReadOnly: true })
+			.values({
+				orgId: ORG_ID,
+				userId: 'org-unselected',
+				isReadOnly: true,
+				selectionExplicit: false,
+			})
 			.onConflictDoUpdate({
 				target: [s.organizationSeatState.orgId, s.organizationSeatState.userId],
-				set: { isReadOnly: true },
+				set: { isReadOnly: true, selectionExplicit: false },
 			});
 
-		const candidates = await listOrgSeatCandidates(ORG_ID);
-		expect(resolveSeatedOrgUserIds(candidates, 8)).not.toContain('org-unselected');
+		expect(resolveSeatedOrgUserIds(await listOrgSeatCandidates(ORG_ID), 8)).toContain('org-unselected');
+		await db
+			.insert(s.organizationSeatState)
+			.values({ orgId: ORG_ID, userId: 'org-unselected', selectionExplicit: true })
+			.onConflictDoUpdate({
+				target: [s.organizationSeatState.orgId, s.organizationSeatState.userId],
+				set: { selectionExplicit: true },
+			});
+
+		expect(resolveSeatedOrgUserIds(await listOrgSeatCandidates(ORG_ID), 8)).not.toContain('org-unselected');
 		await expect(listReadOnlyOrgUsers(ORG_ID, 8)).resolves.toMatchObject([{ id: 'org-unselected' }]);
 	});
 });

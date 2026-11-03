@@ -4,7 +4,7 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import superjson from 'superjson';
 
 import { getSession } from '../auth';
-import { isCloudFreeTierEnabled } from '../env';
+import { isCloudBillingEnabled, isCloudFreeTierEnabled } from '../env';
 import { getOrganizationBilling } from '../queries/billing.queries';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -94,7 +94,7 @@ export function cloudBillingMiddleware<TContext, TInput = unknown>(
 				},
 			});
 		} else if (scope.projectId) {
-			if (sessionUserId) {
+			if (sessionUserId && isCloudBillingEnabled()) {
 				const project = await projectQueries.getProjectById(scope.projectId);
 				if (!project?.orgId) {
 					throw new TRPCError({ code: 'NOT_FOUND', message: 'Cloud billing organization was not found' });

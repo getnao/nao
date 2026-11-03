@@ -5881,6 +5881,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "capacity_fallback_role": {
+          "name": "capacity_fallback_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -6239,6 +6246,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "selection_explicit": {
+          "name": "selection_explicit",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "is_read_only": {
           "name": "is_read_only",

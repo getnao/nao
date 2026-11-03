@@ -43,6 +43,7 @@ import { getCustomStoryQueryData, getCustomStoryVersion } from '../src/services/
 const CACHED_ORDERS = { columns: ['id'], data: [{ id: 1 }] };
 const CHAT_ORDERS = { columns: ['id'], data: [{ id: 2 }] };
 const REFRESHED_ORDERS = { columns: ['id'], data: [{ id: 3 }] };
+const LIVE_ORDERS = { columns: ['id'], data: [{ id: 4 }] };
 const FAILURE = { errorMessage: 'Warehouse unavailable', failedAt: new Date('2026-10-01T10:00:00.000Z') };
 
 describe('custom story background refresh', () => {
@@ -78,6 +79,27 @@ describe('custom story background refresh', () => {
 			expect(view.needsRefresh).toBe(expected);
 		},
 	);
+
+	it('runs the query for an uncached live story instead of serving stored chat data', async () => {
+		mocks.getStoryByChatAndSlug.mockResolvedValue({
+			id: 'story-1',
+			format: 'custom',
+			isLive: true,
+			isLiveTextDynamic: false,
+			cacheSchedule: 'no-cache',
+		});
+		mocks.executeLiveQuery.mockResolvedValue(LIVE_ORDERS);
+
+		await expect(
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', {
+				principalUserId: 'actor-1',
+			}),
+		).resolves.toEqual(LIVE_ORDERS);
+		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'query_orders', {
+			principalUserId: 'actor-1',
+		});
+		expect(mocks.getLatestSqlQueryDataByIds).not.toHaveBeenCalled();
+	});
 
 	it('serves the chat data of a never-cached story without refreshing it', async () => {
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue(null);

@@ -449,6 +449,36 @@ describe('cloud billing reconciliation', () => {
 			expect.objectContaining({ orgId: 'org-id', userId: 'user-3', isReadOnly: false }),
 		);
 	});
+
+	it('keeps an explicit deselection read-only when expanded capacity covers every user', async () => {
+		const billing = buildBilling({
+			billingPlan: 'cloud_team_monthly_v1',
+			billingStatus: 'active',
+			seatQuantity: 2,
+			currentPeriodEndsAt: new Date('2999-01-01T00:00:00.000Z'),
+		});
+		mocks.getBillingByCustomer.mockResolvedValue(billing);
+		mocks.claimSync.mockResolvedValue({ billing, token: 'sync-token' });
+		mocks.isCloudFreeTierEnabled.mockReturnValue(true);
+		mocks.getOrganizationById.mockResolvedValue({ id: 'org-id', bypassBilling: false });
+		mocks.countOrgSeatUsers.mockResolvedValue(4);
+		mocks.listSubscriptions.mockResolvedValue([buildSubscription()]);
+		mocks.subscriptionProjection.mockResolvedValue({
+			...subscriptionProjection(),
+			billingPlan: 'cloud_team_monthly_v1',
+			seatQuantity: 4,
+		});
+		mocks.listReadOnlyOrgUsers.mockImplementation(async (_organizationId: string, seatLimit: number) =>
+			seatLimit === 2 ? [{ id: 'user-3' }, { id: 'user-4' }] : [{ id: 'user-4' }],
+		);
+
+		await reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' });
+
+		expect(mocks.syncOrganizationSeatState).toHaveBeenCalledOnce();
+		expect(mocks.syncOrganizationSeatState).toHaveBeenCalledWith(
+			expect.objectContaining({ orgId: 'org-id', userId: 'user-3', isReadOnly: false }),
+		);
+	});
 });
 
 function buildBilling(overrides: Record<string, unknown> = {}) {

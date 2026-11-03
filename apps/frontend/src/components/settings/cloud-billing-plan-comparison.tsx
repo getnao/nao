@@ -60,7 +60,7 @@ export function CloudBillingPlanComparison({
 	recommendation: PaidCloudBillingTier | null;
 	disabled?: boolean;
 	onIntervalChange: (interval: CloudBillingInterval) => void;
-	onChoose: (plan: CloudPlanOffer) => void;
+	onChoose?: (plan: CloudPlanOffer) => void;
 	onChooseFree?: () => void;
 	onCancelPlan?: () => void;
 	onKeepPlan?: () => void;
@@ -94,6 +94,9 @@ export function CloudBillingPlanComparison({
 			return cancellationScheduled
 				? { label: 'Keep my plan', disabled: disabled || !onKeepPlan, onAction: onKeepPlan }
 				: { label: 'Cancel Plan', disabled: disabled || !onCancelPlan, onAction: onCancelPlan };
+		}
+		if (!onChoose) {
+			return undefined;
 		}
 		const replacesCanceledTeam = cancellationScheduled && currentTier === 'team' && plan.tier === 'unlimited';
 		return {

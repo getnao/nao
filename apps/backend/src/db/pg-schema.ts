@@ -284,6 +284,7 @@ export const organizationSeatState = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		selectedAt: timestamp('selected_at'),
+		selectionExplicit: boolean('selection_explicit').default(false).notNull(),
 		isReadOnly: boolean('is_read_only').default(false).notNull(),
 		stateChangedAt: timestamp('state_changed_at'),
 		ownerInAppNotifiedAt: timestamp('owner_in_app_notified_at'),
@@ -625,6 +626,7 @@ export const projectMember = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: USER_ROLES }).notNull(),
+		capacityFallbackRole: text('capacity_fallback_role', { enum: USER_ROLES }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],

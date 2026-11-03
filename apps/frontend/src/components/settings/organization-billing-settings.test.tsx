@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
 	freeTierEnabled: false,
 	cloudTrialActive: false,
 	cloudFreeActive: false,
+	cloudLegacy: false,
 	cloudCanceled: false,
 	cloudPaidPlanSelected: true,
 	cloudCancellationScheduled: false,
@@ -104,6 +105,7 @@ beforeEach(() => {
 	mocks.freeTierEnabled = false;
 	mocks.cloudTrialActive = false;
 	mocks.cloudFreeActive = false;
+	mocks.cloudLegacy = false;
 	mocks.cloudCanceled = false;
 	mocks.cloudPaidPlanSelected = true;
 	mocks.cloudCancellationScheduled = false;
@@ -371,6 +373,18 @@ it('renders the backend-priced Free, Team, and Unlimited comparison when enabled
 
 	fireEvent.click(screen.getByRole('button', { name: 'Cancel Plan' }));
 	expect(screen.getByRole('dialog', { name: 'Switch to Free' })).toBeTruthy();
+});
+
+it('hides paid plan changes for a legacy subscription', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudLegacy = true;
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	expect(screen.getByText('Legacy Unlimited keeps its existing price and terms.')).toBeTruthy();
+	expect(screen.queryByRole('button', { name: 'Choose Team' })).toBeNull();
+	expect(screen.queryByRole('button', { name: 'Choose Unlimited' })).toBeNull();
+	expect(screen.getByRole('button', { name: 'Switch to Free' })).toBeTruthy();
 });
 
 it('shows yearly discounts on paid plan cards without recommending Team', () => {
@@ -1036,17 +1050,23 @@ function billingState(): BillingState {
 }
 
 function cloudBillingState(): BillingState {
-	const cloudTier = mocks.cloudTrialActive ? 'trial' : mocks.cloudFreeActive ? 'free' : 'team';
+	const cloudTier = mocks.cloudTrialActive
+		? 'trial'
+		: mocks.cloudFreeActive
+			? 'free'
+			: mocks.cloudLegacy
+				? 'unlimited'
+				: 'team';
 	const cloudStatus = mocks.cloudCanceled ? 'canceled' : mocks.cloudTrialActive ? 'trialing' : 'active';
 	const cloudTrialEndsAt = mocks.cloudTrialActive ? new Date('2099-10-08T00:00:00.000Z') : null;
 	const currentPlan = mocks.cloudPaidPlanSelected
 		? {
-				planKey: 'cloud_team_monthly_v1' as const,
-				tier: 'team' as const,
+				planKey: mocks.cloudLegacy ? ('cloud_monthly_v2' as const) : ('cloud_team_monthly_v1' as const),
+				tier: mocks.cloudLegacy ? ('unlimited' as const) : ('team' as const),
 				interval: 'monthly' as const,
-				legacy: false,
+				legacy: mocks.cloudLegacy,
 				currency: 'usd',
-				seatQuantity: mocks.cloudSeatQuantity,
+				seatQuantity: mocks.cloudLegacy ? null : mocks.cloudSeatQuantity,
 			}
 		: null;
 	const plans = [

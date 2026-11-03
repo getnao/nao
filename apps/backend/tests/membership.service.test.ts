@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
 	seatCandidates: [] as Array<{
 		id: string;
 		membershipClass?: 'org_admin' | 'org_member' | 'project_only';
+		selectedAt?: Date | null;
+		selectionExplicit?: boolean | null;
 		storedReadOnly?: boolean | null;
 	}>,
 	addOrgMember: vi.fn(),
@@ -21,7 +23,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectById: vi.fn(),
 	getUser: vi.fn(),
 	listOrganizationSeatStates: vi.fn(),
-	setOrganizationSeatSelection: vi.fn(),
+	clearOrganizationSeatSelection: vi.fn(),
 	syncOrganizationSeatState: vi.fn(),
 	recordOrganizationJoinCandidate: vi.fn(),
 	recordProjectJoinCandidate: vi.fn(),
@@ -60,7 +62,10 @@ vi.mock('../src/queries/organization.queries', () => ({
 	listOrgSeatCandidates: vi.fn(async () => mocks.seatCandidates),
 	resolveSeatedOrgUserIds: (candidates: typeof mocks.seatCandidates, seatLimit: number | null): string[] =>
 		candidates
-			.filter(({ membershipClass, storedReadOnly }) => membershipClass === 'org_admin' || storedReadOnly !== true)
+			.filter(
+				({ membershipClass, selectedAt, selectionExplicit }) =>
+					membershipClass === 'org_admin' || selectedAt != null || selectionExplicit !== true,
+			)
 			.slice(0, seatLimit === null ? undefined : Math.max(0, seatLimit))
 			.map(({ id }) => id),
 	removeOrgMember: mocks.removeOrgMember,
@@ -86,8 +91,8 @@ vi.mock('../src/queries/user.queries', () => ({
 	getUser: mocks.getUser,
 }));
 vi.mock('../src/queries/organization-seat-state.queries', () => ({
+	clearOrganizationSeatSelection: mocks.clearOrganizationSeatSelection,
 	listOrganizationSeatStates: mocks.listOrganizationSeatStates,
-	setOrganizationSeatSelection: mocks.setOrganizationSeatSelection,
 	syncOrganizationSeatState: mocks.syncOrganizationSeatState,
 }));
 vi.mock('../src/services/context-explorer-git.service', () => ({
@@ -123,7 +128,9 @@ import {
 	addOrganizationMemberIfMissing,
 	addProjectMember,
 	putOrganizationMember,
+	putProjectMember,
 	removeOrganizationMember,
+	removeProjectMember,
 } from '../src/services/membership.service';
 
 describe('membership service', () => {
@@ -172,8 +179,11 @@ describe('membership service', () => {
 			mocks.orgMembers.delete(userId);
 			mocks.seatCandidates = mocks.seatCandidates.filter(({ id }) => id !== userId);
 		});
+		mocks.removeProjectMember.mockImplementation(async (_projectId, userId) => {
+			mocks.projectMembers.delete(userId);
+		});
 		mocks.listOrganizationSeatStates.mockResolvedValue([]);
-		mocks.setOrganizationSeatSelection.mockResolvedValue({});
+		mocks.clearOrganizationSeatSelection.mockResolvedValue({});
 		mocks.syncOrganizationSeatState.mockResolvedValue({ changed: false });
 	});
 
@@ -215,6 +225,27 @@ describe('membership service', () => {
 		);
 	});
 
+	it('mutates members directly for projects without an organization', async () => {
+		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: null, path: null });
+
+		await expect(addProjectMember(projectMember('user-1'))).resolves.toEqual({
+			userId: 'user-1',
+			role: 'user',
+			outcome: null,
+		});
+		await expect(putProjectMember('project-1', 'user-1', 'viewer')).resolves.toEqual({
+			userId: 'user-1',
+			role: 'viewer',
+			outcome: null,
+		});
+		await expect(removeProjectMember('project-1', 'user-1')).resolves.toBeUndefined();
+
+		expect(mocks.addProjectMember).toHaveBeenCalledWith(projectMember('user-1'));
+		expect(mocks.removeProjectMember).toHaveBeenCalledWith('project-1', 'user-1');
+		expect(mocks.projectMembers.has('user-1')).toBe(false);
+		expect(mocks.syncOrganizationSeatState).not.toHaveBeenCalled();
+	});
+
 	it.each(['trial', 'unlimited', 'bypass'] as const)('activates directly on %s', async (tier) => {
 		mocks.freeTierEnabled = true;
 		mocks.tier = tier;
@@ -250,7 +281,7 @@ describe('membership service', () => {
 		mocks.seatCandidates = [
 			{ id: 'existing-1' },
 			{ id: 'existing-2' },
-			{ id: 'explicit-read-only', storedReadOnly: true },
+			{ id: 'explicit-read-only', selectionExplicit: true, storedReadOnly: true },
 		];
 		mocks.listOrganizationSeatStates.mockResolvedValue([{ userId: 'explicit-read-only', isReadOnly: true }]);
 
@@ -278,6 +309,11 @@ describe('membership service', () => {
 		});
 		expect(mocks.projectMembers.get('user-1')).toBe('viewer');
 		expect(mocks.seatCandidates).toHaveLength(3);
+		expect(mocks.addProjectMember).toHaveBeenCalledWith({
+			...projectMember('user-1'),
+			role: 'viewer',
+			capacityFallbackRole: 'user',
+		});
 	});
 
 	it('rejects a non-purchasing viewer promotion without changing the stored role', async () => {
@@ -333,7 +369,7 @@ describe('membership service', () => {
 			role: 'viewer',
 			outcome: null,
 		});
-		expect(mocks.setOrganizationSeatSelection).toHaveBeenCalledWith('org-1', 'user-1', null);
+		expect(mocks.clearOrganizationSeatSelection).toHaveBeenCalledWith('org-1', 'user-1');
 		expect(mocks.stripeUpdate).not.toHaveBeenCalled();
 	});
 });

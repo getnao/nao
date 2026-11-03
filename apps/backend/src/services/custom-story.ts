@@ -146,7 +146,9 @@ export async function getCustomStoryQueryData(
 		return resolveStoredOrRunQuery(chatId, queryId, options);
 	}
 	if (story.cacheSchedule === NO_CACHE_SCHEDULE) {
-		return resolveStoredOrRunQuery(chatId, queryId, options);
+		return options.cachedOnly
+			? resolveStoredOrRunQuery(chatId, queryId, options)
+			: runStoryQuery(chatId, queryId, options);
 	}
 
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
