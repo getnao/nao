@@ -38,6 +38,12 @@ data:
   BETA_CONTEXT_RECOMMENDATIONS_ENABLED: {{ eq (toString .Values.config.betaContextRecommendationsEnabled) "true" | quote }}
   BETA_CUSTOM_STORIES_ENABLED: {{ eq (toString .Values.config.betaCustomStoriesEnabled) "true" | quote }}
   DEFAULT_USER_ROLE: {{ .Values.config.defaultUserRole | default "user" | quote }}
+  {{- if .Values.config.githubBaseUrl }}
+  GITHUB_BASE_URL: {{ .Values.config.githubBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.githubApiUrl }}
+  GITHUB_API_URL: {{ .Values.config.githubApiUrl | quote }}
+  {{- end }}
   {{- if .Values.config.gitlabBaseUrl }}
   GITLAB_BASE_URL: {{ .Values.config.gitlabBaseUrl | quote }}
   {{- end }}

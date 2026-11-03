@@ -134,6 +134,16 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	GITHUB_BASE_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_BASE_URL must be a valid URL' }).optional()),
+	GITHUB_API_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_API_URL must be a valid URL' }).optional()),
 
 	GITLAB_CLIENT_ID: z.string().optional(),
 	GITLAB_CLIENT_SECRET: z.string().optional(),

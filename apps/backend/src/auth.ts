@@ -41,7 +41,8 @@ import { DEACTIVATED_ACCOUNT_MESSAGE } from './services/account-status.service';
 import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
 import { activateUserJoinCandidates } from './services/credit-grant.service';
 import { emailService } from './services/email';
-import { githubOAuthConfig } from './services/github';
+import { githubApiUrl, githubNoreplyEmail, githubOAuthConfig } from './services/github';
+import { augmentPluginsWithGithubEnterprise } from './services/github-enterprise-auth.service';
 import * as gitlabService from './services/gitlab';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import { addOrganizationMemberIfMissing } from './services/membership.service';
@@ -166,7 +167,7 @@ async function createAuthInstance(baseURL: string) {
 			clientId: githubConfig.clientId,
 			clientSecret: githubConfig.clientSecret,
 			getUserInfo: async (token) => {
-				const res = await fetch('https://api.github.com/user', {
+				const res = await fetch(`${githubApiUrl()}/user`, {
 					headers: { Authorization: `Bearer ${token.accessToken}`, Accept: 'application/json' },
 				});
 				if (!res.ok) {
@@ -185,7 +186,7 @@ async function createAuthInstance(baseURL: string) {
 					user: {
 						id: String(profile.id),
 						name: profile.login as string,
-						email: (profile.email ?? `${profile.login}@users.noreply.github.com`) as string,
+						email: (profile.email ?? githubNoreplyEmail(profile.login)) as string,
 						image: profile.avatar_url as string,
 						emailVerified: true,
 					},
@@ -193,6 +194,7 @@ async function createAuthInstance(baseURL: string) {
 				};
 			},
 		};
+		augmentPluginsWithGithubEnterprise(ssoPlugins);
 	}
 
 	const gitlabConfig = env.GITLAB_SSO ? gitlabService.gitlabOAuthConfig() : null;
