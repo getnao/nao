@@ -101,10 +101,16 @@ export async function readFileContent(
 			: new Set<string>();
 	const worktreeRoot = repo ? getWorktreeProjectRoot(repo) : null;
 	const projectPath = normalizeProjectPath(filePath);
-	const readsWorktree =
+	const worktreePath = worktreeRoot ? path.join(worktreeRoot, projectPath) : null;
+	const readRoot =
 		worktreeRoot !== null &&
-		(trackedPaths.has(projectPath) || fsSync.existsSync(path.join(worktreeRoot, projectPath)));
-	const readPath = resolveAndValidatePath(filePath, readsWorktree ? worktreeRoot : access.projectFolder).realPath;
+		worktreePath !== null &&
+		isWithinProjectFolder(worktreePath, worktreeRoot) &&
+		(trackedPaths.has(projectPath) || fsSync.existsSync(worktreePath))
+			? worktreeRoot
+			: access.projectFolder;
+
+	const readPath = resolveAndValidatePath(filePath, readRoot).realPath;
 	const editability = getFileEditability(filePath, readPath, access, repo, trackedPaths);
 	const contentBuffer = await readValidatedFile(readPath, filePath);
 	return {
