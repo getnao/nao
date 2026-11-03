@@ -125,8 +125,12 @@ export function useCopyWithFeedback(delay = 1500) {
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
 	const copy = useCallback(
-		(text: string) => {
-			copyTextToClipboard(text);
+		async (text: string) => {
+			try {
+				await copyTextToClipboard(text);
+			} catch {
+				return;
+			}
 			setIsCopied(true);
 			clearTimeout(timeoutRef.current);
 			timeoutRef.current = setTimeout(() => setIsCopied(false), delay);

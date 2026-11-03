@@ -104,6 +104,15 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 
 	const shareMutation = useMutation(trpc.sharedChat.create.mutationOptions());
 
+	const showCopiedAndClose = useCallback(() => {
+		setIsCopied(true);
+		clearTimeout(timeoutRef.current);
+		timeoutRef.current = setTimeout(() => {
+			setIsCopied(false);
+			onOpenChange(false);
+		}, 1500);
+	}, [onOpenChange]);
+
 	const handleShare = useCallback(() => {
 		const urlPromise = shareMutation
 			.mutateAsync({
@@ -114,17 +123,13 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 			})
 			.then((data) => {
 				invalidateShareQueries();
-				setIsCopied(true);
-				clearTimeout(timeoutRef.current);
-				timeoutRef.current = setTimeout(() => {
-					setIsCopied(false);
-					onOpenChange(false);
-				}, 1500);
 				return `${window.location.origin}/shared-chat/${data.id}`;
 			});
 
 		urlPromise.catch(() => {});
-		copyDeferredTextToClipboard(urlPromise).catch(() => {});
+		copyDeferredTextToClipboard(urlPromise)
+			.then(showCopiedAndClose)
+			.catch(() => {});
 	}, [
 		chatId,
 		effectiveVisibility,
@@ -133,7 +138,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 		isSmtpEnabled,
 		shareMutation,
 		invalidateShareQueries,
-		onOpenChange,
+		showCopiedAndClose,
 	]);
 
 	const canShare = effectiveVisibility === 'project' || selectedUserIds.size > 0;

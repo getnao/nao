@@ -47,6 +47,7 @@ function copyTextWithSelection(text: string): void {
 	const activeElement = document.activeElement as HTMLElement | null;
 	const container = activeElement?.closest('[role="dialog"]') ?? document.body;
 	container.appendChild(textarea);
+	textarea.focus();
 	textarea.select();
 	textarea.setSelectionRange(0, text.length);
 
