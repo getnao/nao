@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getTestDraft } from './test-draft';
+import { canSaveAsTest, getTestDraft } from './test-draft';
 import type { UIMessage } from '@nao/backend/chat';
 
 describe('getTestDraft', () => {
@@ -40,10 +40,41 @@ describe('getTestDraft', () => {
 		expect(getTestDraft(messages, messages[1])?.sql).toBe('select month, sum(amount) from orders group by 1');
 	});
 
+	it('uses the SQL the semantic layer compiled for a semantic query', () => {
+		const messages = [
+			userMessage('u1', 'Revenue per month?'),
+			assistantMessage('a1', [
+				{
+					type: 'tool-execute_semantic_query',
+					toolCallId: 'call-semantic',
+					state: 'output-available',
+					input: { metrics: ['revenue'], group_by: ['metric_time__month'] },
+					output: {
+						compiled_sql: 'select month, sum(amount) from orders group by 1',
+						database_id: 'warehouse',
+					},
+				},
+			]),
+		];
+
+		expect(getTestDraft(messages, messages[1])).toMatchObject({
+			sql: 'select month, sum(amount) from orders group by 1',
+			databaseId: 'warehouse',
+		});
+		expect(canSaveAsTest(messages[1])).toBe(true);
+	});
+
+	it('leaves the question empty when the chat has none before the answer', () => {
+		const answer = assistantMessage('a1', [sqlPart('select 1', 'output-available')]);
+
+		expect(getTestDraft([], answer)).toEqual({ name: '', prompt: '', sql: 'select 1', databaseId: null });
+	});
+
 	it('returns nothing when the answer ran no SQL', () => {
 		const messages = [userMessage('u1', 'Hello'), assistantMessage('a1', [{ type: 'text', text: 'Hi!' }])];
 
 		expect(getTestDraft(messages, messages[1])).toBeNull();
+		expect(canSaveAsTest(messages[1])).toBe(false);
 	});
 
 	it('truncates long questions in the default name', () => {

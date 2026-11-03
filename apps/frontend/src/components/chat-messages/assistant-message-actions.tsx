@@ -15,6 +15,7 @@ import { useMutation } from '@tanstack/react-query';
 import type { UIMessage } from '@nao/backend/chat';
 import type { FormEvent, KeyboardEvent } from 'react';
 import type { Chat } from '@/queries/use-chat-query';
+import type { TestDraft } from '@/lib/test-draft';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { Button } from '@/components/ui/button';
 import { ConfettiBurst } from '@/components/confetti-burst';
@@ -29,7 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { SaveAsTestDialog } from '@/components/chat-messages/save-as-test-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
-import { getTestDraft } from '@/lib/test-draft';
+import { canSaveAsTest, getTestDraft } from '@/lib/test-draft';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -56,10 +57,11 @@ export function AssistantMessageActions({
 	const [isExportingPdf, setIsExportingPdf] = useState(false);
 	const [exportError, setExportError] = useState<string | null>(null);
 	const [isSaveAsTestOpen, setIsSaveAsTestOpen] = useState(false);
+	const [testDraft, setTestDraft] = useState<TestDraft | null>(null);
 	const { isCopied, copy } = useCopyToClipboard();
 	const getAgentMessages = useAgentMessagesGetter();
 	const { canManageTests } = usePermissions();
-	const testDraft = canManageTests ? getTestDraft(getAgentMessages(), message) : null;
+	const isSaveAsTestAvailable = canManageTests && canSaveAsTest(message);
 	const { data: chat } = useChatQuery({ chatId, select: selectChatExportMetadata });
 
 	const chatTitle = chat?.title ?? 'nao chat';
@@ -73,6 +75,11 @@ export function AssistantMessageActions({
 	};
 
 	const handleCopyChat = () => copy(buildChatMarkdown());
+
+	const handleSaveAsTest = () => {
+		setTestDraft(getTestDraft(getAgentMessages(), message));
+		setIsSaveAsTestOpen(true);
+	};
 
 	const handleExportMarkdown = () => {
 		downloadTextFile(`${toFileSlug(chatTitle)}.md`, buildChatMarkdown(), 'text/markdown');
@@ -217,10 +224,10 @@ export function AssistantMessageActions({
 							{isExportingPdf ? <Loader2 className='animate-spin' /> : <FileDown />}
 							<span>{isExportingPdf ? 'Generating PDF…' : 'Export chat to PDF'}</span>
 						</DropdownMenuItem>
-						{testDraft && (
+						{isSaveAsTestAvailable && (
 							<>
 								<DropdownMenuSeparator />
-								<DropdownMenuItem onSelect={() => setIsSaveAsTestOpen(true)}>
+								<DropdownMenuItem onSelect={handleSaveAsTest}>
 									<FlaskConical />
 									<span>Save as test</span>
 								</DropdownMenuItem>

@@ -10,37 +10,61 @@ export interface TestDraft {
 	databaseId: string | null;
 }
 
+interface WarehouseQuery {
+	sql: string;
+	databaseId: string | null;
+}
+
 /**
- * Turns an answer into a test: the question that led to it, checked against the last warehouse SQL it ran.
- * Queries on nao's local database are skipped, since they read results that only exist in this chat.
+ * Turns an answer into a test: the question that led to it, checked against the last warehouse SQL it ran, or the SQL
+ * the semantic layer compiled for it. Queries on nao's local database are skipped, since they read results that only
+ * exist in this chat. The question is left empty when the chat has none before the answer.
  */
 export function getTestDraft(messages: UIMessage[], answer: UIMessage): TestDraft | null {
-	const sqlQuery = findLastExecutedSql(answer);
-	const prompt = findQuestionBefore(messages, answer);
-	if (!sqlQuery || !prompt) {
+	const warehouseQuery = findLastWarehouseQuery(answer);
+	if (!warehouseQuery) {
 		return null;
 	}
+	const prompt = findQuestionBefore(messages, answer) ?? '';
 	return {
 		name: toDefaultName(prompt),
 		prompt,
-		sql: sqlQuery.sql,
-		databaseId: sqlQuery.databaseId,
+		sql: warehouseQuery.sql,
+		databaseId: warehouseQuery.databaseId,
 	};
 }
 
-function findLastExecutedSql(message: UIMessage): { sql: string; databaseId: string | null } | null {
+/** Whether the answer ran a query a test can be checked against, which only needs the answer itself. */
+export function canSaveAsTest(answer: UIMessage): boolean {
+	return findLastWarehouseQuery(answer) !== null;
+}
+
+function findLastWarehouseQuery(message: UIMessage): WarehouseQuery | null {
 	for (const part of [...message.parts].reverse()) {
-		if (part.type !== 'tool-execute_sql') {
-			continue;
+		const query = toWarehouseQuery(part);
+		if (query) {
+			return query;
 		}
+	}
+	return null;
+}
+
+function toWarehouseQuery(part: UIMessage['parts'][number]): WarehouseQuery | null {
+	if (part.type === 'tool-execute_sql') {
 		const toolPart = part as UIToolPart<'execute_sql'>;
-		if (
+		const isWarehouseQuery =
 			toolPart.state === 'output-available' &&
 			toolPart.input?.sql_query &&
-			toolPart.input.database_id !== LOCAL_DATABASE_ID
-		) {
-			return { sql: toolPart.input.sql_query, databaseId: toolPart.input.database_id ?? null };
-		}
+			toolPart.input.database_id !== LOCAL_DATABASE_ID;
+		return isWarehouseQuery
+			? { sql: toolPart.input.sql_query, databaseId: toolPart.input.database_id ?? null }
+			: null;
+	}
+	if (part.type === 'tool-execute_semantic_query') {
+		const toolPart = part as UIToolPart<'execute_semantic_query'>;
+		return toolPart.state === 'output-available' && toolPart.output?.compiled_sql
+			? { sql: toolPart.output.compiled_sql, databaseId: toolPart.output.database_id ?? null }
+			: null;
 	}
 	return null;
 }
