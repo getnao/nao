@@ -22,6 +22,7 @@ import { createOllama } from 'ai-sdk-ollama';
 
 import type {
 	ActiveEffort,
+	ExtraParamKey,
 	LlmProvidersType,
 	ModelCapabilities,
 	ModelInferenceSettings,
@@ -633,6 +634,11 @@ function resolveEffortThinking(
 	return { providerOverrides: toOverrides(effort), thinkingActive: true };
 }
 
+/** Sent when the admin leaves the param unset: Gemini bills its thinking but only returns it when asked. */
+const EXTRA_PARAM_DEFAULTS: Partial<Pick<ModelInferenceSettings, ExtraParamKey>> = {
+	includeThoughts: true,
+};
+
 function resolveExtraOptions(
 	provider: LlmProvider,
 	modelId: string,
@@ -646,7 +652,7 @@ function resolveExtraOptions(
 
 	const overrides: Record<string, unknown> = {};
 	for (const key of extraParams) {
-		const value = settings[key];
+		const value = settings[key] ?? EXTRA_PARAM_DEFAULTS[key];
 		if (value === undefined || key === 'thinkingDisplay') {
 			continue;
 		}
