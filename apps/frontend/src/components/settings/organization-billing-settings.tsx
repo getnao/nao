@@ -74,7 +74,11 @@ export function OrganizationBillingSettings({
 					</p>
 				</div>
 
-				<BillingTabs activeTab={activeTab} showSeats={false} onTabChange={onTabChange} />
+				<BillingTabs
+					activeTab={activeTab}
+					tabs={billingTabs.filter((tab) => tab.value !== 'seats')}
+					onTabChange={onTabChange}
+				/>
 				<BillingFeedback billingState={billingState} />
 
 				{activeTab === 'plans' && <LegacyBillingPlansTab billingState={billingState} />}
@@ -131,6 +135,19 @@ function CloudOrganizationBillingSettings({
 	}
 
 	const plans = data.availablePlans as CloudPlanOffer[];
+	const visibleTabs = billingTabs.filter(({ value }) => {
+		if (value === 'seats') {
+			return !data.trialAvailable;
+		}
+		if (value === 'credits') {
+			return !data.trialAvailable || data.invoiceHistoryAvailable;
+		}
+		if (value === 'invoices') {
+			return data.invoiceHistoryAvailable || data.paidPlanSelected;
+		}
+		return true;
+	});
+	const visibleActiveTab = visibleTabs.some(({ value }) => value === activeTab) ? activeTab : 'plans';
 	const currentPlanOffer = data.current ? plans.find((plan) => plan.planKey === data.current?.planKey) : undefined;
 	const teamPlanOffer = plans.find(
 		(plan) => plan.tier === 'team' && plan.interval === billingState.selectedBillingInterval,
@@ -201,9 +218,9 @@ function CloudOrganizationBillingSettings({
 							Manage plans, paid capacity, invoices, and your organization&apos;s nao credits.
 						</p>
 					</div>
-					<BillingTabs activeTab={activeTab} showSeats onTabChange={onTabChange} />
+					<BillingTabs activeTab={visibleActiveTab} tabs={visibleTabs} onTabChange={onTabChange} />
 					<BillingFeedback billingState={billingState} />
-					{activeTab === 'plans' && (
+					{visibleActiveTab === 'plans' && (
 						<CloudBillingPlansTab
 							data={data}
 							plans={plans}
@@ -212,7 +229,7 @@ function CloudOrganizationBillingSettings({
 							onSwitchToFree={() => setSwitchToFreeOpen(true)}
 						/>
 					)}
-					{activeTab === 'seats' && (
+					{visibleActiveTab === 'seats' && (
 						<CloudBillingSeatsTab
 							data={data}
 							billingState={billingState}
@@ -222,8 +239,8 @@ function CloudOrganizationBillingSettings({
 							onChoosePlan={choosePlan}
 						/>
 					)}
-					{activeTab === 'credits' && creditsSection}
-					{activeTab === 'invoices' && <BillingInvoicesTab billingState={billingState} />}
+					{visibleActiveTab === 'credits' && creditsSection}
+					{visibleActiveTab === 'invoices' && <BillingInvoicesTab billingState={billingState} />}
 				</div>
 			</SettingsPageWrapper>
 			<CloudBillingPlanChangeDialog
@@ -274,35 +291,33 @@ const billingTabs: Array<{ label: string; value: OrganizationBillingTab }> = [
 
 function BillingTabs({
 	activeTab,
-	showSeats,
+	tabs,
 	onTabChange,
 }: {
 	activeTab: OrganizationBillingTab;
-	showSeats: boolean;
+	tabs: Array<{ label: string; value: OrganizationBillingTab }>;
 	onTabChange?: (tab: OrganizationBillingTab) => void;
 }) {
 	return (
 		<div className='overflow-x-auto border-b border-border'>
 			<div className='flex min-w-max gap-6' role='tablist' aria-label='Billing sections'>
-				{billingTabs
-					.filter((tab) => showSeats || tab.value !== 'seats')
-					.map((tab) => (
-						<button
-							key={tab.value}
-							type='button'
-							role='tab'
-							aria-selected={activeTab === tab.value}
-							className={cn(
-								'cursor-pointer border-b-2 px-1 pb-3 text-sm font-medium transition-colors',
-								activeTab === tab.value
-									? 'border-primary text-foreground'
-									: 'border-transparent text-muted-foreground hover:text-foreground',
-							)}
-							onClick={() => onTabChange?.(tab.value)}
-						>
-							{tab.label}
-						</button>
-					))}
+				{tabs.map((tab) => (
+					<button
+						key={tab.value}
+						type='button'
+						role='tab'
+						aria-selected={activeTab === tab.value}
+						className={cn(
+							'cursor-pointer border-b-2 px-1 pb-3 text-sm font-medium transition-colors',
+							activeTab === tab.value
+								? 'border-primary text-foreground'
+								: 'border-transparent text-muted-foreground hover:text-foreground',
+						)}
+						onClick={() => onTabChange?.(tab.value)}
+					>
+						{tab.label}
+					</button>
+				))}
 			</div>
 		</div>
 	);

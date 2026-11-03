@@ -17,6 +17,7 @@ import {
 	TeamMembersList,
 } from '@/components/settings/team';
 import { Button } from '@/components/ui/button';
+import { Callout } from '@/components/ui/callout';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -82,20 +83,27 @@ export function OrgMembers() {
 		.filter((candidate) => candidate.membershipClass === 'project_only')
 		.map(seatCandidateToTeamMember);
 	const members = [...organizationMembers, ...projectMembers];
-	const accessByUserId: Record<string, MemberAccessState> | undefined = cloudBillingStatus
-		? Object.fromEntries(
-				members.map((member) => {
-					const candidate = seatCandidates.find(({ userId }) => userId === member.id);
-					return [member.id, candidate ? (candidate.isSeated ? 'seated' : 'read-only') : 'viewer'] as const;
-				}),
-			)
-		: undefined;
+	const trialSetupPending = cloudBillingStatus?.trialAvailable === true;
+	const accessByUserId: Record<string, MemberAccessState> | undefined =
+		cloudBillingStatus && !trialSetupPending
+			? Object.fromEntries(
+					members.map((member) => {
+						const candidate = seatCandidates.find(({ userId }) => userId === member.id);
+						return [
+							member.id,
+							candidate ? (candidate.isSeated ? 'seated' : 'read-only') : 'viewer',
+						] as const;
+					}),
+				)
+			: undefined;
 	const assignmentsEditable =
-		cloudBillingStatus?.access.tier === 'free' ||
-		cloudBillingStatus?.access.tier === 'team' ||
-		cloudBillingStatus?.access.tier === 'trial';
-	const seatCapacity =
-		cloudBillingStatus?.access.tier === 'team'
+		!trialSetupPending &&
+		(cloudBillingStatus?.access.tier === 'free' ||
+			cloudBillingStatus?.access.tier === 'team' ||
+			cloudBillingStatus?.access.tier === 'trial');
+	const seatCapacity = trialSetupPending
+		? undefined
+		: cloudBillingStatus?.access.tier === 'team'
 			? cloudBillingStatus.access.seatQuantity
 			: cloudBillingStatus?.access.tier === 'free'
 				? cloudBillingStatus.access.seatLimit
@@ -218,6 +226,11 @@ export function OrgMembers() {
 						) : undefined
 					}
 				>
+					{trialSetupPending && (
+						<Callout className='m-4'>
+							Deploy a project and start your trial to manage member access.
+						</Callout>
+					)}
 					{seatAccessError && (
 						<p className='border-b border-border p-4 text-sm text-destructive' role='alert'>
 							{seatAccessError}{' '}

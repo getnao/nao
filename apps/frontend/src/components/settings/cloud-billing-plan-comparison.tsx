@@ -42,6 +42,7 @@ export function CloudBillingPlanComparison({
 	seatQuantity,
 	availableSeats,
 	recommendation,
+	informational,
 	disabled,
 	onIntervalChange,
 	onChoose,
@@ -59,6 +60,7 @@ export function CloudBillingPlanComparison({
 	seatQuantity: number | null;
 	availableSeats: number | null;
 	recommendation: PaidCloudBillingTier | null;
+	informational?: boolean;
 	disabled?: boolean;
 	onIntervalChange: (interval: CloudBillingInterval) => void;
 	onChoose?: (plan: CloudPlanOffer) => void;
@@ -81,13 +83,15 @@ export function CloudBillingPlanComparison({
 	const intervalLabel = interval === 'monthly' ? 'month' : 'year';
 	const trialing = currentTier === 'trial';
 	const paidStatus = (plan: CloudPlanOffer): PlanStatus | undefined =>
-		currentTier === plan.tier && currentPlanKey === plan.planKey
-			? 'current'
-			: trialing && currentPlanKey === plan.planKey && !cancellationScheduled
-				? 'after-trial'
-				: pendingPlanKey === plan.planKey
-					? 'scheduled'
-					: undefined;
+		informational
+			? undefined
+			: currentTier === plan.tier && currentPlanKey === plan.planKey
+				? 'current'
+				: trialing && currentPlanKey === plan.planKey && !cancellationScheduled
+					? 'after-trial'
+					: pendingPlanKey === plan.planKey
+						? 'scheduled'
+						: undefined;
 	const teamStatus = team ? paidStatus(team) : undefined;
 	const unlimitedStatus = unlimited ? paidStatus(unlimited) : undefined;
 	const paidPlanAction = (plan: CloudPlanOffer, status: PlanStatus | undefined) => {
@@ -111,8 +115,9 @@ export function CloudBillingPlanComparison({
 	const teamTotal = team
 		? `${formatBillingPrice(team.unitAmount * (seatQuantity ?? 4), team.currency)} total for ${seatQuantity ?? 4} seats / ${intervalLabel}`
 		: '';
-	const freeStatus: PlanStatus | undefined =
-		currentTier === 'free'
+	const freeStatus: PlanStatus | undefined = informational
+		? undefined
+		: currentTier === 'free'
 			? 'current'
 			: trialing && (currentPlanKey === null || cancellationScheduled)
 				? 'after-trial'
@@ -200,7 +205,7 @@ export function CloudBillingPlanComparison({
 						priceSuffix={`per ${intervalLabel}`}
 						supportingText='One price for your whole organization'
 						status={unlimitedStatus}
-						recommended={recommendation === 'unlimited'}
+						recommended={!informational && recommendation === 'unlimited'}
 						discount={interval === 'yearly' ? unlimitedYearlyDiscount : null}
 						features={[
 							'Full access for your whole organization',

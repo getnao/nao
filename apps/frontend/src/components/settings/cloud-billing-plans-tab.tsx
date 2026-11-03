@@ -25,12 +25,16 @@ export function CloudBillingPlansTab({
 }) {
 	return (
 		<>
-			<CloudCurrentPlanCard
-				data={data}
-				billingState={billingState}
-				disabled={billingState.isPlanSelectionPending}
-				onCancelPendingChange={() => void billingState.cancelPendingPlanChange()}
-			/>
+			{data.trialAvailable ? (
+				<CloudTrialSetupCard />
+			) : (
+				<CloudCurrentPlanCard
+					data={data}
+					billingState={billingState}
+					disabled={billingState.isPlanSelectionPending}
+					onCancelPendingChange={() => void billingState.cancelPendingPlanChange()}
+				/>
+			)}
 			<CloudBillingPlanComparison
 				plans={plans}
 				currentTier={data.access.tier}
@@ -44,14 +48,26 @@ export function CloudBillingPlansTab({
 				recommendation={
 					data.recommendation === 'team' || data.recommendation === 'unlimited' ? data.recommendation : null
 				}
+				informational={data.trialAvailable}
 				disabled={billingState.isPlanSelectionPending || billingState.isPortalPending || data.scheduleConflict}
 				onIntervalChange={billingState.setSelectedBillingInterval}
-				onChoose={data.current?.legacy ? undefined : onChoosePlan}
-				onChooseFree={data.current ? onSwitchToFree : undefined}
+				onChoose={data.trialAvailable || data.current?.legacy ? undefined : onChoosePlan}
+				onChooseFree={data.trialAvailable || !data.current ? undefined : onSwitchToFree}
 				onCancelPlan={onSwitchToFree}
 				onKeepPlan={billingState.openPortal}
 			/>
 		</>
+	);
+}
+
+function CloudTrialSetupCard() {
+	return (
+		<SettingsCard title='Plan overview'>
+			<div className='py-4 text-center'>
+				<p className='font-medium text-foreground'>Deploy a project and start your trial to choose a plan.</p>
+				<p className='mt-1 text-sm text-muted-foreground'>You can review the available plans below.</p>
+			</div>
+		</SettingsCard>
 	);
 }
 

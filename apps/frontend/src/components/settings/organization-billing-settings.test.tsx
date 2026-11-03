@@ -498,17 +498,24 @@ it('keeps post-trial plan and interval selection enabled for the default Free de
 	expect(mocks.cloudOpenTrialCheckoutForPlan).toHaveBeenCalledWith('cloud_team_monthly_v1', 4);
 });
 
-it('opens paid Checkout for a new organization whose trial has not started', () => {
+it('shows informational plans before a new organization starts its trial', () => {
 	mocks.freeTierEnabled = true;
 	mocks.cloudFreeActive = true;
 	mocks.cloudPaidPlanSelected = false;
 	mocks.trialAvailable = true;
 
-	render(<OrganizationBillingSettings search={{}} />);
+	render(<OrganizationBillingSettings search={{ tab: 'seats' }} />);
 
-	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
-	expect(mocks.cloudResubscribeForPlan).toHaveBeenCalledWith('cloud_unlimited_monthly_v1', undefined);
-	expect(mocks.cloudOpenTrialCheckoutForPlan).not.toHaveBeenCalled();
+	expect(screen.getByRole('tab', { name: 'Plans' }).getAttribute('aria-selected')).toBe('true');
+	expect(screen.queryByRole('tab', { name: 'Seats' })).toBeNull();
+	expect(screen.queryByRole('tab', { name: 'Credits' })).toBeNull();
+	expect(screen.queryByRole('tab', { name: 'Invoices & payment' })).toBeNull();
+	expect(screen.getByText('Deploy a project and start your trial to choose a plan.')).toBeTruthy();
+	expect(screen.getByText('You can review the available plans below.')).toBeTruthy();
+	expect(screen.getByRole('region', { name: 'Free plan' }).textContent).not.toContain('Current plan');
+	expect(screen.getByRole('region', { name: 'Team plan' })).toBeTruthy();
+	expect(screen.getByRole('region', { name: 'Unlimited plan' })).toBeTruthy();
+	expect(screen.queryByRole('button', { name: /Choose|Switch|Cancel/ })).toBeNull();
 });
 
 it('shows the current paid plan flowing into the same plan at renewal', () => {
