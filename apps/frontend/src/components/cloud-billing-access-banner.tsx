@@ -15,11 +15,13 @@ import { trpc } from '@/main';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TRIAL_WARNING_MS = 3 * DAY_MS;
 const dismissedTrialBannerStorage = createLocalStorage<string | string[]>('nao-dismissed-trial-banner', []);
+const dismissedSeatBannerStorage = createLocalStorage<string[]>('nao-dismissed-seat-banner', []);
 
 export function CloudBillingAccessBanner() {
 	const openOrganizationBilling = useOpenOrganizationBilling();
 	const pathname = useRouterState({ select: (state) => state.location.pathname });
 	const [dismissedTrials, setDismissedTrials] = useState(getDismissedTrialKeys);
+	const [dismissedSeatNotices, setDismissedSeatNotices] = useState(dismissedSeatBannerStorage.get);
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const access = useCloudBillingAccess({
 		enabled: config.data?.cloudBillingEnabled === true,
@@ -33,12 +35,17 @@ export function CloudBillingAccessBanner() {
 			: access.data.trialAvailable
 				? `${access.data.organizationId}:available`
 				: undefined);
+	const seatNoticeKey =
+		access.data && notice?.seatShortage
+			? `${access.data.organizationId}:${access.data.seatUserCount}:${access.data.seatLimit}`
+			: undefined;
 
 	if (
 		!notice ||
 		pathname === '/settings/organization/billing' ||
 		(notice.trial && pathname.startsWith('/settings')) ||
-		(notice.dismissible && trialKey && dismissedTrials.includes(trialKey))
+		(notice.dismissible && trialKey && dismissedTrials.includes(trialKey)) ||
+		(seatNoticeKey && dismissedSeatNotices.includes(seatNoticeKey))
 	) {
 		return null;
 	}
@@ -77,6 +84,20 @@ export function CloudBillingAccessBanner() {
 						<X />
 					</Button>
 				)}
+				{seatNoticeKey && (
+					<Button
+						variant='ghost'
+						size='icon-sm'
+						aria-label='Dismiss seat shortage banner'
+						onClick={() => {
+							const nextDismissedSeatNotices = [...new Set([...dismissedSeatNotices, seatNoticeKey])];
+							dismissedSeatBannerStorage.set(nextDismissedSeatNotices);
+							setDismissedSeatNotices(nextDismissedSeatNotices);
+						}}
+					>
+						<X />
+					</Button>
+				)}
 			</div>
 		</Callout>
 	);
@@ -105,6 +126,7 @@ function getAccessNotice(access: CloudBillingAccess | undefined, now = Date.now(
 		const readOnlyCount = Math.max(0, access.seatUserCount - (access.seatLimit ?? 0));
 		return {
 			restricted: false,
+			seatShortage: true,
 			title: `${readOnlyCount} ${readOnlyCount === 1 ? 'person is' : 'people are'} read-only.`,
 			description: 'Add seats or change the seat selection to restore full access.',
 		};

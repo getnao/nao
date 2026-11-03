@@ -159,6 +159,34 @@ it('shows a persistent read-only notice without calling the organization restric
 	expect(screen.queryByText(/subscription is needed/i)).toBeNull();
 });
 
+it('lets admins dismiss the current seat shortage until it changes', () => {
+	mocks.access = {
+		...restrictedTrialAccess,
+		freeTierEnabled: true,
+		hasAccess: true,
+		isReadOnly: false,
+		overCapacity: true,
+		status: 'active',
+		seatUserCount: 5,
+		seatLimit: 3,
+	};
+
+	const firstView = render(<CloudBillingAccessBanner />);
+	fireEvent.click(screen.getByRole('button', { name: 'Dismiss seat shortage banner' }));
+
+	expect(screen.queryByRole('status')).toBeNull();
+	expect(localStorage.getItem('nao-dismissed-seat-banner')).toBe(JSON.stringify(['project-organization:5:3']));
+
+	firstView.unmount();
+	const secondView = render(<CloudBillingAccessBanner />);
+	expect(screen.queryByRole('status')).toBeNull();
+
+	mocks.access = { ...mocks.access, seatUserCount: 6 };
+	secondView.rerender(<CloudBillingAccessBanner />);
+
+	expect(screen.getByRole('status').textContent).toContain('3 people are read-only.');
+});
+
 it('explains the Free destination when a small trial ends', () => {
 	const now = new Date('2026-10-05T12:00:00.000Z');
 	vi.useFakeTimers();
