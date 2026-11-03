@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { countOrgUsers } from '../src/queries/organization.queries';
+import { countOrgSeatUsers, countOrgUsers } from '../src/queries/organization.queries';
 import { getOrgActiveUserCount } from '../src/queries/usage.queries';
 import { LICENSE_ACTIVITY_WINDOW } from '../src/types/usage';
 
@@ -40,6 +40,9 @@ const OWNER_ID = 'counts-owner';
 const REPLIER_ID = 'counts-replier';
 const SLACK_USER_ID = 'counts-slack-user';
 const OUTSIDER_ID = 'counts-outsider';
+const VIEWER_ID = 'counts-viewer';
+const ORG_OVERRIDE_ID = 'counts-org-override';
+const DUPLICATE_PROJECT_ID = 'counts-duplicate-project';
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
@@ -50,6 +53,9 @@ describe('organization user counts', () => {
 			{ id: REPLIER_ID, name: 'Thread Replier', email: 'replier@example.com' },
 			{ id: SLACK_USER_ID, name: 'Slack Sender', email: 'slack@example.com' },
 			{ id: OUTSIDER_ID, name: 'Other Org User', email: 'outsider@example.com' },
+			{ id: VIEWER_ID, name: 'Viewer', email: 'viewer@example.com' },
+			{ id: ORG_OVERRIDE_ID, name: 'Org Override', email: 'override@example.com' },
+			{ id: DUPLICATE_PROJECT_ID, name: 'Duplicate Project', email: 'duplicate@example.com' },
 		]);
 		await db.insert(s.organization).values([
 			{ id: ORG_ID, name: 'Counts Org', slug: 'counts-org' },
@@ -63,12 +69,18 @@ describe('organization user counts', () => {
 		await db.insert(s.orgMember).values([
 			{ orgId: ORG_ID, userId: OWNER_ID, role: 'admin' },
 			{ orgId: ORG_ID, userId: REPLIER_ID, role: 'user' },
+			{ orgId: ORG_ID, userId: VIEWER_ID, role: 'viewer' },
+			{ orgId: ORG_ID, userId: ORG_OVERRIDE_ID, role: 'user' },
 			{ orgId: OTHER_ORG_ID, userId: OUTSIDER_ID, role: 'admin' },
 		]);
 		await db.insert(s.projectMember).values([
 			{ projectId: ANALYTICS_PROJECT_ID, userId: OWNER_ID, role: 'admin' },
 			{ projectId: FINANCE_PROJECT_ID, userId: OWNER_ID, role: 'admin' },
 			{ projectId: ANALYTICS_PROJECT_ID, userId: SLACK_USER_ID, role: 'user' },
+			{ projectId: ANALYTICS_PROJECT_ID, userId: VIEWER_ID, role: 'viewer' },
+			{ projectId: ANALYTICS_PROJECT_ID, userId: ORG_OVERRIDE_ID, role: 'viewer' },
+			{ projectId: ANALYTICS_PROJECT_ID, userId: DUPLICATE_PROJECT_ID, role: 'user' },
+			{ projectId: FINANCE_PROJECT_ID, userId: DUPLICATE_PROJECT_ID, role: 'context_admin' },
 			{ projectId: OTHER_ORG_PROJECT_ID, userId: OUTSIDER_ID, role: 'admin' },
 		]);
 		await db.insert(s.chat).values([
@@ -88,11 +100,25 @@ describe('organization user counts', () => {
 
 	describe('people with access', () => {
 		it('counts project-only members alongside organization members', async () => {
-			await expect(countOrgUsers(ORG_ID)).resolves.toBe(3);
+			await expect(countOrgUsers(ORG_ID)).resolves.toBe(6);
 		});
 
 		it('counts somebody who is both an organization and a project member once', async () => {
 			await expect(countOrgUsers(OTHER_ORG_ID)).resolves.toBe(1);
+		});
+	});
+
+	describe('seat users', () => {
+		it('excludes people whose organization and project roles are all viewer', async () => {
+			await expect(countOrgSeatUsers(ORG_ID)).resolves.toBe(5);
+		});
+
+		it('counts a non-viewer organization role despite viewer project overrides', async () => {
+			await expect(countOrgSeatUsers(ORG_ID)).resolves.toBe(5);
+		});
+
+		it('counts a project-only person in multiple projects once', async () => {
+			await expect(countOrgSeatUsers(ORG_ID)).resolves.toBe(5);
 		});
 	});
 

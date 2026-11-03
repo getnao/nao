@@ -32,7 +32,10 @@ import {
 	userGroupMember,
 } from '../src/db/sqlite-schema';
 import { createProject } from '../src/queries/project.queries';
-import { reconcileSsoUserGroupMemberships } from '../src/queries/sso-user-group-membership.queries';
+import {
+	listSsoProjectRoleCandidates,
+	reconcileSsoUserGroupMemberships,
+} from '../src/queries/sso-user-group-membership.queries';
 import {
 	addUserGroupMemberships,
 	countCustomUserGroups,
@@ -1932,11 +1935,33 @@ describe('user group queries', () => {
 			defaultProjectRole: 'admin',
 		});
 
+		await expect(listSsoProjectRoleCandidates(DIRECT_USER_ID, 'microsoft', [microsoftGroupId])).resolves.toEqual(
+			[],
+		);
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [microsoftGroupId]);
 
 		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			role: 'viewer',
 		});
+	});
+
+	it('retries an SSO project role only for a capacity-fallback viewer', async () => {
+		const microsoftGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		await db.insert(projectMember).values({
+			projectId: FOREIGN_PROJECT_ID,
+			userId: DIRECT_USER_ID,
+			role: 'viewer',
+			capacityFallbackRole: 'user',
+		});
+		await createUserGroup(FOREIGN_PROJECT_ID, 'Microsoft Admins', [], DEFAULT_DENSITY, undefined, undefined, {
+			version: 1,
+			providers: { oidc: [], microsoft: [microsoftGroupId] },
+			defaultProjectRole: 'admin',
+		});
+
+		await expect(listSsoProjectRoleCandidates(DIRECT_USER_ID, 'microsoft', [microsoftGroupId])).resolves.toEqual([
+			{ projectId: FOREIGN_PROJECT_ID, role: 'admin' },
+		]);
 	});
 
 	it('replaces OIDC memberships, clears no-matches, and removes deleted mappings', async () => {
