@@ -58,10 +58,6 @@ export class CloudBillingManagementInputError extends HandlerError {
 	}
 }
 
-export async function getCloudBillingOrganizationForAdmin(input: AdminBillingInput): Promise<OrganizationWithBilling> {
-	return loadCloudBillingOrganization(input.organizationId);
-}
-
 export async function createCloudTrialCheckoutForAdmin(input: AdminBillingCheckoutInput): Promise<string> {
 	return withOrganizationSeatLock(input.organizationId, async () => {
 		await requireOrganizationAdmin(input);

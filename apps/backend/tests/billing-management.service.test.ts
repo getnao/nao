@@ -134,7 +134,7 @@ import {
 	createCloudResubscribeForAdmin,
 	createCloudTrialCheckoutForAdmin,
 	createCreditTopUpCheckoutForAdmin,
-	getCloudBillingOrganizationForAdmin,
+	loadCloudBillingOrganization,
 } from '../src/services/billing-management.service';
 
 const adminInput = { userId: 'user-id', organizationId: 'org-id' };
@@ -154,14 +154,14 @@ describe('billing management organization loading', () => {
 		};
 		mocks.getOrganizationWithBilling.mockResolvedValue(organization);
 
-		await expect(getCloudBillingOrganizationForAdmin(adminInput)).resolves.toBe(organization);
+		await expect(loadCloudBillingOrganization(adminInput.organizationId)).resolves.toBe(organization);
 		expect(mocks.getOrganizationWithBilling).toHaveBeenCalledWith('org-id');
 	});
 
 	it('rejects a missing organization', async () => {
 		mocks.getOrganizationWithBilling.mockResolvedValue(null);
 
-		await expect(getCloudBillingOrganizationForAdmin(adminInput)).rejects.toMatchObject({
+		await expect(loadCloudBillingOrganization(adminInput.organizationId)).rejects.toMatchObject({
 			codeMessage: 'NOT_FOUND',
 		});
 	});

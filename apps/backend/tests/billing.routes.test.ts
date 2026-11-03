@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const testState = vi.hoisted(() => ({
 	billing: null as Record<string, unknown> | null,
 	billingEnabled: true,
+	freeTierEnabled: false,
 	membership: null as Record<string, unknown> | null,
 }));
 const stripeMocks = vi.hoisted(() => ({
@@ -34,6 +35,9 @@ vi.mock('../src/queries/organization.queries', () => ({
 	getUserOrgMembership: vi.fn(async () => testState.membership),
 	getOrgMember: vi.fn(async () => testState.membership),
 	getOrganizationById: vi.fn(async () => testState.membership?.organization ?? null),
+	countOrgSeatUsers: vi.fn(async () => 0),
+	listOrgSeatCandidates: vi.fn(async () => []),
+	listReadOnlyOrgUsers: vi.fn(async () => []),
 }));
 
 vi.mock('../src/queries/user.queries', () => ({
@@ -69,6 +73,16 @@ vi.mock('../src/services/stripe.service', () => ({
 	createCloudPortalSession: stripeMocks.createPortal,
 	createCloudResubscribeSession: stripeMocks.createResubscribe,
 	getCloudBillingPlans: stripeMocks.getBillingPlans,
+	getCurrentCloudBillingPlans: vi.fn(async () =>
+		(['monthly', 'yearly'] as const).map((interval) => ({
+			planKey: `cloud_unlimited_${interval}_v1`,
+			tier: 'unlimited',
+			interval,
+			currency: 'usd',
+			unitAmount: 100_000,
+			perSeat: false,
+		})),
+	),
 	getCloudSubscriptionCurrency: stripeMocks.getSubscriptionCurrency,
 	getCloudUpcomingInvoice: stripeMocks.getUpcomingInvoice,
 	listCloudInvoices: stripeMocks.listInvoices,
@@ -86,6 +100,7 @@ vi.mock('../src/utils/logger', () => ({
 vi.mock('../src/env', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/env')>()),
 	isCloudBillingEnabled: vi.fn(() => testState.billingEnabled),
+	isCloudFreeTierEnabled: vi.fn(() => testState.freeTierEnabled),
 }));
 
 import * as orgQueries from '../src/queries/organization.queries';
@@ -96,6 +111,10 @@ import { HandlerError } from '../src/utils/error';
 
 const testRouter = router({ billing: billingRoutes });
 
+beforeEach(() => {
+	testState.freeTierEnabled = false;
+});
+
 describe('billing.getAccess', () => {
 	beforeEach(() => {
 		testState.billing = null;
@@ -104,7 +123,7 @@ describe('billing.getAccess', () => {
 		vi.clearAllMocks();
 	});
 
-	it('returns minimal entitlement state to organization members', async () => {
+	it('returns canonical entitlement state to organization members', async () => {
 		const trialEndsAt = new Date('2099-10-05T00:00:00.000Z');
 		testState.membership = membership(
 			{ billingStatus: 'trialing', stripeSubscriptionId: 'sub_trial', trialEndsAt },
@@ -115,12 +134,21 @@ describe('billing.getAccess', () => {
 			organizationId: 'org-id',
 			hasAccess: true,
 			bypassBilling: false,
+			billingPlan: null,
 			status: 'trialing',
+			tier: 'trial',
 			trialEndsAt,
 			accessEndsAt: trialEndsAt,
 			canManageBilling: false,
+			seatUserCount: 0,
+			seatQuantity: null,
+			seatLimit: null,
+			availableSeats: null,
+			overCapacity: false,
+			isReadOnly: false,
 			trialAvailable: false,
 			requiresBillingAction: true,
+			freeTierEnabled: false,
 		});
 	});
 
@@ -214,6 +242,7 @@ describe('billing.getStatus', () => {
 		testState.membership = membership({
 			billingStatus: 'trialing',
 			billingAccessEndsAt: trialEndsAt,
+			cancellationScheduled: true,
 			stripeCustomerId: 'cus_cloud',
 			stripePriceId: 'price_cloud_trial',
 			stripeSubscriptionId: 'sub_cloud_trial',
@@ -224,6 +253,7 @@ describe('billing.getStatus', () => {
 			hasStripeSubscription: true,
 			needsPaidPlanSelection: true,
 			paidPlanSelected: false,
+			cancellationScheduled: false,
 			paymentMethodManagementAvailable: false,
 			plan: null,
 			resubscribeAvailable: false,
@@ -247,6 +277,22 @@ describe('billing.getStatus', () => {
 			paidPlanSelected: false,
 			resubscribeAvailable: true,
 			status: 'trialing',
+		});
+	});
+
+	it('offers a new subscription instead of plan changes after the paid subscription ended', async () => {
+		testState.freeTierEnabled = true;
+		testState.membership = membership({
+			billingPlan: 'cloud_team_monthly_v1',
+			billingStatus: 'canceled',
+			seatQuantity: 4,
+			stripeCustomerId: 'cus_cloud',
+			stripeSubscriptionId: 'sub_cloud',
+		});
+
+		await expect(caller().billing.getStatus()).resolves.toMatchObject({
+			current: null,
+			resubscribeAvailable: true,
 		});
 	});
 
@@ -380,6 +426,46 @@ describe('billing.createTrialCheckoutSession', () => {
 			code: 'BAD_REQUEST',
 			message: 'Finish setting up your first project before choosing a billing plan',
 		});
+		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
+	});
+
+	it('opens Team trial Checkout with an explicit minimum quantity regardless of membership count', async () => {
+		const trialEndsAt = new Date('2099-10-08T00:00:00.000Z');
+		testState.freeTierEnabled = true;
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			trialStartedAt: new Date('2099-09-24T00:00:00.000Z'),
+			trialEndsAt,
+			billingAccessEndsAt: trialEndsAt,
+		});
+
+		await expect(
+			caller().billing.createTrialCheckoutSession({
+				planKey: 'cloud_team_monthly_v1',
+				seatQuantity: 4,
+				currency: 'usd',
+			}),
+		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
+		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
+			planKey: 'cloud_team_monthly_v1',
+			quantity: 4,
+			currency: 'usd',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			trialEnd: trialEndsAt,
+		});
+	});
+
+	it.each([3, 41])('rejects a Team checkout quantity outside the paid range: %s', async (seatQuantity) => {
+		testState.freeTierEnabled = true;
+
+		await expect(
+			caller().billing.createTrialCheckoutSession({
+				planKey: 'cloud_team_monthly_v1',
+				seatQuantity,
+				currency: 'usd',
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
 	});
 
@@ -728,6 +814,37 @@ describe('billing management mutations', () => {
 		).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
 			message: 'Subscription cannot be resumed',
+		});
+	});
+});
+
+describe('free-tier billing command guards', () => {
+	beforeEach(() => {
+		testState.billingEnabled = true;
+		testState.freeTierEnabled = true;
+		testState.membership = membership({}, 'admin');
+		vi.clearAllMocks();
+	});
+
+	it('validates the Team minimum at the route boundary', async () => {
+		await expect(caller().billing.previewSeatChange({ targetQuantity: 3 })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+	});
+
+	it('requires organization-admin access for billing commands', async () => {
+		testState.membership = membership({}, 'member');
+
+		await expect(caller().billing.previewSeatChange({ targetQuantity: 4 })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+	});
+
+	it('hides free-tier commands while the free tier is disabled', async () => {
+		testState.freeTierEnabled = false;
+
+		await expect(caller().billing.previewSeatChange({ targetQuantity: 4 })).rejects.toMatchObject({
+			code: 'NOT_FOUND',
 		});
 	});
 });
