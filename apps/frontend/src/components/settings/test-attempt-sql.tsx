@@ -40,7 +40,7 @@ export function AttemptSql({ result }: { result: TestRunResult }) {
 
 /**
  * The queries of the two sides of a compared attempt, laid out the same way, with the words that differ marked like a
- * split diff. Differences of spacing or letter case alone are not marked.
+ * split diff. Differences of spacing or letter case alone are not marked, except inside quoted values.
  */
 export function ComparedAttemptSql({
 	production,
@@ -134,7 +134,7 @@ function SqlCode({
 		<pre className='overflow-x-auto rounded-md border bg-background py-1.5 font-mono text-[11px] leading-5'>
 			{lines.map((line, index) => {
 				const changedRanges = changedLines?.get(index);
-				const change = changedRanges ? lineChange : undefined;
+				const change = changedRanges?.length ? lineChange : undefined;
 				return (
 					<div
 						key={index}

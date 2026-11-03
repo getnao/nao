@@ -15,12 +15,15 @@ interface WordToken {
 	end: number;
 }
 
-const WORD_PATTERN = /\s+|[\p{L}\p{N}_]+|[<>=!|&:]+|[^\s\p{L}\p{N}_]/gu;
+const QUOTED_PATTERN = /('(?:[^']|'')*'|"(?:[^"]|"")*"|`[^`]*`)/;
+const WORD_PATTERN = new RegExp(`${QUOTED_PATTERN.source}|\\s+|[\\p{L}\\p{N}_]+|[<>=!|&:]+|[^\\s\\p{L}\\p{N}_]`, 'gu');
 const WHITESPACE = /^\s+$/;
+const QUOTE_CHARACTERS = new Set(["'", '"', '`']);
 
 /**
- * Compares two texts like a split diff that ignores spacing and letter case: lines are paired from their longest common
- * subsequence, and within a changed line that replaces another, only the words that differ are marked.
+ * Compares two texts like a split diff that ignores spacing and letter case outside quoted values: lines are paired
+ * from their longest common subsequence, and within a changed line that replaces another, only the words that differ
+ * are marked.
  */
 export function diffSplitLines(before: string, after: string): { before: ChangedLines; after: ChangedLines } {
 	const beforeLines = before.split('\n');
@@ -38,6 +41,9 @@ export function diffSplitLines(before: string, after: string): { before: Changed
 				return;
 			}
 			const words = diffWords(beforeLines[beforeIndex], afterLines[afterIndex]);
+			if (words.before.length === 0 && words.after.length === 0) {
+				return;
+			}
 			changes.before.set(beforeIndex, words.before);
 			changes.after.set(afterIndex, words.after);
 		});
@@ -61,7 +67,7 @@ export function diffSplitLines(before: string, after: string): { before: Changed
 	return changes;
 }
 
-/** The words of two lines that the other line does not have, ignoring spacing and letter case. */
+/** The words of two lines that the other line does not have, ignoring spacing and letter case outside quoted values. */
 function diffWords(before: string, after: string): { before: ChangedRange[]; after: ChangedRange[] } {
 	const beforeWords = tokenizeWords(before);
 	const afterWords = tokenizeWords(after);
@@ -100,10 +106,17 @@ function tokenizeWords(line: string): WordToken[] {
 }
 
 function isSameWord(left: WordToken, right: WordToken): boolean {
-	return (
-		(WHITESPACE.test(left.text) && WHITESPACE.test(right.text)) ||
-		left.text.toLowerCase() === right.text.toLowerCase()
-	);
+	if (WHITESPACE.test(left.text) && WHITESPACE.test(right.text)) {
+		return true;
+	}
+	if (isQuoted(left.text) || isQuoted(right.text)) {
+		return left.text === right.text;
+	}
+	return left.text.toLowerCase() === right.text.toLowerCase();
+}
+
+function isQuoted(word: string): boolean {
+	return word.length > 1 && QUOTE_CHARACTERS.has(word[0]);
 }
 
 /** `lengths[i][j]` is the longest common subsequence of the words from `i` and from `j`. */
@@ -139,5 +152,13 @@ function wholeLine(line: string): ChangedRange {
 }
 
 function normalizeLines(lines: string[]): string {
-	return lines.map((line) => line.trim().replace(/\s+/g, ' ').toLowerCase()).join('\n');
+	return lines.map(normalizeLine).join('\n');
+}
+
+function normalizeLine(line: string): string {
+	return line
+		.trim()
+		.split(QUOTED_PATTERN)
+		.map((part, index) => (index % 2 === 1 ? part : part.replace(/\s+/g, ' ').toLowerCase()))
+		.join('');
 }
