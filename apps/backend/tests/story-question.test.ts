@@ -318,7 +318,7 @@ describe('quick questions on a story', () => {
 		const code = `${ORIGINAL_CODE}<table query_id="query_semantic" />\n<table query_id="query_semantic_same_turn" />\n`;
 
 		await runStoryTool(
-			{ action: 'replace', id: SLUG, code },
+			{ action: 'replace', id: STORY_ID, code },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory, queryResults },
 		);
 

@@ -214,6 +214,13 @@ describe('editing a story from another chat', () => {
 			userId: OWNER_ID,
 			projectId: PROJECT_ID,
 		});
+		await db.insert(s.storyVersion).values({
+			storyId: 'edit-private-standalone',
+			version: 1,
+			code: '# Private',
+			action: 'create',
+			source: 'user',
+		});
 
 		const found = await findEditableStory(
 			{ chatId: null as unknown as string, userId: VIEWER_ID, projectId: PROJECT_ID },
