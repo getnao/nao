@@ -203,7 +203,7 @@ function ScreenshotSheet({
 								fetchPriority='low'
 								onLoad={onLoad}
 								onError={onError}
-								className='block h-auto w-full max-w-none aspect-[8/5] object-cover object-top-left bg-background'
+								className='block size-full max-w-none object-cover object-top-left bg-background'
 							/>
 						</div>
 					</div>
