@@ -41,8 +41,8 @@ export async function reconcileCloudBillingCustomer(input: {
 	organizationIdHint?: string;
 }): Promise<CloudBillingReconciliationResult> {
 	const organizationId =
-		input.organizationIdHint ??
-		(await billingQueries.getOrganizationBillingByStripeCustomerId(input.stripeCustomerId))?.orgId;
+		(await billingQueries.getOrganizationBillingByStripeCustomerId(input.stripeCustomerId))?.orgId ??
+		input.organizationIdHint;
 	if (!organizationId) {
 		return reconcileCloudBillingCustomerUnderLock(input);
 	}

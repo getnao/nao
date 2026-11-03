@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	addOrgMemberIfMissing: vi.fn(),
 	addProjectMember: vi.fn(),
 	addProjectMemberWithUserGroups: vi.fn(),
+	checkProjectHasMoreThanOneAdmin: vi.fn(),
 	getOrgMember: vi.fn(),
 	getProjectMember: vi.fn(),
 	getOrganizationById: vi.fn(),
@@ -77,7 +78,7 @@ vi.mock('../src/queries/organization.queries', () => ({
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	addProjectMember: mocks.addProjectMember,
-	checkProjectHasMoreThanOneAdmin: vi.fn(async () => true),
+	checkProjectHasMoreThanOneAdmin: mocks.checkProjectHasMoreThanOneAdmin,
 	getProjectMember: mocks.getProjectMember,
 	getProjectById: mocks.getProjectById,
 	getUserRoleInProject: vi.fn(async (_projectId, userId) => mocks.projectMembers.get(userId) ?? null),
@@ -175,6 +176,12 @@ describe('membership service', () => {
 			updateSeatCandidate(member.userId, member.role);
 			return member;
 		});
+		mocks.checkProjectHasMoreThanOneAdmin.mockImplementation(async () => {
+			const hasMoreThanOneAdmin =
+				[...mocks.projectMembers.values()].filter((role) => role === 'admin').length > 1;
+			await Promise.resolve();
+			return hasMoreThanOneAdmin;
+		});
 		mocks.removeOrgMember.mockImplementation(async (_orgId, userId) => {
 			mocks.orgMembers.delete(userId);
 			mocks.seatCandidates = mocks.seatCandidates.filter(({ id }) => id !== userId);
@@ -244,6 +251,21 @@ describe('membership service', () => {
 		expect(mocks.removeProjectMember).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(mocks.projectMembers.has('user-1')).toBe(false);
 		expect(mocks.syncOrganizationSeatState).not.toHaveBeenCalled();
+	});
+
+	it('serializes concurrent admin demotions in projects without an organization', async () => {
+		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: null, path: null });
+		mocks.projectMembers.set('admin-1', 'admin');
+		mocks.projectMembers.set('admin-2', 'admin');
+
+		const results = await Promise.allSettled([
+			putProjectMember('project-1', 'admin-1', 'viewer'),
+			putProjectMember('project-1', 'admin-2', 'viewer'),
+		]);
+
+		expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+		expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(1);
+		expect([...mocks.projectMembers.values()].filter((role) => role === 'admin')).toHaveLength(1);
 	});
 
 	it.each(['trial', 'unlimited', 'bypass'] as const)('activates directly on %s', async (tier) => {

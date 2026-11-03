@@ -135,7 +135,9 @@ export async function putProjectMember(
 		? await withOrganizationSeatLock(project.orgId, () =>
 				mutateProjectMembership(project.orgId!, projectId, userId, role, { addIfMissing: true }),
 			)
-		: await putProjectMemberWithoutBilling(projectId, userId, role);
+		: await withKeyedLock(`project-members:${projectId}`, () =>
+				putProjectMemberWithoutBilling(projectId, userId, role),
+			);
 	if (project.path && isContextRole(result.previousRole) && !isContextRole(result.role)) {
 		await cleanupContextWorktree(projectId, project.path, userId);
 	}

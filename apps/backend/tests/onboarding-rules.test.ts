@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	assertUserCloudBillingAccess: vi.fn(),
+	assertProjectSetupCloudBillingAccess: vi.fn(),
 	generateText: vi.fn(),
 	getProjectById: vi.fn(),
 	resolveProviderModel: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock('../src/utils/safe-fetch', () => ({
 }));
 
 vi.mock('../src/services/cloud-billing-access.service', () => ({
-	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
+	assertProjectSetupCloudBillingAccess: mocks.assertProjectSetupCloudBillingAccess,
 }));
 
 import { generateOnboardingRules } from '../src/services/onboarding-rules';
@@ -72,7 +72,7 @@ describe('generateOnboardingRules', () => {
 		expect(systemPrompt).toContain('## RULES.md template');
 		expect(systemPrompt).toContain('## Business overview');
 		expect(systemPrompt).not.toContain('The document should:');
-		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledTimes(2);
+		expect(mocks.assertProjectSetupCloudBillingAccess).toHaveBeenCalledTimes(2);
 		expect(fs.readFileSync(path.join(projectPath, 'RULES.md'), 'utf8')).toBe('# Generated rules\n');
 	});
 

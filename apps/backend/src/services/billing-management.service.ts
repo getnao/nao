@@ -1047,9 +1047,7 @@ async function loadSeatCandidates(organizationId: string, seatLimit: number | nu
 	const candidates = await organizationQueries.listOrgSeatCandidates(organizationId);
 	const seatedIds = new Set(
 		organizationQueries.resolveSeatedOrgUserIds(
-			trialing
-				? candidates.map((candidate) => ({ ...candidate, selectionExplicit: false, storedReadOnly: false }))
-				: candidates,
+			trialing ? candidates.map((candidate) => ({ ...candidate, storedReadOnly: false })) : candidates,
 			seatLimit,
 		),
 	);

@@ -75,11 +75,21 @@ vi.mock('../src/queries/organization.queries', () => ({
 	getOrgMember: mocks.getMember,
 	listOrgSeatCandidates: mocks.listSeatCandidates,
 	resolveSeatedOrgUserIds: (
-		candidates: Array<{ id: string; membershipClass: string; storedReadOnly?: boolean }>,
+		candidates: Array<{
+			id: string;
+			membershipClass: string;
+			selectedAt?: Date | null;
+			selectionExplicit?: boolean | null;
+		}>,
 		seatLimit: number | null,
 	) =>
 		candidates
-			.filter((candidate) => candidate.membershipClass === 'org_admin' || candidate.storedReadOnly !== true)
+			.filter(
+				(candidate) =>
+					candidate.membershipClass === 'org_admin' ||
+					candidate.selectedAt != null ||
+					candidate.selectionExplicit !== true,
+			)
 			.slice(0, seatLimit === null ? undefined : seatLimit)
 			.map(({ id }) => id),
 }));
@@ -904,6 +914,37 @@ describe('Phase 6 billing commands', () => {
 		});
 
 		expect(preview.readOnlyUsersAfterChange).toEqual([]);
+	});
+
+	it('includes an explicitly deselected trial user in the Team preview warning', async () => {
+		mocks.getSubscription.mockResolvedValue({
+			id: 'sub_team',
+			status: 'trialing',
+			currency: 'usd',
+			cancel_at_period_end: false,
+		});
+		mocks.listSeatCandidates.mockResolvedValue(
+			Array.from({ length: 4 }, (_, index) => ({
+				id: `user-${index}`,
+				name: `User ${index}`,
+				email: `user-${index}@example.com`,
+				membershipClass: index === 0 ? 'org_admin' : 'org_member',
+				orgRole: index === 0 ? 'admin' : 'user',
+				projectRoles: [],
+				joinedAt: new Date(),
+				selectedAt: null,
+				selectionExplicit: index === 3,
+				storedReadOnly: false,
+			})),
+		);
+
+		const preview = await previewCloudPlanChangeForAdmin({
+			...adminInput,
+			targetPlanKey: 'cloud_team_monthly_v1',
+			targetSeatQuantity: 7,
+		});
+
+		expect(preview.readOnlyUsersAfterChange).toEqual([expect.objectContaining({ userId: 'user-3' })]);
 	});
 
 	it('switches to Free and keeps the paid plan through explicit cancellation updates', async () => {

@@ -1,5 +1,5 @@
 import type { MemberStatus, UserRole } from '@nao/shared/types';
-import { and, asc, count, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, eq, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -528,7 +528,12 @@ export const countOrgSeatUsers = async (orgId: string): Promise<number> => {
 					.select({ userId: s.projectMember.userId })
 					.from(s.projectMember)
 					.innerJoin(s.project, eq(s.projectMember.projectId, s.project.id))
-					.where(and(eq(s.project.orgId, orgId), ne(s.projectMember.role, 'viewer'))),
+					.where(
+						and(
+							eq(s.project.orgId, orgId),
+							or(ne(s.projectMember.role, 'viewer'), isNotNull(s.projectMember.capacityFallbackRole)),
+						),
+					),
 			),
 	);
 	const [result] = await db
@@ -555,7 +560,9 @@ export const listOrgSeatCandidates = async (orgId: string): Promise<OrgSeatCandi
 					.select({
 						userId: s.projectMember.userId,
 						source: sql<'organization' | 'project'>`'project'`.as('source'),
-						role: sql<UserRole>`${s.projectMember.role}`.as('role'),
+						role: sql<UserRole>`coalesce(${s.projectMember.capacityFallbackRole}, ${s.projectMember.role})`.as(
+							'role',
+						),
 						createdAt: s.projectMember.createdAt,
 					})
 					.from(s.projectMember)

@@ -91,6 +91,7 @@ export interface StoryPageHeaderProps {
 	storyChat?: StoryChatControls;
 	/** Offers to copy the story into a new chat of the user. */
 	canDuplicate?: boolean;
+	isReadOnly?: boolean;
 	live?: LiveControls;
 	download?: StoryDownloadOptions;
 	storyId?: string | null;
@@ -107,6 +108,7 @@ export function StoryPageHeader({
 	authorName,
 	storyChat,
 	canDuplicate = false,
+	isReadOnly = false,
 	live,
 	download,
 	storyId,
@@ -126,7 +128,7 @@ export function StoryPageHeader({
 				<EditableStoryTitle
 					storyId={storyId}
 					title={title}
-					canEdit={canRename}
+					canEdit={canRename && !isReadOnly}
 					heading='h1'
 					className='min-w-20 max-w-full truncate text-base font-medium'
 					inputClassName='text-base font-medium'
@@ -143,7 +145,7 @@ export function StoryPageHeader({
 							onSelectVersion={versionControls.onSelectVersion}
 						/>
 					)}
-					{viewModeControls && <ViewModeToggle controls={viewModeControls} />}
+					{viewModeControls && <ViewModeToggle controls={viewModeControls} isReadOnly={isReadOnly} />}
 
 					{storyChat && <StoryChatButton {...storyChat} />}
 
@@ -189,12 +191,16 @@ export function StoryPageHeader({
 			{live?.lastRefreshFailure && (
 				<StoryRefreshFailureBanner failure={live.lastRefreshFailure} isRetrying={live.isRefreshing} />
 			)}
-			<StorySubHeader viewModeControls={viewModeControls} versionControls={versionControls} />
+			<StorySubHeader
+				viewModeControls={viewModeControls}
+				versionControls={versionControls}
+				isReadOnly={isReadOnly}
+			/>
 		</div>
 	);
 }
 
-function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
+function ViewModeToggle({ controls, isReadOnly }: { controls: ViewModeControls; isReadOnly: boolean }) {
 	if (isCustomStoryViewModeControls(controls)) {
 		return <CustomStoryViewModeToggle {...controls} />;
 	}
@@ -216,7 +222,7 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 			>
 				<Eye className='size-3' strokeWidth={2.25} />
 			</Button>
-			{canEdit && (
+			{canEdit && !isReadOnly && (
 				<Button
 					variant='ghost'
 					className={cn(
@@ -247,15 +253,17 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 function StorySubHeader({
 	viewModeControls,
 	versionControls,
+	isReadOnly,
 }: {
 	viewModeControls?: ViewModeControls;
 	versionControls?: VersionControls;
+	isReadOnly: boolean;
 }) {
 	const classicControls =
 		viewModeControls && !isCustomStoryViewModeControls(viewModeControls) ? viewModeControls : undefined;
 	const viewMode = classicControls?.viewMode ?? 'preview';
 	const isCodeDirty = classicControls?.isCodeDirty ?? false;
-	const isEditing = viewMode === 'edit' || (viewMode === 'code' && isCodeDirty);
+	const isEditing = !isReadOnly && (viewMode === 'edit' || (viewMode === 'code' && isCodeDirty));
 
 	if (classicControls && isEditing) {
 		const { onViewModeChange, onCancel, isCodeValid = true, onSave, isSaving = false } = classicControls;
@@ -297,15 +305,17 @@ function StorySubHeader({
 				<span className='text-xs text-muted-foreground'>
 					{describeViewedVersion(versionControls.versionDate, versionControls.currentVersion)}
 				</span>
-				<Button
-					variant='outline'
-					size='sm'
-					onClick={versionControls.onRestore}
-					className='gap-1.5 rounded-full'
-				>
-					<RotateCcw className='size-3' strokeWidth={2.25} />
-					<span>Restore</span>
-				</Button>
+				{!isReadOnly && (
+					<Button
+						variant='outline'
+						size='sm'
+						onClick={versionControls.onRestore}
+						className='gap-1.5 rounded-full'
+					>
+						<RotateCcw className='size-3' strokeWidth={2.25} />
+						<span>Restore</span>
+					</Button>
+				)}
 			</div>
 		);
 	}

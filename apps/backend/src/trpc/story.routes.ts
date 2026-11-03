@@ -16,7 +16,7 @@ import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { agentService } from '../services/agent';
-import { assertProjectUserCloudBillingAccess } from '../services/cloud-billing-access.service';
+import { assertProjectUserCloudBillingAccess, isProjectUserReadOnly } from '../services/cloud-billing-access.service';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
 	getActiveThemeForProject,
@@ -453,7 +453,9 @@ export const storyRoutes = {
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
 		.query(async ({ input, ctx }) => {
 			try {
+				const projectId = await chatQueries.getChatProjectId(input.chatId);
 				return await getCustomStoryQueryData(input.chatId, input.storySlug, input.queryId, {
+					cachedOnly: projectId ? await isProjectUserReadOnly(projectId, ctx.user.id) : false,
 					deferRefresh: true,
 					principalUserId: ctx.user.id,
 				});

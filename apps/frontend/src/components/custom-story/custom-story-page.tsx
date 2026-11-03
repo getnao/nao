@@ -62,7 +62,8 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
 	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
-	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && !isSeatReadOnly;
+	const canEditStory = !story.isArchived && !isSeatReadOnly;
+	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && canEditStory;
 
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
@@ -93,6 +94,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 			<StoryPageHeader
 				title={content?.title ?? story.versionsQuery.data?.title ?? storySlug}
 				authorName={authorName}
+				isReadOnly={!canEditStory}
 				storyChat={{ storyId, isOwner: true, canChat: !story.isArchived && !isSeatReadOnly }}
 				canDuplicate={!story.isArchived && !isSeatReadOnly}
 				live={{

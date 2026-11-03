@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	listReadOnlyOrgUsers: vi.fn(),
 	listSeatStates: vi.fn(),
 	listSubscriptions: vi.fn(),
+	lock: vi.fn(),
 	logError: vi.fn(),
 	subscriptionProjection: vi.fn(),
 	syncOrganizationSeatState: vi.fn(),
@@ -79,6 +80,13 @@ vi.mock('../src/services/stripe.service', () => ({
 
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: mocks.logError },
+}));
+
+vi.mock('../src/utils/keyed-lock', () => ({
+	withKeyedLock: async (key: string, operation: () => Promise<unknown>) => {
+		mocks.lock(key);
+		return operation();
+	},
 }));
 
 import { reconcileCloudBillingCustomer } from '../src/services/billing-reconciliation.service';
@@ -155,6 +163,7 @@ describe('cloud billing reconciliation', () => {
 				trialEndsAt: new Date('2026-01-15T00:00:00.000Z'),
 			}),
 		);
+		expect(mocks.lock).toHaveBeenCalledWith('cloud-seats:org-id');
 	});
 
 	it('preserves the local trial start and accepts the live subscription trial end', async () => {

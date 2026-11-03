@@ -5,6 +5,7 @@ import { z } from 'zod/v4';
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectSetupCloudBillingAccess: vi.fn(),
 	assertUserCloudBillingAccess: vi.fn(),
 	getOrganizationCloudEntitlement: vi.fn(),
 	getProjectById: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('../src/env', async (importOriginal) => ({
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertProjectSetupCloudBillingAccess: mocks.assertProjectSetupCloudBillingAccess,
 	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
 	getOrganizationCloudEntitlement: mocks.getOrganizationCloudEntitlement,
 	isUserReadOnlyInOrganization: mocks.isUserReadOnlyInOrganization,
@@ -166,8 +168,7 @@ describe('cloud billing tRPC middleware', () => {
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
 	});
 
-	it('allows first warehouse setup while retaining the acting-user billing check', async () => {
-		mocks.organizationHasProjects.mockResolvedValue(false);
+	it('uses the project-setup billing gate for warehouse setup', async () => {
 		mocks.validateWarehouseCredentials.mockResolvedValue({ valid: true });
 
 		await expect(
@@ -176,8 +177,7 @@ describe('cloud billing tRPC middleware', () => {
 				credentials: { host: 'warehouse.example.com' },
 			}),
 		).resolves.toEqual({ valid: true });
-		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
-		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('organization-1', 'user-1');
+		expect(mocks.assertProjectSetupCloudBillingAccess).toHaveBeenCalledWith('organization-1', 'user-1');
 	});
 
 	it('allows an unfinished project to be replaced before the trial starts', async () => {

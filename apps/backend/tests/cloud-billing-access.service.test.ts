@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/env', () => ({
+	isCloud: false,
 	isCloudBillingEnabled: mocks.isCloudBillingEnabled,
 	isCloudFreeTierEnabled: mocks.isCloudFreeTierEnabled,
 }));
@@ -27,6 +28,8 @@ vi.mock('../src/queries/project.queries', () => ({ getProjectById: mocks.getProj
 import {
 	assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess,
+	assertProjectSetupCloudBillingAccess,
+	assertProjectUserCloudBillingAccess,
 	assertUserCloudBillingAccess,
 	getOrganizationCloudEntitlement,
 	hasCloudBillingAccess,
@@ -35,6 +38,7 @@ import {
 	isActiveLocalTrial,
 	isActiveTrialWithoutPaidPlan,
 	isExpiredTrialWithoutPaidPlan,
+	isProjectUserReadOnly,
 	isUserReadOnlyInOrganization,
 	resolveCloudEntitlement,
 } from '../src/services/cloud-billing-access.service';
@@ -509,6 +513,20 @@ describe('user cloud billing access', () => {
 		expect(mocks.getOrganizationById).not.toHaveBeenCalled();
 		expect(mocks.listReadOnlyOrgUsers).not.toHaveBeenCalled();
 	});
+
+	it('identifies a read-only project owner before attempting billable work', async () => {
+		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
+		mocks.getOrganizationBilling.mockResolvedValue(null);
+		mocks.countOrgSeatUsers.mockResolvedValue(4);
+		mocks.listReadOnlyOrgUsers.mockResolvedValue([{ id: 'owner-1' }]);
+
+		await expect(isProjectUserReadOnly('project-1', 'owner-1')).resolves.toBe(true);
+		await expect(assertProjectUserCloudBillingAccess('project-1', 'owner-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+			message: expect.stringMatching(/^Cloud billing seat access is restricted\./),
+		});
+	});
 });
 
 describe('cloud billing access assertions', () => {
@@ -558,6 +576,28 @@ describe('cloud billing access assertions', () => {
 		await expect(assertOrganizationCloudBillingAccess('organization-1')).rejects.toMatchObject({
 			codeMessage: 'FORBIDDEN',
 			message: 'Cloud billing access is restricted. Ask an organization admin to update billing.',
+		});
+	});
+
+	it('rejects project setup after a legacy subscription expires', async () => {
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
+		mocks.getOrganizationBilling.mockResolvedValue(entitlement('canceled'));
+
+		await expect(assertProjectSetupCloudBillingAccess('organization-1', 'user-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+			message: 'Cloud billing access is restricted. Ask an organization admin to update billing.',
+		});
+	});
+
+	it('still enforces seat access before the first project starts the trial', async () => {
+		mocks.isCloudFreeTierEnabled.mockReturnValue(true);
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
+		mocks.countOrgSeatUsers.mockResolvedValue(4);
+		mocks.listReadOnlyOrgUsers.mockResolvedValue([{ id: 'user-1' }]);
+
+		await expect(assertProjectSetupCloudBillingAccess('organization-1', 'user-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+			message: expect.stringMatching(/^Cloud billing seat access is restricted\./),
 		});
 	});
 });

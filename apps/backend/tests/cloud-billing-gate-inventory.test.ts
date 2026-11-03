@@ -2,65 +2,88 @@ import fs from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-type PrincipalPolicy = 'actor' | 'owner' | 'organization' | 'cached_read';
+type TrpcExecutionPolicy = 'actor' | 'cached_read';
 
-const rawRoutePolicies = {
-	agentRoutes: 'actor',
-	attachmentRoutes: 'actor',
-	analyticsRoutes: 'cached_read',
-	testRoutes: 'actor',
-	cliAuthRoutes: 'cached_read',
-	chartRoutes: 'cached_read',
-	mapBoundariesRoutes: 'cached_read',
-	imageRoutes: 'cached_read',
-	brandingRoutes: 'cached_read',
-	authErrorRedirectRoutes: 'cached_read',
-	embedStoryDownloadRoutes: 'cached_read',
-	storyThumbnailRoutes: 'cached_read',
-	notificationUnsubscribeRoutes: 'cached_read',
-	authRoutes: 'actor',
-	ssoRoutes: 'actor',
-	slackRoutes: 'actor',
-	teamsRoutes: 'actor',
-	telegramRoutes: 'actor',
-	mattermostRoutes: 'actor',
-	discordRoutes: 'actor',
-	whatsappRoutes: 'actor',
-	stripeWebhookRoutes: 'organization',
-	deployRoutes: 'organization',
-	backofficeRoutes: 'organization',
-	automationWebhookRoutes: 'owner',
-	githubRoutes: 'actor',
-	gitlabRoutes: 'actor',
-	mcpOAuthRoutes: 'cached_read',
-	mcpServerRoutes: 'actor',
-} as const satisfies Record<string, PrincipalPolicy>;
+const rawRouteModules = [
+	'agentRoutes',
+	'attachmentRoutes',
+	'analyticsRoutes',
+	'testRoutes',
+	'cliAuthRoutes',
+	'chartRoutes',
+	'mapBoundariesRoutes',
+	'imageRoutes',
+	'brandingRoutes',
+	'authErrorRedirectRoutes',
+	'embedStoryDownloadRoutes',
+	'storyThumbnailRoutes',
+	'notificationUnsubscribeRoutes',
+	'authRoutes',
+	'ssoRoutes',
+	'slackRoutes',
+	'teamsRoutes',
+	'telegramRoutes',
+	'mattermostRoutes',
+	'discordRoutes',
+	'whatsappRoutes',
+	'stripeWebhookRoutes',
+	'deployRoutes',
+	'backofficeRoutes',
+	'automationWebhookRoutes',
+	'githubRoutes',
+	'gitlabRoutes',
+	'mcpOAuthRoutes',
+	'mcpServerRoutes',
+] as const;
 
-const jobPolicies = {
-	LOG_CLEANUP_JOB_NAME: 'cached_read',
-	INVITATION_CLEANUP_JOB_NAME: 'cached_read',
-	AUTOMATION_JOB_NAME: 'owner',
-	STORY_REFRESH_JOB_NAME: 'owner',
-	STORY_DELIVERY_JOB_NAME: 'owner',
-	MANAGED_CREDIT_LIFECYCLE_JOB_NAME: 'organization',
-	STRIPE_WEBHOOK_PROCESS_JOB_NAME: 'organization',
-	BILLING_LIFECYCLE_JOB_NAME: 'organization',
-	CLOUD_TRIAL_PROVISIONING_JOB_NAME: 'organization',
-	CLOUD_WELCOME_EMAIL_JOB_NAME: 'organization',
-	MCP_QUERY_DATA_CLEANUP_JOB_NAME: 'cached_read',
-	STORY_BLOB_CLEANUP_JOB_NAME: 'cached_read',
-	CONTEXT_BRANCH_CLEANUP_JOB_NAME: 'cached_read',
-	CONTEXT_RECOMMENDATIONS_JOB_NAME: 'owner',
-} as const satisfies Record<string, PrincipalPolicy>;
+const rawRouteGateEvidence = {
+	agentRoutes: [
+		['../src/routes/agent.ts', 'authorizeAgentRun'],
+		['../src/services/agent-run.ts', 'assertProjectUserCloudBillingAccess'],
+	],
+	attachmentRoutes: [
+		['../src/routes/attachment.ts', 'assertProjectCloudBillingAccess'],
+		['../src/routes/attachment.ts', 'assertProjectUserCloudBillingAccess'],
+	],
+	testRoutes: [
+		['../src/routes/test.ts', 'assertProjectCloudBillingAccess'],
+		['../src/routes/test.ts', 'assertProjectUserCloudBillingAccess'],
+	],
+	automationWebhookRoutes: [
+		['../src/routes/automation-webhook.ts', 'assertProjectCloudBillingAccess'],
+		['../src/routes/automation-webhook.ts', 'assertProjectUserCloudBillingAccess'],
+	],
+	mcpServerRoutes: [
+		['../src/mcp/routes.ts', 'assertProjectCloudBillingAccess'],
+		['../src/mcp/routes.ts', 'assertProjectUserCloudBillingAccess'],
+	],
+} as const satisfies Partial<Record<(typeof rawRouteModules)[number], readonly (readonly [string, string])[]>>;
 
-const messagingPolicies = {
-	slack: 'actor',
-	teams: 'actor',
-	telegram: 'actor',
-	mattermost: 'actor',
-	discord: 'actor',
-	whatsapp: 'actor',
-} as const satisfies Record<string, PrincipalPolicy>;
+const jobNames = [
+	'LOG_CLEANUP_JOB_NAME',
+	'INVITATION_CLEANUP_JOB_NAME',
+	'AUTOMATION_JOB_NAME',
+	'STORY_REFRESH_JOB_NAME',
+	'STORY_DELIVERY_JOB_NAME',
+	'MANAGED_CREDIT_LIFECYCLE_JOB_NAME',
+	'STRIPE_WEBHOOK_PROCESS_JOB_NAME',
+	'BILLING_LIFECYCLE_JOB_NAME',
+	'CLOUD_TRIAL_PROVISIONING_JOB_NAME',
+	'CLOUD_WELCOME_EMAIL_JOB_NAME',
+	'MCP_QUERY_DATA_CLEANUP_JOB_NAME',
+	'STORY_BLOB_CLEANUP_JOB_NAME',
+	'CONTEXT_BRANCH_CLEANUP_JOB_NAME',
+	'CONTEXT_RECOMMENDATIONS_JOB_NAME',
+] as const;
+
+const ownerGatedJobResolvers = {
+	AUTOMATION_JOB_NAME: 'resolveAutomationProjectPrincipal',
+	STORY_REFRESH_JOB_NAME: 'resolveStoryRefreshProjectPrincipal',
+	STORY_DELIVERY_JOB_NAME: 'resolveStoryDeliveryProjectPrincipal',
+	CONTEXT_RECOMMENDATIONS_JOB_NAME: 'resolveContextRecommendationsProjectPrincipal',
+} as const satisfies Partial<Record<(typeof jobNames)[number], string>>;
+
+const messagingProviders = ['slack', 'teams', 'telegram', 'mattermost', 'discord', 'whatsapp'] as const;
 
 const costProducingTrpcPolicies = [
 	['github.routes.ts', 'createProjectFromRepo', 'actor'],
@@ -104,7 +127,7 @@ const costProducingTrpcPolicies = [
 	['context-explorer.routes.ts', 'createBranchAndCommit', 'actor'],
 	['context-explorer.routes.ts', 'commitChanges', 'actor'],
 	['context-explorer.routes.ts', 'pushBranch', 'actor'],
-] as const satisfies readonly (readonly [string, string, PrincipalPolicy])[];
+] as const satisfies readonly (readonly [string, string, TrpcExecutionPolicy])[];
 
 describe('cloud billing execution gate inventory', () => {
 	it('classifies every registered raw route module', () => {
@@ -113,7 +136,14 @@ describe('cloud billing execution gate inventory', () => {
 			(match) => match[1],
 		);
 
-		expect([...new Set(registeredRouteModules)].sort()).toEqual(Object.keys(rawRoutePolicies).sort());
+		expect([...new Set(registeredRouteModules)].sort()).toEqual([...rawRouteModules].sort());
+	});
+
+	it('keeps cost-producing raw routes behind their billing gates', () => {
+		for (const evidence of Object.values(rawRouteGateEvidence).flat()) {
+			const [file, gate] = evidence;
+			expect(source(file), `${file} must call ${gate}`).toContain(`${gate}(`);
+		}
 	});
 
 	it('classifies every registered scheduler job', () => {
@@ -122,24 +152,87 @@ describe('cloud billing execution gate inventory', () => {
 			(match) => match[1],
 		);
 
-		expect([...new Set(registeredJobs)].sort()).toEqual(Object.keys(jobPolicies).sort());
+		expect([...new Set(registeredJobs)].sort()).toEqual([...jobNames].sort());
+	});
+
+	it('keeps owner-attributed jobs behind the owner billing gate', () => {
+		const appSource = source('../src/app.ts');
+		const ownerGatedJobs = jobNames.filter((jobName) =>
+			jobRegistration(appSource, jobName).includes('resolveProjectPrincipal:'),
+		);
+
+		expect(ownerGatedJobs.sort()).toEqual(Object.keys(ownerGatedJobResolvers).sort());
+		for (const [jobName, resolver] of Object.entries(ownerGatedJobResolvers)) {
+			expect(jobRegistration(appSource, jobName)).toContain(`resolveProjectPrincipal: ${resolver}`);
+		}
 	});
 
 	it('classifies every messaging integration', () => {
 		const appSource = source('../src/app.ts');
-		for (const provider of Object.keys(messagingPolicies)) {
+		for (const provider of messagingProviders) {
 			expect(appSource).toContain(`app.register(${provider}Routes`);
-			expect(source(`../src/services/${provider}.ts`)).toContain('assertMessagingUserCloudBillingAccess');
+			expect(source(`../src/services/${provider}.ts`)).toContain('assertMessagingUserCloudBillingAccess(');
 		}
 	});
 
-	it('keeps cost-producing tRPC procedures declared', () => {
-		for (const [file, procedure] of costProducingTrpcPolicies) {
-			expect(source(`../src/trpc/${file}`)).toMatch(new RegExp(`\\b${procedure}\\s*:`));
+	it('keeps cost-producing tRPC procedures behind their declared policy', () => {
+		for (const [file, procedure, policy] of costProducingTrpcPolicies) {
+			const fileSource = source(`../src/trpc/${file}`);
+			const declaration = procedureDeclaration(fileSource, procedure);
+
+			if (policy === 'cached_read') {
+				expect(declaration, `${file}:${procedure} must only use cached data`).toContain('cachedOnly: true');
+			} else {
+				expect(
+					hasActorBillingGate(fileSource, declaration),
+					`${file}:${procedure} must use an actor billing gate`,
+				).toBe(true);
+			}
 		}
 	});
 });
 
 function source(relativePath: string): string {
 	return fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+}
+
+function jobRegistration(appSource: string, jobName: string): string {
+	const start = appSource.search(new RegExp(`\\bregisterJob\\(\\s*${jobName}\\b`));
+	expect(start, `${jobName} must be registered`).toBeGreaterThanOrEqual(0);
+	const next = appSource.indexOf('registerJob(', start + 1);
+	return appSource.slice(start, next === -1 ? appSource.length : next);
+}
+
+function procedureDeclaration(fileSource: string, procedure: string): string {
+	const start = fileSource.search(new RegExp(`^\\t${procedure}\\s*:`, 'm'));
+	expect(start, `${procedure} must be declared`).toBeGreaterThanOrEqual(0);
+	const remainder = fileSource.slice(start + 1);
+	const next = remainder.search(/^\t[A-Za-z]\w*\s*:/m);
+	return fileSource.slice(start, next === -1 ? fileSource.length : start + 1 + next);
+}
+
+function hasActorBillingGate(fileSource: string, declaration: string): boolean {
+	if (/assert(?:Project)?UserCloudBillingAccess|assertProjectSetupCloudBillingAccess/.test(declaration)) {
+		return true;
+	}
+	const procedure = declaration.match(/^\t[A-Za-z]\w*\s*:\s*([A-Za-z]\w*)/)?.[1];
+	if (!procedure) {
+		return false;
+	}
+	if (procedure.includes('cloudBilling')) {
+		return true;
+	}
+	const definitionStart = fileSource.search(new RegExp(`\\bconst\\s+${procedure}\\s*=`));
+	if (definitionStart === -1) {
+		return false;
+	}
+	const definitionRemainder = fileSource.slice(definitionStart + 1);
+	const definitionEnd = definitionRemainder.search(/^(?:const|export)\s/m);
+	const definition = fileSource.slice(
+		definitionStart,
+		definitionEnd === -1 ? fileSource.length : definitionStart + 1 + definitionEnd,
+	);
+	return /cloudBilling|assert(?:Project)?UserCloudBillingAccess|assertProjectSetupCloudBillingAccess/.test(
+		definition,
+	);
 }

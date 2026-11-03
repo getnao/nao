@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import {
+	countOrgSeatUsers,
 	listOrgSeatCandidates,
 	listReadOnlyOrgUsers,
 	resolveSeatedOrgUserIds,
@@ -56,6 +57,7 @@ describe('organization seat queries', () => {
 				user('org-viewer-project-user'),
 				user('project-selected'),
 				user('project-unselected'),
+				user('project-capacity-fallback'),
 				user('viewer-only'),
 			]);
 		await db
@@ -69,15 +71,17 @@ describe('organization seat queries', () => {
 				orgMember('org-viewer-project-user', 'viewer', 4),
 				orgMember('viewer-only', 'viewer', 1),
 			]);
-		await db
-			.insert(s.projectMember)
-			.values([
-				projectMember(PROJECT_ONE_ID, 'org-viewer-project-user', 'user', 8),
-				projectMember(PROJECT_ONE_ID, 'project-selected', 'context_admin', 7),
-				projectMember(PROJECT_ONE_ID, 'project-unselected', 'user', 4),
-				projectMember(PROJECT_TWO_ID, 'project-unselected', 'admin', 9),
-				projectMember(PROJECT_ONE_ID, 'viewer-only', 'viewer', 1),
-			]);
+		await db.insert(s.projectMember).values([
+			projectMember(PROJECT_ONE_ID, 'org-viewer-project-user', 'user', 8),
+			projectMember(PROJECT_ONE_ID, 'project-selected', 'context_admin', 7),
+			projectMember(PROJECT_ONE_ID, 'project-unselected', 'user', 4),
+			projectMember(PROJECT_TWO_ID, 'project-unselected', 'admin', 9),
+			{
+				...projectMember(PROJECT_ONE_ID, 'project-capacity-fallback', 'viewer', 10),
+				capacityFallbackRole: 'user',
+			},
+			projectMember(PROJECT_ONE_ID, 'viewer-only', 'viewer', 1),
+		]);
 		await db.insert(s.organizationSeatState).values([
 			{ orgId: ORG_ID, userId: 'admin-second', selectedAt: joined(1) },
 			{ orgId: ORG_ID, userId: 'org-selected-first', selectedAt: joined(1) },
@@ -102,6 +106,7 @@ describe('organization seat queries', () => {
 			'org-viewer-project-user',
 			'project-selected',
 			'project-unselected',
+			'project-capacity-fallback',
 		]);
 		expect(candidates.find(({ id }) => id === 'project-unselected')).toMatchObject({
 			membershipClass: 'project_only',
@@ -113,6 +118,17 @@ describe('organization seat queries', () => {
 			orgRole: 'viewer',
 			role: 'user',
 		});
+	});
+
+	it('includes capacity fallback roles in seat discovery and counts', async () => {
+		const candidates = await listOrgSeatCandidates(ORG_ID);
+
+		expect(candidates.find(({ id }) => id === 'project-capacity-fallback')).toMatchObject({
+			membershipClass: 'project_only',
+			role: 'user',
+			projectRoles: ['user'],
+		});
+		await expect(countOrgSeatUsers(ORG_ID)).resolves.toBe(9);
 	});
 
 	it('never lets a selected lower class displace an organization member', async () => {
@@ -131,6 +147,7 @@ describe('organization seat queries', () => {
 		await expect(listReadOnlyOrgUsers(ORG_ID, 6)).resolves.toMatchObject([
 			{ id: 'project-selected' },
 			{ id: 'project-unselected' },
+			{ id: 'project-capacity-fallback' },
 		]);
 	});
 

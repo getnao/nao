@@ -19,6 +19,7 @@ interface UseStoryViewerVersionActionsParams {
 	viewMode: StoryViewMode;
 	setViewMode: (mode: StoryViewMode) => void;
 	onVersionSaved?: (code: string) => void;
+	canWrite?: boolean;
 }
 
 interface StoryIdentity {
@@ -38,6 +39,7 @@ export const useStoryViewerVersionActions = ({
 	viewMode,
 	setViewMode,
 	onVersionSaved,
+	canWrite = true,
 }: UseStoryViewerVersionActionsParams) => {
 	const queryClient = useQueryClient();
 	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storySlug });
@@ -56,6 +58,7 @@ export const useStoryViewerVersionActions = ({
 		getCurrentCode,
 		viewMode,
 		onVersionSaved,
+		canWrite,
 	});
 
 	currentIdentityRef.current = identity;
@@ -71,6 +74,7 @@ export const useStoryViewerVersionActions = ({
 		getCurrentCode,
 		viewMode,
 		onVersionSaved,
+		canWrite,
 	};
 
 	const createVersionMutation = useMutation(trpc.story.createVersion.mutationOptions());
@@ -104,7 +108,7 @@ export const useStoryViewerVersionActions = ({
 			if (!isSameStoryIdentity(params.identity, saveIdentity)) {
 				return 'unavailable';
 			}
-			if (params.storyTitle === undefined || params.currentVersionCode === undefined) {
+			if (!params.canWrite || params.storyTitle === undefined || params.currentVersionCode === undefined) {
 				return 'unavailable';
 			}
 			if (params.viewMode === 'code') {
@@ -131,7 +135,7 @@ export const useStoryViewerVersionActions = ({
 				: Promise.resolve<StorySaveResult>('unavailable');
 		}
 
-		if (params.storyTitle === undefined || params.currentVersionCode === undefined) {
+		if (!params.canWrite || params.storyTitle === undefined || params.currentVersionCode === undefined) {
 			return Promise.resolve<StorySaveResult>('unavailable');
 		}
 
@@ -236,7 +240,7 @@ export const useStoryViewerVersionActions = ({
 
 	const handleRestore = useCallback(() => {
 		const hasVersionData = storyTitle !== undefined && currentVersionCode !== undefined;
-		if (!hasVersionData || isViewingLatest || createVersionMutation.isPending) {
+		if (!canWrite || !hasVersionData || isViewingLatest || createVersionMutation.isPending) {
 			return;
 		}
 
@@ -260,6 +264,7 @@ export const useStoryViewerVersionActions = ({
 		storySlug,
 		storyTitle,
 		currentVersionCode,
+		canWrite,
 		isViewingLatest,
 		createVersionMutation,
 		refreshQueries,

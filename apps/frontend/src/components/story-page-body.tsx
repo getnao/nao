@@ -17,15 +17,16 @@ interface StoryPageBodyProps {
 	editor: ReturnType<typeof useStoryPageEditor>;
 	preview: ReactNode;
 	queryData?: QueryDataMap | null;
+	readOnly?: boolean;
 	theme?: StoryTheme | null;
 }
 
-export function StoryPageBody({ editor, preview, queryData, theme }: StoryPageBodyProps) {
+export function StoryPageBody({ editor, preview, queryData, readOnly = false, theme }: StoryPageBodyProps) {
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	useDragAutoScroll(scrollContainerRef);
 	const unsavedChangesDialog = <StoryUnsavedChangesDialog {...editor.exitDialog} />;
 
-	if (editor.viewMode === 'edit') {
+	if (editor.viewMode === 'edit' && !readOnly) {
 		const editCode = editor.editCode;
 		const tabs = parseStoryTabs(editCode);
 		const isTabbed = Boolean(tabs?.length);
@@ -72,10 +73,11 @@ export function StoryPageBody({ editor, preview, queryData, theme }: StoryPageBo
 				<div className='flex-1 min-h-0'>
 					<StoryCodeView
 						code={codeDraft}
+						readOnly={readOnly}
 						codeRef={editor.codeViewRef}
-						onCodeChange={editor.onCodeChange}
+						onCodeChange={readOnly ? undefined : editor.onCodeChange}
 						onValidChange={editor.setIsCodeValid}
-						onSave={editor.handleSave}
+						onSave={readOnly ? undefined : editor.handleSave}
 					/>
 				</div>
 				{unsavedChangesDialog}

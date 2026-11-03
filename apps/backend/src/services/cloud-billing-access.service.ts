@@ -355,15 +355,35 @@ export async function assertProjectCloudBillingAccess(
 	await assertOrganizationCloudBillingAccess(project.orgId, resolvedEntitlement);
 }
 
-export async function assertProjectUserCloudBillingAccess(projectId: string, userId: string): Promise<void> {
-	if (!isCloudFreeTierEnabled() || isOpenProject(projectId)) {
+export async function assertProjectSetupCloudBillingAccess(organizationId: string, userId: string): Promise<void> {
+	if (!isCloudBillingEnabled()) {
 		return;
+	}
+	const billing = await getOrganizationBilling(organizationId);
+	if (isTrialAvailable(billing)) {
+		await assertUserCloudBillingAccess(organizationId, userId);
+		return;
+	}
+	const entitlement = await getOrganizationCloudEntitlement(organizationId);
+	await assertOrganizationCloudBillingAccess(organizationId, entitlement);
+	await assertUserCloudBillingAccess(organizationId, userId, entitlement);
+}
+
+export async function assertProjectUserCloudBillingAccess(projectId: string, userId: string): Promise<void> {
+	if (await isProjectUserReadOnly(projectId, userId)) {
+		throw new CloudBillingSeatRestrictedError();
+	}
+}
+
+export async function isProjectUserReadOnly(projectId: string, userId: string): Promise<boolean> {
+	if (!isCloudFreeTierEnabled() || isOpenProject(projectId)) {
+		return false;
 	}
 	const project = await getProjectById(projectId);
 	if (!project?.orgId) {
 		throw new CloudBillingAccessRestrictedError();
 	}
-	await assertUserCloudBillingAccess(project.orgId, userId);
+	return isUserReadOnlyInOrganization(project.orgId, userId);
 }
 
 export async function assertUserCloudBillingAccess(
