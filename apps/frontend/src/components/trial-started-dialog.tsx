@@ -8,6 +8,7 @@ import { ConfettiBurst } from '@/components/confetti-burst';
 import { NyanCat } from '@/components/icons/nyan-cat';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { createLocalStorage } from '@/lib/local-storage';
@@ -22,6 +23,7 @@ interface TrialStartedDialogProps {
 	onOpenChange: (open: boolean) => void;
 	creditAmountMicroUsd: number;
 	userName?: string | null;
+	freeTierEnabled: boolean;
 }
 
 export function TrialStartedDialogController() {
@@ -32,6 +34,8 @@ export function TrialStartedDialogController() {
 		enabled: isOrgAdmin,
 		staleTime: 0,
 	});
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const billingAccess = useCloudBillingAccess({ enabled: config.data?.cloudBillingEnabled === true && isOrgAdmin });
 	const [seenGrantIds, setSeenGrantIds] = useState(getSeenSetupCreditGrantIds);
 	const grant = setupCreditGrant.data;
 	const open = isOrgAdmin && grant !== null && grant !== undefined && !seenGrantIds.includes(grant.id);
@@ -55,11 +59,18 @@ export function TrialStartedDialogController() {
 			onOpenChange={handleOpenChange}
 			creditAmountMicroUsd={grant.amountMicroUsd}
 			userName={session?.user.name}
+			freeTierEnabled={billingAccess.data?.freeTierEnabled === true}
 		/>
 	);
 }
 
-export function TrialStartedDialog({ open, onOpenChange, creditAmountMicroUsd, userName }: TrialStartedDialogProps) {
+export function TrialStartedDialog({
+	open,
+	onOpenChange,
+	creditAmountMicroUsd,
+	userName,
+	freeTierEnabled,
+}: TrialStartedDialogProps) {
 	const firstName = userName?.trim().split(/\s+/)[0];
 	const formattedCreditAmount = formatCreditAmount(creditAmountMicroUsd, creditAmountMicroUsd);
 
@@ -86,8 +97,9 @@ export function TrialStartedDialog({ open, onOpenChange, creditAmountMicroUsd, u
 							className={cn(enterClass, '[animation-delay:160ms] max-w-md text-center leading-relaxed')}
 						>
 							We’ve added {formattedCreditAmount} of nao credits so your team can start asking questions
-							right away. Your 14-day trial gives every seat user full access. Afterward, Free keeps up to
-							{FREE_TIER_SEAT_LIMIT} people seated with unlimited viewers.
+							right away. Your 14-day trial gives every seat user full access.
+							{freeTierEnabled &&
+								` Afterward, Free keeps up to ${FREE_TIER_SEAT_LIMIT} people seated with unlimited viewers.`}
 						</DialogDescription>
 					</DialogHeader>
 					<div className={cn(enterClass, '[animation-delay:260ms] relative my-8 flex flex-col items-center')}>

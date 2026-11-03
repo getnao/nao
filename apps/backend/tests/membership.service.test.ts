@@ -387,6 +387,16 @@ describe('membership service', () => {
 		expect(mocks.clearOrganizationSeatSelection).toHaveBeenCalledWith('org-1', 'user-1');
 		expect(mocks.stripeUpdate).not.toHaveBeenCalled();
 	});
+
+	it('keeps the seat selection of a user removed from one project who remains a candidate elsewhere', async () => {
+		mocks.freeTierEnabled = true;
+		mocks.projectMembers.set('user-1', 'user');
+		mocks.seatCandidates = [{ id: 'user-1', membershipClass: 'project_only', selectedAt: new Date() }];
+
+		await removeProjectMember('project-1', 'user-1');
+
+		expect(mocks.clearOrganizationSeatSelection).not.toHaveBeenCalled();
+	});
 });
 
 function member(userId: string) {

@@ -169,7 +169,9 @@ describe('cloud billing execution gate inventory', () => {
 			const declaration = procedureDeclaration(fileSource, procedure);
 
 			if (policy === 'cached_read') {
-				expect(declaration, `${file}:${procedure} must only use cached data`).toContain('cachedOnly: true');
+				expect(declaration, `${file}:${procedure} must use cached data for read-only users`).toContain(
+					'cachedOnly: await isProjectUserReadOnly(',
+				);
 			} else {
 				expect(
 					hasActorBillingGate(fileSource, declaration),

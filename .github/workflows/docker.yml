@@ -357,7 +357,7 @@ jobs:
                           -e "BETA_CUSTOM_STORIES_ENABLED=true" \
                           -e "BETA_SUBAGENTS_ENABLED=true" \
                           -e "CLOUD_BILLING_ENABLED=true" \
-                          -e "CLOUD_FREE_TIER_ENABLED=${{ secrets.NAOCLOUD_CLOUD_FREE_TIER_ENABLED }}" \
+                          -e "CLOUD_FREE_TIER_ENABLED=${{ secrets.NAOCLOUD_CLOUD_FREE_TIER_ENABLED || 'false' }}" \
                           -e "STRIPE_SECRET_KEY=${{ secrets.NAOCLOUD_STRIPE_SECRET_KEY }}" \
                           -e "STRIPE_WEBHOOK_SECRET=${{ secrets.NAOCLOUD_STRIPE_WEBHOOK_SECRET }}" \
                           -e "STRIPE_CLOUD_LEGACY_PRODUCT_ID=${{ secrets.NAOCLOUD_STRIPE_CLOUD_PRODUCT_ID }}" \

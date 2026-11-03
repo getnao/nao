@@ -9,6 +9,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
+import { isProjectUserReadOnly } from '../services/cloud-billing-access.service';
 import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
@@ -287,7 +288,10 @@ export const sharedStoryRoutes = {
 					shared.chatId!,
 					shared.slug,
 					input.queryId,
-					{ cachedOnly: true, principalUserId: ctx.user.id },
+					{
+						cachedOnly: await isProjectUserReadOnly(shared.projectId, ctx.user.id),
+						principalUserId: ctx.user.id,
+					},
 					input.versionNumber,
 				);
 			} catch (error) {
@@ -299,7 +303,7 @@ export const sharedStoryRoutes = {
 		const shared = ctx.resource;
 		try {
 			return await getCustomStoryNarratives(shared.chatId!, shared.slug, {
-				cachedOnly: true,
+				cachedOnly: await isProjectUserReadOnly(shared.projectId, ctx.user.id),
 				principalUserId: ctx.user.id,
 			});
 		} catch (error) {

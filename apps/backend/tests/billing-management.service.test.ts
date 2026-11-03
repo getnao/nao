@@ -515,6 +515,7 @@ describe('billing change commands', () => {
 			stripeCustomerId: 'cus_cloud',
 			targetPlanKey: 'cloud_team_monthly_v1',
 			targetQuantity: 5,
+			currency: 'usd',
 		});
 		expect(preview.promotionCodeDiscount).toEqual({ amount: 20_000, duration: 'forever' });
 		expect(mocks.previewSubscriptionChange).toHaveBeenCalledWith(
@@ -791,6 +792,7 @@ describe('billing change commands', () => {
 			stripeCustomerId: 'cus_cloud',
 			targetPlanKey: 'cloud_unlimited_monthly_v1',
 			targetQuantity: 1,
+			currency: 'usd',
 		});
 		expect(preview.promotionCodeDiscount).toEqual({ amount: 160_000, duration: 'forever' });
 		expect(mocks.previewSubscriptionChange).toHaveBeenCalledWith(

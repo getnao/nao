@@ -5,6 +5,7 @@ import {
 	assertCloudSubscriptionOrganization,
 	type CloudPaidProductItem,
 	cloudPaidProductItem,
+	cloudPriceAmount,
 	type CloudRecurringPriceDetails,
 	getCloudPrice,
 	getStripeClient,
@@ -41,6 +42,7 @@ export async function findActiveCloudPromotionCode(input: {
 	stripeCustomerId: string;
 	targetPlanKey: CloudBillingPlanKey;
 	targetQuantity: number;
+	currency: string;
 }): Promise<CloudPromotionCodeMatch | null> {
 	const first = await findActivePromotionCode(input.code);
 	const promotionCode =
@@ -54,7 +56,7 @@ export async function findActiveCloudPromotionCode(input: {
 	const coupon = expandedPromotionCodeCoupon(promotionCode);
 	return {
 		id: promotionCode.id,
-		discountedPlanAmount: discountedPlanAmount(price, input.targetQuantity, coupon),
+		discountedPlanAmount: discountedPlanAmount(price, input.targetQuantity, coupon, input.currency),
 		duration: coupon.duration,
 	};
 }
@@ -301,8 +303,17 @@ function expandedPromotionCodeCoupon(promotionCode: Stripe.PromotionCode): Strip
 	return promotionCode.promotion.coupon;
 }
 
-function discountedPlanAmount(price: CloudRecurringPriceDetails, quantity: number, coupon: Stripe.Coupon): number {
-	const amount = price.unit_amount * quantity;
+function discountedPlanAmount(
+	price: CloudRecurringPriceDetails,
+	quantity: number,
+	coupon: Stripe.Coupon,
+	currency: string,
+): number {
+	const unitAmount = cloudPriceAmount(price, currency);
+	if (unitAmount === null) {
+		throw new Error(`Stripe Price "${price.id}" does not support ${currency.toUpperCase()}`);
+	}
+	const amount = unitAmount * quantity;
 	if (coupon.applies_to?.products.length && !coupon.applies_to.products.includes(stripeProductId(price.product))) {
 		return amount;
 	}
@@ -310,8 +321,8 @@ function discountedPlanAmount(price: CloudRecurringPriceDetails, quantity: numbe
 		return Math.max(0, amount - Math.round((amount * coupon.percent_off) / 100));
 	}
 	const amountOff =
-		coupon.currency_options?.[price.currency]?.amount_off ??
-		(coupon.currency === price.currency ? coupon.amount_off : null) ??
+		coupon.currency_options?.[currency]?.amount_off ??
+		(coupon.currency === currency ? coupon.amount_off : null) ??
 		0;
 	return Math.max(0, amount - amountOff);
 }

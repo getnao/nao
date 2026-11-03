@@ -51,11 +51,15 @@ export async function syncOrganizationSeats(
 	return newlyReadOnlyIds.filter((userId) => userId !== null);
 }
 
+/** Keeps the selection while another membership still makes the user a seat candidate. */
 export async function clearSeatSelectionAndSync(organizationId: string, userId: string): Promise<void> {
 	if (!isCloudFreeTierEnabled()) {
 		return;
 	}
-	await clearOrganizationSeatSelection(organizationId, userId);
+	const candidates = await listOrgSeatCandidates(organizationId);
+	if (!candidates.some(({ id }) => id === userId)) {
+		await clearOrganizationSeatSelection(organizationId, userId);
+	}
 	await syncOrganizationSeats(organizationId);
 }
 

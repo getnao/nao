@@ -7,7 +7,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
-import { assertProjectUserCloudBillingAccess } from '../services/cloud-billing-access.service';
+import { assertProjectUserCloudBillingAccess, isProjectUserReadOnly } from '../services/cloud-billing-access.service';
 import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
@@ -81,7 +81,10 @@ export const customStoryViewerRoutes = {
 					ctx.viewer.chatId,
 					input.storySlug,
 					input.queryId,
-					{ cachedOnly: true, principalUserId: ctx.user.id },
+					{
+						cachedOnly: await isProjectUserReadOnly(ctx.viewer.projectId, ctx.user.id),
+						principalUserId: ctx.user.id,
+					},
 					input.versionNumber,
 				);
 			} catch (error) {
@@ -125,7 +128,7 @@ export const customStoryViewerRoutes = {
 	getNarratives: viewerProcedure.query(async ({ ctx, input }) => {
 		try {
 			return await getCustomStoryNarratives(ctx.viewer.chatId, input.storySlug, {
-				cachedOnly: true,
+				cachedOnly: await isProjectUserReadOnly(ctx.viewer.projectId, ctx.user.id),
 				principalUserId: ctx.user.id,
 			});
 		} catch (error) {

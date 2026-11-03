@@ -4,7 +4,7 @@ import type { CloudPlanOffer } from '@/components/settings/cloud-billing-plan-co
 import type { CloudBillingChangeReview } from '@/hooks/use-cloud-billing-change-review';
 import { Callout } from '@/components/ui/callout';
 import { Input } from '@/components/ui/input';
-import { formatBillingPrice } from '@/lib/billing-display';
+import { formatBillingDate, formatBillingPrice } from '@/lib/billing-display';
 
 export type CloudBillingChangePreview = {
 	amountDue: number;
@@ -62,9 +62,11 @@ export function CloudBillingSeatQuantityField({
 }
 
 export function CloudBillingChangeReviewNotices({ review }: { review: CloudBillingChangeReview }) {
-	const readOnlyCount = review.reviewedPreview?.readOnlyUsersAfterChange.length ?? 0;
+	const preview = review.reviewedPreview;
+	const readOnlyCount = preview?.readOnlyUsersAfterChange.length ?? 0;
 	return (
 		<>
+			{preview && <CloudBillingChargeSummary preview={preview} />}
 			{readOnlyCount > 0 && (
 				<Callout variant='warning' className='text-xs'>
 					{readOnlyCount} full-access {readOnlyCount === 1 ? 'user becomes' : 'users become'} read-only.
@@ -76,6 +78,27 @@ export function CloudBillingChangeReviewNotices({ review }: { review: CloudBilli
 				</p>
 			)}
 		</>
+	);
+}
+
+function CloudBillingChargeSummary({ preview }: { preview: NonNullable<CloudBillingChangePreview> }) {
+	const chargedAt = preview.firstChargeAt ?? (preview.effective === 'immediate' ? null : preview.effectiveAt);
+	return (
+		<div className='flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-xl border border-border p-3'>
+			<p className='text-sm font-medium text-foreground'>
+				{chargedAt ? `Total charged on ${formatBillingDate(chargedAt)}` : 'Total charged now'}
+			</p>
+			<div className='text-right'>
+				<p className='text-sm font-semibold text-foreground'>
+					{formatBillingPrice(preview.amountDue, preview.currency)}
+				</p>
+				{preview.tax > 0 && (
+					<p className='text-xs text-muted-foreground'>
+						Includes {formatBillingPrice(preview.tax, preview.currency)} tax
+					</p>
+				)}
+			</div>
+		</div>
 	);
 }
 

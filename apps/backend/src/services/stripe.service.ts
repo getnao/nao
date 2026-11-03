@@ -1581,7 +1581,7 @@ function currentCloudPriceConfiguration(plan: CurrentCloudBillingPlanDefinition)
 	}
 }
 
-function cloudPriceAmount(price: CloudRecurringPriceDetails, currency: string): number | null {
+export function cloudPriceAmount(price: CloudRecurringPriceDetails, currency: string): number | null {
 	const amount = price.currency === currency ? price.unit_amount : price.currency_options?.[currency]?.unit_amount;
 	return typeof amount === 'number' && amount > 0 ? amount : null;
 }

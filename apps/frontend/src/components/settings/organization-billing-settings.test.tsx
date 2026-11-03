@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
 	cloudSwitchToFree: vi.fn(),
 	cloudCancelPendingPlanChange: vi.fn(),
 	cloudOpenTrialCheckoutForPlan: vi.fn(),
+	cloudResubscribeForPlan: vi.fn(),
 	cloudConfirmPlanChange: vi.fn(),
 	cloudPreviewPlanChange: vi.fn(),
 	cloudConfirmSeatChange: vi.fn(),
@@ -497,6 +498,19 @@ it('keeps post-trial plan and interval selection enabled for the default Free de
 	expect(mocks.cloudOpenTrialCheckoutForPlan).toHaveBeenCalledWith('cloud_team_monthly_v1', 4);
 });
 
+it('opens paid Checkout for a new organization whose trial has not started', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudFreeActive = true;
+	mocks.cloudPaidPlanSelected = false;
+	mocks.trialAvailable = true;
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
+	expect(mocks.cloudResubscribeForPlan).toHaveBeenCalledWith('cloud_unlimited_monthly_v1', undefined);
+	expect(mocks.cloudOpenTrialCheckoutForPlan).not.toHaveBeenCalled();
+});
+
 it('shows the current paid plan flowing into the same plan at renewal', () => {
 	mocks.freeTierEnabled = true;
 
@@ -584,13 +598,14 @@ it('re-previews a plan change with a replacement promotion code before confirmin
 		expiresAt: new Date('2099-01-01T00:00:00.000Z'),
 		effective: 'immediate' as const,
 		effectiveAt: new Date('2026-10-30T00:00:00.000Z'),
-		firstChargeAt: new Date('2026-11-15T00:00:00.000Z'),
+		firstChargeAt: null,
 		promotionCodeDiscount: null,
 		readOnlyUsersAfterChange: [],
 	};
 	mocks.cloudPreviewPlanChange.mockResolvedValue({
 		...preview,
 		amountDue: 8_000,
+		tax: 500,
 		discount: 2_000,
 		previewToken: 'promotion-preview-token',
 		promotionCodeDiscount: { amount: 160_000, duration: 'forever' },
@@ -622,9 +637,7 @@ it('re-previews a plan change with a replacement promotion code before confirmin
 	expect(screen.queryByRole('button', { name: 'Apply code' })).toBeNull();
 	expect(dialog.textContent).toContain('$1,600 / month');
 	expect(dialog.textContent).toContain('LAUNCH20');
-	expect(dialog.textContent).not.toContain('Subtotal');
-	expect(dialog.textContent).not.toContain('Tax');
-	expect(dialog.textContent).not.toContain('Due now');
+	expect(dialog.textContent).toContain('Total charged now$80Includes $5 tax');
 	fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }));
 
 	await waitFor(() => expect(mocks.cloudConfirmPlanChange).toHaveBeenCalledWith('promotion-preview-token'));
@@ -1157,6 +1170,7 @@ function cloudBillingState(): BillingState {
 				invoiceHistoryAvailable: false,
 				canManageBilling: true,
 				needsPaidPlanSelection: mocks.cloudTrialActive && !mocks.cloudPaidPlanSelected,
+				trialAvailable: mocks.trialAvailable,
 				paidPlanSelected: mocks.cloudPaidPlanSelected,
 				hasStripeSubscription: true,
 				status: cloudStatus,
@@ -1193,7 +1207,7 @@ function billingStateDefaults(): Partial<BillingState> {
 		switchToFree: mocks.cloudSwitchToFree,
 		cancelPendingPlanChange: mocks.cloudCancelPendingPlanChange,
 		openTrialCheckoutForPlan: mocks.cloudOpenTrialCheckoutForPlan,
-		resubscribeForPlan: vi.fn(),
+		resubscribeForPlan: mocks.cloudResubscribeForPlan,
 		openPaymentMethodPortal: vi.fn(),
 		openPortal: mocks.openPortal,
 	};

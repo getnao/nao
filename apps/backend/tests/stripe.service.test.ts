@@ -1663,6 +1663,7 @@ describe('cloud billing recovery', () => {
 				stripeCustomerId: 'cus_cloud',
 				targetPlanKey: 'cloud_unlimited_monthly_v1',
 				targetQuantity: 1,
+				currency: 'usd',
 			}),
 		).resolves.toEqual({
 			id: 'promo_launch',
@@ -1728,6 +1729,38 @@ describe('cloud billing recovery', () => {
 			{ items: [{ id: 'si_team', quantity: 6 }], ...trialParams },
 			expect.anything(),
 		);
+	});
+
+	it('discounts a promotion code in the subscription currency', async () => {
+		stripeMocks.listPromotionCodes.mockResolvedValue({
+			data: [
+				{
+					id: 'promo_fixed',
+					customer: null,
+					promotion: {
+						type: 'coupon',
+						coupon: {
+							amount_off: 10_000,
+							applies_to: null,
+							currency: 'usd',
+							currency_options: { eur: { amount_off: 5_000 } },
+							duration: 'forever',
+							percent_off: null,
+						},
+					},
+				},
+			],
+		});
+
+		await expect(
+			findActiveCloudPromotionCode({
+				code: 'FIXED',
+				stripeCustomerId: 'cus_cloud',
+				targetPlanKey: 'cloud_unlimited_monthly_v1',
+				targetQuantity: 1,
+				currency: 'eur',
+			}),
+		).resolves.toMatchObject({ discountedPlanAmount: 195_000 });
 	});
 
 	it('keeps a paid subscription unchanged when Stripe rejects an immediate upgrade with 402', async () => {

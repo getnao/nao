@@ -173,7 +173,7 @@ function CloudOrganizationBillingSettings({
 	const currentPlanEndsAt =
 		data.access.tier === 'trial' ? (data.access.trialEndsAt ?? data.currentPeriodEndsAt) : data.currentPeriodEndsAt;
 	const startPlanCheckout = async (plan: CloudPlanOffer, seatQuantity?: number) => {
-		if (data.trialAvailable || data.needsPaidPlanSelection) {
+		if (data.needsPaidPlanSelection) {
 			billingState.openTrialCheckoutForPlan(plan.planKey, seatQuantity);
 		} else {
 			billingState.resubscribeForPlan(plan.planKey, seatQuantity);

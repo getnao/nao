@@ -110,7 +110,7 @@ export async function previewCloudSeatChangeForAdmin(
 		}
 		const promotionCode = await resolvePromotionCode(
 			input.promotionCode,
-			state.billing.stripeCustomerId,
+			state,
 			targetPlanKey,
 			input.targetQuantity,
 		);
@@ -185,7 +185,7 @@ export async function previewCloudPlanChangeForAdmin(
 		const targetSeatQuantity = target.tier === 'team' ? validateTeamQuantity(input.targetSeatQuantity) : null;
 		const promotionCode = await resolvePromotionCode(
 			input.promotionCode,
-			state.billing.stripeCustomerId,
+			state,
 			input.targetPlanKey,
 			targetSeatQuantity ?? 1,
 		);
@@ -776,7 +776,7 @@ async function getMemberSeatTargetQuantity(
 
 async function resolvePromotionCode(
 	promotionCode: string | undefined,
-	stripeCustomerId: string,
+	state: CurrentPaidState,
 	targetPlanKey: CloudBillingPlanKey,
 	targetQuantity: number,
 ): Promise<CloudPromotionCodeMatch | undefined> {
@@ -789,9 +789,10 @@ async function resolvePromotionCode(
 	}
 	const match = await findActiveCloudPromotionCode({
 		code: normalizedCode,
-		stripeCustomerId,
+		stripeCustomerId: state.billing.stripeCustomerId,
 		targetPlanKey,
 		targetQuantity,
+		currency: state.subscription.currency,
 	});
 	if (!match) {
 		throw new CloudBillingManagementInputError('Promotion code is invalid or expired');

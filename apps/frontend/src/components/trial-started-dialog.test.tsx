@@ -12,12 +12,18 @@ const mocks = vi.hoisted(() => ({
 		amountMicroUsd: number;
 	} | null,
 	isOrgAdmin: true,
+	freeTierEnabled: true,
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: ({ enabled }: { enabled?: boolean }) => ({
-		data: enabled === false ? undefined : mocks.grant,
-	}),
+	useQuery: ({ queryKey, enabled }: { queryKey: string[]; enabled?: boolean }) => {
+		const data: Record<string, unknown> = {
+			'organization-setup-credit-grant': mocks.grant,
+			'public-config': { cloudBillingEnabled: true },
+			'billing-access': { freeTierEnabled: mocks.freeTierEnabled },
+		};
+		return { data: enabled === false ? undefined : data[queryKey[0]] };
+	},
 }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -43,12 +49,15 @@ vi.mock('@/main', () => ({
 				queryOptions: () => ({ queryKey: ['organization-setup-credit-grant'] }),
 			},
 		},
+		system: { getPublicConfig: { queryOptions: () => ({ queryKey: ['public-config'] }) } },
+		billing: { getAccess: { queryOptions: () => ({ queryKey: ['billing-access'] }) } },
 	},
 }));
 
 beforeEach(() => {
 	mocks.grant = { id: 'setup-grant-id', amountMicroUsd: 20_000_000 };
 	mocks.isOrgAdmin = true;
+	mocks.freeTierEnabled = true;
 	const values = new Map<string, string>();
 	vi.stubGlobal('localStorage', {
 		getItem: (key: string) => values.get(key) ?? null,
@@ -99,6 +108,14 @@ it('does not show setup credits to non-admins', () => {
 	render(<TrialStartedDialogController />);
 
 	expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it.each([true, false])('promises Free after the trial only when the free tier is %s', (freeTierEnabled) => {
+	mocks.freeTierEnabled = freeTierEnabled;
+
+	render(<TrialStartedDialogController />);
+
+	expect(screen.getByRole('dialog').textContent?.includes('Afterward, Free keeps up to')).toBe(freeTierEnabled);
 });
 
 it('loads setup credits without waiting for a project role', () => {
