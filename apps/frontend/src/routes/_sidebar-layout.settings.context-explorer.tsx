@@ -94,7 +94,6 @@ function ContextExplorerPage() {
 	});
 	const editorTestPath =
 		!historicalDiff && !selectedDiffPath && selectedPath && isTestFilePath(selectedPath) ? selectedPath : null;
-	const activeTestFile = activeTestPath && editorDraft?.path === activeTestPath ? editorDraft : null;
 	const handleEditorDraftChange = useCallback((path: string, content: string) => {
 		setEditorDraft({ path, content });
 	}, []);
@@ -163,6 +162,11 @@ function ContextExplorerPage() {
 		...trpc.contextExplorer.readFile.queryOptions({ path: selectedPath! }),
 		enabled: !!selectedPath,
 	});
+	const savedFileContent = fileContent.data?.content;
+	const activeTestFile = useMemo(
+		() => resolveActiveTestFile({ activeTestPath, editorTestPath, editorDraft, selectedPath, savedFileContent }),
+		[activeTestPath, editorTestPath, editorDraft, selectedPath, savedFileContent],
+	);
 	const contentSearch = useQuery({
 		...trpc.contextExplorer.searchContent.queryOptions({ query: debouncedSearch }),
 		enabled: shouldSearchContent,
@@ -508,6 +512,29 @@ function ContextExplorerPage() {
 			/>
 		</div>
 	);
+}
+
+/**
+ * The test the Tests drawer runs: the editor's content while the editor shows it, else its saved content, so that edits
+ * discarded by opening a diff are not run.
+ */
+function resolveActiveTestFile(input: {
+	activeTestPath: string | null;
+	editorTestPath: string | null;
+	editorDraft: { path: string; content: string } | null;
+	selectedPath: string | null;
+	savedFileContent: string | undefined;
+}): { path: string; content: string } | null {
+	const { activeTestPath, editorTestPath, editorDraft, selectedPath, savedFileContent } = input;
+	if (!activeTestPath) {
+		return null;
+	}
+	if (editorTestPath === activeTestPath && editorDraft?.path === activeTestPath) {
+		return editorDraft;
+	}
+	return selectedPath === activeTestPath && savedFileContent !== undefined
+		? { path: activeTestPath, content: savedFileContent }
+		: null;
 }
 
 function DiscardChangesDialog({
