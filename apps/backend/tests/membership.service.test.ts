@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 	addProjectMember: vi.fn(),
 	addProjectMemberWithUserGroups: vi.fn(),
 	checkProjectHasMoreThanOneAdmin: vi.fn(),
+	cleanupContextWorktree: vi.fn(),
 	getOrgMember: vi.fn(),
 	getProjectMember: vi.fn(),
 	getOrganizationById: vi.fn(),
@@ -89,7 +90,7 @@ vi.mock('../src/queries/organization-seat-state.queries', () => ({
 	syncOrganizationSeatState: mocks.syncOrganizationSeatState,
 }));
 vi.mock('../src/services/context-explorer-git.service', () => ({
-	cleanupContextWorktree: vi.fn(),
+	cleanupContextWorktree: mocks.cleanupContextWorktree,
 }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	getOrganizationCloudEntitlement: vi.fn(async () => {
@@ -266,6 +267,16 @@ describe('membership service', () => {
 
 		expect(mocks.projectMembers.get('user-1')).toBe('viewer');
 		expect(mocks.addOrgMember).not.toHaveBeenCalled();
+	});
+
+	it('cleans up a context worktree when adding demotes an existing context member', async () => {
+		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: 'org-1', path: '/project' });
+		mocks.projectMembers.set('user-1', 'context_admin');
+
+		await addProjectMember(projectMember('user-1'));
+
+		expect(mocks.projectMembers.get('user-1')).toBe('user');
+		expect(mocks.cleanupContextWorktree).toHaveBeenCalledWith('project-1', '/project', 'user-1');
 	});
 
 	it('serializes concurrent admin demotions in projects without an organization', async () => {

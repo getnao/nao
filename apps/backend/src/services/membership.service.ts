@@ -76,6 +76,9 @@ export async function addProjectMember(
 			groupIds,
 		}),
 	);
+	if (project.path && isContextRole(result.previousRole) && !isContextRole(result.role)) {
+		await cleanupContextWorktree(member.projectId, project.path, member.userId);
+	}
 	return toMembershipMutationResult(result);
 }
 
