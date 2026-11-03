@@ -873,11 +873,14 @@ export const attachDiscordThread = async (chatId: string, discordThreadId: strin
 	await db.update(s.chat).set({ discordThreadId }).where(eq(s.chat.id, chatId)).execute();
 };
 
-export const getChatByGoogleChatThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+export const getChatByGoogleChatThread = async (
+	threadId: string,
+	projectId: string,
+): Promise<{ id: string; title: string } | null> => {
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })
 		.from(s.chat)
-		.where(eq(s.chat.googleChatThreadId, threadId))
+		.where(and(eq(s.chat.googleChatThreadId, threadId), eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt)))
 		.limit(1)
 		.execute();
 	return result.at(0) || null;

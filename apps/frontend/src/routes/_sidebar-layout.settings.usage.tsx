@@ -68,6 +68,7 @@ const messageSeries = [
 	{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
 	{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
 	{ data_key: 'whatsappMessageCount', color: 'var(--chart-5)', label: 'WhatsApp' },
+	{ data_key: 'googleChatMessageCount', color: 'var(--chart-9)', label: 'Google Chat' },
 	{ data_key: 'adminMessageCount', color: 'var(--chart-6)', label: 'Admin mode' },
 	{ data_key: 'mcpMessageCount', color: 'var(--chart-7)', label: 'MCP' },
 	{

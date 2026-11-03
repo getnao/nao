@@ -9,16 +9,22 @@ type MentionHandler = (
 	message: { raw: unknown; text: string; author: { isBot: boolean } },
 ) => Promise<void>;
 
+type ActionHandler = (event: { threadId: string; raw: unknown }) => Promise<void>;
+
 const harness = vi.hoisted(() => ({
+	actionHandlers: new Map<string, ActionHandler>(),
 	adapterConfigs: [] as unknown[],
+	agentStop: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
 	createAgent: vi.fn(),
 	createChat: vi.fn(),
 	getChat: vi.fn(),
 	getChatByGoogleChatThread: vi.fn(),
+	getLastAssistantMessageId: vi.fn(),
 	getUser: vi.fn(),
 	mentionHandlers: [] as MentionHandler[],
 	projectRole: vi.fn(),
+	upsertFeedback: vi.fn(),
 	upsertMessage: vi.fn(),
 }));
 
@@ -38,7 +44,9 @@ vi.mock('chat', () => ({
 	Chat: class {
 		webhooks = { gchat: vi.fn() };
 
-		onAction(): void {}
+		onAction(actionId: string, handler: ActionHandler): void {
+			harness.actionHandlers.set(actionId, handler);
+		}
 
 		onNewMention(handler: MentionHandler): void {
 			harness.mentionHandlers.push(handler);
@@ -54,9 +62,12 @@ vi.mock('../src/queries/chat.queries', () => ({
 	createChat: harness.createChat,
 	getChat: harness.getChat,
 	getChatByGoogleChatThread: harness.getChatByGoogleChatThread,
+	getLastAssistantMessageId: harness.getLastAssistantMessageId,
 	upsertMessage: harness.upsertMessage,
 }));
-vi.mock('../src/queries/feedback.queries', () => ({}));
+vi.mock('../src/queries/feedback.queries', () => ({
+	upsertFeedback: harness.upsertFeedback,
+}));
 vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: harness.projectRole,
 }));
@@ -64,7 +75,7 @@ vi.mock('../src/queries/user.queries', () => ({
 	getUser: harness.getUser,
 }));
 vi.mock('../src/services/agent', () => ({
-	agentService: { create: harness.createAgent, get: vi.fn() },
+	agentService: { create: harness.createAgent, get: vi.fn(() => ({ stop: harness.agentStop })) },
 }));
 vi.mock('../src/services/branding.service', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/services/branding.service')>()),
@@ -101,6 +112,13 @@ function createThread() {
 	return { id: 'gchat:spaces/AAA:threads/BBB', post: vi.fn(async () => ({ edit: vi.fn() })) };
 }
 
+function createButtonClick(email: string, space: { name: string; type?: string; spaceType?: string }) {
+	return {
+		threadId: `gchat:${space.name}:dGhyZWFk`,
+		raw: { chat: { buttonClickedPayload: { user: { email }, space } } },
+	};
+}
+
 function createMention(email: string | undefined, text = '@nao how many orders?') {
 	return {
 		text,
@@ -112,7 +130,11 @@ function createMention(email: string | undefined, text = '@nao how many orders?'
 describe('GoogleChatService', () => {
 	beforeEach(() => {
 		(googleChatService as unknown as { _bots: Map<string, unknown> })._bots.clear();
+		harness.actionHandlers.clear();
 		harness.adapterConfigs.length = 0;
+		harness.agentStop.mockReset();
+		harness.getLastAssistantMessageId.mockReset().mockResolvedValue('assistant-message-id');
+		harness.upsertFeedback.mockReset();
 		harness.mentionHandlers.length = 0;
 		harness.assertProjectCloudBillingAccess.mockReset().mockResolvedValue(undefined);
 		harness.createAgent.mockReset().mockRejectedValue(new Error('stop after agent creation'));
@@ -152,6 +174,7 @@ describe('GoogleChatService', () => {
 
 		expect(harness.getUser).toHaveBeenCalledWith({ email: 'analyst@example.com' });
 		expect(harness.projectRole).toHaveBeenCalledWith('project-a', 'user-id');
+		expect(harness.getChatByGoogleChatThread).toHaveBeenCalledWith(thread.id, 'project-a');
 		expect(harness.createChat).toHaveBeenCalledWith(
 			expect.objectContaining({ projectId: 'project-a', googleChatThreadId: thread.id }),
 			{ text: 'how many orders?', source: 'google-chat' },
@@ -179,6 +202,49 @@ describe('GoogleChatService', () => {
 	});
 });
 
+describe('GoogleChatService card buttons', () => {
+	beforeEach(() => {
+		(googleChatService as unknown as { _bots: Map<string, unknown> })._bots.clear();
+		harness.actionHandlers.clear();
+		harness.agentStop.mockReset();
+		harness.getChatByGoogleChatThread.mockReset().mockResolvedValue({ id: 'chat-id' });
+		harness.getLastAssistantMessageId.mockReset().mockResolvedValue('assistant-message-id');
+		harness.getUser.mockReset().mockResolvedValue({ id: 'user-id' });
+		harness.projectRole.mockReset().mockResolvedValue('user');
+		harness.upsertFeedback.mockReset();
+		googleChatService.getWebhooks(PROJECT_A);
+	});
+
+	it('lets a project member stop the answer of the conversation in the same project', async () => {
+		const click = createButtonClick('analyst@example.com', { name: 'spaces/AAA', spaceType: 'SPACE' });
+
+		await harness.actionHandlers.get('stop_generation')!(click);
+
+		expect(harness.getChatByGoogleChatThread).toHaveBeenCalledWith(click.threadId, 'project-a');
+		expect(harness.agentStop).toHaveBeenCalled();
+	});
+
+	it('ignores Stop and feedback clicks from people outside the project', async () => {
+		harness.projectRole.mockResolvedValue(null);
+		const click = createButtonClick('outsider@example.com', { name: 'spaces/AAA', spaceType: 'SPACE' });
+
+		await harness.actionHandlers.get('stop_generation')!(click);
+		await harness.actionHandlers.get('feedback_negative')!(click);
+
+		expect(harness.agentStop).not.toHaveBeenCalled();
+		expect(harness.upsertFeedback).not.toHaveBeenCalled();
+	});
+
+	it('maps a click in a direct message back to the conversation of the whole DM space', async () => {
+		const click = createButtonClick('analyst@example.com', { name: 'spaces/DM1', spaceType: 'DIRECT_MESSAGE' });
+
+		await harness.actionHandlers.get('feedback_positive')!(click);
+
+		expect(harness.getChatByGoogleChatThread).toHaveBeenCalledWith('gchat:spaces/DM1:dm', 'project-a');
+		expect(harness.upsertFeedback).toHaveBeenCalledWith({ messageId: 'assistant-message-id', vote: 'up' });
+	});
+});
+
 describe('parseGoogleChatServiceAccountKey', () => {
 	it('extracts the credentials from a service account JSON key', () => {
 		const key = JSON.stringify({
@@ -195,7 +261,13 @@ describe('parseGoogleChatServiceAccountKey', () => {
 		});
 	});
 
-	it.each(['', 'not json', JSON.stringify({ client_email: 'bot@example.com' })])('rejects %j', (key) => {
+	it.each([
+		'',
+		'not json',
+		JSON.stringify({ client_email: 'bot@example.com' }),
+		JSON.stringify({ client_email: ' ', private_key: 'private-key' }),
+		JSON.stringify({ client_email: 'bot@example.com', private_key: '' }),
+	])('rejects %j', (key) => {
 		expect(parseGoogleChatServiceAccountKey(key)).toBeNull();
 	});
 });

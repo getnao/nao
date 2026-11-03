@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Trash2 } from 'lucide-react';
 import { GoogleChatForm } from './google-chat-form';
@@ -20,6 +20,9 @@ interface GoogleChatConfigSectionProps {
 type ProjectRouterOutputs = inferRouterOutputs<TrpcRouter>['project'];
 type AvailableModel = ProjectRouterOutputs['listAvailableTranscribeModels'][number];
 type ProjectConfig = NonNullable<ProjectRouterOutputs['getGoogleChatConfig']['projectConfig']>;
+type ModelSelection = NonNullable<ProjectConfig['modelSelection']>;
+
+const PROJECT_DEFAULT_MODEL_KEY = 'project-default';
 
 export function GoogleChatConfigSection({ isAdmin, onCancelSetup }: GoogleChatConfigSectionProps) {
 	const queryClient = useQueryClient();
@@ -27,14 +30,9 @@ export function GoogleChatConfigSection({ isAdmin, onCancelSetup }: GoogleChatCo
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
 
 	const [isEditing, setIsEditing] = useState(false);
-	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
 	const projectConfig = googleChatConfig.data?.projectConfig;
 	const webhookUrl = googleChatConfig.data?.webhookUrl ?? '';
-
-	useEffect(() => {
-		setSelectedModel(findPersistedModel(availableModels, projectConfig));
-	}, [availableModels, projectConfig]);
 
 	const upsertGoogleChatConfig = useMutation(trpc.project.upsertGoogleChatConfig.mutationOptions());
 	const updateGoogleChatModel = useMutation(trpc.project.updateGoogleChatModelConfig.mutationOptions());
@@ -43,8 +41,8 @@ export function GoogleChatConfigSection({ isAdmin, onCancelSetup }: GoogleChatCo
 	const handleSubmit = async (values: GoogleChatFormValues) => {
 		await upsertGoogleChatConfig.mutateAsync({
 			...values,
-			modelProvider: selectedModel?.provider,
-			modelId: selectedModel?.modelId,
+			modelProvider: projectConfig?.modelSelection?.provider,
+			modelId: projectConfig?.modelSelection?.modelId,
 		});
 		queryClient.invalidateQueries(trpc.project.getGoogleChatConfig.queryOptions());
 		setIsEditing(false);
@@ -64,13 +62,11 @@ export function GoogleChatConfigSection({ isAdmin, onCancelSetup }: GoogleChatCo
 	};
 
 	const handleStartEditing = () => {
-		setSelectedModel(findPersistedModel(availableModels, projectConfig));
 		setIsEditing(true);
 	};
 
-	const handleModelChange = async (model: AvailableModel) => {
-		await updateGoogleChatModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
-		setSelectedModel(model);
+	const handleModelChange = async (model: ModelSelection | null) => {
+		await updateGoogleChatModel.mutateAsync({ modelProvider: model?.provider, modelId: model?.modelId });
 		queryClient.invalidateQueries(trpc.project.getGoogleChatConfig.queryOptions());
 	};
 
@@ -140,7 +136,7 @@ export function GoogleChatConfigSection({ isAdmin, onCancelSetup }: GoogleChatCo
 					</p>
 					<ModelSelect
 						availableModels={availableModels ?? []}
-						selectedModel={selectedModel}
+						persistedModel={projectConfig.modelSelection ?? null}
 						onChange={handleModelChange}
 						disabled={updateGoogleChatModel.isPending}
 					/>
@@ -168,43 +164,44 @@ function GoogleChatConnectionDetails({ projectConfig }: { projectConfig: Project
 
 interface ModelSelectProps {
 	availableModels: AvailableModel[];
-	selectedModel: AvailableModel | null;
-	onChange: (model: AvailableModel) => Promise<void>;
+	persistedModel: ModelSelection | null;
+	onChange: (model: ModelSelection | null) => Promise<void>;
 	disabled: boolean;
 }
 
-function ModelSelect({ availableModels, selectedModel, onChange, disabled }: ModelSelectProps) {
-	if (availableModels.length <= 1) {
-		return selectedModel ? (
-			<div className='flex items-center gap-2 text-sm text-muted-foreground'>
-				<ModelLabel model={selectedModel} />
-			</div>
-		) : null;
-	}
+/** An unpinned integration answers with the project's default chat model, so that is offered as its own choice. */
+function ModelSelect({ availableModels, persistedModel, onChange, disabled }: ModelSelectProps) {
+	const persistedKey = persistedModel ? toModelKey(persistedModel) : PROJECT_DEFAULT_MODEL_KEY;
+	const persistedAvailableModel = availableModels.find((model) => toModelKey(model) === persistedKey);
 
 	const handleValueChange = async (value: string) => {
+		if (value === PROJECT_DEFAULT_MODEL_KEY) {
+			await onChange(null);
+			return;
+		}
 		const model = availableModels.find((candidate) => toModelKey(candidate) === value);
 		if (model) {
-			await onChange(model);
+			await onChange({ provider: model.provider, modelId: model.modelId });
 		}
 	};
 
 	return (
-		<Select
-			value={selectedModel ? toModelKey(selectedModel) : undefined}
-			onValueChange={handleValueChange}
-			disabled={disabled}
-		>
+		<Select value={persistedKey} onValueChange={handleValueChange} disabled={disabled}>
 			<SelectTrigger className='w-full'>
 				<SelectValue>
-					{selectedModel && (
-						<div className='flex items-center gap-2'>
-							<ModelLabel model={selectedModel} />
-						</div>
-					)}
+					<div className='flex items-center gap-2'>
+						{persistedAvailableModel ? (
+							<ModelLabel model={persistedAvailableModel} />
+						) : persistedModel ? (
+							<span>{persistedModel.modelId} (no longer available)</span>
+						) : (
+							<span>Project default</span>
+						)}
+					</div>
 				</SelectValue>
 			</SelectTrigger>
 			<SelectContent>
+				<SelectItem value={PROJECT_DEFAULT_MODEL_KEY}>Project default</SelectItem>
 				{availableModels.map((model) => (
 					<SelectItem key={toModelKey(model)} value={toModelKey(model)}>
 						<ModelLabel model={model} />
@@ -226,16 +223,4 @@ function ModelLabel({ model }: { model: AvailableModel }) {
 
 function toModelKey(model: { provider: string; modelId: string }): string {
 	return `${model.provider}:${model.modelId}`;
-}
-
-function findPersistedModel(
-	availableModels: AvailableModel[] | undefined,
-	projectConfig: ProjectConfig | null | undefined,
-): AvailableModel | null {
-	if (!availableModels || availableModels.length === 0) {
-		return null;
-	}
-	const persisted = projectConfig?.modelSelection;
-	const match = persisted && availableModels.find((model) => toModelKey(model) === toModelKey(persisted));
-	return match || availableModels[0];
 }

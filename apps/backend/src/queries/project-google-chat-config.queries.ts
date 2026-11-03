@@ -102,13 +102,17 @@ export function parseGoogleChatServiceAccountKey(
 	}
 	try {
 		const parsed = JSON.parse(serviceAccountKey) as Partial<GoogleChatServiceAccountCredentials>;
-		if (typeof parsed.client_email !== 'string' || typeof parsed.private_key !== 'string') {
+		if (!isNonBlankString(parsed.client_email) || !isNonBlankString(parsed.private_key)) {
 			return null;
 		}
 		return { client_email: parsed.client_email, private_key: parsed.private_key, project_id: parsed.project_id };
 	} catch {
 		return null;
 	}
+}
+
+function isNonBlankString(value: unknown): value is string {
+	return typeof value === 'string' && value.trim().length > 0;
 }
 
 function toLlmSelectedModel(

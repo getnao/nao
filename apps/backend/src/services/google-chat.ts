@@ -4,10 +4,11 @@ import { stripAssistantTags } from '@nao/shared';
 import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart } from '@nao/shared/tools';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { Card, Chat, Message, SentMessage, Thread } from 'chat';
+import { type ActionEvent, Card, Chat, Message, SentMessage, Thread } from 'chat';
 
 import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
+import type { User } from '../db/abstractSchema';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
@@ -42,10 +43,17 @@ const BOT_MENTION_PATTERN = new RegExp(`@${BOT_USER_NAME}\\b\\s*`, 'g');
 /** Google Chat allows about one message write per second in a space, so streamed edits are spaced out. */
 const UPDATE_INTERVAL_MS = 1500;
 
+interface GoogleChatRawSpace {
+	name?: string;
+	type?: string;
+	spaceType?: string;
+}
+
 interface GoogleChatRawEvent {
 	chat?: {
 		user?: { email?: string };
 		messagePayload?: { message?: { sender?: { email?: string } } };
+		buttonClickedPayload?: { user?: { email?: string }; space?: GoogleChatRawSpace };
 	};
 }
 
@@ -113,30 +121,54 @@ class GoogleChatService {
 		});
 
 		bot.onAction('stop_generation', async (event) => {
-			const existingChat = await chatQueries.getChatByGoogleChatThread(event.thread?.id || '');
-			if (existingChat) {
-				agentService.get(existingChat.id)?.stop();
+			const action = await this._findAuthorizedActionChat(event, config);
+			if (action) {
+				agentService.get(action.chatId)?.stop();
 			}
 		});
 
 		bot.onAction('feedback_positive', async (event) => {
-			await this._recordFeedback(event.thread?.id || '', 'up');
+			await this._recordFeedback(event, config, 'up');
 		});
 
 		bot.onAction('feedback_negative', async (event) => {
-			await this._recordFeedback(event.thread?.id || '', 'down');
+			await this._recordFeedback(event, config, 'down');
 		});
 
 		return bot;
 	}
 
-	private async _recordFeedback(threadId: string, vote: 'up' | 'down'): Promise<void> {
-		const messageId = await this._getLastAssistantMessageId(threadId);
+	private async _recordFeedback(event: ActionEvent, config: GoogleChatConfig, vote: 'up' | 'down'): Promise<void> {
+		const action = await this._findAuthorizedActionChat(event, config);
+		if (!action) {
+			return;
+		}
+		const messageId = await chatQueries.getLastAssistantMessageId(action.chatId);
 		if (!messageId) {
 			return;
 		}
 		await feedbackQueries.upsertFeedback({ messageId, vote });
-		await this._updateCompletionCardVote(threadId, vote);
+		await this._updateCompletionCardVote(action.threadId, vote);
+	}
+
+	/** Resolves the chat a card button belongs to, provided the person who clicked it may use this project. */
+	private async _findAuthorizedActionChat(
+		event: ActionEvent,
+		config: GoogleChatConfig,
+	): Promise<{ chatId: string; threadId: string } | null> {
+		const raw = event.raw as GoogleChatRawEvent;
+		const email = raw?.chat?.buttonClickedPayload?.user?.email || raw?.chat?.user?.email;
+		try {
+			await this._getProjectMember(email, config);
+		} catch (error) {
+			if (error instanceof GoogleChatAccessError) {
+				return null;
+			}
+			throw error;
+		}
+		const threadId = toConversationThreadId(event.threadId, raw?.chat?.buttonClickedPayload?.space);
+		const chat = await chatQueries.getChatByGoogleChatThread(threadId, config.projectId);
+		return chat ? { chatId: chat.id, threadId } : null;
 	}
 
 	private async _updateCompletionCardVote(threadId: string, vote: 'up' | 'down'): Promise<void> {
@@ -202,13 +234,12 @@ class GoogleChatService {
 	}
 
 	private async _validateUserAccess(ctx: GoogleChatConversationContext): Promise<void> {
-		await this._getUser(ctx);
-		await this._checkUserBelongsToProject(ctx);
+		const raw = ctx.userMessage.raw as GoogleChatRawEvent;
+		const email = raw?.chat?.user?.email || raw?.chat?.messagePayload?.message?.sender?.email;
+		ctx.user = await this._getProjectMember(email, ctx.config);
 	}
 
-	private async _getUser(ctx: GoogleChatConversationContext): Promise<void> {
-		const raw = ctx.userMessage.raw as GoogleChatRawEvent;
-		const rawEmail = raw?.chat?.user?.email || raw?.chat?.messagePayload?.message?.sender?.email;
+	private async _getProjectMember(rawEmail: string | undefined, config: GoogleChatConfig): Promise<User> {
 		if (!rawEmail) {
 			throw new GoogleChatAccessError('❌ Could not retrieve your email address from Google Chat.');
 		}
@@ -217,25 +248,23 @@ class GoogleChatService {
 		const user = await getUser({ email });
 		if (!user) {
 			throw new GoogleChatAccessError(
-				`❌ No user found. Create an account with \`${email}\` on ${ctx.config.redirectUrl} to sign up.`,
+				`❌ No user found. Create an account with \`${email}\` on ${config.redirectUrl} to sign up.`,
 			);
 		}
-		ctx.user = user;
-	}
 
-	private async _checkUserBelongsToProject(ctx: GoogleChatConversationContext): Promise<void> {
-		const role = await projectQueries.getUserRoleInProject(ctx.config.projectId, ctx.user!.id);
+		const role = await projectQueries.getUserRoleInProject(config.projectId, user.id);
 		if (role !== 'admin' && role !== 'user' && role !== 'context_admin') {
 			throw new GoogleChatAccessError(
 				`❌ You don't have permission to use ${await getAppName()} in this project. Please contact an administrator.`,
 			);
 		}
+		return user;
 	}
 
 	private async _saveOrUpdateUserMessage(ctx: GoogleChatConversationContext): Promise<void> {
 		const text = ctx.userMessage.text;
 
-		const existingChat = await chatQueries.getChatByGoogleChatThread(ctx.thread.id);
+		const existingChat = await chatQueries.getChatByGoogleChatThread(ctx.thread.id, ctx.config.projectId);
 		if (existingChat) {
 			await chatQueries.upsertMessage({
 				role: 'user',
@@ -502,6 +531,7 @@ class GoogleChatService {
 		ctx.blocks[state.toolGroupBlockIndex] = createSummaryToolCalls(state.toolGroup);
 		state.toolGroup = new Map();
 		state.toolGroupBlockIndex = -1;
+		ctx.textBlockIndex = -1;
 	}
 
 	private async _sendFinalText(ctx: ConversationContext): Promise<void> {
@@ -520,14 +550,18 @@ class GoogleChatService {
 			ctx.blocks[ctx.textBlockIndex] = block;
 		}
 	}
+}
 
-	private async _getLastAssistantMessageId(threadId: string): Promise<string | null> {
-		const chat = await chatQueries.getChatByGoogleChatThread(threadId);
-		if (!chat) {
-			return null;
-		}
-		return chatQueries.getLastAssistantMessageId(chat.id);
+/**
+ * A card click in a direct message carries the clicked message's thread, while the conversation itself is keyed
+ * by the whole DM space, so the click is mapped back to the conversation's thread id.
+ */
+function toConversationThreadId(clickThreadId: string, space: GoogleChatRawSpace | undefined): string {
+	const isDirectMessage = space?.type === 'DM' || space?.spaceType === 'DIRECT_MESSAGE';
+	if (!isDirectMessage || !space?.name) {
+		return clickThreadId;
 	}
+	return `gchat:${space.name}:dm`;
 }
 
 /** A message the sender should see as-is, rather than as a generic processing error. */
