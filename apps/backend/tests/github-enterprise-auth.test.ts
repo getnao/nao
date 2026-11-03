@@ -63,6 +63,9 @@ describe('augmentPluginsWithGithubEnterprise', () => {
 		});
 
 		expect(fetchMock).toHaveBeenCalledWith('https://ghe.example.com/login/oauth/access_token', expect.anything());
+		const requestBody = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
+		expect(requestBody.get('client_id')).toBe('client-id');
+		expect(requestBody.get('client_secret')).toBe('client-secret');
 		expect(tokens?.accessToken).toBe('token');
 	});
 

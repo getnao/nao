@@ -565,6 +565,65 @@ describe('deployment context source', () => {
 		expect(branchOwnershipMocks.reviewRequests.get(key)).toEqual(created);
 	});
 
+	it.each([
+		{
+			label: 'an SSH remote on the GitHub Enterprise host',
+			url: 'ssh://git@ghe.example.com/nao/context.git',
+			baseUrl: 'https://ghe.example.com',
+			apiUrl: undefined,
+			expectedApiUrl: 'https://ghe.example.com/api/v3',
+		},
+		{
+			label: 'a GitHub Enterprise remote with an API override',
+			url: 'https://ghe.example.com/nao/context.git',
+			baseUrl: 'https://ghe.example.com',
+			apiUrl: 'https://api.ghe.example.com',
+			expectedApiUrl: 'https://api.ghe.example.com',
+		},
+		{
+			label: 'a github.com remote with an API override',
+			url: 'https://github.com/nao/context.git',
+			baseUrl: undefined,
+			apiUrl: 'https://proxy.example.com/github',
+			expectedApiUrl: 'https://proxy.example.com/github',
+		},
+		{
+			label: 'a github.com remote alongside a GitHub Enterprise setup',
+			url: 'https://github.com/nao/context.git',
+			baseUrl: 'https://ghe.example.com',
+			apiUrl: 'https://api.ghe.example.com',
+			expectedApiUrl: 'https://api.github.com',
+		},
+	])(
+		'looks up GitHub pull requests for $label on the matching API',
+		async ({ url, baseUrl, apiUrl, expectedApiUrl }) => {
+			for (const [name, value] of [
+				['GITHUB_BASE_URL', baseUrl],
+				['GITHUB_API_URL', apiUrl],
+			] as const) {
+				if (value) {
+					process.env[name] = value;
+				} else {
+					delete process.env[name];
+				}
+			}
+			setContextSourceEnv({ url, token: 'repository-access-token' });
+			const fetchMock = vi.fn().mockResolvedValue(Response.json([]));
+			vi.stubGlobal('fetch', fetchMock);
+
+			await GENERIC_GIT_PROVIDER.findOpenReviewRequest({
+				token: 'repository-access-token',
+				repoFullName: url,
+				branch: 'nao/test',
+				projectId: 'project-id',
+				userId: 'user-1',
+			});
+
+			expect(fetchMock).toHaveBeenCalledOnce();
+			expect(fetchMock.mock.calls[0][0]).toMatch(new RegExp(`^${expectedApiUrl}/repos/nao/context/pulls\\?`));
+		},
+	);
+
 	it('uses the saved review link when Bitbucket pull request lookup fails', async () => {
 		setContextSourceEnv({
 			url: 'https://bitbucket.org/nao/context.git',

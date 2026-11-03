@@ -343,11 +343,11 @@ async function findOpenBitbucketPullRequest(
 }
 
 function githubApiBaseUrl(repository: ParsedGenericRepository): string {
+	if (repository.host === new URL(github.githubBaseUrl()).hostname) {
+		return github.githubApiUrl();
+	}
 	if (repository.host === 'github.com') {
 		return 'https://api.github.com';
-	}
-	if (repository.origin === new URL(github.githubBaseUrl()).origin) {
-		return github.githubApiUrl();
 	}
 	return `${repository.origin}/api/v3`;
 }
