@@ -45,6 +45,7 @@ import {
 	getNaoDraftFileTree,
 	listNaoDraftChanges,
 	readNaoDraft,
+	searchNaoDraftContents,
 } from '../src/services/nao-draft.service';
 
 const OWNER = { projectId: 'draft-project', userId: 'draft-user' };
@@ -97,6 +98,22 @@ describe('File Explorer without a context repository', () => {
 		await expect(writeFileContent('/RULES.md', 'stale\n', original.hash, access)).rejects.toMatchObject({
 			code: 'CONFLICT',
 		});
+	});
+
+	it('keeps only one of two saves made from the same content', async () => {
+		const original = await readFileContent('/RULES.md', access);
+		const firstContents = ['# First tab\n', '# Second tab\n'];
+		const firstSaves = await Promise.allSettled(
+			firstContents.map((content) => writeFileContent('/RULES.md', content, original.hash, access)),
+		);
+		const draft = await readFileContent('/RULES.md', access);
+		const nextContents = ['# Third tab\n', '# Rules\n'];
+		const nextSaves = await Promise.allSettled(
+			nextContents.map((content) => writeFileContent('/RULES.md', content, draft.hash, access)),
+		);
+
+		expect(draft.content).toBe(firstContents[findOnlySavedIndex(firstSaves)]);
+		expect((await readFileContent('/RULES.md', access)).content).toBe(nextContents[findOnlySavedIndex(nextSaves)]);
 	});
 
 	it('drops the draft of a file saved back to its production content', async () => {
@@ -161,6 +178,31 @@ describe('File Explorer without a context repository', () => {
 		expect(discarded.hash).toBe((await readFileContent('/RULES.md', access)).hash);
 		expect((await listNaoDraftChanges(OWNER)).map((change) => change.path)).toEqual(['/docs/margin.md']);
 	});
+
+	it('discards a draft whose production file can no longer be edited', async () => {
+		const original = await readFileContent('/RULES.md', access);
+		await writeFileContent('/RULES.md', '# Draft rules\n', original.hash, access);
+		fs.writeFileSync(path.join(live, 'RULES.md'), Buffer.from([0, 159, 146, 150]));
+
+		await discardNaoDraftFile(OWNER, live, '/RULES.md');
+
+		expect(await listNaoDraftChanges(OWNER)).toEqual([]);
+	});
+
+	it('searches the content of the draft in place of the live content', async () => {
+		await editFile('/docs/revenue.md', 'Revenue is gross.\nGross revenue includes taxes, gross of refunds.\n');
+		await createDraftFile('/docs/margin.md', 'Margin is gross revenue minus costs.\n', access);
+
+		const response = await searchNaoDraftContents(OWNER, live, 'GROSS');
+		const otherUserResponse = await searchNaoDraftContents(OTHER_OWNER, live, 'net of refunds');
+
+		expect(response.results).toEqual([
+			{ path: '/docs/margin.md', count: 1, line: 1, text: 'Margin is gross revenue minus costs.' },
+			{ path: '/docs/revenue.md', count: 3, line: 1, text: 'Revenue is gross.' },
+		]);
+		expect((await searchNaoDraftContents(OWNER, live, 'net of refunds')).results).toEqual([]);
+		expect(otherUserResponse.results.map((result) => result.path)).toEqual(['/docs/revenue.md']);
+	});
 });
 
 describe('readNaoDraft', () => {
@@ -191,6 +233,12 @@ describe('readNaoDraft', () => {
 async function editFile(filePath: string, content: string): Promise<void> {
 	const file = await readFileContent(filePath, access);
 	await writeFileContent(filePath, content, file.hash, access);
+}
+
+function findOnlySavedIndex(saves: PromiseSettledResult<unknown>[]): number {
+	expect(saves.filter((save) => save.status === 'fulfilled')).toHaveLength(1);
+	expect(saves.find((save) => save.status === 'rejected')).toMatchObject({ reason: { code: 'CONFLICT' } });
+	return saves.findIndex((save) => save.status === 'fulfilled');
 }
 
 function naoDraftAccess(owner: typeof OWNER): ContextExplorerFileAccess {

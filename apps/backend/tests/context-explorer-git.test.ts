@@ -76,8 +76,9 @@ const loggerMocks = vi.hoisted(() => ({
 
 const contextDraftMocks = vi.hoisted(() => ({
 	getDraftFile: vi.fn(async () => null),
-	saveDraftFile: vi.fn(async () => undefined),
+	saveDraftFile: vi.fn(async () => true),
 	deleteDraftFile: vi.fn(async () => undefined),
+	deleteDraftFileIfUnchanged: vi.fn(async () => true),
 }));
 
 vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
@@ -1560,6 +1561,7 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expect(contextDraftMocks.saveDraftFile).toHaveBeenCalledWith(
 			{ projectId: 'project-id', userId: 'user-1' },
 			{ path: 'context.md', content: 'changed\n', baseHash: file.hash },
+			null,
 		);
 		expectLiveUnchanged(fixture.live, before);
 		expect(fs.existsSync(worktree)).toBe(false);

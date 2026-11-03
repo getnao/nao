@@ -17,6 +17,7 @@ import { TRPCError } from '@trpc/server';
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
+import type { DBContextDraftFile } from '../db/abstractSchema';
 import type { DraftOwner } from '../queries/context-draft.queries';
 import * as contextDraftQueries from '../queries/context-draft.queries';
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
@@ -297,16 +298,29 @@ async function writeNaoDraftFile(
 	}
 	assertExpectedHash(currentContent, expectedHash);
 
-	if (liveContent?.equals(contentBuffer)) {
-		await contextDraftQueries.deleteDraftFile(access.draftOwner, projectPath);
-	} else {
-		await contextDraftQueries.saveDraftFile(access.draftOwner, {
-			path: projectPath,
-			content: contentBuffer.toString('utf-8'),
-			baseHash: liveContent ? hashContent(liveContent) : null,
-		});
+	const isSaved = liveContent?.equals(contentBuffer)
+		? await removeNaoDraftFileUnlessChanged(access.draftOwner, projectPath, draftFile)
+		: await contextDraftQueries.saveDraftFile(
+				access.draftOwner,
+				{
+					path: projectPath,
+					content: contentBuffer.toString('utf-8'),
+					baseHash: liveContent ? hashContent(liveContent) : null,
+				},
+				draftFile?.content ?? null,
+			);
+	if (!isSaved) {
+		throw fileChangedError();
 	}
 	return { hash: hashContent(contentBuffer) };
+}
+
+async function removeNaoDraftFileUnlessChanged(
+	owner: DraftOwner,
+	projectPath: string,
+	draftFile: DBContextDraftFile | null,
+): Promise<boolean> {
+	return !draftFile || contextDraftQueries.deleteDraftFileIfUnchanged(owner, projectPath, draftFile.content);
 }
 
 async function addNaoDraftFile(
@@ -686,11 +700,15 @@ function validateExpectedHash(expectedHash: string): void {
 
 function assertExpectedHash(content: Buffer, expectedHash: string): void {
 	if (hashContent(content) !== expectedHash) {
-		throw new TRPCError({
-			code: 'CONFLICT',
-			message: 'This file changed on disk. Reload it before saving your changes.',
-		});
+		throw fileChangedError();
 	}
+}
+
+function fileChangedError(): TRPCError {
+	return new TRPCError({
+		code: 'CONFLICT',
+		message: 'This file changed on disk. Reload it before saving your changes.',
+	});
 }
 
 export function hashContent(content: Buffer): string {

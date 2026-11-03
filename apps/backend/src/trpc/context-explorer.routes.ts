@@ -43,6 +43,7 @@ import {
 	getNaoDraftFileTree,
 	hasContextRepository,
 	listNaoDraftChanges,
+	searchNaoDraftContents,
 } from '../services/nao-draft.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
@@ -217,7 +218,12 @@ export const contextExplorerRoutes = {
 
 	searchContent: contextAdminProtectedProcedure
 		.input(z.object({ query: z.string().min(2).max(200) }))
-		.query(({ ctx, input }) => searchFileContents(input.query, requireProjectPath(ctx.project.path))),
+		.query(async ({ ctx, input }) => {
+			const projectFolder = requireProjectPath(ctx.project.path);
+			return (await hasContextRepository(ctx.project.id))
+				? searchFileContents(input.query, projectFolder)
+				: searchNaoDraftContents(draftOwnerOf(ctx), projectFolder, input.query);
+		}),
 
 	getChangedFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		if (!(await hasContextRepository(ctx.project.id))) {

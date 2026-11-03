@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 
-import type { ContextChangedFile, ContextFileDiff, FileTreeEntry } from '@nao/shared/types';
+import type {
+	ContextChangedFile,
+	ContextFileDiff,
+	FileContentSearchResponse,
+	FileContentSearchResult,
+	FileTreeEntry,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
 import type { DBContextDraftFile } from '../db/abstractSchema';
@@ -13,8 +19,11 @@ import {
 	hashContent,
 	readValidatedContextFileSync,
 	resolveAndValidatePath,
+	searchFileContents,
 } from './context-explorer.service';
 import { type DraftSource, isProductionOnly, readRegularFile } from './draft-context.service';
+
+const MAX_MATCHED_LINES_PER_FILE = 10;
 
 /**
  * Without a context repository, the File Explorer has no worktree to save to, so nao keeps each user's
@@ -31,6 +40,27 @@ export async function getNaoDraftFileTree(owner: DraftOwner, projectFolder: stri
 		insertFileEntry(entries, file.path.split('/'), '');
 	}
 	return entries;
+}
+
+/** Searches the live files with the draft's content in place of theirs, and the files the draft adds. */
+export async function searchNaoDraftContents(
+	owner: DraftOwner,
+	projectFolder: string,
+	query: string,
+): Promise<FileContentSearchResponse> {
+	const [liveSearch, files] = await Promise.all([
+		searchFileContents(query, projectFolder),
+		listSortedDraftFiles(owner),
+	]);
+	const draftPaths = new Set(files.map((file) => `/${file.path}`));
+	const draftResults = files.flatMap((file) => {
+		const result = searchText(`/${file.path}`, file.content, query);
+		return result ? [result] : [];
+	});
+	return {
+		results: [...liveSearch.results.filter((result) => !draftPaths.has(result.path)), ...draftResults],
+		truncated: liveSearch.truncated,
+	};
 }
 
 export async function listNaoDraftChanges(owner: DraftOwner): Promise<ContextChangedFile[]> {
@@ -59,9 +89,10 @@ export async function discardNaoDraftFile(
 	projectFolder: string,
 	filePath: string,
 ): Promise<{ hash: string | null }> {
-	const liveContent = readLiveFile(projectFolder, filePath);
-	await contextDraftQueries.deleteDraftFile(owner, normalizeProjectPath(filePath));
-	return { hash: liveContent ? hashContent(liveContent) : null };
+	const projectPath = normalizeProjectPath(filePath);
+	const liveHash = readLiveHash(projectFolder, projectPath);
+	await contextDraftQueries.deleteDraftFile(owner, projectPath);
+	return { hash: liveHash };
 }
 
 export async function discardAllNaoDraftFiles(owner: DraftOwner): Promise<void> {
@@ -127,6 +158,34 @@ function toChangedFile(file: DBContextDraftFile): ContextChangedFile {
 
 function toContextChange(file: DBContextDraftFile) {
 	return { path: file.path, kind: file.baseHash ? ('modified' as const) : ('added' as const) };
+}
+
+/** Matches like the ripgrep search of the live files: case-insensitive, counted over the first matching lines. */
+function searchText(virtualPath: string, content: string, query: string): FileContentSearchResult | null {
+	const needle = query.toLowerCase();
+	const matchingLines = content
+		.split('\n')
+		.map((text, index) => ({ text, line: index + 1, count: countOccurrences(text.toLowerCase(), needle) }))
+		.filter((line) => line.count > 0)
+		.slice(0, MAX_MATCHED_LINES_PER_FILE);
+	const [first] = matchingLines;
+	if (!first) {
+		return null;
+	}
+	return {
+		path: virtualPath,
+		count: matchingLines.reduce((total, line) => total + line.count, 0),
+		line: first.line,
+		text: first.text.trim(),
+	};
+}
+
+function countOccurrences(text: string, needle: string): number {
+	let count = 0;
+	for (let index = text.indexOf(needle); index !== -1; index = text.indexOf(needle, index + needle.length)) {
+		count++;
+	}
+	return count;
 }
 
 function readLiveHash(projectFolder: string, projectPath: string): string | null {
