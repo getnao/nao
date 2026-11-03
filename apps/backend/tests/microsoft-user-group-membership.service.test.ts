@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 	hasSyncState: vi.fn(),
 	listIdentifiers: vi.fn(),
 	listCandidates: vi.fn(),
-	putProjectMember: vi.fn(),
+	addProjectMember: vi.fn(),
 	reconcile: vi.fn(),
 	syncOrganizationRole: vi.fn(),
 	decodeClaims: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock('../src/queries/sso-user-group-membership.queries', () => ({
 	reconcileSsoUserGroupMemberships: mocks.reconcile,
 }));
 vi.mock('../src/services/membership.service', () => ({
-	putProjectMember: mocks.putProjectMember,
+	addProjectMember: mocks.addProjectMember,
 }));
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
@@ -71,7 +71,7 @@ beforeEach(() => {
 	mocks.hasSyncState.mockReset().mockResolvedValue(true);
 	mocks.listIdentifiers.mockReset().mockResolvedValue([GROUP_1, GROUP_2]);
 	mocks.listCandidates.mockReset().mockResolvedValue([]);
-	mocks.putProjectMember.mockReset();
+	mocks.addProjectMember.mockReset();
 	mocks.reconcile.mockReset().mockResolvedValue(undefined);
 	mocks.syncOrganizationRole.mockReset().mockResolvedValue(undefined);
 	mocks.decodeClaims.mockReset();
@@ -100,10 +100,10 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		expect(mocks.fetch).not.toHaveBeenCalled();
 	});
 
-	it('routes Entra project provisioning through seat activation', async () => {
+	it('provisions a first-time Entra project member through seat activation', async () => {
 		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
 		mocks.listCandidates.mockResolvedValue([{ projectId: 'project-1', role: 'user' }]);
-		mocks.putProjectMember.mockResolvedValue({
+		mocks.addProjectMember.mockResolvedValue({
 			userId: 'user-1',
 			role: 'viewer',
 			outcome: { status: 'viewer_fallback', role: 'viewer', reason: 'capacity_full' },
@@ -112,7 +112,11 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toMatchObject({
 			status: 'viewer_fallback',
 		});
-		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-1', 'user-1', 'user');
+		expect(mocks.addProjectMember).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'user-1',
+			role: 'user',
+		});
 	});
 
 	it('activates candidates before reconciliation and continues after one project role update fails', async () => {
@@ -121,15 +125,15 @@ describe('syncUserGroupsFromMicrosoft', () => {
 			{ projectId: 'project-1', role: 'user' },
 			{ projectId: 'project-2', role: 'context_admin' },
 		]);
-		mocks.putProjectMember
+		mocks.addProjectMember
 			.mockRejectedValueOnce(new Error('project update failed'))
 			.mockResolvedValueOnce({ userId: 'user-1', role: 'context_admin', outcome: null });
 
 		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toBeNull();
 
 		expect(mocks.reconcile).toHaveBeenCalledOnce();
-		expect(mocks.putProjectMember).toHaveBeenCalledTimes(2);
-		expect(mocks.putProjectMember.mock.invocationCallOrder[1]).toBeLessThan(
+		expect(mocks.addProjectMember).toHaveBeenCalledTimes(2);
+		expect(mocks.addProjectMember.mock.invocationCallOrder[1]).toBeLessThan(
 			mocks.reconcile.mock.invocationCallOrder[0],
 		);
 		expect(mocks.syncOrganizationRole).toHaveBeenCalledWith('user-1', [GROUP_1.toLowerCase()]);

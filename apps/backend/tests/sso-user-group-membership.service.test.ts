@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
 	hasFeature: vi.fn(),
 	hasSyncState: vi.fn(),
 	listCandidates: vi.fn(),
-	putProjectMember: vi.fn(),
+	addProjectMember: vi.fn(),
 	readClaims: vi.fn(),
 	reconcile: vi.fn(),
 	logger: {
@@ -29,7 +29,7 @@ vi.mock('../src/queries/sso-user-group-membership.queries', () => ({
 	reconcileSsoUserGroupMemberships: mocks.reconcile,
 }));
 vi.mock('../src/services/membership.service', () => ({
-	putProjectMember: mocks.putProjectMember,
+	addProjectMember: mocks.addProjectMember,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	DEFAULT_GROUPS_CLAIM: 'groups',
@@ -50,7 +50,7 @@ beforeEach(() => {
 	mocks.hasFeature.mockReset().mockResolvedValue(true);
 	mocks.hasSyncState.mockReset().mockResolvedValue(true);
 	mocks.listCandidates.mockReset().mockResolvedValue([]);
-	mocks.putProjectMember.mockReset();
+	mocks.addProjectMember.mockReset();
 	mocks.readClaims.mockReset();
 	mocks.reconcile.mockReset().mockResolvedValue(undefined);
 	mocks.logger.error.mockReset();
@@ -121,10 +121,10 @@ describe('syncUserGroupsFromOidc', () => {
 		});
 	});
 
-	it('routes project provisioning through seat activation and reports viewer fallback', async () => {
+	it('provisions a first-time project member through seat activation and reports viewer fallback', async () => {
 		mocks.readClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['Finance'] } });
 		mocks.listCandidates.mockResolvedValue([{ projectId: 'project-1', role: 'user' }]);
-		mocks.putProjectMember.mockResolvedValue({
+		mocks.addProjectMember.mockResolvedValue({
 			userId: 'user-1',
 			role: 'viewer',
 			outcome: { status: 'viewer_fallback', role: 'viewer', reason: 'capacity_full' },
@@ -135,7 +135,11 @@ describe('syncUserGroupsFromOidc', () => {
 			role: 'viewer',
 			reason: 'capacity_full',
 		});
-		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-1', 'user-1', 'user');
+		expect(mocks.addProjectMember).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'user-1',
+			role: 'user',
+		});
 	});
 
 	it('activates candidates before reconciliation and continues after one project role update fails', async () => {
@@ -144,15 +148,15 @@ describe('syncUserGroupsFromOidc', () => {
 			{ projectId: 'project-1', role: 'user' },
 			{ projectId: 'project-2', role: 'context_admin' },
 		]);
-		mocks.putProjectMember
+		mocks.addProjectMember
 			.mockRejectedValueOnce(new Error('project update failed'))
 			.mockResolvedValueOnce({ userId: 'user-1', role: 'context_admin', outcome: null });
 
 		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeNull();
 
 		expect(mocks.reconcile).toHaveBeenCalledOnce();
-		expect(mocks.putProjectMember).toHaveBeenCalledTimes(2);
-		expect(mocks.putProjectMember.mock.invocationCallOrder[1]).toBeLessThan(
+		expect(mocks.addProjectMember).toHaveBeenCalledTimes(2);
+		expect(mocks.addProjectMember.mock.invocationCallOrder[1]).toBeLessThan(
 			mocks.reconcile.mock.invocationCallOrder[0],
 		);
 		expect(mocks.logger.warn).toHaveBeenCalledWith('Failed to apply an OIDC project role during User Group sync', {

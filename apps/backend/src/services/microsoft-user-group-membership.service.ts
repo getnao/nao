@@ -20,7 +20,7 @@ import {
 } from '../utils/sso-group-mapping';
 import { chunk } from '../utils/utils';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
-import { putProjectMember, type SeatActivationOutcome } from './membership.service';
+import { addProjectMember, type SeatActivationOutcome } from './membership.service';
 import { isMicrosoftConfigured } from './microsoft-auth.service';
 import { syncOrganizationRoleFromMicrosoftGroups } from './sso-group-mapping.service';
 import { verifyMicrosoftIdTokenClaims } from './sso-token.service';
@@ -139,7 +139,7 @@ async function synchronizeMicrosoftMappings(
 			const candidates = await listSsoProjectRoleCandidates(userId, MICROSOFT_PROVIDER_ID, groupIds, options);
 			for (const candidate of candidates) {
 				try {
-					const result = await putProjectMember(candidate.projectId, userId, candidate.role);
+					const result = await addProjectMember({ ...candidate, userId });
 					if (
 						result.outcome &&
 						(!outcome ||

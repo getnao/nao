@@ -9,7 +9,7 @@ import {
 import { logger, serializeError } from '../utils/logger';
 import { parseOidcGroupNaoGroupMapping, readGroupsClaim } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
-import { putProjectMember, type SeatActivationOutcome } from './membership.service';
+import { addProjectMember, type SeatActivationOutcome } from './membership.service';
 import { isOidcConfigured } from './oidc-auth.service';
 import { DEFAULT_GROUPS_CLAIM } from './sso-group-mapping.service';
 import { readVerifiedOidcIdTokenClaims } from './sso-token.service';
@@ -55,7 +55,7 @@ export async function syncUserGroupsFromOidc(userId: string): Promise<SeatActiva
 		const outcomes: SeatActivationOutcome[] = [];
 		for (const candidate of candidates) {
 			try {
-				const result = await putProjectMember(candidate.projectId, userId, candidate.role);
+				const result = await addProjectMember({ ...candidate, userId });
 				if (result.outcome) {
 					outcomes.push(result.outcome);
 				}
