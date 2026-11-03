@@ -9,6 +9,7 @@ import {
 	type CloudRecurringPriceDetails,
 	getCloudPrice,
 	getStripeClient,
+	getStripeInvoice,
 	stripeDate,
 	stripeId,
 	stripeProductId,
@@ -36,6 +37,15 @@ export interface CloudPromotionCodeMatch {
 	discountedPlanAmount: number;
 	duration: Stripe.Coupon.Duration;
 }
+
+export type CloudSubscriptionChangeResult =
+	| { status: 'completed'; subscription: Stripe.Subscription }
+	| {
+			status: 'payment_pending';
+			subscription: Stripe.Subscription;
+			hostedInvoiceUrl: string;
+			expiresAt: Date;
+	  };
 
 export async function findActiveCloudPromotionCode(input: {
 	code: string;
@@ -105,24 +115,30 @@ export async function updateCloudSubscriptionQuantity(input: {
 	prorationDate: Date;
 	requestId: string;
 	promotionCodeId?: string;
-}): Promise<Stripe.Subscription> {
+}): Promise<CloudSubscriptionChangeResult> {
 	const paidItem = requireCloudPaidProductItem(input.subscription);
 	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
 	const currentQuantity = paidItem.item.quantity ?? 1;
 	const paidIncrease = input.subscription.status !== 'trialing' && input.targetQuantity > currentQuantity;
-	return getStripeClient().subscriptions.update(
+	const existingPendingChange = await getPendingCloudSubscriptionChange(input.subscription);
+	if (existingPendingChange) {
+		return existingPendingChange;
+	}
+	const subscription = await getStripeClient().subscriptions.update(
 		input.subscription.id,
 		{
 			items: [{ id: paidItem.item.id, quantity: input.targetQuantity }],
 			...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
 			...prorationParams(paidIncrease ? 'always_invoice' : 'none', input.prorationDate),
-			...(paidIncrease ? { payment_behavior: 'error_if_incomplete' as const } : {}),
+			...(paidIncrease ? { payment_behavior: 'pending_if_incomplete' as const } : {}),
 			...trialPreservationParams(input.subscription),
+			expand: ['latest_invoice'],
 		},
 		{
 			idempotencyKey: `cloud-seat-quantity-v2:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetQuantity}:${input.promotionCodeId ?? 'keep-discounts'}`,
 		},
 	);
+	return toCloudSubscriptionChangeResult(subscription);
 }
 
 export async function updateCloudSubscriptionPlan(input: {
@@ -134,25 +150,31 @@ export async function updateCloudSubscriptionPlan(input: {
 	requestId: string;
 	chargeImmediately: boolean;
 	promotionCodeId?: string;
-}): Promise<Stripe.Subscription> {
+}): Promise<CloudSubscriptionChangeResult> {
 	const paidItem = requireCloudPaidProductItem(input.subscription);
 	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
+	const existingPendingChange = await getPendingCloudSubscriptionChange(input.subscription);
+	if (existingPendingChange) {
+		return existingPendingChange;
+	}
 	const price = await getCloudPrice(input.targetPlanKey);
 	const paidUpgrade = input.subscription.status !== 'trialing' && input.chargeImmediately;
-	return getStripeClient().subscriptions.update(
+	const subscription = await getStripeClient().subscriptions.update(
 		input.subscription.id,
 		{
 			cancel_at_period_end: false,
 			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
 			...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
 			...prorationParams(paidUpgrade ? 'always_invoice' : 'none', input.prorationDate),
-			...(paidUpgrade ? { payment_behavior: 'error_if_incomplete' as const } : {}),
+			...(paidUpgrade ? { payment_behavior: 'pending_if_incomplete' as const } : {}),
 			...trialPreservationParams(input.subscription),
+			expand: ['latest_invoice'],
 		},
 		{
 			idempotencyKey: `cloud-plan-change-v3:${input.organizationId}:${input.subscription.id}:${input.requestId}:${input.targetPlanKey}:${input.targetQuantity}:${input.promotionCodeId ?? 'keep-discounts'}`,
 		},
 	);
+	return toCloudSubscriptionChangeResult(subscription);
 }
 
 export async function setCloudSubscriptionCancellation(input: {
@@ -261,6 +283,44 @@ function trialPreservationParams(subscription: Stripe.Subscription) {
 	return subscription.status === 'trialing' && subscription.trial_end
 		? { cancel_at_period_end: false, trial_end: subscription.trial_end }
 		: {};
+}
+
+export async function getPendingCloudSubscriptionChange(
+	subscription: Stripe.Subscription,
+): Promise<Extract<CloudSubscriptionChangeResult, { status: 'payment_pending' }> | null> {
+	return subscription.pending_update ? toPendingCloudSubscriptionChange(subscription) : null;
+}
+
+async function toCloudSubscriptionChangeResult(
+	subscription: Stripe.Subscription,
+): Promise<CloudSubscriptionChangeResult> {
+	return subscription.pending_update
+		? toPendingCloudSubscriptionChange(subscription)
+		: { status: 'completed', subscription };
+}
+
+async function toPendingCloudSubscriptionChange(
+	subscription: Stripe.Subscription,
+): Promise<Extract<CloudSubscriptionChangeResult, { status: 'payment_pending' }>> {
+	if (!subscription.pending_update) {
+		throw new Error(`Stripe Subscription "${subscription.id}" has no pending update`);
+	}
+	if (!subscription.latest_invoice) {
+		throw new Error(`Stripe Subscription "${subscription.id}" has no invoice for its pending update`);
+	}
+	const invoice =
+		typeof subscription.latest_invoice === 'string'
+			? await getStripeInvoice(subscription.latest_invoice)
+			: subscription.latest_invoice;
+	if (!invoice.hosted_invoice_url) {
+		throw new Error(`Stripe Invoice "${invoice.id}" has no hosted payment URL`);
+	}
+	return {
+		status: 'payment_pending',
+		subscription,
+		hostedInvoiceUrl: invoice.hosted_invoice_url,
+		expiresAt: new Date(subscription.pending_update.expires_at * 1_000),
+	};
 }
 
 function requireCloudPaidProductItem(subscription: Stripe.Subscription): CloudPaidProductItem {

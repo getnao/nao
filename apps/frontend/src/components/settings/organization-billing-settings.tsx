@@ -258,7 +258,6 @@ function CloudOrganizationBillingSettings({
 						: billingState.previewPlanChange(selectedPlanChange.planKey, seatQuantity);
 				}}
 				onConfirm={(preview) => billingState.confirmPlanChange(preview.previewToken)}
-				onFixPayment={billingState.openPaymentMethodPortal}
 			/>
 			<CloudBillingTeamSeatsDialog
 				open={selectedTeamPlan !== null}

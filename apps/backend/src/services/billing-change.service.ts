@@ -35,10 +35,12 @@ import { getCloudSubscription } from './stripe.service';
 import {
 	type CloudPromotionCodeMatch,
 	type CloudSubscriptionChangePreview,
+	type CloudSubscriptionChangeResult,
 	createCloudPlanChangeSchedule,
 	findActiveCloudPromotionCode,
 	getCloudPlanChangeSchedule,
 	getCloudProrationDate,
+	getPendingCloudSubscriptionChange,
 	previewCloudSubscriptionChange,
 	releaseCloudPlanChangeSchedule,
 	setCloudSubscriptionCancellation,
@@ -134,8 +136,12 @@ export async function changeCloudSeatQuantityForAdmin(
 			throw new CloudBillingManagementConflictError('Billing preview does not authorize a seat change');
 		}
 		const targetQuantity = payload.targetSeatQuantity;
+		const pendingChange = await getPendingCloudSubscriptionChange(state.subscription);
+		if (pendingChange) {
+			return pendingBillingCommandResult(pendingChange, state.billing.stripeCustomerId, input.organizationId);
+		}
 		if (payload.effective === 'immediate') {
-			await runCloudBillingStripeMutation(() =>
+			const change = await runCloudBillingStripeMutation(() =>
 				updateCloudSubscriptionQuantity({
 					organizationId: input.organizationId,
 					subscription: state.subscription,
@@ -145,6 +151,9 @@ export async function changeCloudSeatQuantityForAdmin(
 					promotionCodeId: payload.promotionCodeId,
 				}),
 			);
+			if (change.status === 'payment_pending') {
+				return pendingBillingCommandResult(change, state.billing.stripeCustomerId, input.organizationId);
+			}
 			if (state.billing.stripeSubscriptionScheduleId) {
 				await releasePendingBillingChange(input.organizationId, state.billing.stripeSubscriptionScheduleId);
 			}
@@ -159,7 +168,7 @@ export async function changeCloudSeatQuantityForAdmin(
 				payload.promotionCodeId,
 			);
 		}
-		return reconcileAndLoadCommandState(state.billing.stripeCustomerId, input.organizationId);
+		return completedBillingCommandResult(state.billing.stripeCustomerId, input.organizationId);
 	});
 }
 
@@ -215,8 +224,12 @@ export async function changeCloudPlanForAdmin(input: AdminBillingInput & { previ
 		const immediate =
 			state.subscription.status === 'trialing' ||
 			isImmediatePlanChange(requireCurrentPlanKey(state.billing.billingPlan), payload.targetPlanKey);
+		const pendingChange = await getPendingCloudSubscriptionChange(state.subscription);
+		if (pendingChange) {
+			return pendingBillingCommandResult(pendingChange, state.billing.stripeCustomerId, input.organizationId);
+		}
 		if (immediate) {
-			await runCloudBillingStripeMutation(() =>
+			const change = await runCloudBillingStripeMutation(() =>
 				updateCloudSubscriptionPlan({
 					organizationId: input.organizationId,
 					subscription: state.subscription,
@@ -228,6 +241,9 @@ export async function changeCloudPlanForAdmin(input: AdminBillingInput & { previ
 					promotionCodeId: payload.promotionCodeId,
 				}),
 			);
+			if (change.status === 'payment_pending') {
+				return pendingBillingCommandResult(change, state.billing.stripeCustomerId, input.organizationId);
+			}
 		} else {
 			await scheduleCloudPlanChange(
 				state,
@@ -237,7 +253,7 @@ export async function changeCloudPlanForAdmin(input: AdminBillingInput & { previ
 				payload.promotionCodeId,
 			);
 		}
-		return reconcileAndLoadCommandState(state.billing.stripeCustomerId, input.organizationId);
+		return completedBillingCommandResult(state.billing.stripeCustomerId, input.organizationId);
 	});
 }
 
@@ -356,9 +372,13 @@ export async function addCloudMemberWithSeatForAdmin(
 		if (payload.targetSeatQuantity !== expectedTargetQuantity) {
 			throw new CloudBillingManagementConflictError('Billing preview is stale; preview the added seat again');
 		}
+		const pendingChange = await getPendingCloudSubscriptionChange(state.subscription);
+		if (pendingChange) {
+			return pendingBillingCommandResult(pendingChange, state.billing.stripeCustomerId, input.organizationId);
+		}
 		const targetQuantity = payload.targetSeatQuantity;
 		if (targetQuantity > currentQuantity) {
-			await runCloudBillingStripeMutation(() =>
+			const change = await runCloudBillingStripeMutation(() =>
 				updateCloudSubscriptionQuantity({
 					organizationId: input.organizationId,
 					subscription: state.subscription,
@@ -367,10 +387,20 @@ export async function addCloudMemberWithSeatForAdmin(
 					requestId: input.requestId,
 				}),
 			);
+			if (change.status === 'payment_pending') {
+				return pendingBillingCommandResult(change, state.billing.stripeCustomerId, input.organizationId);
+			}
 			await reconcileAndLoadCommandState(state.billing.stripeCustomerId, input.organizationId);
 		}
 		try {
-			return await putOrganizationMemberUnderBillingLock(input.organizationId, user.id, input.requestedRole);
+			return {
+				status: 'completed' as const,
+				membership: await putOrganizationMemberUnderBillingLock(
+					input.organizationId,
+					user.id,
+					input.requestedRole,
+				),
+			};
 		} catch (error) {
 			throw new CloudBillingSeatPurchasedMembershipError(error);
 		}
@@ -399,7 +429,7 @@ export class CloudBillingPaymentRequiredError extends HandlerError {
 	constructor() {
 		super(
 			'BAD_REQUEST',
-			'Payment failed or requires authentication. Update the payment method in Stripe billing and retry.',
+			"Stripe couldn't start payment for this change. Review billing details in Stripe and retry.",
 		);
 		this.name = 'CloudBillingPaymentRequiredError';
 	}
@@ -727,6 +757,26 @@ async function reconcileAndLoadCommandState(stripeCustomerId: string, organizati
 	return {
 		billing,
 		...(await loadSeatCandidates(organizationId, seatLimit)),
+	};
+}
+
+async function completedBillingCommandResult(stripeCustomerId: string, organizationId: string) {
+	return {
+		status: 'completed' as const,
+		...(await reconcileAndLoadCommandState(stripeCustomerId, organizationId)),
+	};
+}
+
+async function pendingBillingCommandResult(
+	change: Extract<CloudSubscriptionChangeResult, { status: 'payment_pending' }>,
+	stripeCustomerId: string,
+	organizationId: string,
+) {
+	return {
+		status: 'payment_pending' as const,
+		hostedInvoiceUrl: change.hostedInvoiceUrl,
+		expiresAt: change.expiresAt,
+		...(await reconcileAndLoadCommandState(stripeCustomerId, organizationId)),
 	};
 }
 

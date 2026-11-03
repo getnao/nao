@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 	getSubscription: vi.fn(),
 	getUpcomingInvoice: vi.fn(),
 	getPlanChangeSchedule: vi.fn(),
+	getPendingSubscriptionChange: vi.fn(),
 	listSeatCandidates: vi.fn(),
 	listSeatStates: vi.fn(),
 	listInvoices: vi.fn(),
@@ -112,6 +113,7 @@ vi.mock('../src/services/stripe-subscription-change.service', () => ({
 	findActiveCloudPromotionCode: mocks.findPromotionCode,
 	getCloudPlanChangeSchedule: mocks.getPlanChangeSchedule,
 	getCloudProrationDate: mocks.getProrationDate,
+	getPendingCloudSubscriptionChange: mocks.getPendingSubscriptionChange,
 	previewCloudSubscriptionChange: mocks.previewSubscriptionChange,
 	releaseCloudPlanChangeSchedule: mocks.releasePlanChangeSchedule,
 	setCloudSubscriptionCancellation: mocks.setSubscriptionCancellation,
@@ -415,6 +417,7 @@ describe('billing change commands', () => {
 		mocks.listSeatStates.mockResolvedValue([]);
 		mocks.findPromotionCode.mockResolvedValue(null);
 		mocks.getProrationDate.mockResolvedValue(new Date());
+		mocks.getPendingSubscriptionChange.mockResolvedValue(null);
 		mocks.previewSubscriptionChange.mockResolvedValue({
 			amountDue: 1_000,
 			subtotal: 1_000,
@@ -426,8 +429,8 @@ describe('billing change commands', () => {
 		mocks.reconcileCustomerUnderLock.mockResolvedValue({ applied: true, ignored: false });
 		mocks.putMember.mockResolvedValue({ userId: 'member-id', role: 'user' });
 		mocks.setSubscriptionCancellation.mockResolvedValue({});
-		mocks.updateSubscriptionPlan.mockResolvedValue({});
-		mocks.updateSubscriptionQuantity.mockResolvedValue({});
+		mocks.updateSubscriptionPlan.mockResolvedValue({ status: 'completed', subscription: {} });
+		mocks.updateSubscriptionQuantity.mockResolvedValue({ status: 'completed', subscription: {} });
 		mocks.createPlanChangeSchedule.mockResolvedValue({ id: 'sub_sched_team' });
 		mocks.getPlanChangeSchedule.mockResolvedValue({ id: 'sub_sched_team', phases: [] });
 		mocks.updatePlanChangeSchedule.mockResolvedValue({});
@@ -651,6 +654,30 @@ describe('billing change commands', () => {
 		expect(mocks.previewSubscriptionChange).not.toHaveBeenCalled();
 	});
 
+	it('returns an existing pending payment instead of creating a conflicting schedule', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization({ seatQuantity: 6 }));
+		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 4 });
+		mocks.getPendingSubscriptionChange.mockResolvedValueOnce({
+			status: 'payment_pending',
+			subscription: {},
+			hostedInvoiceUrl: 'https://invoice.stripe.com/existing',
+			expiresAt: new Date('2027-01-02T00:00:00.000Z'),
+		});
+
+		await expect(
+			changeCloudSeatQuantityForAdmin({
+				...adminInput,
+				previewToken: preview.previewToken,
+				requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+			}),
+		).resolves.toMatchObject({
+			status: 'payment_pending',
+			hostedInvoiceUrl: 'https://invoice.stripe.com/existing',
+		});
+
+		expect(mocks.createPlanChangeSchedule).not.toHaveBeenCalled();
+	});
+
 	it('rejects a seat preview after its pending schedule baseline changes', async () => {
 		mocks.getOrganizationWithBilling.mockResolvedValue(
 			teamOrganization({
@@ -694,6 +721,33 @@ describe('billing change commands', () => {
 
 		expect(mocks.reconcileCustomerUnderLock).not.toHaveBeenCalled();
 		expect(mocks.getBilling).not.toHaveBeenCalled();
+	});
+
+	it('returns a hosted invoice without applying a pending plan upgrade', async () => {
+		const preview = await previewCloudPlanChangeForAdmin({
+			...adminInput,
+			targetPlanKey: 'cloud_unlimited_monthly_v1',
+		});
+		mocks.updateSubscriptionPlan.mockResolvedValueOnce({
+			status: 'payment_pending',
+			subscription: {},
+			hostedInvoiceUrl: 'https://invoice.stripe.com/pending',
+			expiresAt: new Date('2027-01-02T00:00:00.000Z'),
+		});
+
+		await expect(
+			changeCloudPlanForAdmin({
+				...adminInput,
+				previewToken: preview.previewToken,
+				requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+			}),
+		).resolves.toMatchObject({
+			status: 'payment_pending',
+			hostedInvoiceUrl: 'https://invoice.stripe.com/pending',
+			billing: { billingPlan: 'cloud_team_monthly_v1', seatQuantity: 4 },
+		});
+
+		expect(mocks.reconcileCustomerUnderLock).toHaveBeenCalledOnce();
 	});
 
 	it('reselects a paid trial plan after Free was scheduled without immediate payment', async () => {
@@ -1103,9 +1157,53 @@ describe('billing change commands', () => {
 				previewToken: retryPreview.previewToken,
 				requestId: 'ff8511d0-8670-4bc2-9647-541db408c894',
 			}),
-		).resolves.toMatchObject({ userId: 'member-id', role: 'user' });
+		).resolves.toMatchObject({
+			status: 'completed',
+			membership: { userId: 'member-id', role: 'user' },
+		});
 
 		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledOnce();
+	});
+
+	it('does not activate a member while payment for their seat is pending', async () => {
+		mocks.listSeatCandidates.mockResolvedValue(
+			Array.from({ length: 4 }, (_, index) => ({
+				id: `existing-${index}`,
+				name: `Existing ${index}`,
+				email: `existing-${index}@example.com`,
+				membershipClass: 'org_member',
+				orgRole: 'user',
+				projectRoles: [],
+				joinedAt: new Date(),
+				selectedAt: null,
+			})),
+		);
+		const preview = await previewCloudMemberSeatPurchaseForAdmin({
+			...adminInput,
+			memberUserId: 'member-id',
+			requestedRole: 'user',
+		});
+		mocks.updateSubscriptionQuantity.mockResolvedValueOnce({
+			status: 'payment_pending',
+			subscription: {},
+			hostedInvoiceUrl: 'https://invoice.stripe.com/member-seat',
+			expiresAt: new Date('2027-01-02T00:00:00.000Z'),
+		});
+
+		await expect(
+			addCloudMemberWithSeatForAdmin({
+				...adminInput,
+				memberUserId: 'member-id',
+				requestedRole: 'user',
+				previewToken: preview.previewToken,
+				requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
+			}),
+		).resolves.toMatchObject({
+			status: 'payment_pending',
+			hostedInvoiceUrl: 'https://invoice.stripe.com/member-seat',
+		});
+
+		expect(mocks.putMember).not.toHaveBeenCalled();
 	});
 });
 

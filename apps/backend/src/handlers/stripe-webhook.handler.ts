@@ -56,6 +56,8 @@ const STRIPE_EVENT_HANDLERS: Record<string, StripeEventHandler> = {
 	'customer.subscription.deleted': processSubscriptionEvent,
 	'customer.subscription.paused': processSubscriptionEvent,
 	'customer.subscription.resumed': processSubscriptionEvent,
+	'customer.subscription.pending_update_applied': processSubscriptionEvent,
+	'customer.subscription.pending_update_expired': processSubscriptionEvent,
 	'subscription_schedule.updated': processSubscriptionScheduleEvent,
 	'subscription_schedule.released': processSubscriptionScheduleEvent,
 	'subscription_schedule.completed': processSubscriptionScheduleEvent,

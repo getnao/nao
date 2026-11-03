@@ -491,6 +491,28 @@ describe('stripeWebhookProcessHandler', () => {
 		expect(mocks.markProcessed).toHaveBeenCalledWith('evt_123');
 	});
 
+	it.each(['customer.subscription.pending_update_applied', 'customer.subscription.pending_update_expired'])(
+		'reconciles %s events',
+		async (type) => {
+			mocks.findManagedSubscription.mockResolvedValue({
+				id: 'sub_cloud',
+				customer: 'cus_cloud',
+				metadata: { nao_org_id: 'org-id' },
+			});
+			mocks.getEvent.mockResolvedValue({
+				type,
+				data: { object: { id: 'sub_cloud' } },
+			});
+
+			await stripeWebhookProcessHandler({ eventId: 'evt_123' }, {} as never);
+
+			expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
+				stripeCustomerId: 'cus_cloud',
+				organizationIdHint: 'org-id',
+			});
+		},
+	);
+
 	it('reconciles from the stored object ID when the Stripe Event has expired', async () => {
 		mocks.getInboxEvent.mockResolvedValue({
 			id: 'evt_expired',

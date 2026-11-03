@@ -85,7 +85,7 @@ function InvoicesCard({ billingState }: { billingState: OrganizationBillingState
 								{invoice.hostedInvoiceUrl && (
 									<Button variant='secondary' size='sm' asChild>
 										<a href={invoice.hostedInvoiceUrl} target='_blank' rel='noreferrer'>
-											View invoice
+											{invoice.status === 'open' ? 'Complete payment' : 'View invoice'}
 										</a>
 									</Button>
 								)}

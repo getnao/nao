@@ -20,8 +20,10 @@ const mocks = vi.hoisted(() => ({
 	isCheckoutPolling: false,
 	invoiceHistoryAvailable: false,
 	invoiceKind: 'subscription' as 'trial' | 'subscription' | 'no_charge',
+	invoiceHostedUrl: null as string | null,
 	invoicePlanTier: null as 'team' | 'unlimited' | null,
 	invoicePromotionCodes: [] as string[],
+	invoiceStatus: 'paid' as 'open' | 'paid',
 	invoiceTotal: 100_000,
 	paymentMethodManagementAvailable: false,
 	portalAvailable: false,
@@ -99,8 +101,10 @@ beforeEach(() => {
 	mocks.isCheckoutPolling = false;
 	mocks.invoiceHistoryAvailable = false;
 	mocks.invoiceKind = 'subscription';
+	mocks.invoiceHostedUrl = null;
 	mocks.invoicePlanTier = null;
 	mocks.invoicePromotionCodes = [];
+	mocks.invoiceStatus = 'paid';
 	mocks.invoiceTotal = 100_000;
 	mocks.paymentMethodManagementAvailable = false;
 	mocks.portalAvailable = false;
@@ -241,6 +245,17 @@ it.each([
 
 	expect(screen.getByText(label)).toBeTruthy();
 	expect(screen.queryByText('Subscription')).toBeNull();
+});
+
+it('offers the hosted payment page for an open invoice', () => {
+	mocks.invoiceHistoryAvailable = true;
+	mocks.invoiceStatus = 'open';
+	mocks.invoiceHostedUrl = 'https://invoice.stripe.com/pending';
+
+	render(<OrganizationBillingSettings search={{ tab: 'invoices' }} />);
+
+	const paymentLink = screen.getByRole('link', { name: 'Complete payment' });
+	expect(paymentLink.getAttribute('href')).toBe('https://invoice.stripe.com/pending');
 });
 
 it('labels a zero-value follow-up invoice as no charge', () => {
@@ -682,8 +697,8 @@ it('keeps the plan dialog pending during an immediate in-app plan change', async
 	let finishChange = () => {};
 	mocks.cloudConfirmPlanChange.mockImplementation(
 		() =>
-			new Promise<void>((resolve) => {
-				finishChange = resolve;
+			new Promise<{ status: 'completed' }>((resolve) => {
+				finishChange = () => resolve({ status: 'completed' });
 			}),
 	);
 
@@ -700,6 +715,39 @@ it('keeps the plan dialog pending during an immediate in-app plan change', async
 
 	await act(async () => finishChange());
 	await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change to Unlimited' })).toBeNull());
+});
+
+it('closes the review UI when Stripe takes over a pending plan payment', async () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudPreviewPlanChange.mockResolvedValue({
+		amountDue: 100,
+		subtotal: 100,
+		tax: 0,
+		discount: 0,
+		currency: 'usd',
+		lines: [],
+		previewToken: 'preview-token',
+		expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+		effective: 'immediate',
+		effectiveAt: new Date('2026-10-30T00:00:00.000Z'),
+		promotionCodeDiscount: null,
+		readOnlyUsersAfterChange: [],
+	});
+	mocks.cloudConfirmPlanChange.mockResolvedValue({
+		status: 'payment_pending',
+		hostedInvoiceUrl: 'https://invoice.stripe.com/pending',
+		expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+	});
+
+	render(<OrganizationBillingSettings search={{}} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Review change' }));
+	fireEvent.click(await screen.findByRole('button', { name: 'Confirm change' }));
+
+	await waitFor(() => expect(mocks.cloudConfirmPlanChange).toHaveBeenCalledWith('preview-token'));
+	await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change to Unlimited' })).toBeNull());
+	expect(screen.queryByRole('button', { name: 'Refresh payment status' })).toBeNull();
 });
 
 it('keeps paid choices editable when Free was scheduled during an active trial', () => {
@@ -1048,11 +1096,11 @@ function billingState(): BillingState {
 							invoiceKind: mocks.invoiceKind,
 							planTier: mocks.invoicePlanTier,
 							promotionCodes: mocks.invoicePromotionCodes,
-							status: 'paid',
+							status: mocks.invoiceStatus,
 							createdAt: new Date('2026-10-01T00:00:00.000Z'),
 							total: mocks.invoiceTotal,
 							currency: 'usd',
-							hostedInvoiceUrl: null,
+							hostedInvoiceUrl: mocks.invoiceHostedUrl,
 							invoicePdf: null,
 						},
 					]
@@ -1255,5 +1303,6 @@ function billingStateDefaults(): Partial<BillingState> {
 		resubscribeForPlan: mocks.cloudResubscribeForPlan,
 		openPaymentMethodPortal: vi.fn(),
 		openPortal: mocks.openPortal,
+		syncBilling: vi.fn(),
 	};
 }

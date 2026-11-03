@@ -28,7 +28,6 @@ export function CloudBillingPlanChangeDialog({
 	disabled,
 	onPreview,
 	onConfirm,
-	onFixPayment,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -37,7 +36,6 @@ export function CloudBillingPlanChangeDialog({
 	disabled?: boolean;
 	onPreview: (seatQuantity?: number, promotionCode?: string) => Promise<CloudBillingChangePreview>;
 	onConfirm: (preview: NonNullable<CloudBillingChangePreview>) => Promise<unknown>;
-	onFixPayment?: () => void;
 }) {
 	const review = useCloudBillingChangeReview({
 		open,
@@ -103,14 +101,9 @@ export function CloudBillingPlanChangeDialog({
 					<CloudBillingChangeReviewNotices review={review} />
 
 					{error && (
-						<div className='space-y-2' role='alert'>
-							<p className='text-sm text-destructive'>{error}</p>
-							{onFixPayment && /payment|authentication/i.test(error) && (
-								<Button variant='secondary' size='sm' onClick={onFixPayment}>
-									Fix payment method in Stripe
-								</Button>
-							)}
-						</div>
+						<p className='text-sm text-destructive' role='alert'>
+							{error}
+						</p>
 					)}
 				</div>
 

@@ -17,6 +17,7 @@ const stripeMocks = vi.hoisted(() => ({
 	listPromotionCodes: vi.fn(),
 	listSubscriptions: vi.fn(),
 	retrieveCheckoutSession: vi.fn(),
+	retrieveInvoice: vi.fn(),
 	retrievePrice: vi.fn(),
 	retrieveProduct: vi.fn(),
 	resumeSubscription: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock('stripe', () => ({
 		invoices = {
 			createPreview: stripeMocks.createInvoicePreview,
 			list: stripeMocks.listInvoices,
+			retrieve: stripeMocks.retrieveInvoice,
 		};
 		prices = {
 			list: stripeMocks.listPrices,
@@ -1578,8 +1580,9 @@ describe('cloud billing recovery', () => {
 		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
 			'sub_cloud',
 			{
+				expand: ['latest_invoice'],
 				items: [{ id: 'si_team', quantity: 5 }],
-				payment_behavior: 'error_if_incomplete',
+				payment_behavior: 'pending_if_incomplete',
 				proration_behavior: 'always_invoice',
 				proration_date: prorationTimestamp,
 			},
@@ -1587,6 +1590,68 @@ describe('cloud billing recovery', () => {
 				idempotencyKey: 'cloud-seat-quantity-v2:org-id:sub_cloud:request-id:5:keep-discounts',
 			},
 		);
+	});
+
+	it('returns Stripe hosted payment details while an immediate update is pending', async () => {
+		const subscription = cloudSubscription({
+			status: 'active',
+			items: {
+				data: [{ id: 'si_team', price: teamMonthlyPrice(), quantity: 4 }],
+			} as Stripe.Subscription['items'],
+		});
+		stripeMocks.updateSubscription.mockResolvedValue({
+			...subscription,
+			pending_update: { expires_at: 1_800_000_000 },
+			latest_invoice: {
+				id: 'in_pending',
+				hosted_invoice_url: 'https://invoice.stripe.com/pending',
+			},
+		});
+
+		await expect(
+			updateCloudSubscriptionQuantity({
+				organizationId: 'org-id',
+				subscription,
+				targetQuantity: 5,
+				prorationDate: new Date('2026-10-30T12:00:00.000Z'),
+				requestId: 'request-id',
+			}),
+		).resolves.toMatchObject({
+			status: 'payment_pending',
+			hostedInvoiceUrl: 'https://invoice.stripe.com/pending',
+			expiresAt: new Date(1_800_000_000_000),
+		});
+	});
+
+	it('reuses the hosted invoice for an existing pending update', async () => {
+		const subscription = cloudSubscription({
+			status: 'active',
+			pending_update: { expires_at: 1_800_000_000 },
+			latest_invoice: 'in_pending',
+			items: {
+				data: [{ id: 'si_team', price: teamMonthlyPrice(), quantity: 4 }],
+			} as Stripe.Subscription['items'],
+		});
+		stripeMocks.retrieveInvoice.mockResolvedValue({
+			id: 'in_pending',
+			hosted_invoice_url: 'https://invoice.stripe.com/existing',
+		});
+
+		await expect(
+			updateCloudSubscriptionQuantity({
+				organizationId: 'org-id',
+				subscription,
+				targetQuantity: 5,
+				prorationDate: new Date('2026-10-30T12:00:00.000Z'),
+				requestId: 'request-id',
+			}),
+		).resolves.toMatchObject({
+			status: 'payment_pending',
+			hostedInvoiceUrl: 'https://invoice.stripe.com/existing',
+		});
+
+		expect(stripeMocks.retrieveInvoice).toHaveBeenCalledWith('in_pending');
+		expect(stripeMocks.updateSubscription).not.toHaveBeenCalled();
 	});
 
 	it('replaces the subscription discount when applying a seat promotion code', async () => {
@@ -1721,12 +1786,12 @@ describe('cloud billing recovery', () => {
 		});
 		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
 			'sub_cloud',
-			{ items, discounts: [{ promotion_code: 'promo_launch' }], ...trialParams },
+			{ items, discounts: [{ promotion_code: 'promo_launch' }], ...trialParams, expand: ['latest_invoice'] },
 			expect.anything(),
 		);
 		expect(stripeMocks.updateSubscription).toHaveBeenCalledWith(
 			'sub_cloud',
-			{ items: [{ id: 'si_team', quantity: 6 }], ...trialParams },
+			{ items: [{ id: 'si_team', quantity: 6 }], ...trialParams, expand: ['latest_invoice'] },
 			expect.anything(),
 		);
 	});
@@ -1763,7 +1828,7 @@ describe('cloud billing recovery', () => {
 		).resolves.toMatchObject({ discountedPlanAmount: 195_000 });
 	});
 
-	it('keeps a paid subscription unchanged when Stripe rejects an immediate upgrade with 402', async () => {
+	it('propagates an unexpected Stripe 402 from a pending immediate upgrade', async () => {
 		const subscription = cloudSubscription({
 			status: 'active',
 			cancel_at_period_end: true,
@@ -1791,7 +1856,7 @@ describe('cloud billing recovery', () => {
 			expect.objectContaining({
 				cancel_at_period_end: false,
 				items: [{ id: 'si_team', price: 'price_unlimited_monthly', quantity: 1 }],
-				payment_behavior: 'error_if_incomplete',
+				payment_behavior: 'pending_if_incomplete',
 				proration_behavior: 'always_invoice',
 			}),
 			expect.anything(),

@@ -59,15 +59,15 @@ export function useCloudBillingChangeReview({
 				}
 			: null;
 
-	const run = async (action: () => Promise<void>, failureMessage: string) => {
+	const run = async <T>(action: () => Promise<T>, failureMessage: string) => {
 		setIsPending(true);
 		setError(null);
 		try {
-			await action();
+			return { data: await action(), error: null };
 		} catch (caught) {
 			const message = caught instanceof Error ? caught.message : failureMessage;
 			setError(message);
-			return message;
+			return { data: null, error: message };
 		} finally {
 			setIsPending(false);
 		}
@@ -88,10 +88,10 @@ export function useCloudBillingChangeReview({
 		if (!reviewedPreview || expired) {
 			return;
 		}
-		const failure = await run(async () => {
-			await onConfirm(reviewedPreview);
+		const { error: failure } = await run(() => onConfirm(reviewedPreview), errorMessages.confirm);
+		if (!failure) {
 			onDone();
-		}, errorMessages.confirm);
+		}
 		if (failure?.toLowerCase().includes('preview')) {
 			setPreview(null);
 		}

@@ -73,10 +73,23 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 			await billingSync.invalidateBillingAndMembers();
 		},
 	};
+	const billingChangeMutationOptions = {
+		onSuccess: async (
+			result: { status: 'completed' } | { status: 'payment_pending'; hostedInvoiceUrl: string },
+		) => {
+			if (result.status === 'payment_pending') {
+				window.location.href = result.hostedInvoiceUrl;
+				return;
+			}
+			await billingMutationOptions.onSuccess();
+		},
+	};
 	const previewSeatChange = useMutation(trpc.billing.previewSeatChange.mutationOptions());
-	const changeSeatQuantity = useMutation(trpc.billing.changeSeatQuantity.mutationOptions(billingMutationOptions));
+	const changeSeatQuantity = useMutation(
+		trpc.billing.changeSeatQuantity.mutationOptions(billingChangeMutationOptions),
+	);
 	const previewPlanChange = useMutation(trpc.billing.previewPlanChange.mutationOptions());
-	const changePlan = useMutation(trpc.billing.changePlan.mutationOptions(billingMutationOptions));
+	const changePlan = useMutation(trpc.billing.changePlan.mutationOptions(billingChangeMutationOptions));
 	const selectSeats = useMutation(trpc.billing.selectSeats.mutationOptions(billingMutationOptions));
 	const switchToFree = useMutation(trpc.billing.switchToFree.mutationOptions(billingMutationOptions));
 	const cancelPendingPlanChange = useMutation(
