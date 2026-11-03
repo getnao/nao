@@ -1,4 +1,4 @@
-import { aliasedTable, and, desc, eq, inArray, lte, ne, or, sql } from 'drizzle-orm';
+import { aliasedTable, and, desc, eq, inArray, lte, ne, notExists, or, sql } from 'drizzle-orm';
 
 import s, {
 	type ActivityTrigger,
@@ -9,8 +9,12 @@ import s, {
 	type StoryVisibility,
 } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { databaseNow } from './keyed-lock.queries';
 
 export const storyRefreshJobUniqueKey = (storyId: string): string => `story-refresh:${storyId}`;
+
+export const SYNC_LEASE_MS = 2 * 60 * 1_000;
+export const PROJECT_SYNC_LEASE_KEY_PREFIX = 'project-sync:activity:';
 
 const ACTIVITY_RUN_STALE_MS = 30 * 60 * 1_000;
 const ACTIVITY_RUN_STALE_MESSAGE = 'Activity did not finish before the timeout.';
@@ -88,6 +92,23 @@ export const getLatestCompletedProjectSync = async (
 		.limit(1)
 		.execute();
 	return latest?.completedAt ? { completedAt: latest.completedAt, actorName: latest.actorName } : null;
+};
+
+export const getLatestUserProjectSync = async (projectId: string, userId: string): Promise<DBActivity | null> => {
+	const [latest] = await db
+		.select()
+		.from(s.activity)
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'project.synced'),
+				eq(s.activity.userId, userId),
+			),
+		)
+		.orderBy(desc(s.activity.startedAt))
+		.limit(1)
+		.execute();
+	return latest ?? null;
 };
 
 export const getRunningProjectSync = async (
@@ -228,15 +249,33 @@ export const failStaleActivities = async (): Promise<number> => {
 		)
 		.returning({ id: s.activity.id })
 		.execute();
+	await failInterruptedProjectSyncActivities();
 	return rows.length;
 };
 
-/** Project syncs run inside the backend process, so any still running at startup were killed by the restart. */
+/** Syncs have no timeout, so a sync only counts as interrupted once its server stops renewing its lease. */
 export const failInterruptedProjectSyncActivities = async (): Promise<void> => {
 	await db
 		.update(s.activity)
-		.set({ status: 'failed', completedAt: new Date(), errorMessage: 'Interrupted by a server restart.' })
-		.where(and(eq(s.activity.status, 'running'), eq(s.activity.type, 'project.synced')))
+		.set({ status: 'failed', completedAt: new Date(), errorMessage: 'The server running this sync stopped.' })
+		.where(
+			and(
+				eq(s.activity.status, 'running'),
+				eq(s.activity.type, 'project.synced'),
+				lte(s.activity.startedAt, new Date(Date.now() - SYNC_LEASE_MS)),
+				notExists(
+					db
+						.select()
+						.from(s.keyedLock)
+						.where(
+							and(
+								eq(s.keyedLock.key, sql`${PROJECT_SYNC_LEASE_KEY_PREFIX} || ${s.activity.id}`),
+								sql`${s.keyedLock.expiresAt} > ${databaseNow}`,
+							),
+						),
+				),
+			),
+		)
 		.execute();
 };
 

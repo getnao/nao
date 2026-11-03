@@ -9,7 +9,9 @@ import {
 	failInterruptedProjectSyncActivities,
 	failStaleActivities,
 	getLatestCompletedProjectSync,
+	getLatestUserProjectSync,
 	listContextPullActivities,
+	PROJECT_SYNC_LEASE_KEY_PREFIX,
 } from '../src/queries/activity.queries';
 
 vi.mock('../src/db/db', async () => {
@@ -120,35 +122,89 @@ describe('context pull activity queries', () => {
 		await expect(getLatestCompletedProjectSync('project-without-syncs')).resolves.toBeNull();
 	});
 
-	it('leaves long project syncs running until a restart interrupts them', async () => {
+	it('fails only the project syncs whose server stopped renewing their lease', async () => {
 		const longAgo = new Date(Date.now() - 2 * 60 * 60 * 1_000);
+		const runningSync = (id: string, startedAt = longAgo) => ({
+			id,
+			projectId: PROJECT_ID,
+			userId: USER_ID,
+			type: 'project.synced' as const,
+			status: 'running' as const,
+			startedAt,
+		});
 		await db.insert(s.activity).values([
+			runningSync('leased-sync'),
+			runningSync('expired-sync'),
+			runningSync('abandoned-sync'),
+			runningSync('just-started-sync', new Date()),
 			{
-				id: 'long-sync',
+				id: 'running-pull',
 				projectId: PROJECT_ID,
 				userId: USER_ID,
-				type: 'project.synced',
+				type: 'context.pulled',
 				status: 'running',
-				startedAt: longAgo,
 			},
-			{ id: 'running-pull', projectId: PROJECT_ID, userId: USER_ID, type: 'context.pulled', status: 'running' },
+		]);
+		await db.delete(s.keyedLock);
+		await db.insert(s.keyedLock).values([
 			{
-				id: 'finished-sync',
-				projectId: PROJECT_ID,
-				userId: USER_ID,
-				type: 'project.synced',
-				status: 'completed',
+				key: `${PROJECT_SYNC_LEASE_KEY_PREFIX}leased-sync`,
+				owner: 'other-server',
+				expiresAt: new Date(Date.now() + 60_000),
+			},
+			{
+				key: `${PROJECT_SYNC_LEASE_KEY_PREFIX}expired-sync`,
+				owner: 'dead-server',
+				expiresAt: new Date(Date.now() - 60_000),
 			},
 		]);
 
-		await failStaleActivities();
-		expect(await getStatus('long-sync')).toBe('running');
-
 		await failInterruptedProjectSyncActivities();
-		const [interrupted] = await db.select().from(s.activity).where(eq(s.activity.id, 'long-sync'));
-		expect(interrupted).toMatchObject({ status: 'failed', errorMessage: 'Interrupted by a server restart.' });
+
+		expect(await getStatus('leased-sync')).toBe('running');
+		expect(await getStatus('just-started-sync')).toBe('running');
 		expect(await getStatus('running-pull')).toBe('running');
-		expect(await getStatus('finished-sync')).toBe('completed');
+		const [expired] = await db.select().from(s.activity).where(eq(s.activity.id, 'expired-sync'));
+		expect(expired).toMatchObject({ status: 'failed', errorMessage: 'The server running this sync stopped.' });
+		expect(await getStatus('abandoned-sync')).toBe('failed');
+	});
+
+	it('clears abandoned syncs when failing stale activities', async () => {
+		await db.delete(s.keyedLock);
+		await db.insert(s.activity).values({
+			id: 'abandoned-sync',
+			projectId: PROJECT_ID,
+			userId: USER_ID,
+			type: 'project.synced',
+			status: 'running',
+			startedAt: new Date(Date.now() - 60 * 60 * 1_000),
+		});
+
+		await failStaleActivities();
+
+		expect(await getStatus('abandoned-sync')).toBe('failed');
+	});
+
+	it("returns the user's newest sync in the project, whatever its status", async () => {
+		await db.insert(s.user).values({ id: 'other-user', name: 'Other', email: 'other@example.com' });
+		const sync = (id: string, userId: string, minutesAgo: number) => ({
+			id,
+			projectId: PROJECT_ID,
+			userId,
+			type: 'project.synced' as const,
+			status: 'failed' as const,
+			startedAt: new Date(Date.now() - minutesAgo * 60_000),
+		});
+		await db
+			.insert(s.activity)
+			.values([
+				sync('older', USER_ID, 10),
+				sync('newest', USER_ID, 5),
+				sync('other-user-later', 'other-user', 1),
+			]);
+
+		await expect(getLatestUserProjectSync(PROJECT_ID, USER_ID)).resolves.toMatchObject({ id: 'newest' });
+		await expect(getLatestUserProjectSync(PROJECT_ID, 'nobody')).resolves.toBeNull();
 	});
 });
 

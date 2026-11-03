@@ -6,7 +6,7 @@ import dbConfig, { Dialect } from '../db/dbConfig';
 
 const isPostgres = dbConfig.dialect === Dialect.Postgres;
 
-const databaseNow = isPostgres ? sql`now()` : sql`(cast(unixepoch('subsecond') * 1000 as integer))`;
+export const databaseNow = isPostgres ? sql`now()` : sql`(cast(unixepoch('subsecond') * 1000 as integer))`;
 
 export const tryAcquireLock = async (key: string, owner: string, leaseMs: number): Promise<boolean> => {
 	const expiresAt = leaseExpiry(leaseMs);

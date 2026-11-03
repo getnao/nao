@@ -45,15 +45,24 @@ export function CloudSyncPanel() {
 	const isComplete = run?.status === 'succeeded';
 	const isFailed = run?.status === 'failed';
 	const isCancelled = run?.status === 'cancelled';
-	const error = startSync.error?.message ?? run?.error ?? syncState.error?.message;
+	const error = startSync.error?.message ?? cancelSync.error?.message ?? run?.error ?? syncState.error?.message;
 
 	useEffect(() => {
-		if (!run || run.status !== 'succeeded' || refreshedRunId.current === run.id) {
+		if (!run || !['succeeded', 'failed', 'cancelled'].includes(run.status) || refreshedRunId.current === run.id) {
 			return;
 		}
 		refreshedRunId.current = run.id;
 		void invalidateExplorerQueries(queryClient);
 	}, [queryClient, run]);
+
+	const previousSyncingBy = useRef<string | null>(null);
+
+	useEffect(() => {
+		if (previousSyncingBy.current && !syncingBy) {
+			void invalidateExplorerQueries(queryClient);
+		}
+		previousSyncingBy.current = syncingBy;
+	}, [queryClient, syncingBy]);
 
 	useEffect(() => {
 		shouldFollowLogs.current = true;
@@ -161,6 +170,7 @@ export function CloudSyncPanel() {
 							isLoading={isSyncing}
 							onClick={() => {
 								startSync.reset();
+								cancelSync.reset();
 								startSync.mutate();
 							}}
 						>

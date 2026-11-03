@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CloudSyncPanel } from './cloud-sync';
@@ -68,15 +68,67 @@ describe('CloudSyncPanel', () => {
 
 		await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
 	});
+
+	it.each(['succeeded', 'failed', 'cancelled'])('refreshes the explorer after a %s sync', async (status) => {
+		const { queryClient } = renderPanel();
+
+		await waitFor(() => expect(queryClient.getQueryData(['project-sync-status'])).toBeDefined());
+		act(() => {
+			queryClient.setQueryData(['project-sync-status'], {
+				available: true,
+				unavailableReason: null,
+				syncingBy: null,
+				run: {
+					id: 'run-1',
+					status,
+					logs: '',
+					error: null,
+					createdAt: new Date(),
+					startedAt: new Date(),
+					finishedAt: new Date(),
+				},
+			});
+		});
+
+		await waitFor(() => expect(mocks.invalidateExplorerQueries).toHaveBeenCalledOnce());
+	});
+
+	it("refreshes the explorer when another admin's sync finishes", async () => {
+		mocks.getStatus.mockResolvedValue({
+			available: true,
+			unavailableReason: null,
+			run: null,
+			syncingBy: 'Gary',
+		});
+		const { queryClient } = renderPanel();
+
+		fireEvent.click(await screen.findByRole('button', { name: 'Sync' }));
+		await screen.findByText('Project is currently being synced by Gary');
+		expect(mocks.invalidateExplorerQueries).not.toHaveBeenCalled();
+
+		act(() => {
+			queryClient.setQueryData(['project-sync-status'], {
+				available: true,
+				unavailableReason: null,
+				run: null,
+				syncingBy: null,
+			});
+		});
+
+		await waitFor(() => expect(mocks.invalidateExplorerQueries).toHaveBeenCalledOnce());
+	});
 });
 
 function renderPanel() {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
-	return render(
-		<QueryClientProvider client={queryClient}>
-			<CloudSyncPanel />
-		</QueryClientProvider>,
-	);
+	return {
+		queryClient,
+		...render(
+			<QueryClientProvider client={queryClient}>
+				<CloudSyncPanel />
+			</QueryClientProvider>,
+		),
+	};
 }
