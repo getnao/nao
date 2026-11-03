@@ -151,7 +151,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
-					versionDates: editor.versionNav.versionDates,
+					versions: editor.versionNav.versions,
 					versionDate: editor.versionNav.versionDate,
 					isViewingLatest: editor.versionNav.isViewingLatest,
 					onSelectVersion: editor.versionNav.goToVersion,

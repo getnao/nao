@@ -96,6 +96,7 @@ describe('duplicateStory', () => {
 			title: 'Copy of Revenue',
 			code: CLASSIC_CODE,
 			source: 'user',
+			origin: 'copy',
 		});
 		expect(mocks.saveStoryInPrivateRoot).toHaveBeenCalledWith('user-id', 'project-id', 'copy-id');
 	});
@@ -262,7 +263,12 @@ describe('duplicateStory', () => {
 				'EMEA',
 				'user-id',
 			);
-			expect(mocks.publishCustomStoryDraft).toHaveBeenCalledWith({ id: 'copy-id' }, OWNER, 'user');
+			expect(mocks.publishCustomStoryDraft).toHaveBeenCalledWith({ id: 'copy-id' }, OWNER, {
+				source: 'user',
+				origin: 'copy',
+				authorId: 'user-id',
+				sourceChatId: null,
+			});
 		});
 
 		it('keeps the text frozen in a copy that was since opened in a chat', async () => {

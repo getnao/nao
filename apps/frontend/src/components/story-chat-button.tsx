@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
-import { AtSign, ChevronDown, Loader2, MessageCircle } from 'lucide-react';
+import { AtSign, ChevronDown, Loader2, MessageCircle, MessagesCircle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import { ChatListSection } from '@/components/chat-list-menu-section';
@@ -12,7 +11,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
-import { useProjectSwitch } from '@/hooks/use-project-switch';
+import { useOpenStoryChat } from '@/hooks/use-open-story-chat';
 import { useStartChatWithStories } from '@/hooks/use-start-chat-with-stories';
 import { trpc } from '@/main';
 import { requestAsk } from '@/stores/ask-bar';
@@ -86,6 +85,7 @@ export function StoryChatButton({
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align='end' className='w-72'>
 					<MentionItem onSelect={() => actions.run('mention')} />
+					{isOwner && actions.openInNewChat && <OpenInChatItem onSelect={actions.openInNewChat} />}
 					<StoryChatLists
 						lists={lists}
 						onOpenQuickQuestion={(chatId) => requestAsk({ chatId })}
@@ -107,6 +107,20 @@ function MentionItem({ onSelect }: { onSelect: () => void }) {
 			<span className='flex min-w-0 flex-col items-start! gap-0.5!'>
 				<span>{label}</span>
 				<span className='font-normal text-muted-foreground'>Start a new chat about this story</span>
+			</span>
+		</DropdownMenuItem>
+	);
+}
+
+function OpenInChatItem({ onSelect }: { onSelect: () => void }) {
+	return (
+		<DropdownMenuItem onSelect={onSelect}>
+			<span className='flex size-7 shrink-0 items-center justify-center rounded-md'>
+				<MessagesCircle strokeWidth={2.25} />
+			</span>
+			<span className='flex min-w-0 flex-col items-start! gap-0.5!'>
+				<span>Open in a chat</span>
+				<span className='font-normal text-muted-foreground'>Edit it in a chat of its own</span>
 			</span>
 		</DropdownMenuItem>
 	);
@@ -150,34 +164,12 @@ function useStoryChatLists(storyId: string | null, canChat: boolean) {
 	return { quickQuestions, mentioningChats };
 }
 
-/** The chats around a story live in its project, so the project is switched before reaching them. */
 function useStoryChatActions(storyId: string | null, onOpenInChat: (() => void) | undefined) {
-	const navigate = useNavigate();
 	const startChatWithStories = useStartChatWithStories();
-	const { data: currentProject } = useQuery(trpc.project.getCurrent.queryOptions());
-	const switchProject = useProjectSwitch(currentProject?.id);
-	const { data: resolvedStory } = useQuery({
-		...trpc.story.resolve.queryOptions({ storyId: storyId ?? '' }),
-		enabled: Boolean(storyId),
-	});
-
-	const switchToStoryProject = async () => {
-		if (resolvedStory?.projectId) {
-			await switchProject(resolvedStory.projectId);
-		}
-	};
-
-	const openChat = async (chatId: string, openStorySlug?: string) => {
-		await switchToStoryProject();
-		navigate({ to: '/$chatId', params: { chatId }, state: openStorySlug ? { openStorySlug } : undefined });
-	};
+	const { story, switchToStoryProject, openChat } = useOpenStoryChat(storyId);
 
 	const run = async (mode: StoryChatMode) => {
-		if (!storyId || !resolvedStory) {
-			return;
-		}
-		if (mode === 'ask') {
-			requestAsk();
+		if (!storyId || !story) {
 			return;
 		}
 		if (mode === 'mention') {
@@ -185,12 +177,13 @@ function useStoryChatActions(storyId: string | null, onOpenInChat: (() => void) 
 			startChatWithStories({ storyIds: [storyId], folderIds: [] });
 			return;
 		}
-		if (resolvedStory.chatId) {
-			await openChat(resolvedStory.chatId, resolvedStory.slug);
-			return;
-		}
-		onOpenInChat?.();
+		requestAsk();
 	};
 
-	return { run, openChat: (chatId: string) => openChat(chatId), isReady: Boolean(resolvedStory) };
+	return {
+		run,
+		openChat,
+		openInNewChat: story && !story.chatId ? onOpenInChat : undefined,
+		isReady: Boolean(story),
+	};
 }

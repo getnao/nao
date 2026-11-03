@@ -399,6 +399,17 @@ export type StoryAction = (typeof STORY_ACTIONS)[number];
 export const STORY_SOURCES = ['assistant', 'user'] as const;
 export type StorySource = (typeof STORY_SOURCES)[number];
 
+export const STORY_VERSION_ORIGINS = ['agent', 'editor', 'mcp', 'copy'] as const;
+export type StoryVersionOrigin = (typeof STORY_VERSION_ORIGINS)[number];
+
+export type StoryVersionVia = 'original_chat' | 'quick_question' | 'chat' | 'agent' | 'editor' | 'mcp' | 'copy';
+
+export interface StoryVersionChange {
+	author: { id: string; name: string } | null;
+	via: StoryVersionVia;
+	chat: { id: string; title: string } | null;
+}
+
 export const STORY_FORMATS = ['classic', 'custom'] as const;
 export type StoryFormat = (typeof STORY_FORMATS)[number];
 

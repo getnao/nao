@@ -19,11 +19,8 @@ export function useCustomStory(chatId: string, storySlug: string) {
 	);
 	const latestVersion = versionNumbers.at(-1) ?? null;
 	const viewedVersion = selectedVersion ?? latestVersion;
-	const versionDates = useMemo(
-		() =>
-			[...(versionsQuery.data?.versions ?? [])]
-				.sort((a, b) => a.version - b.version)
-				.map((version) => version.createdAt),
+	const versions = useMemo(
+		() => [...(versionsQuery.data?.versions ?? [])].sort((a, b) => a.version - b.version),
 		[versionsQuery.data?.versions],
 	);
 	const viewedVersionDate = versionsQuery.data?.versions.find(
@@ -96,7 +93,7 @@ export function useCustomStory(chatId: string, storySlug: string) {
 		viewedVersionDate,
 		isViewingLatest,
 		currentVersionIndex: viewedVersion === null ? 0 : versionNumbers.indexOf(viewedVersion) + 1,
-		versionDates,
+		versions,
 		goToVersion,
 		goToLatest,
 		restore,

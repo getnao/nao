@@ -217,7 +217,7 @@ function renderHeader(overrides: Partial<ClassicStoryHeaderProps>) {
 		viewMode: 'preview',
 		onViewModeChange: vi.fn(),
 		currentVersion: 1,
-		versionDates: [],
+		versions: [],
 		onSelectVersion: vi.fn(),
 		isViewingLatest: true,
 		onRestore: vi.fn(),

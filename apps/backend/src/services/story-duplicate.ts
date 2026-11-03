@@ -85,6 +85,7 @@ async function copyClassicStory(source: DBStory, version: DBStoryVersion, copy: 
 		title: copy.title,
 		code: version.code,
 		source: 'user',
+		origin: 'copy',
 	});
 	if (!created) {
 		throw new StoryDuplicateError('A story with the same name was just created. Try again.');
@@ -105,7 +106,10 @@ async function copyCustomStory(source: DBStory, version: DBStoryVersion, copy: S
 	try {
 		await saveSnapshot(story.id, snapshot);
 		await copyAppState(source.id, story.id, copy.owner.userId);
-		const published = await publishCustomStoryDraft(story, copy.owner, 'user');
+		const published = await publishCustomStoryDraft(story, copy.owner, {
+			source: 'user',
+			...copyProvenance(copy.owner.userId),
+		});
 		if (!published.ok) {
 			throw new StoryDuplicateError('This version of the story no longer builds, so it cannot be copied.');
 		}
@@ -246,4 +250,8 @@ async function privateFolderOf(storyId: string, userId: string): Promise<string 
 	const folder = item ? await storyFolderQueries.getFolderById(item.folderId) : null;
 	const isPrivateToUser = folder?.ownerId === userId && folder.visibility === 'private' && !folder.archivedAt;
 	return isPrivateToUser ? folder.id : null;
+}
+
+function copyProvenance(authorId: string): storyQueries.VersionProvenance {
+	return { origin: 'copy', authorId, sourceChatId: null };
 }
