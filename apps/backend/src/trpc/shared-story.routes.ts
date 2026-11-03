@@ -16,8 +16,16 @@ import {
 	getCustomStoryVersion,
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
+	getStandaloneCustomStoryNarratives,
+	getStandaloneCustomStoryQueryData,
+	getStandaloneCustomStoryVersion,
 } from '../services/custom-story';
-import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
+import {
+	getCustomStoryState,
+	getCustomStoryStateByStoryId,
+	setCustomStoryState,
+	setCustomStoryStateByStoryId,
+} from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import { assertCanShareToProject, assertCanShareWith, listShareableGroups } from '../services/project-sharing.service';
@@ -32,6 +40,7 @@ import {
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	STANDALONE_QUERY_SQL_UNAVAILABLE,
 	storySnapshotHtml,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
@@ -186,7 +195,7 @@ export const sharedStoryRoutes = {
 
 	get: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const { id: shareId, ...shared } = ctx.resource;
-		const storyRow = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
+		const storyRow = await storyQueries.getStoryById(shared.storyId);
 		const isLive = storyRow?.isLive ?? false;
 		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
 		const cacheSchedule = storyRow?.cacheSchedule ?? null;
@@ -201,10 +210,12 @@ export const sharedStoryRoutes = {
 		const { queryData, cachedAt, code, needsRefresh } =
 			shared.format === 'custom'
 				? { queryData: null, cachedAt: null, code: shared.code, needsRefresh: false }
-				: await getStoryQueryData(shared.chatId!, shared.slug, shared.code, isLive, cacheSchedule, {
-						deferRefresh: canRefresh && lastRefreshFailure !== null,
-						deferFirstRefresh: canRefresh,
-					});
+				: shared.chatId
+					? await getStoryQueryData(shared.chatId, shared.slug, shared.code, isLive, cacheSchedule, {
+							deferRefresh: canRefresh && lastRefreshFailure !== null,
+							deferFirstRefresh: canRefresh,
+						})
+					: await getStandaloneStoryQueryData(shared.storyId, shared.code);
 
 		if (ctx.user.id !== shared.userId) {
 			logAnalyticsEvent({
@@ -242,7 +253,9 @@ export const sharedStoryRoutes = {
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
 			try {
-				return await getCustomStoryVersion(shared.chatId!, shared.slug, input.versionNumber);
+				return shared.chatId
+					? await getCustomStoryVersion(shared.chatId, shared.slug, input.versionNumber)
+					: await getStandaloneCustomStoryVersion(shared.storyId, input.versionNumber);
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
 			}
@@ -258,9 +271,12 @@ export const sharedStoryRoutes = {
 		)
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
+			if (!shared.chatId) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: STANDALONE_QUERY_SQL_UNAVAILABLE });
+			}
 			try {
 				const sqlQuery = await getSharedCustomStoryQuerySql(
-					shared.chatId!,
+					shared.chatId,
 					shared.slug,
 					input.queryId,
 					input.versionNumber,
@@ -282,12 +298,9 @@ export const sharedStoryRoutes = {
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
 			try {
-				return await getSharedCustomStoryQueryData(
-					shared.chatId!,
-					shared.slug,
-					input.queryId,
-					input.versionNumber,
-				);
+				return shared.chatId
+					? await getSharedCustomStoryQueryData(shared.chatId, shared.slug, input.queryId, input.versionNumber)
+					: await getStandaloneCustomStoryQueryData(shared.storyId, input.queryId, input.versionNumber);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
@@ -296,7 +309,9 @@ export const sharedStoryRoutes = {
 	getCustomStoryNarratives: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;
 		try {
-			return await getCustomStoryNarratives(shared.chatId!, shared.slug);
+			return shared.chatId
+				? await getCustomStoryNarratives(shared.chatId, shared.slug)
+				: await getStandaloneCustomStoryNarratives(shared.storyId);
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}
@@ -305,7 +320,9 @@ export const sharedStoryRoutes = {
 	getCustomStoryState: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;
 		try {
-			return await getCustomStoryState(shared.chatId!, shared.slug, ctx.user.id);
+			return shared.chatId
+				? await getCustomStoryState(shared.chatId, shared.slug, ctx.user.id)
+				: await getCustomStoryStateByStoryId(shared.storyId, ctx.user.id);
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}
@@ -316,7 +333,11 @@ export const sharedStoryRoutes = {
 		.mutation(async ({ input, ctx }) => {
 			const shared = ctx.resource;
 			try {
-				await setCustomStoryState(shared.chatId!, shared.slug, ctx.user.id, input.change);
+				if (shared.chatId) {
+					await setCustomStoryState(shared.chatId, shared.slug, ctx.user.id, input.change);
+				} else {
+					await setCustomStoryStateByStoryId(shared.storyId, ctx.user.id, input.change);
+				}
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
 			}
@@ -597,19 +618,15 @@ export const sharedStoryRoutes = {
 			const shared = ctx.resource;
 
 			const version = input.versionNumber
-				? await storyQueries.getVersionByNumber(shared.chatId!, shared.slug, input.versionNumber)
-				: await storyQueries.getLatestVersionByChatAndSlug(shared.chatId!, shared.slug);
+				? await storyQueries.getVersionByStoryIdAndNumber(shared.storyId, input.versionNumber)
+				: await storyQueries.getLatestVersionByStoryId(shared.storyId);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const { queryData, code } = await getStoryQueryData(
-				shared.chatId!,
-				shared.slug,
-				version.code,
-				version.isLive,
-				version.cacheSchedule,
-			);
+			const { queryData, code } = shared.chatId
+				? await getStoryQueryData(shared.chatId, shared.slug, version.code, version.isLive, version.cacheSchedule)
+				: await getStandaloneStoryQueryData(shared.storyId, version.code);
 
 			logAnalyticsEvent({
 				projectId: shared.projectId,
@@ -644,6 +661,12 @@ export const sharedStoryRoutes = {
 			);
 		}),
 };
+
+/** A standalone story has no chat to run its queries in: it shows the rows saved in its data cache. */
+async function getStandaloneStoryQueryData(storyId: string, code: string) {
+	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
+	return { queryData: cache?.queryData ?? null, cachedAt: cache?.cachedAt ?? null, code, needsRefresh: false };
+}
 
 async function canUserAccessShare(
 	share: { id: string; visibility: string; userId: string },

@@ -1,7 +1,7 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { extractQueryIds } from '@nao/shared/story-segments';
 
-import type { DBStory, DBStoryVersion } from '../db/abstractSchema';
+import type { DBStory, DBStoryDataCache, DBStoryVersion } from '../db/abstractSchema';
 import { getLatestSqlQueryDataByIds } from '../queries/execute-sql.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyAppStateQueries from '../queries/story-app-state.queries';
@@ -131,8 +131,19 @@ async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<Sto
 	const queryData = await loadChatStoryQueryData(source, source.chatId, queryIds, cached);
 	return {
 		queryData: Object.keys(queryData).length > 0 ? queryData : null,
-		narratives: source.isLive && source.isLiveTextDynamic ? (cache?.analysisResults ?? null) : null,
+		narratives: pickShownNarratives(source, cache),
 	};
+}
+
+/** A live story shows the text it generates, a story that is no longer live the text frozen when it was copied. */
+function pickShownNarratives(source: DBStory, cache: DBStoryDataCache | null): Record<string, string> | null {
+	if (!cache) {
+		return null;
+	}
+	if (source.isLive) {
+		return source.isLiveTextDynamic ? cache.analysisResults : null;
+	}
+	return cache.querySources === null ? cache.analysisResults : null;
 }
 
 /** Mirrors how a chat story reads its rows when viewed; a live story without cache reruns its queries. */

@@ -257,6 +257,22 @@ describe('duplicateStory', () => {
 			expect(mocks.publishCustomStoryDraft).toHaveBeenCalledWith({ id: 'copy-id' }, OWNER, 'user');
 		});
 
+		it('keeps the text frozen in a copy that was since opened in a chat', async () => {
+			mocks.getStoryDataCacheByStoryId.mockResolvedValue({
+				queryData: { query_b: rows('cached') },
+				querySources: null,
+				analysisResults: { summary: 'Frozen narrative' },
+			});
+
+			await duplicateStory({ storyId: 'story-id' }, OWNER);
+
+			expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith(
+				'copy-id',
+				{ query_b: rows('chat') },
+				{ summary: 'Frozen narrative' },
+			);
+		});
+
 		it('deletes the copy when it does not build', async () => {
 			mocks.publishCustomStoryDraft.mockResolvedValue({ ok: false, buildErrors: ['broken'], files: [] });
 

@@ -14,6 +14,7 @@ import {
 import { getCustomStoryStateByStoryId, setCustomStoryStateByStoryId } from '../services/custom-story-state';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	STANDALONE_QUERY_SQL_UNAVAILABLE,
 	storySnapshotHtml,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
@@ -84,11 +85,7 @@ export const standaloneCustomStoryRoutes = {
 		}),
 
 	getQuerySql: standaloneOwnerProcedure.input(z.object({ queryId: z.string() })).query((): { sqlQuery: string } => {
-		throw new TRPCError({
-			code: 'NOT_FOUND',
-			message:
-				'This story keeps the rows of its queries but not their SQL. Edit it in a chat to work on its queries.',
-		});
+		throw new TRPCError({ code: 'NOT_FOUND', message: STANDALONE_QUERY_SQL_UNAVAILABLE });
 	}),
 
 	getNarratives: standaloneOwnerProcedure.query(async ({ ctx }) => {
