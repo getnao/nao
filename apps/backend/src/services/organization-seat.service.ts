@@ -104,7 +104,7 @@ export async function loadSeatCandidates(organizationId: string, seatLimit: numb
 	};
 }
 
-export function toSeatCandidate(candidate: OrgSeatCandidate, seatedIds: Set<string> = new Set()) {
+function toSeatCandidate(candidate: OrgSeatCandidate, seatedIds: Set<string>) {
 	const isSeated = seatedIds.has(candidate.id);
 	return {
 		userId: candidate.id,

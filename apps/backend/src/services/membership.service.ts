@@ -20,7 +20,7 @@ import {
 } from './organization-seat.service';
 import { addProjectMemberWithUserGroups } from './project-user-group-membership.service';
 
-export type NonViewerRole = Exclude<UserRole, 'viewer'>;
+type NonViewerRole = Exclude<UserRole, 'viewer'>;
 
 export type SeatActivationOutcome =
 	| { status: 'activated'; role: NonViewerRole; usedExistingSeat: boolean }

@@ -31,7 +31,7 @@ import { releaseCloudPlanChangeSchedule } from './stripe-subscription-change.ser
 
 const CURRENT_STATUS_PRIORITY = ['active', 'trialing', 'past_due', 'paused', 'unpaid', 'incomplete'];
 
-export interface CloudBillingReconciliationResult {
+interface CloudBillingReconciliationResult {
 	applied: boolean;
 	ignored: boolean;
 	before: DBOrganizationBilling | null;

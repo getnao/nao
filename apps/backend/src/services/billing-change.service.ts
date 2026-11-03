@@ -72,7 +72,7 @@ type BillingChangeTokenPayload = {
 	expiresAt: string;
 };
 
-export type BillingChangePreview = CloudSubscriptionChangePreview & {
+type BillingChangePreview = CloudSubscriptionChangePreview & {
 	previewToken: string;
 	expiresAt: Date;
 	prorationDate: Date;
