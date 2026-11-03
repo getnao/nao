@@ -26,13 +26,21 @@ export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
+export const NOTIFICATION_CATEGORIES = [
+	'budget',
+	'feedback',
+	'story_refresh',
+	'scheduled_work_paused',
+	'shared',
+	'subscription',
+] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
 	budget: 'Budget alerts',
 	feedback: 'Feedback alerts',
 	story_refresh: 'Story refreshes',
+	scheduled_work_paused: 'Paused scheduled work',
 	shared: 'Shared with you',
 	subscription: 'Subscriptions',
 };
@@ -41,6 +49,7 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	budget: 'Alerts when a provider or member budget limit is reached.',
 	feedback: 'Alerts when users leave positive or negative feedback.',
 	story_refresh: 'Results of your story refreshes.',
+	scheduled_work_paused: 'When scheduled work is paused because you do not have a seat.',
 	shared: 'When someone shares a story or chat with you.',
 	subscription: "When you're added to a story's scheduled delivery.",
 };

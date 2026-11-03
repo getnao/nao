@@ -91,6 +91,16 @@ function resolveDeprecatedEnvAliases(value: unknown): unknown {
 			resolved.OIDC_GROUP_ROLE_MAPPING as string | undefined,
 		),
 	);
+	setResolvedEnvValue(
+		resolved,
+		'STRIPE_CLOUD_LEGACY_PRODUCT_ID',
+		resolveDeprecatedEnvAlias(
+			blankToUndefined(resolved.STRIPE_CLOUD_LEGACY_PRODUCT_ID) as string | undefined,
+			blankToUndefined(resolved.STRIPE_CLOUD_PRODUCT_ID) as string | undefined,
+			'STRIPE_CLOUD_LEGACY_PRODUCT_ID',
+			'STRIPE_CLOUD_PRODUCT_ID',
+		),
+	);
 	return resolved;
 }
 
@@ -100,6 +110,29 @@ function setResolvedEnvValue(resolved: Record<string, unknown>, name: string, va
 		return;
 	}
 	resolved[name] = value;
+}
+
+function addDuplicateEnvValueIssues(
+	data: Record<string, unknown>,
+	ctx: z.RefinementCtx,
+	fields: readonly string[],
+	message: string,
+): void {
+	const fieldsByValue = new Map<string, string[]>();
+	for (const field of fields) {
+		const value = data[field];
+		if (typeof value === 'string') {
+			fieldsByValue.set(value, [...(fieldsByValue.get(value) ?? []), field]);
+		}
+	}
+	for (const duplicateFields of fieldsByValue.values()) {
+		if (duplicateFields.length < 2) {
+			continue;
+		}
+		for (const field of duplicateFields) {
+			ctx.addIssue({ code: 'custom', path: [field], message });
+		}
+	}
 }
 
 const baseRawEnvSchema = z.object({
@@ -287,6 +320,11 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	CLOUD_FREE_TIER_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
 	STRIPE_SECRET_KEY: z
 		.string()
 		.optional()
@@ -295,10 +333,9 @@ const baseRawEnvSchema = z.object({
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
-	STRIPE_CLOUD_PRODUCT_ID: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_LEGACY_PRODUCT_ID: optionalNonEmptyString,
+	STRIPE_CLOUD_TEAM_PRODUCT_ID: optionalNonEmptyString,
+	STRIPE_CLOUD_UNLIMITED_PRODUCT_ID: optionalNonEmptyString,
 	STRIPE_CLOUD_TRIAL_PRODUCT_ID: z
 		.string()
 		.optional()
@@ -315,6 +352,10 @@ const baseRawEnvSchema = z.object({
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY: optionalNonEmptyString,
+	STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY: optionalNonEmptyString,
+	STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY: optionalNonEmptyString,
+	STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY: optionalNonEmptyString,
 	STRIPE_CREDIT_PRODUCT_ID: z
 		.string()
 		.optional()
@@ -501,17 +542,25 @@ const rawEnvSchema = z.preprocess(resolveDeprecatedEnvAliases, baseRawEnvSchema)
 const envSchema = rawEnvSchema
 	.superRefine((data, ctx) => {
 		if (isCloudBillingEnabled(data)) {
-			for (const variable of [
+			const requiredVariables = [
 				'STRIPE_SECRET_KEY',
 				'STRIPE_WEBHOOK_SECRET',
-				'STRIPE_CLOUD_PRODUCT_ID',
+				'STRIPE_CLOUD_LEGACY_PRODUCT_ID',
+				'STRIPE_CLOUD_TEAM_PRODUCT_ID',
+				'STRIPE_CLOUD_UNLIMITED_PRODUCT_ID',
 				'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
 				'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
-				'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
-				'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY',
 				'STRIPE_CREDIT_PRODUCT_ID',
 				'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
-			] as const) {
+				...(!data.CLOUD_FREE_TIER_ENABLED
+					? (['STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY', 'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY'] as const)
+					: []),
+			] as const;
+			for (const variable of requiredVariables) {
 				if (!data[variable]) {
 					ctx.addIssue({
 						code: 'custom',
@@ -520,6 +569,24 @@ const envSchema = rawEnvSchema
 					});
 				}
 			}
+
+			const productIds = [
+				'STRIPE_CLOUD_LEGACY_PRODUCT_ID',
+				'STRIPE_CLOUD_TEAM_PRODUCT_ID',
+				'STRIPE_CLOUD_UNLIMITED_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
+			] as const;
+			addDuplicateEnvValueIssues(data, ctx, productIds, 'Stripe Product ids must be distinct');
+
+			const lookupKeys = [
+				'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_TEAM_MONTHLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_TEAM_YEARLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_UNLIMITED_MONTHLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_UNLIMITED_YEARLY_PRICE_LOOKUP_KEY',
+			] as const;
+			addDuplicateEnvValueIssues(data, ctx, lookupKeys, 'Stripe cloud Price lookup keys must be distinct');
 		}
 
 		if (!data.SLACK_BOT_TOKEN) {
@@ -635,6 +702,15 @@ export function isCloudBillingEnabled(
 	data: Pick<z.output<typeof baseRawEnvSchema>, 'NAO_MODE' | 'CLOUD_BILLING_ENABLED'> = env,
 ): boolean {
 	return data.NAO_MODE === 'cloud' && data.CLOUD_BILLING_ENABLED;
+}
+
+export function isCloudFreeTierEnabled(
+	data: Pick<
+		z.output<typeof baseRawEnvSchema>,
+		'NAO_MODE' | 'CLOUD_BILLING_ENABLED' | 'CLOUD_FREE_TIER_ENABLED'
+	> = env,
+): boolean {
+	return isCloudBillingEnabled(data) && data.CLOUD_FREE_TIER_ENABLED;
 }
 
 export function isCloudWelcomeEmailEnabled(
