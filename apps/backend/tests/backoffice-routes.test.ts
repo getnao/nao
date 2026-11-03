@@ -233,6 +233,100 @@ describe('cloud backoffice routes', () => {
 		expect(JSON.stringify(user.json())).not.toContain(SECRET);
 	});
 
+	it('serves the logs of the whole instance with column filters and sorting', async () => {
+		const now = Date.now();
+		await db.insert(s.log).values([
+			{
+				id: 'log-http',
+				level: 'info',
+				source: 'http',
+				message: 'GET /api/chats 200',
+				context: { method: 'GET', statusCode: 200 },
+				userId: ADMIN_ID,
+				createdAt: new Date(now - 60_000),
+			},
+			{
+				id: 'log-agent',
+				level: 'warn',
+				source: 'agent',
+				message: 'Échec du tool call, nouvel essai',
+				projectId: PROJECT_ID,
+				createdAt: new Date(now - 120_000),
+			},
+			{
+				id: 'log-deploy',
+				level: 'info',
+				source: 'http',
+				message: 'POST /api/deploy 202',
+				userId: MEMBER_ID,
+				createdAt: new Date(now - 180_000),
+			},
+		]);
+
+		const logs = await listLogs();
+		expect(logs.statusCode, logs.body).toBe(200);
+		expect(logs.json().total).toBe(4);
+		expect(logIds(logs)).toEqual(['log-1', 'log-http', 'log-agent', 'log-deploy']);
+		expect(logs.json().items[0]).toMatchObject({
+			projectName: 'Backoffice Project',
+			orgId: ORG_ID,
+			orgName: 'Backoffice Organization',
+			userId: null,
+			userEmail: null,
+			context: { secret: '[REDACTED]' },
+		});
+		expect(logs.json().items[1]).toMatchObject({
+			projectId: null,
+			projectName: null,
+			orgName: null,
+			userId: ADMIN_ID,
+			userEmail: 'admin@example.com',
+			userName: 'Admin User',
+		});
+		expect(logs.json().items[3]).toMatchObject({ userId: MEMBER_ID, userEmail: 'member@example.com' });
+		expect(logs.json().items[3]).not.toHaveProperty('apiKeyId');
+		expect(logs.body).not.toContain(SECRET);
+
+		const levelFilter = [{ column: 'level', operator: 'in', values: ['error', 'warn'] }];
+		expect(logIds(await listLogs({ filters: levelFilter }))).toEqual(['log-1', 'log-agent']);
+		const projectlessFilter = [{ column: 'project', operator: 'isEmpty' }];
+		expect(logIds(await listLogs({ filters: projectlessFilter }))).toEqual(['log-http', 'log-deploy']);
+		const userFilter = [{ column: 'user', operator: 'contains', value: 'ADMIN@' }];
+		expect(logIds(await listLogs({ filters: userFilter }))).toEqual(['log-http']);
+		const memberFilter = [{ column: 'user', operator: 'equals', value: 'Member@Example.com' }];
+		expect(logIds(await listLogs({ filters: memberFilter }))).toEqual(['log-deploy']);
+		const anonymousFilter = [{ column: 'user', operator: 'isEmpty' }];
+		expect(logIds(await listLogs({ filters: anonymousFilter }))).toEqual(['log-1', 'log-agent']);
+		const messageFilter = [{ column: 'message', operator: 'contains', value: 'API/CHATS' }];
+		expect(logIds(await listLogs({ filters: messageFilter }))).toEqual(['log-http']);
+		const accentedFilter = [{ column: 'message', operator: 'startsWith', value: 'Échec' }];
+		expect(logIds(await listLogs({ filters: accentedFilter }))).toEqual(['log-agent']);
+		const contextFilter = [{ column: 'context', operator: 'contains', value: 'statusCode' }];
+		expect(logIds(await listLogs({ filters: contextFilter }))).toEqual(['log-http']);
+		const redactedValueFilter = [{ column: 'context', operator: 'contains', value: SECRET }];
+		expect((await listLogs({ filters: redactedValueFilter })).json().total).toBe(0);
+		const redactedKeyFilter = [{ column: 'context', operator: 'contains', value: '"secret":"[REDACTED]"' }];
+		expect(logIds(await listLogs({ filters: redactedKeyFilter }))).toEqual(['log-1']);
+		const organizationFilter = [{ column: 'organization', operator: 'notContains', value: 'backoffice' }];
+		expect(logIds(await listLogs({ filters: organizationFilter }))).toEqual(['log-http', 'log-deploy']);
+		const combinedFilters = [
+			{ column: 'createdAt', operator: 'after', value: new Date(now - 90_000).toISOString() },
+			{ column: 'source', operator: 'notIn', values: ['system'] },
+		];
+		expect(logIds(await listLogs({ filters: combinedFilters }))).toEqual(['log-http']);
+		expect(logIds(await listLogs({ sort: 'level', direction: 'asc' }))).toEqual([
+			'log-http',
+			'log-deploy',
+			'log-agent',
+			'log-1',
+		]);
+		expect((await listLogs({ sort: 'user', direction: 'asc' })).statusCode).toBe(200);
+
+		expect((await get('/logs?filters=not-json')).statusCode).toBe(400);
+		const missingValue = await listLogs({ filters: [{ column: 'message', operator: 'contains' }] });
+		expect(missingValue.statusCode).toBe(400);
+	});
+
 	it('serves organization billing state and the billing overview', async () => {
 		const organizations = await get('/organizations');
 		expect(organizations.json().items[0].billing).toMatchObject({
@@ -481,9 +575,32 @@ describe('cloud backoffice routes', () => {
 			'Started the Snowflake cloud setup',
 			'Snowflake cloud setup waiting for business context',
 		]);
+		expect(journey.json().setups).toMatchObject([
+			{ projectId: 'project-onboarding', status: 'awaiting_context', steps: [] },
+			{ status: 'failed', failedStatus: 'initializing', error: 'Warehouse setup failed.', steps: [] },
+		]);
 
 		const missing = await get('/users/missing-user/onboarding');
 		expect(missing.statusCode).toBe(404);
+	});
+
+	it('lists the latest cloud setup failures with the user who hit them', async () => {
+		await seedOnboarding(projectPath);
+
+		const failures = await get('/onboarding/setup-failures?limit=5');
+
+		expect(failures.statusCode).toBe(200);
+		expect(failures.json().items).toMatchObject([
+			{
+				userId: ONBOARDING_USER_ID,
+				userEmail: 'onboarding@example.com',
+				provider: 'snowflake',
+				failedStatus: 'initializing',
+				error: 'Warehouse setup failed.',
+				errorDetail: 'nao init failed: connector missing',
+				failedAt: expect.any(String),
+			},
+		]);
 	});
 
 	async function get(url: string) {
@@ -492,6 +609,16 @@ describe('cloud backoffice routes', () => {
 
 	async function request(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', url: string, payload?: unknown) {
 		return app.inject({ method, url: `/api/backoffice${url}`, headers: AUTHORIZATION, payload });
+	}
+
+	async function listLogs(query: { sort?: string; direction?: string; filters?: unknown[] } = {}) {
+		const { filters, ...params } = query;
+		const search = new URLSearchParams({ ...params, ...(filters && { filters: JSON.stringify(filters) }) });
+		return get(`/logs?${search}`);
+	}
+
+	function logIds(response: Awaited<ReturnType<typeof get>>): string[] {
+		return response.json().items.map((item: { id: string }) => item.id);
 	}
 });
 
@@ -557,6 +684,7 @@ async function seedOnboarding(projectPath: string) {
 			status: 'failed',
 			failedStatus: 'initializing',
 			error: 'Warehouse setup failed.',
+			errorDetail: 'nao init failed: connector missing',
 			createdAt: minutesFromNow(5),
 			finishedAt: minutesFromNow(6),
 		},

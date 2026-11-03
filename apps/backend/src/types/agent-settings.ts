@@ -6,7 +6,7 @@ export interface AgentSettings {
 	memoryEnabled?: boolean;
 	mapEnabled?: boolean;
 	experimental?: {
-		pythonSandboxing?: boolean;
+		codemode?: boolean;
 		sandboxes?: boolean;
 	};
 	transcribe?: {
@@ -17,9 +17,6 @@ export interface AgentSettings {
 	sql?: {
 		dangerouslyWritePermEnabled?: boolean;
 		enforceExcludedColumns?: boolean;
-	};
-	pythonExecution?: {
-		maxDurationSecs?: number;
 	};
 	webSearch?: {
 		enabled?: boolean;

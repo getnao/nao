@@ -35,7 +35,18 @@ export async function generateOnboardingRules(
 	}
 
 	await assertUserCloudBillingAccess(principal.organizationId, principal.userId);
-	const llmModel = await resolveProviderModel(modelProjectId, modelSelection.provider, modelSelection.modelId, false);
+	const llmModel = await resolveProviderModel(
+		modelProjectId,
+		modelSelection.provider,
+		modelSelection.modelId,
+		false,
+		{
+			userId: principal.userId,
+			projectId: modelProjectId,
+			category: 'chat',
+			billingMode: 'unbilled',
+		},
+	);
 	if (!llmModel) {
 		throw new Error('The onboarding model is unavailable');
 	}

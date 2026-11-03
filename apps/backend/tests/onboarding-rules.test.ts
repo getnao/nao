@@ -75,4 +75,18 @@ describe('generateOnboardingRules', () => {
 		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledTimes(2);
 		expect(fs.readFileSync(path.join(projectPath, 'RULES.md'), 'utf8')).toBe('# Generated rules\n');
 	});
+
+	it('resolves managed models as unbilled usage for the onboarding user', async () => {
+		await generateOnboardingRules('project-1', {}, { provider: 'nao', modelId: 'gpt-6-sol' }, 'model-project-1', {
+			organizationId: 'org-1',
+			userId: 'user-1',
+		});
+
+		expect(mocks.resolveProviderModel).toHaveBeenCalledWith('model-project-1', 'nao', 'gpt-6-sol', false, {
+			userId: 'user-1',
+			projectId: 'model-project-1',
+			category: 'chat',
+			billingMode: 'unbilled',
+		});
+	});
 });

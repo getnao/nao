@@ -61,6 +61,7 @@ const settingsNavGroups: NavGroup[] = [
 				label: 'Budget',
 				to: '/settings/project/budgets',
 				visible: ({ isViewer }) => !isViewer,
+				requiresProject: true,
 			},
 			{
 				label: 'Users & Groups',

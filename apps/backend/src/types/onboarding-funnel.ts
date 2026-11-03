@@ -1,5 +1,7 @@
 /* @license Enterprise */
 
+import type { WarehouseProvisioningStatus, WarehouseProvisioningStep } from './warehouse';
+
 export const ONBOARDING_STAGES = [
 	'signed_up',
 	'jaffle_shop',
@@ -25,6 +27,8 @@ export const ONBOARDING_BLOCKERS = [
 	'nao_init_failed',
 	'nao_debug_failed',
 	'nao_sync_failed',
+	'rules_failed',
+	'publishing_failed',
 	'setup_failed',
 	'reported_error',
 	'agent_error',
@@ -60,4 +64,36 @@ export interface OnboardingSummary {
 	blocker: OnboardingBlocker | null;
 	signedUpAt: Date | null;
 	lastEventAt: Date;
+}
+
+/** One cloud warehouse setup as stored, to debug where it is or why it stopped; `error` is what the user saw. */
+export interface OnboardingSetupTrace {
+	id: string;
+	chatId: string | null;
+	projectId: string | null;
+	projectName: string;
+	provider: string;
+	status: WarehouseProvisioningStatus;
+	failedStatus: WarehouseProvisioningStatus | null;
+	steps: WarehouseProvisioningStep[];
+	error: string | null;
+	errorDetail: string | null;
+	logs: string | null;
+	workerId: string | null;
+	heartbeatAt: Date | null;
+	createdAt: Date;
+	updatedAt: Date;
+	finishedAt: Date | null;
+}
+
+export interface OnboardingSetupFailure {
+	id: string;
+	userId: string;
+	userEmail: string;
+	projectName: string;
+	provider: string;
+	failedStatus: WarehouseProvisioningStatus | null;
+	error: string | null;
+	errorDetail: string | null;
+	failedAt: Date;
 }

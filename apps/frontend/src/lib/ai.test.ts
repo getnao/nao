@@ -4,9 +4,11 @@ import {
 	areGroupedMessagePartsEqual,
 	checkAssistantMessageHasContent,
 	groupToolCalls,
+	hasManagedCreditsForRequest,
 	isOnboardingContextRequestMessage,
 	ONBOARDING_CONTEXT_REQUEST_PREFIX,
 	parseChatAllowanceExhaustedError,
+	parseManagedCreditsError,
 } from './ai';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
 import type { GroupedMessagePart } from '@/types/ai';
@@ -420,5 +422,42 @@ describe('parseChatAllowanceExhaustedError', () => {
 		const error = new Error(JSON.stringify({ error: 'Allowance exhausted', code }));
 
 		expect(parseChatAllowanceExhaustedError(error)).toBe(scope);
+	});
+});
+
+describe('parseManagedCreditsError', () => {
+	it('returns the exact balance required by the rejected request', () => {
+		const error = new Error(
+			JSON.stringify({
+				error: 'Managed credits exhausted',
+				code: 'MANAGED_CREDITS_EXHAUSTED',
+				requiredBalanceMicroUsd: 42_000,
+			}),
+		);
+
+		expect(parseManagedCreditsError(error)).toEqual({
+			message: 'Managed credits exhausted',
+			requiredBalanceMicroUsd: 42_000,
+		});
+	});
+
+	it('rejects a managed-credit payload without a positive integer requirement', () => {
+		const error = new Error(
+			JSON.stringify({
+				error: 'Managed credits exhausted',
+				code: 'MANAGED_CREDITS_EXHAUSTED',
+				requiredBalanceMicroUsd: 0,
+			}),
+		);
+
+		expect(parseManagedCreditsError(error)).toBeNull();
+	});
+});
+
+describe('hasManagedCreditsForRequest', () => {
+	it('requires the balance to reach the rejected request requirement', () => {
+		expect(hasManagedCreditsForRequest(1, 42_000)).toBe(false);
+		expect(hasManagedCreditsForRequest(41_999, 42_000)).toBe(false);
+		expect(hasManagedCreditsForRequest(42_000, 42_000)).toBe(true);
 	});
 });

@@ -46,6 +46,7 @@ const jobPolicies = {
 	STRIPE_WEBHOOK_PROCESS_JOB_NAME: 'organization',
 	BILLING_LIFECYCLE_JOB_NAME: 'organization',
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME: 'organization',
+	CLOUD_WELCOME_EMAIL_JOB_NAME: 'organization',
 	MCP_QUERY_DATA_CLEANUP_JOB_NAME: 'cached_read',
 	STORY_BLOB_CLEANUP_JOB_NAME: 'cached_read',
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME: 'cached_read',

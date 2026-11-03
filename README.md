@@ -10,18 +10,22 @@
 <h1 align="center">nao</h1>
 
 <h3 align="center">
-  The #1 Open-Source Analytics Agent
+  The #1 open source agentic BI builder
 </h3>
 
 <p align="center">
-  🌐 <a href="https://getnao.io">Website</a> · 📚 <a href="https://docs.getnao.io">Documentation</a> · 💬 <a href="https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ">Slack</a>
+  Your data team builds the analytics agent and owns the context layer. Everyone in the company builds on data.
+</p>
+
+<p align="center">
+  🌐 <a href="https://getnao.io">Website</a> · 📚 <a href="https://docs.getnao.io">Documentation</a> · ☁️ <a href="https://app.getnao.io/signup">nao Cloud</a> · 💬 <a href="https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ">Slack</a>
 </p>
 
 <br/>
 
 <p align="center">
   <a href="https://getnao.io">
-    <img src=".github/images/nao_UI.png" alt="nao Chat Interface" />
+    <img src=".github/images/nao_UI.png" alt="nao chat interface" />
   </a>
 </p>
 
@@ -29,27 +33,77 @@
 
 ## What is nao?
 
-nao is a framework to build and deploy analytics agent. <br/>
-Create the context of your analytics agent with nao-core cli: data, metadata, modeling, rules, etc. <br/>
-Deploy a UI for anyone to chat with your agent and run analytics on your data.
+nao lets you build your own agentic BI: an open source analytics agent built on a context layer your data team controls and tests. Sign up on [nao Cloud](https://app.getnao.io/signup) or self-host it.
 
-## Key Features
+1. **Build your data context layer**: your data team syncs the warehouse, dbt, docs and rules into files the agent reads, with the `nao-core` CLI or your coding agent.
+2. **Let your whole company analyze data**: anyone can chat with your data from the nao app, Slack, Teams or Claude, and build their own live dashboards, data apps and slides as stories.
+3. **Monitor that your agent always gets it right**: test every context change offline with `nao test`, and observe real usage online.
 
-For **data teams**:
+Watch your whole company grow into analysts.
 
-- 🧱 **Open Context Builder** — Create a file-system like context for your agent. Add anything you want in the context: data, metadata, docs, tools, MCPs. No limit.
-- 🏳️ **Data Stack Agnostic** — Works with any data warehouse, stack, type of context, LLM.
-- 🕵🏻‍♀️ **Agent Reliability Visibility** — Unit test your agent performance before deploying it to users. Version the context and track the performance of your agent over time. Get users feedbacks to improve the agent and track their usage.
-- 🔒 **Self-hosted & secure** — Self-host your analytics agent and use your own LLM keys to guarantee maximum security for your data.
+## Key features
 
-For **business users**:
+**For data teams**
 
-- 🤖 **Natural Language to Insights** — Ask questions in plain English, get analytics straight away
-- 📊 **Native Data Visualization** — Create and customize visualizations directly in the chat interface
-- 🧊 **Transparent Reasoning** — See the agent reasoning and sources clearly
-- 👍 **Easy Feedback** — Send feedback to the data team when a answer is right or wrong
+- 🧱 **Build your data context layer**: sync your warehouse, dbt and docs into files your agent reads.
+- 🧪 **Evaluate offline**: `nao test` runs your key questions against the SQL you expect and scores every context change before it ships.
+- 🔭 **Observe online**: chat replay shows every conversation. Context recommendations turn errors and downvotes into fixes, opened as pull requests.
+- 🏳️ **Stack agnostic**: nao works with all warehouses, data stacks and LLMs. Anything missing? Contribute to build it!
+- 🤖 **Set up with your agent**: install the nao skills and let Claude Code, Codex or Cursor build your context.
 
-## ⚡️ Quickstart your agent in 1 minute
+**For everyone in the company**
+
+- 💬 **Analyze data from anywhere**: ask questions in plain English from the web app, Slack, Teams or any MCP client.
+- 📊 **Build your own stories**: turn chats into interactive, custom stories and share them with your team.
+- 🧊 **Transparent reasoning**: see the SQL and the files behind every answer.
+- 👍 **Easy feedback**: tell the data team when an answer is right or wrong.
+
+**Secure by design**
+
+- 🔓 **Open source**: the whole core product is Apache 2.0. Self-host it, read the code, and shape the roadmap with the community.
+- 🏠 **Deploy in your own infrastructure**: self-host on your own cloud, or run on [nao Cloud](https://app.getnao.io/signup).
+- 🔑 **Bring your own LLM key**: any provider at your own price, with budgets per user and per team.
+- 🛡️ **Your SSO and warehouse permissions**: Okta, Google, Microsoft Entra ID or any OIDC. Row-level security and identity passthrough.
+- ✅ **SOC 2 Type II**: audited controls. Your data is never used to train models. See our [Trust Center](https://compliance.getnao.io/).
+
+## ⚡️ Get started
+
+### Option 1: sign up on nao Cloud
+
+[Sign up on nao Cloud](https://app.getnao.io/signup), connect your warehouse, add your business context and deploy agentic BI to your whole company from the nao UI. No CLI needed.
+
+### Option 2: set it up with your coding agent
+
+nao ships [skills](skills/) that teach Claude Code, Codex, Cursor or any skills-compatible agent how to build a nao project end to end: scope the tables, write `nao_config.yaml`, sync, write `RULES.md` and create tests.
+
+**1. Install the nao CLI and the nao skills** in the folder where you want your project:
+
+```bash
+pip install nao-core
+nao skills add getnao/nao
+```
+
+> `nao skills` is a thin wrapper around [`npx skills`](https://github.com/vercel-labs/skills) (Node.js 18+ required). `npx skills add getnao/nao` works too.
+
+**2. Ask your agent to set up nao.** Open Claude Code, Codex or Cursor in that folder and paste:
+
+```text
+Set up nao, the open source agentic BI builder, on my data: run `pip install nao-core`, then `nao skills add getnao/nao`, then use the setup-context skill to create a nao project on my warehouse. Docs: https://docs.getnao.io/nao-agent/quickstart
+```
+
+The agent asks you once for your warehouse, the tables in scope, extra context (dbt repo, docs) and your LLM provider, then runs `nao init`, `nao sync`, and writes your first `RULES.md`.
+
+**3. Launch the chat:**
+
+```bash
+nao chat
+```
+
+The nao chat opens at `http://localhost:5005`. Start asking questions.
+
+### Option 3: self-host
+
+Run the [Docker image](#-docker) `getnao/nao`, or set up a project manually with the CLI:
 
 - **Step 1**: Install nao-core package
 
@@ -65,20 +119,7 @@ For **business users**:
     nao init
     ```
 
-    It will ask you:
-    - To name your project
-    - If you want to connect a database _(optional)_
-    - If you want to add a repo in agent context _(optional)_
-    - To add an LLM key _(optional)_
-    - If you want to setup a Slack connection _(optional)_
-
-    💡 You can skip any optional question and configure them later in your `nao_config.yaml` file.
-
-    This will create:
-    - A new folder with your project name
-    - An architecture for your context files
-    - A `nao_config.yaml` configuration file
-    - A `RULES.md` file
+    It asks for a project name, then optionally a database, a repo, an LLM key and a Slack connection (you can skip them and edit `nao_config.yaml` later). It creates your project folder with `nao_config.yaml`, `RULES.md` and the context structure.
 
 <br/>
 
@@ -126,24 +167,18 @@ View results in tests panel:
 nao test server
 ```
 
-## Commands
+## 🚀 Deploy
 
-```bash
-nao --help
-Usage: nao COMMAND
+- **nao Cloud**: [sign up](https://app.getnao.io/signup) and set everything up from the nao UI. To push context from a local project instead, create an organization API key in **Settings → Organization → Organization API keys**, then push your context:
 
-╭─ Commands ────────────────────────────────────────────────────────────────╮
-│ chat         Start the nao chat UI.                                       │
-│ init         Initialize a new nao project.                                │
-│ sync         Sync context from your context sources (databases, repos)    │
-│ test         Measure agent's performance on test examples.                │
-│ debug        Debug and troubleshoot your nao setup.                       │
-│ --help (-h)  Display this message and exit.                               │
-│ --version    Display application version.                                 │
-╰───────────────────────────────────────────────────────────────────────────╯
-```
+    ```bash
+    nao deploy https://app.getnao.io --api-key "$NAO_API_KEY"
+    ```
 
-## 🐳 Docker
+- **Self-hosted**: run the Docker image below, or follow the [deployment guide](https://docs.getnao.io/nao-agent/self-hosting/deployment-guide) (for example on Cloud Run with PostgreSQL, or with the [Helm chart](helm/)).
+- **Continuous deployment**: the `deploy-context` skill sets up a GitHub Action that runs `nao deploy` on every push to `main`.
+
+### 🐳 Docker
 
 Pull the image from DockerHub:
 
@@ -151,7 +186,7 @@ Pull the image from DockerHub:
 docker pull getnao/nao:latest
 ```
 
-Run nao chat with Docker using the example project bundled in the image:
+Run nao chat with the example project bundled in the image:
 
 ```bash
 docker run -d \
@@ -161,7 +196,7 @@ docker run -d \
   getnao/nao:latest
 ```
 
-Run nao chat with Docker using your local nao project:
+Run nao chat with your local nao project:
 
 ```bash
 docker run -d \
@@ -173,23 +208,53 @@ docker run -d \
   getnao/nao:latest
 ```
 
-Access the UI at http://localhost:5005 (or at any URL you configured).
+Access the UI at http://localhost:5005 (or at any URL you configured). See the [DockerHub page](https://hub.docker.com/r/getnao/nao) for more details.
 
-See the [DockerHub page](https://hub.docker.com/r/getnao/nao) for more details.
+## 🏢 Open source vs Enterprise
 
-For end-to-end self-hosted deployment (for example on Cloud Run with PostgreSQL), see the [Deployment Guide](https://docs.getnao.io/nao-agent/self-hosting/deployment-guide).
+The core of nao is open source under Apache 2.0. The [Enterprise license](https://getnao.io/enterprise/) adds the controls large companies need, on the same self-hosted deployment. [nao Cloud](https://app.getnao.io/signup) includes the equivalent features.
 
-## 🧩 Skills
+| Capability                                            | Open source | Enterprise |
+| ----------------------------------------------------- | :---------: | :--------: |
+| Open source agent, chat UI and every LLM provider     |     ✅      |     ✅     |
+| Slack, Teams, WhatsApp, Telegram and Mattermost bots  |     ✅      |     ✅     |
+| Self-hosting on your infrastructure                   |     ✅      |     ✅     |
+| Google, GitHub and GitLab login                       |     ✅      |     ✅     |
+| User groups                                           |   Up to 3   | Unlimited  |
+| Multiple projects (separate data, context and access) |             |     ✅     |
+| Microsoft Entra ID and OIDC SSO                       |             |     ✅     |
+| Row-level security                                    |             |     ✅     |
+| Warehouse identity passthrough                        |             |     ✅     |
+| LLM budgets per member and per group                  |             |     ✅     |
+| White-label branding                                  |             |     ✅     |
+| Priority support and roadmap input                    |             |     ✅     |
 
-Use nao skills to create your nao project and context with your favourite agent.
+Yearly license per company. The license is verified offline at startup against a signed key. Online licenses also send a periodic heartbeat to `licenses.getnao.io`; for air-gapped deployments, ask for an offline license, which never phones home. The nao team also helps with implementation, context engineering advisory and training. [Talk to us](https://getnao.io/enterprise/).
 
-Install the nao skill pack:
+## Commands
 
 ```bash
-npx skills add getnao/nao
-```
+nao --help
+Usage: nao COMMAND
 
-Docs on nao skills: https://docs.getnao.io/nao-agent/context-engineering/skills
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ chat            Start the nao chat UI.                                       │
+│ debug           Test connectivity to configured databases and LLMs.          │
+│ deploy          Deploy project context to a remote nao instance.             │
+│ docs            Open nao official documentation in your browser              │
+│ init            Initialize a new nao project.                                │
+│ login           Log in to nao from your browser.                             │
+│ logout          Log out of nao and revoke the stored session.                │
+│ migrate         Migrate dashboards from Metabase or Tableau.                 │
+│ reset-password  Reset a local nao user's password.                           │
+│ skills          Install and manage agent skills via npx skills.              │
+│ sync            Sync resources using configured providers.                   │
+│ test            Run and explore nao tests.                                   │
+│ upgrade         Upgrade nao-core to the latest version.                      │
+│ --help (-h)     Display this message and exit.                               │
+│ --version       Display application version.                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
 
 ## 👩🏻‍💻 Development
 
@@ -262,4 +327,4 @@ nao Labs is a proud Y Combinator company!
 
 ## 📄 License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details. Files marked with `/* @license Enterprise */` are subject to the commercial terms in [LICENSE-ENTERPRISE](LICENSE-ENTERPRISE).
+nao is licensed under the Apache 2.0 License (see [LICENSE](LICENSE)), except for files marked with `/* @license Enterprise */`, which are subject to the nao Labs Commercial License in [LICENSE-ENTERPRISE](LICENSE-ENTERPRISE).

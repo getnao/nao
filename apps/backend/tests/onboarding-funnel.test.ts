@@ -36,6 +36,7 @@ describe('onboarding funnel', () => {
 				status: 'failed',
 				failedStatus: 'syncing',
 				error: 'Warehouse setup failed. Check the connection details and try again.',
+				errorDetail: null,
 				createdAt: at(5),
 				updatedAt: at(9),
 				finishedAt: at(9),
@@ -55,6 +56,26 @@ describe('onboarding funnel', () => {
 			},
 			signedUpAt: at(0),
 			lastEventAt: at(9),
+		});
+	});
+
+	it('blames publishing with its technical cause when the project could not be saved', () => {
+		const [, failed] = provisioningJobEvents({
+			provider: 'snowflake',
+			status: 'failed',
+			failedStatus: 'publishing',
+			error: 'Your warehouse connection works, but nao could not save the project.',
+			errorDetail:
+				'Project publishing failed | caused by: Failed to create installation token: GitHub returned 401',
+			createdAt: at(1),
+			updatedAt: at(2),
+			finishedAt: at(2),
+		});
+
+		expect(failed).toMatchObject({
+			title: 'Snowflake cloud setup failed while publishing the project',
+			detail: 'Project publishing failed | caused by: Failed to create installation token: GitHub returned 401',
+			blocker: 'publishing_failed',
 		});
 	});
 
@@ -93,6 +114,30 @@ describe('onboarding funnel', () => {
 		const events = [signedUpEvent(at(0)), projectAccessEvent({ projectName: 'Analytics', createdAt: at(1) })];
 
 		expect(summarizeOnboarding('user-1', events)).toMatchObject({ stage: 'project_ready', path: 'direct' });
+	});
+
+	it('keeps the journey before a restart, from the interface or the agent', () => {
+		const [, cancelled] = provisioningJobEvents({
+			provider: 'postgres',
+			status: 'cancelled',
+			failedStatus: 'syncing',
+			error: 'The warehouse setup was cancelled because the onboarding was restarted.',
+			errorDetail: null,
+			createdAt: at(1),
+			updatedAt: at(2),
+			finishedAt: at(2),
+		});
+
+		expect(cancelled).toMatchObject({
+			title: 'Postgres cloud setup cancelled while running nao sync',
+			detail: 'The warehouse setup was cancelled because the onboarding was restarted.',
+			outcome: 'neutral',
+		});
+		expect(onboardingMessage(at(3), 'I restarted the onboarding.')).toMatchObject({
+			title: 'Restarted the onboarding',
+			stage: 'onboarding',
+		});
+		expect(toolCall(at(4), 'restart_onboarding', {})).toMatchObject({ title: 'Restarted the onboarding' });
 	});
 
 	it('ignores internal onboarding messages and malformed tool inputs', () => {

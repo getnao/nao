@@ -66,13 +66,11 @@ export async function createNewProject({
 	projectName,
 	orgId,
 	projectId = crypto.randomUUID(),
-	actingUserId,
 }: {
 	sourceDir: string;
 	projectName: string;
 	orgId: string;
 	projectId?: string;
-	actingUserId?: string;
 }) {
 	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
 
@@ -88,16 +86,13 @@ export async function createNewProject({
 
 	let project: DBProject;
 	try {
-		project = await createProject(
-			{
-				id: projectId,
-				name: projectName,
-				type: 'local',
-				path: projectDir,
-				orgId,
-			},
-			actingUserId,
-		);
+		project = await createProject({
+			id: projectId,
+			name: projectName,
+			type: 'local',
+			path: projectDir,
+			orgId,
+		});
 	} catch (err) {
 		fs.rmSync(projectDir, { recursive: true, force: true });
 		throw err;

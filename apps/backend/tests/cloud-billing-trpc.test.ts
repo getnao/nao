@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getOrganizationCloudEntitlement: vi.fn(),
 	getProjectById: vi.fn(),
 	getProjectByUserId: vi.fn(),
+	getOrganizationBilling: vi.fn(),
 	getUserOrgMembership: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	isCloudFreeTierEnabled: vi.fn(() => true),
@@ -26,6 +27,9 @@ vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
 	getOrganizationCloudEntitlement: mocks.getOrganizationCloudEntitlement,
 	isUserReadOnlyInOrganization: mocks.isUserReadOnlyInOrganization,
+}));
+vi.mock('../src/queries/billing.queries', () => ({
+	getOrganizationBilling: mocks.getOrganizationBilling,
 }));
 vi.mock('../src/queries/organization.queries', () => ({
 	getUserOrgMembership: mocks.getUserOrgMembership,
@@ -138,8 +142,22 @@ describe('cloud billing tRPC middleware', () => {
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
 	});
 
+	it('allows an unfinished project to be replaced before the trial starts', async () => {
+		mocks.organizationHasProjects.mockResolvedValue(true);
+		mocks.getOrganizationBilling.mockResolvedValue(null);
+
+		await expect(authenticatedCaller().importProject()).resolves.toBe('ok');
+		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
 	it('requires organization billing access for later project imports', async () => {
 		mocks.organizationHasProjects.mockResolvedValue(true);
+		mocks.getOrganizationBilling.mockResolvedValue({
+			billingStatus: 'canceled',
+			trialStartedAt: new Date(),
+			trialEndsAt: new Date(),
+			stripeSubscriptionId: null,
+		});
 		mocks.assertUserCloudBillingAccess.mockRejectedValue(new Error('Cloud billing seat access is restricted'));
 
 		await expect(authenticatedCaller().importProject()).rejects.toThrow('Cloud billing seat access is restricted');

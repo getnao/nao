@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
@@ -16,16 +16,14 @@ import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
-import { findWarehouseJobId, isOnboardingComplete, useOnboardingProgress } from '@/components/onboarding-progress';
 import { SidePanel } from '@/components/side-panel/side-panel';
-import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
-import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { useOnboardingCompletion } from '@/hooks/use-onboarding-completion';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
@@ -37,8 +35,6 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { storyBlockEditStore } from '@/stores/story-block-edit';
-import { STORY_BLOCK_EDIT_PANEL_MIN_WIDTH } from '@/lib/side-panel';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
@@ -95,16 +91,15 @@ function ChatPage() {
 		}
 	}, [shouldRedirectToReplay, chatId, router]);
 
+	const isOnboardingChat = chat.data?.isOnboarding === true;
 	const shareQuery = useQuery({
 		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
-		enabled: !!chat.data && !shouldShowChatError,
+		enabled: !!chat.data && !shouldShowChatError && !isOnboardingChat,
 	});
 	const isShared = !!shareQuery.data?.shareId;
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
-	const onboardingProgress = useOnboardingProgress();
-	const onboardingWarehouseJobId = useAgentMessagesSelector(findWarehouseJobId);
-	const onboardingWarehouseJob = useWarehouseProvisioningJob(onboardingWarehouseJobId);
+	const { complete: onboardingComplete } = useOnboardingCompletion(chatId, isOnboardingChat);
 	const showTrialOnboardingBanner =
 		config.data?.naoMode === 'cloud' &&
 		currentProject.isSuccess &&
@@ -113,11 +108,6 @@ function ChatPage() {
 	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
-	const onboardingComplete = isOnboardingComplete(
-		currentProject.data != null,
-		onboardingProgress,
-		onboardingWarehouseJob.data?.status === 'ready',
-	);
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const chatColumnRef = useRef<HTMLDivElement>(null);
@@ -126,8 +116,6 @@ function ChatPage() {
 	const inputAreaHeight = useHeight(inputAreaRef);
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
-	const isEditingStoryBlock =
-		useSyncExternalStore(storyBlockEditStore.subscribe, storyBlockEditStore.getSnapshot) !== null;
 	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
@@ -306,7 +294,6 @@ function ChatPage() {
 								<ChatMessages />
 							</>
 						)}
-						<StoryBlockEditPanel chatId={chatId} />
 						<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 pt-8'>
 							<div
 								ref={inputAreaRef}
@@ -348,7 +335,6 @@ function ChatPage() {
 							isAnimating={sidePanel.isAnimating}
 							sidePanelRef={sidePanelRef}
 							resizeHandleRef={sidePanel.resizeHandleRef}
-							chatPanelMinWidth={isEditingStoryBlock ? STORY_BLOCK_EDIT_PANEL_MIN_WIDTH : undefined}
 						>
 							{sidePanel.content}
 						</SidePanel>

@@ -166,6 +166,7 @@ async function getManagedCreditStatus(project: Pick<DBProject, 'orgId'>) {
 			enabled: isManagedAiEnabled(),
 			organization: null,
 			hasCredits: false,
+			balanceMicroUsd: 0,
 		};
 	}
 	const [organization, summary] = await Promise.all([
@@ -176,5 +177,6 @@ async function getManagedCreditStatus(project: Pick<DBProject, 'orgId'>) {
 		enabled: isManagedAiEnabled(),
 		organization: organization ? { id: organization.id, name: organization.name } : null,
 		hasCredits: summary.balanceMicroUsd > 0,
+		balanceMicroUsd: summary.balanceMicroUsd,
 	};
 }

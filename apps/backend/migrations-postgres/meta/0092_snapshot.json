@@ -1,5 +1,5 @@
 {
-  "id": "34f5dd33-b822-45dc-9759-40d19b7d7e01",
+  "id": "7c39c537-e8ac-44bc-aa42-cd25855271ca",
   "prevId": "21cc1a08-6890-4542-b612-c406194682c8",
   "version": "7",
   "dialect": "postgresql",
@@ -6641,45 +6641,9 @@
           "primaryKey": false,
           "notNull": false
         },
-        "stripe_subscription_item_id": {
-          "name": "stripe_subscription_item_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "stripe_price_id": {
           "name": "stripe_price_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "seat_quantity": {
-          "name": "seat_quantity",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stripe_subscription_schedule_id": {
-          "name": "stripe_subscription_schedule_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pending_billing_plan": {
-          "name": "pending_billing_plan",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pending_seat_quantity": {
-          "name": "pending_seat_quantity",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pending_free_seat_user_ids": {
-          "name": "pending_free_seat_user_ids",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -6759,119 +6723,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.organization_seat_state": {
-      "name": "organization_seat_state",
-      "schema": "",
-      "columns": {
-        "org_id": {
-          "name": "org_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "selected_at": {
-          "name": "selected_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_read_only": {
-          "name": "is_read_only",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "state_changed_at": {
-          "name": "state_changed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "owner_in_app_notified_at": {
-          "name": "owner_in_app_notified_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "owner_email_notified_at": {
-          "name": "owner_email_notified_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "admin_email_notified_at": {
-          "name": "admin_email_notified_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "organization_seat_state_userId_idx": {
-          "name": "organization_seat_state_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "organization_seat_state_org_id_organization_id_fk": {
-          "name": "organization_seat_state_org_id_organization_id_fk",
-          "tableFrom": "organization_seat_state",
-          "tableTo": "organization",
-          "columnsFrom": [
-            "org_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "organization_seat_state_user_id_user_id_fk": {
-          "name": "organization_seat_state_user_id_user_id_fk",
-          "tableFrom": "organization_seat_state",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "organization_seat_state_org_id_user_id_pk": {
-          "name": "organization_seat_state_org_id_user_id_pk",
-          "columns": [
-            "org_id",
-            "user_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -10958,6 +10809,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "steps": {
+          "name": "steps",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "logs": {
           "name": "logs",
           "type": "text",
@@ -10966,6 +10823,12 @@
         },
         "error": {
           "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_detail": {
+          "name": "error_detail",
           "type": "text",
           "primaryKey": false,
           "notNull": false

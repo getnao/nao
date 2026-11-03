@@ -9,7 +9,7 @@ import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
-import { env, isCloud, isCloudBillingEnabled } from './env';
+import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
 import {
 	AUTOMATION_JOB_NAME,
 	automationHandler,
@@ -20,6 +20,7 @@ import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
 	cloudTrialProvisioningHandler,
 } from './handlers/cloud-trial-provisioning.handler';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler } from './handlers/cloud-welcome-email.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
@@ -90,6 +91,7 @@ import { discordService } from './services/discord';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { reportManagedGithubConfiguration } from './services/managed-github-repository';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
@@ -114,6 +116,7 @@ import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
+const BACKOFFICE_LOGS_PATH = '/api/backoffice/logs';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
 const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
@@ -152,13 +155,18 @@ app.setErrorHandler((error, request, reply) => {
 			: undefined;
 	logger.error(describeError(error), {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode },
 	});
 	if (error instanceof BudgetExceededError) {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
 	}
 	if (error instanceof ManagedCreditsExhaustedError) {
-		return reply.status(error.code).send({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+		return reply.status(error.code).send({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
 	}
 	if (error instanceof ExampleChatAllowanceExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED' });
@@ -174,7 +182,11 @@ app.setErrorHandler((error, request, reply) => {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.listLogs') || request.url === HEALTH_PATH) {
+	if (
+		request.url.includes('log.listLogs') ||
+		request.url.startsWith(BACKOFFICE_LOGS_PATH) ||
+		request.url === HEALTH_PATH
+	) {
 		done();
 		return;
 	}
@@ -184,6 +196,7 @@ app.addHook('onResponse', (request, reply, done) => {
 	}
 	logger.info(`${request.method} ${request.url} ${reply.statusCode}`, {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode: reply.statusCode, elapsed: reply.elapsedTime },
 	});
 	done();
@@ -208,9 +221,10 @@ app.register(fastifyTRPCPlugin, {
 	trpcOptions: {
 		router: trpcRouter,
 		createContext,
-		onError({ path, error }) {
+		onError({ path, error, req }) {
 			logger.error(`tRPC error on ${path}: ${describeError(error)}`, {
 				source: 'http',
+				userId: req.actorUserId,
 				context: { path, code: error.code },
 			});
 		},
@@ -558,6 +572,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 			uniqueKey: BILLING_LIFECYCLE_JOB_NAME,
 		});
 	}
+	if (isCloudWelcomeEmailEnabled()) {
+		registerJob(CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler);
+	}
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
 	await ensureRecurring({
@@ -600,6 +617,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
 	startWarehouseProvisioningReconciler();
+	void reportManagedGithubConfiguration();
 
 	void pingLicensesServer();
 	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());

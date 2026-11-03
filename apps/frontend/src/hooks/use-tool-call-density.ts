@@ -31,7 +31,10 @@ export const useToolCallDensity = () => {
 				const previous = queryClient.getQueryData(preferencesQueryKey);
 				queryClient.setQueryData(
 					preferencesQueryKey,
-					(prev: UserPreferences | undefined): UserPreferences => ({ ...prev, toolCallDensity }),
+					(prev: UserPreferences | undefined): UserPreferences => ({
+						...prev,
+						toolCallDensity,
+					}),
 				);
 				return { previous };
 			},

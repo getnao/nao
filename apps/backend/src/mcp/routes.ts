@@ -53,6 +53,7 @@ async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: Fasti
 		replyUnauthorized(request, reply);
 		return;
 	}
+	request.actorUserId = userId;
 
 	const { projectId: requestedProjectId } = request.params as { projectId?: string };
 	const resolution = await resolveMcpProjectId(userId, requestedProjectId, mcpBaseUrl(request));

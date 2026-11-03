@@ -1,6 +1,28 @@
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
+import { join } from 'path';
 import type { Browser } from 'puppeteer-core';
+
+const LINUX_BROWSER_PATHS = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
+
+const MACOS_BROWSER_PATHS = ['Google Chrome', 'Chromium', 'Brave Browser', 'Microsoft Edge'].map(
+	(name) => `/Applications/${name}.app/Contents/MacOS/${name}`,
+);
+
+const WINDOWS_BROWSER_PATHS = [
+	process.env.PROGRAMFILES,
+	process.env['PROGRAMFILES(X86)'],
+	process.env.LOCALAPPDATA,
+].flatMap((root) =>
+	root
+		? [
+				'Google/Chrome/Application/chrome.exe',
+				'Chromium/Application/chrome.exe',
+				'BraveSoftware/Brave-Browser/Application/brave.exe',
+				'Microsoft/Edge/Application/msedge.exe',
+			].map((relativePath) => join(root, relativePath))
+		: [],
+);
 
 let browserPromise: Promise<Browser> | null = null;
 let activeBrowser: Browser | null = null;
@@ -74,10 +96,9 @@ function findChromePath(): string {
 	const candidates = [
 		process.env.PUPPETEER_EXECUTABLE_PATH,
 		process.env.CHROME_PATH,
-		'/usr/bin/chromium',
-		'/usr/bin/chromium-browser',
-		'/usr/bin/google-chrome',
-		'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		...LINUX_BROWSER_PATHS,
+		...MACOS_BROWSER_PATHS,
+		...WINDOWS_BROWSER_PATHS,
 	];
 
 	for (const candidate of candidates) {

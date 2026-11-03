@@ -29,4 +29,5 @@ export type AutomationIntegrationResult = {
 	ok: boolean;
 	message?: string;
 	url?: string;
+	destination?: string;
 };

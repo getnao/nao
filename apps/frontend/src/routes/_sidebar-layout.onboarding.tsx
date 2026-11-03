@@ -1,24 +1,20 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Github, HelpCircle, KeyRound } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
 import {
 	findCreatedOnboardingProject,
-	findWarehouseJobId,
 	isDeployStepReached,
-	isOnboardingComplete,
 	OnboardingProgress,
-	useOnboardingProgress,
-	WarehouseCommandProgress,
 } from '@/components/onboarding-progress';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
-import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
+import { isStoppedStatus } from '@/components/tool-calls/warehouse-setup-progress';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -29,12 +25,15 @@ import {
 	DialogTrigger,
 } from '@/components/ui/dialog';
 import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { OnboardingFloatingSlot, OnboardingFloatingSlotProvider } from '@/contexts/onboarding-floating-slot';
+import { StartNewOnboardingProvider } from '@/contexts/onboarding-restart';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { StoryBeforeAgentSendProvider } from '@/contexts/story-before-agent-send';
 import { getOnboardingChatIdStorage } from '@/hooks/use-agent';
 import { ChatIdContext } from '@/hooks/use-chat-id';
 import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useHeight } from '@/hooks/use-height';
+import { useOnboardingCompletion } from '@/hooks/use-onboarding-completion';
 import { usePermissions } from '@/hooks/use-permissions';
 import { setActiveProjectId } from '@/lib/active-project';
 import { NEW_CHAT_ID } from '@/lib/ai';
@@ -59,38 +58,47 @@ export const Route = createFileRoute('/_sidebar-layout/onboarding')({
 function OnboardingRoute() {
 	const { data: session } = useSession();
 	const search = Route.useSearch();
-	const [chatId] = useState(
-		() =>
+	const navigate = Route.useNavigate();
+	const [conversation, setConversation] = useState(() => ({
+		key: 0,
+		chatId:
 			search.chatId ??
 			(session?.user.id ? (getOnboardingChatIdStorage(session.user.id).get() ?? undefined) : undefined),
-	);
+	}));
+
+	const startNewConversation = useCallback(() => {
+		setConversation((current) => ({ key: current.key + 1, chatId: undefined }));
+		navigate({ search: {}, replace: true }).catch(console.error);
+	}, [navigate]);
+
 	return (
-		<ChatIdContext.Provider value={chatId}>
-			<SetChatInputCallbackProvider>
-				<StoryBeforeAgentSendProvider>
-					<AgentProvider disableNavigation mode='onboarding'>
-						<OnboardingPage />
-					</AgentProvider>
-				</StoryBeforeAgentSendProvider>
-			</SetChatInputCallbackProvider>
-		</ChatIdContext.Provider>
+		<StartNewOnboardingProvider value={startNewConversation}>
+			<ChatIdContext.Provider key={conversation.key} value={conversation.chatId}>
+				<SetChatInputCallbackProvider>
+					<StoryBeforeAgentSendProvider>
+						<AgentProvider disableNavigation mode='onboarding'>
+							<OnboardingFloatingSlotProvider>
+								<OnboardingPage />
+							</OnboardingFloatingSlotProvider>
+						</AgentProvider>
+					</StoryBeforeAgentSendProvider>
+				</SetChatInputCallbackProvider>
+			</ChatIdContext.Provider>
+		</StartNewOnboardingProvider>
 	);
 }
 
 function OnboardingPage() {
 	const messages = useAgentMessages();
 	const { chatId, isRunning, queueOrSendMessage } = useAgentContext();
-	const progress = useOnboardingProgress();
-	const messageWarehouseJobId = useMemo(() => findWarehouseJobId(messages), [messages]);
 	const isSavedChat = Boolean(chatId && chatId !== NEW_CHAT_ID);
-	const activeWarehouseJob = useQuery({
-		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
+	const latestWarehouseJob = useQuery({
+		...trpc.onboarding.getLatestWarehouseProvisioningJob.queryOptions({
 			onboardingChatId: isSavedChat ? chatId! : '',
 		}),
 		enabled: isSavedChat,
 	});
-	const warehouseJobId = activeWarehouseJob.data?.id ?? messageWarehouseJobId;
-	const warehouseJob = useWarehouseProvisioningJob(warehouseJobId);
+	const { complete: onboardingComplete, projectIsMissing, progress, warehouseJob } = useOnboardingCompletion(chatId);
 	const { isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
@@ -138,7 +146,6 @@ function OnboardingPage() {
 		refetchOnWindowFocus: 'always',
 	});
 	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
-	const projectIsMissing = currentProject.isSuccess && currentProject.data === null;
 	const showDeployKey =
 		(progress?.flow === 'new' || progress?.flow === 'local') &&
 		(progress.step === 3 || (progress.step === 4 && projectIsMissing));
@@ -147,11 +154,24 @@ function OnboardingPage() {
 		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
 	const warehouseReady = warehouseJob.data?.status === 'ready';
 	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
-	const onboardingComplete = isOnboardingComplete(onboardingProject != null, progress, warehouseReady);
 	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
+	const setupStatus = latestWarehouseJob.data?.status;
+	const isSetupInProgress = setupStatus !== undefined && setupStatus !== 'ready' && !isStoppedStatus(setupStatus);
+	const stoppedSetupProjectId =
+		setupStatus !== undefined && isStoppedStatus(setupStatus) ? latestWarehouseJob.data?.projectId : undefined;
+	const hasConnectedProject = projects.data?.some((project) => project.id !== stoppedSetupProjectId) ?? false;
+	const canRestart = hasMessages && !onboardingComplete && (!hasConnectedProject || isSetupInProgress);
 	const [deployDialogStyle, setDeployDialogStyle] = useState<React.CSSProperties>();
 	const [importDialogStyle, setImportDialogStyle] = useState<React.CSSProperties>();
 	const [latestPlaintextDeployKey, setLatestPlaintextDeployKey] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (createdProject) {
+			queryClient
+				.invalidateQueries({ queryKey: trpc.project.isCurrentSetupComplete.queryKey() })
+				.catch(console.error);
+		}
+	}, [createdProject, queryClient]);
 
 	useEffect(() => {
 		if (warehouseReady) {
@@ -233,7 +253,11 @@ function OnboardingPage() {
 			<MobileHeader />
 			<div className='shrink-0 pb-2 pt-4'>
 				<div className='mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 md:px-4'>
-					<OnboardingProgress complete={onboardingComplete} warehouseStatus={warehouseJob.data?.status} />
+					<OnboardingProgress
+						complete={onboardingComplete}
+						warehouseStatus={warehouseJob.data?.status}
+						canRestart={canRestart}
+					/>
 					{showDeployKey && (
 						<Dialog>
 							<div
@@ -316,39 +340,18 @@ function OnboardingPage() {
 					)}
 				</div>
 			</div>
+			<div className='relative z-20 mx-auto w-full max-w-3xl px-3 md:px-4'>
+				<div className='absolute inset-x-3 top-0 md:inset-x-4'>
+					<OnboardingFloatingSlot />
+				</div>
+			</div>
 			{hasMessages ? (
 				<>
 					<ChatMessages />
 					<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background via-80% to-transparent pt-12'>
 						<div ref={inputAreaRef} className='pointer-events-auto bg-background'>
-							{warehouseJob.data?.status && (
-								<div className='mx-auto w-full max-w-3xl px-3 pb-2 md:px-4'>
-									<WarehouseCommandProgress
-										status={warehouseJob.data.status}
-										logs={warehouseJob.data.logs}
-									/>
-								</div>
-							)}
 							{onboardingComplete ? (
-								<div className='flex flex-col items-center gap-2 pb-4 pt-2 shadow-[0_-12px_24px_-16px_rgb(0_0_0/0.35)]'>
-									<p className='text-center text-sm font-medium text-violet'>
-										{trialActive
-											? 'Project created! Your free trial is active.'
-											: 'Project setup successful!'}
-									</p>
-									<Button
-										asChild
-										className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'
-									>
-										<Link to='/'>
-											Start chatting
-											<ArrowRight className='size-4' />
-										</Link>
-									</Button>
-									<p className='text-center text-sm text-muted-foreground'>
-										This onboarding conversation is complete.
-									</p>
-								</div>
+								<OnboardingCompleteActions trialActive={trialActive} />
 							) : (
 								<ChatInput variant='onboarding' />
 							)}
@@ -357,51 +360,80 @@ function OnboardingPage() {
 				</>
 			) : (
 				<div className='flex flex-1 flex-col items-center justify-center gap-6 p-4'>
-					<div className='max-w-2xl space-y-2 text-center'>
-						<h1 className='font-borna text-2xl tracking-tight md:text-3xl'>Set up your nao project</h1>
-						<p className='text-sm text-muted-foreground'>
-							Tell the onboarding agent what you already have, and it will guide you from there.
-						</p>
-					</div>
-					<div className='flex w-full max-w-2xl flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3'>
-						<div className='flex items-start gap-2'>
-							<HelpCircle className='mt-0.5 size-4 shrink-0 text-muted-foreground' />
-							<div className='flex flex-col gap-0.5'>
-								<span className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
-									Quick question
-								</span>
-								<p className='text-sm leading-relaxed'>
-									Would you like to import a project or simply connect your warehouse?
+					{onboardingComplete ? (
+						<OnboardingCompleteActions trialActive={trialActive} />
+					) : (
+						<>
+							<div className='max-w-2xl space-y-2 text-center'>
+								<h1 className='font-borna text-2xl tracking-tight md:text-3xl'>
+									Set up your nao project
+								</h1>
+								<p className='text-sm text-muted-foreground'>
+									Tell the onboarding agent what you already have, and it will guide you from there.
 								</p>
 							</div>
-						</div>
-						<div className='flex flex-wrap gap-2 pl-6'>
-							<Button
-								variant='outline'
-								size='sm'
-								disabled={isRunning}
-								onClick={() => queueOrSendMessage({ text: 'Import project' }).catch(console.error)}
-								className='h-auto min-h-7 rounded-2xl py-1'
-							>
-								Import project
-							</Button>
-							<Button
-								variant='outline'
-								size='sm'
-								disabled={isRunning}
-								onClick={() => queueOrSendMessage({ text: 'Connect warehouse' }).catch(console.error)}
-								className='h-auto min-h-7 rounded-2xl py-1'
-							>
-								Connect warehouse
-							</Button>
-						</div>
-						<p className='pl-6 text-xs text-muted-foreground'>
-							Choose an option, or type your answer below.
-						</p>
-					</div>
-					<ChatInput variant='onboarding' />
+							<div className='flex w-full max-w-2xl flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3'>
+								<div className='flex items-start gap-2'>
+									<HelpCircle className='mt-0.5 size-4 shrink-0 text-muted-foreground' />
+									<div className='flex flex-col gap-0.5'>
+										<span className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
+											Quick question
+										</span>
+										<p className='text-sm leading-relaxed'>
+											Would you like to import a project or simply connect your warehouse?
+										</p>
+									</div>
+								</div>
+								<div className='flex flex-wrap gap-2 pl-6'>
+									<Button
+										variant='outline'
+										size='sm'
+										disabled={isRunning}
+										onClick={() =>
+											queueOrSendMessage({ text: 'Import project' }).catch(console.error)
+										}
+										className='h-auto min-h-7 rounded-2xl py-1'
+									>
+										Import project
+									</Button>
+									<Button
+										variant='outline'
+										size='sm'
+										disabled={isRunning}
+										onClick={() =>
+											queueOrSendMessage({ text: 'Connect warehouse' }).catch(console.error)
+										}
+										className='h-auto min-h-7 rounded-2xl py-1'
+									>
+										Connect warehouse
+									</Button>
+								</div>
+								<p className='pl-6 text-xs text-muted-foreground'>
+									Choose an option, or type your answer below.
+								</p>
+							</div>
+							<ChatInput variant='onboarding' />
+						</>
+					)}
 				</div>
 			)}
+		</div>
+	);
+}
+
+function OnboardingCompleteActions({ trialActive }: { trialActive: boolean }) {
+	return (
+		<div className='flex flex-col items-center gap-2 pb-4'>
+			<p className='text-center text-sm font-medium text-violet'>
+				{trialActive ? 'Project created! Your free trial is active.' : 'Project setup successful!'}
+			</p>
+			<Button asChild className='rounded-full bg-violet text-white shadow-sm hover:bg-violet/90'>
+				<Link to='/'>
+					Start chatting
+					<ArrowRight className='size-4' />
+				</Link>
+			</Button>
+			<p className='text-center text-sm text-muted-foreground'>This onboarding conversation is complete.</p>
 		</div>
 	);
 }

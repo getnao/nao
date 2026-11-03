@@ -339,7 +339,7 @@ jobs:
                           -e "LANGFUSE_PUBLIC_KEY=${{ secrets.CLOUD_LANGFUSE_PUBLIC_KEY }}" \
                           -e "LANGFUSE_SECRET_KEY=${{ secrets.CLOUD_LANGFUSE_SECRET_KEY }}" \
                           -e "LANGFUSE_BASE_URL=${{ secrets.CLOUD_LANGFUSE_BASE_URL }}" \
-                          -e "GITHUB_SSO=true" \
+                          -e "GITHUB_SSO=false" \
                           -e "POSTHOG_DISABLED=true" \
                           -e "NAO_CONTEXT_SOURCE=api" \
                           -e "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}" \

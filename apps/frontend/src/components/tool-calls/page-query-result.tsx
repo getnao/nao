@@ -1,12 +1,12 @@
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableDisplay } from './display-table';
-import type { readQueryResult } from '@nao/shared/tools';
+import type { pageQueryResult } from '@nao/shared/tools';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
 
-export const ReadQueryResultToolCall = ({
+export const PageQueryResultToolCall = ({
 	toolPart: { output, input },
-}: ToolCallComponentProps<'read_query_result'>) => {
+}: ToolCallComponentProps<'page_query_result'>) => {
 	const { isSettled } = useToolCallContext();
 
 	const queryId = input?.query_id;
@@ -47,7 +47,7 @@ export const ReadQueryResultToolCall = ({
 	);
 };
 
-const getRangeLabel = (output: readQueryResult.Output) => {
+const getRangeLabel = (output: pageQueryResult.Output) => {
 	if (output.data.length === 0) {
 		return `0 rows of ${output.row_count}`;
 	}

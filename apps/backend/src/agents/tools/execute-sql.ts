@@ -11,7 +11,7 @@ import {
 } from '../../queries/execute-sql.queries';
 import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
-import { isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
+import { isWarehouseSqlEnabled, type SemanticQuery } from '../../services/semantic-layer.service';
 import { executeWarehouseSql } from '../../services/warehouse-sql.service';
 import { ToolContext } from '../../types/tools';
 import { containsBlockedPassthroughCall, detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
@@ -25,8 +25,8 @@ type SameTurnQueryOptions = {
 };
 
 type ExecuteQueryOptions = {
-	/** SQL compiled by the semantic layer may reach the warehouse even when hand-written SQL may not. */
-	compiledBySemanticLayer?: boolean;
+	/** The metric query the semantic layer compiled this SQL from: it may reach the warehouse even when hand-written SQL may not. */
+	semanticQuery?: SemanticQuery;
 };
 
 export async function executeQuery(
@@ -34,7 +34,7 @@ export async function executeQuery(
 	context: ToolContext,
 	options: ExecuteQueryOptions = {},
 ): Promise<executeSql.Output> {
-	if (!options.compiledBySemanticLayer) {
+	if (!options.semanticQuery) {
 		assertWarehouseSqlAllowed(database_id, context);
 	}
 	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
@@ -96,7 +96,7 @@ export async function executeQuery(
 		data: data.data,
 		sqlQuery: sql_query,
 		...(database_id && { databaseId: database_id }),
-		...(options.compiledBySemanticLayer && { compiledBySemanticLayer: true }),
+		...(options.semanticQuery && { semanticQuery: options.semanticQuery }),
 	});
 
 	const appliedLimit = detectQueryRowLimit(effectiveSql);
@@ -204,7 +204,7 @@ async function updateSameTurnQuery(
 			`Query ${input.query_id} not found in this chat. Use execute_sql without query_id to create a new query.`,
 		);
 	}
-	if (sameTurnResult.compiledBySemanticLayer) {
+	if (sameTurnResult.semanticQuery) {
 		throw semanticQueryNotEditableError(input.query_id);
 	}
 	return executeQuery(input, context);

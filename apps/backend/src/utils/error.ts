@@ -29,7 +29,7 @@ export class BudgetExceededError extends HandlerError {
 }
 
 export class ManagedCreditsExhaustedError extends HandlerError {
-	constructor() {
+	constructor(readonly requiredBalanceMicroUsd: number) {
 		super(
 			'FORBIDDEN',
 			"Your organization's nao-managed AI credits have been used. Add a project provider key to continue.",

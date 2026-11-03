@@ -631,7 +631,7 @@ export const PROVIDER_META: ProviderMetaMap = {
 				id: 'mistral-large-4',
 				name: 'Mistral Large 4',
 				contextWindow: 1_000_000,
-				costPerM: { inputNoCache: 1.36, inputCacheRead: 0.14, inputCacheWrite: 0, output: 4.18 },
+				costPerM: { inputNoCache: 0.7, inputCacheRead: 0.07, inputCacheWrite: 0, output: 2.1 },
 				capabilities: MISTRAL_SAMPLING,
 			},
 			{

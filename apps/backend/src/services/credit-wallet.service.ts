@@ -1,8 +1,10 @@
 import type { DBManagedAiUsage, NewManagedAiUsage } from '../db/abstractSchema';
 import type { BackofficeCreditTopUp, CreditPurchase, CreditPurchaseMovement } from '../queries/credit-ledger.queries';
 import * as creditLedgerQueries from '../queries/credit-ledger.queries';
+import * as creditWalletQueries from '../queries/credit-wallet.queries';
 import * as userQueries from '../queries/user.queries';
 import { creditGrantIdempotencyKey, type CreditGrantType } from '../types/managed-ai-usage';
+import { ManagedCreditsExhaustedError } from '../utils/error';
 
 export type { BackofficeCreditTopUp, CreditPurchase } from '../queries/credit-ledger.queries';
 
@@ -52,6 +54,12 @@ export async function setCreditPurchaseMovement(input: CreditPurchaseMovement): 
 
 export async function releaseStaleManagedAiCreditReservations(cutoff: Date): Promise<number> {
 	return creditLedgerQueries.releaseStaleManagedAiCreditReservations(cutoff);
+}
+
+export async function assertManagedAiCreditsAvailable(orgId: string): Promise<void> {
+	if ((await creditWalletQueries.getCreditBalance(orgId)) <= 0) {
+		throw new ManagedCreditsExhaustedError(1);
+	}
 }
 
 export async function reserveManagedAiCredits(

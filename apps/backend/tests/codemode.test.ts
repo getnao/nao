@@ -1,0 +1,517 @@
+import type { McpAccess } from '@nao/shared';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../src/db/db', () => ({ db: {} }));
+
+import { getTools } from '../src/agents/tools';
+import { createCodemodeTool } from '../src/agents/tools/codemode';
+import { createMcpFunctions, toScriptValue } from '../src/services/codemode/mcp-functions';
+import {
+	type CodemodeFunction,
+	type CodemodeLimits,
+	type CodemodeResult,
+	runCodemode,
+} from '../src/services/codemode/sandbox';
+import { McpArgsValidationError, mcpService } from '../src/services/mcp';
+import { McpAuthRequiredError } from '../src/services/mcp-oauth';
+import type { ToolContext } from '../src/types/tools';
+
+const LIMITS: CodemodeLimits = {
+	timeoutMs: 5_000,
+	memoryLimitBytes: 32 * 1024 * 1024,
+	maxLogChars: 10_000,
+	maxCalls: 100,
+	maxCallArgsChars: 100_000,
+	maxConcurrentCalls: 10,
+};
+const GROUP_ACCESS: McpAccess = { mode: 'restricted', grants: [{ kind: 'server', server: 'linear' }] };
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
+
+describe('runCodemode', () => {
+	const tickets: CodemodeFunction = {
+		path: ['mcp', 'linear', 'get_ticket'],
+		execute: async (args) => {
+			const { id } = args as { id: string };
+			return { id, relations: id === 'ENG-1' ? [{ id: 'ENG-2' }, { id: 'ENG-3' }] : [] };
+		},
+	};
+
+	it('chains and parallelizes calls, and returns logs and the value', async () => {
+		const result = await run(
+			`const ticket = await mcp.linear.get_ticket({ id: "ENG-1" });
+			const related = await Promise.all(ticket.relations.map((r) => mcp.linear.get_ticket({ id: r.id })));
+			console.log("related", related.length);
+			return related.map((t) => t.id);`,
+			[tickets],
+		);
+
+		expect(result).toMatchObject({ ok: true, value: ['ENG-2', 'ENG-3'], logs: ['related 2'] });
+		expect(result.calls.map((call) => [call.name, call.status])).toEqual([
+			['mcp.linear.get_ticket', 'ok'],
+			['mcp.linear.get_ticket', 'ok'],
+			['mcp.linear.get_ticket', 'ok'],
+		]);
+	});
+
+	it('exposes names that are not identifiers under an identifier alias and with brackets', async () => {
+		const listThings: CodemodeFunction = { path: ['mcp', 'my-server', 'list-things'], execute: () => ['a'] };
+
+		const result = await run(
+			'return [await mcp.my_server.list_things(), await mcp["my-server"]["list-things"]()]',
+			[listThings],
+		);
+
+		expect(result).toMatchObject({ ok: true, value: [['a'], ['a']] });
+	});
+
+	it('does not alias names that would share the same identifier', async () => {
+		const functions: CodemodeFunction[] = [
+			{ path: ['mcp', 'my-server', 'list'], execute: () => 'dash' },
+			{ path: ['mcp', 'my.server', 'list'], execute: () => 'dot' },
+		];
+
+		const brackets = await run('return [await mcp["my-server"].list(), await mcp["my.server"].list()]', functions);
+		const alias = await run('return await mcp.my_server.list()', functions);
+
+		expect(brackets).toMatchObject({ ok: true, value: ['dash', 'dot'] });
+		expect(errorOf(alias).message).toContain('mcp.my_server does not exist. Available: my-server, my.server');
+	});
+
+	it('lists the available members when the script uses an unknown function', async () => {
+		const result = await run('return await mcp.linear.get_tiket({})', [tickets]);
+
+		expect(result.ok).toBe(false);
+		expect(errorOf(result).message).toContain('mcp.linear.get_tiket does not exist. Available: get_ticket');
+	});
+
+	it('lets the script catch a failing call', async () => {
+		const failing: CodemodeFunction = {
+			path: ['mcp', 'linear', 'fail'],
+			execute: () => {
+				throw new Error('boom');
+			},
+		};
+
+		const result = await run('try { await mcp.linear.fail({}) } catch (e) { return "caught " + e.message }', [
+			failing,
+		]);
+
+		expect(result).toMatchObject({ ok: true, value: 'caught boom' });
+		expect(result.calls).toMatchObject([{ name: 'mcp.linear.fail', status: 'error', error: 'boom' }]);
+	});
+
+	it('stops a synchronous infinite loop at the timeout', async () => {
+		const result = await run('while (true) {}', [], { timeoutMs: 300 });
+
+		expect(errorOf(result).kind).toBe('timeout');
+	});
+
+	it('stops an infinite microtask loop at the timeout', async () => {
+		const result = await run('while (true) await null;', [], { timeoutMs: 300 });
+
+		expect(errorOf(result).kind).toBe('timeout');
+	});
+
+	it('fails a script awaiting a promise that can never settle', async () => {
+		const result = await run('await new Promise(() => {});');
+
+		expect(errorOf(result)).toMatchObject({ kind: 'script' });
+		expect(errorOf(result).message).toContain('can never settle');
+	});
+
+	it('reports syntax errors as script errors', async () => {
+		const result = await run('return (');
+
+		expect(errorOf(result).kind).toBe('script');
+	});
+
+	it('gives the script no network, process, modules or timers', async () => {
+		const result = await run('return [typeof fetch, typeof process, typeof require, typeof setTimeout]');
+
+		expect(result).toMatchObject({ ok: true, value: ['undefined', 'undefined', 'undefined', 'undefined'] });
+	});
+
+	it('drops logs past the log limit inside the sandbox', async () => {
+		const result = await run(
+			'for (let i = 0; i < 100000; i++) console.log(i % 2 ? "" : "0123456789"); return "done"',
+			[],
+			{ maxLogChars: 100 },
+		);
+
+		expect(result).toMatchObject({ ok: true, value: 'done' });
+		expect(result.logs.length).toBeLessThan(20);
+		expect(result.logs.at(-1)).toContain('[log limit reached, later logs dropped]');
+	});
+
+	it('keeps the log limit when the script patches the built-ins the console relies on', async () => {
+		const result = await run(
+			`const big = "x".repeat(1000000);
+			Array.prototype.join = () => ({ length: 0, toString: () => big });
+			for (let i = 0; i < 1000; i++) console.log(i);
+			return "done"`,
+			[],
+			{ maxLogChars: 100 },
+		);
+
+		expect(result).toMatchObject({ ok: true, value: 'done' });
+		expect(result.logs.join('').length).toBeLessThan(200);
+	});
+
+	it('reports a script error when the script reshapes the error it throws', async () => {
+		const result = await run('Object.prototype.toJSON = () => null; throw new Error("boom")');
+
+		expect(result).toMatchObject({ ok: false, error: { kind: 'script', message: 'The script failed.' } });
+	});
+
+	it('rejects the calls past the call limit without reaching the host', async () => {
+		const execute = vi.fn(() => 'ok');
+		const ping: CodemodeFunction = { path: ['mcp', 'test', 'ping'], execute };
+
+		const result = await run(
+			`const results = [];
+			for (let i = 0; i < 5; i++) {
+				try { results.push(await mcp.test.ping({})) } catch (e) { results.push(e.message) }
+			}
+			return results`,
+			[ping],
+			{ maxCalls: 3 },
+		);
+
+		expect(result.ok && result.value).toEqual([
+			'ok',
+			'ok',
+			'ok',
+			'The script reached the limit of 3 calls: process fewer items per script.',
+			'The script reached the limit of 3 calls: process fewer items per script.',
+		]);
+		expect(execute).toHaveBeenCalledTimes(3);
+	});
+
+	it('rejects the calls past the call limit synchronously, even when the script replaces Promise', async () => {
+		const ping: CodemodeFunction = { path: ['mcp', 'test', 'ping'], execute: () => new Promise(() => {}) };
+
+		const result = await run(
+			`let rejected = 0;
+			globalThis.Promise = function (executor) { executor(() => {}, () => { rejected++; }); };
+			for (let i = 0; i < 1000; i++) mcp.test.ping({});
+			return rejected`,
+			[ping],
+			{ maxCalls: 1 },
+		);
+
+		expect(result).toMatchObject({ ok: true, value: 999 });
+	});
+
+	it('rejects the calls past the call arguments budget without reaching the host', async () => {
+		const execute = vi.fn(() => 'ok');
+		const ping: CodemodeFunction = { path: ['mcp', 'test', 'ping'], execute };
+
+		const result = await run(
+			'await mcp.test.ping({ text: "small" }); return await mcp.test.ping({ text: "x".repeat(1000) })',
+			[ping],
+			{ maxCallArgsChars: 100 },
+		);
+
+		expect(errorOf(result).message).toContain('limit of 100 characters of call arguments');
+		expect(execute).toHaveBeenCalledTimes(1);
+	});
+
+	it('runs at most the concurrent call limit at a time', async () => {
+		let running = 0;
+		let maxRunning = 0;
+		const slow: CodemodeFunction = {
+			path: ['mcp', 'test', 'slow'],
+			execute: async () => {
+				running++;
+				maxRunning = Math.max(maxRunning, running);
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				running--;
+				return 'done';
+			},
+		};
+
+		const result = await run(
+			'return await Promise.all(Array.from({ length: 6 }, () => mcp.test.slow({})))',
+			[slow],
+			{
+				maxConcurrentCalls: 2,
+			},
+		);
+
+		expect(result).toMatchObject({ ok: true, value: Array(6).fill('done') });
+		expect(maxRunning).toBe(2);
+	});
+
+	it('only reports the calls that started when the run ends with calls still waiting for a slot', async () => {
+		const hanging: CodemodeFunction = { path: ['mcp', 'test', 'hang'], execute: () => new Promise(() => {}) };
+
+		const result = await run(
+			'await Promise.all([mcp.test.hang({}), mcp.test.hang({}), mcp.test.hang({})])',
+			[hanging],
+			{ maxConcurrentCalls: 1, timeoutMs: 300 },
+		);
+
+		expect(errorOf(result).kind).toBe('timeout');
+		expect(result.calls).toMatchObject([{ name: 'mcp.test.hang', status: 'cancelled' }]);
+	});
+
+	it('fails a script that exceeds the memory limit', async () => {
+		const result = await run(
+			'const chunks = []; while (true) chunks.push("x".repeat(1024 * 1024) + chunks.length);',
+		);
+
+		expect(result.ok).toBe(false);
+	});
+
+	it('aborts the run and the pending calls when the signal is aborted', async () => {
+		const controller = new AbortController();
+		let callSignal: AbortSignal | undefined;
+		const hanging: CodemodeFunction = {
+			path: ['mcp', 'slow', 'wait'],
+			execute: (_args, { signal }) => {
+				callSignal = signal;
+				controller.abort();
+				return new Promise(() => {});
+			},
+		};
+
+		const result = await runCodemode({
+			code: 'return await mcp.slow.wait({})',
+			functions: [hanging],
+			limits: LIMITS,
+			signal: controller.signal,
+		});
+
+		expect(errorOf(result).kind).toBe('aborted');
+		expect(callSignal?.aborted).toBe(true);
+		expect(result.calls).toMatchObject([{ name: 'mcp.slow.wait', status: 'cancelled' }]);
+	});
+});
+
+describe('codemode MCP functions', () => {
+	it('exposes one function per callable tool', async () => {
+		vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([
+			{ server: 'linear', tools: ['get_ticket', 'list_issues'] },
+			{ server: 'github', tools: [] },
+		]);
+
+		const functions = await createMcpFunctions(mcpOptions());
+
+		expect(functions.map((fn) => fn.path)).toEqual([
+			['mcp', 'linear', 'get_ticket'],
+			['mcp', 'linear', 'list_issues'],
+		]);
+	});
+
+	it('calls the tool through the MCP service with the run permissions', async () => {
+		vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([{ server: 'linear', tools: ['get_ticket'] }]);
+		const callTool = vi.spyOn(mcpService, 'callTool').mockResolvedValue({
+			content: [{ type: 'text', text: '{"id":"ENG-1"}' }],
+		});
+
+		const { signal } = new AbortController();
+
+		const [getTicket] = await createMcpFunctions(mcpOptions({ allowedServers: ['linear'] }));
+		const value = await getTicket.execute({ id: 'ENG-1' }, { signal });
+
+		expect(value).toEqual({ id: 'ENG-1' });
+		expect(callTool).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'user-1',
+			server: 'linear',
+			tool: 'get_ticket',
+			args: { id: 'ENG-1' },
+			allowedServers: ['linear'],
+			access: GROUP_ACCESS,
+			signal,
+		});
+	});
+
+	it('reports the server and throws when the user must connect their account', async () => {
+		vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([{ server: 'linear', tools: ['get_ticket'] }]);
+		vi.spyOn(mcpService, 'callTool').mockRejectedValue(new McpAuthRequiredError('linear'));
+		const onAuthRequired = vi.fn();
+
+		const [getTicket] = await createMcpFunctions(mcpOptions({ onAuthRequired }));
+
+		await expect(getTicket.execute({}, { signal: new AbortController().signal })).rejects.toThrow('AUTH_REQUIRED');
+		expect(onAuthRequired).toHaveBeenCalledWith('linear');
+	});
+
+	it('points to the spec when the arguments do not match it', async () => {
+		vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([{ server: 'linear', tools: ['get_ticket'] }]);
+		vi.spyOn(mcpService, 'callTool').mockRejectedValue(
+			new McpArgsValidationError('linear', 'get_ticket', ['id: Required']),
+		);
+
+		const [getTicket] = await createMcpFunctions(mcpOptions());
+
+		await expect(getTicket.execute({}, { signal: new AbortController().signal })).rejects.toThrow(
+			'Invalid arguments for mcp.linear.get_ticket: id: Required. Check /agent/mcps/linear/get_ticket.json.',
+		);
+	});
+
+	it('rejects arguments that are not an object', async () => {
+		vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([{ server: 'linear', tools: ['get_ticket'] }]);
+
+		const [getTicket] = await createMcpFunctions(mcpOptions());
+
+		await expect(getTicket.execute('ENG-1', { signal: new AbortController().signal })).rejects.toThrow(
+			'takes one object argument',
+		);
+	});
+
+	it('converts MCP results into script values', () => {
+		expect(toScriptValue({ content: [], structuredContent: { total: 3 } })).toEqual({ total: 3 });
+		expect(toScriptValue({ content: [{ type: 'text', text: '[1,2]' }] })).toEqual([1, 2]);
+		expect(toScriptValue({ content: [{ type: 'text', text: 'plain text' }] })).toBe('plain text');
+		expect(() => toScriptValue({ content: [{ type: 'text', text: 'not found' }], isError: true })).toThrow(
+			'not found',
+		);
+	});
+});
+
+describe('codemode tool', () => {
+	it('returns the result and the connect prompt when a call needs the user to connect', async () => {
+		vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([{ server: 'linear', tools: ['get_ticket'] }]);
+		vi.spyOn(mcpService, 'callTool').mockRejectedValue(new McpAuthRequiredError('linear'));
+		const tool = createCodemodeTool({ mcpServers: null });
+
+		const output = await tool.execute!(
+			{
+				description: 'Fetch a ticket',
+				code: 'try { await mcp.linear.get_ticket({}) } catch (e) { return "failed" }',
+			},
+			{ toolCallId: 'call-1', messages: [], experimental_context: toolContext() },
+		);
+
+		expect(output).toMatchObject({ ok: true, result: '"failed"', mcpAuthRequired: true, server: 'linear' });
+		const modelOutput = tool.toModelOutput!({
+			toolCallId: 'call-1',
+			input: undefined as never,
+			output: output as never,
+		});
+		expect(modelOutput).toMatchObject({ type: 'text' });
+		expect((modelOutput as { value: string }).value).toContain('AUTH_REQUIRED');
+	});
+
+	it('tells the model which calls completed and which were interrupted when a script fails', async () => {
+		vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([{ server: 'linear', tools: ['get_ticket'] }]);
+		const controller = new AbortController();
+		vi.spyOn(mcpService, 'callTool')
+			.mockResolvedValueOnce({ content: [{ type: 'text', text: '{}' }] })
+			.mockImplementationOnce(() => {
+				controller.abort();
+				return new Promise(() => {});
+			});
+		const tool = createCodemodeTool({ mcpServers: null });
+
+		const output = await tool.execute!(
+			{ description: 'Fetch', code: 'await mcp.linear.get_ticket({}); await mcp.linear.get_ticket({})' },
+			{ toolCallId: 'call-1', messages: [], experimental_context: toolContext(), abortSignal: controller.signal },
+		);
+		const modelOutput = tool.toModelOutput!({
+			toolCallId: 'call-1',
+			input: undefined as never,
+			output: output as never,
+		});
+
+		expect((modelOutput as { value: string }).value).toContain(
+			'1 call(s) completed before the failure; their side effects are kept. 1 call(s) were interrupted while running and may or may not have taken effect. No other call started.',
+		);
+	});
+
+	it('runs without MCP functions when MCP is off for the run', async () => {
+		const getCallableTools = vi.spyOn(mcpService, 'getCallableTools');
+		const tool = createCodemodeTool({ mcpServers: false });
+
+		const output = await tool.execute!(
+			{ description: 'Sum', code: 'return [1, 2, 3].reduce((a, b) => a + b, 0)' },
+			{ toolCallId: 'call-1', messages: [], experimental_context: toolContext() },
+		);
+
+		expect(output).toMatchObject({ ok: true, result: '6', calls: [] });
+		expect(getCallableTools).not.toHaveBeenCalled();
+	});
+
+	it('tells the model when a script only declares a function that nothing calls', async () => {
+		const tool = createCodemodeTool({ mcpServers: false });
+
+		const output = await tool.execute!(
+			{ description: 'Sum', code: 'async function main() { return 1 }' },
+			{ toolCallId: 'call-1', messages: [], experimental_context: toolContext() },
+		);
+		const modelOutput = tool.toModelOutput!({
+			toolCallId: 'call-1',
+			input: undefined as never,
+			output: output as never,
+		});
+
+		expect((modelOutput as { value: string }).value).toContain('a function it declares (e.g. `main`) never runs');
+	});
+
+	it('only exposes the MCP tools the user groups grant', async () => {
+		const getCallableTools = vi.spyOn(mcpService, 'getCallableTools').mockResolvedValue([]);
+		const tool = createCodemodeTool({ mcpServers: ['linear'] });
+
+		await tool.execute!(
+			{ description: 'Noop', code: 'return 1' },
+			{ toolCallId: 'call-1', messages: [], experimental_context: toolContext() },
+		);
+
+		expect(getCallableTools).toHaveBeenCalledWith('project-1', ['linear'], GROUP_ACCESS);
+	});
+
+	it('is exposed by default and can be turned off in the experimental settings', () => {
+		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue([]);
+
+		expect(getTools(null)).toHaveProperty('codemode');
+		expect(getTools({ experimental: {} })).toHaveProperty('codemode');
+		expect(getTools({ experimental: { codemode: false } })).not.toHaveProperty('codemode');
+	});
+
+	it('points mcp_call to codemode only when codemode is available', () => {
+		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue(['linear']);
+
+		const withCodemode = getTools(null);
+		const withoutCodemode = getTools({ experimental: { codemode: false } });
+		const excluded = getTools(null, undefined, { excludeBuiltinTools: ['codemode'] });
+
+		expect(withCodemode.mcp_call.description).toContain('write one `codemode` script instead');
+		expect(withoutCodemode.mcp_call.description).not.toContain('codemode');
+		expect(excluded.mcp_call.description).not.toContain('codemode');
+	});
+});
+
+function run(
+	code: string,
+	functions: CodemodeFunction[] = [],
+	limits: Partial<CodemodeLimits> = {},
+): Promise<CodemodeResult> {
+	return runCodemode({ code, functions, limits: { ...LIMITS, ...limits } });
+}
+
+function errorOf(result: CodemodeResult) {
+	if (result.ok) {
+		throw new Error(`Expected the script to fail, got ${JSON.stringify(result.value)}`);
+	}
+	return result.error;
+}
+
+function mcpOptions(overrides: Partial<Parameters<typeof createMcpFunctions>[0]> = {}) {
+	return {
+		projectId: 'project-1',
+		userId: 'user-1',
+		allowedServers: null,
+		access: GROUP_ACCESS,
+		onAuthRequired: vi.fn(),
+		...overrides,
+	};
+}
+
+function toolContext(): ToolContext {
+	return { projectId: 'project-1', userId: 'user-1', mcpAccess: GROUP_ACCESS } as ToolContext;
+}

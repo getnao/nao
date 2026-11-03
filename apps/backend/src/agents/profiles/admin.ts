@@ -4,7 +4,7 @@ import type { AgentProfile } from './types';
 
 const ADMIN_TOOLS = [
 	'execute_sql',
-	'read_query_result',
+	'page_query_result',
 	'display_chart',
 	'suggest_follow_ups',
 	'story',

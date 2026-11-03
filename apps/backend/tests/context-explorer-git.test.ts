@@ -184,6 +184,21 @@ printf '%s|%s' "$user" "$GIT_ASKPASS"
 		expect(fs.existsSync(helperPath)).toBe(false);
 	});
 
+	it('resets configured credential helpers so a stored token cannot replace the askpass token', () => {
+		const root = temporaryRoot(temporaryRoots);
+		runGit(root, ['init']);
+		runGit(root, ['config', 'credential.helper', 'osxkeychain']);
+
+		const effectiveHelper = runGitWithOAuth(
+			root,
+			['config', '--get', 'credential.helper'],
+			getGitOAuthCredential('github', 'oauth-secret'),
+		).toString();
+
+		expect(runGit(root, ['config', '--get', 'credential.helper']).toString()).toBe('osxkeychain\n');
+		expect(effectiveHelper).toBe('\n');
+	});
+
 	it.each([
 		['github', 'x-access-token'],
 		['gitlab', 'oauth2'],

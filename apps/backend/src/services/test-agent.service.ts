@@ -6,6 +6,7 @@ import { testRunAgent } from '../agents/profiles/test-run';
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
+import { getErrorMessage } from '../utils/utils';
 import { AgentRunResult, AgentService } from './agent';
 import { runSqlOverQueryResults } from './duckdb.service';
 import { buildVerificationMessages } from './test-agent-verification';
@@ -23,6 +24,7 @@ export interface ToolCallResult {
 	toolCallId: string;
 	args: Record<string, unknown>;
 	result?: unknown;
+	error?: string;
 }
 
 /** Attempts allowed for the verification query, so a broken one can be repaired once. */
@@ -136,15 +138,21 @@ Return a corrected DuckDB query, or set sql to null if the tables cannot answer 
 
 	/**
 	 * Extract tool calls from agent result steps.
-	 * Collects all tool calls and their results from every step.
+	 * Collects all tool calls and their results or errors from every step.
 	 */
 	static extractToolCalls(result: AgentRunResult): ToolCallResult[] {
 		const resultByCallId = new Map<string, unknown>();
+		const errorByCallId = new Map<string, string>();
 		const toolCalls: ToolCallResult[] = [];
 
 		for (const step of result.steps) {
 			for (const tr of step.toolResults) {
 				resultByCallId.set(tr.toolCallId, tr.output);
+			}
+			for (const part of step.content) {
+				if (part.type === 'tool-error') {
+					errorByCallId.set(part.toolCallId, getErrorMessage(part.error) ?? 'Unknown error');
+				}
 			}
 			for (const tc of step.toolCalls) {
 				toolCalls.push({
@@ -152,6 +160,7 @@ Return a corrected DuckDB query, or set sql to null if the tables cannot answer 
 					toolCallId: tc.toolCallId,
 					args: tc.input as Record<string, unknown>,
 					result: resultByCallId.get(tc.toolCallId),
+					error: errorByCallId.get(tc.toolCallId),
 				});
 			}
 		}

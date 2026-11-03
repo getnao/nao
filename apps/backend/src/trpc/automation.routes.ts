@@ -1,3 +1,4 @@
+import { getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
 import { TRPCError } from '@trpc/server';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod/v4';
@@ -79,6 +80,12 @@ const integrationSchema = z
 			.object({
 				enabled: z.boolean().default(false),
 				channelId: z.string().trim().default(''),
+			})
+			.superRefine((slack, context) => {
+				const error = slack.enabled ? getSlackChannelsSaveError(parseSlackChannels(slack.channelId)) : null;
+				if (error) {
+					context.addIssue({ code: 'custom', path: ['channelId'], message: error });
+				}
 			})
 			.optional(),
 		github: z

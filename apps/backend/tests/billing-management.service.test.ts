@@ -194,13 +194,18 @@ describe('billing management organization loading', () => {
 	});
 
 	it('opens Team trial Checkout with explicit paid capacity below current occupancy', async () => {
+		const trialEndsAt = new Date('2099-10-08T00:00:00.000Z');
 		mocks.freeTierEnabled = true;
 		mocks.getMember.mockResolvedValue({ role: 'admin' });
 		mocks.getUser.mockResolvedValue({ id: 'user-id', email: 'admin@example.com' });
 		mocks.getOrganizationWithBilling.mockResolvedValue({
 			id: 'org-id',
 			name: 'Organization',
-			billing: null,
+			billing: {
+				billingStatus: 'trialing',
+				stripeSubscriptionId: null,
+				trialEndsAt,
+			},
 		});
 		mocks.createCustomer.mockResolvedValue({ id: 'cus_cloud' });
 		mocks.attachCustomer.mockResolvedValue({ stripeCustomerId: 'cus_cloud' });
@@ -222,7 +227,7 @@ describe('billing management organization loading', () => {
 			currency: 'usd',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
-			trialDays: 14,
+			trialEnd: trialEndsAt,
 		});
 	});
 
@@ -296,6 +301,21 @@ describe('billing management organization loading', () => {
 			stripeCustomerId: 'cus_cloud',
 			organizationIdHint: 'org-id',
 		});
+		expect(mocks.createCheckout).not.toHaveBeenCalled();
+	});
+
+	it('requires project setup to start the trial before initial Checkout', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue({
+			id: 'org-id',
+			name: 'Organization',
+			billing: null,
+		});
+
+		await expect(
+			createCloudTrialCheckoutForAdmin({ ...adminInput, billingInterval: 'monthly', currency: 'usd' }),
+		).rejects.toThrow('Finish setting up your first project');
+
+		expect(mocks.createCustomer).not.toHaveBeenCalled();
 		expect(mocks.createCheckout).not.toHaveBeenCalled();
 	});
 

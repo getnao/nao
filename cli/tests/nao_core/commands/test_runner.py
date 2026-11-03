@@ -226,6 +226,35 @@ def test_client_omits_sql_when_the_test_case_is_assertion_only(monkeypatch):
     assert "sql" not in payload
 
 
+def test_client_authenticates_with_the_api_key_without_logging_in(monkeypatch):
+    client_module = importlib.import_module("nao_core.commands.test.client")
+    get_auth_session = Mock()
+    monkeypatch.setattr(client_module, "get_auth_session", get_auth_session)
+    client = AgentClient(backend_url="http://backend", api_key="nao_secret", project_name="shop")
+
+    session, _ = client._get_session()
+
+    get_auth_session.assert_not_called()
+    assert session.headers["Authorization"] == "Bearer nao_secret"
+    assert session.headers["x-nao-project-name"] == "shop"
+
+
+def test_client_does_not_retry_login_when_the_api_key_is_rejected(monkeypatch):
+    client_module = importlib.import_module("nao_core.commands.test.client")
+    interactive_login = Mock()
+    monkeypatch.setattr(client_module, "interactive_login", interactive_login)
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
+    client = AgentClient(backend_url="http://backend", api_key="nao_revoked")
+    session = Mock()
+    session.post.return_value = Mock(status_code=401)
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    with pytest.raises(AgentClientError, match="Invalid API key"):
+        client.run_test(test_case)
+
+    interactive_login.assert_not_called()
+
+
 def test_run_test_passes_configured_costs_to_client(monkeypatch):
     test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
     model = ModelConfig(provider="openai", model_id="custom-model")

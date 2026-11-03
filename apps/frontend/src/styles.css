@@ -81,6 +81,11 @@ body {
 	@apply m-0 h-full overflow-hidden;
 }
 
+/* Safari clips icon strokes that touch the viewBox edge when the icon lands on a fractional pixel. */
+svg.lucide {
+	overflow: visible;
+}
+
 html.nao-embed {
 	color-scheme: light;
 	background-color: var(--panel);

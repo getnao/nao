@@ -1,10 +1,10 @@
 import { pluralize } from '@nao/shared';
-import type { readQueryResult } from '@nao/shared/tools';
+import type { pageQueryResult } from '@nao/shared/tools';
 
 import { Block, ListItem, Span, Title, TitledList } from '../../lib/markdown';
 import { QueryRows } from './query-rows';
 
-export const ReadQueryResultOutput = ({ output }: { output: readQueryResult.Output }) => {
+export const PageQueryResultOutput = ({ output }: { output: pageQueryResult.Output }) => {
 	const { id, columns, data, row_count, offset } = output;
 
 	if (row_count === 0) {
@@ -43,7 +43,7 @@ export const ReadQueryResultOutput = ({ output }: { output: readQueryResult.Outp
 
 			{remaining > 0 && (
 				<Span>
-					...({remaining} more — call read_query_result again with offset {end} to see more)
+					...({remaining} more — call page_query_result again with offset {end} to see more)
 				</Span>
 			)}
 		</Block>

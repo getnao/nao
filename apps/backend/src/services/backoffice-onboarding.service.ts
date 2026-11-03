@@ -2,7 +2,12 @@
 
 import * as onboardingQueries from '../queries/backoffice-onboarding.queries';
 import * as userQueries from '../queries/backoffice-user.queries';
-import type { OnboardingEvent, OnboardingSummary } from '../types/onboarding-funnel';
+import type {
+	OnboardingEvent,
+	OnboardingSetupFailure,
+	OnboardingSetupTrace,
+	OnboardingSummary,
+} from '../types/onboarding-funnel';
 import { HandlerError } from '../utils/error';
 import {
 	agentErrorEvent,
@@ -29,8 +34,18 @@ export async function getUserOnboarding(userId: string) {
 	if (!user) {
 		throw new HandlerError('NOT_FOUND', 'User not found');
 	}
-	const events = (await loadOnboardingEvents(userId)).get(userId) ?? [];
-	return { summary: summarizeOnboarding(userId, events), events: sortEvents(events) };
+	const [eventsByUser, setups] = await Promise.all([loadOnboardingEvents(userId), loadSetupTraces(userId)]);
+	const events = eventsByUser.get(userId) ?? [];
+	return { summary: summarizeOnboarding(userId, events), events: sortEvents(events), setups };
+}
+
+export async function listRecentSetupFailures(limit: number): Promise<{ items: OnboardingSetupFailure[] }> {
+	return { items: await onboardingQueries.listRecentSetupFailures(limit) };
+}
+
+async function loadSetupTraces(userId: string): Promise<OnboardingSetupTrace[]> {
+	const setups = await onboardingQueries.listProvisioningSetups(userId);
+	return setups.map((setup) => ({ ...setup, steps: setup.steps ?? [] }));
 }
 
 async function loadOnboardingEvents(userId?: string): Promise<EventsByUser> {

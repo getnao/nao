@@ -101,7 +101,10 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'onboarding_command',
 		'request_warehouse_credentials',
 		'request_warehouse_selection',
+		'wait_for_warehouse_setup',
+		'retry_warehouse_setup',
 		'generate_onboarding_rules',
+		'restart_onboarding',
 	],
 	detailed: [
 		'story',
@@ -116,11 +119,14 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'clarification',
 		'onboarding_agent_prompt',
 		'onboarding_command',
-		'execute_python',
+		'codemode',
 		'execute_sandboxed_code',
 		'request_warehouse_credentials',
 		'request_warehouse_selection',
+		'wait_for_warehouse_setup',
+		'retry_warehouse_setup',
 		'generate_onboarding_rules',
+		'restart_onboarding',
 	],
 };
 
@@ -410,7 +416,7 @@ const isSettledEmptyReasoning = (part: UIMessagePart): boolean => {
 	return isReasoningPart(part) && part.state !== 'streaming' && part.text.trim() === '';
 };
 
-/** The backend promotes the note Claude writes before `suggest_follow_ups` to the visible answer, which makes the note redundant. */
+/** Older messages repeat the note Claude wrote before `suggest_follow_ups` as the visible answer, which makes the note redundant. */
 const isProgressUpdateShownAsText = (part: UIMessagePart, next: UIMessagePart | undefined): boolean => {
 	return isProgressUpdatePart(part) && next?.type === 'text' && next.text.trim() === part.text.trim();
 };
@@ -707,8 +713,33 @@ export function parseBudgetError(error: Error | undefined): string | null {
 	return parseCodedError(error, 'BUDGET_EXCEEDED');
 }
 
-export function parseManagedCreditsError(error: Error | undefined): string | null {
-	return parseCodedError(error, 'MANAGED_CREDITS_EXHAUSTED');
+type ManagedCreditsError = {
+	message: string;
+	requiredBalanceMicroUsd: number;
+};
+
+export function parseManagedCreditsError(error: Error | undefined): ManagedCreditsError | null {
+	const message = parseCodedError(error, 'MANAGED_CREDITS_EXHAUSTED');
+	const payload = parseErrorPayload(error);
+	if (
+		!message ||
+		!payload ||
+		!Number.isSafeInteger(payload.requiredBalanceMicroUsd) ||
+		(payload.requiredBalanceMicroUsd as number) <= 0
+	) {
+		return null;
+	}
+	return {
+		message,
+		requiredBalanceMicroUsd: payload.requiredBalanceMicroUsd as number,
+	};
+}
+
+export function hasManagedCreditsForRequest(
+	balanceMicroUsd: number | undefined,
+	requiredBalanceMicroUsd: number,
+): boolean {
+	return balanceMicroUsd !== undefined && balanceMicroUsd >= requiredBalanceMicroUsd;
 }
 
 export type ChatAllowanceExhaustedScope = 'example' | 'onboarding';
@@ -723,13 +754,31 @@ export function parseChatAllowanceExhaustedError(error: Error | undefined): Chat
 	return null;
 }
 
+const ONBOARDING_COMPLETE_ERROR = 'Onboarding conversations are unavailable after project setup';
+
+export function isOnboardingCompleteError(error: Error | undefined): boolean {
+	return error?.message.includes(ONBOARDING_COMPLETE_ERROR) === true;
+}
+
 function parseCodedError(error: Error | undefined, code: string): string | null {
+	const parsed = parseErrorPayload(error);
+	if (!error || parsed?.code !== code) {
+		return null;
+	}
+	return typeof parsed.error === 'string'
+		? parsed.error
+		: typeof parsed.message === 'string'
+			? parsed.message
+			: error.message;
+}
+
+function parseErrorPayload(error: Error | undefined): Record<string, unknown> | null {
 	if (!error) {
 		return null;
 	}
 	try {
-		const parsed = JSON.parse(error.message);
-		return parsed.code === code ? (parsed.error ?? parsed.message ?? error.message) : null;
+		const parsed: unknown = JSON.parse(error.message);
+		return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
 	} catch {
 		return null;
 	}

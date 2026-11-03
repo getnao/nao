@@ -12,17 +12,21 @@ import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
 import type { CitationData, LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import {
+	type ContentPart,
 	convertToModelMessages,
 	createUIMessageStream,
 	FinishReason,
 	generateText,
 	InferUIMessageChunk,
 	ModelMessage,
+	type PrepareStepResult,
 	pruneMessages,
 	stepCountIs,
+	type StepResult,
 	type StopCondition,
 	StreamTextResult,
 	ToolLoopAgent,
+	type ToolSet,
 	UIMessageStreamWriter,
 } from 'ai';
 
@@ -90,6 +94,7 @@ import { listChartPlugins } from './chart-plugin';
 import { appendChatArtifacts, collapseStoryToolOutputs, safeGetChatArtifacts } from './chat-artifacts';
 import { assertProjectCloudBillingAccess, assertProjectUserCloudBillingAccess } from './cloud-billing-access.service';
 import { compactionService, RunCompaction } from './compaction';
+import { assertManagedAiCreditsAvailable } from './credit-wallet.service';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
@@ -128,6 +133,7 @@ export interface AgentRunResult {
 	steps: ReadonlyArray<{
 		toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: unknown }>;
 		toolResults: ReadonlyArray<{ toolCallId: string; output?: unknown }>;
+		content: ReadonlyArray<ContentPart<ToolSet>>;
 	}>;
 	/** All message parts (step-starts, tool calls, text) for persisting to the DB */
 	responseParts: UIMessagePart[];
@@ -265,9 +271,21 @@ async function assertModelBudget(projectId: string, model: LlmSelectedModel, use
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel, userId?: string): Promise<void> {
+	async assertRunAvailable(
+		projectId: string,
+		modelSelection?: LlmSelectedModel,
+		userId?: string,
+		unbilledManagedAiUsage = false,
+	): Promise<LlmSelectedModel> {
 		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
 		await assertModelBudget(projectId, resolved, userId);
+		if (resolved.provider === 'nao' && !unbilledManagedAiUsage) {
+			const orgId = (await projectQueries.getProjectById(projectId))?.orgId;
+			if (orgId) {
+				await assertManagedAiCreditsAvailable(orgId);
+			}
+		}
+		return resolved;
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
@@ -283,7 +301,7 @@ export class AgentService {
 			billingAccessVerifiedProjectId?: string;
 			/** Omits chat attribution when the run uses a transient, unpersisted chat. */
 			attributeUsageToChat?: boolean;
-			/** Skips the budget check when the caller already ran `assertBudget` for this request. */
+			/** Skips the budget check when the caller already ran `assertRunAvailable` for this request. */
 			isBudgetChecked?: boolean;
 			/** Records managed usage without charging an organization wallet. */
 			unbilledManagedAiUsage?: boolean;
@@ -452,7 +470,7 @@ export class AgentManager {
 				...args,
 				instructions: cachedSystemInstructions(this._systemPrompt, this._modelSelection),
 			}),
-			prepareStep: async ({ messages }) => this._prepareStep(messages),
+			prepareStep: async ({ messages, steps }) => this._prepareStep(messages, steps),
 			stopWhen: this._stopConditions,
 			experimental_context: this._toolContext,
 			experimental_telemetry: llmTelemetry('nao-agent', {
@@ -479,7 +497,10 @@ export class AgentManager {
 		return this._profile.maxSteps ? [stepCountIs(this._profile.maxSteps)] : interactiveStopConditions;
 	}
 
-	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
+	private async _prepareStep(
+		messages: ModelMessage[],
+		steps: StepResult<AgentTools>[],
+	): Promise<PrepareStepResult<AgentTools>> {
 		const workingMessages: ModelMessage[] =
 			this._systemPrompt && messages[0]?.role !== 'system'
 				? [{ role: 'system', content: this._systemPrompt }, ...messages]
@@ -509,7 +530,10 @@ export class AgentManager {
 		});
 
 		const conversationMessages = workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages;
-		return { messages: this._addCache(this._pruneMessages(conversationMessages)) };
+		return {
+			...this._profile.stepTools?.(steps),
+			messages: this._addCache(this._pruneMessages(conversationMessages)),
+		};
 	}
 
 	get generatedArtifacts(): ToolContext['generatedArtifacts'] {
@@ -664,7 +688,8 @@ export class AgentManager {
 		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithArtifacts);
 
 		const selectedSystemPrompt =
-			this._profile.systemPrompt?.({ timezone }) ?? (await this._buildProjectSystemPrompt(timezone, chatUrl));
+			(await this._profile.systemPrompt?.({ timezone, chat: this.chat })) ??
+			(await this._buildProjectSystemPrompt(timezone, chatUrl));
 		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 		this._systemPrompt = systemPrompt;
 		this._runCompaction = new RunCompaction(compactionService);
@@ -1092,7 +1117,7 @@ export class AgentManager {
 		return pruneMessages({
 			messages,
 			reasoning: 'before-last-message',
-			toolCalls: [{ tools: ['suggest_follow_ups'], type: 'all' }],
+			toolCalls: [{ tools: ['suggest_follow_ups'], type: 'before-last-message' }],
 			emptyMessages: 'remove',
 		});
 	}

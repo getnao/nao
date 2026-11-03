@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -439,6 +440,7 @@ class BigQueryConfig(DatabaseConfig):
 
     # Lazy cache: schema -> table_name -> TablePartitionMetadata
     _schema_metadata: dict[str, dict[str, TablePartitionMetadata]] = PrivateAttr(default_factory=dict)
+    _schema_metadata_locks: dict[str, threading.Lock] = PrivateAttr(default_factory=dict)
 
     @field_validator("credentials_json", mode="before")
     @classmethod
@@ -589,9 +591,14 @@ class BigQueryConfig(DatabaseConfig):
         )
 
     def _get_table_metadata(self, conn: BaseBackend, schema: str, table_name: str) -> TablePartitionMetadata | None:
-        """Return cached partition metadata for a table, fetching the full schema batch on first call."""
+        """Return cached partition metadata for a table, fetching the full schema batch on first call.
+
+        Tables may be synced from several threads, so the batch is fetched under a per-schema lock.
+        """
         if schema not in self._schema_metadata:
-            self._schema_metadata[schema] = _fetch_schema_partition_metadata(conn, self.project_id, schema)
+            with self._schema_metadata_locks.setdefault(schema, threading.Lock()):
+                if schema not in self._schema_metadata:
+                    self._schema_metadata[schema] = _fetch_schema_partition_metadata(conn, self.project_id, schema)
         return self._schema_metadata[schema].get(table_name)
 
     def _default_query_history_sql(self, days: int) -> str | None:

@@ -109,7 +109,7 @@ export const gitlabRoutes = {
 					});
 				}
 
-				return createNewProject({ sourceDir: cloneDir, projectName, orgId, actingUserId: ctx.user.id });
+				return createNewProject({ sourceDir: cloneDir, projectName, orgId });
 			} finally {
 				try {
 					fs.rmSync(cloneDir, { recursive: true, force: true });

@@ -17,6 +17,11 @@
 
 **Columns:** {{ result.columns | length }}
 
+{% if result.scope %}
+**Scope:** {{ result.scope.profiled_row_count }} rows matching `` {{ result.scope.partition_filter }} ``{% if result.scope.table_row_count is not none %} (out of {{ result.scope.table_row_count }} in the full table){% endif %}
+
+
+{% endif %}
 {% if result.clustering_columns %}
 **Clustering:** {% for c in result.clustering_columns %}`{{ c }}`{% if not loop.last %}, {% endif %}{% endfor %}
 

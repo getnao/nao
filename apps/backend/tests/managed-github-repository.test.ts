@@ -6,9 +6,14 @@ const mocks = vi.hoisted(() => ({
 	execFileSync: vi.fn(),
 	createPrivateKey: vi.fn(),
 	sign: vi.fn(),
+	logger: { info: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock('../src/env', () => ({ env: mocks.env }));
+vi.mock('../src/utils/logger', () => ({
+	logger: mocks.logger,
+	describeError: (error: unknown) => (error instanceof Error ? error.message : String(error)),
+}));
 vi.mock('node:child_process', () => ({
 	execFile: mocks.execFile,
 	execFileSync: mocks.execFileSync,
@@ -39,7 +44,9 @@ vi.mock('jose', () => ({
 import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
+	ManagedGithubConfigurationError,
 	provisionManagedGithubRepository,
+	reportManagedGithubConfiguration,
 } from '../src/services/managed-github-repository';
 
 type GitExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
@@ -137,6 +144,85 @@ describe('managed GitHub repository provisioning', () => {
 			'https://api.github.com/app/installations/456/access_tokens',
 			expect.objectContaining({ signal: expect.anything() }),
 		);
+	});
+
+	it('explains why GitHub rejected the app credentials', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(401, { message: 'A JSON web token could not be decoded' }));
+
+		const publishing = provisionManagedGithubRepository(project);
+
+		await expect(publishing).rejects.toThrow(ManagedGithubConfigurationError);
+		await expect(publishing).rejects.toThrow(
+			'Failed to create installation token: GitHub returned 401 (A JSON web token could not be decoded)',
+		);
+	});
+
+	it('blames the configuration for a private key that cannot sign the app token', async () => {
+		mocks.createPrivateKey.mockImplementation(() => {
+			throw new Error('error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE');
+		});
+
+		const publishing = provisionManagedGithubRepository(project);
+
+		await expect(publishing).rejects.toThrow(ManagedGithubConfigurationError);
+		await expect(publishing).rejects.toThrow(
+			'Failed to sign a GitHub App token with the configured private key: error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE',
+		);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('does not blame the configuration for a GitHub outage', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(new Response('Bad gateway', { status: 502 }));
+
+		const publishing = provisionManagedGithubRepository(project);
+
+		await expect(publishing).rejects.toThrow('Failed to create installation token: GitHub returned 502');
+		await expect(publishing).rejects.not.toThrow(ManagedGithubConfigurationError);
+	});
+
+	it('reports at startup that publishing is configured', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { account: { login: 'Nao-Org' } }));
+
+		await reportManagedGithubConfiguration();
+
+		expect(fetch).toHaveBeenCalledWith('https://api.github.com/app/installations/456', expect.any(Object));
+		expect(mocks.logger.info).toHaveBeenCalledWith('Managed GitHub publishing is configured for nao-org', {
+			source: 'system',
+		});
+		expect(mocks.logger.error).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{
+			case: 'GitHub rejects the app credentials',
+			response: jsonResponse(401, { message: 'A JSON web token could not be decoded' }),
+			reason: 'Failed to get the GitHub App installation: GitHub returned 401 (A JSON web token could not be decoded)',
+		},
+		{
+			case: 'the installation belongs to another organization',
+			response: jsonResponse(200, { account: { login: 'another-org' } }),
+			reason: 'GitHub App installation 456 is on another-org, not on nao-org',
+		},
+	])('reports at startup that publishing is misconfigured when $case', async ({ response, reason }) => {
+		vi.mocked(fetch).mockResolvedValueOnce(response);
+
+		await reportManagedGithubConfiguration();
+
+		expect(mocks.logger.error).toHaveBeenCalledWith(`Managed GitHub publishing is misconfigured: ${reason}`, {
+			source: 'system',
+		});
+	});
+
+	it('reports nothing at startup when managed GitHub is not configured', async () => {
+		for (const key of Object.keys(mocks.env)) {
+			delete mocks.env[key];
+		}
+
+		await reportManagedGithubConfiguration();
+
+		expect(fetch).not.toHaveBeenCalled();
+		expect(mocks.logger.info).not.toHaveBeenCalled();
+		expect(mocks.logger.error).not.toHaveBeenCalled();
 	});
 
 	it('reuses an existing repository and pushes without exposing the token in Git arguments', async () => {
