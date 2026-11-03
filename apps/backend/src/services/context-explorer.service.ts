@@ -93,19 +93,19 @@ export async function readFileContent(
 			guidance: guidanceForReason('no-repo'),
 		};
 	}
-	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const repo = availableRepo(access.git);
 	const trackedPaths = repo
 		? getCommittedProjectPaths(repo)
 		: access.managedRepository
 			? getLiveCommittedPaths(access.projectFolder)
 			: new Set<string>();
-	const worktreePath = repo ? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath : null;
-	const readPath =
-		worktreePath && (trackedPaths.has(normalizeProjectPath(filePath)) || fsSync.existsSync(worktreePath))
-			? worktreePath
-			: livePath;
-	const editability = getFileEditability(filePath, livePath, access, repo, trackedPaths);
+	const worktreeRoot = repo ? getWorktreeProjectRoot(repo) : null;
+	const projectPath = normalizeProjectPath(filePath);
+	const readsWorktree =
+		worktreeRoot !== null &&
+		(trackedPaths.has(projectPath) || fsSync.existsSync(path.join(worktreeRoot, projectPath)));
+	const readPath = resolveAndValidatePath(filePath, readsWorktree ? worktreeRoot : access.projectFolder).realPath;
+	const editability = getFileEditability(filePath, readPath, access, repo, trackedPaths);
 	const contentBuffer = await readValidatedFile(readPath, filePath);
 	return {
 		content: decodeTextContent(contentBuffer),
