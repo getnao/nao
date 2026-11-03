@@ -158,7 +158,7 @@ describe('custom stories through MCP without a chat', () => {
 		expect(mocks.publishCustomStoryDraft).not.toHaveBeenCalled();
 	});
 
-	it('only replaces the published rows once the update builds', async () => {
+	it('saves the rows of an update at once, so a retry after a failed build keeps them', async () => {
 		const published = { columns: ['value'], data: [{ value: 'published' }] };
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue({ queryData: { query_ask: published } });
 		mocks.publishCustomStoryDraft.mockResolvedValue({ ok: false, buildErrors: ['broken'], files: [] });
@@ -171,7 +171,7 @@ describe('custom stories through MCP without a chat', () => {
 
 		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledTimes(1);
 		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('story-id', {
-			query_ask: published,
+			query_ask: rows(),
 			query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
 		});
 	});

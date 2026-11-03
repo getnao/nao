@@ -130,10 +130,9 @@ export async function updateCustomStoryForMcp(
 		await storyQueries.renameStory(story.id, input.title);
 	}
 	if (!story.chatId) {
-		await saveStandaloneQueryData(story.id, input.queryData, ctx, { keepSavedRows: true });
+		await saveStandaloneQueryData(story.id, input.queryData, ctx);
 	}
-	const publishedQueryData = story.chatId ? undefined : input.queryData;
-	return publishResult({ ...story, title: input.title ?? story.title }, ctx, publishedQueryData);
+	return publishResult({ ...story, title: input.title ?? story.title }, ctx);
 }
 
 export async function getCustomStoryForMcp(storyId: string, ctx: McpContext): Promise<ToolResult | null> {
@@ -164,16 +163,9 @@ export async function resolveCustomStory(storyId: string, ctx: McpContext): Prom
 	return storyProjectId === ctx.projectId && story.userId === ctx.userId ? story : null;
 }
 
-async function publishResult(
-	story: DBStory,
-	ctx: McpContext,
-	publishedQueryData?: StoryQueryDataMap,
-): Promise<ToolResult> {
+async function publishResult(story: DBStory, ctx: McpContext): Promise<ToolResult> {
 	const result = await publishCustomStoryDraft(story, ctx, 'user');
 	if (result.ok) {
-		if (publishedQueryData) {
-			await saveStandaloneQueryData(story.id, publishedQueryData, ctx);
-		}
 		return buildCustomStoryToolResult({ ...storyLinks(story), version: result.version });
 	}
 	const latest = await storyQueries.getLatestVersionByStoryId(story.id);
@@ -193,20 +185,20 @@ async function draftResult(story: DBStory): Promise<ToolResult> {
 	});
 }
 
-/** A standalone story has no chat to run its queries in, so the rows its draft references are saved with it. */
+/**
+ * A standalone story has no chat to run its queries in, so the rows its draft references are saved with it at once:
+ * like any story data, they are shared by its draft and its published versions.
+ */
 async function saveStandaloneQueryData(
 	storyId: string,
 	queryData: StoryQueryDataMap | undefined,
 	ctx: McpContext,
-	options: { keepSavedRows?: boolean } = {},
 ): Promise<void> {
 	const [draft, cache] = await Promise.all([
 		storyFileQueries.listDraftFiles(storyId),
 		storyQueries.getStoryDataCacheByStoryId(storyId),
 	]);
-	const saved = (cache?.queryData as StoryQueryDataMap | undefined) ?? {};
-	const supplied = queryData ?? {};
-	const seeded = options.keepSavedRows ? { ...supplied, ...saved } : { ...saved, ...supplied };
+	const seeded = { ...((cache?.queryData as StoryQueryDataMap | undefined) ?? {}), ...(queryData ?? {}) };
 	const resolved = await backfillMissingQueryDataByIds(
 		extractCustomStoryQueryIds(draft),
 		Object.keys(seeded).length > 0 ? seeded : null,

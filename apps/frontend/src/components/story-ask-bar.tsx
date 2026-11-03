@@ -39,6 +39,7 @@ export function StoryAskBar({
 		const { chatId, hasAttachedStoryChat } = await askMutation.mutateAsync({ storyId });
 		if (hasAttachedStoryChat) {
 			handOverQuestion(storyId, { chatId });
+			void queryClient.invalidateQueries({ queryKey: trpc.story.resolve.queryKey({ storyId }) });
 		}
 		return chatId;
 	};
