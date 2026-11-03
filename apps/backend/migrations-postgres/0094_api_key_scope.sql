@@ -1,1 +1,1 @@
-ALTER TABLE "api_key" ADD COLUMN "scope" text DEFAULT 'deploy' NOT NULL;
+ALTER TABLE "api_key" ADD COLUMN IF NOT EXISTS "scope" text DEFAULT 'deploy' NOT NULL;
