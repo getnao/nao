@@ -610,7 +610,7 @@ export async function listOwnedStoryTitlesStartingWith(
 					and(eq(s.chat.userId, userId), eq(s.chat.projectId, projectId)),
 					and(isNull(s.story.chatId), eq(s.story.userId, userId), eq(s.story.projectId, projectId)),
 				),
-				sql`substr(${s.story.title}, 1, ${prefix.length}) = ${prefix}`,
+				sql`substr(${s.story.title}, 1, ${[...prefix].length}) = ${prefix}`,
 			),
 		)
 		.execute();

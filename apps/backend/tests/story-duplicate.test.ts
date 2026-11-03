@@ -176,6 +176,14 @@ describe('duplicateStory', () => {
 		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('copy-id', { query_a: rows('live') }, null);
 	});
 
+	it('deletes the copy when its snapshot cannot be saved', async () => {
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({ queryData: { query_a: rows('cached') } });
+		mocks.upsertStoryDataCacheByStoryId.mockRejectedValueOnce(new Error('disk full'));
+
+		await expect(duplicateStory({ storyId: 'story-id' }, OWNER)).rejects.toThrow('disk full');
+		expect(mocks.deleteStory).toHaveBeenCalledWith('copy-id');
+	});
+
 	it('keeps the copy next to the original when it sits in a private folder of the user', async () => {
 		mocks.getStoryFolderItem.mockResolvedValue({ folderId: 'folder-id' });
 		mocks.getFolderById.mockResolvedValue({

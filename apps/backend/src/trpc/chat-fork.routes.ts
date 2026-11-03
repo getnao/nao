@@ -150,7 +150,7 @@ export const chatForkRoutes = {
 			return { chatId: chat.id, hasAttachedStoryChat };
 		}),
 
-	duplicateStory: resolvedStoryForkProcedure
+	duplicateStory: storyForkProcedure
 		.input(z.object({ versionNumber: z.number().int().positive().optional() }))
 		.mutation(async ({ ctx, input }): Promise<{ storyId: string; title: string }> => {
 			const { story, projectId, user } = ctx;

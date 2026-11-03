@@ -49,7 +49,7 @@ import {
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
 import { themeFontStylesheets } from '../utils/story-headless-page';
-import { withKpiPreviewData } from '../utils/story-query-data';
+import { pickQueryData, type StoryQueryDataMap, withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -380,16 +380,14 @@ export const sharedStoryRoutes = {
 		.input(z.object({ storyId: z.string(), versionNumber: z.number().int().positive() }))
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-			}
-
-			const version = await storyQueries.getVersionByNumber(shared.chatId, shared.slug, input.versionNumber);
+			const version = await storyQueries.getVersionByStoryIdAndNumber(shared.storyId, input.versionNumber);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const queryData = await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code);
+			const queryData = shared.chatId
+				? await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code)
+				: (await getStandaloneStoryQueryData(shared.storyId, version.code)).queryData;
 			return { queryData };
 		}),
 
@@ -673,10 +671,13 @@ export const sharedStoryRoutes = {
 		}),
 };
 
-/** A standalone story has no chat to run its queries in: it shows the rows saved in its data cache. */
+/** A standalone story has no chat to run its queries in: it shows the rows saved for the queries its code uses. */
 async function getStandaloneStoryQueryData(storyId: string, code: string) {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
-	return { queryData: cache?.queryData ?? null, cachedAt: cache?.cachedAt ?? null, code, needsRefresh: false };
+	const queryData = cache?.queryData
+		? pickQueryData(cache.queryData as StoryQueryDataMap, extractQueryIds(code))
+		: null;
+	return { queryData, cachedAt: cache?.cachedAt ?? null, code, needsRefresh: false };
 }
 
 async function canUserAccessShare(

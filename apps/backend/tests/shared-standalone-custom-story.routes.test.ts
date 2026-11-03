@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
 	getCustomStoryStateByStoryId: vi.fn(),
 	setCustomStoryState: vi.fn(),
 	setCustomStoryStateByStoryId: vi.fn(),
+	getStoryDataCacheByStoryId: vi.fn(),
+	getVersionByStoryIdAndNumber: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
@@ -26,7 +28,10 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
 	canUserAccessSharedStory: mocks.canUserAccessSharedStory,
 }));
-vi.mock('../src/queries/story.queries', () => ({}));
+vi.mock('../src/queries/story.queries', () => ({
+	getStoryDataCacheByStoryId: mocks.getStoryDataCacheByStoryId,
+	getVersionByStoryIdAndNumber: mocks.getVersionByStoryIdAndNumber,
+}));
 vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../src/services/custom-story', () => ({
@@ -51,6 +56,27 @@ import { router } from '../src/trpc/trpc';
 
 const testRouter = router({ storyShare: sharedStoryRoutes });
 const STORY_INPUT = { storyId: 'story-1' };
+
+describe('storyShare standalone classic story', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockShare({ chatId: null, format: 'classic' });
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.canUserAccessSharedStory.mockResolvedValue(true);
+		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
+			queryData: { q_shown: rows('shown'), q_hidden: rows('hidden') },
+		});
+	});
+
+	it('serves an older version from the saved rows its code uses, never the others', async () => {
+		mocks.getVersionByStoryIdAndNumber.mockResolvedValue({ code: '<table query_id="q_shown" />' });
+
+		await expect(
+			createCaller().storyShare.getVersionQueryData({ ...STORY_INPUT, versionNumber: 1 }),
+		).resolves.toEqual({ queryData: { q_shown: rows('shown') } });
+		expect(mocks.getVersionByStoryIdAndNumber).toHaveBeenCalledWith('story-1', 1);
+	});
+});
 
 describe('storyShare custom story readers', () => {
 	beforeEach(() => {
@@ -110,7 +136,7 @@ describe('storyShare custom story readers', () => {
 	});
 });
 
-function mockShare({ chatId }: { chatId: string | null }) {
+function mockShare({ chatId, format = 'custom' }: { chatId: string | null; format?: string }) {
 	mocks.getSharedStoryByStoryId.mockResolvedValue({
 		id: 'share-1',
 		projectId: 'project-1',
@@ -119,9 +145,13 @@ function mockShare({ chatId }: { chatId: string | null }) {
 		storyId: 'story-1',
 		chatId,
 		slug: 'revenue',
-		format: 'custom',
+		format,
 		code: '',
 	});
+}
+
+function rows(value: string) {
+	return { columns: ['value'], data: [{ value }] };
 }
 
 function createCaller() {

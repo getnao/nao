@@ -59,7 +59,7 @@ export class CustomStoryFileNotFoundError extends Error {
 
 export class CustomStoryQueryNotFoundError extends Error {
 	constructor(queryId: string) {
-		super(`Query ${queryId} was not found in this chat.`);
+		super(`Query ${queryId} was not found.`);
 	}
 }
 

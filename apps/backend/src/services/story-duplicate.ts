@@ -89,7 +89,12 @@ async function copyClassicStory(source: DBStory, version: DBStoryVersion, copy: 
 	if (!created) {
 		throw new StoryDuplicateError('A story with the same name was just created. Try again.');
 	}
-	await saveSnapshot(created.id, snapshot);
+	try {
+		await saveSnapshot(created.id, snapshot);
+	} catch (error) {
+		await storyQueries.deleteStory(created.id);
+		throw error;
+	}
 	return created.id;
 }
 
