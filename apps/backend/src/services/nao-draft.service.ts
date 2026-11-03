@@ -76,6 +76,7 @@ export async function readNaoDraft(owner: DraftOwner, projectFolder: string): Pr
 		context: {
 			storage: 'nao',
 			branch: null,
+			productionBranch: null,
 			productionCommit: null,
 			changes: testedFiles.map(toContextChange),
 			excludedChanges: files.filter((file) => isProductionOnly(file.path)).map(toContextChange),

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import type { AgentRunResult } from '../src/services/agent';
-import { TestAgentService } from '../src/services/test-agent.service';
+import { findSourceQueries, TestAgentService } from '../src/services/test-agent.service';
 import { buildVerificationMessages } from '../src/services/test-agent-verification';
 import type { QueryResult } from '../src/types/tools';
 
@@ -236,3 +236,17 @@ async function captureBedrockBody(messages: ModelMessage[]): Promise<unknown[]> 
 	});
 	return bodies;
 }
+
+describe('findSourceQueries', () => {
+	it('keeps the queries whose result tables the verification SQL names, with their SQL', () => {
+		const results = new Map<string, QueryResult>([
+			['query_1a', { columns: ['month'], data: [], sqlQuery: 'SELECT month FROM orders' }],
+			['query_1ab', { columns: ['month'], data: [], sqlQuery: 'SELECT month FROM refunds' }],
+			['query_2b', { columns: ['total'], data: [] }],
+		]);
+
+		expect(findSourceQueries('SELECT month FROM query_1a JOIN query_2b USING (month)', results)).toEqual([
+			{ id: 'query_1a', sql: 'SELECT month FROM orders' },
+		]);
+	});
+});

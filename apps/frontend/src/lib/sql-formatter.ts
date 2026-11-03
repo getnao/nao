@@ -8,6 +8,24 @@ const dialectMap: Record<string, string> = {
 	postgres: 'postgresql',
 };
 
+/** Dialects tried in turn when the warehouse of a query is unknown, the permissive ones first. */
+const FALLBACK_DIALECTS = ['postgresql', 'duckdb', 'snowflake', 'bigquery', 'sql'] as const;
+
+/**
+ * Formats SQL with the first dialect that parses it, so that two queries written for an unknown warehouse come out
+ * laid out the same way and can be compared line by line.
+ */
+export function formatSQLInAnyDialect(sql: string): string {
+	for (const dialect of FALLBACK_DIALECTS) {
+		try {
+			return format(sql, { language: dialect, keywordCase: 'upper', indentStyle: 'standard', tabWidth: 2 });
+		} catch {
+			continue;
+		}
+	}
+	return sql;
+}
+
 export function formatSQL(sql: string, dialect: string = 'sql'): string {
 	try {
 		// Normalize to lowercase for case-insensitive lookup

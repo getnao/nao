@@ -52,6 +52,7 @@ vi.mock('../src/services/draft-context.service', () => ({
 import type { DraftSource } from '../src/services/draft-context.service';
 import {
 	cancelTestRun,
+	startChangesRun,
 	startComparisonRun,
 	startTestRun,
 	TestRunConflictError,
@@ -283,6 +284,7 @@ describe('startComparisonRun', () => {
 		mocks.createDraftContextSnapshot.mockReturnValue({
 			folder: draftFolder,
 			branch: 'improve-revenue',
+			productionBranch: 'main',
 			productionCommit: 'abc123',
 			changes: [{ path: 'RULES.md', kind: 'modified' }],
 			excludedChanges: [],
@@ -360,6 +362,23 @@ describe('startComparisonRun', () => {
 		});
 	});
 
+	it('runs the given tests against the draft only when not comparing', async () => {
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+
+		const run = await startChangesRun({ projectId: 'project-1', userId: 'user-1', draft: gitDraft() });
+		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
+
+		expect(run.totalAttempts).toBe(1);
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(
+			expect.objectContaining({ trigger: 'changes', contextChanges: [{ path: 'RULES.md', kind: 'modified' }] }),
+		);
+		const contextFolders = mocks.runTestInChat.mock.calls.map(([, , , options]) => options.contextFolder);
+		expect(contextFolders).toEqual([draftFolder]);
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
+			expect.objectContaining({ testPath: 'revenue.yml', contextVariant: 'draft' }),
+		);
+	});
+
 	it('rejects a draft without changes and removes its snapshot', async () => {
 		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
 		mocks.createDraftContextSnapshot.mockReturnValue({
@@ -433,6 +452,7 @@ function gitDraft(): DraftSource {
 		context: {
 			storage: 'git',
 			branch: 'improve-revenue',
+			productionBranch: 'main',
 			productionCommit: 'abc123',
 			changes: [{ path: 'RULES.md', kind: 'modified' }],
 			excludedChanges: [],

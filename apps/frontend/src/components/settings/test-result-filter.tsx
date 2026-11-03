@@ -47,14 +47,19 @@ export function TestResultFilterPills({
 					aria-checked={filter === option.id}
 					onClick={() => onChange(option.id)}
 					className={cn(
-						'flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-0.5 transition-colors',
+						'flex cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2.5 transition-colors',
 						filter === option.id
 							? 'bg-accent text-foreground'
 							: 'text-muted-foreground hover:text-foreground',
 					)}
 				>
 					{option.label}
-					<span className={cn('rounded px-1 font-medium tabular-nums', option.countClassName)}>
+					<span
+						className={cn(
+							'min-w-5 rounded px-1.5 text-center font-medium tabular-nums',
+							option.countClassName,
+						)}
+					>
 						{outcomes.filter((outcome) => matchesResultFilter(outcome, option.id)).length}
 					</span>
 				</button>

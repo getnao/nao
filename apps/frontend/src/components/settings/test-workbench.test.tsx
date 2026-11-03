@@ -5,11 +5,12 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TestWorkbench } from './test-workbench';
-import type { DraftContext, TestHistoryRun, TestRunResult } from './test-run-types';
+import type { DraftContext, TestDataDiff, TestHistoryRun, TestRunResult } from './test-run-types';
 import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
+import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-const mocks = vi.hoisted(() => ({ getTestHistory: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getTestHistory: vi.fn(), listTests: vi.fn(), startRun: vi.fn() }));
 
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({ children }: { children: React.ReactNode }) => <a href='/settings/usage'>{children}</a>,
@@ -18,6 +19,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('@/main', () => ({
 	trpc: {
 		testRun: {
+			listTests: { queryOptions: () => ({ queryKey: ['tests'], queryFn: mocks.listTests }) },
 			getTestHistory: {
 				queryOptions: (input: { path: string }) => ({
 					queryKey: ['test-history', input.path],
@@ -25,9 +27,21 @@ vi.mock('@/main', () => ({
 				}),
 				queryKey: (input: { path: string }) => ['test-history', input.path],
 			},
+			startRun: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.startRun }) },
+			startDraftRun: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.startRun }) },
+			startComparisonRun: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.startRun }) },
+			startChangesRun: { mutationOptions: (options: object) => ({ ...options, mutationFn: mocks.startRun }) },
 		},
 	},
 }));
+
+const RUN_SETTINGS = {
+	models: [{ provider: 'openai', modelId: 'gpt-4.1' }],
+	attempts: 1,
+	isCustom: false,
+	update: vi.fn(),
+	reset: vi.fn(),
+} as unknown as TestRunSettings;
 
 const TEST_FILE = { path: '/tests/revenue.yml', content: 'name: revenue\nprompt: What is the revenue?' };
 
@@ -35,6 +49,7 @@ describe('TestWorkbench', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getTestHistory.mockResolvedValue([]);
+		mocks.listTests.mockResolvedValue({ tests: [testDefinition('hash-1')], invalidFiles: [] });
 	});
 
 	afterEach(cleanup);
@@ -88,23 +103,35 @@ describe('TestWorkbench', () => {
 		expect(screen.getByText(/gpt-4\.1 · 1\.2s/)).toBeTruthy();
 	});
 
-	it('says in words what the latest comparison found and shows the data of each side', async () => {
+	it('says in words what the latest comparison found and diffs the data of both branches', async () => {
 		mocks.getTestHistory.mockResolvedValue([
 			comparisonRun([
 				result({ id: 'production-1', contextVariant: 'production', passed: true, actualTotal: 100 }),
-				result({ id: 'draft-1', contextVariant: 'draft', passed: false, actualTotal: 90 }),
+				{
+					...result({ id: 'draft-1', contextVariant: 'draft', passed: false, actualTotal: 90 }),
+					variantDiff: totalDiff(100, 90),
+				},
 			]),
 		]);
 		renderWorkbench(draftWith(['RULES.md']));
 
-		expect(await screen.findAllByText('Broken by your changes')).toHaveLength(2);
-		expect(screen.getByText('90')).toBeTruthy();
-		expect(screen.getByText('1 different')).toBeTruthy();
+		expect(await screen.findByText('Broken by your changes')).toBeTruthy();
+		expect(within(screen.getByRole('option')).getByText('regressed')).toBeTruthy();
+		expect(screen.queryByRole('radiogroup', { name: 'Context' })).toBeNull();
+		expect(screen.getByTitle('Changed: main struck out, then improve-revenue')).toBeTruthy();
+		expect(screen.getByText('100').closest('td')?.textContent).toBe('10090');
+	});
 
-		fireEvent.click(screen.getByRole('radio', { name: /Production/ }));
+	it('invites to compare a test that never ran with the main branch', async () => {
+		mocks.startRun.mockResolvedValue({ id: 'run-new' });
+		const onRunStarted = vi.fn();
+		renderWorkbench(draftWith(['RULES.md']), { onRunStarted });
 
-		expect(screen.getByText('100')).toBeTruthy();
-		expect(screen.getByText('1 matching')).toBeTruthy();
+		const compare = await screen.findByRole('button', { name: 'Compare with main' });
+		fireEvent.click(compare);
+
+		await vi.waitFor(() => expect(onRunStarted).toHaveBeenCalled());
+		expect(mocks.startRun.mock.calls[0][0]).toMatchObject({ testFile: TEST_FILE, attempts: 1 });
 	});
 
 	it('stops showing the variants as loading once the run is cancelled', async () => {
@@ -123,8 +150,9 @@ describe('TestWorkbench', () => {
 		]);
 		renderWorkbench(draftWith(['RULES.md']));
 
-		expect(await screen.findAllByText('Run cancelled')).toHaveLength(2);
-		expect(screen.getByRole('radio', { name: /Production/ })).toBeTruthy();
+		expect(await screen.findByText('Run cancelled')).toBeTruthy();
+		expect(screen.getByRole('option').textContent).toBe('revenuevsmain');
+		expect(screen.getAllByText('improve-revenue').length).toBeGreaterThan(0);
 		expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull();
 	});
 
@@ -141,6 +169,7 @@ describe('TestWorkbench', () => {
 		});
 
 		expect(await screen.findByText('Ran an older version of this test')).toBeTruthy();
+		expect(within(screen.getByRole('option')).getByText('older version')).toBeTruthy();
 	});
 });
 
@@ -149,10 +178,12 @@ function renderWorkbench(
 	{
 		selectedRunId = null,
 		onSelectRun = vi.fn(),
+		onRunStarted = vi.fn(),
 		validation = { validation: { test: testDefinition('hash-1'), error: null }, error: undefined },
 	}: {
 		selectedRunId?: string | null;
 		onSelectRun?: () => void;
+		onRunStarted?: () => void;
 		validation?: TestFileValidationState;
 	} = {},
 ) {
@@ -168,6 +199,9 @@ function renderWorkbench(
 					draft={draft}
 					selectedRunId={selectedRunId}
 					onSelectRun={onSelectRun}
+					runSettings={RUN_SETTINGS}
+					activeRun={undefined}
+					onRunStarted={onRunStarted}
 				/>
 			</TooltipProvider>
 		</QueryClientProvider>,
@@ -207,6 +241,7 @@ function comparisonRun(results: TestRunResult[]): TestHistoryRun {
 		projectId: 'project-1',
 		trigger: 'comparison',
 		status: 'completed',
+		selection: ['revenue.yml'],
 		createdAt: new Date().toISOString(),
 		models: [{ provider: 'openai', modelId: 'gpt-4.1' }],
 		attempts: 1,
@@ -215,6 +250,14 @@ function comparisonRun(results: TestRunResult[]): TestHistoryRun {
 		totalAttempts: results.length,
 		errorMessage: null,
 		results,
+		testTotals: ['draft', 'production']
+			.map((variant) => results.filter((entry) => entry.contextVariant === variant))
+			.filter((variantResults) => variantResults.length > 0)
+			.map((variantResults) => ({
+				contextVariant: variantResults[0].contextVariant,
+				...countTestAttempts(variantResults),
+				models: [],
+			})),
 		comparison: {
 			testPath: 'revenue.yml',
 			testName: 'revenue',
@@ -223,6 +266,17 @@ function comparisonRun(results: TestRunResult[]): TestHistoryRun {
 			change: 'regressed',
 		},
 	} as unknown as TestHistoryRun;
+}
+
+function countTestAttempts(results: TestRunResult[]) {
+	const passedAttempts = results.filter((entry) => entry.passed).length;
+	return {
+		testCount: 1,
+		passedTests: passedAttempts === results.length ? 1 : 0,
+		flakyTests: passedAttempts > 0 && passedAttempts < results.length ? 1 : 0,
+		passedAttempts,
+		totalAttempts: results.length,
+	};
 }
 
 function result({
@@ -264,20 +318,19 @@ function result({
 			referenceSql: 'select 100 as total',
 			verificationSql: 'select sum(amount) as total from orders',
 		},
-		dataDiff: {
-			columns: ['total'],
-			missingColumns: [],
-			extraColumns: [],
-			expectedRowCount: 1,
-			actualRowCount: 1,
-			isTruncated: false,
-			rows: [
-				{
-					expected: [100],
-					actual: [actualTotal],
-					statuses: [actualTotal === 100 ? 'match' : 'differ'],
-				},
-			],
-		},
+		dataDiff: totalDiff(100, actualTotal),
+		variantDiff: null,
 	} as unknown as TestRunResult;
+}
+
+function totalDiff(expected: number, actual: number): TestDataDiff {
+	return {
+		columns: ['total'],
+		missingColumns: [],
+		extraColumns: [],
+		expectedRowCount: 1,
+		actualRowCount: 1,
+		isTruncated: false,
+		rows: [{ expected: [expected], actual: [actual], statuses: [actual === expected ? 'match' : 'differ'] }],
+	};
 }

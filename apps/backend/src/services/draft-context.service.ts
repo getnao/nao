@@ -35,6 +35,8 @@ export interface DraftContext {
 	/** A git worktree when the project has a context repository, the drafts nao keeps otherwise. */
 	storage: 'git' | 'nao';
 	branch: string | null;
+	/** The branch production comes from, which only a git context has. */
+	productionBranch: string | null;
 	/** The production commit the changes are compared with. */
 	productionCommit: string | null;
 	changes: TestContextChange[];
@@ -79,6 +81,7 @@ export function readDraftContext(repo: ResolvedContextRepo, projectFolder: strin
 	return {
 		storage: 'git',
 		branch: readCurrentBranch(repo),
+		productionBranch: readOptionalDefaultBranch(repo),
 		productionCommit,
 		changes,
 		excludedChanges: allChanges.filter((change) => isProductionOnly(change.path)),
@@ -148,8 +151,13 @@ function readProductionCommit(repo: ResolvedContextRepo, projectFolder: string):
 }
 
 function readDefaultBranchRefSafely(repo: ResolvedContextRepo): string | null {
+	const defaultBranch = readOptionalDefaultBranch(repo);
+	return defaultBranch ? readDefaultBranchRef(repo, defaultBranch) : null;
+}
+
+function readOptionalDefaultBranch(repo: ResolvedContextRepo): string | null {
 	try {
-		return readDefaultBranchRef(repo, readDefaultBranch(repo));
+		return readDefaultBranch(repo);
 	} catch {
 		return null;
 	}

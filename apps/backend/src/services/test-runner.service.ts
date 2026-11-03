@@ -111,6 +111,19 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
  * context with the user's changes, interleaving the attempts so both variants face the same warehouse data and model.
  */
 export async function startComparisonRun(input: StartComparisonRunInput): Promise<DBTestRun> {
+	return startDraftContextRun(input, [...TEST_CONTEXT_VARIANTS], 'comparison');
+}
+
+/** Runs the tests of the user's draft, or the given ones, against the production context with the user's changes. */
+export async function startChangesRun(input: StartComparisonRunInput): Promise<DBTestRun> {
+	return startDraftContextRun(input, ['draft'], 'changes');
+}
+
+async function startDraftContextRun(
+	input: StartComparisonRunInput,
+	variants: TestContextVariant[],
+	trigger: 'comparison' | 'changes',
+): Promise<DBTestRun> {
 	const projectFolder = await getProjectFolder(input.projectId);
 	await failStaleRuns(input.projectId);
 	removeContextSnapshotsOlderThan(projectFolder, input.projectId, TEST_RUN_STALE_MS);
@@ -124,9 +137,9 @@ export async function startComparisonRun(input: StartComparisonRunInput): Promis
 		const plan = await planTestRun(input, projectFolder, suite);
 		return await createAndExecuteRun(
 			input,
-			{ ...plan, variants: [...TEST_CONTEXT_VARIANTS], draftFolder: snapshot.folder },
+			{ ...plan, variants, draftFolder: snapshot.folder },
 			{
-				trigger: 'comparison',
+				trigger,
 				contextRef: snapshot.branch,
 				contextCommit: snapshot.productionCommit,
 				contextChanges: snapshot.changes,
@@ -374,6 +387,7 @@ function buildResultDetails(
 		comparison: evaluation.verdict.comparison,
 		referenceSql: test.sql,
 		verificationSql: evaluation.verification?.sql ?? null,
+		sourceQueries: evaluation.verification?.sourceQueries ?? [],
 	};
 }
 

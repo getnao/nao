@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { TestDataDiffView } from './test-data-diff';
 import type { TestDataDiff } from './test-run-types';
 
+const SIDES = { removed: 'main', added: 'improve-revenue' };
+
 const DIFF: TestDataDiff = {
 	columns: ['month', 'total'],
 	missingColumns: [],
@@ -24,25 +26,39 @@ const DIFF: TestDataDiff = {
 describe('TestDataDiffView', () => {
 	afterEach(cleanup);
 
-	it('counts the rows by kind and shows the reference value under a different one', () => {
-		render(<TestDataDiffView diff={DIFF} />);
+	it('marks the rows only on one side and shows a changed value struck out before the new one', () => {
+		render(<TestDataDiffView diff={DIFF} sides={SIDES} />);
 
-		expect(screen.getByText('1 matching')).toBeTruthy();
-		expect(screen.getByText('1 different')).toBeTruthy();
-		expect(screen.getByText('1 missing from the answer')).toBeTruthy();
-		expect(screen.getByText('1 not expected')).toBeTruthy();
-		const differentCell = screen.getByText('200').closest('td');
-		expect(differentCell?.textContent).toBe('200210');
-		expect(screen.getByText('orders')).toBeTruthy();
+		expect(screen.getByTitle('Only on main').textContent).toBe('−');
+		expect(screen.getByTitle('Only on improve-revenue').textContent).toBe('+');
+		expect(screen.getByText('210').closest('td')?.textContent).toBe('210200');
+		expect(screen.getByText('Not compared: orders, only on improve-revenue.')).toBeTruthy();
 	});
 
-	it('hides the matching rows on demand', () => {
-		render(<TestDataDiffView diff={DIFF} />);
+	it('numbers the rows that match, like a spreadsheet', () => {
+		render(<TestDataDiffView diff={DIFF} sides={SIDES} />);
 
-		fireEvent.click(screen.getByRole('switch', { name: 'Only show the differences' }));
+		expect(readColumn(-1)).toEqual(['±', '2', '−', '+']);
+	});
 
-		expect(screen.queryByText('jan')).toBeNull();
-		expect(screen.getByText('feb')).toBeTruthy();
-		expect(screen.getByText('mar')).toBeTruthy();
+	it('sorts the rows by a column, as numbers', () => {
+		render(<TestDataDiffView diff={DIFF} sides={SIDES} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'total' }));
+
+		expect(readColumn(0)).toEqual(['jan', 'feb', 'mar', 'may']);
+	});
+
+	it('says when neither side has rows', () => {
+		render(<TestDataDiffView diff={{ ...DIFF, extraColumns: [], rows: [] }} sides={SIDES} />);
+
+		expect(screen.getByText('No rows on either side.')).toBeTruthy();
 	});
 });
+
+function readColumn(index: number): string[] {
+	return screen
+		.getAllByRole('row')
+		.slice(1)
+		.map((row) => row.querySelectorAll('td')[index + 1]?.textContent ?? '');
+}

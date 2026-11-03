@@ -11,7 +11,8 @@ export type ShortcutId =
 	| 'keyboard-help'
 	| 'stop-generation'
 	| 'cycle-model'
-	| 'toggle-test-drawer';
+	| 'toggle-test-drawer'
+	| 'run-tests';
 export type ShortcutGroup = 'General' | 'Navigation' | 'Chat' | 'File Explorer';
 
 export type ShortcutDefinition = {
@@ -85,6 +86,12 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Show or hide the tests',
 		group: 'File Explorer',
 		shortcut: { mod: true, key: 'j' },
+	},
+	{
+		id: 'run-tests',
+		label: 'Run the tests',
+		group: 'File Explorer',
+		shortcut: { mod: true, key: 'e' },
 	},
 ];
 

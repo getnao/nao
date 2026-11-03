@@ -91,12 +91,21 @@ export function isActiveRun(run: Pick<TestRunSummary, 'status'>): boolean {
 }
 
 /** The changed files that are context, as edited tests alone answer the same on production and on the draft. */
+/** The context a run that is not a comparison ran its tests against. */
+export function getSingleRunVariant(run: Pick<TestRunSummary, 'trigger'>): TestRunResult['contextVariant'] {
+	return run.trigger === 'changes' ? 'draft' : 'production';
+}
+
 export function getContextChanges(draft: DraftContext | null): DraftContext['changes'] {
 	return draft?.changes.filter((change) => !change.path.startsWith('tests/')) ?? [];
 }
 
 export function toExplorerTestPath(testPath: string): string {
 	return `/tests/${testPath}`;
+}
+
+export function fromExplorerTestPath(explorerPath: string): string {
+	return explorerPath.replace(/^\/?tests\//, '');
 }
 
 /** Whether the explorer path is a test definition, mirroring the files `nao test` discovers. */

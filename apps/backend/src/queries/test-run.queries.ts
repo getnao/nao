@@ -109,45 +109,29 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 		.execute();
 }
 
-/** Passed and recorded attempts of each run per context variant, to compare the variants of a comparison run. */
-export async function listVariantTotals(runIds: string[]) {
+/** Passed and recorded attempts of each test of each run, per context variant and model. */
+export async function listTestAttemptTotals(runIds: string[]) {
 	if (runIds.length === 0) {
 		return [];
 	}
 	return db
 		.select({
 			runId: s.testRunResult.runId,
+			testPath: s.testRunResult.testPath,
 			contextVariant: s.testRunResult.contextVariant,
-			total: sql<number>`count(*)`.mapWith(Number),
-			passed: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
-		})
-		.from(s.testRunResult)
-		.where(inArray(s.testRunResult.runId, runIds))
-		.groupBy(s.testRunResult.runId, s.testRunResult.contextVariant)
-		.execute();
-}
-
-/** Passed and recorded attempts of each run per model and context variant, to rank the models of a run. */
-export async function listModelTotals(runIds: string[]) {
-	if (runIds.length === 0) {
-		return [];
-	}
-	return db
-		.select({
-			runId: s.testRunResult.runId,
 			provider: s.testRunResult.llmProvider,
 			modelId: s.testRunResult.llmModelId,
-			contextVariant: s.testRunResult.contextVariant,
-			total: sql<number>`count(*)`.mapWith(Number),
-			passed: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
+			totalAttempts: sql<number>`count(*)`.mapWith(Number),
+			passedAttempts: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
 		})
 		.from(s.testRunResult)
 		.where(inArray(s.testRunResult.runId, runIds))
 		.groupBy(
 			s.testRunResult.runId,
+			s.testRunResult.testPath,
+			s.testRunResult.contextVariant,
 			s.testRunResult.llmProvider,
 			s.testRunResult.llmModelId,
-			s.testRunResult.contextVariant,
 		)
 		.execute();
 }

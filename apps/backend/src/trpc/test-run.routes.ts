@@ -15,11 +15,13 @@ import {
 	getModelStats,
 	getPreviousModelSummaries,
 	getTestHistory,
-	listRunsWithVariantTotals,
+	listRunsWithTestTotals,
 	withDataDiffs,
+	withSourceQueries,
 } from '../services/test-history.service';
 import {
 	cancelTestRun,
+	startChangesRun,
 	startComparisonRun,
 	startTestRun,
 	TestRunConflictError,
@@ -71,8 +73,8 @@ const draftRunSchema = draftTestFileSchema.extend({
 	attempts: runSelectionSchema.shape.attempts,
 });
 
-const comparisonRunSchema = runSelectionSchema.extend({
-	/** A test being edited, compared as it is in the editor rather than as saved in the draft. */
+const draftContextRunSchema = runSelectionSchema.extend({
+	/** A test being edited, run as it is in the editor rather than as saved in the draft. */
 	testFile: draftTestFileSchema.optional(),
 });
 
@@ -109,33 +111,18 @@ export const testRunRoutes = {
 	}),
 
 	startComparisonRun: cloudBillingContextAdminProcedure
-		.input(comparisonRunSchema)
-		.mutation(async ({ ctx, input }) => {
-			const projectFolder = requireProjectFolder(ctx.project.path);
-			const { testFile, ...selection } = input;
-			const tests = testFile ? [parseValidDraftTest(testFile.path, testFile.content)] : undefined;
-			const draft = await readUserDraft(ctx, projectFolder, createStrictFileAccess);
-			if ('message' in draft) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: draft.message });
-			}
-			try {
-				return await startComparisonRun({
-					...selection,
-					tests,
-					projectId: ctx.project.id,
-					userId: ctx.user.id,
-					draft,
-				});
-			} catch (error) {
-				throw toTestRunTrpcError(error);
-			}
-		}),
+		.input(draftContextRunSchema)
+		.mutation(({ ctx, input }) => startRunWithDraft(ctx, input, startComparisonRun)),
 
-	listRuns: contextAdminProtectedProcedure.query(({ ctx }) => listRunsWithVariantTotals(ctx.project.id)),
+	startChangesRun: cloudBillingContextAdminProcedure
+		.input(draftContextRunSchema)
+		.mutation(({ ctx, input }) => startRunWithDraft(ctx, input, startChangesRun)),
+
+	listRuns: contextAdminProtectedProcedure.query(({ ctx }) => listRunsWithTestTotals(ctx.project.id)),
 
 	getRun: contextAdminProtectedProcedure.input(z.object({ runId: z.string() })).query(async ({ ctx, input }) => {
 		const run = await getProjectRun(ctx.project.id, input.runId);
-		const storedResults = await testRunQueries.listResults(run.id);
+		const storedResults = await withSourceQueries(await testRunQueries.listResults(run.id));
 		const results = withDataDiffs(storedResults, projectTolerances(ctx.project.path));
 		return {
 			...run,
@@ -202,6 +189,25 @@ export const testRunRoutes = {
 			return { cancelled: await cancelTestRun(run) };
 		}),
 };
+
+async function startRunWithDraft(
+	ctx: TestRunRouteContext & { project: { path: string | null } },
+	input: z.infer<typeof draftContextRunSchema>,
+	startRun: typeof startComparisonRun,
+) {
+	const projectFolder = requireProjectFolder(ctx.project.path);
+	const { testFile, ...selection } = input;
+	const tests = testFile ? [parseValidDraftTest(testFile.path, testFile.content)] : undefined;
+	const draft = await readUserDraft(ctx, projectFolder, createStrictFileAccess);
+	if ('message' in draft) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: draft.message });
+	}
+	try {
+		return await startRun({ ...selection, tests, projectId: ctx.project.id, userId: ctx.user.id, draft });
+	} catch (error) {
+		throw toTestRunTrpcError(error);
+	}
+}
 
 /** Without a context repository nao keeps the draft, otherwise it is the user's File Explorer worktree. */
 async function readUserDraft(

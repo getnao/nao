@@ -21,13 +21,16 @@ import {
 	IconSql,
 	IconTable,
 	IconTerminal2,
+	IconTestPipe,
 } from '@tabler/icons-react';
 
+import { isTestFilePath } from '@/components/settings/test-run-types';
 import { cn } from '@/lib/utils';
 
 interface FileExplorerIconProps {
 	name: string;
 	type: 'file' | 'directory' | 'table';
+	path?: string;
 	className?: string;
 }
 
@@ -44,6 +47,11 @@ const FOLDER_ICON: IconDefinition = {
 const TABLE_ICON: IconDefinition = {
 	icon: IconTable,
 	color: 'text-emerald-600 dark:text-emerald-400',
+};
+
+const TEST_FILE_ICON: IconDefinition = {
+	icon: IconTestPipe,
+	color: 'text-pink-600 dark:text-pink-400',
 };
 
 const FILE_NAME_ICONS: Record<string, IconDefinition> = {
@@ -124,8 +132,8 @@ const CODE_EXTENSIONS = new Set([
 	'.xml',
 ]);
 
-export function FileExplorerIcon({ name, type, className }: FileExplorerIconProps) {
-	const definition = type === 'directory' ? FOLDER_ICON : type === 'table' ? TABLE_ICON : getFileIconDefinition(name);
+export function FileExplorerIcon({ name, type, path, className }: FileExplorerIconProps) {
+	const definition = getIconDefinition(name, type, path);
 	const Icon = definition.icon;
 
 	return (
@@ -136,6 +144,19 @@ export function FileExplorerIcon({ name, type, className }: FileExplorerIconProp
 			className={cn('size-4 shrink-0', definition.color, className)}
 		/>
 	);
+}
+
+function getIconDefinition(name: string, type: FileExplorerIconProps['type'], path?: string): IconDefinition {
+	if (type === 'directory') {
+		return FOLDER_ICON;
+	}
+	if (type === 'table') {
+		return TABLE_ICON;
+	}
+	if (path && isTestFilePath(path)) {
+		return TEST_FILE_ICON;
+	}
+	return getFileIconDefinition(name);
 }
 
 function getFileIconDefinition(name: string): IconDefinition {

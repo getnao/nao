@@ -4,7 +4,8 @@ import { z } from 'zod/v4';
 export const TEST_RUN_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const;
 export type TestRunStatus = (typeof TEST_RUN_STATUSES)[number];
 
-export const TEST_RUN_TRIGGERS = ['manual', 'draft', 'comparison'] as const;
+/** `changes` runs tests against the production context with the user's changes only, without comparing. */
+export const TEST_RUN_TRIGGERS = ['manual', 'draft', 'comparison', 'changes'] as const;
 export type TestRunTrigger = (typeof TEST_RUN_TRIGGERS)[number];
 
 /** The context an attempt ran against: the production one, or the production one with the user's changes. */
@@ -70,6 +71,14 @@ export interface TestRunResultDetails {
 	comparison: string | null;
 	referenceSql: string | null;
 	verificationSql: string | null;
+	/** The agent's queries the verification SQL reads from, missing on results recorded before they were stored. */
+	sourceQueries?: TestSourceQuery[] | null;
+}
+
+/** A query the agent ran in the chat, whose result the verification SQL selects from under its id. */
+export interface TestSourceQuery {
+	id: string;
+	sql: string;
 }
 
 export type TestDataCell = number | string | boolean | null;
@@ -98,6 +107,22 @@ export interface TestDataDiffRow {
 }
 
 export type TestRunModels = LlmSelectedModel[];
+
+/** How the tests of a run did, where a test passes only when all its attempts pass. */
+export interface TestRunTestTotals {
+	testCount: number;
+	passedTests: number;
+	/** Tests that passed some of their attempts but not all. */
+	flakyTests: number;
+	passedAttempts: number;
+	totalAttempts: number;
+}
+
+/** The tests of a run against one context variant, over all its models and for each of them. */
+export interface TestRunVariantTotals extends TestRunTestTotals {
+	contextVariant: TestContextVariant;
+	models: (LlmSelectedModel & TestRunTestTotals)[];
+}
 
 /** How one model did over the attempts of a run against one context variant, with the metrics `nao test` reports. */
 export interface TestModelSummary extends LlmSelectedModel {

@@ -1,16 +1,10 @@
-import { CircleCheck, CircleDashed, CircleX, FilePen, FilePlus, FileX } from 'lucide-react';
+import { CircleCheck, CircleDashed, CircleX } from 'lucide-react';
 
-import type {
-	DraftContext,
-	TestComparison,
-	TestComparisonChange,
-	TestRunWithResults,
-} from '@/components/settings/test-run-types';
+import type { DraftContext, TestComparison, TestComparisonChange } from '@/components/settings/test-run-types';
 import { Badge } from '@/components/ui/badge';
 import { Callout } from '@/components/ui/callout';
 import { cn } from '@/lib/utils';
 
-type ContextChange = NonNullable<TestRunWithResults['contextChanges']>[number];
 type VariantOutcome = TestComparison['production'];
 
 const CHANGE_BADGES: Record<
@@ -24,12 +18,6 @@ const CHANGE_BADGES: Record<
 	unchanged: { label: 'No change', variant: 'viewer' },
 	pending: { label: 'Running', variant: 'secondary' },
 };
-
-const CHANGE_KIND_DISPLAY = {
-	added: { icon: FilePlus, label: 'New', color: 'text-emerald-500' },
-	modified: { icon: FilePen, label: 'Edited', color: 'text-amber-500' },
-	deleted: { icon: FileX, label: 'Removed', color: 'text-red-500' },
-} as const;
 
 /** How the user's changes moved a test, from its attempts on production and with the changes. */
 export function ComparisonChangeBadge({ change, isActive }: { change: TestComparisonChange; isActive: boolean }) {
@@ -71,15 +59,8 @@ export function VariantOutcomeCell({
 	);
 }
 
-export function ContextChangeItem({ change }: { change: ContextChange }) {
-	const display = CHANGE_KIND_DISPLAY[change.kind];
-	const Icon = display.icon;
-	return (
-		<span className='flex min-w-0 items-center gap-1.5' title={`${display.label}: ${change.path}`}>
-			<Icon className={cn('size-3 shrink-0', display.color)} />
-			<span className='truncate font-mono'>{change.path}</span>
-		</span>
-	);
+export function hasDraftContextWarnings(draft: DraftContext): boolean {
+	return draft.outdatedPaths.length > 0 || draft.excludedChanges.length > 0;
 }
 
 /** What makes a comparison with production unfair or partial, so the user can fix it before running one. */

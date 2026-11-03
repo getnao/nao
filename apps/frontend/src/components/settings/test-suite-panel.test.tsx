@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TestSuitePanel } from './test-suite-panel';
+import type { TestRunSummary } from './test-run-types';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({ getRun: vi.fn(), listTests: vi.fn() }));
@@ -124,6 +125,26 @@ describe('TestSuitePanel', () => {
 		]);
 	});
 
+	it('names a run of the whole suite apart from a run of some of its tests', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [testDefinition('revenue.yml', []), testDefinition('churn.yml', [])],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		renderPanel({
+			selectedRunId: null,
+			runs: [
+				runSummary('run-all', ['revenue.yml', 'churn.yml']),
+				runSummary('run-some', ['revenue.yml', 'margin.yml']),
+			],
+		});
+
+		const runs = within(await screen.findByRole('navigation', { name: 'Test runs' }));
+		expect((await runs.findByText('All tests')).closest('button')?.textContent).toBe('All tests2/2main');
+		expect(runs.getByText('2 tests').closest('button')?.textContent).toBe('2 tests2/2main');
+	});
+
 	it('narrows the tests to a tag and picks them for the next run', async () => {
 		mocks.listTests.mockResolvedValue({
 			tests: [testDefinition('revenue.yml', ['finance']), testDefinition('churn.yml', ['product'])],
@@ -200,6 +221,33 @@ function summary(modelId: string, passedAttempts: number, attempts: number, cost
 	};
 }
 
+function runSummary(id: string, selection: string[]): TestRunSummary {
+	return {
+		id,
+		status: 'completed',
+		trigger: 'manual',
+		selection,
+		models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+		attempts: 1,
+		passedAttempts: selection.length,
+		totalAttempts: selection.length,
+		completedAttempts: selection.length,
+		testTotals: [
+			{
+				contextVariant: 'production',
+				testCount: selection.length,
+				passedTests: selection.length,
+				flakyTests: 0,
+				passedAttempts: selection.length,
+				totalAttempts: selection.length,
+				models: [],
+			},
+		],
+		triggeredByName: null,
+		createdAt: new Date().toISOString(),
+	} as unknown as TestRunSummary;
+}
+
 function testDefinition(path: string, tags: string[]) {
 	return {
 		path,
@@ -223,11 +271,13 @@ function filterLabels() {
 
 function renderPanel({
 	selectedRunId = 'run-1',
+	runs = [],
 	selectedTags = [],
 	onSelectedPathsChange = vi.fn(),
 	onSelectedTagsChange = vi.fn(),
 }: {
 	selectedRunId?: string | null;
+	runs?: TestRunSummary[];
 	selectedTags?: string[];
 	onSelectedPathsChange?: (paths: Set<string>) => void;
 	onSelectedTagsChange?: (tags: string[]) => void;
@@ -238,7 +288,7 @@ function renderPanel({
 			<TooltipProvider>
 				<TestSuitePanel
 					draft={null}
-					runs={[]}
+					runs={runs}
 					selectedRunId={selectedRunId}
 					selection={{ selectedPaths: new Set(), onSelectedPathsChange, selectedTags, onSelectedTagsChange }}
 					onSelectRun={vi.fn()}

@@ -147,6 +147,7 @@ describe('createDraftContextSnapshot', () => {
 				context: {
 					storage: 'nao',
 					branch: null,
+					productionBranch: null,
 					productionCommit: null,
 					changes: [
 						{ path: 'RULES.md', kind: 'modified' },

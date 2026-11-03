@@ -68,21 +68,8 @@ export function FileSourceEditor({ filePath, value, searchQuery, readOnly, onCha
 					onSaveRef.current?.();
 				});
 			}
-			editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
-				document.dispatchEvent(
-					new KeyboardEvent('keydown', {
-						key: 'k',
-						code: 'KeyK',
-						metaKey: isMac,
-						ctrlKey: !isMac,
-						shiftKey: false,
-						altKey: false,
-						repeat: false,
-						bubbles: true,
-						cancelable: true,
-					}),
-				);
-			});
+			editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => forwardModShortcut('k'));
+			editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE, () => forwardModShortcut('e'));
 		},
 		[readOnly],
 	);
@@ -141,6 +128,23 @@ export function FileSourceEditor({ filePath, value, searchQuery, readOnly, onCha
 				wordWrap: 'on',
 			}}
 		/>
+	);
+}
+
+/** Hands an app-wide shortcut that Monaco would swallow over to the page, as if pressed outside the editor. */
+function forwardModShortcut(key: string) {
+	document.dispatchEvent(
+		new KeyboardEvent('keydown', {
+			key,
+			code: `Key${key.toUpperCase()}`,
+			metaKey: isMac,
+			ctrlKey: !isMac,
+			shiftKey: false,
+			altKey: false,
+			repeat: false,
+			bubbles: true,
+			cancelable: true,
+		}),
 	);
 }
 

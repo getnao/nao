@@ -335,7 +335,7 @@ function EditableFileViewer({
 		<div className='flex flex-col h-full'>
 			<div className='flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4 py-1.5 text-sm text-muted-foreground'>
 				<div className='flex min-w-0 flex-1 items-start gap-2 overflow-hidden'>
-					<FileExplorerIcon name={fileName} type='file' className='mt-px' />
+					<FileExplorerIcon name={fileName} type='file' path={filePath} className='mt-px' />
 					<div className='min-w-0 flex-1'>
 						<div className='flex min-w-0 items-center gap-2'>
 							<span className='min-w-0 truncate font-mono leading-4'>{fileName}</span>

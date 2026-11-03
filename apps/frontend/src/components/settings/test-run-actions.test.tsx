@@ -10,11 +10,13 @@ import type { DraftContext, TestRunSummary } from './test-run-types';
 import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { isMac } from '@/lib/platform';
 
 const mocks = vi.hoisted(() => ({
 	startRun: vi.fn(),
 	startDraftRun: vi.fn(),
 	startComparisonRun: vi.fn(),
+	startChangesRun: vi.fn(),
 	cancelRun: vi.fn(),
 }));
 
@@ -29,6 +31,7 @@ vi.mock('@/main', () => ({
 			startRun: { mutationOptions: mutationOptions(mocks.startRun) },
 			startDraftRun: { mutationOptions: mutationOptions(mocks.startDraftRun) },
 			startComparisonRun: { mutationOptions: mutationOptions(mocks.startComparisonRun) },
+			startChangesRun: { mutationOptions: mutationOptions(mocks.startChangesRun) },
 			cancelRun: { mutationOptions: mutationOptions(mocks.cancelRun) },
 		},
 	},
@@ -49,9 +52,13 @@ describe('TestFileRunActions', () => {
 		vi.clearAllMocks();
 		mocks.startDraftRun.mockResolvedValue({ id: 'run-new' });
 		mocks.startComparisonRun.mockResolvedValue({ id: 'run-new' });
+		mocks.startChangesRun.mockResolvedValue({ id: 'run-new' });
 	});
 
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		localStorage.clear();
+	});
 
 	it('runs the test as it is in the editor, with the picked models and attempts', async () => {
 		const onRunStarted = vi.fn();
@@ -92,6 +99,47 @@ describe('TestFileRunActions', () => {
 		expect(screen.getByRole('button', { name: 'More ways to run' })).toBeTruthy();
 	});
 
+	it('makes the picked way to run the button action for the next click', async () => {
+		renderWithProviders(
+			<TestFileRunActions
+				settings={settings()}
+				draft={draftWith(['RULES.md'])}
+				activeRun={undefined}
+				testFile={TEST_FILE}
+				validation={VALID}
+				onRunStarted={vi.fn()}
+			/>,
+		);
+
+		openMenu(screen.getByRole('button', { name: 'More ways to run' }));
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Run with your changes only' }));
+		expect(mocks.startChangesRun).not.toHaveBeenCalled();
+
+		fireEvent.click(await screen.findByRole('button', { name: 'Run with your changes' }));
+
+		await waitFor(() => expect(mocks.startChangesRun).toHaveBeenCalled());
+		expect(mocks.startChangesRun.mock.calls[0][0]).toEqual({ testFile: TEST_FILE, models: MODELS, attempts: 3 });
+		expect(mocks.startComparisonRun).not.toHaveBeenCalled();
+	});
+
+	it('starts the button action with the run shortcut, from anywhere on the page', async () => {
+		renderWithProviders(
+			<TestFileRunActions
+				settings={settings()}
+				draft={draftWith(['RULES.md'])}
+				activeRun={undefined}
+				testFile={TEST_FILE}
+				validation={VALID}
+				onRunStarted={vi.fn()}
+			/>,
+		);
+
+		pressRunShortcut();
+
+		await waitFor(() => expect(mocks.startComparisonRun).toHaveBeenCalled());
+		expect(mocks.startDraftRun).not.toHaveBeenCalled();
+	});
+
 	it('does not run an invalid test', () => {
 		renderWithProviders(
 			<TestFileRunActions
@@ -105,6 +153,9 @@ describe('TestFileRunActions', () => {
 		);
 
 		expect(screen.getByRole('button', { name: 'Run test' }).hasAttribute('disabled')).toBe(true);
+
+		pressRunShortcut();
+		expect(mocks.startDraftRun).not.toHaveBeenCalled();
 	});
 
 	it('offers to cancel the run in progress instead of starting another', async () => {
@@ -193,6 +244,14 @@ function renderWithProviders(children: ReactNode) {
 			<TooltipProvider>{children}</TooltipProvider>
 		</QueryClientProvider>,
 	);
+}
+
+function pressRunShortcut() {
+	fireEvent.keyDown(document, { key: 'e', ctrlKey: !isMac, metaKey: isMac });
+}
+
+function openMenu(trigger: HTMLElement) {
+	fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
 }
 
 function mutationOptions(mutationFn: (input: unknown) => Promise<unknown>) {

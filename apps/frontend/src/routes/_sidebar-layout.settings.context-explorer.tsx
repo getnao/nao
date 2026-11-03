@@ -439,6 +439,7 @@ function ContextExplorerPage() {
 						openRequestId={testDrawerOpenRequestId}
 						onSelectTab={selectTestTab}
 						onCloseTab={closeTestTab}
+						onMoveTab={openedTestTabs.moveTab}
 						onSelectRun={selectTestRun}
 						onOpenTest={(path) => requestViewerTarget({ type: 'file', path, openSource: false })}
 					>

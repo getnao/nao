@@ -1,27 +1,31 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
 
 import type { DBTestRun, DBTestRunResult } from '../db/abstractSchema';
+import * as executeSqlQueries from '../queries/execute-sql.queries';
 import * as testRunQueries from '../queries/test-run.queries';
 import type {
 	PreviousTestModelSummary,
 	TestComparisonTolerances,
-	TestContextVariant,
 	TestDataDiff,
 	TestDefinition,
 	TestModelStats,
 	TestRunResultDetails,
 } from '../types/test-run';
-import { compareContextVariants, type TestVariantOutcome } from '../utils/test-comparison';
+import { compareContextVariants } from '../utils/test-comparison';
 import { buildTestDataDiff } from '../utils/test-data-comparison';
 import { isSameModelSummary, summarizeModels } from '../utils/test-model-summary';
+import { summarizeRunTests, type TestAttemptTotals } from '../utils/test-run-totals';
 
 const TEST_HISTORY_RUN_LIMIT = 10;
+const QUERY_ID_PATTERN = /\bquery_\w+/g;
 const TEST_HISTORY_SCANNED_RUNS = 100;
 const MODEL_STATS_WINDOW_MS = 30 * 24 * 60 * 60_000;
 
-export type TestVariantTotals = Record<TestContextVariant, TestVariantOutcome>;
-
-export type TestRunResultWithDiff = DBTestRunResult & { dataDiff: TestDataDiff | null };
+export type TestRunResultWithDiff = DBTestRunResult & {
+	dataDiff: TestDataDiff | null;
+	/** On the attempt of a comparison with the user's changes, how its rows differ from the same attempt on production. */
+	variantDiff: TestDataDiff | null;
+};
 
 export interface LatestTestOutcome {
 	runId: string;
@@ -39,12 +43,6 @@ export interface LatestTestModelOutcome extends LlmSelectedModel {
 	runIndex: number;
 	passedAttempts: number;
 	totalAttempts: number;
-}
-
-export interface TestRunModelTotals extends LlmSelectedModel {
-	contextVariant: TestContextVariant;
-	passed: number;
-	total: number;
 }
 
 /** The outcome of each test in the latest completed run that included it. */
@@ -79,35 +77,15 @@ export async function getLatestOutcomesByTest(
 	return outcomes;
 }
 
-/**
- * The latest runs of the project, with the outcome of each variant for the comparison runs, and of each model for
- * the runs that tried several.
- */
-export async function listRunsWithVariantTotals(projectId: string) {
+/** The latest runs of the project, each with how its tests did per context variant and model. */
+export async function listRunsWithTestTotals(projectId: string) {
 	const runs = await testRunQueries.listRuns(projectId);
-	const comparisonRunIds = runs.filter((run) => run.trigger === 'comparison').map((run) => run.id);
-	const multiModelRunIds = runs.filter((run) => run.models.length > 1).map((run) => run.id);
-	const [variantRows, modelRows] = await Promise.all([
-		testRunQueries.listVariantTotals(comparisonRunIds),
-		testRunQueries.listModelTotals(multiModelRunIds),
-	]);
-
-	const variantTotalsByRun = new Map<string, TestVariantTotals>();
-	for (const row of variantRows) {
-		const totals = variantTotalsByRun.get(row.runId) ?? emptyVariantTotals();
-		totals[row.contextVariant] = { passed: row.passed, total: row.total };
-		variantTotalsByRun.set(row.runId, totals);
+	const rows = await testRunQueries.listTestAttemptTotals(runs.map((run) => run.id));
+	const rowsByRun = new Map<string, TestAttemptTotals[]>();
+	for (const { runId, ...row } of rows) {
+		rowsByRun.set(runId, [...(rowsByRun.get(runId) ?? []), row]);
 	}
-	const modelTotalsByRun = new Map<string, TestRunModelTotals[]>();
-	for (const { runId, ...totals } of modelRows) {
-		modelTotalsByRun.set(runId, [...(modelTotalsByRun.get(runId) ?? []), totals]);
-	}
-
-	return runs.map((run) => ({
-		...run,
-		variantTotals: run.trigger === 'comparison' ? (variantTotalsByRun.get(run.id) ?? emptyVariantTotals()) : null,
-		modelTotals: run.models.length > 1 ? (modelTotalsByRun.get(run.id) ?? []) : null,
-	}));
+	return runs.map((run) => ({ ...run, testTotals: summarizeRunTests(rowsByRun.get(run.id) ?? [], run.models) }));
 }
 
 /**
@@ -164,9 +142,11 @@ export async function getTestHistory(projectId: string, testPath: string, tolera
 	const runs = (await testRunQueries.listRuns(projectId, TEST_HISTORY_SCANNED_RUNS))
 		.filter((run) => run.selection?.includes(testPath))
 		.slice(0, TEST_HISTORY_RUN_LIMIT);
-	const results = await testRunQueries.listResultsOfTest(
-		runs.map((run) => run.id),
-		testPath,
+	const results = await withSourceQueries(
+		await testRunQueries.listResultsOfTest(
+			runs.map((run) => run.id),
+			testPath,
+		),
 	);
 	const resultsByRun = new Map<string, TestRunResultWithDiff[]>();
 	for (const result of withDataDiffs(results, tolerances)) {
@@ -178,6 +158,7 @@ export async function getTestHistory(projectId: string, testPath: string, tolera
 		return {
 			...run,
 			results,
+			testTotals: summarizeRunTests(results.map(toAttemptTotals), run.models),
 			attemptsPerVariant,
 			comparison:
 				run.trigger === 'comparison'
@@ -187,12 +168,48 @@ export async function getTestHistory(projectId: string, testPath: string, tolera
 	});
 }
 
-/** Adds to each result the cell by cell diff of its stored rows. */
+/**
+ * Fills in the agent's queries on results recorded before they were stored, from the `execute_sql` calls of their
+ * chat whose results the verification SQL selects from.
+ */
+export async function withSourceQueries(results: DBTestRunResult[]): Promise<DBTestRunResult[]> {
+	const queryIdsByChat = new Map<string, Set<string>>();
+	for (const result of results) {
+		const verificationSql = result.details?.verificationSql;
+		if (result.chatId && verificationSql && !result.details?.sourceQueries) {
+			queryIdsByChat.set(result.chatId, new Set(verificationSql.match(QUERY_ID_PATTERN)));
+		}
+	}
+	if (queryIdsByChat.size === 0) {
+		return results;
+	}
+	const queriesByChat = await executeSqlQueries.getLatestSqlQueriesByChats(queryIdsByChat);
+	return results.map((result) => {
+		const queryIds = result.chatId ? queryIdsByChat.get(result.chatId) : undefined;
+		if (!queryIds || !result.details) {
+			return result;
+		}
+		const chatQueries = queriesByChat.get(result.chatId ?? '') ?? {};
+		const sourceQueries = [...queryIds].flatMap((id) =>
+			chatQueries[id] ? [{ id, sql: chatQueries[id].sqlQuery }] : [],
+		);
+		return { ...result, details: { ...result.details, sourceQueries } };
+	});
+}
+
+/**
+ * Adds to each result the cell by cell diff of its stored rows with the reference ones, and on the attempts with the
+ * user's changes, with the rows of the same attempt on production.
+ */
 export function withDataDiffs(
 	results: DBTestRunResult[],
 	tolerances: TestComparisonTolerances,
 ): TestRunResultWithDiff[] {
-	return results.map((result) => ({ ...result, dataDiff: buildResultDataDiff(result.details, tolerances) }));
+	return results.map((result) => ({
+		...result,
+		dataDiff: buildResultDataDiff(result.details, tolerances),
+		variantDiff: buildVariantDataDiff(result, findProductionAttempt(results, result), tolerances),
+	}));
 }
 
 function buildResultDataDiff(
@@ -206,6 +223,36 @@ function buildResultDataDiff(
 		{ actual: details.actualData, expected: details.expectedData, expectedColumns: [] },
 		tolerances,
 		{ actual: details.actualRowCount, expected: details.expectedRowCount },
+	);
+}
+
+function findProductionAttempt(results: DBTestRunResult[], draftResult: DBTestRunResult): DBTestRunResult | undefined {
+	if (draftResult.contextVariant !== 'draft') {
+		return undefined;
+	}
+	return results.find(
+		(candidate) =>
+			candidate.contextVariant === 'production' &&
+			candidate.testPath === draftResult.testPath &&
+			candidate.attempt === draftResult.attempt &&
+			candidate.llmProvider === draftResult.llmProvider &&
+			candidate.llmModelId === draftResult.llmModelId,
+	);
+}
+
+function buildVariantDataDiff(
+	draftResult: DBTestRunResult,
+	productionResult: DBTestRunResult | undefined,
+	tolerances: TestComparisonTolerances,
+): TestDataDiff | null {
+	const productionData = productionResult?.details?.actualData;
+	if (!productionData || !draftResult.details?.actualData) {
+		return null;
+	}
+	return buildTestDataDiff(
+		{ actual: draftResult.details.actualData, expected: productionData, expectedColumns: [] },
+		tolerances,
+		{ actual: draftResult.details.actualRowCount, expected: productionResult?.details?.actualRowCount },
 	);
 }
 
@@ -242,10 +289,17 @@ function resultsOfModel(results: DBTestRunResult[], model: LlmSelectedModel): DB
 	);
 }
 
-function isSameModel(model: LlmSelectedModel) {
-	return (other: LlmSelectedModel) => isSameModelSummary(model, other);
+function toAttemptTotals(result: DBTestRunResult): TestAttemptTotals {
+	return {
+		provider: result.llmProvider,
+		modelId: result.llmModelId,
+		testPath: result.testPath,
+		contextVariant: result.contextVariant,
+		passedAttempts: result.passed ? 1 : 0,
+		totalAttempts: 1,
+	};
 }
 
-function emptyVariantTotals(): TestVariantTotals {
-	return { production: { passed: 0, total: 0 }, draft: { passed: 0, total: 0 } };
+function isSameModel(model: LlmSelectedModel) {
+	return (other: LlmSelectedModel) => isSameModelSummary(model, other);
 }

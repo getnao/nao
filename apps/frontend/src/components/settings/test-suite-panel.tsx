@@ -3,6 +3,9 @@ import { CircleAlert, CircleCheck, CircleDashed, CircleMinus, CircleX, History }
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
+import type { TestResultFilter } from '@/components/settings/test-result-filter';
+import type { SuiteRunScope } from '@/components/settings/test-run-actions';
+import type { RunFilters } from '@/components/settings/test-run-filter-menu';
 import type {
 	DraftContext,
 	LatestTestOutcome,
@@ -13,12 +16,10 @@ import type {
 	TestRunWithResults,
 	TestSuiteListing,
 } from '@/components/settings/test-run-types';
-import type { TestResultFilter } from '@/components/settings/test-result-filter';
-import type { SuiteRunScope } from '@/components/settings/test-run-actions';
 import {
 	ComparisonChangeBadge,
-	ContextChangeItem,
 	DraftContextWarnings,
+	hasDraftContextWarnings,
 	VariantOutcomeCell,
 } from '@/components/settings/test-draft-comparison';
 import {
@@ -30,22 +31,24 @@ import {
 	summarizeTestMetrics,
 	TestModelMatrix,
 } from '@/components/settings/test-model-results';
+import { matchesResultFilter, TestResultFilterPills } from '@/components/settings/test-result-filter';
+import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
+import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
 import {
 	formatDuration,
 	formatPassRate,
 	formatUnitCost,
-	getContextChanges,
 	getTestModelColorAt,
 	isActiveRun,
 	testModelKey,
 	toExplorerTestPath,
 } from '@/components/settings/test-run-types';
-import { matchesResultFilter, TestResultFilterPills } from '@/components/settings/test-result-filter';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
 import { getTimeAgo } from '@/lib/time-ago';
+import { PanelHeader, RecentRunsHeader, RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -61,7 +64,7 @@ type TestMetrics = ReturnType<typeof summarizeTestMetrics>;
 
 const ACTIVE_RUN_REFETCH_MS = 2_000;
 const MAX_LISTED_RUNS = 10;
-const MAX_LISTED_CHANGES = 4;
+const DEFAULT_MAIN_BRANCH = 'main';
 
 /** The tests picked in the suite, which the Run button of the drawer runs. */
 export interface SuiteSelection {
@@ -96,30 +99,38 @@ export function TestSuitePanel({
 		enabled: selectedRunId !== null,
 		refetchInterval: (query) => (query.state.data && isActiveRun(query.state.data) ? ACTIVE_RUN_REFETCH_MS : false),
 	});
-	const contextChanges = getContextChanges(draft);
-
+	const runListContext = {
+		mainBranch: draft?.productionBranch ?? DEFAULT_MAIN_BRANCH,
+		suiteTestPaths: suite.data?.tests.map((test) => test.path),
+	};
+	const [runFilters, setRunFilters] = useState<RunFilters>(ALL_RUNS);
+	const listedRuns = runs?.filter((run) => matchesRunFilters(run, runFilters)).slice(0, MAX_LISTED_RUNS);
 	return (
 		<div className='flex h-full min-h-0 flex-col'>
-			{draft && contextChanges.length > 0 && <ContextChangesNotice draft={draft} />}
+			{draft && hasDraftContextWarnings(draft) && <DraftWarningsNotice draft={draft} />}
 
 			<div className='flex min-h-0 flex-1'>
-				<nav className='flex w-56 shrink-0 flex-col overflow-y-auto border-r text-xs' aria-label='Test runs'>
-					<span className='px-3 pt-2 pb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase'>
-						Recent runs
-					</span>
-					{runs?.length === 0 && <span className='px-3 py-1 text-muted-foreground'>No run yet.</span>}
-					{runs?.slice(0, MAX_LISTED_RUNS).map((run) => (
-						<NavItem key={run.id} isSelected={selectedRunId === run.id} onClick={() => onSelectRun(run.id)}>
-							<RunStatusIcon run={run} className='mt-px self-start' />
-							<span className='flex min-w-0 flex-1 flex-col gap-0.5'>
-								<span className='truncate font-medium text-foreground'>{summarizeRun(run)}</span>
-								<span className='truncate text-muted-foreground'>
-									{describeRunScope(run)} · {run.triggeredByName ? `${run.triggeredByName} · ` : ''}
-									{getTimeAgo(new Date(run.createdAt).getTime()).humanReadable}
-								</span>
-							</span>
-						</NavItem>
-					))}
+				<nav
+					className={cn('flex shrink-0 flex-col overflow-y-auto border-r text-xs', RUNS_COLUMN_WIDTH_CLASS)}
+					aria-label='Test runs'
+				>
+					<RecentRunsHeader filters={runFilters} onChange={setRunFilters} />
+					{runs?.length === 0 && <span className='px-3 py-2 text-muted-foreground'>No run yet.</span>}
+					{runs && runs.length > 0 && listedRuns?.length === 0 && (
+						<span className='px-3 py-2 text-muted-foreground'>No run matches the filter.</span>
+					)}
+					{listedRuns && listedRuns.length > 0 && (
+						<div className='flex flex-col gap-0.5 p-1'>
+							{listedRuns.map((run) => (
+								<RunListItem
+									key={run.id}
+									view={describeRunListItem(run, runListContext)}
+									isSelected={selectedRunId === run.id}
+									onSelect={() => onSelectRun(run.id)}
+								/>
+							))}
+						</div>
+					)}
 				</nav>
 
 				<div className='min-w-0 flex-1 overflow-y-auto'>
@@ -165,46 +176,11 @@ export function getSuiteRunScope(tests: TestDefinition[], selection: SuiteSelect
 	return { paths: undefined, testCount: tests.length, label: pluralize(tests.length, 'test') };
 }
 
-function ContextChangesNotice({ draft }: { draft: DraftContext }) {
-	const contextChanges = getContextChanges(draft);
+function DraftWarningsNotice({ draft }: { draft: DraftContext }) {
 	return (
-		<div className='flex shrink-0 flex-col gap-1.5 border-b bg-primary/[0.03] px-3 py-1.5 text-xs text-muted-foreground'>
-			<span className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5'>
-				<span>
-					You changed {pluralize(contextChanges.length, 'context file')}
-					{draft.branch && (
-						<>
-							{' '}
-							on <span className='font-mono text-foreground'>{draft.branch}</span>
-						</>
-					)}
-					:
-				</span>
-				{contextChanges.slice(0, MAX_LISTED_CHANGES).map((change) => (
-					<ContextChangeItem key={change.path} change={change} />
-				))}
-				{contextChanges.length > MAX_LISTED_CHANGES && (
-					<span>+{contextChanges.length - MAX_LISTED_CHANGES} more</span>
-				)}
-			</span>
+		<div className='flex shrink-0 flex-col gap-1.5 border-b px-3 py-1.5'>
 			<DraftContextWarnings draft={draft} />
 		</div>
-	);
-}
-
-function NavItem({ isSelected, onClick, children }: { isSelected: boolean; onClick: () => void; children: ReactNode }) {
-	return (
-		<button
-			type='button'
-			aria-current={isSelected ? 'true' : undefined}
-			onClick={onClick}
-			className={cn(
-				'flex cursor-pointer items-center gap-2 border-b px-3 py-2 text-left transition-colors hover:bg-accent/50',
-				isSelected && 'bg-accent',
-			)}
-		>
-			{children}
-		</button>
 	);
 }
 
@@ -308,7 +284,7 @@ function SuiteTestsHeader({
 	};
 
 	return (
-		<div className='flex min-h-9 items-center gap-2.5 border-b px-3 py-1.5 text-muted-foreground'>
+		<PanelHeader className='gap-2.5'>
 			<Checkbox
 				aria-label='Select the shown tests'
 				checked={allSelected ? true : selectedCount > 0 ? 'indeterminate' : false}
@@ -342,7 +318,7 @@ function SuiteTestsHeader({
 					))}
 				</div>
 			)}
-		</div>
+		</PanelHeader>
 	);
 }
 
@@ -438,7 +414,7 @@ function RunTests({ run, onOpenTest }: { run: TestRunWithResults; onOpenTest: (e
 	const openTest = (testPath: string) => onOpenTest(toExplorerTestPath(testPath));
 	return (
 		<div className='flex flex-col text-xs'>
-			<div className='flex items-center gap-3 border-b px-3 py-1.5 text-muted-foreground'>
+			<PanelHeader className='gap-3'>
 				<TestResultFilterPills
 					outcomes={tests.map((test) => test.outcome)}
 					filter={filter}
@@ -446,7 +422,7 @@ function RunTests({ run, onOpenTest }: { run: TestRunWithResults; onOpenTest: (e
 					hasSeveralModels={hasSeveralModels && !run.comparison}
 				/>
 				<RunDescription run={run} />
-			</div>
+			</PanelHeader>
 			<RunModelsOverview run={run} />
 			{hasSeveralModels && !run.comparison ? (
 				<TestModelMatrix
@@ -698,48 +674,6 @@ function OutcomeIcon({
 			)}
 		/>
 	);
-}
-
-function RunStatusIcon({ run, className }: { run: TestRunSummary; className?: string }) {
-	if (isActiveRun(run)) {
-		return <Spinner className={cn('size-3.5 shrink-0', className)} />;
-	}
-	if (run.status !== 'completed') {
-		return <CircleMinus className={cn('size-3.5 shrink-0 text-muted-foreground', className)} />;
-	}
-	return (
-		<OutcomeIcon
-			passed={run.variantTotals?.draft.passed ?? run.passedAttempts}
-			total={run.variantTotals?.draft.total ?? run.totalAttempts}
-			className={className}
-		/>
-	);
-}
-
-function summarizeRun(run: TestRunSummary): string {
-	if (isActiveRun(run)) {
-		return `Running ${run.completedAttempts}/${run.totalAttempts}`;
-	}
-	if (run.status !== 'completed') {
-		return `Run ${run.status}`;
-	}
-	if (run.variantTotals) {
-		const { production, draft } = run.variantTotals;
-		return `Production ${formatPassRate(production.passed, production.total)} → yours ${formatPassRate(draft.passed, draft.total)}`;
-	}
-	if (run.modelTotals && run.modelTotals.length > 1) {
-		const bestRate = Math.max(
-			...run.modelTotals.map((totals) => (totals.total ? totals.passed / totals.total : 0)),
-		);
-		return `${run.models.length} models · best ${Math.round(bestRate * 100)}%`;
-	}
-	return `${formatPassRate(run.passedAttempts, run.totalAttempts)} passed`;
-}
-
-function describeRunScope(run: TestRunSummary): string {
-	const testCount = run.selection?.length ?? 0;
-	const scope = testCount === 1 ? (run.selection?.[0] ?? '') : pluralize(testCount, 'test');
-	return run.trigger === 'comparison' ? `Compared ${scope}` : scope;
 }
 
 /** The tests of a run with their outcome: with the user's changes for a comparison, else over all their attempts. */

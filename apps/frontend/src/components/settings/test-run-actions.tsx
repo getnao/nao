@@ -1,5 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, GitCompareArrows, Play, X } from 'lucide-react';
+import { ChevronDown, FilePen, GitCompareArrows, Play, X } from 'lucide-react';
+import { useSyncExternalStore } from 'react';
+import type { UseMutationResult } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
 import type { DraftContext, TestRunSummary } from '@/components/settings/test-run-types';
@@ -16,8 +18,30 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { createLocalStorage } from '@/lib/local-storage';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+
+type RunStart = Pick<UseMutationResult<unknown, { message: string }, never>, 'isPending' | 'error' | 'reset'>;
+
+export type ContextRunMode = 'compare' | 'changes' | 'production';
+
+interface ContextRunAction {
+	label: string;
+	tooltip: string;
+	onRun: () => void;
+}
+
+const CONTEXT_RUN_MODES: Record<ContextRunMode, { icon: ReactNode; menuLabel: string }> = {
+	compare: { icon: <GitCompareArrows className='size-3.5' />, menuLabel: 'Compare with production' },
+	changes: { icon: <FilePen className='size-3.5' />, menuLabel: 'Run with your changes only' },
+	production: { icon: <Play className='size-3.5' />, menuLabel: 'Run on production only' },
+};
+
+const contextRunModeStorage = createLocalStorage<ContextRunMode>('nao-test-context-run-mode', 'compare');
+const contextRunModeListeners = new Set<() => void>();
 
 interface RunActionsBaseProps {
 	settings: TestRunSettings;
@@ -43,31 +67,26 @@ export function SuiteRunActions({
 	onRunStarted,
 }: RunActionsBaseProps & { scope: SuiteRunScope }) {
 	const startRun = useMutation(trpc.testRun.startRun.mutationOptions({ onSuccess: onRunStarted }));
-	const startComparison = useMutation(trpc.testRun.startComparisonRun.mutationOptions({ onSuccess: onRunStarted }));
+	const { startComparison, startChangesRun, ...starts } = useDraftContextRunStarts(onRunStarted, [startRun]);
 	const hasContextChanges = getContextChanges(draft).length > 0;
-	const runSettings = { models: settings.models, attempts: settings.attempts };
+	const runSettings = { paths: scope.paths, models: settings.models, attempts: settings.attempts };
 	const disabledReason =
 		scope.testCount === 0
 			? 'Add a test to the tests/ folder first.'
 			: settings.models.length === 0
 				? 'Loading the models…'
-				: startRun.isPending || startComparison.isPending
+				: starts.isStarting
 					? 'Starting the run…'
 					: null;
 
-	const run = () => {
-		startComparison.reset();
-		startRun.mutate({ paths: scope.paths, ...runSettings });
-	};
-	const compare = () => {
-		startRun.reset();
-		startComparison.mutate({ paths: scope.paths, ...runSettings });
-	};
+	const run = () => starts.start(() => startRun.mutate(runSettings));
+	const compare = () => starts.start(() => startComparison.mutate(runSettings));
+	const runWithChanges = () => starts.start(() => startChangesRun.mutate(runSettings));
 	const verb = settings.models.length > 1 ? 'Benchmark' : 'Run';
 
 	return (
 		<RunActionsRow
-			error={startRun.error?.message ?? startComparison.error?.message}
+			error={starts.error}
 			picker={
 				<TestModelPicker
 					settings={settings}
@@ -79,13 +98,27 @@ export function SuiteRunActions({
 			activeRun={activeRun}
 		>
 			{hasContextChanges ? (
-				<CompareButton
-					label={`Compare ${scope.label} with production`}
-					tooltip='Runs the tests on production and with your changes, side by side, to see which ones your changes break or fix.'
+				<ContextRunButton
+					actions={{
+						compare: {
+							label: `Compare ${scope.label} with production`,
+							tooltip:
+								'Runs the tests on production and with your changes, side by side, to see which ones your changes break or fix.',
+							onRun: compare,
+						},
+						changes: {
+							label: `Run ${scope.label} with your changes`,
+							tooltip: 'Runs the tests with your changes only.',
+							onRun: runWithChanges,
+						},
+						production: {
+							label: `Run ${scope.label} on production`,
+							tooltip: 'Runs the tests against the production context only.',
+							onRun: run,
+						},
+					}}
 					disabledReason={disabledReason}
-					isStarting={startRun.isPending || startComparison.isPending}
-					onCompare={compare}
-					onRunOnProduction={run}
+					isStarting={starts.isStarting}
 				/>
 			) : (
 				<StartButton
@@ -111,29 +144,25 @@ export function TestFileRunActions({
 	onRunStarted,
 }: RunActionsBaseProps & { testFile: { path: string; content: string }; validation: TestFileValidationState }) {
 	const startRun = useMutation(trpc.testRun.startDraftRun.mutationOptions({ onSuccess: onRunStarted }));
-	const startComparison = useMutation(trpc.testRun.startComparisonRun.mutationOptions({ onSuccess: onRunStarted }));
+	const { startComparison, startChangesRun, ...starts } = useDraftContextRunStarts(onRunStarted, [startRun]);
 	const contextChangeCount = getContextChanges(draft).length;
+	const changedFiles = `${contextChangeCount} changed file${contextChangeCount === 1 ? '' : 's'}`;
 	const runSettings = { models: settings.models, attempts: settings.attempts };
 	const disabledReason = !validation.validation?.test
 		? 'Fix the test file first.'
 		: settings.models.length === 0
 			? 'Loading the models…'
-			: startRun.isPending || startComparison.isPending
+			: starts.isStarting
 				? 'Starting the run…'
 				: null;
 
-	const run = () => {
-		startComparison.reset();
-		startRun.mutate({ ...testFile, ...runSettings });
-	};
-	const compare = () => {
-		startRun.reset();
-		startComparison.mutate({ testFile, ...runSettings });
-	};
+	const run = () => starts.start(() => startRun.mutate({ ...testFile, ...runSettings }));
+	const compare = () => starts.start(() => startComparison.mutate({ testFile, ...runSettings }));
+	const runWithChanges = () => starts.start(() => startChangesRun.mutate({ testFile, ...runSettings }));
 
 	return (
 		<RunActionsRow
-			error={startRun.error?.message ?? startComparison.error?.message}
+			error={starts.error}
 			picker={
 				<TestModelPicker
 					settings={settings}
@@ -145,13 +174,26 @@ export function TestFileRunActions({
 			activeRun={activeRun}
 		>
 			{contextChangeCount > 0 ? (
-				<CompareButton
-					label='Compare with production'
-					tooltip={`Runs this test, as it is in the editor, on production and with your ${contextChangeCount} changed file${contextChangeCount === 1 ? '' : 's'}, side by side.`}
+				<ContextRunButton
+					actions={{
+						compare: {
+							label: 'Compare with production',
+							tooltip: `Runs this test, as it is in the editor, on production and with your ${changedFiles}, side by side.`,
+							onRun: compare,
+						},
+						changes: {
+							label: 'Run with your changes',
+							tooltip: `Runs this test, as it is in the editor, with your ${changedFiles} only.`,
+							onRun: runWithChanges,
+						},
+						production: {
+							label: 'Run on production',
+							tooltip: 'Runs this test, as it is in the editor, against the production context only.',
+							onRun: run,
+						},
+					}}
 					disabledReason={disabledReason}
-					isStarting={startRun.isPending || startComparison.isPending}
-					onCompare={compare}
-					onRunOnProduction={run}
+					isStarting={starts.isStarting}
 				/>
 			) : (
 				<StartButton
@@ -165,6 +207,45 @@ export function TestFileRunActions({
 			)}
 		</RunActionsRow>
 	);
+}
+
+/** How runs start when the context has changes, picked in the menu of the compare button and shared by every button. */
+export function useContextRunMode() {
+	const storedMode = useSyncExternalStore(subscribeToContextRunMode, contextRunModeStorage.get);
+	const mode: ContextRunMode = storedMode in CONTEXT_RUN_MODES ? storedMode : 'compare';
+	return [mode, setContextRunMode] as const;
+}
+
+function subscribeToContextRunMode(listener: () => void) {
+	contextRunModeListeners.add(listener);
+	return () => {
+		contextRunModeListeners.delete(listener);
+	};
+}
+
+function setContextRunMode(mode: ContextRunMode) {
+	contextRunModeStorage.set(mode);
+	contextRunModeListeners.forEach((listener) => listener());
+}
+
+/**
+ * The runs that need the user's changes, with the other ways to start a run passed in, so that starting one clears
+ * the error of the others.
+ */
+export function useDraftContextRunStarts(onRunStarted: (run: { id: string }) => void, otherStarts: RunStart[]) {
+	const startComparison = useMutation(trpc.testRun.startComparisonRun.mutationOptions({ onSuccess: onRunStarted }));
+	const startChangesRun = useMutation(trpc.testRun.startChangesRun.mutationOptions({ onSuccess: onRunStarted }));
+	const allStarts: RunStart[] = [...otherStarts, startComparison, startChangesRun];
+	return {
+		startComparison,
+		startChangesRun,
+		isStarting: allStarts.some((runStart) => runStart.isPending),
+		error: allStarts.find((runStart) => runStart.error)?.error?.message,
+		start: (mutate: () => void) => {
+			allStarts.forEach((runStart) => runStart.reset());
+			mutate();
+		},
+	};
 }
 
 /** The model picker and start button, or the button that cancels the run in progress, which blocks any other. */
@@ -231,8 +312,16 @@ function StartButton({
 	onClick: () => void;
 	className?: string;
 }) {
+	useKeyboardShortcuts({
+		'run-tests': () => {
+			if (disabledReason === null) {
+				onClick();
+			}
+		},
+	});
+
 	return (
-		<SimpleTooltip content={disabledReason ?? tooltip} side='top'>
+		<SimpleTooltip content={disabledReason ?? `${tooltip} (${getShortcutLabel('run-tests')})`} side='top'>
 			<span className='shrink-0'>
 				<Button
 					type='button'
@@ -249,31 +338,32 @@ function StartButton({
 	);
 }
 
-/** Compares with production, with a menu to run on production only, as one button does not fit both in the tab row. */
-function CompareButton({
-	label,
-	tooltip,
+/**
+ * Starts a run on production, with the user's changes, or both side by side. Picking another way to run in the menu
+ * makes it the button's action, remembered in this browser.
+ */
+function ContextRunButton({
+	actions,
 	disabledReason,
 	isStarting,
-	onCompare,
-	onRunOnProduction,
 }: {
-	label: string;
-	tooltip: string;
+	actions: Record<ContextRunMode, ContextRunAction>;
 	disabledReason: string | null;
 	isStarting: boolean;
-	onCompare: () => void;
-	onRunOnProduction: () => void;
 }) {
+	const [selectedMode, setMode] = useContextRunMode();
+	const action = actions[selectedMode];
+	const otherModes = (Object.keys(CONTEXT_RUN_MODES) as ContextRunMode[]).filter((other) => other !== selectedMode);
+
 	return (
 		<span className='flex shrink-0 items-center'>
 			<StartButton
-				icon={<GitCompareArrows className='size-3.5' />}
-				label={label}
-				tooltip={tooltip}
+				icon={CONTEXT_RUN_MODES[selectedMode].icon}
+				label={action.label}
+				tooltip={action.tooltip}
 				disabledReason={disabledReason}
 				isStarting={isStarting}
-				onClick={onCompare}
+				onClick={action.onRun}
 				className='rounded-r-none'
 			/>
 			<DropdownMenu>
@@ -289,10 +379,12 @@ function CompareButton({
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align='end' className='text-xs'>
-					<DropdownMenuItem onSelect={onRunOnProduction}>
-						<Play className='size-3.5' />
-						Run on production only
-					</DropdownMenuItem>
+					{otherModes.map((other) => (
+						<DropdownMenuItem key={other} onSelect={() => setMode(other)}>
+							{CONTEXT_RUN_MODES[other].icon}
+							{CONTEXT_RUN_MODES[other].menuLabel}
+						</DropdownMenuItem>
+					))}
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</span>

@@ -1,6 +1,7 @@
+import { arrayMove } from '@dnd-kit/sortable';
 import { useCallback, useState } from 'react';
 
-/** The tests opened as tabs in the Tests drawer, in the order they were opened. */
+/** The tests opened as tabs in the Tests drawer, in the order they were opened or then arranged. */
 export function useOpenedTestTabs() {
 	const [testPaths, setTestPaths] = useState<string[]>([]);
 
@@ -12,7 +13,21 @@ export function useOpenedTestTabs() {
 		setTestPaths((current) => current.filter((path) => path !== testPath));
 	}, []);
 
-	return { testPaths, openTab, closeTab };
+	const moveTab = useCallback((testPath: string, targetPath: string) => {
+		setTestPaths((current) => moveTabOnto(current, testPath, targetPath));
+	}, []);
+
+	return { testPaths, openTab, closeTab, moveTab };
+}
+
+/** Moves a tab to where another one is, shifting the tabs in between, as when dropping it there. */
+export function moveTabOnto(testPaths: string[], testPath: string, targetPath: string): string[] {
+	const fromIndex = testPaths.indexOf(testPath);
+	const toIndex = testPaths.indexOf(targetPath);
+	if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
+		return testPaths;
+	}
+	return arrayMove(testPaths, fromIndex, toIndex);
 }
 
 /** The tab that takes the place of a closed one: the next tab, or the previous one when it was the last. */

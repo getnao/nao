@@ -15,6 +15,7 @@ import {
 	formatPassRate,
 	formatUnitCost,
 	getAccuracy,
+	getSingleRunVariant,
 	getTestModelColor,
 	isSameTestModel,
 	resultModel,
@@ -199,7 +200,9 @@ export function TestModelMatrix({
 	testPaths: string[];
 	onOpenTest: (testPath: string) => void;
 }) {
-	const resultsByTest = groupResults(run.results.filter((result) => result.contextVariant === 'production'));
+	const resultsByTest = groupResults(
+		run.results.filter((result) => result.contextVariant === getSingleRunVariant(run)),
+	);
 	return (
 		<table className='w-full text-xs'>
 			<thead>
@@ -417,7 +420,7 @@ export function summarizeTestMetrics(results: TestRunResult[]) {
 export function listTestsWhereModelsDisagree(run: TestRunWithResults): Set<string> {
 	const disagreeing = new Set<string>();
 	for (const [testPath, results] of groupResults(
-		run.results.filter((result) => result.contextVariant === 'production'),
+		run.results.filter((result) => result.contextVariant === getSingleRunVariant(run)),
 	)) {
 		const outcomes = run.models.map((model) =>
 			results.filter((result) => isSameTestModel(resultModel(result), model)),

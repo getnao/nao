@@ -6,6 +6,8 @@ import { testRunAgent } from '../agents/profiles/test-run';
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
+import type { TestSourceQuery } from '../types/test-run';
+import type { QueryResult } from '../types/tools';
 import { getErrorMessage } from '../utils/utils';
 import { AgentChat, AgentRunResult, AgentService } from './agent';
 import { runSqlOverQueryResults } from './duckdb.service';
@@ -16,6 +18,8 @@ export interface VerificationResult {
 	data: Record<string, unknown>[] | null;
 	/** The DuckDB query the agent wrote over its own query results */
 	sql: string | null;
+	/** The agent's queries that the DuckDB query reads from */
+	sourceQueries: TestSourceQuery[];
 	error: string | null;
 }
 
@@ -105,7 +109,7 @@ export class TestAgentService extends AgentService {
 	): Promise<VerificationResult> {
 		const { queryResults } = agentResult;
 		if (queryResults.size === 0) {
-			return { data: null, sql: null, error: 'The agent did not run any SQL query.' };
+			return { data: null, sql: null, sourceQueries: [], error: 'The agent did not run any SQL query.' };
 		}
 
 		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
@@ -130,12 +134,17 @@ export class TestAgentService extends AgentService {
 
 			sql = result.output.sql?.trim() || null;
 			if (!sql) {
-				return { data: null, sql: null, error: 'The agent could not answer from its query results.' };
+				return {
+					data: null,
+					sql: null,
+					sourceQueries: [],
+					error: 'The agent could not answer from its query results.',
+				};
 			}
 
 			try {
 				const { data } = await runSqlOverQueryResults(queryResults, sql);
-				return { data, sql, error: null };
+				return { data, sql, sourceQueries: findSourceQueries(sql, queryResults), error: null };
 			} catch (err) {
 				error = err instanceof Error ? err.message : String(err);
 				messages.push(
@@ -145,7 +154,7 @@ export class TestAgentService extends AgentService {
 			}
 		}
 
-		return { data: null, sql, error };
+		return { data: null, sql, sourceQueries: sql ? findSourceQueries(sql, queryResults) : [], error };
 	}
 
 	private static _buildUserMessage(text: string): UIMessage {
@@ -197,3 +206,14 @@ Return a corrected DuckDB query, or set sql to null if the tables cannot answer 
 
 // Singleton instance of the test agent service
 export const testAgentService = new TestAgentService();
+
+/** The queries of the chat whose result tables the verification SQL names, in the order they ran. */
+export function findSourceQueries(sql: string, queryResults: ReadonlyMap<string, QueryResult>): TestSourceQuery[] {
+	const sourceQueries: TestSourceQuery[] = [];
+	for (const [queryId, result] of queryResults) {
+		if (result.sqlQuery && new RegExp(`\\b${queryId}\\b`).test(sql)) {
+			sourceQueries.push({ id: queryId, sql: result.sqlQuery });
+		}
+	}
+	return sourceQueries;
+}

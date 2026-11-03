@@ -1,14 +1,21 @@
+import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDefaultLayout, usePanelRef } from 'react-resizable-panels';
-import type { ReactNode, WheelEvent } from 'react';
+import type { DragEndEvent, Modifier } from '@dnd-kit/core';
+import type { CSSProperties, ReactNode, Ref, WheelEvent } from 'react';
 
 import type { TestDefinition, TestRunSummary } from '@/components/settings/test-run-types';
+import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
+import { RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
 import { SuiteRunActions, TestFileRunActions } from '@/components/settings/test-run-actions';
-import { isActiveRun } from '@/components/settings/test-run-types';
+import { isActiveRun, toExplorerTestPath } from '@/components/settings/test-run-types';
 import { getSuiteRunScope, TestSuitePanel } from '@/components/settings/test-suite-panel';
+import { TestTabRunButton } from '@/components/settings/test-tab-run-button';
 import { TestWorkbench } from '@/components/settings/test-workbench';
 import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
@@ -27,6 +34,7 @@ const DRAWER_OPENED_SIZE = '45%';
 const ACTIVE_RUN_REFETCH_MS = 3_000;
 const DRAWER_ANIMATION_MS = 200;
 const NO_TESTS: TestDefinition[] = [];
+const TAB_DRAG_ACTIVATION_DISTANCE = 4;
 
 interface TestDrawerLayoutProps {
 	children: ReactNode;
@@ -42,6 +50,8 @@ interface TestDrawerLayoutProps {
 	openRequestId: number;
 	onSelectTab: (testPath: string | null) => void;
 	onCloseTab: (testPath: string) => void;
+	/** Moves a test tab to the place of the tab it was dropped on. */
+	onMoveTab: (testPath: string, targetPath: string) => void;
 	onSelectRun: (runId: string | null) => void;
 	onOpenTest: (explorerPath: string) => void;
 }
@@ -56,6 +66,7 @@ export function TestDrawerLayout({
 	openRequestId,
 	onSelectTab,
 	onCloseTab,
+	onMoveTab,
 	onSelectRun,
 	onOpenTest,
 }: TestDrawerLayoutProps) {
@@ -148,6 +159,12 @@ export function TestDrawerLayout({
 		open();
 	};
 
+	const selectTabToRun = (testPath: string) => {
+		if (testPath !== activeTestPath) {
+			onSelectTab(testPath);
+		}
+	};
+
 	useEffect(() => {
 		if (activeTestPath) {
 			open();
@@ -220,6 +237,7 @@ export function TestDrawerLayout({
 										</Button>
 									</SimpleTooltip>
 								}
+								className={RUNS_COLUMN_WIDTH_CLASS}
 								isActive={isOpen && activeTestPath === null}
 								onSelect={() => selectTab(null)}
 							/>
@@ -227,23 +245,29 @@ export function TestDrawerLayout({
 								className='flex h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden'
 								onWheel={scrollTabsHorizontally}
 							>
-								{testTabs.map((testPath) => (
-									<DrawerTab
-										key={testPath}
-										label={fileName(testPath)}
-										title={testPath}
-										icon={
-											<FileExplorerIcon
-												name={fileName(testPath)}
-												type='file'
-												className='size-3.5'
-											/>
-										}
-										isActive={isOpen && activeTestPath === testPath}
-										onSelect={() => selectTab(testPath)}
-										onClose={() => onCloseTab(testPath)}
-									/>
-								))}
+								<SortableTestTabs
+									testPaths={testTabs}
+									activeTestPath={isOpen ? activeTestPath : null}
+									getLabel={(testPath) => getTestTabLabel(testPath, tests, shownTestFile, validation)}
+									renderIcon={(testPath, icon) => (
+										<TestTabRunButton
+											icon={icon}
+											testPath={testPath}
+											testFile={shownTestFile?.path === testPath ? shownTestFile : null}
+											isTestFileInvalid={
+												shownTestFile?.path === testPath && !validation.validation?.test
+											}
+											settings={runSettings}
+											draft={draft}
+											activeRun={activeRun}
+											onStart={() => selectTabToRun(testPath)}
+											onRunStarted={handleRunStarted}
+										/>
+									)}
+									onSelect={selectTab}
+									onClose={onCloseTab}
+									onMove={onMoveTab}
+								/>
 							</div>
 						</div>
 						<div className='ml-2 flex shrink-0 items-center gap-3'>
@@ -281,6 +305,9 @@ export function TestDrawerLayout({
 										draft={draft}
 										selectedRunId={selectedRunId}
 										onSelectRun={onSelectRun}
+										runSettings={runSettings}
+										activeRun={activeRun}
+										onRunStarted={handleRunStarted}
 									/>
 								) : (
 									<div className='flex h-full items-center justify-center'>
@@ -305,26 +332,132 @@ export function TestDrawerLayout({
 	);
 }
 
+/** The tabs of the opened tests, which can be dragged sideways to change their order, as in an editor. */
+function SortableTestTabs({
+	testPaths,
+	activeTestPath,
+	getLabel,
+	renderIcon,
+	onSelect,
+	onClose,
+	onMove,
+}: {
+	testPaths: string[];
+	activeTestPath: string | null;
+	getLabel: (testPath: string) => string;
+	/** Wraps the file icon of a tab, to add actions on it. */
+	renderIcon: (testPath: string, icon: ReactNode) => ReactNode;
+	onSelect: (testPath: string) => void;
+	onClose: (testPath: string) => void;
+	onMove: (testPath: string, targetPath: string) => void;
+}) {
+	const sensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: TAB_DRAG_ACTIVATION_DISTANCE } }),
+	);
+
+	const handleDragEnd = ({ active, over }: DragEndEvent) => {
+		if (over && active.id !== over.id) {
+			onMove(String(active.id), String(over.id));
+		}
+	};
+
+	return (
+		<DndContext
+			sensors={sensors}
+			collisionDetection={closestCenter}
+			modifiers={[lockToHorizontalAxis]}
+			onDragEnd={handleDragEnd}
+		>
+			<SortableContext items={testPaths} strategy={horizontalListSortingStrategy}>
+				{testPaths.map((testPath) => (
+					<SortableTestTab
+						key={testPath}
+						testPath={testPath}
+						label={getLabel(testPath)}
+						isActive={activeTestPath === testPath}
+						renderIcon={(icon) => renderIcon(testPath, icon)}
+						onSelect={() => onSelect(testPath)}
+						onClose={() => onClose(testPath)}
+					/>
+				))}
+			</SortableContext>
+		</DndContext>
+	);
+}
+
+function SortableTestTab({
+	testPath,
+	label,
+	isActive,
+	renderIcon,
+	onSelect,
+	onClose,
+}: {
+	testPath: string;
+	label: string;
+	isActive: boolean;
+	renderIcon: (icon: ReactNode) => ReactNode;
+	onSelect: () => void;
+	onClose: () => void;
+}) {
+	const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: testPath });
+
+	return (
+		<DrawerTab
+			label={label}
+			title={testPath}
+			leading={renderIcon(
+				<FileExplorerIcon name={fileName(testPath)} type='file' path={testPath} className='size-3.5' />,
+			)}
+			isActive={isActive}
+			onSelect={onSelect}
+			onClose={onClose}
+			drag={{
+				nodeRef: setNodeRef,
+				listeners,
+				style: { transform: CSS.Translate.toString(transform), transition },
+				isDragging,
+			}}
+		/>
+	);
+}
+
+/** Keeps a dragged tab in the bar, moving only sideways. */
+const lockToHorizontalAxis: Modifier = ({ transform }) => ({ ...transform, y: 0 });
+
+interface DrawerTabDrag {
+	nodeRef: (element: HTMLElement | null) => void;
+	listeners: ReturnType<typeof useSortable>['listeners'];
+	style: CSSProperties;
+	isDragging: boolean;
+}
+
 /** A tab of the drawer bar, like an editor tab; tabs that can close show a cross and also close on a middle click. */
 function DrawerTab({
 	label,
 	icon,
 	leading,
 	title,
+	className,
 	isActive,
 	onSelect,
 	onClose,
+	drag,
 }: {
 	label: string;
 	icon?: ReactNode;
 	/** Shown at the start of the tab, outside the button that selects it. */
 	leading?: ReactNode;
 	title?: string;
+	className?: string;
 	isActive: boolean;
 	onSelect: () => void;
 	onClose?: () => void;
+	/** Makes the whole tab draggable, to reorder it among the others. */
+	drag?: DrawerTabDrag;
 }) {
 	const tabRef = useRef<HTMLDivElement>(null);
+	const setTabRef = useMergedTabRef(tabRef, drag?.nodeRef);
 
 	useEffect(() => {
 		if (isActive) {
@@ -334,12 +467,16 @@ function DrawerTab({
 
 	return (
 		<div
-			ref={tabRef}
+			ref={setTabRef}
+			style={drag?.style}
+			{...drag?.listeners}
 			className={cn(
 				'group flex h-full shrink-0 items-center border-r transition-colors',
 				isActive
 					? 'bg-background text-foreground'
 					: 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
+				drag?.isDragging && 'relative z-10 cursor-grabbing bg-background shadow-md',
+				className,
 			)}
 			onAuxClick={(event) => {
 				if (event.button === 1 && onClose) {
@@ -356,13 +493,13 @@ function DrawerTab({
 				title={title ?? label}
 				onClick={onSelect}
 				className={cn(
-					'flex h-full cursor-pointer items-center gap-2',
+					'flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2',
 					leading ? 'pl-0.5' : 'pl-3',
 					onClose ? 'pr-1.5' : 'pr-3',
 				)}
 			>
 				{icon}
-				<span className='whitespace-nowrap'>{label}</span>
+				<span className='max-w-60 truncate whitespace-nowrap'>{label}</span>
 			</button>
 			{onClose && (
 				<button
@@ -378,6 +515,19 @@ function DrawerTab({
 				</button>
 			)}
 		</div>
+	);
+}
+
+function useMergedTabRef(
+	tabRef: { current: HTMLDivElement | null },
+	nodeRef: DrawerTabDrag['nodeRef'] | undefined,
+): Ref<HTMLDivElement> {
+	return useCallback(
+		(element: HTMLDivElement | null) => {
+			tabRef.current = element;
+			nodeRef?.(element);
+		},
+		[tabRef, nodeRef],
 	);
 }
 
@@ -466,6 +616,18 @@ function useTestDrawerData() {
 		tests: suite.data?.tests,
 		invalidateRuns,
 	};
+}
+
+/** Names a test tab after its test: as it is in the editor when shown, else as saved, else after its file. */
+function getTestTabLabel(
+	testPath: string,
+	tests: TestDefinition[] | undefined,
+	shownTestFile: { path: string } | null,
+	validation: TestFileValidationState,
+): string {
+	const editedTestName = shownTestFile?.path === testPath ? validation.validation?.test?.name : undefined;
+	const savedTestName = tests?.find((test) => toExplorerTestPath(test.path) === testPath)?.name;
+	return editedTestName ?? savedTestName ?? fileName(testPath);
 }
 
 function fileName(path: string): string {

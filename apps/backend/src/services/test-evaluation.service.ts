@@ -9,7 +9,7 @@ import type { AgentRunResult } from './agent';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
-import { TestAgentService, testAgentService, type ToolCallResult } from './test-agent.service';
+import { TestAgentService, testAgentService, type ToolCallResult, type VerificationResult } from './test-agent.service';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 
 export interface TestAttemptInput {
@@ -22,7 +22,7 @@ export interface TestAttemptInput {
 
 export interface TestAttemptEvaluation {
 	toolCalls: ToolCallResult[];
-	verification: (TestVerification & { sql: string | null }) | undefined;
+	verification: (TestVerification & Pick<VerificationResult, 'sql' | 'sourceQueries'>) | undefined;
 	verdict: TestVerdict;
 }
 

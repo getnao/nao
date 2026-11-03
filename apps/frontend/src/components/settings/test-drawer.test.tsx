@@ -32,7 +32,7 @@ vi.stubGlobal(
 
 Object.defineProperty(document, 'adoptedStyleSheets', { value: [], writable: true });
 
-const mocks = vi.hoisted(() => ({ listRuns: vi.fn() }));
+const mocks = vi.hoisted(() => ({ listRuns: vi.fn(), startRun: vi.fn() }));
 
 vi.mock('@/main', () => ({
 	trpc: {
@@ -48,8 +48,9 @@ vi.mock('@/main', () => ({
 		},
 		testRun: {
 			getModelStats: { queryOptions: () => ({ queryKey: ['model-stats'], queryFn: () => [] }) },
-			startRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
+			startRun: { mutationOptions: (options: object) => ({ mutationFn: mocks.startRun, ...options }) },
 			startComparisonRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
+			startChangesRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
 			startDraftRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
 			cancelRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
 			validateTestFile: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
@@ -65,7 +66,11 @@ vi.mock('@/main', () => ({
 				queryOptions: () => ({
 					queryKey: ['tests'],
 					queryFn: () => ({
-						tests: [{ tags: [] }, { tags: [] }, { tags: [] }],
+						tests: [
+							{ path: 'sales/revenue.yml', name: 'Revenue by month', tags: [] },
+							{ path: 'churn.yml', name: 'churn', tags: [] },
+							{ path: 'orders.yml', name: 'Orders count', tags: [] },
+						],
 						settings: { models: null, attempts: 1, errors: [] },
 					}),
 				}),
@@ -90,15 +95,16 @@ describe('TestDrawerLayout', () => {
 
 	afterEach(cleanup);
 
-	it('keeps the editor above a bar with all the tests first, then a tab per opened test', async () => {
-		renderDrawer({ testTabs: ['/tests/sales/revenue.yml', '/tests/churn.yml'] });
+	it('keeps the editor above a bar with all the tests first, then a tab per opened test, named after it', async () => {
+		renderDrawer({ testTabs: ['/tests/sales/revenue.yml', '/tests/churn.yml', '/tests/new.yml'] });
 
 		expect(screen.getByText('Editor')).toBeTruthy();
 		await waitFor(() =>
 			expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 				'All tests (3)',
-				'revenue.yml',
-				'churn.yml',
+				'Revenue by month',
+				'churn',
+				'new.yml',
 			]),
 		);
 		await waitFor(() => expect(screen.getByText('Comparing 1/4')).toBeTruthy());
@@ -135,6 +141,29 @@ describe('TestDrawerLayout', () => {
 
 		fireEvent.click(screen.getByRole('tab', { name: /^All tests/ }));
 		expect(onSelectTab).toHaveBeenLastCalledWith(null);
+	});
+
+	it('runs the test of a tab from its icon, showing its tab', async () => {
+		mocks.listRuns.mockResolvedValue([]);
+		mocks.startRun.mockResolvedValue({ id: 'run-new' });
+		const onSelectTab = vi.fn();
+		renderDrawer({
+			testTabs: ['/tests/revenue.yml', '/tests/sales/churn.yml'],
+			activeTestPath: '/tests/revenue.yml',
+			onSelectTab,
+		});
+
+		const runButtons = await screen.findAllByRole('button', { name: 'Run this test' });
+		await waitFor(() => expect(runButtons[1].getAttribute('aria-disabled')).toBe('false'));
+		fireEvent.click(runButtons[1]);
+
+		expect(onSelectTab).toHaveBeenLastCalledWith('/tests/sales/churn.yml');
+		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
+		expect(mocks.startRun.mock.calls[0][0]).toEqual({
+			paths: ['sales/churn.yml'],
+			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+			attempts: 1,
+		});
 	});
 
 	it('closes a test tab with its cross or a middle click, but never all the tests', () => {
@@ -176,6 +205,7 @@ function renderDrawer({
 					openRequestId={0}
 					onSelectTab={onSelectTab}
 					onCloseTab={onCloseTab}
+					onMoveTab={vi.fn()}
 					onSelectRun={vi.fn()}
 					onOpenTest={vi.fn()}
 				>

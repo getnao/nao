@@ -1,5 +1,6 @@
 import '../src/env';
 
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
@@ -8,7 +9,8 @@ import {
 	getLatestOutcomesByTest,
 	getPreviousModelSummaries,
 	getTestHistory,
-	listRunsWithVariantTotals,
+	listRunsWithTestTotals,
+	withSourceQueries,
 } from '../src/services/test-history.service';
 import {
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
@@ -17,6 +19,10 @@ import {
 	type TestRunStatus,
 	type TestRunTrigger,
 } from '../src/types/test-run';
+
+const executeSqlMocks = vi.hoisted(() => ({ getLatestSqlQueriesByChats: vi.fn() }));
+
+vi.mock('../src/queries/execute-sql.queries', () => executeSqlMocks);
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -152,37 +158,43 @@ describe('getLatestOutcomesByTest with several models', () => {
 	});
 });
 
-describe('listRunsWithVariantTotals', () => {
-	it('adds the totals of each model to the runs that tried several', async () => {
+describe('listRunsWithTestTotals', () => {
+	it('counts the tests that passed in each run, overall and for each model', async () => {
 		await insertRun('run-1', PREVIOUS_RUN_AT, 'completed', [['revenue.yml', 'hash', true]]);
 		await insertModelRun('run-2', LATEST_RUN_AT, [
 			['revenue.yml', 'claude-haiku-4-5', false],
 			['revenue.yml', 'claude-sonnet-4-5', true],
+			['orders.yml', 'claude-haiku-4-5', true],
+			['orders.yml', 'claude-sonnet-4-5', true],
 		]);
 
-		const runs = await listRunsWithVariantTotals(PROJECT_ID);
+		const [latest, previous] = await listRunsWithTestTotals(PROJECT_ID);
 
-		expect(runs.map((run) => [run.id, run.modelTotals])).toEqual([
-			[
-				'run-2',
-				expect.arrayContaining([
-					{
-						provider: 'anthropic',
+		expect(latest.testTotals).toEqual([
+			expect.objectContaining({
+				contextVariant: 'production',
+				testCount: 2,
+				passedTests: 1,
+				passedAttempts: 3,
+				totalAttempts: 4,
+				models: [
+					expect.objectContaining({
 						modelId: 'claude-haiku-4-5',
-						contextVariant: 'production',
-						passed: 0,
-						total: 1,
-					},
-					{
-						provider: 'anthropic',
+						testCount: 2,
+						passedTests: 1,
+						flakyTests: 0,
+					}),
+					expect.objectContaining({
 						modelId: 'claude-sonnet-4-5',
-						contextVariant: 'production',
-						passed: 1,
-						total: 1,
-					},
-				]),
-			],
-			['run-1', null],
+						testCount: 2,
+						passedTests: 2,
+						flakyTests: 0,
+					}),
+				],
+			}),
+		]);
+		expect(previous.testTotals).toEqual([
+			expect.objectContaining({ contextVariant: 'production', testCount: 1, passedTests: 1 }),
 		]);
 	});
 });
@@ -296,7 +308,50 @@ describe('getTestHistory', () => {
 			rows: [{ expected: ['jan', 100], actual: ['jan', 90], statuses: ['match', 'differ'] }],
 		});
 	});
+
+	it('diffs the rows of each attempt with the changes against the same attempt on production', async () => {
+		await insertRun(
+			'run-1',
+			LATEST_RUN_AT,
+			'completed',
+			[
+				['revenue.yml', 'hash-revenue', true, 'production'],
+				['revenue.yml', 'hash-revenue', false, 'draft'],
+			],
+			'comparison',
+		);
+		for (const [contextVariant, total] of [
+			['production', 100],
+			['draft', 90],
+		] as const) {
+			await db
+				.update(s.testRunResult)
+				.set({ details: storedRows([{ month: 'jan', total }]), attempt: 1 })
+				.where(eq(s.testRunResult.contextVariant, contextVariant))
+				.execute();
+		}
+
+		const [run] = await getTestHistory(PROJECT_ID, 'revenue.yml', DEFAULT_TEST_COMPARISON_TOLERANCES);
+		const production = run.results.find((result) => result.contextVariant === 'production');
+		const draft = run.results.find((result) => result.contextVariant === 'draft');
+
+		expect(production?.variantDiff).toBeNull();
+		expect(draft?.variantDiff).toMatchObject({
+			rows: [{ expected: ['jan', 100], actual: ['jan', 90], statuses: ['match', 'differ'] }],
+		});
+	});
 });
+
+function storedRows(actualData: Record<string, unknown>[]) {
+	return {
+		responseText: null,
+		actualData,
+		expectedData: [{ month: 'jan', total: 100 }],
+		comparison: null,
+		referenceSql: null,
+		verificationSql: null,
+	};
+}
 
 async function insertRun(
 	id: string,
@@ -388,3 +443,36 @@ function testDefinition(path: string, hash: string): TestDefinition {
 		hash,
 	};
 }
+
+describe('withSourceQueries', () => {
+	it("fills in the queries that the verification selected from, read from the attempt's chat", async () => {
+		executeSqlMocks.getLatestSqlQueriesByChats.mockResolvedValue(
+			new Map([['chat-1', { query_6921ded7: { sqlQuery: 'SELECT month FROM orders', adminMode: false } }]]),
+		);
+		const result = {
+			chatId: 'chat-1',
+			details: {
+				...storedRows([]),
+				verificationSql: 'SELECT month AS order_month FROM query_6921ded7 ORDER BY order_month',
+			},
+		} as unknown as Parameters<typeof withSourceQueries>[0][number];
+
+		const [filled] = await withSourceQueries([result]);
+
+		expect(executeSqlMocks.getLatestSqlQueriesByChats).toHaveBeenCalledWith(
+			new Map([['chat-1', new Set(['query_6921ded7'])]]),
+		);
+		expect(filled.details?.sourceQueries).toEqual([{ id: 'query_6921ded7', sql: 'SELECT month FROM orders' }]);
+	});
+
+	it('leaves results that already stored their queries untouched', async () => {
+		const result = {
+			chatId: 'chat-1',
+			details: { ...storedRows([]), verificationSql: 'SELECT 1 FROM query_1', sourceQueries: [] },
+		} as unknown as Parameters<typeof withSourceQueries>[0][number];
+		executeSqlMocks.getLatestSqlQueriesByChats.mockClear();
+
+		expect(await withSourceQueries([result])).toEqual([result]);
+		expect(executeSqlMocks.getLatestSqlQueriesByChats).not.toHaveBeenCalled();
+	});
+});
