@@ -14,6 +14,16 @@ describe('warehouse log redactor', () => {
 		);
 	});
 
+	it('masks Snowflake private key passphrases', () => {
+		const snowflakeRedactor = createWarehouseLogRedactor({
+			NAO_ONBOARDING_SNOWFLAKE_PASSPHRASE: '"key-passphrase"',
+		});
+
+		expect(snowflakeRedactor.redact('Decrypting key with key-passphrase')).toBe(
+			'Decrypting key with [REDACTED:NAO_ONBOARDING_SNOWFLAKE_PASSPHRASE]',
+		);
+	});
+
 	it('withholds the start of a secret that the next chunk could complete', () => {
 		expect(redactor.withholdPartialSecret('Connecting with super-sec')).toBe('Connecting with ');
 	});

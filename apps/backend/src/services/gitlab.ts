@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { escapeRegExp } from '../utils/utils';
 import { configDir, getRepoSubPath, isContextConfigFile, shallowestSubPath } from './git-repo';
 
 export { NAO_CO_AUTHOR };
@@ -254,10 +255,6 @@ function readOptionalGitValue(projectDir: string, args: string[]): string | null
 	} catch {
 		return null;
 	}
-}
-
-export function escapeRegExp(str: string): string {
-	return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export async function getUserGitIdentity(token: string): Promise<GitIdentity> {

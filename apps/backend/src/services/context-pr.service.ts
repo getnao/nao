@@ -60,7 +60,7 @@ export interface RecommendationRepo {
 }
 
 function buildRepoWebUrl(provider: InternalRepoProvider, repoFullName: string): string {
-	const base = provider === 'gitlab' ? gitlab.gitlabBaseUrl() : 'https://github.com';
+	const base = provider === 'gitlab' ? gitlab.gitlabBaseUrl() : github.githubBaseUrl();
 	return `${base}/${repoFullName}`;
 }
 

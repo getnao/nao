@@ -294,46 +294,46 @@ describe('Google Gemini', () => {
 			topK: 40,
 		});
 
-		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'high' });
+		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'high', includeThoughts: true });
 		expect(callSettings).toEqual({ temperature: 1.4, topK: 40 });
 	});
 
 	it('clamps a stale minimal effort to low on models that reject MINIMAL', () => {
 		const { options } = resolve('google', 'gemini-3.1-pro-preview', { reasoningEffort: 'minimal' });
 
-		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'low', includeThoughts: true });
 	});
 
 	it('keeps minimal on models that support it', () => {
 		const { options } = resolve('google', 'gemini-3-flash-preview', { reasoningEffort: 'minimal' });
 
-		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
+		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'minimal', includeThoughts: true });
 	});
 
 	it('clamps custom models to the low/high levels every Gemini accepts', () => {
 		const minimal = resolve('google', 'gemini-9-experimental', { reasoningEffort: 'minimal' });
 		const medium = resolve('google', 'gemini-9-experimental', { reasoningEffort: 'medium' });
 
-		expect(minimal.options.thinkingConfig).toEqual({ thinkingLevel: 'low' });
-		expect(medium.options.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+		expect(minimal.options.thinkingConfig).toEqual({ thinkingLevel: 'low', includeThoughts: true });
+		expect(medium.options.thinkingConfig).toEqual({ thinkingLevel: 'low', includeThoughts: true });
 	});
 
-	it('sends nothing when effort is off', () => {
+	it('sends only includeThoughts when effort is off', () => {
 		const { options } = resolve('google', 'gemini-3.1-pro-preview', { reasoningEffort: 'off' });
 
-		expect(options).not.toHaveProperty('thinkingConfig');
+		expect(options.thinkingConfig).toEqual({ includeThoughts: true });
 	});
 
 	it('translates a token budget to thinkingConfig.thinkingBudget', () => {
 		const { options } = resolve('google', 'gemini-2.5-pro', { thinkingBudgetTokens: 2048 });
 
-		expect(options.thinkingConfig).toEqual({ thinkingBudget: 2048 });
+		expect(options.thinkingConfig).toEqual({ thinkingBudget: 2048, includeThoughts: true });
 	});
 
 	it('never sends a thinking level to budget-based Gemini 2.5 models', () => {
 		const { options } = resolve('google', 'gemini-2.5-flash', { reasoningEffort: 'minimal' });
 
-		expect(options).not.toHaveProperty('thinkingConfig');
+		expect(options.thinkingConfig).toEqual({ includeThoughts: true });
 	});
 });
 
@@ -455,7 +455,7 @@ describe('Vertex', () => {
 		const { options, providerOptions } = resolve('vertex', 'gemini-3-flash-preview', { reasoningEffort: 'low' });
 
 		expect(providerOptions).not.toHaveProperty('anthropic');
-		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'low', includeThoughts: true });
 	});
 });
 
@@ -675,14 +675,14 @@ describe('thinking budget safety (stored budgets must never fail a request)', ()
 		const low = resolve('google', 'gemini-2.5-pro', { thinkingBudgetTokens: 64 });
 		const high = resolve('google', 'gemini-2.5-pro', { thinkingBudgetTokens: 100_000 });
 
-		expect(low.options.thinkingConfig).toEqual({ thinkingBudget: 128 });
-		expect(high.options.thinkingConfig).toEqual({ thinkingBudget: 32_768 });
+		expect(low.options.thinkingConfig).toEqual({ thinkingBudget: 128, includeThoughts: true });
+		expect(high.options.thinkingConfig).toEqual({ thinkingBudget: 32_768, includeThoughts: true });
 	});
 
 	it('clamps the Gemini 2.5 Flash thinking budget to its own range', () => {
 		const { options } = resolve('google', 'gemini-2.5-flash', { thinkingBudgetTokens: 100_000 });
 
-		expect(options.thinkingConfig).toEqual({ thinkingBudget: 24_576 });
+		expect(options.thinkingConfig).toEqual({ thinkingBudget: 24_576, includeThoughts: true });
 	});
 });
 
@@ -826,6 +826,21 @@ describe('extra provider options', () => {
 		});
 
 		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'high', includeThoughts: true });
+	});
+
+	it('includes Gemini thoughts by default so reasoning is streamed back', () => {
+		const { options } = resolve('vertex', 'gemini-3.8-flash', { reasoningEffort: 'high' });
+
+		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'high', includeThoughts: true });
+	});
+
+	it('omits Gemini thoughts when the admin turns them off', () => {
+		const { options } = resolve('google', 'gemini-3-flash-preview', {
+			reasoningEffort: 'high',
+			includeThoughts: false,
+		});
+
+		expect(options.thinkingConfig).toEqual({ thinkingLevel: 'high', includeThoughts: false });
 	});
 
 	it('deep-merges includeThoughts with an active thinking budget', () => {

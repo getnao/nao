@@ -103,6 +103,7 @@ class MetricInfo:
     input_metrics: list[str]
     semantic_models: list[str]
     dimensions: list[str]
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 _ENGINES: dict[tuple[Path, int, str], "MetricFlowSemanticLayer"] = {}
@@ -247,6 +248,7 @@ def _metric_info(metric: Any) -> MetricInfo:
         input_metrics=_input_metric_names(type_params),
         semantic_models=sorted(reference.semantic_model_name for reference in metric.semantic_models),
         dimensions=dimensions,
+        meta=dict(metric.config.meta) if metric.config is not None else {},
     )
 
 

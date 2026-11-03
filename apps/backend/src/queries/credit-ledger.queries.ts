@@ -9,8 +9,13 @@ import s, {
 } from '../db/abstractSchema';
 import { db, type DBTransaction, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from '../env';
+import { CLOUD_TRIAL_PROVISIONING_JOB_NAME } from '../types/billing';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME } from '../types/email';
 import type { CreditGrantType } from '../types/managed-ai-usage';
 import { ManagedCreditsExhaustedError } from '../utils/error';
+import { startOrganizationTrial } from './billing.queries';
+import { enqueueOnceJob } from './scheduled-job.queries';
 
 export interface CreditPurchase {
 	checkoutSessionId: string;
@@ -58,9 +63,20 @@ type LedgerEntry = Omit<
 
 export async function issueCreditGrant(input: CreditGrant): Promise<boolean> {
 	if (dbConfig.dialect === Dialect.Sqlite) {
-		return db.transaction((transaction) => issueSqliteCreditGrant(transaction, input), { behavior: 'immediate' });
+		return db.transaction(
+			(transaction) => {
+				const issued = issueSqliteCreditGrant(transaction, input);
+				startSqliteTrialForOrganizationSetupGrant(transaction, input);
+				return issued;
+			},
+			{ behavior: 'immediate' },
+		);
 	}
-	return db.transaction((transaction) => issuePostgresCreditGrant(transaction, input));
+	return db.transaction(async (transaction) => {
+		const issued = await issuePostgresCreditGrant(transaction, input);
+		await startPostgresTrialForOrganizationSetupGrant(transaction, input);
+		return issued;
+	});
 }
 
 export async function issueCreditPurchase(purchase: CreditPurchase): Promise<boolean> {
@@ -204,6 +220,98 @@ async function issuePostgresCreditGrant(transaction: DBTransaction, input: Credi
 		return false;
 	}
 	return appendPostgresLedgerEntry(transaction, wallet.id, creditGrantEntry(input, policy.amountMicroUsd));
+}
+
+function startSqliteTrialForOrganizationSetupGrant(transaction: DBTransaction, input: CreditGrant): void {
+	if (!shouldStartSqliteTrialForOrganizationSetupGrant(transaction, input)) {
+		return;
+	}
+	const started = startOrganizationTrial(input.orgId, new Date(), transaction) as boolean;
+	if (started) {
+		enqueueOnceJob(cloudTrialProvisioningJob(input.orgId), transaction);
+		if (isCloudWelcomeEmailEnabled() && hasSqliteCreditGrant(transaction, input.idempotencyKey)) {
+			enqueueOnceJob(cloudTrialWelcomeEmailJob(input.orgId), transaction);
+		}
+	}
+}
+
+async function startPostgresTrialForOrganizationSetupGrant(
+	transaction: DBTransaction,
+	input: CreditGrant,
+): Promise<void> {
+	if (!(await shouldStartPostgresTrialForOrganizationSetupGrant(transaction, input))) {
+		return;
+	}
+	if (await startOrganizationTrial(input.orgId, new Date(), transaction)) {
+		await enqueueOnceJob(cloudTrialProvisioningJob(input.orgId), transaction);
+		if (isCloudWelcomeEmailEnabled() && (await hasPostgresCreditGrant(transaction, input.idempotencyKey))) {
+			await enqueueOnceJob(cloudTrialWelcomeEmailJob(input.orgId), transaction);
+		}
+	}
+}
+
+function shouldStartSqliteTrialForOrganizationSetupGrant(transaction: DBTransaction, input: CreditGrant): boolean {
+	if (input.grantType !== 'organization_setup' || !isCloudBillingEnabled()) {
+		return false;
+	}
+	const organization = transaction
+		.select({ bypassBilling: s.organization.bypassBilling })
+		.from(s.organization)
+		.where(eq(s.organization.id, input.orgId))
+		.get();
+	return organization?.bypassBilling === false;
+}
+
+async function shouldStartPostgresTrialForOrganizationSetupGrant(
+	transaction: DBTransaction,
+	input: CreditGrant,
+): Promise<boolean> {
+	if (input.grantType !== 'organization_setup' || !isCloudBillingEnabled()) {
+		return false;
+	}
+	const [organization] = await transaction
+		.select({ bypassBilling: s.organization.bypassBilling })
+		.from(s.organization)
+		.where(eq(s.organization.id, input.orgId))
+		.limit(1)
+		.execute();
+	return organization?.bypassBilling === false;
+}
+
+function cloudTrialProvisioningJob(organizationId: string) {
+	return {
+		name: CLOUD_TRIAL_PROVISIONING_JOB_NAME,
+		payload: { organizationId },
+		uniqueKey: `billing-cloud-provision-trial:${organizationId}`,
+	};
+}
+
+function cloudTrialWelcomeEmailJob(organizationId: string) {
+	return {
+		name: CLOUD_WELCOME_EMAIL_JOB_NAME,
+		payload: { kind: 'trial', organizationId },
+		uniqueKey: `email-cloud-welcome-trial:${organizationId}`,
+	};
+}
+
+function hasSqliteCreditGrant(transaction: DBTransaction, idempotencyKey: string): boolean {
+	return Boolean(
+		transaction
+			.select({ id: s.creditLedger.id })
+			.from(s.creditLedger)
+			.where(eq(s.creditLedger.idempotencyKey, idempotencyKey))
+			.get(),
+	);
+}
+
+async function hasPostgresCreditGrant(transaction: DBTransaction, idempotencyKey: string): Promise<boolean> {
+	const [grant] = await transaction
+		.select({ id: s.creditLedger.id })
+		.from(s.creditLedger)
+		.where(eq(s.creditLedger.idempotencyKey, idempotencyKey))
+		.limit(1)
+		.execute();
+	return Boolean(grant);
 }
 
 function setSqliteCreditPurchaseMovement(transaction: DBTransaction, input: CreditPurchaseMovement): boolean {

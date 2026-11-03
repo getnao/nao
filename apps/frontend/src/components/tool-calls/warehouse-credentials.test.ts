@@ -15,6 +15,8 @@ const values: WarehouseCredentialsFormValues = {
 	database: 'analytics',
 	user: 'nao',
 	password: 'secret',
+	privateKey: '-----BEGIN PRIVATE KEY-----',
+	privateKeyPassphrase: 'key-passphrase',
 	schemaName: 'reporting',
 	protocol: 'native',
 	secure: true,
@@ -224,6 +226,39 @@ describe('buildWarehouseCredentials', () => {
 			user: '',
 			httpScheme: 'http',
 		});
+	});
+
+	it('defaults Snowflake to password authentication', () => {
+		expect(getWarehouseCredentialsDefaults('snowflake').authMode).toBe('password');
+	});
+
+	it('sends only the Snowflake private key when key pair authentication is chosen', () => {
+		const credentials = buildWarehouseCredentials('snowflake', { ...values, authMode: 'private_key' });
+
+		expect(credentials).toMatchObject({ privateKey: '-----BEGIN PRIVATE KEY-----', passphrase: 'key-passphrase' });
+		expect(credentials).not.toHaveProperty('password');
+		expect(credentials).not.toHaveProperty('token');
+	});
+
+	it('omits an empty Snowflake private key passphrase over the wire', () => {
+		const credentials = buildWarehouseCredentials('snowflake', {
+			...values,
+			authMode: 'private_key',
+			privateKeyPassphrase: '',
+		});
+
+		expect(JSON.parse(JSON.stringify(credentials))).not.toHaveProperty('passphrase');
+	});
+
+	it('sends only the Snowflake token when programmatic access token authentication is chosen', () => {
+		const credentials = buildWarehouseCredentials('snowflake', {
+			...values,
+			authMode: 'programmatic_access_token',
+		});
+
+		expect(credentials).toMatchObject({ token: 'token' });
+		expect(credentials).not.toHaveProperty('password');
+		expect(credentials).not.toHaveProperty('privateKey');
 	});
 
 	it('uses service principal authentication for Fabric cloud connections', () => {

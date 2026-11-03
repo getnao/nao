@@ -1116,7 +1116,7 @@ export class AgentManager {
 		return pruneMessages({
 			messages,
 			reasoning: 'before-last-message',
-			toolCalls: [{ tools: ['suggest_follow_ups'], type: 'all' }],
+			toolCalls: [{ tools: ['suggest_follow_ups'], type: 'before-last-message' }],
 			emptyMessages: 'remove',
 		});
 	}

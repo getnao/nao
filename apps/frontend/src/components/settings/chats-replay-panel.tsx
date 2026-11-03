@@ -10,6 +10,7 @@ import type { ReplayHighlight } from '@/components/settings/usage-route-search';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
+import { Avatar } from '@/components/ui/avatar';
 import { Spinner } from '@/components/ui/spinner';
 import { ChatMessagesReadonly } from '@/components/chat-messages/chat-messages-readonly';
 import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
@@ -154,6 +155,16 @@ export function ChatsReplayPanel({ chatId, origin, highlightOnLoad, targetId }: 
 											onPrevError={goToPrevToolError}
 											onNextError={goToNextToolError}
 										/>
+										{replay.ownerName && (
+											<span className='flex items-center gap-1.5 px-2 text-xs text-muted-foreground'>
+												<Avatar
+													username={replay.ownerName}
+													size='sm'
+													className='size-5 text-[10px]'
+												/>
+												<span className='max-w-40 truncate'>{replay.ownerName}</span>
+											</span>
+										)}
 										<ReplayConversationModels messageModels={replay.messageModels} />
 										{updatedAt != null && (
 											<span className='px-2 text-xs text-muted-foreground'>
@@ -188,6 +199,7 @@ export function ChatsReplayPanel({ chatId, origin, highlightOnLoad, targetId }: 
 												conversationContextRef={stickContextRef}
 												feedbackRecommendations={replay.feedbackRecommendations}
 												messageModels={replay.messageModels}
+												showTimestamps
 											/>
 										</div>
 										{sidePanel.content && (

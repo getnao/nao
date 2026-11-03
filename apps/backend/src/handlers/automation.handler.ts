@@ -15,6 +15,7 @@ import {
 	createAutomationTools,
 	getAutomationIntegrationToolNames,
 	isGithubAutomationTool,
+	type SlackChannelDelivery,
 } from '../services/automation-tools';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
@@ -27,6 +28,12 @@ const STREAM_PERSIST_INTERVAL_MS = 1_000;
 
 type AutomationJobPayload = {
 	automationId?: string;
+};
+
+type IntegrationToolOutput = {
+	ok?: boolean;
+	url?: string;
+	deliveries?: SlackChannelDelivery[];
 };
 
 type RunAutomationOptions = {
@@ -265,11 +272,21 @@ function extractIntegrationResults(parts: UIMessagePart[]): AutomationIntegratio
 		if (!isAutomationIntegrationTool(name)) {
 			return [];
 		}
-		const output = part.state === 'output-available' ? (part.output as { ok?: boolean; url?: string }) : undefined;
+		const output = part.state === 'output-available' ? (part.output as IntegrationToolOutput) : undefined;
+		const type = integrationTypeFromTool(name);
+		if (output?.deliveries) {
+			return output.deliveries.map((delivery) => ({
+				type,
+				label: name,
+				ok: delivery.ok,
+				message: delivery.error,
+				destination: delivery.channel,
+			}));
+		}
 		const ok = part.state === 'output-error' ? false : output?.ok !== false;
 		return [
 			{
-				type: integrationTypeFromTool(name),
+				type,
 				label: name,
 				ok,
 				url: output?.url,

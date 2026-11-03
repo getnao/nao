@@ -88,6 +88,19 @@ describe('MCP access scoped by user groups', () => {
 		]);
 	});
 
+	it('only exposes the granted tools as callable', async () => {
+		const service = new McpService();
+		await service.initializeMcpState('project-1');
+
+		expect(await service.getCallableTools('project-1', null, GROUP_ACCESS)).toEqual([
+			{ server: 'github', tools: ['search'] },
+			{ server: 'linear', tools: ['search', 'write'] },
+		]);
+		expect(await service.getCallableTools('project-1', ['linear'], GROUP_ACCESS)).toEqual([
+			{ server: 'linear', tools: ['search', 'write'] },
+		]);
+	});
+
 	it('refuses to connect a server the user groups do not grant and filters the connected tools', async () => {
 		const service = new McpService();
 		const connect = (server: string) =>

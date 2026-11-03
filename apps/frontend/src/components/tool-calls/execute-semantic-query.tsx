@@ -14,8 +14,9 @@ import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useLoadAllQueryRows, useQueryRowsSource } from '@/hooks/use-query-rows';
 import { useToolCallContext } from '@/contexts/tool-call';
+import { SemanticQuerySidePanelContent } from '@/components/side-panel/semantic-query-editor';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
-import { semanticQueryAsSql } from '@/lib/execute-sql-messages';
+import { isSemanticSourceQuery, semanticQueryAsSql } from '@/lib/execute-sql-messages';
 import { trpc } from '@/main';
 
 type ViewMode = 'results' | 'definition' | 'sql';
@@ -30,17 +31,22 @@ export const ExecuteSemanticQueryToolCall = ({
 	const { open: openSidePanel } = useSidePanel();
 	const agent = useOptionalAgentContext();
 	const chatId = agent?.chatId;
+	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && output?.id);
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 	const rowsSource = useQueryRowsSource(toolCallId, output);
 	const loadAllRows = useLoadAllQueryRows(rowsSource);
 
-	const openViewer = () => {
+	const openEditor = () => {
 		if (state === 'input-streaming' || !output) {
 			return;
 		}
-		const asSql = semanticQueryAsSql(input, output);
+		const sourceQuery = { ...semanticQueryAsSql(input, output), toolCallId };
 		openSidePanel(
-			<SidePanelContent input={asSql.input!} output={output} toolCallId={toolCallId} editable={false} />,
+			isSemanticSourceQuery(sourceQuery) ? (
+				<SemanticQuerySidePanelContent sourceQuery={sourceQuery} editable={isEditable} />
+			) : (
+				<SidePanelContent input={sourceQuery.input!} output={output} toolCallId={toolCallId} editable={false} />
+			),
 		);
 	};
 
@@ -114,8 +120,8 @@ export const ExecuteSemanticQueryToolCall = ({
 		{
 			id: 'open',
 			label: <PanelRight className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
-			onClick: openViewer,
-			title: 'Open in side panel',
+			onClick: openEditor,
+			title: isEditable ? 'Edit in side panel' : 'Open in side panel',
 		},
 	];
 
@@ -161,7 +167,7 @@ export const ExecuteSemanticQueryToolCall = ({
 /** The input as the UI sees it, possibly still streaming: every field and array item may be missing. */
 type PartialSemanticQuery = NonNullable<ToolCallComponentProps<'execute_semantic_query'>['toolPart']['input']>;
 
-function SemanticQueryDefinition({ query }: { query: PartialSemanticQuery }) {
+export function SemanticQueryDefinition({ query }: { query: PartialSemanticQuery }) {
 	const rows: { label: string; values: string[] }[] = [
 		{ label: 'Metrics', values: definedValues(query.metrics) },
 		{ label: 'Group by', values: definedValues(query.group_by) },

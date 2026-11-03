@@ -1,7 +1,7 @@
 import type { WarehouseProvisioningStatus, WarehouseSetup } from '../types/warehouse';
 import { redactSecretValues } from './sandbox-secrets';
 
-const SECRET_ENV_VAR_PATTERN = /PASSWORD|TOKEN|SECRET|PRIVATE_KEY|ACCESS_KEY|CREDENTIALS_JSON/;
+const SECRET_ENV_VAR_PATTERN = /PASSWORD|PASSPHRASE|TOKEN|SECRET|PRIVATE_KEY|ACCESS_KEY|CREDENTIALS_JSON/;
 
 const STATUS_DESCRIPTIONS: Record<WarehouseProvisioningStatus, string> = {
 	queued: 'queued, preparing the connection',

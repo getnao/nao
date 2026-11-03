@@ -5,10 +5,13 @@ from __future__ import annotations
 import fnmatch
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Callable, Collection
+from concurrent.futures import Executor, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Collection
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 from rich.markup import escape
@@ -46,7 +49,7 @@ from nao_core.config.databases.column_catalog import (
 )
 from nao_core.config.llm import LLMConfig
 from nao_core.templates.context import NaoContext, create_nao_context
-from nao_core.templates.engine import get_template_engine
+from nao_core.templates.engine import TemplateEngine, get_template_engine
 from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
@@ -91,6 +94,20 @@ def _database_folders_for(items: list[Any], configured_databases: list[Any]) -> 
     return [folders[configured_databases.index(db)] for db in items]
 
 
+def _table_pool_for(db_config: AnyDatabaseConfig, pool: Executor) -> Executor | None:
+    """Keep DuckDB tables sequential because one Ibis backend exposes one mutable cursor."""
+    return None if db_config.type == "duckdb" else pool
+
+
+def _database_executor_for(
+    db_config: AnyDatabaseConfig,
+    pool: Executor,
+    coordinator_pool: Executor,
+) -> Executor:
+    """Count a sequential DuckDB database as one worker while other databases coordinate table tasks separately."""
+    return pool if db_config.type == "duckdb" else coordinator_pool
+
+
 def _fmt_duration(seconds: float) -> str:
     """Format seconds into a human-readable duration."""
     if seconds < 1:
@@ -112,6 +129,7 @@ def _placeholder_for_failed_render(
     template_name: str,
     output_file: Path,
     error: Exception,
+    log: Callable[[str], None],
 ) -> str | None:
     """Decide what to write when a template fails: keep a previous file, else a short placeholder.
 
@@ -119,7 +137,7 @@ def _placeholder_for_failed_render(
     read a provider error as a table summary.
     """
     if output_file.exists():
-        UI.print(f"    [dim]↩ keeping previous {output_file.name}[/dim]")
+        log(f"    [dim]↩ keeping previous {output_file.name}[/dim]")
         return None
     reason = str(error).splitlines()[0] if str(error) else error.__class__.__name__
     return f"# {table}\n\n{_failed_render_notice(template_name)} {reason}\n"
@@ -257,11 +275,15 @@ def sync_database(
     db_folder: str | None = None,
     nao_ctx: NaoContext | None = None,
     select: list[str] | None = None,
+    pool: Executor | None = None,
 ) -> DatabaseSyncState:
     """Sync a single database by rendering all database templates for each table.
 
     When `select` is provided, only schemas/tables matching the patterns are
     synced (applied on top of the config include/exclude filters).
+
+    When `pool` is provided, tables render on it concurrently and their results
+    are applied in table order.
     """
     engine = get_template_engine(project_path, llm_config=llm_config)
     templates = _filter_templates_by_config(engine.list_templates(TEMPLATE_PREFIX), db_config)
@@ -270,6 +292,7 @@ def sync_database(
 
     t_connect = time.monotonic()
     conn = db_config.connect()
+    table_futures: dict[str, list[Future[RenderedTable]]] = {}
     try:
         UI.print(
             f"  [dim]Connected to[/dim] [bold]{db_config.name}[/bold] "
@@ -334,6 +357,13 @@ def sync_database(
             dialect = db_config.type if db_config.type != "duckdb" else None
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
+        render = partial(render_table, db_config, conn, engine, templates, nao_ctx, db_path, usage_stats)
+        if pool is not None:
+            table_futures = {
+                schema: [pool.submit(render, schema, table) for table in tables]
+                for schema, tables in schema_tables.items()
+            }
+
         for schema, tables in schema_tables.items():
             semantic_views = db_config.get_semantic_views(conn, schema)
             semantic_views = [
@@ -359,93 +389,20 @@ def sync_database(
             schema_errors = 0
             schema_start = time.monotonic()
 
-            for table in tables:
-                table_path = schema_path / f"table={table}"
-                table_path.mkdir(parents=True, exist_ok=True)
-                ensure_annotations_file(table_path)
-
+            for index, table in enumerate(tables):
                 progress.update(
                     table_task,
                     description=f"    [cyan]{schema}[/cyan] [dim]→ {table}[/dim]",
                 )
 
-                ctx = db_config.create_context(conn, schema, table)
-                ctx.set_exclude_columns(db_config.exclude_columns)
-                ctx.set_preview_max_value_length(db_config.preview_max_value_length)
-                table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
-                has_profiling = DatabaseTemplate.PROFILING in db_config.templates
-                has_ai_summary = DatabaseTemplate.AI_SUMMARY in db_config.templates
-                profiling_due = has_profiling and _should_refresh(
-                    table_path / "profiling.md",
-                    db_config.profiling,
-                )
-                summary_due = has_ai_summary and _should_refresh(
-                    table_path / "ai_summary.md",
-                    db_config.ai_summary,
-                )
-                profiling_data = ctx.profiling() if profiling_due or summary_due else None
-
-                for template_name in templates:
-                    output_filename = Path(template_name).stem
-                    tpl_name = output_filename.replace(".md", "")
-                    output_file = table_path / output_filename
-
-                    extra_ctx: dict[str, Any] = {}
-                    if tpl_name == "query_history":
-                        extra_ctx["usage_stats"] = table_usage
-
-                    if tpl_name == "profiling":
-                        if not profiling_due:
-                            UI.print(
-                                f"    [dim]⏭ {schema}.{table} profiling skipped "
-                                f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
-                            )
-                            continue
-                        extra_ctx["profiling"] = profiling_data
-                    if tpl_name == "ai_summary":
-                        if not summary_due:
-                            UI.print(
-                                f"    [dim]⏭ {schema}.{table} ai_summary skipped "
-                                f"(policy: {db_config.ai_summary.refresh_policy.value})[/dim]"
-                            )
-                            continue
-                        extra_ctx["profiling"] = profiling_data
-                        extra_ctx["computed_at"] = datetime.now(timezone.utc).isoformat()
-
-                    t_render = time.monotonic()
-                    try:
-                        content: str | None = engine.render(
-                            template_name,
-                            db=ctx,
-                            table_name=table,
-                            dataset=schema,
-                            **({"nao": nao_ctx} if nao_ctx else {}),
-                            **extra_ctx,
-                        )
-                        render_dur = time.monotonic() - t_render
-                        if render_dur > 5:
-                            UI.print(
-                                f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
-                                f"[yellow]{tpl_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
-                            )
-                    except Exception as e:
-                        render_dur = time.monotonic() - t_render
-                        schema_errors += 1
-                        total_errors += 1
-                        UI.print(
-                            f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
-                            f"[red]{tpl_name}[/red] [dim]failed after "
-                            f"{_fmt_duration(render_dur)}:[/dim] {_fmt_error(e)}"
-                        )
-                        content = _placeholder_for_failed_render(table, tpl_name, output_file, e)
-
-                    if content is not None:
-                        output_file.write_text(with_generated_marker(content))
-
-                columns = ctx.all_columns()
-                if columns is None:
+                rendered = table_futures[schema][index].result() if pool is not None else render(schema, table)
+                for message in rendered.messages:
+                    UI.print(message)
+                schema_errors += rendered.errors
+                total_errors += rendered.errors
+                if rendered.columns is None:
                     failed_tables.add((schema, table))
-                state.add_table(schema, table, columns)
+                state.add_table(schema, table, rendered.columns)
                 progress.update(table_task, advance=1)
 
             progress.update(
@@ -494,7 +451,114 @@ def sync_database(
         )
         return state
     finally:
+        pending = [future for futures in table_futures.values() for future in futures]
+        for future in pending:
+            future.cancel()
+        wait(pending)
         conn.disconnect()
+
+
+@dataclass
+class RenderedTable:
+    columns: list[dict[str, Any]] | None
+    errors: int
+    messages: list[str]
+
+
+def render_table(
+    db_config: AnyDatabaseConfig,
+    conn: BaseBackend,
+    engine: TemplateEngine,
+    templates: list[str],
+    nao_ctx: NaoContext | None,
+    db_path: Path,
+    usage_stats: dict[str, TableUsageStats],
+    schema: str,
+    table: str,
+) -> RenderedTable:
+    """Render every configured template for one table and return what the caller must apply and print.
+
+    It writes only the files of this table, so it can run on a worker thread.
+    """
+    table_path = db_path / f"schema={schema}" / f"table={table}"
+    table_path.mkdir(parents=True, exist_ok=True)
+    ensure_annotations_file(table_path)
+    messages: list[str] = []
+    errors = 0
+
+    ctx = db_config.create_context(conn, schema, table)
+    ctx.set_exclude_columns(db_config.exclude_columns)
+    ctx.set_preview_max_value_length(db_config.preview_max_value_length)
+    table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
+    has_profiling = DatabaseTemplate.PROFILING in db_config.templates
+    has_ai_summary = DatabaseTemplate.AI_SUMMARY in db_config.templates
+    profiling_due = has_profiling and _should_refresh(
+        table_path / "profiling.md",
+        db_config.profiling,
+    )
+    summary_due = has_ai_summary and _should_refresh(
+        table_path / "ai_summary.md",
+        db_config.ai_summary,
+    )
+    profiling_data = ctx.profiling() if profiling_due or summary_due else None
+
+    for template_name in templates:
+        output_filename = Path(template_name).stem
+        tpl_name = output_filename.replace(".md", "")
+        output_file = table_path / output_filename
+
+        extra_ctx: dict[str, Any] = {}
+        if tpl_name == "query_history":
+            extra_ctx["usage_stats"] = table_usage
+
+        if tpl_name == "profiling":
+            if not profiling_due:
+                messages.append(
+                    f"    [dim]⏭ {schema}.{table} profiling skipped "
+                    f"(policy: {db_config.profiling.refresh_policy.value})[/dim]"
+                )
+                continue
+            extra_ctx["profiling"] = profiling_data
+        if tpl_name == "ai_summary":
+            if not summary_due:
+                messages.append(
+                    f"    [dim]⏭ {schema}.{table} ai_summary skipped "
+                    f"(policy: {db_config.ai_summary.refresh_policy.value})[/dim]"
+                )
+                continue
+            extra_ctx["profiling"] = profiling_data
+            extra_ctx["computed_at"] = datetime.now(timezone.utc).isoformat()
+
+        t_render = time.monotonic()
+        try:
+            content: str | None = engine.render(
+                template_name,
+                db=ctx,
+                table_name=table,
+                dataset=schema,
+                **({"nao": nao_ctx} if nao_ctx else {}),
+                **extra_ctx,
+            )
+            render_dur = time.monotonic() - t_render
+            if render_dur > 5:
+                messages.append(
+                    f"    [yellow]⏱[/yellow] [dim]{schema}.{table}[/dim] "
+                    f"[yellow]{tpl_name}[/yellow] [dim]took {_fmt_duration(render_dur)}[/dim]"
+                )
+        except Exception as e:
+            render_dur = time.monotonic() - t_render
+            errors += 1
+            messages.append(
+                f"    [bold red]✗[/bold red] [dim]{schema}.{table}[/dim] "
+                f"[red]{tpl_name}[/red] [dim]failed after "
+                f"{_fmt_duration(render_dur)}:[/dim] {_fmt_error(e)}"
+            )
+            content = _placeholder_for_failed_render(table, tpl_name, output_file, e, messages.append)
+
+        if content is not None:
+            output_file.write_text(with_generated_marker(content))
+
+    return RenderedTable(columns=ctx.all_columns(), errors=errors, messages=messages)
 
 
 class DatabaseSyncProvider(SyncProvider):
@@ -551,7 +615,7 @@ class DatabaseSyncProvider(SyncProvider):
         for db in items:
             template_names = [t.value for t in db.templates]
             UI.print(f"[dim]{escape(db.name)}:[/dim] {', '.join(template_names)}")
-        if threads > 1 and len(items) > 1:
+        if threads > 1:
             UI.print(f"[dim]Threads:[/dim] {threads}")
         if select:
             UI.print(f"[dim]Select:[/dim] {', '.join(select)} [dim](stale cleanup skipped)[/dim]")
@@ -571,7 +635,7 @@ class DatabaseSyncProvider(SyncProvider):
         ) as progress:
             configured_databases = self._nao_config.databases if self._nao_config else items
             db_folders = _database_folders_for(items, configured_databases)
-            if threads <= 1 or len(items) == 1:
+            if threads <= 1:
                 for db, db_folder in zip(items, db_folders, strict=False):
                     try:
                         state = sync_database(
@@ -594,9 +658,12 @@ class DatabaseSyncProvider(SyncProvider):
                         failures.append(f"{database_name}: {error}")
                         UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
             else:
-                with ThreadPoolExecutor(max_workers=min(threads, len(items))) as executor:
-                    futures = {
-                        executor.submit(
+                with (
+                    ThreadPoolExecutor(max_workers=threads) as pool,
+                    ThreadPoolExecutor(max_workers=min(threads, len(items))) as coordinator_pool,
+                ):
+                    database_futures = [
+                        _database_executor_for(db, pool, coordinator_pool).submit(
                             sync_database,
                             db,
                             output_path,
@@ -606,11 +673,11 @@ class DatabaseSyncProvider(SyncProvider):
                             db_folder=db_folder,
                             nao_ctx=nao_ctx,
                             select=select,
-                        ): db
+                            pool=_table_pool_for(db, pool),
+                        )
                         for db, db_folder in zip(items, db_folders, strict=False)
-                    }
-                    for future in as_completed(futures):
-                        db = futures[future]
+                    ]
+                    for db, future in zip(items, database_futures, strict=False):
                         try:
                             state = future.result()
                             sync_states.append(state)

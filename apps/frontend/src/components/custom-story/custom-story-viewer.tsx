@@ -2,8 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
 import type { StoryBlockReference } from '@nao/shared/types';
 
+import type {
+	StoryBlockEditTarget,
+	StoryTableFormatEditTarget,
+} from '@/components/custom-story/custom-story-block-edit';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
-import { ActionErrorBanner, CustomStoryBody } from '@/components/custom-story/custom-story-body';
+import {
+	CustomStoryBlockEditDialog,
+	CustomStoryTableFormatDialog,
+} from '@/components/custom-story/custom-story-block-edit';
+import { ActionErrorBanner, CustomStoryBody, useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
 import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-view-mode';
 import { rememberStatePrompt } from '@/components/custom-story/remember-state-header';
@@ -25,7 +33,6 @@ import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { storyBlockEditStore } from '@/stores/story-block-edit';
 
 interface CustomStoryViewerProps {
 	chatId: string;
@@ -38,6 +45,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const story = useCustomStory(chatId, storySlug);
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
+	const theme = useActiveStoryTheme(content?.theme);
 	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
 	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && !isReadonlyMode;
 
@@ -53,6 +61,8 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
+	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
+	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
 	const renderStoryViewer = useCallback(
 		(nextStorySlug: string) => <StoryViewer chatId={chatId} storySlug={nextStorySlug} />,
 		[chatId],
@@ -64,13 +74,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
 			if (content) {
-				storyBlockEditStore.open({
-					kind: 'chart',
-					chatId,
-					storySlug,
-					versionNumber: content.version.number,
-					payload,
-				});
+				setEditTarget({ chatId, storySlug, versionNumber: content.version.number, payload });
 			}
 		},
 		[chatId, content, storySlug],
@@ -78,13 +82,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const handleEditTableFormat = useCallback(
 		(request: StoryTableFormatEditRequest) => {
 			if (content) {
-				storyBlockEditStore.open({
-					kind: 'table',
-					chatId,
-					storySlug,
-					versionNumber: content.version.number,
-					request,
-				});
+				setTableFormatTarget({ chatId, storySlug, versionNumber: content.version.number, request });
 			}
 		},
 		[chatId, content, storySlug],
@@ -116,7 +114,8 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	}, [setCurrentStorySlug, storySlug]);
 	useEffect(() => {
 		if (!canEditBlocks) {
-			storyBlockEditStore.close();
+			setEditTarget(null);
+			setTableFormatTarget(null);
 		}
 	}, [canEditBlocks]);
 
@@ -193,6 +192,15 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				}
 			/>
 
+			<CustomStoryBlockEditDialog
+				target={canEditBlocks ? editTarget : null}
+				theme={theme}
+				onClose={() => setEditTarget(null)}
+			/>
+			<CustomStoryTableFormatDialog
+				target={canEditBlocks ? tableFormatTarget : null}
+				onClose={() => setTableFormatTarget(null)}
+			/>
 			<ShareStoryDialog
 				open={sharing.isShareDialogOpen}
 				onOpenChange={sharing.setIsShareDialogOpen}

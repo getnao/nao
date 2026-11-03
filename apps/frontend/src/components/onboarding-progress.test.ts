@@ -33,11 +33,17 @@ describe('isOnboardingComplete', () => {
 		[true, { flow: 'database', step: 4 }, false, false],
 		[true, { flow: 'database', step: 2 }, true, true],
 	] as const)(
-		'requires a project and a completed setup milestone',
-		(hasProject, progress, warehouseReady, expected) => {
-			expect(isOnboardingComplete(hasProject, progress, warehouseReady)).toBe(expected);
+		'requires completed project setup and an onboarding milestone',
+		(projectSetupComplete, progress, warehouseReady, expected) => {
+			expect(isOnboardingComplete(projectSetupComplete, progress, warehouseReady)).toBe(expected);
 		},
 	);
+
+	it('finishes when project setup is complete and no warehouse setup is active', () => {
+		expect(isOnboardingComplete(true, null, false, false)).toBe(true);
+		expect(isOnboardingComplete(true, null, false, true)).toBe(false);
+		expect(isOnboardingComplete(false, null, false, false)).toBe(false);
+	});
 });
 
 describe('findCreatedOnboardingProject', () => {

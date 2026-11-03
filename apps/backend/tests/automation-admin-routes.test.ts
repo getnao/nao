@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	listUsersWithProjectAccess: vi.fn(),
 	setAutomationWebhookEnabled: vi.fn(),
 	transferAutomationOwnership: vi.fn(),
+	updateAutomation: vi.fn(),
 	upsertRecurringJob: vi.fn(),
 	roles: {} as Record<string, 'admin' | 'user' | 'viewer' | null>,
 }));
@@ -32,6 +33,7 @@ vi.mock('../src/queries/automation.queries', () => ({
 	listProjectAutomations: mocks.listProjectAutomations,
 	setAutomationWebhookEnabled: mocks.setAutomationWebhookEnabled,
 	transferAutomationOwnership: mocks.transferAutomationOwnership,
+	updateAutomation: mocks.updateAutomation,
 }));
 vi.mock('../src/queries/scheduled-job.queries', () => ({
 	deleteJob: mocks.deleteJob,
@@ -217,6 +219,61 @@ describe('automation admin routes', () => {
 			code: 'FORBIDDEN',
 		});
 		expect(mocks.deleteProjectAutomation).not.toHaveBeenCalled();
+	});
+});
+
+describe('automation Slack channel validation', () => {
+	const automationInput = {
+		id: 'scheduled-id',
+		title: 'Weekly report',
+		prompt: 'Send the weekly report',
+		cron: '0 9 * * *',
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.roles = { 'owner-id': 'user' };
+		mocks.upsertRecurringJob.mockResolvedValue({ id: 'job-id' });
+		mocks.updateAutomation.mockResolvedValue(scheduledAutomation);
+		mocks.getAutomationById.mockResolvedValue(scheduledAutomation);
+	});
+
+	it('saves an automation that posts to several valid channels', async () => {
+		await createCaller('owner-id').automation.update({
+			...automationInput,
+			integrations: { slack: { enabled: true, channelId: 'C0123456789, #data-alerts' } },
+		});
+
+		expect(mocks.updateAutomation).toHaveBeenCalledWith(
+			'project-id',
+			'owner-id',
+			'scheduled-id',
+			expect.objectContaining({
+				integrations: { slack: { enabled: true, channelId: 'C0123456789, #data-alerts' } },
+			}),
+		);
+	});
+
+	it('rejects malformed channels before saving', async () => {
+		await expect(
+			createCaller('owner-id').automation.update({
+				...automationInput,
+				integrations: { slack: { enabled: true, channelId: 'C0123456789, sales team, C12' } },
+			}),
+		).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: expect.stringContaining('Fix or remove 2 malformed Slack channels before saving.'),
+		});
+		expect(mocks.updateAutomation).not.toHaveBeenCalled();
+	});
+
+	it('ignores the channels of a disabled Slack integration', async () => {
+		await createCaller('owner-id').automation.update({
+			...automationInput,
+			integrations: { slack: { enabled: false, channelId: 'sales team' } },
+		});
+
+		expect(mocks.updateAutomation).toHaveBeenCalled();
 	});
 });
 

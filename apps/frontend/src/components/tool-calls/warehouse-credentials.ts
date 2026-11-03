@@ -1,12 +1,22 @@
 import { SQL_PROVIDER_SETTINGS } from './warehouse-provider-config';
 import type { SqlProvider } from './warehouse-provider-config';
 
+export const SNOWFLAKE_AUTH_MODES = [
+	{ value: 'password', label: 'Password' },
+	{ value: 'private_key', label: 'Key pair' },
+	{ value: 'programmatic_access_token', label: 'Programmatic access token' },
+] as const;
+
+export type SnowflakeAuthMode = (typeof SNOWFLAKE_AUTH_MODES)[number]['value'];
+
 export interface WarehouseCredentialsFormValues {
 	host: string;
 	port: string;
 	database: string;
 	user: string;
 	password: string;
+	privateKey: string;
+	privateKeyPassphrase: string;
 	schemaName: string;
 	protocol: 'http' | 'native';
 	secure: boolean;
@@ -57,6 +67,8 @@ export function getWarehouseCredentialsDefaults(provider: SqlProvider): Warehous
 		database: provider === 'clickhouse' ? 'default' : '',
 		user: provider === 'clickhouse' ? 'default' : '',
 		password: '',
+		privateKey: '',
+		privateKeyPassphrase: '',
 		schemaName: '',
 		protocol: 'http',
 		secure: false,
@@ -74,7 +86,7 @@ export function getWarehouseCredentialsDefaults(provider: SqlProvider): Warehous
 		location: '',
 		clientId: '',
 		clientSecret: '',
-		authMode: provider === 'fabric' ? 'azure_service_principal' : '',
+		authMode: getDefaultAuthMode(provider),
 		tenantId: '',
 		awsRegion: '',
 		s3StagingDirectory: '',
@@ -178,11 +190,11 @@ export function buildWarehouseCredentials(
 		case 'snowflake':
 			return {
 				database,
-				password: values.password,
 				schemaName,
 				warehouse: values.warehouse || undefined,
 				accountId: values.accountId,
 				username: values.user,
+				...buildSnowflakeAuthentication(values),
 			};
 		case 'starrocks':
 			return {
@@ -204,5 +216,29 @@ export function buildWarehouseCredentials(
 				password: values.password || undefined,
 				schemaName,
 			};
+	}
+}
+
+function getDefaultAuthMode(provider: SqlProvider): string {
+	if (provider === 'fabric') {
+		return 'azure_service_principal';
+	}
+	if (provider === 'snowflake') {
+		return 'password' satisfies SnowflakeAuthMode;
+	}
+	return '';
+}
+
+function buildSnowflakeAuthentication(values: WarehouseCredentialsFormValues): Record<string, unknown> {
+	switch (values.authMode) {
+		case 'private_key':
+			return {
+				privateKey: values.privateKey,
+				passphrase: values.privateKeyPassphrase || undefined,
+			};
+		case 'programmatic_access_token':
+			return { token: values.accessToken };
+		default:
+			return { password: values.password };
 	}
 }

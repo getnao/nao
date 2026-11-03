@@ -75,6 +75,7 @@ vi.mock('../src/services/github', () => ({
 	findContextConfigSubPath: mocks.findContextConfigSubPath,
 	getGitInfo: mocks.getGitInfo,
 	getUserGitIdentity: mocks.getUserGitIdentity,
+	githubBaseUrl: () => 'https://github.com',
 	pushBranch: vi.fn(),
 }));
 

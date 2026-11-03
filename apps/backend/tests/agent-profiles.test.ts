@@ -16,6 +16,8 @@ import { adminAgent } from '../src/agents/profiles/admin';
 import { analyticsAgent } from '../src/agents/profiles/analytics';
 import { exampleAgent } from '../src/agents/profiles/example';
 import { messagingAgent } from '../src/agents/profiles/messaging';
+import { testRunAgent } from '../src/agents/profiles/test-run';
+import type { AgentToolsContext } from '../src/services/agent';
 import { authorizeAgentRun } from '../src/services/agent-run';
 import type { AgentRequest } from '../src/types/chat';
 
@@ -53,6 +55,14 @@ describe('agent profiles', () => {
 		expect(exampleAgent.promptAppendix).toContain('Analyze files attached by the user');
 		expect(exampleAgent.promptAppendix).toContain('Respond naturally to greetings');
 		expect(analyticsAgent.promptAppendix).toBeUndefined();
+	});
+
+	it('leaves follow-up suggestions out of nao test runs', async () => {
+		const context = { agentSettings: null, toolContext: { userGroupFeatures: [] } } as unknown as AgentToolsContext;
+
+		expect(await analyticsAgent.tools(context)).toHaveProperty('suggest_follow_ups');
+		expect(await testRunAgent.tools(context)).not.toHaveProperty('suggest_follow_ups');
+		expect(testRunAgent.usageCategory).toBe('test');
 	});
 
 	it('adapts the analytics agent to the chat app it answers in', () => {

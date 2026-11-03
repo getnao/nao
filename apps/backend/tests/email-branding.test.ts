@@ -16,7 +16,7 @@ vi.mock('../src/services/branding.service', () => ({
 }));
 
 import { resolveEmailBranding } from '../src/utils/email-branding';
-import { buildNotificationEmail, buildUserAddedEmail } from '../src/utils/email-builders';
+import { buildNotificationEmail, buildTrialStartedEmail, buildUserAddedEmail } from '../src/utils/email-builders';
 
 const whiteLabel = {
 	appName: 'Fibi',
@@ -116,6 +116,20 @@ describe('white-labeled emails', () => {
 		expect(email.html).toContain('Log in to Fibi');
 		expect(stripReactComments(email.html)).toContain('on Fibi.');
 		expect(stripReactComments(email.html)).not.toContain('on nao');
+	});
+
+	it('shows the configured user join reward in the trial email', async () => {
+		const email = await buildTrialStartedEmail(
+			{ name: 'Ana' },
+			20_000_000,
+			new Date('2026-10-31T00:00:00.000Z'),
+			5_500_000,
+		);
+
+		expect(stripReactComments(email.html)).toContain('earn an extra <strong>$5.50</strong> in shared credits');
+		expect(stripReactComments(email.html)).toContain(
+			'Subject to the current grant policy and organization limits.',
+		);
 	});
 
 	it('keeps the nao footer when white-labeling is off', async () => {

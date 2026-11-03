@@ -5,7 +5,7 @@ import { z } from 'zod/v4';
 import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
-import { authMiddleware } from '../middleware/auth';
+import { sessionOrApiKeyAuthMiddleware } from '../middleware/auth';
 import { getUserRoleInProject, retrieveProjectById } from '../queries/project.queries';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { getAzureAccessTokenForUser } from '../services/microsoft-auth.service';
@@ -31,7 +31,7 @@ const describeRunError = (err: unknown): string => {
 };
 
 export const testRoutes = async (app: App) => {
-	app.addHook('preHandler', authMiddleware);
+	app.addHook('preHandler', sessionOrApiKeyAuthMiddleware);
 
 	/**
 	 * Run a single prompt without persisting to a chat.

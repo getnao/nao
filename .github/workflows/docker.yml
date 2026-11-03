@@ -255,6 +255,7 @@ jobs:
                         -e "SMTP_SSL=${{ secrets.SMTP_SSL }}" \
                         -e "GITHUB_CLIENT_ID=${{ secrets.MOON_GITHUB_CLIENT_ID }}" \
                         -e "GITHUB_CLIENT_SECRET=${{ secrets.MOON_GITHUB_CLIENT_SECRET }}" \
+                        -e "NAO_LICENSE=${{ secrets.MOON_NAO_LICENSE }}" \
                         --device /dev/kvm \
                         --name "$NEW" \
                         -d "$IMAGE"

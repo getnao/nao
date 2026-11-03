@@ -4,9 +4,11 @@ import path from 'node:path';
 import type { RepoProvider } from '@nao/shared/types';
 import yaml from 'js-yaml';
 
-import { escapeRegExp, gitlabBaseUrl } from '../services/gitlab';
+import { parseGithubRemoteRepoFullName } from '../services/github';
+import { gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
+import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
 const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
@@ -301,7 +303,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseRepoFullName(url: string): { repoFullName: string; provider: RepoProvider } | null {
-	const githubRepoFullName = parseGithubRepoFullName(url);
+	const githubRepoFullName = parseGithubRemoteRepoFullName(url);
 	if (githubRepoFullName) {
 		return { repoFullName: githubRepoFullName, provider: 'github' };
 	}
@@ -312,11 +314,6 @@ function parseRepoFullName(url: string): { repoFullName: string; provider: RepoP
 	}
 
 	return null;
-}
-
-function parseGithubRepoFullName(url: string): string | null {
-	const match = url.match(/github\.com[:/]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:[#?].*)?$/i);
-	return match ? `${match[1]}/${match[2]}` : null;
 }
 
 function parseGitlabRepoFullName(url: string): string | null {

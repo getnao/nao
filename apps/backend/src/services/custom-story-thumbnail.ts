@@ -18,7 +18,7 @@ import {
 } from './custom-story';
 import { buildCustomStoryDocumentByStoryId } from './custom-story-export';
 
-const THUMBNAIL_VIEWPORT = { width: 1280, height: 800 };
+const THUMBNAIL_VIEWPORT = { width: 1280, height: 980 };
 const THUMBNAIL_WIDTH = 640;
 const THUMBNAIL_QUALITY = 80;
 const RETRY_AFTER_MS = 2 * 60 * 1000;
@@ -233,6 +233,7 @@ async function thumbnailRenderKey(
 		storyAppStateQueries.listProjectStoryAppState(story.id),
 	]);
 	return [
+		`${THUMBNAIL_VIEWPORT.width}x${THUMBNAIL_VIEWPORT.height}`,
 		storyThemeFingerprint(theme),
 		dataCachedAt?.getTime(),
 		sharedState.length > 0 ? sharedStateFingerprint(sharedState) : undefined,

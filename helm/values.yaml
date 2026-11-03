@@ -123,6 +123,10 @@ config:
   defaultUserRole: "user"
   # -- Enable "Sign in with GitHub" with the OAuth app set in secrets.githubClientId
   githubSso: false
+  # -- Base URL of a GitHub Enterprise Server instance (defaults to https://github.com)
+  githubBaseUrl: ""
+  # -- GitHub REST API URL override (defaults to api.github.com, or <githubBaseUrl>/api/v3 on Enterprise)
+  githubApiUrl: ""
   # -- Enable "Sign in with GitLab" with the OAuth app set in secrets.gitlabClientId
   gitlabSso: false
   # -- Base URL of a self-hosted GitLab instance (defaults to https://gitlab.com)

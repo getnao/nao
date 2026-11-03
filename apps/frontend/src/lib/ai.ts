@@ -119,7 +119,7 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 		'clarification',
 		'onboarding_agent_prompt',
 		'onboarding_command',
-		'execute_python',
+		'codemode',
 		'execute_sandboxed_code',
 		'request_warehouse_credentials',
 		'request_warehouse_selection',
@@ -416,7 +416,7 @@ const isSettledEmptyReasoning = (part: UIMessagePart): boolean => {
 	return isReasoningPart(part) && part.state !== 'streaming' && part.text.trim() === '';
 };
 
-/** The backend promotes the note Claude writes before `suggest_follow_ups` to the visible answer, which makes the note redundant. */
+/** Older messages repeat the note Claude wrote before `suggest_follow_ups` as the visible answer, which makes the note redundant. */
 const isProgressUpdateShownAsText = (part: UIMessagePart, next: UIMessagePart | undefined): boolean => {
 	return isProgressUpdatePart(part) && next?.type === 'text' && next.text.trim() === part.text.trim();
 };
@@ -752,6 +752,12 @@ export function parseChatAllowanceExhaustedError(error: Error | undefined): Chat
 		return 'onboarding';
 	}
 	return null;
+}
+
+const ONBOARDING_COMPLETE_ERROR = 'Onboarding conversations are unavailable after project setup';
+
+export function isOnboardingCompleteError(error: Error | undefined): boolean {
+	return error?.message.includes(ONBOARDING_COMPLETE_ERROR) === true;
 }
 
 function parseCodedError(error: Error | undefined, code: string): string | null {

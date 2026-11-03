@@ -14,7 +14,15 @@ import type { JWTPayload } from 'jose';
 
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
-import { env, isCloud, isMcpPublicHost, MCP_PUBLIC_ORIGIN, MCP_PUBLIC_SERVER_URL, MCP_VALID_AUDIENCES } from './env';
+import {
+	env,
+	isCloud,
+	isCloudWelcomeEmailEnabled,
+	isMcpPublicHost,
+	MCP_PUBLIC_ORIGIN,
+	MCP_PUBLIC_SERVER_URL,
+	MCP_VALID_AUDIENCES,
+} from './env';
 import { rebaseOrigin } from './mcp/public-auth-metadata';
 import {
 	isAuthorizationResponse,
@@ -33,7 +41,8 @@ import { DEACTIVATED_ACCOUNT_MESSAGE } from './services/account-status.service';
 import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
 import { activateUserJoinCandidates } from './services/credit-grant.service';
 import { emailService } from './services/email';
-import { githubOAuthConfig } from './services/github';
+import { githubApiUrl, githubNoreplyEmail, githubOAuthConfig } from './services/github';
+import { augmentPluginsWithGithubEnterprise } from './services/github-enterprise-auth.service';
 import * as gitlabService from './services/gitlab';
 import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import { addOrganizationMemberIfMissing } from './services/membership.service';
@@ -42,8 +51,10 @@ import {
 	getTrustedProvidersForMicrosoft,
 } from './services/microsoft-auth.service';
 import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc } from './services/oidc-auth.service';
+import { enqueueOnce } from './services/scheduler.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME } from './types/email';
 import { buildAccountExistsEmail, buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { memoizeUntilRejected } from './utils/memoize-until-rejected';
@@ -156,7 +167,7 @@ async function createAuthInstance(baseURL: string) {
 			clientId: githubConfig.clientId,
 			clientSecret: githubConfig.clientSecret,
 			getUserInfo: async (token) => {
-				const res = await fetch('https://api.github.com/user', {
+				const res = await fetch(`${githubApiUrl()}/user`, {
 					headers: { Authorization: `Bearer ${token.accessToken}`, Accept: 'application/json' },
 				});
 				if (!res.ok) {
@@ -175,7 +186,7 @@ async function createAuthInstance(baseURL: string) {
 					user: {
 						id: String(profile.id),
 						name: profile.login as string,
-						email: (profile.email ?? `${profile.login}@users.noreply.github.com`) as string,
+						email: (profile.email ?? githubNoreplyEmail(profile.login)) as string,
 						image: profile.avatar_url as string,
 						emailVerified: true,
 					},
@@ -183,6 +194,7 @@ async function createAuthInstance(baseURL: string) {
 				};
 			},
 		};
+		augmentPluginsWithGithubEnterprise(ssoPlugins);
 	}
 
 	const gitlabConfig = env.GITLAB_SSO ? gitlabService.gitlabOAuthConfig() : null;
@@ -263,6 +275,9 @@ async function createAuthInstance(baseURL: string) {
 					sendOnSignUp: true,
 					autoSignInAfterVerification: true,
 					expiresIn: 60 * 60,
+					afterEmailVerification: async (user) => {
+						await enqueueVerifiedUserWelcomeEmail(user.id);
+					},
 				}
 			: undefined,
 		emailAndPassword: {
@@ -273,8 +288,8 @@ async function createAuthInstance(baseURL: string) {
 				await emailService.sendEmail(user.email, await buildForgotPasswordEmail(user, url));
 			},
 			onPasswordReset: async ({ user }) => {
-				if (!user.emailVerified) {
-					await userQueries.markEmailVerified(user.id);
+				if (!user.emailVerified && (await userQueries.markEmailVerified(user.id))) {
+					await enqueueVerifiedUserWelcomeEmail(user.id);
 				}
 			},
 			onExistingUserSignUp: async ({ user }, request) => {
@@ -378,6 +393,7 @@ async function createAuthInstance(baseURL: string) {
 							} else {
 								await initializeSelfHostedUserAfterCreation(user.id, providerId, ssoEnabled);
 							}
+							await enqueueVerifiedUserWelcomeEmail(user.id);
 							await refreshAuthAfterInitialSelfHostedSignup();
 						} catch (err) {
 							logger.error('Failed to initialize organization after user creation', {
@@ -454,6 +470,28 @@ async function readSignUpCallbackURL(request: Request | undefined): Promise<stri
 
 async function sendAccountExistsEmail(user: { email: string; name: string }) {
 	await emailService.sendEmail(user.email, await buildAccountExistsEmail(user, env.BETTER_AUTH_URL));
+}
+
+async function enqueueVerifiedUserWelcomeEmail(userId: string): Promise<void> {
+	if (!isCloudWelcomeEmailEnabled()) {
+		return;
+	}
+	try {
+		const user = await userQueries.getUser({ id: userId });
+		if (!user?.emailVerified || user.requiresPasswordReset) {
+			return;
+		}
+		await enqueueOnce({
+			name: CLOUD_WELCOME_EMAIL_JOB_NAME,
+			payload: { kind: 'user', userId },
+			uniqueKey: `email-cloud-welcome-user:${userId}`,
+		});
+	} catch (error) {
+		logger.error('Failed to enqueue cloud user welcome email', {
+			source: 'system',
+			context: { userId, error: serializeError(error) },
+		});
+	}
 }
 
 async function shouldDisableEmailSignUp(): Promise<boolean> {

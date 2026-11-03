@@ -83,7 +83,7 @@ export const chatRoutes = {
 				format: z.enum(DOWNLOAD_FORMATS).default('pdf'),
 				includeErrors: z.boolean().default(false),
 				includeSql: z.boolean().default(true),
-				includePython: z.boolean().default(true),
+				includeCode: z.boolean().default(true),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
@@ -103,7 +103,7 @@ export const chatRoutes = {
 				format: input.format,
 				includeErrors: input.includeErrors,
 				includeSql: input.includeSql,
-				includePython: input.includePython,
+				includeCode: input.includeCode,
 				dateFormat: displaySettings?.dateFormat,
 			});
 

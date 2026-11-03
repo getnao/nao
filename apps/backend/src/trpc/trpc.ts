@@ -4,6 +4,7 @@ import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify'
 import superjson from 'superjson';
 
 import { getSession } from '../auth';
+import { getOrganizationBilling } from '../queries/billing.queries';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
@@ -13,6 +14,7 @@ import {
 } from '../services/cloud-billing-access.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { canSeeAdvancedSettings } from '../services/user-group-feature-access.service';
+import { isTrialAvailable } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 
@@ -244,7 +246,10 @@ export const organizationProtectedProcedure = protectedProcedure.use(async ({ ct
 
 export const cloudBillingProjectImportProcedure = organizationProtectedProcedure.use(async ({ ctx, next }) => {
 	if (await projectQueries.organizationHasProjects(ctx.organization.id)) {
-		await assertOrganizationCloudBillingAccess(ctx.organization.id);
+		const billing = await getOrganizationBilling(ctx.organization.id);
+		if (!isTrialAvailable(billing)) {
+			await assertOrganizationCloudBillingAccess(ctx.organization.id);
+		}
 	}
 	return next({ ctx });
 });

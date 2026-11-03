@@ -1239,6 +1239,73 @@ describe('warehouse provisioning', () => {
 		expect(logger.error).not.toHaveBeenCalled();
 	});
 
+	it('stops the running command of a cancelled setup even when it prints nothing', async () => {
+		vi.useFakeTimers();
+		mockSuccessfulProvisioning('project-quiet');
+		let killSync: ReturnType<typeof vi.fn> | undefined;
+		vi.mocked(spawn).mockImplementation((_command, args) => {
+			const child = Object.assign(new EventEmitter(), {
+				stdout: new EventEmitter(),
+				stderr: new EventEmitter(),
+				kill: vi.fn(),
+			});
+			queueMicrotask(async () => {
+				if (args?.[0] === 'sync') {
+					killSync = child.kill;
+					await cancelWarehouseProvisioning('user-1');
+					return;
+				}
+				child.stdout.emit('data', Buffer.from(`Running nao ${args?.[0]}\n`));
+				child.emit('close', 0);
+			});
+			return child as never;
+		});
+
+		const { jobId } = await startOnboardingSetup();
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('cancelled'));
+		expect(killSync).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(5_000);
+
+		expect(killSync).toHaveBeenCalledWith('SIGTERM');
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.lockedBy).toBeNull());
+		expect(createNewProject).not.toHaveBeenCalled();
+		expect(logger.error).not.toHaveBeenCalled();
+	});
+
+	it('lets nao sync run past half an hour and finish, like the CLI', async () => {
+		vi.useFakeTimers();
+		const registeredProjectDirectory = mockSuccessfulProvisioning('project-long-sync');
+		const sync = mockRunningCommand('sync');
+
+		const { jobId } = await startOnboardingSetup();
+		await vi.waitFor(() => expect(sync.finish).toBeDefined());
+		await vi.advanceTimersByTimeAsync(31 * 60_000);
+
+		expect(sync.kill).not.toHaveBeenCalled();
+		sync.finish?.();
+		await vi.waitFor(() => expect(warehouseJobs.get(jobId)?.status).toBe('awaiting_context'));
+		fs.rmSync(registeredProjectDirectory, { recursive: true, force: true });
+	});
+
+	it('still stops a nao debug that runs past its timeout', async () => {
+		vi.useFakeTimers();
+		mockSuccessfulProvisioning('project-stuck-debug');
+		const debug = mockRunningCommand('debug');
+
+		const { jobId } = await startOnboardingSetup();
+		await vi.waitFor(() => expect(debug.finish).toBeDefined());
+		await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+		expect(debug.kill).toHaveBeenCalledWith('SIGTERM');
+		await vi.waitFor(() =>
+			expect(warehouseJobs.get(jobId)).toMatchObject({
+				status: 'failed',
+				error: 'nao debug timed out. Check the logs for details.',
+			}),
+		);
+		expect(createNewProject).not.toHaveBeenCalled();
+	});
+
 	it('masks secret credentials printed by a nao command before storing its logs', async () => {
 		mockSuccessfulProvisioning('project-redacted');
 		mockPreparedWarehousePassword('super-secret-value');
@@ -1340,8 +1407,8 @@ describe('warehouse provisioning', () => {
 			expected: 'nao sync failed. Check the logs for details.',
 		},
 		{
-			error: new Error('nao sync timed out'),
-			expected: 'nao sync timed out. Check the logs for details.',
+			error: new Error('nao debug timed out'),
+			expected: 'nao debug timed out. Check the logs for details.',
 		},
 		{
 			error: new Error('password authentication failed for user "nao"'),
@@ -1452,6 +1519,30 @@ function mockPreparedWarehousePassword(password: string): void {
 			{ status: 200, headers: { 'Content-Type': 'application/json' } },
 		),
 	);
+}
+
+function mockRunningCommand(command: string): { kill?: ReturnType<typeof vi.fn>; finish?: () => void } {
+	const running: { kill?: ReturnType<typeof vi.fn>; finish?: () => void } = {};
+	vi.mocked(spawn).mockImplementation((_command, args) => {
+		const child = Object.assign(new EventEmitter(), {
+			stdout: new EventEmitter(),
+			stderr: new EventEmitter(),
+			kill: vi.fn(),
+		});
+		queueMicrotask(() => {
+			if (args?.[0] === command) {
+				running.kill = child.kill;
+				running.finish = () => {
+					child.emit('close', 0);
+				};
+				return;
+			}
+			child.stdout.emit('data', Buffer.from(`Running nao ${args?.[0]}\n`));
+			child.emit('close', 0);
+		});
+		return child as never;
+	});
+	return running;
 }
 
 function mockSyncOutput(chunks: string[], exitCode = 0): void {

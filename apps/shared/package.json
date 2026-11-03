@@ -41,6 +41,7 @@
 		"./story-theme-source": "./src/story-theme-source.ts",
 		"./story-validation": "./src/story-validation.ts",
 		"./rules-template": "./src/rules-template.ts",
+		"./slack-channels": "./src/slack-channels.ts",
 		"./sql-template": "./src/sql-template.ts",
 		"./execute-sql-parts": "./src/execute-sql-parts.ts",
 		"./user-group-license": "./src/user-group-license.ts"

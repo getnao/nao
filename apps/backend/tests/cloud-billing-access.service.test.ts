@@ -269,7 +269,7 @@ describe('cloud billing access assertions', () => {
 
 		await expect(assertOrganizationCloudBillingAccess('organization-1')).rejects.toMatchObject({
 			codeMessage: 'FORBIDDEN',
-			message: 'Cloud billing access is restricted. Ask an organization admin to update billing.',
+			message: 'Cloud billing access is restricted. Finish setting up your project to start the free trial.',
 		});
 	});
 
@@ -278,6 +278,16 @@ describe('cloud billing access assertions', () => {
 		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
 
 		await expect(assertProjectCloudBillingAccess('project-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+			message: 'Cloud billing access is restricted. Finish setting up your project to start the free trial.',
+		});
+	});
+
+	it('keeps the billing message after the trial has been consumed', async () => {
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: false });
+		mocks.getOrganizationBilling.mockResolvedValue(entitlement('canceled'));
+
+		await expect(assertOrganizationCloudBillingAccess('organization-1')).rejects.toMatchObject({
 			codeMessage: 'FORBIDDEN',
 			message: 'Cloud billing access is restricted. Ask an organization admin to update billing.',
 		});

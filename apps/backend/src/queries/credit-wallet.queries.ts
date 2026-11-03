@@ -7,6 +7,15 @@ import * as userQueries from './user.queries';
 
 export type CreditLedgerCursor = { createdAt: Date; id: string };
 
+export async function getCreditGrantPolicy(grantType: CreditGrantType) {
+	const [policy] = await db
+		.select()
+		.from(s.creditGrantPolicy)
+		.where(eq(s.creditGrantPolicy.grantType, grantType))
+		.limit(1);
+	return policy ?? null;
+}
+
 export async function getCreditPurchaseByCheckoutSession(
 	checkoutSessionId: string,
 ): Promise<{ orgId: string | null; entry: typeof s.creditLedger.$inferSelect } | null> {
