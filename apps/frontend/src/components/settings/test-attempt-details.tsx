@@ -271,10 +271,11 @@ function describeAttemptMetrics(result: TestRunResult): string {
 function describeComparedMetrics(production: TestRunResult | null, draft: TestRunResult | null): string {
 	const compare = (value: (result: TestRunResult) => number | null, format: (value: number) => string) =>
 		compareMetric(production && value(production), draft && value(draft), format);
+	const lastToolCallCount = draft?.toolCallCount ?? production?.toolCallCount ?? 0;
 	return [
 		(draft ?? production)?.llmModelId ?? null,
 		compare((result) => result.durationMs || null, formatDuration),
-		compare((result) => result.toolCallCount, formatCount)?.concat(' tool calls'),
+		compare((result) => result.toolCallCount, formatCount)?.concat(` ${pluralize('tool call', lastToolCallCount)}`),
 		compare((result) => result.totalTokens, formatCount)?.concat(' tokens'),
 		compare((result) => result.totalCost, formatCost),
 	]

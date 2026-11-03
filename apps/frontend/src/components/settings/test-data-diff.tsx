@@ -190,17 +190,16 @@ function buildColumns(diff: TestDataDiff, sides: DiffSides): ColumnDef<GridRow>[
 			<RowGutter kind={row.original.kind} position={table.getRowModel().rows.indexOf(row) + 1} sides={sides} />
 		),
 	};
-	const dataColumns = diff.columns.map(
-		(column, index): ColumnDef<GridRow> => ({
+	const dataColumns = diff.columns.map((column, index): ColumnDef<GridRow> => {
+		const isMissingColumn = diff.missingColumns.includes(column);
+		const valueOf = (row: TestDataDiffRow) => shownValue(row, index, isMissingColumn);
+		return {
 			id: column,
-			accessorFn: (gridRow) => shownValue(gridRow.row, index),
-			sortingFn: (left, right) =>
-				compareCells(shownValue(left.original.row, index), shownValue(right.original.row, index)),
-			cell: ({ row }) => (
-				<DiffCell row={row.original.row} index={index} isMissingColumn={diff.missingColumns.includes(column)} />
-			),
-		}),
-	);
+			accessorFn: (gridRow) => valueOf(gridRow.row),
+			sortingFn: (left, right) => compareCells(valueOf(left.original.row), valueOf(right.original.row)),
+			cell: ({ row }) => <DiffCell row={row.original.row} index={index} isMissingColumn={isMissingColumn} />,
+		};
+	});
 	return [gutterColumn, ...dataColumns];
 }
 
@@ -223,7 +222,8 @@ function DiffCell({ row, index, isMissingColumn }: { row: TestDataDiffRow; index
 	const actual = row.actual?.[index] ?? null;
 	const expected = row.expected?.[index] ?? null;
 	const status: CellStatus | null = row.statuses?.[index] ?? null;
-	const alignment = typeof shownValue(row, index) === 'number' ? 'text-right' : undefined;
+	const shown = shownValue(row, index, isMissingColumn);
+	const alignment = typeof shown === 'number' ? 'text-right' : undefined;
 	if (isMissingColumn && row.expected) {
 		return <CellValue value={expected} className={cn('block text-red-700 dark:text-red-400', alignment)} />;
 	}
@@ -252,7 +252,7 @@ function DiffCell({ row, index, isMissingColumn }: { row: TestDataDiffRow; index
 			</span>
 		);
 	}
-	return <CellValue value={shownValue(row, index)} className={cn('block', alignment)} />;
+	return <CellValue value={shown} className={cn('block', alignment)} />;
 }
 
 function CellValue({ value, className }: { value: Cell; className?: string }) {
@@ -262,8 +262,10 @@ function CellValue({ value, className }: { value: Cell; className?: string }) {
 	return <span className={className}>{String(value)}</span>;
 }
 
-function shownValue(row: TestDataDiffRow, index: number): Cell {
-	return row.actual?.[index] ?? row.expected?.[index] ?? null;
+/** The answer's value when the answer has this row and column, even a null one, else the expected value. */
+function shownValue(row: TestDataDiffRow, index: number, isMissingColumn: boolean): Cell {
+	const side = row.actual && !isMissingColumn ? row.actual : row.expected;
+	return side?.[index] ?? null;
 }
 
 /** Orders numbers by value and the rest as text, with empty cells last. */

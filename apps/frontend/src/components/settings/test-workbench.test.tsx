@@ -35,6 +35,7 @@ const RUN_SETTINGS = {
 	models: [{ provider: 'openai', modelId: 'gpt-4.1' }],
 	attempts: 1,
 	isCustom: false,
+	isLoading: false,
 	update: vi.fn(),
 	reset: vi.fn(),
 } as unknown as TestRunSettings;
@@ -133,6 +134,13 @@ describe('TestWorkbench', () => {
 		});
 	});
 
+	it('says no model is configured once the models loaded without any', async () => {
+		renderWorkbench(null, { runSettings: { ...RUN_SETTINGS, models: [] } });
+		const run = await screen.findByRole('button', { name: 'Run test' });
+		expect(run.hasAttribute('disabled')).toBe(true);
+		expect(run.getAttribute('title')).toBe('No model is configured for tests.');
+	});
+
 	it('stops showing the variants as loading once the run is cancelled', async () => {
 		mocks.getTestHistory.mockResolvedValue([
 			{
@@ -193,11 +201,13 @@ function renderWorkbench(
 		onSelectRun = vi.fn(),
 		onRunStarted = vi.fn(),
 		validation = { validation: { test: testDefinition('hash-1'), error: null }, error: undefined },
+		runSettings = RUN_SETTINGS,
 	}: {
 		selectedRunId?: string | null;
 		onSelectRun?: () => void;
 		onRunStarted?: () => void;
 		validation?: TestFileValidationState;
+		runSettings?: TestRunSettings;
 	} = {},
 ) {
 	const queryClient = new QueryClient({
@@ -212,7 +222,7 @@ function renderWorkbench(
 					draft={draft}
 					selectedRunId={selectedRunId}
 					onSelectRun={onSelectRun}
-					runSettings={RUN_SETTINGS}
+					runSettings={runSettings}
 					activeRun={undefined}
 					onRunStarted={onRunStarted}
 				/>

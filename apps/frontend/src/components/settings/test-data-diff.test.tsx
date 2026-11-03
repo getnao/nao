@@ -49,6 +49,15 @@ describe('TestDataDiffView', () => {
 		expect(readColumn(0)).toEqual(['jan', 'feb', 'mar', 'may']);
 	});
 
+	it("sorts a row by the answer's value even when the answer is null", () => {
+		const rows = [...DIFF.rows, { expected: ['apr', 50], actual: ['apr', null], statuses: ['match', 'differ'] }];
+		render(<TestDataDiffView diff={{ ...DIFF, rows } as TestDataDiff} sides={SIDES} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'total' }));
+
+		expect(readColumn(0)).toEqual(['jan', 'feb', 'mar', 'may', 'apr']);
+	});
+
 	it('says when neither side has rows', () => {
 		render(<TestDataDiffView diff={{ ...DIFF, extraColumns: [], rows: [] }} sides={SIDES} />);
 

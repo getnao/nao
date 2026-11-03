@@ -114,7 +114,7 @@ function getRunDisabledReason({
 		return blockedReason;
 	}
 	if (settings.models.length === 0) {
-		return 'Loading the models…';
+		return settings.isLoading ? 'Loading the models…' : 'No model is configured for tests.';
 	}
 	return isStarting ? 'Starting the run…' : null;
 }

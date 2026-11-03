@@ -33,7 +33,7 @@ import { trpc } from '@/main';
 interface RunTest {
 	testPath: string;
 	testName: string;
-	outcome: { passedAttempts: number; totalAttempts: number; modelsDisagree: boolean };
+	outcome: { passedAttempts: number; totalAttempts: number; expectedAttempts: number; modelsDisagree: boolean };
 	failure: string | null;
 	comparison: TestComparisonRow | null;
 }
@@ -267,11 +267,12 @@ function AttemptsDetail({
 
 /** The tests of a run with their outcome: with the user's changes for a comparison, else over all their attempts. */
 function listRunTests(run: TestRunWithResults): RunTest[] {
+	const expectedAttempts = run.models.length * run.attempts;
 	if (run.comparison) {
 		return run.comparison.tests.map((test) => ({
 			testPath: test.testPath,
 			testName: test.testName,
-			outcome: { ...test.draft, modelsDisagree: false },
+			outcome: { ...test.draft, expectedAttempts, modelsDisagree: false },
 			failure: null,
 			comparison: test,
 		}));
@@ -283,6 +284,7 @@ function listRunTests(run: TestRunWithResults): RunTest[] {
 		outcome: {
 			passedAttempts: results.filter((result) => result.passed).length,
 			totalAttempts: results.length,
+			expectedAttempts,
 			modelsDisagree: disagreeing.has(testPath),
 		},
 		failure: findFailureReason(results),

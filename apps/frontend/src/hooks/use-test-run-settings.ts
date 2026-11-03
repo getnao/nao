@@ -2,6 +2,7 @@ import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 
+import { MAX_TEST_RUN_ATTEMPTS } from '@nao/backend/test-run';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
@@ -16,6 +17,8 @@ interface StoredTestRunSettings {
 export interface TestRunSettings extends StoredTestRunSettings {
 	/** The models and attempts come from this browser rather than from the project defaults. */
 	isCustom: boolean;
+	/** The project defaults are still loading, so `models` may be empty for now. */
+	isLoading: boolean;
 	update: (settings: Partial<StoredTestRunSettings>) => void;
 	reset: () => void;
 }
@@ -38,7 +41,8 @@ export function useTestRunSettings(): TestRunSettings {
 	);
 	const projectModels = suite.data?.settings.models ?? (defaultModel.data ? [defaultModel.data] : []);
 	const models = availableStoredModels?.length ? availableStoredModels : projectModels;
-	const attempts = stored?.attempts ?? suite.data?.settings.attempts ?? 1;
+	const attempts = Math.min(stored?.attempts ?? suite.data?.settings.attempts ?? 1, MAX_TEST_RUN_ATTEMPTS);
+	const isLoading = project.isPending || suite.isPending || defaultModel.isPending;
 
 	const update = useCallback(
 		(settings: Partial<StoredTestRunSettings>) => {
@@ -58,7 +62,7 @@ export function useTestRunSettings(): TestRunSettings {
 		}
 	}, [projectId]);
 
-	return { models, attempts, isCustom: stored !== null, update, reset };
+	return { models, attempts, isCustom: stored !== null, isLoading, update, reset };
 }
 
 function testRunSettingsStorage(projectId: string) {

@@ -250,7 +250,15 @@ describe('SuiteRunActions', () => {
 });
 
 function settings(overrides: Partial<TestRunSettings> = {}): TestRunSettings {
-	return { models: MODELS, attempts: 3, isCustom: true, update: vi.fn(), reset: vi.fn(), ...overrides };
+	return {
+		models: MODELS,
+		attempts: 3,
+		isCustom: true,
+		isLoading: false,
+		update: vi.fn(),
+		reset: vi.fn(),
+		...overrides,
+	};
 }
 
 function draftWith(paths: string[]): DraftContext {

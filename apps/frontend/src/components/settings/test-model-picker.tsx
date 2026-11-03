@@ -174,7 +174,9 @@ function RunEstimate({
 	const attemptsPerModel = testCount * attempts * variantCount;
 	const attemptCount = attemptsPerModel * models.length;
 	const modelStats = models.map((model) => findStats(stats, model));
-	const isEstimated = modelStats.every((entry) => entry?.averageCost != null && entry.averageDurationMs != null);
+	const isEstimated =
+		modelStats.length > 0 &&
+		modelStats.every((entry) => entry?.averageCost != null && entry.averageDurationMs != null);
 	const cost = modelStats.reduce((sum, entry) => sum + (entry?.averageCost ?? 0) * attemptsPerModel, 0);
 	const attemptsInFlightPerModel = getTestRunConcurrency(models.length) / Math.max(models.length, 1);
 	const durationMs = Math.max(

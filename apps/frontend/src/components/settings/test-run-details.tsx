@@ -278,7 +278,10 @@ function isFailingAttempt(attempt: ShownAttempt): boolean {
 	if (attempt.kind === 'single') {
 		return !attempt.result.passed;
 	}
-	return attempt.draft?.passed === false || attempt.draft?.passed !== attempt.production?.passed;
+	if (!attempt.draft || !attempt.production) {
+		return attempt.draft?.passed === false;
+	}
+	return !attempt.draft.passed || attempt.draft.passed !== attempt.production.passed;
 }
 
 function attemptTone(run: TestHistoryRun, attempt: ShownAttempt): Tone {

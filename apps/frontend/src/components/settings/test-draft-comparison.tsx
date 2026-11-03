@@ -50,7 +50,7 @@ export function VariantOutcomeCell({
 			? tone === 'pass'
 				? 'Passed'
 				: 'Failed'
-			: `${outcome.passedAttempts}/${outcome.totalAttempts} passed`;
+			: `${outcome.passedAttempts}/${attemptsPerVariant} passed`;
 	return (
 		<span className={cn('flex items-center gap-1 text-xs', TONE_COLORS[tone])}>
 			<ToneIcon tone={tone} />

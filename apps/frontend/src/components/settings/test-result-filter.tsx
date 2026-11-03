@@ -5,6 +5,7 @@ export type TestResultFilter = 'all' | 'passed' | 'failed' | 'disagree';
 interface TestOutcome {
 	passedAttempts: number;
 	totalAttempts: number;
+	expectedAttempts: number;
 	modelsDisagree?: boolean;
 }
 
@@ -66,13 +67,19 @@ export function TestResultFilterPills({
 	);
 }
 
-/** A test passes when all of its attempts pass and fails when one does not; tests still waiting only show in "All". */
+/**
+ * A test passes once all of its expected attempts pass and fails as soon as one does not; tests still waiting only
+ * show in "All".
+ */
 export function matchesResultFilter(outcome: TestOutcome, filter: TestResultFilter): boolean {
 	switch (filter) {
 		case 'all':
 			return true;
 		case 'passed':
-			return outcome.totalAttempts > 0 && outcome.passedAttempts === outcome.totalAttempts;
+			return (
+				outcome.totalAttempts >= Math.max(outcome.expectedAttempts, 1) &&
+				outcome.passedAttempts === outcome.totalAttempts
+			);
 		case 'failed':
 			return outcome.totalAttempts > 0 && outcome.passedAttempts < outcome.totalAttempts;
 		case 'disagree':
