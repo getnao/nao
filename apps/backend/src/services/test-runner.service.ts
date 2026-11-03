@@ -13,12 +13,14 @@ import {
 	type TestContextVariant,
 	type TestDefinition,
 	type TestRunResultDetails,
+	type TestSourceQuery,
 	type TestSuite,
 } from '../types/test-run';
 import { resolveDefaultChatModel } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
+import type { AgentRunResult } from './agent';
 import {
 	createDraftContextSnapshot,
 	type DraftSource,
@@ -371,7 +373,7 @@ async function runAttempt(
 			totalCost: agentResult.cost.totalCost ?? null,
 			durationMs: agentResult.durationMs,
 			toolCallCount: evaluation.toolCalls.length,
-			details: buildResultDetails(test, agentResult.text, evaluation, plan.tolerances),
+			details: buildResultDetails(test, agentResult, evaluation, plan.tolerances),
 		};
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
@@ -383,9 +385,10 @@ function testChatTitle(test: TestDefinition, variant: TestContextVariant): strin
 	return variant === 'draft' ? `Test: ${test.name} (draft context)` : `Test: ${test.name}`;
 }
 
+/** Without the queries the verification read from, such as for a test with no reference SQL, every agent query is kept. */
 function buildResultDetails(
 	test: TestDefinition,
-	responseText: string,
+	agentResult: AgentRunResult,
 	evaluation: TestAttemptEvaluation,
 	tolerances: TestComparisonTolerances,
 ): TestRunResultDetails {
@@ -393,8 +396,9 @@ function buildResultDetails(
 	const columns = verification ? comparedColumns(verification.expectedData, verification.expectedColumns) : [];
 	const storedRows = (records: Record<string, unknown>[] | null | undefined) =>
 		records ? orderRecordsForComparison(records, columns, tolerances.decimals).slice(0, MAX_STORED_ROWS) : null;
+	const verifiedSourceQueries = verification?.sourceQueries ?? [];
 	return {
-		responseText,
+		responseText: agentResult.text,
 		actualData: storedRows(verification?.data),
 		expectedData: storedRows(verification?.expectedData),
 		actualRowCount: verification?.data?.length ?? null,
@@ -402,8 +406,13 @@ function buildResultDetails(
 		comparison: evaluation.verdict.comparison,
 		referenceSql: test.sql,
 		verificationSql: evaluation.verification?.sql ?? null,
-		sourceQueries: evaluation.verification?.sourceQueries ?? [],
+		sourceQueries:
+			verifiedSourceQueries.length > 0 ? verifiedSourceQueries : listAgentQueries(agentResult.queryResults),
 	};
+}
+
+function listAgentQueries(queryResults: AgentRunResult['queryResults']): TestSourceQuery[] {
+	return [...queryResults].flatMap(([id, result]) => (result.sqlQuery ? [{ id, sql: result.sqlQuery }] : []));
 }
 
 /**

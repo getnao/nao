@@ -83,6 +83,7 @@ beforeEach(() => {
 		usage: { totalTokens: 100 },
 		cost: { totalCost: 0.01 },
 		durationMs: 1200,
+		queryResults: new Map(),
 	});
 	mocks.evaluateTestAttempt.mockResolvedValue({
 		toolCalls: [{ toolName: 'execute_sql' }],
@@ -183,6 +184,37 @@ describe('startTestRun', () => {
 		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(expect.objectContaining({ modelSelection: model }));
 	});
 
+	it('keeps the queries the agent ran for a test without reference SQL', async () => {
+		writeTestFile('orders.yml', 'prompt: How many orders?');
+		mocks.runTestInChat.mockResolvedValueOnce({
+			text: 'There are 3 orders',
+			usage: {},
+			cost: {},
+			durationMs: 0,
+			queryResults: new Map([
+				['query_1', { columns: ['count'], data: [{ count: 3 }], sqlQuery: 'SELECT count(*) FROM orders' }],
+				['query_2', { columns: ['count'], data: [{ count: 3 }] }],
+			]),
+		});
+		mocks.evaluateTestAttempt.mockResolvedValueOnce({
+			toolCalls: [{ toolName: 'execute_sql' }],
+			verification: undefined,
+			verdict: { passed: true, message: 'assertions passed', comparison: null },
+		});
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
+			expect.objectContaining({
+				details: expect.objectContaining({
+					verificationSql: null,
+					sourceQueries: [{ id: 'query_1', sql: 'SELECT count(*) FROM orders' }],
+				}),
+			}),
+		);
+	});
+
 	it('records a failed attempt when the agent errors, without failing the run', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 		mocks.runTestInChat.mockRejectedValueOnce(new Error('rate limited'));
@@ -216,11 +248,12 @@ describe('startTestRun', () => {
 		writeConfig('test:\n  k: 2');
 		let finishSecondAttempt: () => void = () => {};
 		mocks.runTestInChat
-			.mockResolvedValueOnce({ text: '', usage: {}, cost: {}, durationMs: 0 })
+			.mockResolvedValueOnce({ text: '', usage: {}, cost: {}, durationMs: 0, queryResults: new Map() })
 			.mockImplementationOnce(
 				() =>
 					new Promise((resolve) => {
-						finishSecondAttempt = () => resolve({ text: '', usage: {}, cost: {}, durationMs: 0 });
+						finishSecondAttempt = () =>
+							resolve({ text: '', usage: {}, cost: {}, durationMs: 0, queryResults: new Map() });
 					}),
 			);
 		mocks.recordResultWhileRunning.mockRejectedValueOnce(new Error('database unavailable'));
@@ -450,7 +483,8 @@ describe('cancelTestRun', () => {
 			(_chat, _messages, _model, options: { abortSignal: AbortSignal }) =>
 				new Promise((resolve) => {
 					abortSignal = options.abortSignal;
-					finishAttempt = () => resolve({ text: '', usage: {}, cost: {}, durationMs: 0 });
+					finishAttempt = () =>
+						resolve({ text: '', usage: {}, cost: {}, durationMs: 0, queryResults: new Map() });
 				}),
 		);
 

@@ -75,7 +75,7 @@ export interface TestRunResultDetails {
 	comparison: string | null;
 	referenceSql: string | null;
 	verificationSql: string | null;
-	/** The agent's queries the verification SQL reads from. */
+	/** The agent's queries the verification SQL reads from, or all of them when no verification named any. */
 	sourceQueries: TestSourceQuery[];
 }
 
