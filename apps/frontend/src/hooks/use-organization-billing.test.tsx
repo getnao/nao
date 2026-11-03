@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	getStatus: vi.fn(),
 	getStatusInput: vi.fn(),
 	mutationInput: vi.fn(),
+	syncStripeBilling: vi.fn(async () => ({ synced: true })),
 }));
 
 vi.mock('@/main', () => {
@@ -26,6 +27,9 @@ vi.mock('@/main', () => {
 		mutationOptions: (options: object) => ({
 			mutationFn: (input: unknown) => {
 				mocks.mutationInput(name, input);
+				if (name === 'syncStripeBilling') {
+					return mocks.syncStripeBilling();
+				}
 				return new Promise<never>(() => {});
 			},
 			...options,
@@ -44,6 +48,20 @@ vi.mock('@/main', () => {
 				createResubscribeSession: mutation('createResubscribeSession'),
 				resumeSubscription: mutation('resumeSubscription'),
 				syncStripeBilling: mutation('syncStripeBilling'),
+				previewSeatChange: mutation('previewSeatChange'),
+				changeSeatQuantity: mutation('changeSeatQuantity'),
+				previewPlanChange: mutation('previewPlanChange'),
+				changePlan: mutation('changePlan'),
+				selectSeats: mutation('selectSeats'),
+				switchToFree: mutation('switchToFree'),
+				cancelPendingPlanChange: mutation('cancelPendingPlanChange'),
+			},
+			organization: {
+				getMembers: query('getMembers', async () => []),
+				getUserCounts: query('getUserCounts', async () => ({})),
+			},
+			project: {
+				listAllUsersWithRoles: query('listAllUsersWithRoles', async () => []),
 			},
 		},
 	};
@@ -70,6 +88,36 @@ describe('useOrganizationBilling', () => {
 		await waitFor(() => expect(result.current.isCheckoutPolling).toBe(false));
 		expect(result.current.isCheckoutConfirmationDelayed).toBe(false);
 		expect(result.current.checkoutFeedback).toBeNull();
+	});
+
+	it('reconciles directly with Stripe after Checkout before paid management is available', async () => {
+		mocks.getStatus.mockResolvedValue({
+			access: { freeTierEnabled: true },
+			hasStripeSubscription: false,
+			paidPlanSelected: false,
+			paymentMethodManagementAvailable: false,
+			status: null,
+			canManageBilling: true,
+		});
+
+		renderHook(() => useOrganizationBilling({ checkout: 'success', checkoutPlan: 'team' }), { wrapper });
+
+		await waitFor(() => expect(mocks.syncStripeBilling).toHaveBeenCalledOnce());
+	});
+
+	it('does not show redundant Stripe portal refresh feedback', async () => {
+		mocks.getStatus.mockResolvedValue({
+			hasStripeSubscription: true,
+			paidPlanSelected: true,
+			status: 'active',
+			canManageBilling: true,
+		});
+
+		const { result } = renderHook(() => useOrganizationBilling({ portal: 'returned' }), { wrapper });
+
+		expect(result.current.portalFeedback).toBeNull();
+		await waitFor(() => expect(mocks.syncStripeBilling).toHaveBeenCalledOnce());
+		await waitFor(() => expect(result.current.portalFeedback).toBeNull());
 	});
 
 	it('uses the selected available plan when no Stripe subscription exists', async () => {
@@ -135,6 +183,31 @@ describe('useOrganizationBilling', () => {
 			expect(mocks.mutationInput).toHaveBeenCalledWith('createTrialCheckoutSession', {
 				billingInterval: 'monthly',
 				currency: 'eur',
+			}),
+		);
+	});
+
+	it('submits the backend plan key for Free-tier Checkout', async () => {
+		mocks.getStatus.mockResolvedValue({
+			access: { freeTierEnabled: true },
+			availablePlans: [],
+			hasStripeSubscription: false,
+			paidPlanSelected: false,
+			trialAvailable: true,
+			status: null,
+			canManageBilling: true,
+		});
+		const { result } = renderHook(() => useOrganizationBilling({}), { wrapper });
+
+		await waitFor(() => expect(result.current.billing.isSuccess).toBe(true));
+		act(() => {
+			result.current.openTrialCheckoutForPlan('cloud_team_monthly_v1');
+		});
+
+		await waitFor(() =>
+			expect(mocks.mutationInput).toHaveBeenCalledWith('createTrialCheckoutSession', {
+				planKey: 'cloud_team_monthly_v1',
+				currency: expect.any(String),
 			}),
 		);
 	});

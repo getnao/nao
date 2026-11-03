@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import type { OrganizationBillingSearch } from '@/hooks/use-organization-billing';
+import type { OrganizationBillingSearch, OrganizationBillingTab } from '@/hooks/use-organization-billing';
 import { OrganizationBillingSettings } from '@/components/settings/organization-billing-settings';
 import { requireOrganizationAdminCloudBilling } from '@/lib/route-guards';
 
@@ -11,6 +11,8 @@ export const Route = createFileRoute('/_sidebar-layout/settings/organization/bil
 			search.checkout === 'success' || search.checkout === 'subscribed' || search.checkout === 'canceled'
 				? search.checkout
 				: undefined,
+		checkoutPlan:
+			search.checkoutPlan === 'team' || search.checkoutPlan === 'unlimited' ? search.checkoutPlan : undefined,
 		portal: search.portal === 'returned' ? search.portal : undefined,
 		creditCheckout:
 			typeof search.creditCheckout === 'string' &&
@@ -18,6 +20,10 @@ export const Route = createFileRoute('/_sidebar-layout/settings/organization/bil
 				? search.creditCheckout
 				: undefined,
 		creditsTab: search.creditsTab === 'history' || search.creditsTab === 'usage' ? search.creditsTab : undefined,
+		tab:
+			search.tab === 'plans' || search.tab === 'seats' || search.tab === 'credits' || search.tab === 'invoices'
+				? search.tab
+				: undefined,
 	}),
 	staticData: {
 		title: 'Billing & Credits',
@@ -32,6 +38,13 @@ function PlanAndBillingPage() {
 	return (
 		<OrganizationBillingSettings
 			search={search}
+			onTabChange={(tab: OrganizationBillingTab) => {
+				navigate({
+					search: (current) => ({ ...current, tab }),
+					replace: true,
+					resetScroll: false,
+				});
+			}}
 			onCreditsTabChange={(creditsTab) => {
 				navigate({
 					search: (current) => ({ ...current, creditsTab }),

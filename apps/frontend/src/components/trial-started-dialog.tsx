@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ArrowRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { formatMicroUsd } from '@nao/shared/billing';
+import { FREE_TIER_SEAT_LIMIT, formatMicroUsd } from '@nao/shared/billing';
 
 import { ConfettiBurst } from '@/components/confetti-burst';
 import { NyanCat } from '@/components/icons/nyan-cat';
@@ -86,7 +86,8 @@ export function TrialStartedDialog({ open, onOpenChange, creditAmountMicroUsd, u
 							className={cn(enterClass, '[animation-delay:160ms] max-w-md text-center leading-relaxed')}
 						>
 							We’ve added {formattedCreditAmount} of nao credits so your team can start asking questions
-							right away.
+							right away. Your 14-day trial gives every seat user full access. Afterward, Free keeps up to
+							{FREE_TIER_SEAT_LIMIT} people seated with unlimited viewers.
 						</DialogDescription>
 					</DialogHeader>
 					<div className={cn(enterClass, '[animation-delay:260ms] relative my-8 flex flex-col items-center')}>

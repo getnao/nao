@@ -1,0 +1,400 @@
+import type { BillingInterval, OrganizationBillingState } from '@/hooks/use-organization-billing';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { SettingsCard } from '@/components/ui/settings-card';
+import { formatBillingDate, formatBillingInterval, formatBillingPrice } from '@/lib/billing-display';
+
+export function LegacyBillingPlansTab({ billingState }: { billingState: OrganizationBillingState }) {
+	return (
+		<div className='flex flex-col gap-12'>
+			<CurrentPlanCard billingState={billingState} />
+			<BillingSetupCard billingState={billingState} />
+			<PlanDetailsCard billingState={billingState} />
+			<SubscriptionRecoveryCard billingState={billingState} />
+		</div>
+	);
+}
+
+function CurrentPlanCard({ billingState }: { billingState: OrganizationBillingState }) {
+	const {
+		billing,
+		hasStripeSubscription,
+		isHistoricalSubscription,
+		needsPaidPlanSelection,
+		paidPlanSelected,
+		statusView,
+	} = billingState;
+	const currentPlan = billing.data?.plan;
+	const trialEndedWithoutPaidPlan =
+		billing.data?.resubscribeAvailable === true &&
+		!paidPlanSelected &&
+		Boolean(billing.data.trialStartedAt || billing.data.trialEndsAt);
+
+	return (
+		<SettingsCard title='Current plan'>
+			{billing.isLoading && (
+				<p className='text-sm text-muted-foreground' role='status' aria-live='polite'>
+					Loading billing details…
+				</p>
+			)}
+			{billing.isError && (
+				<p className='text-sm text-destructive' role='alert'>
+					Unable to load billing details.
+				</p>
+			)}
+			{billing.data &&
+				(needsPaidPlanSelection ? (
+					<div className='flex flex-col gap-2'>
+						<div className='flex flex-wrap items-center gap-2'>
+							<p className='font-medium text-foreground'>nao Cloud trial</p>
+							<Badge variant={statusView.variant}>{statusView.label}</Badge>
+						</div>
+						<p className='text-sm text-muted-foreground'>{statusView.description}</p>
+						<p className='text-sm text-muted-foreground'>
+							Trial ends {formatBillingDate(billing.data.trialEndsAt)}.
+						</p>
+					</div>
+				) : currentPlan && !isHistoricalSubscription ? (
+					<div className='flex flex-col gap-2'>
+						<div className='flex flex-wrap items-center gap-2'>
+							<p className='font-medium text-foreground'>{currentPlan.name}</p>
+							<Badge variant={statusView.variant}>{statusView.label}</Badge>
+						</div>
+						<p className='text-sm text-muted-foreground'>
+							{formatBillingPrice(currentPlan.amount, currentPlan.currency)} per{' '}
+							{formatBillingInterval(currentPlan.interval, currentPlan.intervalCount)}, before discounts
+						</p>
+						<p className='text-sm text-muted-foreground'>{statusView.description}</p>
+						<UpcomingPaymentEstimate billingState={billingState} />
+						{billingState.isEndingAtPeriodEnd && (
+							<div className='mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2'>
+								<p className='text-sm font-medium text-foreground'>Subscription will not renew</p>
+								<p className='text-sm text-muted-foreground'>
+									Your plan remains active through{' '}
+									{formatBillingDate(
+										billing.data.billingAccessEndsAt ?? billing.data.currentPeriodEndsAt,
+									)}
+									. It will end after that date.
+								</p>
+							</div>
+						)}
+					</div>
+				) : (
+					<div className='flex flex-col gap-2'>
+						<div className='flex flex-wrap items-center gap-2'>
+							<p className='font-medium text-foreground'>No active plan</p>
+							{isHistoricalSubscription && <Badge variant={statusView.variant}>{statusView.label}</Badge>}
+						</div>
+						<p className='text-sm text-muted-foreground'>
+							{trialEndedWithoutPaidPlan
+								? 'Your free trial has ended. Subscribe to restore access.'
+								: hasStripeSubscription
+									? statusView.description
+									: billing.data.trialAvailable
+										? 'Your free trial starts when your first project is fully set up.'
+										: 'Subscribe to nao Cloud to restore access.'}
+						</p>
+					</div>
+				))}
+		</SettingsCard>
+	);
+}
+
+function UpcomingPaymentEstimate({ billingState }: { billingState: OrganizationBillingState }) {
+	if (!billingState.canLoadUpcomingInvoice) {
+		return null;
+	}
+	const upcomingInvoice = billingState.upcomingInvoice;
+	if (upcomingInvoice.isLoading) {
+		return (
+			<p className='text-sm text-muted-foreground' role='status'>
+				Loading the next payment estimate from Stripe…
+			</p>
+		);
+	}
+	if (upcomingInvoice.isError) {
+		return <p className='text-sm text-muted-foreground'>The next payment estimate is unavailable.</p>;
+	}
+	if (!upcomingInvoice.data) {
+		return null;
+	}
+	const trialing = billingState.status === 'trialing';
+	const billing = billingState.billing.data;
+	const trialEndsAt = billing && 'access' in billing ? billing.access.trialEndsAt : billing?.trialEndsAt;
+	const paymentAt = trialing
+		? (trialEndsAt ?? upcomingInvoice.data.nextPaymentAt)
+		: upcomingInvoice.data.nextPaymentAt;
+
+	return (
+		<div className='mt-2 rounded-md border border-border bg-muted/40 px-3 py-2'>
+			<p className='text-xs text-muted-foreground'>
+				{trialing ? 'Estimated first payment after trial' : 'Next payment estimate from Stripe'}
+			</p>
+			<div className='mt-1 flex flex-wrap items-center gap-2'>
+				<p className='font-medium text-foreground'>
+					{formatBillingPrice(upcomingInvoice.data.amountDue, upcomingInvoice.data.currency)} on{' '}
+					{formatBillingDate(paymentAt)}
+				</p>
+				{upcomingInvoice.data.promotionCodes.map((code) => (
+					<Badge key={code} variant='outline'>
+						Code {code}
+					</Badge>
+				))}
+			</div>
+			<p className='mt-1 text-xs text-muted-foreground'>
+				{trialing && 'This is a preview, not a paid invoice. '}
+				Stripe includes active promotions, credits, and estimated taxes. The final amount can change before
+				billing.
+			</p>
+		</div>
+	);
+}
+
+function BillingSetupCard({ billingState }: { billingState: OrganizationBillingState }) {
+	const { billing, needsPaidPlanSelection, paidPlanSelected, plan } = billingState;
+	const trialCheckoutAvailable = needsPaidPlanSelection;
+	if (
+		!billing.data ||
+		billing.data.trialAvailable ||
+		paidPlanSelected ||
+		!plan ||
+		(!trialCheckoutAvailable && !billing.data.resubscribeAvailable)
+	) {
+		return null;
+	}
+	const wasTrialUsed = Boolean(billing.data.trialStartedAt || billing.data.trialEndsAt);
+
+	return (
+		<SettingsCard title='Billing setup'>
+			<div className='flex flex-col gap-5'>
+				<LegacyBillingIntervalSelector billingState={billingState} />
+				<div>
+					<div className='mb-1 text-sm font-medium text-foreground'>{plan.name}</div>
+					<div className='text-2xl font-semibold text-foreground'>
+						{formatBillingPrice(plan.amount, plan.currency)}
+					</div>
+					<div className='text-sm text-muted-foreground'>
+						per {formatBillingInterval(plan.interval, plan.intervalCount)}, before discounts
+					</div>
+				</div>
+
+				<dl className='grid gap-3 text-sm sm:grid-cols-2'>
+					<PlanDetail label='Users' value={plan.userLimit === null ? 'Unlimited' : String(plan.userLimit)} />
+					<PlanDetail
+						label='Billing period'
+						value={`Every ${formatBillingInterval(plan.interval, plan.intervalCount)}`}
+					/>
+					<PlanDetail
+						label='Free trial'
+						value={
+							needsPaidPlanSelection
+								? `Ends ${formatBillingDate(billing.data.trialEndsAt)}`
+								: wasTrialUsed
+									? 'Already used'
+									: 'Unavailable'
+						}
+					/>
+					{trialCheckoutAvailable && <PlanDetail label='Due today' value='No charge' />}
+				</dl>
+
+				<div className='flex flex-col items-start gap-3 border-t border-border pt-5'>
+					<p className='text-sm text-muted-foreground'>
+						{needsPaidPlanSelection
+							? `Your trial is already active through ${formatBillingDate(billing.data.trialEndsAt)}. Choose monthly or yearly billing in Stripe, where you can enter a promotion code. Nothing is charged before the trial ends.`
+							: 'Continue to Stripe to restore billing for this organization. Billing starts immediately.'}
+					</p>
+					<p className='text-xs text-muted-foreground'>
+						To create your organization&apos;s Stripe billing profile, nao shares an organization
+						admin&apos;s email address with Stripe.{' '}
+						<a
+							href='https://getnao.io/privacy'
+							target='_blank'
+							rel='noreferrer'
+							className='underline underline-offset-2'
+						>
+							Privacy policy
+						</a>
+						.
+					</p>
+					{billing.data.canManageBilling ? (
+						<Button
+							onClick={trialCheckoutAvailable ? billingState.openTrialCheckout : billingState.resubscribe}
+							isLoading={
+								trialCheckoutAvailable
+									? billingState.isTrialCheckoutPending
+									: billingState.isResubscribePending
+							}
+							disabled={billingState.isCheckoutPolling}
+						>
+							{needsPaidPlanSelection ? 'Choose plan in Stripe' : 'Subscribe in Stripe'}
+						</Button>
+					) : (
+						<p className='text-sm text-muted-foreground'>
+							Only an organization admin can subscribe or add billing details.
+						</p>
+					)}
+					{(trialCheckoutAvailable ? billingState.trialCheckoutError : billingState.managementError) && (
+						<p className='text-sm text-destructive' role='alert'>
+							{trialCheckoutAvailable ? billingState.trialCheckoutError : billingState.managementError}
+						</p>
+					)}
+				</div>
+			</div>
+		</SettingsCard>
+	);
+}
+
+export function LegacyBillingIntervalSelector({ billingState }: { billingState: OrganizationBillingState }) {
+	const plans = billingState.billing.data?.availablePlans;
+	if (!plans || Array.isArray(plans)) {
+		return null;
+	}
+	const yearlySavings = 1 - plans.yearly.amount / (plans.monthly.amount * 12);
+	const yearlyMonthlyEquivalent = plans.yearly.amount / 12;
+	const yearlyDiscount =
+		yearlySavings > 0
+			? `${new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 }).format(yearlySavings)} off`
+			: undefined;
+
+	return (
+		<div className='grid gap-3 sm:grid-cols-2' role='group' aria-label='Billing interval'>
+			<BillingIntervalOption
+				billingInterval='monthly'
+				billingState={billingState}
+				title='Monthly'
+				price={`${formatBillingPrice(plans.monthly.amount, plans.monthly.currency)} per month`}
+				description='Billed monthly'
+			/>
+			<BillingIntervalOption
+				billingInterval='yearly'
+				billingState={billingState}
+				title='Yearly'
+				badge={yearlyDiscount}
+				price={`${formatBillingPrice(plans.yearly.amount, plans.yearly.currency)} per year`}
+				description={`${formatBillingPrice(yearlyMonthlyEquivalent, plans.yearly.currency)} per month equivalent`}
+			/>
+		</div>
+	);
+}
+
+function BillingIntervalOption({
+	billingInterval,
+	billingState,
+	badge,
+	title,
+	price,
+	description,
+}: {
+	billingInterval: BillingInterval;
+	billingState: OrganizationBillingState;
+	badge?: string;
+	title: string;
+	price: string;
+	description: string;
+}) {
+	const selected = billingState.selectedBillingInterval === billingInterval;
+	return (
+		<button
+			type='button'
+			aria-pressed={selected}
+			className={`flex cursor-pointer flex-col items-start gap-1 rounded-lg border p-4 text-left transition-colors disabled:cursor-not-allowed ${
+				selected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
+			}`}
+			onClick={() => {
+				billingState.setSelectedBillingInterval(billingInterval);
+			}}
+			disabled={
+				billingState.isCheckoutPolling ||
+				billingState.isTrialCheckoutPending ||
+				billingState.isResubscribePending
+			}
+		>
+			<span className='flex items-center gap-2 font-medium text-foreground'>
+				{title}
+				{badge && <Badge>{badge}</Badge>}
+			</span>
+			<span className='text-sm text-foreground'>{price}</span>
+			<span className='text-xs text-muted-foreground'>{description}</span>
+		</button>
+	);
+}
+
+function PlanDetailsCard({ billingState }: { billingState: OrganizationBillingState }) {
+	const { billing, isHistoricalSubscription, paidPlanSelected, plan, status } = billingState;
+	if (!billing.data || !paidPlanSelected) {
+		return null;
+	}
+	if (billingState.isEndingAtPeriodEnd) {
+		return null;
+	}
+
+	return (
+		<SettingsCard title={isHistoricalSubscription ? 'Subscription history' : 'Subscription details'}>
+			{isHistoricalSubscription && plan && (
+				<div className='mb-5 flex flex-col gap-1'>
+					<p className='font-medium text-foreground'>{plan.name}</p>
+					<p className='text-sm text-muted-foreground'>
+						{formatBillingPrice(plan.amount, plan.currency)} per{' '}
+						{formatBillingInterval(plan.interval, plan.intervalCount)} · kept for billing history
+					</p>
+				</div>
+			)}
+			<dl className='grid gap-3 text-sm sm:grid-cols-2'>
+				{status === 'trialing' ? (
+					<PlanDetail label='Trial ends' value={formatBillingDate(billing.data.trialEndsAt)} />
+				) : isHistoricalSubscription ? (
+					<PlanDetail
+						label='Access ended'
+						value={formatBillingDate(billing.data.billingAccessEndsAt ?? billing.data.currentPeriodEndsAt)}
+					/>
+				) : (
+					<PlanDetail
+						label={status === 'active' ? 'Next renewal' : 'Billing period ends'}
+						value={formatBillingDate(billing.data.currentPeriodEndsAt)}
+					/>
+				)}
+			</dl>
+		</SettingsCard>
+	);
+}
+
+function SubscriptionRecoveryCard({ billingState }: { billingState: OrganizationBillingState }) {
+	const { billing, paidPlanSelected } = billingState;
+	if (!billing.data || !paidPlanSelected || !billing.data.resubscribeAvailable) {
+		return null;
+	}
+
+	return (
+		<SettingsCard title='Start a new subscription'>
+			<div className='flex flex-col items-start gap-3'>
+				<p className='text-sm text-muted-foreground'>
+					Choose a billing interval to start a new subscription for this organization.
+				</p>
+				<div className='w-full'>
+					<LegacyBillingIntervalSelector billingState={billingState} />
+				</div>
+				<Button
+					onClick={billingState.resubscribe}
+					isLoading={billingState.isResubscribePending}
+					disabled={billingState.isCheckoutPolling}
+				>
+					Start new subscription
+				</Button>
+				{billingState.managementError && (
+					<p className='text-sm text-destructive' role='alert'>
+						{billingState.managementError}
+					</p>
+				)}
+			</div>
+		</SettingsCard>
+	);
+}
+
+function PlanDetail({ label, value }: { label: string; value: string }) {
+	return (
+		<div>
+			<dt className='text-xs text-muted-foreground'>{label}</dt>
+			<dd className='font-medium text-foreground'>{value}</dd>
+		</div>
+	);
+}

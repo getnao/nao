@@ -182,7 +182,7 @@ function ChatInputBase({
 		mode,
 	} = useAgentContext();
 	const navigate = useNavigate();
-	const { canChatWithNaoData, isAdmin, isOrgAdmin } = usePermissions();
+	const { canChatWithNaoData, isAdmin, isOrgAdmin, isSeatReadOnly } = usePermissions();
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const { options: storyReferenceOptions, isLoaded: areReferenceableStoriesLoaded } = useStoryReferenceOptions({
@@ -255,6 +255,7 @@ function ChatInputBase({
 					!hasManagedCreditsForRequest(currentBalanceMicroUsd, requiredBalanceMicroUsd))));
 	const allowanceExhaustedScope = hasProject ? null : parseChatAllowanceExhaustedError(error);
 	const isSendBlocked =
+		isSeatReadOnly ||
 		!!parseBudgetError(error) ||
 		!!allowanceExhaustedScope ||
 		(hasProject && budgetStatus.data?.level === 'exceeded') ||
@@ -645,6 +646,14 @@ function ChatInputBase({
 				</>
 			)}
 			{isAdminMode ? <ChatInputAdminBadge /> : null}
+			{isSeatReadOnly && (
+				<Callout icon={MessageCircleOff} className='mb-3 rounded-2xl px-4 py-3 text-sm' role='status'>
+					<p className='font-medium text-foreground'>You have read-only access</p>
+					<p className='mt-1 text-muted-foreground'>
+						Your organization has more people than seats. Ask an organization admin to add a seat.
+					</p>
+				</Callout>
+			)}
 
 			{isManagedCreditsBlocked && (
 				<>
@@ -664,6 +673,8 @@ function ChatInputBase({
 				onSubmit={handleSubmitMessage}
 				onKeyDown={handleKeyDown}
 				className={cn('mx-auto relative', isManagedCreditsBlocked && 'hidden')}
+				aria-disabled={isSeatReadOnly}
+				inert={isSeatReadOnly}
 			>
 				<InputGroup
 					htmlFor='chat-input'

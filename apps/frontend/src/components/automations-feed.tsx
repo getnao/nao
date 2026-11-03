@@ -269,6 +269,7 @@ const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ 
 	budget: Wallet,
 	feedback: ThumbsDown,
 	story_refresh: RefreshCw,
+	scheduled_work_paused: Bell,
 	shared: Share2,
 	subscription: BellPlus,
 };

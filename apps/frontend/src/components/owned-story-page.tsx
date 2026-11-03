@@ -27,9 +27,13 @@ import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlug: string }) {
+	const { isSeatReadOnly } = usePermissions();
 	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storySlug }));
+	const isArchived = Boolean(story.archivedAt);
+	const canEditStory = !isArchived && !isSeatReadOnly;
 	const queryClient = useQueryClient();
 	const { running: isChatRunning } = useChatActivity(chatId);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
@@ -49,7 +53,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	} = useStoryViewerLiveSettings({ chatId, storySlug });
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
-		needsRefresh: story.needsRefresh,
+		needsRefresh: story.needsRefresh && !isSeatReadOnly,
 		isRefreshing,
 		refresh: handleRefreshData,
 	});
@@ -65,6 +69,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		storyTitle: story.title,
 		latestCode: story.code,
 		isAgentRunning: isChatRunning,
+		canEdit: canEditStory,
 	});
 	const { queryData, isPending: isQueryDataPending } = useStoryVersionQueryData({
 		chatId,
@@ -83,8 +88,6 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		}),
 	);
 
-	const isArchived = Boolean(story.archivedAt);
-	const canEditCharts = !isArchived;
 	const storyTheme = useStoryThemeForCurrentMode(story.theme);
 	const showAskBar = Boolean(storyId) && !isArchived;
 	const isAskInputHidden = editor.viewMode !== 'preview';
@@ -96,8 +99,9 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		>
 			<StoryPageHeader
 				title={story.title}
-				storyChat={{ storyId, isOwner: true, canChat: !isArchived }}
-				canDuplicate={!isArchived}
+				isReadOnly={!canEditStory}
+				storyChat={{ storyId, isOwner: true, canChat: !isArchived && !isSeatReadOnly }}
+				canDuplicate={!isArchived && !isSeatReadOnly}
 				live={{
 					isLive,
 					cachedAt: story.cachedAt,
@@ -109,14 +113,14 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
-				canRename
+				canRename={!isSeatReadOnly}
 				isShared={isShared}
 				onShare={() => setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={{
 					viewMode: editor.viewMode,
 					onViewModeChange: editor.setViewMode,
-					canEdit: canEditCharts,
+					canEdit: canEditStory,
 					isAgentRunning: isChatRunning,
 					isCodeDirty: editor.isCodeDirty,
 					isCodeValid: editor.isCodeValid,
@@ -154,12 +158,13 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				<StoryPageBody
 					editor={editor}
 					queryData={queryData}
+					readOnly={!canEditStory}
 					theme={storyTheme}
 					preview={
 						<SelectionProvider key={storySlug}>
 							<HighlightBubble onAsk={requestAskAboutSelection} disabled={isChatRunning} />
 							{renderWithChartEditProvider(
-								canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
+								canEditStory && editor.versionNav.isViewingLatest && !isChatRunning,
 								{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
 								<PreviewContent
 									code={editor.code}

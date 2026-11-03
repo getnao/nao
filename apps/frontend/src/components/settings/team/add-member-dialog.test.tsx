@@ -28,6 +28,40 @@ afterEach(() => {
 });
 
 describe('AddMemberDialog groups', () => {
+	it('closes after an available seat activates the member', async () => {
+		const onOpenChange = vi.fn();
+		render(
+			<AddMemberDialog
+				open
+				onOpenChange={onOpenChange}
+				onSubmit={vi.fn().mockResolvedValue({ outcome: { status: 'activated' } })}
+			/>,
+		);
+		fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'seated@example.com' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
+
+		await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+	});
+
+	it('reports that a capacity fallback created a Viewer', async () => {
+		render(
+			<AddMemberDialog
+				open
+				onOpenChange={vi.fn()}
+				onSubmit={vi.fn().mockResolvedValue({ outcome: { status: 'viewer_fallback' } })}
+			/>,
+		);
+		fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'viewer@example.com' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
+
+		expect(
+			await screen.findByText(
+				'Seats are full. This person was added as a Viewer. Increase capacity in Billing → Seats before promoting them.',
+			),
+		).toBeTruthy();
+		expect(screen.queryByRole('button', { name: /Buy/ })).toBeNull();
+	});
+
 	it('shows available groups and submits selected non-default IDs', async () => {
 		const onSubmit = vi.fn().mockResolvedValue({});
 		render(<AddMemberDialog open onOpenChange={vi.fn()} groupOptions={groupOptions} onSubmit={onSubmit} />);

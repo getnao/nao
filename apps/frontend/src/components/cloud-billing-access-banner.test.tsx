@@ -140,6 +140,44 @@ it('warns about a failed payment while access is kept', () => {
 	expect(screen.queryByRole('alert')).toBeNull();
 });
 
+it('shows a persistent read-only notice without calling the organization restricted', () => {
+	mocks.access = {
+		...restrictedTrialAccess,
+		freeTierEnabled: true,
+		hasAccess: true,
+		isReadOnly: true,
+		overCapacity: true,
+		seatUserCount: 5,
+		seatLimit: 3,
+	};
+
+	render(<CloudBillingAccessBanner />);
+
+	expect(screen.getByRole('status').textContent).toContain(
+		'You have viewer access until an organization admin adds a seat.',
+	);
+	expect(screen.queryByText(/subscription is needed/i)).toBeNull();
+});
+
+it('explains the Free destination when a small trial ends', () => {
+	const now = new Date('2026-10-05T12:00:00.000Z');
+	vi.useFakeTimers();
+	vi.setSystemTime(now);
+	mocks.access = {
+		...restrictedTrialAccess,
+		freeTierEnabled: true,
+		hasAccess: true,
+		tier: 'trial',
+		seatUserCount: 3,
+		seatQuantity: null,
+		trialEndsAt: new Date(now.getTime() + 2 * DAY_MS),
+	};
+
+	render(<CloudBillingAccessBanner />);
+
+	expect(screen.getByRole('status').textContent).toContain('You’ll move to Free');
+});
+
 it('shows admins that their trial has started and rounds up the remaining days', () => {
 	const now = new Date('2026-10-05T12:00:00.000Z');
 	vi.useFakeTimers();

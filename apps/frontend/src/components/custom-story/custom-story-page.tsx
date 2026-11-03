@@ -31,6 +31,7 @@ import { StoryPageHeader } from '@/components/story-page-header';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { usePermissions } from '@/hooks/use-permissions';
 import { trpc, trpcClient } from '@/main';
 import { requestAsk } from '@/stores/ask-bar';
 
@@ -42,6 +43,7 @@ interface CustomStoryPreviewPageProps {
 
 /** Full-page view of a custom story for its owner, with the same header as a classic story's page. */
 export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: CustomStoryPreviewPageProps) {
+	const { isSeatReadOnly } = usePermissions();
 	const story = useCustomStory(chatId, storySlug);
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
@@ -51,7 +53,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	const live = useStoryViewerLiveSettings({ chatId, storySlug });
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
-		needsRefresh: content?.needsRefresh ?? false,
+		needsRefresh: (content?.needsRefresh ?? false) && !isSeatReadOnly,
 		isRefreshing: live.isRefreshing,
 		refresh: live.handleRefreshData,
 	});
@@ -60,7 +62,8 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
 	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
-	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived;
+	const canEditStory = !story.isArchived && !isSeatReadOnly;
+	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && canEditStory;
 
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
@@ -91,8 +94,9 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 			<StoryPageHeader
 				title={content?.title ?? story.versionsQuery.data?.title ?? storySlug}
 				authorName={authorName}
-				storyChat={{ storyId, isOwner: true, canChat: !story.isArchived }}
-				canDuplicate={!story.isArchived}
+				isReadOnly={!canEditStory}
+				storyChat={{ storyId, isOwner: true, canChat: !story.isArchived && !isSeatReadOnly }}
+				canDuplicate={!story.isArchived && !isSeatReadOnly}
 				live={{
 					isLive: live.isLive,
 					cachedAt: content?.cachedAt,
@@ -104,7 +108,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 				}}
 				download={{ chatId, storySlug, isOwner: true, onDownload: story.download }}
 				storyId={storyId}
-				canRename
+				canRename={!isSeatReadOnly}
 				isShared={sharing.isShared}
 				onShare={() => sharing.setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}

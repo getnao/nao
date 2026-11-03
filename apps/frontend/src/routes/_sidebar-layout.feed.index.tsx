@@ -36,13 +36,13 @@ function FeedPage() {
 	const queryClient = useQueryClient();
 	const { data: session } = useSession();
 	const currentUserName = session?.user?.name ?? null;
-	const { isViewer } = usePermissions();
+	const { isViewer, isSeatReadOnly } = usePermissions();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const automationsEnabled = config.data?.betaAutomationsEnabled === true && !isViewer;
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const [isCreating, setIsCreating] = useState(false);
 	const { automationCreationEnabled } = useEffectiveUserGroupFeatures();
-	const canCreateAutomation = automationsEnabled && automationCreationEnabled;
+	const canCreateAutomation = automationsEnabled && automationCreationEnabled && !isSeatReadOnly;
 
 	const automations = useQuery({ ...trpc.automation.list.queryOptions(), enabled: automationsEnabled });
 	const feed = useQuery(

@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
 import { settingsSearchIndex } from '@/components/settings-search-index';
 import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings';
+import { useCloudBillingAccess } from '@/hooks/use-cloud-billing-access';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -59,6 +60,8 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 	const betaSubagentsEnabled = config.data?.betaSubagentsEnabled === true;
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const cloudBillingEnabled = config.data?.cloudBillingEnabled;
+	const billingAccess = useCloudBillingAccess({ enabled: cloudBillingEnabled === true && isOrgAdmin });
+	const cloudFreeTierEnabled = billingAccess.data?.freeTierEnabled === true;
 	const licenseFeatures = useLicenseFeatures();
 	const enabledLicenseFeatures = licenseFeatures.data as Record<string, boolean> | undefined;
 
@@ -76,6 +79,7 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.cloudHidden || !isCloud) &&
 						(!entry.cloudOnly || isCloud) &&
 						(!entry.cloudBillingOnly || cloudBillingEnabled === true) &&
+						(!entry.cloudFreeTierOnly || cloudFreeTierEnabled) &&
 						(!entry.betaSubagentsOnly || betaSubagentsEnabled) &&
 						(!entry.betaAutomationsOnly || betaAutomationsEnabled),
 				)
@@ -86,6 +90,7 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 			canViewUsage,
 			canSeeAdvancedSettings,
 			cloudBillingEnabled,
+			cloudFreeTierEnabled,
 			enabledLicenseFeatures,
 			isAdmin,
 			isCloud,

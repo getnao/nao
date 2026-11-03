@@ -234,6 +234,32 @@ describe('useStoryViewerVersionActions', () => {
 		expect(onVersionSaved).toHaveBeenCalledOnce();
 		expect(onVersionSaved).toHaveBeenCalledWith('# Newer edit');
 	});
+
+	it('blocks saves and restores when writes are disabled', async () => {
+		const { result } = renderHook(() =>
+			useStoryViewerVersionActions({
+				chatId: 'chat-a',
+				storySlug: 'story-a',
+				storyTitle: 'Story A',
+				currentVersionCode: '# Story A',
+				isViewingLatest: false,
+				goToLatestVersion: vi.fn(),
+				codeViewRef,
+				getCurrentCode: () => '# Story A edit',
+				viewMode: 'code',
+				setViewMode: vi.fn(),
+				canWrite: false,
+			}),
+		);
+
+		await act(async () => {
+			expect(await result.current.saveCurrentVersion()).toBe('unavailable');
+		});
+		act(() => result.current.handleRestore());
+
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+		expect(mocks.mutate).not.toHaveBeenCalled();
+	});
 });
 
 function deferred<T>() {

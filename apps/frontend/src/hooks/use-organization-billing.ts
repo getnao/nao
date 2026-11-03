@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { CloudBillingInterval } from '@nao/shared/billing';
+import { getCloudBillingPlanDefinition } from '@nao/shared/billing';
+import type { CloudBillingInterval, CloudBillingPlanKey } from '@nao/shared/billing';
 
 import type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
 import { useOrganizationBillingSync } from '@/hooks/use-organization-billing-sync';
@@ -8,8 +9,10 @@ import { getBrowserBillingCurrency } from '@/lib/billing-currency';
 import { getBillingStatusView } from '@/lib/billing-display';
 import { trpc } from '@/main';
 
-export type { OrganizationBillingSearch } from '@/hooks/use-organization-billing-sync';
+export type { OrganizationBillingSearch, OrganizationBillingTab } from '@/hooks/use-organization-billing-sync';
 export type BillingInterval = CloudBillingInterval;
+export type OrganizationBillingState = ReturnType<typeof useOrganizationBilling>;
+export type CloudBillingStatus = Extract<NonNullable<OrganizationBillingState['billing']['data']>, { access: unknown }>;
 
 export function useOrganizationBilling(search: OrganizationBillingSearch) {
 	const [selectedBillingInterval, setSelectedBillingInterval] = useState<BillingInterval>('monthly');
@@ -64,18 +67,45 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 			},
 		}),
 	);
+	const billingMutationOptions = {
+		onSuccess: async () => {
+			billingSync.beginBillingChangePolling();
+			await billingSync.invalidateBillingAndMembers();
+		},
+	};
+	const previewSeatChange = useMutation(trpc.billing.previewSeatChange.mutationOptions());
+	const changeSeatQuantity = useMutation(trpc.billing.changeSeatQuantity.mutationOptions(billingMutationOptions));
+	const previewPlanChange = useMutation(trpc.billing.previewPlanChange.mutationOptions());
+	const changePlan = useMutation(trpc.billing.changePlan.mutationOptions(billingMutationOptions));
+	const selectSeats = useMutation(trpc.billing.selectSeats.mutationOptions(billingMutationOptions));
+	const switchToFree = useMutation(trpc.billing.switchToFree.mutationOptions(billingMutationOptions));
+	const cancelPendingPlanChange = useMutation(
+		trpc.billing.cancelPendingPlanChange.mutationOptions(billingMutationOptions),
+	);
 
-	const selectedPlan = billing.data?.availablePlans?.[selectedBillingInterval];
+	const availablePlans = billing.data?.availablePlans;
+	const selectedPlan =
+		availablePlans && !Array.isArray(availablePlans) ? availablePlans[selectedBillingInterval] : undefined;
 	const plan = paidPlanSelected ? (billing.data?.plan ?? selectedPlan) : (selectedPlan ?? billing.data?.plan);
 	const { hasStripeSubscription, isHistoricalSubscription, status } = billingSync;
+	const freeTierEnabled =
+		billing.data !== undefined && 'access' in billing.data && billing.data.access.freeTierEnabled === true;
 	const statusView = getBillingStatusView(
 		status,
 		billing.data?.cancellationScheduled ?? false,
 		billing.data?.hasDefaultPaymentMethod === true,
 		paidPlanSelected,
+		freeTierEnabled,
 	);
 	const isEndingAtPeriodEnd =
 		billing.data?.cancellationScheduled === true && (status === 'active' || status === 'trialing');
+	const defaultPlanKey = getCloudBillingPlanDefinition('unlimited', selectedBillingInterval).key;
+	const commandError =
+		changeSeatQuantity.error ??
+		changePlan.error ??
+		selectSeats.error ??
+		switchToFree.error ??
+		cancelPendingPlanChange.error;
 	return {
 		billing,
 		invoices,
@@ -91,12 +121,14 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		isEndingAtPeriodEnd,
 		selectedBillingInterval,
 		setSelectedBillingInterval,
+		freeTierEnabled,
 		isCheckoutPolling: billingSync.isCheckoutPolling,
 		isCheckoutConfirmationDelayed: billingSync.isCheckoutConfirmationDelayed,
 		checkoutFeedback: billingSync.checkoutFeedback,
 		portalFeedback: billingSync.portalFeedback,
 		trialCheckoutError: trialCheckout.isError ? trialCheckout.error.message : null,
 		managementError:
+			commandError?.message ??
 			resumeSubscription.error?.message ??
 			resubscribe.error?.message ??
 			paymentMethodPortal.error?.message ??
@@ -111,16 +143,42 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		isBillingSyncPending: billingSync.isBillingSyncPending,
 		openTrialCheckout: () =>
 			trialCheckout.mutate({
-				billingInterval: selectedBillingInterval,
+				...(freeTierEnabled ? { planKey: defaultPlanKey } : { billingInterval: selectedBillingInterval }),
 				currency: selectedBillingCurrency,
 			}),
+		openTrialCheckoutForPlan: (planKey: CloudBillingPlanKey, seatQuantity?: number) =>
+			trialCheckout.mutate({ planKey, seatQuantity, currency: selectedBillingCurrency }),
 		openPortal: () => portal.mutate({ requestId: crypto.randomUUID() }),
 		openPaymentMethodPortal: () => paymentMethodPortal.mutate({ requestId: crypto.randomUUID() }),
 		resubscribe: () =>
 			resubscribe.mutate({
-				billingInterval: selectedBillingInterval,
+				...(freeTierEnabled ? { planKey: defaultPlanKey } : { billingInterval: selectedBillingInterval }),
 				currency: selectedBillingCurrency,
 			}),
+		resubscribeForPlan: (planKey: CloudBillingPlanKey, seatQuantity?: number) =>
+			resubscribe.mutate({ planKey, seatQuantity, currency: selectedBillingCurrency }),
+		previewSeatChange: (targetQuantity: number, promotionCode?: string) =>
+			previewSeatChange.mutateAsync({ targetQuantity, promotionCode }),
+		confirmSeatChange: (previewToken: string) =>
+			changeSeatQuantity.mutateAsync({ previewToken, requestId: crypto.randomUUID() }),
+		previewPlanChange: (targetPlanKey: CloudBillingPlanKey, targetSeatQuantity?: number, promotionCode?: string) =>
+			previewPlanChange.mutateAsync({ targetPlanKey, targetSeatQuantity, promotionCode }),
+		confirmPlanChange: (previewToken: string) =>
+			changePlan.mutateAsync({ previewToken, requestId: crypto.randomUUID() }),
+		saveSeatSelection: (selectedUserIds: string[]) => selectSeats.mutateAsync({ selectedUserIds }),
+		switchToFree: (selectedUserIds?: string[]) => switchToFree.mutateAsync({ selectedUserIds }),
+		cancelPendingPlanChange: () => cancelPendingPlanChange.mutateAsync(),
+		isBillingCommandPending:
+			changeSeatQuantity.isPending ||
+			changePlan.isPending ||
+			selectSeats.isPending ||
+			switchToFree.isPending ||
+			cancelPendingPlanChange.isPending,
+		isPlanSelectionPending:
+			trialCheckout.isPending ||
+			resubscribe.isPending ||
+			changePlan.isPending ||
+			cancelPendingPlanChange.isPending,
 		resume: () => resumeSubscription.mutate({ requestId: crypto.randomUUID() }),
 		syncBilling: billingSync.syncBilling,
 		retryCheckoutConfirmation: billingSync.retryCheckoutConfirmation,

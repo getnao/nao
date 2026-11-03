@@ -151,6 +151,7 @@ function ManagedProjectUsersTable({
 		return Promise.all([
 			invalidateUserGroupQueries(queryClient),
 			queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.billing.getAccess.queryKey() }),
 		]);
 	};
 
@@ -175,8 +176,9 @@ function ManagedProjectUsersTable({
 	};
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
-		await modifyUser.mutateAsync(data);
+		const result = await modifyUser.mutateAsync(data);
 		await invalidateMembers();
+		return result;
 	};
 
 	const handleRemove = async () => {
