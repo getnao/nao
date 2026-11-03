@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	consumeHistoricalContextDiffSearch,
+	consumeOpenTestsSearch,
 	getHistoricalContextDiffTarget,
 	parseContextExplorerCommit,
 	parseContextExplorerPath,
@@ -80,6 +81,14 @@ describe('context explorer search', () => {
 		});
 
 		expect(consumeHistoricalContextDiffSearch(search)).toEqual({ path: '/RULES.md', test: '/tests/revenue.yml' });
+	});
+
+	it('keeps a request to open the Tests drawer until it is consumed', () => {
+		const search = validateContextExplorerSearch({ path: '/RULES.md', tests: 'open' });
+
+		expect(search).toEqual({ path: '/RULES.md', tests: 'open' });
+		expect(consumeOpenTestsSearch(search)).toEqual({ path: '/RULES.md' });
+		expect(validateContextExplorerSearch({ tests: 'closed' })).toEqual({});
 	});
 
 	it('does not activate a partial historical range', () => {

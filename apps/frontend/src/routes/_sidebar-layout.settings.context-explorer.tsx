@@ -31,6 +31,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { getNeighborTab, useOpenedTestTabs } from '@/hooks/use-opened-test-tabs';
 import {
 	consumeHistoricalContextDiffSearch,
+	consumeOpenTestsSearch,
 	getHistoricalContextDiffTarget,
 	validateContextExplorerSearch,
 } from '@/lib/context-explorer-search';
@@ -62,6 +63,7 @@ function ContextExplorerPage() {
 		to: historicalTo,
 		test: testDrawerTest,
 		testRun: testDrawerRun,
+		tests: testDrawerOpening,
 	} = Route.useSearch();
 	const activeTestPath = testDrawerTest && isTestFilePath(testDrawerTest) ? testDrawerTest : null;
 	const initialHistoricalDiff = getHistoricalContextDiffTarget({
@@ -150,6 +152,18 @@ function ContextExplorerPage() {
 			replace: true,
 		});
 	}, [historicalFrom, historicalTo, initialPath, navigate]);
+
+	useEffect(() => {
+		if (testDrawerOpening !== 'open') {
+			return;
+		}
+		setTestDrawerOpenRequestId((current) => current + 1);
+		void navigate({
+			to: '/settings/context-explorer',
+			search: consumeOpenTestsSearch,
+			replace: true,
+		});
+	}, [testDrawerOpening, navigate]);
 
 	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
 	const rulesPreviewGroups = useQuery(trpc.contextExplorer.getRulesPreviewGroups.queryOptions());

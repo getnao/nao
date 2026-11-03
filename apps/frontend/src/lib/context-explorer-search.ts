@@ -11,6 +11,8 @@ export interface ContextExplorerSearch extends TestDrawerSearch {
 	path?: string;
 	from?: string;
 	to?: string;
+	/** Opens the Tests drawer once, as links from outside the page do, then leaves the URL. */
+	tests?: 'open';
 }
 
 export interface HistoricalContextDiffTarget {
@@ -20,7 +22,11 @@ export interface HistoricalContextDiffTarget {
 }
 
 export function validateContextExplorerSearch(search: Record<string, unknown>): ContextExplorerSearch {
-	return { ...validateFileSearch(search), ...validateTestDrawerSearch(search) };
+	return {
+		...validateFileSearch(search),
+		...validateTestDrawerSearch(search),
+		...(search.tests === 'open' && { tests: 'open' as const }),
+	};
 }
 
 export function getHistoricalContextDiffTarget(search: ContextExplorerSearch): HistoricalContextDiffTarget | null {
@@ -29,6 +35,11 @@ export function getHistoricalContextDiffTarget(search: ContextExplorerSearch): H
 
 export function consumeHistoricalContextDiffSearch(search: ContextExplorerSearch): ContextExplorerSearch {
 	const { from: _from, to: _to, ...rest } = search;
+	return rest;
+}
+
+export function consumeOpenTestsSearch(search: ContextExplorerSearch): ContextExplorerSearch {
+	const { tests: _tests, ...rest } = search;
 	return rest;
 }
 

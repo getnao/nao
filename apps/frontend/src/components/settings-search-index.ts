@@ -1592,6 +1592,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/context-explorer',
 		pageLabel: 'File Explorer',
+		search: { tests: 'open' },
 		title: 'Tests',
 		description: 'Run the context tests from the Tests drawer of the File Explorer and review their results.',
 		keywords: ['tests', 'evaluation', 'eval', 'nao test', 'run tests', 'pass rate', 'reliability'],
@@ -1600,6 +1601,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/context-explorer',
 		pageLabel: 'File Explorer',
+		search: { tests: 'open' },
 		title: 'Compare models',
 		description: 'Run the tests on several models and compare their accuracy, cost, tool calls and time.',
 		keywords: [
@@ -1617,6 +1619,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/context-explorer',
 		pageLabel: 'File Explorer',
+		search: { tests: 'open' },
 		title: 'Compare with production',
 		description: 'Run the tests on your File Explorer changes and on production side by side.',
 		keywords: ['compare', 'comparison', 'draft', 'changes', 'regression', 'before after', 'production', 'branch'],
