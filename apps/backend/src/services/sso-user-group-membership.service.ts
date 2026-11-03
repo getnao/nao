@@ -52,7 +52,6 @@ export async function syncUserGroupsFromOidc(userId: string): Promise<SeatActiva
 			oidcMappings: envMappings.mappings,
 		};
 		const candidates = await listSsoProjectRoleCandidates(userId, 'oidc', claim.groups, options);
-		await reconcileSsoUserGroupMemberships(userId, 'oidc', claim.groups, options);
 		const outcomes: SeatActivationOutcome[] = [];
 		for (const candidate of candidates) {
 			try {
@@ -61,12 +60,13 @@ export async function syncUserGroupsFromOidc(userId: string): Promise<SeatActiva
 					outcomes.push(result.outcome);
 				}
 			} catch (error) {
-				logger.warn('Failed to apply an OIDC project role after reconciling User Group memberships', {
+				logger.warn('Failed to apply an OIDC project role during User Group sync', {
 					source: 'system',
 					context: { userId, projectId: candidate.projectId, error: serializeError(error) },
 				});
 			}
 		}
+		await reconcileSsoUserGroupMemberships(userId, 'oidc', claim.groups, options);
 		return mostRestrictiveOutcome(outcomes);
 	} catch (error) {
 		logger.error('Failed to sync User Group memberships from OIDC', {

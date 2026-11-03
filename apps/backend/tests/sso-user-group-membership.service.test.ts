@@ -138,7 +138,7 @@ describe('syncUserGroupsFromOidc', () => {
 		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-1', 'user-1', 'user');
 	});
 
-	it('reconciles first and continues after one project role update fails', async () => {
+	it('activates candidates before reconciliation and continues after one project role update fails', async () => {
 		mocks.readClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['Finance'] } });
 		mocks.listCandidates.mockResolvedValue([
 			{ projectId: 'project-1', role: 'user' },
@@ -152,20 +152,17 @@ describe('syncUserGroupsFromOidc', () => {
 
 		expect(mocks.reconcile).toHaveBeenCalledOnce();
 		expect(mocks.putProjectMember).toHaveBeenCalledTimes(2);
-		expect(mocks.reconcile.mock.invocationCallOrder[0]).toBeLessThan(
-			mocks.putProjectMember.mock.invocationCallOrder[0],
+		expect(mocks.putProjectMember.mock.invocationCallOrder[1]).toBeLessThan(
+			mocks.reconcile.mock.invocationCallOrder[0],
 		);
-		expect(mocks.logger.warn).toHaveBeenCalledWith(
-			'Failed to apply an OIDC project role after reconciling User Group memberships',
-			{
-				source: 'system',
-				context: {
-					userId: 'user-1',
-					projectId: 'project-1',
-					error: { message: 'project update failed' },
-				},
+		expect(mocks.logger.warn).toHaveBeenCalledWith('Failed to apply an OIDC project role during User Group sync', {
+			source: 'system',
+			context: {
+				userId: 'user-1',
+				projectId: 'project-1',
+				error: { message: 'project update failed' },
 			},
-		);
+		});
 	});
 
 	it('skips when no mapping or stale membership exists', async () => {

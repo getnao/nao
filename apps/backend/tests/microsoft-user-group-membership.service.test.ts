@@ -115,7 +115,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-1', 'user-1', 'user');
 	});
 
-	it('reconciles first and continues after one project role update fails', async () => {
+	it('activates candidates before reconciliation and continues after one project role update fails', async () => {
 		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
 		mocks.listCandidates.mockResolvedValue([
 			{ projectId: 'project-1', role: 'user' },
@@ -129,12 +129,12 @@ describe('syncUserGroupsFromMicrosoft', () => {
 
 		expect(mocks.reconcile).toHaveBeenCalledOnce();
 		expect(mocks.putProjectMember).toHaveBeenCalledTimes(2);
-		expect(mocks.reconcile.mock.invocationCallOrder[0]).toBeLessThan(
-			mocks.putProjectMember.mock.invocationCallOrder[0],
+		expect(mocks.putProjectMember.mock.invocationCallOrder[1]).toBeLessThan(
+			mocks.reconcile.mock.invocationCallOrder[0],
 		);
 		expect(mocks.syncOrganizationRole).toHaveBeenCalledWith('user-1', [GROUP_1.toLowerCase()]);
 		expect(mocks.logger.warn).toHaveBeenCalledWith(
-			'Failed to apply a Microsoft project role after reconciling User Group memberships',
+			'Failed to apply a Microsoft project role during User Group sync',
 			{
 				source: 'system',
 				context: {

@@ -137,7 +137,6 @@ async function synchronizeMicrosoftMappings(
 				entraMappings: envMappings,
 			};
 			const candidates = await listSsoProjectRoleCandidates(userId, MICROSOFT_PROVIDER_ID, groupIds, options);
-			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, options);
 			for (const candidate of candidates) {
 				try {
 					const result = await putProjectMember(candidate.projectId, userId, candidate.role);
@@ -150,12 +149,13 @@ async function synchronizeMicrosoftMappings(
 						outcome = result.outcome;
 					}
 				} catch (error) {
-					logger.warn('Failed to apply a Microsoft project role after reconciling User Group memberships', {
+					logger.warn('Failed to apply a Microsoft project role during User Group sync', {
 						source: 'system',
 						context: { userId, projectId: candidate.projectId, error: serializeError(error) },
 					});
 				}
 			}
+			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, options);
 		}
 	} finally {
 		await syncOrganizationRoleFromMicrosoftGroups(userId, groupIds);
