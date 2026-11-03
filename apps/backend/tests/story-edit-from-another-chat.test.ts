@@ -11,6 +11,8 @@ import { __reloadEnvForTesting } from '../src/env';
 import { getLatestSqlQueriesByIds } from '../src/queries/execute-sql.queries';
 import { getLatestVersionByChatAndSlug, getStoryById } from '../src/queries/story.queries';
 import { getDraftFile } from '../src/queries/story-file.queries';
+import { findEditableStory } from '../src/services/editable-story';
+import { attachChatToStandaloneStory } from '../src/services/standalone-story';
 import {
 	listStoryMount,
 	listStoryMountFilesToGrep,
@@ -179,6 +181,46 @@ describe('editing a story from another chat', () => {
 			expect(output).not.toHaveProperty('story_chat_id');
 		}
 		expect((await getStoryById(UNTOUCHED_STORY_ID))?.chatId).toBeNull();
+	});
+
+	it('gives a standalone story a single chat when two edits attach one at once', async () => {
+		const story = {
+			id: 'edit-raced-story',
+			slug: 'raced',
+			title: 'Raced',
+			code: '# Raced',
+			format: 'classic' as const,
+		};
+		await db
+			.insert(s.story)
+			.values({ id: story.id, slug: story.slug, title: story.title, userId: OWNER_ID, projectId: PROJECT_ID });
+		const owner = { userId: OWNER_ID, projectId: PROJECT_ID };
+
+		const [first, second] = await Promise.all([
+			attachChatToStandaloneStory(story, owner),
+			attachChatToStandaloneStory(story, owner),
+		]);
+
+		expect(first.chatId).toBe(second.chatId);
+		expect((await getStoryById(story.id))?.chatId).toBe(first.chatId);
+		expect(await db.select().from(s.chat).where(eq(s.chat.title, 'Raced'))).toHaveLength(1);
+	});
+
+	it('keeps a standalone story of someone else out of reach of a caller without a chat', async () => {
+		await db.insert(s.story).values({
+			id: 'edit-private-standalone',
+			slug: 'private',
+			title: 'Private',
+			userId: OWNER_ID,
+			projectId: PROJECT_ID,
+		});
+
+		const found = await findEditableStory(
+			{ chatId: null as unknown as string, userId: VIEWER_ID, projectId: PROJECT_ID },
+			'edit-private-standalone',
+		);
+
+		expect(found).toHaveProperty('error');
 	});
 
 	it('mounts the draft of a custom story of another chat under its id', async () => {

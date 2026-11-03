@@ -15,7 +15,7 @@ export async function findEditableStory(
 	if (!story) {
 		return notFoundError(storyId);
 	}
-	if (story.chatId === scope.chatId) {
+	if (scope.chatId && story.chatId === scope.chatId) {
 		return { story };
 	}
 	const referenceable = await storyReferenceQueries.getReferenceableStory(scope.userId, scope.projectId, storyId);

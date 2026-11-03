@@ -13,6 +13,7 @@ import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useRefreshStoryChat } from '@/hooks/use-refresh-story-chat';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getStoryToolPartSlug } from '@/lib/story.utils';
 import { trpc } from '@/main';
@@ -34,6 +35,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const output = toolPart.output;
 	const chatId = output?.story_chat_id ?? contextOrUrlChatId ?? sidePanelChatId;
 	const hasAutoOpenedRef = useRef(false);
+	useRefreshStoryChat(toolPart);
 
 	const finalStorySlug = getStoryToolPartSlug(toolPart);
 	const canOpen = Boolean(chatId && finalStorySlug);

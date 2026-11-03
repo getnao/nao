@@ -18,7 +18,7 @@ import { ensureStoryChat, findEditableStory } from '../../services/editable-stor
 import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
 import { copyQueriesToStoryChat } from '../../services/story-question';
 import { getStoryTemplateWarnings, sqlQueriesFromResults } from '../../services/story-template-validation';
-import type { ToolContext } from '../../types/tools';
+import type { LinkedStory, ToolContext } from '../../types/tools';
 import { normalizeStoryFilePath } from '../../utils/story-file-path';
 import { isValidStorySlug, STORIES_MOUNT, STORY_SLUG_RULE } from '../../utils/story-mount';
 import { extractCustomStoryQueryIds } from '../../utils/story-query-data';
@@ -79,7 +79,7 @@ export default createTool<story.Input, story.Output>({
 
 	execute: async (input, context) => {
 		if (input.action === 'create') {
-			if (context.linkedStory?.storyId === input.id) {
+			if (isLinkedStory(context.linkedStory, input.id)) {
 				return fail(input.id, `Story "${input.id}" already exists: it is the story this question is about.`);
 			}
 			return input.format === 'custom' ? createCustomStory(input, context) : createClassicStory(input, context);
@@ -95,6 +95,11 @@ export default createTool<story.Input, story.Output>({
 
 	toModelOutput: ({ output }) => renderToModelOutput(StoryOutput({ output }), output),
 });
+
+/** The model may name the story a question is about by its id or by its slug. */
+function isLinkedStory(linkedStory: LinkedStory | undefined, id: string): boolean {
+	return linkedStory !== undefined && (linkedStory.storyId === id || linkedStory.slug === id);
+}
 
 /** A failed edit leaves a standalone story without a chat. */
 async function withStoryLocation(

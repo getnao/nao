@@ -397,6 +397,24 @@ describe('quick questions on a story', () => {
 		});
 	});
 
+	it('refuses to create a story under the slug of the story the question is about', async () => {
+		const linkedStory = await resolveLinkedStory({
+			userId: OWNER_ID,
+			projectId: PROJECT_ID,
+			forkMetadata: questionMetadata(),
+		});
+
+		const output = await runStoryTool(
+			{ action: 'create', id: SLUG, code: '# Copy' },
+			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
+		);
+
+		expect(output).toMatchObject({
+			success: false,
+			error: expect.stringContaining('it is the story this question is about'),
+		});
+	});
+
 	it('stops linking the story once it is no longer shared with the user', async () => {
 		await db.delete(s.sharedStory).where(eq(s.sharedStory.storyId, STORY_ID));
 

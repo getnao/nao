@@ -707,8 +707,12 @@ function ExistingStoriesBlock({ trustedStories, canGrep }: { trustedStories: Sto
 }
 
 function describeTrustedStory(story: StorySummary): string {
-	const trust = [story.pinned ? 'pinned' : null, story.certified ? 'certified' : null].filter(Boolean).join(', ');
-	return `${JSON.stringify(story.title)} (id: ${story.id}) — ${trust}`;
+	const marks = [
+		story.pinned ? 'pinned' : null,
+		story.certified ? 'certified' : null,
+		story.editable ? 'editable' : null,
+	].filter(Boolean);
+	return `${JSON.stringify(story.title)} (id: ${story.id}) — ${marks.join(', ')}`;
 }
 
 function LocalDatabaseBlock({
