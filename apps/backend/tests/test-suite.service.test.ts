@@ -84,6 +84,24 @@ describe('discoverTests', () => {
 		expect(suite.invalidFiles[0].error).toContain('Invalid YAML');
 	});
 
+	it.skipIf(process.getuid?.() === 0)('reports an unreadable folder and keeps the tests of the others', () => {
+		writeTestFile('valid.yml', 'prompt: Fine');
+		writeTestFile('locked/hidden.yml', 'prompt: Hidden');
+		const lockedFolder = path.join(projectFolder, 'tests', 'locked');
+		fs.chmodSync(lockedFolder, 0o000);
+
+		try {
+			const suite = discoverTests(projectFolder);
+
+			expect(suite.tests.map((test) => test.path)).toEqual(['valid.yml']);
+			expect(suite.invalidFiles).toEqual([
+				{ path: 'locked', error: expect.stringContaining('Unreadable folder') },
+			]);
+		} finally {
+			fs.chmodSync(lockedFolder, 0o755);
+		}
+	});
+
 	it('keeps unquoted dates of assertion args as strings, as the agent sends them', () => {
 		writeTestFile(
 			'dates.yml',

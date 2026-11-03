@@ -129,16 +129,16 @@ async function startDraftContextRun(
 ): Promise<DBTestRun> {
 	const projectFolder = await getProjectFolder(input.projectId);
 	await failStaleTestRuns(input.projectId);
-	removeContextSnapshotsOlderThan(projectFolder, input.projectId, CONTEXT_SNAPSHOT_MAX_AGE_MS);
 
 	const snapshot = createDraftContextSnapshot({ projectId: input.projectId, projectFolder, draft: input.draft });
+	let run: DBTestRun;
 	try {
 		if (snapshot.changes.length === 0) {
 			throw new TestRunInputError(NO_CONTEXT_CHANGES_MESSAGE);
 		}
 		const suite = input.tests ? { tests: input.tests, invalidFiles: [] } : discoverTests(snapshot.folder);
 		const plan = await planTestRun(input, projectFolder, suite);
-		return await createAndExecuteRun(
+		run = await createAndExecuteRun(
 			input,
 			{ ...plan, variants, draftFolder: snapshot.folder },
 			{
@@ -151,6 +151,20 @@ async function startDraftContextRun(
 	} catch (error) {
 		removeContextSnapshot(snapshot.folder);
 		throw error;
+	}
+	removeLeftoverContextSnapshots(projectFolder, input.projectId);
+	return run;
+}
+
+/** Runs only once this run is the project's active one, so no other run of the project can still read a snapshot. */
+function removeLeftoverContextSnapshots(projectFolder: string, projectId: string): void {
+	try {
+		removeContextSnapshotsOlderThan(projectFolder, projectId, CONTEXT_SNAPSHOT_MAX_AGE_MS);
+	} catch (error) {
+		logger.error(`Could not remove leftover test context snapshots: ${String(error)}`, {
+			source: 'agent',
+			projectId,
+		});
 	}
 }
 

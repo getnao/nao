@@ -249,4 +249,15 @@ describe('findSourceQueries', () => {
 			{ id: 'query_1a', sql: 'SELECT month FROM orders' },
 		]);
 	});
+
+	it('does not take a query id for the start of a longer one', () => {
+		const results = new Map<string, QueryResult>([
+			['query_1a', { columns: ['month'], data: [], sqlQuery: 'SELECT month FROM orders' }],
+			['query_1ab', { columns: ['month'], data: [], sqlQuery: 'SELECT month FROM refunds' }],
+		]);
+
+		expect(findSourceQueries('SELECT month FROM query_1ab', results)).toEqual([
+			{ id: 'query_1ab', sql: 'SELECT month FROM refunds' },
+		]);
+	});
 });

@@ -261,11 +261,17 @@ function copyContextFolder(source: string, target: string): void {
 	}
 }
 
+/**
+ * Deletions go first, so that a production directory replaced by a file is emptied before the file is written, and a
+ * production file replaced by a directory is gone before the directory's files are.
+ */
 function applyChanges(draft: DraftSource, snapshotFolder: string): void {
-	for (const change of draft.context.changes) {
+	const deletions = draft.context.changes.filter((change) => change.kind === 'deleted');
+	const writes = draft.context.changes.filter((change) => change.kind !== 'deleted');
+	for (const change of [...deletions, ...writes]) {
 		const target = resolveWritePath(snapshotFolder, change.path);
 		assertNoSymlinkInWritePath(snapshotFolder, path.dirname(target), change.path);
-		fs.rmSync(target, { force: true });
+		fs.rmSync(target, { force: true, recursive: true });
 		if (change.kind === 'deleted') {
 			continue;
 		}

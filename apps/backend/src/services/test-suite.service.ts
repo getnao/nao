@@ -27,9 +27,10 @@ const testFileSchema = z.object({
 export function discoverTests(projectFolder: string): TestSuite {
 	const testsFolder = path.join(projectFolder, TESTS_FOLDER);
 	const tests: TestDefinition[] = [];
-	const invalidFiles: InvalidTestFile[] = [];
+	const { paths, unreadableFolders } = listTestFiles(testsFolder);
+	const invalidFiles: InvalidTestFile[] = [...unreadableFolders];
 
-	for (const relativePath of listTestFiles(testsFolder)) {
+	for (const relativePath of paths) {
 		const parsed = parseTestFile(testsFolder, relativePath);
 		if (isInvalidTestFile(parsed)) {
 			invalidFiles.push(parsed);
@@ -90,15 +91,26 @@ export function filterTests(
 	});
 }
 
-function listTestFiles(testsFolder: string): string[] {
+/** An unreadable folder is reported like an unreadable file, so it does not hide the tests of the other folders. */
+function listTestFiles(testsFolder: string): { paths: string[]; unreadableFolders: InvalidTestFile[] } {
 	if (!fs.existsSync(testsFolder)) {
-		return [];
+		return { paths: [], unreadableFolders: [] };
 	}
-	return collectTestFiles(testsFolder, '').sort();
+	const entries = collectTestFiles(testsFolder, '');
+	return {
+		paths: entries.filter((entry) => typeof entry === 'string').sort(),
+		unreadableFolders: entries.filter((entry) => typeof entry !== 'string'),
+	};
 }
 
-function collectTestFiles(folder: string, relativeFolder: string): string[] {
-	return fs.readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
+function collectTestFiles(folder: string, relativeFolder: string): (string | InvalidTestFile)[] {
+	let entries: fs.Dirent[];
+	try {
+		entries = fs.readdirSync(folder, { withFileTypes: true });
+	} catch (error) {
+		return [{ path: relativeFolder || '.', error: `Unreadable folder: ${describeError(error)}` }];
+	}
+	return entries.flatMap((entry) => {
 		const relativePath = relativeFolder ? `${relativeFolder}/${entry.name}` : entry.name;
 		if (entry.isDirectory()) {
 			return entry.name === TEST_OUTPUTS_FOLDER
