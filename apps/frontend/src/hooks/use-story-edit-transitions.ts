@@ -43,6 +43,10 @@ export function useStoryEditTransitions({
 				if (viewMode === 'code' && !isCodeValid) {
 					return;
 				}
+				if (!isDirty) {
+					setViewMode(targetMode);
+					return;
+				}
 				const result = await save();
 				if (didSaveSucceed(result)) {
 					setViewMode(targetMode);
@@ -52,7 +56,7 @@ export function useStoryEditTransitions({
 
 			setViewMode(targetMode);
 		},
-		[isCodeValid, isSaving, save, setViewMode, viewMode],
+		[isCodeValid, isDirty, isSaving, save, setViewMode, viewMode],
 	);
 
 	const requestCancel = useCallback(() => {

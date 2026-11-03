@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as EnvModule from '../src/env';
 import type { EffectiveUserGroupAccess } from '../src/queries/user-group.queries';
 
 const mocks = vi.hoisted(() => ({
@@ -23,6 +24,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/env', async (importOriginal) => {
+	const actual = await importOriginal<typeof EnvModule>();
+	return {
+		...actual,
+		isCloudBillingEnabled: () => true,
+		isCloudFreeTierEnabled: () => false,
+	};
+});
 vi.mock('../src/queries/activity.queries', () => ({
 	startStoryRefreshActivity: mocks.startStoryRefreshActivity,
 	completeActivity: mocks.completeActivity,

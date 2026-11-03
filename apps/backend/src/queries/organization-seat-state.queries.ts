@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { type DBOrganizationSeatState, type NewNotification } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
@@ -91,8 +91,57 @@ export async function syncOrganizationSeatState(input: {
 	isReadOnly: boolean;
 	changedAt: Date;
 }): Promise<{ state: DBOrganizationSeatState; changed: boolean }> {
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		return db.transaction(
+			(transaction) => {
+				if (!input.isReadOnly) {
+					restoreCapacityFallbackRoles(transaction, input.orgId, input.userId).run();
+				}
+				const [state] = upsertOrganizationSeatState(transaction, input).all();
+				return { state, changed: state.stateChangedAt?.getTime() === input.changedAt.getTime() };
+			},
+			{ behavior: 'immediate' },
+		);
+	}
+	return db.transaction(async (transaction) => {
+		if (!input.isReadOnly) {
+			await restoreCapacityFallbackRoles(transaction, input.orgId, input.userId).execute();
+		}
+		const [state] = await upsertOrganizationSeatState(transaction, input).execute();
+		return { state, changed: state.stateChangedAt?.getTime() === input.changedAt.getTime() };
+	});
+}
+
+function restoreCapacityFallbackRoles(executor: DBExecutor, orgId: string, userId: string) {
+	return executor
+		.update(s.projectMember)
+		.set({
+			role: sql`${s.projectMember.capacityFallbackRole}`,
+			capacityFallbackRole: null,
+		})
+		.where(
+			and(
+				eq(s.projectMember.userId, userId),
+				isNotNull(s.projectMember.capacityFallbackRole),
+				inArray(
+					s.projectMember.projectId,
+					executor.select({ id: s.project.id }).from(s.project).where(eq(s.project.orgId, orgId)),
+				),
+			),
+		);
+}
+
+function upsertOrganizationSeatState(
+	executor: DBExecutor,
+	input: {
+		orgId: string;
+		userId: string;
+		isReadOnly: boolean;
+		changedAt: Date;
+	},
+) {
 	const stateChanged = sql`${s.organizationSeatState.isReadOnly} <> excluded.is_read_only`;
-	const [state] = await db
+	return executor
 		.insert(s.organizationSeatState)
 		.values({
 			orgId: input.orgId,
@@ -110,9 +159,7 @@ export async function syncOrganizationSeatState(input: {
 				adminEmailNotifiedAt: sql`case when ${stateChanged} then null else ${s.organizationSeatState.adminEmailNotifiedAt} end`,
 			},
 		})
-		.returning()
-		.execute();
-	return { state, changed: state.stateChangedAt?.getTime() === input.changedAt.getTime() };
+		.returning();
 }
 
 export async function claimPausedWorkInAppNotification(

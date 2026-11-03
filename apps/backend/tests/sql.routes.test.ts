@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as EnvModule from '../src/env';
+
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
@@ -16,6 +18,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/auth', () => ({ getSession: vi.fn() }));
 vi.mock('../src/agents/tools/execute-sql', () => ({ executeQuery: mocks.executeQuery }));
+vi.mock('../src/env', async (importOriginal) => {
+	const actual = await importOriginal<typeof EnvModule>();
+	return {
+		...actual,
+		isCloudBillingEnabled: () => true,
+		isCloudFreeTierEnabled: () => false,
+	};
+});
 vi.mock('../src/queries/execute-sql.queries', () => ({
 	EXECUTE_SEMANTIC_QUERY_TOOL_NAME: 'execute_semantic_query',
 	getLatestExecuteSqlByQueryId: mocks.getLatestExecuteSqlByQueryId,

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as EnvModule from '../src/env';
+
 const mocks = vi.hoisted(() => ({
 	getSharedStoryByStoryId: vi.fn(),
 	canUserAccessSharedStory: vi.fn(),
@@ -11,6 +13,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/env', async (importOriginal) => {
+	const actual = await importOriginal<typeof EnvModule>();
+	return {
+		...actual,
+		isCloudBillingEnabled: () => true,
+		isCloudFreeTierEnabled: () => false,
+	};
+});
 vi.mock('../src/queries/activity.queries', () => ({}));
 vi.mock('../src/queries/project.queries', () => ({
 	getProjectById: vi.fn(async (projectId: string) => ({ id: projectId, orgId: 'org-1' })),

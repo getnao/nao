@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type * as EnvModule from '../src/env';
@@ -41,13 +42,22 @@ import {
 describe('organization seat state queries', () => {
 	beforeAll(async () => {
 		await db.insert(s.organization).values({ id: 'org-id', name: 'Organization', slug: 'organization' });
-		await db.insert(s.user).values({ id: 'user-id', name: 'User', email: 'user@example.com' });
+		await db.insert(s.user).values([
+			{ id: 'user-id', name: 'User', email: 'user@example.com' },
+			{ id: 'fallback-user-id', name: 'Fallback User', email: 'fallback@example.com' },
+		]);
 		await db.insert(s.project).values({
 			id: 'project-id',
 			orgId: 'org-id',
 			name: 'Project',
 			type: 'local',
 			path: '/tmp/project',
+		});
+		await db.insert(s.projectMember).values({
+			projectId: 'project-id',
+			userId: 'fallback-user-id',
+			role: 'viewer',
+			capacityFallbackRole: 'user',
 		});
 	});
 
@@ -71,6 +81,22 @@ describe('organization seat state queries', () => {
 			selectionExplicit: false,
 		});
 		await expect(listOrganizationSeatStates('org-id')).resolves.toHaveLength(1);
+	});
+
+	it('restores project fallback roles when a seat becomes active', async () => {
+		await syncOrganizationSeatState({
+			orgId: 'org-id',
+			userId: 'fallback-user-id',
+			isReadOnly: false,
+			changedAt: new Date('2026-10-30T10:30:00.000Z'),
+		});
+
+		await expect(
+			db
+				.select({ role: s.projectMember.role, capacityFallbackRole: s.projectMember.capacityFallbackRole })
+				.from(s.projectMember)
+				.where(eq(s.projectMember.userId, 'fallback-user-id')),
+		).resolves.toEqual([{ role: 'user', capacityFallbackRole: null }]);
 	});
 
 	it('claims each notification channel once and releases only the failed email claim', async () => {

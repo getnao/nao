@@ -132,6 +132,16 @@ describe('Story editing', () => {
 		expect(result.current.viewMode).toBe('preview');
 	});
 
+	it('returns from clean read-only Code to Preview without saving', async () => {
+		const save = vi.fn(async (): Promise<StorySaveResult> => 'unavailable');
+		const { result } = renderEditingSession({ initialMode: 'code', save });
+
+		await act(() => result.current.requestViewMode('preview'));
+
+		expect(save).not.toHaveBeenCalled();
+		expect(result.current.viewMode).toBe('preview');
+	});
+
 	it('keeps complete tabbed Story operations across Edit and Code', async () => {
 		const contentEditedStory = replaceStoryTabInner(tabbedStory, 0, '# Updated overview');
 		const addedStory = addStoryTab(contentEditedStory);
