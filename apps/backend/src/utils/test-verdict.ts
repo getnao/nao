@@ -1,10 +1,4 @@
-import type {
-	TestAssertion,
-	TestComparisonTolerances,
-	TestToolCall,
-	TestVerdict,
-	ToolCallAssertion,
-} from '../types/test-run';
+import type { TestAssertion, TestComparisonTolerances, TestToolCall, TestVerdict } from '../types/test-run';
 import { compareTestData } from './test-data-comparison';
 
 export interface TestVerification {
@@ -60,7 +54,7 @@ export function evaluateTestVerdict(input: {
 }
 
 export function evaluateAssertions(assertions: TestAssertion[], toolCalls: TestToolCall[]): TestVerdict {
-	const results = assertions.map((assertion) => evaluateToolCallAssertion(assertion, toolCalls));
+	const results = assertions.map((assertion) => evaluateTestAssertion(assertion, toolCalls));
 	return {
 		passed: results.every((result) => result.passed),
 		message: results.map((result) => result.message).join('; '),
@@ -68,8 +62,8 @@ export function evaluateAssertions(assertions: TestAssertion[], toolCalls: TestT
 	};
 }
 
-function evaluateToolCallAssertion(
-	assertion: ToolCallAssertion,
+function evaluateTestAssertion(
+	assertion: TestAssertion,
 	toolCalls: TestToolCall[],
 ): Pick<TestVerdict, 'passed' | 'message'> {
 	const { tool, args, min_count: minCount } = assertion;
@@ -101,7 +95,7 @@ function evaluateToolCallAssertion(
 	};
 }
 
-function describeMatchedAssertion({ tool, args, min_count: minCount }: ToolCallAssertion, matchCount: number): string {
+function describeMatchedAssertion({ tool, args, min_count: minCount }: TestAssertion, matchCount: number): string {
 	if (minCount === 1 && args === undefined) {
 		return `tool_call: ${tool}`;
 	}

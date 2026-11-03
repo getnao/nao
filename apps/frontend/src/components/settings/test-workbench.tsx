@@ -3,27 +3,25 @@ import { CircleAlert, Play } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import type { ContextRunMode } from '@/components/settings/test-run-actions';
 import type { RunFilters } from '@/components/settings/test-run-filter-menu';
 import type { RunBranches } from '@/components/settings/test-run-labels';
 import type { RunListContext } from '@/components/settings/test-run-list-item';
 import type { DraftContext, TestHistoryRun, TestRunSummary } from '@/components/settings/test-run-types';
 import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
+import type { ContextRunMode } from '@/hooks/use-test-run-start';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import { RecentRunsHeader, RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
 import { RunDetails } from '@/components/settings/test-run-details';
-import { ALL_RUNS, matchesTestHistoryRunFilters } from '@/components/settings/test-run-filter-menu';
-import { BranchName, getRunBranches } from '@/components/settings/test-run-labels';
+import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
+import { BranchCode, BranchName, getMainBranch, getRunBranches } from '@/components/settings/test-run-labels';
 import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
-import { isActiveRun } from '@/components/settings/test-run-types';
-import { useTestFileRun } from '@/components/settings/test-tab-run-button';
+import { ACTIVE_RUN_REFETCH_MS, fromExplorerTestPath, isActiveRun } from '@/components/settings/test-run-types';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
+import { useTestFileRun } from '@/hooks/use-test-run-start';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
-
-const ACTIVE_RUN_REFETCH_MS = 2_000;
 
 interface TestWorkbenchProps {
 	testFile: { path: string; content: string };
@@ -56,11 +54,7 @@ export function TestWorkbench({
 	const currentHash = validation.validation?.test?.hash;
 	const runs = history.data ?? [];
 	const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs.at(0);
-	const suite = useQuery(trpc.testRun.listTests.queryOptions());
-	const runListContext = {
-		mainBranch: getRunBranches({}, draft).main,
-		suiteTestPaths: suite.data?.tests.map((test) => test.path),
-	};
+	const runListContext = { mainBranch: getMainBranch(draft), testPath: fromExplorerTestPath(testFile.path) };
 
 	return (
 		<div className='flex h-full min-h-0 flex-col'>
@@ -116,7 +110,7 @@ function RunList({
 	onSelect: (runId: string) => void;
 }) {
 	const [filters, setFilters] = useState<RunFilters>(ALL_RUNS);
-	const listedRuns = runs.filter((run) => matchesTestHistoryRunFilters(run, filters));
+	const listedRuns = runs.filter((run) => matchesRunFilters(run, filters));
 	return (
 		<div className={cn('flex shrink-0 flex-col overflow-y-auto border-r text-xs', RUNS_COLUMN_WIDTH_CLASS)}>
 			<RecentRunsHeader filters={filters} onChange={setFilters} />
@@ -215,7 +209,7 @@ function describeRunInvitation(
 				),
 				button: (
 					<>
-						Compare with <span className='font-mono text-[0.92em]'>{branches.main}</span>
+						Compare with <BranchCode name={branches.main} />
 					</>
 				),
 			};

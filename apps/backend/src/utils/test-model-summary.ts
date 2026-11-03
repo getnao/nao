@@ -1,3 +1,5 @@
+import type { LlmSelectedModel } from '@nao/shared/types';
+
 import type { DBTestRunResult } from '../db/abstractSchema';
 import { TEST_CONTEXT_VARIANTS, type TestModelSummary } from '../types/test-run';
 
@@ -27,11 +29,12 @@ export function summarizeModels(results: SummarizedTestResult[]): TestModelSumma
 	return [...groups.values()].map(summarizeModel).sort(compareSummaries);
 }
 
-export function isSameModelSummary(
-	summary: Pick<TestModelSummary, 'provider' | 'modelId'>,
-	other: Pick<TestModelSummary, 'provider' | 'modelId'>,
-): boolean {
-	return summary.provider === other.provider && summary.modelId === other.modelId;
+export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
+	return model.provider === other.provider && model.modelId === other.modelId;
+}
+
+export function resultModel(result: Pick<DBTestRunResult, 'llmProvider' | 'llmModelId'>): LlmSelectedModel {
+	return { provider: result.llmProvider, modelId: result.llmModelId };
 }
 
 function summarizeModel(results: SummarizedTestResult[]): TestModelSummary {
@@ -40,8 +43,7 @@ function summarizeModel(results: SummarizedTestResult[]): TestModelSummary {
 	const totalCost = sumOrNull(results.map((result) => result.totalCost));
 	const tests = countAttemptsByTest(results);
 	return {
-		provider: first.llmProvider,
-		modelId: first.llmModelId,
+		...resultModel(first),
 		contextVariant: first.contextVariant,
 		attempts: results.length,
 		passedAttempts,

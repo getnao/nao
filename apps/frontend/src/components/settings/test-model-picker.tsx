@@ -1,3 +1,5 @@
+import { getTestRunConcurrency } from '@nao/backend/test-run';
+import { pluralize } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Cpu, Minus, Plus } from 'lucide-react';
 
@@ -13,7 +15,6 @@ import { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS } from '@/hooks/use-test-run
 import { trpc } from '@/main';
 
 /** Attempts the server runs at once for each model, to estimate how long a run takes. */
-const ATTEMPTS_IN_FLIGHT_PER_MODEL = 3;
 
 interface TestModelPickerProps {
 	settings: TestRunSettings;
@@ -100,7 +101,6 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 				<RunEstimate
 					models={models}
 					stats={stats.data}
-					attemptCount={testCount * models.length * attempts * variantCount}
 					testCount={testCount}
 					attempts={attempts}
 					variantCount={variantCount}
@@ -164,36 +164,34 @@ function AttemptsStepper({ attempts, onChange }: { attempts: number; onChange: (
 function RunEstimate({
 	models,
 	stats,
-	attemptCount,
 	testCount,
 	attempts,
 	variantCount,
 }: {
 	models: LlmSelectedModel[];
 	stats: TestModelStats[] | undefined;
-	attemptCount: number;
 	testCount: number;
 	attempts: number;
 	variantCount: number;
 }) {
 	const attemptsPerModel = testCount * attempts * variantCount;
+	const attemptCount = attemptsPerModel * models.length;
 	const modelStats = models.map((model) => findStats(stats, model));
 	const isEstimated = modelStats.every((entry) => entry?.averageCost != null && entry.averageDurationMs != null);
 	const cost = modelStats.reduce((sum, entry) => sum + (entry?.averageCost ?? 0) * attemptsPerModel, 0);
+	const attemptsInFlightPerModel = getTestRunConcurrency(models.length) / Math.max(models.length, 1);
 	const durationMs = Math.max(
 		0,
-		...modelStats.map(
-			(entry) => ((entry?.averageDurationMs ?? 0) * attemptsPerModel) / ATTEMPTS_IN_FLIGHT_PER_MODEL,
-		),
+		...modelStats.map((entry) => ((entry?.averageDurationMs ?? 0) * attemptsPerModel) / attemptsInFlightPerModel),
 	);
 	return (
 		<div className='mx-3 mb-3 rounded-md bg-muted/60 px-2.5 py-2'>
 			<span className='font-medium'>
-				{attemptCount} attempt{attemptCount === 1 ? '' : 's'}
+				{attemptCount} {pluralize('attempt', attemptCount)}
 			</span>
 			<span className='text-muted-foreground'>
 				{' '}
-				= {testCount} test{testCount === 1 ? '' : 's'} × {models.length} model{models.length === 1 ? '' : 's'}
+				= {testCount} {pluralize('test', testCount)} × {models.length} {pluralize('model', models.length)}
 				{attempts > 1 && ` × ${attempts}`}
 				{variantCount > 1 && ' × 2 contexts'}
 			</span>

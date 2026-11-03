@@ -1,7 +1,7 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
 
 import type { TestContextVariant, TestRunTestTotals, TestRunVariantTotals } from '../types/test-run';
-import { isSameModelSummary } from './test-model-summary';
+import { isSameModel } from './test-model-summary';
 
 export interface TestAttemptTotals extends LlmSelectedModel {
 	testPath: string;
@@ -22,7 +22,7 @@ export function summarizeRunTests(rows: TestAttemptTotals[], runModels: LlmSelec
 			contextVariant,
 			...countTests(sumAttemptsByTest(variantRows)),
 			models: runModels
-				.map((model) => ({ ...model, rows: variantRows.filter((row) => isSameModelSummary(row, model)) }))
+				.map((model) => ({ ...model, rows: variantRows.filter((row) => isSameModel(row, model)) }))
 				.filter(({ rows: modelRows }) => modelRows.length > 0)
 				.map(({ rows: modelRows, ...model }) => ({ ...model, ...countTests(sumAttemptsByTest(modelRows)) })),
 		};

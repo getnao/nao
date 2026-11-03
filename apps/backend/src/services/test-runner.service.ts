@@ -5,6 +5,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as testRunQueries from '../queries/test-run.queries';
 import {
+	getTestRunConcurrency,
 	type InvalidTestFile,
 	MAX_TEST_RUN_ATTEMPTS,
 	TEST_CONTEXT_VARIANTS,
@@ -31,8 +32,6 @@ import { evaluateTestAttempt, type TestAttemptEvaluation } from './test-evaluati
 import { discoverTests, filterTests } from './test-suite.service';
 
 /** Attempts in flight per model, so that a run of several models does not wait on one provider's rate limit. */
-const TEST_RUN_CONCURRENCY_PER_MODEL = 3;
-const MAX_TEST_RUN_CONCURRENCY = 12;
 const TEST_RUN_STALE_MS = 6 * 60 * 60_000;
 const TEST_RUN_STALE_MESSAGE = 'The test run was interrupted before it finished.';
 const MAX_STORED_ROWS = 50;
@@ -49,7 +48,7 @@ export class TestRunConflictError extends Error {
 	}
 }
 
-export interface StartTestRunInput {
+interface StartTestRunInput {
 	projectId: string;
 	userId: string;
 	paths?: string[];
@@ -60,7 +59,7 @@ export interface StartTestRunInput {
 	tests?: TestDefinition[];
 }
 
-export interface StartComparisonRunInput extends StartTestRunInput {
+interface StartComparisonRunInput extends StartTestRunInput {
 	/** The user's File Explorer changes, tested against the production context. */
 	draft: DraftSource;
 }
@@ -260,7 +259,7 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 	try {
 		await mcpService.initializeMcpState(run.projectId);
 		await skillService.initializeSkills(run.projectId);
-		const concurrency = Math.min(TEST_RUN_CONCURRENCY_PER_MODEL * plan.models.length, MAX_TEST_RUN_CONCURRENCY);
+		const concurrency = getTestRunConcurrency(plan.models.length);
 		await runWithConcurrency(jobs, concurrency, (job) =>
 			runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
 		);
@@ -339,6 +338,7 @@ async function runAttempt(
 				...(variant === 'draft' && plan.draftFolder && { contextFolder: plan.draftFolder }),
 			},
 		);
+		abortSignal.throwIfAborted();
 		const evaluation = await evaluateTestAttempt({
 			projectId: run.projectId,
 			userId,
@@ -391,15 +391,25 @@ function buildResultDetails(
 	};
 }
 
+/**
+ * Once a job fails no other job starts, and the failure is thrown only after the jobs in flight settle, so that none
+ * of them outlives the run and the context snapshot it reads.
+ */
 async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) {
 	let nextIndex = 0;
+	const errors: unknown[] = [];
 	const runNext = async (): Promise<void> => {
-		while (nextIndex < items.length) {
+		while (errors.length === 0 && nextIndex < items.length) {
 			const item = items[nextIndex++];
-			await worker(item);
+			await worker(item).catch((error: unknown) => {
+				errors.push(error);
+			});
 		}
 	};
 	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, runNext));
+	if (errors.length > 0) {
+		throw errors[0];
+	}
 }
 
 async function getProjectFolder(projectId: string): Promise<string> {

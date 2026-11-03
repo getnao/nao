@@ -1,17 +1,9 @@
-import {
-	CircleCheck,
-	CircleDashed,
-	CircleMinus,
-	CircleStop,
-	CircleX,
-	GitBranch,
-	History,
-	TriangleAlert,
-} from 'lucide-react';
+import { GitBranch, History } from 'lucide-react';
 
 import type { TestRunSummary } from '@/components/settings/test-run-types';
+import type { Tone } from '@/components/settings/test-run-verdict';
+import { CHANGES_FALLBACK, TONE_LABELS, ToneIcon } from '@/components/settings/test-run-labels';
 import { getSingleRunVariant, isActiveRun } from '@/components/settings/test-run-types';
-import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { getTimeAgo } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
@@ -38,14 +30,14 @@ type TestTotals = Omit<VariantTotals, 'contextVariant' | 'models'>;
 
 export type RunListState = 'running' | 'passed' | 'failed' | 'flaky' | 'cancelled' | 'error' | 'empty';
 
-export interface RunListChip {
+interface RunListChip {
 	label: string;
 	isBranch: boolean;
 	/** Set on the branch a comparison ran against, read "vs main". */
 	isComparedBranch?: boolean;
 }
 
-export interface RunListItemView {
+interface RunListItemView {
 	state: RunListState;
 	scope: string;
 	result: { label: string; tooltip: string } | null;
@@ -58,20 +50,22 @@ export interface RunListItemView {
 export interface RunListContext {
 	/** The branch production comes from, `main` when the context has no git repository. */
 	mainBranch: string;
-	suiteTestPaths: string[] | undefined;
+	/** The tests of the suite, to tell a run of all of them apart from a partial one. */
+	suiteTestPaths?: string[];
+	/** Names every run after this test, in the history of one test where each run counts only that test. */
+	testPath?: string;
 }
 
-const DRAFT_BRANCH_FALLBACK = 'your changes';
 const TEST_FILE_EXTENSION = /\.ya?ml$/;
 
-const STATE_LABELS: Record<RunListState, string> = {
-	running: 'Running',
-	passed: 'Passed',
-	failed: 'Failed',
-	flaky: 'Flaky',
-	cancelled: 'Cancelled',
-	error: 'Error',
-	empty: 'No result',
+const STATE_TONES: Record<RunListState, Tone> = {
+	running: 'pending',
+	passed: 'pass',
+	failed: 'fail',
+	flaky: 'mixed',
+	cancelled: 'cancelled',
+	error: 'error',
+	empty: 'neutral',
 };
 
 /** A run of the Recent runs list: its state, what it ran, its result and chips for what was special about it. */
@@ -112,7 +106,7 @@ export function RunListItem({
 				}
 			>
 				<span className='mt-px flex shrink-0'>
-					<RunStateIcon state={view.state} />
+					<ToneIcon tone={STATE_TONES[view.state]} isLabelled />
 				</span>
 			</SimpleTooltip>
 			<span className='flex min-w-0 flex-1 flex-col gap-1'>
@@ -162,12 +156,17 @@ export function describeRunListItem(run: RunListSource, context: RunListContext)
 	const state = getRunListState(run);
 	return {
 		state,
-		scope: describeRunTests(run.selection ?? [], context.suiteTestPaths),
+		scope: context.testPath
+			? describeTestPath(context.testPath)
+			: describeRunTests(run.selection ?? [], context.suiteTestPaths),
 		result: describeRunResult(run, state, context.mainBranch),
 		progress: state === 'running' ? run.completedAttempts / Math.max(run.totalAttempts, 1) : null,
 		chips: listRunChips(run, context.mainBranch),
 		statusTooltip: {
-			status: run.status === 'failed' && run.errorMessage ? `Error: ${run.errorMessage}` : STATE_LABELS[state],
+			status:
+				run.status === 'failed' && run.errorMessage
+					? `Error: ${run.errorMessage}`
+					: TONE_LABELS[STATE_TONES[state]],
 			startedBy: [run.triggeredByName, getTimeAgo(new Date(run.createdAt).getTime()).humanReadable]
 				.filter(Boolean)
 				.join(' · '),
@@ -194,26 +193,6 @@ export function getRunListState(run: RunListSource): RunListState {
 		return 'passed';
 	}
 	return isFlakyTest(run, judged) ? 'flaky' : 'failed';
-}
-
-function RunStateIcon({ state }: { state: RunListState }) {
-	const className = 'size-3.5 shrink-0';
-	switch (state) {
-		case 'running':
-			return <Spinner className={className} />;
-		case 'passed':
-			return <CircleCheck aria-label='Passed' className={cn(className, 'text-green-600 dark:text-green-500')} />;
-		case 'failed':
-			return <CircleX aria-label='Failed' className={cn(className, 'text-destructive')} />;
-		case 'flaky':
-			return <CircleDashed aria-label='Flaky' className={cn(className, 'text-amber-600 dark:text-amber-500')} />;
-		case 'cancelled':
-			return <CircleStop aria-label='Cancelled' className={cn(className, 'text-muted-foreground')} />;
-		case 'error':
-			return <TriangleAlert aria-label='Error' className={cn(className, 'text-destructive')} />;
-		case 'empty':
-			return <CircleMinus aria-label='No result' className={cn(className, 'text-muted-foreground')} />;
-	}
 }
 
 function RunChip({ chip }: { chip: RunListChip }) {
@@ -332,7 +311,7 @@ function describeBranchChip(run: RunListSource, mainBranch: string): RunListChip
 		case 'comparison':
 			return { label: mainBranch, isBranch: true, isComparedBranch: true };
 		case 'changes':
-			return { label: run.contextRef ?? DRAFT_BRANCH_FALLBACK, isBranch: true };
+			return { label: run.contextRef ?? CHANGES_FALLBACK, isBranch: true };
 		default:
 			return { label: mainBranch, isBranch: true };
 	}
@@ -345,9 +324,13 @@ function describeRunTests(selection: string[], suiteTestPaths: string[] | undefi
 		return 'All tests';
 	}
 	if (selection.length === 1) {
-		return selection[0].replace(TEST_FILE_EXTENSION, '');
+		return describeTestPath(selection[0]);
 	}
 	return `${selection.length} tests`;
+}
+
+function describeTestPath(testPath: string): string {
+	return testPath.replace(TEST_FILE_EXTENSION, '');
 }
 
 /** The user's changes for a comparison, the best model when several ran, else the tests over all their attempts. */

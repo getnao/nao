@@ -302,6 +302,35 @@ def test_client_parses_the_server_verdict(monkeypatch):
     )
 
 
+def test_client_ignores_verification_fields_it_does_not_know(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    response = _successful_run_response()
+    response.json.return_value = {
+        **response.json.return_value,
+        "verification": {
+            "data": [{"total": 1}],
+            "expectedData": [{"total": 1}],
+            "expectedColumns": ["total"],
+            "sql": "select total from query_1",
+            "sourceQueries": [{"id": "query_1", "sql": "select 1 as total"}],
+            "error": None,
+        },
+    }
+    session.post.return_value = response
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    result = client.run_test(test_case)
+
+    assert result.verification == VerificationResult(
+        data=[{"total": 1}],
+        expectedData=[{"total": 1}],
+        expectedColumns=["total"],
+        sql="select total from query_1",
+    )
+
+
 def test_run_test_prefers_the_server_verdict_over_local_checks(monkeypatch):
     test_case = NaoTestCase(
         name="orders",

@@ -1,7 +1,8 @@
 import { useForm } from '@tanstack/react-form';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CircleCheck, FlaskConical } from 'lucide-react';
+import type { QueryClient } from '@tanstack/react-query';
 
 import type { TestDraft } from '@/lib/test-draft';
 import { Button } from '@/components/ui/button';
@@ -37,7 +38,10 @@ export function SaveAsTestDialog({ draft, open, onOpenChange }: SaveAsTestDialog
 }
 
 function SaveAsTestForm({ draft, onClose }: { draft: TestDraft; onClose: () => void }) {
-	const createTestFile = useMutation(trpc.testRun.createTestFile.mutationOptions());
+	const queryClient = useQueryClient();
+	const createTestFile = useMutation(
+		trpc.testRun.createTestFile.mutationOptions({ onSuccess: () => refreshTestFiles(queryClient) }),
+	);
 	const form = useForm({
 		defaultValues: { name: draft.name, prompt: draft.prompt, sql: draft.sql, tags: '' },
 		onSubmit: async ({ value }) => {
@@ -95,6 +99,16 @@ function SavedTest({ path, onClose }: { path: string; onClose: () => void }) {
 			</div>
 		</div>
 	);
+}
+
+/** Shows the new test in the File Explorer, its changed files and the Tests drawer. */
+function refreshTestFiles(queryClient: QueryClient) {
+	return Promise.all([
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileTree.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getChangedFiles.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.testRun.getDraftContext.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.testRun.listTests.queryKey() }),
+	]);
 }
 
 function parseTags(tags: string): string[] {

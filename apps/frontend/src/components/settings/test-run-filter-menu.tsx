@@ -1,7 +1,7 @@
 import { ListFilter } from 'lucide-react';
 
-import type { TestHistoryRun, TestRunSummary } from '@/components/settings/test-run-types';
-import type { RunListState } from '@/components/settings/test-run-list-item';
+import type { TestRunSummary } from '@/components/settings/test-run-types';
+import type { RunListSource, RunListState } from '@/components/settings/test-run-list-item';
 import { getRunListState } from '@/components/settings/test-run-list-item';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,8 +15,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
-export type RunKindFilter = 'all' | 'runs' | 'comparisons';
-export type RunOutcomeFilter = 'all' | 'passed' | 'failed';
+type RunKindFilter = 'all' | 'runs' | 'comparisons';
+type RunOutcomeFilter = 'all' | 'passed' | 'failed';
 
 export interface RunFilters {
 	kind: RunKindFilter;
@@ -84,12 +84,8 @@ export function RunFilterMenu({ filters, onChange }: { filters: RunFilters; onCh
 	);
 }
 
-export function matchesRunFilters(run: TestRunSummary, filters: RunFilters): boolean {
-	return matchesKindFilter(run.trigger, filters.kind) && matchesRunOutcome(getRunListState(run), filters.outcome);
-}
-
-/** Filters the runs of a single test, judged on that test only. */
-export function matchesTestHistoryRunFilters(run: TestHistoryRun, filters: RunFilters): boolean {
+/** Judges a run like the list shows it, so the runs of a single test are judged on that test only. */
+export function matchesRunFilters(run: RunListSource, filters: RunFilters): boolean {
 	return matchesKindFilter(run.trigger, filters.kind) && matchesRunOutcome(getRunListState(run), filters.outcome);
 }
 

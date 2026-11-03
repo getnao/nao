@@ -22,10 +22,16 @@ import {
 } from './context-explorer-git/git-guards';
 
 /**
- * Paths a draft cannot change: they hold connections and credentials, which must not run unreviewed,
- * or the agent loads them once per project instead of from the context folder.
+ * Paths a draft cannot change: they hold connections and credentials, which must not run unreviewed, or decide which
+ * files the agent may read, or the agent loads them once per project instead of from the context folder.
  */
-const PRODUCTION_ONLY_PATHS = [/^nao_config\.yaml$/, /^\.env(\..+)?$/, /^agent\/mcps\//, /^agent\/skills\//];
+const PRODUCTION_ONLY_PATHS = [
+	/^nao_config\.yaml$/,
+	/^\.env(\..+)?$/,
+	/^\.naoignore$/,
+	/^agent\/mcps\//,
+	/^agent\/skills\//,
+];
 const SKIPPED_ENTRY_NAMES = new Set(['.git', 'node_modules']);
 const PROJECT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const DIFF_STATUS_KINDS: Record<string, TestContextChange['kind']> = { A: 'added', D: 'deleted' };
@@ -52,7 +58,7 @@ export interface DraftSource {
 	readChangedFile: (projectPath: string) => Buffer | null;
 }
 
-export interface DraftContextSnapshot extends DraftContext {
+interface DraftContextSnapshot extends DraftContext {
 	folder: string;
 }
 

@@ -182,7 +182,7 @@ export const isIgnoredByNaoignore = (
 /**
  * Checks if a single .naoignore pattern matches a path relative to the project folder.
  */
-export const matchesNaoignorePattern = (normalizedPath: string, pattern: string): boolean => {
+const matchesNaoignorePattern = (normalizedPath: string, pattern: string): boolean => {
 	// Handle directory patterns (ending with /)
 	if (pattern.endsWith('/')) {
 		const dirPattern = pattern.slice(0, -1);

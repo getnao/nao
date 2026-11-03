@@ -3,7 +3,6 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as activityQueries from '../queries/activity.queries';
-import type { DraftOwner } from '../queries/context-draft.queries';
 import {
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
@@ -49,6 +48,7 @@ import { getRepoProviderDisplayName } from '../services/review-request-provider'
 import { listActiveUserGroups } from '../services/user-group-availability.service';
 import { ContextProjectResolutionError } from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
+import { draftOwnerOf, requireProjectPath } from './route-context';
 import { cloudBillingAdminProcedure, cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const branchSchema = z.string().trim().min(1).max(200);
@@ -356,15 +356,4 @@ function logPullHistoryFailure(message: string, projectId: string, activityId: s
 		source: 'system',
 		context: { projectId, activityId, error: serializeError(error) },
 	});
-}
-
-function draftOwnerOf(ctx: { project: { id: string }; user: { id: string } }): DraftOwner {
-	return { projectId: ctx.project.id, userId: ctx.user.id };
-}
-
-function requireProjectPath(projectPath: string | null): string {
-	if (!projectPath) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project path configured.' });
-	}
-	return projectPath;
 }

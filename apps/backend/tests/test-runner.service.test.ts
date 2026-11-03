@@ -209,6 +209,30 @@ describe('startTestRun', () => {
 		expect(mocks.runTestInChat).toHaveBeenCalledTimes(1);
 	});
 
+	it('fails the run only once the attempts in flight have settled', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeConfig('test:\n  k: 2');
+		let finishSecondAttempt: () => void = () => {};
+		mocks.runTestInChat
+			.mockResolvedValueOnce({ text: '', usage: {}, cost: {}, durationMs: 0 })
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finishSecondAttempt = () => resolve({ text: '', usage: {}, cost: {}, durationMs: 0 });
+					}),
+			);
+		mocks.recordResultWhileRunning.mockRejectedValueOnce(new Error('database unavailable'));
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
+		await vi.waitFor(() => expect(mocks.recordResultWhileRunning).toHaveBeenCalledTimes(1));
+		await vi.waitFor(() => expect(mocks.runTestInChat).toHaveBeenCalledTimes(2));
+
+		expect(mocks.failRun).not.toHaveBeenCalled();
+		finishSecondAttempt();
+		await vi.waitFor(() => expect(mocks.failRun).toHaveBeenCalledWith('run-1', 'database unavailable'));
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledTimes(2);
+	});
+
 	it('rejects a run while another one is active', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 		mocks.createRunUnlessActive.mockResolvedValue(null);
@@ -434,6 +458,8 @@ describe('cancelTestRun', () => {
 		await expect(cancelTestRun(run)).resolves.toBe(true);
 		expect(abortSignal?.aborted).toBe(true);
 		finishAttempt();
+		await vi.waitFor(() => expect(mocks.recordResultWhileRunning).toHaveBeenCalled());
+		expect(mocks.evaluateTestAttempt).not.toHaveBeenCalled();
 	});
 });
 

@@ -1,5 +1,6 @@
+import { pluralize } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
-import { CircleAlert, CircleCheck, CircleDashed, CircleMinus, CircleX, History } from 'lucide-react';
+import { CircleAlert, CircleDashed, History } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -12,6 +13,7 @@ import type {
 	TestComparisonRow,
 	TestDefinition,
 	TestModelOutcome,
+	TestRunResult,
 	TestRunSummary,
 	TestRunWithResults,
 	TestSuiteListing,
@@ -33,16 +35,21 @@ import {
 } from '@/components/settings/test-model-results';
 import { matchesResultFilter, TestResultFilterPills } from '@/components/settings/test-result-filter';
 import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
+import { getMainBranch, ToneIcon } from '@/components/settings/test-run-labels';
 import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
 import {
+	ACTIVE_RUN_REFETCH_MS,
+	formatCount,
 	formatDuration,
 	formatPassRate,
 	formatUnitCost,
 	getTestModelColorAt,
+	groupResultsByTest,
 	isActiveRun,
 	testModelKey,
 	toExplorerTestPath,
 } from '@/components/settings/test-run-types';
+import { outcomeTone, variantTone } from '@/components/settings/test-run-verdict';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Empty } from '@/components/ui/empty';
@@ -62,12 +69,10 @@ interface RunTest {
 
 type TestMetrics = ReturnType<typeof summarizeTestMetrics>;
 
-const ACTIVE_RUN_REFETCH_MS = 2_000;
 const MAX_LISTED_RUNS = 10;
-const DEFAULT_MAIN_BRANCH = 'main';
 
 /** The tests picked in the suite, which the Run button of the drawer runs. */
-export interface SuiteSelection {
+interface SuiteSelection {
 	selectedPaths: Set<string>;
 	onSelectedPathsChange: (paths: Set<string>) => void;
 	selectedTags: string[];
@@ -100,7 +105,7 @@ export function TestSuitePanel({
 		refetchInterval: (query) => (query.state.data && isActiveRun(query.state.data) ? ACTIVE_RUN_REFETCH_MS : false),
 	});
 	const runListContext = {
-		mainBranch: draft?.productionBranch ?? DEFAULT_MAIN_BRANCH,
+		mainBranch: getMainBranch(draft),
 		suiteTestPaths: suite.data?.tests.map((test) => test.path),
 	};
 	const [runFilters, setRunFilters] = useState<RunFilters>(ALL_RUNS);
@@ -170,10 +175,10 @@ export function getSuiteRunScope(tests: TestDefinition[], selection: SuiteSelect
 		return {
 			paths: visibleTests.map((test) => test.path),
 			testCount: visibleTests.length,
-			label: pluralize(visibleTests.length, 'test'),
+			label: countTests(visibleTests.length),
 		};
 	}
-	return { paths: undefined, testCount: tests.length, label: pluralize(tests.length, 'test') };
+	return { paths: undefined, testCount: tests.length, label: countTests(tests.length) };
 }
 
 function DraftWarningsNotice({ draft }: { draft: DraftContext }) {
@@ -295,7 +300,7 @@ function SuiteTestsHeader({
 				}
 			/>
 			<span className={cn(selectedCount > 0 && 'font-medium text-foreground')}>
-				{selectedCount > 0 ? `${selectedCount} selected` : pluralize(visibleTests.length, 'test')}
+				{selectedCount > 0 ? `${selectedCount} selected` : countTests(visibleTests.length)}
 			</span>
 			{tags.length > 0 && (
 				<div className='flex min-w-0 flex-wrap items-center gap-1' aria-label='Filter by tag'>
@@ -358,9 +363,9 @@ function SuiteTestRow({
 		<TestRow
 			leading={checkbox}
 			icon={
-				<OutcomeIcon
-					passed={outcome.passedAttempts}
-					total={outcome.totalAttempts}
+				<ToneIcon
+					tone={outcomeTone(outcome.passedAttempts, outcome.totalAttempts)}
+					isLabelled
 					className={cn(outcome.isOutdated && 'opacity-60')}
 				/>
 			}
@@ -398,7 +403,11 @@ function ModelOutcomes({ models }: { models: TestModelOutcome[] }) {
 					title={`${model.modelId}: ${model.passedAttempts}/${model.totalAttempts} passed`}
 				>
 					<ModelDot color={getTestModelColorAt(model.runIndex)} />
-					<OutcomeIcon passed={model.passedAttempts} total={model.totalAttempts} className='size-3' />
+					<ToneIcon
+						tone={outcomeTone(model.passedAttempts, model.totalAttempts)}
+						isLabelled
+						className='size-3'
+					/>
 				</span>
 			))}
 		</span>
@@ -465,7 +474,7 @@ function RunModelsOverview({ run }: { run: TestRunWithResults }) {
 		) : null;
 	}
 	if (run.models.length > 1) {
-		return <ModelLeaderboard run={run} summaries={run.modelSummaries} />;
+		return <ModelLeaderboard run={run} />;
 	}
 	const [summary] = run.modelSummaries;
 	const previous = run.previousModelSummaries.at(0);
@@ -503,7 +512,7 @@ function RunTestList({
 			{tests.map((test) => (
 				<TestRow
 					key={test.testPath}
-					icon={<OutcomeIcon {...test.outcome} isWaiting={isActive} />}
+					icon={<ToneIcon tone={variantTone(run, test.outcome)} isLabelled />}
 					name={test.testName}
 					path={test.testPath}
 					detail={
@@ -532,7 +541,7 @@ function TestMetricColumns({ metrics, testPath }: { metrics: TestMetrics; testPa
 	return (
 		<MetricColumns
 			cost={formatUnitCost(testMetrics?.costPerQuestion)}
-			toolCalls={testMetrics?.toolCalls === null || !testMetrics ? '—' : testMetrics.toolCalls.toFixed(0)}
+			toolCalls={formatCount(testMetrics?.toolCalls)}
 			duration={formatDuration(testMetrics?.durationMs)}
 		/>
 	);
@@ -556,7 +565,7 @@ function RunDescription({ run }: { run: TestRunWithResults }) {
 			{run.comparison &&
 				`Production ${formatPassRate(run.comparison.production.passed, run.comparison.production.total)} → your changes ${formatPassRate(run.comparison.draft.passed, run.comparison.draft.total)} · `}
 			{models}
-			{run.attempts > 1 && ` × ${pluralize(run.attempts, 'attempt')}`}
+			{run.attempts > 1 && ` × ${run.attempts} ${pluralize('attempt', run.attempts)}`}
 			{run.errorMessage && <span className='text-destructive'> · {run.errorMessage}</span>}
 		</span>
 	);
@@ -640,42 +649,6 @@ function TestRow({
 	);
 }
 
-/** The outcome of a test at a glance: passed, failed, flaky, or still waiting for its attempts. */
-function OutcomeIcon({
-	passed,
-	total,
-	isWaiting = false,
-	className,
-}: {
-	passed: number;
-	total: number;
-	isWaiting?: boolean;
-	className?: string;
-}) {
-	if (total === 0) {
-		return isWaiting ? (
-			<Spinner className={cn('size-3.5 shrink-0', className)} />
-		) : (
-			<CircleMinus className={cn('size-3.5 shrink-0 text-muted-foreground', className)} />
-		);
-	}
-	const Icon = passed === total ? CircleCheck : passed === 0 ? CircleX : CircleDashed;
-	return (
-		<Icon
-			aria-label={passed === total ? 'Passed' : passed === 0 ? 'Failed' : 'Flaky'}
-			className={cn(
-				'size-3.5 shrink-0',
-				passed === total
-					? 'text-green-600 dark:text-green-500'
-					: passed === 0
-						? 'text-destructive'
-						: 'text-amber-600 dark:text-amber-500',
-				className,
-			)}
-		/>
-	);
-}
-
 /** The tests of a run with their outcome: with the user's changes for a comparison, else over all their attempts. */
 function listRunTests(run: TestRunWithResults): RunTest[] {
 	if (run.comparison) {
@@ -688,32 +661,22 @@ function listRunTests(run: TestRunWithResults): RunTest[] {
 		}));
 	}
 	const disagreeing = run.models.length > 1 ? listTestsWhereModelsDisagree(run) : new Set<string>();
-	return groupResultsByTest(run.results).map(({ passed, total, ...test }) => ({
-		...test,
-		outcome: { passed, total, modelsDisagree: disagreeing.has(test.testPath) },
+	return [...groupResultsByTest(run.results)].map(([testPath, results]) => ({
+		testPath,
+		testName: results[0].testName,
+		outcome: {
+			passed: results.filter((result) => result.passed).length,
+			total: results.length,
+			modelsDisagree: disagreeing.has(testPath),
+		},
+		failure: findFailureReason(results),
 		comparison: null,
 	}));
 }
 
-function groupResultsByTest(results: TestRunWithResults['results']) {
-	const tests = new Map<
-		string,
-		{ testPath: string; testName: string; passed: number; total: number; failure: string | null }
-	>();
-	for (const result of results) {
-		const test = tests.get(result.testPath) ?? {
-			testPath: result.testPath,
-			testName: result.testName,
-			passed: 0,
-			total: 0,
-			failure: null,
-		};
-		test.total++;
-		test.passed += result.passed ? 1 : 0;
-		test.failure ??= result.passed ? null : (result.errorMessage ?? result.message);
-		tests.set(result.testPath, test);
-	}
-	return [...tests.values()];
+function findFailureReason(results: TestRunResult[]): string | null {
+	const reasons = results.filter((result) => !result.passed).map((result) => result.errorMessage ?? result.message);
+	return reasons.find((reason) => reason !== null && reason !== undefined) ?? null;
 }
 
 function filterByTags(tests: TestDefinition[], tags: string[]): TestDefinition[] {
@@ -723,6 +686,6 @@ function filterByTags(tests: TestDefinition[], tags: string[]): TestDefinition[]
 	return tests.filter((test) => test.tags.some((tag) => tags.includes(tag)));
 }
 
-function pluralize(count: number, noun: string): string {
-	return `${count} ${noun}${count === 1 ? '' : 's'}`;
+function countTests(count: number): string {
+	return `${count} ${pluralize('test', count)}`;
 }

@@ -10,7 +10,7 @@ import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-const mocks = vi.hoisted(() => ({ getTestHistory: vi.fn(), listTests: vi.fn(), startRun: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getTestHistory: vi.fn(), startRun: vi.fn() }));
 
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({ children }: { children: React.ReactNode }) => <a href='/settings/usage'>{children}</a>,
@@ -19,7 +19,6 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('@/main', () => ({
 	trpc: {
 		testRun: {
-			listTests: { queryOptions: () => ({ queryKey: ['tests'], queryFn: mocks.listTests }) },
 			getTestHistory: {
 				queryOptions: (input: { path: string }) => ({
 					queryKey: ['test-history', input.path],
@@ -49,7 +48,6 @@ describe('TestWorkbench', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getTestHistory.mockResolvedValue([]);
-		mocks.listTests.mockResolvedValue({ tests: [testDefinition('hash-1')], invalidFiles: [] });
 	});
 
 	afterEach(cleanup);
@@ -154,6 +152,20 @@ describe('TestWorkbench', () => {
 		expect(screen.getByRole('option').textContent).toBe('revenuevsmain');
 		expect(screen.getAllByText('improve-revenue').length).toBeGreaterThan(0);
 		expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull();
+	});
+
+	it('names each run after the test, as it judges only this test even when the run covered the whole suite', async () => {
+		mocks.getTestHistory.mockResolvedValue([
+			{
+				...comparisonRun([result({ id: 'production-1', contextVariant: 'production', passed: true })]),
+				trigger: 'manual',
+				selection: ['revenue.yml', 'churn.yml'],
+				comparison: null,
+			},
+		]);
+		renderWorkbench(null);
+
+		expect((await screen.findByRole('option')).textContent).toBe('revenuemain');
 	});
 
 	it('flags runs of an older version of the test', async () => {

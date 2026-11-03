@@ -20,6 +20,13 @@ export interface TestContextChange {
 
 export const MAX_TEST_RUN_ATTEMPTS = 10;
 export const MAX_TEST_RUN_MODELS = 10;
+const TEST_RUN_CONCURRENCY_PER_MODEL = 3;
+const MAX_TEST_RUN_CONCURRENCY = 12;
+
+/** How many attempts of a run are in flight at once: a few per model, capped so that large runs stay polite. */
+export function getTestRunConcurrency(modelCount: number): number {
+	return Math.min(TEST_RUN_CONCURRENCY_PER_MODEL * modelCount, MAX_TEST_RUN_CONCURRENCY);
+}
 
 export const testComparisonTolerancesSchema = z.object({
 	rtol: z.number().min(0).default(1e-5),
@@ -30,7 +37,7 @@ export type TestComparisonTolerances = z.infer<typeof testComparisonTolerancesSc
 
 export const DEFAULT_TEST_COMPARISON_TOLERANCES: TestComparisonTolerances = testComparisonTolerancesSchema.parse({});
 
-export const toolCallAssertionSchema = z
+export const testAssertionSchema = z
 	.object({
 		type: z.literal('tool_call'),
 		tool: z.string().trim().min(1),
@@ -43,10 +50,7 @@ export const toolCallAssertionSchema = z
 		min_count: z.number().int().min(1).default(1),
 	})
 	.strict();
-export type ToolCallAssertion = z.infer<typeof toolCallAssertionSchema>;
-
-export const testAssertionSchema = toolCallAssertionSchema;
-export type TestAssertion = ToolCallAssertion;
+export type TestAssertion = z.infer<typeof testAssertionSchema>;
 
 export interface TestToolCall {
 	toolName: string;
@@ -99,7 +103,7 @@ export interface TestDataDiff {
 	isTruncated: boolean;
 }
 
-export interface TestDataDiffRow {
+interface TestDataDiffRow {
 	expected: TestDataCell[] | null;
 	actual: TestDataCell[] | null;
 	/** One status per column, null when only one side has this row. */

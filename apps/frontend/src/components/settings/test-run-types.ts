@@ -11,19 +11,23 @@ export type LatestTestOutcome = TestSuiteListing['latestOutcomes'][string];
 export type TestRunSummary = TestRunOutputs['listRuns'][number];
 export type TestRunWithResults = TestRunOutputs['getRun'];
 export type TestRunResult = TestRunWithResults['results'][number];
-export type TestComparison = NonNullable<TestRunWithResults['comparison']>;
+type TestComparison = NonNullable<TestRunWithResults['comparison']>;
 export type TestComparisonRow = TestComparison['tests'][number];
 export type TestComparisonChange = TestComparisonRow['change'];
-export type DraftContextStatus = TestRunOutputs['getDraftContext'];
+type DraftContextStatus = TestRunOutputs['getDraftContext'];
 export type DraftContext = Extract<DraftContextStatus, { status: 'available' }>;
 export type TestHistoryRun = TestRunOutputs['getTestHistory'][number];
 export type TestDataDiff = NonNullable<TestRunResult['dataDiff']>;
 export type TestDataDiffRow = TestDataDiff['rows'][number];
 export type TestFileValidation = TestRunOutputs['validateTestFile'];
 export type TestModelSummary = TestRunWithResults['modelSummaries'][number];
-export type PreviousTestModelSummary = TestRunWithResults['previousModelSummaries'][number];
 export type TestModelStats = TestRunOutputs['getModelStats'][number];
 export type TestModelOutcome = LatestTestOutcome['models'][number];
+export type ContextVariant = TestRunResult['contextVariant'];
+/** The attempts of a test that passed against one context of a comparison. */
+export type VariantOutcome = TestComparison['production'];
+
+export const ACTIVE_RUN_REFETCH_MS = 2_000;
 
 /**
  * Identity colors of the models of a run, in the order of `run.models`, validated together for color vision
@@ -90,12 +94,12 @@ export function isActiveRun(run: Pick<TestRunSummary, 'status'>): boolean {
 	return run.status === 'queued' || run.status === 'running';
 }
 
-/** The changed files that are context, as edited tests alone answer the same on production and on the draft. */
 /** The context a run that is not a comparison ran its tests against. */
-export function getSingleRunVariant(run: Pick<TestRunSummary, 'trigger'>): TestRunResult['contextVariant'] {
+export function getSingleRunVariant(run: Pick<TestRunSummary, 'trigger'>): ContextVariant {
 	return run.trigger === 'changes' ? 'draft' : 'production';
 }
 
+/** The changed files that are context, as edited tests alone answer the same on production and on the draft. */
 export function getContextChanges(draft: DraftContext | null): DraftContext['changes'] {
 	return draft?.changes.filter((change) => !change.path.startsWith('tests/')) ?? [];
 }
@@ -142,6 +146,20 @@ export function formatCount(value: number | null | undefined): string {
 		return '—';
 	}
 	return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toFixed(value % 1 === 0 ? 0 : 1);
+}
+
+export function average(values: (number | null | undefined)[]): number | null {
+	const recorded = values.filter((value): value is number => typeof value === 'number');
+	return recorded.length === 0 ? null : recorded.reduce((sum, value) => sum + value, 0) / recorded.length;
+}
+
+/** The results of each test, in the order the tests first appear. */
+export function groupResultsByTest(results: TestRunResult[]): Map<string, TestRunResult[]> {
+	const groups = new Map<string, TestRunResult[]>();
+	for (const result of results) {
+		groups.set(result.testPath, [...(groups.get(result.testPath) ?? []), result]);
+	}
+	return groups;
 }
 
 export function getAccuracy(summary: Pick<TestModelSummary, 'passedAttempts' | 'attempts'>): number | null {

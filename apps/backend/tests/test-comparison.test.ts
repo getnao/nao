@@ -30,7 +30,6 @@ describe('compareContextVariants', () => {
 		]);
 		expect(comparison.production).toEqual({ passed: 7, total: 10 });
 		expect(comparison.draft).toEqual({ passed: 7, total: 10 });
-		expect(comparison.counts).toMatchObject({ regressed: 1, worsened: 1, fixed: 1, improved: 1, unchanged: 1 });
 	});
 
 	it('keeps a test pending until both variants recorded all their attempts', () => {
@@ -44,7 +43,6 @@ describe('compareContextVariants', () => {
 			production: { passed: 2, total: 2 },
 			draft: { passed: 0, total: 1 },
 		});
-		expect(comparison.counts.pending).toBe(1);
 	});
 });
 

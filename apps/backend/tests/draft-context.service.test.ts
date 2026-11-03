@@ -122,6 +122,18 @@ describe('createDraftContextSnapshot', () => {
 		expect(fs.existsSync(snapshot.folder)).toBe(false);
 	});
 
+	it('keeps the production .naoignore, so a draft cannot expose the files it hides from the agent', () => {
+		writeFiles(liveFolder, { '.naoignore': 'private/\n' });
+		writeFiles(worktreeRoot, { '.naoignore': '' });
+
+		const draft = readGitDraft(resolvedRepo(), liveFolder);
+		const snapshot = createDraftContextSnapshot({ projectId: 'project-1', projectFolder: liveFolder, draft });
+
+		expect(draft.context.excludedChanges).toEqual([{ path: '.naoignore', kind: 'added' }]);
+		expect(read(snapshot.folder, '.naoignore')).toBe('private/\n');
+		removeContextSnapshot(snapshot.folder);
+	});
+
 	it('does not follow a symlink of the production context out of the snapshot', () => {
 		const outside = path.join(root, 'outside');
 		fs.mkdirSync(outside);

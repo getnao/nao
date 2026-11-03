@@ -1,14 +1,14 @@
 import type { DBTestRunResult } from '../db/abstractSchema';
 
-export const TEST_COMPARISON_CHANGES = ['regressed', 'worsened', 'fixed', 'improved', 'unchanged', 'pending'] as const;
-export type TestComparisonChange = (typeof TEST_COMPARISON_CHANGES)[number];
+const TEST_COMPARISON_CHANGES = ['regressed', 'worsened', 'fixed', 'improved', 'unchanged', 'pending'] as const;
+type TestComparisonChange = (typeof TEST_COMPARISON_CHANGES)[number];
 
-export interface TestVariantOutcome {
+interface TestVariantOutcome {
 	passed: number;
 	total: number;
 }
 
-export interface TestComparisonRow {
+interface TestComparisonRow {
 	testPath: string;
 	testName: string;
 	production: TestVariantOutcome;
@@ -16,10 +16,9 @@ export interface TestComparisonRow {
 	change: TestComparisonChange;
 }
 
-export interface TestComparison {
+interface TestComparison {
 	production: TestVariantOutcome;
 	draft: TestVariantOutcome;
-	counts: Record<TestComparisonChange, number>;
 	/** Tests sorted by change, regressions first, so the ones to look at come on top. */
 	tests: TestComparisonRow[];
 }
@@ -50,7 +49,6 @@ export function compareContextVariants(results: ComparedResult[], attemptsPerVar
 	return {
 		production: sumOutcomes(tests.map((test) => test.production)),
 		draft: sumOutcomes(tests.map((test) => test.draft)),
-		counts: countChanges(tests),
 		tests,
 	};
 }
@@ -88,15 +86,4 @@ function sumOutcomes(outcomes: TestVariantOutcome[]): TestVariantOutcome {
 			total: 0,
 		},
 	);
-}
-
-function countChanges(tests: TestComparisonRow[]): Record<TestComparisonChange, number> {
-	const counts = Object.fromEntries(TEST_COMPARISON_CHANGES.map((change) => [change, 0])) as Record<
-		TestComparisonChange,
-		number
-	>;
-	for (const test of tests) {
-		counts[test.change]++;
-	}
-	return counts;
 }

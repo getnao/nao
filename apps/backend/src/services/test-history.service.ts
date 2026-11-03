@@ -13,7 +13,7 @@ import type {
 } from '../types/test-run';
 import { compareContextVariants } from '../utils/test-comparison';
 import { buildTestDataDiff } from '../utils/test-data-comparison';
-import { isSameModelSummary, summarizeModels } from '../utils/test-model-summary';
+import { isSameModel, resultModel, summarizeModels } from '../utils/test-model-summary';
 import { summarizeRunTests, type TestAttemptTotals } from '../utils/test-run-totals';
 
 const TEST_HISTORY_RUN_LIMIT = 10;
@@ -21,13 +21,13 @@ const QUERY_ID_PATTERN = /\bquery_\w+/g;
 const TEST_HISTORY_SCANNED_RUNS = 100;
 const MODEL_STATS_WINDOW_MS = 30 * 24 * 60 * 60_000;
 
-export type TestRunResultWithDiff = DBTestRunResult & {
+type TestRunResultWithDiff = DBTestRunResult & {
 	dataDiff: TestDataDiff | null;
 	/** On the attempt of a comparison with the user's changes, how its rows differ from the same attempt on production. */
 	variantDiff: TestDataDiff | null;
 };
 
-export interface LatestTestOutcome {
+interface LatestTestOutcome {
 	runId: string;
 	runCreatedAt: Date;
 	passedAttempts: number;
@@ -38,7 +38,7 @@ export interface LatestTestOutcome {
 	isOutdated: boolean;
 }
 
-export interface LatestTestModelOutcome extends LlmSelectedModel {
+interface LatestTestModelOutcome extends LlmSelectedModel {
 	/** Position of the model in the run's models, which sets its color. */
 	runIndex: number;
 	passedAttempts: number;
@@ -116,7 +116,10 @@ export async function getPreviousModelSummaries(
 	const summaries = await Promise.all(
 		run.models.map(async (model) => {
 			const testPaths = new Set(resultsOfModel(results, model).map((result) => result.testPath));
-			for (const candidate of earlierRuns.filter((earlier) => earlier.models.some(isSameModel(model)))) {
+			const runsWithModel = earlierRuns.filter((earlier) =>
+				earlier.models.some((other) => isSameModel(model, other)),
+			);
+			for (const candidate of runsWithModel) {
 				const candidateResults = resultsOfModel(await loadResults(candidate.id), model);
 				const ranTestPaths = new Set(candidateResults.map((result) => result.testPath));
 				if ([...testPaths].every((testPath) => ranTestPaths.has(testPath))) {
@@ -233,10 +236,10 @@ function findProductionAttempt(results: DBTestRunResult[], draftResult: DBTestRu
 	return results.find(
 		(candidate) =>
 			candidate.contextVariant === 'production' &&
+			candidate.runId === draftResult.runId &&
 			candidate.testPath === draftResult.testPath &&
 			candidate.attempt === draftResult.attempt &&
-			candidate.llmProvider === draftResult.llmProvider &&
-			candidate.llmModelId === draftResult.llmModelId,
+			isSameModel(resultModel(candidate), resultModel(draftResult)),
 	);
 }
 
@@ -266,8 +269,8 @@ function addModelOutcome(
 		totalAttempts: number;
 	},
 ) {
-	const model = { provider: row.llmProvider, modelId: row.llmModelId };
-	const existing = models.find(isSameModel(model));
+	const model = resultModel(row);
+	const existing = models.find((other) => isSameModel(model, other));
 	if (existing) {
 		existing.passedAttempts += row.passedAttempts;
 		existing.totalAttempts += row.totalAttempts;
@@ -275,7 +278,7 @@ function addModelOutcome(
 	}
 	models.push({
 		...model,
-		runIndex: row.runModels.findIndex(isSameModel(model)),
+		runIndex: row.runModels.findIndex((other) => isSameModel(model, other)),
 		passedAttempts: row.passedAttempts,
 		totalAttempts: row.totalAttempts,
 	});
@@ -283,23 +286,16 @@ function addModelOutcome(
 
 function resultsOfModel(results: DBTestRunResult[], model: LlmSelectedModel): DBTestRunResult[] {
 	return results.filter(
-		(result) =>
-			result.contextVariant === 'production' &&
-			isSameModelSummary({ provider: result.llmProvider, modelId: result.llmModelId }, model),
+		(result) => result.contextVariant === 'production' && isSameModel(resultModel(result), model),
 	);
 }
 
 function toAttemptTotals(result: DBTestRunResult): TestAttemptTotals {
 	return {
-		provider: result.llmProvider,
-		modelId: result.llmModelId,
+		...resultModel(result),
 		testPath: result.testPath,
 		contextVariant: result.contextVariant,
 		passedAttempts: result.passed ? 1 : 0,
 		totalAttempts: 1,
 	};
-}
-
-function isSameModel(model: LlmSelectedModel) {
-	return (other: LlmSelectedModel) => isSameModelSummary(model, other);
 }

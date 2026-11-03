@@ -1,15 +1,13 @@
-import type { TestHistoryRun } from '@/components/settings/test-run-types';
+import type { TestHistoryRun, TestRunSummary, VariantOutcome } from '@/components/settings/test-run-types';
 import { isActiveRun, isSameTestModel, resultModel } from '@/components/settings/test-run-types';
 
-export type Tone = 'pass' | 'fail' | 'mixed' | 'pending' | 'neutral';
+export type Tone = 'pass' | 'fail' | 'mixed' | 'pending' | 'neutral' | 'cancelled' | 'error';
 
-export interface RunVerdict {
+interface RunVerdict {
 	tone: Tone;
 	title: string;
 	detail: string | null;
 }
-
-type VariantOutcome = NonNullable<TestHistoryRun['comparison']>['production'];
 
 /**
  * What a run says about the test, in a few words, from the attempts recorded so far. A comparison says nothing more,
@@ -32,8 +30,8 @@ export function describeRun(run: TestHistoryRun): RunVerdict {
 	return describeAttempts(run);
 }
 
-/** A side without a recorded attempt is still pending while the run is active, and left unfinished once it stopped. */
-export function variantTone(run: TestHistoryRun, outcome: VariantOutcome | undefined): Tone {
+/** Attempts not recorded yet are still pending while the run is active, and left unfinished once it stopped. */
+export function variantTone(run: Pick<TestRunSummary, 'status'>, outcome: VariantOutcome | undefined): Tone {
 	if (!outcome || outcome.total === 0) {
 		return isActiveRun(run) ? 'pending' : 'neutral';
 	}

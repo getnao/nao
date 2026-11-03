@@ -1,3 +1,4 @@
+import { pluralize } from '@nao/shared';
 import { Link } from '@tanstack/react-router';
 import { MessageSquare } from 'lucide-react';
 import { useState } from 'react';
@@ -102,7 +103,7 @@ export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: S
 }
 
 /** Opens the chat of an attempt, to replay how the agent answered. */
-export function AttemptChatLink({ result }: { result: TestRunResult }) {
+function AttemptChatLink({ result }: { result: TestRunResult }) {
 	if (!result.chatId) {
 		return null;
 	}
@@ -117,24 +118,6 @@ export function AttemptChatLink({ result }: { result: TestRunResult }) {
 				<MessageSquare className='size-3.5' />
 			</Link>
 		</Button>
-	);
-}
-
-function DetailBlock({ label, value, isCode }: { label: string; value: string | null | undefined; isCode?: boolean }) {
-	if (!value) {
-		return null;
-	}
-	return (
-		<div className='flex flex-col gap-1'>
-			<span className='font-medium text-foreground'>{label}</span>
-			{isCode ? (
-				<pre className='max-h-60 overflow-auto rounded-md bg-background p-2 font-mono whitespace-pre-wrap'>
-					{value}
-				</pre>
-			) : (
-				<p className='max-h-60 overflow-auto whitespace-pre-wrap text-muted-foreground'>{value}</p>
-			)}
-		</div>
 	);
 }
 
@@ -173,9 +156,17 @@ function AttemptData({ result }: { result: TestRunResult }) {
 	if (!details.actualData) {
 		return <p className='p-3 text-muted-foreground'>The agent returned no data to compare: {result.message}.</p>;
 	}
+	const differences = details.comparison ?? result.message;
 	return (
 		<div className='p-3'>
-			<DetailBlock label='Differences' value={details.comparison ?? result.message} isCode />
+			{differences && (
+				<div className='flex flex-col gap-1'>
+					<span className='font-medium text-foreground'>Differences</span>
+					<pre className='max-h-60 overflow-auto rounded-md bg-background p-2 font-mono whitespace-pre-wrap'>
+						{differences}
+					</pre>
+				</div>
+			)}
 		</div>
 	);
 }
@@ -270,7 +261,9 @@ function describeAttemptMetrics(result: TestRunResult): string {
 	return [
 		result.llmModelId,
 		result.durationMs ? formatDuration(result.durationMs) : null,
-		result.toolCallCount !== null ? pluralize(result.toolCallCount, 'tool call') : null,
+		result.toolCallCount !== null
+			? `${result.toolCallCount} ${pluralize('tool call', result.toolCallCount)}`
+			: null,
 		result.totalTokens !== null ? `${formatCount(result.totalTokens)} tokens` : null,
 		result.totalCost !== null ? formatCost(result.totalCost) : null,
 	]
@@ -299,8 +292,4 @@ function compareMetric(before: number | null, after: number | null, format: (val
 		return value === null ? null : format(value);
 	}
 	return before === after ? format(after) : `${format(before)} → ${format(after)}`;
-}
-
-function pluralize(count: number, noun: string): string {
-	return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }

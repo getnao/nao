@@ -7,7 +7,7 @@ import { noProjectMessage } from '../env';
 import { sessionOrApiKeyAuthMiddleware } from '../middleware/auth';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { testAgentService } from '../services/test-agent.service';
-import { evaluateTestAttempt } from '../services/test-evaluation.service';
+import { evaluateTestAttempt, type TestAttemptEvaluation } from '../services/test-evaluation.service';
 import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
 import { testAssertionSchema, testComparisonTolerancesSchema } from '../types/test-run';
 import { truncateMiddle } from '../utils/utils';
@@ -85,7 +85,7 @@ export const testRoutes = async (app: App) => {
 					cost: result.cost,
 					finishReason: result.finishReason,
 					durationMs: result.durationMs,
-					verification,
+					verification: verification && toCliVerification(verification),
 					verdict,
 				});
 			} catch (err) {
@@ -94,3 +94,9 @@ export const testRoutes = async (app: App) => {
 		},
 	);
 };
+
+/** Keeps the verification fields `nao test` knows, as released CLIs reject unknown ones. */
+function toCliVerification(verification: NonNullable<TestAttemptEvaluation['verification']>) {
+	const { data, expectedData, expectedColumns, sql, error } = verification;
+	return { data, expectedData, expectedColumns, sql, error };
+}

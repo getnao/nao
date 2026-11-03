@@ -4,13 +4,14 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 
 import type { ShownAttempt } from '@/components/settings/test-attempt-details';
 import type { RunBranches } from '@/components/settings/test-run-labels';
-import type { TestHistoryRun, TestRunResult } from '@/components/settings/test-run-types';
+import type { ContextVariant, TestHistoryRun } from '@/components/settings/test-run-types';
 import type { Tone } from '@/components/settings/test-run-verdict';
 import { TestAttemptDetails } from '@/components/settings/test-attempt-details';
 import { PanelHeader } from '@/components/settings/test-drawer-layout';
 import { AttemptDots, ModelName } from '@/components/settings/test-model-results';
 import { BranchName, ToneIcon } from '@/components/settings/test-run-labels';
 import {
+	average,
 	formatCount,
 	formatDuration,
 	formatUnitCost,
@@ -26,8 +27,6 @@ import { cn } from '@/lib/utils';
 
 /** The run header sits right above the model table and tabs, so a full border would cut the view in two. */
 const LIGHT_HEADER_BORDER_CLASS = 'border-border/50';
-
-type Variant = TestRunResult['contextVariant'];
 
 /** One run of the test: what it found, the model and attempt picked, and what that attempt answered. */
 export function RunDetails({
@@ -117,7 +116,7 @@ function RunHeader({ run, branches }: { run: TestHistoryRun; branches: RunBranch
 }
 
 /** How one branch of a comparison did, with its count of passed attempts when there are several. */
-function VariantPill({ run, variant, branch }: { run: TestHistoryRun; variant: Variant; branch: string }) {
+function VariantPill({ run, variant, branch }: { run: TestHistoryRun; variant: ContextVariant; branch: string }) {
 	const outcome = run.comparison?.[variant];
 	return (
 		<span className='inline-flex items-center gap-1 rounded-full border py-px pr-2 pl-1 text-[11px]'>
@@ -245,13 +244,13 @@ function TestModelStrip({
 									</td>
 								)}
 								<td className='px-3 py-1 text-right tabular-nums'>
-									{formatUnitCost(averageOf(measuredResults, (result) => result.totalCost))}
+									{formatUnitCost(average(measuredResults.map((result) => result.totalCost)))}
 								</td>
 								<td className='px-3 py-1 text-right tabular-nums'>
-									{formatCount(averageOf(measuredResults, (result) => result.toolCallCount))}
+									{formatCount(average(measuredResults.map((result) => result.toolCallCount)))}
 								</td>
 								<td className='px-3 py-1 text-right tabular-nums'>
-									{formatDuration(averageOf(measuredResults, (result) => result.durationMs))}
+									{formatDuration(average(measuredResults.map((result) => result.durationMs)))}
 								</td>
 							</tr>
 						);
@@ -269,7 +268,7 @@ function listShownAttempts(run: TestHistoryRun, model: LlmSelectedModel | null):
 		return results.map((result) => ({ kind: 'single', attempt: result.attempt, result }));
 	}
 	const attemptNumbers = [...new Set(results.map((result) => result.attempt))].sort((left, right) => left - right);
-	const findResult = (variant: Variant, attempt: number) =>
+	const findResult = (variant: ContextVariant, attempt: number) =>
 		results.find((result) => result.contextVariant === variant && result.attempt === attempt) ?? null;
 	return attemptNumbers.map((attempt) => ({
 		kind: 'comparison',
@@ -299,9 +298,4 @@ function attemptTone(run: TestHistoryRun, attempt: ShownAttempt): Tone {
 function pickModelToShow(run: TestHistoryRun): LlmSelectedModel {
 	const failed = run.results.find((result) => !result.passed);
 	return failed ? resultModel(failed) : run.models[0];
-}
-
-function averageOf(results: TestRunResult[], value: (result: TestRunResult) => number | null): number | null {
-	const values = results.map(value).filter((entry): entry is number => typeof entry === 'number');
-	return values.length === 0 ? null : values.reduce((sum, entry) => sum + entry, 0) / values.length;
 }

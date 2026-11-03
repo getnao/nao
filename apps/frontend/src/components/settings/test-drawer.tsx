@@ -13,7 +13,7 @@ import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
 import { SuiteRunActions, TestFileRunActions } from '@/components/settings/test-run-actions';
-import { isActiveRun, toExplorerTestPath } from '@/components/settings/test-run-types';
+import { ACTIVE_RUN_REFETCH_MS, isActiveRun, toExplorerTestPath } from '@/components/settings/test-run-types';
 import { getSuiteRunScope, TestSuitePanel } from '@/components/settings/test-suite-panel';
 import { TestTabRunButton } from '@/components/settings/test-tab-run-button';
 import { TestWorkbench } from '@/components/settings/test-workbench';
@@ -31,7 +31,6 @@ import { trpc } from '@/main';
 const DRAWER_BAR_HEIGHT = 32;
 const DRAWER_MIN_HEIGHT = 160;
 const DRAWER_OPENED_SIZE = '45%';
-const ACTIVE_RUN_REFETCH_MS = 3_000;
 const DRAWER_ANIMATION_MS = 200;
 const NO_TESTS: TestDefinition[] = [];
 const TAB_DRAG_ACTIVATION_DISTANCE = 4;
@@ -435,7 +434,6 @@ interface DrawerTabDrag {
 /** A tab of the drawer bar, like an editor tab; tabs that can close show a cross and also close on a middle click. */
 function DrawerTab({
 	label,
-	icon,
 	leading,
 	title,
 	className,
@@ -445,7 +443,6 @@ function DrawerTab({
 	drag,
 }: {
 	label: string;
-	icon?: ReactNode;
 	/** Shown at the start of the tab, outside the button that selects it. */
 	leading?: ReactNode;
 	title?: string;
@@ -498,7 +495,6 @@ function DrawerTab({
 					onClose ? 'pr-1.5' : 'pr-3',
 				)}
 			>
-				{icon}
 				<span className='max-w-60 truncate whitespace-nowrap'>{label}</span>
 			</button>
 			{onClose && (

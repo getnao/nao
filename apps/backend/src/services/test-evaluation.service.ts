@@ -12,7 +12,7 @@ import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import { TestAgentService, testAgentService, type ToolCallResult, type VerificationResult } from './test-agent.service';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 
-export interface TestAttemptInput {
+interface TestAttemptInput {
 	prompt: string;
 	sql?: string | null;
 	databaseId?: string | null;

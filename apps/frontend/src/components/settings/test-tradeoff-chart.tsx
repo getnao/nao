@@ -31,7 +31,7 @@ interface Box {
 	bottom: number;
 }
 
-export interface TradeoffPoint {
+interface TradeoffPoint {
 	x: number;
 	/** Accuracy, from 0 to 1. */
 	y: number;

@@ -11,7 +11,7 @@ type CellStatus = NonNullable<TestDataDiffRow['statuses']>[number];
 type RowKind = 'match' | 'differ' | 'missing' | 'extra';
 
 /** The names of the two sides of the diff: removed rows only exist on the first, added ones on the second. */
-export interface DiffSides {
+interface DiffSides {
 	removed: string;
 	added: string;
 }

@@ -99,6 +99,26 @@ describe('TestFileRunActions', () => {
 		expect(screen.getByRole('button', { name: 'More ways to run' })).toBeTruthy();
 	});
 
+	it('estimates both contexts only when the run compares them', async () => {
+		renderWithProviders(
+			<TestFileRunActions
+				settings={settings()}
+				draft={draftWith(['RULES.md'])}
+				activeRun={undefined}
+				testFile={TEST_FILE}
+				validation={VALID}
+				onRunStarted={vi.fn()}
+			/>,
+		);
+
+		openMenu(screen.getByRole('button', { name: 'More ways to run' }));
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Run with your changes only' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Models to test' }));
+
+		expect(await screen.findByText('6 attempts')).toBeTruthy();
+		expect(screen.queryByText(/2 contexts/)).toBeNull();
+	});
+
 	it('makes the picked way to run the button action for the next click', async () => {
 		renderWithProviders(
 			<TestFileRunActions

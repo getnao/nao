@@ -45,6 +45,7 @@ import {
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { compareContextVariants } from '../utils/test-comparison';
 import { summarizeModels } from '../utils/test-model-summary';
+import { draftOwnerOf, requireProjectPath } from './route-context';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with production.';
@@ -80,7 +81,7 @@ const draftContextRunSchema = runSelectionSchema.extend({
 
 export const testRunRoutes = {
 	listTests: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const projectFolder = requireProjectFolder(ctx.project.path);
+		const projectFolder = requireProjectPath(ctx.project.path);
 		const suite = discoverTests(projectFolder);
 		return {
 			...suite,
@@ -98,7 +99,7 @@ export const testRunRoutes = {
 	}),
 
 	getDraftContext: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const projectFolder = requireProjectFolder(ctx.project.path);
+		const projectFolder = requireProjectPath(ctx.project.path);
 		try {
 			const draft = await readUserDraft(ctx, projectFolder, createSafeFileAccess);
 			if ('message' in draft) {
@@ -195,7 +196,7 @@ async function startRunWithDraft(
 	input: z.infer<typeof draftContextRunSchema>,
 	startRun: typeof startComparisonRun,
 ) {
-	const projectFolder = requireProjectFolder(ctx.project.path);
+	const projectFolder = requireProjectPath(ctx.project.path);
 	const { testFile, ...selection } = input;
 	const tests = testFile ? [parseValidDraftTest(testFile.path, testFile.content)] : undefined;
 	const draft = await readUserDraft(ctx, projectFolder, createStrictFileAccess);
@@ -216,7 +217,7 @@ async function readUserDraft(
 	createFileAccess: typeof createSafeFileAccess,
 ): Promise<DraftSource | { message: string }> {
 	if (!(await hasContextRepository(ctx.project.id))) {
-		return readNaoDraft({ projectId: ctx.project.id, userId: ctx.user.id }, projectFolder);
+		return readNaoDraft(draftOwnerOf(ctx), projectFolder);
 	}
 	if (!hasContextWorktree(ctx.project.id, projectFolder, ctx.user.id)) {
 		return { message: NO_DRAFT_MESSAGE };
@@ -273,13 +274,6 @@ async function getProjectRun(projectId: string, runId: string) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Test run not found: ${runId}` });
 	}
 	return run;
-}
-
-function requireProjectFolder(projectFolder: string | null): string {
-	if (!projectFolder) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The project has no context folder.' });
-	}
-	return projectFolder;
 }
 
 function toTestRunTrpcError(error: unknown): TRPCError {

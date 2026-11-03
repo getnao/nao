@@ -1,11 +1,11 @@
-import { CircleCheck, CircleDashed, CircleX } from 'lucide-react';
+import { CircleDashed } from 'lucide-react';
 
-import type { DraftContext, TestComparison, TestComparisonChange } from '@/components/settings/test-run-types';
+import type { DraftContext, TestComparisonChange, VariantOutcome } from '@/components/settings/test-run-types';
+import { TONE_COLORS, ToneIcon } from '@/components/settings/test-run-labels';
+import { outcomeTone } from '@/components/settings/test-run-verdict';
 import { Badge } from '@/components/ui/badge';
 import { Callout } from '@/components/ui/callout';
 import { cn } from '@/lib/utils';
-
-type VariantOutcome = TestComparison['production'];
 
 const CHANGE_BADGES: Record<
 	TestComparisonChange,
@@ -41,20 +41,17 @@ export function VariantOutcomeCell({
 			</span>
 		);
 	}
-	const allPassed = outcome.passed === outcome.total;
-	const nonePassed = outcome.passed === 0;
-	const Icon = allPassed ? CircleCheck : nonePassed ? CircleX : CircleDashed;
+	const tone = outcomeTone(outcome.passed, outcome.total);
+	const label =
+		attemptsPerVariant === 1
+			? tone === 'pass'
+				? 'Passed'
+				: 'Failed'
+			: `${outcome.passed}/${outcome.total} passed`;
 	return (
-		<span
-			className={cn(
-				'flex items-center gap-1 text-xs',
-				allPassed && 'text-green-600 dark:text-green-500',
-				nonePassed && 'text-destructive',
-				!allPassed && !nonePassed && 'text-amber-600 dark:text-amber-500',
-			)}
-		>
-			<Icon className='size-3.5 shrink-0' />
-			{attemptsPerVariant === 1 ? (allPassed ? 'Passed' : 'Failed') : `${outcome.passed}/${outcome.total} passed`}
+		<span className={cn('flex items-center gap-1 text-xs', TONE_COLORS[tone])}>
+			<ToneIcon tone={tone} />
+			{label}
 		</span>
 	);
 }
@@ -64,11 +61,11 @@ export function hasDraftContextWarnings(draft: DraftContext): boolean {
 }
 
 /** What makes a comparison with production unfair or partial, so the user can fix it before running one. */
-export function DraftContextWarnings({ draft, className }: { draft: DraftContext; className?: string }) {
+export function DraftContextWarnings({ draft }: { draft: DraftContext }) {
 	return (
 		<>
 			{draft.outdatedPaths.length > 0 && (
-				<Callout variant='warning' className={className}>
+				<Callout variant='warning'>
 					Production changed {draft.outdatedPaths.join(', ')} since your changes started, so the comparison
 					would also undo those updates.{' '}
 					{draft.storage === 'git'
@@ -77,7 +74,7 @@ export function DraftContextWarnings({ draft, className }: { draft: DraftContext
 				</Callout>
 			)}
 			{draft.excludedChanges.length > 0 && (
-				<Callout className={className}>
+				<Callout>
 					Changes to {draft.excludedChanges.map((change) => change.path).join(', ')} are not tested:
 					connections, MCP servers and skills always come from production.
 				</Callout>

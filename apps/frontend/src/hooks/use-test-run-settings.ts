@@ -6,8 +6,7 @@ import { isSameTestModel } from '@/components/settings/test-run-types';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 
-export const MAX_TEST_RUN_ATTEMPTS = 10;
-export const MAX_TEST_RUN_MODELS = 10;
+export { MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_MODELS } from '@nao/backend/test-run';
 
 interface StoredTestRunSettings {
 	models: LlmSelectedModel[];

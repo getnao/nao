@@ -10,6 +10,7 @@ import type {
 } from '@/components/settings/test-run-types';
 import type { TradeoffSeries } from '@/components/settings/test-tradeoff-chart';
 import {
+	average,
 	formatCount,
 	formatDuration,
 	formatPassRate,
@@ -17,6 +18,7 @@ import {
 	getAccuracy,
 	getSingleRunVariant,
 	getTestModelColor,
+	groupResultsByTest,
 	isSameTestModel,
 	resultModel,
 	testModelKey,
@@ -121,7 +123,8 @@ const LEADERBOARD_COLUMNS: LeaderboardColumn[] = [
 ];
 
 /** The models of a run side by side, most accurate first, with the best value of each metric highlighted. */
-export function ModelLeaderboard({ run, summaries }: { run: TestRunWithResults; summaries: TestModelSummary[] }) {
+export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
+	const summaries = run.modelSummaries;
 	const mostAccurate = summaries.at(0);
 	const bestValue = pickBest(summaries, (summary) => summary.costPerCorrectAnswer, 'lowest');
 	const isSmallSample = summaries.some((summary) => summary.attempts < SMALL_SAMPLE_ATTEMPTS);
@@ -200,7 +203,7 @@ export function TestModelMatrix({
 	testPaths: string[];
 	onOpenTest: (testPath: string) => void;
 }) {
-	const resultsByTest = groupResults(
+	const resultsByTest = groupResultsByTest(
 		run.results.filter((result) => result.contextVariant === getSingleRunVariant(run)),
 	);
 	return (
@@ -267,7 +270,7 @@ export function RunStatStrip({
 		{
 			label: 'Passed',
 			value: `${summary.passedAttempts}/${summary.attempts}`,
-			change: baseline && (
+			change: baseline?.attempts === summary.attempts && (
 				<Change
 					value={summary.passedAttempts - baseline.passedAttempts}
 					format={(value) => `${Math.abs(value)}`}
@@ -406,7 +409,7 @@ export function summarizeTestMetrics(results: TestRunResult[]) {
 		string,
 		{ costPerQuestion: number | null; toolCalls: number | null; durationMs: number | null }
 	>();
-	for (const [testPath, testResults] of groupResults(results)) {
+	for (const [testPath, testResults] of groupResultsByTest(results)) {
 		metrics.set(testPath, {
 			costPerQuestion: average(testResults.map((result) => result.totalCost)),
 			toolCalls: average(testResults.map((result) => result.toolCallCount)),
@@ -419,7 +422,7 @@ export function summarizeTestMetrics(results: TestRunResult[]) {
 /** Tests whose models do not agree, for the "Models disagree" filter. */
 export function listTestsWhereModelsDisagree(run: TestRunWithResults): Set<string> {
 	const disagreeing = new Set<string>();
-	for (const [testPath, results] of groupResults(
+	for (const [testPath, results] of groupResultsByTest(
 		run.results.filter((result) => result.contextVariant === getSingleRunVariant(run)),
 	)) {
 		const outcomes = run.models.map((model) =>
@@ -449,10 +452,8 @@ export function ModelName({
 	);
 }
 
-export function ModelDot({ color, className }: { color: TestModelColor; className?: string }) {
-	return (
-		<span aria-hidden className={cn('inline-block size-2 shrink-0 rounded-full', color.background, className)} />
-	);
+export function ModelDot({ color }: { color: TestModelColor }) {
+	return <span aria-hidden className={cn('inline-block size-2 shrink-0 rounded-full', color.background)} />;
 }
 
 export function AttemptDots({
@@ -640,19 +641,6 @@ function modelsDisagree(outcomes: Pick<TestRunResult, 'passed'>[][]): boolean {
 		.filter((results) => results.length > 0)
 		.map((results) => results.filter((result) => result.passed).length / results.length);
 	return new Set(passRates).size > 1;
-}
-
-function groupResults(results: TestRunResult[]): Map<string, TestRunResult[]> {
-	const groups = new Map<string, TestRunResult[]>();
-	for (const result of results) {
-		groups.set(result.testPath, [...(groups.get(result.testPath) ?? []), result]);
-	}
-	return groups;
-}
-
-function average(values: (number | null | undefined)[]): number | null {
-	const recorded = values.filter((value): value is number => typeof value === 'number');
-	return recorded.length === 0 ? null : recorded.reduce((sum, value) => sum + value, 0) / recorded.length;
 }
 
 function difference(value: number | null, baseline: number | null): number | null {

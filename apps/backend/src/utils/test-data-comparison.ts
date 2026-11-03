@@ -15,7 +15,7 @@ interface NormalizedTable {
 	rows: Cell[][];
 }
 
-export interface TestDataComparisonInput {
+interface TestDataComparisonInput {
 	/** Rows of the agent answer, or null when no answer could be extracted. */
 	actual: Record<string, unknown>[] | null;
 	expected: Record<string, unknown>[];

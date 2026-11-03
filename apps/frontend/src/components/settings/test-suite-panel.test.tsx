@@ -125,6 +125,25 @@ describe('TestSuitePanel', () => {
 		]);
 	});
 
+	it('leaves out the change of passed attempts when the previous run asked a different number of times', async () => {
+		mocks.getRun.mockResolvedValue({
+			...multiModelRun([['revenue.yml', 'claude-sonnet-5', true]]),
+			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+			modelSummaries: [summary('claude-sonnet-5', 3, 3, 0.04)],
+			previousModelSummaries: [
+				{
+					runId: 'run-0',
+					runCreatedAt: new Date().toISOString(),
+					summary: summary('claude-sonnet-5', 1, 1, 0.04),
+				},
+			],
+		});
+		renderPanel();
+
+		const stats = await screen.findAllByRole('term');
+		expect(stats[0].parentElement?.textContent).toBe('Passed3/3');
+	});
+
 	it('names a run of the whole suite apart from a run of some of its tests', async () => {
 		mocks.listTests.mockResolvedValue({
 			tests: [testDefinition('revenue.yml', []), testDefinition('churn.yml', [])],

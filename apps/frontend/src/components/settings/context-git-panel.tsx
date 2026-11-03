@@ -521,18 +521,7 @@ export function ContextGitPanel({
 												: 'Nothing to push'}
 									</span>
 									<div className='flex shrink-0 items-center gap-1'>
-										{hasDraftChanges && (
-											<Button
-												variant='ghost-muted'
-												size='sm'
-												className='h-6 gap-1 px-1.5 text-[11px]'
-												title='Run the tests on your changes and on production side by side'
-												onClick={onOpenTests}
-											>
-												<FlaskConical className='size-3' />
-												test
-											</Button>
-										)}
+										{hasDraftChanges && <TestChangesButton onClick={onOpenTests} />}
 										{reviewRequestUrl && (
 											<Button
 												variant='ghost-muted'
@@ -790,18 +779,7 @@ function NaoDraftChanges({
 					<span className='min-w-0 flex-1 pl-[13px] text-[11px] text-muted-foreground'>
 						Saved in nao. Only your test runs use them.
 					</span>
-					{files.length > 0 && (
-						<Button
-							variant='ghost-muted'
-							size='sm'
-							className='h-6 shrink-0 gap-1 px-1.5 text-[11px]'
-							title='Run the tests on your changes and on production side by side'
-							onClick={onTest}
-						>
-							<FlaskConical className='size-3' />
-							test
-						</Button>
-					)}
+					{files.length > 0 && <TestChangesButton onClick={onTest} />}
 				</div>
 				<p className='pl-[13px] text-[11px] text-muted-foreground'>
 					Production stays unchanged.{' '}
@@ -812,6 +790,21 @@ function NaoDraftChanges({
 				</p>
 			</div>
 		</>
+	);
+}
+
+function TestChangesButton({ onClick }: { onClick: () => void }) {
+	return (
+		<Button
+			variant='ghost-muted'
+			size='sm'
+			className='h-6 shrink-0 gap-1 px-1.5 text-[11px]'
+			title='Run the tests on your changes and on production side by side'
+			onClick={onClick}
+		>
+			<FlaskConical className='size-3' />
+			test
+		</Button>
 	);
 }
 

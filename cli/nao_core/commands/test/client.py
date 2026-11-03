@@ -1,7 +1,7 @@
 import os
 import threading
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, fields
+from typing import Any, TypeVar
 
 import requests
 
@@ -14,6 +14,8 @@ from .assertions import Assertion
 from .case import TestCase
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5005")
+
+DataclassT = TypeVar("DataclassT")
 
 
 @dataclass
@@ -205,8 +207,10 @@ class AgentClient:
             cost=TokenCost(**data["cost"]),
             finish_reason=data["finishReason"],
             duration_ms=data.get("durationMs", 0),
-            verification=VerificationResult(**data["verification"]) if data.get("verification") else None,
-            verdict=TestVerdict(**data["verdict"]) if data.get("verdict") else None,
+            verification=from_known_fields(VerificationResult, data["verification"])
+            if data.get("verification")
+            else None,
+            verdict=from_known_fields(TestVerdict, data["verdict"]) if data.get("verdict") else None,
         )
 
 
@@ -253,3 +257,9 @@ def serialize_assertion(assertion: Assertion) -> dict[str, Any]:
     if assertion.args is not None:
         serialized["args"] = assertion.args
     return serialized
+
+
+def from_known_fields(cls: type[DataclassT], data: dict[str, Any]) -> DataclassT:
+    """Build a dataclass from an API payload, ignoring the fields newer servers add."""
+    known_fields = {field.name for field in fields(cls)}
+    return cls(**{key: value for key, value in data.items() if key in known_fields})

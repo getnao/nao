@@ -1,6 +1,6 @@
 import '../src/env';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
@@ -339,6 +339,38 @@ describe('getTestHistory', () => {
 		expect(draft?.variantDiff).toMatchObject({
 			rows: [{ expected: ['jan', 100], actual: ['jan', 90], statuses: ['match', 'differ'] }],
 		});
+	});
+
+	it('diffs each attempt with the changes against production in its own run only', async () => {
+		const comparisonResults: [string, string, boolean, TestContextVariant][] = [
+			['revenue.yml', 'hash-revenue', true, 'production'],
+			['revenue.yml', 'hash-revenue', false, 'draft'],
+		];
+		await insertRun('run-1', PREVIOUS_RUN_AT, 'completed', comparisonResults, 'comparison');
+		await insertRun('run-2', LATEST_RUN_AT, 'completed', comparisonResults, 'comparison');
+		for (const [runId, contextVariant, total] of [
+			['run-1', 'production', 100],
+			['run-1', 'draft', 90],
+			['run-2', 'production', 80],
+			['run-2', 'draft', 80],
+		] as const) {
+			await db
+				.update(s.testRunResult)
+				.set({ details: storedRows([{ month: 'jan', total }]), attempt: 1 })
+				.where(and(eq(s.testRunResult.runId, runId), eq(s.testRunResult.contextVariant, contextVariant)))
+				.execute();
+		}
+
+		const history = await getTestHistory(PROJECT_ID, 'revenue.yml', DEFAULT_TEST_COMPARISON_TOLERANCES);
+		const draftRows = history.map((run) => [
+			run.id,
+			run.results.find((result) => result.contextVariant === 'draft')?.variantDiff?.rows,
+		]);
+
+		expect(draftRows).toEqual([
+			['run-2', [{ expected: ['jan', 80], actual: ['jan', 80], statuses: ['match', 'match'] }]],
+			['run-1', [{ expected: ['jan', 100], actual: ['jan', 90], statuses: ['match', 'differ'] }]],
+		]);
 	});
 });
 

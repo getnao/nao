@@ -97,6 +97,30 @@ describe('test routes', () => {
 		);
 	});
 
+	it('sends the verification without the fields released CLIs do not know', async () => {
+		mocks.executeQuery.mockResolvedValue({ data: [{ total: 10 }], columns: ['total'] });
+		mocks.runVerification.mockResolvedValue({
+			data: [{ total: 10 }],
+			sql: 'SELECT total FROM query_1',
+			sourceQueries: [{ id: 'query_1', sql: 'SELECT 10 AS total' }],
+			error: null,
+		});
+
+		const reply = await runExpectedQuery();
+
+		expect(reply.send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				verification: {
+					data: [{ total: 10 }],
+					expectedData: [{ total: 10 }],
+					expectedColumns: ['total'],
+					sql: 'SELECT total FROM query_1',
+					error: null,
+				},
+			}),
+		);
+	});
+
 	it('uses project credentials while keeping expected-query verification restricted', async () => {
 		const reply = await runExpectedQuery();
 
