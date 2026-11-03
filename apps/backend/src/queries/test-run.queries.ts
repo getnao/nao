@@ -2,7 +2,7 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import { and, asc, desc, eq, gte, inArray, lt, lte, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { DBTestRun, DBTestRunResult, NewTestRun, NewTestRunResult } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 
 const ACTIVE_STATUSES: DBTestRun['status'][] = ['queued', 'running'];
@@ -267,20 +267,25 @@ export async function markRunRunning(runId: string, totalAttempts: number): Prom
 	return rows.length > 0;
 }
 
-/** Folds an attempt result into the run totals and stores it, unless the run stopped running meanwhile. */
+/**
+ * Folds an attempt result into the run totals and stores it, unless the run stopped running meanwhile.
+ *
+ * The SQLite body is synchronous because Bun commits before an async body's awaited writes run, which would let the
+ * totals count a result whose insert failed.
+ */
 export async function recordResultWhileRunning(result: NewTestRunResult): Promise<boolean> {
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		return db.transaction((t) => {
+			const updated = foldResultIntoRun(t, result).all();
+			if (updated.length === 0) {
+				return false;
+			}
+			t.insert(s.testRunResult).values(result).run();
+			return true;
+		});
+	}
 	return db.transaction(async (t) => {
-		const updated = await t
-			.update(s.testRun)
-			.set({
-				completedAttempts: sql`${s.testRun.completedAttempts} + 1`,
-				passedAttempts: sql`${s.testRun.passedAttempts} + ${result.passed ? 1 : 0}`,
-				totalTokens: sql`${s.testRun.totalTokens} + ${result.totalTokens ?? 0}`,
-				totalCost: sql`coalesce(${s.testRun.totalCost}, 0) + ${result.totalCost ?? 0}`,
-			})
-			.where(and(eq(s.testRun.id, result.runId), eq(s.testRun.status, 'running')))
-			.returning({ id: s.testRun.id })
-			.execute();
+		const updated = await foldResultIntoRun(t, result).execute();
 		if (updated.length === 0) {
 			return false;
 		}
@@ -345,6 +350,19 @@ export async function failStaleRuns(input: {
 		.returning({ id: s.testRun.id })
 		.execute();
 	return rows.length;
+}
+
+function foldResultIntoRun(t: DBTransaction, result: NewTestRunResult) {
+	return t
+		.update(s.testRun)
+		.set({
+			completedAttempts: sql`${s.testRun.completedAttempts} + 1`,
+			passedAttempts: sql`${s.testRun.passedAttempts} + ${result.passed ? 1 : 0}`,
+			totalTokens: sql`${s.testRun.totalTokens} + ${result.totalTokens ?? 0}`,
+			totalCost: sql`coalesce(${s.testRun.totalCost}, 0) + ${result.totalCost ?? 0}`,
+		})
+		.where(and(eq(s.testRun.id, result.runId), eq(s.testRun.status, 'running')))
+		.returning({ id: s.testRun.id });
 }
 
 function selectionIncludes(testPath: string): SQL {
