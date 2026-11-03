@@ -132,13 +132,17 @@ export async function putProjectMember(
 	role: UserRole,
 ): Promise<MembershipMutationResult> {
 	const [project] = await Promise.all([requireProject(projectId), requireUser(userId)]);
-	if (project.orgId && !(await orgQueries.getOrgMember(project.orgId, userId))) {
-		throw new HandlerError('BAD_REQUEST', "User is not a member of the project's organization");
-	}
 	const result = project.orgId
-		? await withOrganizationSeatLock(project.orgId, () =>
-				mutateProjectMembership(project.orgId!, projectId, userId, role, { addIfMissing: true }),
-			)
+		? await withOrganizationSeatLock(project.orgId, async () => {
+				const [organizationMember, projectMember] = await Promise.all([
+					orgQueries.getOrgMember(project.orgId!, userId),
+					projectQueries.getProjectMember(projectId, userId),
+				]);
+				if (!organizationMember && !projectMember) {
+					throw new HandlerError('BAD_REQUEST', "User is not a member of the project's organization");
+				}
+				return mutateProjectMembership(project.orgId!, projectId, userId, role, { addIfMissing: true });
+			})
 		: await withKeyedLock(`project-members:${projectId}`, () =>
 				putProjectMemberWithoutBilling(projectId, userId, role),
 			);

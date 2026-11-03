@@ -19,7 +19,7 @@ interface UseStoryViewerVersionActionsParams {
 	viewMode: StoryViewMode;
 	setViewMode: (mode: StoryViewMode) => void;
 	onVersionSaved?: (code: string) => void;
-	canWrite?: boolean;
+	canWrite: boolean;
 }
 
 interface StoryIdentity {
@@ -39,7 +39,7 @@ export const useStoryViewerVersionActions = ({
 	viewMode,
 	setViewMode,
 	onVersionSaved,
-	canWrite = true,
+	canWrite,
 }: UseStoryViewerVersionActionsParams) => {
 	const queryClient = useQueryClient();
 	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storySlug });

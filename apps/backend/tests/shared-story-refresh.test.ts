@@ -154,7 +154,7 @@ describe('shared Story manual refresh', () => {
 			await createCaller(userId).storyShare.get({ storyId: 'story-1' });
 
 			expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
-				deferRefresh: true,
+				deferRefresh: expectedFirstRefresh,
 				deferFirstRefresh: expectedFirstRefresh,
 				principalUserId: userId,
 			});
@@ -168,7 +168,7 @@ describe('shared Story manual refresh', () => {
 		await createCaller(userId).storyShare.get({ storyId: 'story-1' });
 
 		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
-			deferRefresh: true,
+			deferRefresh: expected,
 			deferFirstRefresh: expected,
 			principalUserId: userId,
 		});

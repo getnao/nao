@@ -203,7 +203,7 @@ export const sharedStoryRoutes = {
 			shared.format === 'custom'
 				? { queryData: null, cachedAt: null, code: shared.code, needsRefresh: false }
 				: await getStoryQueryData(shared.chatId!, shared.slug, shared.code, isLive, cacheSchedule, {
-						deferRefresh: true,
+						deferRefresh: canRefresh,
 						deferFirstRefresh: canRefresh,
 						principalUserId: ctx.user.id,
 					});

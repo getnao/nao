@@ -78,6 +78,8 @@ const costProducingTrpcPolicies = [
 	['gitlab.routes.ts', 'createProjectFromRepo', 'actor'],
 	['sql.routes.ts', 'previewQuery', 'actor'],
 	['sql.routes.ts', 'updateQuery', 'actor'],
+	['story.routes.ts', 'createVersion', 'actor'],
+	['story.routes.ts', 'updateLiveSettings', 'actor'],
 	['story.routes.ts', 'refreshData', 'actor'],
 	['story.routes.ts', 'getLiveQueryData', 'actor'],
 	['story.routes.ts', 'getFilterOptions', 'actor'],

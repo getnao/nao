@@ -165,6 +165,33 @@ describe('scheduler', () => {
 		expect(mocks.markJobFailed).not.toHaveBeenCalled();
 	});
 
+	it('keeps skipped one-off work pending for when access is restored', async () => {
+		const handler = vi.fn();
+		registerJob('story.deliver', handler, {
+			resolveProjectPrincipal: vi.fn().mockResolvedValue({ projectId: 'project-1', principalUserId: 'owner-1' }),
+		});
+		mocks.isUserReadOnlyInOrganization.mockResolvedValue(true);
+		mocks.claimDueJobs.mockResolvedValueOnce([
+			{
+				id: 'delivery-retry',
+				name: 'story.deliver',
+				payload: { storyId: 'story-1' },
+				runAt: new Date(),
+				cron: null,
+				status: 'running',
+				attempts: 1,
+				maxAttempts: 10,
+			},
+		]);
+
+		startScheduler();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(handler).not.toHaveBeenCalled();
+		expect(mocks.rescheduleJob).toHaveBeenCalledWith('delivery-retry', new Date('2026-09-28T11:00:00.000Z'));
+		expect(mocks.deleteJob).not.toHaveBeenCalled();
+	});
+
 	it('waits for an active poll before resetting scheduler state', async () => {
 		let finishClaim: (jobs: []) => void = () => undefined;
 		mocks.claimDueJobs

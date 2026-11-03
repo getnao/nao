@@ -18,6 +18,7 @@ export function CloudBillingSeatsTab({
 	teamPlanOffer?: CloudPlanOffer;
 	onChoosePlan: (plan: CloudPlanOffer) => void;
 }) {
+	const isTeamSeatQuantityUnavailable = data.access.tier === 'team' && data.access.seatQuantity === null;
 	const seatOnlyPendingChange =
 		data.current?.tier === 'team' &&
 		data.pending?.planKey === data.current.planKey &&
@@ -25,7 +26,7 @@ export function CloudBillingSeatsTab({
 
 	return (
 		<>
-			{data.access.tier === 'team' && data.access.seatQuantity === null && (
+			{isTeamSeatQuantityUnavailable && (
 				<Callout role='alert'>
 					Team seat quantity is unavailable. Refresh billing details before changing membership.
 				</Callout>
@@ -49,7 +50,7 @@ export function CloudBillingSeatsTab({
 				onConfirmSeatChange={billingState.confirmSeatChange}
 				onCancelPendingSeatChange={seatOnlyPendingChange ? billingState.cancelPendingPlanChange : undefined}
 				onSaveSeatSelection={
-					data.access.tier === 'unlimited' || data.access.tier === 'bypass'
+					isTeamSeatQuantityUnavailable || data.access.tier === 'unlimited' || data.access.tier === 'bypass'
 						? undefined
 						: billingState.saveSeatSelection
 				}

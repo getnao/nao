@@ -27,6 +27,7 @@ interface RegisterJobOptions<T> {
 const POLL_INTERVAL_MS = 30_000;
 const RECLAIM_INTERVAL_MS = 60_000;
 const LEASE_DURATION_MS = 10 * 60_000;
+const PAUSED_JOB_RETRY_MS = 60 * 60_000;
 const CLAIM_BATCH_SIZE = 10;
 const RETRY_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
@@ -170,7 +171,7 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 		const payload = job.payload ?? {};
 		const principal = await registration.resolveProjectPrincipal?.(payload);
 		if (principal && (await isSkippedByCloudBilling(job, principal))) {
-			await onJobSuccess(job);
+			await onJobSkipped(job);
 			return;
 		}
 		await registration.handler(payload, job);
@@ -244,6 +245,15 @@ function resourceIdFromPayload(payload: Record<string, unknown> | null): string 
 	return null;
 }
 
+async function onJobSkipped(job: DBScheduledJob): Promise<void> {
+	const current = (await scheduledJobQueries.getJobById(job.id)) ?? job;
+	if (!current.cron) {
+		await scheduledJobQueries.rescheduleJob(current.id, new Date(Date.now() + PAUSED_JOB_RETRY_MS));
+		return;
+	}
+	await rescheduleRecurringJob(current);
+}
+
 async function onJobSuccess(job: DBScheduledJob): Promise<void> {
 	// Re-read the row: the cron may have been edited (or the job promoted to one-off)
 	// while it was running, and the next run must reflect the current definition.
@@ -252,12 +262,19 @@ async function onJobSuccess(job: DBScheduledJob): Promise<void> {
 		await scheduledJobQueries.deleteJob(current.id);
 		return;
 	}
-	const next = nextCronTick(current.cron, new Date());
-	if (!next) {
-		await scheduledJobQueries.markJobFailed(current.id, `Cron expression became invalid: ${current.cron}`, null);
+	await rescheduleRecurringJob(current);
+}
+
+async function rescheduleRecurringJob(job: DBScheduledJob): Promise<void> {
+	if (!job.cron) {
 		return;
 	}
-	await scheduledJobQueries.rescheduleJob(current.id, next);
+	const next = nextCronTick(job.cron, new Date());
+	if (!next) {
+		await scheduledJobQueries.markJobFailed(job.id, `Cron expression became invalid: ${job.cron}`, null);
+		return;
+	}
+	await scheduledJobQueries.rescheduleJob(job.id, next);
 }
 
 async function onJobFailure(job: DBScheduledJob, err: unknown): Promise<void> {

@@ -39,6 +39,7 @@ import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { selectStoryEditorCode, useStoryEditBuffer } from '@/hooks/use-story-edit-buffer';
 import { useStoryEditTransitions } from '@/hooks/use-story-edit-transitions';
 import { useStoryExitGuard } from '@/hooks/use-story-exit-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
@@ -153,6 +154,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		setCurrentStoryTabIndex,
 	} = useSidePanel();
 	const isReadonlyMode = isReplay ? contextReadonlyMode : (readonlyProp ?? contextReadonlyMode);
+	const { canSendMessages } = usePermissions();
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
 	const outerAgent = useOptionalAgentContext();
@@ -243,6 +245,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		viewMode,
 		setViewMode,
 		onVersionSaved: storyBuffer.markSaved,
+		canWrite: !isReadonlyMode && canSendMessages,
 	});
 	const isDirty = storyBuffer.isDirty;
 	const exitGuard = useStoryExitGuard({

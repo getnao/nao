@@ -140,7 +140,7 @@ function CloudOrganizationBillingSettings({
 			return !data.trialAvailable;
 		}
 		if (value === 'credits') {
-			return !data.trialAvailable || data.invoiceHistoryAvailable;
+			return data.access.tier === 'bypass' || !data.trialAvailable || data.invoiceHistoryAvailable;
 		}
 		if (value === 'invoices') {
 			return data.invoiceHistoryAvailable || data.paidPlanSelected;

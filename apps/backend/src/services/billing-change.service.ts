@@ -723,7 +723,7 @@ async function reconcileAndLoadCommandState(stripeCustomerId: string, organizati
 		);
 	}
 	const billing = await billingQueries.getOrganizationBilling(organizationId);
-	const seatLimit = billing?.billingPlan?.startsWith('cloud_team_') ? billing.seatQuantity : null;
+	const seatLimit = billing?.billingPlan?.startsWith('cloud_team_') ? (billing.seatQuantity ?? 0) : null;
 	return {
 		billing,
 		...(await loadSeatCandidates(organizationId, seatLimit)),

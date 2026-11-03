@@ -251,8 +251,21 @@ describe('membership service', () => {
 			"User is not a member of the project's organization",
 		);
 
-		expect(mocks.getProjectMember).not.toHaveBeenCalled();
+		expect(mocks.getProjectMember).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(mocks.addProjectMember).not.toHaveBeenCalled();
+	});
+
+	it('updates an existing project-only member without granting organization membership', async () => {
+		mocks.projectMembers.set('user-1', 'user');
+
+		await expect(putProjectMember('project-1', 'user-1', 'viewer')).resolves.toEqual({
+			userId: 'user-1',
+			role: 'viewer',
+			outcome: null,
+		});
+
+		expect(mocks.projectMembers.get('user-1')).toBe('viewer');
+		expect(mocks.addOrgMember).not.toHaveBeenCalled();
 	});
 
 	it('serializes concurrent admin demotions in projects without an organization', async () => {

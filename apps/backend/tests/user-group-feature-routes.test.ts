@@ -43,6 +43,7 @@ vi.mock('../src/env', () => ({
 			return mocks.automationsEnabled;
 		},
 	},
+	isCloudBillingEnabled: vi.fn(() => false),
 	isCloudFreeTierEnabled: vi.fn(() => false),
 }));
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));

@@ -297,7 +297,6 @@ export const storyRoutes = {
 
 		const storyData = story.chatId
 			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule, {
-					deferRefresh: true,
 					principalUserId: ctx.user.id,
 				})
 			: null;
@@ -668,7 +667,7 @@ export const storyRoutes = {
 			return { certifiedAt };
 		}),
 
-	createVersion: chatStoryProcedure
+	createVersion: cloudBillingChatStoryProcedure
 		.input(
 			z.object({
 				chatId: z.string(),
@@ -706,7 +705,7 @@ export const storyRoutes = {
 			return version;
 		}),
 
-	updateLiveSettings: chatStoryProcedure
+	updateLiveSettings: cloudBillingChatStoryProcedure
 		.input(
 			z.object({
 				chatId: z.string(),

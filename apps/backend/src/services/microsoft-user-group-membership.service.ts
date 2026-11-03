@@ -136,23 +136,26 @@ async function synchronizeMicrosoftMappings(
 				hasUnlimitedUserGroups,
 				entraMappings: envMappings,
 			};
-			for (const candidate of await listSsoProjectRoleCandidates(
-				userId,
-				MICROSOFT_PROVIDER_ID,
-				groupIds,
-				options,
-			)) {
-				const result = await putProjectMember(candidate.projectId, userId, candidate.role);
-				if (
-					result.outcome &&
-					(!outcome ||
-						result.outcome.status === 'viewer_fallback' ||
-						result.outcome.status === 'promotion_rejected')
-				) {
-					outcome = result.outcome;
+			const candidates = await listSsoProjectRoleCandidates(userId, MICROSOFT_PROVIDER_ID, groupIds, options);
+			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, options);
+			for (const candidate of candidates) {
+				try {
+					const result = await putProjectMember(candidate.projectId, userId, candidate.role);
+					if (
+						result.outcome &&
+						(!outcome ||
+							result.outcome.status === 'viewer_fallback' ||
+							result.outcome.status === 'promotion_rejected')
+					) {
+						outcome = result.outcome;
+					}
+				} catch (error) {
+					logger.warn('Failed to apply a Microsoft project role after reconciling User Group memberships', {
+						source: 'system',
+						context: { userId, projectId: candidate.projectId, error: serializeError(error) },
+					});
 				}
 			}
-			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, options);
 		}
 	} finally {
 		await syncOrganizationRoleFromMicrosoftGroups(userId, groupIds);

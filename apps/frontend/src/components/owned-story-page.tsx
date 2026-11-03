@@ -108,14 +108,14 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 					lastRefreshFailure: story.lastRefreshFailure,
 					isRefreshing,
 					isUpdating,
-					onRefresh: () => handleRefreshData(),
-					onOpenSettings: () => setIsLiveSettingsOpen(true),
+					onRefresh: isSeatReadOnly ? undefined : () => handleRefreshData(),
+					onOpenSettings: isSeatReadOnly ? undefined : () => setIsLiveSettingsOpen(true),
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
 				canRename={!isSeatReadOnly}
 				isShared={isShared}
-				onShare={() => setIsShareDialogOpen(true)}
+				onShare={isSeatReadOnly ? undefined : () => setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={{
 					viewMode: editor.viewMode,
@@ -185,25 +185,29 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				{showAskBar && storyId && <StoryAskBar storyId={storyId} isOwner isInputHidden={isAskInputHidden} />}
 			</div>
 
-			<LiveStorySettingsDialog
-				open={isLiveSettingsOpen}
-				onOpenChange={setIsLiveSettingsOpen}
-				chatId={chatId}
-				storySlug={storySlug}
-				isLive={isLive}
-				isLiveTextDynamic={isLiveTextDynamic}
-				cacheSchedule={liveCacheSchedule}
-				cacheScheduleDescription={cacheScheduleDescription}
-				isUpdating={isUpdating}
-				onSaveSettings={handleSaveSettings}
-			/>
+			{!isSeatReadOnly && (
+				<>
+					<LiveStorySettingsDialog
+						open={isLiveSettingsOpen}
+						onOpenChange={setIsLiveSettingsOpen}
+						chatId={chatId}
+						storySlug={storySlug}
+						isLive={isLive}
+						isLiveTextDynamic={isLiveTextDynamic}
+						cacheSchedule={liveCacheSchedule}
+						cacheScheduleDescription={cacheScheduleDescription}
+						isUpdating={isUpdating}
+						onSaveSettings={handleSaveSettings}
+					/>
 
-			<ShareStoryDialog
-				open={isShareDialogOpen}
-				onOpenChange={setIsShareDialogOpen}
-				chatId={chatId}
-				storySlug={storySlug}
-			/>
+					<ShareStoryDialog
+						open={isShareDialogOpen}
+						onOpenChange={setIsShareDialogOpen}
+						chatId={chatId}
+						storySlug={storySlug}
+					/>
+				</>
+			)}
 
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}

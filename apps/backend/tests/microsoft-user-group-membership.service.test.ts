@@ -115,6 +115,37 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-1', 'user-1', 'user');
 	});
 
+	it('reconciles first and continues after one project role update fails', async () => {
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
+		mocks.listCandidates.mockResolvedValue([
+			{ projectId: 'project-1', role: 'user' },
+			{ projectId: 'project-2', role: 'context_admin' },
+		]);
+		mocks.putProjectMember
+			.mockRejectedValueOnce(new Error('project update failed'))
+			.mockResolvedValueOnce({ userId: 'user-1', role: 'context_admin', outcome: null });
+
+		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toBeNull();
+
+		expect(mocks.reconcile).toHaveBeenCalledOnce();
+		expect(mocks.putProjectMember).toHaveBeenCalledTimes(2);
+		expect(mocks.reconcile.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.putProjectMember.mock.invocationCallOrder[0],
+		);
+		expect(mocks.syncOrganizationRole).toHaveBeenCalledWith('user-1', [GROUP_1.toLowerCase()]);
+		expect(mocks.logger.warn).toHaveBeenCalledWith(
+			'Failed to apply a Microsoft project role after reconciling User Group memberships',
+			{
+				source: 'system',
+				context: {
+					userId: 'user-1',
+					projectId: 'project-1',
+					error: { message: 'project update failed' },
+				},
+			},
+		);
+	});
+
 	it('syncs the organization role when User Group reconciliation rejects', async () => {
 		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
 		mocks.reconcile.mockRejectedValue(new Error('reconciliation failed'));

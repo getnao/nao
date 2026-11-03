@@ -88,6 +88,7 @@ export function CloudBillingSeatsCard({
 	const [accessError, setAccessError] = useState<string | null>(null);
 
 	const seatedMembers = candidates.filter(({ isSeated }) => isSeated);
+	const isTeamSeatQuantityUnavailable = tier === 'team' && seatQuantity === null;
 	const capacity = tier === 'team' ? seatQuantity : tier === 'free' ? (seatLimit ?? 3) : null;
 	const accessByUserId = Object.fromEntries(
 		candidates.map(({ userId, isSeated }) => [userId, isSeated ? 'seated' : 'read-only'] as const),
@@ -128,7 +129,10 @@ export function CloudBillingSeatsCard({
 			>
 				<div className='flex flex-wrap gap-x-10 gap-y-4'>
 					<SeatStat label='Seats in use' value={seatedMembers.length} />
-					<SeatStat label='Available seats' value={availableSeats ?? 'Unlimited'} />
+					<SeatStat
+						label='Available seats'
+						value={isTeamSeatQuantityUnavailable ? 'Unavailable' : (availableSeats ?? 'Unlimited')}
+					/>
 					{capacity !== null && (
 						<SeatStat label={tier === 'team' ? 'Purchased' : 'Included'} value={capacity} />
 					)}

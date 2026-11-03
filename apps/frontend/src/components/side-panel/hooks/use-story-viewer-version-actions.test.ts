@@ -97,6 +97,7 @@ describe('useStoryViewerVersionActions', () => {
 					viewMode: 'edit',
 					setViewMode: vi.fn(),
 					onVersionSaved: props.onVersionSaved,
+					canWrite: true,
 				}),
 			{
 				initialProps: {
@@ -187,6 +188,7 @@ describe('useStoryViewerVersionActions', () => {
 					viewMode: 'edit',
 					setViewMode: vi.fn(),
 					onVersionSaved: props.onVersionSaved,
+					canWrite: true,
 				}),
 			{
 				initialProps: {

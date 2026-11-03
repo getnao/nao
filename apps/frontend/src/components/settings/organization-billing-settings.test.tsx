@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 	paymentMethodManagementAvailable: false,
 	portalAvailable: false,
 	freeTierEnabled: false,
+	cloudBypassBilling: false,
 	cloudTrialActive: false,
 	cloudFreeActive: false,
 	cloudLegacy: false,
@@ -38,7 +39,7 @@ const mocks = vi.hoisted(() => ({
 		samePlan?: boolean;
 	} | null,
 	cloudSeatUserCount: 4,
-	cloudSeatQuantity: 4,
+	cloudSeatQuantity: 4 as number | null,
 	cloudSeatCandidates: [] as CloudSeatCandidate[],
 	cloudSaveSeatSelection: vi.fn(),
 	cloudSwitchToFree: vi.fn(),
@@ -104,6 +105,7 @@ beforeEach(() => {
 	mocks.paymentMethodManagementAvailable = false;
 	mocks.portalAvailable = false;
 	mocks.freeTierEnabled = false;
+	mocks.cloudBypassBilling = false;
 	mocks.cloudTrialActive = false;
 	mocks.cloudFreeActive = false;
 	mocks.cloudLegacy = false;
@@ -518,6 +520,17 @@ it('shows informational plans before a new organization starts its trial', () =>
 	expect(screen.queryByRole('button', { name: /Choose|Switch|Cancel/ })).toBeNull();
 });
 
+it('keeps Credits available for bypass organizations before a trial', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudBypassBilling = true;
+	mocks.cloudPaidPlanSelected = false;
+	mocks.trialAvailable = true;
+
+	render(<OrganizationBillingSettings search={{ tab: 'credits' }} />);
+
+	expect(screen.getByRole('tab', { name: 'Credits' }).getAttribute('aria-selected')).toBe('true');
+});
+
 it('shows the current paid plan flowing into the same plan at renewal', () => {
 	mocks.freeTierEnabled = true;
 
@@ -756,6 +769,29 @@ it('shows unlimited seat availability during a trial', () => {
 	expect(screen.getByText('Available seats').parentElement?.textContent).toContain('Unlimited');
 	expect(screen.queryByText(/No seat limit/)).toBeNull();
 	expect(screen.queryByRole('progressbar', { name: 'Seat usage' })).toBeNull();
+});
+
+it('disables Team seat controls when the purchased quantity is unavailable', () => {
+	mocks.freeTierEnabled = true;
+	mocks.cloudSeatQuantity = null;
+	mocks.cloudSeatCandidates = [
+		{
+			userId: 'employee-1',
+			name: 'Employee',
+			email: 'employee@example.com',
+			membershipClass: 'org_member',
+			storedOrgRole: 'user',
+			isSelected: false,
+			isSeated: false,
+			isReadOnly: true,
+		},
+	];
+
+	render(<OrganizationBillingSettings search={{ tab: 'seats' }} />);
+
+	expect(screen.getByRole('alert').textContent).toContain('Team seat quantity is unavailable');
+	expect(screen.getByText('Available seats').parentElement?.textContent).toContain('Unavailable');
+	expect(screen.queryByRole('button', { name: 'Actions for Employee' })).toBeNull();
 });
 
 it('opens the selected Team seat offer from Free seat usage', () => {
@@ -1070,13 +1106,15 @@ function billingState(): BillingState {
 }
 
 function cloudBillingState(): BillingState {
-	const cloudTier = mocks.cloudTrialActive
-		? 'trial'
-		: mocks.cloudFreeActive
-			? 'free'
-			: mocks.cloudLegacy
-				? 'unlimited'
-				: 'team';
+	const cloudTier = mocks.cloudBypassBilling
+		? 'bypass'
+		: mocks.cloudTrialActive
+			? 'trial'
+			: mocks.cloudFreeActive
+				? 'free'
+				: mocks.cloudLegacy
+					? 'unlimited'
+					: 'team';
 	const cloudStatus = mocks.cloudCanceled ? 'canceled' : mocks.cloudTrialActive ? 'trialing' : 'active';
 	const cloudTrialEndsAt = mocks.cloudTrialActive ? new Date('2099-10-08T00:00:00.000Z') : null;
 	const currentPlan = mocks.cloudPaidPlanSelected
@@ -1137,7 +1175,7 @@ function cloudBillingState(): BillingState {
 				access: {
 					organizationId: 'org-1',
 					hasAccess: true,
-					bypassBilling: false,
+					bypassBilling: mocks.cloudBypassBilling,
 					canManageBilling: true,
 					tier: cloudTier,
 					status: cloudStatus,
