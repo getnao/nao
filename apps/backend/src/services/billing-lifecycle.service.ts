@@ -9,7 +9,7 @@ import {
 } from './billing-reconciliation.service';
 import { provisionCloudTrial } from './cloud-trial-provisioning.service';
 import { withOrganizationSeatLock } from './organization-seat.service';
-import { cloudSubscriptionProjection, getCloudSubscription } from './stripe.service';
+import { cloudSubscriptionProjection, findManagedCloudSubscription } from './stripe.service';
 import { getCloudPlanChangeSchedule, updateCloudPlanChangeSchedule } from './stripe-subscription-change.service';
 
 const BILLING_LIFECYCLE_CONCURRENCY = 5;
@@ -95,7 +95,10 @@ async function repairCloudPlanChangeSchedule(
 	if (!billing.stripeSubscriptionId) {
 		return;
 	}
-	const subscription = await getCloudSubscription(billing.stripeSubscriptionId);
+	const subscription = await findManagedCloudSubscription(billing.stripeSubscriptionId);
+	if (!subscription) {
+		return;
+	}
 	if (!subscription.schedule) {
 		if (
 			billing.stripeSubscriptionScheduleId ||

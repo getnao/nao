@@ -16,7 +16,13 @@ vi.mock('../src/services/branding.service', () => ({
 }));
 
 import { resolveEmailBranding } from '../src/utils/email-branding';
-import { buildNotificationEmail, buildTrialStartedEmail, buildUserAddedEmail } from '../src/utils/email-builders';
+import {
+	buildCapacityContractionEmail,
+	buildNotificationEmail,
+	buildScheduledWorkPausedEmail,
+	buildTrialStartedEmail,
+	buildUserAddedEmail,
+} from '../src/utils/email-builders';
 
 const whiteLabel = {
 	appName: 'Fibi',
@@ -107,6 +113,17 @@ describe('white-labeled emails', () => {
 		expect(stripReactComments(email.html)).toContain('This is an automated message from Fibi.');
 		expect(email.html).not.toContain('getnao.io');
 		expect(email.attachments?.[0]).toMatchObject({ contentType: 'image/png', cid: 'nao-logo' });
+	});
+
+	it('uses absolute billing links in seat notification emails', async () => {
+		const emails = await Promise.all([
+			buildScheduledWorkPausedEmail({ name: 'Ana' }, 'Acme', [{ type: 'automation', id: 'automation-1' }]),
+			buildCapacityContractionEmail({ name: 'Ana' }, 'Acme', [{ name: 'Ben', email: 'ben@example.com' }]),
+		]);
+
+		for (const email of emails) {
+			expect(email.html).toContain('href="https://app.example/settings/organization/billing"');
+		}
 	});
 
 	it('brands the welcome email copy', async () => {

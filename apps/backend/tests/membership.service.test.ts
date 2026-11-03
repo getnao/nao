@@ -246,6 +246,15 @@ describe('membership service', () => {
 		expect(mocks.syncOrganizationSeatState).not.toHaveBeenCalled();
 	});
 
+	it('rejects a project member outside the project organization', async () => {
+		await expect(putProjectMember('project-1', 'user-1', 'user')).rejects.toThrow(
+			"User is not a member of the project's organization",
+		);
+
+		expect(mocks.getProjectMember).not.toHaveBeenCalled();
+		expect(mocks.addProjectMember).not.toHaveBeenCalled();
+	});
+
 	it('serializes concurrent admin demotions in projects without an organization', async () => {
 		mocks.getProjectById.mockResolvedValue({ id: 'project-1', orgId: null, path: null });
 		mocks.projectMembers.set('admin-1', 'admin');

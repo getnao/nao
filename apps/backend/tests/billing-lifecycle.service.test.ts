@@ -36,7 +36,7 @@ vi.mock('../src/services/billing-reconciliation.service', async (importOriginal)
 
 vi.mock('../src/services/stripe.service', () => ({
 	cloudSubscriptionProjection: mocks.projectSubscription,
-	getCloudSubscription: mocks.getSubscription,
+	findManagedCloudSubscription: mocks.getSubscription,
 }));
 
 vi.mock('../src/services/stripe-subscription-change.service', () => ({
@@ -146,6 +146,28 @@ describe('cloud billing lifecycle', () => {
 
 		expect(mocks.reconcileCustomer).toHaveBeenCalledTimes(12);
 		expect(maxActive).toBe(5);
+	});
+
+	it('reconciles an organization with a trial-placeholder subscription', async () => {
+		mocks.listMappedOrganizations.mockResolvedValue([{ orgId: 'org-one', stripeCustomerId: 'cus_one' }]);
+		mocks.getBilling.mockResolvedValue({
+			orgId: 'org-one',
+			stripeCustomerId: 'cus_one',
+			stripeSubscriptionId: 'sub_trial',
+			stripeSubscriptionScheduleId: null,
+			pendingBillingPlan: null,
+			pendingSeatQuantity: null,
+		});
+		mocks.getSubscription.mockResolvedValue({ id: 'sub_trial', schedule: null });
+		mocks.reconcileCustomer.mockResolvedValue({ applied: true, ignored: false });
+
+		await runCloudBillingLifecycle();
+
+		expect(mocks.getSubscription).toHaveBeenCalledWith('sub_trial');
+		expect(mocks.reconcileCustomer).toHaveBeenCalledWith({
+			stripeCustomerId: 'cus_one',
+			organizationIdHint: 'org-one',
+		});
 	});
 
 	it('releases an orphaned attached schedule with no persisted intent', async () => {
