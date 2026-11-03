@@ -25,7 +25,7 @@ import { ChatIdContext, useChatId } from '@/hooks/use-chat-id';
 import { useCitationPills } from '@/hooks/use-citation-pills';
 import { useIsPromptMultiline } from '@/hooks/use-is-prompt-multiline';
 import { useOpenCitation } from '@/hooks/use-open-citation';
-import { capCitationText, isSameCitation, toContextMentions } from '@/lib/citation-mention';
+import { CITATION_MENTION_TRIGGER, capCitationText, isSameCitation, toContextMentions } from '@/lib/citation-mention';
 import { cn } from '@/lib/utils';
 import { toAskCitation, useAskRequest } from '@/stores/ask-bar';
 import { toMessageCitations } from '@/stores/chat-pending-citation';
@@ -466,9 +466,14 @@ function AskInput({
 	};
 
 	const fill = (text: string) => {
-		promptRef.current?.clear();
-		promptRef.current?.insertText(text);
-		setValue(text);
+		const prompt = promptRef.current;
+		if (!prompt) {
+			return;
+		}
+		prompt.clear();
+		citationPills.options.forEach((option) => prompt.appendMention(option, CITATION_MENTION_TRIGGER));
+		prompt.insertText(text);
+		setValue(prompt.getValue());
 	};
 
 	return (

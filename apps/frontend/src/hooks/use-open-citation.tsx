@@ -43,7 +43,7 @@ export function useOpenCitation() {
 				}
 				revealInStory(citation);
 			};
-			if (questionStory && storySlug === questionStory.slug) {
+			if (questionStory && isCitingQuestionStory(citation, questionStory)) {
 				if (!block && pageContainer && isStoryPage(questionStory, sidePanel)) {
 					showNowOrRetry(() => highlightQuoteIn([pageContainer], citation));
 					return;
@@ -101,6 +101,10 @@ function useQuickQuestionStory(chatId: string | undefined, isEnabled: boolean): 
 
 function selectQuestionStoryId(chat: Chat): string | undefined {
 	return chat.forkMetadata?.type === 'story_question' ? chat.forkMetadata.id : undefined;
+}
+
+function isCitingQuestionStory({ storySlug, block }: CitationData, questionStory: ResolvedStory): boolean {
+	return storySlug === questionStory.slug || (Boolean(block) && !storySlug);
 }
 
 type SidePanelState = { chatId: string | null; currentStorySlug: string | null; isVisible: boolean };
