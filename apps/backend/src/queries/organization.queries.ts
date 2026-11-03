@@ -5,6 +5,7 @@ import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '.
 import { db } from '../db/db';
 import { env } from '../env';
 import { OrgRole } from '../types/organization';
+import { resolveSeatedOrgUserIds } from '../utils/seat-allocation';
 import * as projectQueries from './project.queries';
 import * as userQueries from './user.queries';
 
@@ -649,19 +650,6 @@ export const listReadOnlyOrgUsers = async (orgId: string, seatLimit: number | nu
 	const seatedIds = new Set(resolveSeatedOrgUserIds(candidates, seatLimit));
 	return candidates.filter(({ id }) => !seatedIds.has(id));
 };
-
-export function resolveSeatedOrgUserIds(candidates: OrgSeatCandidate[], seatLimit: number | null): string[] {
-	const eligibleCandidates =
-		seatLimit === null
-			? candidates
-			: candidates.filter(
-					(candidate) =>
-						candidate.membershipClass === 'org_admin' ||
-						candidate.selectedAt !== null ||
-						candidate.selectionExplicit !== true,
-				);
-	return eligibleCandidates.slice(0, seatLimit === null ? undefined : Math.max(0, seatLimit)).map(({ id }) => id);
-}
 
 function toOrgSeatCandidate(candidate: {
 	id: string;

@@ -98,17 +98,6 @@ import {
 	validateCreditTopUpConfiguration,
 } from '../src/services/credit-top-up.service';
 import {
-	createCloudPlanChangeSchedule,
-	findActiveCloudPromotionCode,
-	getCloudPlanChangeSchedule,
-	getCloudProrationDate,
-	previewCloudSubscriptionChange,
-	releaseCloudPlanChangeSchedule,
-	updateCloudPlanChangeSchedule,
-	updateCloudSubscriptionPlan,
-	updateCloudSubscriptionQuantity,
-} from '../src/services/stripe-subscription-change.service';
-import {
 	__resetStripeForTesting,
 	cloudSubscriptionProjection,
 	createCloudCheckoutSession,
@@ -131,6 +120,17 @@ import {
 	resumeCloudSubscription,
 	validateCloudBillingConfiguration,
 } from '../src/services/stripe.service';
+import {
+	createCloudPlanChangeSchedule,
+	findActiveCloudPromotionCode,
+	getCloudPlanChangeSchedule,
+	getCloudProrationDate,
+	previewCloudSubscriptionChange,
+	releaseCloudPlanChangeSchedule,
+	updateCloudPlanChangeSchedule,
+	updateCloudSubscriptionPlan,
+	updateCloudSubscriptionQuantity,
+} from '../src/services/stripe-subscription-change.service';
 
 const TRIAL_END = new Date('2099-01-15T00:00:00.000Z');
 const TRIAL_END_TIMESTAMP = Math.floor(TRIAL_END.getTime() / 1_000);

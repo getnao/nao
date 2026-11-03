@@ -4,12 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import {
-	countOrgSeatUsers,
-	listOrgSeatCandidates,
-	listReadOnlyOrgUsers,
-	resolveSeatedOrgUserIds,
-} from '../src/queries/organization.queries';
+import { countOrgSeatUsers, listOrgSeatCandidates, listReadOnlyOrgUsers } from '../src/queries/organization.queries';
+import { resolveSeatedOrgUserIds } from '../src/utils/seat-allocation';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');

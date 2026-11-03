@@ -2,7 +2,10 @@ import type { Transporter } from 'nodemailer';
 import nodemailer from 'nodemailer';
 
 import { env } from '../env';
+import * as organizationQueries from '../queries/organization.queries';
+import * as userQueries from '../queries/user.queries';
 import type { CreatedEmail } from '../types/email';
+import { buildCapacityContractionEmail, buildScheduledWorkPausedEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
 
 class EmailService {
@@ -67,3 +70,46 @@ class EmailService {
 
 // Singleton instance of the email service
 export const emailService = new EmailService();
+
+export async function sendScheduledWorkPausedEmail(input: {
+	organizationId: string;
+	userId: string;
+	resources: Array<{ type: string; id: string | null }>;
+}): Promise<void> {
+	const [organization, user] = await Promise.all([
+		organizationQueries.getOrganizationById(input.organizationId),
+		userQueries.getUser({ id: input.userId }),
+	]);
+	if (!organization || !user) {
+		return;
+	}
+	await emailService.sendEmail(
+		user.email,
+		await buildScheduledWorkPausedEmail(user, organization.name, input.resources),
+		{ throwOnError: true },
+	);
+}
+
+export async function sendCapacityContractionEmails(input: {
+	organizationId: string;
+	readOnlyUsers: Array<{ name: string; email: string }>;
+}): Promise<void> {
+	const [organization, members] = await Promise.all([
+		organizationQueries.getOrganizationById(input.organizationId),
+		organizationQueries.listOrgMembersWithUsers(input.organizationId),
+	]);
+	if (!organization) {
+		return;
+	}
+	await Promise.all(
+		members
+			.filter(({ role }) => role === 'admin')
+			.map(async (admin) =>
+				emailService.sendEmail(
+					admin.email,
+					await buildCapacityContractionEmail(admin, organization.name, input.readOnlyUsers),
+					{ throwOnError: true },
+				),
+			),
+	);
+}

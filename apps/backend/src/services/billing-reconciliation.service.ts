@@ -1,9 +1,24 @@
 import type Stripe from 'stripe';
 
+import type { DBOrganizationBilling } from '../db/abstractSchema';
+import { isCloudFreeTierEnabled } from '../env';
 import * as billingQueries from '../queries/billing.queries';
 import * as organizationQueries from '../queries/organization.queries';
+import {
+	claimOrganizationSeatEmailNotification,
+	listOrganizationSeatStates,
+	releaseOrganizationSeatEmailNotification,
+} from '../queries/organization-seat-state.queries';
+import * as userQueries from '../queries/user.queries';
 import { isTerminalBillingStatus } from '../types/billing';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
+import { getOrganizationCloudEntitlement } from './cloud-billing-access.service';
+import { sendCapacityContractionEmails } from './email';
+import {
+	applyPendingFreeSeatSelection,
+	syncOrganizationSeats,
+	withOrganizationSeatLock,
+} from './organization-seat.service';
 import {
 	cancelCloudTrialPlaceholderSubscription,
 	type ClassifiedCloudSubscription,
@@ -12,21 +27,38 @@ import {
 	listCloudSubscriptions,
 	updateCloudPaidSubscriptionTrialEnd,
 } from './stripe.service';
+import { releaseCloudPlanChangeSchedule } from './stripe-subscription-change.service';
 
 const CURRENT_STATUS_PRIORITY = ['active', 'trialing', 'past_due', 'paused', 'unpaid', 'incomplete'];
 
-interface CloudBillingReconciliationResult {
+export interface CloudBillingReconciliationResult {
 	applied: boolean;
 	ignored: boolean;
+	before: DBOrganizationBilling | null;
+	after: billingQueries.SubscriptionProjection | null;
+	newlyReadOnlyUserIds: string[];
 }
 
 export async function reconcileCloudBillingCustomer(input: {
 	stripeCustomerId: string;
 	organizationIdHint?: string;
 }): Promise<CloudBillingReconciliationResult> {
+	const organizationId =
+		(await billingQueries.getOrganizationBillingByStripeCustomerId(input.stripeCustomerId))?.orgId ??
+		input.organizationIdHint;
+	if (!organizationId) {
+		return reconcileCloudBillingCustomerUnderLock(input);
+	}
+	return withOrganizationSeatLock(organizationId, () => reconcileCloudBillingCustomerUnderLock(input));
+}
+
+export async function reconcileCloudBillingCustomerUnderLock(input: {
+	stripeCustomerId: string;
+	organizationIdHint?: string;
+}): Promise<CloudBillingReconciliationResult> {
 	const billing = await resolveOrganizationBilling(input.stripeCustomerId, input.organizationIdHint);
 	if (!billing) {
-		return { applied: false, ignored: true };
+		return { applied: false, ignored: true, before: null, after: null, newlyReadOnlyUserIds: [] };
 	}
 	const claim = await billingQueries.claimBillingSync(billing.orgId, input.stripeCustomerId);
 	const classified = await listCloudSubscriptions(input.stripeCustomerId);
@@ -42,21 +74,109 @@ export async function reconcileCloudBillingCustomer(input: {
 				await hasCloudDefaultPaymentMethod(input.stripeCustomerId),
 			),
 			ignored: false,
+			before: claim.billing,
+			after: null,
+			newlyReadOnlyUserIds: [],
 		};
 	}
 
 	assertSubscriptionOwnership(selected.subscription, input.stripeCustomerId, billing.orgId);
 	selected = await carryForwardLatestTrialEnd(selected, classified, billing.orgId);
-	const projection = await cloudSubscriptionProjection(selected.subscription);
-	const applied = await billingQueries.updateSubscriptionProjection(billing.orgId, claim.token, {
-		...projection,
-		trialStartedAt: claim.billing.trialStartedAt ?? projection.trialStartedAt,
-		trialEndsAt: projection.trialEndsAt ?? claim.billing.trialEndsAt,
-	});
+	const stripeProjection = await cloudSubscriptionProjection(selected.subscription);
+	const projection = {
+		...stripeProjection,
+		trialStartedAt: claim.billing.trialStartedAt ?? stripeProjection.trialStartedAt,
+		trialEndsAt: stripeProjection.trialEndsAt ?? claim.billing.trialEndsAt,
+	};
+	const applied = await billingQueries.updateSubscriptionProjection(billing.orgId, claim.token, projection);
+	if (
+		applied &&
+		projection.stripeSubscriptionScheduleId &&
+		isPendingBillingChangeActivated(claim.billing, projection)
+	) {
+		await releaseCloudPlanChangeSchedule(projection.stripeSubscriptionScheduleId);
+		return reconcileCloudBillingCustomerUnderLock(input);
+	}
+	const newlyReadOnlyUserIds = applied ? await syncReconciledOrganizationSeats(billing.orgId, claim.billing) : [];
+	if (applied && isCloudFreeTierEnabled()) {
+		try {
+			await notifyPendingCapacityContraction(billing.orgId);
+		} catch (error) {
+			logger.error(`Capacity contraction notification failed for organization ${billing.orgId}`, {
+				source: 'system',
+				context: serializeError(error),
+			});
+		}
+	}
 	if (applied && selected.kind === 'paid-cloud') {
 		await cancelCurrentTrialPlaceholders(classified, billing.orgId);
 	}
-	return { applied, ignored: false };
+	return {
+		applied,
+		ignored: false,
+		before: claim.billing,
+		after: applied ? projection : null,
+		newlyReadOnlyUserIds,
+	};
+}
+
+/** A seat-only change keeps the plan key, so activation also requires the pending quantity and no future phase. */
+export function isPendingBillingChangeActivated(
+	pending: Pick<DBOrganizationBilling, 'pendingBillingPlan' | 'pendingSeatQuantity'>,
+	projection: Pick<billingQueries.SubscriptionProjection, 'billingPlan' | 'seatQuantity' | 'pendingBillingPlan'>,
+): boolean {
+	return (
+		pending.pendingBillingPlan !== null &&
+		!projection.pendingBillingPlan &&
+		projection.billingPlan === pending.pendingBillingPlan &&
+		(pending.pendingSeatQuantity === null || projection.seatQuantity === pending.pendingSeatQuantity)
+	);
+}
+
+export async function releasePendingBillingChange(organizationId: string, scheduleId: string): Promise<void> {
+	await releaseCloudPlanChangeSchedule(scheduleId);
+	await billingQueries.clearPendingBillingChange(organizationId);
+}
+
+async function notifyPendingCapacityContraction(organizationId: string): Promise<void> {
+	const userIds = (await listOrganizationSeatStates(organizationId))
+		.filter(({ isReadOnly, adminEmailNotifiedAt }) => isReadOnly && adminEmailNotifiedAt === null)
+		.map(({ userId }) => userId);
+	const claimedAt = new Date();
+	const claimedUserIds: string[] = [];
+	for (const userId of userIds) {
+		if (await claimOrganizationSeatEmailNotification(organizationId, userId, 'admin_email', claimedAt)) {
+			claimedUserIds.push(userId);
+		}
+	}
+	if (claimedUserIds.length === 0) {
+		return;
+	}
+	try {
+		const users = await userQueries.getUsersByIds(claimedUserIds);
+		await sendCapacityContractionEmails({ organizationId, readOnlyUsers: users });
+	} catch (error) {
+		await Promise.all(
+			claimedUserIds.map((userId) =>
+				releaseOrganizationSeatEmailNotification(organizationId, userId, 'admin_email', claimedAt),
+			),
+		);
+		throw error;
+	}
+}
+
+async function syncReconciledOrganizationSeats(
+	organizationId: string,
+	beforeBilling: DBOrganizationBilling,
+): Promise<string[]> {
+	if (!isCloudFreeTierEnabled()) {
+		return [];
+	}
+	const entitlement = await getOrganizationCloudEntitlement(organizationId);
+	if (entitlement?.tier === 'free' && beforeBilling.pendingFreeSeatUserIds) {
+		return applyPendingFreeSeatSelection(organizationId, beforeBilling.pendingFreeSeatUserIds, entitlement);
+	}
+	return syncOrganizationSeats(organizationId, entitlement);
 }
 
 async function resolveOrganizationBilling(stripeCustomerId: string, organizationIdHint?: string) {

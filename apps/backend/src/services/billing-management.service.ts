@@ -1,19 +1,29 @@
+import { isCloudFreeTierEnabled } from '../env';
 import type { OrganizationWithBilling } from '../queries/billing.queries';
 import * as billingQueries from '../queries/billing.queries';
 import { getCreditPurchaseByCheckoutSession } from '../queries/credit-wallet.queries';
+import * as organizationQueries from '../queries/organization.queries';
 import * as userQueries from '../queries/user.queries';
 import {
+	CLOUD_BILLING_PLANS,
 	type CloudBillingCurrency,
 	type CloudBillingInterval,
+	type CloudBillingPlanKey,
 	isTerminalBillingStatus,
 	isTrialAvailable,
+	TEAM_MAX_SEATS,
+	TEAM_MIN_SEATS,
 } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { logger, serializeError } from '../utils/logger';
-import { reconcileCloudBillingCustomer } from './billing-reconciliation.service';
+import {
+	reconcileCloudBillingCustomer,
+	reconcileCloudBillingCustomerUnderLock,
+} from './billing-reconciliation.service';
 import { isActiveTrialWithoutPaidPlan } from './cloud-billing-access.service';
 import { createCreditTopUpCheckoutSession, getCreditTopUpPurchase } from './credit-top-up.service';
 import { issueCreditPurchase } from './credit-wallet.service';
+import { withOrganizationSeatLock } from './organization-seat.service';
 import {
 	createCloudCheckoutSession,
 	createCloudCustomer,
@@ -25,7 +35,7 @@ import {
 	resumeCloudSubscription,
 } from './stripe.service';
 
-interface AdminBillingInput {
+export interface AdminBillingInput {
 	userId: string;
 	organizationId: string;
 }
@@ -35,7 +45,9 @@ interface AdminBillingRequestInput extends AdminBillingInput {
 }
 
 interface AdminBillingCheckoutInput extends AdminBillingInput {
-	billingInterval: CloudBillingInterval;
+	billingInterval?: CloudBillingInterval;
+	planKey?: CloudBillingPlanKey;
+	seatQuantity?: number;
 	currency: CloudBillingCurrency;
 }
 
@@ -51,23 +63,27 @@ export async function getCloudBillingOrganizationForAdmin(input: AdminBillingInp
 }
 
 export async function createCloudTrialCheckoutForAdmin(input: AdminBillingCheckoutInput): Promise<string> {
-	const organization = await loadReconciledCloudBillingOrganization(input.organizationId);
-	const trialEndsAt = organization.billing?.trialEndsAt;
-	if (!isActiveTrialWithoutPaidPlan(organization.billing) || !trialEndsAt) {
-		if (isTrialAvailable(organization.billing)) {
-			throw new CloudBillingManagementInputError(
-				'Finish setting up your first project before choosing a billing plan',
-			);
+	return withOrganizationSeatLock(input.organizationId, async () => {
+		await requireOrganizationAdmin(input);
+		const plan = resolveCheckoutPlan(input);
+		const organization = await loadReconciledCloudBillingOrganization(input.organizationId);
+		const trialEndsAt = organization.billing?.trialEndsAt;
+		if (!isActiveTrialWithoutPaidPlan(organization.billing) || !trialEndsAt) {
+			if (isTrialAvailable(organization.billing)) {
+				throw new CloudBillingManagementInputError(
+					'Finish setting up your first project before choosing a billing plan',
+				);
+			}
+			throw new CloudBillingManagementInputError('This organization has already used its free trial');
 		}
-		throw new CloudBillingManagementInputError('This organization has already used its free trial');
-	}
-	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
-	return createCloudCheckoutSession({
-		billingInterval: input.billingInterval,
-		currency: input.currency,
-		organizationId: organization.id,
-		stripeCustomerId,
-		trialEnd: trialEndsAt,
+		const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
+		return createCloudCheckoutSession({
+			...plan,
+			currency: input.currency,
+			organizationId: organization.id,
+			stripeCustomerId,
+			trialEnd: trialEndsAt,
+		});
 	});
 }
 
@@ -183,25 +199,22 @@ export async function createCloudPaymentMethodPortalForAdmin(input: AdminBilling
 }
 
 export async function createCloudResubscribeForAdmin(input: AdminBillingCheckoutInput): Promise<string> {
-	const organization = await loadReconciledCloudBillingOrganization(input.organizationId);
-	const billing = organization.billing;
-	const isMissingSubscriptionRecovery =
-		!billing?.stripeSubscriptionId &&
-		Boolean(billing?.billingStatus || billing?.trialStartedAt || billing?.trialEndsAt);
-	if (
-		billing?.stripeSubscriptionId
-			? !billing.stripeCustomerId || !isTerminalBillingStatus(billing.billingStatus)
-			: !isMissingSubscriptionRecovery
-	) {
-		throw new CloudBillingManagementInputError('A new subscription is not available');
-	}
-	const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
-	return createCloudResubscribeSession({
-		billingInterval: input.billingInterval,
-		currency: input.currency,
-		organizationId: organization.id,
-		stripeCustomerId,
-		allowMissingHistory: isMissingSubscriptionRecovery,
+	return withOrganizationSeatLock(input.organizationId, async () => {
+		await requireOrganizationAdmin(input);
+		const plan = resolveCheckoutPlan(input);
+		const organization = await loadReconciledCloudBillingOrganization(input.organizationId);
+		const billing = organization.billing;
+		if (!isResubscribeAvailable(billing)) {
+			throw new CloudBillingManagementInputError('A new subscription is not available');
+		}
+		const stripeCustomerId = await ensureCloudCustomer(organization, input.userId);
+		return createCloudResubscribeSession({
+			...plan,
+			currency: input.currency,
+			organizationId: organization.id,
+			stripeCustomerId,
+			allowMissingHistory: !billing?.stripeSubscriptionId,
+		});
 	});
 }
 
@@ -217,7 +230,14 @@ export async function resumeCloudSubscriptionForAdmin(input: AdminBillingRequest
 	});
 }
 
-async function loadCloudBillingOrganization(organizationId: string): Promise<OrganizationWithBilling> {
+export async function requireOrganizationAdmin(input: AdminBillingInput): Promise<void> {
+	const member = await organizationQueries.getOrgMember(input.organizationId, input.userId);
+	if (member?.role !== 'admin') {
+		throw new HandlerError('FORBIDDEN', 'Only organization admins can manage billing');
+	}
+}
+
+export async function loadCloudBillingOrganization(organizationId: string): Promise<OrganizationWithBilling> {
 	const organization = await billingQueries.getOrganizationWithBilling(organizationId);
 	if (!organization) {
 		throw new HandlerError('NOT_FOUND', 'Organization was not found');
@@ -230,7 +250,7 @@ async function loadReconciledCloudBillingOrganization(organizationId: string): P
 	if (!organization.billing?.stripeCustomerId) {
 		return organization;
 	}
-	await reconcileCloudBillingCustomer({
+	await reconcileCloudBillingCustomerUnderLock({
 		stripeCustomerId: organization.billing.stripeCustomerId,
 		organizationIdHint: organization.id,
 	});
@@ -255,4 +275,47 @@ async function ensureCloudCustomer(organization: OrganizationWithBilling, userId
 		throw new Error('Unable to attach Stripe Customer');
 	}
 	return updated.stripeCustomerId;
+}
+
+function resolveCheckoutPlan(
+	input: Pick<AdminBillingCheckoutInput, 'billingInterval' | 'planKey' | 'seatQuantity'>,
+): { planKey: CloudBillingPlanKey; quantity: number } | { billingInterval?: CloudBillingInterval } {
+	if (!isCloudFreeTierEnabled()) {
+		return { billingInterval: input.billingInterval };
+	}
+	if (!input.planKey) {
+		throw new CloudBillingManagementInputError('A billing plan is required');
+	}
+	if (CLOUD_BILLING_PLANS[input.planKey].tier === 'team') {
+		return { planKey: input.planKey, quantity: validateTeamQuantity(input.seatQuantity) };
+	}
+	if (input.seatQuantity !== undefined) {
+		throw new CloudBillingManagementInputError('Seat quantity is only available for Team');
+	}
+	return { planKey: input.planKey, quantity: 1 };
+}
+
+/** Recovers a lost subscription, replaces a terminal one, or (with the free tier) starts paid without a trial. */
+function isResubscribeAvailable(billing: OrganizationWithBilling['billing']): boolean {
+	if (billing?.stripeSubscriptionId) {
+		return Boolean(billing.stripeCustomerId) && isTerminalBillingStatus(billing.billingStatus);
+	}
+	const isMissingSubscriptionRecovery = Boolean(
+		billing?.billingStatus || billing?.trialStartedAt || billing?.trialEndsAt,
+	);
+	return isMissingSubscriptionRecovery || (isCloudFreeTierEnabled() && isTrialAvailable(billing));
+}
+
+export function validateTeamQuantity(quantity: number | undefined): number {
+	if (
+		!Number.isInteger(quantity) ||
+		quantity === undefined ||
+		quantity < TEAM_MIN_SEATS ||
+		quantity > TEAM_MAX_SEATS
+	) {
+		throw new CloudBillingManagementInputError(
+			`Team requires between ${TEAM_MIN_SEATS} and ${TEAM_MAX_SEATS} seats`,
+		);
+	}
+	return quantity;
 }

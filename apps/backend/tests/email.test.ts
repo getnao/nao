@@ -17,6 +17,9 @@ vi.mock('nodemailer', () => ({
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
 }));
+vi.mock('../src/queries/organization.queries', () => ({}));
+vi.mock('../src/queries/user.queries', () => ({}));
+vi.mock('../src/utils/email-builders', () => ({}));
 
 function setSmtpEnv(overrides: Record<string, string | undefined> = {}): void {
 	mockEnv.SMTP_HOST = 'smtp.example.com';

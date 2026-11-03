@@ -56,6 +56,7 @@ vi.mock('../src/queries/credit-wallet.queries', () => ({
 
 vi.mock('../src/services/billing-reconciliation.service', () => ({
 	reconcileCloudBillingCustomer: stripeMocks.reconcileCustomer,
+	reconcileCloudBillingCustomerUnderLock: stripeMocks.reconcileCustomer,
 }));
 
 vi.mock('../src/services/stripe.service', () => ({

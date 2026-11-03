@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 
-import { type CloudBillingCurrency, CLOUD_BILLING_CURRENCIES, type CloudBillingPlanKey } from '../types/billing';
+import { CLOUD_BILLING_CURRENCIES, type CloudBillingCurrency, type CloudBillingPlanKey } from '../types/billing';
 import {
 	assertCloudSubscriptionOrganization,
 	type CloudPaidProductItem,
@@ -58,7 +58,6 @@ export async function findActiveCloudPromotionCode(input: {
 		duration: coupon.duration,
 	};
 }
-
 
 export async function previewCloudSubscriptionChange(input: {
 	subscription: Stripe.Subscription;
@@ -238,7 +237,6 @@ export async function releaseCloudPlanChangeSchedule(scheduleId: string): Promis
 	return getStripeClient().subscriptionSchedules.release(scheduleId, { preserve_cancel_date: true });
 }
 
-
 export async function getCloudProrationDate(subscription: Stripe.Subscription): Promise<Date> {
 	if (!subscription.test_clock) {
 		return new Date();
@@ -249,7 +247,6 @@ export async function getCloudProrationDate(subscription: Stripe.Subscription): 
 			: subscription.test_clock;
 	return new Date(testClock.frozen_time * 1_000);
 }
-
 
 /** Stripe rejects `proration_date` when `proration_behavior` is `none`. */
 function prorationParams(behavior: 'always_invoice' | 'none', prorationDate: Date) {
@@ -264,7 +261,6 @@ function trialPreservationParams(subscription: Stripe.Subscription) {
 		: {};
 }
 
-
 function requireCloudPaidProductItem(subscription: Stripe.Subscription): CloudPaidProductItem {
 	const paidItem = cloudPaidProductItem(subscription);
 	if (!paidItem) {
@@ -272,7 +268,6 @@ function requireCloudPaidProductItem(subscription: Stripe.Subscription): CloudPa
 	}
 	return paidItem;
 }
-
 
 function assertCloudBillingCurrency(currency: string): CloudBillingCurrency {
 	if (!(CLOUD_BILLING_CURRENCIES as readonly string[]).includes(currency)) {
