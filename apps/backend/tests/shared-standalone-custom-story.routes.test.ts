@@ -63,9 +63,9 @@ describe('storyShare custom story readers', () => {
 	it('reads the version of a standalone story by its id', async () => {
 		mocks.getStandaloneCustomStoryVersion.mockResolvedValue({ version: 2 });
 
-		await expect(
-			createCaller().storyShare.getCustomVersion({ ...STORY_INPUT, versionNumber: 2 }),
-		).resolves.toEqual({ version: 2 });
+		await expect(createCaller().storyShare.getCustomVersion({ ...STORY_INPUT, versionNumber: 2 })).resolves.toEqual(
+			{ version: 2 },
+		);
 		expect(mocks.getStandaloneCustomStoryVersion).toHaveBeenCalledWith('story-1', 2);
 		expect(mocks.getCustomStoryVersion).not.toHaveBeenCalled();
 	});

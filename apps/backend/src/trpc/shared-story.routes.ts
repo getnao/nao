@@ -299,7 +299,12 @@ export const sharedStoryRoutes = {
 			const shared = ctx.resource;
 			try {
 				return shared.chatId
-					? await getSharedCustomStoryQueryData(shared.chatId, shared.slug, input.queryId, input.versionNumber)
+					? await getSharedCustomStoryQueryData(
+							shared.chatId,
+							shared.slug,
+							input.queryId,
+							input.versionNumber,
+						)
 					: await getStandaloneCustomStoryQueryData(shared.storyId, input.queryId, input.versionNumber);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
@@ -625,7 +630,13 @@ export const sharedStoryRoutes = {
 			}
 
 			const { queryData, code } = shared.chatId
-				? await getStoryQueryData(shared.chatId, shared.slug, version.code, version.isLive, version.cacheSchedule)
+				? await getStoryQueryData(
+						shared.chatId,
+						shared.slug,
+						version.code,
+						version.isLive,
+						version.cacheSchedule,
+					)
 				: await getStandaloneStoryQueryData(shared.storyId, version.code);
 
 			logAnalyticsEvent({
