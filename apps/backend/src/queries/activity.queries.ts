@@ -132,10 +132,10 @@ export const getRunningProjectSync = async (
 	return running ?? null;
 };
 
-export const cancelActivity = async (activityId: string): Promise<void> => {
+export const cancelActivity = async (activityId: string, payload?: Record<string, unknown> | null): Promise<void> => {
 	await db
 		.update(s.activity)
-		.set({ status: 'cancelled', completedAt: new Date() })
+		.set({ status: 'cancelled', completedAt: new Date(), ...(payload !== undefined && { payload }) })
 		.where(eq(s.activity.id, activityId))
 		.execute();
 };
@@ -201,10 +201,14 @@ export const completeActivity = async (activityId: string, payload?: Record<stri
 		.execute();
 };
 
-export const failActivity = async (activityId: string, errorMessage: string): Promise<void> => {
+export const failActivity = async (
+	activityId: string,
+	errorMessage: string,
+	payload?: Record<string, unknown> | null,
+): Promise<void> => {
 	await db
 		.update(s.activity)
-		.set({ status: 'failed', completedAt: new Date(), errorMessage })
+		.set({ status: 'failed', completedAt: new Date(), errorMessage, ...(payload !== undefined && { payload }) })
 		.where(and(eq(s.activity.id, activityId), eq(s.activity.status, 'running')))
 		.execute();
 };

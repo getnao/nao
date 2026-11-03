@@ -118,7 +118,17 @@ function copyProjectIn(projectPath: string, stagingDir: string): StagedProject {
 /** Writes back only into real directories, never through a symlink, and only deletes what was staged. */
 function copyResultsBack(stagingDir: string, projectPath: string, staged: StagedProject): void {
 	const results = listProjectEntries(stagingDir);
-	const resultPaths = new Set(results.map((entry) => entry.relativePath));
+	const resultFiles = new Set(results.filter((entry) => !entry.isDirectory).map((entry) => entry.relativePath));
+	const resultDirectories = new Set(results.filter((entry) => entry.isDirectory).map((entry) => entry.relativePath));
+	for (const relativePath of staged.files.keys()) {
+		if (!resultFiles.has(relativePath)) {
+			fs.rmSync(path.join(projectPath, relativePath), { force: true });
+		}
+	}
+	const removedDirectories = [...staged.directories].filter((relativePath) => !resultDirectories.has(relativePath));
+	for (const relativePath of removedDirectories.sort((left, right) => right.length - left.length)) {
+		removeDirectoryIfEmpty(path.join(projectPath, relativePath));
+	}
 	const skippedDirectories = new Set<string>();
 	for (const { relativePath, isDirectory } of results) {
 		if (skippedDirectories.has(path.dirname(relativePath))) {
@@ -132,21 +142,12 @@ function copyResultsBack(stagingDir: string, projectPath: string, staged: Staged
 			} else if (!target.isDirectory()) {
 				skippedDirectories.add(relativePath);
 			}
-		} else if (!target || target.isFile()) {
+		} else if (!target || (target.isFile() && target.nlink === 1)) {
 			const stagedPath = path.join(stagingDir, relativePath);
 			if (staged.files.get(relativePath) !== fs.statSync(stagedPath).mtimeMs) {
 				fs.copyFileSync(stagedPath, path.join(projectPath, relativePath));
 			}
 		}
-	}
-	for (const relativePath of staged.files.keys()) {
-		if (!resultPaths.has(relativePath)) {
-			fs.rmSync(path.join(projectPath, relativePath), { force: true });
-		}
-	}
-	const removedDirectories = [...staged.directories].filter((relativePath) => !resultPaths.has(relativePath));
-	for (const relativePath of removedDirectories.sort((left, right) => right.length - left.length)) {
-		removeDirectoryIfEmpty(path.join(projectPath, relativePath));
 	}
 }
 

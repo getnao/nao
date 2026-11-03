@@ -39,6 +39,9 @@ import type {
 	ContextRepositoryProvider,
 } from '../src/services/context-explorer-git.service';
 import { resolveContextExplorerGit } from '../src/services/context-explorer-git.service';
+import { getWorktreeProjectRoot } from '../src/utils/context-repo';
+import { withKeyedLock } from '../src/utils/keyed-lock';
+import { canonicalizeWriteRoot } from '../src/utils/safe-file-write';
 
 describe('context explorer worktree writes', () => {
 	let root: string;
@@ -228,15 +231,38 @@ describe('context explorer worktree writes', () => {
 		expectLiveUnchanged();
 	});
 
-	it('preserves file mode and permits only one concurrent atomic write', async () => {
+	it('waits for the worktree lock, preserves file mode, and permits only one concurrent write', async () => {
 		const repo = access.git.status === 'available' ? access.git.repo : null;
 		const target = path.join(repo!.worktreeRoot, 'context.md');
 		fs.chmodSync(target, 0o600);
 		const original = await readFileContent('/context.md', access);
-		const results = await Promise.allSettled([
+		let releaseLock: () => void = () => undefined;
+		let lockAcquired: () => void = () => undefined;
+		const acquired = new Promise<void>((resolve) => {
+			lockAcquired = resolve;
+		});
+		const heldLock = withKeyedLock(
+			`context-worktree-write:${canonicalizeWriteRoot(getWorktreeProjectRoot(repo!))}`,
+			async () => {
+				lockAcquired();
+				await new Promise<void>((resolve) => {
+					releaseLock = resolve;
+				});
+			},
+		);
+		await acquired;
+		let writesSettled = false;
+		const writes = Promise.allSettled([
 			writeFileContent('/context.md', 'first\n', original.hash, access),
 			writeFileContent('/context.md', 'second\n', original.hash, access),
-		]);
+		]).finally(() => {
+			writesSettled = true;
+		});
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(writesSettled).toBe(false);
+		releaseLock();
+		await heldLock;
+		const results = await writes;
 
 		expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
 		expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);

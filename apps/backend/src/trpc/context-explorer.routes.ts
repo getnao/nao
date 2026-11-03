@@ -213,7 +213,7 @@ export const contextExplorerRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
-			assertNoProjectSyncWritingFiles(ctx.project.id, ctx.user.id, Boolean(access.managedRepository));
+			await assertNoProjectSyncWritingFiles(ctx.project.id, ctx.user.id, Boolean(access.managedRepository));
 			return writeFileContent(input.path, input.content, input.expectedHash, access);
 		}),
 
@@ -389,12 +389,12 @@ async function resolveManagedRepository(
 	return repoFullName ? { repoFullName, author: context.user } : null;
 }
 
-function createIdleGitContext(
+async function createIdleGitContext(
 	projectId: string,
 	projectPath: string | null,
 	user: { id: string; name: string; email: string },
 ): Promise<ContextExplorerGitContext> {
-	assertNoProjectSyncRunning(projectId, user.id);
+	await assertNoProjectSyncRunning(projectId, user.id);
 	return createGitContext(projectId, projectPath, user);
 }
 

@@ -42,6 +42,9 @@ vi.mock('../src/queries/activity.queries', () => ({
 	failActivity: mocks.failActivity,
 	listContextPullActivities: mocks.listContextPullActivities,
 	startContextPullActivity: mocks.startContextPullActivity,
+	failInterruptedProjectSyncActivities: vi.fn(),
+	getLatestUserProjectSync: vi.fn(async () => null),
+	getRunningProjectSync: vi.fn(async () => null),
 }));
 
 vi.mock('../src/queries/project.queries', () => ({

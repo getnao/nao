@@ -142,29 +142,32 @@ export async function writeFileContent(
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
 	const repo = access.git.repo;
-	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
-	const trackedPaths = getCommittedProjectPaths(repo);
-	assertFileEditable(filePath, livePath, access, repo, trackedPaths);
-	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
-	const currentContent = await readValidatedFile(realPath, filePath);
-	assertExpectedHash(currentContent, expectedHash);
+	const worktreeRoot = getWorktreeProjectRoot(repo);
+	return withKeyedLock(`context-worktree-write:${canonicalizeWriteRoot(worktreeRoot)}`, async () => {
+		const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+		const trackedPaths = getCommittedProjectPaths(repo);
+		assertFileEditable(filePath, livePath, access, repo, trackedPaths);
+		const { realPath, root } = resolveAndValidatePath(filePath, worktreeRoot);
+		const currentContent = await readValidatedFile(realPath, filePath);
+		assertExpectedHash(currentContent, expectedHash);
 
-	try {
-		writeFileAtomically({
-			beforeRename: () => {
-				const latestContent = readValidatedContextFileSync(realPath, filePath);
-				assertExpectedHash(latestContent, expectedHash);
-			},
-			content,
-			displayPath: filePath,
-			root,
-			target: realPath,
-		});
-	} catch (error) {
-		throw toFileError(error, filePath);
-	}
+		try {
+			writeFileAtomically({
+				beforeRename: () => {
+					const latestContent = readValidatedContextFileSync(realPath, filePath);
+					assertExpectedHash(latestContent, expectedHash);
+				},
+				content,
+				displayPath: filePath,
+				root,
+				target: realPath,
+			});
+		} catch (error) {
+			throw toFileError(error, filePath);
+		}
 
-	return { hash: hashContent(contentBuffer) };
+		return { hash: hashContent(contentBuffer) };
+	});
 }
 
 export function getFileEditability(

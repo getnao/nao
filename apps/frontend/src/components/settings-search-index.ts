@@ -1604,5 +1604,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: "Refresh this project's configured databases, repositories, and documentation.",
 		keywords: ['cloud sync', 'nao sync', 'refresh sources'],
 		adminOrContextAdmin: true,
+		cloudOnly: true,
 	},
 ];

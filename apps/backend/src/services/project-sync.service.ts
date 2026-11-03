@@ -52,6 +52,12 @@ const RUN_STATUS_BY_ACTIVITY_STATUS: Record<DBActivity['status'], ProjectSyncSta
 	cancelled: 'cancelled',
 };
 
+class ProjectSyncLeaseLostError extends Error {
+	constructor() {
+		super('nao lost contact with its database for too long, so the sync was stopped. Try again.');
+	}
+}
+
 const runs = new Map<string, ProjectSyncRun>();
 const controllers = new Map<string, AbortController>();
 
@@ -104,7 +110,8 @@ export async function startProjectSync(
 		}
 
 		const activity = await activityQueries.startProjectSyncActivity(project.id, gitContext.userId);
-		const releaseLease = await holdSyncLease(activity.id);
+		const controller = new AbortController();
+		const releaseLease = await holdSyncLease(activity.id, () => controller.abort(new ProjectSyncLeaseLostError()));
 		const run: ProjectSyncRun = {
 			id: activity.id,
 			status: 'queued',
@@ -115,12 +122,12 @@ export async function startProjectSync(
 			finishedAt: null,
 		};
 		runs.set(runKey, run);
-		controllers.set(runKey, new AbortController());
+		controllers.set(runKey, controller);
 		setImmediate(() => {
 			void runProjectSync(project, gitContext, runKey, run.id)
 				.catch((error) => {
 					const message = error instanceof Error ? error.message : 'Project sync failed.';
-					void activityQueries.failActivity(run.id, message);
+					void activityQueries.failActivity(run.id, message, { logs: runs.get(runKey)?.logs ?? '' });
 					updateRun(runKey, run.id, {
 						status: 'failed',
 						error: message,
@@ -153,17 +160,23 @@ export async function cancelProjectSync(projectId: string, userId: string): Prom
 }
 
 /** Sync writes into the user's worktree, so Git actions there wait until it finishes. */
-export function assertNoProjectSyncRunning(projectId: string, userId: string): void {
-	if (isUserSyncActive(projectId, userId)) {
+export async function assertNoProjectSyncRunning(projectId: string, userId: string): Promise<void> {
+	if (await isUserSyncActive(projectId, userId)) {
 		throw new TRPCError({ code: 'CONFLICT', message: 'Wait for the project sync to finish before using Git.' });
 	}
 }
 
 /** nao-managed syncs write the shared live folder, so they pause every admin's saves, not just their own. */
-export function assertNoProjectSyncWritingFiles(projectId: string, userId: string, isManaged: boolean): void {
-	const isSyncWriting = isManaged
-		? [...runs].some(([runKey, run]) => runKey.startsWith(`${projectId}:`) && isRunActive(run))
-		: isUserSyncActive(projectId, userId);
+export async function assertNoProjectSyncWritingFiles(
+	projectId: string,
+	userId: string,
+	isManaged: boolean,
+): Promise<void> {
+	const isSyncWriting =
+		(await isUserSyncActive(projectId, userId)) ||
+		(isManaged &&
+			([...runs].some(([runKey, run]) => runKey.startsWith(`${projectId}:`) && isRunActive(run)) ||
+				(await activityQueries.getRunningProjectSync(projectId, userId)) !== null));
 	if (isSyncWriting) {
 		throw new TRPCError({ code: 'CONFLICT', message: 'Wait for the project sync to finish before saving files.' });
 	}
@@ -216,9 +229,7 @@ async function runProjectSync(
 		const redact = (value: string) =>
 			redactSecretValues(
 				value,
-				Object.entries(projectEnvVars)
-					.filter(([, secret]) => secret.length >= 4)
-					.map(([name, value]) => ({ name, value })),
+				Object.entries(projectEnvVars).map(([name, value]) => ({ name, value })),
 			);
 
 		try {
@@ -248,7 +259,9 @@ async function runProjectSync(
 							: '✓ Everything is up to date',
 				);
 			} else {
-				syncError = await runNaoSync(target.root, projectEnvVars, onOutput, signal);
+				syncError = await withKeyedLock(`context-worktree-write:${canonicalizeWriteRoot(target.root)}`, () =>
+					runNaoSync(target.root, projectEnvVars, onOutput, signal),
+				);
 				appendRunLog(
 					runKey,
 					runId,
@@ -270,14 +283,16 @@ async function runProjectSync(
 				finishedAt: new Date(),
 			});
 		} catch (error) {
-			if (signal?.aborted) {
-				await activityQueries.cancelActivity(runId);
+			const leaseLost = signal?.reason instanceof ProjectSyncLeaseLostError;
+			if (signal?.aborted && !leaseLost) {
 				appendRunLog(runKey, runId, 'Sync cancelled');
+				await activityQueries.cancelActivity(runId, { logs: runs.get(runKey)?.logs ?? '' });
 				updateRun(runKey, runId, { status: 'cancelled', finishedAt: new Date() });
 				return;
 			}
-			const message = redact(error instanceof Error ? error.message : 'Project sync failed.');
-			await activityQueries.failActivity(runId, message);
+			const failure = leaseLost ? signal.reason : error;
+			const message = redact(failure instanceof Error ? failure.message : 'Project sync failed.');
+			await activityQueries.failActivity(runId, message, { logs: runs.get(runKey)?.logs ?? '' });
 			updateRun(runKey, runId, {
 				status: 'failed',
 				error: message,
@@ -294,14 +309,22 @@ async function runProjectSync(
 }
 
 /** Other servers fail a running sync once this lease expires, so it is renewed until the sync settles. */
-async function holdSyncLease(activityId: string): Promise<() => Promise<void>> {
+async function holdSyncLease(activityId: string, onLost: () => void): Promise<() => Promise<void>> {
 	const key = `${activityQueries.PROJECT_SYNC_LEASE_KEY_PREFIX}${activityId}`;
 	const owner = crypto.randomUUID();
 	await keyedLockQueries.tryAcquireLock(key, owner, activityQueries.SYNC_LEASE_MS);
 	const renewal = setInterval(() => {
-		void keyedLockQueries.renewLock(key, owner, activityQueries.SYNC_LEASE_MS).catch((error) => {
-			logger.warn(`Could not renew the project sync lease: ${String(error)}`, { source: 'system' });
-		});
+		void keyedLockQueries
+			.renewLock(key, owner, activityQueries.SYNC_LEASE_MS)
+			.then((renewed) => {
+				if (!renewed) {
+					clearInterval(renewal);
+					onLost();
+				}
+			})
+			.catch((error) => {
+				logger.warn(`Could not renew the project sync lease: ${String(error)}`, { source: 'system' });
+			});
 	}, SYNC_LEASE_RENEW_MS);
 	renewal.unref?.();
 	return async () => {
@@ -381,9 +404,10 @@ function isRunActive(run: ProjectSyncRun): boolean {
 	return run.status === 'queued' || run.status === 'running';
 }
 
-function isUserSyncActive(projectId: string, userId: string): boolean {
-	const run = runs.get(getRunKey(projectId, userId));
-	return run !== undefined && isRunActive(run);
+async function isUserSyncActive(projectId: string, userId: string): Promise<boolean> {
+	await activityQueries.failInterruptedProjectSyncActivities();
+	const run = await getUserRun(projectId, userId);
+	return run !== null && isRunActive(run);
 }
 
 function appendRunLog(runKey: string, runId: string, message: string): void {

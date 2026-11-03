@@ -26,6 +26,8 @@ beforeEach(() => {
 		'RULES.md': 'old rules\n',
 		'old.md': 'removed by sync\n',
 		'databases/stale/columns.md': 'removed by sync\n',
+		'repos/source/docs': 'docs used to be a file\n',
+		'repos/source/readme/intro.md': 'readme used to be a folder\n',
 		'.git/config': '[core]\n',
 		'.git/hooks/README': 'hooks\n',
 	});
@@ -72,8 +74,12 @@ describe('runNaoCommandInSandbox', () => {
 				fs.writeFileSync(path.join(staged, 'RULES.md'), 'new rules\n');
 				fs.rmSync(path.join(staged, 'old.md'));
 				fs.rmSync(path.join(staged, 'databases', 'stale'), { recursive: true });
+				fs.rmSync(path.join(staged, 'repos', 'source', 'docs'));
+				fs.rmSync(path.join(staged, 'repos', 'source', 'readme'), { recursive: true });
 				writeFiles(staged, {
 					'databases/orders/columns.md': 'synced\n',
+					'repos/source/docs/page.md': 'docs is now a folder\n',
+					'repos/source/readme': 'readme is now a file\n',
 					'.git/config': '[core]\n\tfsmonitor = touch /tmp/pwned\n',
 					'docs/.git/config': '[core]\n\tfsmonitor = touch /tmp/pwned\n',
 				});
@@ -91,6 +97,8 @@ describe('runNaoCommandInSandbox', () => {
 		expect(read('databases/orders/columns.md')).toBe('synced\n');
 		expect(fs.existsSync(path.join(project, 'old.md'))).toBe(false);
 		expect(fs.existsSync(path.join(project, 'databases', 'stale'))).toBe(false);
+		expect(read('repos/source/docs/page.md')).toBe('docs is now a folder\n');
+		expect(read('repos/source/readme')).toBe('readme is now a file\n');
 		expect(read('.git/config')).toBe('[core]\n');
 		expect(fs.existsSync(path.join(project, 'docs', '.git'))).toBe(false);
 		expect(fs.existsSync(path.join(project, 'escape.md'))).toBe(false);
