@@ -1,3 +1,14 @@
+CREATE TABLE "context_draft_file" (
+	"id" text PRIMARY KEY NOT NULL,
+	"project_id" text NOT NULL,
+	"user_id" text NOT NULL,
+	"path" text NOT NULL,
+	"content" text NOT NULL,
+	"base_hash" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "test_run" (
 	"id" text PRIMARY KEY NOT NULL,
 	"project_id" text NOT NULL,
@@ -6,6 +17,7 @@ CREATE TABLE "test_run" (
 	"status" text DEFAULT 'queued' NOT NULL,
 	"context_ref" text,
 	"context_commit" text,
+	"context_changes" jsonb,
 	"models" jsonb NOT NULL,
 	"attempts" integer DEFAULT 1 NOT NULL,
 	"selection" jsonb,
@@ -29,6 +41,7 @@ CREATE TABLE "test_run_result" (
 	"tags" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"llm_provider" text NOT NULL,
 	"llm_model_id" text NOT NULL,
+	"context_variant" text DEFAULT 'production' NOT NULL,
 	"attempt" integer NOT NULL,
 	"passed" boolean NOT NULL,
 	"message" text NOT NULL,
@@ -42,10 +55,13 @@ CREATE TABLE "test_run_result" (
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "context_draft_file" ADD CONSTRAINT "context_draft_file_project_id_project_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "context_draft_file" ADD CONSTRAINT "context_draft_file_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "test_run" ADD CONSTRAINT "test_run_project_id_project_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "test_run" ADD CONSTRAINT "test_run_triggered_by_user_id_user_id_fk" FOREIGN KEY ("triggered_by_user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "test_run_result" ADD CONSTRAINT "test_run_result_run_id_test_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."test_run"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "test_run_result" ADD CONSTRAINT "test_run_result_chat_id_chat_id_fk" FOREIGN KEY ("chat_id") REFERENCES "public"."chat"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "context_draft_file_project_user_path_idx" ON "context_draft_file" USING btree ("project_id","user_id","path");--> statement-breakpoint
 CREATE INDEX "test_run_projectId_idx" ON "test_run" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "test_run_status_idx" ON "test_run" USING btree ("status");--> statement-breakpoint
 CREATE UNIQUE INDEX "test_run_active_project_idx" ON "test_run" USING btree ("project_id") WHERE "test_run"."status" IN ('queued', 'running');--> statement-breakpoint

@@ -1,5 +1,5 @@
 {
-  "id": "a32a8f8a-dcac-4e9a-9c1d-4170b846624d",
+  "id": "a5f96a56-3e95-49ac-ba8c-ce35a0169fc0",
   "prevId": "c1bff71f-5a41-4dc9-b6c5-a60d5b36868b",
   "version": "7",
   "dialect": "postgresql",
@@ -1985,6 +1985,124 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.context_draft_file": {
+      "name": "context_draft_file",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_hash": {
+          "name": "base_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "context_draft_file_project_user_path_idx": {
+          "name": "context_draft_file_project_user_path_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "path",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "context_draft_file_project_id_project_id_fk": {
+          "name": "context_draft_file_project_id_project_id_fk",
+          "tableFrom": "context_draft_file",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "context_draft_file_user_id_user_id_fk": {
+          "name": "context_draft_file_user_id_user_id_fk",
+          "tableFrom": "context_draft_file",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -10239,6 +10357,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "context_changes": {
+          "name": "context_changes",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "models": {
           "name": "models",
           "type": "jsonb",
@@ -10452,6 +10576,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "context_variant": {
+          "name": "context_variant",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'production'"
         },
         "attempt": {
           "name": "attempt",

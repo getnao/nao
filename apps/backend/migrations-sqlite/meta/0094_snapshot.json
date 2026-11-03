@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "af44d05e-429d-47f3-8212-186987706a9d",
+  "id": "002d4ca9-8fc6-400f-8cae-87156d78d612",
   "prevId": "a0afc439-ee40-4e24-9a6a-c39a0dee3371",
   "tables": {
     "account": {
@@ -1724,6 +1724,111 @@
         "context_branch_ownership_user_id_user_id_fk": {
           "name": "context_branch_ownership_user_id_user_id_fk",
           "tableFrom": "context_branch_ownership",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "context_draft_file": {
+      "name": "context_draft_file",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "base_hash": {
+          "name": "base_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "context_draft_file_project_user_path_idx": {
+          "name": "context_draft_file_project_user_path_idx",
+          "columns": [
+            "project_id",
+            "user_id",
+            "path"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "context_draft_file_project_id_project_id_fk": {
+          "name": "context_draft_file_project_id_project_id_fk",
+          "tableFrom": "context_draft_file",
+          "tableTo": "project",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "context_draft_file_user_id_user_id_fk": {
+          "name": "context_draft_file_user_id_user_id_fk",
+          "tableFrom": "context_draft_file",
           "tableTo": "user",
           "columnsFrom": [
             "user_id"
@@ -9483,6 +9588,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "context_changes": {
+          "name": "context_changes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "models": {
           "name": "models",
           "type": "text",
@@ -9689,6 +9801,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "context_variant": {
+          "name": "context_variant",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'production'"
         },
         "attempt": {
           "name": "attempt",

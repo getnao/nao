@@ -1,3 +1,17 @@
+CREATE TABLE `context_draft_file` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text NOT NULL,
+	`user_id` text NOT NULL,
+	`path` text NOT NULL,
+	`content` text NOT NULL,
+	`base_hash` text,
+	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	`updated_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `context_draft_file_project_user_path_idx` ON `context_draft_file` (`project_id`,`user_id`,`path`);--> statement-breakpoint
 CREATE TABLE `test_run` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -6,6 +20,7 @@ CREATE TABLE `test_run` (
 	`status` text DEFAULT 'queued' NOT NULL,
 	`context_ref` text,
 	`context_commit` text,
+	`context_changes` text,
 	`models` text NOT NULL,
 	`attempts` integer DEFAULT 1 NOT NULL,
 	`selection` text,
@@ -34,6 +49,7 @@ CREATE TABLE `test_run_result` (
 	`tags` text DEFAULT '[]' NOT NULL,
 	`llm_provider` text NOT NULL,
 	`llm_model_id` text NOT NULL,
+	`context_variant` text DEFAULT 'production' NOT NULL,
 	`attempt` integer NOT NULL,
 	`passed` integer NOT NULL,
 	`message` text NOT NULL,
