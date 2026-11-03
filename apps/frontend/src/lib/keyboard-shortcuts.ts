@@ -10,8 +10,9 @@ export type ShortcutId =
 	| 'toggle-story-chat'
 	| 'keyboard-help'
 	| 'stop-generation'
-	| 'cycle-model';
-export type ShortcutGroup = 'General' | 'Navigation' | 'Chat';
+	| 'cycle-model'
+	| 'toggle-test-drawer';
+export type ShortcutGroup = 'General' | 'Navigation' | 'Chat' | 'File Explorer';
 
 export type ShortcutDefinition = {
 	id: ShortcutId;
@@ -78,6 +79,12 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Cycle model',
 		group: 'Chat',
 		shortcut: { shift: true, key: 'Tab' },
+	},
+	{
+		id: 'toggle-test-drawer',
+		label: 'Show or hide the tests',
+		group: 'File Explorer',
+		shortcut: { mod: true, key: 'j' },
 	},
 ];
 

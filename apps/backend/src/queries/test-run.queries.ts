@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lte, max, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte, max, notInArray, or, sql } from 'drizzle-orm';
 
 import s, { DBTestRun, DBTestRunResult, NewTestRun, NewTestRunResult } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -48,8 +48,8 @@ export async function listRuns(
 }
 
 /**
- * Attempt counts of each test in the latest completed run that included it, one row per test, run and
- * file hash. Active, failed and cancelled runs are left out because their results are partial, and
+ * Attempt counts of each test in the latest completed run that included it, one row per test, run, file hash
+ * and model. Active, failed and cancelled runs are left out because their results are partial, and
  * draft runs because they ran content that is not in the context.
  */
 export async function listLatestCompletedOutcomes(projectId: string, testPaths: string[]) {
@@ -79,7 +79,10 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 			testPath: s.testRunResult.testPath,
 			runId: s.testRun.id,
 			runCreatedAt: s.testRun.createdAt,
+			runModels: s.testRun.models,
 			testHash: s.testRunResult.testHash,
+			llmProvider: s.testRunResult.llmProvider,
+			llmModelId: s.testRunResult.llmModelId,
 			totalAttempts: sql<number>`count(*)`.mapWith(Number),
 			passedAttempts: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
 		})
@@ -93,7 +96,16 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 			),
 		)
 		.where(completedResults)
-		.groupBy(s.testRunResult.testPath, s.testRun.id, s.testRun.createdAt, s.testRunResult.testHash)
+		.groupBy(
+			s.testRunResult.testPath,
+			s.testRun.id,
+			s.testRun.createdAt,
+			s.testRun.models,
+			s.testRunResult.testHash,
+			s.testRunResult.llmProvider,
+			s.testRunResult.llmModelId,
+		)
+		.orderBy(asc(s.testRunResult.llmModelId))
 		.execute();
 }
 
@@ -112,6 +124,48 @@ export async function listVariantTotals(runIds: string[]) {
 		.from(s.testRunResult)
 		.where(inArray(s.testRunResult.runId, runIds))
 		.groupBy(s.testRunResult.runId, s.testRunResult.contextVariant)
+		.execute();
+}
+
+/** Passed and recorded attempts of each run per model and context variant, to rank the models of a run. */
+export async function listModelTotals(runIds: string[]) {
+	if (runIds.length === 0) {
+		return [];
+	}
+	return db
+		.select({
+			runId: s.testRunResult.runId,
+			provider: s.testRunResult.llmProvider,
+			modelId: s.testRunResult.llmModelId,
+			contextVariant: s.testRunResult.contextVariant,
+			total: sql<number>`count(*)`.mapWith(Number),
+			passed: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
+		})
+		.from(s.testRunResult)
+		.where(inArray(s.testRunResult.runId, runIds))
+		.groupBy(
+			s.testRunResult.runId,
+			s.testRunResult.llmProvider,
+			s.testRunResult.llmModelId,
+			s.testRunResult.contextVariant,
+		)
+		.execute();
+}
+
+/** Average cost and duration of an attempt of each model in the project's runs since a date. */
+export async function listRecentModelStats(projectId: string, since: Date) {
+	return db
+		.select({
+			provider: s.testRunResult.llmProvider,
+			modelId: s.testRunResult.llmModelId,
+			attempts: sql<number>`count(*)`.mapWith(Number),
+			averageCost: sql<number | null>`avg(${s.testRunResult.totalCost})`.mapWith(Number),
+			averageDurationMs: sql<number | null>`avg(${s.testRunResult.durationMs})`.mapWith(Number),
+		})
+		.from(s.testRunResult)
+		.innerJoin(s.testRun, eq(s.testRun.id, s.testRunResult.runId))
+		.where(and(eq(s.testRun.projectId, projectId), gte(s.testRunResult.createdAt, since)))
+		.groupBy(s.testRunResult.llmProvider, s.testRunResult.llmModelId)
 		.execute();
 }
 

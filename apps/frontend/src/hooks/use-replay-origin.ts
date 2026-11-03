@@ -4,7 +4,7 @@ import type { UsageRouteSearch } from '@/components/settings/usage-route-search'
 
 const ORIGIN_LABELS = {
 	recommendations: 'Recommendations',
-	tests: 'Tests',
+	tests: 'File Explorer',
 } as const;
 
 /** The page a replay was opened from, so the breadcrumb can name it and lead back to it. */
@@ -21,7 +21,7 @@ export function useReplayOrigin(usageSearch: UsageRouteSearch) {
 			return;
 		}
 		if (usageSearch.origin === 'tests') {
-			navigate({ to: '/settings/tests', search: { run: usageSearch.testRunId }, replace: true });
+			navigate({ to: '/settings/context-explorer', search: { testRun: usageSearch.testRunId }, replace: true });
 			return;
 		}
 		navigate({

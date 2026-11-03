@@ -1,37 +1,30 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import {
-	CircleAlert,
-	CircleCheck,
-	CircleDashed,
-	CircleMinus,
-	CircleX,
-	GitCompareArrows,
-	History,
-	Play,
-} from 'lucide-react';
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { CircleAlert, CircleCheck, CircleDashed, CircleMinus, CircleX, History } from 'lucide-react';
+import { useState } from 'react';
+import type { LlmSelectedModel } from '@nao/shared/types';
 
-import type {
-	DraftContext,
-	TestFileValidation,
-	TestHistoryRun,
-	TestRunResult,
+import type { DraftContext, TestHistoryRun, TestRunResult } from '@/components/settings/test-run-types';
+import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
+import { AttemptChatLink, TestAttemptDetails } from '@/components/settings/test-attempt-details';
+import { AttemptDots, ModelName } from '@/components/settings/test-model-results';
+import {
+	formatCost,
+	formatCount,
+	formatDuration,
+	formatUnitCost,
+	getContextChanges,
+	isActiveRun,
+	isSameTestModel,
+	onEnterOrSpace,
+	resultModel,
+	testModelKey,
 } from '@/components/settings/test-run-types';
-import { TestAttemptDetails } from '@/components/settings/test-attempt-details';
-import { AttemptChatLink } from '@/components/settings/test-run-results';
-import { formatCost, getContextChanges, isActiveRun } from '@/components/settings/test-run-types';
-import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
-import { SimpleTooltip } from '@/components/ui/tooltip';
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { getTimeAgo } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
-const VALIDATION_DEBOUNCE_MS = 500;
 const ACTIVE_RUN_REFETCH_MS = 2_000;
 
 type Tone = 'pass' | 'fail' | 'mixed' | 'pending' | 'neutral';
@@ -59,104 +52,28 @@ const TRIGGER_LABELS: Record<TestHistoryRun['trigger'], string> = {
 
 interface TestWorkbenchProps {
 	testFile: { path: string; content: string };
+	/** The check of the test as it is in the editor. */
+	validation: TestFileValidationState;
 	draft: DraftContext | null;
-	/** Another run of the project is in progress, which blocks starting one. */
-	isRunInProgress: boolean;
-	onRunStarted: () => void;
+	/** The run shown, or `null` for the latest one. */
+	selectedRunId: string | null;
+	onSelectRun: (runId: string) => void;
 }
 
-/** Runs the test open in the editor and shows how its latest runs went, attempt by attempt. */
-export function TestWorkbench({ testFile, draft, isRunInProgress, onRunStarted }: TestWorkbenchProps) {
-	const queryClient = useQueryClient();
-	const debouncedContent = useDebouncedValue(testFile.content, VALIDATION_DEBOUNCE_MS);
-	const validation = useMutation(trpc.testRun.validateTestFile.mutationOptions());
-	const { mutate: validate } = validation;
+/** Shows how the latest runs of the test open in the editor went, attempt by attempt. */
+export function TestWorkbench({ testFile, validation, draft, selectedRunId, onSelectRun }: TestWorkbenchProps) {
 	const history = useQuery({
 		...trpc.testRun.getTestHistory.queryOptions({ path: testFile.path }),
 		refetchInterval: (query) => (query.state.data?.some(isActiveRun) ? ACTIVE_RUN_REFETCH_MS : false),
 	});
-	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-
-	const handleRunStarted = (run: { id: string }) => {
-		setSelectedRunId(run.id);
-		void queryClient.invalidateQueries({
-			queryKey: trpc.testRun.getTestHistory.queryKey({ path: testFile.path }),
-		});
-		onRunStarted();
-	};
-	const startRun = useMutation(trpc.testRun.startDraftRun.mutationOptions({ onSuccess: handleRunStarted }));
-	const startComparison = useMutation(
-		trpc.testRun.startComparisonRun.mutationOptions({ onSuccess: handleRunStarted }),
-	);
-
-	useEffect(() => {
-		validate({ path: testFile.path, content: debouncedContent });
-	}, [validate, testFile.path, debouncedContent]);
-
-	const currentValidation =
-		validation.isSuccess && validation.variables.content === testFile.content ? validation.data : undefined;
+	const currentHash = validation.validation?.test?.hash;
 	const runs = history.data ?? [];
 	const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs.at(0);
 	const contextChangeCount = getContextChanges(draft).length;
-	const isStarting = startRun.isPending || startComparison.isPending;
-	const disabledReason = !currentValidation?.test
-		? 'Fix the test file first.'
-		: isRunInProgress || isStarting
-			? 'Another test run is in progress.'
-			: null;
-	const startError = startRun.error?.message ?? startComparison.error?.message;
-
-	const run = () => {
-		startComparison.reset();
-		startRun.mutate(testFile);
-	};
-	const compare = () => {
-		startRun.reset();
-		startComparison.mutate({ testFile });
-	};
 
 	return (
 		<div className='flex h-full min-h-0 flex-col'>
-			<div className='flex shrink-0 items-center gap-3 border-b px-3 py-1.5 text-xs'>
-				<div className='min-w-0 flex-1'>
-					<ValidationSummary validation={currentValidation} error={validation.error?.message} />
-				</div>
-				{startError && (
-					<span className='max-w-80 truncate text-destructive' title={startError}>
-						{startError}
-					</span>
-				)}
-				{contextChangeCount > 0 ? (
-					<>
-						<StartButton
-							variant='ghost'
-							icon={<Play className='size-3.5' />}
-							label='Run on production'
-							tooltip='Runs this test, as it is in the editor, against the production context only.'
-							disabledReason={disabledReason}
-							isStarting={startRun.isPending}
-							onClick={run}
-						/>
-						<StartButton
-							icon={<GitCompareArrows className='size-3.5' />}
-							label='Compare with production'
-							tooltip={`Runs this test on production and with your ${pluralize(contextChangeCount, 'changed file')}, side by side, to see whether your changes break or fix it.`}
-							disabledReason={disabledReason}
-							isStarting={startComparison.isPending}
-							onClick={compare}
-						/>
-					</>
-				) : (
-					<StartButton
-						icon={<Play className='size-3.5' />}
-						label='Run test'
-						tooltip='Runs this test, as it is in the editor, against the production context. Edit other context files to compare your changes with production.'
-						disabledReason={disabledReason}
-						isStarting={startRun.isPending}
-						onClick={run}
-					/>
-				)}
-			</div>
+			<ValidationNotice validation={validation} />
 
 			{history.isLoading ? (
 				<div className='flex flex-1 items-center justify-center'>
@@ -175,49 +92,13 @@ export function TestWorkbench({ testFile, draft, isRunInProgress, onRunStarted }
 					<RunList
 						runs={runs}
 						selectedRunId={selectedRun.id}
-						currentHash={currentValidation?.test?.hash}
-						onSelect={setSelectedRunId}
+						currentHash={currentHash}
+						onSelect={onSelectRun}
 					/>
-					<RunDetails key={selectedRun.id} run={selectedRun} currentHash={currentValidation?.test?.hash} />
+					<RunDetails key={selectedRun.id} run={selectedRun} currentHash={currentHash} />
 				</div>
 			)}
 		</div>
-	);
-}
-
-function StartButton({
-	icon,
-	label,
-	tooltip,
-	disabledReason,
-	isStarting,
-	onClick,
-	variant = 'default',
-}: {
-	icon: ReactNode;
-	label: string;
-	tooltip: string;
-	disabledReason: string | null;
-	isStarting: boolean;
-	onClick: () => void;
-	variant?: 'default' | 'ghost';
-}) {
-	return (
-		<SimpleTooltip content={disabledReason ?? tooltip} side='top'>
-			<span className='shrink-0'>
-				<Button
-					type='button'
-					size='sm'
-					variant={variant}
-					className='h-7 gap-1.5 text-xs'
-					disabled={disabledReason !== null}
-					onClick={onClick}
-				>
-					{isStarting ? <Spinner className='size-3.5' /> : icon}
-					{label}
-				</Button>
-			</span>
-		</SimpleTooltip>
 	);
 }
 
@@ -270,7 +151,13 @@ function RunDetails({ run, currentHash }: { run: TestHistoryRun; currentHash: st
 	const isComparison = run.trigger === 'comparison';
 	const [variant, setVariant] = useState<Variant>(isComparison ? 'draft' : 'production');
 	const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
-	const variantResults = run.results.filter((result) => !isComparison || result.contextVariant === variant);
+	const hasSeveralModels = run.models.length > 1;
+	const [selectedModel, setSelectedModel] = useState<LlmSelectedModel>(() => pickModelToShow(run));
+	const variantResults = run.results.filter(
+		(result) =>
+			(!isComparison || result.contextVariant === variant) &&
+			(!hasSeveralModels || isSameTestModel(resultModel(result), selectedModel)),
+	);
 	const result =
 		variantResults.find((candidate) => candidate.id === selectedResultId) ??
 		variantResults.find((candidate) => !candidate.passed) ??
@@ -278,59 +165,57 @@ function RunDetails({ run, currentHash }: { run: TestHistoryRun; currentHash: st
 
 	return (
 		<div className='flex min-w-0 flex-1 flex-col'>
-			<div className='flex shrink-0 flex-col gap-2 border-b px-3 py-2 text-xs'>
-				<div className='flex items-start gap-2'>
-					<ToneIcon tone={verdict.tone} className='mt-px' />
-					<p className='min-w-0 flex-1'>
-						<span className='font-medium text-foreground'>{verdict.title}</span>
-						{verdict.detail && <span className='text-muted-foreground'> — {verdict.detail}</span>}
-					</p>
-					<Link
-						to='/settings/tests'
-						search={{ run: run.id }}
-						className='shrink-0 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline'
-					>
-						Open in Tests
-					</Link>
-				</div>
-				{(isComparison || variantResults.length > 1 || isRunOfAnotherVersion(run, currentHash)) && (
-					<div className='flex flex-wrap items-center gap-2'>
-						{isComparison && (
-							<VariantToggle
-								run={run}
-								variant={variant}
-								onChange={(next) => {
-									setVariant(next);
-									setSelectedResultId(null);
-								}}
-							/>
-						)}
-						{variantResults.length > 1 && (
-							<AttemptPicker
-								results={variantResults}
-								selectedResultId={result?.id}
-								onSelect={setSelectedResultId}
-							/>
-						)}
-						{isRunOfAnotherVersion(run, currentHash) && (
-							<span className='flex items-center gap-1 text-muted-foreground'>
-								<History className='size-3' />
-								Ran an older version of this test
-							</span>
-						)}
-					</div>
-				)}
+			<div className='flex shrink-0 items-start gap-2 border-b px-3 py-2 text-xs'>
+				<ToneIcon tone={verdict.tone} className='mt-px' />
+				<p className='min-w-0 flex-1'>
+					<span className='font-medium text-foreground'>{verdict.title}</span>
+					{verdict.detail && <span className='text-muted-foreground'> — {verdict.detail}</span>}
+				</p>
 			</div>
+			{hasSeveralModels && (
+				<TestModelStrip
+					run={run}
+					variant={isComparison ? variant : null}
+					selectedModel={selectedModel}
+					onSelect={(model) => {
+						setSelectedModel(model);
+						setSelectedResultId(null);
+					}}
+				/>
+			)}
+			{(isComparison || variantResults.length > 1 || isRunOfAnotherVersion(run, currentHash)) && (
+				<div className='flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 text-xs'>
+					{isComparison && (
+						<VariantToggle
+							run={run}
+							variant={variant}
+							onChange={(next) => {
+								setVariant(next);
+								setSelectedResultId(null);
+							}}
+						/>
+					)}
+					{variantResults.length > 1 && (
+						<AttemptPicker
+							results={variantResults}
+							selectedResultId={result?.id}
+							onSelect={setSelectedResultId}
+						/>
+					)}
+					{isRunOfAnotherVersion(run, currentHash) && (
+						<span className='flex items-center gap-1 text-muted-foreground'>
+							<History className='size-3' />
+							Ran an older version of this test
+						</span>
+					)}
+				</div>
+			)}
 			{result ? (
 				<TestAttemptDetails
 					result={result}
 					actions={
 						<span className='flex items-center gap-2 text-xs text-muted-foreground'>
-							<span>
-								{result.llmModelId}
-								{result.durationMs ? ` · ${(result.durationMs / 1000).toFixed(1)}s` : ''}
-								{result.totalCost !== null ? ` · ${formatCost(result.totalCost)}` : ''}
-							</span>
+							<span className='tabular-nums'>{describeAttemptMetrics(result)}</span>
 							<AttemptChatLink result={result} />
 						</span>
 					}
@@ -375,7 +260,7 @@ function VariantToggle({
 								: 'text-muted-foreground hover:text-foreground',
 						)}
 					>
-						<ToneIcon tone={outcome ? outcomeTone(outcome.passed, outcome.total) : 'pending'} />
+						<ToneIcon tone={variantTone(run, outcome)} />
 						{option.label}
 						{outcome && outcome.total > 1 && (
 							<span className='text-muted-foreground'>
@@ -398,7 +283,6 @@ function AttemptPicker({
 	selectedResultId: string | undefined;
 	onSelect: (resultId: string) => void;
 }) {
-	const hasSeveralModels = new Set(results.map((result) => result.llmModelId)).size > 1;
 	return (
 		<div role='radiogroup' aria-label='Attempt' className='flex flex-wrap items-center gap-1'>
 			{results.map((result) => (
@@ -416,39 +300,151 @@ function AttemptPicker({
 					)}
 				>
 					<ToneIcon tone={result.passed ? 'pass' : 'fail'} />
-					{hasSeveralModels ? `${result.llmModelId} #${result.attempt}` : `Attempt ${result.attempt}`}
+					Attempt {result.attempt}
 				</button>
 			))}
 		</div>
 	);
 }
 
-function ValidationSummary({ validation, error }: { validation: TestFileValidation | undefined; error?: string }) {
-	if (error) {
-		return <span className='block truncate text-destructive'>Could not check the test: {error}</span>;
+/** Says why the test cannot run, and nothing while it is valid, as the tab already names it. */
+function ValidationNotice({ validation }: { validation: TestFileValidationState }) {
+	const message = validation.error
+		? `Could not check the test: ${validation.error}`
+		: validation.validation && (validation.validation.error !== null || !validation.validation.test)
+			? `Invalid test: ${validation.validation.error}`
+			: null;
+	if (!message) {
+		return null;
 	}
-	if (!validation) {
-		return <span className='text-muted-foreground'>Checking the test…</span>;
-	}
-	if (validation.error !== null || !validation.test) {
-		return (
-			<SimpleTooltip content={<pre className='font-mono whitespace-pre-wrap'>{validation.error}</pre>}>
-				<span className='flex min-w-0 items-center gap-1 text-destructive'>
-					<CircleAlert className='size-3.5 shrink-0' />
-					<span className='truncate'>Invalid test: {validation.error}</span>
-				</span>
-			</SimpleTooltip>
-		);
-	}
-	const { test } = validation;
 	return (
-		<span className='block truncate text-muted-foreground' title={test.prompt}>
-			<span className='font-medium text-foreground'>{test.name}</span>
-			{test.tags.length > 0 && <> · {test.tags.join(', ')}</>}
-			{!test.sql && <> · no reference SQL</>}
-			{test.assertions.length > 0 && <> · {pluralize(test.assertions.length, 'assertion')}</>}
-		</span>
+		<div className='flex shrink-0 items-start gap-1.5 border-b bg-destructive/5 px-3 py-1.5 text-xs text-destructive'>
+			<CircleAlert className='mt-px size-3.5 shrink-0' />
+			<pre className='min-w-0 font-sans whitespace-pre-wrap'>{message}</pre>
+		</div>
 	);
+}
+
+/** The models of a run on this test, with their attempts and metrics, to pick the one whose attempts show below. */
+function TestModelStrip({
+	run,
+	variant,
+	selectedModel,
+	onSelect,
+}: {
+	run: TestHistoryRun;
+	/** The context variant shown, or null when the run did not compare variants. */
+	variant: Variant | null;
+	selectedModel: LlmSelectedModel;
+	onSelect: (model: LlmSelectedModel) => void;
+}) {
+	return (
+		<div className='shrink-0 border-b' role='radiogroup' aria-label='Model'>
+			<table className='w-full text-xs'>
+				<thead>
+					<tr className='border-b text-left text-[11px] text-muted-foreground'>
+						<th className='px-3 py-1 font-medium'>Model</th>
+						{variant ? (
+							<>
+								<th className='px-3 py-1 font-medium'>Production</th>
+								<th className='px-3 py-1 font-medium'>Your changes</th>
+							</>
+						) : (
+							<th className='px-3 py-1 font-medium'>Attempts</th>
+						)}
+						<th className='px-3 py-1 text-right font-medium'>$ / question</th>
+						<th className='px-3 py-1 text-right font-medium'>Tool calls</th>
+						<th className='px-3 py-1 text-right font-medium'>Time</th>
+					</tr>
+				</thead>
+				<tbody>
+					{run.models.map((model) => {
+						const modelResults = run.results.filter((result) =>
+							isSameTestModel(resultModel(result), model),
+						);
+						const shownResults = variant
+							? modelResults.filter((result) => result.contextVariant === variant)
+							: modelResults;
+						const isSelected = isSameTestModel(model, selectedModel);
+						return (
+							<tr
+								key={testModelKey(model)}
+								role='radio'
+								aria-checked={isSelected}
+								tabIndex={0}
+								onClick={() => onSelect(model)}
+								onKeyDown={onEnterOrSpace(() => onSelect(model))}
+								className={cn(
+									'cursor-pointer border-b transition-colors last:border-b-0 hover:bg-accent/50',
+									isSelected && 'bg-accent',
+								)}
+							>
+								<td className='px-3 py-1'>
+									<ModelName models={run.models} model={model} isBold={isSelected} />
+								</td>
+								{variant ? (
+									<>
+										<td className='px-3 py-1'>
+											<AttemptDots
+												results={modelResults.filter(
+													(result) => result.contextVariant === 'production',
+												)}
+												expected={run.attempts}
+											/>
+										</td>
+										<td className='px-3 py-1'>
+											<AttemptDots
+												results={modelResults.filter(
+													(result) => result.contextVariant === 'draft',
+												)}
+												expected={run.attempts}
+											/>
+										</td>
+									</>
+								) : (
+									<td className='px-3 py-1'>
+										<AttemptDots results={modelResults} expected={run.attempts} />
+									</td>
+								)}
+								<td className='px-3 py-1 text-right tabular-nums'>
+									{formatUnitCost(averageOf(shownResults, (result) => result.totalCost))}
+								</td>
+								<td className='px-3 py-1 text-right tabular-nums'>
+									{formatCount(averageOf(shownResults, (result) => result.toolCallCount))}
+								</td>
+								<td className='px-3 py-1 text-right tabular-nums'>
+									{formatDuration(averageOf(shownResults, (result) => result.durationMs))}
+								</td>
+							</tr>
+						);
+					})}
+				</tbody>
+			</table>
+		</div>
+	);
+}
+
+/** Shows first a model with a failed attempt, as that is the one to look into. */
+function pickModelToShow(run: TestHistoryRun): LlmSelectedModel {
+	const failed = run.results.find((result) => !result.passed);
+	return failed ? resultModel(failed) : run.models[0];
+}
+
+function describeAttemptMetrics(result: TestRunResult): string {
+	return [
+		result.llmModelId,
+		result.durationMs ? formatDuration(result.durationMs) : null,
+		result.toolCallCount !== null ? pluralize(result.toolCallCount, 'tool call') : null,
+		result.totalTokens !== null ? `${formatCount(result.totalTokens)} tokens` : null,
+		result.totalCost !== null ? formatCost(result.totalCost) : null,
+	]
+		.filter((part) => part !== null)
+		.join(' · ');
+}
+
+function averageOf(results: TestRunResult[], value: (result: TestRunResult) => number | null): number | null {
+	const values = results.map(value).filter((entry): entry is number => typeof entry === 'number');
+	return values.length === 0 ? null : values.reduce((sum, entry) => sum + entry, 0) / values.length;
 }
 
 function ToneIcon({ tone, className }: { tone: Tone; className?: string }) {
@@ -471,6 +467,9 @@ function describeRun(run: TestHistoryRun): RunVerdict {
 	if (run.comparison) {
 		return describeComparison(run.comparison);
 	}
+	if (run.models.length > 1) {
+		return describeModels(run);
+	}
 	const passed = run.results.filter((result) => result.passed).length;
 	const total = run.results.length;
 	if (total === 0) {
@@ -491,6 +490,29 @@ function describeRun(run: TestHistoryRun): RunVerdict {
 		return { tone: 'fail', title: 'Failed', detail: failure?.errorMessage ?? failure?.message ?? null };
 	}
 	return { tone: 'mixed', title: 'Flaky', detail: `${passed} of ${total} attempts pass.` };
+}
+
+/** What a run of several models says about the test: on which models every attempt passed. */
+function describeModels(run: TestHistoryRun): RunVerdict {
+	const outcomes = run.models.map((model) => {
+		const results = run.results.filter((result) => isSameTestModel(resultModel(result), model));
+		return { model, passed: results.filter((result) => result.passed).length, total: results.length };
+	});
+	const passingCount = outcomes.filter((outcome) => outcome.total > 0 && outcome.passed === outcome.total).length;
+	const failing = outcomes
+		.filter((outcome) => outcome.passed < outcome.total)
+		.map((outcome) => outcome.model.modelId);
+	if (passingCount === outcomes.length) {
+		return { tone: 'pass', title: `Passes on all ${outcomes.length} models`, detail: null };
+	}
+	if (passingCount === 0 && outcomes.every((outcome) => outcome.passed === 0)) {
+		return { tone: 'fail', title: `Fails on all ${outcomes.length} models`, detail: null };
+	}
+	return {
+		tone: 'mixed',
+		title: `Passes on ${passingCount} of ${outcomes.length} models`,
+		detail: `${failing.join(', ')} ${failing.length === 1 ? 'misses' : 'miss'} some attempts.`,
+	};
 }
 
 function describeComparison(comparison: NonNullable<TestHistoryRun['comparison']>): RunVerdict {
@@ -535,6 +557,14 @@ function describeComparison(comparison: NonNullable<TestHistoryRun['comparison']
 		case 'pending':
 			return { tone: 'neutral', title: 'Incomplete', detail: 'some attempts did not finish.' };
 	}
+}
+
+/** A variant without a recorded attempt is still pending while the run is active, and left unfinished once it stopped. */
+function variantTone(run: TestHistoryRun, outcome: { passed: number; total: number } | undefined): Tone {
+	if (!outcome || outcome.total === 0) {
+		return isActiveRun(run) ? 'pending' : 'neutral';
+	}
+	return outcomeTone(outcome.passed, outcome.total);
 }
 
 function outcomeTone(passed: number, total: number): Tone {

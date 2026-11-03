@@ -153,6 +153,33 @@ describe('startTestRun', () => {
 		});
 	});
 
+	it('verifies the answers of every model with the project default model when several models run', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?\nsql: select 1');
+		const models = [
+			{ provider: 'anthropic', modelId: 'claude-haiku-4-5' },
+			{ provider: 'anthropic', modelId: 'claude-sonnet-4-5' },
+		] as const;
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1', models: [...models] });
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(mocks.runTestInChat.mock.calls.map((call) => call[2])).toEqual([...models]);
+		expect(mocks.evaluateTestAttempt.mock.calls.map((call) => call[0].modelSelection)).toEqual([
+			DEFAULT_MODEL,
+			DEFAULT_MODEL,
+		]);
+	});
+
+	it('lets a single model verify its own answers', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?\nsql: select 1');
+		const model = { provider: 'anthropic', modelId: 'claude-haiku-4-5' } as const;
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1', models: [model] });
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(expect.objectContaining({ modelSelection: model }));
+	});
+
 	it('records a failed attempt when the agent errors, without failing the run', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 		mocks.runTestInChat.mockRejectedValueOnce(new Error('rate limited'));

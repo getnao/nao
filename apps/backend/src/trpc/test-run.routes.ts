@@ -12,6 +12,8 @@ import { type DraftSource, hasContextWorktree, readGitDraft } from '../services/
 import { hasContextRepository, readNaoDraft } from '../services/nao-draft.service';
 import {
 	getLatestOutcomesByTest,
+	getModelStats,
+	getPreviousModelSummaries,
 	getTestHistory,
 	listRunsWithVariantTotals,
 	withDataDiffs,
@@ -40,6 +42,7 @@ import {
 } from '../types/test-run';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { compareContextVariants } from '../utils/test-comparison';
+import { summarizeModels } from '../utils/test-model-summary';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with production.';
@@ -61,6 +64,11 @@ const draftTestFileSchema = z.object({
 	content: z.string().refine((content) => Buffer.byteLength(content, 'utf8') <= MAX_CONTEXT_FILE_SIZE, {
 		message: `The test file must be at most ${MAX_CONTEXT_FILE_SIZE} bytes.`,
 	}),
+});
+
+const draftRunSchema = draftTestFileSchema.extend({
+	models: runSelectionSchema.shape.models,
+	attempts: runSelectionSchema.shape.attempts,
 });
 
 const comparisonRunSchema = runSelectionSchema.extend({
@@ -127,14 +135,19 @@ export const testRunRoutes = {
 
 	getRun: contextAdminProtectedProcedure.input(z.object({ runId: z.string() })).query(async ({ ctx, input }) => {
 		const run = await getProjectRun(ctx.project.id, input.runId);
-		const results = withDataDiffs(await testRunQueries.listResults(run.id), projectTolerances(ctx.project.path));
+		const storedResults = await testRunQueries.listResults(run.id);
+		const results = withDataDiffs(storedResults, projectTolerances(ctx.project.path));
 		return {
 			...run,
 			results,
 			comparison:
 				run.trigger === 'comparison' ? compareContextVariants(results, run.models.length * run.attempts) : null,
+			modelSummaries: summarizeModels(storedResults),
+			previousModelSummaries: await getPreviousModelSummaries(run, storedResults),
 		};
 	}),
+
+	getModelStats: contextAdminProtectedProcedure.query(({ ctx }) => getModelStats(ctx.project.id)),
 
 	getTestHistory: contextAdminProtectedProcedure
 		.input(z.object({ path: z.string() }))
@@ -151,10 +164,16 @@ export const testRunRoutes = {
 		return isInvalidTestFile(parsed) ? { test: null, error: parsed.error } : { test: parsed, error: null };
 	}),
 
-	startDraftRun: cloudBillingContextAdminProcedure.input(draftTestFileSchema).mutation(async ({ ctx, input }) => {
+	startDraftRun: cloudBillingContextAdminProcedure.input(draftRunSchema).mutation(async ({ ctx, input }) => {
 		const test = parseValidDraftTest(input.path, input.content);
 		try {
-			return await startTestRun({ projectId: ctx.project.id, userId: ctx.user.id, tests: [test] });
+			return await startTestRun({
+				projectId: ctx.project.id,
+				userId: ctx.user.id,
+				tests: [test],
+				models: input.models,
+				attempts: input.attempts,
+			});
 		} catch (error) {
 			throw toTestRunTrpcError(error);
 		}
