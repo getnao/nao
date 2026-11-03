@@ -19,13 +19,13 @@ import { Button } from '@/components/ui/button';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ui/conversation';
 import { TextShimmer } from '@/components/ui/text-shimmer';
 import { AgentProvider, useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
-import { SetChatInputCallbackProvider, useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
+import { FollowUpFiller, SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { ChatIdContext, useChatId } from '@/hooks/use-chat-id';
 import { useCitationPills } from '@/hooks/use-citation-pills';
 import { useIsPromptMultiline } from '@/hooks/use-is-prompt-multiline';
 import { useOpenCitation } from '@/hooks/use-open-citation';
-import { CITATION_MENTION_TRIGGER, capCitationText, isSameCitation, toContextMentions } from '@/lib/citation-mention';
+import { capCitationText, isSameCitation, replacePromptText, toContextMentions } from '@/lib/citation-mention';
 import { cn } from '@/lib/utils';
 import { toAskCitation, useAskRequest } from '@/stores/ask-bar';
 import { toMessageCitations } from '@/stores/chat-pending-citation';
@@ -333,18 +333,18 @@ function AskPanel({
 					</ConversationContent>
 					<ConversationScrollButton />
 				</Conversation>
+				<div className='border-t p-3' data-selection-ignore>
+					<AskInput
+						promptRef={panelInputRef}
+						placeholder={placeholder}
+						citations={citations}
+						isSending={isRunning}
+						fillsFromFollowUps
+						onRemoveCitation={onRemoveCitation}
+						onSubmit={send}
+					/>
+				</div>
 			</SelectionProvider>
-			<div className='border-t p-3' data-selection-ignore>
-				<AskInput
-					promptRef={panelInputRef}
-					placeholder={placeholder}
-					citations={citations}
-					isSending={isRunning}
-					fillsFromFollowUps
-					onRemoveCitation={onRemoveCitation}
-					onSubmit={send}
-				/>
-			</div>
 		</AskPanelFrame>
 	);
 }
@@ -465,16 +465,17 @@ function AskInput({
 			.catch(() => undefined);
 	};
 
-	const fill = (text: string) => {
-		const prompt = promptRef.current;
-		if (!prompt) {
-			return;
-		}
-		prompt.clear();
-		citationPills.options.forEach((option) => prompt.appendMention(option, CITATION_MENTION_TRIGGER));
-		prompt.insertText(text);
-		setValue(prompt.getValue());
-	};
+	const fill = useCallback(
+		(text: string) => {
+			const prompt = promptRef.current;
+			if (!prompt) {
+				return;
+			}
+			replacePromptText(prompt, text, citationPills.options);
+			setValue(prompt.getValue());
+		},
+		[promptRef, citationPills.options],
+	);
 
 	return (
 		<form
@@ -516,11 +517,6 @@ function AskInput({
 			)}
 		</form>
 	);
-}
-
-function FollowUpFiller({ onFill }: { onFill: (text: string) => void }) {
-	useRegisterSetChatInputCallback(onFill);
-	return null;
 }
 
 /** Messages carried over from another chat are left out: the user never wrote them here. */

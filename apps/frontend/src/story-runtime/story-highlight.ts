@@ -7,6 +7,7 @@ export const STORY_REVEAL_EVENT = 'nao-story:reveal';
 
 const TEXT_SELECTOR = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,figcaption,dt,dd,td,th,span,div';
 const MAX_SEARCHED_QUOTE_LENGTH = 80;
+const MIN_QUOTE_START_WORDS = 3;
 const OUTLINE_DURATION_MS = 1800;
 const MAX_WAIT_MS = 8000;
 const TOP_LAYER_Z_INDEX = 2147483646;
@@ -95,8 +96,12 @@ export function toQuoteStarts(text: string): string[] {
 
 /** The smallest, then deepest, element holding the start of the quote, so the outline hugs the passage. */
 function findQuotedElement(text: string, root: ParentNode): HTMLElement | null {
-	for (const start of toQuoteStarts(text)) {
-		const element = findSmallestElementHolding(start, root);
+	const starts = toQuoteStarts(text);
+	for (const [index, start] of starts.entries()) {
+		const isShortCut = index > 0 && start.split(' ').length < MIN_QUOTE_START_WORDS;
+		const element = findSmallestElementHolding(root, (content) =>
+			isShortCut ? content.endsWith(start) : content.includes(start),
+		);
 		if (element) {
 			return element;
 		}
@@ -104,11 +109,11 @@ function findQuotedElement(text: string, root: ParentNode): HTMLElement | null {
 	return null;
 }
 
-function findSmallestElementHolding(quote: string, root: ParentNode): HTMLElement | null {
+function findSmallestElementHolding(root: ParentNode, holdsQuote: (content: string) => boolean): HTMLElement | null {
 	let closest: HTMLElement | null = null;
 	for (const element of root.querySelectorAll<HTMLElement>(TEXT_SELECTOR)) {
 		const content = normalize(element.textContent ?? '');
-		if (content.includes(quote) && (!closest || content.length <= normalize(closest.textContent ?? '').length)) {
+		if (holdsQuote(content) && (!closest || content.length <= normalize(closest.textContent ?? '').length)) {
 			closest = element;
 		}
 	}

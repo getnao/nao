@@ -14,17 +14,22 @@ export function useCodeRevealFollower(storySlug: string | undefined, onRequest: 
 	useStoryRequestFollower(useCodeRevealRequest(), storySlug, onRequest);
 }
 
+interface CitedSource {
+	storySlug?: string;
+	filePath?: string;
+}
+
 /** Scrolls an editor showing the cited source, a file of a custom story when `filePath` is set, to the cited lines. */
-export function useRevealCitedLines(codeEditor: MountedCodeEditor | null, filePath?: string) {
+export function useRevealCitedLines(codeEditor: MountedCodeEditor | null, { storySlug, filePath }: CitedSource = {}) {
 	const request = useCodeRevealRequest();
 
 	useEffect(() => {
-		if (!codeEditor || !request || request.filePath !== filePath || !isStoryRequestFor(request)) {
+		if (!codeEditor || !request || request.filePath !== filePath || !isStoryRequestFor(request, storySlug)) {
 			return;
 		}
 		completeCodeReveal(request.id);
 		revealLines(codeEditor, request.lines);
-	}, [codeEditor, request, filePath]);
+	}, [codeEditor, request, storySlug, filePath]);
 }
 
 function revealLines({ editor: instance, monaco }: MountedCodeEditor, lines: CodeRevealRequest['lines']): void {

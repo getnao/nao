@@ -124,6 +124,7 @@ export function CustomStoryFiles({
 					<div className='h-full bg-background'>
 						<StoryFileContent
 							path={selectedPath}
+							storySlug={source.storySlug}
 							file={selectedFile.data}
 							isLoading={selectedFile.isLoading}
 							error={selectedFile.error}
@@ -142,6 +143,7 @@ export function CustomStoryFiles({
 
 interface StoryFileContentProps {
 	path: string | null;
+	storySlug: string;
 	file: (CustomStoryFileSummary & { content: string }) | undefined;
 	isLoading: boolean;
 	error: { message: string } | null;
@@ -154,6 +156,7 @@ interface StoryFileContentProps {
 
 function StoryFileContent({
 	path,
+	storySlug,
 	file,
 	isLoading,
 	error,
@@ -213,6 +216,7 @@ function StoryFileContent({
 				<FileSourceEditor
 					key={file.path}
 					filePath={file.path}
+					storySlug={storySlug}
 					value={draft ?? file.content}
 					searchQuery={searchQuery}
 					readOnly={!editable}

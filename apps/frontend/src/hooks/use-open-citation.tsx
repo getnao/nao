@@ -35,7 +35,6 @@ export function useOpenCitation() {
 		(citation: CitationData) => {
 			const { start, end, text, storySlug, block } = citation;
 			const storyChatId = citation.storyChatId ?? chatId;
-			requestCitedStoryElement(citation);
 			const pageContainer = selectionCtx?.pageContainerRef.current;
 			const revealInQuestionStory = (story: ResolvedStory) => {
 				if (!isStoryShown(story, sidePanel)) {
@@ -44,12 +43,16 @@ export function useOpenCitation() {
 				revealInStory(citation);
 			};
 			if (questionStory && isCitingQuestionStory(citation, questionStory)) {
+				requestCitedStoryElement(citation);
 				if (!block && pageContainer && isStoryPage(questionStory, sidePanel)) {
 					showNowOrRetry(() => highlightQuoteIn([pageContainer], citation));
 					return;
 				}
 				revealInQuestionStory(questionStory);
 				return;
+			}
+			if (block || storySlug) {
+				requestCitedStoryElement(citation);
 			}
 			if (block) {
 				if (storySlug && storyChatId && sidePanel.currentStorySlug !== storySlug) {
@@ -78,6 +81,7 @@ export function useOpenCitation() {
 				citation,
 			);
 			if (!isQuoteShown && questionStory && !storySlug) {
+				requestCitedStoryElement(citation);
 				revealInQuestionStory(questionStory);
 			}
 		},

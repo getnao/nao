@@ -41,6 +41,15 @@ describe('highlightStoryElement', () => {
 		expect(scrolled.map((element) => element.id)).toEqual(['churn-title']);
 	});
 
+	it('waits for a cited passage rather than outlining an element sharing its first word', async () => {
+		highlightStoryElement({ block: { kind: 'text' }, text: 'Sales grew in June across regions.' });
+		expect(scrolled).toEqual([]);
+
+		document.body.insertAdjacentHTML('beforeend', '<p id="growth">Sales grew in June across regions.</p>');
+
+		await vi.waitFor(() => expect(scrolled.map((element) => element.id)).toEqual(['growth']));
+	});
+
 	it('waits for a cited block the story has not rendered yet', async () => {
 		highlightStoryElement({ block: { kind: 'kpi', title: 'Margin', queryId: 'q3' }, text: 'Margin' });
 		expect(scrolled).toEqual([]);

@@ -34,7 +34,7 @@ export function Block({ kind, queryId, title, description, className, style, edi
 			className={joinClassNames('nao-block', `nao-${kind}`, className)}
 			style={style}
 			data-nao-block-kind={kind}
-			data-nao-block-title={title}
+			data-nao-block-title={title || undefined}
 			data-nao-block-query={queryId}
 		>
 			{(title || description || editingEnabled || canViewQuery) && (

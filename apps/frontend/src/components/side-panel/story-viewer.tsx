@@ -530,6 +530,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 					) : (
 						<StoryCodeView
 							code={codeDraft}
+							storySlug={resolvedStorySlug}
 							readOnly={isReadonlyMode}
 							codeRef={codeViewRef}
 							onCodeChange={storyBuffer.handleCodeChange}

@@ -98,8 +98,8 @@ export function watchModifierHold(target: Window, onChange: (isHeld: boolean) =>
 	target.addEventListener(
 		'keyup',
 		(event) => {
+			isPressingShortcut = false;
 			if (event.key === modifierKey) {
-				isPressingShortcut = false;
 				release();
 			}
 		},

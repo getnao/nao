@@ -55,7 +55,7 @@ import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import { Callout } from '@/components/ui/callout';
 import { trpc } from '@/main';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
-import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
+import { FollowUpFiller } from '@/contexts/set-chat-input-callback';
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { useAttachmentUpload } from '@/hooks/use-attachment-upload';
 import {
@@ -64,6 +64,7 @@ import {
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
 	usesChatAllowance,
+	NEW_CHAT_ID,
 } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
@@ -83,7 +84,13 @@ import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
 import { ChatPendingCitationStore, chatPendingCitationStore, toMessageCitations } from '@/stores/chat-pending-citation';
 import { useChatPendingCitations } from '@/hooks/use-chat-pending-citation';
-import { removeCitationTokens, toContextMentions, writeCitedText } from '@/lib/citation-mention';
+import {
+	removeCitationTokens,
+	replacePromptText,
+	toContextMentions,
+	withCitationPillsOf,
+	writeCitedText,
+} from '@/lib/citation-mention';
 import { useCitationPills } from '@/hooks/use-citation-pills';
 import { useOpenCitation } from '@/hooks/use-open-citation';
 import { CitationPillPreview } from '@/components/citation-pill-preview';
@@ -108,6 +115,7 @@ type ChatInputBaseProps = {
 	onCancel?: () => void;
 	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
 	allowQueueing?: boolean;
+	fillsFromFollowUps?: boolean;
 	acceptsPendingStoryReferences?: boolean;
 };
 
@@ -129,20 +137,13 @@ export function ChatInput({
 	const promptRef = useRef<PromptHandle>(null);
 	const { queueOrSendMessage } = useAgentContext();
 
-	useRegisterSetChatInputCallback((text) => {
-		promptRef.current?.clear();
-		if (text) {
-			promptRef.current?.insertText(text);
-		}
-		requestAnimationFrame(() => promptRef.current?.focus());
-	});
-
 	return (
 		<ChatInputBase
 			promptRef={promptRef}
 			variant={variant}
 			onSubmitMessage={queueOrSendMessage}
 			allowQueueing
+			fillsFromFollowUps
 			acceptsPendingStoryReferences={acceptsPendingStoryReferences}
 		/>
 	);
@@ -179,6 +180,7 @@ function ChatInputBase({
 	onCancel,
 	onSubmitMessage,
 	allowQueueing,
+	fillsFromFollowUps = false,
 	acceptsPendingStoryReferences = false,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
@@ -207,6 +209,7 @@ function ChatInputBase({
 		excludeCurrentChat: true,
 	});
 	const chatId = useChatId();
+	const citationScope = chatId ?? NEW_CHAT_ID;
 	const storyBeforeAgentSend = useStoryBeforeAgentSend();
 
 	const isAdminMode = canChatWithNaoData && adminMode;
@@ -330,13 +333,13 @@ function ChatInputBase({
 	const fillPrompt = useCallback(
 		(text: string, citations: CitationData[] = []): string => {
 			promptRef.current?.clear();
-			const restoredCitations = chatId ? citationStore.restore(chatId, citations) : [];
+			const restoredCitations = citationStore.restore(citationScope, citations);
 			if (promptRef.current) {
 				writeCitedText(promptRef.current, text, restoredCitations);
 			}
 			return promptRef.current?.getValue() ?? removeCitationTokens(text);
 		},
-		[chatId, citationStore, promptRef],
+		[citationScope, citationStore, promptRef],
 	);
 
 	const queryClient = useQueryClient();
@@ -514,7 +517,7 @@ function ChatInputBase({
 			const trimmedInput = text.trim();
 			const citationSnapshot = citationStore.getSnapshot();
 			const pendingCitations =
-				citationSnapshot && citationSnapshot.chatId === chatId ? citationSnapshot.citations : [];
+				citationSnapshot && citationSnapshot.chatId === citationScope ? citationSnapshot.citations : [];
 			const hasCitation = pendingCitations.length > 0;
 
 			if (!trimmedInput && !attachmentUpload.hasAttachments && !hasCitation) {
@@ -563,9 +566,15 @@ function ChatInputBase({
 			attachmentUpload,
 			chatId,
 			citationStore,
+			citationScope,
 			runGuardedAgentSend,
 			submitQueuedMessageWithGuard,
 		],
+	);
+
+	const submitTranscription = useCallback(
+		(text: string) => submitMessage(withCitationPillsOf(promptRef.current?.getValue() ?? '', text)),
+		[submitMessage, promptRef],
 	);
 
 	const {
@@ -574,7 +583,7 @@ function ChatInputBase({
 		isRecording,
 		isTranscribing,
 		analyserRef,
-	} = useTranscribe({ onTranscribed: submitMessage });
+	} = useTranscribe({ onTranscribed: submitTranscription });
 
 	useEffect(() => {
 		if (typeof initialText !== 'string') {
@@ -589,22 +598,27 @@ function ChatInputBase({
 		const mentions = promptRef.current?.getMentions() ?? [];
 		await submitMessage(inputText, mentions);
 	};
-	const pendingCitations = useChatPendingCitations(citationStore, chatId);
+	const pendingCitations = useChatPendingCitations(citationStore, citationScope);
 	const removePendingCitation = useCallback(
-		(id: string) => {
-			if (chatId) {
-				citationStore.remove(chatId, id);
-			}
-		},
-		[chatId, citationStore],
+		(id: string) => citationStore.remove(citationScope, id),
+		[citationScope, citationStore],
 	);
 	const citationPills = useCitationPills({
 		promptRef,
 		containerRef: dropZoneRef,
 		citations: pendingCitations,
-		scope: chatId,
+		scope: citationScope,
 		onRemove: removePendingCitation,
 	});
+	const fillFromFollowUp = useCallback(
+		(text: string) => {
+			if (promptRef.current) {
+				replacePromptText(promptRef.current, text, citationPills.options);
+			}
+			requestAnimationFrame(() => promptRef.current?.focus());
+		},
+		[promptRef, citationPills.options],
+	);
 	const findPendingCitation = useCallback(
 		(id: string) => pendingCitations.find((citation) => citation.id === id),
 		[pendingCitations],
@@ -720,6 +734,7 @@ function ChatInputBase({
 						rejection={attachmentUpload.rejection}
 						onRemove={attachmentUpload.removeAttachment}
 					/>
+					{fillsFromFollowUps && <FollowUpFiller onFill={fillFromFollowUp} />}
 					<CitationPillPreview
 						containerRef={dropZoneRef}
 						findCitation={findPendingCitation}

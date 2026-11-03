@@ -251,6 +251,9 @@ async function forkSharedStoryItem(
 		return { chatId: chat.id };
 	}
 
+	if (share.format === 'custom') {
+		await assertCustomStoryForkAllowed(projectId, userId);
+	}
 	const { chatId } = await forkStoryIntoChat(share, { userId, projectId });
 	logStoryFork({ ...share, sharedStoryId: share.id }, userId, chatId, 'full');
 	return { chatId };

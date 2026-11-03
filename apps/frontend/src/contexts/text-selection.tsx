@@ -74,11 +74,8 @@ export const SelectionProvider = ({ children, resetKey }: { children: React.Reac
 			if (isTypingTarget(event)) {
 				return;
 			}
-			if (window.getSelection()?.isCollapsed) {
-				setSelection(null);
-			} else {
-				handleMouseUp();
-			}
+			setSelection(null);
+			handleMouseUp();
 		};
 		document.addEventListener('keyup', handleKeyUp);
 		return () => document.removeEventListener('keyup', handleKeyUp);

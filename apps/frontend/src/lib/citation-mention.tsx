@@ -115,6 +115,21 @@ export function writeCitedText(prompt: PromptHandle, text: string, citations: (C
 	insertNonEmptyText(prompt, text.slice(writtenUpTo), isAfterPill);
 }
 
+/** Clearing a prompt drops its citation pills without reporting them gone, so they are put back before the new text. */
+export function replacePromptText(prompt: PromptHandle, text: string, citationOptions: MentionOption[]): void {
+	prompt.clear();
+	citationOptions.forEach((option) => prompt.appendMention(option, CITATION_MENTION_TRIGGER));
+	if (text) {
+		prompt.insertText(text);
+	}
+}
+
+/** A text written outside the prompt, such as a dictated message, led by the citation pills the prompt holds. */
+export function withCitationPillsOf(promptValue: string, text: string): string {
+	const pills = extractCitationIds(promptValue).map((id) => `${CITATION_MENTION_TRIGGER}[${id}]`);
+	return [...pills, text].join(' ').trim();
+}
+
 export function removeCitationTokens(text: string): string {
 	return replaceCitationTokens(text, () => null);
 }

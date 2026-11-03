@@ -12,6 +12,7 @@ import { isMac } from '@/lib/platform';
 
 interface FileSourceEditorProps {
 	filePath: string;
+	storySlug?: string;
 	value: string;
 	searchQuery: string;
 	readOnly: boolean;
@@ -47,6 +48,7 @@ const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
 
 export function FileSourceEditor({
 	filePath,
+	storySlug,
 	value,
 	searchQuery,
 	readOnly,
@@ -64,7 +66,7 @@ export function FileSourceEditor({
 	const debouncedValue = useDebouncedValue(value, 150);
 	searchQueryRef.current = searchQuery;
 	onSaveRef.current = onSave;
-	useRevealCitedLines(codeEditor, filePath);
+	useRevealCitedLines(codeEditor, { storySlug, filePath });
 
 	const handleBeforeMount = useCallback((monaco: Monaco) => {
 		defineCustomThemes(monaco);

@@ -30,6 +30,7 @@ export interface StoryCodeViewHandle {
 
 interface StoryCodeViewProps {
 	code: string;
+	storySlug?: string;
 	readOnly?: boolean;
 	codeRef?: React.MutableRefObject<StoryCodeViewHandle | null>;
 	onDirtyChange?: (dirty: boolean) => void;
@@ -43,6 +44,7 @@ const MARKER_OWNER = 'nao-story-validation';
 
 export const StoryCodeView = memo(function StoryCodeView({
 	code,
+	storySlug,
 	readOnly = false,
 	codeRef,
 	onDirtyChange,
@@ -61,7 +63,7 @@ export const StoryCodeView = memo(function StoryCodeView({
 	const monacoRef = useRef<Monaco | null>(null);
 	const onSaveRef = useRef(onSave);
 	onSaveRef.current = onSave;
-	useRevealCitedLines(codeEditor);
+	useRevealCitedLines(codeEditor, { storySlug });
 
 	useEffect(() => {
 		const nextErrors = readOnly ? [] : validateStoryCode(code);

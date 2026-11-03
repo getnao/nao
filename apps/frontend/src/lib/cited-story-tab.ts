@@ -66,7 +66,8 @@ function toReadText(markdown: string): string {
 	return markdown
 		.replace(/<[^>]*>/g, ' ')
 		.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-		.replace(/[*_`~#>|]/g, '')
+		.replace(/[*`~#>|]/g, '')
+		.replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, '')
 		.replace(/\s+/g, ' ')
 		.trim();
 }

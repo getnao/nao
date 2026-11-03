@@ -33,8 +33,9 @@ describe('code citation reveal', () => {
 	it('scrolls the editor of the cited file to the cited lines, once', () => {
 		const { codeEditor, revealRangeInCenter } = createCodeEditor();
 		const request = renderHook(() => useCodeRevealRequest());
-		renderHook(() => useRevealCitedLines(codeEditor, 'lib/other.js'));
-		renderHook(() => useRevealCitedLines(codeEditor, 'app.jsx'));
+		renderHook(() => useRevealCitedLines(codeEditor, { storySlug: 'other', filePath: 'app.jsx' }));
+		renderHook(() => useRevealCitedLines(codeEditor, { storySlug: 'overview', filePath: 'lib/other.js' }));
+		renderHook(() => useRevealCitedLines(codeEditor, { storySlug: 'overview', filePath: 'app.jsx' }));
 
 		act(() => requestCodeReveal(codeCitation('app.jsx')));
 
