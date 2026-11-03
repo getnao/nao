@@ -1,16 +1,23 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronUp, FlaskConical } from 'lucide-react';
+import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDefaultLayout, usePanelRef } from 'react-resizable-panels';
-import type { ReactNode } from 'react';
+import type { ReactNode, WheelEvent } from 'react';
 
-import type { TestRunSummary } from '@/components/settings/test-run-types';
+import type { TestDefinition, TestRunSummary } from '@/components/settings/test-run-types';
+import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
+import { SuiteRunActions, TestFileRunActions } from '@/components/settings/test-run-actions';
 import { isActiveRun } from '@/components/settings/test-run-types';
-import { TestSuitePanel } from '@/components/settings/test-suite-panel';
+import { getSuiteRunScope, TestSuitePanel } from '@/components/settings/test-suite-panel';
 import { TestWorkbench } from '@/components/settings/test-workbench';
 import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
+import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
+import { useTestFileValidation } from '@/hooks/use-test-file-validation';
+import { useTestRunSettings } from '@/hooks/use-test-run-settings';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -18,36 +25,59 @@ const DRAWER_BAR_HEIGHT = 32;
 const DRAWER_MIN_HEIGHT = 160;
 const DRAWER_OPENED_SIZE = '45%';
 const ACTIVE_RUN_REFETCH_MS = 3_000;
-
-export type TestDrawerTab = 'test' | 'suite';
-
-/** Asks the drawer to open on a tab; a new id opens it again after the user closed it. */
-export interface TestDrawerRequest {
-	tab: TestDrawerTab;
-	id: number;
-}
+const DRAWER_ANIMATION_MS = 200;
+const NO_TESTS: TestDefinition[] = [];
 
 interface TestDrawerLayoutProps {
 	children: ReactNode;
-	/** Explorer path of the test file open in the editor. */
-	testFilePath: string | null;
+	/** Explorer paths of the tests opened as tabs, after the "All tests" tab. */
+	testTabs: string[];
+	/** The test whose tab is shown, or `null` for all the tests. */
+	activeTestPath: string | null;
 	/** That test as it is in the editor, once loaded. */
-	testFile: { path: string; content: string } | null;
-	request: TestDrawerRequest | null;
+	activeTestFile: { path: string; content: string } | null;
+	/** The run opened in the shown tab, or `null` for its default view. */
+	selectedRunId: string | null;
+	/** Opens the drawer again whenever it changes, even after the user closed it. */
+	openRequestId: number;
+	onSelectTab: (testPath: string | null) => void;
+	onCloseTab: (testPath: string) => void;
+	onSelectRun: (runId: string | null) => void;
 	onOpenTest: (explorerPath: string) => void;
 }
 
 /** Puts the editor above a drawer, like a terminal panel, that runs the tests and shows their results. */
-export function TestDrawerLayout({ children, testFilePath, testFile, request, onOpenTest }: TestDrawerLayoutProps) {
+export function TestDrawerLayout({
+	children,
+	testTabs,
+	activeTestPath,
+	activeTestFile,
+	selectedRunId,
+	openRequestId,
+	onSelectTab,
+	onCloseTab,
+	onSelectRun,
+	onOpenTest,
+}: TestDrawerLayoutProps) {
 	const panelRef = usePanelRef();
 	const [isOpen, setIsOpen] = useState(false);
-	const [tab, setTab] = useState<TestDrawerTab>('test');
-	const activeTab = testFilePath ? tab : 'suite';
+	const { groupElementRef, isAnimating, animate } = useDrawerAnimation();
 	const { defaultLayout, onLayoutChanged } = useDefaultLayout({
 		id: 'context-explorer-tests',
 		storage: localStorage,
 	});
-	const { runs, activeRun, draft, invalidateRuns } = useTestDrawerData(isOpen);
+	const { runs, activeRun, draft, tests, invalidateRuns } = useTestDrawerData();
+	const runSettings = useTestRunSettings();
+	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+	const [selectedTags, setSelectedTags] = useState<string[]>([]);
+	const selection = {
+		selectedPaths,
+		onSelectedPathsChange: setSelectedPaths,
+		selectedTags,
+		onSelectedTagsChange: setSelectedTags,
+	};
+	const shownTestFile = activeTestPath ? activeTestFile : null;
+	const validation = useTestFileValidation(shownTestFile);
 	const isPanelReadyRef = useRef(false);
 	const shouldOpenWhenReadyRef = useRef(false);
 	const hasBeenOpenRef = useRef(false);
@@ -61,11 +91,17 @@ export function TestDrawerLayout({ children, testFilePath, testFile, request, on
 		if (!panel.isCollapsed()) {
 			return;
 		}
+		animate();
 		panel.expand();
 		if (!hasBeenOpenRef.current) {
 			panel.resize(DRAWER_OPENED_SIZE);
 		}
-	}, [panelRef]);
+	}, [panelRef, animate]);
+
+	const collapse = () => {
+		animate();
+		panelRef.current?.collapse();
+	};
 
 	const handleResize = () => {
 		const panel = panelRef.current;
@@ -86,33 +122,55 @@ export function TestDrawerLayout({ children, testFilePath, testFile, request, on
 		if (!isOpen) {
 			open();
 		} else {
-			panelRef.current?.collapse();
+			collapse();
 		}
 	};
 
-	const selectTab = (nextTab: TestDrawerTab) => {
-		setTab(nextTab);
+	useKeyboardShortcuts({ 'toggle-test-drawer': toggle });
+
+	const handleRunStarted = (run: { id: string }) => {
+		setSelectedPaths(new Set());
+		invalidateRuns();
+		onSelectRun(run.id);
+	};
+
+	/** Clicking the tab already shown goes back from an opened run to the tab's own view, then closes the drawer. */
+	const selectTab = (testPath: string | null) => {
+		if (testPath !== activeTestPath) {
+			onSelectTab(testPath);
+		} else if (isOpen && selectedRunId) {
+			onSelectRun(null);
+			return;
+		} else if (isOpen) {
+			collapse();
+			return;
+		}
 		open();
 	};
 
 	useEffect(() => {
-		if (testFilePath) {
-			setTab('test');
+		if (activeTestPath) {
 			open();
 		}
-	}, [testFilePath, open]);
+	}, [activeTestPath, open]);
 
 	useEffect(() => {
-		if (request) {
-			setTab(request.tab);
+		if (selectedRunId) {
 			open();
 		}
-	}, [request, open]);
+	}, [selectedRunId, open]);
+
+	useEffect(() => {
+		if (openRequestId > 0) {
+			open();
+		}
+	}, [openRequestId, open]);
 
 	return (
 		<ResizablePanelGroup
+			elementRef={groupElementRef}
 			orientation='vertical'
-			className='h-full'
+			className='h-full motion-safe:[&[data-animating]>[data-panel]]:transition-[flex-grow] motion-safe:[&[data-animating]>[data-panel]]:duration-200 motion-safe:[&[data-animating]>[data-panel]]:ease-out'
 			defaultLayout={defaultLayout}
 			onLayoutChanged={onLayoutChanged}
 		>
@@ -131,56 +189,98 @@ export function TestDrawerLayout({ children, testFilePath, testFile, request, on
 			>
 				<section className='flex h-full flex-col bg-background' aria-label='Tests'>
 					<div
-						className='flex shrink-0 items-center gap-1 bg-muted/30 px-2 text-xs'
+						className={cn(
+							'flex shrink-0 items-center bg-muted/30 pr-2 text-xs',
+							isOpen && 'shadow-[inset_0_-1px_0_var(--border)]',
+						)}
 						style={{ height: DRAWER_BAR_HEIGHT }}
 					>
-						<button
-							type='button'
-							onClick={toggle}
-							className='flex cursor-pointer items-center gap-1.5 px-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground'
-						>
-							<FlaskConical className='size-3.5' />
-							Tests
-						</button>
-						<div role='tablist' aria-label='Tests' className='ml-2 flex h-full items-center'>
-							{testFilePath && (
-								<DrawerTab
-									isActive={isOpen && activeTab === 'test'}
-									onClick={() => selectTab('test')}
-									title={testFilePath}
-								>
-									{fileName(testFilePath)}
-								</DrawerTab>
-							)}
-							<DrawerTab isActive={isOpen && activeTab === 'suite'} onClick={() => selectTab('suite')}>
-								All tests
-							</DrawerTab>
-						</div>
-						<div className='ml-auto flex items-center gap-2'>
-							{activeRun && <ActiveRunStatus run={activeRun} />}
-							<Button
-								type='button'
-								size='icon-sm'
-								variant='ghost'
-								className='size-6'
-								onClick={toggle}
-								aria-label={isOpen ? 'Hide the tests' : 'Show the tests'}
-								aria-expanded={isOpen}
+						<div role='tablist' aria-label='Tests' className='flex h-full min-w-0 flex-1'>
+							<DrawerTab
+								label={tests ? `All tests (${tests.length})` : 'All tests'}
+								leading={
+									<SimpleTooltip
+										content={`${isOpen ? 'Hide' : 'Show'} the tests (${getShortcutLabel('toggle-test-drawer')})`}
+										side='top'
+									>
+										<Button
+											type='button'
+											size='icon-sm'
+											variant='ghost'
+											className='ml-1 size-6'
+											onClick={toggle}
+											aria-label={isOpen ? 'Hide the tests' : 'Show the tests'}
+											aria-expanded={isOpen}
+										>
+											{isOpen ? (
+												<ChevronDown className='size-3.5' />
+											) : (
+												<ChevronUp className='size-3.5' />
+											)}
+										</Button>
+									</SimpleTooltip>
+								}
+								isActive={isOpen && activeTestPath === null}
+								onSelect={() => selectTab(null)}
+							/>
+							<div
+								className='flex h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden'
+								onWheel={scrollTabsHorizontally}
 							>
-								{isOpen ? <ChevronDown className='size-3.5' /> : <ChevronUp className='size-3.5' />}
-							</Button>
+								{testTabs.map((testPath) => (
+									<DrawerTab
+										key={testPath}
+										label={fileName(testPath)}
+										title={testPath}
+										icon={
+											<FileExplorerIcon
+												name={fileName(testPath)}
+												type='file'
+												className='size-3.5'
+											/>
+										}
+										isActive={isOpen && activeTestPath === testPath}
+										onSelect={() => selectTab(testPath)}
+										onClose={() => onCloseTab(testPath)}
+									/>
+								))}
+							</div>
+						</div>
+						<div className='ml-2 flex shrink-0 items-center gap-3'>
+							{activeRun && <ActiveRunStatus run={activeRun} />}
+							{shownTestFile ? (
+								<TestFileRunActions
+									settings={runSettings}
+									draft={draft}
+									activeRun={activeRun}
+									testFile={shownTestFile}
+									validation={validation}
+									onRunStarted={handleRunStarted}
+								/>
+							) : (
+								!activeTestPath && (
+									<SuiteRunActions
+										settings={runSettings}
+										draft={draft}
+										activeRun={activeRun}
+										scope={getSuiteRunScope(tests ?? NO_TESTS, selection)}
+										onRunStarted={handleRunStarted}
+									/>
+								)
+							)}
 						</div>
 					</div>
-					{isOpen && (
-						<div className='min-h-0 flex-1 border-t'>
-							{activeTab === 'test' ? (
-								testFile ? (
+					{(isOpen || isAnimating) && (
+						<div className='min-h-0 flex-1'>
+							{activeTestPath ? (
+								activeTestFile ? (
 									<TestWorkbench
-										key={testFile.path}
-										testFile={testFile}
+										key={activeTestFile.path}
+										testFile={activeTestFile}
+										validation={validation}
 										draft={draft}
-										isRunInProgress={!!activeRun}
-										onRunStarted={invalidateRuns}
+										selectedRunId={selectedRunId}
+										onSelectRun={onSelectRun}
 									/>
 								) : (
 									<div className='flex h-full items-center justify-center'>
@@ -191,8 +291,9 @@ export function TestDrawerLayout({ children, testFilePath, testFile, request, on
 								<TestSuitePanel
 									draft={draft}
 									runs={runs}
-									activeRun={activeRun}
-									onRunsChanged={invalidateRuns}
+									selectedRunId={selectedRunId}
+									selection={selection}
+									onSelectRun={onSelectRun}
 									onOpenTest={onOpenTest}
 								/>
 							)}
@@ -204,34 +305,87 @@ export function TestDrawerLayout({ children, testFilePath, testFile, request, on
 	);
 }
 
+/** A tab of the drawer bar, like an editor tab; tabs that can close show a cross and also close on a middle click. */
 function DrawerTab({
-	isActive,
-	onClick,
+	label,
+	icon,
+	leading,
 	title,
-	children,
+	isActive,
+	onSelect,
+	onClose,
 }: {
-	isActive: boolean;
-	onClick: () => void;
+	label: string;
+	icon?: ReactNode;
+	/** Shown at the start of the tab, outside the button that selects it. */
+	leading?: ReactNode;
 	title?: string;
-	children: ReactNode;
+	isActive: boolean;
+	onSelect: () => void;
+	onClose?: () => void;
 }) {
+	const tabRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (isActive) {
+			tabRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+		}
+	}, [isActive]);
+
 	return (
-		<button
-			type='button'
-			role='tab'
-			aria-selected={isActive}
-			title={title}
-			onClick={onClick}
+		<div
+			ref={tabRef}
 			className={cn(
-				'flex h-full max-w-56 cursor-pointer items-center truncate border-b-2 px-2 transition-colors',
+				'group flex h-full shrink-0 items-center border-r transition-colors',
 				isActive
-					? 'border-primary text-foreground'
-					: 'border-transparent text-muted-foreground hover:text-foreground',
+					? 'bg-background text-foreground'
+					: 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
 			)}
+			onAuxClick={(event) => {
+				if (event.button === 1 && onClose) {
+					event.preventDefault();
+					onClose();
+				}
+			}}
 		>
-			<span className='truncate'>{children}</span>
-		</button>
+			{leading}
+			<button
+				type='button'
+				role='tab'
+				aria-selected={isActive}
+				title={title ?? label}
+				onClick={onSelect}
+				className={cn(
+					'flex h-full cursor-pointer items-center gap-2',
+					leading ? 'pl-0.5' : 'pl-3',
+					onClose ? 'pr-1.5' : 'pr-3',
+				)}
+			>
+				{icon}
+				<span className='whitespace-nowrap'>{label}</span>
+			</button>
+			{onClose && (
+				<button
+					type='button'
+					aria-label={`Close ${title}`}
+					onClick={onClose}
+					className={cn(
+						'mr-2 flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:opacity-100',
+						isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+					)}
+				>
+					<X className='size-3' />
+				</button>
+			)}
+		</div>
 	);
+}
+
+/** Lets the mouse wheel scroll the tabs sideways, as in an editor. */
+function scrollTabsHorizontally(event: WheelEvent<HTMLDivElement>) {
+	if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+		event.currentTarget.scrollLeft += event.deltaY;
+	}
 }
 
 function ActiveRunStatus({ run }: { run: TestRunSummary }) {
@@ -244,16 +398,42 @@ function ActiveRunStatus({ run }: { run: TestRunSummary }) {
 }
 
 /**
- * The runs and draft the drawer needs, kept fresh: runs are polled while one is active, and what depends on
- * their outcome or on the saved files is refetched when those change.
+ * Animates the panels while the drawer opens or closes, but not while the user drags the separator. The attribute is
+ * set on the element right away so the transition applies to the very size change the library makes next.
  */
-function useTestDrawerData(isOpen: boolean) {
+function useDrawerAnimation() {
+	const groupElementRef = useRef<HTMLDivElement>(null);
+	const timeoutRef = useRef<number | undefined>(undefined);
+	const [isAnimating, setIsAnimating] = useState(false);
+
+	const animate = useCallback(() => {
+		groupElementRef.current?.setAttribute('data-animating', '');
+		setIsAnimating(true);
+		window.clearTimeout(timeoutRef.current);
+		timeoutRef.current = window.setTimeout(() => {
+			groupElementRef.current?.removeAttribute('data-animating');
+			setIsAnimating(false);
+		}, DRAWER_ANIMATION_MS);
+	}, []);
+
+	useEffect(() => () => window.clearTimeout(timeoutRef.current), []);
+
+	return { groupElementRef, isAnimating, animate };
+}
+
+/**
+ * The runs, tests and draft the drawer needs, kept fresh: runs are polled while one is active, and what depends on
+ * their outcome or on the saved files is refetched when those change. The draft loads even while the drawer is
+ * collapsed, as its bar offers to compare the changes with production.
+ */
+function useTestDrawerData() {
 	const queryClient = useQueryClient();
 	const runs = useQuery({
 		...trpc.testRun.listRuns.queryOptions(),
 		refetchInterval: (query) => (query.state.data?.some(isActiveRun) ? ACTIVE_RUN_REFETCH_MS : false),
 	});
-	const draftContext = useQuery({ ...trpc.testRun.getDraftContext.queryOptions(), enabled: isOpen });
+	const draftContext = useQuery(trpc.testRun.getDraftContext.queryOptions());
+	const suite = useQuery(trpc.testRun.listTests.queryOptions());
 	const changedFilesUpdatedAt = useQuery({
 		...trpc.contextExplorer.getChangedFiles.queryOptions(),
 		enabled: false,
@@ -283,6 +463,7 @@ function useTestDrawerData(isOpen: boolean) {
 		runs: runs.data,
 		activeRun,
 		draft: draftContext.data?.status === 'available' ? draftContext.data : null,
+		tests: suite.data?.tests,
 		invalidateRuns,
 	};
 }

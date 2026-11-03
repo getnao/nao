@@ -1,25 +1,19 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TestWorkbench } from './test-workbench';
 import type { DraftContext, TestHistoryRun, TestRunResult } from './test-run-types';
+import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-const mocks = vi.hoisted(() => ({
-	getTestHistory: vi.fn(),
-	validateTestFile: vi.fn(),
-	startDraftRun: vi.fn(),
-	startComparisonRun: vi.fn(),
-}));
+const mocks = vi.hoisted(() => ({ getTestHistory: vi.fn() }));
 
 vi.mock('@tanstack/react-router', () => ({
-	Link: ({ children }: { children: React.ReactNode }) => <a href='/settings/tests'>{children}</a>,
+	Link: ({ children }: { children: React.ReactNode }) => <a href='/settings/usage'>{children}</a>,
 }));
-
-vi.mock('@/hooks/use-debounced-value', () => ({ useDebouncedValue: (value: unknown) => value }));
 
 vi.mock('@/main', () => ({
 	trpc: {
@@ -31,9 +25,6 @@ vi.mock('@/main', () => ({
 				}),
 				queryKey: (input: { path: string }) => ['test-history', input.path],
 			},
-			validateTestFile: { mutationOptions: mutationOptions(mocks.validateTestFile) },
-			startDraftRun: { mutationOptions: mutationOptions(mocks.startDraftRun) },
-			startComparisonRun: { mutationOptions: mutationOptions(mocks.startComparisonRun) },
 		},
 	},
 }));
@@ -43,44 +34,58 @@ const TEST_FILE = { path: '/tests/revenue.yml', content: 'name: revenue\nprompt:
 describe('TestWorkbench', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.validateTestFile.mockResolvedValue({ test: testDefinition('hash-1'), error: null });
 		mocks.getTestHistory.mockResolvedValue([]);
-		mocks.startDraftRun.mockResolvedValue({ id: 'run-new' });
-		mocks.startComparisonRun.mockResolvedValue({ id: 'run-new' });
 	});
 
 	afterEach(cleanup);
 
-	it('runs the test as it is in the editor when the context has no other change', async () => {
-		renderWorkbench(draftWith(['tests/revenue.yml']));
+	it('opens the runs picked in the list, so the drawer can go back to them', async () => {
+		mocks.getTestHistory.mockResolvedValue([
+			{ ...comparisonRun([result({ id: 'draft-2', contextVariant: 'draft', passed: true })]), id: 'run-2' },
+			comparisonRun([result({ id: 'draft-1', contextVariant: 'draft', passed: false })]),
+		]);
+		const onSelectRun = vi.fn();
+		renderWorkbench(draftWith(['tests/revenue.yml']), { selectedRunId: 'run-1', onSelectRun });
 
-		const runButton = await screen.findByRole('button', { name: 'Run test' });
-		await waitFor(() => expect(runButton.hasAttribute('disabled')).toBe(false));
-		fireEvent.click(runButton);
-
-		await waitFor(() => expect(mocks.startDraftRun).toHaveBeenCalled());
-		expect(mocks.startDraftRun.mock.calls[0][0]).toEqual(TEST_FILE);
-		expect(screen.queryByRole('button', { name: 'Compare with production' })).toBeNull();
+		const runs = await screen.findAllByRole('option');
+		expect(runs.map((run) => run.getAttribute('aria-selected'))).toEqual(['false', 'true']);
+		fireEvent.click(runs[0]);
+		expect(onSelectRun).toHaveBeenLastCalledWith('run-2');
 	});
 
-	it('compares the edited test with production when the context changed', async () => {
-		renderWorkbench(draftWith(['RULES.md']));
+	it('says why an invalid test cannot run', async () => {
+		renderWorkbench(null, {
+			validation: { validation: { test: null, error: 'prompt is required' }, error: undefined },
+		});
 
-		const compareButton = await screen.findByRole('button', { name: 'Compare with production' });
-		await waitFor(() => expect(compareButton.hasAttribute('disabled')).toBe(false));
-		fireEvent.click(compareButton);
-
-		await waitFor(() => expect(mocks.startComparisonRun).toHaveBeenCalled());
-		expect(mocks.startComparisonRun.mock.calls[0][0]).toEqual({ testFile: TEST_FILE });
-		expect(screen.getByRole('button', { name: 'Run on production' })).toBeTruthy();
+		expect(await screen.findByText('Invalid test: prompt is required')).toBeTruthy();
 	});
 
-	it('does not run an invalid test', async () => {
-		mocks.validateTestFile.mockResolvedValue({ test: null, error: 'prompt is required' });
+	it('shows each model of a run with its attempts, and the attempts of the model picked', async () => {
+		mocks.getTestHistory.mockResolvedValue([
+			{
+				...comparisonRun([
+					result({ id: 'gpt-1', contextVariant: 'production', passed: true }),
+					result({ id: 'haiku-1', contextVariant: 'production', passed: false, modelId: 'claude-haiku-5' }),
+				]),
+				trigger: 'manual',
+				comparison: null,
+				models: [
+					{ provider: 'openai', modelId: 'gpt-4.1' },
+					{ provider: 'anthropic', modelId: 'claude-haiku-5' },
+				],
+			},
+		]);
 		renderWorkbench(null);
 
-		await screen.findByText('Invalid test: prompt is required');
-		expect(screen.getByRole('button', { name: 'Run test' }).hasAttribute('disabled')).toBe(true);
+		const models = await screen.findByRole('radiogroup', { name: 'Model' });
+		const [gpt, haiku] = within(models).getAllByRole('radio');
+		expect(haiku.getAttribute('aria-checked')).toBe('true');
+		expect(screen.getByText(/claude-haiku-5 · 1\.2s/)).toBeTruthy();
+
+		fireEvent.click(gpt);
+
+		expect(screen.getByText(/gpt-4\.1 · 1\.2s/)).toBeTruthy();
 	});
 
 	it('says in words what the latest comparison found and shows the data of each side', async () => {
@@ -102,6 +107,27 @@ describe('TestWorkbench', () => {
 		expect(screen.getByText('1 matching')).toBeTruthy();
 	});
 
+	it('stops showing the variants as loading once the run is cancelled', async () => {
+		mocks.getTestHistory.mockResolvedValue([
+			{
+				...comparisonRun([]),
+				status: 'cancelled',
+				comparison: {
+					testPath: 'revenue.yml',
+					testName: 'revenue',
+					production: { passed: 0, total: 0 },
+					draft: { passed: 0, total: 0 },
+					change: 'pending',
+				},
+			},
+		]);
+		renderWorkbench(draftWith(['RULES.md']));
+
+		expect(await screen.findAllByText('Run cancelled')).toHaveLength(2);
+		expect(screen.getByRole('radio', { name: /Production/ })).toBeTruthy();
+		expect(screen.queryByRole('status', { name: 'Loading' })).toBeNull();
+	});
+
 	it('flags runs of an older version of the test', async () => {
 		mocks.getTestHistory.mockResolvedValue([
 			{
@@ -110,21 +136,39 @@ describe('TestWorkbench', () => {
 				comparison: null,
 			},
 		]);
-		mocks.validateTestFile.mockResolvedValue({ test: testDefinition('hash-2'), error: null });
-		renderWorkbench(null);
+		renderWorkbench(null, {
+			validation: { validation: { test: testDefinition('hash-2'), error: null }, error: undefined },
+		});
 
 		expect(await screen.findByText('Ran an older version of this test')).toBeTruthy();
 	});
 });
 
-function renderWorkbench(draft: DraftContext | null) {
+function renderWorkbench(
+	draft: DraftContext | null,
+	{
+		selectedRunId = null,
+		onSelectRun = vi.fn(),
+		validation = { validation: { test: testDefinition('hash-1'), error: null }, error: undefined },
+	}: {
+		selectedRunId?: string | null;
+		onSelectRun?: () => void;
+		validation?: TestFileValidationState;
+	} = {},
+) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
 	return render(
 		<QueryClientProvider client={queryClient}>
 			<TooltipProvider>
-				<TestWorkbench testFile={TEST_FILE} draft={draft} isRunInProgress={false} onRunStarted={vi.fn()} />
+				<TestWorkbench
+					testFile={TEST_FILE}
+					validation={validation}
+					draft={draft}
+					selectedRunId={selectedRunId}
+					onSelectRun={onSelectRun}
+				/>
 			</TooltipProvider>
 		</QueryClientProvider>,
 	);
@@ -186,11 +230,13 @@ function result({
 	contextVariant,
 	passed,
 	actualTotal = 100,
+	modelId = 'gpt-4.1',
 }: {
 	id: string;
 	contextVariant: 'production' | 'draft';
 	passed: boolean;
 	actualTotal?: number;
+	modelId?: string;
 }): TestRunResult {
 	return {
 		id,
@@ -198,8 +244,8 @@ function result({
 		testPath: 'revenue.yml',
 		testName: 'revenue',
 		testHash: 'hash-1',
-		llmProvider: 'openai',
-		llmModelId: 'gpt-4.1',
+		llmProvider: modelId === 'gpt-4.1' ? 'openai' : 'anthropic',
+		llmModelId: modelId,
 		contextVariant,
 		attempt: 1,
 		passed,
@@ -208,6 +254,8 @@ function result({
 		chatId: null,
 		durationMs: 1200,
 		totalCost: null,
+		totalTokens: null,
+		toolCallCount: null,
 		details: {
 			responseText: 'The revenue is 100.',
 			actualData: [{ total: actualTotal }],
@@ -232,8 +280,4 @@ function result({
 			],
 		},
 	} as unknown as TestRunResult;
-}
-
-function mutationOptions(mutationFn: (input: unknown) => Promise<unknown>) {
-	return (options: object) => ({ mutationFn, ...options });
 }

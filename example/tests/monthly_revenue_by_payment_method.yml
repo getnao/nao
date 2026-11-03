@@ -1,0 +1,16 @@
+name: monthly_revenue_by_payment_method
+prompt: >-
+  For each month, break down total order revenue by payment method
+  (credit card, bank transfer, coupon and gift card) and give the monthly total.
+  Return one row per month, ordered chronologically.
+sql: |
+  SELECT
+    DATE_TRUNC('month', order_date) AS order_month,
+    SUM(credit_card_amount) AS credit_card_revenue,
+    SUM(bank_transfer_amount) AS bank_transfer_revenue,
+    SUM(coupon_amount) AS coupon_revenue,
+    SUM(gift_card_amount) AS gift_card_revenue,
+    SUM(amount) AS total_revenue
+  FROM orders
+  GROUP BY order_month
+  ORDER BY order_month

@@ -1,9 +1,12 @@
+import { Link } from '@tanstack/react-router';
+import { MessageSquare } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import type { TestRunResult } from '@/components/settings/test-run-types';
 import { TestDataDiffView } from '@/components/settings/test-data-diff';
-import { DetailBlock } from '@/components/settings/test-run-results';
+import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 type AttemptTab = 'data' | 'answer' | 'sql';
@@ -53,6 +56,51 @@ export function TestAttemptDetails({ result, actions }: { result: TestRunResult;
 				)}
 				{tab === 'sql' && <AttemptSql result={result} />}
 			</div>
+		</div>
+	);
+}
+
+/** Opens the chat of an attempt, to replay how the agent answered. */
+export function AttemptChatLink({ result }: { result: TestRunResult }) {
+	if (!result.chatId) {
+		return null;
+	}
+	return (
+		<Button size='icon-sm' variant='ghost' asChild>
+			<Link
+				to='/settings/usage/replay/$chatId'
+				params={{ chatId: result.chatId }}
+				search={{ ...DEFAULT_USAGE_SEARCH, origin: 'tests', testRunId: result.runId }}
+				aria-label='Open the chat of this attempt'
+			>
+				<MessageSquare className='size-3.5' />
+			</Link>
+		</Button>
+	);
+}
+
+export function DetailBlock({
+	label,
+	value,
+	isCode,
+}: {
+	label: string;
+	value: string | null | undefined;
+	isCode?: boolean;
+}) {
+	if (!value) {
+		return null;
+	}
+	return (
+		<div className='flex flex-col gap-1'>
+			<span className='font-medium text-foreground'>{label}</span>
+			{isCode ? (
+				<pre className='max-h-60 overflow-auto rounded-md bg-background p-2 font-mono whitespace-pre-wrap'>
+					{value}
+				</pre>
+			) : (
+				<p className='max-h-60 overflow-auto whitespace-pre-wrap text-muted-foreground'>{value}</p>
+			)}
 		</div>
 	);
 }

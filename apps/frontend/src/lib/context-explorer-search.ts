@@ -1,4 +1,13 @@
-export interface ContextExplorerSearch {
+/**
+ * Where the Tests drawer is, kept in the URL so the browser's back and forward buttons move through it:
+ * the test whose tab is shown, or none for all the tests, and the run opened in that tab.
+ */
+export interface TestDrawerSearch {
+	test?: string;
+	testRun?: string;
+}
+
+export interface ContextExplorerSearch extends TestDrawerSearch {
 	path?: string;
 	from?: string;
 	to?: string;
@@ -11,13 +20,7 @@ export interface HistoricalContextDiffTarget {
 }
 
 export function validateContextExplorerSearch(search: Record<string, unknown>): ContextExplorerSearch {
-	const path = parseContextExplorerPath(search.path);
-	if (!path) {
-		return {};
-	}
-	const from = parseContextExplorerCommit(search.from);
-	const to = parseContextExplorerCommit(search.to);
-	return from && to ? { path, from, to } : { path };
+	return { ...validateFileSearch(search), ...validateTestDrawerSearch(search) };
 }
 
 export function getHistoricalContextDiffTarget(search: ContextExplorerSearch): HistoricalContextDiffTarget | null {
@@ -25,7 +28,8 @@ export function getHistoricalContextDiffTarget(search: ContextExplorerSearch): H
 }
 
 export function consumeHistoricalContextDiffSearch(search: ContextExplorerSearch): ContextExplorerSearch {
-	return search.path ? { path: search.path } : {};
+	const { from: _from, to: _to, ...rest } = search;
+	return rest;
 }
 
 export function parseContextExplorerPath(value: unknown): string | undefined {
@@ -45,4 +49,24 @@ export function parseContextExplorerPath(value: unknown): string | undefined {
 
 export function parseContextExplorerCommit(value: unknown): string | undefined {
 	return typeof value === 'string' && /^[a-f0-9]{40,64}$/i.test(value) ? value : undefined;
+}
+
+function validateFileSearch(search: Record<string, unknown>): Pick<ContextExplorerSearch, 'path' | 'from' | 'to'> {
+	const path = parseContextExplorerPath(search.path);
+	if (!path) {
+		return {};
+	}
+	const from = parseContextExplorerCommit(search.from);
+	const to = parseContextExplorerCommit(search.to);
+	return from && to ? { path, from, to } : { path };
+}
+
+function validateTestDrawerSearch(search: Record<string, unknown>): TestDrawerSearch {
+	const test = parseContextExplorerPath(search.test);
+	const testRun = parseTestRunId(search.testRun);
+	return { ...(test && { test }), ...(testRun && { testRun }) };
+}
+
+function parseTestRunId(value: unknown): string | undefined {
+	return typeof value === 'string' && /^[\w-]{1,100}$/.test(value) ? value : undefined;
 }

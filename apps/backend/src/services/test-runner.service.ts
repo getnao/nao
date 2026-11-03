@@ -30,7 +30,9 @@ import { testAgentService } from './test-agent.service';
 import { evaluateTestAttempt, type TestAttemptEvaluation } from './test-evaluation.service';
 import { discoverTests, filterTests } from './test-suite.service';
 
-const TEST_RUN_CONCURRENCY = 3;
+/** Attempts in flight per model, so that a run of several models does not wait on one provider's rate limit. */
+const TEST_RUN_CONCURRENCY_PER_MODEL = 3;
+const MAX_TEST_RUN_CONCURRENCY = 12;
 const TEST_RUN_STALE_MS = 6 * 60 * 60_000;
 const TEST_RUN_STALE_MESSAGE = 'The test run was interrupted before it finished.';
 const MAX_STORED_ROWS = 50;
@@ -66,6 +68,11 @@ export interface StartComparisonRunInput extends StartTestRunInput {
 interface TestSuitePlan {
 	tests: TestDefinition[];
 	models: LlmSelectedModel[];
+	/**
+	 * Writes the verification query of every attempt when several models run, so that the comparison measures their
+	 * answers rather than how well each writes that query. Null when one model runs and verifies its own answers.
+	 */
+	verificationModel: LlmSelectedModel | null;
 	attempts: number;
 	tolerances: TestComparisonTolerances;
 }
@@ -202,9 +209,14 @@ async function planTestRun(
 	return {
 		tests,
 		models,
+		verificationModel: models.length > 1 ? await resolveVerificationModel(input.projectId, models) : null,
 		attempts: Math.min(input.attempts ?? settings.attempts, MAX_TEST_RUN_ATTEMPTS),
 		tolerances: settings.tolerances,
 	};
+}
+
+async function resolveVerificationModel(projectId: string, models: LlmSelectedModel[]): Promise<LlmSelectedModel> {
+	return (await resolveDefaultChatModel(projectId)) ?? models[0];
 }
 
 /** Invalid files block the run when they are selected, or when the whole suite runs, as with `nao test`. */
@@ -235,7 +247,8 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 	try {
 		await mcpService.initializeMcpState(run.projectId);
 		await skillService.initializeSkills(run.projectId);
-		await runWithConcurrency(jobs, TEST_RUN_CONCURRENCY, (job) =>
+		const concurrency = Math.min(TEST_RUN_CONCURRENCY_PER_MODEL * plan.models.length, MAX_TEST_RUN_CONCURRENCY);
+		await runWithConcurrency(jobs, concurrency, (job) =>
 			runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
 		);
 		await testRunQueries.completeRun(run.id);
@@ -318,7 +331,7 @@ async function runAttempt(
 			userId,
 			test: { ...test, tolerances: plan.tolerances },
 			result: agentResult,
-			modelSelection: model,
+			modelSelection: plan.verificationModel ?? model,
 		});
 
 		return {

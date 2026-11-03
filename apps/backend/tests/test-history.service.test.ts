@@ -4,7 +4,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getLatestOutcomesByTest, getTestHistory } from '../src/services/test-history.service';
+import {
+	getLatestOutcomesByTest,
+	getPreviousModelSummaries,
+	getTestHistory,
+	listRunsWithVariantTotals,
+} from '../src/services/test-history.service';
 import {
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
 	type TestContextVariant,
@@ -78,6 +83,7 @@ describe('getLatestOutcomesByTest', () => {
 				runCreatedAt: LATEST_RUN_AT,
 				passedAttempts: 1,
 				totalAttempts: 2,
+				models: [{ provider: 'openai', modelId: 'gpt-4.1', runIndex: 0, passedAttempts: 1, totalAttempts: 2 }],
 				isOutdated: false,
 			},
 			'orders.yml': {
@@ -85,6 +91,7 @@ describe('getLatestOutcomesByTest', () => {
 				runCreatedAt: PREVIOUS_RUN_AT,
 				passedAttempts: 1,
 				totalAttempts: 1,
+				models: [{ provider: 'openai', modelId: 'gpt-4.1', runIndex: 0, passedAttempts: 1, totalAttempts: 1 }],
 				isOutdated: false,
 			},
 		});
@@ -109,6 +116,121 @@ describe('getLatestOutcomesByTest', () => {
 
 		expect(Object.keys(outcomes)).toEqual(['revenue.yml']);
 		expect(outcomes['revenue.yml'].isOutdated).toBe(true);
+	});
+});
+
+describe('getLatestOutcomesByTest with several models', () => {
+	it("splits the outcome of the latest run by model, in the order of the run's models", async () => {
+		await insertModelRun('run-1', LATEST_RUN_AT, [
+			['revenue.yml', 'claude-sonnet-4-5', true],
+			['revenue.yml', 'claude-haiku-4-5', false],
+			['revenue.yml', 'claude-sonnet-4-5', true],
+		]);
+
+		const outcomes = await getLatestOutcomesByTest(PROJECT_ID, [testDefinition('revenue.yml', 'hash')]);
+
+		expect(outcomes['revenue.yml']).toMatchObject({
+			passedAttempts: 2,
+			totalAttempts: 3,
+			models: [
+				{
+					provider: 'anthropic',
+					modelId: 'claude-sonnet-4-5',
+					runIndex: 0,
+					passedAttempts: 2,
+					totalAttempts: 2,
+				},
+				{
+					provider: 'anthropic',
+					modelId: 'claude-haiku-4-5',
+					runIndex: 1,
+					passedAttempts: 0,
+					totalAttempts: 1,
+				},
+			],
+		});
+	});
+});
+
+describe('listRunsWithVariantTotals', () => {
+	it('adds the totals of each model to the runs that tried several', async () => {
+		await insertRun('run-1', PREVIOUS_RUN_AT, 'completed', [['revenue.yml', 'hash', true]]);
+		await insertModelRun('run-2', LATEST_RUN_AT, [
+			['revenue.yml', 'claude-haiku-4-5', false],
+			['revenue.yml', 'claude-sonnet-4-5', true],
+		]);
+
+		const runs = await listRunsWithVariantTotals(PROJECT_ID);
+
+		expect(runs.map((run) => [run.id, run.modelTotals])).toEqual([
+			[
+				'run-2',
+				expect.arrayContaining([
+					{
+						provider: 'anthropic',
+						modelId: 'claude-haiku-4-5',
+						contextVariant: 'production',
+						passed: 0,
+						total: 1,
+					},
+					{
+						provider: 'anthropic',
+						modelId: 'claude-sonnet-4-5',
+						contextVariant: 'production',
+						passed: 1,
+						total: 1,
+					},
+				]),
+			],
+			['run-1', null],
+		]);
+	});
+});
+
+describe('getPreviousModelSummaries', () => {
+	it('sums up each model in its previous run over the tests of the current run', async () => {
+		await insertModelRun('run-1', PREVIOUS_RUN_AT, [
+			['revenue.yml', 'claude-haiku-4-5', false],
+			['orders.yml', 'claude-haiku-4-5', true],
+			['churn.yml', 'claude-haiku-4-5', true],
+		]);
+		const current = await insertModelRun('run-2', LATEST_RUN_AT, [
+			['revenue.yml', 'claude-haiku-4-5', true],
+			['orders.yml', 'claude-haiku-4-5', true],
+		]);
+
+		const previous = await getPreviousModelSummaries(current.run, current.results);
+
+		expect(previous).toEqual([
+			{
+				runId: 'run-1',
+				runCreatedAt: PREVIOUS_RUN_AT,
+				summary: expect.objectContaining({ modelId: 'claude-haiku-4-5', attempts: 2, passedAttempts: 1 }),
+			},
+		]);
+	});
+
+	it('skips earlier runs that did not try the model on all the same tests', async () => {
+		await insertModelRun('run-1', PREVIOUS_RUN_AT, [['revenue.yml', 'claude-haiku-4-5', true]]);
+		await insertModelRun('run-2', new Date('2026-10-25T12:00:00Z'), [['revenue.yml', 'claude-sonnet-4-5', true]]);
+		const current = await insertModelRun('run-3', LATEST_RUN_AT, [
+			['revenue.yml', 'claude-haiku-4-5', true],
+			['orders.yml', 'claude-haiku-4-5', true],
+		]);
+
+		expect(await getPreviousModelSummaries(current.run, current.results)).toEqual([]);
+	});
+
+	it('compares nothing for a run that is still active', async () => {
+		await insertModelRun('run-1', PREVIOUS_RUN_AT, [['revenue.yml', 'claude-haiku-4-5', true]]);
+		const current = await insertModelRun(
+			'run-2',
+			LATEST_RUN_AT,
+			[['revenue.yml', 'claude-haiku-4-5', true]],
+			'running',
+		);
+
+		expect(await getPreviousModelSummaries(current.run, current.results)).toEqual([]);
 	});
 });
 
@@ -211,6 +333,46 @@ async function insertRun(
 			message: passed ? 'match' : 'values differ',
 		})),
 	);
+}
+
+/** Inserts a manual run whose attempts each name the Anthropic model that made them. */
+async function insertModelRun(
+	id: string,
+	createdAt: Date,
+	results: [testPath: string, modelId: string, passed: boolean][],
+	status: TestRunStatus = 'completed',
+) {
+	const modelIds = [...new Set(results.map(([, modelId]) => modelId))];
+	const [run] = await db
+		.insert(s.testRun)
+		.values({
+			id,
+			projectId: PROJECT_ID,
+			status,
+			trigger: 'manual',
+			createdAt,
+			models: modelIds.map((modelId) => ({ provider: 'anthropic' as const, modelId })),
+			selection: [...new Set(results.map(([testPath]) => testPath))],
+			totalAttempts: results.length,
+		})
+		.returning();
+	const inserted = await db
+		.insert(s.testRunResult)
+		.values(
+			results.map(([testPath, modelId, passed], index) => ({
+				runId: id,
+				testPath,
+				testName: testPath,
+				testHash: 'hash',
+				llmProvider: 'anthropic' as const,
+				llmModelId: modelId,
+				attempt: index + 1,
+				passed,
+				message: passed ? 'match' : 'values differ',
+			})),
+		)
+		.returning();
+	return { run, results: inserted };
 }
 
 function testDefinition(path: string, hash: string): TestDefinition {

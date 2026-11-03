@@ -99,6 +99,38 @@ export interface TestDataDiffRow {
 
 export type TestRunModels = LlmSelectedModel[];
 
+/** How one model did over the attempts of a run against one context variant, with the metrics `nao test` reports. */
+export interface TestModelSummary extends LlmSelectedModel {
+	contextVariant: TestContextVariant;
+	attempts: number;
+	passedAttempts: number;
+	testCount: number;
+	/** Tests where every attempt passed. */
+	reliableTestCount: number;
+	/** Null when no attempt recorded a cost, as for a model without pricing. */
+	totalCost: number | null;
+	costPerQuestion: number | null;
+	/** Total cost over the passed attempts, which ranks cheap but wrong models low. */
+	costPerCorrectAnswer: number | null;
+	averageToolCalls: number | null;
+	medianDurationMs: number | null;
+	averageTokens: number | null;
+}
+
+/** A model's summary in an earlier run, over the same tests, to show how the model changed since. */
+export interface PreviousTestModelSummary {
+	runId: string;
+	runCreatedAt: Date;
+	summary: TestModelSummary;
+}
+
+/** What a model costs and takes per question in the recent runs of the project, to estimate a new run. */
+export interface TestModelStats extends LlmSelectedModel {
+	attempts: number;
+	averageCost: number | null;
+	averageDurationMs: number | null;
+}
+
 /** The `test` block of nao_config.yaml. */
 export interface ConfiguredTestSettings {
 	/** Null when the project does not pin test models. */

@@ -1,0 +1,1113 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<style>
+			@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono&display=swap');
+			:root {
+				--background: oklch(1 0 0);
+				--foreground: oklch(0 0 0 / 0.85);
+				--muted: oklch(0.94 0 0);
+				--mf: oklch(0 0 0 / 0.5);
+				--accent: oklch(0.94 0 0);
+				--border: oklch(0 0 0 / 0.1);
+				--primary: oklch(0.5077 0.281 277.89);
+				--pf: oklch(0.984 0.003 247.858);
+				--ring: oklch(0.5077 0.281 277.89 / 0.45);
+				--ok: #16a34a;
+				--ko: oklch(0.577 0.245 27.325);
+				--fl: #d97706;
+				--radius: 10px;
+				--sans: 'Geist', -apple-system, Inter, sans-serif;
+				--mono: 'Geist Mono', Menlo, monospace;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html {
+				background: #f6f6f7;
+				padding: 22px;
+			}
+			body {
+				margin: 0;
+				font-family: var(--sans);
+				font-size: 12px;
+				color: var(--foreground);
+				line-height: 1.4;
+				width: 1180px;
+			}
+			.cap {
+				font-size: 15px;
+				font-weight: 600;
+				margin: 0 2px 4px;
+			}
+			.sub {
+				font-size: 12.5px;
+				color: var(--mf);
+				margin: 0 2px 12px;
+			}
+			.drawer {
+				border: 1px solid var(--border);
+				border-radius: var(--radius);
+				overflow: hidden;
+				background: var(--background);
+				position: relative;
+				box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+			}
+			.editor {
+				border-bottom: 1px solid var(--border);
+				padding: 10px 16px;
+				font-family: var(--mono);
+				font-size: 12px;
+				color: var(--mf);
+				line-height: 19px;
+			}
+			.editor b {
+				color: #7c3aed;
+				font-weight: 400;
+			}
+			.bar {
+				height: 34px;
+				display: flex;
+				align-items: center;
+				background: color-mix(in srgb, var(--muted) 35%, transparent);
+				border-bottom: 1px solid var(--border);
+			}
+			.tab {
+				height: 100%;
+				display: flex;
+				align-items: center;
+				gap: 7px;
+				padding: 0 13px;
+				border-right: 1px solid var(--border);
+				color: var(--mf);
+				white-space: nowrap;
+			}
+			.tab.on {
+				background: var(--background);
+				color: var(--foreground);
+			}
+			.tab .x {
+				color: var(--mf);
+				margin-left: 2px;
+			}
+			.acts {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				padding: 0 8px;
+			}
+			.status {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				color: var(--mf);
+				padding: 0 6px;
+			}
+			.sp {
+				flex: 1;
+			}
+			.btn {
+				height: 24px;
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				padding: 0 9px;
+				border-radius: 6px;
+				font-size: 12px;
+				font-weight: 500;
+				border: 1px solid transparent;
+				white-space: nowrap;
+			}
+			.pri {
+				background: var(--primary);
+				color: var(--pf);
+			}
+			.out {
+				border-color: var(--border);
+				background: var(--background);
+			}
+			.out.open {
+				border-color: var(--primary);
+				box-shadow: 0 0 0 3px var(--ring);
+			}
+			.split {
+				display: inline-flex;
+			}
+			.split .btn:first-child {
+				border-radius: 6px 0 0 6px;
+			}
+			.split .btn:last-child {
+				border-radius: 0 6px 6px 0;
+				border-left: 1px solid oklch(1 0 0 / 0.25);
+				padding: 0 6px;
+			}
+			.notice {
+				display: flex;
+				align-items: center;
+				gap: 12px;
+				padding: 6px 12px;
+				border-bottom: 1px solid var(--border);
+				color: var(--mf);
+				background: color-mix(in srgb, var(--primary) 4%, transparent);
+			}
+			.body {
+				display: flex;
+			}
+			.nav {
+				width: 210px;
+				border-right: 1px solid var(--border);
+				flex-shrink: 0;
+			}
+			.navh {
+				font-size: 10px;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				color: var(--mf);
+				padding: 9px 12px 5px;
+				font-weight: 500;
+			}
+			.ni {
+				display: flex;
+				gap: 8px;
+				padding: 8px 12px;
+				border-bottom: 1px solid var(--border);
+				align-items: flex-start;
+			}
+			.ni.on {
+				background: var(--accent);
+			}
+			.ni .t {
+				font-weight: 500;
+			}
+			.ni .s {
+				color: var(--mf);
+				font-size: 11.5px;
+			}
+			.main {
+				flex: 1;
+				min-width: 0;
+			}
+			.mut {
+				color: var(--mf);
+			}
+			.mono {
+				font-family: var(--mono);
+			}
+			.strong {
+				font-weight: 500;
+				color: var(--foreground);
+			}
+			svg.i {
+				width: 14px;
+				height: 14px;
+				flex-shrink: 0;
+				fill: none;
+				stroke: currentColor;
+				stroke-width: 2;
+				stroke-linecap: round;
+				stroke-linejoin: round;
+				vertical-align: -2px;
+			}
+			svg.s {
+				width: 12px;
+				height: 12px;
+			}
+			.ok {
+				color: var(--ok);
+			}
+			.ko {
+				color: var(--ko);
+			}
+			.fl {
+				color: var(--fl);
+			}
+			.row {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 7px 12px;
+				border-bottom: 1px solid var(--border);
+			}
+			.row .n {
+				font-weight: 500;
+			}
+			.row .p {
+				font-family: var(--mono);
+				font-size: 11px;
+				color: var(--mf);
+			}
+			.grow {
+				flex: 1;
+				min-width: 0;
+			}
+			.hdr {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 6px 12px;
+				border-bottom: 1px solid var(--border);
+				color: var(--mf);
+				min-height: 37px;
+			}
+			.d {
+				width: 8px;
+				height: 8px;
+				border-radius: 50%;
+				display: inline-block;
+				margin-right: 3px;
+				background: var(--ok);
+			}
+			.d.x {
+				background: var(--ko);
+			}
+			.md {
+				width: 9px;
+				height: 9px;
+				border-radius: 50%;
+				display: inline-block;
+				flex-shrink: 0;
+			}
+			.pill {
+				display: inline-flex;
+				gap: 4px;
+				align-items: center;
+				padding: 2px 9px;
+				border-radius: 999px;
+				border: 1px solid var(--border);
+				color: var(--mf);
+				font-size: 11.5px;
+				white-space: nowrap;
+			}
+			.pill.on {
+				background: var(--accent);
+				color: var(--foreground);
+				border-color: transparent;
+			}
+			.seg {
+				display: inline-flex;
+				border: 1px solid var(--border);
+				border-radius: 7px;
+				padding: 2px;
+			}
+			.seg span {
+				padding: 2px 9px;
+				border-radius: 5px;
+				color: var(--mf);
+			}
+			.seg span.on {
+				background: var(--accent);
+				color: var(--foreground);
+				font-weight: 500;
+			}
+			.badge {
+				font-size: 10.5px;
+				padding: 1px 7px;
+				border-radius: 999px;
+				font-weight: 500;
+				white-space: nowrap;
+			}
+			.bw {
+				background: color-mix(in srgb, var(--ok) 13%, transparent);
+				color: #15803d;
+			}
+			.bv {
+				background: color-mix(in srgb, var(--primary) 11%, transparent);
+				color: var(--primary);
+			}
+			.bk {
+				background: color-mix(in srgb, var(--ko) 11%, transparent);
+				color: var(--ko);
+			}
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				font-size: 12px;
+			}
+			th {
+				font-weight: 500;
+				text-align: left;
+				color: var(--mf);
+				font-size: 11px;
+				padding: 6px 10px;
+				border-bottom: 1px solid var(--border);
+				white-space: nowrap;
+			}
+			td {
+				padding: 6px 10px;
+				border-bottom: 1px solid var(--border);
+				white-space: nowrap;
+			}
+			tr:last-child td {
+				border-bottom: 0;
+			}
+			.num {
+				text-align: right;
+				font-variant-numeric: tabular-nums;
+			}
+			.best {
+				color: #15803d;
+				font-weight: 600;
+			}
+			.up {
+				color: #15803d;
+				font-weight: 500;
+			}
+			.down {
+				color: var(--ko);
+				font-weight: 500;
+			}
+			.meter {
+				display: inline-block;
+				width: 52px;
+				height: 5px;
+				border-radius: 3px;
+				background: var(--muted);
+				vertical-align: middle;
+				margin-right: 8px;
+				overflow: hidden;
+			}
+			.meter i {
+				display: block;
+				height: 100%;
+				background: var(--foreground);
+				opacity: 0.55;
+			}
+			.sec {
+				font-size: 10px;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				color: var(--mf);
+				font-weight: 500;
+				padding: 12px 12px 4px;
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+			}
+			.sec .r {
+				text-transform: none;
+				letter-spacing: 0;
+				font-size: 11px;
+				font-weight: 400;
+			}
+			.pop {
+				position: absolute;
+				width: 380px;
+				background: var(--background);
+				border: 1px solid var(--border);
+				border-radius: 12px;
+				box-shadow: 0 16px 40px rgba(0, 0, 0, 0.14);
+				font-size: 12.5px;
+				z-index: 3;
+			}
+			.pop .h {
+				display: flex;
+				justify-content: space-between;
+				padding: 11px 14px 6px;
+				font-weight: 600;
+			}
+			.opt {
+				display: flex;
+				align-items: center;
+				gap: 9px;
+				padding: 6px 14px;
+			}
+			.opt.dim {
+				color: var(--mf);
+			}
+			.cb {
+				width: 15px;
+				height: 15px;
+				border-radius: 4px;
+				border: 1px solid oklch(0 0 0 / 0.25);
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				flex-shrink: 0;
+				background: var(--background);
+			}
+			.cb.on {
+				background: var(--primary);
+				border-color: var(--primary);
+				color: var(--pf);
+			}
+			.cb svg {
+				width: 11px;
+				height: 11px;
+				stroke-width: 3;
+			}
+			.hr {
+				height: 1px;
+				background: var(--border);
+				margin: 6px 0;
+			}
+			.step {
+				display: inline-flex;
+				align-items: center;
+				border: 1px solid var(--border);
+				border-radius: 6px;
+				height: 26px;
+			}
+			.step span {
+				width: 26px;
+				text-align: center;
+				color: var(--mf);
+			}
+			.step b {
+				width: 26px;
+				text-align: center;
+				border-left: 1px solid var(--border);
+				border-right: 1px solid var(--border);
+				line-height: 24px;
+			}
+			.est {
+				background: var(--accent);
+				border-radius: 8px;
+				margin: 6px 14px 12px;
+				padding: 8px 10px;
+			}
+			.k {
+				font-size: 10.5px;
+				color: var(--mf);
+				border: 1px solid var(--border);
+				border-radius: 4px;
+				padding: 0 5px;
+			}
+			.dis td {
+				background: color-mix(in srgb, var(--fl) 6%, transparent);
+			}
+			.atabs {
+				display: flex;
+				align-items: center;
+				gap: 2px;
+				padding: 0 12px;
+				border-bottom: 1px solid var(--border);
+			}
+			.at {
+				padding: 8px 9px;
+				font-weight: 500;
+				color: var(--mf);
+				border-bottom: 2px solid transparent;
+				margin-bottom: -1px;
+			}
+			.at.on {
+				color: var(--foreground);
+				border-color: var(--primary);
+			}
+			.chip {
+				display: inline-flex;
+				align-items: center;
+				gap: 5px;
+				border: 1px solid var(--border);
+				border-radius: 6px;
+				padding: 2px 7px;
+				color: var(--mf);
+				white-space: nowrap;
+			}
+			.chip.on {
+				border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+				background: color-mix(in srgb, var(--primary) 6%, transparent);
+				color: var(--foreground);
+			}
+			.cdiff {
+				background: color-mix(in srgb, var(--ko) 10%, transparent);
+				color: var(--ko);
+			}
+			.stats {
+				display: flex;
+				border-bottom: 1px solid var(--border);
+			}
+			.st {
+				flex: 1;
+				padding: 9px 12px;
+				border-right: 1px solid var(--border);
+			}
+			.st:last-child {
+				border-right: 0;
+			}
+			.st .l {
+				font-size: 11px;
+				color: var(--mf);
+			}
+			.st .v {
+				font-size: 17px;
+				font-weight: 600;
+				font-variant-numeric: tabular-nums;
+			}
+			.st .dl {
+				font-size: 11px;
+				font-weight: 500;
+				margin-left: 6px;
+			}
+			.mx {
+				display: flex;
+				gap: 18px;
+				color: var(--mf);
+				font-variant-numeric: tabular-nums;
+			}
+			.mx span {
+				min-width: 46px;
+				text-align: right;
+			}
+			.tag {
+				font-size: 11px;
+				border: 1px solid var(--border);
+				border-radius: 999px;
+				padding: 0 7px;
+				color: var(--mf);
+				font-weight: 400;
+				margin-left: 4px;
+			}
+			.mm {
+				display: inline-flex;
+				align-items: center;
+				gap: 10px;
+			}
+			.mm span {
+				display: inline-flex;
+				align-items: center;
+				gap: 3px;
+			}
+			.tip {
+				position: absolute;
+				background: var(--background);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+				padding: 8px 10px;
+				font-size: 11.5px;
+				line-height: 1.5;
+				z-index: 2;
+			}
+			.legend {
+				display: flex;
+				gap: 14px;
+				align-items: center;
+				color: var(--mf);
+				font-size: 11.5px;
+				flex-wrap: wrap;
+			}
+			.legend span {
+				display: inline-flex;
+				align-items: center;
+				gap: 5px;
+			}
+		</style>
+	</head>
+	<body>
+		<svg width="0" height="0" style="position: absolute">
+			<defs>
+				<symbol id="ok" viewBox="0 0 24 24">
+					<circle cx="12" cy="12" r="10" />
+					<path d="m9 12 2 2 4-4" />
+				</symbol>
+				<symbol id="ko" viewBox="0 0 24 24">
+					<circle cx="12" cy="12" r="10" />
+					<path d="m15 9-6 6M9 9l6 6" />
+				</symbol>
+				<symbol id="fl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-dasharray="4 3" /></symbol>
+				<symbol id="nv" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-dasharray="2 3" /></symbol>
+				<symbol id="play" viewBox="0 0 24 24"><path d="M6 3l14 9-14 9z" fill="currentColor" /></symbol>
+				<symbol id="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
+				<symbol id="chevu" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6" /></symbol>
+				<symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol>
+				<symbol id="close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></symbol>
+				<symbol id="max" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></symbol>
+				<symbol id="cpu" viewBox="0 0 24 24">
+					<rect x="5" y="5" width="14" height="14" rx="2" />
+					<path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" />
+				</symbol>
+				<symbol id="cmp" viewBox="0 0 24 24">
+					<circle cx="5" cy="6" r="3" />
+					<path d="M12 6h5a2 2 0 0 1 2 2v7" />
+					<path d="m15 9-3-3 3-3" />
+					<circle cx="19" cy="18" r="3" />
+					<path d="M12 18H7a2 2 0 0 1-2-2V9" />
+					<path d="m9 15 3 3-3 3" />
+				</symbol>
+				<symbol id="file" viewBox="0 0 24 24">
+					<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+					<path d="M14 2v6h6" />
+				</symbol>
+				<symbol id="msg" viewBox="0 0 24 24">
+					<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+				</symbol>
+				<symbol id="spin" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.6" /></symbol>
+			</defs>
+		</svg>
+		<div class="cap">③ Your changes vs production, on every model: one arrow per model</div>
+		<div class="sub">
+			Hollow dot = production, filled dot = your changes. The x axis is reversed like a cost frontier, so an arrow
+			pointing up and right means your changes made that model both more accurate and cheaper. The toggle swaps
+			cost for tokens, tool calls or time; the table view gives the same numbers as text.
+		</div>
+		<div class="drawer">
+			<div class="bar">
+				<span class="tab on"
+					><svg class="i"><use href="#chev" /></svg>All tests (6)</span
+				><span class="tab"
+					><svg class="i mut"><use href="#file" /></svg>net_revenue_growth_by_month.yml<svg class="i s x">
+						<use href="#close" /></svg></span
+				><span class="sp"></span
+				><span class="acts"
+					><span class="btn out"
+						><svg class="i"><use href="#cpu" /></svg>4 models · ×3<svg class="i mut">
+							<use href="#chev" /></svg></span
+					><span class="split"
+						><span class="btn pri"
+							><svg class="i"><use href="#cmp" /></svg>Compare 6 tests with production</span
+						><span class="btn pri"
+							><svg class="i"><use href="#chev" /></svg></span></span
+					><span class="mut" style="padding: 0 4px"
+						><svg class="i"><use href="#max" /></svg></span
+				></span>
+			</div>
+			<div class="notice">
+				<svg class="i"><use href="#file" /></svg
+				><span
+					>You changed <span class="strong">3 context files</span> on
+					<span class="mono strong">christophe/revenue-definitions</span>:
+					<span class="mono">semantics/revenue.md</span> ·
+					<span class="mono">databases/…/orders/columns.md</span> · <span class="mono">rules.md</span></span
+				>
+			</div>
+			<div class="body">
+				<div class="nav">
+					<div class="navh">Recent runs</div>
+					<div class="ni on">
+						<svg class="i ok"><use href="#ok" /></svg>
+						<div>
+							<div class="t">4 models · 3 improve</div>
+							<div class="s">Compared 6 tests · 2m ago</div>
+						</div>
+					</div>
+					<div class="ni">
+						<svg class="i fl"><use href="#fl" /></svg>
+						<div>
+							<div class="t">83% passed</div>
+							<div class="s">6 tests · Léa · 1h ago</div>
+						</div>
+					</div>
+					<div class="ni">
+						<svg class="i ok"><use href="#ok" /></svg>
+						<div>
+							<div class="t">Prod 67% → 83%</div>
+							<div class="s">Compared 6 tests · 3h ago</div>
+						</div>
+					</div>
+					<div class="ni">
+						<svg class="i ok"><use href="#ok" /></svg>
+						<div>
+							<div class="t">100% passed</div>
+							<div class="s">repeat_customer_rate · 1d ago</div>
+						</div>
+					</div>
+				</div>
+				<div class="main">
+					<div class="hdr">
+						<span class="pill on">All 6</span><span class="pill">Fixed 3</span
+						><span class="pill">Broken 1</span><span class="grow"></span
+						><span>Production → your changes · ×3 · 144 attempts · $3.10</span
+						><span class="seg"><span>Table</span><span class="on">Chart</span></span>
+					</div>
+					<div style="display: flex">
+						<div style="padding: 10px 4px 4px 4px; border-right: 1px solid var(--border)">
+							<div
+								style="
+									display: flex;
+									align-items: center;
+									justify-content: space-between;
+									padding: 0 8px 4px 12px;
+								"
+							>
+								<span class="strong">Accuracy vs. cost</span
+								><span class="seg"
+									><span class="on">Cost</span><span>Tokens</span><span>Tool calls</span
+									><span>Time</span></span
+								>
+							</div>
+							<svg width="550" height="330" style="display: block; font-family: var(--sans)">
+								<defs>
+									<marker
+										id="a-0"
+										viewBox="0 0 10 10"
+										refX="9"
+										refY="5"
+										markerWidth="7"
+										markerHeight="7"
+										orient="auto-start-reverse"
+									>
+										<path d="M0 0L10 5L0 10z" fill="#2a78d6" />
+									</marker>
+									<marker
+										id="a-1"
+										viewBox="0 0 10 10"
+										refX="9"
+										refY="5"
+										markerWidth="7"
+										markerHeight="7"
+										orient="auto-start-reverse"
+									>
+										<path d="M0 0L10 5L0 10z" fill="#eb6834" />
+									</marker>
+									<marker
+										id="a-2"
+										viewBox="0 0 10 10"
+										refX="9"
+										refY="5"
+										markerWidth="7"
+										markerHeight="7"
+										orient="auto-start-reverse"
+									>
+										<path d="M0 0L10 5L0 10z" fill="#6250d6" />
+									</marker>
+									<marker
+										id="a-3"
+										viewBox="0 0 10 10"
+										refX="9"
+										refY="5"
+										markerWidth="7"
+										markerHeight="7"
+										orient="auto-start-reverse"
+									>
+										<path d="M0 0L10 5L0 10z" fill="#eda100" />
+									</marker>
+								</defs>
+								<line x1="44" x2="534" y1="296.0" y2="296.0" stroke="oklch(0 0 0 / .07)" />
+								<text x="36" y="300.0" text-anchor="end" font-size="11" fill="oklch(0 0 0 / .5)">
+									40%
+								</text>
+								<line x1="44" x2="534" y1="249.0" y2="249.0" stroke="oklch(0 0 0 / .07)" />
+								<text x="36" y="253.0" text-anchor="end" font-size="11" fill="oklch(0 0 0 / .5)">
+									50%
+								</text>
+								<line x1="44" x2="534" y1="202.0" y2="202.0" stroke="oklch(0 0 0 / .07)" />
+								<text x="36" y="206.0" text-anchor="end" font-size="11" fill="oklch(0 0 0 / .5)">
+									60%
+								</text>
+								<line x1="44" x2="534" y1="155.0" y2="155.0" stroke="oklch(0 0 0 / .07)" />
+								<text x="36" y="159.0" text-anchor="end" font-size="11" fill="oklch(0 0 0 / .5)">
+									70%
+								</text>
+								<line x1="44" x2="534" y1="108.0" y2="108.0" stroke="oklch(0 0 0 / .07)" />
+								<text x="36" y="112.0" text-anchor="end" font-size="11" fill="oklch(0 0 0 / .5)">
+									80%
+								</text>
+								<line x1="44" x2="534" y1="61.0" y2="61.0" stroke="oklch(0 0 0 / .07)" />
+								<text x="36" y="65.0" text-anchor="end" font-size="11" fill="oklch(0 0 0 / .5)">
+									90%
+								</text>
+								<line x1="44" x2="534" y1="14.0" y2="14.0" stroke="oklch(0 0 0 / .07)" />
+								<text x="36" y="18.0" text-anchor="end" font-size="11" fill="oklch(0 0 0 / .5)">
+									100%
+								</text>
+								<line x1="44.0" x2="44.0" y1="14" y2="296" stroke="oklch(0 0 0 / .05)" />
+								<text x="44.0" y="312" text-anchor="middle" font-size="11" fill="oklch(0 0 0 / .5)">
+									$0.05
+								</text>
+								<line x1="142.0" x2="142.0" y1="14" y2="296" stroke="oklch(0 0 0 / .05)" />
+								<text x="142.0" y="312" text-anchor="middle" font-size="11" fill="oklch(0 0 0 / .5)">
+									$0.04
+								</text>
+								<line
+									x1="240.00000000000003"
+									x2="240.00000000000003"
+									y1="14"
+									y2="296"
+									stroke="oklch(0 0 0 / .05)"
+								/>
+								<text
+									x="240.00000000000003"
+									y="312"
+									text-anchor="middle"
+									font-size="11"
+									fill="oklch(0 0 0 / .5)"
+								>
+									$0.03
+								</text>
+								<line x1="338.0" x2="338.0" y1="14" y2="296" stroke="oklch(0 0 0 / .05)" />
+								<text x="338.0" y="312" text-anchor="middle" font-size="11" fill="oklch(0 0 0 / .5)">
+									$0.02
+								</text>
+								<line
+									x1="435.99999999999994"
+									x2="435.99999999999994"
+									y1="14"
+									y2="296"
+									stroke="oklch(0 0 0 / .05)"
+								/>
+								<text
+									x="435.99999999999994"
+									y="312"
+									text-anchor="middle"
+									font-size="11"
+									fill="oklch(0 0 0 / .5)"
+								>
+									$0.01
+								</text>
+								<line x1="534.0" x2="534.0" y1="14" y2="296" stroke="oklch(0 0 0 / .05)" />
+								<text x="534.0" y="312" text-anchor="middle" font-size="11" fill="oklch(0 0 0 / .5)">
+									$0.00
+								</text>
+								<text x="289.0" y="328" text-anchor="middle" font-size="11" fill="oklch(0 0 0 / .5)">
+									Average cost per question
+								</text>
+								<text x="532" y="26" text-anchor="end" font-size="11" fill="oklch(0 0 0 / .4)">
+									better ↗
+								</text>
+								<line
+									x1="87.32740234507786"
+									y1="89.54516936243829"
+									x2="126.00889648238328"
+									y2="48.73224595634256"
+									stroke="#2a78d6"
+									stroke-width="2"
+									marker-end="url(#a-0)"
+								/>
+								<circle
+									cx="83.20000000000003"
+									cy="93.89999999999999"
+									r="4.5"
+									fill="#fff"
+									stroke="#2a78d6"
+									stroke-width="2"
+								/>
+								<circle
+									cx="132.20000000000002"
+									cy="42.2"
+									r="5.5"
+									fill="#2a78d6"
+									stroke="#fff"
+									stroke-width="2"
+								/>
+								<text
+									x="142.20000000000002"
+									y="46.2"
+									text-anchor="start"
+									font-size="11.5"
+									font-weight="500"
+									fill="oklch(0 0 0 / .85)"
+								>
+									sonnet-5-5
+									<tspan font-weight="400" fill="oklch(0 0 0 / .5)">+11 pts · −11% $</tspan>
+								</text>
+								<line
+									x1="184.16596282385194"
+									y1="140.3843442859475"
+									x2="206.15105576422218"
+									y2="101.72348357107873"
+									stroke="#eb6834"
+									stroke-width="2"
+									marker-end="url(#a-1)"
+								/>
+								<circle
+									cx="181.20000000000005"
+									cy="145.6"
+									r="4.5"
+									fill="#fff"
+									stroke="#eb6834"
+									stroke-width="2"
+								/>
+								<circle
+									cx="210.60000000000002"
+									cy="93.89999999999999"
+									r="5.5"
+									fill="#eb6834"
+									stroke="#fff"
+									stroke-width="2"
+								/>
+								<text
+									x="220.60000000000002"
+									y="97.89999999999999"
+									text-anchor="start"
+									font-size="11.5"
+									font-weight="500"
+									fill="oklch(0 0 0 / .85)"
+								>
+									gpt-5.1
+									<tspan font-weight="400" fill="oklch(0 0 0 / .5)">+11 pts · −8% $</tspan>
+								</text>
+								<line
+									x1="418.0409536622423"
+									y1="243.22875480694384"
+									x2="443.33856950663653"
+									y2="154.25686778958422"
+									stroke="#6250d6"
+									stroke-width="2"
+									marker-end="url(#a-2)"
+								/>
+								<circle
+									cx="416.40000000000003"
+									cy="249.0"
+									r="4.5"
+									fill="#fff"
+									stroke="#6250d6"
+									stroke-width="2"
+								/>
+								<circle
+									cx="445.79999999999995"
+									cy="145.6"
+									r="5.5"
+									fill="#6250d6"
+									stroke="#fff"
+									stroke-width="2"
+								/>
+								<text
+									x="433.79999999999995"
+									y="133.6"
+									text-anchor="end"
+									font-size="11.5"
+									font-weight="500"
+									fill="oklch(0 0 0 / .85)"
+								>
+									haiku-5-5
+									<tspan font-weight="400" fill="oklch(0 0 0 / .5)">+22 pts · −25% $</tspan>
+								</text>
+								<line
+									x1="246.37566093735734"
+									y1="122.32685518196543"
+									x2="235.33650859396397"
+									y2="138.20971722705184"
+									stroke="#eda100"
+									stroke-width="2"
+									marker-end="url(#a-3)"
+								/>
+								<circle
+									cx="249.79999999999998"
+									cy="117.39999999999999"
+									r="4.5"
+									fill="#fff"
+									stroke="#eda100"
+									stroke-width="2"
+								/>
+								<circle
+									cx="230.20000000000002"
+									cy="145.6"
+									r="5.5"
+									fill="#eda100"
+									stroke="#fff"
+									stroke-width="2"
+								/>
+								<text
+									x="230.20000000000002"
+									y="165.6"
+									text-anchor="middle"
+									font-size="11.5"
+									font-weight="500"
+									fill="oklch(0 0 0 / .85)"
+								>
+									gemini-3-pro
+									<tspan font-weight="400" fill="oklch(0 0 0 / .5)">−6 pts · +7% $</tspan>
+								</text>
+								<circle
+									cx="445.79999999999995"
+									cy="145.6"
+									r="11"
+									fill="none"
+									stroke="#6250d6"
+									stroke-opacity=".35"
+									stroke-width="5"
+								/>
+							</svg>
+							<div style="padding: 6px 12px 10px">
+								<div class="legend">
+									<span
+										><svg width="12" height="12">
+											<circle
+												cx="6"
+												cy="6"
+												r="4"
+												fill="#fff"
+												stroke="#555"
+												stroke-width="2"
+											/></svg
+										>Production</span
+									><span
+										><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#555" /></svg
+										>Your changes</span
+									><span><i class="md" style="background: #2a78d6"></i>sonnet-5-5</span
+									><span><i class="md" style="background: #eb6834"></i>gpt-5.1</span
+									><span><i class="md" style="background: #6250d6"></i>haiku-5-5</span
+									><span><i class="md" style="background: #eda100"></i>gemini-3-pro</span>
+								</div>
+							</div>
+						</div>
+						<div class="grow" style="min-width: 0">
+							<div class="sec"><span>Production → your changes</span></div>
+							<table>
+								<thead>
+									<tr>
+										<th>Model</th>
+										<th class="num">Accuracy</th>
+										<th class="num">$ / question</th>
+									</tr>
+								</thead>
+								<tbody>
+									<tr>
+										<td>
+											<span style="display: inline-flex; align-items: center; gap: 7px"
+												><i class="md" style="background: #2a78d6"></i>sonnet-5-5</span
+											>
+										</td>
+										<td class="num">83% → 94% <span class="up">▲</span></td>
+										<td class="num">$0.046 → $0.041 <span class="up">▲</span></td>
+									</tr>
+									<tr>
+										<td>
+											<span style="display: inline-flex; align-items: center; gap: 7px"
+												><i class="md" style="background: #eb6834"></i>gpt-5.1</span
+											>
+										</td>
+										<td class="num">72% → 83% <span class="up">▲</span></td>
+										<td class="num">$0.036 → $0.033 <span class="up">▲</span></td>
+									</tr>
+									<tr>
+										<td>
+											<span style="display: inline-flex; align-items: center; gap: 7px"
+												><i class="md" style="background: #6250d6"></i>haiku-5-5</span
+											>
+										</td>
+										<td class="num">50% → 72% <span class="up">▲</span></td>
+										<td class="num">$0.012 → $0.009 <span class="up">▲</span></td>
+									</tr>
+									<tr>
+										<td>
+											<span style="display: inline-flex; align-items: center; gap: 7px"
+												><i class="md" style="background: #eda100"></i>gemini-3-pro</span
+											>
+										</td>
+										<td class="num">78% → 72% <span class="down">▼</span></td>
+										<td class="num">$0.029 → $0.031 <span class="down">▼</span></td>
+									</tr>
+								</tbody>
+							</table>
+							<div
+								style="
+									padding: 12px;
+									color: var(--mf);
+									line-height: 1.55;
+									border-top: 1px solid var(--border);
+								"
+							>
+								Your changes make <span class="strong">3 of 4 models</span> more accurate and cheaper:
+								fewer tool calls, because the agent finds the revenue definition directly.<br /><span
+									class="ko"
+									>gemini-3-pro</span
+								>
+								regresses on <span class="strong">Net revenue growth by month</span>.
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="tip" style="left: 418px; top: 330px; width: 200px">
+				<div style="display: flex; align-items: center; gap: 6px; font-weight: 600">
+					<i class="md" style="background: #6250d6"></i>haiku-5-5
+				</div>
+				<div><span class="mut">Production</span> 50% · $0.012/q</div>
+				<div><span class="mut">Your changes</span> <b>72%</b> · <b>$0.009</b>/q</div>
+				<div class="mut">18 attempts each · click to filter</div>
+			</div>
+		</div>
+	</body>
+</html>
