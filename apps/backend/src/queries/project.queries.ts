@@ -83,6 +83,10 @@ export const touchProjectUpdatedAt = async (projectId: string): Promise<void> =>
 	await db.update(s.project).set({ updatedAt: new Date() }).where(eq(s.project.id, projectId)).execute();
 };
 
+export const recordProjectDeployment = async (projectId: string, deployedAt: Date): Promise<void> => {
+	await db.update(s.project).set({ deployedAt }).where(eq(s.project.id, projectId)).execute();
+};
+
 export const getProjectMemoryEnabled = async (projectId: string): Promise<boolean> => {
 	const [project] = await db
 		.select({ agentSettings: s.project.agentSettings })

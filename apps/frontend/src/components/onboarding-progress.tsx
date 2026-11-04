@@ -231,7 +231,14 @@ export function useOnboardingMissingEnvVars(
 	return enabled ? missingEnvVars.data : [];
 }
 
-export function findCreatedOnboardingProject<T extends { createdAt: Date; updatedAt: Date }>(
+export function hasOnboardingCloudAccess(
+	cloudBillingEnabled: boolean,
+	access: { hasAccess: boolean; bypassBilling: boolean } | undefined,
+): boolean {
+	return !cloudBillingEnabled || access?.hasAccess === true || access?.bypassBilling === true;
+}
+
+export function findCreatedOnboardingProject<T extends { deployedAt: Date | null }>(
 	projects: T[] | undefined,
 	onboardingStartedAt: number | undefined,
 ): T | null {
@@ -240,13 +247,17 @@ export function findCreatedOnboardingProject<T extends { createdAt: Date; update
 	}
 	return (
 		projects
-			.filter((project) => latestProjectChange(project) >= onboardingStartedAt)
-			.sort((left, right) => latestProjectChange(right) - latestProjectChange(left))[0] ?? null
+			.filter((project) => deployedDuringOnboarding(project, onboardingStartedAt))
+			.sort((left, right) => deploymentTime(right) - deploymentTime(left))[0] ?? null
 	);
 }
 
-function latestProjectChange(project: { createdAt: Date; updatedAt: Date }): number {
-	return Math.max(project.createdAt.getTime(), project.updatedAt.getTime());
+function deployedDuringOnboarding(project: { deployedAt: Date | null }, onboardingStartedAt: number): boolean {
+	return deploymentTime(project) >= onboardingStartedAt;
+}
+
+function deploymentTime(project: { deployedAt: Date | null }): number {
+	return project.deployedAt?.getTime() ?? Number.NEGATIVE_INFINITY;
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {

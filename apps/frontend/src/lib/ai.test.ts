@@ -9,6 +9,7 @@ import {
 	ONBOARDING_CONTEXT_REQUEST_PREFIX,
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
+	usesChatAllowance,
 } from './ai';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
 import type { GroupedMessagePart } from '@/types/ai';
@@ -422,6 +423,17 @@ describe('parseChatAllowanceExhaustedError', () => {
 		const error = new Error(JSON.stringify({ error: 'Allowance exhausted', code }));
 
 		expect(parseChatAllowanceExhaustedError(error)).toBe(scope);
+	});
+});
+
+describe('usesChatAllowance', () => {
+	it.each([
+		[false, 'default', true],
+		[true, 'default', false],
+		[true, 'example', true],
+		[true, 'onboarding', true],
+	] as const)('hasProject=%s mode=%s uses the allowance: %s', (hasProject, mode, expected) => {
+		expect(usesChatAllowance(hasProject, mode)).toBe(expected);
 	});
 });
 

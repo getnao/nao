@@ -166,6 +166,7 @@ export const projectRoutes = {
 			path: project.path,
 			createdAt: project.createdAt,
 			updatedAt: project.updatedAt,
+			deployedAt: project.deployedAt,
 			userRole,
 		}));
 	}),

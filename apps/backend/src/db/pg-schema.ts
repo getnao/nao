@@ -312,6 +312,7 @@ export const project = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
+		deployedAt: timestamp('deployed_at'),
 	},
 	(t) => [
 		check('local_project_path_required', sql`CASE WHEN "type" = 'local' THEN "path" IS NOT NULL ELSE TRUE END`),

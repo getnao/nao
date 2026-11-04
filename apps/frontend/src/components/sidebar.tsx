@@ -80,7 +80,7 @@ export function Sidebar() {
 	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
 	const isInSettings = !!isSettingsRoute && (!isViewer || (isCloud && isOrgAdmin));
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
-	const { limbo, setupIncomplete } = useCloudSetupState();
+	const { limbo } = useCloudSetupState();
 	const showTrialOnboarding =
 		isCloud &&
 		locationPath === '/' &&
@@ -321,7 +321,7 @@ export function Sidebar() {
 						filters={filters}
 						isViewer={isViewer}
 						isTrial={project.isSuccess && project.data === null}
-						resumeOnboarding={(project.isSuccess && project.data === null) || setupIncomplete}
+						resumeOnboarding={(project.isSuccess && project.data === null) || limbo}
 					/>
 				</>
 			)}

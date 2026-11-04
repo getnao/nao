@@ -754,6 +754,10 @@ export function parseChatAllowanceExhaustedError(error: Error | undefined): Chat
 	return null;
 }
 
+export function usesChatAllowance(hasProject: boolean, mode: string | undefined): boolean {
+	return !hasProject || mode === 'example' || mode === 'onboarding';
+}
+
 const ONBOARDING_COMPLETE_ERROR = 'Onboarding conversations are unavailable after project setup';
 
 export function isOnboardingCompleteError(error: Error | undefined): boolean {

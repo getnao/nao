@@ -4,6 +4,7 @@ import {
 	canFinishDeployOnboarding,
 	findCreatedOnboardingProject,
 	findWarehouseJobId,
+	hasOnboardingCloudAccess,
 	isOnboardingComplete,
 	useOnboardingProgress,
 } from '@/components/onboarding-progress';
@@ -70,7 +71,7 @@ export function useOnboardingCompletion(chatId: string | undefined, enabled = tr
 	const deployedProjectReady =
 		deployedProject !== null && activeProjectId === deployedProject.id && projectSetupComplete.data === true;
 	const hasCloudAccess =
-		config.isSuccess && (config.data.cloudBillingEnabled !== true || billingAccess.data?.hasAccess === true);
+		config.isSuccess && hasOnboardingCloudAccess(config.data.cloudBillingEnabled === true, billingAccess.data);
 	const milestoneComplete = isOnboardingComplete(
 		deployFlow ? deployedProjectReady : projectSetupComplete.data === true,
 		progress,
@@ -79,15 +80,17 @@ export function useOnboardingCompletion(chatId: string | undefined, enabled = tr
 	);
 
 	return {
-		complete: deployFlow
-			? canFinishDeployOnboarding(
-					deployedProjectReady,
-					hasCloudAccess,
-					progress,
-					warehouseReady,
-					warehouseProvisioningActive,
-				)
-			: rejectedByBackend || milestoneComplete,
+		complete:
+			rejectedByBackend ||
+			(deployFlow
+				? canFinishDeployOnboarding(
+						deployedProjectReady,
+						hasCloudAccess,
+						progress,
+						warehouseReady,
+						warehouseProvisioningActive,
+					)
+				: milestoneComplete),
 		setupReportedComplete: rejectedByBackend || isOnboardingComplete(true, progress, warehouseReady),
 		projectIsMissing: currentProject.isSuccess && currentProject.data === null,
 		progress,

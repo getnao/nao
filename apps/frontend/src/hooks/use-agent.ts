@@ -30,6 +30,7 @@ import {
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
 	resolveImagesFromMessage,
+	usesChatAllowance,
 } from '@/lib/ai';
 import { useSession } from '@/lib/auth-client';
 import { createLocalStorage } from '@/lib/local-storage';
@@ -433,7 +434,7 @@ export const useAgent = ({
 
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
-			if (!hasProject && parseChatAllowanceExhaustedError(error)) {
+			if (usesChatAllowance(hasProject, modeRef.current) && parseChatAllowanceExhaustedError(error)) {
 				return;
 			}
 			clearError();

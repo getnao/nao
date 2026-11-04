@@ -330,6 +330,7 @@ export const project = sqliteTable(
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.$onUpdate(() => new Date())
 			.notNull(),
+		deployedAt: integer('deployed_at', { mode: 'timestamp_ms' }),
 	},
 	(t) => [
 		check('local_project_path_required', sql`CASE WHEN "type" = 'local' THEN "path" IS NOT NULL ELSE TRUE END`),

@@ -27,6 +27,5 @@ export function useCloudSetupState() {
 			hasAccess: billingAccess.data?.hasAccess,
 		}),
 		resolving: hasProject && cloudBillingEnabled && (projectSetup.isPending || accessPending),
-		setupIncomplete: hasProject && setupComplete === false,
 	};
 }
