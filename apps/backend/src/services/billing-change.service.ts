@@ -1,5 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
+import type Stripe from 'stripe';
+
 import { env } from '../env';
 import type { OrganizationWithBilling } from '../queries/billing.queries';
 import * as billingQueries from '../queries/billing.queries';
@@ -15,6 +17,7 @@ import {
 import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
 import { logger, serializeError } from '../utils/logger';
+import { readCloudSubscriptionChangeIntent } from '../utils/stripe';
 import {
 	type AdminBillingInput,
 	CloudBillingManagementInputError,
@@ -136,9 +139,9 @@ export async function changeCloudSeatQuantityForAdmin(
 			throw new CloudBillingManagementConflictError('Billing preview does not authorize a seat change');
 		}
 		const targetQuantity = payload.targetSeatQuantity;
-		const pendingChange = await getPendingCloudSubscriptionChange(state.subscription);
-		if (pendingChange) {
-			return pendingBillingCommandResult(pendingChange, state.billing.stripeCustomerId, input.organizationId);
+		const pendingResult = await resumePendingBillingChange(state, payload);
+		if (pendingResult) {
+			return pendingResult;
 		}
 		if (payload.effective === 'immediate') {
 			const change = await runCloudBillingStripeMutation(() =>
@@ -149,6 +152,10 @@ export async function changeCloudSeatQuantityForAdmin(
 					prorationDate: new Date(payload.prorationDate),
 					requestId: input.requestId,
 					promotionCodeId: payload.promotionCodeId,
+					intent: {
+						target: billingChangeTarget(payload),
+						releaseScheduleId: state.billing.stripeSubscriptionScheduleId ?? undefined,
+					},
 				}),
 			);
 			if (change.status === 'payment_pending') {
@@ -224,9 +231,9 @@ export async function changeCloudPlanForAdmin(input: AdminBillingInput & { previ
 		const immediate =
 			state.subscription.status === 'trialing' ||
 			isImmediatePlanChange(requireCurrentPlanKey(state.billing.billingPlan), payload.targetPlanKey);
-		const pendingChange = await getPendingCloudSubscriptionChange(state.subscription);
-		if (pendingChange) {
-			return pendingBillingCommandResult(pendingChange, state.billing.stripeCustomerId, input.organizationId);
+		const pendingResult = await resumePendingBillingChange(state, payload);
+		if (pendingResult) {
+			return pendingResult;
 		}
 		if (immediate) {
 			const change = await runCloudBillingStripeMutation(() =>
@@ -239,6 +246,7 @@ export async function changeCloudPlanForAdmin(input: AdminBillingInput & { previ
 					requestId: input.requestId,
 					chargeImmediately: state.subscription.status !== 'trialing',
 					promotionCodeId: payload.promotionCodeId,
+					intent: { target: billingChangeTarget(payload) },
 				}),
 			);
 			if (change.status === 'payment_pending') {
@@ -372,9 +380,9 @@ export async function addCloudMemberWithSeatForAdmin(
 		if (payload.targetSeatQuantity !== expectedTargetQuantity) {
 			throw new CloudBillingManagementConflictError('Billing preview is stale; preview the added seat again');
 		}
-		const pendingChange = await getPendingCloudSubscriptionChange(state.subscription);
-		if (pendingChange) {
-			return pendingBillingCommandResult(pendingChange, state.billing.stripeCustomerId, input.organizationId);
+		const pendingResult = await resumePendingBillingChange(state, payload);
+		if (pendingResult) {
+			return pendingResult;
 		}
 		const targetQuantity = payload.targetSeatQuantity;
 		if (targetQuantity > currentQuantity) {
@@ -385,6 +393,10 @@ export async function addCloudMemberWithSeatForAdmin(
 					targetQuantity,
 					prorationDate: new Date(payload.prorationDate),
 					requestId: input.requestId,
+					intent: {
+						target: billingChangeTarget(payload),
+						member: { userId: user.id, role: input.requestedRole },
+					},
 				}),
 			);
 			if (change.status === 'payment_pending') {
@@ -490,6 +502,12 @@ async function createBillingChangePreview(
 		memberFingerprint?: string;
 	},
 ): Promise<BillingChangePreview> {
+	if (state.subscription.pending_update) {
+		assertPendingBillingChangeTarget(
+			state.subscription,
+			billingChangeTarget({ ...target, promotionCodeId: target.promotionCode?.id }),
+		);
+	}
 	const prorationDate = await getCloudProrationDate(state.subscription);
 	const expiresAt = new Date(prorationDate.getTime() + 5 * 60_000);
 	const targetQuantity = target.targetSeatQuantity ?? 1;
@@ -778,6 +796,38 @@ async function pendingBillingCommandResult(
 		expiresAt: change.expiresAt,
 		...(await reconcileAndLoadCommandState(stripeCustomerId, organizationId)),
 	};
+}
+
+async function resumePendingBillingChange(state: CurrentPaidState, payload: BillingChangeTokenPayload) {
+	const pendingChange = await getPendingCloudSubscriptionChange(state.subscription);
+	if (!pendingChange) {
+		return null;
+	}
+	assertPendingBillingChangeTarget(pendingChange.subscription, billingChangeTarget(payload));
+	return pendingBillingCommandResult(pendingChange, state.billing.stripeCustomerId, state.organization.id);
+}
+
+function assertPendingBillingChangeTarget(subscription: Pick<Stripe.Subscription, 'pending_update'>, target: string) {
+	if (readCloudSubscriptionChangeIntent(subscription.pending_update?.metadata)?.target !== target) {
+		throw new CloudBillingManagementConflictError(
+			'Another billing change is waiting for payment. Pay its invoice or wait for it to expire.',
+		);
+	}
+}
+
+function billingChangeTarget(
+	change: Pick<
+		BillingChangeTokenPayload,
+		'operation' | 'targetPlanKey' | 'targetSeatQuantity' | 'promotionCodeId' | 'memberFingerprint'
+	>,
+): string {
+	return [
+		change.operation,
+		change.targetPlanKey,
+		change.targetSeatQuantity ?? '',
+		change.promotionCodeId ?? '',
+		change.memberFingerprint ?? '',
+	].join(':');
 }
 
 async function validateSeatSelection(

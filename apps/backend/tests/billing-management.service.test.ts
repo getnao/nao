@@ -138,6 +138,7 @@ import {
 	createCreditTopUpCheckoutForAdmin,
 	loadCloudBillingOrganization,
 } from '../src/services/billing-management.service';
+import { cloudSubscriptionChangeIntentMetadata } from '../src/utils/stripe';
 
 const adminInput = { userId: 'user-id', organizationId: 'org-id' };
 
@@ -607,7 +608,12 @@ describe('billing change commands', () => {
 		});
 
 		expect(preview.effective).toBe('immediate');
-		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledWith(expect.objectContaining({ targetQuantity: 6 }));
+		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledWith(
+			expect.objectContaining({
+				targetQuantity: 6,
+				intent: expect.objectContaining({ releaseScheduleId: 'sub_sched_team' }),
+			}),
+		);
 		expect(mocks.releasePlanChangeSchedule).toHaveBeenCalledWith('sub_sched_team');
 		expect(mocks.updateSubscriptionQuantity.mock.invocationCallOrder[0]).toBeLessThan(
 			mocks.releasePlanChangeSchedule.mock.invocationCallOrder[0],
@@ -654,28 +660,35 @@ describe('billing change commands', () => {
 		expect(mocks.previewSubscriptionChange).not.toHaveBeenCalled();
 	});
 
-	it('returns an existing pending payment instead of creating a conflicting schedule', async () => {
-		mocks.getOrganizationWithBilling.mockResolvedValue(teamOrganization({ seatQuantity: 6 }));
-		const preview = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 4 });
-		mocks.getPendingSubscriptionChange.mockResolvedValueOnce({
+	it('resumes only the pending payment that matches the reviewed change', async () => {
+		const pendingPayment = {
 			status: 'payment_pending',
-			subscription: {},
 			hostedInvoiceUrl: 'https://invoice.stripe.com/existing',
 			expiresAt: new Date('2027-01-02T00:00:00.000Z'),
+		};
+		const requestId = '52a3839e-8ba9-4fd4-8494-a3b590b33155';
+		const sevenSeats = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 7 });
+		const eightSeats = await previewCloudSeatChangeForAdmin({ ...adminInput, targetQuantity: 8 });
+		mocks.updateSubscriptionQuantity.mockResolvedValueOnce({ ...pendingPayment, subscription: {} });
+		await changeCloudSeatQuantityForAdmin({ ...adminInput, previewToken: sevenSeats.previewToken, requestId });
+		mocks.getPendingSubscriptionChange.mockResolvedValue({
+			...pendingPayment,
+			subscription: {
+				pending_update: {
+					metadata: cloudSubscriptionChangeIntentMetadata(
+						mocks.updateSubscriptionQuantity.mock.lastCall![0].intent,
+					),
+				},
+			},
 		});
 
 		await expect(
-			changeCloudSeatQuantityForAdmin({
-				...adminInput,
-				previewToken: preview.previewToken,
-				requestId: '52a3839e-8ba9-4fd4-8494-a3b590b33155',
-			}),
-		).resolves.toMatchObject({
-			status: 'payment_pending',
-			hostedInvoiceUrl: 'https://invoice.stripe.com/existing',
-		});
-
-		expect(mocks.createPlanChangeSchedule).not.toHaveBeenCalled();
+			changeCloudSeatQuantityForAdmin({ ...adminInput, previewToken: eightSeats.previewToken, requestId }),
+		).rejects.toMatchObject({ codeMessage: 'CONFLICT' });
+		await expect(
+			changeCloudSeatQuantityForAdmin({ ...adminInput, previewToken: sevenSeats.previewToken, requestId }),
+		).resolves.toMatchObject(pendingPayment);
+		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledOnce();
 	});
 
 	it('rejects a seat preview after its pending schedule baseline changes', async () => {
@@ -1204,6 +1217,11 @@ describe('billing change commands', () => {
 		});
 
 		expect(mocks.putMember).not.toHaveBeenCalled();
+		expect(mocks.updateSubscriptionQuantity).toHaveBeenCalledWith(
+			expect.objectContaining({
+				intent: expect.objectContaining({ member: { userId: 'member-id', role: 'user' } }),
+			}),
+		);
 	});
 });
 

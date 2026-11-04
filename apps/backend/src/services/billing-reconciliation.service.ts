@@ -12,8 +12,10 @@ import {
 import * as userQueries from '../queries/user.queries';
 import { isTerminalBillingStatus } from '../types/billing';
 import { logger, serializeError } from '../utils/logger';
+import { readCloudSubscriptionChangeIntent } from '../utils/stripe';
 import { getOrganizationCloudEntitlement } from './cloud-billing-access.service';
 import { sendCapacityContractionEmails } from './email';
+import { putOrganizationMemberUnderBillingLock } from './membership.service';
 import {
 	applyPendingFreeSeatSelection,
 	syncOrganizationSeats,
@@ -27,7 +29,10 @@ import {
 	listCloudSubscriptions,
 	updateCloudPaidSubscriptionTrialEnd,
 } from './stripe.service';
-import { releaseCloudPlanChangeSchedule } from './stripe-subscription-change.service';
+import {
+	clearCloudSubscriptionChangeIntent,
+	releaseCloudPlanChangeSchedule,
+} from './stripe-subscription-change.service';
 
 const CURRENT_STATUS_PRIORITY = ['active', 'trialing', 'past_due', 'paused', 'unpaid', 'incomplete'];
 
@@ -89,6 +94,9 @@ export async function reconcileCloudBillingCustomerUnderLock(input: {
 		trialEndsAt: stripeProjection.trialEndsAt ?? claim.billing.trialEndsAt,
 	};
 	const applied = await billingQueries.updateSubscriptionProjection(billing.orgId, claim.token, projection);
+	if (applied && (await applyCloudSubscriptionChangeIntent(billing.orgId, selected.subscription, projection))) {
+		return reconcileCloudBillingCustomerUnderLock(input);
+	}
 	if (
 		applied &&
 		projection.stripeSubscriptionScheduleId &&
@@ -136,6 +144,35 @@ export function isPendingBillingChangeActivated(
 export async function releasePendingBillingChange(organizationId: string, scheduleId: string): Promise<void> {
 	await releaseCloudPlanChangeSchedule(scheduleId);
 	await billingQueries.clearPendingBillingChange(organizationId);
+}
+
+/** Returns whether a released schedule requires another reconciliation pass. */
+async function applyCloudSubscriptionChangeIntent(
+	organizationId: string,
+	subscription: Stripe.Subscription,
+	projection: billingQueries.SubscriptionProjection,
+): Promise<boolean> {
+	const intent = readCloudSubscriptionChangeIntent(subscription.metadata);
+	if (!intent) {
+		return false;
+	}
+	const releaseScheduleId =
+		intent.releaseScheduleId === projection.stripeSubscriptionScheduleId ? intent.releaseScheduleId : undefined;
+	if (releaseScheduleId) {
+		await releasePendingBillingChange(organizationId, releaseScheduleId);
+	}
+	if (intent.member) {
+		try {
+			await putOrganizationMemberUnderBillingLock(organizationId, intent.member.userId, intent.member.role);
+		} catch (error) {
+			logger.error(`Paid seat membership activation failed for organization ${organizationId}`, {
+				source: 'system',
+				context: { userId: intent.member.userId, error: serializeError(error) },
+			});
+		}
+	}
+	await clearCloudSubscriptionChangeIntent(subscription.id);
+	return Boolean(releaseScheduleId);
 }
 
 async function notifyPendingCapacityContraction(organizationId: string): Promise<void> {

@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 
 import { CLOUD_BILLING_CURRENCIES, type CloudBillingCurrency, type CloudBillingPlanKey } from '../types/billing';
+import { type CloudSubscriptionChangeIntent, cloudSubscriptionChangeIntentMetadata } from '../utils/stripe';
 import {
 	assertCloudSubscriptionOrganization,
 	type CloudPaidProductItem,
@@ -115,6 +116,7 @@ export async function updateCloudSubscriptionQuantity(input: {
 	prorationDate: Date;
 	requestId: string;
 	promotionCodeId?: string;
+	intent?: CloudSubscriptionChangeIntent;
 }): Promise<CloudSubscriptionChangeResult> {
 	const paidItem = requireCloudPaidProductItem(input.subscription);
 	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
@@ -129,6 +131,7 @@ export async function updateCloudSubscriptionQuantity(input: {
 		{
 			items: [{ id: paidItem.item.id, quantity: input.targetQuantity }],
 			...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
+			...(input.intent ? { metadata: cloudSubscriptionChangeIntentMetadata(input.intent) } : {}),
 			...prorationParams(paidIncrease ? 'always_invoice' : 'none', input.prorationDate),
 			...(paidIncrease ? { payment_behavior: 'pending_if_incomplete' as const } : {}),
 			...trialPreservationParams(input.subscription),
@@ -150,6 +153,7 @@ export async function updateCloudSubscriptionPlan(input: {
 	requestId: string;
 	chargeImmediately: boolean;
 	promotionCodeId?: string;
+	intent?: CloudSubscriptionChangeIntent;
 }): Promise<CloudSubscriptionChangeResult> {
 	const paidItem = requireCloudPaidProductItem(input.subscription);
 	assertCloudSubscriptionOrganization(input.subscription, input.organizationId);
@@ -165,6 +169,7 @@ export async function updateCloudSubscriptionPlan(input: {
 			cancel_at_period_end: false,
 			items: [{ id: paidItem.item.id, price: price.id, quantity: input.targetQuantity }],
 			...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
+			...(input.intent ? { metadata: cloudSubscriptionChangeIntentMetadata(input.intent) } : {}),
 			...prorationParams(paidUpgrade ? 'always_invoice' : 'none', input.prorationDate),
 			...(paidUpgrade ? { payment_behavior: 'pending_if_incomplete' as const } : {}),
 			...trialPreservationParams(input.subscription),
@@ -175,6 +180,12 @@ export async function updateCloudSubscriptionPlan(input: {
 		},
 	);
 	return toCloudSubscriptionChangeResult(subscription);
+}
+
+export async function clearCloudSubscriptionChangeIntent(subscriptionId: string): Promise<void> {
+	await getStripeClient().subscriptions.update(subscriptionId, {
+		metadata: cloudSubscriptionChangeIntentMetadata(null),
+	});
 }
 
 export async function setCloudSubscriptionCancellation(input: {

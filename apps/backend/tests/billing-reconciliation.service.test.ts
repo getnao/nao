@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
 	cancelPlaceholder: vi.fn(),
 	claimSync: vi.fn(),
 	claimSeatEmail: vi.fn(),
+	clearChangeIntent: vi.fn(),
+	clearPendingBillingChange: vi.fn(),
+	putMember: vi.fn(),
 	getBilling: vi.fn(),
 	getBillingByCustomer: vi.fn(),
 	getOrganizationById: vi.fn(),
@@ -38,6 +41,7 @@ vi.mock('../src/env', async (importOriginal) => ({
 vi.mock('../src/queries/billing.queries', () => ({
 	attachStripeCustomer: mocks.attachCustomer,
 	claimBillingSync: mocks.claimSync,
+	clearPendingBillingChange: mocks.clearPendingBillingChange,
 	getOrganizationBilling: mocks.getBilling,
 	getOrganizationBillingByStripeCustomerId: mocks.getBillingByCustomer,
 	setPendingFreeSeatSelection: mocks.setPendingFreeSeatSelection,
@@ -82,7 +86,12 @@ vi.mock('../src/services/stripe.service', () => ({
 }));
 
 vi.mock('../src/services/stripe-subscription-change.service', () => ({
+	clearCloudSubscriptionChangeIntent: mocks.clearChangeIntent,
 	releaseCloudPlanChangeSchedule: mocks.releaseSchedule,
+}));
+
+vi.mock('../src/services/membership.service', () => ({
+	putOrganizationMemberUnderBillingLock: mocks.putMember,
 }));
 
 vi.mock('../src/utils/logger', () => ({
@@ -97,6 +106,7 @@ vi.mock('../src/utils/keyed-lock', () => ({
 }));
 
 import { reconcileCloudBillingCustomer } from '../src/services/billing-reconciliation.service';
+import { cloudSubscriptionChangeIntentMetadata } from '../src/utils/stripe';
 
 describe('cloud billing reconciliation', () => {
 	beforeEach(() => {
@@ -369,6 +379,29 @@ describe('cloud billing reconciliation', () => {
 		expect(mocks.releaseSchedule).toHaveBeenCalledOnce();
 		expect(mocks.releaseSchedule).toHaveBeenCalledWith('sub_sched_team');
 		expect(mocks.updateSubscription).toHaveBeenCalledTimes(2);
+	});
+
+	it('finishes the saved work of a paid change once Stripe applies it', async () => {
+		mocks.listSubscriptions
+			.mockResolvedValueOnce([
+				buildSubscription({
+					metadata: {
+						nao_org_id: 'org-id',
+						...cloudSubscriptionChangeIntentMetadata({
+							target: 'add_member_with_seat',
+							releaseScheduleId: 'sub_sched_team',
+							member: { userId: 'member-id', role: 'user' },
+						}),
+					},
+				}),
+			])
+			.mockResolvedValue([buildSubscription()]);
+
+		await reconcileCloudBillingCustomer({ stripeCustomerId: 'cus_cloud' });
+
+		expect(mocks.releaseSchedule).toHaveBeenCalledWith('sub_sched_team');
+		expect(mocks.putMember).toHaveBeenCalledWith('org-id', 'member-id', 'user');
+		expect(mocks.clearChangeIntent).toHaveBeenCalledWith('sub_active');
 	});
 
 	it('keeps a pending change whose schedule has not reached its renewal', async () => {
