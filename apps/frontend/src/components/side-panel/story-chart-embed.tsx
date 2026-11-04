@@ -1,5 +1,6 @@
 import { resolveDataKey } from '@nao/shared';
 import { extractParameterIds } from '@nao/shared/story-parameter-template';
+import { partAttributes } from '@nao/shared/story-parts';
 import { Code, Pencil } from 'lucide-react';
 import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { StoryBlockDragContext } from './story-editor-drag-context';
@@ -220,7 +221,12 @@ export function StoryChartEmbedShell({
 					<div className='flex min-w-0 flex-1 items-center gap-1'>
 						{dragHandlePlacement === 'leading' ? dragHandle : null}
 						{chart.title ? (
-							<span className='text-sm font-medium text-foreground min-w-0 truncate'>{chart.title}</span>
+							<span
+								className='text-sm font-medium text-foreground min-w-0 truncate'
+								{...partAttributes({ kind: 'title' })}
+							>
+								{chart.title}
+							</span>
 						) : null}
 					</div>
 					<div className='flex shrink-0 items-center gap-1'>
