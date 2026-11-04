@@ -177,6 +177,12 @@ describe('getProcessEnvSourcedVarNames', () => {
 
 		expect(getProcessEnvSourcedVarNames(['DB_PASSWORD'], {})).toEqual([]);
 	});
+
+	it('does not fall back to process env when the project contains an empty override', () => {
+		vi.stubEnv('DB_PASSWORD', 'from-process');
+
+		expect(getProcessEnvSourcedVarNames(['DB_PASSWORD'], { DB_PASSWORD: '' })).toEqual([]);
+	});
 });
 
 describe('settleInterruptedToolParts', () => {

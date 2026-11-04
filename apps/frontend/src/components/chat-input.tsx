@@ -238,9 +238,10 @@ function ChatInputBase({
 	const managedCreditError = parseManagedCreditsError(error);
 	const requiredBalanceMicroUsd = managedCreditError?.requiredBalanceMicroUsd;
 	const isManagedModel = selectedModel?.provider === 'nao';
+	const checksManagedCredits = variant !== 'onboarding' && isManagedModel;
 	const managedCredit = useQuery({
 		...trpc.account.getManagedCreditStatus.queryOptions(),
-		enabled: hasProject && isManagedModel,
+		enabled: hasProject && checksManagedCredits,
 		refetchInterval: requiredBalanceMicroUsd ? 5_000 : false,
 		refetchOnWindowFocus: 'always',
 	});
@@ -248,7 +249,7 @@ function ChatInputBase({
 	const currentBalanceMicroUsd = managedCredit.data?.balanceMicroUsd;
 	const hasVerifiedManagedCreditBalance = verifiedManagedCreditError === error;
 	const isManagedCreditsBlocked =
-		isManagedModel &&
+		checksManagedCredits &&
 		(managedCredit.data?.hasCredits === false ||
 			(requiredBalanceMicroUsd !== undefined &&
 				(!hasVerifiedManagedCreditBalance ||
@@ -261,7 +262,7 @@ function ChatInputBase({
 		isManagedCreditsBlocked;
 
 	useEffect(() => {
-		if (!error || !isManagedModel || requiredBalanceMicroUsd === undefined) {
+		if (!error || !checksManagedCredits || requiredBalanceMicroUsd === undefined) {
 			return;
 		}
 		let cancelled = false;
@@ -283,7 +284,7 @@ function ChatInputBase({
 		return () => {
 			cancelled = true;
 		};
-	}, [error, isManagedModel, requiredBalanceMicroUsd, refetchManagedCredit, clearError]);
+	}, [error, checksManagedCredits, requiredBalanceMicroUsd, refetchManagedCredit, clearError]);
 
 	useEffect(() => {
 		if (

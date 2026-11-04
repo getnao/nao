@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Github, HelpCircle, KeyRound } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { ImportedProject } from '@/components/settings/import-provider-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
@@ -10,7 +11,9 @@ import {
 	findCreatedOnboardingProject,
 	isDeployStepReached,
 	OnboardingProgress,
+	useOnboardingMissingEnvVars,
 } from '@/components/onboarding-progress';
+import { EnvVarsSection } from '@/components/settings/env-vars-section';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import { DeployKeyGenerator } from '@/components/settings/org-api-keys';
@@ -99,7 +102,7 @@ function OnboardingPage() {
 		enabled: isSavedChat,
 	});
 	const { complete: onboardingComplete, projectIsMissing, progress, warehouseJob } = useOnboardingCompletion(chatId);
-	const { isOrgAdmin } = usePermissions();
+	const { isAdmin, isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const waitingForDeployment = isDeployStepReached(progress);
@@ -126,6 +129,10 @@ function OnboardingPage() {
 		refetchOnWindowFocus: 'always',
 	});
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
+	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
+	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
+	const missingEnvVars = useOnboardingMissingEnvVars(progress, onboardingProject?.id);
+	const showEnvVarsCard = (missingEnvVars?.length ?? 0) > 0;
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const billingAccess = useCloudBillingAccess({
 		enabled: config.data?.cloudBillingEnabled === true,
@@ -138,22 +145,21 @@ function OnboardingPage() {
 	const activatedProjectIdRef = useRef<string | null>(null);
 	const hasMessages = messages.length > 0;
 	const inputAreaHeight = useHeight(inputAreaRef, [hasMessages]);
-	const actionAreaHeight = useHeight(actionAreaRef, [progress?.flow, progress?.step]);
+	const actionAreaHeight = useHeight(actionAreaRef, [progress?.flow, progress?.step, showEnvVarsCard]);
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
 	const githubStatus = useQuery({
 		...trpc.github.getStatus.queryOptions(),
 		enabled: githubAvailable.data === true,
 		refetchOnWindowFocus: 'always',
 	});
-	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
 	const showDeployKey =
+		!showEnvVarsCard &&
 		(progress?.flow === 'new' || progress?.flow === 'local') &&
 		(progress.step === 3 || (progress.step === 4 && projectIsMissing));
 	const showImportProviderCard =
 		progress?.flow === 'github' &&
 		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
 	const warehouseReady = warehouseJob.data?.status === 'ready';
-	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
 	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
 	const setupStatus = latestWarehouseJob.data?.status;
 	const isSetupInProgress = setupStatus !== undefined && setupStatus !== 'ready' && !isStoppedStatus(setupStatus);
@@ -204,14 +210,19 @@ function OnboardingPage() {
 
 	useEffect(() => {
 		const project = onboardingProject;
-		if (!onboardingComplete || !project || !session?.user.id || activatedProjectIdRef.current === project.id) {
+		if (
+			(!onboardingComplete && !waitingForDeployment) ||
+			!project ||
+			!session?.user.id ||
+			activatedProjectIdRef.current === project.id
+		) {
 			return;
 		}
 
 		activatedProjectIdRef.current = project.id;
 		setActiveProjectId(project.id);
 		queryClient.invalidateQueries().catch(console.error);
-	}, [onboardingComplete, onboardingProject, queryClient, session?.user.id]);
+	}, [onboardingComplete, onboardingProject, queryClient, session?.user.id, waitingForDeployment]);
 
 	const alignActionDialogs = useCallback(() => {
 		const rect = actionAreaRef.current?.getBoundingClientRect();
@@ -326,14 +337,37 @@ function OnboardingPage() {
 									pickerDialogStyle={importDialogStyle}
 									Picker={GitHubRepoPicker}
 									onImported={(project) =>
-										queueOrSendMessage({
-											text: `GitHub repository imported successfully as "${project.projectName}".`,
-										}).catch(console.error)
+										queueOrSendMessage({ text: formatImportedMessage(project) }).catch(
+											console.error,
+										)
 									}
 								/>
 							) : (
 								<p className='text-sm text-muted-foreground'>
 									GitHub OAuth is not configured for this nao instance.
+								</p>
+							)}
+						</div>
+					)}
+					{showEnvVarsCard && (
+						<div
+							ref={actionAreaRef}
+							className='animate-fade-in-up absolute bottom-[var(--onboarding-action-bottom)] left-1/2 z-20 max-h-[50vh] w-[calc(100%-1.5rem)] max-w-[calc(48rem-1.5rem)] -translate-x-1/2 overflow-y-auto rounded-xl border border-violet/20 bg-background p-5 shadow-lg'
+						>
+							{isAdmin ? (
+								<EnvVarsSection
+									isAdmin
+									unstyled
+									onSaved={(savedEnvVars) =>
+										queueOrSendMessage({
+											text: formatSavedEnvVarsMessage(missingEnvVars ?? [], savedEnvVars),
+										}).catch(console.error)
+									}
+								/>
+							) : (
+								<p className='text-sm text-muted-foreground'>
+									A project admin must set these environment variables before nao can connect:{' '}
+									<span className='font-mono text-foreground'>{missingEnvVars?.join(', ')}</span>
 								</p>
 							)}
 						</div>
@@ -419,6 +453,30 @@ function OnboardingPage() {
 			)}
 		</div>
 	);
+}
+
+function formatImportedMessage(project: ImportedProject): string {
+	const imported = `GitHub repository imported successfully as "${project.projectName}".`;
+	const gaps: string[] = [];
+	if (project.missingDatabase) {
+		gaps.push('No database is configured in nao_config.yaml.');
+	}
+	if (project.missingEnvVars.length > 0) {
+		gaps.push(`Missing environment variables: ${project.missingEnvVars.join(', ')}.`);
+		gaps.push(
+			project.canEditEnvVars
+				? 'This user is a project admin and can edit the environment variables card.'
+				: 'This user is not a project admin and cannot edit the environment variables card.',
+		);
+	}
+	return gaps.length === 0 ? imported : `${imported} Onboarding is not complete yet. ${gaps.join(' ')}`;
+}
+
+function formatSavedEnvVarsMessage(missingEnvVars: string[], savedEnvVars: Record<string, string>): string {
+	const stillMissing = missingEnvVars.filter((name) => !savedEnvVars[name]?.trim());
+	return stillMissing.length === 0
+		? 'I saved all the environment variables.'
+		: `I saved the environment variables. Still missing environment variables: ${stillMissing.join(', ')}.`;
 }
 
 function OnboardingCompleteActions({ trialActive }: { trialActive: boolean }) {
