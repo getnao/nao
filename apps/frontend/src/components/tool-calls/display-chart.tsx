@@ -251,13 +251,12 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	};
 
 	const isKpiChartView = viewMode === 'chart' && chartConfig.chart_type === 'kpi_card';
-	const isPieChartView = viewMode === 'chart' && isPieChart(chartConfig.chart_type);
 
 	return (
 		<div
 			className={cn(
 				'group/chart relative flex flex-col items-stretch my-4 -mx-3',
-				'border transition-colors duration-150 rounded-lg overflow-hidden bg-backgroundSecondary/30',
+				'border transition-colors duration-150 rounded-lg overflow-clip bg-backgroundSecondary/30',
 				viewMode === 'chart' ? 'border-transparent hover:border-border' : 'border-border',
 				viewMode === 'chart' ? 'gap-2 px-3' : 'gap-0',
 				isKpiChartView ? 'py-3' : '',
@@ -266,20 +265,14 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		>
 			<div
 				className={cn(
-					'flex items-center py-2',
-					isKpiChartView
-						? 'absolute top-0 right-0 z-10 gap-1 px-3'
-						: isPieChartView
-							? 'absolute inset-x-0 top-0 z-10 w-full justify-between gap-2 px-3'
-							: 'w-full justify-between',
-					!isKpiChartView &&
-						!isPieChartView &&
-						(viewMode === 'chart' ? 'gap-2' : 'gap-0 px-3 border-b border-border'),
+					'flex flex-wrap items-center gap-y-1 py-2',
+					isKpiChartView ? 'absolute top-0 right-0 z-10 gap-1 px-3' : 'w-full justify-between',
+					!isKpiChartView && (viewMode === 'chart' ? 'gap-2' : 'gap-0 px-3 border-b border-border'),
 				)}
 			>
 				{chartConfig.chart_type != 'kpi_card' ? (
-					<div className='flex items-center gap-1'>
-						<span className='nao-chart-title text-sm font-medium text-foreground flex-1'>
+					<div className='flex min-w-0 flex-1 basis-48 flex-wrap items-center gap-1'>
+						<span className='nao-chart-title min-w-0 grow basis-40 text-sm font-medium text-foreground'>
 							{chartConfig.title}
 						</span>
 						{viewMode === 'chart' &&
@@ -295,7 +288,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				) : (
 					<div></div>
 				)}
-				<div className='flex items-center gap-1 shrink-0'>
+				<div className='ml-auto flex items-center gap-1 shrink-0'>
 					<div className='flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/chart:opacity-100 focus-within:opacity-100'>
 						<Button
 							variant='ghost-muted'
