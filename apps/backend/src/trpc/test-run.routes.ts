@@ -69,7 +69,10 @@ const draftTestFileSchema = z.object({
  */
 const startRunSchema = z.object({
 	mode: z.enum(['production', 'changes', 'compare']),
-	target: z.union([z.object({ testFile: draftTestFileSchema }), z.object({ paths: z.array(z.string()).optional() })]),
+	target: z.union([
+		z.object({ testFile: draftTestFileSchema }),
+		z.object({ paths: z.array(z.string()).optional() }).strict(),
+	]),
 	models: z.array(llmSelectedModelSchema).max(MAX_TEST_RUN_MODELS).optional(),
 	attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
 });
