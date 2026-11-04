@@ -9,6 +9,7 @@ import type { UIMessage } from '@nao/backend/chat';
 import { Button } from '@/components/ui/button';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useRestartOnboarding } from '@/contexts/onboarding-restart';
+import { useActiveProjectId } from '@/lib/active-project';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -189,9 +190,11 @@ export function isOnboardingComplete(
 
 export function useOnboardingMissingEnvVars(
 	progress: OnboardingProgressState | null,
-	hasOnboardingProject: boolean,
+	onboardingProjectId: string | undefined,
 ): string[] | undefined {
-	const enabled = progress?.flow === 'github' && progress.step === 2 && hasOnboardingProject;
+	const activeProjectId = useActiveProjectId();
+	const projectAvailable = (progress?.flow === 'github' && progress.step === 2) || isDeployStepReached(progress);
+	const enabled = projectAvailable && onboardingProjectId !== undefined && onboardingProjectId === activeProjectId;
 	const missingEnvVars = useQuery({ ...trpc.project.getMissingEnvVars.queryOptions(), enabled });
 	return enabled ? missingEnvVars.data : [];
 }

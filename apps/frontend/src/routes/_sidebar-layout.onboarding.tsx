@@ -129,7 +129,9 @@ function OnboardingPage() {
 		refetchOnWindowFocus: 'always',
 	});
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
-	const missingEnvVars = useOnboardingMissingEnvVars(progress, currentProject.data != null);
+	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
+	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
+	const missingEnvVars = useOnboardingMissingEnvVars(progress, onboardingProject?.id);
 	const showEnvVarsCard = (missingEnvVars?.length ?? 0) > 0;
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const billingAccess = useCloudBillingAccess({
@@ -150,15 +152,14 @@ function OnboardingPage() {
 		enabled: githubAvailable.data === true,
 		refetchOnWindowFocus: 'always',
 	});
-	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
 	const showDeployKey =
+		!showEnvVarsCard &&
 		(progress?.flow === 'new' || progress?.flow === 'local') &&
 		(progress.step === 3 || (progress.step === 4 && projectIsMissing));
 	const showImportProviderCard =
 		progress?.flow === 'github' &&
 		(progress.step === 0 || progress.step === 1 || (progress.step === 2 && projectIsMissing));
 	const warehouseReady = warehouseJob.data?.status === 'ready';
-	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
 	const trialActive = onboardingComplete && billingAccess.data?.status === 'trialing';
 	const setupStatus = latestWarehouseJob.data?.status;
 	const isSetupInProgress = setupStatus !== undefined && setupStatus !== 'ready' && !isStoppedStatus(setupStatus);
@@ -209,14 +210,19 @@ function OnboardingPage() {
 
 	useEffect(() => {
 		const project = onboardingProject;
-		if (!onboardingComplete || !project || !session?.user.id || activatedProjectIdRef.current === project.id) {
+		if (
+			(!onboardingComplete && !waitingForDeployment) ||
+			!project ||
+			!session?.user.id ||
+			activatedProjectIdRef.current === project.id
+		) {
 			return;
 		}
 
 		activatedProjectIdRef.current = project.id;
 		setActiveProjectId(project.id);
 		queryClient.invalidateQueries().catch(console.error);
-	}, [onboardingComplete, onboardingProject, queryClient, session?.user.id]);
+	}, [onboardingComplete, onboardingProject, queryClient, session?.user.id, waitingForDeployment]);
 
 	const alignActionDialogs = useCallback(() => {
 		const rect = actionAreaRef.current?.getBoundingClientRect();
@@ -451,6 +457,9 @@ function OnboardingPage() {
 
 function formatImportedMessage(project: ImportedProject): string {
 	const imported = `GitHub repository imported successfully as "${project.projectName}".`;
+	if (project.missingDatabase) {
+		return `${imported} Onboarding is not complete yet. No database is configured in nao_config.yaml.`;
+	}
 	return project.missingEnvVars.length === 0
 		? imported
 		: `${imported} Onboarding is not complete yet. Missing environment variables: ${project.missingEnvVars.join(', ')}.`;

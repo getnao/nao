@@ -61,8 +61,15 @@ describe('createNewProject', () => {
 		expect(fs.existsSync(path.join(env.NAO_PROJECTS_DIR, 'project-id'))).toBe(false);
 	});
 
-	it('reports missing environment variables after import', async () => {
-		mocks.createProject.mockResolvedValue({ id: 'project-id' });
+	it.each([
+		{ config: 'project_name: Sales\n', missingDatabase: true },
+		{
+			config: 'project_name: Sales\ndatabases:\n  - name: warehouse\n    type: postgres\n',
+			missingDatabase: false,
+		},
+	])('reports whether the imported project configures a database', async ({ config, missingDatabase }) => {
+		fs.writeFileSync(path.join(sourceDir, 'nao_config.yaml'), config);
+		mocks.createProject.mockImplementation(async (project) => project);
 
 		await expect(
 			createNewProject({
@@ -71,7 +78,7 @@ describe('createNewProject', () => {
 				orgId: 'org-id',
 				projectId: 'project-id',
 			}),
-		).resolves.toMatchObject({ missingEnvVars: [] });
+		).resolves.toMatchObject({ missingEnvVars: [], missingDatabase });
 	});
 });
 

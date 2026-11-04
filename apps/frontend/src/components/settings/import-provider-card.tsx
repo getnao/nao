@@ -30,6 +30,7 @@ export type ImportedProject = {
 	projectName: string;
 	status: 'created' | 'updated';
 	missingEnvVars: string[];
+	missingDatabase: boolean;
 };
 
 /**

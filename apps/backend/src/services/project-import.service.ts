@@ -8,6 +8,7 @@ import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
+import { extractConfiguredDatabases } from '../utils/nao-config';
 import { createProject, getMissingProjectEnvVars, touchProjectUpdatedAt } from './project.service';
 
 export function createTempProjectDir(prefix: string): string {
@@ -103,7 +104,7 @@ export async function createNewProject({
 		projectId: project.id,
 		projectName,
 		status: 'created' as const,
-		missingEnvVars: await getMissingProjectEnvVars(project),
+		...(await getSetupGaps(project)),
 	};
 }
 
@@ -143,6 +144,13 @@ export async function replaceExistingProject({
 		projectId: project.id,
 		projectName,
 		status: 'updated' as const,
+		...(await getSetupGaps(project)),
+	};
+}
+
+async function getSetupGaps(project: DBProject) {
+	return {
 		missingEnvVars: await getMissingProjectEnvVars(project),
+		missingDatabase: !project.path || extractConfiguredDatabases(project.path).length === 0,
 	};
 }

@@ -166,7 +166,8 @@ describe('onboarding system prompt', () => {
 
 		expect(prompt).toContain('Call onboarding_progress with flow "github" and step 2');
 		expect(prompt).toContain('GitHub: 1 Connect GitHub, 2 Import repository');
-		expect(prompt).toContain('If the import report lists missing environment variables');
+		expect(prompt).toContain('If the import report says that no database is configured');
+		expect(prompt).toContain('if the import report lists missing environment variables');
 		expect(prompt).toContain('Do not state that onboarding is complete');
 		expect(prompt).toContain('enter them in the "Environment variables" card');
 		expect(prompt).toContain('Never ask them to paste the values in chat');
