@@ -165,7 +165,7 @@ function CurrentPlanCard({ billingState }: { billingState: BillingState }) {
 								: hasStripeSubscription
 									? statusView.description
 									: billing.data.trialAvailable
-										? 'Your free trial starts when your first project is fully set up.'
+										? 'Your free trial starts when your first project is fully set up, or you can subscribe now.'
 										: 'Subscribe to nao Cloud to restore access.'}
 						</p>
 					</div>
@@ -217,13 +217,12 @@ function UpcomingPaymentEstimate({ billingState }: { billingState: BillingState 
 
 function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 	const { billing, needsPaidPlanSelection, paidPlanSelected, plan } = billingState;
-	const trialCheckoutAvailable = needsPaidPlanSelection;
+	const initialCheckoutAvailable = needsPaidPlanSelection || billing.data?.trialAvailable === true;
 	if (
 		!billing.data ||
-		billing.data.trialAvailable ||
 		paidPlanSelected ||
 		!plan ||
-		(!trialCheckoutAvailable && !billing.data.resubscribeAvailable)
+		(!initialCheckoutAvailable && !billing.data.resubscribeAvailable)
 	) {
 		return null;
 	}
@@ -254,19 +253,23 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 						value={
 							needsPaidPlanSelection
 								? `Ends ${formatBillingDate(billing.data.trialEndsAt)}`
-								: wasTrialUsed
-									? 'Already used'
-									: 'Unavailable'
+								: billing.data.trialAvailable
+									? 'Not started'
+									: wasTrialUsed
+										? 'Already used'
+										: 'Unavailable'
 						}
 					/>
-					{trialCheckoutAvailable && <PlanDetail label='Due today' value='No charge' />}
+					{needsPaidPlanSelection && <PlanDetail label='Due today' value='No charge' />}
 				</dl>
 
 				<div className='flex flex-col items-start gap-3 border-t border-border pt-5'>
 					<p className='text-sm text-muted-foreground'>
 						{needsPaidPlanSelection
 							? `Your trial is already active through ${formatBillingDate(billing.data.trialEndsAt)}. Choose monthly or yearly billing in Stripe, where you can enter a promotion code. Nothing is charged before the trial ends.`
-							: 'Continue to Stripe to restore billing for this organization. Billing starts immediately.'}
+							: billing.data.trialAvailable
+								? 'Subscribe without waiting for project setup. Billing starts immediately in Stripe, and the free trial will no longer be available after the subscription starts.'
+								: 'Continue to Stripe to restore billing for this organization. Billing starts immediately.'}
 					</p>
 					<p className='text-xs text-muted-foreground'>
 						To create your organization&apos;s Stripe billing profile, nao shares an organization
@@ -283,9 +286,11 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 					</p>
 					{billing.data.canManageBilling ? (
 						<Button
-							onClick={trialCheckoutAvailable ? billingState.openTrialCheckout : billingState.resubscribe}
+							onClick={
+								initialCheckoutAvailable ? billingState.openTrialCheckout : billingState.resubscribe
+							}
 							isLoading={
-								trialCheckoutAvailable
+								initialCheckoutAvailable
 									? billingState.isTrialCheckoutPending
 									: billingState.isResubscribePending
 							}
@@ -298,9 +303,9 @@ function BillingSetupCard({ billingState }: { billingState: BillingState }) {
 							Only an organization admin can subscribe or add billing details.
 						</p>
 					)}
-					{(trialCheckoutAvailable ? billingState.trialCheckoutError : billingState.managementError) && (
+					{(initialCheckoutAvailable ? billingState.trialCheckoutError : billingState.managementError) && (
 						<p className='text-sm text-destructive' role='alert'>
-							{trialCheckoutAvailable ? billingState.trialCheckoutError : billingState.managementError}
+							{initialCheckoutAvailable ? billingState.trialCheckoutError : billingState.managementError}
 						</p>
 					)}
 				</div>

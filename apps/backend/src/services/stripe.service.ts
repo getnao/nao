@@ -160,7 +160,7 @@ export async function createCloudCheckoutSession(input: {
 	currency?: CloudBillingCurrency;
 	organizationId: string;
 	stripeCustomerId: string;
-	trialEnd: Date;
+	trialEnd?: Date;
 }): Promise<string> {
 	const classified = await listCloudSubscriptions(input.stripeCustomerId);
 	const hasPaidHistory = classified.some(({ kind }) => kind === 'paid-cloud');
@@ -172,15 +172,17 @@ export async function createCloudCheckoutSession(input: {
 			'This organization already has cloud subscription history; use resubscribe instead',
 		);
 	}
-	if (input.trialEnd.getTime() <= Date.now()) {
+	if (input.trialEnd && input.trialEnd.getTime() <= Date.now()) {
 		throw new CloudInitialCheckoutUnavailableError('This organization trial has expired');
 	}
+	const trialEnd = input.trialEnd;
 	const preservesTrial =
-		input.trialEnd.getTime() >= Date.now() + MIN_CHECKOUT_TRIAL_MS + CHECKOUT_TRIAL_CLOCK_SKEW_MS;
-	const sourceTrialEnd = preservesTrial ? stripeTimestamp(input.trialEnd) : null;
+		trialEnd !== undefined &&
+		trialEnd.getTime() >= Date.now() + MIN_CHECKOUT_TRIAL_MS + CHECKOUT_TRIAL_CLOCK_SKEW_MS;
+	const sourceTrialEnd = preservesTrial ? stripeTimestamp(trialEnd) : null;
 	return createSubscriptionCheckoutSession({
 		...input,
-		trialEnd: preservesTrial ? input.trialEnd : undefined,
+		trialEnd: preservesTrial ? trialEnd : undefined,
 		currency: input.currency ?? 'usd',
 		kind: 'initial',
 		operationKey: sourceTrialEnd === null ? 'immediate' : `trial-${sourceTrialEnd}-${sourceTrialEnd}`,
