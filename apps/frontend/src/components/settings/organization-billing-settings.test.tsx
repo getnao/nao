@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 	hasStripeSubscription: false,
 	isCheckoutPolling: false,
 	invoiceHistoryAvailable: false,
+	invoiceCount: 1,
 	invoiceKind: 'subscription' as 'trial' | 'subscription' | 'no_charge',
 	invoiceHostedUrl: null as string | null,
 	invoicePlanTier: null as 'team' | 'unlimited' | null,
@@ -59,6 +60,7 @@ const mocks = vi.hoisted(() => ({
 	resubscribe: vi.fn(),
 	selectedBillingInterval: 'monthly' as 'monthly' | 'yearly',
 	setSelectedBillingInterval: vi.fn(),
+	syncBilling: vi.fn(),
 	stripeTrialPlaceholder: false,
 	status: 'trialing' as BillingData['status'],
 	trialAvailable: false,
@@ -100,6 +102,7 @@ beforeEach(() => {
 	mocks.hasStripeSubscription = false;
 	mocks.isCheckoutPolling = false;
 	mocks.invoiceHistoryAvailable = false;
+	mocks.invoiceCount = 1;
 	mocks.invoiceKind = 'subscription';
 	mocks.invoiceHostedUrl = null;
 	mocks.invoicePlanTier = null;
@@ -279,6 +282,23 @@ it('describes a trial invoice as a no-charge trial event', () => {
 	expect(screen.getByText(/\$0 charged during trial/)).toBeTruthy();
 	expect(screen.queryByText(/\$0 · Paid/)).toBeNull();
 	expect(screen.queryByText('Code EARLY50')).toBeNull();
+});
+
+it('shows ten invoices per page', () => {
+	mocks.invoiceHistoryAvailable = true;
+	mocks.invoiceCount = 11;
+
+	render(<OrganizationBillingSettings search={{ tab: 'invoices' }} />);
+
+	expect(screen.getByText('NAO-0010')).toBeTruthy();
+	expect(screen.queryByText('NAO-0011')).toBeNull();
+	expect(screen.getByText('Page 1 of 2')).toBeTruthy();
+
+	fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+	expect(screen.queryByText('NAO-0010')).toBeNull();
+	expect(screen.getByText('NAO-0011')).toBeTruthy();
+	expect(screen.getByText('Page 2 of 2')).toBeTruthy();
 });
 
 it('uses one Stripe portal action for subscription and payment management', () => {
@@ -533,6 +553,15 @@ it('shows informational plans before a new organization starts its trial', () =>
 	expect(screen.getByRole('region', { name: 'Team plan' })).toBeTruthy();
 	expect(screen.getByRole('region', { name: 'Unlimited plan' })).toBeTruthy();
 	expect(screen.queryByRole('button', { name: /Choose|Switch|Cancel/ })).toBeNull();
+});
+
+it('refreshes billing state from the page header outside the invoices tab', () => {
+	mocks.freeTierEnabled = true;
+
+	render(<OrganizationBillingSettings search={{ tab: 'plans' }} />);
+
+	fireEvent.click(screen.getByRole('button', { name: 'Refresh billing details' }));
+	expect(mocks.syncBilling).toHaveBeenCalledOnce();
 });
 
 it('keeps Credits available for bypass organizations before a trial', () => {
@@ -1089,10 +1118,11 @@ function billingState(): BillingState {
 		paidPlanSelected,
 		invoices: {
 			data: mocks.invoiceHistoryAvailable
-				? [
-						{
-							id: 'in_cloud',
-							number: 'NAO-0001',
+				? Array.from({ length: mocks.invoiceCount }, (_, index) => {
+						const invoiceNumber = String(index + 1).padStart(4, '0');
+						return {
+							id: `in_cloud_${invoiceNumber}`,
+							number: `NAO-${invoiceNumber}`,
 							invoiceKind: mocks.invoiceKind,
 							planTier: mocks.invoicePlanTier,
 							promotionCodes: mocks.invoicePromotionCodes,
@@ -1102,8 +1132,8 @@ function billingState(): BillingState {
 							currency: 'usd',
 							hostedInvoiceUrl: mocks.invoiceHostedUrl,
 							invoicePdf: null,
-						},
-					]
+						};
+					})
 				: [],
 			isError: false,
 			isLoading: false,
@@ -1147,7 +1177,7 @@ function billingState(): BillingState {
 		retryCheckoutConfirmation: vi.fn(),
 		status: mocks.status,
 		statusView: getBillingStatusView(mocks.status, false, false, paidPlanSelected),
-		syncBilling: vi.fn(),
+		syncBilling: mocks.syncBilling,
 		trialCheckoutError: null,
 		openTrialCheckoutForPlan: vi.fn(),
 	} satisfies BillingState;
@@ -1303,6 +1333,6 @@ function billingStateDefaults(): Partial<BillingState> {
 		resubscribeForPlan: mocks.cloudResubscribeForPlan,
 		openPaymentMethodPortal: vi.fn(),
 		openPortal: mocks.openPortal,
-		syncBilling: vi.fn(),
+		syncBilling: mocks.syncBilling,
 	};
 }

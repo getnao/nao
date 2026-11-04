@@ -1,3 +1,4 @@
+import { RefreshCwIcon } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -67,12 +68,10 @@ export function OrganizationBillingSettings({
 	return (
 		<SettingsPageWrapper wide>
 			<div className='flex flex-col gap-5'>
-				<div>
-					<h1 className='text-lg font-semibold text-foreground'>Billing & Credits</h1>
-					<p className='text-sm text-muted-foreground'>
-						Review your current plan, subscription history, invoices, and billing actions.
-					</p>
-				</div>
+				<BillingHeader
+					description='Review your current plan, subscription history, invoices, and billing actions.'
+					billingState={billingState}
+				/>
 
 				<BillingTabs
 					activeTab={activeTab}
@@ -212,12 +211,10 @@ function CloudOrganizationBillingSettings({
 		<>
 			<SettingsPageWrapper wide>
 				<div className='flex flex-col gap-5'>
-					<div>
-						<h1 className='text-lg font-semibold text-foreground'>Billing & Credits</h1>
-						<p className='text-sm text-muted-foreground'>
-							Manage plans, paid capacity, invoices, and your organization&apos;s nao credits.
-						</p>
-					</div>
+					<BillingHeader
+						description="Manage plans, paid capacity, invoices, and your organization's nao credits."
+						billingState={billingState}
+					/>
 					<BillingTabs activeTab={visibleActiveTab} tabs={visibleTabs} onTabChange={onTabChange} />
 					<BillingFeedback billingState={billingState} />
 					{visibleActiveTab === 'plans' && (
@@ -278,6 +275,29 @@ function CloudOrganizationBillingSettings({
 				onConfirm={billingState.switchToFree}
 			/>
 		</>
+	);
+}
+
+function BillingHeader({ description, billingState }: { description: string; billingState: OrganizationBillingState }) {
+	return (
+		<div className='flex items-start justify-between gap-3'>
+			<div>
+				<h1 className='text-lg font-semibold text-foreground'>Billing & Credits</h1>
+				<p className='text-sm text-muted-foreground'>{description}</p>
+			</div>
+			{billingState.billing.data?.canManageBilling && (
+				<Button
+					variant='secondary'
+					size='icon'
+					onClick={billingState.syncBilling}
+					isLoading={billingState.isBillingSyncPending}
+					aria-label='Refresh billing details'
+					title='Refresh billing details'
+				>
+					{!billingState.isBillingSyncPending && <RefreshCwIcon />}
+				</Button>
+			)}
+		</div>
 	);
 }
 
