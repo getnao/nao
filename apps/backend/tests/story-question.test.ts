@@ -165,6 +165,49 @@ describe('quick questions on a story', () => {
 		]);
 	});
 
+	it('crosses a copied story whose chat the viewer cannot read to reach the shared original', async () => {
+		await db.insert(s.sharedStory).values({ storyId: COPY_STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID });
+		const [share] = await db
+			.insert(s.sharedChat)
+			.values({ chatId: ORIGIN_CHAT_ID, visibility: 'specific' })
+			.returning();
+		await db.insert(s.sharedChatAccess).values({ sharedChatId: share.id, userId: VIEWER_ID });
+		try {
+			expect(
+				await resolveStoryOriginConversation({
+					userId: VIEWER_ID,
+					projectId: PROJECT_ID,
+					forkMetadata: { type: 'story', id: COPY_STORY_ID, title: 'Revenue', authorName: 'Owner' },
+				}),
+			).toEqual([
+				{ role: 'user', text: ORIGIN_QUESTION },
+				{ role: 'assistant', text: ORIGIN_ANSWER },
+			]);
+		} finally {
+			await db.delete(s.sharedChat).where(eq(s.sharedChat.id, share.id));
+			await db.delete(s.sharedStory).where(eq(s.sharedStory.storyId, COPY_STORY_ID));
+		}
+	});
+
+	it('stops when a chain of copied stories loops back on itself', async () => {
+		const loopMetadata: ForkMetadata = { type: 'story', id: COPY_STORY_ID, title: 'Revenue', authorName: 'Owner' };
+		await db.update(s.chat).set({ forkMetadata: loopMetadata }).where(eq(s.chat.id, COPY_CHAT_ID));
+		try {
+			expect(
+				await resolveStoryOriginConversation({
+					userId: OWNER_ID,
+					projectId: PROJECT_ID,
+					forkMetadata: loopMetadata,
+				}),
+			).toEqual([{ role: 'user', text: COPY_QUESTION }]);
+		} finally {
+			await db
+				.update(s.chat)
+				.set({ forkMetadata: { type: 'story', id: STORY_ID, title: 'Revenue', authorName: 'Owner' } })
+				.where(eq(s.chat.id, COPY_CHAT_ID));
+		}
+	});
+
 	it('trims a turn longer than the whole origin conversation budget', async () => {
 		const longAnswer = `${'a'.repeat(30_000)}conclusion`;
 		await insertText(ORIGIN_CHAT_ID, 'assistant', longAnswer, 3);

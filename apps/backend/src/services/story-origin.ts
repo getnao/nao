@@ -6,7 +6,6 @@ import { compactionService } from './compaction';
 
 const STORY_ORIGIN_FORK_TYPES: ForkMetadata['type'][] = ['story', 'story_question'];
 const MAX_ORIGIN_CONVERSATION_LENGTH = 24_000;
-const MAX_FORK_CHAIN_DEPTH = 3;
 
 interface StoryForkChat {
 	userId: string;
@@ -25,38 +24,46 @@ export async function resolveStoryOriginConversationSafely(chat: StoryForkChat):
 }
 
 export async function resolveStoryOriginConversation(chat: StoryForkChat): Promise<StoryOriginTurn[]> {
-	const turns = await collectOriginTurns(chat, chat.forkMetadata, MAX_FORK_CHAIN_DEPTH);
+	const turns = await collectOriginTurns(chat, chat.forkMetadata, new Set());
 	return keepLatestTurns(turns);
 }
 
-/** A copied story's chat holds no conversation of its own, so the chain of forked stories is followed back. */
+/**
+ * A copied story's chat holds little conversation of its own, so the chain of copies is followed back to the
+ * original story. A chat the viewer cannot read is crossed without reading its messages.
+ */
 async function collectOriginTurns(
 	viewer: StoryForkChat,
 	forkMetadata: ForkMetadata | null | undefined,
-	remainingDepth: number,
+	visitedStoryIds: Set<string>,
 ): Promise<StoryOriginTurn[]> {
-	if (remainingDepth === 0 || !forkMetadata || !STORY_ORIGIN_FORK_TYPES.includes(forkMetadata.type)) {
+	if (!isStoryFork(forkMetadata) || visitedStoryIds.has(forkMetadata.id)) {
 		return [];
 	}
-	const originChatId = await findReadableOriginChatId(viewer, forkMetadata.id);
-	if (!originChatId) {
+	visitedStoryIds.add(forkMetadata.id);
+	const story = await storyReferenceQueries.getReferenceableStory(viewer.userId, viewer.projectId, forkMetadata.id);
+	if (!story?.chatId) {
 		return [];
 	}
-	const [messages, originForkMetadata] = await Promise.all([
-		chatQueries.getChatMessages(originChatId),
-		chatQueries.getForkMetadata(originChatId),
+	const [originForkMetadata, originTurns] = await Promise.all([
+		chatQueries.getForkMetadata(story.chatId),
+		loadReadableTurns(viewer, story.chatId),
 	]);
-	const parentTurns = await collectOriginTurns(viewer, originForkMetadata, remainingDepth - 1);
-	return [...parentTurns, ...compactionService.useLastCompaction(messages).flatMap(toTurn)];
+	const parentTurns = await collectOriginTurns(viewer, originForkMetadata, visitedStoryIds);
+	return [...parentTurns, ...originTurns];
+}
+
+function isStoryFork(forkMetadata: ForkMetadata | null | undefined): forkMetadata is ForkMetadata {
+	return !!forkMetadata && STORY_ORIGIN_FORK_TYPES.includes(forkMetadata.type);
 }
 
 /** Access to a story does not grant access to its conversation, which may hold unrelated private discussion. */
-async function findReadableOriginChatId(viewer: StoryForkChat, storyId: string): Promise<string | null> {
-	const story = await storyReferenceQueries.getReferenceableStory(viewer.userId, viewer.projectId, storyId);
-	if (!story?.chatId) {
-		return null;
+async function loadReadableTurns(viewer: StoryForkChat, chatId: string): Promise<StoryOriginTurn[]> {
+	if (!(await chatQueries.canUserAccessChat(chatId, viewer.userId))) {
+		return [];
 	}
-	return (await chatQueries.canUserAccessChat(story.chatId, viewer.userId)) ? story.chatId : null;
+	const messages = await chatQueries.getChatMessages(chatId);
+	return compactionService.useLastCompaction(messages).flatMap(toTurn);
 }
 
 function toTurn(message: Omit<UIMessage, 'id'>): StoryOriginTurn[] {
