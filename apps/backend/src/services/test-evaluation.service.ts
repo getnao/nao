@@ -1,7 +1,7 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
 
 import { executeQuery } from '../agents/tools/execute-sql';
-import { retrieveProjectById } from '../queries/project.queries';
+import { getAgentSettings, getUserRoleInProject, retrieveProjectById } from '../queries/project.queries';
 import type { TestAssertion, TestComparisonTolerances, TestVerdict } from '../types/test-run';
 import type { ToolContext } from '../types/tools';
 import { evaluateTestVerdict, type TestVerification } from '../utils/test-verdict';
@@ -9,6 +9,7 @@ import type { AgentRunResult } from './agent';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
+import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { TestAgentService, testAgentService, type ToolCallResult, type VerificationResult } from './test-agent.service';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 
@@ -77,10 +78,11 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 	if (!projectFolder) {
 		throw new Error('Project path does not exist.');
 	}
-	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
+	const [envVars, azureAccessToken, contextAccess, semanticLayerMode] = await Promise.all([
 		getProjectRuntimeEnvVars(projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(userId) : null)),
 		resolveProjectContextAccess(projectId, userId, projectFolder),
+		resolveReferenceSemanticLayerMode(projectId, userId, projectFolder),
 	]);
 	return {
 		projectFolder,
@@ -89,6 +91,7 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 		projectId,
 		supportsCustomCharts: false,
 		agentSettings: null,
+		semanticLayerMode,
 		adminMode: false,
 		envVars,
 		azureAccessToken,
@@ -103,4 +106,16 @@ async function buildVerificationToolContext(projectId: string, userId: string): 
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
 	};
+}
+
+/**
+ * Admins and context admins write the reference SQL of tests, including the SQL compiled from semantic queries, so it
+ * reaches the warehouse for them even when the project only allows the semantic layer.
+ */
+async function resolveReferenceSemanticLayerMode(projectId: string, userId: string, projectFolder: string) {
+	const role = await getUserRoleInProject(projectId, userId);
+	if (role === 'admin' || role === 'context_admin') {
+		return null;
+	}
+	return resolveSemanticLayerMode(projectFolder, await getAgentSettings(projectId));
 }

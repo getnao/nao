@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	executeQuery: vi.fn(),
 	extractToolCalls: vi.fn(() => []),
+	getAgentSettings: vi.fn(),
 	getAzureAccessTokenForUser: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getProjectRuntimeEnvVars: vi.fn(),
 	hasFeature: vi.fn(),
 	resolveProjectContextAccess: vi.fn(),
+	resolveSemanticLayerMode: vi.fn(),
 	retrieveProjectById: vi.fn(),
 	runTest: vi.fn(),
 	runVerification: vi.fn(),
@@ -20,6 +22,7 @@ vi.mock('../src/middleware/auth', () => ({
 	sessionOrApiKeyAuthMiddleware: vi.fn(),
 }));
 vi.mock('../src/queries/project.queries', () => ({
+	getAgentSettings: mocks.getAgentSettings,
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	retrieveProjectById: mocks.retrieveProjectById,
 }));
@@ -32,6 +35,9 @@ vi.mock('../src/services/microsoft-auth.service', () => ({
 }));
 vi.mock('../src/services/project-runtime-env', () => ({
 	getProjectRuntimeEnvVars: mocks.getProjectRuntimeEnvVars,
+}));
+vi.mock('../src/services/semantic-layer.service', () => ({
+	resolveSemanticLayerMode: mocks.resolveSemanticLayerMode,
 }));
 vi.mock('../src/services/user-group-context-access.service', () => ({
 	resolveProjectContextAccess: mocks.resolveProjectContextAccess,
@@ -62,6 +68,8 @@ describe('test routes', () => {
 			userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
 		});
 		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.getAgentSettings.mockResolvedValue({ semanticLayer: { mode: 'exclusive' } });
+		mocks.resolveSemanticLayerMode.mockReturnValue('exclusive');
 		mocks.getProjectRuntimeEnvVars.mockResolvedValue({
 			WAREHOUSE_HOST: 'warehouse.example.com',
 			WAREHOUSE_PASSWORD: 'encrypted-storage-secret',
@@ -138,6 +146,7 @@ describe('test routes', () => {
 				projectId: 'project-id',
 				supportsCustomCharts: false,
 				agentSettings: null,
+				semanticLayerMode: 'exclusive',
 				adminMode: false,
 				envVars: {
 					WAREHOUSE_HOST: 'warehouse.example.com',
@@ -156,6 +165,30 @@ describe('test routes', () => {
 			},
 		);
 		expect(reply.status).not.toHaveBeenCalled();
+	});
+
+	it('keeps the reference SQL of users within the semantic layer mode of the project', async () => {
+		await runExpectedQuery();
+
+		expect(mocks.resolveSemanticLayerMode).toHaveBeenCalledWith('/project', {
+			semanticLayer: { mode: 'exclusive' },
+		});
+		expect(mocks.executeQuery).toHaveBeenCalledWith(
+			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
+			expect.objectContaining({ semanticLayerMode: 'exclusive' }),
+		);
+	});
+
+	it.each(['admin', 'context_admin'])('lets the reference SQL of a %s reach the warehouse', async (role) => {
+		mocks.getUserRoleInProject.mockResolvedValue(role);
+
+		await runExpectedQuery();
+
+		expect(mocks.resolveSemanticLayerMode).not.toHaveBeenCalled();
+		expect(mocks.executeQuery).toHaveBeenCalledWith(
+			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
+			expect.objectContaining({ semanticLayerMode: null }),
+		);
 	});
 
 	it('does not load Azure credentials without an SSO license', async () => {
