@@ -1,0 +1,1 @@
+ALTER TABLE "project" ADD COLUMN "automation_email_settings" jsonb;

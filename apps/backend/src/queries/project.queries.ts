@@ -23,11 +23,17 @@ import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
+import type { AutomationEmailSettings } from '../types/automation';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 import { userMemberStatus } from './user.queries';
+
+const DEFAULT_AUTOMATION_EMAIL_SETTINGS: AutomationEmailSettings = {
+	recipientPolicy: 'anyone',
+	allowedDomains: [],
+};
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -304,6 +310,20 @@ export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promis
 	const userWithRoles = await listProjectMembersWithRoles(projectId);
 	const nbAdmin = userWithRoles.filter((u) => u.role === 'admin').length;
 	return nbAdmin > 1;
+};
+
+export const getAutomationEmailSettings = async (projectId: string): Promise<AutomationEmailSettings> => {
+	const project = await getProjectById(projectId);
+	return project?.automationEmailSettings ?? DEFAULT_AUTOMATION_EMAIL_SETTINGS;
+};
+
+export const updateAutomationEmailSettings = async (
+	projectId: string,
+	settings: AutomationEmailSettings,
+): Promise<AutomationEmailSettings> => {
+	await db.update(s.project).set({ automationEmailSettings: settings }).where(eq(s.project.id, projectId)).execute();
+
+	return settings;
 };
 
 export const getAgentSettings = async (projectId: string): Promise<AgentSettings | null> => {

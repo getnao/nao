@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, EllipsisVertical } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import type { TrpcRouter } from '@nao/backend/trpc';
 import type { QueryClient } from '@tanstack/react-query';
 import type { inferRouterOutputs } from '@trpc/server';
 
-import type { TrpcRouter } from '@nao/backend/trpc';
-
+import type { IconSegmentedToggleOption } from '@/components/ui/icon-segmented-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
@@ -18,10 +18,13 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { IconSegmentedToggle } from '@/components/ui/icon-segmented-toggle';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { trpc } from '@/main';
@@ -50,6 +53,7 @@ export function ProjectAutomations() {
 
 	return (
 		<>
+			<AutomationEmailSettings />
 			{orphanedCount > 0 && <OrphanedAutomationsWarning count={orphanedCount} />}
 			<SettingsCard
 				title='All automations'
@@ -383,4 +387,136 @@ function getTriggerLabel(automation: ProjectAutomation): string {
 		return automation.webhookEnabled ? `${scheduleText} · webhook` : scheduleText;
 	}
 	return 'Triggered by webhook';
+}
+
+type EmailRecipientPolicy = 'project-members' | 'allowed-domains' | 'anyone';
+const EMAIL_RECIPIENT_POLICIES = [
+	{ value: 'project-members', label: 'Members only' },
+	{ value: 'allowed-domains', label: 'Allowed domains' },
+	{ value: 'anyone', label: 'Anyone' },
+] satisfies readonly IconSegmentedToggleOption<EmailRecipientPolicy>[];
+
+const EMAIL_POLICY_COPY = {
+	'project-members': {
+		description: 'Automation emails can only be sent to members of this project.',
+	},
+	'allowed-domains': {
+		description: 'Automation emails can be sent to project members and approved email domains.',
+	},
+	anyone: {
+		description: 'Automation emails can be sent to any valid email address.',
+	},
+} satisfies Record<EmailRecipientPolicy, { description: string }>;
+
+function AutomationEmailSettings() {
+	const emailSettings = useQuery(trpc.automation.getEmailSettings.queryOptions());
+	const [error, setError] = useState<string | null>(null);
+	const [policy, setPolicy] = useState<EmailRecipientPolicy>('project-members');
+	const [domainsText, setDomainsText] = useState('');
+	const policyCopy = EMAIL_POLICY_COPY[policy];
+
+	useEffect(() => {
+		if (emailSettings.data) {
+			setPolicy(emailSettings.data.recipientPolicy);
+			setDomainsText(emailSettings.data.allowedDomains.join(', '));
+		}
+	}, [emailSettings.data]);
+
+	const updateSettings = useMutation(
+		trpc.automation.updateEmailSettings.mutationOptions({
+			onSuccess: (savedSettings, _, __, context) => {
+				context.client.setQueryData(trpc.automation.getEmailSettings.queryKey(), savedSettings);
+				setError(null);
+			},
+			onError: (mutationError) => setError(mutationError.message),
+		}),
+	);
+
+	const allowedDomains = [
+		...new Set(
+			domainsText
+				.split(/[\s,]+/)
+				.map((domain) => domain.trim().toLowerCase().replace(/^@/, ''))
+				.filter(Boolean),
+		),
+	];
+
+	const savedDomains = emailSettings.data?.allowedDomains ?? [];
+
+	const domainsChanged =
+		allowedDomains.length !== savedDomains.length ||
+		allowedDomains.some((domain) => !savedDomains.includes(domain));
+
+	const hasChanges =
+		Boolean(emailSettings.data) && (policy !== emailSettings.data?.recipientPolicy || domainsChanged);
+
+	const handleSave = () => {
+		if (policy === 'allowed-domains' && allowedDomains.length === 0) {
+			setError('Add at least one allowed domain.');
+			return;
+		}
+
+		updateSettings.mutate({
+			recipientPolicy: policy,
+			allowedDomains,
+		});
+	};
+
+	return (
+		<SettingsCard title='Email settings' description='Configure how project automations deliver emails.'>
+			<SettingsControlRow
+				id='automation-email-recipient-policy'
+				label='Recipient policy'
+				description={policyCopy.description}
+				control={
+					<IconSegmentedToggle
+						options={EMAIL_RECIPIENT_POLICIES}
+						value={policy}
+						onValueChange={(nextPolicy) => {
+							setPolicy(nextPolicy);
+							setError(null);
+						}}
+						showLabels
+						showIcons
+					/>
+				}
+			/>
+			{policy === 'allowed-domains' && (
+				<div className='grid gap-2'>
+					<label htmlFor='allowed-automation-email-domains' className='text-sm font-medium text-foreground'>
+						Allowed email domains
+					</label>
+					<p className='text-xs text-muted-foreground'>
+						Comma-separated list (e.g. <code>example.com, company.org</code>)
+					</p>
+					<Textarea
+						id='allowed-automation-email-domains'
+						value={domainsText}
+						onChange={(e) => {
+							setDomainsText(e.target.value);
+							setError(null);
+						}}
+						placeholder='example.com, company.org'
+						rows={2}
+					/>
+				</div>
+			)}
+			{error && (
+				<p className='text-sm text-destructive' role='alert'>
+					{error}
+				</p>
+			)}
+			<div className='flex justify-end'>
+				<Button
+					size='sm'
+					className='rounded-full'
+					onClick={handleSave}
+					disabled={!hasChanges || updateSettings.isPending}
+					isLoading={updateSettings.isPending}
+				>
+					{updateSettings.isPending ? 'Saving…' : 'Save'}
+				</Button>
+			</div>
+		</SettingsCard>
+	);
 }

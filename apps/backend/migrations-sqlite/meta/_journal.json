@@ -659,6 +659,13 @@
       "when": 1793281514563,
       "tag": "0093_log_user",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1793723883122,
+      "tag": "0094_automation_email_settings",
+      "breakpoints": true
     }
   ]
 }
