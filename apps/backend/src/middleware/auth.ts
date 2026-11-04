@@ -40,15 +40,15 @@ export async function sessionOrApiKeyAuthMiddleware(request: FastifyRequest, rep
 	}
 
 	const apiKey = await validateApiKey(token);
-	const user = apiKey ? await getUser({ id: apiKey.createdBy }) : null;
-	if (!apiKey || !user || user.deactivatedAt) {
+	const user = apiKey.status === 'ok' ? await getUser({ id: apiKey.createdBy }) : null;
+	if (apiKey.status !== 'ok' || !user || user.deactivatedAt) {
 		return reply.status(401).send({ error: 'Invalid API key' });
 	}
 
 	const headers = convertHeaders(request.headers);
 	request.user = user;
 	request.actorUserId = user.id;
-	request.project = await resolveApiKeyProject(apiKey.organization.id, user.id, headers);
+	request.project = await resolveApiKeyProject(apiKey.org.id, user.id, headers);
 }
 
 async function resolveApiKeyProject(orgId: string, userId: string, headers: Headers): Promise<DBProject | null> {

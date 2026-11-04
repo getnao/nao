@@ -142,7 +142,8 @@ function OrganizationSettingsPage() {
 							<GoogleConfigSection isAdmin={isOrgAdmin} />
 						</SettingsCard>
 					)}
-					<OrgApiKeys isAdmin={isOrgAdmin} />
+					<OrgApiKeys isAdmin={isOrgAdmin} scope='deploy' />
+					<OrgApiKeys isAdmin={isOrgAdmin} scope='user_management' />
 				</div>
 			</div>
 
