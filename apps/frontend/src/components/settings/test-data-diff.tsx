@@ -32,6 +32,7 @@ const MONO_CHAR_WIDTH = 6.7;
 const CELL_PADDING = 22;
 /** Horizontal padding of a header, with room for its sort icon. */
 const HEADER_PADDING = 32;
+const MISSING_COLUMN_PREFIX = '− ';
 
 /**
  * The rows of two sides cell by cell in a spreadsheet that fills its pane, whose columns sort and resize, colored like
@@ -131,7 +132,7 @@ function DiffGridHeader({ header, isMissing }: { header: Header<GridRow, unknown
 					title={isMissing ? `The answer has no ${column.id} column` : `Sort by ${column.id}`}
 				>
 					<span className='min-w-0 flex-1 truncate'>
-						{isMissing && '− '}
+						{isMissing && MISSING_COLUMN_PREFIX}
 						{column.id}
 					</span>
 					<SortIcon
@@ -214,8 +215,9 @@ function buildColumns(diff: TestDataDiff, sides: DiffSides): ColumnDef<GridRow>[
 /** Wide enough for the header and the longest value of a column, both values of a changed cell side by side. */
 function fitColumnWidth(diff: TestDataDiff, column: string, index: number, isMissingColumn: boolean): number {
 	const longestValue = Math.max(0, ...diff.rows.map((row) => countShownCharacters(row, index, isMissingColumn)));
+	const headerLength = column.length + (isMissingColumn ? MISSING_COLUMN_PREFIX.length : 0);
 	const width = Math.max(
-		column.length * MONO_CHAR_WIDTH + HEADER_PADDING,
+		headerLength * MONO_CHAR_WIDTH + HEADER_PADDING,
 		longestValue * MONO_CHAR_WIDTH + CELL_PADDING,
 	);
 	return Math.round(Math.min(DATA_COLUMN_MAX_WIDTH, Math.max(DATA_COLUMN_MIN_WIDTH, width)));

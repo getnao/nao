@@ -107,19 +107,20 @@ export class TestAgentService extends AgentService {
 		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
-		modelSelection?: LlmSelectedModel,
+		model?: TestModel,
 	): Promise<VerificationResult> {
 		const { queryResults } = agentResult;
 		if (queryResults.size === 0) {
 			return { data: null, sql: null, sourceQueries: [], error: 'The agent did not run any SQL query.' };
 		}
 
-		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel, {
-			userId,
+		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, model);
+		const modelConfig = await this._getModelConfig(
 			projectId,
-			category: 'test',
-		});
+			resolvedSelectedModel,
+			{ userId, projectId, category: 'test' },
+			model?.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : undefined,
+		);
 
 		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 

@@ -52,7 +52,9 @@ export function VariantOutcomeCell({
 	const title = `${side}: ${attemptsPerVariant === 1 ? TONE_LABELS[tone].toLowerCase() : `${passCount} passed`}`;
 	return (
 		<span
+			role='img'
 			title={title}
+			aria-label={title}
 			className={cn('inline-flex items-center gap-1 align-middle text-xs tabular-nums', TONE_COLORS[tone])}
 		>
 			<ToneIcon tone={tone} />

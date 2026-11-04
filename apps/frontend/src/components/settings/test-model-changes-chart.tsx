@@ -1,4 +1,4 @@
-import { isSameModel } from '@nao/shared/types';
+import { isSameTestModel } from '@nao/backend/test-run';
 import { useState } from 'react';
 
 import type { TestModelSummary, TestRunWithResults } from '@/components/settings/test-run-types';
@@ -9,6 +9,7 @@ import {
 	formatCount,
 	formatDuration,
 	formatPassRate,
+	formatTestModel,
 	formatUnitCost,
 	getAccuracy,
 	getTestModelColor,
@@ -69,7 +70,7 @@ export function ModelChangesChart({ run, mainBranch }: { run: TestRunWithResults
 		return [
 			{
 				key: testModelKey(model),
-				label: model.modelId,
+				label: formatTestModel(model),
 				color: getTestModelColor(run.models, model),
 				before,
 				after,
@@ -184,11 +185,12 @@ function pairVariantSummaries(run: TestRunWithResults) {
 		model,
 		production:
 			run.modelSummaries.find(
-				(summary) => summary.contextVariant === 'production' && isSameModel(summary, model),
+				(summary) => summary.contextVariant === 'production' && isSameTestModel(summary, model),
 			) ?? null,
 		draft:
-			run.modelSummaries.find((summary) => summary.contextVariant === 'draft' && isSameModel(summary, model)) ??
-			null,
+			run.modelSummaries.find(
+				(summary) => summary.contextVariant === 'draft' && isSameTestModel(summary, model),
+			) ?? null,
 	}));
 }
 

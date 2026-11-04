@@ -1,5 +1,6 @@
 import { isTestFileName } from '@nao/shared/test-paths';
 import { GitBranch, History } from 'lucide-react';
+import type { TestModel } from '@nao/backend/test-run';
 
 import type { TestRunSummary } from '@/components/settings/test-run-types';
 import type { Tone } from '@/components/settings/test-run-verdict';
@@ -253,15 +254,25 @@ function describeBenchmarkResult(run: RunListSource): RunListItemView['result'] 
 	}
 	if (best.testCount === 1) {
 		const passingModels = models.filter((model) => model.passedTests === 1).length;
+		const noun = countDistinctModels(models) === models.length ? 'models' : 'efforts';
 		return {
-			label: `${passingModels}/${models.length} models`,
-			tooltip: `Passes on ${passingModels} of ${models.length} models`,
+			label: `${passingModels}/${models.length} ${noun}`,
+			tooltip: `Passes on ${passingModels} of ${models.length} ${noun}`,
 		};
 	}
 	return {
 		label: `best ${best.passedTests}/${best.testCount}`,
-		tooltip: `Best of ${models.length} models: ${formatTestModel(best)} passed ${best.passedTests} of ${best.testCount} tests`,
+		tooltip: `Best of ${describeModelCount(models)}: ${formatTestModel(best)} passed ${best.passedTests} of ${best.testCount} tests`,
 	};
+}
+
+/** How many models a benchmark tried, counting the efforts of one model as one model. */
+function describeModelCount(models: TestModel[]): string {
+	const distinctModels = countDistinctModels(models);
+	if (distinctModels === models.length) {
+		return `${distinctModels} models`;
+	}
+	return distinctModels === 1 ? `${models.length} efforts` : `${distinctModels} models at ${models.length} efforts`;
 }
 
 function describeSingleModelResult(run: RunListSource, tone: Tone): RunListItemView['result'] {

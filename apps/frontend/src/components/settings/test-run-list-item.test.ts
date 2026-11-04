@@ -81,7 +81,7 @@ describe('describeRunListItem', () => {
 			CONTEXT,
 		);
 
-		expect(view.result?.tooltip).toBe('Best of 2 models: claude-sonnet-5 · high passed 3 of 3 tests');
+		expect(view.result?.tooltip).toBe('Best of 2 efforts: claude-sonnet-5 · high passed 3 of 3 tests');
 		expect(view.chips.map((chip) => chip.label)).toEqual(['master', '2 efforts']);
 	});
 

@@ -178,7 +178,7 @@ describe('startTestRun', () => {
 		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
 
 		expect(mocks.runTestInChat.mock.calls.map((call) => call[2])).toEqual([...models]);
-		expect(mocks.evaluateTestAttempt.mock.calls.map((call) => call[0].modelSelection)).toEqual([
+		expect(mocks.evaluateTestAttempt.mock.calls.map((call) => call[0].verificationModel)).toEqual([
 			DEFAULT_MODEL,
 			DEFAULT_MODEL,
 		]);
@@ -191,7 +191,24 @@ describe('startTestRun', () => {
 		await startTestRun({ projectId: 'project-1', userId: 'user-1', models: [model] });
 		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
 
-		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(expect.objectContaining({ modelSelection: model }));
+		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(expect.objectContaining({ verificationModel: model }));
+	});
+
+	it('lets a single model verify its own answers at the reasoning effort picked for it', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?\nsql: select 1');
+		const model = { provider: 'anthropic', modelId: 'claude-opus-5-5' } as const;
+		const [effort] = getModelReasoningEfforts(model.provider, model.modelId);
+
+		await startTestRun({
+			projectId: 'project-1',
+			userId: 'user-1',
+			models: [{ ...model, reasoningEfforts: [effort] }],
+		});
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ verificationModel: { ...model, reasoningEffort: effort } }),
+		);
 	});
 
 	it('keeps the queries the agent ran for a test without reference SQL', async () => {
@@ -243,7 +260,7 @@ describe('startTestRun', () => {
 		expect(mocks.runTestInChat.mock.calls.map((call) => call[2])).toEqual(variants);
 		expect(mocks.recordResultWhileRunning.mock.calls.map((call) => call[0].reasoningEffort)).toEqual(efforts);
 		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(
-			expect.objectContaining({ modelSelection: DEFAULT_MODEL }),
+			expect.objectContaining({ verificationModel: DEFAULT_MODEL }),
 		);
 	});
 

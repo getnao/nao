@@ -1,5 +1,5 @@
 import { getModelReasoningEfforts } from '@nao/backend/provider-meta';
-import { getDefaultTestRunThreads, MAX_TEST_RUN_ATTEMPTS } from '@nao/backend/test-run';
+import { getDefaultTestRunThreads, MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_THREADS } from '@nao/backend/test-run';
 import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
@@ -47,7 +47,10 @@ export function useTestRunSettings(): TestRunSettings {
 	const models = availableStoredModels?.length ? availableStoredModels : projectModels;
 	const attempts = Math.min(stored?.attempts ?? suite.data?.settings.attempts ?? 1, MAX_TEST_RUN_ATTEMPTS);
 	const storedThreads = stored?.threads;
-	const threads = storedThreads ?? suite.data?.settings.threads ?? getDefaultTestRunThreads(countModelRuns(models));
+	const threads = Math.min(
+		storedThreads ?? suite.data?.settings.threads ?? getDefaultTestRunThreads(countModelRuns(models)),
+		MAX_TEST_RUN_THREADS,
+	);
 	const isLoading = project.isPending || suite.isPending || defaultModel.isPending;
 
 	const update = useCallback(

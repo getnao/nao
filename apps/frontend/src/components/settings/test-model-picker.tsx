@@ -350,17 +350,13 @@ function RunEstimate({
 	const isEstimated =
 		modelStats.length > 0 &&
 		modelStats.every((entry) => entry?.averageCost != null && entry.averageDurationMs != null);
-	const cost = models.reduce(
-		(sum, model, index) =>
-			sum + (modelStats[index]?.averageCost ?? 0) * attemptsPerModelRun * countRunEfforts(model),
-		0,
-	);
-	const attemptsInFlightPerModelRun = threads / Math.max(modelRunCount, 1);
+	const averageCosts = modelStats.map((entry) => entry?.averageCost);
+	const averageDurations = modelStats.map((entry) => entry?.averageDurationMs);
+	const cost = sumOverModelRuns(models, averageCosts, attemptsPerModelRun);
+	const longestAttemptMs = Math.max(0, ...averageDurations.map((duration) => duration ?? 0));
 	const durationMs = Math.max(
-		0,
-		...modelStats.map(
-			(entry) => ((entry?.averageDurationMs ?? 0) * attemptsPerModelRun) / attemptsInFlightPerModelRun,
-		),
+		sumOverModelRuns(models, averageDurations, attemptsPerModelRun) / Math.max(threads, 1),
+		longestAttemptMs,
 	);
 	return (
 		<div className='mx-3 mb-3 rounded-md bg-muted/60 px-2.5 py-2'>
@@ -393,6 +389,18 @@ function findDefaultEffort(
 	model: LlmSelectedModel,
 ): ReasoningEffort | null {
 	return defaultEfforts?.find((entry) => isSameModel(entry, model))?.reasoningEffort ?? null;
+}
+
+/** Totals a per-attempt average of each picked model over all the attempts it runs, once per effort picked. */
+function sumOverModelRuns(
+	models: TestModelSelection[],
+	averages: (number | null | undefined)[],
+	attemptsPerModelRun: number,
+): number {
+	return models.reduce(
+		(sum, model, index) => sum + (averages[index] ?? 0) * attemptsPerModelRun * countRunEfforts(model),
+		0,
+	);
 }
 
 function findStats(stats: TestModelStats[] | undefined, model: LlmSelectedModel): TestModelStats | undefined {

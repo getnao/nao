@@ -440,7 +440,7 @@ async function runAttempt(
 			userId,
 			test: { ...test, tolerances: plan.tolerances },
 			result: agentResult,
-			modelSelection: plan.verificationModel ?? toSelectedModel(model),
+			verificationModel: plan.verificationModel ?? model,
 		});
 
 		return {

@@ -1,8 +1,6 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
-
 import { executeQuery } from '../agents/tools/execute-sql';
 import { getAgentSettings, getUserRoleInProject, retrieveProjectById } from '../queries/project.queries';
-import type { TestAssertion, TestComparisonTolerances, TestVerdict } from '../types/test-run';
+import type { TestAssertion, TestComparisonTolerances, TestModel, TestVerdict } from '../types/test-run';
 import type { ToolContext } from '../types/tools';
 import { evaluateTestVerdict, type TestVerification } from '../utils/test-verdict';
 import type { AgentRunResult } from './agent';
@@ -33,9 +31,10 @@ export async function evaluateTestAttempt(input: {
 	userId: string;
 	test: TestAttemptInput;
 	result: AgentRunResult;
-	modelSelection?: LlmSelectedModel;
+	/** Writes the query that checks the answer, at its reasoning effort when it has one. */
+	verificationModel?: TestModel;
 }): Promise<TestAttemptEvaluation> {
-	const { projectId, userId, test, result, modelSelection } = input;
+	const { projectId, userId, test, result, verificationModel } = input;
 	const toolCalls = TestAgentService.extractToolCalls(result);
 
 	let verification: TestAttemptEvaluation['verification'];
@@ -52,7 +51,7 @@ export async function evaluateTestAttempt(input: {
 			test.prompt,
 			result,
 			expectedColumns,
-			modelSelection,
+			verificationModel,
 		);
 		verification = { ...verified, expectedData, expectedColumns };
 	}
