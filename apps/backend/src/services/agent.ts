@@ -33,7 +33,13 @@ import {
 
 import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import type { AgentProfile } from '../agents/profiles/types';
-import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
+import {
+	disableModelReasoning,
+	fitThinkingBudget,
+	getProviderMeta,
+	ProviderModelResult,
+	ProviderOptionsMap,
+} from '../agents/providers';
 import { interactiveStopConditions } from '../agents/stop-conditions';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
@@ -465,10 +471,7 @@ export class AgentManager {
 		});
 		const callSettings = this._modelConfig.callSettings ?? {};
 		const provider = this._modelSelection.provider;
-		const providerOptions = protectInternalToolResults(
-			fitThinkingBudget(this._modelConfig.providerOptions, this._maxOutputTokens),
-			Object.keys(this._agentTools),
-		);
+		const providerOptions = this._protectInternalToolResults();
 		const providerParams = Object.values(providerOptions)[0];
 		this._agent = new ToolLoopAgent({
 			model: this._modelConfig.model,
@@ -542,10 +545,20 @@ export class AgentManager {
 		});
 
 		const conversationMessages = workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages;
+		const stepMessages = this._addCache(this._pruneMessages(conversationMessages));
 		return {
 			...this._profile.stepTools?.(steps),
-			messages: this._addCache(this._pruneMessages(conversationMessages)),
+			messages: stepMessages,
+			providerOptions: this._protectInternalToolResults(stepMessages),
 		};
+	}
+
+	private _protectInternalToolResults(history: ModelMessage[] = []): ProviderOptionsMap {
+		return protectInternalToolResults(
+			fitThinkingBudget(this._modelConfig.providerOptions, this._maxOutputTokens),
+			Object.keys(this._agentTools),
+			history,
+		);
 	}
 
 	get generatedArtifacts(): ToolContext['generatedArtifacts'] {

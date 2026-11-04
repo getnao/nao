@@ -1,5 +1,5 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { generateText, jsonSchema, tool } from 'ai';
+import { generateText, jsonSchema, type ModelMessage, tool } from 'ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -7,6 +7,7 @@ vi.mock('../src/db/db', () => ({ db: {} }));
 import { createProviderModel } from '../src/agents/providers';
 import {
 	CLEARABLE_TOOLS,
+	disableToolResultClearing,
 	protectInternalToolResults,
 	TOOL_RESULT_CLEARING_EDIT,
 } from '../src/agents/tool-result-clearing';
@@ -50,6 +51,14 @@ describe('protectInternalToolResults', () => {
 		expect(clearingEdit(toolNames).excludeTools).toContain('brand_new_internal_tool');
 	});
 
+	it('keeps protecting internal tools the run no longer has but the history still holds', () => {
+		const history = conversationWithToolCalls(['codemode', 'request_warehouse_credentials', 'mcp_call']);
+
+		const excludeTools = clearingEdit(['execute_sql', 'mcp_call'], history).excludeTools;
+
+		expect(excludeTools).toEqual(['execute_sql', 'codemode', 'request_warehouse_credentials']);
+	});
+
 	it('only lets MCP results be cleared', () => {
 		expect([...CLEARABLE_TOOLS]).toEqual(['mcp_call']);
 	});
@@ -65,6 +74,23 @@ describe('protectInternalToolResults', () => {
 		const { providerOptions } = createProviderModel('openai', { apiKey: 'test' }, 'gpt-5');
 
 		expect(protectInternalToolResults(providerOptions, ['execute_sql'])).toBe(providerOptions);
+	});
+});
+
+describe('disableToolResultClearing', () => {
+	it('removes the clearing edit and keeps the other Anthropic options', () => {
+		const { providerOptions } = createProviderModel('anthropic', { apiKey: 'test' }, MODEL_ID);
+
+		const disabled = disableToolResultClearing(providerOptions);
+
+		expect(disabled.anthropic).not.toHaveProperty('contextManagement');
+		expect(disabled.anthropic?.disableParallelToolUse).toBe(false);
+	});
+
+	it('leaves providers without context editing untouched', () => {
+		const { providerOptions } = createProviderModel('openai', { apiKey: 'test' }, 'gpt-5');
+
+		expect(disableToolResultClearing(providerOptions)).toBe(providerOptions);
 	});
 });
 
@@ -85,6 +111,14 @@ describe('context_management request body', () => {
 			],
 		});
 	});
+	it('replaces the exclude list with the one a step returns, history included', async () => {
+		const history = conversationWithToolCalls(['codemode']);
+		const body = await captureAnthropicBody(['execute_sql', 'mcp_call'], history);
+
+		expect(body.context_management).toMatchObject({
+			edits: [{ type: 'clear_tool_uses_20250919', exclude_tools: ['execute_sql', 'codemode'] }],
+		});
+	});
 });
 
 function agentToolNames(
@@ -100,9 +134,10 @@ function agentToolNames(
 	return Object.keys(tools);
 }
 
-function clearingEdit(toolNames: string[]): ClearingEdit {
+function clearingEdit(toolNames: string[], history: ModelMessage[] = []): ClearingEdit {
 	const { providerOptions } = createProviderModel('anthropic', { apiKey: 'test' }, MODEL_ID);
-	const edits = protectInternalToolResults(providerOptions, toolNames).anthropic?.contextManagement?.edits ?? [];
+	const edits =
+		protectInternalToolResults(providerOptions, toolNames, history).anthropic?.contextManagement?.edits ?? [];
 	const edit = edits.find((candidate) => candidate.type === 'clear_tool_uses_20250919');
 	if (!edit) {
 		throw new Error('No tool-result clearing edit configured');
@@ -110,7 +145,7 @@ function clearingEdit(toolNames: string[]): ClearingEdit {
 	return edit as ClearingEdit;
 }
 
-async function captureAnthropicBody(toolNames: string[]): Promise<Record<string, unknown>> {
+async function captureAnthropicBody(toolNames: string[], history?: ModelMessage[]): Promise<Record<string, unknown>> {
 	let body: Record<string, unknown> | undefined;
 	const provider = createAnthropic({
 		apiKey: 'test',
@@ -130,11 +165,34 @@ async function captureAnthropicBody(toolNames: string[]): Promise<Record<string,
 			toolNames.map((name) => [name, tool({ inputSchema: jsonSchema({ type: 'object' }) })]),
 		),
 		providerOptions: protectInternalToolResults(providerOptions, toolNames),
+		...(history && {
+			prepareStep: () => ({
+				messages: [...history, { role: 'user' as const, content: 'hello' }],
+				providerOptions: protectInternalToolResults(providerOptions, toolNames, history),
+			}),
+		}),
 	});
 	if (!body) {
 		throw new Error('The provider sent no request');
 	}
 	return body;
+}
+
+function conversationWithToolCalls(toolNames: string[]): ModelMessage[] {
+	return toolNames.flatMap((toolName, index): ModelMessage[] => [
+		{ role: 'assistant', content: [{ type: 'tool-call', toolCallId: `call_${index}`, toolName, input: {} }] },
+		{
+			role: 'tool',
+			content: [
+				{
+					type: 'tool-result',
+					toolCallId: `call_${index}`,
+					toolName,
+					output: { type: 'text', value: 'result' },
+				},
+			],
+		},
+	]);
 }
 
 const EMPTY_RESPONSE = {

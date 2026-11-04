@@ -1,4 +1,5 @@
 import type { AnthropicProviderOptions } from '@ai-sdk/anthropic';
+import type { ModelMessage } from 'ai';
 
 import type { ProviderOptionsMap } from './providers';
 
@@ -29,19 +30,50 @@ export const TOOL_RESULT_CLEARING_EDIT = {
 
 /**
  * Anthropic only accepts a list of tools to protect, so it is derived from the tools the agent
- * actually has: a new internal tool is protected without anyone having to list it.
+ * actually has and the tools already called in `history`: a new internal tool, or one the run no
+ * longer has, is protected without anyone having to list it.
  */
 export function protectInternalToolResults(
 	providerOptions: ProviderOptionsMap,
 	toolNames: readonly string[],
+	history: readonly ModelMessage[] = [],
+): ProviderOptionsMap {
+	const knownToolNames = new Set([...toolNames, ...listCalledToolNames(history)]);
+	const excludeTools = [...knownToolNames].filter((name) => !CLEARABLE_TOOLS.has(name));
+	return mapContextEdits(providerOptions, (edits) =>
+		edits.map((edit) => (edit.type === 'clear_tool_uses_20250919' ? { ...edit, excludeTools } : edit)),
+	);
+}
+
+/** One-shot requests such as compaction gain no cache from clearing and would lose the results they need. */
+export function disableToolResultClearing(providerOptions: ProviderOptionsMap): ProviderOptionsMap {
+	return mapContextEdits(providerOptions, (edits) =>
+		edits.filter((edit) => edit.type !== 'clear_tool_uses_20250919'),
+	);
+}
+
+function mapContextEdits(
+	providerOptions: ProviderOptionsMap,
+	mapEdits: (edits: readonly ContextEdit[]) => ContextEdit[],
 ): ProviderOptionsMap {
 	const anthropic = providerOptions.anthropic;
 	if (!anthropic?.contextManagement) {
 		return providerOptions;
 	}
-	const excludeTools = toolNames.filter((name) => !CLEARABLE_TOOLS.has(name));
-	const edits = anthropic.contextManagement.edits.map((edit) =>
-		edit.type === 'clear_tool_uses_20250919' ? { ...edit, excludeTools } : edit,
+	const { contextManagement, ...anthropicOptions } = anthropic;
+	const edits = mapEdits(contextManagement.edits);
+	return {
+		...providerOptions,
+		anthropic: edits.length > 0 ? { ...anthropicOptions, contextManagement: { edits } } : anthropicOptions,
+	};
+}
+
+function listCalledToolNames(messages: readonly ModelMessage[]): string[] {
+	return messages.flatMap((message) =>
+		Array.isArray(message.content)
+			? message.content.flatMap((part) =>
+					'toolName' in part && typeof part.toolName === 'string' ? [part.toolName] : [],
+				)
+			: [],
 	);
-	return { ...providerOptions, anthropic: { ...anthropic, contextManagement: { edits } } };
 }
