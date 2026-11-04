@@ -8,5 +8,7 @@ import type { AgentProfile } from './types';
 export const testRunAgent: AgentProfile = {
 	...analyticsAgent,
 	tools: analyticsToolsExcluding(['suggest_follow_ups']),
+	source: 'test',
+	excludesMemories: true,
 	usageCategory: 'test',
 };

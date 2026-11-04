@@ -7,6 +7,7 @@ import {
 	FilePen,
 	FilePlus,
 	FileX,
+	FlaskConical,
 	GitBranch,
 	GitPullRequest,
 	Pencil,
@@ -49,6 +50,7 @@ interface ContextGitPanelProps {
 	onDiscarded: (path: string) => Promise<void>;
 	onDiscardAll: () => Promise<void>;
 	onRepositoryChanged: () => void;
+	onOpenTests: () => void;
 }
 
 type ReviewRequestLink = { kind: 'created'; url: string } | { kind: 'link'; url: string; apiRefused?: boolean };
@@ -61,6 +63,7 @@ export function ContextGitPanel({
 	onDiscarded,
 	onDiscardAll,
 	onRepositoryChanged,
+	onOpenTests,
 }: ContextGitPanelProps) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
@@ -87,10 +90,11 @@ export function ContextGitPanel({
 	const currentBranch = branches?.currentBranch ?? null;
 	const defaultBranch = branches?.defaultBranch ?? null;
 	const isGitAvailable = status?.gitUnavailableReason === null && branches !== null && repo !== null;
+	const isNaoDraft = status?.gitUnavailableReason === 'no-repo';
 
 	const changedFiles = useQuery({
 		...trpc.contextExplorer.getChangedFiles.queryOptions(),
-		enabled: isGitAvailable,
+		enabled: isGitAvailable || isNaoDraft,
 	});
 	const suggestedBranchName = useQuery({
 		...trpc.contextExplorer.suggestBranchName.queryOptions(),
@@ -299,6 +303,7 @@ export function ContextGitPanel({
 	const unpushedCommitCount = branches?.unpushedCommitCount ?? 0;
 	const isReviewBranch = currentBranch !== null && defaultBranch !== null && currentBranch !== defaultBranch;
 	const canPush = isReviewBranch && (unpushedCommitCount > 0 || (aheadCommitCount > 0 && openReviewRequest === null));
+	const hasDraftChanges = hasUncommittedChanges || (isReviewBranch && aheadCommitCount > 0);
 	const reviewRequest = pushedReviewRequest ?? openReviewRequest;
 	const reviewRequestUrl = reviewRequest?.url ?? null;
 	const reviewRequestNumber = reviewRequestUrl ? getReviewRequestNumber(reviewRequestUrl) : null;
@@ -330,8 +335,8 @@ export function ContextGitPanel({
 			<Expandable
 				title={
 					<span className='flex items-center gap-2'>
-						<GitBranch className='size-3.5' />
-						Git
+						{isNaoDraft ? <FilePen className='size-3.5' /> : <GitBranch className='size-3.5' />}
+						{isNaoDraft ? 'Draft' : 'Git'}
 					</span>
 				}
 				titleAction={
@@ -400,6 +405,26 @@ export function ContextGitPanel({
 								Retry
 							</Button>
 						</div>
+					) : isNaoDraft ? (
+						<NaoDraftChanges
+							files={changedFileList}
+							selectedDiffPath={selectedDiffPath}
+							actionsDisabledReason={discardDisabledReason}
+							isLoading={changedFiles.isLoading}
+							error={changedFiles.error?.message}
+							onRetry={() => changedFiles.refetch()}
+							onViewDiff={onViewDiff}
+							onDiscard={(file) => {
+								discardChange.reset();
+								setDiscardFile(file);
+							}}
+							onDiscardAll={() => {
+								discardAllChanges.reset();
+								setIsDiscardAllOpen(true);
+							}}
+							onTest={onOpenTests}
+							onSetup={openGitSettings}
+						/>
 					) : !isGitAvailable ? (
 						<div className='px-2'>
 							<UnavailableGit
@@ -413,15 +438,13 @@ export function ContextGitPanel({
 						<>
 							<ChangedFiles
 								files={changedFileList}
-								selectedPaths={selectedPaths}
+								selection={{ selectedPaths, onToggle: togglePath, onToggleAll: toggleAllPaths }}
 								selectedDiffPath={selectedDiffPath}
 								actionsDisabledReason={discardDisabledReason}
 								isLoading={changedFiles.isLoading}
 								error={changedFiles.error?.message}
 								onRetry={() => changedFiles.refetch()}
 								onViewDiff={onViewDiff}
-								onToggle={togglePath}
-								onToggleAll={toggleAllPaths}
 								onDiscard={(file) => {
 									discardChange.reset();
 									setDiscardFile(file);
@@ -498,6 +521,7 @@ export function ContextGitPanel({
 												: 'Nothing to push'}
 									</span>
 									<div className='flex shrink-0 items-center gap-1'>
+										{hasDraftChanges && <TestChangesButton onClick={onOpenTests} />}
 										{reviewRequestUrl && (
 											<Button
 												variant='ghost-muted'
@@ -576,7 +600,7 @@ export function ContextGitPanel({
 			<ConfirmationDialog
 				open={discardFile !== null}
 				title={getSingleDiscardTitle(discardFile)}
-				description='Are you sure you want to discard the uncommitted changes to this file?'
+				description={`Are you sure you want to discard the ${isNaoDraft ? 'draft' : 'uncommitted'} changes to this file?`}
 				confirmLabel='Discard'
 				isPending={discardChange.isPending}
 				error={discardChange.error?.message}
@@ -595,7 +619,7 @@ export function ContextGitPanel({
 			<ConfirmationDialog
 				open={isDiscardAllOpen}
 				title='Discard all changes?'
-				description={getDiscardAllDescription(changedFileList.length)}
+				description={getDiscardAllDescription(changedFileList.length, isNaoDraft)}
 				confirmLabel='Discard all'
 				isPending={discardAllChanges.isPending}
 				error={discardAllChanges.error?.message}
@@ -741,47 +765,98 @@ function BranchMenu({
 	);
 }
 
-function ChangedFiles({
+function NaoDraftChanges({
 	files,
-	selectedPaths,
-	selectedDiffPath,
-	actionsDisabledReason,
-	isLoading,
-	error,
-	onRetry,
-	onViewDiff,
-	onToggle,
-	onToggleAll,
-	onDiscard,
-	onDiscardAll,
-}: {
+	onTest,
+	onSetup,
+	...changedFilesProps
+}: Omit<ChangedFilesProps, 'selection' | 'emptyMessage'> & { onTest: () => void; onSetup: () => void }) {
+	return (
+		<>
+			<ChangedFiles files={files} emptyMessage='No draft changes' {...changedFilesProps} />
+			<div className='-mx-2 space-y-1.5 border-t px-2 pt-2'>
+				<div className='flex min-w-0 items-center justify-between gap-2'>
+					<span className='min-w-0 flex-1 pl-[13px] text-[11px] text-muted-foreground'>
+						Saved in nao. Only your test runs use them.
+					</span>
+					{files.length > 0 && <TestChangesButton onClick={onTest} />}
+				</div>
+				<p className='pl-[13px] text-[11px] text-muted-foreground'>
+					Production stays unchanged.{' '}
+					<button type='button' className='cursor-pointer underline underline-offset-2' onClick={onSetup}>
+						Connect a repository
+					</button>{' '}
+					to publish your changes for review.
+				</p>
+			</div>
+		</>
+	);
+}
+
+function TestChangesButton({ onClick }: { onClick: () => void }) {
+	return (
+		<Button
+			variant='ghost-muted'
+			size='sm'
+			className='h-6 shrink-0 gap-1 px-1.5 text-[11px]'
+			title='Run the tests on your changes and on production side by side'
+			onClick={onClick}
+		>
+			<FlaskConical className='size-3' />
+			test
+		</Button>
+	);
+}
+
+interface ChangedFilesProps {
 	files: ContextChangedFile[];
-	selectedPaths: Set<string>;
+	/** Commit selection, left out when the changes cannot be committed. */
+	selection?: { selectedPaths: Set<string>; onToggle: (path: string) => void; onToggleAll: () => void };
 	selectedDiffPath: string | null;
 	actionsDisabledReason: string | null;
 	isLoading: boolean;
 	error: string | undefined;
+	emptyMessage?: string;
 	onRetry: () => void;
 	onViewDiff: (path: string) => void;
-	onToggle: (path: string) => void;
-	onToggleAll: () => void;
 	onDiscard: (file: ContextChangedFile) => void;
 	onDiscardAll: () => void;
-}) {
-	const allSelected = files.length > 0 && files.every((file) => selectedPaths.has(file.path));
+}
+
+function ChangedFiles({
+	files,
+	selection,
+	selectedDiffPath,
+	actionsDisabledReason,
+	isLoading,
+	error,
+	emptyMessage = 'Nothing to commit',
+	onRetry,
+	onViewDiff,
+	onDiscard,
+	onDiscardAll,
+}: ChangedFilesProps) {
+	const allSelected = files.length > 0 && files.every((file) => selection?.selectedPaths.has(file.path));
 
 	return (
 		<section aria-label='Changed files' className='space-y-1'>
 			{files.length > 0 && (
-				<div className='flex min-w-0 items-center justify-between gap-1 px-2'>
-					<Button
-						variant='ghost-muted'
-						size='sm'
-						className='-ml-2 min-w-0 shrink px-2 text-xs font-normal focus-visible:ring-ring/50 focus-visible:ring-[3px]'
-						onClick={onToggleAll}
-					>
-						<span className='truncate'>{allSelected ? 'Select None' : 'Select All'}</span>
-					</Button>
+				<div
+					className={cn(
+						'flex min-w-0 items-center gap-1 px-2',
+						selection ? 'justify-between' : 'justify-end',
+					)}
+				>
+					{selection && (
+						<Button
+							variant='ghost-muted'
+							size='sm'
+							className='-ml-2 min-w-0 shrink px-2 text-xs font-normal focus-visible:ring-ring/50 focus-visible:ring-[3px]'
+							onClick={selection.onToggleAll}
+						>
+							<span className='truncate'>{allSelected ? 'Select None' : 'Select All'}</span>
+						</Button>
+					)}
 					<Button
 						variant='ghost-muted'
 						size='sm'
@@ -808,18 +883,18 @@ function ChangedFiles({
 					</Button>
 				</div>
 			) : files.length === 0 ? (
-				<p className='py-1 pr-2 pl-[13px] text-[11px] text-muted-foreground'>Nothing to commit</p>
+				<p className='py-1 pr-2 pl-[13px] text-[11px] text-muted-foreground'>{emptyMessage}</p>
 			) : (
 				<div className='max-h-48 overflow-y-auto'>
 					{files.map((file) => (
 						<ChangedFileRow
 							key={file.path}
 							file={file}
-							isSelected={selectedPaths.has(file.path)}
+							isSelected={selection?.selectedPaths.has(file.path) ?? false}
 							isViewing={selectedDiffPath === file.path}
 							discardDisabled={actionsDisabledReason !== null}
 							onView={() => onViewDiff(file.path)}
-							onToggle={() => onToggle(file.path)}
+							onToggle={selection ? () => selection.onToggle(file.path) : undefined}
 							onDiscard={() => onDiscard(file)}
 						/>
 					))}
@@ -843,7 +918,7 @@ function ChangedFileRow({
 	isViewing: boolean;
 	discardDisabled: boolean;
 	onView: () => void;
-	onToggle: () => void;
+	onToggle?: () => void;
 	onDiscard: () => void;
 }) {
 	const fileName = file.path.split('/').pop() ?? file.path;
@@ -857,12 +932,14 @@ function ChangedFileRow({
 				isViewing && 'bg-muted/50',
 			)}
 		>
-			<Checkbox
-				className='cursor-pointer'
-				checked={isSelected}
-				onCheckedChange={onToggle}
-				aria-label={`${isSelected ? 'Exclude' : 'Include'} ${fileName} in commit`}
-			/>
+			{onToggle && (
+				<Checkbox
+					className='cursor-pointer'
+					checked={isSelected}
+					onCheckedChange={onToggle}
+					aria-label={`${isSelected ? 'Exclude' : 'Include'} ${fileName} in commit`}
+				/>
+			)}
 			<button
 				type='button'
 				onClick={onView}
@@ -983,9 +1060,9 @@ function getSingleDiscardTitle(file: ContextChangedFile | null): string {
 	return `Discard ${fileName}?`;
 }
 
-function getDiscardAllDescription(changeCount: number): string {
+function getDiscardAllDescription(changeCount: number, isNaoDraft: boolean): string {
 	const fileCount = `${changeCount} ${changeCount === 1 ? 'file' : 'files'}`;
-	return `Are you sure you want to discard the uncommitted changes across ${fileCount}?`;
+	return `Are you sure you want to discard the ${isNaoDraft ? 'draft' : 'uncommitted'} changes across ${fileCount}?`;
 }
 
 function getReviewRequestNumber(url: string): string | null {

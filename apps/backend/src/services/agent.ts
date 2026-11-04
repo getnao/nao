@@ -21,6 +21,7 @@ import {
 	ModelMessage,
 	type PrepareStepResult,
 	pruneMessages,
+	readUIMessageStream,
 	stepCountIs,
 	type StepResult,
 	type StopCondition,
@@ -199,6 +200,7 @@ export async function buildToolContext(opts: {
 	modelSelection?: LlmSelectedModel;
 	usageRunId?: string;
 	managedAiBillingMode?: ManagedAiUsageContext['billingMode'];
+	contextFolder?: string;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -229,25 +231,28 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
+	/** A copy of the context to run against instead of the project folder, such as a draft being tested. */
+	contextFolder?: string;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
 		throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 	}
+	const projectFolder = opts.contextFolder ?? project.path;
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
 	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
-		resolveProjectContextAccess(opts.projectId, opts.userId, project.path),
+		resolveProjectContextAccess(opts.projectId, opts.userId, projectFolder),
 	]);
 	return {
-		projectFolder: project.path,
+		projectFolder,
 		userId: opts.userId,
 		projectId: opts.projectId,
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
-		semanticLayerMode: resolveSemanticLayerMode(project.path, agentSettings),
+		semanticLayerMode: resolveSemanticLayerMode(projectFolder, agentSettings),
 		envVars,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
@@ -305,6 +310,8 @@ export class AgentService {
 			isBudgetChecked?: boolean;
 			/** Records managed usage without charging an organization wallet. */
 			unbilledManagedAiUsage?: boolean;
+			/** Runs against this copy of the context instead of the project folder. */
+			contextFolder?: string;
 		} = {},
 	): Promise<AgentManager> {
 		await assertUserIsActive(chat.userId);
@@ -340,6 +347,7 @@ export class AgentService {
 			modelSelection: resolvedLlmSelectedModel,
 			usageRunId: usageContext.runId,
 			managedAiBillingMode: usageContext.billingMode,
+			contextFolder: options.contextFolder,
 		});
 		toolContext.linkedStory = await resolveLinkedStory(chat);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
@@ -437,6 +445,7 @@ export class AgentManager {
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 	private _systemPrompt = '';
 	private _runCompaction = new RunCompaction(compactionService);
+	private _streamResult?: StreamTextResult<AgentTools, never>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -607,9 +616,12 @@ export class AgentManager {
 					abortSignal: this._abortController.signal,
 					experimental_transform: normalizeCitationMarkersStream(),
 				});
+				this._streamResult = result;
 
 				// Extract memory immediately after the request to the agent is sent
-				this._scheduleMemoryExtraction(uiMessages);
+				if (!this._profile.excludesMemories) {
+					this._scheduleMemoryExtraction(uiMessages);
+				}
 
 				if (opts.events?.newChat) {
 					this._scheduleTitleGeneration(getLastUserMessageText(uiMessages));
@@ -716,7 +728,9 @@ export class AgentManager {
 	}
 
 	private async _buildDefaultSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
-		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
+		const memories = this._profile.excludesMemories
+			? []
+			: await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
@@ -921,28 +935,13 @@ export class AgentManager {
 				abortSignal: this._abortController.signal,
 			});
 			const durationMs = Math.round(performance.now() - startTime);
-
 			const usage = convertToTokenUsage(result.totalUsage);
-			const customModels = await getProjectDeclaredModels(this.chat.projectId)
-				.then(
-					(sources) =>
-						sources.find((source) => source.provider === this._modelSelection.provider)?.models ?? [],
-				)
-				.catch(() => []);
-			const cost = convertToCost(
-				usage,
-				this._modelSelection.provider,
-				this._modelSelection.modelId,
-				customModels,
-				opts.costs,
-			);
-			const finishReason = result.finishReason ?? 'stop';
 
 			return {
 				text: normalizeCitationMarkers(result.text),
 				usage,
-				cost,
-				finishReason,
+				cost: await this._computeCost(usage, opts.costs),
+				finishReason: result.finishReason ?? 'stop',
 				durationMs,
 				responseMessages: result.response.messages,
 				steps: result.steps as AgentRunResult['steps'],
@@ -952,6 +951,53 @@ export class AgentManager {
 		} finally {
 			this._finish();
 		}
+	}
+
+	/**
+	 * Runs the agent like an interactive chat, so the answer is persisted and can be replayed,
+	 * and waits for the whole loop to finish. For background runs that need the outcome (e.g. tests).
+	 */
+	async streamToCompletion(uiMessages: UIMessage[]): Promise<AgentRunResult> {
+		const startTime = performance.now();
+		const stream = this.stream(uiMessages);
+		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
+			void message;
+		}
+		await this.waitUntilFinished();
+
+		const result = this._streamResult;
+		if (!result) {
+			throw new Error('The agent run did not start.');
+		}
+		const [text, totalUsage, finishReason, steps, response] = await Promise.all([
+			result.text,
+			result.totalUsage,
+			result.finishReason,
+			result.steps,
+			result.response,
+		]);
+		const usage = convertToTokenUsage(totalUsage);
+
+		return {
+			text: normalizeCitationMarkers(text),
+			usage,
+			cost: await this._computeCost(usage),
+			finishReason: finishReason ?? 'stop',
+			durationMs: Math.round(performance.now() - startTime),
+			responseMessages: response.messages,
+			steps: steps as AgentRunResult['steps'],
+			responseParts: [],
+			queryResults: this._toolContext.queryResults,
+		};
+	}
+
+	private async _computeCost(usage: TokenUsage, costs?: ModelCosts): Promise<TokenCost> {
+		const customModels = await getProjectDeclaredModels(this.chat.projectId)
+			.then(
+				(sources) => sources.find((source) => source.provider === this._modelSelection.provider)?.models ?? [],
+			)
+			.catch(() => []);
+		return convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId, customModels, costs);
 	}
 
 	checkIsUserOwner(userId: string): boolean {

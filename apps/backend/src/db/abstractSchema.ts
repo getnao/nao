@@ -191,6 +191,14 @@ export type DBContextRecommendationLinkedFeedback =
 export type NewContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferInsert;
 
+export type DBTestRun = typeof sqliteSchema.testRun.$inferSelect;
+export type NewTestRun = typeof sqliteSchema.testRun.$inferInsert;
+
+export type DBTestRunResult = typeof sqliteSchema.testRunResult.$inferSelect;
+export type NewTestRunResult = typeof sqliteSchema.testRunResult.$inferInsert;
+
+export type DBContextDraftFile = typeof sqliteSchema.contextDraftFile.$inferSelect;
+
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;
 

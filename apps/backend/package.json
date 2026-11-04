@@ -5,6 +5,7 @@
 		"./trpc": "./src/trpc/router.ts",
 		"./chat": "./src/types/chat.ts",
 		"./usage": "./src/types/usage.ts",
+		"./test-run": "./src/types/test-run.ts",
 		"./llm": "./src/types/llm.ts",
 		"./memory": "./src/types/memory.ts",
 		"./saved-prompts": "./src/types/saved-prompt.ts",

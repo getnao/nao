@@ -68,6 +68,7 @@ export const MESSAGE_SOURCES = [
 	'contextRecommendations',
 	'admin',
 	'onboarding',
+	'test',
 ] as const;
 
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];
