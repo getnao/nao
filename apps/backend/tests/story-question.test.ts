@@ -50,6 +50,9 @@ const ORIGIN_CHAT_ID = 'question-origin-chat';
 const QUESTION_CHAT_ID = 'question-chat';
 const VIEWER_QUESTION_CHAT_ID = 'question-chat-of-viewer';
 const STORY_ID = 'question-story';
+const COPY_CHAT_ID = 'question-copy-chat';
+const COPY_STORY_ID = 'question-copy-story';
+const COPY_QUESTION = 'Now split it by region';
 const SHARED_CHAT_QUESTION_ID = 'question-about-shared-chat';
 const SHARE_ID = 'question-share';
 const SLUG = 'revenue';
@@ -114,7 +117,7 @@ describe('quick questions on a story', () => {
 
 		for (const forkMetadata of [questionMetadata(), forkedStoryMetadata]) {
 			expect(
-				await resolveStoryOriginConversation({ userId: VIEWER_ID, projectId: PROJECT_ID, forkMetadata }),
+				await resolveStoryOriginConversation({ userId: OWNER_ID, projectId: PROJECT_ID, forkMetadata }),
 			).toEqual([
 				{ role: 'user', text: ORIGIN_QUESTION },
 				{ role: 'assistant', text: ORIGIN_ANSWER },
@@ -122,11 +125,61 @@ describe('quick questions on a story', () => {
 		}
 		expect(
 			await resolveStoryOriginConversation({
-				userId: VIEWER_ID,
+				userId: OWNER_ID,
 				projectId: PROJECT_ID,
 				forkMetadata: { type: 'chat', id: ORIGIN_CHAT_ID, title: 'Revenue analysis', authorName: 'Owner' },
 			}),
 		).toEqual([]);
+	});
+
+	it('keeps the conversation of a shared story private unless its chat is shared too', async () => {
+		const viewerChat = { userId: VIEWER_ID, projectId: PROJECT_ID, forkMetadata: questionMetadata() };
+		expect(await resolveStoryOriginConversation(viewerChat)).toEqual([]);
+
+		const [share] = await db
+			.insert(s.sharedChat)
+			.values({ chatId: ORIGIN_CHAT_ID, visibility: 'specific' })
+			.returning();
+		await db.insert(s.sharedChatAccess).values({ sharedChatId: share.id, userId: VIEWER_ID });
+		try {
+			expect(await resolveStoryOriginConversation(viewerChat)).toEqual([
+				{ role: 'user', text: ORIGIN_QUESTION },
+				{ role: 'assistant', text: ORIGIN_ANSWER },
+			]);
+		} finally {
+			await db.delete(s.sharedChat).where(eq(s.sharedChat.id, share.id));
+		}
+	});
+
+	it('follows a copied story back to the conversation of the story it was copied from', async () => {
+		expect(
+			await resolveStoryOriginConversation({
+				userId: OWNER_ID,
+				projectId: PROJECT_ID,
+				forkMetadata: { type: 'story', id: COPY_STORY_ID, title: 'Revenue', authorName: 'Owner' },
+			}),
+		).toEqual([
+			{ role: 'user', text: ORIGIN_QUESTION },
+			{ role: 'assistant', text: ORIGIN_ANSWER },
+			{ role: 'user', text: COPY_QUESTION },
+		]);
+	});
+
+	it('trims a turn longer than the whole origin conversation budget', async () => {
+		const longAnswer = `${'a'.repeat(30_000)}conclusion`;
+		await insertText(ORIGIN_CHAT_ID, 'assistant', longAnswer, 3);
+		try {
+			const turns = await resolveStoryOriginConversation({
+				userId: OWNER_ID,
+				projectId: PROJECT_ID,
+				forkMetadata: questionMetadata(),
+			});
+			expect(turns).toHaveLength(1);
+			expect(turns[0].text).toHaveLength(24_000);
+			expect(turns[0].text.endsWith('conclusion')).toBe(true);
+		} finally {
+			await db.delete(s.chatMessage).where(eq(s.chatMessage.id, `${ORIGIN_CHAT_ID}-text-3`));
+		}
 	});
 
 	it('asks the agent to reuse the definitions of the conversation that built the story', () => {
@@ -363,6 +416,13 @@ async function seed() {
 			forkMetadata: questionMetadata(),
 		},
 		{
+			id: COPY_CHAT_ID,
+			userId: OWNER_ID,
+			projectId: PROJECT_ID,
+			title: 'Revenue',
+			forkMetadata: { type: 'story', id: STORY_ID, title: 'Revenue', authorName: 'Owner' },
+		},
+		{
 			id: SHARED_CHAT_QUESTION_ID,
 			userId: OWNER_ID,
 			projectId: PROJECT_ID,
@@ -370,11 +430,16 @@ async function seed() {
 			forkMetadata: { type: 'chat_question', id: SHARE_ID, title: 'Shared analysis', authorName: 'Owner' },
 		},
 	]);
-	await db.insert(s.story).values({ id: STORY_ID, chatId: ORIGIN_CHAT_ID, slug: SLUG, title: 'Revenue' });
+	await db.insert(s.story).values([
+		{ id: STORY_ID, chatId: ORIGIN_CHAT_ID, slug: SLUG, title: 'Revenue' },
+		{ id: COPY_STORY_ID, chatId: COPY_CHAT_ID, slug: SLUG, title: 'Revenue' },
+	]);
 	await db.insert(s.sharedStory).values({ storyId: STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID });
-	await db
-		.insert(s.storyVersion)
-		.values({ storyId: STORY_ID, version: 1, code: ORIGINAL_CODE, action: 'create', source: 'assistant' });
+	await db.insert(s.storyVersion).values([
+		{ storyId: STORY_ID, version: 1, code: ORIGINAL_CODE, action: 'create', source: 'assistant' },
+		{ storyId: COPY_STORY_ID, version: 1, code: ORIGINAL_CODE, action: 'create', source: 'assistant' },
+	]);
+	await insertText(COPY_CHAT_ID, 'user', COPY_QUESTION, 1);
 	await insertQuery(ORIGIN_CHAT_ID, 'query_origin', 'select month, sum(amount) from orders group by 1');
 	await insertText(ORIGIN_CHAT_ID, 'user', ORIGIN_QUESTION, 1);
 	await insertText(ORIGIN_CHAT_ID, 'assistant', ORIGIN_ANSWER, 2);
