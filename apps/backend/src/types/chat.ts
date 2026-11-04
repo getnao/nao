@@ -216,3 +216,8 @@ export const AgentRequestSchema = z.object({
 	adminMode: z.boolean().optional(),
 	mode: z.enum(['default', 'onboarding', 'example']).default('default'),
 });
+
+export interface StoryOriginTurn {
+	role: 'user' | 'assistant';
+	text: string;
+}

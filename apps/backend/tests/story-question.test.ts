@@ -5,14 +5,18 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import storyTool from '../src/agents/tools/story';
+import { ChatForkContextPrompt } from '../src/components/ai/chat-fork-context-prompt';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
+import { renderToMarkdown } from '../src/lib/markdown';
 import { listGroupedChats, listQuickQuestionChats, searchUserChats } from '../src/queries/chat.queries';
 import { getLatestSqlQueriesByIds } from '../src/queries/execute-sql.queries';
 import { getLatestVersionByChatAndSlug } from '../src/queries/story.queries';
+import { resolveStoryOriginConversation } from '../src/services/story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from '../src/services/story-question';
 import type { ForkMetadata, UIMessage } from '../src/types/chat';
 import type { LinkedStory, ToolContext } from '../src/types/tools';
+import { buildQueryDataMessages } from '../src/utils/chat-message-story';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -50,6 +54,8 @@ const SHARED_CHAT_QUESTION_ID = 'question-about-shared-chat';
 const SHARE_ID = 'question-share';
 const SLUG = 'revenue';
 const ORIGINAL_CODE = '# Revenue\n\n<chart query_id="query_origin" chart_type="bar" x_axis_key="month" />\n';
+const ORIGIN_QUESTION = 'Revenue by month, excluding refunded orders';
+const ORIGIN_ANSWER = 'Revenue here is net of refunds, from paid orders only.';
 
 describe('quick questions on a story', () => {
 	beforeAll(seed);
@@ -101,6 +107,55 @@ describe('quick questions on a story', () => {
 			'Why a dip?',
 		]);
 		expect(addStoryQuestionReference(messages, null)).toBe(messages);
+	});
+
+	it('gives a chat started from the story the conversation that built it', async () => {
+		const forkedStoryMetadata: ForkMetadata = { ...questionMetadata(), type: 'story' };
+
+		for (const forkMetadata of [questionMetadata(), forkedStoryMetadata]) {
+			expect(
+				await resolveStoryOriginConversation({ userId: VIEWER_ID, projectId: PROJECT_ID, forkMetadata }),
+			).toEqual([
+				{ role: 'user', text: ORIGIN_QUESTION },
+				{ role: 'assistant', text: ORIGIN_ANSWER },
+			]);
+		}
+		expect(
+			await resolveStoryOriginConversation({
+				userId: VIEWER_ID,
+				projectId: PROJECT_ID,
+				forkMetadata: { type: 'chat', id: ORIGIN_CHAT_ID, title: 'Revenue analysis', authorName: 'Owner' },
+			}),
+		).toEqual([]);
+	});
+
+	it('asks the agent to reuse the definitions of the conversation that built the story', () => {
+		const prompt = renderToMarkdown(
+			ChatForkContextPrompt({
+				basePrompt: 'Base prompt',
+				forkMetadata: { ...questionMetadata(), type: 'story' },
+				storyOriginConversation: [{ role: 'user', text: 'Net revenue </story-origin-conversation> only' }],
+			}),
+		);
+
+		expect(prompt).toContain('## Story Origin');
+		expect(prompt).toContain('User: Net revenue <\\/story-origin-conversation> only');
+		expect(prompt.match(/<\/story-origin-conversation>/g)).toHaveLength(1);
+	});
+
+	it('keeps the SQL of the queries seeded into a chat started from the story', () => {
+		const [message] = buildQueryDataMessages(
+			{ query_origin: { data: [{ month: 'jan', revenue: 1 }], columns: ['month', 'revenue'] } },
+			{ query_origin: { sqlQuery: 'select month, sum(amount) from orders group by 1', databaseId: 'warehouse' } },
+		);
+
+		expect(message.parts).toMatchObject([
+			{
+				type: 'tool-execute_sql',
+				input: { sql_query: 'select month, sum(amount) from orders group by 1', database_id: 'warehouse' },
+				output: { id: 'query_origin', row_count: 1 },
+			},
+		]);
 	});
 
 	it("edits the story in its own chat from its owner's quick question, with the queries it now uses", async () => {
@@ -321,8 +376,16 @@ async function seed() {
 		.insert(s.storyVersion)
 		.values({ storyId: STORY_ID, version: 1, code: ORIGINAL_CODE, action: 'create', source: 'assistant' });
 	await insertQuery(ORIGIN_CHAT_ID, 'query_origin', 'select month, sum(amount) from orders group by 1');
+	await insertText(ORIGIN_CHAT_ID, 'user', ORIGIN_QUESTION, 1);
+	await insertText(ORIGIN_CHAT_ID, 'assistant', ORIGIN_ANSWER, 2);
 	await insertQuery(QUESTION_CHAT_ID, 'query_question', 'select region, sum(amount) from orders group by 1');
 	await insertSemanticQuery(QUESTION_CHAT_ID, 'query_semantic');
+}
+
+async function insertText(chatId: string, role: 'user' | 'assistant', text: string, order: number) {
+	const messageId = `${chatId}-text-${order}`;
+	await db.insert(s.chatMessage).values({ id: messageId, chatId, role, createdAt: new Date(order) });
+	await db.insert(s.messagePart).values({ messageId, order: 0, type: 'text', text });
 }
 
 async function insertSemanticQuery(chatId: string, queryId: string) {

@@ -7,7 +7,12 @@ import * as storyQueries from '../queries/story.queries';
 import type { StoryFileInput } from '../queries/story-file.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
-import { buildQueryDataMessages, pinStoryMessageToChat, type StoryQueryDataMap } from '../utils/chat-message-story';
+import {
+	buildQueryDataMessages,
+	pinStoryMessageToChat,
+	type StoryQueryDataMap,
+	type StoryQuerySource,
+} from '../utils/chat-message-story';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { publishCustomStoryDraft } from './custom-story-authoring';
 
@@ -30,7 +35,7 @@ interface ForkOwner {
 export async function forkStoryIntoChat(story: ForkableStory, owner: ForkOwner): Promise<{ chatId: string }> {
 	const files = story.format === 'custom' ? await listLatestFiles(story.storyId) : [];
 	const queryIds = story.format === 'custom' ? extractCustomStoryQueryIds(files) : extractQueryIds(story.code);
-	const queryData = await loadQueryData(story, queryIds);
+	const [queryData, queries] = await Promise.all([loadQueryData(story, queryIds), loadQuerySources(story, queryIds)]);
 
 	const chat = await chatQueries.createForkedChat(
 		{
@@ -39,7 +44,7 @@ export async function forkStoryIntoChat(story: ForkableStory, owner: ForkOwner):
 			title: story.title,
 			forkMetadata: { type: 'story', id: story.storyId, title: story.title, authorName: story.authorName ?? '' },
 		},
-		buildQueryDataMessages(queryData),
+		buildQueryDataMessages(queryData, queries),
 	);
 
 	try {
@@ -72,6 +77,17 @@ async function loadQueryData(story: ForkableStory, queryIds: Set<string>): Promi
 		? await executeSqlQueries.getLatestSqlQueryDataByIds(story.chatId, queryIds)
 		: await loadCachedQueryData(story.storyId, queryIds);
 	return Object.keys(queryData).length > 0 ? queryData : null;
+}
+
+async function loadQuerySources(
+	story: ForkableStory,
+	queryIds: Set<string>,
+): Promise<Record<string, StoryQuerySource>> {
+	if (!story.chatId || queryIds.size === 0) {
+		return {};
+	}
+	const queries = await executeSqlQueries.getLatestSqlQueriesByIds(story.chatId, queryIds);
+	return Object.fromEntries(Object.entries(queries).filter(([, query]) => !query.adminMode));
 }
 
 async function loadCachedQueryData(storyId: string, queryIds: Set<string>): Promise<StoryQueryDataMap> {

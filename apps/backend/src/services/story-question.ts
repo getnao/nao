@@ -5,6 +5,7 @@ import * as executeSqlQueries from '../queries/execute-sql.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import type { LinkedStory, QueryResult } from '../types/tools';
+import { buildQueryPart } from '../utils/chat-message-story';
 
 type MessageLike = Omit<UIMessage, 'id'>;
 
@@ -76,7 +77,7 @@ function runThisTurn(question: { queryResults: Map<string, QueryResult> }, query
 }
 
 function fromCurrentTurn(queryId: string, result: QueryResult): UIMessagePart {
-	return toQueryPart(
+	return buildQueryPart(
 		queryId,
 		{ sqlQuery: result.sqlQuery!, databaseId: result.databaseId, semanticQuery: result.semanticQuery },
 		result,
@@ -107,7 +108,7 @@ async function fromStoredQueriesOutdatedInStoryChat(
 		const query = sqlById[queryId];
 		const result = dataById[queryId];
 		const isOutdated = !isSameQuery(query, storyChatSqlById[queryId]);
-		return query && result && !query.adminMode && isOutdated ? [toQueryPart(queryId, query, result)] : [];
+		return query && result && !query.adminMode && isOutdated ? [buildQueryPart(queryId, query, result)] : [];
 	});
 }
 
@@ -117,39 +118,4 @@ function isSameQuery(query?: executeSqlQueries.StoredSqlQuery, other?: executeSq
 		query?.databaseId === other?.databaseId &&
 		JSON.stringify(query?.semanticQuery) === JSON.stringify(other?.semanticQuery)
 	);
-}
-
-/** A semantic query stays one in the story chat, so the story keeps compiling it with the current definitions. */
-function toQueryPart(
-	queryId: string,
-	query: Pick<executeSqlQueries.StoredSqlQuery, 'sqlQuery' | 'databaseId' | 'dialect' | 'semanticQuery'>,
-	result: { data: unknown[]; columns: string[] },
-): UIMessagePart {
-	const output = {
-		id: queryId,
-		data: result.data,
-		columns: result.columns,
-		row_count: result.data.length,
-		...(query.dialect && { dialect: query.dialect }),
-	};
-	const toolPart = query.semanticQuery
-		? {
-				type: 'tool-execute_semantic_query',
-				toolName: 'execute_semantic_query',
-				input: query.semanticQuery,
-				output: { ...output, compiled_sql: query.sqlQuery, database_id: query.databaseId },
-			}
-		: {
-				type: 'tool-execute_sql',
-				toolName: 'execute_sql',
-				input: { sql_query: query.sqlQuery, ...(query.databaseId && { database_id: query.databaseId }) },
-				output,
-			};
-	return {
-		...toolPart,
-		toolCallId: crypto.randomUUID(),
-		state: 'output-available',
-		providerExecuted: false,
-		errorText: undefined,
-	} as unknown as UIMessagePart;
 }
