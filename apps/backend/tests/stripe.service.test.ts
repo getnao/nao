@@ -672,7 +672,10 @@ describe('cloud Checkout', () => {
 			metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
 		});
 		expect(params.metadata).not.toHaveProperty('nao_trial_end');
-		expect(options.idempotencyKey).toBe('cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:immediate');
+		expect(params.custom_text?.submit?.message).toBe(
+			'Your free trial has not started. By subscribing now, your subscription starts when you confirm and the recurring price shown, including any promotion code discount, is charged today.',
+		);
+		expect(options.idempotencyKey).toBe('cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:before-trial');
 	});
 
 	it('starts the same EUR trial with the configured yearly Price when selected', async () => {

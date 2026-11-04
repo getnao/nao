@@ -180,13 +180,19 @@ export async function createCloudCheckoutSession(input: {
 		trialEnd !== undefined &&
 		trialEnd.getTime() >= Date.now() + MIN_CHECKOUT_TRIAL_MS + CHECKOUT_TRIAL_CLOCK_SKEW_MS;
 	const sourceTrialEnd = preservesTrial ? stripeTimestamp(trialEnd) : null;
+	const startsBeforeTrial = trialEnd === undefined;
 	return createSubscriptionCheckoutSession({
 		...input,
 		trialEnd: preservesTrial ? trialEnd : undefined,
 		currency: input.currency ?? 'usd',
 		kind: 'initial',
-		operationKey: sourceTrialEnd === null ? 'immediate' : `trial-${sourceTrialEnd}-${sourceTrialEnd}`,
+		operationKey: startsBeforeTrial
+			? 'before-trial'
+			: sourceTrialEnd === null
+				? 'immediate'
+				: `trial-${sourceTrialEnd}-${sourceTrialEnd}`,
 		effectiveTrialEnd: sourceTrialEnd,
+		startsBeforeTrial,
 	});
 }
 
@@ -224,6 +230,7 @@ async function createSubscriptionCheckoutSession(input: {
 	operationKey: string;
 	trialEnd?: Date;
 	effectiveTrialEnd?: number | null;
+	startsBeforeTrial?: boolean;
 }): Promise<string> {
 	const plan = CLOUD_BILLING_PLANS[input.billingInterval];
 	const sourceTrialEnd = input.trialEnd ? stripeTimestamp(input.trialEnd) : null;
@@ -232,7 +239,9 @@ async function createSubscriptionCheckoutSession(input: {
 		effectiveTrialEnd !== null
 			? checkoutTrialMessage(new Date(effectiveTrialEnd * 1_000))
 			: input.kind === 'initial'
-				? checkoutImmediateStartMessage()
+				? input.startsBeforeTrial
+					? checkoutBeforeTrialMessage()
+					: checkoutImmediateStartMessage()
 				: null;
 	const matchesCheckout = (session: Stripe.Checkout.Session) =>
 		session.mode === 'subscription' &&
@@ -882,6 +891,10 @@ function billingPageUrl(): string {
 function checkoutTrialMessage(trialEnd: Date): string {
 	const date = new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(trialEnd);
 	return `Nothing is charged today. Your recurring price, including any promotion code discount, starts when your trial ends on ${date}.`;
+}
+
+function checkoutBeforeTrialMessage(): string {
+	return 'Your free trial has not started. By subscribing now, your subscription starts when you confirm and the recurring price shown, including any promotion code discount, is charged today.';
 }
 
 function checkoutImmediateStartMessage(): string {
