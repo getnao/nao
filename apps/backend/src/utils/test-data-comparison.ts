@@ -31,6 +31,10 @@ const US_NUMBER = /^\d{1,3}(,\d{3})+(\.\d+)?$/;
 const PLAIN_NUMBER = /^\d+(\.\d+)?$/;
 const EU_NUMBER = /^[\d.]+,\d+$/;
 const EU_THOUSANDS = /^\d{1,3}(\.\d{3})+$/;
+const UTC_TIMESTAMP = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2})(:\d{2})?(\.\d+)?)?\s*(?:Z|UTC|[+-]00:?00)?$/;
+const MIDNIGHT = '00:00:00';
+const MONTH = /^\d{4}-\d{2}$/;
+const MONTH_START = /^\d{4}-\d{2}-01$/;
 
 /**
  * Compares the agent answer to the expected rows the way `nao test` always has: column order,
@@ -72,8 +76,7 @@ export function compareTestData(
 	}
 
 	const sortedColumns = [...columns].sort();
-	const actualTable = normalizeTable(actual, sortedColumns, tolerances.decimals);
-	const expectedTable = normalizeTable(expected, sortedColumns, tolerances.decimals);
+	const { actualTable, expectedTable } = normalizeTables(actual, expected, sortedColumns, tolerances.decimals);
 
 	if (areTablesEqual(actualTable, expectedTable)) {
 		return passed('match');
@@ -111,8 +114,7 @@ export function buildTestDataDiff(
 
 	const sortedColumns = [...columns].sort();
 	const displayOrder = columns.map((column) => sortedColumns.indexOf(column));
-	const actualTable = normalizeTable(actual, sortedColumns, tolerances.decimals);
-	const expectedTable = normalizeTable(expected, sortedColumns, tolerances.decimals);
+	const { actualTable, expectedTable } = normalizeTables(actual, expected, sortedColumns, tolerances.decimals);
 	const toDisplayOrder = <T>(values: T[]) => displayOrder.map((index) => values[index]);
 	const pairs =
 		actualTable.rows.length === expectedTable.rows.length
@@ -253,13 +255,24 @@ function collectColumns(rows: Record<string, unknown>[]): string[] {
 	return [...columns];
 }
 
-function normalizeTable(records: Record<string, unknown>[], columns: string[], decimals: number): NormalizedTable {
-	const { kinds, rows } = normalizeRows(records, columns, decimals);
-	return { kinds, rows: rows.sort(compareRows) };
+function normalizeTables(
+	actual: Record<string, unknown>[],
+	expected: Record<string, unknown>[],
+	columns: string[],
+	decimals: number,
+): { actualTable: NormalizedTable; expectedTable: NormalizedTable } {
+	const actualTable = normalizeRows(actual, columns, decimals);
+	const expectedTable = normalizeRows(expected, columns, decimals);
+	columns.forEach((_, index) => alignMonthColumn(actualTable.rows, expectedTable.rows, index));
+	return { actualTable: sortTable(actualTable), expectedTable: sortTable(expectedTable) };
+}
+
+function sortTable({ kinds, rows }: NormalizedTable): NormalizedTable {
+	return { kinds, rows: [...rows].sort(compareRows) };
 }
 
 function normalizeRows(records: Record<string, unknown>[], columns: string[], decimals: number): NormalizedTable {
-	const rawRows = records.map((record) => columns.map((column) => toCell(normalizeFormattedNumber(record[column]))));
+	const rawRows = records.map((record) => columns.map((column) => normalizeValue(record[column])));
 	const kinds = columns.map((_, index) => inferColumnKind(rawRows.map((row) => row[index])));
 	const roundedRows = rawRows.map((row) =>
 		row.map((cell, index) =>
@@ -267,6 +280,59 @@ function normalizeRows(records: Record<string, unknown>[], columns: string[], de
 		),
 	);
 	return { kinds, rows: roundedRows };
+}
+
+function normalizeValue(value: unknown): Cell {
+	const cell = toCell(normalizeFormattedNumber(value));
+	return typeof cell === 'string' ? normalizeTimestamp(cell) : cell;
+}
+
+/**
+ * Writes UTC dates and timestamps one way (`2018-04-01 00:00:00.000Z` → `2018-04-01`), so a date
+ * returned as a midnight timestamp equals the same date returned as a plain date.
+ */
+function normalizeTimestamp(value: string): string {
+	const match = UTC_TIMESTAMP.exec(value.trim());
+	if (!match) {
+		return value;
+	}
+	const [, date, hoursAndMinutes, seconds = ':00', fraction = ''] = match;
+	if (!hoursAndMinutes) {
+		return date;
+	}
+	const time = `${hoursAndMinutes}${seconds}`;
+	const significantFraction = fraction.replace(/\.?0+$/, '');
+	if (time === MIDNIGHT && !significantFraction) {
+		return date;
+	}
+	return `${date}T${time}${significantFraction}`;
+}
+
+/**
+ * A month is often returned as its first day (`2018-04-01`) on one side and as `2018-04` on the
+ * other: when a column holds only months on one side and only first days of months on the other,
+ * the first days are truncated to their month.
+ */
+function alignMonthColumn(actual: Cell[][], expected: Cell[][], index: number): void {
+	if (holdsOnly(actual, index, MONTH) && holdsOnly(expected, index, MONTH_START)) {
+		truncateToMonth(expected, index);
+	} else if (holdsOnly(expected, index, MONTH) && holdsOnly(actual, index, MONTH_START)) {
+		truncateToMonth(actual, index);
+	}
+}
+
+function holdsOnly(rows: Cell[][], index: number, pattern: RegExp): boolean {
+	const present = rows.map((row) => row[index]).filter((cell) => cell !== null);
+	return present.length > 0 && present.every((cell) => typeof cell === 'string' && pattern.test(cell));
+}
+
+function truncateToMonth(rows: Cell[][], index: number): void {
+	for (const row of rows) {
+		const cell = row[index];
+		if (typeof cell === 'string') {
+			row[index] = cell.slice(0, 7);
+		}
+	}
 }
 
 function toCell(value: unknown): Cell {

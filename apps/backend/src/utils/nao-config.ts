@@ -273,9 +273,14 @@ export function extractConfiguredTestSettings(projectFolder: string): Configured
 
 	const models = parseTestModels(testConfig.models, errors);
 	const attempts = testConfig.k ?? 1;
-	const isValidAttempts = typeof attempts === 'number' && Number.isInteger(attempts) && attempts >= 1;
+	const isValidAttempts = isPositiveInteger(attempts);
 	if (!isValidAttempts) {
 		errors.push(`test.k must be an integer of at least 1, got ${JSON.stringify(attempts)}.`);
+	}
+	const threads = testConfig.threads ?? null;
+	const isValidThreads = threads === null || isPositiveInteger(threads);
+	if (!isValidThreads) {
+		errors.push(`test.threads must be an integer of at least 1, got ${JSON.stringify(threads)}.`);
 	}
 	const tolerances = testComparisonTolerancesSchema.safeParse(testConfig.comparison ?? {});
 	if (!tolerances.success) {
@@ -285,9 +290,14 @@ export function extractConfiguredTestSettings(projectFolder: string): Configured
 	return {
 		models,
 		attempts: isValidAttempts ? attempts : 1,
+		threads: isValidThreads ? threads : null,
 		tolerances: tolerances.success ? tolerances.data : DEFAULT_TEST_COMPARISON_TOLERANCES,
 		errors,
 	};
+}
+
+function isPositiveInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 1;
 }
 
 function parseTestModels(models: unknown, errors: string[]): LlmSelectedModel[] | null {

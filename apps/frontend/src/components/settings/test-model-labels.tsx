@@ -1,7 +1,7 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import type { TestModel } from '@nao/backend/test-run';
 
 import type { TestModelColor, TestRunResult } from '@/components/settings/test-run-types';
-import { getTestModelColor } from '@/components/settings/test-run-types';
+import { formatTestModel, getTestModelColor } from '@/components/settings/test-run-types';
 import { cn } from '@/lib/utils';
 
 export function ModelName({
@@ -9,14 +9,14 @@ export function ModelName({
 	model,
 	isBold = false,
 }: {
-	models: LlmSelectedModel[];
-	model: LlmSelectedModel;
+	models: TestModel[];
+	model: TestModel;
 	isBold?: boolean;
 }) {
 	return (
 		<span className='flex min-w-0 items-center gap-1.5'>
 			<ModelDot color={getTestModelColor(models, model)} />
-			<span className={cn('truncate', isBold && 'font-medium')}>{model.modelId}</span>
+			<span className={cn('truncate', isBold && 'font-medium')}>{formatTestModel(model)}</span>
 		</span>
 	);
 }

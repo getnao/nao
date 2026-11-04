@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
 	runTestInChat: vi.fn(),
 	evaluateTestAttempt: vi.fn(),
 	resolveDefaultChatModel: vi.fn(),
+	getProjectAvailableModels: vi.fn(),
+	resolveModelInferenceSettings: vi.fn(),
 	createDraftContextSnapshot: vi.fn(),
 	removeContextSnapshot: vi.fn(),
 }));
@@ -43,7 +45,11 @@ vi.mock('../src/services/test-agent.service', () => ({
 vi.mock('../src/services/test-evaluation.service', () => ({ evaluateTestAttempt: mocks.evaluateTestAttempt }));
 vi.mock('../src/services/mcp', () => ({ mcpService: { initializeMcpState: vi.fn() } }));
 vi.mock('../src/services/skill', () => ({ skillService: { initializeSkills: vi.fn() } }));
-vi.mock('../src/utils/llm', () => ({ resolveDefaultChatModel: mocks.resolveDefaultChatModel }));
+vi.mock('../src/utils/llm', () => ({
+	resolveDefaultChatModel: mocks.resolveDefaultChatModel,
+	getProjectAvailableModels: mocks.getProjectAvailableModels,
+	resolveModelInferenceSettings: mocks.resolveModelInferenceSettings,
+}));
 vi.mock('../src/utils/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 vi.mock('../src/services/draft-context.service', () => ({
 	createDraftContextSnapshot: mocks.createDraftContextSnapshot,
@@ -51,9 +57,11 @@ vi.mock('../src/services/draft-context.service', () => ({
 	removeContextSnapshotsOlderThan: vi.fn(),
 }));
 
+import { getModelReasoningEfforts } from '../src/agents/provider-meta';
 import type { DraftSource } from '../src/services/draft-context.service';
 import {
 	cancelTestRun,
+	listDefaultReasoningEfforts,
 	startChangesRun,
 	startComparisonRun,
 	startTestRun,
@@ -74,6 +82,7 @@ beforeEach(() => {
 	mocks.createRunUnlessActive.mockImplementation(async (input) => ({ id: 'run-1', status: 'queued', ...input }));
 	mocks.recordResultWhileRunning.mockResolvedValue(true);
 	mocks.markRunRunning.mockResolvedValue(true);
+	mocks.recordHeartbeat.mockResolvedValue(true);
 	mocks.getRunStatus.mockResolvedValue('running');
 	mocks.resolveDefaultChatModel.mockResolvedValue(DEFAULT_MODEL);
 	mocks.createChat.mockImplementation(async () => [{ id: `chat-${++chatCount}` }]);
@@ -99,6 +108,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	fs.rmSync(projectFolder, { recursive: true, force: true });
 });
 
@@ -168,7 +178,7 @@ describe('startTestRun', () => {
 		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
 
 		expect(mocks.runTestInChat.mock.calls.map((call) => call[2])).toEqual([...models]);
-		expect(mocks.evaluateTestAttempt.mock.calls.map((call) => call[0].modelSelection)).toEqual([
+		expect(mocks.evaluateTestAttempt.mock.calls.map((call) => call[0].verificationModel)).toEqual([
 			DEFAULT_MODEL,
 			DEFAULT_MODEL,
 		]);
@@ -181,7 +191,24 @@ describe('startTestRun', () => {
 		await startTestRun({ projectId: 'project-1', userId: 'user-1', models: [model] });
 		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
 
-		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(expect.objectContaining({ modelSelection: model }));
+		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(expect.objectContaining({ verificationModel: model }));
+	});
+
+	it('lets a single model verify its own answers at the reasoning effort picked for it', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?\nsql: select 1');
+		const model = { provider: 'anthropic', modelId: 'claude-opus-5-5' } as const;
+		const [effort] = getModelReasoningEfforts(model.provider, model.modelId);
+
+		await startTestRun({
+			projectId: 'project-1',
+			userId: 'user-1',
+			models: [{ ...model, reasoningEfforts: [effort] }],
+		});
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ verificationModel: { ...model, reasoningEffort: effort } }),
+		);
 	});
 
 	it('keeps the queries the agent ran for a test without reference SQL', async () => {
@@ -213,6 +240,43 @@ describe('startTestRun', () => {
 				}),
 			}),
 		);
+	});
+
+	it('runs a model once per reasoning effort picked, from the lowest, verified by the default model', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?\nsql: select 1');
+		const model = { provider: 'anthropic', modelId: 'claude-opus-5-5' } as const;
+		const efforts = getModelReasoningEfforts(model.provider, model.modelId);
+		const variants = efforts.map((reasoningEffort) => ({ ...model, reasoningEffort }));
+
+		const run = await startTestRun({
+			projectId: 'project-1',
+			userId: 'user-1',
+			models: [{ ...model, reasoningEfforts: [...efforts].reverse() }],
+		});
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(efforts.length).toBeGreaterThan(1);
+		expect(run.models).toEqual(variants);
+		expect(mocks.runTestInChat.mock.calls.map((call) => call[2])).toEqual(variants);
+		expect(mocks.recordResultWhileRunning.mock.calls.map((call) => call[0].reasoningEffort)).toEqual(efforts);
+		expect(mocks.evaluateTestAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ verificationModel: DEFAULT_MODEL }),
+		);
+	});
+
+	it('runs a model without reasoning efforts once, even when picked with some', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		const model = { provider: 'openai', modelId: 'gpt-4.1' } as const;
+
+		const run = await startTestRun({
+			projectId: 'project-1',
+			userId: 'user-1',
+			models: [{ ...model, reasoningEfforts: ['high'] }],
+		});
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(run.models).toEqual([model]);
+		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: null }));
 	});
 
 	it('records a failed attempt when the agent errors, without failing the run', async () => {
@@ -496,6 +560,47 @@ describe('cancelTestRun', () => {
 		finishAttempt();
 		await vi.waitFor(() => expect(mocks.recordResultWhileRunning).toHaveBeenCalled());
 		expect(mocks.evaluateTestAttempt).not.toHaveBeenCalled();
+	});
+
+	it('aborts the attempts in flight once the heartbeat finds the run cancelled by another replica', async () => {
+		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		mocks.recordHeartbeat.mockResolvedValue(false);
+		let abortSignal: AbortSignal | undefined;
+		let finishAttempt: () => void = () => {};
+		mocks.runTestInChat.mockImplementation(
+			(_chat, _messages, _model, options: { abortSignal: AbortSignal }) =>
+				new Promise((resolve) => {
+					abortSignal = options.abortSignal;
+					finishAttempt = () => resolve({ text: '', usage: {}, cost: {}, durationMs: 0 });
+				}),
+		);
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
+		await vi.waitFor(() => expect(mocks.runTestInChat).toHaveBeenCalled());
+		await vi.runOnlyPendingTimersAsync();
+
+		expect(abortSignal?.aborted).toBe(true);
+		finishAttempt();
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+	});
+});
+
+describe('listDefaultReasoningEfforts', () => {
+	it('gives each model with reasoning efforts the effort its settings run it at', async () => {
+		mocks.getProjectAvailableModels.mockResolvedValue([
+			{ provider: 'anthropic', modelId: 'claude-opus-5-5' },
+			{ provider: 'anthropic', modelId: 'claude-sonnet-5' },
+			{ provider: 'openai', modelId: 'gpt-4.1' },
+		]);
+		mocks.resolveModelInferenceSettings.mockImplementation(async (_projectId, _provider, modelId) =>
+			modelId === 'claude-opus-5-5' ? { reasoningEffort: 'high' } : {},
+		);
+
+		expect(await listDefaultReasoningEfforts('project-1')).toEqual([
+			{ provider: 'anthropic', modelId: 'claude-opus-5-5', reasoningEffort: 'high' },
+			{ provider: 'anthropic', modelId: 'claude-sonnet-5', reasoningEffort: null },
+		]);
 	});
 });
 

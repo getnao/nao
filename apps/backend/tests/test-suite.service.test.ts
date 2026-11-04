@@ -182,15 +182,16 @@ describe('extractConfiguredTestSettings', () => {
 		expect(extractConfiguredTestSettings(projectFolder)).toEqual({
 			models: null,
 			attempts: 1,
+			threads: null,
 			tolerances: { rtol: 1e-5, atol: 1e-8, decimals: 2 },
 			errors: [],
 		});
 	});
 
-	it('reads models, k and comparison tolerances', () => {
+	it('reads models, k, threads and comparison tolerances', () => {
 		fs.writeFileSync(
 			path.join(projectFolder, 'nao_config.yaml'),
-			'test:\n  models: [openai:gpt-4.1, anthropic:claude-sonnet-4-5]\n  k: 3\n  comparison:\n    decimals: 4',
+			'test:\n  models: [openai:gpt-4.1, anthropic:claude-sonnet-4-5]\n  k: 3\n  threads: 8\n  comparison:\n    decimals: 4',
 		);
 
 		expect(extractConfiguredTestSettings(projectFolder)).toEqual({
@@ -199,6 +200,7 @@ describe('extractConfiguredTestSettings', () => {
 				{ provider: 'anthropic', modelId: 'claude-sonnet-4-5' },
 			],
 			attempts: 3,
+			threads: 8,
 			tolerances: { rtol: 1e-5, atol: 1e-8, decimals: 4 },
 			errors: [],
 		});
@@ -207,7 +209,7 @@ describe('extractConfiguredTestSettings', () => {
 	it('reports invalid values instead of falling back to the defaults', () => {
 		fs.writeFileSync(
 			path.join(projectFolder, 'nao_config.yaml'),
-			'test:\n  models: [openai:gpt-4.1, unknown:model, nocolon]\n  k: 0\n  comparison:\n    decimals: -1',
+			'test:\n  models: [openai:gpt-4.1, unknown:model, nocolon]\n  k: 0\n  threads: 0\n  comparison:\n    decimals: -1',
 		);
 
 		const settings = extractConfiguredTestSettings(projectFolder);
@@ -217,6 +219,7 @@ describe('extractConfiguredTestSettings', () => {
 			'test.models has an invalid entry "unknown:model", expected \'provider:model_id\'.',
 			'test.models has an invalid entry "nocolon", expected \'provider:model_id\'.',
 			'test.k must be an integer of at least 1, got 0.',
+			'test.threads must be an integer of at least 1, got 0.',
 			expect.stringContaining('test.comparison is invalid'),
 		]);
 	});

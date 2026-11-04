@@ -11,6 +11,7 @@ import {
 	getTestHistory,
 	listRunsWithTestTotals,
 } from '../src/services/test-history.service';
+import type { ActiveEffort } from '../src/types/llm';
 import {
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
 	type TestContextVariant,
@@ -18,6 +19,8 @@ import {
 	type TestRunStatus,
 	type TestRunTrigger,
 } from '../src/types/test-run';
+
+const GPT_4_1_OUTCOME = { provider: 'openai', modelId: 'gpt-4.1', reasoningEffort: null, runIndex: 0, colorIndex: 0 };
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -84,7 +87,7 @@ describe('getLatestOutcomesByTest', () => {
 				runCreatedAt: LATEST_RUN_AT,
 				passedAttempts: 1,
 				totalAttempts: 2,
-				models: [{ provider: 'openai', modelId: 'gpt-4.1', runIndex: 0, passedAttempts: 1, totalAttempts: 2 }],
+				models: [{ ...GPT_4_1_OUTCOME, passedAttempts: 1, totalAttempts: 2 }],
 				isOutdated: false,
 			},
 			'orders.yml': {
@@ -92,7 +95,7 @@ describe('getLatestOutcomesByTest', () => {
 				runCreatedAt: PREVIOUS_RUN_AT,
 				passedAttempts: 1,
 				totalAttempts: 1,
-				models: [{ provider: 'openai', modelId: 'gpt-4.1', runIndex: 0, passedAttempts: 1, totalAttempts: 1 }],
+				models: [{ ...GPT_4_1_OUTCOME, passedAttempts: 1, totalAttempts: 1 }],
 				isOutdated: false,
 			},
 		});
@@ -150,6 +153,24 @@ describe('getLatestOutcomesByTest with several models', () => {
 				},
 			],
 		});
+	});
+});
+
+describe('getLatestOutcomesByTest with several reasoning efforts', () => {
+	it('splits the outcome by effort, where the efforts of a model share its color', async () => {
+		await insertModelRun('run-1', LATEST_RUN_AT, [
+			['revenue.yml', 'claude-opus-4-7', false, 'low'],
+			['revenue.yml', 'claude-opus-4-7', true, 'high'],
+			['revenue.yml', 'claude-haiku-4-5', true],
+		]);
+
+		const outcomes = await getLatestOutcomesByTest(PROJECT_ID, [testDefinition('revenue.yml', 'hash')]);
+
+		expect(outcomes['revenue.yml'].models).toMatchObject([
+			{ modelId: 'claude-opus-4-7', reasoningEffort: 'low', runIndex: 0, colorIndex: 0, passedAttempts: 0 },
+			{ modelId: 'claude-opus-4-7', reasoningEffort: 'high', runIndex: 1, colorIndex: 0, passedAttempts: 1 },
+			{ modelId: 'claude-haiku-4-5', reasoningEffort: null, runIndex: 2, colorIndex: 1, passedAttempts: 1 },
+		]);
 	});
 });
 
@@ -427,10 +448,12 @@ async function insertRun(
 async function insertModelRun(
 	id: string,
 	createdAt: Date,
-	results: [testPath: string, modelId: string, passed: boolean][],
+	results: [testPath: string, modelId: string, passed: boolean, reasoningEffort?: ActiveEffort][],
 	status: TestRunStatus = 'completed',
 ) {
-	const modelIds = [...new Set(results.map(([, modelId]) => modelId))];
+	const modelKeys = [
+		...new Set(results.map(([, modelId, , reasoningEffort]) => `${modelId}:${reasoningEffort ?? ''}`)),
+	];
 	const [run] = await db
 		.insert(s.testRun)
 		.values({
@@ -439,7 +462,14 @@ async function insertModelRun(
 			status,
 			trigger: 'manual',
 			createdAt,
-			models: modelIds.map((modelId) => ({ provider: 'anthropic' as const, modelId })),
+			models: modelKeys.map((key) => {
+				const [modelId, reasoningEffort] = key.split(':');
+				return {
+					provider: 'anthropic' as const,
+					modelId,
+					...(reasoningEffort && { reasoningEffort: reasoningEffort as ActiveEffort }),
+				};
+			}),
 			selection: [...new Set(results.map(([testPath]) => testPath))],
 			totalAttempts: results.length,
 		})
@@ -447,13 +477,14 @@ async function insertModelRun(
 	const inserted = await db
 		.insert(s.testRunResult)
 		.values(
-			results.map(([testPath, modelId, passed], index) => ({
+			results.map(([testPath, modelId, passed, reasoningEffort], index) => ({
 				runId: id,
 				testPath,
 				testName: testPath,
 				testHash: 'hash',
 				llmProvider: 'anthropic' as const,
 				llmModelId: modelId,
+				reasoningEffort: reasoningEffort ?? null,
 				attempt: index + 1,
 				passed,
 				message: passed ? 'match' : 'values differ',

@@ -58,6 +58,19 @@ describe('TestDataDiffView', () => {
 		expect(readColumn(0)).toEqual(['jan', 'feb', 'mar', 'may', 'apr']);
 	});
 
+	it('sizes each column to its header and its longest value, both sides of a changed one', () => {
+		const changedDate = {
+			expected: ['2018-04-01T00:00:00', 1],
+			actual: ['2018-04-01', 1],
+			statuses: ['differ', 'match'],
+		};
+		render(<TestDataDiffView diff={{ ...DIFF, rows: [changedDate] } as TestDataDiff} sides={SIDES} />);
+
+		const [month, total] = screen.getAllByRole('columnheader').slice(1, 3) as HTMLElement[];
+		expect(parseFloat(month.style.width)).toBeGreaterThan(200);
+		expect(parseFloat(total.style.width)).toBeLessThan(80);
+	});
+
 	it('says when neither side has rows', () => {
 		render(<TestDataDiffView diff={{ ...DIFF, extraColumns: [], rows: [] }} sides={SIDES} />);
 

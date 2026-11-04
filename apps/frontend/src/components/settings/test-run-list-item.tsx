@@ -1,10 +1,17 @@
 import { isTestFileName } from '@nao/shared/test-paths';
 import { GitBranch, History } from 'lucide-react';
+import type { TestModel } from '@nao/backend/test-run';
 
 import type { TestRunSummary } from '@/components/settings/test-run-types';
 import type { Tone } from '@/components/settings/test-run-verdict';
 import { CHANGES_FALLBACK, TONE_LABELS, ToneIcon } from '@/components/settings/test-run-labels';
-import { getSingleRunVariant, isActiveRun } from '@/components/settings/test-run-types';
+import {
+	countDistinctModels,
+	formatTestModel,
+	getSingleRunVariant,
+	describeReasoningEfforts,
+	isActiveRun,
+} from '@/components/settings/test-run-types';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { getTimeAgo } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
@@ -247,15 +254,25 @@ function describeBenchmarkResult(run: RunListSource): RunListItemView['result'] 
 	}
 	if (best.testCount === 1) {
 		const passingModels = models.filter((model) => model.passedTests === 1).length;
+		const noun = countDistinctModels(models) === models.length ? 'models' : 'efforts';
 		return {
-			label: `${passingModels}/${models.length} models`,
-			tooltip: `Passes on ${passingModels} of ${models.length} models`,
+			label: `${passingModels}/${models.length} ${noun}`,
+			tooltip: `Passes on ${passingModels} of ${models.length} ${noun}`,
 		};
 	}
 	return {
 		label: `best ${best.passedTests}/${best.testCount}`,
-		tooltip: `Best of ${models.length} models: ${best.modelId} passed ${best.passedTests} of ${best.testCount} tests`,
+		tooltip: `Best of ${describeModelCount(models)}: ${formatTestModel(best)} passed ${best.passedTests} of ${best.testCount} tests`,
 	};
+}
+
+/** How many models a benchmark tried, counting the efforts of one model as one model. */
+function describeModelCount(models: TestModel[]): string {
+	const distinctModels = countDistinctModels(models);
+	if (distinctModels === models.length) {
+		return `${distinctModels} models`;
+	}
+	return distinctModels === 1 ? `${models.length} efforts` : `${distinctModels} models at ${models.length} efforts`;
 }
 
 function describeSingleModelResult(run: RunListSource, tone: Tone): RunListItemView['result'] {
@@ -277,14 +294,16 @@ function describeSingleModelResult(run: RunListSource, tone: Tone): RunListItemV
 
 function listRunChips(run: RunListSource, mainBranch: string): RunListChip[] {
 	const chips: RunListChip[] = [describeBranchChip(run, mainBranch)];
-	if (run.trigger === 'draft') {
-		chips.push({ label: 'edited', isBranch: false });
+	const distinctModels = countDistinctModels(run.models);
+	if (distinctModels > 1) {
+		chips.push({ label: `${distinctModels} models`, isBranch: false });
 	}
-	if (run.models.length > 1) {
-		chips.push({ label: `${run.models.length} models`, isBranch: false });
+	const efforts = describeReasoningEfforts(run.models);
+	if (efforts) {
+		chips.push({ label: efforts, isBranch: false });
 	}
 	if (run.attempts > 1) {
-		chips.push({ label: `asked ${run.attempts}×`, isBranch: false });
+		chips.push({ label: `${run.attempts}×`, isBranch: false });
 	}
 	return chips;
 }

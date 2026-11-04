@@ -44,7 +44,7 @@ describe('describeRunListItem', () => {
 
 		expect(view.tone).toBe('mixed');
 		expect(view.result).toEqual({ label: 'flaky', tooltip: 'Passed 2 of 3 times' });
-		expect(view.chips.map((chip) => chip.label)).toEqual(['master', 'asked 3×']);
+		expect(view.chips.map((chip) => chip.label)).toEqual(['master', '3×']);
 	});
 
 	it('judges a run of several models on its best one', () => {
@@ -65,6 +65,24 @@ describe('describeRunListItem', () => {
 			tooltip: 'Best of 2 models: claude-sonnet-5 passed 3 of 3 tests',
 		});
 		expect(view.chips.map((chip) => chip.label)).toEqual(['master', '2 models']);
+	});
+
+	it('counts the efforts of a model as one model, and names the best effort', () => {
+		const low = { ...SONNET, reasoningEffort: 'low' };
+		const high = { ...SONNET, reasoningEffort: 'high' };
+		const view = describeRunListItem(
+			run({
+				models: [low, high],
+				production: totals({ testCount: 3, passedTests: 1 }, [
+					{ ...low, ...totals({ testCount: 3, passedTests: 1 }) },
+					{ ...high, ...totals({ testCount: 3, passedTests: 3 }) },
+				]),
+			}),
+			CONTEXT,
+		);
+
+		expect(view.result?.tooltip).toBe('Best of 2 efforts: claude-sonnet-5 · high passed 3 of 3 tests');
+		expect(view.chips.map((chip) => chip.label)).toEqual(['master', '2 efforts']);
 	});
 
 	it('compares the tests that pass on main with the ones that pass with the changes', () => {
@@ -120,15 +138,6 @@ describe('describeRunListItem', () => {
 		expect(describeRunListItem(onBranch, CONTEXT).tone).toBe('pass');
 	});
 
-	it('marks a test run as it was in the editor', () => {
-		const view = describeRunListItem(
-			run({ trigger: 'draft', selection: ['revenue.yml'], production: totals({ testCount: 1, passedTests: 0 }) }),
-			CONTEXT,
-		);
-
-		expect(view.chips.map((chip) => chip.label)).toEqual(['master', 'edited']);
-	});
-
 	it('shows the progress of a running run', () => {
 		const view = describeRunListItem(run({ status: 'running', completedAttempts: 3, totalAttempts: 12 }), CONTEXT);
 
@@ -155,7 +164,7 @@ function run(overrides: {
 	status?: TestRunSummary['status'];
 	trigger?: TestRunSummary['trigger'];
 	selection?: string[];
-	models?: { provider: string; modelId: string }[];
+	models?: { provider: string; modelId: string; reasoningEffort?: string }[];
 	attempts?: number;
 	completedAttempts?: number;
 	totalAttempts?: number;
