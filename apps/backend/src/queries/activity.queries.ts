@@ -1,4 +1,4 @@
-import { aliasedTable, and, desc, eq, inArray, lte, ne, or, sql } from 'drizzle-orm';
+import { aliasedTable, and, desc, eq, inArray, lte, ne, notExists, or, sql } from 'drizzle-orm';
 
 import s, {
 	type ActivityTrigger,
@@ -9,8 +9,12 @@ import s, {
 	type StoryVisibility,
 } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { databaseNow } from './keyed-lock.queries';
 
 export const storyRefreshJobUniqueKey = (storyId: string): string => `story-refresh:${storyId}`;
+
+export const SYNC_LEASE_MS = 2 * 60 * 1_000;
+export const PROJECT_SYNC_LEASE_KEY_PREFIX = 'project-sync:activity:';
 
 const ACTIVITY_RUN_STALE_MS = 30 * 60 * 1_000;
 const ACTIVITY_RUN_STALE_MESSAGE = 'Activity did not finish before the timeout.';
@@ -64,6 +68,76 @@ export const startContextPullActivity = async (projectId: string, userId: string
 		trigger: 'manual',
 		status: 'running',
 	});
+};
+
+export const startProjectSyncActivity = async (projectId: string, userId: string): Promise<DBActivity> => {
+	return createActivity({ projectId, userId, type: 'project.synced', trigger: 'manual', status: 'running' });
+};
+
+export const getLatestCompletedProjectSync = async (
+	projectId: string,
+): Promise<{ completedAt: Date; actorName: string | null } | null> => {
+	const [latest] = await db
+		.select({ completedAt: s.activity.completedAt, actorName: s.user.name })
+		.from(s.activity)
+		.leftJoin(s.user, eq(s.user.id, s.activity.userId))
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'project.synced'),
+				eq(s.activity.status, 'completed'),
+			),
+		)
+		.orderBy(desc(s.activity.completedAt))
+		.limit(1)
+		.execute();
+	return latest?.completedAt ? { completedAt: latest.completedAt, actorName: latest.actorName } : null;
+};
+
+export const getLatestUserProjectSync = async (projectId: string, userId: string): Promise<DBActivity | null> => {
+	const [latest] = await db
+		.select()
+		.from(s.activity)
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'project.synced'),
+				eq(s.activity.userId, userId),
+			),
+		)
+		.orderBy(desc(s.activity.startedAt))
+		.limit(1)
+		.execute();
+	return latest ?? null;
+};
+
+export const getRunningProjectSync = async (
+	projectId: string,
+	excludedUserId: string,
+): Promise<{ actorName: string | null } | null> => {
+	const [running] = await db
+		.select({ actorName: s.user.name })
+		.from(s.activity)
+		.leftJoin(s.user, eq(s.user.id, s.activity.userId))
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'project.synced'),
+				eq(s.activity.status, 'running'),
+				ne(s.activity.userId, excludedUserId),
+			),
+		)
+		.limit(1)
+		.execute();
+	return running ?? null;
+};
+
+export const cancelActivity = async (activityId: string): Promise<void> => {
+	await db
+		.update(s.activity)
+		.set({ status: 'cancelled', completedAt: new Date() })
+		.where(eq(s.activity.id, activityId))
+		.execute();
 };
 
 export const listContextPullActivities = async (projectId: string): Promise<ContextPullActivityRow[]> => {
@@ -166,10 +240,43 @@ export const failStaleActivities = async (): Promise<number> => {
 	const rows = await db
 		.update(s.activity)
 		.set({ status: 'failed', completedAt: new Date(), errorMessage: ACTIVITY_RUN_STALE_MESSAGE })
-		.where(and(eq(s.activity.status, 'running'), lte(s.activity.startedAt, cutoff)))
+		.where(
+			and(
+				eq(s.activity.status, 'running'),
+				lte(s.activity.startedAt, cutoff),
+				ne(s.activity.type, 'project.synced'),
+			),
+		)
 		.returning({ id: s.activity.id })
 		.execute();
+	await failInterruptedProjectSyncActivities();
 	return rows.length;
+};
+
+/** Syncs have no timeout, so a sync only counts as interrupted once its server stops renewing its lease. */
+export const failInterruptedProjectSyncActivities = async (): Promise<void> => {
+	await db
+		.update(s.activity)
+		.set({ status: 'failed', completedAt: new Date(), errorMessage: 'The server running this sync stopped.' })
+		.where(
+			and(
+				eq(s.activity.status, 'running'),
+				eq(s.activity.type, 'project.synced'),
+				lte(s.activity.startedAt, new Date(Date.now() - SYNC_LEASE_MS)),
+				notExists(
+					db
+						.select()
+						.from(s.keyedLock)
+						.where(
+							and(
+								eq(s.keyedLock.key, sql`${PROJECT_SYNC_LEASE_KEY_PREFIX} || ${s.activity.id}`),
+								sql`${s.keyedLock.expiresAt} > ${databaseNow}`,
+							),
+						),
+				),
+			),
+		)
+		.execute();
 };
 
 export const linkStoryScheduledJob = async (storyId: string, scheduledJobId: string | null): Promise<void> => {

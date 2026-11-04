@@ -7,6 +7,7 @@ import type { FileSelectionOptions } from '@/components/settings/file-tree';
 
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
+import { CloudSyncPanel } from '@/components/settings/cloud-sync';
 import { FileTree } from '@/components/settings/file-tree';
 import { FileViewer } from '@/components/settings/file-viewer';
 import {
@@ -23,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import {
 	consumeHistoricalContextDiffSearch,
@@ -47,6 +49,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/context-explorer
 function ContextExplorerPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const isCloud = useIsCloud();
 	const { path: initialPath, from: historicalFrom, to: historicalTo } = Route.useSearch();
 	const initialHistoricalDiff = getHistoricalContextDiffTarget({
 		path: initialPath,
@@ -279,6 +282,7 @@ function ContextExplorerPage() {
 										}
 									/>
 								</div>
+								{isCloud && <CloudSyncPanel />}
 								{!fileTree.data?.isManagedRepository && (
 									<ContextGitPanel
 										selectedDiffPath={selectedDiffPath}

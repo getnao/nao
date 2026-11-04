@@ -206,6 +206,7 @@ describe('context explorer worktree writes', () => {
 		const outside = path.join(root, 'outside.md');
 		fs.writeFileSync(outside, 'outside\n');
 		fs.symlinkSync(outside, path.join(worktreeProject, 'linked.md'));
+		fs.symlinkSync(root, path.join(worktreeProject, 'linked-dir'), 'dir');
 		fs.writeFileSync(path.join(worktreeProject, 'context.md'), Buffer.from([0xff, 0xfe]));
 
 		await expect(writeFileContent('../outside.md', 'changed\n', context.hash, access)).rejects.toMatchObject({
@@ -214,6 +215,11 @@ describe('context explorer worktree writes', () => {
 		await expect(writeFileContent('/linked.md', 'changed\n', context.hash, access)).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
+		await expect(
+			writeFileContent('/linked-dir/outside.md', 'changed\n', context.hash, access),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(readFileContent('/linked.md', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(readFileContent('/linked-dir/outside.md', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
 		await expect(
 			writeFileContent('/context.md', 'a'.repeat(MAX_CONTEXT_FILE_SIZE + 1), context.hash, access),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });

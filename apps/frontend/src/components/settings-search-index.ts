@@ -1596,4 +1596,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['files', 'context', 'documents', 'knowledge base'],
 		adminOrContextAdmin: true,
 	},
+	{
+		page: '/settings/context-explorer',
+		pageLabel: 'File Explorer',
+		section: 'Sync',
+		title: 'Sync',
+		description: "Refresh this project's configured databases, repositories, and documentation.",
+		keywords: ['cloud sync', 'nao sync', 'refresh sources'],
+		adminOrContextAdmin: true,
+	},
 ];

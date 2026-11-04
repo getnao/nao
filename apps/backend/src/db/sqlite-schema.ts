@@ -1454,6 +1454,7 @@ export const ACTIVITY_TYPES = [
 	'story.pinned',
 	'chat.shared',
 	'chat.pinned',
+	'project.synced',
 ] as const;
 
 export const ACTIVITY_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
