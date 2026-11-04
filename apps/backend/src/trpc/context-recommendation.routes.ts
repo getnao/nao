@@ -24,6 +24,7 @@ import {
 } from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
+import { assertRepositoryEditable } from '../services/managed-github-repository';
 import {
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
 	CONTEXT_RECOMMENDATION_STATUSES,
@@ -179,6 +180,7 @@ export const contextRecommendationRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertRepositoryEditable(ctx.project.path);
 			await crQueries.updateConfig(ctx.project.id, {
 				repoFullName: input.repoFullName,
 				repoProvider: input.repoFullName ? (input.provider ?? 'github') : null,

@@ -279,15 +279,17 @@ function ContextExplorerPage() {
 										}
 									/>
 								</div>
-								<ContextGitPanel
-									selectedDiffPath={selectedDiffPath}
-									hasUnsavedFileChanges={isViewerDirty}
-									onViewDiff={handleViewDiff}
-									onCommitted={handleChangesCommitted}
-									onDiscarded={handleLocalChangeDiscarded}
-									onDiscardAll={handleAllLocalChangesDiscarded}
-									onRepositoryChanged={handleRepositoryChanged}
-								/>
+								{!fileTree.data?.isManagedRepository && (
+									<ContextGitPanel
+										selectedDiffPath={selectedDiffPath}
+										hasUnsavedFileChanges={isViewerDirty}
+										onViewDiff={handleViewDiff}
+										onCommitted={handleChangesCommitted}
+										onDiscarded={handleLocalChangeDiscarded}
+										onDiscardAll={handleAllLocalChangesDiscarded}
+										onRepositoryChanged={handleRepositoryChanged}
+									/>
+								)}
 							</>
 						)}
 					</div>

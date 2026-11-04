@@ -1,9 +1,12 @@
+import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	ContextProjectResolutionError: class ContextProjectResolutionError extends Error {},
+	assertRepositoryEditable: vi.fn(),
 	completeActivity: vi.fn(),
 	connectContextRepository: vi.fn(),
+	disconnectContextRepository: vi.fn(),
 	failActivity: vi.fn(),
 	getContextFileDiff: vi.fn(),
 	getFileTree: vi.fn(),
@@ -17,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 	loggerWarn: vi.fn(),
 	pullLiveContext: vi.fn(),
 	readFileContent: vi.fn(),
+	readManagedGithubRepositoryFullName: vi.fn(),
 	resolveContextExplorerGit: vi.fn(),
 	resolveContextExplorerGitSafely: vi.fn(),
 	resolveContextRepository: vi.fn(),
@@ -84,7 +88,7 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 	createContextBranchAndCommit: vi.fn(),
 	discardAllContextChanges: vi.fn(),
 	discardContextFileChange: vi.fn(),
-	disconnectContextRepository: vi.fn(),
+	disconnectContextRepository: mocks.disconnectContextRepository,
 	getChangedContextFiles: vi.fn(),
 	getContextFileDiff: mocks.getContextFileDiff,
 	getContextRepositoryStatus: mocks.getContextRepositoryStatus,
@@ -100,6 +104,11 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 
 vi.mock('../src/services/context-explorer-pr.service', () => ({
 	pushContextExplorerBranch: vi.fn(),
+}));
+
+vi.mock('../src/services/managed-github-repository', () => ({
+	assertRepositoryEditable: mocks.assertRepositoryEditable,
+	readManagedGithubRepositoryFullName: mocks.readManagedGithubRepositoryFullName,
 }));
 
 vi.mock('../src/utils/context-repo', () => ({
@@ -120,6 +129,7 @@ describe('context explorer repository connection', () => {
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
 		mocks.getGithubToken.mockResolvedValue('github-token');
 		mocks.getGitlabToken.mockResolvedValue('gitlab-token');
+		mocks.readManagedGithubRepositoryFullName.mockResolvedValue(null);
 		mocks.resolveContextRepository.mockResolvedValue({
 			provider: 'github',
 		});
@@ -176,6 +186,28 @@ describe('context explorer repository connection', () => {
 		});
 		expect(mocks.connectContextRepository).not.toHaveBeenCalled();
 	});
+
+	it('refuses to change the repository of a nao-managed project', async () => {
+		mocks.assertRepositoryEditable.mockRejectedValue(new TRPCError({ code: 'FORBIDDEN', message: 'Managed' }));
+
+		await expect(
+			createCaller().connectRepository({ provider: 'github', repoFullName: 'someone/repo' }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(createCaller().disconnectRepository()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+		expect(mocks.assertRepositoryEditable).toHaveBeenCalledWith('/tmp/nao-project');
+		expect(mocks.connectContextRepository).not.toHaveBeenCalled();
+		expect(mocks.disconnectContextRepository).not.toHaveBeenCalled();
+	});
+
+	it('reports nao-managed projects only when no repository is connected', async () => {
+		mocks.readManagedGithubRepositoryFullName.mockResolvedValue('nao-org/nao-project');
+		mocks.getContextRepositoryStatus.mockResolvedValueOnce({ gitUnavailableReason: 'no-repo' });
+		mocks.getContextRepositoryStatus.mockResolvedValueOnce({ gitUnavailableReason: null });
+
+		await expect(createCaller().getRepositoryStatus()).resolves.toMatchObject({ isManagedRepository: true });
+		await expect(createCaller().getRepositoryStatus()).resolves.toMatchObject({ isManagedRepository: false });
+	});
 });
 
 describe('context explorer file access', () => {
@@ -186,20 +218,23 @@ describe('context explorer file access', () => {
 		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
 	});
 
-	it('returns the source file tree without resolving Git', async () => {
+	it("builds the file tree from the user's context access", async () => {
 		const entries = [
 			{ name: 'folder', path: '/folder', type: 'directory', children: [] },
 			{ name: 'nao_config.yaml', path: '/nao_config.yaml', type: 'file' },
 		];
+		const git = { status: 'unavailable', reason: 'git-unavailable', message: 'Unavailable', repo: null };
 		mocks.getFileTree.mockResolvedValue(entries);
-		mocks.resolveContextExplorerGit.mockRejectedValue(new Error('clone failed'));
-		mocks.resolveContextExplorerGitSafely.mockRejectedValue(new Error('clone failed'));
+		mocks.resolveContextExplorerGitSafely.mockResolvedValue(git);
 
-		await expect(createCaller().getFileTree()).resolves.toEqual({ entries });
+		await expect(createCaller().getFileTree()).resolves.toEqual({ entries, isManagedRepository: false });
 
-		expect(mocks.getFileTree).toHaveBeenCalledWith('/tmp/nao-project');
+		expect(mocks.getFileTree).toHaveBeenCalledWith({
+			projectFolder: '/tmp/nao-project',
+			git,
+			managedRepository: null,
+		});
 		expect(mocks.resolveContextExplorerGit).not.toHaveBeenCalled();
-		expect(mocks.resolveContextExplorerGitSafely).not.toHaveBeenCalled();
 	});
 
 	it('uses safe Git resolution for reads and strict resolution for writes', async () => {
