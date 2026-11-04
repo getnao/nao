@@ -28,12 +28,12 @@ import { ErrorMessage } from '@/components/ui/error-message';
 import { Input } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { MemberPicker } from '@/components/share-dialog';
 
 type IntegrationConfig = {
 	email?: {
@@ -1293,7 +1293,7 @@ function ToolRow({
 							{emailRecipientsError}
 						</p>
 					)}
-					<div className='grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-2'>
+					<div className='grid items-center gap-2'>
 						<Input
 							className='h-8'
 							placeholder='Override subject'
@@ -1968,52 +1968,6 @@ function isValidationIssue(value: unknown): value is { message: string } {
 	return typeof value === 'object' && value !== null && 'message' in value && typeof value.message === 'string';
 }
 
-function EmailRecipientPill({
-	recipient,
-	error,
-	disabled,
-	onRemove,
-}: {
-	recipient: string;
-	error: string | null;
-	disabled: boolean;
-	onRemove: () => void;
-}) {
-	const pill = (
-		<span
-			aria-invalid={Boolean(error)}
-			className={cn(
-				'inline-flex h-6 max-w-full items-center gap-1 rounded-full border pl-2 pr-1 text-xs',
-				error
-					? 'border-destructive/40 bg-destructive/10 text-destructive'
-					: 'border-border bg-muted/60 text-foreground',
-			)}
-		>
-			<span className='truncate'>{recipient}</span>
-			<button
-				type='button'
-				disabled={disabled}
-				onClick={onRemove}
-				aria-label={`Remove ${recipient}`}
-				className='inline-flex size-4 shrink-0 items-center justify-center rounded-full opacity-70 hover:bg-background/60 hover:opacity-100 disabled:opacity-40'
-			>
-				<X className='size-3' />
-			</button>
-		</span>
-	);
-
-	if (!error) {
-		return pill;
-	}
-
-	return (
-		<Tooltip delayDuration={150}>
-			<TooltipTrigger asChild>{pill}</TooltipTrigger>
-			<TooltipContent>{error}</TooltipContent>
-		</Tooltip>
-	);
-}
-
 function EmailRecipientsInput({
 	recipients,
 	error,
@@ -2025,90 +1979,47 @@ function EmailRecipientsInput({
 	disabled: boolean;
 	onChange: (recipients: string[]) => void;
 }) {
-	const [draft, setDraft] = useState('');
-	const validRecipients = recipients.filter(isValidEmailAddress);
-	const validation = useQuery({
-		...trpc.automation.validateEmailRecipients.queryOptions({
-			recipients: validRecipients,
-		}),
-		enabled: validRecipients.length > 0,
-	});
+	const [search, setSearch] = useState('');
+	const recipientsQuery = useQuery(trpc.automation.listEmailRecipients.queryOptions());
+	const members = recipientsQuery.data ?? [];
 
-	const disallowedRecipients = new Set(
-		(validation.data?.disallowedRecipients ?? []).map((recipient) => recipient.toLowerCase()),
+	const selectedEmails = new Set(recipients.map((email) => email.toLowerCase()));
+	const selectedUserIds = new Set(
+		members.filter((member) => selectedEmails.has(member.email.toLowerCase())).map((member) => member.id),
 	);
 
-	const addRecipients = () => {
-		const existing = new Set(recipients.map((recipient) => recipient.toLowerCase()));
-		const additions = draft
-			.split(/[\s,]+/)
-			.map((recipient) => recipient.trim().toLowerCase())
-			.filter(Boolean)
-			.filter((recipient) => {
-				if (existing.has(recipient)) {
-					return false;
-				}
-				existing.add(recipient);
-				return true;
-			});
+	const filteredMembers = members.filter((member) => {
+		const term = search.trim().toLowerCase();
+		return !term || member.name.toLowerCase().includes(term) || member.email.toLowerCase().includes(term);
+	});
 
-		if (additions.length > 0) {
-			onChange([...recipients, ...additions]);
+	function toggleUser(userId: string) {
+		const member = members.find((candidate) => candidate.id === userId);
+		if (!member) {
+			return;
 		}
 
-		setDraft('');
-	};
+		onChange(
+			selectedUserIds.has(userId)
+				? recipients.filter((email) => email.toLowerCase() !== member.email.toLowerCase())
+				: [...recipients, member.email],
+		);
+	}
 
 	return (
-		<div className='grid gap-1.5'>
-			<div className='grid grid-cols-[minmax(0,1fr)_max-content] items-center gap-2'>
-				<Input
-					className='h-8'
-					aria-invalid={Boolean(error)}
-					aria-describedby={error ? 'automation-email-recipients-error' : undefined}
-					value={draft}
-					placeholder='Email addresses, comma separated'
-					disabled={disabled}
-					onChange={(event) => setDraft(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === 'Enter') {
-							event.preventDefault();
-							addRecipients();
-						}
-					}}
-				/>
-				<Button
-					type='button'
-					variant='secondary'
-					size='sm'
-					className='w-full'
-					onClick={addRecipients}
-					disabled={disabled || !draft.trim()}
-				>
-					<Plus />
-					Add
-				</Button>
-			</div>
-			{recipients.length > 0 && (
-				<div className='flex flex-wrap gap-1.5'>
-					{recipients.map((recipient) => {
-						const recipientError = !isValidEmailAddress(recipient)
-							? 'Enter a valid email address.'
-							: disallowedRecipients.has(recipient.toLowerCase())
-								? 'This recipient doesn’t match the project’s email settings. Email runs using it will fail.'
-								: null;
-						return (
-							<EmailRecipientPill
-								key={recipient}
-								recipient={recipient}
-								error={recipientError}
-								disabled={disabled}
-								onRemove={() => onChange(recipients.filter((saved) => saved !== recipient))}
-							/>
-						);
-					})}
-				</div>
-			)}
-		</div>
+		<fieldset
+			disabled={disabled}
+			aria-invalid={Boolean(error)}
+			aria-describedby={error ? 'automation-email-recipients-error' : undefined}
+		>
+			<MemberPicker
+				members={filteredMembers}
+				selectedUserIds={selectedUserIds}
+				isLoading={recipientsQuery.isLoading}
+				search={search}
+				onSearchChange={setSearch}
+				onToggleUser={toggleUser}
+			/>
+		</fieldset>
 	);
 }

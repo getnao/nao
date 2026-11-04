@@ -15,7 +15,7 @@ import type { ToolContext } from '../types/tools';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse, type QueryDataMap } from '../utils/story-download';
 import { createTool } from '../utils/tools';
-import { getDisallowedAutomationEmailRecipients } from './automation-email-policy';
+import { getNonMemberAutomationEmailRecipients } from './automation-email-policy';
 import { getActiveThemeForProject } from './custom-story';
 import { emailService } from './email';
 import {
@@ -164,13 +164,10 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 				if (invalidRecipients.length > 0) {
 					throw new Error(`Invalid email recipient(s): ${invalidRecipients.join(', ')}`);
 				}
-				const disallowedRecipients = await getDisallowedAutomationEmailRecipients(
-					projectId,
-					resolvedRecipients,
-				);
-				if (disallowedRecipients.length > 0) {
+				const nonMemberRecipients = await getNonMemberAutomationEmailRecipients(projectId, resolvedRecipients);
+				if (nonMemberRecipients.length > 0) {
 					throw new Error(
-						`Email wasn't sent because these recipients don't match this project's email settings: ${disallowedRecipients.join(', ')}. Please remove or replace them.`,
+						`Email wasn't sent because these recipients aren't members of this project: ${nonMemberRecipients.join(', ')}. Please remove or replace them.`,
 					);
 				}
 				const attachments = await buildGeneratedArtifactAttachments(projectId, context);

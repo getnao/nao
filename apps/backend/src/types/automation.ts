@@ -31,12 +31,3 @@ export type AutomationIntegrationResult = {
 	url?: string;
 	destination?: string;
 };
-
-export const AUTOMATION_EMAIL_RECIPIENT_POLICIES = ['project-members', 'allowed-domains', 'anyone'] as const;
-
-export type AutomationEmailRecipientPolicy = (typeof AUTOMATION_EMAIL_RECIPIENT_POLICIES)[number];
-
-export type AutomationEmailSettings = {
-	recipientPolicy: AutomationEmailRecipientPolicy;
-	allowedDomains: string[];
-};

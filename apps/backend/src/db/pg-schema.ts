@@ -60,12 +60,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import {
-	AUTOMATION_RUN_STATUSES,
-	AutomationEmailSettings,
-	AutomationIntegrationConfig,
-	AutomationIntegrationResult,
-} from '../types/automation';
+import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
 import { BILLING_STATUSES } from '../types/billing';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import {
@@ -284,7 +279,6 @@ export const project = pgTable(
 		type: text('type', { enum: ['local'] }).notNull(),
 		path: text('path'),
 		agentSettings: jsonb('agent_settings').$type<AgentSettings>(),
-		automationEmailSettings: jsonb('automation_email_settings').$type<AutomationEmailSettings>(),
 		enabledMcpTools: jsonb('enabled_tools').$type<string[]>().notNull().default([]),
 		knownMcpServers: jsonb('known_mcp_servers').$type<string[]>().notNull().default([]),
 		disabledMcpServers: jsonb('disabled_mcp_servers').$type<string[]>().notNull().default([]),

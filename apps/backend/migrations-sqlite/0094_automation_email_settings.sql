@@ -1,1 +1,0 @@
-ALTER TABLE `project` ADD `automation_email_settings` text;

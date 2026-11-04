@@ -56,12 +56,7 @@ import {
 } from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import {
-	AUTOMATION_RUN_STATUSES,
-	AutomationEmailSettings,
-	AutomationIntegrationConfig,
-	AutomationIntegrationResult,
-} from '../types/automation';
+import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
 import { BILLING_STATUSES } from '../types/billing';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import {
@@ -300,7 +295,6 @@ export const project = sqliteTable(
 		type: text('type', { enum: ['local'] }).notNull(),
 		path: text('path'),
 		agentSettings: text('agent_settings', { mode: 'json' }).$type<AgentSettings>(),
-		automationEmailSettings: text('automation_email_settings', { mode: 'json' }).$type<AutomationEmailSettings>(),
 		enabledMcpTools: text('enabled_tools', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		knownMcpServers: text('known_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		disabledMcpServers: text('disabled_mcp_servers', { mode: 'json' }).$type<string[]>().notNull().default([]),

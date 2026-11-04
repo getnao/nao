@@ -10,11 +10,9 @@ import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { agentService } from '../services/agent';
-import { getDisallowedAutomationEmailRecipients } from '../services/automation-email-policy';
 import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
-import { AUTOMATION_EMAIL_RECIPIENT_POLICIES } from '../types/automation';
 import { llmProviderSchema } from '../types/llm';
 import {
 	adminProtectedProcedure,
@@ -124,21 +122,6 @@ const writeAutomationSchema = z.object({
 const createAutomationSchema = writeAutomationSchema.extend({
 	title: z.string().trim().max(255).optional(),
 });
-
-const automationEmailSettingsSchema = z
-	.object({
-		recipientPolicy: z.enum(AUTOMATION_EMAIL_RECIPIENT_POLICIES),
-		allowedDomains: z.array(z.string().trim().toLowerCase().min(1)),
-	})
-	.superRefine((settings, context) => {
-		if (settings.recipientPolicy === 'allowed-domains' && settings.allowedDomains.length === 0) {
-			context.addIssue({
-				code: 'custom',
-				path: ['allowedDomains'],
-				message: 'Add at least one allowed domain.',
-			});
-		}
-	});
 
 export const automationRoutes = {
 	list: automationReadProcedure.query(async ({ ctx }) => {
@@ -285,29 +268,14 @@ export const automationRoutes = {
 			return { cron };
 		}),
 
+	listEmailRecipients: automationReadProcedure.query(async ({ ctx }) => {
+		const projectUsers = await projectQueries.listUsersWithProjectAccess(ctx.project.id);
+		return projectUsers.map(({ id, name, email }) => ({ id, name, email }));
+	}),
+
 	listAllForAdmin: automationAdminProcedure.query(async ({ ctx }) => {
 		return listProjectAutomationsWithOwnerAccess(ctx.project.id);
 	}),
-
-	getEmailSettings: automationAdminProcedure.query(({ ctx }) => {
-		return projectQueries.getAutomationEmailSettings(ctx.project.id);
-	}),
-
-	updateEmailSettings: automationAdminProcedure.input(automationEmailSettingsSchema).mutation(({ ctx, input }) => {
-		return projectQueries.updateAutomationEmailSettings(ctx.project.id, input);
-	}),
-
-	validateEmailRecipients: automationProcedure
-		.input(
-			z.object({
-				recipients: z.array(z.string().trim().toLowerCase().email()),
-			}),
-		)
-		.query(async ({ ctx, input }) => {
-			const disallowedRecipients = await getDisallowedAutomationEmailRecipients(ctx.project.id, input.recipients);
-
-			return { disallowedRecipients };
-		}),
 
 	setEnabledAsAdmin: automationAdminProcedure
 		.input(setAutomationEnabledSchema)
