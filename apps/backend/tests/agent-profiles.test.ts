@@ -57,12 +57,23 @@ describe('agent profiles', () => {
 		expect(analyticsAgent.promptAppendix).toBeUndefined();
 	});
 
-	it('leaves follow-up suggestions out of nao test runs', async () => {
+	it.each(['clarification', 'suggest_follow_ups', 'story'])('leaves %s out of nao test runs', async (toolName) => {
 		const context = { agentSettings: null, toolContext: { userGroupFeatures: [] } } as unknown as AgentToolsContext;
 
-		expect(await analyticsAgent.tools(context)).toHaveProperty('suggest_follow_ups');
-		expect(await testRunAgent.tools(context)).not.toHaveProperty('suggest_follow_ups');
+		expect(await analyticsAgent.tools(context)).toHaveProperty(toolName);
+		expect(await testRunAgent.tools(context)).not.toHaveProperty(toolName);
 		expect(testRunAgent.usageCategory).toBe('test');
+	});
+
+	it('keeps the query and chart tools in nao test runs', async () => {
+		const context = { agentSettings: null, toolContext: { userGroupFeatures: [] } } as unknown as AgentToolsContext;
+
+		const tools = await testRunAgent.tools(context);
+
+		expect(tools).toHaveProperty('execute_sql');
+		expect(tools).toHaveProperty('display_chart');
+		expect(tools).not.toHaveProperty('write');
+		expect(tools).not.toHaveProperty('str_replace');
 	});
 
 	it('adapts the analytics agent to the chat app it answers in', () => {
