@@ -29,6 +29,7 @@ export type ImportedProject = {
 	projectId: string;
 	projectName: string;
 	status: 'created' | 'updated';
+	missingEnvVars: string[];
 };
 
 /**

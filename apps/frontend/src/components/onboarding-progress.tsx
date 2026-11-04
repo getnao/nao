@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
 
@@ -9,11 +10,12 @@ import { Button } from '@/components/ui/button';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useRestartOnboarding } from '@/contexts/onboarding-restart';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 const ONBOARDING_STEPS = {
 	new: ['Install', 'Initialize', 'Verify & sync', 'Deploy'],
 	local: ['Locate project', 'Verify', 'Sync', 'Deploy'],
-	github: ['Connect GitHub', 'Import repository'],
+	github: ['Connect GitHub', 'Import repository', 'Set environment variables'],
 	database: ['Connect warehouse', 'Initialize', 'Verify', 'Sync metadata', 'Prepare context'],
 } as const;
 
@@ -183,6 +185,15 @@ export function isOnboardingComplete(
 ): boolean {
 	const progressComplete = isDeployStepReached(progress) || (progress?.flow === 'github' && progress.step === 2);
 	return projectSetupComplete && (warehouseReady || progressComplete || warehouseProvisioningActive === false);
+}
+
+export function useOnboardingMissingEnvVars(
+	progress: OnboardingProgressState | null,
+	hasOnboardingProject: boolean,
+): string[] | undefined {
+	const enabled = progress?.flow === 'github' && progress.step === 2 && hasOnboardingProject;
+	const missingEnvVars = useQuery({ ...trpc.project.getMissingEnvVars.queryOptions(), enabled });
+	return enabled ? missingEnvVars.data : [];
 }
 
 export function findCreatedOnboardingProject<T extends { createdAt: Date }>(

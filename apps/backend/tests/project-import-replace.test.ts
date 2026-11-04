@@ -18,6 +18,7 @@ vi.mock('../src/handlers/context-recommendations.handler', () => ({
 }));
 vi.mock('../src/services/project.service', () => ({
 	createProject: mocks.createProject,
+	getMissingProjectEnvVars: vi.fn().mockResolvedValue([]),
 	touchProjectUpdatedAt: mocks.touchProjectUpdatedAt,
 }));
 
@@ -59,6 +60,19 @@ describe('createNewProject', () => {
 
 		expect(fs.existsSync(path.join(env.NAO_PROJECTS_DIR, 'project-id'))).toBe(false);
 	});
+
+	it('reports missing environment variables after import', async () => {
+		mocks.createProject.mockResolvedValue({ id: 'project-id' });
+
+		await expect(
+			createNewProject({
+				sourceDir,
+				projectName: 'Sales',
+				orgId: 'org-id',
+				projectId: 'project-id',
+			}),
+		).resolves.toMatchObject({ missingEnvVars: [] });
+	});
 });
 
 describe('replaceExistingProject', () => {
@@ -96,7 +110,7 @@ describe('replaceExistingProject', () => {
 
 		await expect(
 			replaceExistingProject({ sourceDir, project, projectName: 'Sales', userId: 'context-admin-id' }),
-		).resolves.toMatchObject({ status: 'updated' });
+		).resolves.toMatchObject({ status: 'updated', missingEnvVars: [] });
 		expect(mocks.getUserRoleInProject).toHaveBeenCalledWith('project-id', 'context-admin-id');
 		expect(mocks.touchProjectUpdatedAt).toHaveBeenCalledWith('project-id');
 		expect(fs.readFileSync(path.join(project.path!, 'RULES.md'), 'utf-8')).toBe('imported');
