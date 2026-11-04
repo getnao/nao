@@ -37,6 +37,7 @@ import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderMode
 import { interactiveStopConditions } from '../agents/stop-conditions';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
+import { protectInternalToolResults } from '../agents/tool-result-clearing';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules, listSchemaTableFqdns } from '../agents/user-rules';
@@ -464,7 +465,10 @@ export class AgentManager {
 		});
 		const callSettings = this._modelConfig.callSettings ?? {};
 		const provider = this._modelSelection.provider;
-		const providerOptions = fitThinkingBudget(this._modelConfig.providerOptions, this._maxOutputTokens);
+		const providerOptions = protectInternalToolResults(
+			fitThinkingBudget(this._modelConfig.providerOptions, this._maxOutputTokens),
+			Object.keys(this._agentTools),
+		);
 		const providerParams = Object.values(providerOptions)[0];
 		this._agent = new ToolLoopAgent({
 			model: this._modelConfig.model,

@@ -10,6 +10,7 @@ import { scheduleSaveLlmInferenceRecord } from '../../utils/schedule-task';
 import { truncateMiddle } from '../../utils/utils';
 import { fitThinkingBudget } from '../providers';
 import { llmTelemetry } from '../telemetry';
+import { protectInternalToolResults } from '../tool-result-clearing';
 import type { SubagentModel } from './model';
 import type { SubagentDefinition } from './types';
 
@@ -37,7 +38,10 @@ export async function* runSubagent(
 
 	const result = streamText({
 		model: model.config.model,
-		providerOptions: fitThinkingBudget(model.config.providerOptions, maxOutputTokens),
+		providerOptions: protectInternalToolResults(
+			fitThinkingBudget(model.config.providerOptions, maxOutputTokens),
+			Object.keys(definition.tools),
+		),
 		messages: buildMessages(definition.systemPrompt(context), prompt, model),
 		tools: definition.tools,
 		stopWhen: stepCountIs(definition.maxSteps),
