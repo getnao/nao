@@ -766,6 +766,39 @@ describe('buildStoryMapBlock', () => {
 		expect(parsed?.boundariesUrl).toBe('https://cdn.example.com/world.geojson');
 		expect(parsed?.boundariesJoinProperty).toBe('ISO_A3');
 	});
+
+	it('round-trips the color scale of a choropleth', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q4',
+			map_type: 'choropleth',
+			value_key: 'trips',
+			geometry_key: 'cell',
+			color_scale: 'quantile',
+			title: 'Trip density',
+		});
+		expect(tag).toContain('color_scale="quantile"');
+		const parsed = parseMapBlock(tag.slice('<map '.length, -3));
+		expect(mapBlockToInput(parsed!).color_scale).toBe('quantile');
+	});
+
+	it('omits the color scale when unset and reads it back as the linear default', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q4',
+			map_type: 'choropleth',
+			value_key: 'trips',
+			geometry_key: 'cell',
+			title: 'Trip density',
+		});
+		expect(tag).not.toContain('color_scale');
+		expect(mapBlockToInput(parseMapBlock(tag.slice('<map '.length, -3))!).color_scale).toBeUndefined();
+	});
+
+	it('ignores an unknown color scale', () => {
+		const parsed = parseMapBlock(
+			'query_id="q1" map_type="choropleth" value_key="v" geometry_key="g" color_scale="sqrt"',
+		);
+		expect(parsed?.colorScale).toBeUndefined();
+	});
 });
 
 describe('mapBlockToInput', () => {

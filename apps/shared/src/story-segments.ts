@@ -3,8 +3,8 @@ import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './con
 import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES, type StoryFilterType } from './sql-template';
 import type { SeriesConfig } from './tools/display-chart';
 import type * as displayMap from './tools/display-map';
-import type { MapType, RegionBoundaries } from './tools/display-map';
-import { MapTypeEnum } from './tools/display-map';
+import type { ColorScale, MapType, RegionBoundaries } from './tools/display-map';
+import { ColorScaleEnum, MapTypeEnum } from './tools/display-map';
 
 export type ParsedChartSeries = SeriesConfig;
 
@@ -51,6 +51,7 @@ export interface ParsedMapBlock {
 	radius?: number;
 	sizeKey?: string;
 	valueKey?: string;
+	colorScale?: ColorScale;
 	regionKey?: string;
 	regionBoundaries?: RegionBoundaries;
 	boundariesUrl?: string;
@@ -198,6 +199,7 @@ export function parseMapBlock(attrString: string): ParsedMapBlock | null {
 		radius: parseOptionalNumberAttr(attrs.radius),
 		sizeKey: attrs.size_key || undefined,
 		valueKey: attrs.value_key || undefined,
+		colorScale: ColorScaleEnum.safeParse(attrs.color_scale).data,
 		regionKey: attrs.region_key || undefined,
 		regionBoundaries: attrs.region_boundaries || undefined,
 		boundariesUrl: attrs.boundaries_url || undefined,
@@ -220,6 +222,7 @@ export function mapBlockToInput(map: ParsedMapBlock): displayMap.Input {
 		radius: map.radius,
 		size_key: map.sizeKey,
 		value_key: map.valueKey,
+		color_scale: map.colorScale,
 		region_key: map.regionKey,
 		region_boundaries: map.regionBoundaries,
 		boundaries_url: map.boundariesUrl,
