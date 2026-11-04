@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+	canFinishDeployOnboarding,
 	findCreatedOnboardingProject,
+	shouldReturnToOnboarding,
 	getCompletedSteps,
 	isDeployStepReached,
 	isOnboardingComplete,
@@ -46,13 +48,90 @@ describe('isOnboardingComplete', () => {
 	});
 });
 
+describe('canFinishDeployOnboarding', () => {
+	it('waits for the deployed project and Cloud access', () => {
+		expect(canFinishDeployOnboarding(true, false, { flow: 'local', step: 3 }, false)).toBe(false);
+		expect(canFinishDeployOnboarding(false, true, { flow: 'new', step: 4 }, false)).toBe(false);
+		expect(canFinishDeployOnboarding(true, true, { flow: 'local', step: 3 }, false)).toBe(true);
+	});
+
+	it('does not apply to a GitHub import', () => {
+		expect(canFinishDeployOnboarding(true, true, { flow: 'github', step: 2 }, false)).toBe(false);
+	});
+});
+
+describe('shouldReturnToOnboarding', () => {
+	it('returns to onboarding only when the project is unfinished and Cloud access is absent', () => {
+		expect(
+			shouldReturnToOnboarding({
+				cloudBillingEnabled: true,
+				hasProject: true,
+				setupComplete: false,
+				hasAccess: false,
+			}),
+		).toBe(true);
+		expect(
+			shouldReturnToOnboarding({
+				cloudBillingEnabled: true,
+				hasProject: true,
+				setupComplete: false,
+				hasAccess: true,
+			}),
+		).toBe(false);
+		expect(
+			shouldReturnToOnboarding({
+				cloudBillingEnabled: true,
+				hasProject: true,
+				setupComplete: true,
+				hasAccess: false,
+			}),
+		).toBe(false);
+		expect(
+			shouldReturnToOnboarding({
+				cloudBillingEnabled: false,
+				hasProject: true,
+				setupComplete: false,
+				hasAccess: false,
+			}),
+		).toBe(false);
+		expect(
+			shouldReturnToOnboarding({
+				cloudBillingEnabled: true,
+				hasProject: true,
+				setupComplete: undefined,
+				hasAccess: undefined,
+			}),
+		).toBe(false);
+	});
+});
+
 describe('findCreatedOnboardingProject', () => {
 	const onboardingStartedAt = Date.parse('2026-10-28T10:00:00Z');
-	const existing = { id: 'existing', createdAt: new Date('2026-10-01T10:00:00Z') };
-	const deployed = { id: 'deployed', createdAt: new Date('2026-10-28T10:30:00Z') };
+	const existing = {
+		id: 'existing',
+		createdAt: new Date('2026-10-01T10:00:00Z'),
+		updatedAt: new Date('2026-10-01T10:00:00Z'),
+	};
+	const deployed = {
+		id: 'deployed',
+		createdAt: new Date('2026-10-28T10:30:00Z'),
+		updatedAt: new Date('2026-10-28T10:30:00Z'),
+	};
 
 	it('returns the project created after onboarding started', () => {
 		expect(findCreatedOnboardingProject([existing, deployed], onboardingStartedAt)).toEqual(deployed);
+	});
+
+	it('returns a project updated after onboarding started', () => {
+		const redeployed = { ...existing, updatedAt: new Date('2026-10-28T11:00:00Z') };
+
+		expect(findCreatedOnboardingProject([redeployed], onboardingStartedAt)).toEqual(redeployed);
+	});
+
+	it('prefers the latest created or updated project', () => {
+		const redeployed = { ...existing, updatedAt: new Date('2026-10-28T11:00:00Z') };
+
+		expect(findCreatedOnboardingProject([deployed, redeployed], onboardingStartedAt)).toEqual(redeployed);
 	});
 
 	it('does not treat an earlier project as the onboarding project', () => {

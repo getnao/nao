@@ -188,25 +188,65 @@ export function isOnboardingComplete(
 	return projectSetupComplete && (warehouseReady || progressComplete || warehouseProvisioningActive === false);
 }
 
+export function canFinishDeployOnboarding(
+	projectSetupComplete: boolean,
+	hasCloudAccess: boolean,
+	progress: OnboardingProgressState | null,
+	warehouseReady: boolean,
+	warehouseProvisioningActive?: boolean,
+): boolean {
+	if (progress?.flow !== 'new' && progress?.flow !== 'local') {
+		return false;
+	}
+	return (
+		hasCloudAccess &&
+		isOnboardingComplete(projectSetupComplete, progress, warehouseReady, warehouseProvisioningActive)
+	);
+}
+
+export function shouldReturnToOnboarding({
+	cloudBillingEnabled,
+	hasProject,
+	setupComplete,
+	hasAccess,
+}: {
+	cloudBillingEnabled: boolean;
+	hasProject: boolean;
+	setupComplete: boolean | undefined;
+	hasAccess: boolean | undefined;
+}): boolean {
+	return cloudBillingEnabled && hasProject && setupComplete === false && hasAccess === false;
+}
+
 export function useOnboardingMissingEnvVars(
 	progress: OnboardingProgressState | null,
 	onboardingProjectId: string | undefined,
+	force = false,
 ): string[] | undefined {
 	const activeProjectId = useActiveProjectId();
-	const projectAvailable = (progress?.flow === 'github' && progress.step === 2) || isDeployStepReached(progress);
+	const projectAvailable =
+		force || (progress?.flow === 'github' && progress.step === 2) || isDeployStepReached(progress);
 	const enabled = projectAvailable && onboardingProjectId !== undefined && onboardingProjectId === activeProjectId;
 	const missingEnvVars = useQuery({ ...trpc.project.getMissingEnvVars.queryOptions(), enabled });
 	return enabled ? missingEnvVars.data : [];
 }
 
-export function findCreatedOnboardingProject<T extends { createdAt: Date }>(
+export function findCreatedOnboardingProject<T extends { createdAt: Date; updatedAt: Date }>(
 	projects: T[] | undefined,
 	onboardingStartedAt: number | undefined,
 ): T | null {
-	if (onboardingStartedAt === undefined) {
+	if (onboardingStartedAt === undefined || !projects) {
 		return null;
 	}
-	return projects?.find((project) => project.createdAt.getTime() >= onboardingStartedAt) ?? null;
+	return (
+		projects
+			.filter((project) => latestProjectChange(project) >= onboardingStartedAt)
+			.sort((left, right) => latestProjectChange(right) - latestProjectChange(left))[0] ?? null
+	);
+}
+
+function latestProjectChange(project: { createdAt: Date; updatedAt: Date }): number {
+	return Math.max(project.createdAt.getTime(), project.updatedAt.getTime());
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {

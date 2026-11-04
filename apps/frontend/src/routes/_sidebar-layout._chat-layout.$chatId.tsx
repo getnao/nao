@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
 import { useOnboardingCompletion } from '@/hooks/use-onboarding-completion';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
@@ -100,12 +101,12 @@ function ChatPage() {
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const { complete: onboardingComplete } = useOnboardingCompletion(chatId, isOnboardingChat);
+	const { limbo } = useCloudSetupState();
+	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
 	const showTrialOnboardingBanner =
 		config.data?.naoMode === 'cloud' &&
-		currentProject.isSuccess &&
-		currentProject.data === null &&
-		!chat.data?.isOnboarding;
-	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
+		!chat.data?.isOnboarding &&
+		((currentProject.isSuccess && currentProject.data === null) || (limbo && isExampleChat));
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
 

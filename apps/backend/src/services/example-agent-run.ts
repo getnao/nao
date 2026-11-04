@@ -71,7 +71,7 @@ export async function getExampleProjectForNewChat(
 	return project;
 }
 
-/** Users who already set up a project keep onboarding while that setup is running or incomplete. */
+/** Example and onboarding chats stay available until a project is actually set up. */
 export async function reserveExampleChatRun(
 	userId: string,
 	scope: ExampleChatAllowanceScope,
@@ -79,10 +79,8 @@ export async function reserveExampleChatRun(
 ): Promise<boolean> {
 	const projects = await projectQueries.listUserProjects(userId);
 	if (projects.length > 0) {
-		if (scope !== 'onboarding') {
-			return false;
-		}
-		if (!(await isProjectSetupRunning(userId, chatId)) && (await hasCompletedProjectSetup(projects))) {
+		const setupStillRunning = scope === 'onboarding' && (await isProjectSetupRunning(userId, chatId));
+		if (!setupStillRunning && (await hasCompletedProjectSetup(projects))) {
 			return false;
 		}
 	}
