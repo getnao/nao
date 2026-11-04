@@ -35,7 +35,7 @@ export async function pinStoryMessageToChat(args: {
 export type StoryQueryDataMap = Record<string, { data: unknown[]; columns: string[] }>;
 
 export async function pinQueryDataToChat(chatId: string, queryData: StoryQueryDataMap): Promise<void> {
-	const parts = buildQueryDataParts(queryData);
+	const parts = buildQueryDataParts(queryData, {});
 	if (parts.length === 0) {
 		return;
 	}
@@ -53,7 +53,7 @@ export type StoryQuerySource = Pick<StoredSqlQuery, 'sqlQuery' | 'databaseId' | 
 /** A query whose source is unknown keeps an empty SQL, like the data cache of a standalone story. */
 export function buildQueryDataMessages(
 	queryData: StoryQueryDataMap | null | undefined,
-	queries: Record<string, StoryQuerySource> = {},
+	queries: Record<string, StoryQuerySource>,
 ): Array<Omit<UIMessage, 'id'>> {
 	const parts = buildQueryDataParts(queryData, queries);
 	if (parts.length === 0) {
@@ -64,7 +64,7 @@ export function buildQueryDataMessages(
 
 export function buildQueryDataParts(
 	queryData: StoryQueryDataMap | null | undefined,
-	queries: Record<string, StoryQuerySource> = {},
+	queries: Record<string, StoryQuerySource>,
 ): UIMessagePart[] {
 	if (!queryData) {
 		return [];

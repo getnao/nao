@@ -35,7 +35,10 @@ interface ForkOwner {
 export async function forkStoryIntoChat(story: ForkableStory, owner: ForkOwner): Promise<{ chatId: string }> {
 	const files = story.format === 'custom' ? await listLatestFiles(story.storyId) : [];
 	const queryIds = story.format === 'custom' ? extractCustomStoryQueryIds(files) : extractQueryIds(story.code);
-	const [queryData, queries] = await Promise.all([loadQueryData(story, queryIds), loadQuerySources(story, queryIds)]);
+	const [queryData, queries] = await Promise.all([
+		loadQueryData(story, queryIds),
+		loadStoryQuerySources(story.chatId, queryIds),
+	]);
 
 	const chat = await chatQueries.createForkedChat(
 		{
@@ -79,14 +82,14 @@ async function loadQueryData(story: ForkableStory, queryIds: Set<string>): Promi
 	return Object.keys(queryData).length > 0 ? queryData : null;
 }
 
-async function loadQuerySources(
-	story: ForkableStory,
+export async function loadStoryQuerySources(
+	storyChatId: string | null,
 	queryIds: Set<string>,
 ): Promise<Record<string, StoryQuerySource>> {
-	if (!story.chatId || queryIds.size === 0) {
+	if (!storyChatId || queryIds.size === 0) {
 		return {};
 	}
-	const queries = await executeSqlQueries.getLatestSqlQueriesByIds(story.chatId, queryIds);
+	const queries = await executeSqlQueries.getLatestSqlQueriesByIds(storyChatId, queryIds);
 	return Object.fromEntries(Object.entries(queries).filter(([, query]) => !query.adminMode));
 }
 

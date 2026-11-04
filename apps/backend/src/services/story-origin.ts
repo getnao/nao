@@ -1,16 +1,29 @@
 import * as chatQueries from '../queries/chat.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import type { ForkMetadata, StoryOriginTurn, UIMessage } from '../types/chat';
+import { logger } from '../utils/logger';
 import { compactionService } from './compaction';
 
 const STORY_ORIGIN_FORK_TYPES: ForkMetadata['type'][] = ['story', 'story_question'];
 const MAX_ORIGIN_CONVERSATION_LENGTH = 24_000;
 
-export async function resolveStoryOriginConversation(chat: {
+interface StoryForkChat {
 	userId: string;
 	projectId: string;
 	forkMetadata?: ForkMetadata | null;
-}): Promise<StoryOriginTurn[]> {
+}
+
+/** The origin conversation only enriches the prompt, so failing to load it must not stop the agent. */
+export async function resolveStoryOriginConversationSafely(chat: StoryForkChat): Promise<StoryOriginTurn[]> {
+	try {
+		return await resolveStoryOriginConversation(chat);
+	} catch (error) {
+		logger.warn(`Failed to resolve the story origin conversation: ${String(error)}`, { source: 'agent' });
+		return [];
+	}
+}
+
+export async function resolveStoryOriginConversation(chat: StoryForkChat): Promise<StoryOriginTurn[]> {
 	if (!chat.forkMetadata || !STORY_ORIGIN_FORK_TYPES.includes(chat.forkMetadata.type)) {
 		return [];
 	}
@@ -35,13 +48,21 @@ function toTurn(message: Omit<UIMessage, 'id'>): StoryOriginTurn[] {
 
 function keepLatestTurns(turns: StoryOriginTurn[]): StoryOriginTurn[] {
 	const keptTurns: StoryOriginTurn[] = [];
-	let length = 0;
+	let remainingLength = MAX_ORIGIN_CONVERSATION_LENGTH;
 	for (const turn of [...turns].reverse()) {
-		length += turn.text.length;
-		if (length > MAX_ORIGIN_CONVERSATION_LENGTH && keptTurns.length > 0) {
+		if (turn.text.length > remainingLength) {
+			if (keptTurns.length === 0) {
+				keptTurns.unshift(truncateTurn(turn, remainingLength));
+			}
 			break;
 		}
+		remainingLength -= turn.text.length;
 		keptTurns.unshift(turn);
 	}
 	return keptTurns;
+}
+
+/** The end of a turn holds its conclusion, so an oversized turn keeps its last characters. */
+function truncateTurn(turn: StoryOriginTurn, maxLength: number): StoryOriginTurn {
+	return { ...turn, text: `…${turn.text.slice(-(maxLength - 1))}` };
 }

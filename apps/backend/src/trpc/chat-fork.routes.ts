@@ -1,3 +1,4 @@
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -9,7 +10,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { compactionService } from '../services/compaction';
 import { attachChatToStandaloneStory } from '../services/standalone-story';
-import { forkStoryIntoChat } from '../services/story-fork';
+import { forkStoryIntoChat, loadStoryQuerySources } from '../services/story-fork';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildQueryDataMessages } from '../utils/chat-message-story';
@@ -226,13 +227,14 @@ async function forkSharedStoryItem(
 			share.authorName,
 			selection,
 		);
-		const [rawMessages, queryData] = await Promise.all([
+		const [rawMessages, queryData, querySources] = await Promise.all([
 			chatQueries.getChatMessages(share.chatId!),
 			sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code),
+			loadStoryQuerySources(share.chatId, extractQueryIds(share.code)),
 		]);
 		const seededMessages = compactionService.useLastCompaction(rawMessages);
 		const messages = [
-			...buildQueryDataMessages(queryData),
+			...buildQueryDataMessages(queryData, querySources),
 			buildStoryContextMessage(share.slug, share.title, share.code),
 			...seededMessages,
 			buildSelectionContextMessage(share.title, selection),
