@@ -48,6 +48,7 @@ from nao_core.config.databases.allow_listed_only_guard import (  # noqa: E402
     enforce_allow_listed_only,
     query_references_base_tables,
 )
+from nao_core.config.databases.bigquery import BigQueryServiceAccountRequired  # noqa: E402
 from nao_core.config.databases.column_access import (  # noqa: E402
     ColumnAccessError,
     validate_column_access,
@@ -632,6 +633,8 @@ def execute_sql(request: ExecuteSQLRequest):
         raise
     except NaoConfigError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except BigQueryServiceAccountRequired as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -670,6 +673,8 @@ def validate_sql(request: ExecuteSQLRequest):
         raise
     except NaoConfigError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except BigQueryServiceAccountRequired as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

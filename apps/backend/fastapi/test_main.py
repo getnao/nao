@@ -2,6 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import duckdb
 import main
@@ -1193,6 +1194,27 @@ def bigquery_project_folder():
         with config_path.open("w") as f:
             yaml.dump(config, f)
         yield tmpdir
+
+
+def test_cloud_bigquery_sso_never_uses_server_credentials(
+    bigquery_project_folder, monkeypatch
+):
+    monkeypatch.setenv("NAO_MODE", "cloud")
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    with patch("ibis.bigquery.connect") as connect:
+        response = client.post(
+            "/execute_sql",
+            json={
+                "sql": "SELECT SESSION_USER() AS identity",
+                "nao_project_folder": bigquery_project_folder,
+                "table_access": UNENFORCED_TABLE_ACCESS,
+            },
+        )
+
+    assert response.status_code == 403, response.text
+    assert "service account" in response.json()["detail"]
+    connect.assert_not_called()
 
 
 def test_execute_sql_simple_bigquery(bigquery_project_folder):
