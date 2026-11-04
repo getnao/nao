@@ -287,6 +287,25 @@ describe('display_map execute — choropleth with boundaries_url', () => {
 			expect((output as { warning?: string }).warning).toContain('"quantile"');
 		});
 
+		it('says the log scale fell back to linear when no value is positive', async () => {
+			mockBoundaries();
+			const queryResults = new Map([
+				[
+					'q1',
+					{
+						columns: ['country', 'value'],
+						data: [
+							{ country: 'FR', value: 0 },
+							{ country: 'DE', value: -3 },
+						],
+					},
+				],
+			]);
+			const output = await executeChoropleth({ color_scale: 'log' }, queryResults);
+			expect(output).toMatchObject({ success: true });
+			expect((output as { warning?: string }).warning).toContain('fell back to a linear scale');
+		});
+
 		it('stays linear by default and does not warn about values ≤ 0', async () => {
 			mockBoundaries();
 			const output = await executeChoropleth({}, skewedResults());

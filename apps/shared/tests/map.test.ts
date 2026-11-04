@@ -368,10 +368,10 @@ describe('choroplethValueDomain', () => {
 	});
 });
 
-describe('buildChoroplethScale', () => {
-	const entries = (...values: (number | null)[]) =>
-		values.map((value, index) => ({ region: `r${index}`, value, geometry: null, row: {} }));
+const entries = (...values: (number | null)[]) =>
+	values.map((value, index) => ({ region: `r${index}`, value, geometry: null, row: {} }));
 
+describe('buildChoroplethScale', () => {
 	it('stays linear by default', () => {
 		expect(buildChoroplethScale(entries(1, 10, 100))).toEqual({ type: 'linear', min: 1, max: 100 });
 	});
@@ -435,6 +435,12 @@ describe('choroplethOpacity with a color scale', () => {
 		expect(choroplethOpacity(null, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY);
 	});
 
+	it('keeps zero lighter than the only positive value on a log scale', () => {
+		const scale = buildChoroplethScale(entries(0, 5000), 'log');
+		expect(choroplethOpacity(0, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY);
+		expect(choroplethOpacity(5000, scale)).toBeCloseTo((CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2);
+	});
+
 	it('steps through evenly spaced shades per quantile class', () => {
 		const scale = {
 			type: 'quantile' as const,
@@ -463,6 +469,15 @@ describe('choroplethOpacityExpression with a color scale', () => {
 			CHOROPLETH_MIN_OPACITY,
 			3,
 			CHOROPLETH_MAX_OPACITY,
+		]);
+	});
+
+	it('keeps values ≤ 0 lightest when a single positive value fixes the log domain', () => {
+		expect(choroplethOpacityExpression({ type: 'log', min: 5000, max: 5000 })).toEqual([
+			'case',
+			['<=', ['coalesce', ['get', 'value'], 5000], 0],
+			CHOROPLETH_MIN_OPACITY,
+			(CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2,
 		]);
 	});
 
@@ -508,16 +523,22 @@ describe('buildChoroplethLegend', () => {
 			ticks: [
 				{ label: '1', position: 0, align: 'start' },
 				{ label: '10', position: 1 / 3, align: 'center' },
-				{ label: '100', position: 2 / 3, align: 'center' },
 				{ label: '1,000', position: 1, align: 'end' },
 			],
 		});
 	});
 
-	it('drops log ticks that would crowd their neighbours', () => {
+	it('drops log ticks whose label would touch a neighbour', () => {
 		const legend = buildChoroplethLegend({ type: 'log', min: 1, max: 1e8 });
 		const labels = legend.kind === 'gradient' ? legend.ticks.map((tick) => tick.label) : [];
-		expect(labels).toEqual(['1', '100', '10K', '1M', '100M']);
+		expect(labels).toEqual(['1', '100', '10K', '100M']);
+	});
+
+	it('shows full precision when compact quantile labels would collide', () => {
+		const scale = buildChoroplethScale(entries(12_460, 12_470, 12_480, 12_490, 12_500), 'quantile');
+		const legend = scale && buildChoroplethLegend(scale);
+		const labels = legend?.kind === 'classes' ? legend.classes.map((item) => item.label) : [];
+		expect(labels).toEqual(['12,460', '12,470', '12,480', '12,490', '12,500']);
 	});
 
 	it('lists one swatch per quantile class with its raw value range', () => {

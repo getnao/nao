@@ -1,6 +1,6 @@
 import type { FeatureCollection, Geometry } from 'geojson';
 
-import { formatCompactNumber } from './chart-values';
+import { CHART_NUMBER_LOCALE, formatCompactNumber } from './chart-values';
 import type * as displayMap from './tools/display-map';
 
 export interface CustomBoundarySet {
@@ -359,8 +359,10 @@ const CHOROPLETH_MID_OPACITY = (CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY)
 
 export const CHOROPLETH_QUANTILE_CLASS_COUNT = 5;
 
-/** Smallest gap between two log-scale legend labels, as a share of the legend bar, so they never overlap. */
-const LOG_TICK_MIN_GAP = 0.25;
+/** Every renderer draws the gradient legend bar 96px wide, with 10px monospace labels about 6.1px per character. */
+const LEGEND_BAR_WIDTH = 96;
+const LEGEND_CHAR_WIDTH = 6.1;
+const LEGEND_LABEL_MIN_GAP = 4;
 
 /**
  * How choropleth values map to shades. A plain {@link NumericDomain} reads as a linear scale. The log domain only
@@ -401,6 +403,9 @@ export function buildChoroplethScale(
 }
 
 export function choroplethOpacity(value: number | null, scale: ChoroplethScale | null): number {
+	if (scale?.type === 'log' && value !== null && value <= 0) {
+		return CHOROPLETH_MIN_OPACITY;
+	}
 	if (!scale || scale.min === scale.max) {
 		return CHOROPLETH_MID_OPACITY;
 	}
@@ -409,20 +414,15 @@ export function choroplethOpacity(value: number | null, scale: ChoroplethScale |
 
 /** MapLibre `fill-opacity` expression reading each feature's `value` property. */
 export function choroplethOpacityExpression(scale: ChoroplethScale | null): number | unknown[] {
-	if (!scale || scale.min === scale.max) {
+	if (!scale) {
 		return CHOROPLETH_MID_OPACITY;
 	}
 	const value = ['coalesce', ['get', 'value'], scale.min];
 	if (scale.type === 'log') {
-		return [
-			'interpolate',
-			['linear'],
-			['log10', ['max', value, scale.min]],
-			Math.log10(scale.min),
-			CHOROPLETH_MIN_OPACITY,
-			Math.log10(scale.max),
-			CHOROPLETH_MAX_OPACITY,
-		];
+		return logOpacityExpression(value, scale);
+	}
+	if (scale.min === scale.max) {
+		return CHOROPLETH_MID_OPACITY;
 	}
 	if (scale.type === 'quantile') {
 		const steps = scale.thresholds.flatMap((threshold, index) => [
@@ -437,10 +437,11 @@ export function choroplethOpacityExpression(scale: ChoroplethScale | null): numb
 /** Legend shared by every renderer: a gradient with labelled ticks, or one swatch per quantile class. */
 export function buildChoroplethLegend(scale: ChoroplethScale): ChoroplethLegendModel {
 	if (scale.type === 'quantile') {
+		const labels = quantileClassLabels(scale.classes);
 		return {
 			kind: 'classes',
-			classes: scale.classes.map((range) => ({
-				label: formatValueRange(range),
+			classes: scale.classes.map((range, index) => ({
+				label: labels[index],
 				opacity: choroplethOpacity(range.min, scale),
 			})),
 		};
@@ -515,11 +516,24 @@ function quantileClassIndex(value: number, thresholds: number[]): number {
 	return thresholds.filter((threshold) => value >= threshold).length;
 }
 
+/** Values ≤ 0 have no log10, so they take the lightest shade, even when a single positive value fixes the domain. */
+function logOpacityExpression(value: unknown[], scale: NumericDomain): unknown[] {
+	if (scale.min === scale.max) {
+		return ['case', ['<=', value, 0], CHOROPLETH_MIN_OPACITY, CHOROPLETH_MID_OPACITY];
+	}
+	return [
+		'interpolate',
+		['linear'],
+		['log10', ['max', value, scale.min]],
+		Math.log10(scale.min),
+		CHOROPLETH_MIN_OPACITY,
+		Math.log10(scale.max),
+		CHOROPLETH_MAX_OPACITY,
+	];
+}
+
 function choroplethRatio(value: number, scale: ChoroplethScale): number {
 	if (scale.type === 'log') {
-		if (value <= 0) {
-			return 0;
-		}
 		const low = Math.log10(scale.min);
 		return clampRatio((Math.log10(value) - low) / (Math.log10(scale.max) - low));
 	}
@@ -537,20 +551,19 @@ function clampRatio(ratio: number): number {
 	return Math.max(0, Math.min(1, ratio));
 }
 
-/** Min, max and the powers of 10 between them, skipping powers too close to a neighbour to fit a label. */
+/** Min, max and the powers of 10 between them, skipping powers whose label would touch a neighbour's. */
 function logLegendTicks(scale: NumericDomain): ChoroplethLegendTick[] {
 	const low = Math.log10(scale.min);
 	const high = Math.log10(scale.max);
 	const ticks = [legendTick(scale.min, 0)];
-	let lastPosition = 0;
+	const lastTick = legendTick(scale.max, 1);
 	for (let exponent = Math.ceil(low); exponent <= Math.floor(high); exponent++) {
-		const position = (exponent - low) / (high - low);
-		if (position - lastPosition >= LOG_TICK_MIN_GAP && 1 - position >= LOG_TICK_MIN_GAP) {
-			ticks.push(legendTick(10 ** exponent, position));
-			lastPosition = position;
+		const tick = legendTick(10 ** exponent, (exponent - low) / (high - low));
+		if (labelsFit(ticks[ticks.length - 1], tick) && labelsFit(tick, lastTick)) {
+			ticks.push(tick);
 		}
 	}
-	ticks.push(legendTick(scale.max, 1));
+	ticks.push(lastTick);
 	return ticks;
 }
 
@@ -559,10 +572,39 @@ function legendTick(value: number, position: number): ChoroplethLegendTick {
 	return { label: formatCompactNumber(value), position, align };
 }
 
-function formatValueRange(range: NumericDomain): string {
-	const min = formatCompactNumber(range.min);
-	const max = formatCompactNumber(range.max);
+function labelsFit(left: ChoroplethLegendTick, right: ChoroplethLegendTick): boolean {
+	return labelExtent(right).start - labelExtent(left).end >= LEGEND_LABEL_MIN_GAP;
+}
+
+function labelExtent(tick: ChoroplethLegendTick): { start: number; end: number } {
+	const anchor = tick.position * LEGEND_BAR_WIDTH;
+	const width = tick.label.length * LEGEND_CHAR_WIDTH;
+	if (tick.align === 'start') {
+		return { start: anchor, end: anchor + width };
+	}
+	if (tick.align === 'end') {
+		return { start: anchor - width, end: anchor };
+	}
+	return { start: anchor - width / 2, end: anchor + width / 2 };
+}
+
+/** Compact labels, unless compacting gives two classes the same label: then every label shows full precision. */
+function quantileClassLabels(classes: NumericDomain[]): string[] {
+	const compactLabels = classes.map((range) => formatValueRange(range, formatCompactNumber));
+	if (new Set(compactLabels).size === compactLabels.length) {
+		return compactLabels;
+	}
+	return classes.map((range) => formatValueRange(range, formatFullNumber));
+}
+
+function formatValueRange(range: NumericDomain, format: (value: number) => string): string {
+	const min = format(range.min);
+	const max = format(range.max);
 	return min === max ? min : `${min}–${max}`;
+}
+
+function formatFullNumber(value: number): string {
+	return value.toLocaleString(CHART_NUMBER_LOCALE);
 }
 
 export function withOpacity(color: string, opacity: number): string {

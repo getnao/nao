@@ -22,17 +22,21 @@ export async function validateMapConfig(input: displayMap.Input, queryResult: Qu
 	return buildPointResult(input, queryResult);
 }
 
-/** A log scale cannot place zero or negative values, so they all get the lightest shade. */
+/** A log scale cannot place zero or negative values: they get the lightest shade, or the scale falls back to linear when no value is positive. */
 function logScaleWarning(input: displayMap.Input, queryResult: QueryResult): string | null {
 	if (input.color_scale !== 'log' || !input.value_key) {
 		return null;
 	}
 	const valueColumn = resolveColumnName(queryResult.columns, input.value_key);
-	const nonPositiveCount = queryResult.data
+	const values = queryResult.data
 		.map((row) => parseNumericValue(row[valueColumn]))
-		.filter((value) => value !== null && value <= 0).length;
+		.filter((value): value is number => value !== null);
+	const nonPositiveCount = values.filter((value) => value <= 0).length;
 	if (nonPositiveCount === 0) {
 		return null;
+	}
+	if (nonPositiveCount === values.length) {
+		return 'No value is positive, so the log scale fell back to a linear scale. Use color_scale "linear" or "quantile" instead.';
 	}
 	return `${nonPositiveCount} row(s) have a value ≤ 0, which a log scale cannot place, so they get the lightest shade. Use color_scale "quantile" instead if these rows matter.`;
 }
