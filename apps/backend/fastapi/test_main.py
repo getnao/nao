@@ -1196,17 +1196,21 @@ def bigquery_project_folder():
         yield tmpdir
 
 
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+@pytest.mark.parametrize(
+    "sql", ["SELECT SESSION_USER() AS identity", "SELECT * FROM customer.orders"]
+)
 def test_cloud_bigquery_sso_never_uses_server_credentials(
-    bigquery_project_folder, monkeypatch
+    bigquery_project_folder, monkeypatch, endpoint, sql
 ):
     monkeypatch.setenv("NAO_MODE", "cloud")
     client = TestClient(app, headers=INTERNAL_HEADERS)
 
     with patch("ibis.bigquery.connect") as connect:
         response = client.post(
-            "/execute_sql",
+            endpoint,
             json={
-                "sql": "SELECT SESSION_USER() AS identity",
+                "sql": sql,
                 "nao_project_folder": bigquery_project_folder,
                 "table_access": UNENFORCED_TABLE_ACCESS,
             },

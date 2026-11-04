@@ -48,7 +48,10 @@ from nao_core.config.databases.allow_listed_only_guard import (  # noqa: E402
     enforce_allow_listed_only,
     query_references_base_tables,
 )
-from nao_core.config.databases.bigquery import BigQueryServiceAccountRequired  # noqa: E402
+from nao_core.config.databases.bigquery import (  # noqa: E402
+    BigQueryConfig,
+    BigQueryServiceAccountRequired,
+)
 from nao_core.config.databases.column_access import (  # noqa: E402
     ColumnAccessError,
     validate_column_access,
@@ -349,6 +352,8 @@ def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
     )
     assert config is not None
     db_config, database_folder = _resolve_database(config, request.database_id)
+    if isinstance(db_config, BigQueryConfig):
+        db_config.ensure_explicit_credentials_on_cloud()
     return project_path, db_config, database_folder
 
 

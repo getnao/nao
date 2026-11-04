@@ -549,8 +549,7 @@ class BigQueryConfig(DatabaseConfig):
         require_database_backend("bigquery")
         import ibis
 
-        if is_nao_cloud() and not (self.credentials_json or self.credentials_path):
-            raise BigQueryServiceAccountRequired(self.name)
+        self.ensure_explicit_credentials_on_cloud()
 
         kwargs: dict = {"project_id": self.project_id}
 
@@ -581,6 +580,11 @@ class BigQueryConfig(DatabaseConfig):
             kwargs["credentials"] = credentials
 
         return ibis.bigquery.connect(**kwargs)
+
+    def ensure_explicit_credentials_on_cloud(self) -> None:
+        """Without a service account, ibis would fall back to the server's own Google identity on nao Cloud."""
+        if is_nao_cloud() and not (self.credentials_json or self.credentials_path):
+            raise BigQueryServiceAccountRequired(self.name)
 
     def get_database_name(self) -> str:
         """Get the database name for BigQuery."""
