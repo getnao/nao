@@ -1,4 +1,6 @@
-import { BLOCK_SELECTOR } from './story-elements';
+import { PART_SELECTOR } from '@nao/shared/story-parts';
+import { BLOCK_SELECTOR, readElementPart } from './story-elements';
+import type { StoryBlockPart } from '@nao/shared/story-parts';
 import type { StoryElementAsk } from '@nao/shared/story-app';
 import type { StoryBlockReference } from '@nao/shared/types';
 
@@ -10,6 +12,7 @@ const MAX_SEARCHED_QUOTE_LENGTH = 80;
 const MIN_QUOTE_START_WORDS = 3;
 const OUTLINE_DURATION_MS = 1800;
 const MAX_WAIT_MS = 8000;
+const PART_GRACE_MS = Math.min(1000, MAX_WAIT_MS);
 const TOP_LAYER_Z_INDEX = 2147483646;
 const OUTLINE_STYLE =
 	'position:fixed;box-sizing:border-box;pointer-events:none;border:2px solid var(--primary);border-radius:var(--story-block-radius, 6px);background:color-mix(in srgb, var(--primary) 8%, transparent);transition:opacity .3s';
@@ -23,40 +26,51 @@ export function highlightStoryElement(
 	ask: StoryElementAsk,
 	{ root = document.body, zIndex = TOP_LAYER_Z_INDEX }: HighlightOptions = {},
 ): () => void {
-	const show = (element: HTMLElement) => {
+	const show = (element: Element) => {
 		if (!revealElement(element)) {
 			element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		}
 		outline(element, zIndex);
 	};
-	const element = findCitedElement(ask, root);
+	const element = findCitedElement(ask, root, false);
 	if (element) {
 		show(element);
 		return () => {};
 	}
-	return waitForElement(() => findCitedElement(ask, root), root, show);
+	return waitForElement((settlesOnBlock) => findCitedElement(ask, root, settlesOnBlock), root, show);
 }
 
-function findCitedElement({ block, text }: StoryElementAsk, root: ParentNode): HTMLElement | null {
-	return block.kind === 'text'
-		? findQuotedElement(text, root)
-		: (findBlock(block, root) ?? findQuotedElement(text, root));
+/** A cited part's block is only settled on once its part had a grace period to render. */
+function findCitedElement({ block, text }: StoryElementAsk, root: ParentNode, settlesOnBlock: boolean): Element | null {
+	if (block.kind === 'text') {
+		return findQuotedElement(text, root);
+	}
+	const blockElement = findBlock(block, root);
+	if (!blockElement) {
+		return findQuotedElement(text, root);
+	}
+	if (!block.part) {
+		return blockElement;
+	}
+	return findPart(block.part, blockElement) ?? (settlesOnBlock ? blockElement : null);
 }
 
 function waitForElement(
-	find: () => HTMLElement | null,
+	find: (settlesOnBlock: boolean) => Element | null,
 	root: Element,
-	onFound: (element: HTMLElement) => void,
+	onFound: (element: Element) => void,
 ): () => void {
 	let frame = 0;
+	let settlesOnBlock = false;
 	const stop = () => {
 		observer.disconnect();
 		cancelAnimationFrame(frame);
 		window.clearTimeout(timeout);
+		window.clearTimeout(grace);
 	};
 	const search = () => {
 		frame = 0;
-		const element = find();
+		const element = find(settlesOnBlock);
 		if (element) {
 			stop();
 			onFound(element);
@@ -68,13 +82,33 @@ function waitForElement(
 		}
 	});
 	const timeout = window.setTimeout(stop, MAX_WAIT_MS);
+	const grace = window.setTimeout(() => {
+		settlesOnBlock = true;
+		cancelAnimationFrame(frame);
+		search();
+	}, PART_GRACE_MS);
 	observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true });
 	return stop;
 }
 
 /** Whether a container brought the element into view itself, so it needs no scrolling. */
-function revealElement(element: HTMLElement): boolean {
+function revealElement(element: Element): boolean {
 	return !element.dispatchEvent(new Event(STORY_REVEAL_EVENT, { bubbles: true, cancelable: true }));
+}
+
+function findPart(cited: StoryBlockPart, block: Element): Element | null {
+	const parts = [...block.querySelectorAll(PART_SELECTOR)];
+	return parts.find((element) => isSamePart(cited, readElementPart(element))) ?? null;
+}
+
+function isSamePart(cited: StoryBlockPart, found: StoryBlockPart | null): boolean {
+	return (
+		found !== null &&
+		found.kind === cited.kind &&
+		(['label', 'series', 'category'] as const).every(
+			(field) => cited[field] === undefined || cited[field] === found[field],
+		)
+	);
 }
 
 function findBlock({ kind, title, queryId }: StoryBlockReference, root: ParentNode): HTMLElement | null {
@@ -121,7 +155,7 @@ function findSmallestElementHolding(root: ParentNode, holdsQuote: (content: stri
 }
 
 /** Follows the element while it scrolls into view, then fades out. */
-function outline(element: HTMLElement, zIndex: number): void {
+function outline(element: Element, zIndex: number): void {
 	const box = document.createElement('div');
 	box.setAttribute('style', OUTLINE_STYLE);
 	box.style.zIndex = String(zIndex);

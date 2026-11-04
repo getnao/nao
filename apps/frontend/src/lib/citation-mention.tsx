@@ -3,6 +3,7 @@ import { CITATION_MENTION_TRIGGER } from '@nao/shared';
 import { CODE_CITATION_KIND, MAX_CITATION_TEXT_LENGTH } from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
 import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
+import type { StoryBlockPart } from '@nao/shared/story-parts';
 import type { CitationData, StoryBlockReference } from '@nao/shared/types';
 
 export { CITATION_MENTION_TRIGGER };
@@ -36,7 +37,8 @@ export function describeCitationSource({ start, end, block }: CitationData): str
 	if (block.kind === CODE_CITATION_KIND) {
 		return `@code · ${describeCodeSource(block)}`;
 	}
-	return block.title ? `@${block.kind} block · ${block.title}` : `@${block.kind} block`;
+	const source = block.title ? `@${block.kind} block · ${block.title}` : `@${block.kind} block`;
+	return withPartName(source, block);
 }
 
 export function isCodeCitation({ block }: CitationData): boolean {
@@ -153,7 +155,18 @@ export function isSameCitation(left: CitationData, right: CitationData): boolean
 		left.block?.title === right.block?.title &&
 		left.block?.queryId === right.block?.queryId &&
 		left.block?.lines?.start === right.block?.lines?.start &&
-		left.block?.lines?.end === right.block?.lines?.end
+		left.block?.lines?.end === right.block?.lines?.end &&
+		isSamePart(left.block?.part, right.block?.part)
+	);
+}
+
+function isSamePart(left: StoryBlockPart | undefined, right: StoryBlockPart | undefined): boolean {
+	return (
+		left?.kind === right?.kind &&
+		left?.label === right?.label &&
+		left?.series === right?.series &&
+		left?.category === right?.category &&
+		left?.value === right?.value
 	);
 }
 
@@ -163,10 +176,40 @@ function describeCitationPill({ block, text }: CitationData): string {
 		return describeCodeSource({ ...block, title: block.title?.split('/').pop() });
 	}
 	if (block && block.kind !== 'text') {
-		return toSingleLine(block.title ?? '') || block.kind.replaceAll('-', ' ');
+		const label = toSingleLine(block.title ?? '') || block.kind.replaceAll('-', ' ');
+		return withPartName(label, block, truncateForPill);
 	}
-	const quote = toSingleLine(text);
-	return quote.length > MAX_PILL_QUOTE_LENGTH ? `${quote.slice(0, MAX_PILL_QUOTE_LENGTH).trimEnd()}…` : quote;
+	return truncateForPill(toSingleLine(text));
+}
+
+function withPartName(
+	blockLabel: string,
+	{ part }: StoryBlockReference,
+	shorten: (name: string) => string = (name) => name,
+): string {
+	if (!part) {
+		return blockLabel;
+	}
+	return `${blockLabel} · ${shorten(toSingleLine(partName(part)))}`;
+}
+
+function truncateForPill(text: string): string {
+	return text.length > MAX_PILL_QUOTE_LENGTH ? `${text.slice(0, MAX_PILL_QUOTE_LENGTH).trimEnd()}…` : text;
+}
+
+function partName({ kind, label, category, value }: StoryBlockPart): string {
+	const fallback = kind.replaceAll('-', ' ');
+	switch (kind) {
+		case 'kpi-value':
+		case 'kpi-comparison':
+			return value ?? label ?? fallback;
+		case 'cell':
+			return [label, category].filter(Boolean).join(' · ') || fallback;
+		case 'data-point':
+			return category ?? label ?? fallback;
+		default:
+			return label ?? fallback;
+	}
 }
 
 function toSingleLine(text: string): string {
