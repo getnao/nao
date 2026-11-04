@@ -238,7 +238,7 @@ export function hasOnboardingCloudAccess(
 	return !cloudBillingEnabled || access?.hasAccess === true || access?.bypassBilling === true;
 }
 
-export function findCreatedOnboardingProject<T extends { deployedAt: Date | null }>(
+export function findCreatedOnboardingProject<T extends { createdAt: Date; deployedAt: Date | null }>(
 	projects: T[] | undefined,
 	onboardingStartedAt: number | undefined,
 ): T | null {
@@ -252,12 +252,15 @@ export function findCreatedOnboardingProject<T extends { deployedAt: Date | null
 	);
 }
 
-function deployedDuringOnboarding(project: { deployedAt: Date | null }, onboardingStartedAt: number): boolean {
+function deployedDuringOnboarding(
+	project: { createdAt: Date; deployedAt: Date | null },
+	onboardingStartedAt: number,
+): boolean {
 	return deploymentTime(project) >= onboardingStartedAt;
 }
 
-function deploymentTime(project: { deployedAt: Date | null }): number {
-	return project.deployedAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+function deploymentTime(project: { createdAt: Date; deployedAt: Date | null }): number {
+	return (project.deployedAt ?? project.createdAt).getTime();
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {

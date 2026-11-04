@@ -141,6 +141,14 @@ describe('findCreatedOnboardingProject', () => {
 		expect(findCreatedOnboardingProject([existing, deployed], onboardingStartedAt)).toEqual(deployed);
 	});
 
+	it('falls back to the creation time for deployments recorded before deployedAt existed', () => {
+		const legacyDeployment = { ...deployed, deployedAt: null };
+
+		expect(findCreatedOnboardingProject([existing, legacyDeployment], onboardingStartedAt)).toEqual(
+			legacyDeployment,
+		);
+	});
+
 	it('returns a project redeployed after onboarding started', () => {
 		const redeployed = {
 			...existing,
