@@ -4,6 +4,7 @@ import {
 	indexBoundaries,
 	MAX_MAP_POINTS,
 	normalizeRegionId,
+	parseNumericValue,
 	resolveColumnName,
 } from '@nao/shared';
 import { displayMap } from '@nao/shared/tools';
@@ -15,9 +16,32 @@ type QueryResult = { columns: string[]; data: Record<string, unknown>[] };
 
 export async function validateMapConfig(input: displayMap.Input, queryResult: QueryResult): Promise<displayMap.Output> {
 	if (input.map_type === 'choropleth') {
-		return buildChoroplethResult(input, queryResult);
+		const result = await buildChoroplethResult(input, queryResult);
+		return result.success ? withWarning(result, logScaleWarning(input, queryResult)) : result;
 	}
 	return buildPointResult(input, queryResult);
+}
+
+/** A log scale cannot place zero or negative values, so they all get the lightest shade. */
+function logScaleWarning(input: displayMap.Input, queryResult: QueryResult): string | null {
+	if (input.color_scale !== 'log' || !input.value_key) {
+		return null;
+	}
+	const valueColumn = resolveColumnName(queryResult.columns, input.value_key);
+	const nonPositiveCount = queryResult.data
+		.map((row) => parseNumericValue(row[valueColumn]))
+		.filter((value) => value !== null && value <= 0).length;
+	if (nonPositiveCount === 0) {
+		return null;
+	}
+	return `${nonPositiveCount} row(s) have a value ≤ 0, which a log scale cannot place, so they get the lightest shade. Use color_scale "quantile" instead if these rows matter.`;
+}
+
+function withWarning(result: displayMap.Output, warning: string | null): displayMap.Output {
+	if (!warning) {
+		return result;
+	}
+	return { ...result, warning: result.warning ? `${result.warning} ${warning}` : warning };
 }
 
 function buildPointResult(input: displayMap.Input, queryResult: QueryResult): displayMap.Output {

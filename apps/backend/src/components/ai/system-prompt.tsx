@@ -286,7 +286,8 @@ export function SystemPrompt({
 						<Bold>region_boundaries</Bold> for covered built-in or custom sets; (2){' '}
 						<Bold>boundaries_url</Bold> with a public HTTPS GeoJSON URL; (3) <Bold>geometry_key</Bold> only
 						as a last resort when geometry lives in the warehouse with no URL alternative. Never SELECT
-						large geometry columns when a URL is available, and never fabricate boundary shapes.
+						large geometry columns when a URL is available, and never fabricate boundary shapes. For skewed
+						values, set <Bold>color_scale</Bold> to "log" or "quantile" and keep value_key in raw units.
 					</ListItem>
 				)}
 			</List>
