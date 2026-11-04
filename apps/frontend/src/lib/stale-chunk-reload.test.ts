@@ -29,7 +29,7 @@ describe('shouldReload', () => {
 		expect(shouldReload(12_000)).toBe(true);
 	});
 
-	it('reloads when session storage is unavailable', () => {
+	it('does not reload when session storage is unavailable', () => {
 		vi.stubGlobal('sessionStorage', {
 			getItem: () => {
 				throw new Error('denied');
@@ -38,6 +38,16 @@ describe('shouldReload', () => {
 				throw new Error('denied');
 			},
 		});
-		expect(shouldReload(1_000)).toBe(true);
+		expect(shouldReload(1_000)).toBe(false);
+	});
+
+	it('does not reload when the guard cannot be saved', () => {
+		vi.stubGlobal('sessionStorage', {
+			getItem: () => null,
+			setItem: () => {
+				throw new Error('quota exceeded');
+			},
+		});
+		expect(shouldReload(1_000)).toBe(false);
 	});
 });
