@@ -13,6 +13,7 @@ import { agentService } from '../services/agent';
 import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
+import { listShareableUserGroups } from '../services/shareable-user-groups.service';
 import { llmProviderSchema } from '../types/llm';
 import {
 	adminProtectedProcedure,
@@ -73,6 +74,7 @@ const integrationSchema = z
 			.object({
 				enabled: z.boolean().default(false),
 				recipients: z.array(z.string().email()).default([]),
+				recipientGroupIds: z.array(z.string()).default([]),
 				subject: z.string().trim().max(255).optional(),
 			})
 			.optional(),
@@ -271,6 +273,10 @@ export const automationRoutes = {
 	listEmailRecipients: automationReadProcedure.query(async ({ ctx }) => {
 		const projectUsers = await projectQueries.listUsersWithProjectAccess(ctx.project.id);
 		return projectUsers.map(({ id, name, email }) => ({ id, name, email }));
+	}),
+
+	listEmailRecipientGroups: automationReadProcedure.query(({ ctx }) => {
+		return listShareableUserGroups(ctx.project.id);
 	}),
 
 	listAllForAdmin: automationAdminProcedure.query(async ({ ctx }) => {

@@ -39,6 +39,7 @@ type IntegrationConfig = {
 	email?: {
 		enabled: boolean;
 		recipients: string[];
+		recipientGroupIds?: string[];
 		subject?: string;
 	};
 	slack?: {
@@ -1117,7 +1118,7 @@ function ToolsSection({
 	onAutoSaveChange: (value: AutomationFormValue) => void;
 	disabled: boolean;
 }) {
-	const email = value.integrations.email ?? { enabled: false, recipients: [] };
+	const email = value.integrations.email ?? { enabled: false, recipients: [], recipientGroupIds: [] };
 	const slack = value.integrations.slack ?? { enabled: false, channelId: '' };
 	const github = value.integrations.github ?? { enabled: false, repositories: [] };
 	const availableServers = mcpServers ?? [];
@@ -1264,7 +1265,7 @@ function ToolRow({
 	}
 
 	if (tool.type === 'email') {
-		const email = value.integrations.email ?? { enabled: false, recipients: [] };
+		const email = value.integrations.email ?? { enabled: false, recipients: [], recipientGroupIds: [] };
 		return (
 			<ToolRowShell
 				icon={<Mail className='size-4 text-muted-foreground' />}
@@ -1275,15 +1276,16 @@ function ToolRow({
 				<div className='grid gap-1.5'>
 					<EmailRecipientsInput
 						recipients={email.recipients}
+						recipientGroupIds={email.recipientGroupIds ?? []}
 						error={emailRecipientsError}
 						disabled={disabled}
-						onChange={(recipients) => {
+						onChange={(recipients, recipientGroupIds) => {
 							onClearEmailRecipientsError();
 							onChange({
 								...value,
 								integrations: {
 									...value.integrations,
-									email: { ...email, recipients },
+									email: { ...email, recipients, recipientGroupIds },
 								},
 							});
 						}}
@@ -1885,6 +1887,7 @@ function normalizeAutomationValue(value: AutomationFormValue): AutomationFormVal
 				? {
 						enabled: value.integrations.email.enabled,
 						recipients: value.integrations.email.recipients,
+						recipientGroupIds: value.integrations.email.recipientGroupIds ?? [],
 						subject: value.integrations.email.subject ?? '',
 					}
 				: undefined,
@@ -1970,28 +1973,35 @@ function isValidationIssue(value: unknown): value is { message: string } {
 
 function EmailRecipientsInput({
 	recipients,
+	recipientGroupIds,
 	error,
 	disabled,
 	onChange,
 }: {
 	recipients: string[];
+	recipientGroupIds: string[];
 	error: string | null;
 	disabled: boolean;
-	onChange: (recipients: string[]) => void;
+	onChange: (recipients: string[], recipientGroupIds: string[]) => void;
 }) {
 	const [search, setSearch] = useState('');
 	const recipientsQuery = useQuery(trpc.automation.listEmailRecipients.queryOptions());
 	const members = recipientsQuery.data ?? [];
+	const groupsQuery = useQuery(trpc.automation.listEmailRecipientGroups.queryOptions());
+	const groups = groupsQuery.data ?? [];
+	const selectedGroupIds = new Set(recipientGroupIds);
+
+	const term = search.trim().toLowerCase();
+	const filteredGroups = groups.filter((group) => !term || group.name.toLowerCase().includes(term));
 
 	const selectedEmails = new Set(recipients.map((email) => email.toLowerCase()));
 	const selectedUserIds = new Set(
 		members.filter((member) => selectedEmails.has(member.email.toLowerCase())).map((member) => member.id),
 	);
 
-	const filteredMembers = members.filter((member) => {
-		const term = search.trim().toLowerCase();
-		return !term || member.name.toLowerCase().includes(term) || member.email.toLowerCase().includes(term);
-	});
+	const filteredMembers = members.filter(
+		(member) => !term || member.name.toLowerCase().includes(term) || member.email.toLowerCase().includes(term),
+	);
 
 	function toggleUser(userId: string) {
 		const member = members.find((candidate) => candidate.id === userId);
@@ -2003,7 +2013,20 @@ function EmailRecipientsInput({
 			selectedUserIds.has(userId)
 				? recipients.filter((email) => email.toLowerCase() !== member.email.toLowerCase())
 				: [...recipients, member.email],
+			recipientGroupIds,
 		);
+	}
+
+	function toggleGroup(groupId: string) {
+		const nextGroupIds = new Set(selectedGroupIds);
+
+		if (nextGroupIds.has(groupId)) {
+			nextGroupIds.delete(groupId);
+		} else {
+			nextGroupIds.add(groupId);
+		}
+
+		onChange(recipients, [...nextGroupIds]);
 	}
 
 	return (
@@ -2015,10 +2038,13 @@ function EmailRecipientsInput({
 			<MemberPicker
 				members={filteredMembers}
 				selectedUserIds={selectedUserIds}
-				isLoading={recipientsQuery.isLoading}
+				groups={filteredGroups}
+				selectedGroupIds={selectedGroupIds}
+				isLoading={recipientsQuery.isLoading || groupsQuery.isLoading}
 				search={search}
 				onSearchChange={setSearch}
 				onToggleUser={toggleUser}
+				onToggleGroup={toggleGroup}
 			/>
 		</fieldset>
 	);
