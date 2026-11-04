@@ -924,6 +924,7 @@ function createCommandEnvironment(warehouseEnvVars: Record<string, string>): Nod
 	return {
 		PATH: process.env.PATH,
 		HOME: process.env.HOME,
+		NAO_MODE: process.env.NAO_MODE,
 		TMPDIR: process.env.TMPDIR,
 		VIRTUAL_ENV: process.env.VIRTUAL_ENV,
 		LANG: process.env.LANG,

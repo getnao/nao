@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, PrivateAttr, field_validator
 
+from nao_core.cloud import is_nao_cloud
 from nao_core.ui import ask_select, ask_text
 
 if TYPE_CHECKING:
@@ -18,6 +19,16 @@ from .base import DatabaseConfig
 from .context import DatabaseContext
 
 logger = logging.getLogger(__name__)
+
+
+class BigQueryServiceAccountRequired(PermissionError):
+    """Raised on nao Cloud when a BigQuery connection would otherwise authenticate with the server's own identity."""
+
+    def __init__(self, connection_name: str):
+        super().__init__(
+            f"BigQuery connection '{connection_name}' has no service account credentials. On nao Cloud, configure "
+            "credentials_json with a service account: signing in with Google (sso: true) is not supported yet."
+        )
 
 
 @dataclass
@@ -538,6 +549,8 @@ class BigQueryConfig(DatabaseConfig):
         require_database_backend("bigquery")
         import ibis
 
+        self.ensure_explicit_credentials_on_cloud()
+
         kwargs: dict = {"project_id": self.project_id}
 
         if self.dataset_id:
@@ -567,6 +580,11 @@ class BigQueryConfig(DatabaseConfig):
             kwargs["credentials"] = credentials
 
         return ibis.bigquery.connect(**kwargs)
+
+    def ensure_explicit_credentials_on_cloud(self) -> None:
+        """Without a service account, ibis would fall back to the server's own Google identity on nao Cloud."""
+        if is_nao_cloud() and not (self.credentials_json or self.credentials_path):
+            raise BigQueryServiceAccountRequired(self.name)
 
     def get_database_name(self) -> str:
         """Get the database name for BigQuery."""
