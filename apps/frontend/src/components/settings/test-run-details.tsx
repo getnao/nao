@@ -1,7 +1,8 @@
+import { isSameTestModel, testResultModel } from '@nao/backend/test-run';
 import { History } from 'lucide-react';
 import { useState } from 'react';
-import { isSameModel, resultModel } from '@nao/shared/types';
-import type { LlmSelectedModel } from '@nao/shared/types';
+
+import type { TestModel } from '@nao/backend/test-run';
 
 import type { ShownAttempt } from '@/components/settings/test-attempt-details';
 import type { RunBranches } from '@/components/settings/test-run-labels';
@@ -38,7 +39,7 @@ export function RunDetails({
 	branches: RunBranches;
 }) {
 	const hasSeveralModels = run.models.length > 1;
-	const [selectedModel, setSelectedModel] = useState<LlmSelectedModel>(() => pickModelToShow(run));
+	const [selectedModel, setSelectedModel] = useState<TestModel>(() => pickModelToShow(run));
 	const [selectedAttempt, setSelectedAttempt] = useState<number | null>(null);
 	const attempts = listShownAttempts(run, hasSeveralModels ? selectedModel : null);
 	const shownAttempt =
@@ -47,7 +48,7 @@ export function RunDetails({
 		attempts.at(0);
 
 	return (
-		<div className='flex min-w-0 flex-1 flex-col'>
+		<div className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
 			<RunHeader run={run} branches={branches} />
 			{hasSeveralModels && (
 				<TestModelStrip
@@ -172,15 +173,15 @@ function TestModelStrip({
 }: {
 	run: TestHistoryRun;
 	branches: RunBranches;
-	selectedModel: LlmSelectedModel;
-	onSelect: (model: LlmSelectedModel) => void;
+	selectedModel: TestModel;
+	onSelect: (model: TestModel) => void;
 }) {
 	const isComparison = run.trigger === 'comparison';
 	return (
-		<div className='shrink-0 border-b' role='radiogroup' aria-label='Model'>
+		<div className='max-h-[45%] shrink-0 overflow-y-auto border-b' role='radiogroup' aria-label='Model'>
 			<table className='w-full text-xs'>
-				<thead>
-					<tr className='border-b text-left text-[11px] text-muted-foreground'>
+				<thead className='sticky top-0 z-10 bg-background shadow-[0_1px_0_var(--border)]'>
+					<tr className='text-left text-[11px] text-muted-foreground'>
 						<th className='px-3 py-1 font-medium'>Model</th>
 						{isComparison ? (
 							<>
@@ -201,11 +202,13 @@ function TestModelStrip({
 				</thead>
 				<tbody>
 					{run.models.map((model) => {
-						const modelResults = run.results.filter((result) => isSameModel(resultModel(result), model));
+						const modelResults = run.results.filter((result) =>
+							isSameTestModel(testResultModel(result), model),
+						);
 						const measuredResults = isComparison
 							? modelResults.filter((result) => result.contextVariant === 'draft')
 							: modelResults;
-						const isSelected = isSameModel(model, selectedModel);
+						const isSelected = isSameTestModel(model, selectedModel);
 						return (
 							<tr
 								key={testModelKey(model)}
@@ -257,8 +260,10 @@ function TestModelStrip({
 }
 
 /** The attempts of the model shown, each paired with the same attempt on the main branch in a comparison. */
-function listShownAttempts(run: TestHistoryRun, model: LlmSelectedModel | null): ShownAttempt[] {
-	const results = model ? run.results.filter((result) => isSameModel(resultModel(result), model)) : run.results;
+function listShownAttempts(run: TestHistoryRun, model: TestModel | null): ShownAttempt[] {
+	const results = model
+		? run.results.filter((result) => isSameTestModel(testResultModel(result), model))
+		: run.results;
 	if (run.trigger !== 'comparison') {
 		return results.map((result) => ({ kind: 'single', attempt: result.attempt, result }));
 	}
@@ -293,7 +298,7 @@ function attemptTone(run: TestHistoryRun, attempt: ShownAttempt): Tone {
 }
 
 /** Shows first a model with a failed attempt, as that is the one to look into. */
-function pickModelToShow(run: TestHistoryRun): LlmSelectedModel {
+function pickModelToShow(run: TestHistoryRun): TestModel {
 	const failed = run.results.find((result) => !result.passed);
-	return failed ? resultModel(failed) : run.models[0];
+	return failed ? testResultModel(failed) : run.models[0];
 }

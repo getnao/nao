@@ -1,22 +1,29 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 
+import { getModelCapabilities, getModelReasoningEfforts } from '../agents/provider-meta';
+import { clampEffort } from '../agents/providers';
 import type { DBTestRun, NewTestRun, NewTestRunResult } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as testRunQueries from '../queries/test-run.queries';
+import type { ReasoningEffort } from '../types/llm';
 import {
-	getTestRunConcurrency,
+	getDefaultTestRunThreads,
 	type InvalidTestFile,
 	MAX_TEST_RUN_ATTEMPTS,
+	MAX_TEST_RUN_THREADS,
 	TEST_CONTEXT_VARIANTS,
 	type TestComparisonTolerances,
 	type TestContextVariant,
 	type TestDefinition,
+	type TestModel,
+	type TestModelDefaultEffort,
+	type TestModelSelection,
 	type TestRunResultDetails,
 	type TestSourceQuery,
 	type TestSuite,
 } from '../types/test-run';
-import { resolveDefaultChatModel } from '../utils/llm';
+import { getProjectAvailableModels, resolveDefaultChatModel, resolveModelInferenceSettings } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
@@ -58,8 +65,9 @@ interface StartTestRunInput {
 	userId: string;
 	paths?: string[];
 	tags?: string[];
-	models?: LlmSelectedModel[];
+	models?: TestModelSelection[];
 	attempts?: number;
+	threads?: number;
 	/** Tests to run instead of the ones of the production context, such as a draft being edited. */
 	tests?: TestDefinition[];
 }
@@ -71,13 +79,16 @@ interface StartComparisonRunInput extends StartTestRunInput {
 
 interface TestSuitePlan {
 	tests: TestDefinition[];
-	models: LlmSelectedModel[];
+	/** Each picked model, once per reasoning effort when it runs at all of them. */
+	models: TestModel[];
 	/**
 	 * Writes the verification query of every attempt when several models run, so that the comparison measures their
 	 * answers rather than how well each writes that query. Null when one model runs and verifies its own answers.
 	 */
 	verificationModel: LlmSelectedModel | null;
 	attempts: number;
+	/** How many attempts are in flight at once. */
+	threads: number;
 	tolerances: TestComparisonTolerances;
 }
 
@@ -90,7 +101,7 @@ type TestRunContext = Pick<NewTestRun, 'trigger' | 'contextRef' | 'contextCommit
 
 interface TestAttemptJob {
 	test: TestDefinition;
-	model: LlmSelectedModel;
+	model: TestModel;
 	attempt: number;
 	variant: TestContextVariant;
 }
@@ -235,18 +246,66 @@ async function planTestRun(
 	if (settings.errors.length > 0) {
 		throw new TestRunInputError(`Fix the test settings in nao_config.yaml first: ${settings.errors.join(' ')}`);
 	}
-	const models = input.models?.length ? input.models : (settings.models ?? (await resolveFallbackModels(input)));
+	const selections = input.models?.length ? input.models : (settings.models ?? (await resolveFallbackModels(input)));
+	const models = expandReasoningEfforts(selections);
 	return {
 		tests,
 		models,
 		verificationModel: models.length > 1 ? await resolveVerificationModel(input.projectId, models) : null,
 		attempts: Math.min(input.attempts ?? settings.attempts, MAX_TEST_RUN_ATTEMPTS),
+		threads: Math.min(
+			input.threads ?? settings.threads ?? getDefaultTestRunThreads(models.length),
+			MAX_TEST_RUN_THREADS,
+		),
 		tolerances: settings.tolerances,
 	};
 }
 
-async function resolveVerificationModel(projectId: string, models: LlmSelectedModel[]): Promise<LlmSelectedModel> {
-	return (await resolveDefaultChatModel(projectId)) ?? models[0];
+/** The effort each available model that has reasoning efforts runs at when a run keeps its settings. */
+export async function listDefaultReasoningEfforts(projectId: string): Promise<TestModelDefaultEffort[]> {
+	const models = (await getProjectAvailableModels(projectId)).filter(
+		(model) => getModelReasoningEfforts(model.provider, model.modelId).length > 0,
+	);
+	return Promise.all(
+		models.map(async ({ provider, modelId }) => {
+			const settings = await resolveModelInferenceSettings(projectId, provider, modelId);
+			return {
+				provider,
+				modelId,
+				reasoningEffort: toEffectiveEffort(provider, modelId, settings.reasoningEffort),
+			};
+		}),
+	);
+}
+
+/** A model runs once per reasoning effort picked that it supports, from the lowest, or once when none is. */
+function expandReasoningEfforts(selections: TestModelSelection[]): TestModel[] {
+	return selections.flatMap(({ reasoningEfforts = [], ...model }) => {
+		const efforts = getModelReasoningEfforts(model.provider, model.modelId).filter((effort) =>
+			reasoningEfforts.includes(effort),
+		);
+		return efforts.length > 0 ? efforts.map((reasoningEffort) => ({ ...model, reasoningEffort })) : [model];
+	});
+}
+
+/** The stored effort as the provider receives it, snapped to the efforts the model supports. */
+function toEffectiveEffort(
+	provider: LlmProvider,
+	modelId: string,
+	effort: ReasoningEffort | undefined,
+): ReasoningEffort | null {
+	if (!effort || effort === 'off') {
+		return effort ?? null;
+	}
+	return clampEffort(effort, getModelCapabilities(provider, modelId)?.effortOptions);
+}
+
+async function resolveVerificationModel(projectId: string, models: TestModel[]): Promise<LlmSelectedModel> {
+	return (await resolveDefaultChatModel(projectId)) ?? toSelectedModel(models[0]);
+}
+
+function toSelectedModel(model: TestModel): LlmSelectedModel {
+	return { provider: model.provider, modelId: model.modelId };
 }
 
 /** Invalid files block the run when they are selected, or when the whole suite runs, as with `nao test`. */
@@ -274,12 +333,11 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 
 	const abortController = new AbortController();
 	liveRuns.set(run.id, abortController);
-	const heartbeat = setInterval(() => void recordHeartbeat(run), TEST_RUN_HEARTBEAT_MS);
+	const heartbeat = setInterval(() => void recordHeartbeat(run, abortController), TEST_RUN_HEARTBEAT_MS);
 	try {
 		await mcpService.initializeMcpState(run.projectId);
 		await skillService.initializeSkills(run.projectId);
-		const concurrency = getTestRunConcurrency(plan.models.length);
-		await runWithConcurrency(jobs, concurrency, (job) =>
+		await runWithConcurrency(jobs, plan.threads, (job) =>
 			runAttemptUnlessCancelled(run, userId, job, plan, abortController.signal),
 		);
 		await testRunQueries.completeRun(run.id);
@@ -291,9 +349,15 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 	}
 }
 
-async function recordHeartbeat(run: DBTestRun): Promise<void> {
+/**
+ * A cancellation handled by another replica only reaches this one through the database, so the heartbeat aborts the
+ * attempts in flight once the run is no longer active.
+ */
+async function recordHeartbeat(run: DBTestRun, abortController: AbortController): Promise<void> {
 	try {
-		await testRunQueries.recordHeartbeat(run.id);
+		if (!(await testRunQueries.recordHeartbeat(run.id))) {
+			abortController.abort();
+		}
 	} catch (error) {
 		logger.error(`Test run ${run.id} heartbeat failed: ${String(error)}`, {
 			source: 'agent',
@@ -342,6 +406,7 @@ async function runAttempt(
 		tags: test.tags,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		reasoningEffort: model.reasoningEffort ?? null,
 		contextVariant: variant,
 		attempt,
 	};
@@ -375,7 +440,7 @@ async function runAttempt(
 			userId,
 			test: { ...test, tolerances: plan.tolerances },
 			result: agentResult,
-			modelSelection: plan.verificationModel ?? model,
+			verificationModel: plan.verificationModel ?? model,
 		});
 
 		return {

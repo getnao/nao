@@ -1,8 +1,10 @@
-import { isInTestsFolder } from '@nao/shared/test-paths';
+import { EFFORT_OPTIONS } from '@nao/backend/provider-meta';
+import { testModelColorIndex } from '@nao/backend/test-run';
 import { isSameModel } from '@nao/shared/types';
+import { isInTestsFolder } from '@nao/shared/test-paths';
 
+import type { TestModel } from '@nao/backend/test-run';
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { LlmSelectedModel } from '@nao/shared/types';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { KeyboardEvent } from 'react';
 
@@ -72,16 +74,62 @@ const OTHER_MODEL_COLOR = {
 
 export type TestModelColor = (typeof TEST_MODEL_COLORS)[number] | typeof OTHER_MODEL_COLOR;
 
-export function getTestModelColor(models: LlmSelectedModel[], model: LlmSelectedModel): TestModelColor {
-	return getTestModelColorAt(models.findIndex((candidate) => isSameModel(candidate, model)));
+/** The reasoning efforts of a model share its color, so that they read as one line. */
+export function getTestModelColor(models: TestModel[], model: TestModel): TestModelColor {
+	return getTestModelColorAt(testModelColorIndex(models, model));
 }
 
 export function getTestModelColorAt(index: number): TestModelColor {
 	return TEST_MODEL_COLORS[index] ?? OTHER_MODEL_COLOR;
 }
 
-export function testModelKey(model: LlmSelectedModel): string {
-	return `${model.provider}:${model.modelId}`;
+export function testModelKey(model: TestModel): string {
+	return [model.provider, model.modelId, model.reasoningEffort].filter(Boolean).join(':');
+}
+
+/** The models of a run in a few words: the model when there is one, else how many, and whether they ran at every effort. */
+export function describeTestModels(models: TestModel[]): string {
+	const distinctModels = countDistinctModels(models);
+	const label = distinctModels === 1 ? (models[0]?.modelId ?? '') : `${distinctModels} models`;
+	const efforts = describeReasoningEfforts(models);
+	return efforts ? `${label} · ${efforts}` : label;
+}
+
+export function countDistinctModels(models: TestModel[]): number {
+	return new Set(models.map((model) => `${model.provider}:${model.modelId}`)).size;
+}
+
+/** The reasoning efforts a run set, as "high effort" or "3 efforts", or null when its models ran at their configured one. */
+export function describeReasoningEfforts(models: TestModel[]): string | null {
+	const efforts = [...new Set(models.flatMap((model) => (model.reasoningEffort ? [model.reasoningEffort] : [])))];
+	if (efforts.length === 0) {
+		return null;
+	}
+	return efforts.length === 1 ? `${efforts[0]} effort` : `${efforts.length} efforts`;
+}
+
+/** Groups the entries of a run by model, whatever reasoning effort they ran at, in the order the models first appear. */
+export function groupByBaseModel<T extends TestModel>(entries: T[]): T[][] {
+	const groups: T[][] = [];
+	for (const entry of entries) {
+		const group = groups.find(([first]) => isSameModel(first, entry));
+		if (group) {
+			group.push(entry);
+		} else {
+			groups.push([entry]);
+		}
+	}
+	return groups;
+}
+
+/** Orders reasoning efforts from the lowest to the highest, the effort configured for the model first. */
+export function reasoningEffortRank(model: Pick<TestModel, 'reasoningEffort'>): number {
+	return model.reasoningEffort ? EFFORT_OPTIONS.indexOf(model.reasoningEffort) : -1;
+}
+
+/** The model as the run views name it, with the reasoning effort it ran at when the run set one. */
+export function formatTestModel(model: TestModel): string {
+	return model.reasoningEffort ? `${model.modelId} · ${model.reasoningEffort}` : model.modelId;
 }
 
 export function isActiveRun(run: Pick<TestRunSummary, 'status'>): boolean {

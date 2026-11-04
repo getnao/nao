@@ -6,7 +6,7 @@ import { testRunAgent } from '../agents/profiles/test-run';
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
-import type { TestSourceQuery } from '../types/test-run';
+import type { TestModel, TestSourceQuery } from '../types/test-run';
 import type { QueryResult } from '../types/tools';
 import { getErrorMessage } from '../utils/utils';
 import { AgentChat, AgentRunResult, AgentService } from './agent';
@@ -75,12 +75,14 @@ export class TestAgentService extends AgentService {
 	async runTestInChat(
 		chat: AgentChat,
 		messages: UIMessage[],
-		modelSelection: LlmSelectedModel,
+		model: TestModel,
 		options: { billingAccessVerifiedProjectId?: string; abortSignal?: AbortSignal; contextFolder?: string } = {},
 	): Promise<AgentRunResult> {
+		const { reasoningEffort, ...modelSelection } = model;
 		const agent = await this.create(chat, modelSelection, testRunAgent, {
 			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 			contextFolder: options.contextFolder,
+			...(reasoningEffort && { inferenceOverrides: { reasoningEffort } }),
 		});
 		const stopAgent = () => agent.stop();
 		options.abortSignal?.addEventListener('abort', stopAgent, { once: true });
@@ -105,19 +107,20 @@ export class TestAgentService extends AgentService {
 		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
-		modelSelection?: LlmSelectedModel,
+		model?: TestModel,
 	): Promise<VerificationResult> {
 		const { queryResults } = agentResult;
 		if (queryResults.size === 0) {
 			return { data: null, sql: null, sourceQueries: [], error: 'The agent did not run any SQL query.' };
 		}
 
-		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel, {
-			userId,
+		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, model);
+		const modelConfig = await this._getModelConfig(
 			projectId,
-			category: 'test',
-		});
+			resolvedSelectedModel,
+			{ userId, projectId, category: 'test' },
+			model?.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : undefined,
+		);
 
 		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 

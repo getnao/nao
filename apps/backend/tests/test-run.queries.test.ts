@@ -107,11 +107,12 @@ describe('test run queries', () => {
 		await expect(failStaleRuns(STALE_INPUT)).resolves.toBe(0);
 
 		await db.update(s.testRun).set({ heartbeatAt: longAgo }).where(eq(s.testRun.id, live.id)).execute();
-		await recordHeartbeat(live.id);
+		await expect(recordHeartbeat(live.id)).resolves.toBe(true);
 		await expect(failStaleRuns(STALE_INPUT)).resolves.toBe(0);
 
 		await db.update(s.testRun).set({ heartbeatAt: longAgo }).where(eq(s.testRun.id, live.id)).execute();
 		await expect(failStaleRuns(STALE_INPUT)).resolves.toBe(1);
+		await expect(recordHeartbeat(live.id)).resolves.toBe(false);
 	});
 
 	it('lists the runs that selected a test, newest first, even before they recorded a result of it', async () => {

@@ -24,6 +24,9 @@ vi.mock('@/main', () => ({
 		},
 		testRun: {
 			getModelStats: { queryOptions: () => ({ queryKey: ['model-stats'], queryFn: () => [] }) },
+			getDefaultReasoningEfforts: {
+				queryOptions: () => ({ queryKey: ['default-reasoning-efforts'], queryFn: () => [] }),
+			},
 			listRuns: { queryKey: () => ['test-runs'] },
 			startRun: { mutationOptions: mutationOptions(mocks.startRun) },
 			cancelRun: { mutationOptions: mutationOptions(mocks.cancelRun) },
@@ -73,6 +76,7 @@ describe('TestFileRunActions', () => {
 			target: { testFile: TEST_FILE },
 			models: MODELS,
 			attempts: 3,
+			threads: 6,
 		});
 		expect(screen.getByRole('button', { name: 'Models to test' }).textContent).toBe('2 models · ×3');
 	});
@@ -97,6 +101,7 @@ describe('TestFileRunActions', () => {
 			target: { testFile: TEST_FILE },
 			models: MODELS,
 			attempts: 3,
+			threads: 6,
 		});
 		expect(screen.getByRole('button', { name: 'More ways to run' })).toBeTruthy();
 	});
@@ -145,6 +150,7 @@ describe('TestFileRunActions', () => {
 			target: { testFile: TEST_FILE },
 			models: MODELS,
 			attempts: 3,
+			threads: 6,
 		});
 	});
 
@@ -230,6 +236,7 @@ describe('SuiteRunActions', () => {
 			target: { paths: ['revenue.yml', 'churn.yml'] },
 			models: MODELS,
 			attempts: 3,
+			threads: 6,
 		});
 	});
 
@@ -253,6 +260,7 @@ function settings(overrides: Partial<TestRunSettings> = {}): TestRunSettings {
 	return {
 		models: MODELS,
 		attempts: 3,
+		threads: 6,
 		isCustom: true,
 		isLoading: false,
 		update: vi.fn(),

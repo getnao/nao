@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { TestModelSummary, TestRunWithResults } from '@/components/settings/test-run-types';
+import { ModelFrontierChart } from '@/components/settings/test-model-frontier-chart';
 import { ModelName } from '@/components/settings/test-model-labels';
 import {
 	formatCount,
@@ -68,7 +69,10 @@ const LEADERBOARD_COLUMNS: LeaderboardColumn[] = [
 	},
 ];
 
-/** The models of a run side by side, most accurate first, with the best value of each metric highlighted. */
+/**
+ * The models of a run side by side, most accurate first, with the best value of each metric highlighted, under the
+ * chart of their accuracy against their cost.
+ */
 export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
 	const summaries = run.modelSummaries;
 	const mostAccurate = summaries.at(0);
@@ -76,6 +80,7 @@ export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
 	const isSmallSample = summaries.some((summary) => summary.attempts < SMALL_SAMPLE_ATTEMPTS);
 	return (
 		<div className='border-b'>
+			<ModelFrontierChart run={run} />
 			<table className='w-full text-xs'>
 				<thead>
 					<tr className='border-b text-left text-[11px] text-muted-foreground'>

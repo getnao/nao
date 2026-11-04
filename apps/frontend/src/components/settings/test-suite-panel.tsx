@@ -22,7 +22,7 @@ import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filt
 import { getMainBranch, ToneIcon } from '@/components/settings/test-run-labels';
 import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
 import { TestRunResults } from '@/components/settings/test-run-results';
-import { getTestModelColorAt, testModelKey } from '@/components/settings/test-run-types';
+import { formatTestModel, getTestModelColorAt, testModelKey } from '@/components/settings/test-run-types';
 import { outcomeTone } from '@/components/settings/test-run-verdict';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -104,7 +104,12 @@ export function TestSuitePanel({
 							onOpenTest={onOpenTest}
 						/>
 					) : (
-						<TestRunResults key={selectedRunId} runId={selectedRunId} onOpenTest={onOpenTest} />
+						<TestRunResults
+							key={selectedRunId}
+							runId={selectedRunId}
+							mainBranch={runListContext.mainBranch}
+							onOpenTest={onOpenTest}
+						/>
 					)}
 				</div>
 			</div>
@@ -350,9 +355,9 @@ function ModelOutcomes({ models }: { models: TestModelOutcome[] }) {
 				<span
 					key={testModelKey(model)}
 					className='flex items-center gap-1'
-					title={`${model.modelId}: ${model.passedAttempts}/${model.totalAttempts} passed`}
+					title={`${formatTestModel(model)}: ${model.passedAttempts}/${model.totalAttempts} passed`}
 				>
-					<ModelDot color={getTestModelColorAt(model.runIndex)} />
+					<ModelDot color={getTestModelColorAt(model.colorIndex)} />
 					<ToneIcon
 						tone={outcomeTone(model.passedAttempts, model.totalAttempts)}
 						isLabelled

@@ -23,8 +23,16 @@ interface GridRow {
 
 const ROW_MARKERS: Record<RowKind, string> = { match: '', differ: '±', missing: '−', extra: '+' };
 const GUTTER_COLUMN_WIDTH = 28;
-const DATA_COLUMN_WIDTH = 150;
 const DATA_COLUMN_MIN_WIDTH = 60;
+/** Past this width a column truncates its values, which the user can still widen it to read. */
+const DATA_COLUMN_MAX_WIDTH = 360;
+/** Width of a character of the 11px monospace cells. */
+const MONO_CHAR_WIDTH = 6.7;
+/** Horizontal padding of a cell, with room for the highlights of a changed value. */
+const CELL_PADDING = 22;
+/** Horizontal padding of a header, with room for its sort icon. */
+const HEADER_PADDING = 32;
+const MISSING_COLUMN_PREFIX = '− ';
 
 /**
  * The rows of two sides cell by cell in a spreadsheet that fills its pane, whose columns sort and resize, colored like
@@ -61,7 +69,7 @@ function DiffGrid({ diff, rows, sides }: { diff: TestDataDiff; rows: GridRow[]; 
 		getSortedRowModel: getSortedRowModel(),
 		columnResizeMode: 'onChange',
 		sortDescFirst: false,
-		defaultColumn: { size: DATA_COLUMN_WIDTH, minSize: DATA_COLUMN_MIN_WIDTH },
+		defaultColumn: { minSize: DATA_COLUMN_MIN_WIDTH },
 	});
 
 	return (
@@ -124,7 +132,7 @@ function DiffGridHeader({ header, isMissing }: { header: Header<GridRow, unknown
 					title={isMissing ? `The answer has no ${column.id} column` : `Sort by ${column.id}`}
 				>
 					<span className='min-w-0 flex-1 truncate'>
-						{isMissing && '− '}
+						{isMissing && MISSING_COLUMN_PREFIX}
 						{column.id}
 					</span>
 					<SortIcon
@@ -195,12 +203,33 @@ function buildColumns(diff: TestDataDiff, sides: DiffSides): ColumnDef<GridRow>[
 		const valueOf = (row: TestDataDiffRow) => shownValue(row, index, isMissingColumn);
 		return {
 			id: column,
+			size: fitColumnWidth(diff, column, index, isMissingColumn),
 			accessorFn: (gridRow) => valueOf(gridRow.row),
 			sortingFn: (left, right) => compareCells(valueOf(left.original.row), valueOf(right.original.row)),
 			cell: ({ row }) => <DiffCell row={row.original.row} index={index} isMissingColumn={isMissingColumn} />,
 		};
 	});
 	return [gutterColumn, ...dataColumns];
+}
+
+/** Wide enough for the header and the longest value of a column, both values of a changed cell side by side. */
+function fitColumnWidth(diff: TestDataDiff, column: string, index: number, isMissingColumn: boolean): number {
+	const longestValue = Math.max(0, ...diff.rows.map((row) => countShownCharacters(row, index, isMissingColumn)));
+	const headerLength = column.length + (isMissingColumn ? MISSING_COLUMN_PREFIX.length : 0);
+	const width = Math.max(
+		headerLength * MONO_CHAR_WIDTH + HEADER_PADDING,
+		longestValue * MONO_CHAR_WIDTH + CELL_PADDING,
+	);
+	return Math.round(Math.min(DATA_COLUMN_MAX_WIDTH, Math.max(DATA_COLUMN_MIN_WIDTH, width)));
+}
+
+function countShownCharacters(row: TestDataDiffRow, index: number, isMissingColumn: boolean): number {
+	const status = row.statuses?.[index];
+	const actual = formatCell(row.actual?.[index] ?? null);
+	if (status === 'differ' || status === 'close') {
+		return formatCell(row.expected?.[index] ?? null).length + actual.length + 1;
+	}
+	return formatCell(shownValue(row, index, isMissingColumn)).length;
 }
 
 function RowGutter({ kind, position, sides }: { kind: RowKind; position: number; sides: DiffSides }) {
@@ -256,10 +285,13 @@ function DiffCell({ row, index, isMissingColumn }: { row: TestDataDiffRow; index
 }
 
 function CellValue({ value, className }: { value: Cell; className?: string }) {
-	if (value === null) {
-		return <span className={cn('text-muted-foreground/70 italic', className)}>null</span>;
-	}
-	return <span className={className}>{String(value)}</span>;
+	return (
+		<span className={cn(value === null && 'text-muted-foreground/70 italic', className)}>{formatCell(value)}</span>
+	);
+}
+
+function formatCell(value: Cell): string {
+	return value === null ? 'null' : String(value);
 }
 
 /** The answer's value when the answer has this row and column, even a null one, else the expected value. */

@@ -62,7 +62,14 @@ export function useTestRunStart({
 		isStarting,
 		error: runStart.error?.message,
 		disabledReason: getRunDisabledReason({ activeRun, blockedReason, settings, isStarting }),
-		run: () => runStart.mutate({ mode, target, models: settings.models, attempts: settings.attempts }),
+		run: () =>
+			runStart.mutate({
+				mode,
+				target,
+				models: settings.models,
+				attempts: settings.attempts,
+				threads: settings.threads,
+			}),
 	};
 }
 

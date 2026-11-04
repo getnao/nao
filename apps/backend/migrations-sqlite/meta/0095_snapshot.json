@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ad77a0aa-8ff7-456d-9fa1-67d2a2682884",
+  "id": "9c0b34a2-b982-425b-87e8-d686ecc2c9d9",
   "prevId": "002d4ca9-8fc6-400f-8cae-87156d78d612",
   "tables": {
     "account": {
@@ -6456,13 +6456,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "deployed_at": {
-          "name": "deployed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -9815,6 +9808,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "reasoning_effort": {
+          "name": "reasoning_effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "context_variant": {

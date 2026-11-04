@@ -21,6 +21,7 @@ import {
 import {
 	cancelTestRun,
 	failStaleTestRuns,
+	listDefaultReasoningEfforts,
 	startChangesRun,
 	startComparisonRun,
 	startTestRun,
@@ -34,11 +35,12 @@ import {
 	parseTestContent,
 	serializeTestFile,
 } from '../services/test-suite.service';
-import { llmSelectedModelSchema } from '../types/llm';
+import { activeEffortSchema, llmSelectedModelSchema } from '../types/llm';
 import {
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
 	MAX_TEST_RUN_ATTEMPTS,
 	MAX_TEST_RUN_MODELS,
+	MAX_TEST_RUN_THREADS,
 	type TestComparisonTolerances,
 } from '../types/test-run';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
@@ -73,8 +75,12 @@ const startRunSchema = z.object({
 		z.object({ testFile: draftTestFileSchema }),
 		z.object({ paths: z.array(z.string()).optional() }).strict(),
 	]),
-	models: z.array(llmSelectedModelSchema).max(MAX_TEST_RUN_MODELS).optional(),
+	models: z
+		.array(llmSelectedModelSchema.extend({ reasoningEfforts: z.array(activeEffortSchema).optional() }))
+		.max(MAX_TEST_RUN_MODELS)
+		.optional(),
 	attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
+	threads: z.number().int().min(1).max(MAX_TEST_RUN_THREADS).optional(),
 });
 
 export const testRunRoutes = {
@@ -135,6 +141,10 @@ export const testRunRoutes = {
 	}),
 
 	getModelStats: contextAdminProtectedProcedure.query(({ ctx }) => getModelStats(ctx.project.id)),
+
+	getDefaultReasoningEfforts: contextAdminProtectedProcedure.query(({ ctx }) =>
+		listDefaultReasoningEfforts(ctx.project.id),
+	),
 
 	getTestHistory: contextAdminProtectedProcedure
 		.input(z.object({ path: z.string() }))

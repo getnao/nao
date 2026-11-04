@@ -1,0 +1,1 @@
+ALTER TABLE "test_run_result" ADD COLUMN "reasoning_effort" text;

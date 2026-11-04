@@ -1,9 +1,9 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
-import { and, asc, desc, eq, gte, inArray, lt, lte, max, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { DBTestRun, DBTestRunResult, NewTestRun, NewTestRunResult } from '../db/abstractSchema';
 import { db, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import type { TestModel } from '../types/test-run';
 
 const ACTIVE_STATUSES: DBTestRun['status'][] = ['queued', 'running'];
 
@@ -81,6 +81,7 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 			testHash: s.testRunResult.testHash,
 			llmProvider: s.testRunResult.llmProvider,
 			llmModelId: s.testRunResult.llmModelId,
+			reasoningEffort: s.testRunResult.reasoningEffort,
 			totalAttempts: sql<number>`count(*)`.mapWith(Number),
 			passedAttempts: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
 		})
@@ -102,6 +103,7 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 			s.testRunResult.testHash,
 			s.testRunResult.llmProvider,
 			s.testRunResult.llmModelId,
+			s.testRunResult.reasoningEffort,
 		)
 		.orderBy(asc(s.testRunResult.llmModelId))
 		.execute();
@@ -118,6 +120,7 @@ export async function listTestAttemptTotals(runIds: string[]) {
 			contextVariant: s.testRunResult.contextVariant,
 			provider: s.testRunResult.llmProvider,
 			modelId: s.testRunResult.llmModelId,
+			reasoningEffort: s.testRunResult.reasoningEffort,
 			totalAttempts: sql<number>`count(*)`.mapWith(Number),
 			passedAttempts: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
 		})
@@ -129,6 +132,7 @@ export async function listTestAttemptTotals(runIds: string[]) {
 			s.testRunResult.contextVariant,
 			s.testRunResult.llmProvider,
 			s.testRunResult.llmModelId,
+			s.testRunResult.reasoningEffort,
 		)
 		.execute();
 }
@@ -158,6 +162,7 @@ export async function listResultOutcomes(runId: string) {
 			testName: s.testRunResult.testName,
 			llmProvider: s.testRunResult.llmProvider,
 			llmModelId: s.testRunResult.llmModelId,
+			reasoningEffort: s.testRunResult.reasoningEffort,
 			contextVariant: s.testRunResult.contextVariant,
 			passed: s.testRunResult.passed,
 			message: s.testRunResult.message,
@@ -191,7 +196,7 @@ export async function listEarlierModelAttempts(input: {
 	projectId: string;
 	createdBefore: Date;
 	testPaths: string[];
-	models: LlmSelectedModel[];
+	models: TestModel[];
 	scannedRuns: number;
 }) {
 	if (input.testPaths.length === 0 || input.models.length === 0) {
@@ -217,6 +222,7 @@ export async function listEarlierModelAttempts(input: {
 			testPath: s.testRunResult.testPath,
 			llmProvider: s.testRunResult.llmProvider,
 			llmModelId: s.testRunResult.llmModelId,
+			reasoningEffort: s.testRunResult.reasoningEffort,
 			contextVariant: s.testRunResult.contextVariant,
 			passed: s.testRunResult.passed,
 			totalCost: s.testRunResult.totalCost,
@@ -236,6 +242,9 @@ export async function listEarlierModelAttempts(input: {
 						and(
 							eq(s.testRunResult.llmProvider, model.provider),
 							eq(s.testRunResult.llmModelId, model.modelId),
+							model.reasoningEffort
+								? eq(s.testRunResult.reasoningEffort, model.reasoningEffort)
+								: isNull(s.testRunResult.reasoningEffort),
 						),
 					),
 				),
@@ -320,12 +329,15 @@ export async function cancelRun(runId: string): Promise<boolean> {
 	return rows.length > 0;
 }
 
-export async function recordHeartbeat(runId: string): Promise<void> {
-	await db
+/** Returns whether the run is still active, as another replica may have cancelled it. */
+export async function recordHeartbeat(runId: string): Promise<boolean> {
+	const rows = await db
 		.update(s.testRun)
 		.set({ heartbeatAt: new Date() })
 		.where(and(eq(s.testRun.id, runId), inArray(s.testRun.status, ACTIVE_STATUSES)))
+		.returning({ id: s.testRun.id })
 		.execute();
+	return rows.length > 0;
 }
 
 /**

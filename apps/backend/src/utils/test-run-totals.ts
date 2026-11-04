@@ -1,6 +1,10 @@
-import { isSameModel, type LlmSelectedModel } from '@nao/shared/types';
-
-import type { TestContextVariant, TestRunTestTotals, TestRunVariantTotals } from '../types/test-run';
+import {
+	isSameTestModel,
+	type TestContextVariant,
+	type TestModel,
+	type TestRunTestTotals,
+	type TestRunVariantTotals,
+} from '../types/test-run';
 
 export interface AttemptCounts {
 	passedAttempts: number;
@@ -11,7 +15,7 @@ export interface TestAttemptCounts extends AttemptCounts {
 	testPath: string;
 }
 
-export interface TestAttemptTotals extends LlmSelectedModel, TestAttemptCounts {
+export interface TestAttemptTotals extends TestModel, TestAttemptCounts {
 	contextVariant: TestContextVariant;
 }
 
@@ -19,7 +23,7 @@ export interface TestAttemptTotals extends LlmSelectedModel, TestAttemptCounts {
  * The tests of a run per context variant, over all models and for each model, in the order of the run's models.
  * Over all models, a test passes only when every attempt of every model passes.
  */
-export function summarizeRunTests(rows: TestAttemptTotals[], runModels: LlmSelectedModel[]): TestRunVariantTotals[] {
+export function summarizeRunTests(rows: TestAttemptTotals[], runModels: TestModel[]): TestRunVariantTotals[] {
 	const variants = [...new Set(rows.map((row) => row.contextVariant))].sort();
 	return variants.map((contextVariant) => {
 		const variantRows = rows.filter((row) => row.contextVariant === contextVariant);
@@ -27,7 +31,7 @@ export function summarizeRunTests(rows: TestAttemptTotals[], runModels: LlmSelec
 			contextVariant,
 			...countTests(variantRows),
 			models: runModels
-				.map((model) => ({ ...model, rows: variantRows.filter((row) => isSameModel(row, model)) }))
+				.map((model) => ({ ...model, rows: variantRows.filter((row) => isSameTestModel(row, model)) }))
 				.filter(({ rows: modelRows }) => modelRows.length > 0)
 				.map(({ rows: modelRows, ...model }) => ({ ...model, ...countTests(modelRows) })),
 		};

@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react';
 
 import type { DraftContext, TestComparisonChange, VariantOutcome } from '@/components/settings/test-run-types';
 import type { Tone } from '@/components/settings/test-run-verdict';
-import { TONE_COLORS, ToneIcon } from '@/components/settings/test-run-labels';
+import { TONE_COLORS, TONE_LABELS, ToneIcon } from '@/components/settings/test-run-labels';
 import { COMPARISON_CHANGES, outcomeTone } from '@/components/settings/test-run-verdict';
 import { Badge } from '@/components/ui/badge';
 import { Callout } from '@/components/ui/callout';
@@ -29,32 +29,36 @@ export function ComparisonChangeBadge({ change, isActive }: { change: TestCompar
 	return <Badge variant={TONE_BADGES[tone]}>{label}</Badge>;
 }
 
+/** The outcome of one side of a comparison as an icon, with the pass count when the test ran several times. */
 export function VariantOutcomeCell({
+	side,
 	outcome,
 	attemptsPerVariant,
 }: {
+	side: string;
 	outcome: VariantOutcome;
 	attemptsPerVariant: number;
 }) {
 	if (outcome.totalAttempts === 0) {
 		return (
-			<span className='flex items-center gap-1 text-xs text-muted-foreground'>
-				<CircleDashed className='size-3.5' />
-				Waiting
-			</span>
+			<CircleDashed
+				aria-label={`${side}: waiting`}
+				className='inline size-3.5 align-middle text-muted-foreground'
+			/>
 		);
 	}
 	const tone = outcomeTone(outcome.passedAttempts, outcome.totalAttempts);
-	const label =
-		attemptsPerVariant === 1
-			? tone === 'pass'
-				? 'Passed'
-				: 'Failed'
-			: `${outcome.passedAttempts}/${attemptsPerVariant} passed`;
+	const passCount = `${outcome.passedAttempts}/${attemptsPerVariant}`;
+	const title = `${side}: ${attemptsPerVariant === 1 ? TONE_LABELS[tone].toLowerCase() : `${passCount} passed`}`;
 	return (
-		<span className={cn('flex items-center gap-1 text-xs', TONE_COLORS[tone])}>
+		<span
+			role='img'
+			title={title}
+			aria-label={title}
+			className={cn('inline-flex items-center gap-1 align-middle text-xs tabular-nums', TONE_COLORS[tone])}
+		>
 			<ToneIcon tone={tone} />
-			{label}
+			{attemptsPerVariant > 1 && passCount}
 		</span>
 	);
 }

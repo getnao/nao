@@ -1,13 +1,15 @@
-import { isSameModel } from '@nao/shared/types';
+import { isSameTestModel } from '@nao/backend/test-run';
 import { useState } from 'react';
 
 import type { TestModelSummary, TestRunWithResults } from '@/components/settings/test-run-types';
 import type { TradeoffSeries } from '@/components/settings/test-tradeoff-chart';
 import { ModelDot, ModelName } from '@/components/settings/test-model-labels';
+import { BranchName } from '@/components/settings/test-run-labels';
 import {
 	formatCount,
 	formatDuration,
 	formatPassRate,
+	formatTestModel,
 	formatUnitCost,
 	getAccuracy,
 	getTestModelColor,
@@ -55,7 +57,7 @@ const CHART_METRICS: {
 	},
 ];
 
-export function ModelChangesChart({ run }: { run: TestRunWithResults }) {
+export function ModelChangesChart({ run, mainBranch }: { run: TestRunWithResults; mainBranch: string }) {
 	const [metricId, setMetricId] = useState<ChartMetric>('cost');
 	const metric = CHART_METRICS.find((candidate) => candidate.id === metricId) ?? CHART_METRICS[0];
 	const pairs = pairVariantSummaries(run);
@@ -68,13 +70,13 @@ export function ModelChangesChart({ run }: { run: TestRunWithResults }) {
 		return [
 			{
 				key: testModelKey(model),
-				label: model.modelId,
+				label: formatTestModel(model),
 				color: getTestModelColor(run.models, model),
 				before,
 				after,
 				change: before ? describeShift(before.y, after.y) : null,
 				details: [
-					`Production: ${formatAccuracy(production)} · ${production ? formatMetric(metric, production) : '—'}`,
+					`${mainBranch}: ${formatAccuracy(production)} · ${production ? formatMetric(metric, production) : '—'}`,
 					`Your changes: ${formatAccuracy(draft)} · ${formatMetric(metric, draft)}`,
 					`${draft.attempts} attempts per side`,
 				],
@@ -94,14 +96,14 @@ export function ModelChangesChart({ run }: { run: TestRunWithResults }) {
 						series={series}
 						xLabel={metric.axisLabel}
 						formatX={metric.format}
-						ariaLabel={`Accuracy against ${metric.axisLabel.toLowerCase()} of each model, on production and with your changes`}
+						ariaLabel={`Accuracy against ${metric.axisLabel.toLowerCase()} of each model, on ${mainBranch} and with your changes`}
 					/>
 				) : (
 					<p className='px-2 py-8 text-center text-xs text-muted-foreground'>
 						The chart shows once a model has {metric.label.toLowerCase()} for both sides.
 					</p>
 				)}
-				<ChartLegend run={run} />
+				<ChartLegend run={run} mainBranch={mainBranch} />
 			</div>
 			<div className='min-w-0 flex-[2]'>
 				<table className='w-full text-xs'>
@@ -158,11 +160,12 @@ function MetricToggle({ metric, onChange }: { metric: ChartMetric; onChange: (me
 	);
 }
 
-function ChartLegend({ run }: { run: TestRunWithResults }) {
+function ChartLegend({ run, mainBranch }: { run: TestRunWithResults; mainBranch: string }) {
 	return (
 		<div className='flex flex-wrap items-center gap-x-3 gap-y-1 px-2 pb-2 text-[11px] text-muted-foreground'>
 			<span className='flex items-center gap-1'>
-				<span className='size-2 rounded-full border-2 border-muted-foreground' /> Production
+				<span className='size-2 rounded-full border-2 border-muted-foreground' />
+				<BranchName name={mainBranch} />
 			</span>
 			<span className='flex items-center gap-1'>
 				<span className='size-2 rounded-full bg-muted-foreground' /> Your changes
@@ -182,11 +185,12 @@ function pairVariantSummaries(run: TestRunWithResults) {
 		model,
 		production:
 			run.modelSummaries.find(
-				(summary) => summary.contextVariant === 'production' && isSameModel(summary, model),
+				(summary) => summary.contextVariant === 'production' && isSameTestModel(summary, model),
 			) ?? null,
 		draft:
-			run.modelSummaries.find((summary) => summary.contextVariant === 'draft' && isSameModel(summary, model)) ??
-			null,
+			run.modelSummaries.find(
+				(summary) => summary.contextVariant === 'draft' && isSameTestModel(summary, model),
+			) ?? null,
 	}));
 }
 

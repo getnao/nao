@@ -58,7 +58,7 @@ import {
 	UIMessage,
 	UIMessagePart,
 } from '../types/chat';
-import type { ModelCosts } from '../types/llm';
+import type { ModelCosts, ModelInferenceSettings } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
 import { McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
@@ -312,6 +312,8 @@ export class AgentService {
 			unbilledManagedAiUsage?: boolean;
 			/** Runs against this copy of the context instead of the project folder. */
 			contextFolder?: string;
+			/** Settings that win over the ones configured for the model. */
+			inferenceOverrides?: ModelInferenceSettings;
 		} = {},
 	): Promise<AgentManager> {
 		await assertUserIsActive(chat.userId);
@@ -331,7 +333,12 @@ export class AgentService {
 			category: profile.usageCategory ?? 'chat',
 			billingMode: options.unbilledManagedAiUsage ? 'unbilled' : 'wallet',
 		};
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, usageContext);
+		const modelConfig = await this._getModelConfig(
+			chat.projectId,
+			resolvedLlmSelectedModel,
+			usageContext,
+			options.inferenceOverrides,
+		);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
@@ -421,6 +428,7 @@ export class AgentService {
 		projectId: string,
 		modelSelection: LlmSelectedModel,
 		usageContext?: ManagedAiUsageContext,
+		inferenceOverrides?: ModelInferenceSettings,
 	): Promise<ProviderModelResult> {
 		const result = await resolveProviderModel(
 			projectId,
@@ -428,6 +436,7 @@ export class AgentService {
 			modelSelection.modelId,
 			true,
 			usageContext,
+			inferenceOverrides,
 		);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');

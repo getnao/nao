@@ -1,5 +1,5 @@
 {
-  "id": "232c8791-00b5-47f1-af8b-eda079840522",
+  "id": "4f9d9028-ce71-4c69-8e49-a4e35b150165",
   "prevId": "a5f96a56-3e95-49ac-ba8c-ce35a0169fc0",
   "version": "7",
   "dialect": "postgresql",
@@ -7005,12 +7005,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "deployed_at": {
-          "name": "deployed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -10589,6 +10583,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "reasoning_effort": {
+          "name": "reasoning_effort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "context_variant": {
           "name": "context_variant",

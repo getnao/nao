@@ -1,5 +1,7 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import { isSameModel, type LlmSelectedModel } from '@nao/shared/types';
 import { z } from 'zod/v4';
+
+import type { ActiveEffort, ReasoningEffort } from './llm';
 
 export const TEST_RUN_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const;
 export type TestRunStatus = (typeof TEST_RUN_STATUSES)[number];
@@ -20,12 +22,13 @@ export interface TestContextChange {
 
 export const MAX_TEST_RUN_ATTEMPTS = 10;
 export const MAX_TEST_RUN_MODELS = 10;
-const TEST_RUN_CONCURRENCY_PER_MODEL = 3;
-const MAX_TEST_RUN_CONCURRENCY = 12;
+export const MAX_TEST_RUN_THREADS = 32;
+const DEFAULT_TEST_RUN_THREADS_PER_MODEL = 3;
+const MAX_DEFAULT_TEST_RUN_THREADS = 12;
 
-/** How many attempts of a run are in flight at once: a few per model, capped so that large runs stay polite. */
-export function getTestRunConcurrency(modelCount: number): number {
-	return Math.min(TEST_RUN_CONCURRENCY_PER_MODEL * modelCount, MAX_TEST_RUN_CONCURRENCY);
+/** How many attempts are in flight at once when nothing sets the threads: a few per model, capped to stay polite. */
+export function getDefaultTestRunThreads(modelCount: number): number {
+	return Math.min(DEFAULT_TEST_RUN_THREADS_PER_MODEL * modelCount, MAX_DEFAULT_TEST_RUN_THREADS);
 }
 
 export const testComparisonTolerancesSchema = z.object({
@@ -110,7 +113,45 @@ interface TestDataDiffRow {
 	statuses: TestDataCellStatus[] | null;
 }
 
-export type TestRunModels = LlmSelectedModel[];
+/** A model a run tries, at a reasoning effort of its own, or at the one configured for the model when it has none. */
+export interface TestModel extends LlmSelectedModel {
+	reasoningEffort?: ActiveEffort | null;
+}
+
+export type TestRunModels = TestModel[];
+
+/** A model picked for a run, tried once per reasoning effort picked, or at its configured effort when none is. */
+export interface TestModelSelection extends LlmSelectedModel {
+	reasoningEfforts?: ActiveEffort[];
+}
+
+export function isSameTestModel(model: TestModel, other: TestModel): boolean {
+	return (
+		model.provider === other.provider &&
+		model.modelId === other.modelId &&
+		(model.reasoningEffort ?? null) === (other.reasoningEffort ?? null)
+	);
+}
+
+/**
+ * Where a model stands among the distinct models of a run, which sets its color: the reasoning efforts of a model share
+ * its position. -1 when the run did not try the model.
+ */
+export function testModelColorIndex(runModels: TestModel[], model: LlmSelectedModel): number {
+	const distinctModels = runModels.filter(
+		(candidate, index) => runModels.findIndex((other) => isSameModel(other, candidate)) === index,
+	);
+	return distinctModels.findIndex((candidate) => isSameModel(candidate, model));
+}
+
+/** The model a stored result names in its own columns, under the shape of a test model. */
+export function testResultModel(result: {
+	llmProvider: LlmSelectedModel['provider'];
+	llmModelId: string;
+	reasoningEffort: ActiveEffort | null;
+}): TestModel {
+	return { provider: result.llmProvider, modelId: result.llmModelId, reasoningEffort: result.reasoningEffort };
+}
 
 /** How the tests of a run did, where a test passes only when all its attempts pass. */
 export interface TestRunTestTotals {
@@ -125,11 +166,11 @@ export interface TestRunTestTotals {
 /** The tests of a run against one context variant, over all its models and for each of them. */
 export interface TestRunVariantTotals extends TestRunTestTotals {
 	contextVariant: TestContextVariant;
-	models: (LlmSelectedModel & TestRunTestTotals)[];
+	models: (TestModel & TestRunTestTotals)[];
 }
 
 /** How one model did over the attempts of a run against one context variant, with the metrics `nao test` reports. */
-export interface TestModelSummary extends LlmSelectedModel {
+export interface TestModelSummary extends TestModel {
 	contextVariant: TestContextVariant;
 	attempts: number;
 	passedAttempts: number;
@@ -153,6 +194,11 @@ export interface PreviousTestModelSummary {
 	summary: TestModelSummary;
 }
 
+/** The reasoning effort a model runs at unless a run tries all of them, null when its settings leave it to the provider. */
+export interface TestModelDefaultEffort extends LlmSelectedModel {
+	reasoningEffort: ReasoningEffort | null;
+}
+
 /** What a model costs and takes per question in the recent runs of the project, to estimate a new run. */
 export interface TestModelStats extends LlmSelectedModel {
 	attempts: number;
@@ -163,8 +209,10 @@ export interface TestModelStats extends LlmSelectedModel {
 /** The `test` block of nao_config.yaml. */
 export interface ConfiguredTestSettings {
 	/** Null when the project does not pin test models. */
-	models: TestRunModels | null;
+	models: LlmSelectedModel[] | null;
 	attempts: number;
+	/** Null when the project does not set the threads, so the run picks them from its models. */
+	threads: number | null;
 	tolerances: TestComparisonTolerances;
 	/** Invalid values of the `test` block, which `nao test` rejects too. */
 	errors: string[];

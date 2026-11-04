@@ -75,7 +75,7 @@ export const testRoutes = async (app: App) => {
 					userId,
 					test: { prompt, sql, databaseId, assertions, tolerances: comparison },
 					result,
-					modelSelection,
+					verificationModel: modelSelection,
 				});
 
 				return reply.send({
