@@ -17,6 +17,7 @@ describe('summarizeModels', () => {
 		expect(summaries[1]).toEqual({
 			provider: 'anthropic',
 			modelId: 'haiku',
+			reasoningEffort: null,
 			contextVariant: 'production',
 			attempts: 3,
 			passedAttempts: 2,
@@ -29,6 +30,18 @@ describe('summarizeModels', () => {
 			medianDurationMs: 2000,
 			averageTokens: null,
 		});
+	});
+
+	it('sums up each reasoning effort of a model apart', () => {
+		const summaries = summarizeModels([
+			attempt('opus', 'revenue.yml', false, { reasoningEffort: 'low', totalCost: 0.01 }),
+			attempt('opus', 'revenue.yml', true, { reasoningEffort: 'high', totalCost: 0.05 }),
+		]);
+
+		expect(summaries).toMatchObject([
+			{ modelId: 'opus', reasoningEffort: 'high', passedAttempts: 1, costPerQuestion: 0.05 },
+			{ modelId: 'opus', reasoningEffort: 'low', passedAttempts: 0, costPerQuestion: 0.01 },
+		]);
 	});
 
 	it('ranks equally accurate models by the cost of a correct answer', () => {
@@ -84,13 +97,16 @@ function attempt(
 	modelId: string,
 	testPath: string,
 	passed: boolean,
-	metrics: Partial<Pick<SummarizedTestResult, 'totalCost' | 'totalTokens' | 'durationMs' | 'toolCallCount'>>,
+	metrics: Partial<
+		Pick<SummarizedTestResult, 'totalCost' | 'totalTokens' | 'durationMs' | 'toolCallCount' | 'reasoningEffort'>
+	>,
 	contextVariant: TestContextVariant = 'production',
 ): SummarizedTestResult {
 	return {
 		testPath,
 		llmProvider: 'anthropic',
 		llmModelId: modelId,
+		reasoningEffort: null,
 		contextVariant,
 		passed,
 		totalCost: null,

@@ -1,7 +1,5 @@
-import { resultModel } from '@nao/shared/types';
-
 import type { DBTestRunResult } from '../db/abstractSchema';
-import { TEST_CONTEXT_VARIANTS, type TestModelSummary } from '../types/test-run';
+import { TEST_CONTEXT_VARIANTS, type TestModelSummary, testResultModel } from '../types/test-run';
 import { countAttemptsByTest, toAttemptCounts } from './test-run-totals';
 
 export type SummarizedTestResult = Pick<
@@ -9,6 +7,7 @@ export type SummarizedTestResult = Pick<
 	| 'testPath'
 	| 'llmProvider'
 	| 'llmModelId'
+	| 'reasoningEffort'
 	| 'contextVariant'
 	| 'passed'
 	| 'totalCost'
@@ -24,7 +23,9 @@ export type SummarizedTestResult = Pick<
 export function summarizeModels(results: SummarizedTestResult[]): TestModelSummary[] {
 	const groups = new Map<string, SummarizedTestResult[]>();
 	for (const result of results) {
-		const key = [result.contextVariant, result.llmProvider, result.llmModelId].join('\u0000');
+		const key = [result.contextVariant, result.llmProvider, result.llmModelId, result.reasoningEffort].join(
+			'\u0000',
+		);
 		groups.set(key, [...(groups.get(key) ?? []), result]);
 	}
 	return [...groups.values()].map(summarizeModel).sort(compareSummaries);
@@ -36,7 +37,7 @@ function summarizeModel(results: SummarizedTestResult[]): TestModelSummary {
 	const totalCost = sumOrNull(results.map((result) => result.totalCost));
 	const tests = [...countAttemptsByTest(results.map(toAttemptCounts)).values()];
 	return {
-		...resultModel(first),
+		...testResultModel(first),
 		contextVariant: first.contextVariant,
 		attempts: results.length,
 		passedAttempts,

@@ -1,4 +1,4 @@
-import { isSameModel, resultModel } from '@nao/shared/types';
+import { isSameTestModel, testResultModel } from '@nao/backend/test-run';
 
 import type {
 	TestComparisonChange,
@@ -6,7 +6,7 @@ import type {
 	TestRunSummary,
 	VariantOutcome,
 } from '@/components/settings/test-run-types';
-import { isActiveRun } from '@/components/settings/test-run-types';
+import { formatTestModel, isActiveRun } from '@/components/settings/test-run-types';
 
 export type Tone = 'pass' | 'fail' | 'mixed' | 'pending' | 'neutral' | 'cancelled' | 'error';
 
@@ -81,13 +81,13 @@ function describeAttempts(run: TestHistoryRun): RunVerdict {
 /** What a run of several models says about the test: on which models every attempt passed. */
 function describeModels(run: TestHistoryRun): RunVerdict {
 	const outcomes = run.models.map((model) => {
-		const results = run.results.filter((result) => isSameModel(resultModel(result), model));
+		const results = run.results.filter((result) => isSameTestModel(testResultModel(result), model));
 		return { model, passed: results.filter((result) => result.passed).length, total: results.length };
 	});
 	const passingCount = outcomes.filter((outcome) => outcome.total > 0 && outcome.passed === outcome.total).length;
 	const failing = outcomes
 		.filter((outcome) => outcome.passed < outcome.total)
-		.map((outcome) => outcome.model.modelId);
+		.map((outcome) => formatTestModel(outcome.model));
 	if (passingCount === outcomes.length) {
 		return { tone: 'pass', title: `Passes on all ${outcomes.length} models`, detail: null };
 	}

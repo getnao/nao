@@ -279,7 +279,7 @@ export function TestDrawerLayout({
 						</div>
 					</div>
 					{(isOpen || isAnimating) && (
-						<div className='min-h-0 flex-1'>
+						<div className='min-h-0 flex-1 overflow-hidden'>
 							{activeTestPath ? (
 								activeTestFile ? (
 									<TestWorkbench

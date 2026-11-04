@@ -48,6 +48,9 @@ vi.mock('@/main', () => ({
 		},
 		testRun: {
 			getModelStats: { queryOptions: () => ({ queryKey: ['model-stats'], queryFn: () => [] }) },
+			getDefaultReasoningEfforts: {
+				queryOptions: () => ({ queryKey: ['default-reasoning-efforts'], queryFn: () => [] }),
+			},
 			startRun: { mutationOptions: (options: object) => ({ mutationFn: mocks.startRun, ...options }) },
 			cancelRun: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
 			validateTestFile: { mutationOptions: (options: object) => ({ mutationFn: vi.fn(), ...options }) },
@@ -68,7 +71,7 @@ vi.mock('@/main', () => ({
 							{ path: 'churn.yml', name: 'churn', tags: [] },
 							{ path: 'orders.yml', name: 'Orders count', tags: [] },
 						],
-						settings: { models: null, attempts: 1, errors: [] },
+						settings: { models: null, attempts: 1, threads: null, errors: [] },
 					}),
 				}),
 				queryKey: () => ['tests'],
@@ -161,6 +164,7 @@ describe('TestDrawerLayout', () => {
 			target: { paths: ['sales/churn.yml'] },
 			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
 			attempts: 1,
+			threads: 3,
 		});
 	});
 

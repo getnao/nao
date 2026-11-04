@@ -456,7 +456,7 @@ type ThinkingResult = { providerOverrides?: Record<string, unknown>; thinkingAct
 const THINKING_INACTIVE: ThinkingResult = { thinkingActive: false };
 
 /** Snap a stored effort to the nearest option the model declares, so a stale setting can't error. */
-function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
+export function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
 	if (!options || options.includes(effort)) {
 		return effort;
 	}

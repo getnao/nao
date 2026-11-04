@@ -3,6 +3,8 @@ import { toExplorerTestPath } from '@nao/shared/test-paths';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import type { ReactNode } from 'react';
+
 import type { TestResultFilter } from '@/components/settings/test-result-filter';
 import type { TestComparisonRow, TestResultOutcome, TestRunWithResults } from '@/components/settings/test-run-types';
 import { ComparisonChangeBadge, VariantOutcomeCell } from '@/components/settings/test-draft-comparison';
@@ -12,11 +14,12 @@ import { ModelLeaderboard } from '@/components/settings/test-model-leaderboard';
 import { listTestsWhereModelsDisagree, TestModelMatrix } from '@/components/settings/test-model-matrix';
 import { matchesResultFilter, TestResultFilterPills } from '@/components/settings/test-result-filter';
 import { TestRow } from '@/components/settings/test-row';
-import { ToneIcon } from '@/components/settings/test-run-labels';
+import { BranchName, ToneIcon } from '@/components/settings/test-run-labels';
 import { RunStatStrip } from '@/components/settings/test-run-stat-strip';
 import {
 	ACTIVE_RUN_REFETCH_MS,
 	average,
+	describeTestModels,
 	formatCount,
 	formatDuration,
 	formatPassRate,
@@ -40,7 +43,15 @@ interface RunTest {
 
 type TestMetrics = ReturnType<typeof summarizeTestMetrics>;
 
-export function TestRunResults({ runId, onOpenTest }: { runId: string; onOpenTest: (explorerPath: string) => void }) {
+export function TestRunResults({
+	runId,
+	mainBranch,
+	onOpenTest,
+}: {
+	runId: string;
+	mainBranch: string;
+	onOpenTest: (explorerPath: string) => void;
+}) {
 	const openedRun = useQuery({
 		...trpc.testRun.getRun.queryOptions({ runId }),
 		refetchInterval: (query) => (query.state.data && isActiveRun(query.state.data) ? ACTIVE_RUN_REFETCH_MS : false),
@@ -55,10 +66,18 @@ export function TestRunResults({ runId, onOpenTest }: { runId: string; onOpenTes
 	if (!openedRun.data) {
 		return <Empty className='h-full'>Could not open this run: {openedRun.error?.message}</Empty>;
 	}
-	return <RunResults run={openedRun.data} onOpenTest={onOpenTest} />;
+	return <RunResults run={openedRun.data} mainBranch={mainBranch} onOpenTest={onOpenTest} />;
 }
 
-function RunResults({ run, onOpenTest }: { run: TestRunWithResults; onOpenTest: (explorerPath: string) => void }) {
+function RunResults({
+	run,
+	mainBranch,
+	onOpenTest,
+}: {
+	run: TestRunWithResults;
+	mainBranch: string;
+	onOpenTest: (explorerPath: string) => void;
+}) {
 	const [filter, setFilter] = useState<TestResultFilter>('all');
 	const isActive = isActiveRun(run);
 	const hasSeveralModels = run.models.length > 1;
@@ -74,9 +93,9 @@ function RunResults({ run, onOpenTest }: { run: TestRunWithResults; onOpenTest: 
 					onChange={setFilter}
 					hasSeveralModels={hasSeveralModels && !run.comparison}
 				/>
-				<RunDescription run={run} />
+				<RunDescription run={run} mainBranch={mainBranch} />
 			</PanelHeader>
-			<RunModelsOverview run={run} />
+			<RunModelsOverview run={run} mainBranch={mainBranch} />
 			{hasSeveralModels && !run.comparison ? (
 				<TestModelMatrix
 					run={run}
@@ -84,7 +103,7 @@ function RunResults({ run, onOpenTest }: { run: TestRunWithResults; onOpenTest: 
 					onOpenTest={openTest}
 				/>
 			) : (
-				<RunTestList run={run} tests={visibleTests} onOpenTest={onOpenTest} />
+				<RunTestList run={run} tests={visibleTests} mainBranch={mainBranch} onOpenTest={onOpenTest} />
 			)}
 			{tests.length === 0 ? (
 				<Empty className='py-6'>{isActive ? 'Waiting for the first results…' : 'No results recorded.'}</Empty>
@@ -99,23 +118,17 @@ function RunResults({ run, onOpenTest }: { run: TestRunWithResults; onOpenTest: 
  * How the models of a run did: a leaderboard when several models ran, the chart of what the user's changes did to
  * each model for a comparison of several models, else the stat strip of the single model.
  */
-function RunModelsOverview({ run }: { run: TestRunWithResults }) {
+function RunModelsOverview({ run, mainBranch }: { run: TestRunWithResults; mainBranch: string }) {
 	if (run.modelSummaries.length === 0) {
 		return null;
 	}
 	if (run.comparison) {
 		if (run.models.length > 1) {
-			return <ModelChangesChart run={run} />;
+			return <ModelChangesChart run={run} mainBranch={mainBranch} />;
 		}
 		const production = run.modelSummaries.find((summary) => summary.contextVariant === 'production') ?? null;
 		const draft = run.modelSummaries.find((summary) => summary.contextVariant === 'draft');
-		return draft ? (
-			<RunStatStrip
-				summary={draft}
-				baseline={production}
-				baselineLabel='With your changes, compared with production'
-			/>
-		) : null;
+		return draft ? <RunStatStrip summary={draft} baseline={production} baselineLabel={null} /> : null;
 	}
 	if (run.models.length > 1) {
 		return <ModelLeaderboard run={run} />;
@@ -138,19 +151,25 @@ function RunModelsOverview({ run }: { run: TestRunWithResults }) {
 function RunTestList({
 	run,
 	tests,
+	mainBranch,
 	onOpenTest,
 }: {
 	run: TestRunWithResults;
 	tests: RunTest[];
+	mainBranch: string;
 	onOpenTest: (explorerPath: string) => void;
 }) {
 	const isActive = isActiveRun(run);
 	const metrics = run.comparison ? null : summarizeTestMetrics(run.results);
 	return (
 		<ul className='flex flex-col'>
-			{metrics && tests.length > 0 && (
+			{tests.length > 0 && (
 				<li className='flex justify-end border-b px-3 py-1 text-[11px] text-muted-foreground'>
-					<MetricColumns cost='$ / question' toolCalls='Tool calls' duration='Time' />
+					{metrics ? (
+						<MetricColumns cost='$ / question' toolCalls='Tool calls' duration='Time' />
+					) : (
+						<ComparisonColumns production={<BranchName name={mainBranch} />} draft='Yours' change={null} />
+					)}
 				</li>
 			)}
 			{tests.map((test) => (
@@ -163,6 +182,7 @@ function RunTestList({
 						test.comparison ? (
 							<ComparisonDetail
 								comparison={test.comparison}
+								mainBranch={mainBranch}
 								attemptsPerVariant={run.models.length * run.attempts}
 								isActive={isActive}
 							/>
@@ -201,13 +221,13 @@ function MetricColumns({ cost, toolCalls, duration }: { cost: string; toolCalls:
 	);
 }
 
-function RunDescription({ run }: { run: TestRunWithResults }) {
-	const models = run.models.length > 1 ? `${run.models.length} models` : (run.models[0]?.modelId ?? '');
+function RunDescription({ run, mainBranch }: { run: TestRunWithResults; mainBranch: string }) {
+	const models = describeTestModels(run.models);
 	return (
 		<span className='min-w-0 flex-1 truncate text-right'>
 			{isActiveRun(run) && `Running ${run.completedAttempts}/${run.totalAttempts} · `}
 			{run.comparison &&
-				`Production ${formatPassRate(run.comparison.production.passedAttempts, run.comparison.production.totalAttempts)} → your changes ${formatPassRate(run.comparison.draft.passedAttempts, run.comparison.draft.totalAttempts)} · `}
+				`${mainBranch} ${formatPassRate(run.comparison.production.passedAttempts, run.comparison.production.totalAttempts)} → your changes ${formatPassRate(run.comparison.draft.passedAttempts, run.comparison.draft.totalAttempts)} · `}
 			{models}
 			{run.attempts > 1 && ` × ${run.attempts} ${pluralize('attempt', run.attempts)}`}
 			{run.errorMessage && <span className='text-destructive'> · {run.errorMessage}</span>}
@@ -217,24 +237,50 @@ function RunDescription({ run }: { run: TestRunWithResults }) {
 
 function ComparisonDetail({
 	comparison,
+	mainBranch,
 	attemptsPerVariant,
 	isActive,
 }: {
 	comparison: TestComparisonRow;
+	mainBranch: string;
 	attemptsPerVariant: number;
 	isActive: boolean;
 }) {
 	return (
-		<span className='flex items-center gap-3'>
-			<span className='flex items-center gap-1.5'>
-				<span className='text-muted-foreground'>Production</span>
-				<VariantOutcomeCell outcome={comparison.production} attemptsPerVariant={attemptsPerVariant} />
-			</span>
-			<span className='flex items-center gap-1.5'>
-				<span className='text-muted-foreground'>Yours</span>
-				<VariantOutcomeCell outcome={comparison.draft} attemptsPerVariant={attemptsPerVariant} />
-			</span>
-			<ComparisonChangeBadge change={comparison.change} isActive={isActive} />
+		<ComparisonColumns
+			production={
+				<VariantOutcomeCell
+					side={mainBranch}
+					outcome={comparison.production}
+					attemptsPerVariant={attemptsPerVariant}
+				/>
+			}
+			draft={
+				<VariantOutcomeCell side='Yours' outcome={comparison.draft} attemptsPerVariant={attemptsPerVariant} />
+			}
+			change={
+				comparison.change === 'unchanged' ? null : (
+					<ComparisonChangeBadge change={comparison.change} isActive={isActive} />
+				)
+			}
+		/>
+	);
+}
+
+function ComparisonColumns({
+	production,
+	draft,
+	change,
+}: {
+	production: ReactNode;
+	draft: ReactNode;
+	change: ReactNode;
+}) {
+	return (
+		<span className='flex shrink-0 items-center'>
+			<span className='w-20 truncate text-center'>{production}</span>
+			<span className='w-20 truncate text-center'>{draft}</span>
+			<span className='flex w-24 justify-end'>{change}</span>
 		</span>
 	);
 }

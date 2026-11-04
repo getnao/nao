@@ -6,7 +6,7 @@ import { testRunAgent } from '../agents/profiles/test-run';
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
-import type { TestSourceQuery } from '../types/test-run';
+import type { TestModel, TestSourceQuery } from '../types/test-run';
 import type { QueryResult } from '../types/tools';
 import { getErrorMessage } from '../utils/utils';
 import { AgentChat, AgentRunResult, AgentService } from './agent';
@@ -75,12 +75,14 @@ export class TestAgentService extends AgentService {
 	async runTestInChat(
 		chat: AgentChat,
 		messages: UIMessage[],
-		modelSelection: LlmSelectedModel,
+		model: TestModel,
 		options: { billingAccessVerifiedProjectId?: string; abortSignal?: AbortSignal; contextFolder?: string } = {},
 	): Promise<AgentRunResult> {
+		const { reasoningEffort, ...modelSelection } = model;
 		const agent = await this.create(chat, modelSelection, testRunAgent, {
 			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 			contextFolder: options.contextFolder,
+			...(reasoningEffort && { inferenceOverrides: { reasoningEffort } }),
 		});
 		const stopAgent = () => agent.stop();
 		options.abortSignal?.addEventListener('abort', stopAgent, { once: true });

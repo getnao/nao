@@ -1,15 +1,16 @@
-import { isSameModel, type LlmSelectedModel, resultModel } from '@nao/shared/types';
-
 import type { DBTestRun, DBTestRunResult } from '../db/abstractSchema';
 import * as testRunQueries from '../queries/test-run.queries';
+import type { ActiveEffort } from '../types/llm';
 import type {
 	PreviousTestModelSummary,
 	TestComparisonTolerances,
 	TestDataDiff,
 	TestDefinition,
+	TestModel,
 	TestModelStats,
 	TestRunResultDetails,
 } from '../types/test-run';
+import { isSameTestModel, testModelColorIndex, testResultModel } from '../types/test-run';
 import { compareContextVariants } from '../utils/test-comparison';
 import { buildTestDataDiff } from '../utils/test-data-comparison';
 import { type SummarizedTestResult, summarizeModels } from '../utils/test-model-summary';
@@ -38,9 +39,11 @@ interface LatestTestOutcome {
 	isOutdated: boolean;
 }
 
-interface LatestTestModelOutcome extends LlmSelectedModel {
-	/** Position of the model in the run's models, which sets its color. */
+interface LatestTestModelOutcome extends TestModel {
+	/** Position of the model in the run's models, to list the models in their order. */
 	runIndex: number;
+	/** Position of the model among the distinct models of the run, which sets its color. */
+	colorIndex: number;
 	passedAttempts: number;
 	totalAttempts: number;
 }
@@ -177,7 +180,7 @@ function findProductionAttempt(results: DBTestRunResult[], draftResult: DBTestRu
 			candidate.runId === draftResult.runId &&
 			candidate.testPath === draftResult.testPath &&
 			candidate.attempt === draftResult.attempt &&
-			isSameModel(resultModel(candidate), resultModel(draftResult)),
+			isSameTestModel(testResultModel(candidate), testResultModel(draftResult)),
 	);
 }
 
@@ -200,15 +203,16 @@ function buildVariantDataDiff(
 function addModelOutcome(
 	models: LatestTestModelOutcome[],
 	row: {
-		runModels: LlmSelectedModel[];
-		llmProvider: LlmSelectedModel['provider'];
+		runModels: TestModel[];
+		llmProvider: TestModel['provider'];
 		llmModelId: string;
+		reasoningEffort: ActiveEffort | null;
 		passedAttempts: number;
 		totalAttempts: number;
 	},
 ) {
-	const model = resultModel(row);
-	const existing = models.find((other) => isSameModel(model, other));
+	const model = testResultModel(row);
+	const existing = models.find((other) => isSameTestModel(model, other));
 	if (existing) {
 		existing.passedAttempts += row.passedAttempts;
 		existing.totalAttempts += row.totalAttempts;
@@ -216,7 +220,8 @@ function addModelOutcome(
 	}
 	models.push({
 		...model,
-		runIndex: row.runModels.findIndex((other) => isSameModel(model, other)),
+		runIndex: row.runModels.findIndex((other) => isSameTestModel(model, other)),
+		colorIndex: testModelColorIndex(row.runModels, model),
 		passedAttempts: row.passedAttempts,
 		totalAttempts: row.totalAttempts,
 	});
@@ -225,7 +230,7 @@ function addModelOutcome(
 /** The newest earlier run whose attempts of the model cover all the tests, summed up over those tests only. */
 function findPreviousModelSummary(
 	earlierAttempts: EarlierModelAttempt[],
-	model: LlmSelectedModel,
+	model: TestModel,
 	testPaths: Set<string>,
 ): PreviousTestModelSummary | null {
 	if (testPaths.size === 0) {
@@ -251,12 +256,12 @@ function groupAttemptsByRun(attempts: EarlierModelAttempt[]): EarlierModelAttemp
 	return [...attemptsByRun.values()];
 }
 
-function resultsOfModel<T extends SummarizedTestResult>(results: T[], model: LlmSelectedModel): T[] {
+function resultsOfModel<T extends SummarizedTestResult>(results: T[], model: TestModel): T[] {
 	return results.filter(
-		(result) => result.contextVariant === 'production' && isSameModel(resultModel(result), model),
+		(result) => result.contextVariant === 'production' && isSameTestModel(testResultModel(result), model),
 	);
 }
 
 function toAttemptTotals(result: DBTestRunResult): TestAttemptTotals {
-	return { ...resultModel(result), contextVariant: result.contextVariant, ...toAttemptCounts(result) };
+	return { ...testResultModel(result), contextVariant: result.contextVariant, ...toAttemptCounts(result) };
 }

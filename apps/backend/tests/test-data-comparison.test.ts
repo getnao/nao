@@ -161,6 +161,52 @@ describe('compareTestData', () => {
 
 		expect(verdict.passed).toBe(true);
 	});
+
+	it('treats a midnight timestamp as equal to the same date', () => {
+		const verdict = compareTestData({
+			actual: [{ order_month: '2018-04-01' }, { order_month: '2018-02-01' }],
+			expected: [{ order_month: '2018-02-01T00:00:00' }, { order_month: '2018-04-01 00:00:00.000 UTC' }],
+			expectedColumns: ['order_month'],
+		});
+
+		expect(verdict).toEqual({ passed: true, message: 'match', comparison: null });
+	});
+
+	it('writes timestamps one way but keeps their time of day', () => {
+		const compareTimestamps = (actual: string, expected: string) =>
+			compareTestData({ actual: [{ at: actual }], expected: [{ at: expected }], expectedColumns: ['at'] }).passed;
+
+		expect(compareTimestamps('2018-04-01 12:30:00', '2018-04-01T12:30:00.000Z')).toBe(true);
+		expect(compareTimestamps('2018-04-01T12:30', '2018-04-01T12:30:00')).toBe(true);
+		expect(compareTimestamps('2018-04-01T12:30:00', '2018-04-01')).toBe(false);
+		expect(compareTimestamps('2018-04-01T00:00:00+02:00', '2018-04-01')).toBe(false);
+	});
+
+	it('treats a month as equal to its first day when a whole column holds months', () => {
+		const verdict = compareTestData({
+			actual: [
+				{ order_month: '2018-04', revenue: 24 },
+				{ order_month: '2018-01', revenue: 218 },
+			],
+			expected: [
+				{ order_month: '2018-01-01T00:00:00', revenue: 218 },
+				{ order_month: '2018-04-01T00:00:00', revenue: 24 },
+			],
+			expectedColumns: ['order_month', 'revenue'],
+		});
+
+		expect(verdict).toEqual({ passed: true, message: 'match', comparison: null });
+	});
+
+	it('keeps comparing days when a date column is not only first days of months', () => {
+		const verdict = compareTestData({
+			actual: [{ order_month: '2018-04' }, { order_month: '2018-01' }],
+			expected: [{ order_month: '2018-04-01' }, { order_month: '2018-01-15' }],
+			expectedColumns: ['order_month'],
+		});
+
+		expect(verdict.passed).toBe(false);
+	});
 });
 
 describe('normalizeFormattedNumber', () => {
@@ -185,6 +231,16 @@ describe('normalizeFormattedNumber', () => {
 });
 
 describe('buildTestDataDiff', () => {
+	it('shows months and dates the way the verdict compared them', () => {
+		const diff = buildTestDataDiff({
+			actual: [{ order_month: '2018-04' }],
+			expected: [{ order_month: '2018-04-01T00:00:00' }],
+			expectedColumns: ['order_month'],
+		});
+
+		expect(diff?.rows).toEqual([{ expected: ['2018-04'], actual: ['2018-04'], statuses: ['match'] }]);
+	});
+
 	it('pairs the rows in the order the verdict compares them, columns as the test declares them', () => {
 		const diff = buildTestDataDiff({
 			actual: [
