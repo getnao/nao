@@ -31,6 +31,7 @@ export type ImportedProject = {
 	status: 'created' | 'updated';
 	missingEnvVars: string[];
 	missingDatabase: boolean;
+	canEditEnvVars: boolean;
 };
 
 /**

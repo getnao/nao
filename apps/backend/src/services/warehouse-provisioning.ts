@@ -31,6 +31,7 @@ import {
 } from '../types/warehouse';
 import { decryptSecret, encryptSecret } from '../utils/encryption';
 import { describeError, logger, serializeError } from '../utils/logger';
+import { extractConfiguredDatabases } from '../utils/nao-config';
 import { createWarehouseLogRedactor, type WarehouseLogRedactor } from '../utils/warehouse-setup';
 import {
 	deleteManagedGithubRepository,
@@ -547,7 +548,12 @@ export async function hasConnectedProject(userId: string): Promise<boolean> {
 		warehouseProvisioningJobQueries.listStoppedSetupProjectIds(userId),
 	]);
 	const rolledBackProjectIds = new Set(stoppedSetupProjectIds);
-	return projects.some((project) => !rolledBackProjectIds.has(project.id));
+	return projects.some(
+		(project) =>
+			!rolledBackProjectIds.has(project.id) &&
+			project.path !== null &&
+			extractConfiguredDatabases(project.path).length > 0,
+	);
 }
 
 async function assertNoWarehouseSetupInProgress(userId: string): Promise<void> {
@@ -727,6 +733,7 @@ async function provisionWarehouse(jobId: string, input: StartWarehouseProvisioni
 			sourceDir: projectDir,
 			projectName: input.projectName,
 			orgId: input.orgId,
+			userId: input.userId,
 			projectId,
 		});
 		registeredProjectId = project.projectId;

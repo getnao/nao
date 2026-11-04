@@ -66,11 +66,13 @@ export async function createNewProject({
 	sourceDir,
 	projectName,
 	orgId,
+	userId,
 	projectId = crypto.randomUUID(),
 }: {
 	sourceDir: string;
 	projectName: string;
 	orgId: string;
+	userId: string;
 	projectId?: string;
 }) {
 	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
@@ -100,11 +102,12 @@ export async function createNewProject({
 	}
 
 	await ensureContextRecommendationsScheduleForNewProject(project.id);
+	const role = await projectQueries.getUserRoleInProject(project.id, userId);
 	return {
 		projectId: project.id,
 		projectName,
 		status: 'created' as const,
-		...(await getSetupGaps(project)),
+		...(await getSetupGaps(project, role === 'admin')),
 	};
 }
 
@@ -144,13 +147,14 @@ export async function replaceExistingProject({
 		projectId: project.id,
 		projectName,
 		status: 'updated' as const,
-		...(await getSetupGaps(project)),
+		...(await getSetupGaps(project, role === 'admin')),
 	};
 }
 
-async function getSetupGaps(project: DBProject) {
+async function getSetupGaps(project: DBProject, canEditEnvVars: boolean) {
 	return {
 		missingEnvVars: await getMissingProjectEnvVars(project),
 		missingDatabase: !project.path || extractConfiguredDatabases(project.path).length === 0,
+		canEditEnvVars,
 	};
 }

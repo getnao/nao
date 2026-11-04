@@ -4,7 +4,12 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { assessProjectReadiness } from '../src/services/project-readiness.service';
+vi.mock('../src/services/project-runtime-env', () => ({
+	getProjectRuntimeEnvVars: vi.fn(),
+}));
+
+import { assessProjectReadiness, getProjectReadiness } from '../src/services/project-readiness.service';
+import { getProjectRuntimeEnvVars } from '../src/services/project-runtime-env';
 
 describe('assessProjectReadiness', () => {
 	it('rejects a directory at the nao config path', () => {
@@ -57,6 +62,31 @@ describe('assessProjectReadiness', () => {
 				missingEnvVars: ['DBT_TOKEN'],
 			});
 		} finally {
+			fs.rmSync(projectPath, { recursive: true, force: true });
+		}
+	});
+
+	it('accepts required variables supplied by the server environment', async () => {
+		const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-readiness-'));
+		const previousValue = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = 'postgres://server';
+		vi.mocked(getProjectRuntimeEnvVars).mockResolvedValue({});
+		try {
+			fs.writeFileSync(
+				path.join(projectPath, 'nao_config.yaml'),
+				'databases:\n  - name: warehouse\n    url: {{ env("DATABASE_URL") }}\n',
+			);
+
+			await expect(getProjectReadiness({ id: 'project-id', path: projectPath })).resolves.toMatchObject({
+				ready: true,
+				missingEnvVars: [],
+			});
+		} finally {
+			if (previousValue === undefined) {
+				delete process.env.DATABASE_URL;
+			} else {
+				process.env.DATABASE_URL = previousValue;
+			}
 			fs.rmSync(projectPath, { recursive: true, force: true });
 		}
 	});

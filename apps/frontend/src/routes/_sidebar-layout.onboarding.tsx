@@ -457,12 +457,19 @@ function OnboardingPage() {
 
 function formatImportedMessage(project: ImportedProject): string {
 	const imported = `GitHub repository imported successfully as "${project.projectName}".`;
+	const gaps: string[] = [];
 	if (project.missingDatabase) {
-		return `${imported} Onboarding is not complete yet. No database is configured in nao_config.yaml.`;
+		gaps.push('No database is configured in nao_config.yaml.');
 	}
-	return project.missingEnvVars.length === 0
-		? imported
-		: `${imported} Onboarding is not complete yet. Missing environment variables: ${project.missingEnvVars.join(', ')}.`;
+	if (project.missingEnvVars.length > 0) {
+		gaps.push(`Missing environment variables: ${project.missingEnvVars.join(', ')}.`);
+		gaps.push(
+			project.canEditEnvVars
+				? 'This user is a project admin and can edit the environment variables card.'
+				: 'This user is not a project admin and cannot edit the environment variables card.',
+		);
+	}
+	return gaps.length === 0 ? imported : `${imported} Onboarding is not complete yet. ${gaps.join(' ')}`;
 }
 
 function formatSavedEnvVarsMessage(missingEnvVars: string[], savedEnvVars: Record<string, string>): string {

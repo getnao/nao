@@ -1,8 +1,7 @@
 import type { DBProject, NewProject } from '../db/abstractSchema';
 import * as projectQueries from '../queries/project.queries';
 import { recordOrganizationSetupCandidate } from './credit-grant.service';
-import { assessProjectReadiness } from './project-readiness.service';
-import { getProjectRuntimeEnvVars } from './project-runtime-env';
+import { getProjectReadiness } from './project-readiness.service';
 
 export async function createProject(project: NewProject): Promise<DBProject> {
 	const created = await projectQueries.createProject(project);
@@ -25,8 +24,7 @@ export async function reconcileProjectReadiness(projectId: string): Promise<void
 }
 
 export async function getMissingProjectEnvVars(project: Pick<DBProject, 'id' | 'path'>): Promise<string[]> {
-	const envVars = await getProjectRuntimeEnvVars(project.id);
-	return assessProjectReadiness({ path: project.path, envVars }).missingEnvVars;
+	return (await getProjectReadiness(project)).missingEnvVars;
 }
 
 async function projectChanged(projectId: string): Promise<void> {

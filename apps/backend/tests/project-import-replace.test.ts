@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	createProject: vi.fn(),
+	getMissingProjectEnvVars: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	touchProjectUpdatedAt: vi.fn(),
 }));
@@ -18,7 +19,7 @@ vi.mock('../src/handlers/context-recommendations.handler', () => ({
 }));
 vi.mock('../src/services/project.service', () => ({
 	createProject: mocks.createProject,
-	getMissingProjectEnvVars: vi.fn().mockResolvedValue([]),
+	getMissingProjectEnvVars: mocks.getMissingProjectEnvVars,
 	touchProjectUpdatedAt: mocks.touchProjectUpdatedAt,
 }));
 
@@ -33,6 +34,8 @@ describe('createNewProject', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.getMissingProjectEnvVars.mockResolvedValue([]);
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
 		originalProjectsDir = env.NAO_PROJECTS_DIR;
 		root = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-import-'));
 		env.NAO_PROJECTS_DIR = path.join(root, 'projects');
@@ -54,6 +57,7 @@ describe('createNewProject', () => {
 				sourceDir,
 				projectName: 'Sales',
 				orgId: 'org-id',
+				userId: 'user-id',
 				projectId: 'project-id',
 			}),
 		).rejects.toThrow('Failed to create project');
@@ -76,9 +80,32 @@ describe('createNewProject', () => {
 				sourceDir,
 				projectName: 'Sales',
 				orgId: 'org-id',
+				userId: 'user-id',
 				projectId: 'project-id',
 			}),
-		).resolves.toMatchObject({ missingEnvVars: [], missingDatabase });
+		).resolves.toMatchObject({ missingEnvVars: [], missingDatabase, canEditEnvVars: true });
+	});
+
+	it('reports the imported project missing environment variables', async () => {
+		fs.writeFileSync(path.join(sourceDir, 'nao_config.yaml'), 'project_name: Sales\n');
+		mocks.createProject.mockImplementation(async (project) => project);
+		mocks.getMissingProjectEnvVars.mockResolvedValue(['DATABASE_URL']);
+
+		await expect(
+			createNewProject({
+				sourceDir,
+				projectName: 'Sales',
+				orgId: 'org-id',
+				userId: 'user-id',
+				projectId: 'project-id',
+			}),
+		).resolves.toMatchObject({ missingEnvVars: ['DATABASE_URL'] });
+		expect(mocks.getMissingProjectEnvVars).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: 'project-id',
+				path: path.join(env.NAO_PROJECTS_DIR, 'project-id'),
+			}),
+		);
 	});
 });
 
@@ -89,6 +116,7 @@ describe('replaceExistingProject', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.getMissingProjectEnvVars.mockResolvedValue([]);
 		root = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-import-'));
 		sourceDir = path.join(root, 'source');
 		fs.mkdirSync(sourceDir);
@@ -117,7 +145,7 @@ describe('replaceExistingProject', () => {
 
 		await expect(
 			replaceExistingProject({ sourceDir, project, projectName: 'Sales', userId: 'context-admin-id' }),
-		).resolves.toMatchObject({ status: 'updated', missingEnvVars: [] });
+		).resolves.toMatchObject({ status: 'updated', missingEnvVars: [], canEditEnvVars: false });
 		expect(mocks.getUserRoleInProject).toHaveBeenCalledWith('project-id', 'context-admin-id');
 		expect(mocks.touchProjectUpdatedAt).toHaveBeenCalledWith('project-id');
 		expect(fs.readFileSync(path.join(project.path!, 'RULES.md'), 'utf-8')).toBe('imported');
