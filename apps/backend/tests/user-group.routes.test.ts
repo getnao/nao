@@ -304,6 +304,27 @@ describe('user group routes', () => {
 		).rejects.toMatchObject({ code: 'FORBIDDEN' });
 	});
 
+	it('allows removals while preserving another unchanged table missing from the catalog', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			restrictedColumns: ['cost'],
+		};
+		const customers = { ...orders, table: 'customers' };
+		mocks.getProjectColumnSecurity.mockResolvedValue({ version: 1, tables: [orders, customers] });
+
+		await expect(createCaller().updateColumnSecurity({ version: 1, tables: [customers] })).resolves.toEqual({
+			version: 1,
+			tables: [customers],
+		});
+		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', {
+			version: 1,
+			tables: [customers],
+		});
+	});
+
 	it('requires group table access before granting a restricted column', async () => {
 		const orders = {
 			databaseType: 'duckdb',
@@ -348,6 +369,36 @@ describe('user group routes', () => {
 				},
 			}),
 		);
+	});
+
+	it('passes the validated column registry into group creation', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const registry = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue(registry);
+
+		await createCaller().create({
+			name: 'Analysts',
+			databaseAccess: { mode: 'all', strict: true },
+			columnPolicies: {
+				version: 1,
+				policies: [{ ...orders, grantedColumns: ['cost'] }],
+			},
+		});
+
+		const call = mocks.createUserGroup.mock.calls[0];
+		expect(call[14]).toEqual({
+			version: 1,
+			policies: [{ ...orders, grantedColumns: ['cost'] }],
+		});
+		expect(call[16]).toEqual(registry);
 	});
 
 	it('rejects unlicensed group creates and updates with row policies before mutation', async () => {

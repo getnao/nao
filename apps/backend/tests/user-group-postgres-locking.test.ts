@@ -131,6 +131,39 @@ describe('PostgreSQL user group updates', () => {
 		expect(mocks.events).toEqual(['lock-project']);
 		expect(mocks.updatedColumnPolicies).toBeUndefined();
 	});
+
+	it('rejects group creation validated against a stale column registry', async () => {
+		const validatedRegistry = columnRegistry('cost');
+		mocks.projectColumnSecurity = columnRegistry('margin');
+
+		await expect(
+			createUserGroup(
+				'project-1',
+				'Finance',
+				[],
+				undefined,
+				{ mode: 'all', strict: true },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				columnPolicies('cost'),
+				undefined,
+				validatedRegistry,
+			),
+		).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message:
+				'Project column security changed while this user group was being updated. Review the current registry and try again.',
+		});
+
+		expect(mocks.events).toEqual(['lock-project']);
+	});
 });
 
 function transaction() {

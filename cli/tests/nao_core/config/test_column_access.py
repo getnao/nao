@@ -114,6 +114,31 @@ def test_group_denied_column_can_be_removed_from_star(project_path: Path):
     assert validate_column_access(sql, config, project_path, column_security_policies=policies) == sql
 
 
+def test_group_policy_does_not_enable_static_exclusions(project_path: Path):
+    config = FakeDatabaseConfig(["*.email"])
+    policies = {("main", "users"): {"access": "restricted", "denied_columns": ["ssn"]}}
+    sql = "SELECT email FROM users"
+
+    assert (
+        validate_column_access(
+            sql,
+            config,
+            project_path,
+            column_security_policies=policies,
+            enforce_static_exclusions=False,
+        )
+        == sql
+    )
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.ssn"):
+        validate_column_access(
+            "SELECT ssn FROM users",
+            config,
+            project_path,
+            column_security_policies=policies,
+            enforce_static_exclusions=False,
+        )
+
+
 def test_blocked_column_security_table_is_blocked(project_path: Path):
     config = FakeDatabaseConfig([])
     policies = {("main", "users"): {"access": "blocked", "reason": "Enterprise license inactive."}}

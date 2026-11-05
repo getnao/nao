@@ -514,6 +514,31 @@ describe('user group context access selection', () => {
 		expect(screen.getAllByText('Visible')).toHaveLength(1);
 	});
 
+	it('keeps saved record policies editable when their table is missing from the catalog', () => {
+		setCatalogObjects([objects[1]]);
+		render(
+			<StatefulContextAccess
+				initialAccess={{ mode: 'all', strict: true }}
+				rowSecurity={rowSecurity}
+				initialRowPolicies={{
+					version: 1,
+					policies: [
+						{
+							databaseType: 'postgres',
+							database: 'app',
+							schema: 'public',
+							table: 'users',
+							access: 'full',
+						},
+					],
+				}}
+			/>,
+		);
+
+		expect(screen.getByText('app/public/users')).toBeTruthy();
+		expect(screen.getByRole('combobox', { name: 'Record access for users' }).hasAttribute('disabled')).toBe(false);
+	});
+
 	it('finds restricted columns and expands their table while searching', () => {
 		render(
 			<StatefulContextAccess
@@ -717,14 +742,16 @@ function StatefulContextAccess({
 	initialAccess = empty,
 	columnSecurity: initialColumnSecurity,
 	rowSecurity: initialRowSecurity,
+	initialRowPolicies = { version: 1, policies: [] },
 }: {
 	initialAccess?: DatabaseContextAccess;
 	columnSecurity?: ProjectColumnSecurity;
 	rowSecurity?: ProjectRowSecurity;
+	initialRowPolicies?: UserGroupRowPolicies;
 }) {
 	const [access, setAccess] = useState(initialAccess);
 	const [columnPolicies, setColumnPolicies] = useState<UserGroupColumnPolicies>({ version: 1, policies: [] });
-	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>({ version: 1, policies: [] });
+	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(initialRowPolicies);
 	return (
 		<UserGroupDataAccess
 			databaseAccess={access}

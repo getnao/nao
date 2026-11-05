@@ -674,6 +674,62 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('rejects SQLite group saves validated against a stale column registry', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const validatedRegistry = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		};
+		const stalePolicies = {
+			version: 1 as const,
+			policies: [{ ...orders, grantedColumns: ['cost'] }],
+		};
+		await updateProjectColumnSecurity(PROJECT_ID, validatedRegistry);
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await updateProjectColumnSecurity(PROJECT_ID, {
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['margin'] }],
+		});
+
+		await expect(
+			updateUserGroup(PROJECT_ID, analysts.id, {
+				featureGrants: [],
+				columnPolicies: stalePolicies,
+				columnPoliciesRegistry: validatedRegistry,
+			}),
+		).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message:
+				'Project column security changed while this user group was being updated. Review the current registry and try again.',
+		});
+		await expect(
+			createUserGroup(
+				PROJECT_ID,
+				'Stale',
+				[],
+				DEFAULT_DENSITY,
+				{ mode: 'all', strict: true },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				'inherit',
+				undefined,
+				false,
+				[],
+				undefined,
+				stalePolicies,
+				undefined,
+				validatedRegistry,
+			),
+		).rejects.toMatchObject({ code: 'CONFLICT' });
+	});
+
 	it('unions default, direct, and SSO column grants from active groups', async () => {
 		const orders = {
 			databaseType: 'duckdb',

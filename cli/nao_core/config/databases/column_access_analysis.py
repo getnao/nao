@@ -51,11 +51,13 @@ class _ColumnAccessAnalyzer:
         table_infos: TableInfos,
         db_config: _DatabaseConfigLike,
         denied_columns: dict[tuple[str, str], set[str]] | None = None,
+        enforce_static_exclusions: bool = True,
     ):
         self.expression = expression
         self.table_infos = table_infos
         self.db_config = db_config
         self.denied_columns = denied_columns or {}
+        self.enforce_static_exclusions = enforce_static_exclusions
         self.scopes = list(traverse_scope(expression))
         self._output_cache: dict[int, list[_OutputColumn]] = {}
 
@@ -232,7 +234,9 @@ class _ColumnAccessAnalyzer:
         return infos
 
     def _is_excluded(self, origin: _ColumnOrigin) -> bool:
-        if not self.db_config.column_matches_pattern(origin.schema, origin.table, origin.column):
+        if self.enforce_static_exclusions and not self.db_config.column_matches_pattern(
+            origin.schema, origin.table, origin.column
+        ):
             return True
         matches = [
             columns

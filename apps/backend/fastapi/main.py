@@ -218,13 +218,14 @@ def _validate_sql(
         group_allowed_tables=group_allowed_tables,
         database_folder=database_folder,
     )
-    if enforce_excluded_columns or column_security_policies is not None:
+    if enforce_excluded_columns or column_security_policies:
         validated_sql = validate_column_access(
             validated_sql,
             db_config,
             project_path,
             database_folder,
             column_security_policies,
+            enforce_static_exclusions=enforce_excluded_columns,
         )
     validated_sql = enforce_row_security(
         validated_sql,

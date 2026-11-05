@@ -309,7 +309,17 @@ export const createUserGroup = async (
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	columnPolicies: UserGroupColumnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
+	rowPoliciesRegistry?: ProjectRowSecurity,
+	columnPoliciesRegistry?: ProjectColumnSecurity,
 ): Promise<UserGroup> => {
+	const expectedRowPoliciesRegistry =
+		rowPolicies.policies.length === 0
+			? undefined
+			: (rowPoliciesRegistry ?? (await getProjectRowSecurity(projectId)));
+	const expectedColumnPoliciesRegistry =
+		columnPolicies.policies.length === 0
+			? undefined
+			: (columnPoliciesRegistry ?? (await getProjectColumnSecurity(projectId)));
 	const values = createUserGroupValues(
 		projectId,
 		name,
@@ -331,6 +341,12 @@ export const createUserGroup = async (
 		if (dbConfig.dialect === Dialect.Sqlite) {
 			return db.transaction(
 				(transaction) => {
+					const currentRegistry = getProjectSecurityForUserGroupUpdateSqlite(transaction, projectId);
+					assertExpectedSecurityRegistries(
+						expectedRowPoliciesRegistry,
+						expectedColumnPoliciesRegistry,
+						currentRegistry,
+					);
 					assertNameAvailableSqlite(transaction, projectId, name);
 					return transaction.insert(s.userGroup).values(values).returning().get();
 				},
@@ -339,7 +355,12 @@ export const createUserGroup = async (
 		}
 
 		return db.transaction(async (transaction) => {
-			await lockProjectForUserGroupMutation(transaction, projectId);
+			const currentRegistry = await lockProjectSecurityForUserGroupUpdate(transaction, projectId);
+			assertExpectedSecurityRegistries(
+				expectedRowPoliciesRegistry,
+				expectedColumnPoliciesRegistry,
+				currentRegistry,
+			);
 			await assertNameAvailable(transaction, projectId, name);
 			const [created] = await transaction.insert(s.userGroup).values(values).returning().execute();
 			return created;
@@ -365,7 +386,17 @@ export const createUserGroupWithinLimit = async (
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	columnPolicies: UserGroupColumnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
+	rowPoliciesRegistry?: ProjectRowSecurity,
+	columnPoliciesRegistry?: ProjectColumnSecurity,
 ): Promise<UserGroup> => {
+	const expectedRowPoliciesRegistry =
+		rowPolicies.policies.length === 0
+			? undefined
+			: (rowPoliciesRegistry ?? (await getProjectRowSecurity(projectId)));
+	const expectedColumnPoliciesRegistry =
+		columnPolicies.policies.length === 0
+			? undefined
+			: (columnPoliciesRegistry ?? (await getProjectColumnSecurity(projectId)));
 	const values = createUserGroupValues(
 		projectId,
 		name,
@@ -387,6 +418,12 @@ export const createUserGroupWithinLimit = async (
 		if (dbConfig.dialect === Dialect.Sqlite) {
 			return db.transaction(
 				(transaction) => {
+					const currentRegistry = getProjectSecurityForUserGroupUpdateSqlite(transaction, projectId);
+					assertExpectedSecurityRegistries(
+						expectedRowPoliciesRegistry,
+						expectedColumnPoliciesRegistry,
+						currentRegistry,
+					);
 					assertNameAvailableSqlite(transaction, projectId, name);
 					const [{ count: existingCount }] = transaction
 						.select({ count: count() })
@@ -401,7 +438,12 @@ export const createUserGroupWithinLimit = async (
 		}
 
 		return db.transaction(async (transaction) => {
-			await lockProjectForUserGroupMutation(transaction, projectId);
+			const currentRegistry = await lockProjectSecurityForUserGroupUpdate(transaction, projectId);
+			assertExpectedSecurityRegistries(
+				expectedRowPoliciesRegistry,
+				expectedColumnPoliciesRegistry,
+				currentRegistry,
+			);
 			await assertNameAvailable(transaction, projectId, name);
 			const [{ count: existingCount }] = await transaction
 				.select({ count: count() })
@@ -440,11 +482,11 @@ export const updateUserGroup = async (
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
 	const rowPoliciesRegistry =
-		dbConfig.dialect === Dialect.Postgres && data.rowPolicies !== undefined
+		data.rowPolicies !== undefined
 			? (data.rowPoliciesRegistry ?? (await getProjectRowSecurity(projectId)))
 			: undefined;
 	const columnPoliciesRegistry =
-		dbConfig.dialect === Dialect.Postgres && data.columnPolicies !== undefined
+		data.columnPolicies !== undefined
 			? (data.columnPoliciesRegistry ?? (await getProjectColumnSecurity(projectId)))
 			: undefined;
 	const currentConfig = parseStoredUserGroupConfig(group.featureGrants, group.isDefault);
@@ -470,8 +512,6 @@ export const updateUserGroup = async (
 	}
 	const serializedSsoMappings =
 		data.ssoMappings === undefined ? undefined : serializeUserGroupSsoMappings(data.ssoMappings);
-	const changedProviders =
-		serializedSsoMappings === undefined ? [] : getChangedSsoProviders(group.ssoMappings, serializedSsoMappings);
 	const updateValues = {
 		...(data.name === undefined ? {} : { name: data.name }),
 		featureGrants: serializeUserGroupConfig(
@@ -505,16 +545,63 @@ export const updateUserGroup = async (
 		if (dbConfig.dialect === Dialect.Sqlite) {
 			return db.transaction(
 				(transaction) => {
-					if (data.name !== undefined && data.name !== group.name) {
+					const currentRegistry = getProjectSecurityForUserGroupUpdateSqlite(transaction, projectId);
+					assertExpectedSecurityRegistries(rowPoliciesRegistry, columnPoliciesRegistry, currentRegistry);
+					const lockedGroup = getUserGroupSqlite(transaction, projectId, groupId);
+					const lockedConfig = parseStoredUserGroupConfig(lockedGroup.featureGrants, lockedGroup.isDefault);
+					const lockedContext = parseStoredUserGroupContextAccess(
+						lockedGroup.contextGrants,
+						lockedGroup.isDefault,
+					);
+					const lockedDatabaseAccess = data.databaseAccess ?? lockedContext.databaseAccess;
+					const lockedRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(
+						data.rowPolicies ?? parseStoredUserGroupRowPolicies(lockedGroup.rowPolicies),
+						lockedDatabaseAccess,
+					);
+					const lockedColumnPolicies = filterUserGroupColumnPoliciesByDatabaseContext(
+						data.columnPolicies ?? parseStoredUserGroupColumnPolicies(lockedGroup.columnPolicies),
+						lockedDatabaseAccess,
+					);
+					if (data.name !== undefined && data.name !== lockedGroup.name) {
 						assertNameAvailableSqlite(transaction, projectId, data.name, groupId);
 					}
 					const stored = transaction
 						.update(s.userGroup)
-						.set(updateValues)
+						.set({
+							...updateValues,
+							featureGrants: serializeUserGroupConfig(
+								data.featureGrants,
+								data.toolCallDensityPolicy ?? lockedConfig.toolCallDensity,
+								data.projectSharing ?? lockedConfig.projectSharing,
+								data.showAllSettings ?? lockedConfig.showAllSettings,
+								data.preloadedSkills ?? lockedConfig.preloadedSkills,
+							),
+							...(data.databaseAccess === undefined &&
+							data.docsAccess === undefined &&
+							data.filesAccess === undefined &&
+							data.mcpAccess === undefined &&
+							data.skillsAccess === undefined
+								? {}
+								: {
+										contextGrants: serializeUserGroupContextAccess({
+											databaseAccess: data.databaseAccess ?? lockedContext.databaseAccess,
+											docsAccess: data.docsAccess ?? lockedContext.docsAccess,
+											filesAccess: data.filesAccess ?? lockedContext.filesAccess,
+											mcpAccess: data.mcpAccess ?? lockedContext.mcpAccess,
+											skillsAccess: data.skillsAccess ?? lockedContext.skillsAccess,
+										}),
+									}),
+							columnPolicies: serializeUserGroupColumnPolicies(lockedColumnPolicies),
+							rowPolicies: serializeUserGroupRowPolicies(lockedRowPolicies),
+						})
 						.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
 						.returning()
 						.get();
-					deleteChangedSsoMembershipsSqlite(transaction, groupId, changedProviders);
+					const lockedChangedProviders =
+						serializedSsoMappings === undefined
+							? []
+							: getChangedSsoProviders(lockedGroup.ssoMappings, serializedSsoMappings);
+					deleteChangedSsoMembershipsSqlite(transaction, groupId, lockedChangedProviders);
 					return stored;
 				},
 				{ behavior: 'immediate' },
@@ -685,6 +772,19 @@ const getUserGroup = async (projectId: string, groupId: string, executor: DBExec
 	return group;
 };
 
+function getUserGroupSqlite(transaction: DBTransaction, projectId: string, groupId: string): DBUserGroup {
+	const [group] = transaction
+		.select()
+		.from(s.userGroup)
+		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+		.limit(1)
+		.all();
+	if (!group) {
+		throw new UserGroupQueryError('NOT_FOUND', 'User group not found.');
+	}
+	return group;
+}
+
 const assertNameAvailable = async (
 	executor: DBExecutor,
 	projectId: string,
@@ -776,11 +876,6 @@ function assertCustomUserGroupLimit(existingCount: number, limit: number): void 
 	}
 }
 
-async function lockProjectForUserGroupMutation(transaction: DBTransaction, projectId: string): Promise<void> {
-	const query = transaction.select({ id: s.project.id }).from(s.project).where(eq(s.project.id, projectId));
-	await (query as typeof query & { for(strength: 'update'): typeof query }).for('update').execute();
-}
-
 async function lockProjectSecurityForUserGroupUpdate(
 	transaction: DBTransaction,
 	projectId: string,
@@ -800,6 +895,40 @@ async function lockProjectSecurityForUserGroupUpdate(
 		columnSecurity: parseStoredProjectColumnSecurity(project.columnSecurity),
 		rowSecurity: parseStoredProjectRowSecurity(project.rowSecurity),
 	};
+}
+
+function getProjectSecurityForUserGroupUpdateSqlite(
+	transaction: DBTransaction,
+	projectId: string,
+): { columnSecurity: ProjectColumnSecurity; rowSecurity: ProjectRowSecurity } {
+	const [project] = transaction
+		.select({
+			id: s.project.id,
+			columnSecurity: s.project.columnSecurity,
+			rowSecurity: s.project.rowSecurity,
+		})
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1)
+		.all();
+	assertProjectExists(project);
+	return {
+		columnSecurity: parseStoredProjectColumnSecurity(project.columnSecurity),
+		rowSecurity: parseStoredProjectRowSecurity(project.rowSecurity),
+	};
+}
+
+function assertExpectedSecurityRegistries(
+	expectedRowSecurity: ProjectRowSecurity | undefined,
+	expectedColumnSecurity: ProjectColumnSecurity | undefined,
+	current: { columnSecurity: ProjectColumnSecurity; rowSecurity: ProjectRowSecurity },
+): void {
+	if (expectedRowSecurity !== undefined) {
+		assertRowPoliciesRegistryCurrent(expectedRowSecurity, current.rowSecurity);
+	}
+	if (expectedColumnSecurity !== undefined) {
+		assertColumnPoliciesRegistryCurrent(expectedColumnSecurity, current.columnSecurity);
+	}
 }
 
 function assertRowPoliciesRegistryCurrent(expected: ProjectRowSecurity, current: ProjectRowSecurity): void {

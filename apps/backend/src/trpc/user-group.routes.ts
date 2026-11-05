@@ -335,7 +335,11 @@ export const userGroupRoutes = {
 		.mutation(async ({ ctx, input }) => {
 			const columnSecurity = normalizeProjectColumnSecurity(input);
 			await assertColumnSecurityChangeAllowed(ctx.project.id, columnSecurity);
-			await validateProjectColumnSecurityCatalog(requireProjectPath(ctx.project.path), columnSecurity);
+			await validateProjectColumnSecurityCatalog(
+				ctx.project.id,
+				requireProjectPath(ctx.project.path),
+				columnSecurity,
+			);
 			return handleQuery(() => userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity));
 		}),
 
@@ -388,6 +392,7 @@ export const userGroupRoutes = {
 			const skillsAccess = normalizeSkillsAccess(input.skillsAccess);
 			await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () => EMPTY_SKILLS_ACCESS);
 			let rowPolicies: UserGroupRowPolicies | undefined;
+			let rowPoliciesRegistry: ProjectRowSecurity | undefined;
 			if (input.rowPolicies !== undefined) {
 				await assertRowSecurityLicensed(ctx.project.id);
 				const validation = await validateGroupRowPolicies(
@@ -395,17 +400,19 @@ export const userGroupRoutes = {
 					normalizeUserGroupRowPolicies(input.rowPolicies),
 				);
 				rowPolicies = validation.rowPolicies;
+				rowPoliciesRegistry = validation.registry;
 			}
 			let columnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES;
+			let columnPoliciesRegistry: ProjectColumnSecurity | undefined;
 			if (input.columnPolicies !== undefined) {
 				await assertColumnSecurityLicensed(ctx.project.id);
-				columnPolicies = (
-					await validateGroupColumnPolicies(
-						ctx.project.id,
-						normalizeUserGroupColumnPolicies(input.columnPolicies),
-						databaseAccess,
-					)
-				).columnPolicies;
+				const validation = await validateGroupColumnPolicies(
+					ctx.project.id,
+					normalizeUserGroupColumnPolicies(input.columnPolicies),
+					databaseAccess,
+				);
+				columnPolicies = validation.columnPolicies;
+				columnPoliciesRegistry = validation.registry;
 			}
 			const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))
 				? userGroupQueries.createUserGroup
@@ -428,7 +435,9 @@ export const userGroupRoutes = {
 					skillsAccess,
 					columnPolicies,
 				] as const;
-				return createUserGroup(...values);
+				return rowPoliciesRegistry === undefined && columnPoliciesRegistry === undefined
+					? createUserGroup(...values)
+					: createUserGroup(...values, rowPoliciesRegistry, columnPoliciesRegistry);
 			});
 			await saveGroupBudget(ctx.project.id, group.id, input.budgetLimitUsd);
 			return group;
@@ -704,11 +713,18 @@ async function validateProjectRowSecurityCatalog(
 }
 
 async function validateProjectColumnSecurityCatalog(
+	projectId: string,
 	projectPath: string,
 	columnSecurity: ReturnType<typeof normalizeProjectColumnSecurity>,
 ): Promise<void> {
+	const current = normalizeProjectColumnSecurity(await userGroupQueries.getProjectColumnSecurity(projectId));
+	const currentTables = new Map(current.tables.map((table) => [columnSecurityTableKey(table), table]));
 	const catalog = getDatabaseContextCatalog(projectPath, { fresh: true });
 	for (const table of columnSecurity.tables) {
+		const currentTable = currentTables.get(columnSecurityTableKey(table));
+		if (currentTable && JSON.stringify(currentTable) === JSON.stringify(table)) {
+			continue;
+		}
 		const catalogTable = catalog.objects.find(
 			(candidate) =>
 				candidate.databaseType === table.databaseType &&

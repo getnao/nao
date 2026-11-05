@@ -67,8 +67,9 @@ def validate_column_access(
     project_path: Path,
     database_folder: str | None = None,
     column_security_policies: dict[tuple[str, str], dict[str, Any]] | None = None,
+    enforce_static_exclusions: bool = True,
 ) -> str:
-    if not db_config.exclude_columns and not column_security_policies:
+    if (not enforce_static_exclusions or not db_config.exclude_columns) and not column_security_policies:
         return sql
 
     dialect = _SQLGLOT_DIALECTS.get(db_config.type)
@@ -88,6 +89,7 @@ def validate_column_access(
             table_infos,
             db_config,
             _denied_columns(column_security_policies or {}),
+            enforce_static_exclusions,
         )
         analyzer.validate_star_locations()
         excluded_references = analyzer.find_explicit_excluded_references()

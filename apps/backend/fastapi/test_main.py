@@ -871,6 +871,38 @@ def test_column_security_rejects_denied_column_for_execute_and_validate(
     assert "main.users.email" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_column_security_does_not_enable_static_exclusions(
+    duckdb_project_with_excluded_columns,
+    endpoint,
+):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT email FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": {
+                "enforced": True,
+                "tables": [
+                    {
+                        "database_type": "duckdb",
+                        "database": "test",
+                        "schema": "main",
+                        "table": "users",
+                        "restricted_columns": ["email"],
+                        "access": "full",
+                    }
+                ],
+            },
+            "row_security": {"enforced": False},
+            "enforce_excluded_columns": False,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+
 def test_column_security_rejects_duplicate_active_table_policies(
     duckdb_project_with_excluded_columns,
 ):

@@ -34,7 +34,7 @@ import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { UserGroupColumnRows } from '@/components/settings/user-group-column-security';
 import { UserGroupContextModeSelector } from '@/components/settings/user-group-context-mode-selector';
-import { UserGroupTableRecordAccess } from '@/components/settings/user-group-row-security';
+import { UserGroupRowSecurity, UserGroupTableRecordAccess } from '@/components/settings/user-group-row-security';
 import {
 	DOCS_TREE_LABELS,
 	FileTreeAccessRoot,
@@ -135,6 +135,15 @@ export function UserGroupDataAccess({
 	const isSearching = isSearchEnabled && search.trim().length > 0;
 	const accessibleColumnSecurity = filterProjectColumnSecurityByDatabaseContext(columnSecurity, databaseAccess);
 	const accessibleRowSecurity = filterProjectRowSecurityByDatabaseContext(rowSecurity, databaseAccess);
+	const unavailableRowPolicyTables =
+		catalog.isLoading || catalog.isError
+			? []
+			: accessibleRowSecurity.tables.filter(
+					(table) =>
+						rowPolicies.policies.some(
+							(policy) => rowSecurityTableKey(policy) === rowSecurityTableKey(table),
+						) && !objects.some((object) => rowSecurityTableKey(object) === rowSecurityTableKey(table)),
+				);
 	const treeObjects = isSearchEnabled
 		? filterDatabaseContextObjects(objects, search, accessibleColumnSecurity, accessibleRowSecurity)
 		: objects;
@@ -285,6 +294,16 @@ export function UserGroupDataAccess({
 					grants={unavailableGrants}
 					databaseAccess={databaseAccess}
 					onChange={onDatabaseAccessChange}
+				/>
+			)}
+			{unavailableRowPolicyTables.length > 0 && (
+				<UserGroupRowSecurity
+					registry={{ version: 1, tables: unavailableRowPolicyTables }}
+					databaseAccess={databaseAccess}
+					policies={rowPolicies}
+					isLicensed={isColumnSecurityLicensed}
+					showValidationErrors={showRowPolicyValidationErrors}
+					onChange={onRowPoliciesChange}
 				/>
 			)}
 			{docsAccess?.mode === 'restricted' && unavailableDocsGrants.length > 0 && (
