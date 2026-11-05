@@ -98,6 +98,7 @@ export function AskBar({
 	}, [request]);
 
 	const startSession = async (message: AskMessage) => {
+		const submittedCitations = session.citations;
 		const chatId = await onAsk(message.citations);
 		setSession((current) => ({
 			...current,
@@ -105,7 +106,7 @@ export function AskBar({
 			pendingText: message.text,
 			pendingCitations: message.citations,
 			pendingMentions: message.mentions,
-			citations: [],
+			citations: withoutCitations(current.citations, submittedCitations),
 			isPanelOpen: true,
 		}));
 	};
@@ -531,6 +532,11 @@ function withCitation(session: AskSession, incoming: CitationData): AskSession {
 		return session;
 	}
 	return { ...session, citations: [...session.citations, { ...citation, id: crypto.randomUUID() }] };
+}
+
+function withoutCitations(citations: PendingCitation[], removed: PendingCitation[]): PendingCitation[] {
+	const removedIds = new Set(removed.map((citation) => citation.id));
+	return citations.filter((citation) => !removedIds.has(citation.id));
 }
 
 function nonEmpty(citations: CitationData[] | undefined): CitationData[] | undefined {
