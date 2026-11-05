@@ -206,6 +206,30 @@ describe('story actions', () => {
 		expect(groupToolCalls([revenue, churn])).toEqual([revenue, churn]);
 	});
 
+	it('keeps one card per story when stories of other chats share a slug', () => {
+		const ownStory = createStoryPart('call-1', {
+			input: { action: 'update', id: 'own-story-id' },
+			output: { success: true, id: 'revenue', version: 2, story_id: 'own-story-id' },
+		});
+		const otherChatStory = createStoryPart('call-2', {
+			input: { action: 'update', id: 'other-story-id' },
+			output: { success: true, id: 'revenue', version: 4, story_id: 'other-story-id' },
+		});
+
+		expect(groupToolCalls([ownStory, otherChatStory])).toEqual([ownStory, otherChatStory]);
+	});
+
+	it('demotes a failed create once the story it retried exists', () => {
+		const failed = createStoryPart('call-1', {
+			output: { success: false, id: 'revenue', version: 0, error: '"code" and "title" are required' },
+		});
+		const created = createStoryPart('call-2', {
+			output: { success: true, id: 'revenue', version: 1, story_id: 'story-id' },
+		});
+
+		expect(groupToolCalls([failed, created])).toEqual([{ type: 'story-status', part: failed }, created]);
+	});
+
 	it('demotes a failed attempt once a later action on the story exists', () => {
 		const failed = createStoryPart('call-1', {
 			input: { action: 'update', id: 'revenue' },
