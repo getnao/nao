@@ -151,6 +151,7 @@ function AutomationDetailPage() {
 
 				{automation && (
 					<AutomationForm
+						key={automationId}
 						id={automationFormId}
 						automationId={automationId}
 						initialValue={{

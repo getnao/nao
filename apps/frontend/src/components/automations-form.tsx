@@ -2014,7 +2014,7 @@ function EmailRecipientPill({
 	);
 }
 
-function EmailRecipientsInput({
+export function EmailRecipientsInput({
 	recipients,
 	error,
 	disabled,
@@ -2026,22 +2026,23 @@ function EmailRecipientsInput({
 	onChange: (recipients: string[]) => void;
 }) {
 	const [draft, setDraft] = useState('');
+	const [isDraftAppended, setIsDraftAppended] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
-	const recipientsQuery = useQuery(trpc.automation.listEmailRecipients.queryOptions());
-	const memberEmails = new Set(recipientsQuery.data?.map((member) => member.email.toLowerCase()));
+	const draftRecipient = draft.trim().toLowerCase();
+	const tokens = isDraftAppended && recipients.at(-1) === draftRecipient ? recipients.slice(0, -1) : recipients;
+	const validRecipients = tokens.filter(isValidEmailAddress);
+	const recipientValidation = useQuery({
+		...trpc.automation.validateEmailRecipients.queryOptions({ recipients: validRecipients }),
+		enabled: validRecipients.length > 0,
+	});
 	const nonMemberRecipients = new Set(
-		recipientsQuery.data
-			? recipients
-					.filter(isValidEmailAddress)
-					.filter((recipient) => !memberEmails.has(recipient.toLowerCase()))
-					.map((recipient) => recipient.toLowerCase())
-			: [],
+		(recipientValidation.data?.nonMemberRecipients ?? []).map((recipient) => recipient.toLowerCase()),
 	);
 
-	function mergeRecipients(additions: string[]) {
-		const existing = new Set(recipients.map((recipient) => recipient.toLowerCase()));
+	function mergeRecipients(currentRecipients: string[], additions: string[]) {
+		const existing = new Set(currentRecipients.map((recipient) => recipient.toLowerCase()));
 		return [
-			...recipients,
+			...currentRecipients,
 			...additions
 				.map((recipient) => recipient.trim().toLowerCase())
 				.filter(Boolean)
@@ -2055,22 +2056,25 @@ function EmailRecipientsInput({
 		];
 	}
 
+	function update(nextTokens: string[], nextDraft: string) {
+		const nextDraftRecipient = nextDraft.trim().toLowerCase();
+		const appendsDraft =
+			nextDraftRecipient !== '' &&
+			!nextTokens.some((recipient) => recipient.toLowerCase() === nextDraftRecipient);
+		setDraft(nextDraft);
+		setIsDraftAppended(appendsDraft);
+		onChange(appendsDraft ? [...nextTokens, nextDraftRecipient] : nextTokens);
+	}
+
 	function handleDraftChange(text: string) {
 		const parts = text.split(/[\s,]+/);
 		const remainder = parts.pop() ?? '';
-
-		if (parts.length > 0) {
-			onChange(mergeRecipients(parts));
-		}
-		setDraft(remainder);
+		update(mergeRecipients(tokens, parts), remainder);
 	}
 
 	function commitDraft() {
-		const recipient = draft.trim();
-		if (recipient) {
-			onChange(mergeRecipients([recipient]));
-		}
 		setDraft('');
+		setIsDraftAppended(false);
 	}
 
 	function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
@@ -2079,14 +2083,17 @@ function EmailRecipientsInput({
 			commitDraft();
 			return;
 		}
-		if (event.key === 'Backspace' && draft === '' && recipients.length > 0) {
+		if (event.key === 'Backspace' && draft === '' && tokens.length > 0) {
 			event.preventDefault();
-			onChange(recipients.slice(0, -1));
+			update(tokens.slice(0, -1), '');
 		}
 	}
 
 	function removeRecipient(recipient: string) {
-		onChange(recipients.filter((saved) => saved !== recipient));
+		update(
+			tokens.filter((saved) => saved !== recipient),
+			draft,
+		);
 	}
 
 	return (
@@ -2100,7 +2107,7 @@ function EmailRecipientsInput({
 				disabled && 'pointer-events-none opacity-50',
 			)}
 		>
-			{recipients.map((recipient) => {
+			{tokens.map((recipient) => {
 				const recipientError = !isValidEmailAddress(recipient)
 					? 'Enter a valid email address.'
 					: nonMemberRecipients.has(recipient.toLowerCase())
@@ -2122,7 +2129,7 @@ function EmailRecipientsInput({
 				disabled={disabled}
 				aria-label='Email recipients'
 				aria-describedby={error ? 'automation-email-recipients-error' : undefined}
-				placeholder={recipients.length === 0 ? 'Email addresses, comma or space separated' : ''}
+				placeholder={tokens.length === 0 ? 'Email addresses, comma or space separated' : ''}
 				className='h-6 min-w-32 flex-1 px-1 text-sm placeholder:text-muted-foreground'
 				onChange={(event) => handleDraftChange(event.target.value)}
 				onKeyDown={handleKeyDown}

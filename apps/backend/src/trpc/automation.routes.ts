@@ -10,10 +10,10 @@ import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { agentService } from '../services/agent';
+import { getNonMemberAutomationEmailRecipients } from '../services/automation-email-policy';
 import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
-import { listShareableUserGroups } from '../services/shareable-user-groups.service';
 import { llmProviderSchema } from '../types/llm';
 import {
 	adminProtectedProcedure,
@@ -269,14 +269,11 @@ export const automationRoutes = {
 			return { cron };
 		}),
 
-	listEmailRecipients: automationReadProcedure.query(async ({ ctx }) => {
-		const projectUsers = await projectQueries.listUsersWithProjectAccess(ctx.project.id);
-		return projectUsers.map(({ id, name, email }) => ({ id, name, email }));
-	}),
-
-	listEmailRecipientGroups: automationReadProcedure.query(({ ctx }) => {
-		return listShareableUserGroups(ctx.project.id);
-	}),
+	validateEmailRecipients: automationProcedure
+		.input(z.object({ recipients: z.array(z.string().trim().toLowerCase().email()) }))
+		.query(async ({ ctx, input }) => ({
+			nonMemberRecipients: await getNonMemberAutomationEmailRecipients(ctx.project.id, input.recipients),
+		})),
 
 	listAllForAdmin: automationAdminProcedure.query(async ({ ctx }) => {
 		return listProjectAutomationsWithOwnerAccess(ctx.project.id);
