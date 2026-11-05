@@ -6,14 +6,23 @@ import {
 } from '@nao/shared/rules-template';
 
 import type { ToolContext } from '../types/tools';
+import { renderColumnSecurityTableFile } from './column-security-context.service';
 
 export const isAgentVisibleRootRulesPath = isRootRulesPath;
 
 export function renderProjectTextForAgent(
 	virtualPath: string,
 	source: string,
-	context: Pick<ToolContext, 'userRulesGroupAccess'>,
+	context: Pick<ToolContext, 'projectFolder' | 'userRulesGroupAccess' | 'warehouseColumnSecurity'>,
 ): string | null {
+	const columnSecurityView = renderColumnSecurityTableFile(
+		context.projectFolder,
+		virtualPath,
+		context.warehouseColumnSecurity,
+	);
+	if (columnSecurityView !== undefined) {
+		return columnSecurityView;
+	}
 	const rulesView = getAgentVisibleRulesView(virtualPath, source, context);
 	return rulesView === undefined ? source : (rulesView?.content ?? null);
 }

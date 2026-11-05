@@ -66,8 +66,9 @@ def validate_column_access(
     db_config: _DatabaseConfigLike,
     project_path: Path,
     database_folder: str | None = None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None = None,
 ) -> str:
-    if not db_config.exclude_columns:
+    if not db_config.exclude_columns and not column_security_policies:
         return sql
 
     dialect = _SQLGLOT_DIALECTS.get(db_config.type)
@@ -80,8 +81,14 @@ def validate_column_access(
 
     try:
         table_infos = _load_table_infos(expression, project_path, db_config, database_folder)
+        _assert_no_blocked_tables(table_infos, column_security_policies or {})
         qualified = _qualify_query(expression, dialect, table_infos)
-        analyzer = _ColumnAccessAnalyzer(qualified, table_infos, db_config)
+        analyzer = _ColumnAccessAnalyzer(
+            qualified,
+            table_infos,
+            db_config,
+            _denied_columns(column_security_policies or {}),
+        )
         analyzer.validate_star_locations()
         excluded_references = analyzer.find_explicit_excluded_references()
         if excluded_references:
@@ -104,6 +111,48 @@ def validate_column_access(
         raise
     except Exception as error:
         raise _blocked(str(error)) from error
+
+
+def _assert_no_blocked_tables(
+    table_infos: TableInfos,
+    policies: dict[tuple[str, str], dict[str, Any]],
+) -> None:
+    for infos in table_infos.values():
+        for info in infos:
+            policy = _lookup_column_security_policy(policies, info.schema, info.table)
+            if policy is not None and policy.get("access") == "blocked":
+                reason = policy.get("reason")
+                raise ColumnAccessError(
+                    str(reason) if reason else f"Query blocked because access to {info.schema}.{info.table} is blocked."
+                )
+
+
+def _denied_columns(
+    policies: dict[tuple[str, str], dict[str, Any]],
+) -> dict[tuple[str, str], set[str]]:
+    return {
+        identity: set(policy.get("denied_columns", []))
+        for identity, policy in policies.items()
+        if policy.get("access") == "restricted"
+    }
+
+
+def _lookup_column_security_policy(
+    policies: dict[tuple[str, str], dict[str, Any]],
+    schema: str,
+    table: str,
+) -> dict[str, Any] | None:
+    exact = policies.get((schema, table))
+    if exact is not None:
+        return exact
+    matches = [
+        policy
+        for (policy_schema, policy_table), policy in policies.items()
+        if policy_schema.casefold() == schema.casefold() and policy_table.casefold() == table.casefold()
+    ]
+    if len(matches) > 1:
+        raise _blocked(f"multiple column-security policies match '{schema}.{table}' case-insensitively")
+    return matches[0] if matches else None
 
 
 def _parse_query(sql: str, dialect: str) -> exp.Query:

@@ -840,6 +840,68 @@ def test_validate_sql_reuses_guards_without_executing(
 
 
 @pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_column_security_rejects_denied_column_for_execute_and_validate(
+    duckdb_project_with_excluded_columns,
+    endpoint,
+):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT email FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": {
+                "enforced": True,
+                "tables": [
+                    {
+                        "database_type": "duckdb",
+                        "database": "test",
+                        "schema": "main",
+                        "table": "users",
+                        "restricted_columns": ["email"],
+                        "access": "restricted",
+                        "denied_columns": ["email"],
+                    }
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "main.users.email" in response.json()["detail"]
+
+
+def test_column_security_rejects_duplicate_active_table_policies(
+    duckdb_project_with_excluded_columns,
+):
+    table = {
+        "database_type": "duckdb",
+        "database": "test",
+        "schema": "main",
+        "table": "users",
+        "restricted_columns": ["email"],
+    }
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/validate_sql",
+        json={
+            "sql": "SELECT id FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "column_security": {
+                "enforced": True,
+                "tables": [
+                    {**table, "access": "full"},
+                    {**table, "access": "restricted", "denied_columns": ["email"]},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Duplicate column security policy" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
 def test_motherduck_excluded_columns_apply_to_execute_and_validate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

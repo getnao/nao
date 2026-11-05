@@ -1,6 +1,13 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 
 class StrictRequestModel(BaseModel):
@@ -38,6 +45,69 @@ class EnforcedTableAccess(StrictRequestModel):
 
 TableAccess = Annotated[
     UnenforcedTableAccess | EnforcedTableAccess,
+    Field(discriminator="enforced"),
+]
+
+
+class ColumnSecurityTableBase(StrictRequestModel):
+    database_type: BoundedIdentity
+    database: BoundedIdentity
+    schema_name: BoundedIdentity = Field(alias="schema")
+    table: BoundedIdentity
+    restricted_columns: list[ConstraintColumn] = Field(min_length=1, max_length=256)
+
+    @field_validator("restricted_columns")
+    @classmethod
+    def validate_unique_restricted_columns(cls, value: list[str]):
+        if len(value) != len(set(value)):
+            raise ValueError("restricted_columns must not contain duplicates")
+        return value
+
+
+class FullColumnAccessTable(ColumnSecurityTableBase):
+    access: Literal["full"]
+
+
+class RestrictedColumnAccessTable(ColumnSecurityTableBase):
+    access: Literal["restricted"]
+    denied_columns: list[ConstraintColumn] = Field(min_length=1, max_length=256)
+
+    @field_validator("denied_columns")
+    @classmethod
+    def validate_denied_columns(cls, value: list[str]):
+        if len(value) != len(set(value)):
+            raise ValueError("denied_columns must not contain duplicates")
+        return value
+
+    @model_validator(mode="after")
+    def validate_denied_columns_are_restricted(self):
+        if any(column not in self.restricted_columns for column in self.denied_columns):
+            raise ValueError("denied_columns must be a subset of restricted_columns")
+        return self
+
+
+class BlockedColumnAccessTable(ColumnSecurityTableBase):
+    access: Literal["blocked"]
+    reason: str = Field(min_length=1, max_length=ROW_SECURITY_MAX_REASON_LENGTH)
+
+
+ColumnSecurityTable = Annotated[
+    FullColumnAccessTable | RestrictedColumnAccessTable | BlockedColumnAccessTable,
+    Field(discriminator="access"),
+]
+
+
+class UnenforcedColumnSecurity(StrictRequestModel):
+    enforced: Literal[False]
+
+
+class EnforcedColumnSecurity(StrictRequestModel):
+    enforced: Literal[True]
+    tables: list[ColumnSecurityTable] = Field(max_length=ROW_SECURITY_MAX_TABLES)
+
+
+ColumnSecurity = Annotated[
+    UnenforcedColumnSecurity | EnforcedColumnSecurity,
     Field(discriminator="enforced"),
 ]
 
@@ -100,6 +170,7 @@ class ExecuteSQLRequest(StrictRequestModel):
     sql: str
     nao_project_folder: str
     table_access: TableAccess
+    column_security: ColumnSecurity = UnenforcedColumnSecurity(enforced=False)
     row_security: RowSecurity
     database_id: str | None = None
     env_vars: dict[str, str] | None = None
@@ -111,6 +182,13 @@ class ExecuteSQLRequest(StrictRequestModel):
     def validate_table_access_discriminant(cls, value):
         if not isinstance(value, dict) or not isinstance(value.get("enforced"), bool):
             raise ValueError("table_access.enforced must be a boolean")
+        return value
+
+    @field_validator("column_security", mode="before")
+    @classmethod
+    def validate_column_security_discriminant(cls, value):
+        if not isinstance(value, dict) or not isinstance(value.get("enforced"), bool):
+            raise ValueError("column_security.enforced must be a boolean")
         return value
 
     @field_validator("row_security", mode="before")

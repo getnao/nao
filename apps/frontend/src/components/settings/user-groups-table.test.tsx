@@ -118,10 +118,15 @@ vi.mock('@/main', () => ({
 			contextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['context-catalog'] })) },
 			docsContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['docs-context-catalog'] })) },
 			filesContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['files-context-catalog'] })) },
+			columnSecurity: {
+				queryOptions: vi.fn(() => ({ queryKey: ['column-security'] })),
+				queryKey: vi.fn(() => ['column-security']),
+			},
 			rowSecurity: {
 				queryOptions: vi.fn(() => ({ queryKey: ['row-security'] })),
 				queryKey: vi.fn(() => ['row-security']),
 			},
+			updateColumnSecurity: { mutationOptions: vi.fn() },
 			updateRowSecurity: { mutationOptions: vi.fn() },
 			effectiveAccess: { queryKey: vi.fn(() => ['effective-access']) },
 			effectiveAccessForUser: { queryKey: vi.fn(() => ['effective-access-for-user']) },
@@ -363,7 +368,7 @@ beforeEach(() => {
 					? null
 					: queryKey === 'microsoft-config'
 						? false
-						: queryKey === 'row-security'
+						: queryKey === 'column-security' || queryKey === 'row-security'
 							? { version: 1, tables: [] }
 							: queryKey === 'rules-file'
 								? { content: '', hash: 'rules-hash' }
@@ -491,7 +496,7 @@ describe('UserGroupsTable', () => {
 						}
 					: options?.queryKey?.[0] === 'docs-context-catalog'
 						? { syncState: 'ready', entries: [] }
-						: options?.queryKey?.[0] === 'row-security'
+						: options?.queryKey?.[0] === 'column-security' || options?.queryKey?.[0] === 'row-security'
 							? { version: 1, tables: [] }
 							: overview,
 		}));
@@ -623,7 +628,7 @@ describe('UserGroupsTable', () => {
 		expect(
 			await screen.findByText('The free plan allows only 3 custom groups. Upgrade to Enterprise to have more.'),
 		).toBeTruthy();
-		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' })).toBeTruthy();
+		expect(screen.getAllByRole('link', { name: 'Upgrade to Enterprise' }).length).toBeGreaterThan(0);
 	});
 
 	it('creates on free below the custom-group limit and excludes All Users from the count', () => {
@@ -1065,7 +1070,7 @@ describe('UserGroupEditor', () => {
 		expect(screen.queryByRole('heading', { name: 'Conditional Rules' })).toBeNull();
 		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
 		expect(screen.getByText('No sensitive tables are configured in the project Security tab.')).toBeTruthy();
-		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' })).toBeTruthy();
+		expect(screen.getAllByRole('link', { name: 'Upgrade to Enterprise' }).length).toBeGreaterThan(0);
 		expect(screen.queryByRole('heading', { name: /SSO group mapping/ })).toBeNull();
 	});
 
@@ -2335,7 +2340,7 @@ describe('UserGroupUserDetail', () => {
 			]),
 		});
 
-		expect(screen.getByText('Enterprise feature inactive')).toBeTruthy();
+		expect(screen.getAllByText('Enterprise feature inactive').length).toBeGreaterThan(0);
 		expect(screen.getByText('No row filters are currently enforced.')).toBeTruthy();
 		expect(screen.queryByText('Filtered')).toBeNull();
 		expect(screen.queryByText(/tenant_id = 7/)).toBeNull();

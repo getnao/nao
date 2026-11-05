@@ -66,7 +66,7 @@ const readProjectFile = async (filePath: string, context: ToolContext): Promise<
 		}
 		const content = renderProjectTextForAgent(validatedFile.virtualPath, bytes.toString('utf-8'), context);
 		if (content === null) {
-			throw new Error('RULES.md could not be rendered safely.');
+			throw new Error(`Access denied: ${filePath} could not be rendered safely.`);
 		}
 		return content;
 	} finally {

@@ -27,6 +27,7 @@ let storageRoot: string;
 let projectFolder: string;
 let originalEnv: typeof process.env;
 let warehouseTableAccess: WarehouseTableAccess;
+let warehouseColumnSecurity: ToolContext['warehouseColumnSecurity'];
 let docsContextAccess: ResolvedDocsContextAccess;
 let filesContextAccess: ResolvedFilesContextAccess;
 const userRulesGroupAccess: UserRulesGroupAccess = { enforced: false };
@@ -38,6 +39,7 @@ const context = () =>
 		projectId: 'proj-1',
 		userId: 'user-1',
 		warehouseTableAccess,
+		warehouseColumnSecurity,
 		warehouseRowSecurity: { enforced: false },
 		docsContextAccess,
 		filesContextAccess,
@@ -51,6 +53,7 @@ beforeEach(async () => {
 	storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-storage-tools-'));
 	projectFolder = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-project-tools-'));
 	warehouseTableAccess = { enforced: false };
+	warehouseColumnSecurity = { enforced: false };
 	docsContextAccess = { enforced: false };
 	filesContextAccess = { enforced: false };
 
@@ -467,6 +470,69 @@ describe('database Context permissions', () => {
 		})) as { entries: { name: string }[] };
 
 		expect(output.entries.map((entry) => entry.name)).toEqual(['table=orders']);
+	});
+
+	it('synthesizes restricted columns and hides every raw table artifact from search tools', async () => {
+		const tablePath = '/databases/type=postgres/database=analytics/schema=public/table=orders';
+		const tableFolder = path.join(projectFolder, tablePath);
+		await fs.writeFile(path.join(tableFolder, 'preview.md'), 'secret marker');
+		const catalogFolder = path.join(projectFolder, '.meta/databases/type=postgres/database=analytics');
+		await fs.mkdir(catalogFolder, { recursive: true });
+		await fs.writeFile(
+			path.join(catalogFolder, 'columns.json'),
+			JSON.stringify({
+				version: 1,
+				schemas: {
+					public: {
+						orders: [
+							{ name: 'id', type: 'INTEGER' },
+							{ name: 'secret', type: 'TEXT', description: 'sensitive marker' },
+						],
+					},
+				},
+			}),
+		);
+		warehouseColumnSecurity = {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'orders',
+					restrictedColumns: ['secret'],
+					access: 'restricted',
+					deniedColumns: ['secret'],
+				},
+			],
+		};
+
+		await expect(run(readTool, { file_path: `${tablePath}/columns.md` })).resolves.toMatchObject({
+			content: expect.stringContaining('- id (INTEGER)'),
+		});
+		await expect(run(readTool, { file_path: `${tablePath}/preview.md` })).rejects.toThrow('Access denied');
+		await expect(run(searchTool, { pattern: 'columns.md' })).resolves.toMatchObject({ files: [] });
+		await expect(run(grepTool, { pattern: 'marker' })).resolves.toMatchObject({ matches: [] });
+	});
+
+	it('does not fall back to raw columns when the structured catalog is missing', async () => {
+		const tablePath = '/databases/type=postgres/database=analytics/schema=public/table=orders';
+		warehouseColumnSecurity = {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'orders',
+					restrictedColumns: ['secret'],
+					access: 'restricted',
+					deniedColumns: ['secret'],
+				},
+			],
+		};
+
+		await expect(run(readTool, { file_path: `${tablePath}/columns.md` })).rejects.toThrow('Access denied');
 	});
 
 	it('filters denied files from search and grep results', async () => {

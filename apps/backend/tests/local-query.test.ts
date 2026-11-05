@@ -286,6 +286,7 @@ describe('project context permissions', () => {
 					},
 				],
 			},
+			warehouseColumnSecurity: { enforced: false as const },
 			docsContextAccess: {
 				enforced: true as const,
 				access: {
@@ -458,6 +459,7 @@ const runOutcome = async (sql: string, overrides: RunOverrides = {}): Promise<Lo
 		chatId: 'chat-1',
 		queryResults: new Map(overrides.queryResults ?? []),
 		warehouseTableAccess: overrides.warehouseTableAccess ?? { enforced: false },
+		warehouseColumnSecurity: overrides.warehouseColumnSecurity ?? { enforced: false },
 		docsContextAccess: overrides.docsContextAccess ?? { enforced: false },
 		filesContextAccess: overrides.filesContextAccess ?? { enforced: false },
 		mcpAccess: { mode: 'all' },
@@ -472,6 +474,7 @@ interface RunOverrides {
 	queryResults?: [string, QueryResult][];
 	saveTo?: executeSql.SaveTo;
 	warehouseTableAccess?: ToolContext['warehouseTableAccess'];
+	warehouseColumnSecurity?: ToolContext['warehouseColumnSecurity'];
 	docsContextAccess?: ToolContext['docsContextAccess'];
 	filesContextAccess?: ToolContext['filesContextAccess'];
 }

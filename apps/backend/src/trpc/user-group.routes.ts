@@ -1,12 +1,16 @@
 import {
+	columnSecurityTableKey,
 	compileRowSecurityConditions,
+	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
 	EMPTY_SKILLS_ACCESS,
+	EMPTY_USER_GROUP_COLUMN_POLICIES,
 	FREE_CUSTOM_USER_GROUP_LIMIT,
+	isDatabaseContextTableGranted,
 	isMicrosoftEntraGroupId,
 	MAX_PRELOADED_SKILLS,
 	type McpAccess,
@@ -14,11 +18,14 @@ import {
 	normalizeFileTreeAccess,
 	normalizeFileTreePath,
 	normalizeMcpAccess,
+	normalizeProjectColumnSecurity,
 	normalizeProjectRowSecurity,
 	normalizeSkillsAccess,
+	normalizeUserGroupColumnPolicies,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	PROJECT_SHARING_PERMISSIONS,
+	type ProjectColumnSecurity,
 	type ProjectRowSecurity,
 	ROW_SECURITY_COMBINATORS,
 	ROW_SECURITY_MAX_CONDITIONS,
@@ -30,6 +37,7 @@ import {
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
 	USER_ROLES,
+	type UserGroupColumnPolicies,
 	type UserGroupRowPolicies,
 } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
@@ -158,6 +166,28 @@ const projectRowSecuritySchema = z
 				rowTableIdentitySchema
 					.extend({ constraintColumns: z.array(contextNameSchema).min(1).max(256) })
 					.strict(),
+			)
+			.max(10_000),
+	})
+	.strict();
+const projectColumnSecuritySchema = z
+	.object({
+		version: z.literal(1),
+		tables: z
+			.array(
+				rowTableIdentitySchema
+					.extend({ restrictedColumns: z.array(contextNameSchema).min(1).max(256) })
+					.strict(),
+			)
+			.max(10_000),
+	})
+	.strict();
+const userGroupColumnPoliciesSchema = z
+	.object({
+		version: z.literal(1),
+		policies: z
+			.array(
+				rowTableIdentitySchema.extend({ grantedColumns: z.array(contextNameSchema).min(1).max(256) }).strict(),
 			)
 			.max(10_000),
 	})
@@ -296,6 +326,19 @@ export const userGroupRoutes = {
 		return getDatabaseContextCatalog(ctx.project.path, { fresh: true });
 	}),
 
+	columnSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
+		return handleQuery(() => userGroupQueries.getProjectColumnSecurity(ctx.project.id));
+	}),
+
+	updateColumnSecurity: adminProtectedProcedure
+		.input(projectColumnSecuritySchema)
+		.mutation(async ({ ctx, input }) => {
+			const columnSecurity = normalizeProjectColumnSecurity(input);
+			await assertColumnSecurityChangeAllowed(ctx.project.id, columnSecurity);
+			await validateProjectColumnSecurityCatalog(requireProjectPath(ctx.project.path), columnSecurity);
+			return handleQuery(() => userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity));
+		}),
+
 	rowSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
 		return handleQuery(() => userGroupQueries.getProjectRowSecurity(ctx.project.id));
 	}),
@@ -330,6 +373,7 @@ export const userGroupRoutes = {
 				mcpAccess: mcpAccessSchema.default(EMPTY_MCP_ACCESS),
 				skillsAccess: skillsAccessSchema.default(EMPTY_SKILLS_ACCESS),
 				ssoMappings: ssoMappingsSchema.optional(),
+				columnPolicies: userGroupColumnPoliciesSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
@@ -352,6 +396,17 @@ export const userGroupRoutes = {
 				);
 				rowPolicies = validation.rowPolicies;
 			}
+			let columnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES;
+			if (input.columnPolicies !== undefined) {
+				await assertColumnSecurityLicensed(ctx.project.id);
+				columnPolicies = (
+					await validateGroupColumnPolicies(
+						ctx.project.id,
+						normalizeUserGroupColumnPolicies(input.columnPolicies),
+						databaseAccess,
+					)
+				).columnPolicies;
+			}
 			const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))
 				? userGroupQueries.createUserGroup
 				: userGroupQueries.createUserGroupWithinLimit.bind(null, FREE_CUSTOM_USER_GROUP_LIMIT);
@@ -371,6 +426,7 @@ export const userGroupRoutes = {
 					input.showAllSettings,
 					input.preloadedSkills,
 					skillsAccess,
+					columnPolicies,
 				] as const;
 				return createUserGroup(...values);
 			});
@@ -394,6 +450,7 @@ export const userGroupRoutes = {
 				mcpAccess: mcpAccessSchema.optional(),
 				skillsAccess: skillsAccessSchema.optional(),
 				ssoMappings: ssoMappingsSchema.optional(),
+				columnPolicies: userGroupColumnPoliciesSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
@@ -430,6 +487,18 @@ export const userGroupRoutes = {
 				rowPolicies = validation.rowPolicies;
 				rowPoliciesRegistry = validation.registry;
 			}
+			let columnPolicies: UserGroupColumnPolicies | undefined;
+			let columnPoliciesRegistry: ProjectColumnSecurity | undefined;
+			if (input.columnPolicies !== undefined) {
+				await assertColumnSecurityLicensed(ctx.project.id);
+				const validation = await validateGroupColumnPolicies(
+					ctx.project.id,
+					normalizeUserGroupColumnPolicies(input.columnPolicies),
+					databaseAccess ?? (await getCurrentGroupDatabaseAccess(ctx.project.id, input.groupId)),
+				);
+				columnPolicies = validation.columnPolicies;
+				columnPoliciesRegistry = validation.registry;
+			}
 			const group = await handleQuery(() =>
 				userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
 					name: input.name,
@@ -447,6 +516,7 @@ export const userGroupRoutes = {
 						? {}
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
 					...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
+					...(columnPolicies === undefined ? {} : { columnPolicies, columnPoliciesRegistry }),
 				}),
 			);
 			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
@@ -499,6 +569,12 @@ async function assertRowSecurityLicensed(projectId: string): Promise<void> {
 	}
 }
 
+async function assertColumnSecurityLicensed(projectId: string): Promise<void> {
+	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }))) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Column-level security requires an Enterprise license.' });
+	}
+}
+
 /** Without the license an admin may still lift MCP restrictions, so a lapsed license never locks a group in. */
 async function assertMcpAccessChangeAllowed(
 	projectId: string,
@@ -523,6 +599,11 @@ async function assertMcpAccessChangeAllowed(
 async function getCurrentGroupMcpAccess(projectId: string, groupId: string): Promise<McpAccess> {
 	const groups = await userGroupQueries.listUserGroups(projectId);
 	return groups.find((group) => group.id === groupId)?.mcpAccess ?? EMPTY_MCP_ACCESS;
+}
+
+async function getCurrentGroupDatabaseAccess(projectId: string, groupId: string): Promise<DatabaseContextAccess> {
+	const groups = await userGroupQueries.listUserGroups(projectId);
+	return groups.find((group) => group.id === groupId)?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS;
 }
 
 /** Like MCP restrictions, lifting skill restrictions stays possible without the license. */
@@ -570,6 +651,30 @@ async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: Pr
 	}
 }
 
+async function assertColumnSecurityChangeAllowed(
+	projectId: string,
+	columnSecurity: ProjectColumnSecurity,
+): Promise<void> {
+	if (await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId })) {
+		return;
+	}
+	const current = normalizeProjectColumnSecurity(await userGroupQueries.getProjectColumnSecurity(projectId));
+	const currentTables = new Map(
+		current.tables.map((table) => [columnSecurityTableKey(table), table.restrictedColumns]),
+	);
+	const onlyRemovesTables = columnSecurity.tables.every((table) => {
+		const currentColumns = currentTables.get(columnSecurityTableKey(table));
+		return (
+			currentColumns !== undefined &&
+			currentColumns.length === table.restrictedColumns.length &&
+			currentColumns.every((column, index) => column === table.restrictedColumns[index])
+		);
+	});
+	if (!onlyRemovesTables) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Column-level security requires an Enterprise license.' });
+	}
+}
+
 async function validateProjectRowSecurityCatalog(
 	projectPath: string,
 	rowSecurity: ReturnType<typeof normalizeProjectRowSecurity>,
@@ -593,6 +698,34 @@ async function validateProjectRowSecurityCatalog(
 			throw new TRPCError({
 				code: 'BAD_REQUEST',
 				message: `Invalid constraint column for ${table.schema}.${table.table}.`,
+			});
+		}
+	}
+}
+
+async function validateProjectColumnSecurityCatalog(
+	projectPath: string,
+	columnSecurity: ReturnType<typeof normalizeProjectColumnSecurity>,
+): Promise<void> {
+	const catalog = getDatabaseContextCatalog(projectPath, { fresh: true });
+	for (const table of columnSecurity.tables) {
+		const catalogTable = catalog.objects.find(
+			(candidate) =>
+				candidate.databaseType === table.databaseType &&
+				candidate.database === table.database &&
+				candidate.schema === table.schema &&
+				candidate.table === table.table,
+		);
+		if (!catalogTable) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Table ${table.schema}.${table.table} is not in the synced catalog.`,
+			});
+		}
+		if (table.restrictedColumns.some((column) => !catalogTable.columns.includes(column))) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Invalid restricted column for ${table.schema}.${table.table}.`,
 			});
 		}
 	}
@@ -659,6 +792,40 @@ async function validateGroupRowPolicies(
 		rowPolicies: normalizeUserGroupRowPolicies({ version: 1, policies }),
 		registry,
 	};
+}
+
+async function validateGroupColumnPolicies(
+	projectId: string,
+	columnPolicies: ReturnType<typeof normalizeUserGroupColumnPolicies>,
+	databaseAccess: DatabaseContextAccess,
+): Promise<{
+	columnPolicies: ReturnType<typeof normalizeUserGroupColumnPolicies>;
+	registry: ProjectColumnSecurity;
+}> {
+	const registry = await userGroupQueries.getProjectColumnSecurity(projectId);
+	const registered = new Map(registry.tables.map((table) => [columnSecurityTableKey(table), table]));
+	for (const policy of columnPolicies.policies) {
+		const table = registered.get(columnSecurityTableKey(policy));
+		if (!table) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: 'A column policy references a table outside the project registry.',
+			});
+		}
+		if (!isDatabaseContextTableGranted(databaseAccess, policy)) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Column access cannot be granted without access to ${table.schema}.${table.table}.`,
+			});
+		}
+		if (policy.grantedColumns.some((column) => !table.restrictedColumns.includes(column))) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Invalid granted column for ${table.schema}.${table.table}.`,
+			});
+		}
+	}
+	return { columnPolicies, registry };
 }
 
 async function handleQuery<T>(operation: () => Promise<T>): Promise<T> {

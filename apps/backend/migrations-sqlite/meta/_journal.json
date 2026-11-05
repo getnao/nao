@@ -680,6 +680,13 @@
       "when": 1793808038644,
       "tag": "0096_project_deployed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "6",
+      "when": 1793875085592,
+      "tag": "0097_column_security",
+      "breakpoints": true
     }
   ]
 }

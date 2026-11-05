@@ -12,7 +12,7 @@ import {
 } from '../../services/agent-visible-project-file.service';
 import {
 	assertProjectContextPathAllowed,
-	isProjectContextPathAllowed,
+	isRawProjectContextPathAllowed,
 } from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
@@ -170,9 +170,7 @@ function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string
 		const relativePath = path.relative(canonicalRoot, absolutePath).replaceAll(path.sep, '/');
 		const virtualPath = relativePath ? `/${relativePath}` : '/';
 		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
-		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')
-			? canonical.virtualPath
-			: null;
+		return isRawProjectContextPathAllowed(context, canonical.virtualPath, 'file') ? canonical.virtualPath : null;
 	} catch {
 		return null;
 	}

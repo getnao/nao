@@ -5,7 +5,7 @@ import { minimatch } from 'minimatch';
 import path from 'path';
 
 import { renderToModelOutput, SearchOutput } from '../../components/tool-outputs';
-import { isDocsProjectPath, isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
+import { isDocsProjectPath, isRawProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { isStorageEnabled, relativePathFromKey } from '../../services/storage';
 import { findUserFiles } from '../../services/storage/user-files';
 import { findStoryLibraryFiles } from '../../services/story-library';
@@ -121,9 +121,8 @@ const searchProjectFolder = async (recursivePattern: string, context: ToolContex
 				const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
 				const stats = await fs.stat(canonical.realPath);
 				if (
-					!isProjectContextPathAllowed(
+					!isRawProjectContextPathAllowed(
 						context,
-						virtualPath,
 						canonical.virtualPath,
 						stats.isDirectory() ? 'directory' : 'file',
 					)

@@ -5,8 +5,10 @@ const mocks = vi.hoisted(() => ({
 	initialContextGrants: null as unknown,
 	initialRowPolicies: { version: 1 as const, policies: [] as unknown[] },
 	lockedRowPolicies: { version: 1 as const, policies: [] as unknown[] },
+	projectColumnSecurity: { version: 1 as const, tables: [] as unknown[] },
 	projectRowSecurity: { version: 1 as const, tables: [] as unknown[] },
 	selectedProjectRowSecurity: false,
+	updatedColumnPolicies: undefined as unknown,
 	updatedRowPolicies: undefined as unknown,
 }));
 
@@ -36,8 +38,10 @@ describe('PostgreSQL user group updates', () => {
 		mocks.initialContextGrants = null;
 		mocks.initialRowPolicies = { version: 1, policies: [] };
 		mocks.lockedRowPolicies = { version: 1, policies: [] };
+		mocks.projectColumnSecurity = { version: 1, tables: [] };
 		mocks.projectRowSecurity = { version: 1, tables: [] };
 		mocks.selectedProjectRowSecurity = false;
+		mocks.updatedColumnPolicies = undefined;
 		mocks.updatedRowPolicies = undefined;
 	});
 
@@ -107,6 +111,26 @@ describe('PostgreSQL user group updates', () => {
 		expect(mocks.selectedProjectRowSecurity).toBe(true);
 		expect(mocks.updatedRowPolicies).toBeUndefined();
 	});
+
+	it('rejects column grants validated against a stale project registry', async () => {
+		const validatedRegistry = columnRegistry('cost');
+		mocks.projectColumnSecurity = columnRegistry('margin');
+
+		await expect(
+			updateUserGroup('project-1', 'group-1', {
+				featureGrants: [],
+				columnPolicies: columnPolicies('cost'),
+				columnPoliciesRegistry: validatedRegistry,
+			}),
+		).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message:
+				'Project column security changed while this user group was being updated. Review the current registry and try again.',
+		});
+
+		expect(mocks.events).toEqual(['lock-project']);
+		expect(mocks.updatedColumnPolicies).toBeUndefined();
+	});
 });
 
 function transaction() {
@@ -117,8 +141,15 @@ function transaction() {
 			}
 			if ('rowSecurity' in selection) {
 				mocks.selectedProjectRowSecurity = true;
-				return lockingQuery([{ id: 'project-1', rowSecurity: mocks.projectRowSecurity }], () =>
-					mocks.events.push('lock-project'),
+				return lockingQuery(
+					[
+						{
+							id: 'project-1',
+							columnSecurity: mocks.projectColumnSecurity,
+							rowSecurity: mocks.projectRowSecurity,
+						},
+					],
+					() => mocks.events.push('lock-project'),
 				);
 			}
 			if ('name' in selection) {
@@ -171,6 +202,7 @@ function mutation(rows: unknown, beforeExecute: () => void) {
 	const builder = {
 		values: () => builder,
 		set: (values: Record<string, unknown>) => {
+			mocks.updatedColumnPolicies = values.columnPolicies;
 			mocks.updatedRowPolicies = values.rowPolicies;
 			return builder;
 		},
@@ -201,6 +233,7 @@ function storedGroup(
 		},
 		contextGrants,
 		ssoMappings: mappings,
+		columnPolicies: { version: 1, policies: [] },
 		rowPolicies,
 		createdAt: new Date('2026-01-01T00:00:00Z'),
 		updatedAt: new Date('2026-01-01T00:00:00Z'),
@@ -245,6 +278,36 @@ function rowPolicies(column: string) {
 				mode: 'guided' as const,
 				combinator: 'and' as const,
 				conditions: [{ column, operator: 'equals' as const, value: '7' }],
+			},
+		],
+	};
+}
+
+function columnRegistry(column: string) {
+	return {
+		version: 1 as const,
+		tables: [
+			{
+				databaseType: 'duckdb',
+				database: 'analytics',
+				schema: 'main',
+				table: 'orders',
+				restrictedColumns: [column],
+			},
+		],
+	};
+}
+
+function columnPolicies(column: string) {
+	return {
+		version: 1 as const,
+		policies: [
+			{
+				databaseType: 'duckdb',
+				database: 'analytics',
+				schema: 'main',
+				table: 'orders',
+				grantedColumns: [column],
 			},
 		],
 	};

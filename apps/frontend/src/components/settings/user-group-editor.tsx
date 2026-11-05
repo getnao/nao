@@ -4,17 +4,22 @@ import {
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
+	EMPTY_PROJECT_COLUMN_SECURITY,
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_SKILLS_ACCESS,
+	EMPTY_USER_GROUP_COLUMN_POLICIES,
 	EMPTY_USER_GROUP_ROW_POLICIES,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 	extractConditionalGroupContent,
+	filterProjectColumnSecurityByDatabaseContext,
 	filterProjectRowSecurityByDatabaseContext,
+	filterUserGroupColumnPoliciesByDatabaseContext,
 	filterUserGroupRowPoliciesByDatabaseContext,
 	normalizeDatabaseContextAccess,
 	normalizeFileTreeAccess,
 	normalizeMcpAccess,
 	normalizeSkillsAccess,
+	normalizeUserGroupColumnPolicies,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
@@ -33,6 +38,7 @@ import type {
 	ProjectSharingPermission,
 	SkillsAccess,
 	UserGroupFeatureDefinition,
+	UserGroupColumnPolicies,
 	UserGroupRowPolicies,
 	UserGroupSsoMappings,
 } from '@nao/shared';
@@ -44,6 +50,7 @@ import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-s
 import { UserGroupAdvancedSettings } from '@/components/settings/user-group-advanced-settings';
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
+import { UserGroupColumnSecurity } from '@/components/settings/user-group-column-security';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
 import { UserGroupMcpAccess } from '@/components/settings/user-group-mcp-access';
 import { UserGroupProjectSharing } from '@/components/settings/user-group-project-sharing';
@@ -89,6 +96,7 @@ export interface UserGroupEditorGroup {
 	mcpAccess: McpAccess;
 	skillsAccess: SkillsAccess;
 	ssoMappings: UserGroupSsoMappings;
+	columnPolicies?: UserGroupColumnPolicies;
 	rowPolicies?: UserGroupRowPolicies;
 }
 
@@ -135,9 +143,22 @@ export function UserGroupEditor({
 				: EMPTY_USER_GROUP_ROW_POLICIES,
 		[existingGroup],
 	);
+	const existingColumnPolicies = useMemo(
+		() =>
+			existingGroup
+				? filterUserGroupColumnPoliciesByDatabaseContext(
+						existingGroup.columnPolicies ?? EMPTY_USER_GROUP_COLUMN_POLICIES,
+						existingGroup.databaseAccess,
+					)
+				: EMPTY_USER_GROUP_COLUMN_POLICIES,
+		[existingGroup],
+	);
 	const editorGroup = useMemo(
-		() => (existingGroup ? { ...existingGroup, rowPolicies: existingRowPolicies } : null),
-		[existingGroup, existingRowPolicies],
+		() =>
+			existingGroup
+				? { ...existingGroup, columnPolicies: existingColumnPolicies, rowPolicies: existingRowPolicies }
+				: null,
+		[existingColumnPolicies, existingGroup, existingRowPolicies],
 	);
 	const [name, setName] = useState(existingGroup?.name ?? '');
 	const [featureGrants, setFeatureGrants] = useState<UserGroupFeature[]>(existingGroup?.featureGrants ?? []);
@@ -159,6 +180,7 @@ export function UserGroupEditor({
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
 	);
 	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
+	const [columnPolicies, setColumnPolicies] = useState<UserGroupColumnPolicies>(existingColumnPolicies);
 	const [projectSharing, setProjectSharing] = useState<ProjectSharingPermission>(
 		existingGroup?.projectSharing ?? 'inherit',
 	);
@@ -195,6 +217,12 @@ export function UserGroupEditor({
 	const hasGroupBudgetChanges = hasMemberBudget && groupBudgetUsd !== savedGroupBudgetUsd;
 	const defaultGroup = userGroupOverview.data?.groups.find((candidate) => candidate.isDefault);
 	const allUsersGroup = defaultGroup && !defaultGroup.isLocked ? defaultGroup : null;
+	const columnSecurity = useQuery(trpc.userGroup.columnSecurity.queryOptions());
+	const columnSecurityState = columnSecurity.isLoading ? 'loading' : columnSecurity.isError ? 'error' : 'ready';
+	const columnSecurityRegistry =
+		columnSecurity.data && Array.isArray(columnSecurity.data.tables)
+			? columnSecurity.data
+			: EMPTY_PROJECT_COLUMN_SECURITY;
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const rowSecurityState = rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready';
 	const rowSecurityRegistry =
@@ -203,8 +231,13 @@ export function UserGroupEditor({
 		rowSecurityRegistry,
 		databaseAccess,
 	);
+	const accessibleColumnSecurityRegistry = filterProjectColumnSecurityByDatabaseContext(
+		columnSecurityRegistry,
+		databaseAccess,
+	);
 	const needsRowSecurityMetadata =
 		hasRowLevelSecurity && rowPolicies.policies.some((policy) => policy.access === 'predicate');
+	const needsColumnSecurityMetadata = hasRowLevelSecurity && columnPolicies.policies.length > 0;
 	const oidcConfig = useQuery({
 		...trpc.authConfig.oidc.getConfig.queryOptions(),
 		enabled: hasSso,
@@ -283,6 +316,7 @@ export function UserGroupEditor({
 			mcpAccess,
 			skillsAccess,
 			ssoMappings,
+			columnPolicies,
 			rowPolicies,
 		});
 
@@ -299,11 +333,12 @@ export function UserGroupEditor({
 		setMcpAccess(existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS);
 		setSkillsAccess(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
+		setColumnPolicies(existingColumnPolicies);
 		setRowPolicies(existingRowPolicies);
 		setFormError(null);
 		setShowRowPolicyValidationErrors(false);
 		setConfirmDelete(false);
-	}, [existingGroup, existingRowPolicies]);
+	}, [existingColumnPolicies, existingGroup, existingRowPolicies]);
 
 	useEffect(() => {
 		const previousGroup = previousGroupRef.current;
@@ -324,6 +359,7 @@ export function UserGroupEditor({
 				mcpAccess,
 				skillsAccess,
 				ssoMappings,
+				columnPolicies,
 				rowPolicies,
 			});
 
@@ -332,6 +368,7 @@ export function UserGroupEditor({
 		}
 	}, [
 		databaseAccess,
+		columnPolicies,
 		docsAccess,
 		editorGroup,
 		featureGrants,
@@ -361,6 +398,7 @@ export function UserGroupEditor({
 	const handleDatabaseAccessChange = (nextAccess: DatabaseContextAccess) => {
 		const normalizedAccess = normalizeDatabaseContextAccess(nextAccess);
 		setDatabaseAccess(normalizedAccess);
+		setColumnPolicies((current) => filterUserGroupColumnPoliciesByDatabaseContext(current, normalizedAccess));
 		setRowPolicies((current) => filterUserGroupRowPoliciesByDatabaseContext(current, normalizedAccess));
 	};
 
@@ -371,6 +409,10 @@ export function UserGroupEditor({
 
 	const handleSave = async () => {
 		setFormError(null);
+		if (needsColumnSecurityMetadata && columnSecurityState !== 'ready') {
+			onTabChange('security');
+			return;
+		}
 		if (needsRowSecurityMetadata && rowSecurityState !== 'ready') {
 			onTabChange('security');
 			return;
@@ -420,6 +462,7 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
+					...(hasRowLevelSecurity ? { columnPolicies } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -438,6 +481,7 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
+					...(hasRowLevelSecurity ? { columnPolicies } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -560,7 +604,7 @@ export function UserGroupEditor({
 							/>
 						)}
 						{activeTab === 'security' && (
-							<div className='min-h-64'>
+							<div className='flex min-h-64 flex-col gap-8'>
 								{hasRowLevelSecurity && rowSecurityState === 'loading' ? (
 									<RowSecurityStatus message='Loading row-level security...' />
 								) : hasRowLevelSecurity && rowSecurityState === 'error' ? (
@@ -576,6 +620,22 @@ export function UserGroupEditor({
 										isLicensed={hasRowLevelSecurity}
 										showValidationErrors={showRowPolicyValidationErrors}
 										onChange={setRowPolicies}
+									/>
+								)}
+								{hasRowLevelSecurity && columnSecurityState === 'loading' ? (
+									<RowSecurityStatus message='Loading column-level security...' />
+								) : hasRowLevelSecurity && columnSecurityState === 'error' ? (
+									<RowSecurityStatus
+										message='Failed to load column-level security'
+										onRetry={() => void columnSecurity.refetch()}
+									/>
+								) : (
+									<UserGroupColumnSecurity
+										registry={accessibleColumnSecurityRegistry}
+										databaseAccess={databaseAccess}
+										policies={columnPolicies}
+										isLicensed={hasRowLevelSecurity}
+										onChange={setColumnPolicies}
 									/>
 								)}
 							</div>
@@ -1010,6 +1070,7 @@ export function hasUserGroupEditorChanges(
 		mcpAccess?: McpAccess;
 		skillsAccess?: SkillsAccess;
 		ssoMappings?: UserGroupSsoMappings;
+		columnPolicies?: UserGroupColumnPolicies;
 		rowPolicies?: UserGroupRowPolicies;
 	},
 ): boolean {
@@ -1027,6 +1088,10 @@ export function hasUserGroupEditorChanges(
 		!haveSameMcpAccess(values.mcpAccess ?? group.mcpAccess, group.mcpAccess) ||
 		!haveSameSkillsAccess(values.skillsAccess ?? group.skillsAccess, group.skillsAccess) ||
 		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
+		!haveSameColumnPolicies(
+			values.columnPolicies ?? group.columnPolicies ?? EMPTY_USER_GROUP_COLUMN_POLICIES,
+			group.columnPolicies ?? EMPTY_USER_GROUP_COLUMN_POLICIES,
+		) ||
 		!haveSameRowPolicies(
 			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
 			group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
@@ -1226,6 +1291,17 @@ function haveSameSkillsAccess(left: SkillsAccess, right: SkillsAccess): boolean 
 
 function haveSameSsoMappings(left: UserGroupSsoMappings, right: UserGroupSsoMappings): boolean {
 	return JSON.stringify(normalizeUserGroupSsoMappings(left)) === JSON.stringify(normalizeUserGroupSsoMappings(right));
+}
+
+function haveSameColumnPolicies(left: UserGroupColumnPolicies, right: UserGroupColumnPolicies): boolean {
+	try {
+		return (
+			JSON.stringify(normalizeUserGroupColumnPolicies(left)) ===
+			JSON.stringify(normalizeUserGroupColumnPolicies(right))
+		);
+	} catch {
+		return false;
+	}
 }
 
 function haveSameRowPolicies(left: UserGroupRowPolicies, right: UserGroupRowPolicies): boolean {

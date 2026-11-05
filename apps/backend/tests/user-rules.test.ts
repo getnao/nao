@@ -552,6 +552,50 @@ describe('getTableColumnsContent', () => {
 		expect(mockReadFileSync).toHaveBeenCalledWith(expectedPath, 'utf-8');
 	});
 
+	it('synthesizes mention context without restricted column names or descriptions', () => {
+		const root = '/project-cols-restricted';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=mydb'],
+			[join(root, 'databases', 'type=postgres', 'database=mydb')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=mydb', 'schema=public')]: ['table=users'],
+		});
+		mockReadFileSync.mockImplementation((filePath) =>
+			String(filePath).includes('.meta')
+				? JSON.stringify({
+						version: 1,
+						schemas: {
+							public: {
+								users: [
+									{ name: 'Case Sensitive', type: 'INTEGER' },
+									{ name: 'secret', type: 'TEXT', description: 'sensitive description' },
+								],
+							},
+						},
+					})
+				: '# raw secret context',
+		);
+
+		const result = getTableColumnsContent(root, 'mydb.public.users', unrestrictedAccess, {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'mydb',
+					schema: 'public',
+					table: 'users',
+					restrictedColumns: ['secret'],
+					access: 'restricted',
+					deniedColumns: ['secret'],
+				},
+			],
+		});
+
+		expect(result).toContain('- Case Sensitive (INTEGER)');
+		expect(result).not.toContain('secret');
+		expect(result).not.toContain('sensitive description');
+	});
+
 	it('selects an allowed warehouse object when multiple types share an fqdn', () => {
 		const root = '/project-cols-shared-fqdn';
 		setupDirStructure(root, {

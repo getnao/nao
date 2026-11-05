@@ -88,6 +88,7 @@ function createContext(): ToolContext {
 		agentSettings: {},
 		envVars: {},
 		warehouseTableAccess: { enforced: false },
+		warehouseColumnSecurity: { enforced: false },
 		warehouseRowSecurity: { enforced: false },
 		docsContextAccess: { enforced: false } as ToolContext['docsContextAccess'],
 		filesContextAccess: { enforced: false } as ToolContext['filesContextAccess'],

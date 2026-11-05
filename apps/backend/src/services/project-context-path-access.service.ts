@@ -11,7 +11,7 @@ import {
 import path from 'path';
 
 import type { ToolContext } from '../types/tools';
-import { isContextPathAllowed } from './context-access';
+import { getColumnSecurityContextAccess, isContextPathAllowed } from './context-access';
 import type { ResolvedFileTreeAccess, ResolvedSkillsAccess } from './user-group-context-access.service';
 
 export type ProjectPathKind = 'file' | 'directory';
@@ -19,7 +19,12 @@ type ProjectPath = { kind: 'root' | 'docs' | 'files' | 'database'; relativePath:
 
 type ProjectPathAccessContext = Pick<
 	ToolContext,
-	'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess' | 'mcpAccess' | 'skillsAccess'
+	| 'warehouseTableAccess'
+	| 'warehouseColumnSecurity'
+	| 'docsContextAccess'
+	| 'filesContextAccess'
+	| 'mcpAccess'
+	| 'skillsAccess'
 >;
 
 const MCP_SPECS_DIRECTORY = 'agent/mcps/';
@@ -62,7 +67,7 @@ export function isProjectContextPathAllowed(
 		case 'root':
 			return kind === 'directory';
 		case 'database':
-			return true;
+			return isDatabasePathAllowed(context, canonicalVirtualPath, kind);
 		case 'docs':
 			return isFileTreePathAllowed(
 				context.docsContextAccess,
@@ -88,6 +93,21 @@ export function isProjectContextPathAllowed(
 	}
 }
 
+export function isRawProjectContextPathAllowed(
+	context: ProjectPathAccessContext,
+	canonicalVirtualPath: string,
+	kind: ProjectPathKind,
+): boolean {
+	if (!isProjectContextPathAllowed(context, canonicalVirtualPath, canonicalVirtualPath, kind)) {
+		return false;
+	}
+	if (kind === 'directory') {
+		return true;
+	}
+	const access = getColumnSecurityContextAccess(context.warehouseColumnSecurity, canonicalVirtualPath);
+	return access !== 'restricted' && access !== 'blocked';
+}
+
 export function isDocsProjectPath(virtualPath: string): boolean {
 	return parseProjectPath(virtualPath).kind === 'docs';
 }
@@ -95,6 +115,21 @@ export function isDocsProjectPath(virtualPath: string): boolean {
 /** `nao_config.yaml` can hold plaintext LLM keys and warehouse credentials, so the agent never sees it. */
 function isProjectConfigPath(virtualPath: string): boolean {
 	return path.posix.basename(virtualPath).toLowerCase() === CONTEXT_CONFIG_FILENAME;
+}
+
+function isDatabasePathAllowed(
+	context: ProjectPathAccessContext,
+	canonicalVirtualPath: string,
+	kind: ProjectPathKind,
+): boolean {
+	if (kind === 'directory') {
+		return true;
+	}
+	const access = getColumnSecurityContextAccess(context.warehouseColumnSecurity, canonicalVirtualPath);
+	if (access === 'blocked') {
+		return false;
+	}
+	return access !== 'restricted' || path.posix.basename(canonicalVirtualPath).toLowerCase() === 'columns.md';
 }
 
 /** The agent reaches MCP servers through the per-server tool specs; the raw server config only misleads it and can hold auth headers. */

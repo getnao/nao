@@ -13,7 +13,13 @@ const DATABASE_LAYOUT_KEYS = ['type', 'database', 'schema', 'table'];
 
 type PathAccessContext = Pick<
 	ToolContext,
-	'projectFolder' | 'warehouseTableAccess' | 'docsContextAccess' | 'filesContextAccess' | 'mcpAccess' | 'skillsAccess'
+	| 'projectFolder'
+	| 'warehouseTableAccess'
+	| 'warehouseColumnSecurity'
+	| 'docsContextAccess'
+	| 'filesContextAccess'
+	| 'mcpAccess'
+	| 'skillsAccess'
 >;
 
 /**

@@ -10,6 +10,7 @@ import type { FileTreeCatalogEntry } from '@/components/settings/user-group-file
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
+import { ProjectColumnSecurity } from '@/components/settings/project-column-security';
 import { ProjectRowSecurity } from '@/components/settings/project-row-security';
 import { ProjectUsersTable } from '@/components/settings/project-users-table';
 import { Badge } from '@/components/ui/badge';
@@ -167,11 +168,14 @@ function UserGroupsContent({
 					/>
 				)}
 				{tab === 'security' && (
-					<ProjectRowSecurity
-						objects={contextObjects}
-						catalogState={databaseCatalogState}
-						onRetryCatalog={() => void contextCatalog.refetch()}
-					/>
+					<div className='flex flex-col gap-8'>
+						<ProjectRowSecurity
+							objects={contextObjects}
+							catalogState={databaseCatalogState}
+							onRetryCatalog={() => void contextCatalog.refetch()}
+						/>
+						<ProjectColumnSecurity objects={contextObjects} catalogState={databaseCatalogState} />
+					</div>
 				)}
 			</TabPanel>
 		</>

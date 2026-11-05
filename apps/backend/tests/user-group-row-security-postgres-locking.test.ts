@@ -20,9 +20,9 @@ vi.mock('../src/db/db', () => ({
 	},
 }));
 
-import { updateProjectRowSecurity } from '../src/queries/user-group.queries';
+import { updateProjectColumnSecurity, updateProjectRowSecurity } from '../src/queries/user-group.queries';
 
-describe('PostgreSQL project row security updates', () => {
+describe('PostgreSQL project security updates', () => {
 	beforeEach(() => {
 		mocks.events.length = 0;
 	});
@@ -32,13 +32,28 @@ describe('PostgreSQL project row security updates', () => {
 
 		expect(mocks.events).toEqual(['lock-project:update', 'lock-project', 'select-groups', 'update-project']);
 	});
+
+	it('uses the same project lock for column security updates', async () => {
+		await updateProjectColumnSecurity('project-1', { version: 1, tables: [] });
+
+		expect(mocks.events).toEqual(['lock-project:update', 'lock-project', 'select-groups', 'update-project']);
+	});
 });
 
 function transaction() {
 	return {
 		select: (selection: Record<string, unknown>) =>
-			'rowSecurity' in selection
-				? lockingQuery([{ id: 'project-1', rowSecurity: { version: 1, tables: [] } }], 'lock-project')
+			'rowSecurity' in selection || 'columnSecurity' in selection
+				? lockingQuery(
+						[
+							{
+								id: 'project-1',
+								rowSecurity: { version: 1, tables: [] },
+								columnSecurity: { version: 1, tables: [] },
+							},
+						],
+						'lock-project',
+					)
 				: eventQuery([], 'select-groups'),
 		update: () => mutation('update-project'),
 	};

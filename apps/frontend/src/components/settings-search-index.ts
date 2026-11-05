@@ -1105,6 +1105,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['security', 'rows', 'rls', 'predicates', 'where', 'constraint columns', 'sensitive tables'],
 		adminOnly: true,
 	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
+		section: 'Security',
+		search: { tab: 'security' },
+		title: 'Column-level security',
+		description: 'Restrict sensitive table columns and grant access through user groups.',
+		keywords: ['security', 'columns', 'permissions', 'restricted columns', 'sensitive data'],
+		adminOnly: true,
+	},
 
 	// ── Project > Automations ────────────────────────────────
 	{

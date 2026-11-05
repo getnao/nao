@@ -277,6 +277,12 @@ export const ENTERPRISE_FEATURES = [
 	},
 	{
 		key: 'row-level-security',
+		label: 'Column-level security',
+		description: 'Restrict sensitive columns and grant them to selected user groups.',
+		icon: Columns3,
+	},
+	{
+		key: 'row-level-security',
 		label: 'MCP access per group',
 		description: 'Choose which MCP servers and tools each group can use.',
 		icon: Plug,

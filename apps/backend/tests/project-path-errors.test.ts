@@ -134,6 +134,8 @@ function buildContext(overrides: Partial<ToolContext> = {}): ToolContext {
 		projectFolder,
 		chatId: 'chat',
 		warehouseTableAccess: { enforced: false },
+		warehouseColumnSecurity: { enforced: false },
+		warehouseRowSecurity: { enforced: false },
 		docsContextAccess: { enforced: false },
 		filesContextAccess: { enforced: false },
 		mcpAccess: { mode: 'all' },
