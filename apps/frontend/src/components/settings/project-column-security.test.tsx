@@ -35,7 +35,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-it('saves a newly restricted column without granting other columns', () => {
+it('saves a newly hidden column without hiding other columns', () => {
 	render(
 		<ProjectColumnSecurity
 			objects={[
@@ -50,18 +50,25 @@ it('saves a newly restricted column without granting other columns', () => {
 		/>,
 	);
 
-	fireEvent.click(screen.getByText('analytics/public/users'));
-	fireEvent.click(screen.getByRole('checkbox', { name: 'Restrict email on users' }));
-	expect(mutate).toHaveBeenCalledWith({
-		version: 1,
-		tables: [
-			{
-				databaseType: 'postgres',
-				database: 'analytics',
-				schema: 'public',
-				table: 'users',
-				restrictedColumns: ['email'],
-			},
-		],
-	});
+	fireEvent.click(screen.getAllByRole('button', { name: 'Mark sensitive fields' })[0]);
+	fireEvent.click(screen.getByRole('button', { name: 'Expand analytics database' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Expand public schema' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Expand users table columns' }));
+	fireEvent.click(screen.getByRole('checkbox', { name: 'Hide email on users' }));
+	fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+	expect(mutate).toHaveBeenCalledWith(
+		{
+			version: 1,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'users',
+					restrictedColumns: ['email'],
+				},
+			],
+		},
+		expect.objectContaining({ onSuccess: expect.any(Function) }),
+	);
 });

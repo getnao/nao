@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	isProjectContextPathAllowed,
-	isRawProjectContextPathAllowed,
+	isProjectContextPathRenderAllowed,
 } from '../src/services/project-context-path-access.service';
 
 const unrestrictedWarehouse = { enforced: false as const };
@@ -170,13 +170,15 @@ describe('project context path access', () => {
 		};
 		const tablePath = '/databases/type=postgres/database=app/schema=public/table=orders';
 
-		expect(isProjectContextPathAllowed(context, `${tablePath}/columns.md`, `${tablePath}/columns.md`, 'file')).toBe(
-			true,
-		);
+		expect(
+			isProjectContextPathRenderAllowed(context, `${tablePath}/columns.md`, `${tablePath}/columns.md`, 'file'),
+		).toBe(true);
 		expect(isProjectContextPathAllowed(context, `${tablePath}/preview.md`, `${tablePath}/preview.md`, 'file')).toBe(
 			false,
 		);
-		expect(isRawProjectContextPathAllowed(context, `${tablePath}/columns.md`, 'file')).toBe(false);
+		expect(isProjectContextPathAllowed(context, `${tablePath}/columns.md`, `${tablePath}/columns.md`, 'file')).toBe(
+			false,
+		);
 	});
 });
 

@@ -36,7 +36,7 @@ export type UserGroupsPageTab = 'groups' | 'security' | 'users';
 const USER_GROUPS_PAGE_TABS: Array<{ id: UserGroupsPageTab; label: string }> = [
 	{ id: 'users', label: 'Users' },
 	{ id: 'groups', label: 'Manage Groups' },
-	{ id: 'security', label: 'Security' },
+	{ id: 'security', label: 'Data protection' },
 ];
 
 interface UserGroupsTableProps {

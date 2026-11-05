@@ -1,84 +1,54 @@
-import {
-	columnSecurityTableKey,
-	filterProjectColumnSecurityByDatabaseContext,
-	normalizeUserGroupColumnPolicies,
-} from '@nao/shared';
-import type {
-	DatabaseContextAccess,
-	ProjectColumnSecurity,
-	SensitiveColumnDefinition,
-	UserGroupColumnPolicies,
-} from '@nao/shared';
+import { columnSecurityTableKey, normalizeUserGroupColumnPolicies } from '@nao/shared';
+import { LockKeyhole } from 'lucide-react';
+import type { SensitiveColumnDefinition, UserGroupColumnPolicies } from '@nao/shared';
 
-import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { Checkbox } from '@/components/ui/checkbox';
+import { getTreeNodePadding } from '@/lib/tree-expansion';
 
-export function UserGroupColumnSecurity({
-	registry,
-	databaseAccess,
+export function UserGroupColumnRows({
+	table,
+	depth,
 	policies,
 	isLicensed,
 	onChange,
 }: {
-	registry: ProjectColumnSecurity;
-	databaseAccess: DatabaseContextAccess;
+	table: SensitiveColumnDefinition;
+	depth: number;
 	policies: UserGroupColumnPolicies;
 	isLicensed: boolean;
 	onChange: (policies: UserGroupColumnPolicies) => void;
 }) {
-	const accessibleRegistry = filterProjectColumnSecurityByDatabaseContext(registry, databaseAccess);
+	const policy = policies.policies.find(
+		(candidate) => columnSecurityTableKey(candidate) === columnSecurityTableKey(table),
+	);
+	const granted = new Set(policy?.grantedColumns ?? []);
+
 	return (
-		<section className='flex flex-col gap-4'>
-			<div className='flex items-start justify-between gap-3'>
-				<div>
-					<h3 className='text-sm font-medium'>Column-level security</h3>
-					<p className='mt-1 text-xs text-muted-foreground'>
-						Grant sensitive columns to this group. Unchecked columns remain hidden and cannot be queried.
-					</p>
-				</div>
-				{!isLicensed && <UpgradeToEnterprise />}
-			</div>
-			{registry.tables.length === 0 ? (
-				<p className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
-					No restricted columns are configured in the project Security tab.
-				</p>
-			) : accessibleRegistry.tables.length === 0 ? (
-				<p className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
-					No protected tables are available through this group&apos;s Context permissions.
-				</p>
-			) : (
-				<div className='divide-y rounded-lg border'>
-					{accessibleRegistry.tables.map((table) => {
-						const policy = policies.policies.find(
-							(candidate) => columnSecurityTableKey(candidate) === columnSecurityTableKey(table),
-						);
-						const granted = new Set(policy?.grantedColumns ?? []);
-						return (
-							<div key={columnSecurityTableKey(table)} className='p-3'>
-								<p className='truncate text-sm font-medium'>
-									{table.database}/{table.schema}/{table.table}
-								</p>
-								<div className='mt-2 grid gap-1 sm:grid-cols-2'>
-									{table.restrictedColumns.map((column) => (
-										<label key={column} className='flex min-h-9 items-center gap-2 text-sm'>
-											<Checkbox
-												checked={granted.has(column)}
-												disabled={!isLicensed}
-												aria-label={`Grant ${column} on ${table.table}`}
-												onCheckedChange={(checked) =>
-													onChange(updatePolicy(policies, table, column, checked === true))
-												}
-											/>
-											<span className='min-w-0 truncate'>{column}</span>
-										</label>
-									))}
-								</div>
-							</div>
-						);
-					})}
-				</div>
-			)}
-		</section>
+		<ul>
+			{table.restrictedColumns.map((column) => (
+				<li
+					key={column}
+					className='flex h-8 w-full items-center gap-1 pr-2 text-sm hover:bg-muted/50'
+					style={{ paddingLeft: `${getTreeNodePadding(depth)}px` }}
+				>
+					<span className='size-4 shrink-0' />
+					<Checkbox
+						checked={granted.has(column)}
+						disabled={!isLicensed}
+						title={!isLicensed ? 'Sensitive-field access requires an Enterprise license.' : undefined}
+						aria-label={`Make ${column} visible on ${table.table}`}
+						onCheckedChange={(checked) => onChange(updatePolicy(policies, table, column, checked === true))}
+					/>
+					<LockKeyhole aria-hidden='true' className='size-4 shrink-0 text-amber-600 dark:text-amber-400' />
+					<span className='min-w-0 flex-1 truncate' title={column}>
+						{column}
+					</span>
+					<span className='shrink-0 text-[10px] text-muted-foreground'>
+						{granted.has(column) ? 'Visible' : 'Hidden'}
+					</span>
+				</li>
+			))}
+		</ul>
 	);
 }
 

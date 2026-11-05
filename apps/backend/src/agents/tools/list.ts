@@ -7,7 +7,7 @@ import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
 import {
 	assertProjectContextPathAllowed,
 	isDocsProjectPath,
-	isProjectContextPathAllowed,
+	isProjectContextPathRenderAllowed,
 } from '../../services/project-context-path-access.service';
 import { toProjectPathError } from '../../services/project-path-error.service';
 import { isStorageEnabled } from '../../services/storage';
@@ -141,7 +141,7 @@ async function readProjectDirectory(realPath: string, virtualPath: string, conte
 function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 'file' | 'directory'): boolean {
 	try {
 		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
-		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, kind);
+		return isProjectContextPathRenderAllowed(context, virtualPath, canonical.virtualPath, kind);
 	} catch {
 		return false;
 	}

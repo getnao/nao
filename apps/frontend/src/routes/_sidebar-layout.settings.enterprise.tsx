@@ -271,14 +271,14 @@ export const ENTERPRISE_FEATURES = [
 	},
 	{
 		key: 'row-level-security',
-		label: 'Row-level security',
-		description: "Restrict which rows each person can see, using your warehouse's own rules.",
+		label: 'Record access rules',
+		description: 'Choose which records each group can see with row-level security.',
 		icon: ShieldCheck,
 	},
 	{
 		key: 'row-level-security',
-		label: 'Column-level security',
-		description: 'Restrict sensitive columns and grant them to selected user groups.',
+		label: 'Sensitive fields',
+		description: 'Hide sensitive fields by default and make them visible to selected groups.',
 		icon: Columns3,
 	},
 	{

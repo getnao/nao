@@ -42,7 +42,34 @@ export function assertProjectContextPathAllowed(
 	}
 }
 
+export function assertProjectContextPathRenderAllowed(
+	context: ProjectPathAccessContext,
+	requestedVirtualPath: string,
+	canonicalVirtualPath: string,
+	kind: ProjectPathKind,
+): void {
+	if (!isProjectContextPathRenderAllowed(context, requestedVirtualPath, canonicalVirtualPath, kind)) {
+		throw new Error(`Access denied: ${requestedVirtualPath}`);
+	}
+}
+
 export function isProjectContextPathAllowed(
+	context: ProjectPathAccessContext,
+	requestedVirtualPath: string,
+	canonicalVirtualPath: string,
+	kind: ProjectPathKind,
+): boolean {
+	if (!isProjectContextPathRenderAllowed(context, requestedVirtualPath, canonicalVirtualPath, kind)) {
+		return false;
+	}
+	if (kind === 'directory') {
+		return true;
+	}
+	const access = getColumnSecurityContextAccess(context.warehouseColumnSecurity, canonicalVirtualPath);
+	return access !== 'restricted' && access !== 'blocked';
+}
+
+export function isProjectContextPathRenderAllowed(
 	context: ProjectPathAccessContext,
 	requestedVirtualPath: string,
 	canonicalVirtualPath: string,
@@ -91,21 +118,6 @@ export function isProjectContextPathAllowed(
 				isSkillPathAllowed(context.skillsAccess, canonicalPath.relativePath, kind)
 			);
 	}
-}
-
-export function isRawProjectContextPathAllowed(
-	context: ProjectPathAccessContext,
-	canonicalVirtualPath: string,
-	kind: ProjectPathKind,
-): boolean {
-	if (!isProjectContextPathAllowed(context, canonicalVirtualPath, canonicalVirtualPath, kind)) {
-		return false;
-	}
-	if (kind === 'directory') {
-		return true;
-	}
-	const access = getColumnSecurityContextAccess(context.warehouseColumnSecurity, canonicalVirtualPath);
-	return access !== 'restricted' && access !== 'blocked';
 }
 
 export function isDocsProjectPath(virtualPath: string): boolean {

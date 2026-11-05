@@ -21,6 +21,7 @@ import {
 	ConditionalRulesHelp,
 	hasUserGroupEditorChanges,
 	invalidateUserGroupQueries,
+	resolveUserGroupEditorTab,
 	UserGroupEditor,
 } from './user-group-editor';
 import { UserGroupEffectiveContext } from './user-group-effective-context';
@@ -162,9 +163,12 @@ vi.mock('@/components/settings/tool-call-density-slider', () => ({
 	),
 }));
 vi.mock('@/components/settings/user-group-context-access', () => ({
-	UserGroupContextAccess: ({
+	UserGroupDataAccess: ({
 		databaseAccess,
 		onDatabaseAccessChange,
+		rowSecurity,
+		rowSecurityState,
+		onRetryRowSecurity,
 	}: {
 		databaseAccess:
 			| { mode: 'all'; strict: boolean }
@@ -175,6 +179,9 @@ vi.mock('@/components/settings/user-group-context-access', () => ({
 			grants?: unknown[];
 			patterns?: string[];
 		}) => void;
+		rowSecurity?: ProjectRowSecurity;
+		rowSecurityState?: 'loading' | 'error' | 'ready';
+		onRetryRowSecurity?: () => void;
 	}) => (
 		<div>
 			<button onClick={() => onDatabaseAccessChange({ mode: 'all', strict: databaseAccess.strict })}>
@@ -213,6 +220,17 @@ vi.mock('@/components/settings/user-group-context-access', () => ({
 					<span>{databaseAccess.patterns.join(', ')}</span>
 				</>
 			)}
+			{rowSecurityState === 'loading' && <span>Loading record access rules...</span>}
+			{rowSecurityState === 'error' && (
+				<>
+					<span>Failed to load record access rules</span>
+					<button onClick={onRetryRowSecurity}>Retry record access rules</button>
+				</>
+			)}
+			{rowSecurityState === 'ready' &&
+				rowSecurity?.tables.map((table) => (
+					<span key={table.table}>{table.table} record access available</span>
+				))}
 		</div>
 	),
 	groupDatabaseContextObjects: (
@@ -502,11 +520,11 @@ describe('UserGroupsTable', () => {
 		}));
 
 		render(<UserGroupsTable tab='security' onTabChange={vi.fn()} />);
-		fireEvent.click(screen.getAllByRole('button', { name: 'Add protected table' })[0]);
+		fireEvent.click(screen.getAllByRole('button', { name: 'Add table' })[0]);
 		fireEvent.click(screen.getByRole('button', { name: 'Expand sales database' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Expand main schema' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Expand orders table columns' }));
-		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id rule field for orders' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(mocks.mutate).toHaveBeenCalledWith(
@@ -719,7 +737,7 @@ describe('UserGroupsTable', () => {
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Users',
 			'Manage Groups',
-			'Security',
+			'Data protection',
 		]);
 		expect(screen.getByRole('tab', { name: 'Users' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('columnheader', { name: 'User' })).toBeTruthy();
@@ -958,10 +976,9 @@ describe('UserGroupEditor', () => {
 
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Features',
-			'Context',
+			'Data access',
 			'MCP',
 			'Skills',
-			'Security',
 			'Budget',
 			'Advanced settings',
 		]);
@@ -969,6 +986,10 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
 		expect(screen.queryByText('Context permissions')).toBeNull();
 		expect(screen.queryByRole('navigation', { name: 'User group sections' })).toBeNull();
+	});
+
+	it('opens legacy Security links in Data access', () => {
+		expect(resolveUserGroupEditorTab('security')).toBe('context');
 	});
 
 	it('offers the All Users default as the inherited project sharing permission', () => {
@@ -1046,42 +1067,26 @@ describe('UserGroupEditor', () => {
 		const onTabChange = vi.fn();
 		renderEditor('features', onTabChange);
 
-		fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
+		fireEvent.click(screen.getByRole('tab', { name: 'Data access' }));
 		expect(onTabChange).toHaveBeenCalledWith('context');
 	});
 
-	it('shows Conditional Rules in Context and locked RLS controls in Security', () => {
-		const { rerender } = renderEditor('context');
+	it('shows Conditional Rules in the unified Data access tab', () => {
+		renderEditor('context');
 		expect(screen.getByText('Context permissions')).toBeTruthy();
 		const heading = screen.getByRole('heading', { name: 'Conditional Rules' });
 		expect(heading).toBeTruthy();
 		expect(heading.closest('section')?.classList.contains('border-t')).toBe(true);
-
-		rerender(
-			<UserGroupEditor
-				group={analysts}
-				activeTab='security'
-				onTabChange={vi.fn()}
-				onCancelNew={vi.fn()}
-				onCreated={vi.fn()}
-				onDeleted={vi.fn()}
-			/>,
-		);
-		expect(screen.queryByRole('heading', { name: 'Conditional Rules' })).toBeNull();
-		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
-		expect(screen.getByText('No sensitive tables are configured in the project Security tab.')).toBeTruthy();
-		expect(screen.getAllByRole('link', { name: 'Upgrade to Enterprise' }).length).toBeGreaterThan(0);
+		expect(screen.getByRole('tab', { name: 'Data access' }).getAttribute('aria-selected')).toBe('true');
+		expect(screen.queryByRole('tab', { name: 'Security' })).toBeNull();
 		expect(screen.queryByRole('heading', { name: /SSO group mapping/ })).toBeNull();
 	});
 
-	it('removes the Enterprise RLS marker when row-level security is licensed', () => {
+	it('loads record access metadata in Data access when licensed', () => {
 		enableRowLevelSecurity();
-		renderEditor('security', vi.fn(), { ...analysts, databaseAccess: orderDatabaseAccess });
+		renderEditor('context', vi.fn(), { ...analysts, databaseAccess: orderDatabaseAccess });
 
-		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
-		expect(screen.getByText('Constraint columns: tenant_id')).toBeTruthy();
-		expect(screen.getByRole('combobox', { name: 'Row access for orders' })).toBeTruthy();
-		expect(screen.queryByRole('link', { name: 'Upgrade to Enterprise' })).toBeNull();
+		expect(screen.getByText('orders record access available')).toBeTruthy();
 	});
 
 	it('preserves policies while row-security metadata loads, then saves when ready', () => {
@@ -1109,7 +1114,7 @@ describe('UserGroupEditor', () => {
 			refetch: vi.fn(),
 		};
 		enableRowLevelSecurity(rowSecurityQuery);
-		const { rerender } = renderEditor('security', vi.fn(), {
+		const { rerender } = renderEditor('context', vi.fn(), {
 			...analysts,
 			databaseAccess: orderDatabaseAccess,
 			rowPolicies,
@@ -1118,8 +1123,7 @@ describe('UserGroupEditor', () => {
 			target: { value: 'Updated analysts' },
 		});
 
-		expect(screen.getByText('Loading row-level security...')).toBeTruthy();
-		expect(screen.queryByText('No sensitive tables are configured in the project Security tab.')).toBeNull();
+		expect(screen.getByText('Loading record access rules...')).toBeTruthy();
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 		expect(mocks.mutateAsync).not.toHaveBeenCalled();
 
@@ -1128,14 +1132,14 @@ describe('UserGroupEditor', () => {
 		rerender(
 			<UserGroupEditor
 				group={{ ...analysts, databaseAccess: orderDatabaseAccess, rowPolicies }}
-				activeTab='security'
+				activeTab='context'
 				onTabChange={vi.fn()}
 				onCancelNew={vi.fn()}
 				onCreated={vi.fn()}
 				onDeleted={vi.fn()}
 			/>,
 		);
-		expect(screen.getByRole('combobox', { name: 'Row access for orders' })).toBeTruthy();
+		expect(screen.getByText('orders record access available')).toBeTruthy();
 
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 		expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ rowPolicies }));
@@ -1149,7 +1153,7 @@ describe('UserGroupEditor', () => {
 			data: undefined,
 			refetch: retry,
 		});
-		renderEditor('security', vi.fn(), {
+		renderEditor('context', vi.fn(), {
 			...analysts,
 			databaseAccess: orderDatabaseAccess,
 			rowPolicies: {
@@ -1169,8 +1173,8 @@ describe('UserGroupEditor', () => {
 			target: { value: 'Updated analysts' },
 		});
 
-		expect(screen.getByText('Failed to load row-level security')).toBeTruthy();
-		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		expect(screen.getByText('Failed to load record access rules')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Retry record access rules' }));
 		expect(retry).toHaveBeenCalledOnce();
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 		expect(mocks.mutateAsync).not.toHaveBeenCalled();
@@ -1203,39 +1207,32 @@ describe('UserGroupEditor', () => {
 		);
 	});
 
-	it('blocks incomplete Guided policies, switches to Security, and clears errors on cancel', () => {
+	it('blocks incomplete record rules and switches to Data access', () => {
 		enableRowLevelSecurity();
 		const group = {
 			...analysts,
 			databaseAccess: orderDatabaseAccess,
+			rowPolicies: {
+				version: 1 as const,
+				policies: [
+					{
+						...rowSecurityIdentity,
+						access: 'predicate' as const,
+						mode: 'guided' as const,
+						combinator: 'and' as const,
+						conditions: [{ column: 'tenant_id', operator: 'equals' as const, value: '' }],
+					},
+				],
+			},
 		};
 		render(<StatefulEditorHarness group={group} initialTab='features' />);
-		fireEvent.click(screen.getByRole('tab', { name: 'Security' }));
-		fireEvent.keyDown(screen.getByRole('combobox', { name: 'Row access for orders' }), { key: 'Enter' });
-		fireEvent.click(screen.getByRole('option', { name: 'Filtered rows' }));
-		fireEvent.click(screen.getByRole('tab', { name: 'Features' }));
-
+		fireEvent.change(screen.getByRole('textbox', { name: 'Group name' }), {
+			target: { value: 'Updated analysts' },
+		});
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(mocks.mutateAsync).not.toHaveBeenCalled();
-		expect(screen.getByRole('tab', { name: 'Security' }).getAttribute('aria-selected')).toBe('true');
-		expect(screen.getByText('Enter a value.')).toBeTruthy();
-		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-		expect(screen.queryByText('Enter a value.')).toBeNull();
-	});
-
-	it('blocks incomplete SQL policies and reveals the field error', () => {
-		enableRowLevelSecurity();
-		renderEditor('security', vi.fn(), { ...analysts, databaseAccess: orderDatabaseAccess });
-		fireEvent.keyDown(screen.getByRole('combobox', { name: 'Row access for orders' }), { key: 'Enter' });
-		fireEvent.click(screen.getByRole('option', { name: 'Filtered rows' }));
-		fireEvent.click(screen.getByRole('button', { name: 'SQL' }));
-
-		expect(screen.queryByText('Enter a WHERE clause.')).toBeNull();
-		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-
-		expect(mocks.mutateAsync).not.toHaveBeenCalled();
-		expect(screen.getByText('Enter a WHERE clause.')).toBeTruthy();
+		expect(screen.getByRole('tab', { name: 'Data access' }).getAttribute('aria-selected')).toBe('true');
 	});
 
 	it('saves valid row policies', () => {
@@ -1252,7 +1249,7 @@ describe('UserGroupEditor', () => {
 				},
 			],
 		};
-		renderEditor('security', vi.fn(), { ...analysts, databaseAccess: orderDatabaseAccess, rowPolicies });
+		renderEditor('context', vi.fn(), { ...analysts, databaseAccess: orderDatabaseAccess, rowPolicies });
 		fireEvent.change(screen.getByRole('textbox', { name: 'Group name' }), {
 			target: { value: 'Updated analysts' },
 		});
@@ -1334,10 +1331,10 @@ describe('UserGroupEditor', () => {
 						? false
 						: overview,
 		}));
-		const { rerender } = renderEditor('security');
+		const { rerender } = renderEditor('context');
 		expect(screen.getByRole('tab', { name: 'SSO' })).toBeTruthy();
 		expect(screen.queryByRole('heading', { name: 'SSO group mapping: Okta' })).toBeNull();
-		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
+		expect(screen.getByText('Context permissions')).toBeTruthy();
 		rerender(
 			<UserGroupEditor
 				group={analysts}
@@ -1967,10 +1964,10 @@ describe('UserGroupUserDetail', () => {
 
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Features',
-			'Context',
+			'Data access',
 			'MCP',
 			'Skills',
-			'Security',
+			'Data protection',
 			'Budget',
 		]);
 		expect(screen.getByRole('heading', { name: 'Project User' })).toBeTruthy();
@@ -2247,7 +2244,7 @@ describe('UserGroupUserDetail', () => {
 		});
 
 		expect(screen.getByText('sales/main/orders')).toBeTruthy();
-		expect(screen.getByText('Filtered')).toBeTruthy();
+		expect(screen.getByText('Only matching records')).toBeTruthy();
 		const sql = screen.getByText(/"tenant_id" = 7/).textContent ?? '';
 		expect(sql).toContain('WHERE');
 		expect(sql).toContain(' OR ');
@@ -2275,7 +2272,7 @@ describe('UserGroupUserDetail', () => {
 			]),
 		});
 
-		expect(screen.getByText('Full access')).toBeTruthy();
+		expect(screen.getByText('All records')).toBeTruthy();
 		expect(screen.queryByText('No WHERE clause — full row access.')).toBeNull();
 		expect(screen.queryByText(/^WHERE/)).toBeNull();
 		expect(screen.queryByText(/tenant_id = 7/)).toBeNull();
@@ -2289,7 +2286,7 @@ describe('UserGroupUserDetail', () => {
 			effectiveAccess: createEffectiveAccess([]),
 		});
 
-		const noRowsBadge = screen.getByText('No rows');
+		const noRowsBadge = screen.getByText('No records');
 		expect(noRowsBadge.classList.contains('bg-accent')).toBe(true);
 		expect(noRowsBadge.classList.contains('text-accent-foreground')).toBe(true);
 		expect(noRowsBadge.classList.contains('bg-destructive')).toBe(false);
@@ -2300,7 +2297,7 @@ describe('UserGroupUserDetail', () => {
 		enableRowLevelSecurity();
 		renderUserDetail({ activeTab: 'security' });
 
-		expect(screen.getByText('No protected tables configured.')).toBeTruthy();
+		expect(screen.getByText('No record access rules configured.')).toBeTruthy();
 	});
 
 	it('omits protected tables unavailable through effective Context permissions', () => {
@@ -2314,11 +2311,9 @@ describe('UserGroupUserDetail', () => {
 			},
 		});
 
-		expect(
-			screen.getByText("No protected tables are available through this user's Context permissions."),
-		).toBeTruthy();
+		expect(screen.getByText('No tables with record rules are available to this user.')).toBeTruthy();
 		expect(screen.queryByText('sales/main/orders')).toBeNull();
-		expect(screen.queryByText('Full access')).toBeNull();
+		expect(screen.queryByText('All records')).toBeNull();
 	});
 
 	it('does not show filters as active when row-level security is unlicensed', () => {
@@ -2341,8 +2336,8 @@ describe('UserGroupUserDetail', () => {
 		});
 
 		expect(screen.getAllByText('Enterprise feature inactive').length).toBeGreaterThan(0);
-		expect(screen.getByText('No row filters are currently enforced.')).toBeTruthy();
-		expect(screen.queryByText('Filtered')).toBeNull();
+		expect(screen.getByText('Record access rules are not currently enforced.')).toBeTruthy();
+		expect(screen.queryByText('Only matching records')).toBeNull();
 		expect(screen.queryByText(/tenant_id = 7/)).toBeNull();
 	});
 
@@ -2354,7 +2349,7 @@ describe('UserGroupUserDetail', () => {
 			securityState: 'loading',
 			onRetrySecurity: retry,
 		});
-		expect(screen.getByText('Loading row-level security...')).toBeTruthy();
+		expect(screen.getByText('Loading record access rules...')).toBeTruthy();
 
 		rerender(
 			createUserDetail('security', {
@@ -2362,7 +2357,7 @@ describe('UserGroupUserDetail', () => {
 				onRetrySecurity: retry,
 			}),
 		);
-		expect(screen.getByText('Failed to load row-level security')).toBeTruthy();
+		expect(screen.getByText('Failed to load record access rules')).toBeTruthy();
 		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 		expect(retry).toHaveBeenCalledOnce();
 	});

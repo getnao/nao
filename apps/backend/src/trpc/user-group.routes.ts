@@ -697,7 +697,7 @@ async function validateProjectRowSecurityCatalog(
 		if (table.constraintColumns.some((column) => !catalogTable.columns.includes(column))) {
 			throw new TRPCError({
 				code: 'BAD_REQUEST',
-				message: `Invalid constraint column for ${table.schema}.${table.table}.`,
+				message: `Invalid filter column for ${table.schema}.${table.table}.`,
 			});
 		}
 	}
@@ -725,7 +725,7 @@ async function validateProjectColumnSecurityCatalog(
 		if (table.restrictedColumns.some((column) => !catalogTable.columns.includes(column))) {
 			throw new TRPCError({
 				code: 'BAD_REQUEST',
-				message: `Invalid restricted column for ${table.schema}.${table.table}.`,
+				message: `Invalid hidden column for ${table.schema}.${table.table}.`,
 			});
 		}
 	}
@@ -766,7 +766,7 @@ async function validateGroupRowPolicies(
 			) {
 				throw new TRPCError({
 					code: 'BAD_REQUEST',
-					message: `Invalid constraint column for ${table.schema}.${table.table}.`,
+					message: `Invalid filter column for ${table.schema}.${table.table}.`,
 				});
 			}
 			try {

@@ -59,20 +59,20 @@ export function UserGroupRowSecurity({
 		<section className='flex flex-col gap-4'>
 			<div className='flex items-start justify-between gap-3'>
 				<div>
-					<h3 className='text-sm font-medium'>Row-level security</h3>
+					<h3 className='text-sm font-medium'>Record access</h3>
 					<p className='mt-1 text-xs text-muted-foreground'>
-						Choose row access for each sensitive table. No policy means no rows.
+						Choose which records this group can see. Tables without a rule show no records.
 					</p>
 				</div>
 				{!isLicensed && <UpgradeToEnterprise />}
 			</div>
 			{registry.tables.length === 0 ? (
 				<p className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
-					No sensitive tables are configured in the project Security tab.
+					No record access rules are configured in project Data protection.
 				</p>
 			) : accessibleRegistry.tables.length === 0 ? (
 				<p className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
-					No protected tables are available through this group&apos;s Context permissions.
+					No tables with record rules are available to this group.
 				</p>
 			) : (
 				<div className='flex flex-col divide-y rounded-lg border' role='region' aria-label='Table row policies'>
@@ -85,12 +85,40 @@ export function UserGroupRowSecurity({
 							)}
 							disabled={!isLicensed}
 							showValidationErrors={showValidationErrors}
+							showTableName
 							onChange={(policy) => onChange(updatePolicy(policies, table, policy))}
 						/>
 					))}
 				</div>
 			)}
 		</section>
+	);
+}
+
+export function UserGroupTableRecordAccess({
+	table,
+	policies,
+	isLicensed,
+	showValidationErrors = false,
+	onChange,
+}: {
+	table: SensitiveTableDefinition;
+	policies: UserGroupRowPolicies;
+	isLicensed: boolean;
+	showValidationErrors?: boolean;
+	onChange: (policies: UserGroupRowPolicies) => void;
+}) {
+	return (
+		<TablePolicyEditor
+			table={table}
+			policy={policies.policies.find(
+				(candidate) => rowSecurityTableKey(candidate) === rowSecurityTableKey(table),
+			)}
+			disabled={!isLicensed}
+			showValidationErrors={showValidationErrors}
+			showTableName={false}
+			onChange={(policy) => onChange(updatePolicy(policies, table, policy))}
+		/>
 	);
 }
 
@@ -123,25 +151,25 @@ function TablePolicyEditor({
 	policy,
 	disabled,
 	showValidationErrors,
+	showTableName,
 	onChange,
 }: {
 	table: SensitiveTableDefinition;
 	policy?: UserGroupTablePolicy;
 	disabled: boolean;
 	showValidationErrors: boolean;
+	showTableName: boolean;
 	onChange: (policy?: UserGroupTablePolicy) => void;
 }) {
 	const guidedPolicy = policy?.access === 'predicate' && policy.mode === 'guided' ? policy : null;
 	return (
-		<div className='flex flex-col gap-3 p-3'>
+		<div className={cn('flex flex-col gap-3', showTableName && 'p-3')}>
 			<div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
 				<div className='min-w-0 flex-1'>
 					<p className='truncate text-sm font-medium'>
-						{table.database}/{table.schema}/{table.table}
+						{showTableName ? `${table.database}/${table.schema}/${table.table}` : 'Records'}
 					</p>
-					<p className='text-xs text-muted-foreground'>
-						Constraint columns: {table.constraintColumns.join(', ')}
-					</p>
+					<p className='text-xs text-muted-foreground'>Rule fields: {table.constraintColumns.join(', ')}</p>
 				</div>
 				<Select
 					value={policy?.access ?? 'none'}
@@ -164,93 +192,72 @@ function TablePolicyEditor({
 						}
 					}}
 				>
-					<SelectTrigger className='w-full sm:w-44' aria-label={`Row access for ${table.table}`}>
+					<SelectTrigger className='w-full sm:w-52' aria-label={`Record access for ${table.table}`}>
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem value='none'>No rows</SelectItem>
-						<SelectItem value='predicate'>Filtered rows</SelectItem>
-						<SelectItem value='full'>Full access</SelectItem>
+						<SelectItem value='none'>No records</SelectItem>
+						<SelectItem value='predicate'>Only matching records</SelectItem>
+						<SelectItem value='full'>All records</SelectItem>
 					</SelectContent>
 				</Select>
 			</div>
 			{policy?.access === 'predicate' && (
 				<div className='flex flex-col gap-2'>
-					<div
-						className='flex flex-wrap items-center gap-2'
-						role='group'
-						aria-label={`Filter controls for ${table.table}`}
-					>
-						<PolicyModeSelector
-							table={table}
-							mode={policy.mode}
-							disabled={disabled}
-							onChange={(mode) => {
-								if (mode === policy.mode) {
-									return;
-								}
-								onChange(
-									mode === 'guided'
-										? createGuidedPolicy(table)
-										: createSqlPolicy(table, policy.mode === 'guided' ? policy : undefined),
-								);
-							}}
-						/>
-						{policy.mode === 'guided' && policy.conditions.length >= 2 && (
-							<ConditionCombinatorSelector
-								table={table}
-								combinator={policy.combinator}
-								disabled={disabled}
-								onChange={(combinator) => onChange({ ...policy, combinator })}
-							/>
-						)}
-					</div>
 					{policy.mode === 'guided' ? (
-						<GuidedPolicyEditor
-							table={table}
-							policy={policy}
-							disabled={disabled}
-							showValidationErrors={showValidationErrors}
-							onChange={onChange}
-						/>
+						<>
+							{policy.conditions.length >= 2 && (
+								<ConditionCombinatorSelector
+									table={table}
+									combinator={policy.combinator}
+									disabled={disabled}
+									onChange={(combinator) => onChange({ ...policy, combinator })}
+								/>
+							)}
+							<GuidedPolicyEditor
+								table={table}
+								policy={policy}
+								disabled={disabled}
+								showValidationErrors={showValidationErrors}
+								onChange={onChange}
+							/>
+							<Button
+								type='button'
+								variant='ghost-muted'
+								size='sm'
+								className='w-fit rounded-full'
+								disabled={disabled}
+								onClick={() => onChange(createSqlPolicy(table, policy))}
+							>
+								Advanced SQL rule
+							</Button>
+						</>
 					) : (
-						<SqlPolicyEditor
-							table={table}
-							policy={policy}
-							disabled={disabled}
-							showValidationErrors={showValidationErrors}
-							onChange={onChange}
-						/>
+						<>
+							<div className='flex flex-wrap items-center justify-between gap-2'>
+								<p className='text-xs font-medium'>Advanced SQL rule</p>
+								<Button
+									type='button'
+									variant='ghost-muted'
+									size='sm'
+									className='rounded-full'
+									disabled={disabled}
+									onClick={() => onChange(createGuidedPolicy(table))}
+								>
+									Use guided rules
+								</Button>
+							</div>
+							<SqlPolicyEditor
+								table={table}
+								policy={policy}
+								disabled={disabled}
+								showValidationErrors={showValidationErrors}
+								onChange={onChange}
+							/>
+						</>
 					)}
 				</div>
 			)}
-		</div>
-	);
-}
-
-function PolicyModeSelector({
-	table,
-	mode,
-	disabled,
-	onChange,
-}: {
-	table: SensitiveTableDefinition;
-	mode: 'guided' | 'sql';
-	disabled: boolean;
-	onChange: (mode: 'guided' | 'sql') => void;
-}) {
-	return (
-		<div
-			className='flex w-fit rounded-md border bg-muted/30 p-0.5'
-			role='group'
-			aria-label={`Filter mode for ${table.table}`}
-		>
-			<SegmentButton selected={mode === 'guided'} disabled={disabled} onClick={() => onChange('guided')}>
-				Guided
-			</SegmentButton>
-			<SegmentButton selected={mode === 'sql'} disabled={disabled} onClick={() => onChange('sql')}>
-				SQL
-			</SegmentButton>
 		</div>
 	);
 }
@@ -375,7 +382,7 @@ function SqlPolicyEditor({
 				<p className='text-xs text-destructive'>{error}</p>
 			) : (
 				<p className='text-xs text-muted-foreground'>
-					Enter a WHERE clause. Only configured constraint columns may be used.
+					Enter a WHERE clause. Only configured rule fields may be used.
 				</p>
 			)}
 		</div>
@@ -576,7 +583,7 @@ function replaceAt<T>(values: readonly T[], index: number, value: T): T[] {
 
 function getConditionDraftError(condition: RowSecurityCondition, columns: string[]): string | null {
 	if (!columns.includes(condition.column)) {
-		return `"${condition.column}" is not a configured constraint column.`;
+		return `"${condition.column}" is not a configured filter column.`;
 	}
 	if (!operatorNeedsValue(condition.operator)) {
 		return condition.value === undefined ? null : 'This operator does not accept a value.';

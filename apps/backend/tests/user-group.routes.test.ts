@@ -752,7 +752,7 @@ describe('user group routes', () => {
 
 		await expect(
 			updateWithConditions([{ column: 'region', operator: 'equals', value: 'west' }]),
-		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Invalid constraint column for main.orders.' });
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Invalid filter column for main.orders.' });
 		expect(mocks.validateWarehouseRowPredicate).not.toHaveBeenCalled();
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 	});

@@ -10,9 +10,18 @@ import {
 	getUnavailableDatabaseContextGrants,
 	toggleDatabaseSchemaGrant,
 	toggleDatabaseTableGrant,
-	UserGroupContextAccess,
+	UserGroupDataAccess,
 } from './user-group-context-access';
-import type { DatabaseContextAccess, DatabaseSchemaGrant, DatabaseTableGrant, DocsContextAccess } from '@nao/shared';
+import type {
+	DatabaseContextAccess,
+	DatabaseSchemaGrant,
+	DatabaseTableGrant,
+	DocsContextAccess,
+	ProjectColumnSecurity,
+	ProjectRowSecurity,
+	UserGroupColumnPolicies,
+	UserGroupRowPolicies,
+} from '@nao/shared';
 
 const mocks = vi.hoisted(() => ({
 	useQuery: vi.fn(),
@@ -50,6 +59,30 @@ const docsEntries = [
 	{ kind: 'file' as const, path: 'finance/kpis.md' },
 	{ kind: 'file' as const, path: 'readme.md' },
 ];
+const columnSecurity: ProjectColumnSecurity = {
+	version: 1,
+	tables: [
+		{
+			databaseType: 'postgres',
+			database: 'app',
+			schema: 'public',
+			table: 'users',
+			restrictedColumns: ['email', 'phone'],
+		},
+	],
+};
+const rowSecurity: ProjectRowSecurity = {
+	version: 1,
+	tables: [
+		{
+			databaseType: 'postgres',
+			database: 'app',
+			schema: 'public',
+			table: 'users',
+			constraintColumns: ['company_id'],
+		},
+	],
+};
 
 beforeEach(() => {
 	mocks.useQuery.mockReturnValue({
@@ -71,11 +104,11 @@ describe('user group context access selection', () => {
 			refetch: vi.fn(),
 		});
 
-		render(<UserGroupContextAccess databaseAccess={empty} onDatabaseAccessChange={vi.fn()} />);
+		render(<UserGroupDataAccess databaseAccess={empty} onDatabaseAccessChange={vi.fn()} />);
 
 		expect(
 			screen.getByText(
-				'Choose which synced database tables, docs, and project files this group can access. Access from groups is combined.',
+				'Choose the tables, records, sensitive fields, docs, and project files this group can access. A person may receive additional access through other groups.',
 			),
 		).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Everything/ })).toBeTruthy();
@@ -91,9 +124,7 @@ describe('user group context access selection', () => {
 			refetch: vi.fn(),
 		});
 
-		render(
-			<UserGroupContextAccess databaseAccess={{ mode: 'all', strict: true }} onDatabaseAccessChange={vi.fn()} />,
-		);
+		render(<UserGroupDataAccess databaseAccess={{ mode: 'all', strict: true }} onDatabaseAccessChange={vi.fn()} />);
 
 		expect(screen.getByRole('button', { name: /Everything/ }).getAttribute('aria-pressed')).toBe('true');
 		expect(screen.getByText('Loading...')).toBeTruthy();
@@ -108,9 +139,9 @@ describe('user group context access selection', () => {
 			refetch: vi.fn(),
 		});
 
-		render(<UserGroupContextAccess databaseAccess={empty} onDatabaseAccessChange={vi.fn()} />);
+		render(<UserGroupDataAccess databaseAccess={empty} onDatabaseAccessChange={vi.fn()} />);
 
-		expect(screen.getByText(/Choose which synced database tables/)).toBeTruthy();
+		expect(screen.getByText(/Choose the tables, records, sensitive fields/)).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Everything/ })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Specific selection/ })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
@@ -190,7 +221,7 @@ describe('user group context access selection', () => {
 		setCombinedCatalogs();
 		render(<StatefulCombinedContextAccess />);
 
-		expect(screen.getByText(/database tables, docs, and project files/)).toBeTruthy();
+		expect(screen.getByText(/tables, records, sensitive fields, docs, and project files/)).toBeTruthy();
 		expect(screen.queryByRole('heading', { name: 'Database tables' })).toBeNull();
 		expect(screen.queryByRole('heading', { name: 'Docs' })).toBeNull();
 		expect(screen.getAllByTestId('combined-context-tree')).toHaveLength(1);
@@ -290,7 +321,7 @@ describe('user group context access selection', () => {
 
 	it('changes grants only from checkboxes', () => {
 		const onChange = vi.fn();
-		render(<UserGroupContextAccess databaseAccess={empty} onDatabaseAccessChange={onChange} />);
+		render(<UserGroupDataAccess databaseAccess={empty} onDatabaseAccessChange={onChange} />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
 		expect(onChange).not.toHaveBeenCalled();
@@ -455,6 +486,49 @@ describe('user group context access selection', () => {
 		expect(usersAccess.hasAttribute('disabled')).toBe(true);
 		expect(usersAccess.className).toContain('cursor-default');
 		expect(screen.getAllByText('Inherited')).toHaveLength(2);
+	});
+
+	it('configures record access and sensitive fields together under an accessible table', () => {
+		render(
+			<StatefulContextAccess
+				initialAccess={{ mode: 'restricted', strict: true, grants: [schema], patterns: [] }}
+				columnSecurity={columnSecurity}
+				rowSecurity={rowSecurity}
+			/>,
+		);
+		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
+
+		expect(screen.getByRole('checkbox', { name: 'users table access' }).hasAttribute('disabled')).toBe(true);
+		expect(screen.getByText('No records')).toBeTruthy();
+		expect(screen.getByText('0/2 sensitive visible')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Expand users data access' }));
+
+		const recordAccess = screen.getByRole('combobox', { name: 'Record access for users' });
+		expect(recordAccess.textContent).toContain('No records');
+
+		const email = screen.getByRole('checkbox', { name: 'Make email visible on users' });
+		expect(email.hasAttribute('disabled')).toBe(false);
+		expect(email.getAttribute('data-state')).toBe('unchecked');
+		fireEvent.click(email);
+		expect(email.getAttribute('data-state')).toBe('checked');
+		expect(screen.getAllByText('Visible')).toHaveLength(1);
+	});
+
+	it('finds restricted columns and expands their table while searching', () => {
+		render(
+			<StatefulContextAccess
+				initialAccess={{ mode: 'restricted', strict: true, grants: [users], patterns: [] }}
+				columnSecurity={columnSecurity}
+			/>,
+		);
+
+		fireEvent.change(screen.getByRole('textbox', { name: 'Search context' }), {
+			target: { value: 'phone' },
+		});
+
+		expect(screen.getByRole('button', { name: 'Collapse users data access' })).toBeTruthy();
+		expect(screen.getByRole('checkbox', { name: 'Make phone visible on users' })).toBeTruthy();
+		expect(screen.queryByRole('checkbox', { name: 'orders table access' })).toBeNull();
 	});
 
 	it('expands and collapses compact folders and opens them during search', () => {
@@ -639,9 +713,31 @@ describe('user group context access selection', () => {
 	});
 });
 
-function StatefulContextAccess({ initialAccess = empty }: { initialAccess?: DatabaseContextAccess }) {
+function StatefulContextAccess({
+	initialAccess = empty,
+	columnSecurity: initialColumnSecurity,
+	rowSecurity: initialRowSecurity,
+}: {
+	initialAccess?: DatabaseContextAccess;
+	columnSecurity?: ProjectColumnSecurity;
+	rowSecurity?: ProjectRowSecurity;
+}) {
 	const [access, setAccess] = useState(initialAccess);
-	return <UserGroupContextAccess databaseAccess={access} onDatabaseAccessChange={setAccess} />;
+	const [columnPolicies, setColumnPolicies] = useState<UserGroupColumnPolicies>({ version: 1, policies: [] });
+	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>({ version: 1, policies: [] });
+	return (
+		<UserGroupDataAccess
+			databaseAccess={access}
+			columnSecurity={initialColumnSecurity}
+			columnPolicies={columnPolicies}
+			rowSecurity={initialRowSecurity}
+			rowPolicies={rowPolicies}
+			isColumnSecurityLicensed
+			onDatabaseAccessChange={setAccess}
+			onColumnPoliciesChange={setColumnPolicies}
+			onRowPoliciesChange={setRowPolicies}
+		/>
+	);
 }
 
 function StatefulCombinedContextAccess({
@@ -654,7 +750,7 @@ function StatefulCombinedContextAccess({
 	const [databaseAccess, setDatabaseAccess] = useState(initialDatabaseAccess);
 	const [docsAccess, setDocsAccess] = useState(initialDocsAccess);
 	return (
-		<UserGroupContextAccess
+		<UserGroupDataAccess
 			databaseAccess={databaseAccess}
 			docsAccess={docsAccess}
 			onDatabaseAccessChange={setDatabaseAccess}
