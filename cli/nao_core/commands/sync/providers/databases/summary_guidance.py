@@ -12,7 +12,7 @@ MAX_PROJECT_RULES_CHARS = 20_000
 MAX_TABLE_ANNOTATIONS_CHARS = 10_000
 TRUNCATION_NOTICE = "\n[... truncated]"
 
-_FRONT_MATTER = re.compile(r"\A---[ \t]*\r?\n(?:.*?\r?\n)?---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
+_FRONT_MATTER = re.compile(r"\A---[ \t]*\r?\n(?:.*?\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
 
 
 def load_project_rules(project_path: Path, warn: Callable[[str], None]) -> str | None:

@@ -77,8 +77,12 @@ class TestStripFrontMatter:
             ("---\r\ntype: manual\r\n---\r\nBody\r\n", "Body\r\n"),
             ("---\n---\nBody\n", "Body\n"),
             ("---\ntype: manual\n---\nKeep this.\n\n---\n\nAnd this.\n", "Keep this.\n\n---\n\nAnd this.\n"),
+            (
+                "---\n---\nDo not use legacy_flag.\n\n---\nAmounts are in cents.\n",
+                "Do not use legacy_flag.\n\n---\nAmounts are in cents.\n",
+            ),
         ],
-        ids=["standard", "crlf", "empty", "horizontal-rule-in-body"],
+        ids=["standard", "crlf", "empty", "horizontal-rule-in-body", "empty-then-horizontal-rule"],
     )
     def test_strips_a_leading_front_matter_block(self, content: str, expected: str):
         assert strip_front_matter(content) == expected
