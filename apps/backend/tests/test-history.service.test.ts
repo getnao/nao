@@ -280,6 +280,33 @@ describe('getTestHistory', () => {
 		expect(history.every((run) => run.comparison === null)).toBe(true);
 	});
 
+	it('adds an older run asked for after the latest runs, with its results of the test', async () => {
+		await insertRun('run-old', PREVIOUS_RUN_AT, 'completed', [
+			['revenue.yml', 'hash-revenue', false],
+			['orders.yml', 'hash-orders', true],
+		]);
+		for (let index = 0; index < 10; index++) {
+			await insertRun(`run-${index}`, new Date(LATEST_RUN_AT.getTime() + index * 1000), 'completed', [
+				['revenue.yml', 'hash-revenue', true],
+			]);
+		}
+
+		const latest = await getTestHistory(PROJECT_ID, 'revenue.yml', DEFAULT_TEST_COMPARISON_TOLERANCES);
+		const withOlderRun = await getTestHistory(
+			PROJECT_ID,
+			'revenue.yml',
+			DEFAULT_TEST_COMPARISON_TOLERANCES,
+			'run-old',
+		);
+
+		expect(latest.map((run) => run.id)).not.toContain('run-old');
+		expect(withOlderRun).toHaveLength(11);
+		expect(withOlderRun.at(-1)).toMatchObject({
+			id: 'run-old',
+			results: [{ testPath: 'revenue.yml', passed: false }],
+		});
+	});
+
 	it('compares the two variants of a comparison run', async () => {
 		await insertRun(
 			'run-1',

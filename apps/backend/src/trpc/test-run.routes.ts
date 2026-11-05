@@ -147,13 +147,13 @@ export const testRunRoutes = {
 	),
 
 	getTestHistory: contextAdminProtectedProcedure
-		.input(z.object({ path: z.string() }))
+		.input(z.object({ path: z.string(), runId: z.string().optional() }))
 		.query(async ({ ctx, input }) => {
 			const testPath = toTestPath(input.path);
 			if (!testPath) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: NOT_A_TEST_FILE_MESSAGE });
 			}
-			return getTestHistory(ctx.project.id, testPath, projectTolerances(ctx.project.path));
+			return getTestHistory(ctx.project.id, testPath, projectTolerances(ctx.project.path), input.runId);
 		}),
 
 	validateTestFile: contextAdminProtectedProcedure.input(draftTestFileSchema).mutation(({ input }) => {

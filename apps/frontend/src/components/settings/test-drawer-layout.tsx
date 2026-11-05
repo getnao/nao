@@ -1,5 +1,5 @@
 import { createContext, useContext, useRef } from 'react';
-import type { PointerEvent, ReactNode } from 'react';
+import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
 
 import type { RunFilters } from '@/components/settings/test-run-filter-menu';
 import { RunFilterMenu } from '@/components/settings/test-run-filter-menu';
@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 const DEFAULT_RUNS_COLUMN_WIDTH = 224;
 const MIN_RUNS_COLUMN_WIDTH = 160;
 const MAX_RUNS_COLUMN_WIDTH = 520;
+const RUNS_COLUMN_KEYBOARD_STEP = 16;
 const runsColumnWidthStorage = createLocalStorage<number>('nao-test-runs-column-width', DEFAULT_RUNS_COLUMN_WIDTH);
 
 interface RunsColumnWidth {
@@ -71,7 +72,10 @@ export function RecentRunsHeader({
 	);
 }
 
-/** Dragging resizes the column, saved once released; a double click brings back its default width. */
+/**
+ * Dragging resizes the column, saved once released, as do the arrow keys, Home and End once focused; a double click or
+ * Enter brings back its default width.
+ */
 function RunsColumnResizeHandle() {
 	const { width, setWidth } = useContext(RunsColumnWidthContext);
 	const dragRef = useRef<{ startX: number; startWidth: number; width: number } | null>(null);
@@ -98,6 +102,14 @@ function RunsColumnResizeHandle() {
 		}
 	};
 
+	const resizeWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+		const nextWidth = getKeyboardWidth(event.key, width);
+		if (nextWidth !== null) {
+			event.preventDefault();
+			setWidth(nextWidth);
+		}
+	};
+
 	return (
 		<div
 			role='separator'
@@ -106,7 +118,9 @@ function RunsColumnResizeHandle() {
 			aria-valuenow={width}
 			aria-valuemin={MIN_RUNS_COLUMN_WIDTH}
 			aria-valuemax={MAX_RUNS_COLUMN_WIDTH}
-			className='absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none transition-colors hover:bg-primary/20'
+			tabIndex={0}
+			className='absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none transition-colors outline-none hover:bg-primary/20 focus-visible:bg-primary/40'
+			onKeyDown={resizeWithKeyboard}
 			onPointerDown={startDrag}
 			onPointerMove={drag}
 			onPointerUp={endDrag}
@@ -114,6 +128,23 @@ function RunsColumnResizeHandle() {
 			onDoubleClick={() => setWidth(DEFAULT_RUNS_COLUMN_WIDTH)}
 		/>
 	);
+}
+
+function getKeyboardWidth(key: string, width: number): number | null {
+	switch (key) {
+		case 'ArrowLeft':
+			return clampRunsColumnWidth(width - RUNS_COLUMN_KEYBOARD_STEP);
+		case 'ArrowRight':
+			return clampRunsColumnWidth(width + RUNS_COLUMN_KEYBOARD_STEP);
+		case 'Home':
+			return MIN_RUNS_COLUMN_WIDTH;
+		case 'End':
+			return MAX_RUNS_COLUMN_WIDTH;
+		case 'Enter':
+			return DEFAULT_RUNS_COLUMN_WIDTH;
+		default:
+			return null;
+	}
 }
 
 function clampRunsColumnWidth(width: number): number {

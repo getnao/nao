@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TestWorkbench } from './test-workbench';
@@ -20,9 +20,9 @@ vi.mock('@/main', () => ({
 	trpc: {
 		testRun: {
 			getTestHistory: {
-				queryOptions: (input: { path: string }) => ({
-					queryKey: ['test-history', input.path],
-					queryFn: mocks.getTestHistory,
+				queryOptions: (input: { path: string; runId?: string }) => ({
+					queryKey: ['test-history', input.path, input.runId],
+					queryFn: () => mocks.getTestHistory(input),
 				}),
 				queryKey: (input: { path: string }) => ['test-history', input.path],
 			},
@@ -62,6 +62,34 @@ describe('TestWorkbench', () => {
 		expect(runs.map((run) => run.getAttribute('aria-selected'))).toEqual(['false', 'true']);
 		fireEvent.click(runs[0]);
 		expect(onSelectRun).toHaveBeenLastCalledWith('run-2');
+	});
+
+	it('fetches an older run opened from a run of several tests, and opens that whole run', async () => {
+		const latestRun = {
+			...comparisonRun([result({ id: 'draft-2', contextVariant: 'draft', passed: true })]),
+			id: 'run-2',
+		};
+		const olderRun = {
+			...comparisonRun([result({ id: 'production-1', contextVariant: 'production', passed: true })]),
+			id: 'run-old',
+			trigger: 'manual',
+			selection: ['revenue.yml', 'churn.yml'],
+			comparison: null,
+		};
+		mocks.getTestHistory.mockImplementation(async (input: { runId?: string }) =>
+			input.runId === 'run-old' ? [latestRun, olderRun] : [latestRun],
+		);
+		const onOpenSuiteRun = vi.fn();
+		renderWorkbench(null, { selectedRunId: 'run-old', onOpenSuiteRun });
+
+		await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+		expect(screen.getAllByRole('option').map((run) => run.getAttribute('aria-selected'))).toEqual([
+			'false',
+			'true',
+		]);
+
+		fireEvent.click(screen.getByRole('button', { name: 'All 2 tests of the run' }));
+		expect(onOpenSuiteRun).toHaveBeenLastCalledWith('run-old');
 	});
 
 	it('says why an invalid test cannot run', async () => {
@@ -199,12 +227,14 @@ function renderWorkbench(
 	{
 		selectedRunId = null,
 		onSelectRun = vi.fn(),
+		onOpenSuiteRun = vi.fn(),
 		onRunStarted = vi.fn(),
 		validation = { validation: { test: testDefinition('hash-1'), error: null }, error: undefined },
 		runSettings = RUN_SETTINGS,
 	}: {
 		selectedRunId?: string | null;
 		onSelectRun?: () => void;
+		onOpenSuiteRun?: (runId: string) => void;
 		onRunStarted?: () => void;
 		validation?: TestFileValidationState;
 		runSettings?: TestRunSettings;
@@ -222,7 +252,7 @@ function renderWorkbench(
 					draft={draft}
 					selectedRunId={selectedRunId}
 					onSelectRun={onSelectRun}
-					onOpenSuiteRun={vi.fn()}
+					onOpenSuiteRun={onOpenSuiteRun}
 					runSettings={runSettings}
 					activeRun={undefined}
 					onRunStarted={onRunStarted}

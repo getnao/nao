@@ -216,16 +216,19 @@ describe('TestSuitePanel', () => {
 
 	it('narrows the tests to the ones whose name or path holds the search', async () => {
 		mocks.listTests.mockResolvedValue({
-			tests: [testDefinition('revenue.yml', []), testDefinition('churn.yml', [])],
+			tests: [
+				testDefinition('revenue.yml', []),
+				{ ...testDefinition('churn.yml', []), name: 'customer_attrition' },
+			],
 			invalidFiles: [],
 			latestOutcomes: {},
 			settings: { errors: [] },
 		});
 		const onSelectedPathsChange = vi.fn();
 		const onSearchChange = vi.fn();
-		renderPanel({ selectedRunId: null, search: 'CHUR', onSelectedPathsChange, onSearchChange });
+		renderPanel({ selectedRunId: null, search: 'ATTRITION', onSelectedPathsChange, onSearchChange });
 
-		expect(await screen.findByText('churn.yml')).toBeTruthy();
+		expect(await screen.findByText('customer_attrition')).toBeTruthy();
 		expect(screen.queryByText('revenue.yml')).toBeNull();
 
 		fireEvent.click(screen.getByRole('checkbox', { name: 'Select the shown tests' }));
@@ -233,6 +236,13 @@ describe('TestSuitePanel', () => {
 
 		fireEvent.change(screen.getByRole('searchbox', { name: 'Search tests' }), { target: { value: 'rev' } });
 		expect(onSearchChange).toHaveBeenLastCalledWith('rev');
+		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set());
+
+		cleanup();
+		renderPanel({ selectedRunId: null, search: 'Churn.Y' });
+
+		expect(await screen.findByText('customer_attrition')).toBeTruthy();
+		expect(screen.queryByText('revenue.yml')).toBeNull();
 	});
 });
 

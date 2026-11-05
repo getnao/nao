@@ -1,5 +1,4 @@
 import { fromExplorerTestPath } from '@nao/shared/test-paths';
-import { useQuery } from '@tanstack/react-query';
 import { CircleAlert, Play } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -16,12 +15,11 @@ import { RunDetails } from '@/components/settings/test-run-details';
 import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
 import { BranchCode, BranchName, getMainBranch, getRunBranches } from '@/components/settings/test-run-labels';
 import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
-import { ACTIVE_RUN_REFETCH_MS, isActiveRun } from '@/components/settings/test-run-types';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
+import { useTestHistory } from '@/hooks/use-test-history';
 import { useTestFileRun } from '@/hooks/use-test-run-start';
-import { trpc } from '@/main';
 
 interface TestWorkbenchProps {
 	testFile: { path: string; content: string };
@@ -48,10 +46,7 @@ export function TestWorkbench({
 	activeRun,
 	onRunStarted,
 }: TestWorkbenchProps) {
-	const history = useQuery({
-		...trpc.testRun.getTestHistory.queryOptions({ path: testFile.path }),
-		refetchInterval: (query) => (query.state.data?.some(isActiveRun) ? ACTIVE_RUN_REFETCH_MS : false),
-	});
+	const history = useTestHistory(testFile.path, selectedRunId);
 	const currentHash = validation.validation?.test?.hash;
 	const runs = history.data ?? [];
 	const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs.at(0);

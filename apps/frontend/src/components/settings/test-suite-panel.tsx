@@ -246,6 +246,11 @@ function SuiteTestsHeader({
 		selection.onSelectedPathsChange(new Set());
 	};
 
+	const changeSearch = (search: string) => {
+		selection.onSearchChange(search);
+		selection.onSelectedPathsChange(new Set());
+	};
+
 	return (
 		<PanelHeader className='gap-2.5'>
 			<Checkbox
@@ -281,7 +286,7 @@ function SuiteTestsHeader({
 					))}
 				</div>
 			)}
-			<TestSearchInput value={selection.search} onChange={selection.onSearchChange} />
+			<TestSearchInput value={selection.search} onChange={changeSearch} />
 		</PanelHeader>
 	);
 }
