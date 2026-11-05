@@ -6,7 +6,6 @@ export type AutomationIntegrationConfig = {
 	email?: {
 		enabled: boolean;
 		recipients: string[];
-		recipientGroupIds?: string[];
 		subject?: string;
 	};
 	slack?: {

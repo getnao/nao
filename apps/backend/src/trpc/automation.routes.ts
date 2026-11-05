@@ -74,7 +74,6 @@ const integrationSchema = z
 			.object({
 				enabled: z.boolean().default(false),
 				recipients: z.array(z.string().email()).default([]),
-				recipientGroupIds: z.array(z.string()).default([]),
 				subject: z.string().trim().max(255).optional(),
 			})
 			.optional(),

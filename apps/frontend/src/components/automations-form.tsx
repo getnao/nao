@@ -4,7 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Calendar, Check, Copy, Github, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
-import type { FormEvent, ReactNode, RefObject } from 'react';
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react';
 import type { LlmProvider } from '@nao/shared/types';
 import type { McpServerStatus } from '@nao/shared';
 
@@ -25,21 +25,20 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ErrorMessage } from '@/components/ui/error-message';
-import { Input } from '@/components/ui/input';
+import { Input, NakedInput } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
-import { MemberPicker } from '@/components/share-dialog';
 
 type IntegrationConfig = {
 	email?: {
 		enabled: boolean;
 		recipients: string[];
-		recipientGroupIds?: string[];
 		subject?: string;
 	};
 	slack?: {
@@ -1118,7 +1117,7 @@ function ToolsSection({
 	onAutoSaveChange: (value: AutomationFormValue) => void;
 	disabled: boolean;
 }) {
-	const email = value.integrations.email ?? { enabled: false, recipients: [], recipientGroupIds: [] };
+	const email = value.integrations.email ?? { enabled: false, recipients: [] };
 	const slack = value.integrations.slack ?? { enabled: false, channelId: '' };
 	const github = value.integrations.github ?? { enabled: false, repositories: [] };
 	const availableServers = mcpServers ?? [];
@@ -1265,7 +1264,7 @@ function ToolRow({
 	}
 
 	if (tool.type === 'email') {
-		const email = value.integrations.email ?? { enabled: false, recipients: [], recipientGroupIds: [] };
+		const email = value.integrations.email ?? { enabled: false, recipients: [] };
 		return (
 			<ToolRowShell
 				icon={<Mail className='size-4 text-muted-foreground' />}
@@ -1276,16 +1275,15 @@ function ToolRow({
 				<div className='grid gap-1.5'>
 					<EmailRecipientsInput
 						recipients={email.recipients}
-						recipientGroupIds={email.recipientGroupIds ?? []}
 						error={emailRecipientsError}
 						disabled={disabled}
-						onChange={(recipients, recipientGroupIds) => {
+						onChange={(recipients) => {
 							onClearEmailRecipientsError();
 							onChange({
 								...value,
 								integrations: {
 									...value.integrations,
-									email: { ...email, recipients, recipientGroupIds },
+									email: { ...email, recipients },
 								},
 							});
 						}}
@@ -1887,7 +1885,6 @@ function normalizeAutomationValue(value: AutomationFormValue): AutomationFormVal
 				? {
 						enabled: value.integrations.email.enabled,
 						recipients: value.integrations.email.recipients,
-						recipientGroupIds: value.integrations.email.recipientGroupIds ?? [],
 						subject: value.integrations.email.subject ?? '',
 					}
 				: undefined,
@@ -1971,81 +1968,166 @@ function isValidationIssue(value: unknown): value is { message: string } {
 	return typeof value === 'object' && value !== null && 'message' in value && typeof value.message === 'string';
 }
 
+function EmailRecipientPill({
+	recipient,
+	error,
+	disabled,
+	onRemove,
+}: {
+	recipient: string;
+	error: string | null;
+	disabled: boolean;
+	onRemove: () => void;
+}) {
+	const pill = (
+		<span
+			aria-invalid={Boolean(error)}
+			className={cn(
+				'inline-flex h-6 max-w-full items-center gap-1 rounded-md border pl-1.5 pr-0.5 text-xs',
+				error
+					? 'border-destructive/40 bg-destructive/10 text-destructive'
+					: 'border-border bg-muted/60 text-foreground',
+			)}
+		>
+			<span className='truncate font-mono'>{recipient}</span>
+			<button
+				type='button'
+				disabled={disabled}
+				onClick={onRemove}
+				aria-label={`Remove ${recipient}`}
+				className='inline-flex size-4 shrink-0 items-center justify-center opacity-70 hover:bg-background/60 hover:opacity-100 disabled:opacity-40'
+			>
+				<X className='size-3' />
+			</button>
+		</span>
+	);
+
+	if (!error) {
+		return pill;
+	}
+
+	return (
+		<Tooltip delayDuration={150}>
+			<TooltipTrigger asChild>{pill}</TooltipTrigger>
+			<TooltipContent>{error}</TooltipContent>
+		</Tooltip>
+	);
+}
+
 function EmailRecipientsInput({
 	recipients,
-	recipientGroupIds,
 	error,
 	disabled,
 	onChange,
 }: {
 	recipients: string[];
-	recipientGroupIds: string[];
 	error: string | null;
 	disabled: boolean;
-	onChange: (recipients: string[], recipientGroupIds: string[]) => void;
+	onChange: (recipients: string[]) => void;
 }) {
-	const [search, setSearch] = useState('');
+	const [draft, setDraft] = useState('');
+	const inputRef = useRef<HTMLInputElement>(null);
 	const recipientsQuery = useQuery(trpc.automation.listEmailRecipients.queryOptions());
-	const members = recipientsQuery.data ?? [];
-	const groupsQuery = useQuery(trpc.automation.listEmailRecipientGroups.queryOptions());
-	const groups = groupsQuery.data ?? [];
-	const selectedGroupIds = new Set(recipientGroupIds);
-
-	const term = search.trim().toLowerCase();
-	const filteredGroups = groups.filter((group) => !term || group.name.toLowerCase().includes(term));
-
-	const selectedEmails = new Set(recipients.map((email) => email.toLowerCase()));
-	const selectedUserIds = new Set(
-		members.filter((member) => selectedEmails.has(member.email.toLowerCase())).map((member) => member.id),
+	const memberEmails = new Set(recipientsQuery.data?.map((member) => member.email.toLowerCase()));
+	const nonMemberRecipients = new Set(
+		recipientsQuery.data
+			? recipients
+					.filter(isValidEmailAddress)
+					.filter((recipient) => !memberEmails.has(recipient.toLowerCase()))
+					.map((recipient) => recipient.toLowerCase())
+			: [],
 	);
 
-	const filteredMembers = members.filter(
-		(member) => !term || member.name.toLowerCase().includes(term) || member.email.toLowerCase().includes(term),
-	);
-
-	function toggleUser(userId: string) {
-		const member = members.find((candidate) => candidate.id === userId);
-		if (!member) {
-			return;
-		}
-
-		onChange(
-			selectedUserIds.has(userId)
-				? recipients.filter((email) => email.toLowerCase() !== member.email.toLowerCase())
-				: [...recipients, member.email],
-			recipientGroupIds,
-		);
+	function mergeRecipients(additions: string[]) {
+		const existing = new Set(recipients.map((recipient) => recipient.toLowerCase()));
+		return [
+			...recipients,
+			...additions
+				.map((recipient) => recipient.trim().toLowerCase())
+				.filter(Boolean)
+				.filter((recipient) => {
+					if (existing.has(recipient)) {
+						return false;
+					}
+					existing.add(recipient);
+					return true;
+				}),
+		];
 	}
 
-	function toggleGroup(groupId: string) {
-		const nextGroupIds = new Set(selectedGroupIds);
+	function handleDraftChange(text: string) {
+		const parts = text.split(/[\s,]+/);
+		const remainder = parts.pop() ?? '';
 
-		if (nextGroupIds.has(groupId)) {
-			nextGroupIds.delete(groupId);
-		} else {
-			nextGroupIds.add(groupId);
+		if (parts.length > 0) {
+			onChange(mergeRecipients(parts));
 		}
+		setDraft(remainder);
+	}
 
-		onChange(recipients, [...nextGroupIds]);
+	function commitDraft() {
+		const recipient = draft.trim();
+		if (recipient) {
+			onChange(mergeRecipients([recipient]));
+		}
+		setDraft('');
+	}
+
+	function handleKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+		if (event.key === 'Enter' && draft.trim()) {
+			event.preventDefault();
+			commitDraft();
+			return;
+		}
+		if (event.key === 'Backspace' && draft === '' && recipients.length > 0) {
+			event.preventDefault();
+			onChange(recipients.slice(0, -1));
+		}
+	}
+
+	function removeRecipient(recipient: string) {
+		onChange(recipients.filter((saved) => saved !== recipient));
 	}
 
 	return (
-		<fieldset
-			disabled={disabled}
+		<div
+			onClick={() => inputRef.current?.focus()}
 			aria-invalid={Boolean(error)}
-			aria-describedby={error ? 'automation-email-recipients-error' : undefined}
+			className={cn(
+				'flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-1.5 py-1 shadow-xs transition-[color,box-shadow]',
+				'focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50',
+				error && 'border-destructive ring-1 ring-destructive/20',
+				disabled && 'pointer-events-none opacity-50',
+			)}
 		>
-			<MemberPicker
-				members={filteredMembers}
-				selectedUserIds={selectedUserIds}
-				groups={filteredGroups}
-				selectedGroupIds={selectedGroupIds}
-				isLoading={recipientsQuery.isLoading || groupsQuery.isLoading}
-				search={search}
-				onSearchChange={setSearch}
-				onToggleUser={toggleUser}
-				onToggleGroup={toggleGroup}
+			{recipients.map((recipient) => {
+				const recipientError = !isValidEmailAddress(recipient)
+					? 'Enter a valid email address.'
+					: nonMemberRecipients.has(recipient.toLowerCase())
+						? 'This recipient isn’t a project member. Email runs using it will fail.'
+						: null;
+				return (
+					<EmailRecipientPill
+						key={recipient}
+						recipient={recipient}
+						error={recipientError}
+						disabled={disabled}
+						onRemove={() => removeRecipient(recipient)}
+					/>
+				);
+			})}
+			<NakedInput
+				ref={inputRef}
+				value={draft}
+				disabled={disabled}
+				aria-label='Email recipients'
+				aria-describedby={error ? 'automation-email-recipients-error' : undefined}
+				placeholder={recipients.length === 0 ? 'Email addresses, comma or space separated' : ''}
+				className='h-6 min-w-32 flex-1 px-1 text-sm placeholder:text-muted-foreground'
+				onChange={(event) => handleDraftChange(event.target.value)}
+				onKeyDown={handleKeyDown}
+				onBlur={commitDraft}
 			/>
-		</fieldset>
+		</div>
 	);
 }
