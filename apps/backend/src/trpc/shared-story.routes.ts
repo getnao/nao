@@ -204,6 +204,7 @@ export const sharedStoryRoutes = {
 				: await getStoryQueryData(shared.chatId!, shared.slug, shared.code, isLive, cacheSchedule, {
 						deferRefresh: canRefresh && lastRefreshFailure !== null,
 						deferFirstRefresh: canRefresh,
+						viewerUserId: ctx.user.id,
 					});
 
 		if (ctx.user.id !== shared.userId) {

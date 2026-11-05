@@ -20,6 +20,7 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
+import * as userGroupQueries from '../queries/user-group.queries';
 import type { StoryQuerySources } from '../types/story-cache';
 import type { QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
@@ -78,6 +79,7 @@ export interface RefreshResult {
 
 interface StoryRefreshOptions {
 	billingAccessVerifiedProjectId?: string;
+	viewerUserId?: string;
 }
 
 export async function refreshStoryData(
@@ -112,14 +114,16 @@ async function refreshStoryDataWithContext(
 
 	const queryData = await executeStoryQueries(chatId, sqlQueries, {
 		renderSql: stripSqlFilterBlocks,
-		executionContext: existingExecutionContext,
+		executionContext:
+			existingExecutionContext ??
+			(options.viewerUserId ? await createStoryExecutionContext(chatId, options.viewerUserId) : undefined),
 		projectId: chat.projectId,
 		billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 	});
 
 	let refreshedCode = version.code;
 	const target = { projectId: chat.projectId, userId: chat.userId, chatId };
-	if (version.isLiveTextDynamic && version.format === 'classic') {
+	if (version.isLiveTextDynamic && version.format === 'classic' && !options.viewerUserId) {
 		const newCode = await generateDynamicStoryCode(target, version.title, version.code, queryData);
 		if (newCode) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
@@ -131,7 +135,18 @@ async function refreshStoryDataWithContext(
 		version.isLiveTextDynamic && version.format === 'custom'
 			? await regenerateCustomStoryNarratives(target, version, queryData)
 			: {};
-	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries), narratives);
+	const querySources = buildQuerySources(sqlQueries);
+	if (options.viewerUserId) {
+		await storyQueries.upsertStoryViewerDataCache(
+			version.storyId,
+			options.viewerUserId,
+			queryData,
+			querySources,
+			narratives,
+		);
+	} else {
+		await storyQueries.upsertStoryDataCache(chatId, slug, queryData, querySources, narratives);
+	}
 
 	return { queryData, code: refreshedCode, narratives };
 }
@@ -156,6 +171,7 @@ export interface StoryQueryDataResult {
 }
 
 interface StoryQueryDataOptions {
+	viewerUserId?: string;
 	/** Return the stored data right away and leave the refresh to the caller, instead of refreshing inline. */
 	deferRefresh?: boolean;
 	/** Same, but only for a story that was never cached, so going live does not block on its first refresh. */
@@ -178,6 +194,10 @@ export async function getStoryQueryData(
 			allowsPersistedFallback: true,
 		};
 	}
+	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	if (viewerUserId) {
+		return getViewerStoryQueryData(chatId, slug, code, cacheSchedule, viewerUserId);
+	}
 	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 
 	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule)) {
@@ -198,6 +218,43 @@ export async function getStoryQueryData(
 	} catch {
 		return resolveStoredQueryData(chatId, code, cache);
 	}
+}
+
+/** Never falls back to the chat's stored results: they were produced with the owner's row-level security. */
+async function getViewerStoryQueryData(
+	chatId: string,
+	slug: string,
+	code: string,
+	cacheSchedule: string | null,
+	viewerUserId: string,
+): Promise<StoryQueryDataResult> {
+	const cache = await storyQueries.getStoryViewerDataCache(chatId, slug, viewerUserId);
+	const isCacheUsable =
+		cache !== null &&
+		!isCacheExpired(cache.cachedAt, cacheSchedule) &&
+		findMissingQueryIds(code, cache.queryData).length === 0;
+	if (isCacheUsable) {
+		return { queryData: cache.queryData, cachedAt: cache.cachedAt, code };
+	}
+
+	try {
+		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug, undefined, {
+			viewerUserId,
+		});
+		return {
+			queryData: Object.keys(queryData).length > 0 ? queryData : null,
+			cachedAt: new Date(),
+			code: refreshedCode,
+		};
+	} catch {
+		return { queryData: cache?.queryData ?? null, cachedAt: cache?.cachedAt ?? null, code };
+	}
+}
+
+async function hasRowSecurity(chatId: string): Promise<boolean> {
+	const projectId = await requireChatProjectId(chatId);
+	const { tables } = await userGroupQueries.getProjectRowSecurity(projectId);
+	return tables.length > 0;
 }
 
 function shouldDeferRefresh(options: StoryQueryDataOptions, cache: DBStoryDataCache | null, code: string): boolean {
@@ -396,12 +453,13 @@ async function executeLocalSql(sqlQuery: string, context: ToolContext): Promise<
 	return { data: result.data, columns: result.columns };
 }
 
-export async function createStoryExecutionContext(chatId: string): Promise<StoryExecutionContext> {
+export async function createStoryExecutionContext(chatId: string, userId?: string): Promise<StoryExecutionContext> {
 	const [projectId, ownerId] = await Promise.all([requireChatProjectId(chatId), chatQueries.getChatOwnerId(chatId)]);
-	if (!ownerId) {
+	const executionUserId = userId ?? ownerId;
+	if (!executionUserId) {
 		throw new Error('Chat owner not found');
 	}
-	const toolContext = await buildToolContext({ projectId, userId: ownerId, chatId });
+	const toolContext = await buildToolContext({ projectId, userId: executionUserId, chatId });
 	return {
 		toolContext,
 		enforceExcludedColumns: await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings),

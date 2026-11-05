@@ -143,6 +143,7 @@ describe('shared Story manual refresh', () => {
 			expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
 				deferRefresh: expected,
 				deferFirstRefresh: expected,
+				viewerUserId: userId,
 			});
 		},
 	);
@@ -156,6 +157,7 @@ describe('shared Story manual refresh', () => {
 		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
 			deferRefresh: false,
 			deferFirstRefresh: expected,
+			viewerUserId: userId,
 		});
 	});
 

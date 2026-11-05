@@ -2,7 +2,12 @@ import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo } from '@nao/shared/types';
 import { aliasedTable, and, asc, countDistinct, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
-import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
+import s, {
+	type DBStory,
+	type DBStoryDataCache,
+	type DBStoryVersion,
+	type DBStoryViewerDataCache,
+} from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import type { StoryQuerySources } from '../types/story-cache';
 import { getOpenProjectIds } from '../utils/open-projects';
@@ -862,6 +867,45 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 		.execute();
 
 	return row ?? null;
+}
+
+export async function getStoryViewerDataCache(
+	chatId: string,
+	slug: string,
+	userId: string,
+): Promise<DBStoryViewerDataCache | null> {
+	const [row] = await db
+		.select({
+			storyId: s.storyViewerDataCache.storyId,
+			userId: s.storyViewerDataCache.userId,
+			queryData: s.storyViewerDataCache.queryData,
+			querySources: s.storyViewerDataCache.querySources,
+			analysisResults: s.storyViewerDataCache.analysisResults,
+			cachedAt: s.storyViewerDataCache.cachedAt,
+		})
+		.from(s.storyViewerDataCache)
+		.innerJoin(s.story, eq(s.storyViewerDataCache.storyId, s.story.id))
+		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug), eq(s.storyViewerDataCache.userId, userId)))
+		.execute();
+	return row ?? null;
+}
+
+export async function upsertStoryViewerDataCache(
+	storyId: string,
+	userId: string,
+	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	querySources: StoryQuerySources,
+	analysisResults?: Record<string, string> | null,
+): Promise<void> {
+	const values = { queryData, querySources, analysisResults: analysisResults ?? null, cachedAt: new Date() };
+	await db
+		.insert(s.storyViewerDataCache)
+		.values({ storyId, userId, ...values })
+		.onConflictDoUpdate({
+			target: [s.storyViewerDataCache.storyId, s.storyViewerDataCache.userId],
+			set: values,
+		})
+		.execute();
 }
 
 export async function getStorySharingInfo(storyIds: string[]): Promise<Map<string, StorySharingInfo>> {

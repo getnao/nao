@@ -1416,6 +1416,27 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 		.notNull(),
 });
 
+export const storyViewerDataCache = sqliteTable(
+	'story_viewer_data_cache',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		queryData: text('query_data', { mode: 'json' })
+			.$type<Record<string, { data: unknown[]; columns: string[] }>>()
+			.notNull(),
+		querySources: text('query_sources', { mode: 'json' }).$type<StoryQuerySources>(),
+		analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
+		cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.userId] })],
+);
+
 export const storyAppState = sqliteTable(
 	'story_app_state',
 	{
