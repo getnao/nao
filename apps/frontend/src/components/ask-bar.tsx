@@ -81,6 +81,7 @@ export function AskBar({
 	const inputRef = useRef<PromptHandle>(null);
 	const request = useAskRequest();
 	const requestIdAtMount = useRef(request?.id);
+	const isFocusRequested = useRef(false);
 
 	const cite = (selection: AskSelection) => setSession((current) => withCitation(current, toAskCitation(selection)));
 
@@ -94,8 +95,16 @@ export function AskBar({
 		} else if (selection) {
 			setSession((current) => withCitation(current, toAskCitation(selection)));
 		}
-		inputRef.current?.focus();
+		isFocusRequested.current = true;
 	}, [request]);
+
+	useEffect(() => {
+		if (!isFocusRequested.current || isInputHidden) {
+			return;
+		}
+		isFocusRequested.current = false;
+		inputRef.current?.focus();
+	}, [request, isInputHidden]);
 
 	const startSession = async (message: AskMessage) => {
 		const submittedCitations = session.citations;

@@ -32,6 +32,7 @@ import { StoryPageHeader } from '@/components/story-page-header';
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
 import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { useOnAskRequest } from '@/hooks/use-on-ask-request';
 import { useOpenStandaloneStoryInChat } from '@/hooks/use-open-standalone-story-in-chat';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
@@ -253,6 +254,7 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 	const isArchived = Boolean(story?.archivedAt);
 	const isAskInputHidden = viewMode !== 'app';
 	const canAsk = !isArchived && !isAskInputHidden;
+	useOnAskRequest(() => setViewMode('app'));
 
 	return (
 		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>

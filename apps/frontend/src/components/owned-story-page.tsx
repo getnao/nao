@@ -29,6 +29,7 @@ import { requestAskAboutCode, requestAskAboutElement, requestAskAboutSelection }
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
 import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
+import { useOnAskRequest } from '@/hooks/use-on-ask-request';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -112,6 +113,11 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		(selection: CodeSelection) => requestAskAboutCode(selection, { storySlug }),
 		[storySlug],
 	);
+	useOnAskRequest(() => {
+		if (isAskInputHidden) {
+			editor.setViewMode('preview');
+		}
+	});
 
 	return (
 		<div
