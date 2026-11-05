@@ -11,7 +11,7 @@ import type { DraftContext, TestHistoryRun, TestRunSummary } from '@/components/
 import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import type { ContextRunMode } from '@/hooks/use-test-run-start';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
-import { RecentRunsHeader, RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
+import { RecentRunsHeader, RunsColumn } from '@/components/settings/test-drawer-layout';
 import { RunDetails } from '@/components/settings/test-run-details';
 import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
 import { BranchCode, BranchName, getMainBranch, getRunBranches } from '@/components/settings/test-run-labels';
@@ -21,7 +21,6 @@ import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
 import { useTestFileRun } from '@/hooks/use-test-run-start';
-import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 interface TestWorkbenchProps {
@@ -31,6 +30,8 @@ interface TestWorkbenchProps {
 	/** The run shown, or `null` for the latest one. */
 	selectedRunId: string | null;
 	onSelectRun: (runId: string) => void;
+	/** Opens a run of several tests in the "All tests" tab, with all its tests. */
+	onOpenSuiteRun: (runId: string) => void;
 	runSettings: TestRunSettings;
 	activeRun: TestRunSummary | undefined;
 	onRunStarted: (run: { id: string }) => void;
@@ -42,6 +43,7 @@ export function TestWorkbench({
 	draft,
 	selectedRunId,
 	onSelectRun,
+	onOpenSuiteRun,
 	runSettings,
 	activeRun,
 	onRunStarted,
@@ -88,6 +90,7 @@ export function TestWorkbench({
 						run={selectedRun}
 						isOutdated={isRunOfAnotherVersion(selectedRun, currentHash)}
 						branches={getRunBranches(selectedRun, draft)}
+						onOpenSuiteRun={onOpenSuiteRun}
 					/>
 				</div>
 			)}
@@ -111,7 +114,7 @@ function RunList({
 	const [filters, setFilters] = useState<RunFilters>(ALL_RUNS);
 	const listedRuns = runs.filter((run) => matchesRunFilters(run, filters));
 	return (
-		<div className={cn('flex shrink-0 flex-col overflow-y-auto border-r text-xs', RUNS_COLUMN_WIDTH_CLASS)}>
+		<RunsColumn>
 			<RecentRunsHeader filters={filters} onChange={setFilters} />
 			{listedRuns.length === 0 && (
 				<span className='px-3 py-2 text-muted-foreground'>No run matches the filter.</span>
@@ -128,7 +131,7 @@ function RunList({
 					/>
 				))}
 			</div>
-		</div>
+		</RunsColumn>
 	);
 }
 

@@ -222,6 +222,7 @@ function renderWorkbench(
 					draft={draft}
 					selectedRunId={selectedRunId}
 					onSelectRun={onSelectRun}
+					onOpenSuiteRun={vi.fn()}
 					runSettings={runSettings}
 					activeRun={undefined}
 					onRunStarted={onRunStarted}

@@ -18,12 +18,12 @@ export function TestRow({
 	onOpen: (explorerPath: string) => void;
 }) {
 	return (
-		<li className='flex items-center border-b'>
+		<li className='flex items-center border-b transition-colors hover:bg-accent/50'>
 			{leading && <span className='flex shrink-0 items-center pl-3'>{leading}</span>}
 			<button
 				type='button'
 				onClick={() => onOpen(toExplorerTestPath(path))}
-				className='flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-accent/50'
+				className='flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left'
 				title='Open this test'
 			>
 				{icon}

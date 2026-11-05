@@ -82,7 +82,7 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 					<ChevronDown className='size-3 text-muted-foreground' />
 				</Button>
 			</PopoverTrigger>
-			<PopoverContent align='end' className='w-96 p-0 text-xs'>
+			<PopoverContent align='end' className='w-96 p-0 text-xs' onInteractOutside={keepOpenInsideMenus}>
 				<div className='flex items-center justify-between px-3 pt-3 pb-1.5'>
 					<span className='text-sm font-semibold'>Models to test</span>
 					{settings.isCustom ? (
@@ -162,6 +162,16 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 			</PopoverContent>
 		</Popover>
 	);
+}
+
+/**
+ * The effort menus portal out of the popover and come from another copy of Radix, so the popover would take a click in
+ * them for one outside and close.
+ */
+function keepOpenInsideMenus(event: Event) {
+	if (event.target instanceof Element && event.target.closest('[data-slot="dropdown-menu-content"]')) {
+		event.preventDefault();
+	}
 }
 
 function describeSelection(models: TestModelSelection[], attempts: number): string {

@@ -143,6 +143,22 @@ describe('TestDrawerLayout', () => {
 		expect(onSelectTab).toHaveBeenLastCalledWith(null);
 	});
 
+	it('shows again the run opened in the All tests tab when coming back from a test', () => {
+		const onSelectTab = vi.fn();
+		const { rerender } = renderDrawer({ selectedRunId: 'run-1', onSelectTab });
+
+		rerender(
+			buildDrawer({
+				testTabs: ['/tests/churn.yml'],
+				activeTestPath: '/tests/churn.yml',
+				onSelectTab,
+			}),
+		);
+		fireEvent.click(screen.getByRole('tab', { name: /^All tests/ }));
+
+		expect(onSelectTab).toHaveBeenLastCalledWith(null, 'run-1');
+	});
+
 	it('runs the test of a tab from its icon, showing its tab', async () => {
 		mocks.listRuns.mockResolvedValue([]);
 		mocks.startRun.mockResolvedValue({ id: 'run-new' });
@@ -184,26 +200,36 @@ describe('TestDrawerLayout', () => {
 	});
 });
 
-function renderDrawer({
-	testTabs = [],
-	activeTestPath = null,
-	onSelectTab = vi.fn(),
-	onCloseTab = vi.fn(),
-}: {
+interface DrawerOptions {
 	testTabs?: string[];
 	activeTestPath?: string | null;
-	onSelectTab?: (testPath: string | null) => void;
+	selectedRunId?: string | null;
+	onSelectTab?: (testPath: string | null, runId?: string) => void;
 	onCloseTab?: (testPath: string) => void;
-}) {
-	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-	return render(
+}
+
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+function renderDrawer(options: DrawerOptions) {
+	queryClient.clear();
+	return render(buildDrawer(options));
+}
+
+function buildDrawer({
+	testTabs = [],
+	activeTestPath = null,
+	selectedRunId = null,
+	onSelectTab = vi.fn(),
+	onCloseTab = vi.fn(),
+}: DrawerOptions) {
+	return (
 		<QueryClientProvider client={queryClient}>
 			<TooltipProvider>
 				<TestDrawerLayout
 					testTabs={testTabs}
 					activeTestPath={activeTestPath}
 					activeTestFile={null}
-					selectedRunId={null}
+					selectedRunId={selectedRunId}
 					openRequestId={0}
 					onSelectTab={onSelectTab}
 					onCloseTab={onCloseTab}
@@ -214,6 +240,6 @@ function renderDrawer({
 					<div>Editor</div>
 				</TestDrawerLayout>
 			</TooltipProvider>
-		</QueryClientProvider>,
+		</QueryClientProvider>
 	);
 }

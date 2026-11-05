@@ -132,7 +132,7 @@ export function RunListItem({
 					)}
 				</span>
 				{view.progress !== null && (
-					<span className='h-0.5 overflow-hidden rounded-full bg-muted'>
+					<span className='h-0.5 overflow-hidden rounded-full bg-foreground/10'>
 						<span
 							className='block h-full bg-foreground/50 transition-[width]'
 							style={{ width: `${Math.round(view.progress * 100)}%` }}
