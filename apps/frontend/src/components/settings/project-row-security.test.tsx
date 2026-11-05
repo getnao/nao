@@ -154,6 +154,7 @@ describe('ProjectRowSecurity', () => {
 		openConfiguration();
 
 		expect(screen.getByRole('dialog', { name: 'Add record access rules' })).toBeTruthy();
+		expect(screen.getByText(/admins included/)).toBeTruthy();
 		expect(screen.getByTestId('project-row-security-tree')).toBeTruthy();
 		expect(screen.getByRole('textbox', { name: 'Search record access tables' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Cancel' }).classList.contains('rounded-full')).toBe(true);

@@ -38,6 +38,33 @@ describe('PostgreSQL project security updates', () => {
 
 		expect(mocks.events).toEqual(['lock-project:update', 'lock-project', 'select-groups', 'update-project']);
 	});
+
+	it('rejects a column security update based on a stale registry revision', async () => {
+		await expect(
+			updateProjectColumnSecurity(
+				'project-1',
+				{ version: 1, tables: [] },
+				{
+					version: 1,
+					tables: [
+						{
+							databaseType: 'duckdb',
+							database: 'analytics',
+							schema: 'main',
+							table: 'orders',
+							restrictedColumns: ['cost'],
+						},
+					],
+				},
+			),
+		).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message:
+				'Sensitive fields changed while they were being edited. Review the current settings and try again.',
+		});
+
+		expect(mocks.events).toEqual(['lock-project:update', 'lock-project']);
+	});
 });
 
 function transaction() {

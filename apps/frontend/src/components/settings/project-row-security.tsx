@@ -218,7 +218,8 @@ export function ProjectRowSecurity({
 							<DialogTitle>Add record access rules</DialogTitle>
 							<DialogDescription>
 								Expand a table and choose fields that can separate records, such as company_id, region,
-								or department. Groups see no records from a selected table until you give them access.
+								or department. Groups see no records from a selected table until you give them access,
+								admins included.
 							</DialogDescription>
 						</DialogHeader>
 						<div className='flex items-center gap-2'>

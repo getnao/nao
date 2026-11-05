@@ -83,6 +83,7 @@ def validate_column_access(
     try:
         table_infos = _load_table_infos(expression, project_path, db_config, database_folder)
         _assert_no_blocked_tables(table_infos, column_security_policies or {})
+        _assert_restricted_tables_have_catalog_columns(table_infos, column_security_policies or {})
         qualified = _qualify_query(expression, dialect, table_infos)
         analyzer = _ColumnAccessAnalyzer(
             qualified,
@@ -129,6 +130,19 @@ def _assert_no_blocked_tables(
                 )
 
 
+def _assert_restricted_tables_have_catalog_columns(
+    table_infos: TableInfos,
+    policies: dict[tuple[str, str], dict[str, Any]],
+) -> None:
+    for infos in table_infos.values():
+        for info in infos:
+            policy = _lookup_column_security_policy(policies, info.schema, info.table)
+            if policy is not None and policy.get("access") == "restricted" and not info.columns:
+                raise _blocked(
+                    f"column metadata is unavailable for policy-protected table '{info.schema}.{info.table}'"
+                )
+
+
 def _denied_columns(
     policies: dict[tuple[str, str], dict[str, Any]],
 ) -> dict[tuple[str, str], set[str]]:
@@ -144,13 +158,10 @@ def _lookup_column_security_policy(
     schema: str,
     table: str,
 ) -> dict[str, Any] | None:
-    exact = policies.get((schema, table))
-    if exact is not None:
-        return exact
     matches = [
         policy
         for (policy_schema, policy_table), policy in policies.items()
-        if policy_schema.casefold() == schema.casefold() and policy_table.casefold() == table.casefold()
+        if (not schema or policy_schema.casefold() == schema.casefold()) and policy_table.casefold() == table.casefold()
     ]
     if len(matches) > 1:
         raise _blocked(f"multiple column-security policies match '{schema}.{table}' case-insensitively")

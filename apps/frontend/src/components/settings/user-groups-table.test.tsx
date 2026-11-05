@@ -9,6 +9,7 @@ import {
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
+	EMPTY_PROJECT_COLUMN_SECURITY,
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_SKILLS_ACCESS,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
@@ -2316,6 +2317,33 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.queryByText('All records')).toBeNull();
 	});
 
+	it('distinguishes configured sensitive fields from fields unavailable through Context permissions', () => {
+		enableRowLevelSecurity();
+		renderUserDetail({
+			activeTab: 'security',
+			projectColumnSecurity: {
+				version: 1,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'sales',
+						schema: 'main',
+						table: 'orders',
+						restrictedColumns: ['cost'],
+					},
+				],
+			},
+			effectiveAccess: {
+				...createEffectiveAccess([]),
+				databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
+				columnPolicies: [],
+			},
+		});
+
+		expect(screen.getByText('No tables with sensitive fields are available to this user.')).toBeTruthy();
+		expect(screen.queryByText('No sensitive fields configured.')).toBeNull();
+	});
+
 	it('does not show filters as active when row-level security is unlicensed', () => {
 		renderUserDetail({
 			activeTab: 'security',
@@ -2477,6 +2505,7 @@ function renderUserDetail({
 	onRetryDocsCatalog,
 	onRetryFilesCatalog,
 	projectRowSecurity = EMPTY_PROJECT_ROW_SECURITY,
+	projectColumnSecurity = EMPTY_PROJECT_COLUMN_SECURITY,
 	securityState = 'ready',
 	onRetrySecurity,
 	effectiveAccess = {
@@ -2506,6 +2535,7 @@ function renderUserDetail({
 	onRetryDocsCatalog?: () => void;
 	onRetryFilesCatalog?: () => void;
 	projectRowSecurity?: ComponentProps<typeof UserGroupUserDetail>['projectRowSecurity'];
+	projectColumnSecurity?: ComponentProps<typeof UserGroupUserDetail>['projectColumnSecurity'];
 	securityState?: ComponentProps<typeof UserGroupUserDetail>['securityState'];
 	onRetrySecurity?: () => void;
 	effectiveAccess?: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'];
@@ -2527,6 +2557,7 @@ function renderUserDetail({
 			onRetryDocsCatalog,
 			onRetryFilesCatalog,
 			projectRowSecurity,
+			projectColumnSecurity,
 			securityState,
 			onRetrySecurity,
 		}),
@@ -2557,6 +2588,7 @@ function createUserDetail(
 			onRetryDocsCatalog={props.onRetryDocsCatalog}
 			onRetryFilesCatalog={props.onRetryFilesCatalog}
 			projectRowSecurity={props.projectRowSecurity ?? EMPTY_PROJECT_ROW_SECURITY}
+			projectColumnSecurity={props.projectColumnSecurity ?? EMPTY_PROJECT_COLUMN_SECURITY}
 			securityState={props.securityState ?? 'ready'}
 			onRetrySecurity={props.onRetrySecurity}
 			activeTab={activeTab}

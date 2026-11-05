@@ -182,6 +182,9 @@ const projectColumnSecuritySchema = z
 			.max(10_000),
 	})
 	.strict();
+const updateProjectColumnSecuritySchema = projectColumnSecuritySchema.extend({
+	expectedCurrent: projectColumnSecuritySchema.optional(),
+});
 const userGroupColumnPoliciesSchema = z
 	.object({
 		version: z.literal(1),
@@ -331,16 +334,22 @@ export const userGroupRoutes = {
 	}),
 
 	updateColumnSecurity: adminProtectedProcedure
-		.input(projectColumnSecuritySchema)
+		.input(updateProjectColumnSecuritySchema)
 		.mutation(async ({ ctx, input }) => {
-			const columnSecurity = normalizeProjectColumnSecurity(input);
+			const columnSecurity = normalizeProjectColumnSecurity({ version: input.version, tables: input.tables });
+			const expectedCurrent =
+				input.expectedCurrent === undefined ? undefined : normalizeProjectColumnSecurity(input.expectedCurrent);
 			await assertColumnSecurityChangeAllowed(ctx.project.id, columnSecurity);
 			await validateProjectColumnSecurityCatalog(
 				ctx.project.id,
 				requireProjectPath(ctx.project.path),
 				columnSecurity,
 			);
-			return handleQuery(() => userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity));
+			return handleQuery(() =>
+				expectedCurrent === undefined
+					? userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity)
+					: userGroupQueries.updateProjectColumnSecurity(ctx.project.id, columnSecurity, expectedCurrent),
+			);
 		}),
 
 	rowSecurity: adminProtectedProcedure.query(async ({ ctx }) => {

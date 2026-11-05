@@ -265,12 +265,17 @@ export const getProjectColumnSecurity = async (projectId: string): Promise<Proje
 export const updateProjectColumnSecurity = async (
 	projectId: string,
 	columnSecurity: ProjectColumnSecurity,
+	expectedCurrent?: ProjectColumnSecurity,
 ): Promise<ProjectColumnSecurity> => {
 	const normalized = serializeProjectColumnSecurity(columnSecurity);
 	if (dbConfig.dialect === Dialect.Postgres) {
-		await db.transaction((transaction) => updatePostgresProjectColumnSecurity(transaction, projectId, normalized));
+		await db.transaction((transaction) =>
+			updatePostgresProjectColumnSecurity(transaction, projectId, normalized, expectedCurrent),
+		);
 	} else {
-		db.transaction((transaction) => updateSqliteProjectColumnSecurity(transaction, projectId, normalized));
+		db.transaction((transaction) =>
+			updateSqliteProjectColumnSecurity(transaction, projectId, normalized, expectedCurrent),
+		);
 	}
 	return normalized;
 };
@@ -1163,6 +1168,7 @@ async function updatePostgresProjectColumnSecurity(
 	transaction: DBTransaction,
 	projectId: string,
 	columnSecurity: ProjectColumnSecurity,
+	expectedCurrent?: ProjectColumnSecurity,
 ): Promise<void> {
 	const projectQuery = transaction
 		.select({ id: s.project.id, columnSecurity: s.project.columnSecurity })
@@ -1173,6 +1179,7 @@ async function updatePostgresProjectColumnSecurity(
 		.for('update')
 		.execute();
 	assertProjectExists(project);
+	assertProjectColumnSecurityCurrent(expectedCurrent, parseStoredProjectColumnSecurity(project.columnSecurity));
 	const groups = await transaction
 		.select({ id: s.userGroup.id, columnPolicies: s.userGroup.columnPolicies })
 		.from(s.userGroup)
@@ -1199,14 +1206,16 @@ function updateSqliteProjectColumnSecurity(
 	transaction: DBExecutor,
 	projectId: string,
 	columnSecurity: ProjectColumnSecurity,
+	expectedCurrent?: ProjectColumnSecurity,
 ): void {
 	const [project] = transaction
-		.select({ id: s.project.id })
+		.select({ id: s.project.id, columnSecurity: s.project.columnSecurity })
 		.from(s.project)
 		.where(eq(s.project.id, projectId))
 		.limit(1)
 		.all();
 	assertProjectExists(project);
+	assertProjectColumnSecurityCurrent(expectedCurrent, parseStoredProjectColumnSecurity(project.columnSecurity));
 	const groups = transaction
 		.select({ id: s.userGroup.id, columnPolicies: s.userGroup.columnPolicies })
 		.from(s.userGroup)
@@ -1247,6 +1256,22 @@ function pruneInvalidColumnPolicies(
 	});
 	const normalized = serializeUserGroupColumnPolicies({ version: 1, policies });
 	return JSON.stringify(normalized) === JSON.stringify(current) ? null : normalized;
+}
+
+function assertProjectColumnSecurityCurrent(
+	expected: ProjectColumnSecurity | undefined,
+	current: ProjectColumnSecurity,
+): void {
+	if (
+		expected !== undefined &&
+		JSON.stringify(serializeProjectColumnSecurity(expected)) !==
+			JSON.stringify(serializeProjectColumnSecurity(current))
+	) {
+		throw new UserGroupQueryError(
+			'CONFLICT',
+			'Sensitive fields changed while they were being edited. Review the current settings and try again.',
+		);
+	}
 }
 
 function assertProjectExists(project: { id: string } | undefined): asserts project is { id: string } {

@@ -276,6 +276,32 @@ describe('user group routes', () => {
 		});
 	});
 
+	it('passes the expected column registry revision into updates', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const expectedCurrent = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		};
+		const next = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost', 'margin'] }],
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue(expectedCurrent);
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['cost', 'margin'] }],
+		});
+
+		await createCaller().updateColumnSecurity({ ...next, expectedCurrent });
+
+		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', next, expectedCurrent);
+	});
+
 	it('allows unlicensed column-security removal but rejects new restrictions', async () => {
 		const orders = {
 			databaseType: 'duckdb',

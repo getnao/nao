@@ -54,29 +54,44 @@ export function ProjectColumnSecurity({
 	const registry = normalizeProjectColumnSecurity(security.data ?? EMPTY_PROJECT_COLUMN_SECURITY);
 	const isLicensed = license.data?.['row-level-security'] === true;
 	const [dialog, setDialog] = useState<ColumnSecurityDialog | null>(null);
+	const [dialogBase, setDialogBase] = useState<ProjectColumnSecurity>(EMPTY_PROJECT_COLUMN_SECURITY);
 	const [dialogDraft, setDialogDraft] = useState<ProjectColumnSecurity>(EMPTY_PROJECT_COLUMN_SECURITY);
 	const [search, setSearch] = useState('');
 	const [manualExpandedKeys, setManualExpandedKeys] = useState<Set<string>>(() => new Set());
 	const [removeTarget, setRemoveTarget] = useState<SensitiveColumnDefinition | null>(null);
 	const visibleObjects = useMemo(() => filterObjects(objects, search), [objects, search]);
-	const unavailableByTable = new Map(
-		getUnavailableDefinitions(registry, objects).map((definition) => [tableKey(definition), definition]),
-	);
+	const unavailableByTable =
+		catalogState === 'ready'
+			? new Map(
+					getUnavailableDefinitions(registry, objects).map((definition) => [
+						tableKey(definition),
+						definition,
+					]),
+				)
+			: new Map<string, SensitiveColumnDefinition>();
 	const columnCount = registry.tables.reduce((total, table) => total + table.restrictedColumns.length, 0);
 	const draftColumnCount = dialogDraft.tables.reduce((total, table) => total + table.restrictedColumns.length, 0);
 
 	const openAddDialog = () => {
-		setDialogDraft(cloneColumnSecurity(registry));
+		const snapshot = cloneColumnSecurity(registry);
+		setDialogBase(snapshot);
+		setDialogDraft(snapshot);
 		setSearch('');
 		setManualExpandedKeys(new Set());
 		setDialog({ mode: 'add' });
 	};
 
 	const openEditDialog = (definition: SensitiveColumnDefinition) => {
+		setDialogBase(cloneColumnSecurity(registry));
 		setDialog({
 			mode: 'edit',
 			definition: cloneDefinition(definition),
 		});
+	};
+
+	const openRemoveDialog = (definition: SensitiveColumnDefinition) => {
+		setDialogBase(cloneColumnSecurity(registry));
+		setRemoveTarget(definition);
 	};
 
 	const saveDialog = () => {
@@ -87,22 +102,28 @@ export function ProjectColumnSecurity({
 			dialog.mode === 'add'
 				? normalizeProjectColumnSecurity(dialogDraft)
 				: replaceDefinition(registry, dialog.definition);
-		update.mutate(nextRegistry, {
-			onSuccess: () => {
-				setDialog(null);
+		update.mutate(
+			{ ...nextRegistry, expectedCurrent: dialogBase },
+			{
+				onSuccess: () => {
+					setDialog(null);
+				},
 			},
-		});
+		);
 	};
 
 	const removeTable = () => {
 		if (!removeTarget) {
 			return;
 		}
-		update.mutate(replaceDefinition(registry, removeTarget, true), {
-			onSuccess: () => {
-				setRemoveTarget(null);
+		update.mutate(
+			{ ...replaceDefinition(registry, removeTarget, true), expectedCurrent: dialogBase },
+			{
+				onSuccess: () => {
+					setRemoveTarget(null);
+				},
 			},
-		});
+		);
 	};
 
 	return (
@@ -163,9 +184,10 @@ export function ProjectColumnSecurity({
 									definition={definition}
 									object={objects.find((object) => tableKey(object) === tableKey(definition))}
 									unavailable={unavailableByTable.get(tableKey(definition))}
+									catalogState={catalogState}
 									editDisabled={!isLicensed}
 									onEdit={() => openEditDialog(definition)}
-									onRemove={() => setRemoveTarget(definition)}
+									onRemove={() => openRemoveDialog(definition)}
 								/>
 							))}
 						</div>
@@ -218,6 +240,7 @@ export function ProjectColumnSecurity({
 								<StatusRow status={search ? 'No matching tables or fields.' : 'No synced tables.'} />
 							) : (
 								<ColumnSecurityTree
+									key={search}
 									objects={visibleObjects}
 									search={search}
 									draft={dialogDraft}
@@ -291,6 +314,7 @@ function RestrictedColumnSummary({
 	definition,
 	object,
 	unavailable,
+	catalogState,
 	editDisabled,
 	onEdit,
 	onRemove,
@@ -298,12 +322,13 @@ function RestrictedColumnSummary({
 	definition: SensitiveColumnDefinition;
 	object?: DatabaseContextObject;
 	unavailable?: SensitiveColumnDefinition;
+	catalogState: 'loading' | 'error' | 'ready';
 	editDisabled: boolean;
 	onEdit: () => void;
 	onRemove: () => void;
 }) {
 	const missingColumns = new Set(unavailable?.restrictedColumns ?? []);
-	const isTableUnavailable = object === undefined;
+	const isTableUnavailable = catalogState === 'ready' && object === undefined;
 	return (
 		<div className='flex items-start gap-3 p-3'>
 			<FileExplorerIcon name={definition.table} type='table' />
@@ -378,18 +403,30 @@ function ColumnSecurityTree({
 }) {
 	const databases = useMemo(() => groupDatabaseContextObjects(objects), [objects]);
 	const autoExpandedKeys = useMemo(() => getSearchExpandedKeys(databases, search), [databases, search]);
+	const [collapsedAutoExpandedKeys, setCollapsedAutoExpandedKeys] = useState<Set<string>>(() => new Set());
 	const expandedKeys = useMemo(
-		() => new Set([...manualExpandedKeys, ...autoExpandedKeys]),
-		[manualExpandedKeys, autoExpandedKeys],
+		() =>
+			new Set([...manualExpandedKeys, ...autoExpandedKeys].filter((key) => !collapsedAutoExpandedKeys.has(key))),
+		[manualExpandedKeys, autoExpandedKeys, collapsedAutoExpandedKeys],
 	);
 
 	const toggleFolder = (folder: GroupedDatabase | GroupedSchema) => {
+		const isOpen = expandedKeys.has(folder.key);
 		onManualExpandedKeysChange((current) => {
 			const next = new Set(current);
-			if (current.has(folder.key)) {
+			if (isOpen) {
 				removeExpandedSubtree(next, folder.key, '\0');
 			} else {
 				next.add(folder.key);
+			}
+			return next;
+		});
+		setCollapsedAutoExpandedKeys((current) => {
+			const next = new Set(current);
+			if (isOpen && autoExpandedKeys.has(folder.key)) {
+				next.add(folder.key);
+			} else {
+				next.delete(folder.key);
 			}
 			return next;
 		});
@@ -397,12 +434,22 @@ function ColumnSecurityTree({
 
 	const toggleTable = (object: DatabaseContextObject) => {
 		const key = tableKey(object);
+		const isOpen = expandedKeys.has(key);
 		onManualExpandedKeysChange((current) => {
 			const next = new Set(current);
-			if (next.has(key)) {
+			if (isOpen) {
 				next.delete(key);
 			} else {
 				next.add(key);
+			}
+			return next;
+		});
+		setCollapsedAutoExpandedKeys((current) => {
+			const next = new Set(current);
+			if (isOpen && autoExpandedKeys.has(key)) {
+				next.add(key);
+			} else {
+				next.delete(key);
 			}
 			return next;
 		});
@@ -569,6 +616,8 @@ function ColumnSecurityTableNode({
 	onChange: (column: string, checked: boolean) => void;
 }) {
 	const restricted = new Set(definition?.restrictedColumns ?? []);
+	const syncedColumns = object.columns ?? [];
+	const columns = [...new Set([...syncedColumns, ...(definition?.restrictedColumns ?? [])])];
 	const panelId = `column-security-table-${toDomId(tableKey(object))}`;
 	return (
 		<li>
@@ -591,7 +640,7 @@ function ColumnSecurityTableNode({
 			</button>
 			{open && (
 				<ul id={panelId} className='bg-muted/20 py-1'>
-					{(object.columns ?? []).length === 0 ? (
+					{columns.length === 0 ? (
 						<li
 							className='py-2 pr-2 text-xs text-muted-foreground'
 							style={{ paddingLeft: `${getTreeNodePadding(depth + 1) + 22}px` }}
@@ -599,7 +648,7 @@ function ColumnSecurityTableNode({
 							No synced fields available.
 						</li>
 					) : (
-						(object.columns ?? []).map((column) => (
+						columns.map((column) => (
 							<li key={column}>
 								<label
 									className='flex h-8 cursor-pointer items-center gap-2 pr-2 text-sm hover:bg-muted/50'
@@ -611,6 +660,11 @@ function ColumnSecurityTableNode({
 										onCheckedChange={(checked) => onChange(column, checked === true)}
 									/>
 									<span className='min-w-0 flex-1 truncate'>{column}</span>
+									{!syncedColumns.includes(column) && (
+										<Badge variant='outline' className='text-muted-foreground'>
+											Unavailable
+										</Badge>
+									)}
 								</label>
 							</li>
 						))

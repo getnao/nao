@@ -394,6 +394,8 @@ function EffectiveColumnSecurity({
 				<SecurityStatus message='Loading sensitive fields...' />
 			) : state === 'error' ? (
 				<SecurityStatus message='Failed to load sensitive fields' onRetry={onRetry} />
+			) : projectColumnSecurity.tables.length > 0 && accessible.tables.length === 0 ? (
+				<RowSecurityEmptyState message='No tables with sensitive fields are available to this user.' />
 			) : (
 				<ResolvedColumnSecurity security={resolveWarehouseColumnSecurity(accessible, groupPolicies)} />
 			)}

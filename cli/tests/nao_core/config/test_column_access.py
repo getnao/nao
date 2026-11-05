@@ -139,6 +139,30 @@ def test_group_policy_does_not_enable_static_exclusions(project_path: Path):
         )
 
 
+@pytest.mark.parametrize("schemas", [{}, {"main": {"users": []}}])
+def test_group_policy_requires_non_empty_catalog_metadata(
+    tmp_path: Path,
+    schemas: dict[str, dict[str, list[str]]],
+):
+    config = FakeDatabaseConfig([])
+    write_catalog(tmp_path, config, schemas)
+    policies = {("main", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    with pytest.raises(ColumnAccessError, match="column metadata is unavailable"):
+        validate_column_access("SELECT * FROM users", config, tmp_path, column_security_policies=policies)
+
+
+def test_case_insensitive_policy_ambiguity_is_blocked(project_path: Path):
+    config = FakeDatabaseConfig([])
+    policies = {
+        ("main", "users"): {"access": "restricted", "denied_columns": ["email"]},
+        ("MAIN", "USERS"): {"access": "blocked", "reason": "Blocked"},
+    }
+
+    with pytest.raises(ColumnAccessError, match="multiple column-security policies"):
+        validate_column_access("SELECT id FROM main.users", config, project_path, column_security_policies=policies)
+
+
 def test_blocked_column_security_table_is_blocked(project_path: Path):
     config = FakeDatabaseConfig([])
     policies = {("main", "users"): {"access": "blocked", "reason": "Enterprise license inactive."}}
