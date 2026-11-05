@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from nao_core.commands.sync.rules_template import RulesTemplateError, render_rul
 MAX_PROJECT_RULES_CHARS = 20_000
 MAX_TABLE_ANNOTATIONS_CHARS = 10_000
 TRUNCATION_NOTICE = "\n[... truncated]"
+
+_FRONT_MATTER = re.compile(r"\A---[ \t]*\r?\n(?:.*?\r?\n)?---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
 
 
 def load_project_rules(project_path: Path, warn: Callable[[str], None]) -> str | None:
@@ -59,11 +62,8 @@ def render_shared_rules(source: str) -> str:
 
 
 def strip_front_matter(content: str) -> str:
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) == 3:
-            return parts[2]
-    return content
+    front_matter = _FRONT_MATTER.match(content)
+    return content[front_matter.end() :] if front_matter else content
 
 
 def _bounded(label: str, text: str, max_chars: int, warn: Callable[[str], None]) -> str | None:

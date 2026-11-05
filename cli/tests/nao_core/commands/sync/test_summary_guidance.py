@@ -10,6 +10,7 @@ from nao_core.commands.sync.providers.databases.summary_guidance import (
     load_project_rules,
     load_table_annotations,
     render_shared_rules,
+    strip_front_matter,
 )
 from nao_core.commands.sync.rules_template import RulesTemplateError
 
@@ -66,6 +67,33 @@ class TestLoadProjectRules:
         assert load_project_rules(tmp_path, warnings.append) is None
         assert len(warnings) == 1
         assert "matching endif" in warnings[0]
+
+
+class TestStripFrontMatter:
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            ("---\ntype: manual\n---\nBody\n", "Body\n"),
+            ("---\r\ntype: manual\r\n---\r\nBody\r\n", "Body\r\n"),
+            ("---\n---\nBody\n", "Body\n"),
+            ("---\ntype: manual\n---\nKeep this.\n\n---\n\nAnd this.\n", "Keep this.\n\n---\n\nAnd this.\n"),
+        ],
+        ids=["standard", "crlf", "empty", "horizontal-rule-in-body"],
+    )
+    def test_strips_a_leading_front_matter_block(self, content: str, expected: str):
+        assert strip_front_matter(content) == expected
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "----\nDo not use legacy_flag.\n----\nAmounts are in cents.\n",
+            "---\nNo closing delimiter.\n",
+            "--- title\nBody\n---\n",
+        ],
+        ids=["longer-horizontal-rules", "unclosed", "text-after-opening-delimiter"],
+    )
+    def test_keeps_content_without_a_front_matter_block(self, content: str):
+        assert strip_front_matter(content) == content
 
 
 class TestLoadTableAnnotations:
