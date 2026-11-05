@@ -651,6 +651,33 @@ describe('cloud Checkout', () => {
 		);
 	});
 
+	it('starts an initial subscription immediately when no trial has started', async () => {
+		stripeMocks.createCheckoutSession.mockResolvedValue({
+			url: 'https://checkout.stripe.com/immediate',
+		});
+
+		await expect(
+			createCloudCheckoutSession({
+				billingInterval: 'monthly',
+				organizationId: 'org-id',
+				stripeCustomerId: 'cus_cloud',
+			}),
+		).resolves.toBe('https://checkout.stripe.com/immediate');
+
+		const [params, options] = stripeMocks.createCheckoutSession.mock.calls[0] as [
+			Stripe.Checkout.SessionCreateParams,
+			{ idempotencyKey: string },
+		];
+		expect(params.subscription_data).toEqual({
+			metadata: { nao_org_id: 'org-id', nao_plan_key: 'cloud_monthly_v2' },
+		});
+		expect(params.metadata).not.toHaveProperty('nao_trial_end');
+		expect(params.custom_text?.submit?.message).toBe(
+			'Your free trial has not started. By subscribing now, your subscription starts when you confirm and the recurring price shown, including any promotion code discount, is charged today.',
+		);
+		expect(options.idempotencyKey).toBe('cloud-checkout-initial-v12:org-id:cloud_monthly_v2:usd:before-trial');
+	});
+
 	it('starts the same EUR trial with the configured yearly Price when selected', async () => {
 		stripeMocks.createCheckoutSession.mockResolvedValue({
 			url: 'https://checkout.stripe.com/yearly-trial',
