@@ -33,6 +33,7 @@ from nao_core.commands.sync.cleanup import (
 )
 from nao_core.commands.sync.markers import ensure_annotations_file, with_generated_marker
 from nao_core.commands.sync.providers.databases.query_history import TableUsageStats, compute_table_usage
+from nao_core.commands.sync.providers.databases.summary_guidance import load_project_rules, load_table_annotations
 from nao_core.config import AnyDatabaseConfig, NaoConfig
 from nao_core.config.databases.base import (
     DatabaseConfig,
@@ -289,6 +290,8 @@ def sync_database(
     templates = _filter_templates_by_config(engine.list_templates(TEMPLATE_PREFIX), db_config)
 
     has_query_history = DatabaseTemplate.QUERY_HISTORY in db_config.templates
+    context_project_path = project_path if project_path is not None else base_path.parent
+    project_rules = _load_project_rules_for_summary(db_config, context_project_path)
 
     t_connect = time.monotonic()
     conn = db_config.connect()
@@ -357,7 +360,7 @@ def sync_database(
             dialect = db_config.type if db_config.type != "duckdb" else None
             usage_stats = compute_table_usage(raw_queries, selected_tables, dialect=dialect)
 
-        render = partial(render_table, db_config, conn, engine, templates, nao_ctx, db_path, usage_stats)
+        render = partial(render_table, db_config, conn, engine, templates, nao_ctx, db_path, usage_stats, project_rules)
         if pool is not None:
             table_futures = {
                 schema: [pool.submit(render, schema, table) for table in tables]
@@ -439,12 +442,11 @@ def sync_database(
             state.render_errors = total_errors
             UI.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
 
-        catalog_project_path = project_path if project_path is not None else base_path.parent
         _save_column_catalog(
             state,
             db_config,
             db_folder,
-            catalog_project_path,
+            context_project_path,
             partial=bool(select),
             preserved_schemas=failed_schemas,
             preserved_tables=failed_tables,
@@ -473,6 +475,7 @@ def render_table(
     nao_ctx: NaoContext | None,
     db_path: Path,
     usage_stats: dict[str, TableUsageStats],
+    project_rules: str | None,
     schema: str,
     table: str,
 ) -> RenderedTable:
@@ -528,6 +531,8 @@ def render_table(
                 continue
             extra_ctx["profiling"] = profiling_data
             extra_ctx["computed_at"] = datetime.now(timezone.utc).isoformat()
+            extra_ctx["project_rules"] = project_rules
+            extra_ctx["table_annotations"] = _load_table_annotations_for_summary(table_path, messages)
 
         t_render = time.monotonic()
         try:
@@ -559,6 +564,27 @@ def render_table(
             output_file.write_text(with_generated_marker(content))
 
     return RenderedTable(columns=ctx.all_columns(), errors=errors, messages=messages)
+
+
+def _load_project_rules_for_summary(db_config: AnyDatabaseConfig, project_path: Path) -> str | None:
+    if DatabaseTemplate.AI_SUMMARY not in db_config.templates:
+        return None
+    warnings: list[str] = []
+    project_rules = load_project_rules(project_path, warnings.append)
+    for warning in warnings:
+        UI.print(_format_summary_guidance_warning(warning))
+    return project_rules
+
+
+def _load_table_annotations_for_summary(table_path: Path, messages: list[str]) -> str | None:
+    warnings: list[str] = []
+    table_annotations = load_table_annotations(table_path, warnings.append)
+    messages.extend(_format_summary_guidance_warning(warning) for warning in warnings)
+    return table_annotations
+
+
+def _format_summary_guidance_warning(warning: str) -> str:
+    return f"    [yellow]⚠[/yellow] [dim]{escape(warning)}[/dim]"
 
 
 class DatabaseSyncProvider(SyncProvider):

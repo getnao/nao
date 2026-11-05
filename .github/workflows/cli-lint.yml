@@ -4,9 +4,11 @@ on:
     push:
         paths:
             - 'cli/**'
+            - 'apps/shared/src/rules-template.fixtures.json'
     pull_request:
         paths:
             - 'cli/**'
+            - 'apps/shared/src/rules-template.fixtures.json'
 
 jobs:
     ruff:

@@ -54,6 +54,25 @@ def _bedrock_llm(*, aws_region: str) -> LLMConfig:
     )
 
 
+def _render_ai_summary_instruction(**guidance) -> str:
+    engine = TemplateEngine(llm_config=_openai_llm(api_key="sk-test", annotation_model="gpt-4.1-mini"))
+    mock_db = MagicMock()
+    mock_db.columns.return_value = [{"name": "id", "type": "int64", "description": None}]
+    mock_db.description.return_value = None
+    mock_db.preview.return_value = []
+
+    with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
+        engine.render(
+            "databases/ai_summary.md.j2",
+            table_name="customers",
+            dataset="main",
+            db=mock_db,
+            profiling=None,
+            **guidance,
+        )
+    return mock_generate.call_args.args[1]
+
+
 class TestTemplateEngine:
     """Tests for the TemplateEngine class."""
 
@@ -332,6 +351,39 @@ class TestTemplateEngine:
         assert "Profiling statistics (JSON)" not in instruction
         assert "# customers - AI Summary" in result
         mock_db.profiling.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "guidance",
+        [{}, {"project_rules": None, "table_annotations": None}],
+        ids=["undefined", "none"],
+    )
+    def test_ai_summary_omits_rules_section_without_rules_or_annotations(self, guidance: dict):
+        instruction = _render_ai_summary_instruction(**guidance)
+
+        assert "Project rules and table annotations" not in instruction
+        assert "<project_rules>" not in instruction
+        assert "<table_annotations>" not in instruction
+
+    def test_ai_summary_treats_rules_and_annotations_as_authoritative(self):
+        instruction = _render_ai_summary_instruction(
+            project_rules="- Don't use legacy_flag, data is invalid.",
+            table_annotations="state is the current status.",
+        )
+
+        assert "they are authoritative" in instruction
+        assert "Never contradict them." in instruction
+        assert "Never recommend a column, join, filter or calculation that they forbid" in instruction
+        assert "Do not invent business definitions" in instruction
+        assert "<project_rules>\n- Don't use legacy_flag, data is invalid.\n</project_rules>" in instruction
+        assert "<table_annotations>\nstate is the current status.\n</table_annotations>" in instruction
+        assert instruction.index("<project_rules>") < instruction.index("Preview (a tiny")
+
+    def test_ai_summary_includes_annotations_without_project_rules(self):
+        instruction = _render_ai_summary_instruction(project_rules=None, table_annotations="Amounts are in cents.")
+
+        assert "they are authoritative" in instruction
+        assert "<project_rules>" not in instruction
+        assert "<table_annotations>\nAmounts are in cents.\n</table_annotations>" in instruction
 
     def test_user_override_takes_precedence(self, tmp_path: Path):
         """User templates override default templates."""
