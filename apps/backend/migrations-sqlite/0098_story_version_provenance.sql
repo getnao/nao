@@ -25,7 +25,7 @@ WITH `story_tool_part` AS MATERIALIZED (
 	FROM `story_version`
 	INNER JOIN `story` ON `story`.`id` = `story_version`.`story_id`
 	INNER JOIN `story_tool_part` ON json_extract(`story_tool_part`.`tool_output`, '$.version') = `story_version`.`version`
-		AND `story_tool_part`.`created_at` BETWEEN `story_version`.`created_at` AND `story_version`.`created_at` + 120000
+		AND `story_tool_part`.`created_at` >= `story_version`.`created_at`
 	WHERE `story_version`.`origin` IS NULL
 		AND `story_version`.`source` = 'assistant'
 		AND (
