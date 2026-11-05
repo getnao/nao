@@ -188,6 +188,18 @@ export async function listRunsOfTest(projectId: string, testPath: string, limit:
 	return selectRunsWithAuthor(and(eq(s.testRun.projectId, projectId), selectionIncludes(testPath)), limit);
 }
 
+export async function findRunOfTest(
+	projectId: string,
+	testPath: string,
+	runId: string,
+): Promise<TestRunWithAuthor | undefined> {
+	const [run] = await selectRunsWithAuthor(
+		and(eq(s.testRun.projectId, projectId), eq(s.testRun.id, runId), selectionIncludes(testPath)),
+		1,
+	);
+	return run;
+}
+
 /**
  * The production attempts of some models on some tests, in the latest completed runs of the test suite created before
  * a date, newest run first.

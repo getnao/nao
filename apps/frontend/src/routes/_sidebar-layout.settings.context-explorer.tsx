@@ -42,7 +42,7 @@ import { trpc } from '@/main';
 const contentSearchStorage = createLocalStorage<boolean>('nao-file-explorer-content-search', true);
 
 type ViewerTarget = (
-	| { type: 'file'; path: string; openSource: boolean }
+	| { type: 'file'; path: string; openSource: boolean; testRun?: string }
 	| { type: 'diff'; path: string }
 	| { type: 'empty' }
 ) & { closedTestTab?: string };
@@ -220,9 +220,9 @@ function ContextExplorerPage() {
 		setTestDrawerOpenRequestId((current) => current + 1);
 	};
 
-	const selectTestTab = (testPath: string | null) => {
+	const selectTestTab = (testPath: string | null, runId?: string) => {
 		if (testPath === null || testPath === editorTestPath) {
-			navigateTestDrawer({ test: testPath ?? undefined });
+			navigateTestDrawer({ test: testPath ?? undefined, testRun: runId });
 			return;
 		}
 		requestViewerTarget({ type: 'file', path: testPath, openSource: false });
@@ -249,10 +249,10 @@ function ContextExplorerPage() {
 	};
 
 	/** The Tests drawer follows the file in the editor: a test shows its tab, any other file all the tests. */
-	const syncTestDrawerWithFile = (path: string | null) => {
+	const syncTestDrawerWithFile = (path: string | null, testRun?: string) => {
 		if (path && isTestFilePath(path)) {
 			openedTestTabs.openTab(path);
-			navigateTestDrawer({ test: path });
+			navigateTestDrawer({ test: path, testRun });
 		} else if (activeTestPath) {
 			navigateTestDrawer({});
 		}
@@ -271,7 +271,7 @@ function ContextExplorerPage() {
 		}
 		if (target.type === 'file') {
 			showFile(target.path);
-			syncTestDrawerWithFile(target.path);
+			syncTestDrawerWithFile(target.path, target.testRun);
 			if (target.openSource) {
 				requestSourceAutoOpen(target.path);
 			}
@@ -459,7 +459,9 @@ function ContextExplorerPage() {
 						onCloseTab={closeTestTab}
 						onMoveTab={openedTestTabs.moveTab}
 						onSelectRun={selectTestRun}
-						onOpenTest={(path) => requestViewerTarget({ type: 'file', path, openSource: false })}
+						onOpenTest={(path, testRun) =>
+							requestViewerTarget({ type: 'file', path, openSource: false, testRun })
+						}
 					>
 						<div className='h-full bg-background'>
 							{historicalDiff ? (

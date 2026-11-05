@@ -1,3 +1,5 @@
+import { ArrowDown, ArrowUp } from 'lucide-react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import type { TestModelSummary, TestRunWithResults } from '@/components/settings/test-run-types';
@@ -7,22 +9,42 @@ import {
 	formatCount,
 	formatDuration,
 	formatPassRate,
+	formatTestModel,
 	formatUnitCost,
 	getAccuracy,
 	testModelKey,
 } from '@/components/settings/test-run-types';
 import { cn } from '@/lib/utils';
 
-/** Below this many attempts per model, a gap of one test between two models says little. */
-const SMALL_SAMPLE_ATTEMPTS = 10;
+type SortDirection = 'ascending' | 'descending';
 
-interface LeaderboardColumn {
+interface LeaderboardSort {
+	column: string;
+	direction: SortDirection;
+}
+
+/** A column the table sorts by, from its best value first on the first click. */
+interface SortableColumn {
 	label: string;
+	title?: string;
+	value: (summary: TestModelSummary) => number | string | null;
+	best: 'highest' | 'lowest';
+}
+
+interface LeaderboardColumn extends SortableColumn {
 	title: string;
 	value: (summary: TestModelSummary) => number | null;
 	format: (value: number | null, summary: TestModelSummary) => ReactNode;
-	best: 'highest' | 'lowest';
 }
+
+const MODEL_COLUMN: SortableColumn = { label: 'Model', value: formatTestModel, best: 'lowest' };
+
+const ACCURACY_COLUMN: SortableColumn = {
+	label: 'Accuracy',
+	title: 'Share of the attempts that passed',
+	value: getAccuracy,
+	best: 'highest',
+};
 
 const LEADERBOARD_COLUMNS: LeaderboardColumn[] = [
 	{
@@ -70,31 +92,37 @@ const LEADERBOARD_COLUMNS: LeaderboardColumn[] = [
 ];
 
 /**
- * The models of a run side by side, most accurate first, with the best value of each metric highlighted, under the
- * chart of their accuracy against their cost.
+ * The models of a run side by side, most accurate first unless sorted by a column, with the best value of each metric
+ * highlighted, under the chart of their accuracy against their cost.
  */
 export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
+	const [sort, setSort] = useState<LeaderboardSort | null>(null);
 	const summaries = run.modelSummaries;
 	const mostAccurate = summaries.at(0);
 	const bestValue = pickBest(summaries, (summary) => summary.costPerCorrectAnswer, 'lowest');
-	const isSmallSample = summaries.some((summary) => summary.attempts < SMALL_SAMPLE_ATTEMPTS);
+	const sortedSummaries = sortSummaries(summaries, sort);
+	const toggleSort = (column: SortableColumn) => setSort((current) => nextSort(current, column));
 	return (
 		<div className='border-b'>
 			<ModelFrontierChart run={run} />
 			<table className='w-full text-xs'>
 				<thead>
-					<tr className='border-b text-left text-[11px] text-muted-foreground'>
-						<th className='px-3 py-1.5 font-medium'>Model</th>
-						<th className='px-3 py-1.5 font-medium'>Accuracy</th>
+					<tr className='text-left text-[11px] text-muted-foreground'>
+						<SortableHeader column={MODEL_COLUMN} sort={sort} onSort={toggleSort} />
+						<SortableHeader column={ACCURACY_COLUMN} sort={sort} onSort={toggleSort} />
 						{LEADERBOARD_COLUMNS.map((column) => (
-							<th key={column.label} className='px-3 py-1.5 text-right font-medium' title={column.title}>
-								{column.label}
-							</th>
+							<SortableHeader
+								key={column.label}
+								column={column}
+								sort={sort}
+								onSort={toggleSort}
+								isNumeric
+							/>
 						))}
 					</tr>
 				</thead>
 				<tbody>
-					{summaries.map((summary) => (
+					{sortedSummaries.map((summary) => (
 						<tr key={testModelKey(summary)} className='border-b last:border-b-0'>
 							<td className='px-3 py-1.5'>
 								<span className='flex items-center gap-2'>
@@ -134,13 +162,48 @@ export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
 					))}
 				</tbody>
 			</table>
-			{isSmallSample && (
-				<p className='px-3 pb-2 text-[11px] text-muted-foreground'>
-					Few attempts per model: a gap of one test between two models may be chance. Add attempts to tell
-					them apart.
-				</p>
-			)}
 		</div>
+	);
+}
+
+/** Sticks under the header of the run while the table scrolls, the bottom border drawn as a shadow to stick along. */
+function SortableHeader({
+	column,
+	sort,
+	onSort,
+	isNumeric = false,
+}: {
+	column: SortableColumn;
+	sort: LeaderboardSort | null;
+	onSort: (column: SortableColumn) => void;
+	isNumeric?: boolean;
+}) {
+	const direction = sort?.column === column.label ? sort.direction : null;
+	const DirectionIcon = direction === 'ascending' ? ArrowUp : ArrowDown;
+	return (
+		<th
+			className={cn(
+				'sticky top-9 z-[5] bg-background px-3 py-1.5 font-medium shadow-[inset_0_-1px_0_var(--border)]',
+				isNumeric && 'text-right',
+			)}
+			title={column.title}
+			aria-sort={direction ?? undefined}
+		>
+			<button
+				type='button'
+				onClick={() => onSort(column)}
+				className={cn(
+					'group inline-flex cursor-pointer items-center gap-1 hover:text-foreground',
+					isNumeric && 'flex-row-reverse',
+					direction && 'text-foreground',
+				)}
+			>
+				{column.label}
+				<DirectionIcon
+					className={cn('size-3 shrink-0', direction ? 'opacity-100' : 'opacity-0 group-hover:opacity-50')}
+				/>
+			</button>
+		</th>
 	);
 }
 
@@ -171,4 +234,42 @@ function pickBest(
 		.filter((entry): entry is { summary: TestModelSummary; value: number } => entry.value !== null)
 		.sort((left, right) => (best === 'highest' ? right.value - left.value : left.value - right.value));
 	return ranked.at(0)?.summary;
+}
+
+/** Sorts by a column from its best value, then the other way, then back to the order of the run. */
+function nextSort(current: LeaderboardSort | null, column: SortableColumn): LeaderboardSort | null {
+	const firstDirection: SortDirection = column.best === 'highest' ? 'descending' : 'ascending';
+	if (current?.column !== column.label) {
+		return { column: column.label, direction: firstDirection };
+	}
+	if (current.direction === firstDirection) {
+		return { column: column.label, direction: firstDirection === 'ascending' ? 'descending' : 'ascending' };
+	}
+	return null;
+}
+
+/** Orders the models by the sorted column, the ones without a value last whatever the direction. */
+function sortSummaries(summaries: TestModelSummary[], sort: LeaderboardSort | null): TestModelSummary[] {
+	const column = [MODEL_COLUMN, ACCURACY_COLUMN, ...LEADERBOARD_COLUMNS].find(
+		(candidate) => candidate.label === sort?.column,
+	);
+	if (!sort || !column) {
+		return summaries;
+	}
+	const sign = sort.direction === 'ascending' ? 1 : -1;
+	return [...summaries].sort((left, right) => {
+		const leftValue = column.value(left);
+		const rightValue = column.value(right);
+		if (leftValue === null || rightValue === null) {
+			return Number(leftValue === null) - Number(rightValue === null);
+		}
+		return sign * compareValues(leftValue, rightValue);
+	});
+}
+
+function compareValues(left: number | string, right: number | string): number {
+	if (typeof left === 'number' && typeof right === 'number') {
+		return left - right;
+	}
+	return String(left).localeCompare(String(right), undefined, { numeric: true });
 }

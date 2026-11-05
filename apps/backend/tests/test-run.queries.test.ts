@@ -9,6 +9,7 @@ import {
 	cancelRun,
 	createRunUnlessActive,
 	failStaleRuns,
+	findRunOfTest,
 	getRunStatus,
 	listResultOutcomes,
 	listRunsOfTest,
@@ -131,6 +132,14 @@ describe('test run queries', () => {
 
 		expect(runs.map((run) => run.id)).toEqual([newer.id, older.id]);
 		expect(await listRunsOfTest(PROJECT_ID, 'revenue.yml', 1)).toHaveLength(1);
+	});
+
+	it('finds a run of a test by its id, only when the run selected that test', async () => {
+		const run = (await createRunUnlessActive({ ...RUN_INPUT, selection: ['revenue.yml', 'orders.yml'] }))!;
+
+		expect((await findRunOfTest(PROJECT_ID, 'revenue.yml', run.id))?.id).toBe(run.id);
+		expect(await findRunOfTest(PROJECT_ID, 'churn.yml', run.id)).toBeUndefined();
+		expect(await findRunOfTest('another-project', 'revenue.yml', run.id)).toBeUndefined();
 	});
 
 	it('totals the attempts of each test of a comparison run per context variant', async () => {

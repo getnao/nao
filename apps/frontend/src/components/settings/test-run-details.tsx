@@ -1,5 +1,5 @@
 import { isSameTestModel, testResultModel } from '@nao/backend/test-run';
-import { History } from 'lucide-react';
+import { History, ListTree } from 'lucide-react';
 import { useState } from 'react';
 
 import type { TestModel } from '@nao/backend/test-run';
@@ -32,11 +32,13 @@ export function RunDetails({
 	run,
 	isOutdated,
 	branches,
+	onOpenSuiteRun,
 }: {
 	run: TestHistoryRun;
 	/** The run tested an older version of the test shown. */
 	isOutdated: boolean;
 	branches: RunBranches;
+	onOpenSuiteRun: (runId: string) => void;
 }) {
 	const hasSeveralModels = run.models.length > 1;
 	const [selectedModel, setSelectedModel] = useState<TestModel>(() => pickModelToShow(run));
@@ -49,7 +51,7 @@ export function RunDetails({
 
 	return (
 		<div className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
-			<RunHeader run={run} branches={branches} />
+			<RunHeader run={run} branches={branches} onOpenSuiteRun={onOpenSuiteRun} />
 			{hasSeveralModels && (
 				<TestModelStrip
 					run={run}
@@ -94,8 +96,17 @@ export function RunDetails({
 	);
 }
 
-function RunHeader({ run, branches }: { run: TestHistoryRun; branches: RunBranches }) {
+function RunHeader({
+	run,
+	branches,
+	onOpenSuiteRun,
+}: {
+	run: TestHistoryRun;
+	branches: RunBranches;
+	onOpenSuiteRun: (runId: string) => void;
+}) {
 	const verdict = describeRun(run);
+	const runTestCount = run.selection?.length ?? 0;
 	return (
 		<PanelHeader className={cn('gap-2 text-xs', LIGHT_HEADER_BORDER_CLASS)}>
 			<ToneIcon tone={verdict.tone} />
@@ -109,6 +120,17 @@ function RunHeader({ run, branches }: { run: TestHistoryRun; branches: RunBranch
 					<span className='text-muted-foreground'>→</span>
 					<VariantPill run={run} variant='draft' branch={branches.changes} />
 				</span>
+			)}
+			{runTestCount > 1 && (
+				<button
+					type='button'
+					onClick={() => onOpenSuiteRun(run.id)}
+					title='Open this run with all its tests'
+					className='flex shrink-0 cursor-pointer items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
+				>
+					<ListTree className='size-3' />
+					All {runTestCount} tests of the run
+				</button>
 			)}
 		</PanelHeader>
 	);

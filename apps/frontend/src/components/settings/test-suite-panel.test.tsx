@@ -144,6 +144,35 @@ describe('TestSuitePanel', () => {
 		expect(stats[0].parentElement?.textContent).toBe('Passed3/3');
 	});
 
+	it('sorts the models of a run by a column, best first, then the other way, then back', async () => {
+		mocks.getRun.mockResolvedValue(
+			multiModelRun([
+				['revenue.yml', 'claude-sonnet-5', true],
+				['churn.yml', 'claude-sonnet-5', true],
+				['revenue.yml', 'claude-haiku-5', true],
+				['churn.yml', 'claude-haiku-5', false],
+			]),
+		);
+		renderPanel();
+
+		const table = (await screen.findByRole('button', { name: '$ / question' })).closest('table') as HTMLElement;
+		const listModels = () =>
+			within(table)
+				.getAllByRole('row')
+				.slice(1)
+				.map((row) => row.textContent?.match(/claude-\w+-5/)?.[0]);
+		expect(listModels()).toEqual(['claude-sonnet-5', 'claude-haiku-5']);
+
+		fireEvent.click(within(table).getByRole('button', { name: '$ / question' }));
+		expect(listModels()).toEqual(['claude-haiku-5', 'claude-sonnet-5']);
+
+		fireEvent.click(within(table).getByRole('button', { name: '$ / question' }));
+		expect(listModels()).toEqual(['claude-sonnet-5', 'claude-haiku-5']);
+
+		fireEvent.click(within(table).getByRole('button', { name: '$ / question' }));
+		expect(within(table).getByRole('columnheader', { name: '$ / question' }).getAttribute('aria-sort')).toBeNull();
+	});
+
 	it('names a run of the whole suite apart from a run of some of its tests', async () => {
 		mocks.listTests.mockResolvedValue({
 			tests: [testDefinition('revenue.yml', []), testDefinition('churn.yml', [])],
@@ -183,6 +212,37 @@ describe('TestSuitePanel', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'product' }));
 		expect(onSelectedTagsChange).toHaveBeenLastCalledWith(['finance', 'product']);
+	});
+
+	it('narrows the tests to the ones whose name or path holds the search', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [
+				testDefinition('revenue.yml', []),
+				{ ...testDefinition('churn.yml', []), name: 'customer_attrition' },
+			],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		const onSelectedPathsChange = vi.fn();
+		const onSearchChange = vi.fn();
+		renderPanel({ selectedRunId: null, search: 'ATTRITION', onSelectedPathsChange, onSearchChange });
+
+		expect(await screen.findByText('customer_attrition')).toBeTruthy();
+		expect(screen.queryByText('revenue.yml')).toBeNull();
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select the shown tests' }));
+		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set(['churn.yml']));
+
+		fireEvent.change(screen.getByRole('searchbox', { name: 'Search tests' }), { target: { value: 'rev' } });
+		expect(onSearchChange).toHaveBeenLastCalledWith('rev');
+		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set());
+
+		cleanup();
+		renderPanel({ selectedRunId: null, search: 'Churn.Y' });
+
+		expect(await screen.findByText('customer_attrition')).toBeTruthy();
+		expect(screen.queryByText('revenue.yml')).toBeNull();
 	});
 });
 
@@ -291,14 +351,18 @@ function renderPanel({
 	selectedRunId = 'run-1',
 	runs = [],
 	selectedTags = [],
+	search = '',
 	onSelectedPathsChange = vi.fn(),
 	onSelectedTagsChange = vi.fn(),
+	onSearchChange = vi.fn(),
 }: {
 	selectedRunId?: string | null;
 	runs?: TestRunSummary[];
 	selectedTags?: string[];
+	search?: string;
 	onSelectedPathsChange?: (paths: Set<string>) => void;
 	onSelectedTagsChange?: (tags: string[]) => void;
+	onSearchChange?: (search: string) => void;
 } = {}) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	return render(
@@ -308,7 +372,14 @@ function renderPanel({
 					draft={null}
 					runs={runs}
 					selectedRunId={selectedRunId}
-					selection={{ selectedPaths: new Set(), onSelectedPathsChange, selectedTags, onSelectedTagsChange }}
+					selection={{
+						selectedPaths: new Set(),
+						onSelectedPathsChange,
+						selectedTags,
+						onSelectedTagsChange,
+						search,
+						onSearchChange,
+					}}
 					onSelectRun={vi.fn()}
 					onOpenTest={vi.fn()}
 				/>

@@ -1,3 +1,5 @@
+import { ChevronRight } from 'lucide-react';
+
 import type { TestModelSummary, TestRunWithResults } from '@/components/settings/test-run-types';
 import type { TradeoffPoint, TradeoffSeries } from '@/components/settings/test-tradeoff-chart';
 import {
@@ -9,6 +11,11 @@ import {
 	testModelKey,
 } from '@/components/settings/test-run-types';
 import { TestTradeoffChart } from '@/components/settings/test-tradeoff-chart';
+import { useLocalStorage } from '@/hooks/use-local-storage';
+import { createLocalStorage } from '@/lib/local-storage';
+import { cn } from '@/lib/utils';
+
+const chartExpandedStorage = createLocalStorage<boolean>('nao-test-accuracy-cost-chart-expanded', true);
 
 interface PlottedSummary {
 	summary: TestModelSummary;
@@ -20,6 +27,7 @@ interface PlottedSummary {
  * tried at all of them, so that the cheapest effort that stays accurate stands out.
  */
 export function ModelFrontierChart({ run }: { run: TestRunWithResults }) {
+	const [isExpanded, setIsExpanded] = useLocalStorage(chartExpandedStorage);
 	const series = buildFrontierSeries(run);
 	const pointCount = series.reduce((count, entry) => count + (entry.line?.length ?? 1), 0);
 	if (pointCount < 2) {
@@ -27,13 +35,25 @@ export function ModelFrontierChart({ run }: { run: TestRunWithResults }) {
 	}
 	return (
 		<div className='border-b px-1 py-2'>
-			<span className='px-2 text-xs font-medium'>Accuracy vs. cost</span>
-			<TestTradeoffChart
-				series={series}
-				xLabel='Cost per question'
-				formatX={formatCostTick}
-				ariaLabel='Accuracy against cost per question of each model, at each reasoning effort it ran at'
-			/>
+			<button
+				type='button'
+				aria-expanded={isExpanded}
+				onClick={() => setIsExpanded(!isExpanded)}
+				className='flex cursor-pointer items-center gap-1 rounded px-2 text-xs font-medium hover:text-foreground'
+			>
+				<ChevronRight
+					className={cn('size-3 text-muted-foreground transition-transform', isExpanded && 'rotate-90')}
+				/>
+				Accuracy vs. cost
+			</button>
+			{isExpanded && (
+				<TestTradeoffChart
+					series={series}
+					xLabel='Cost per question'
+					formatX={formatCostTick}
+					ariaLabel='Accuracy against cost per question of each model, at each reasoning effort it ran at'
+				/>
+			)}
 		</div>
 	);
 }

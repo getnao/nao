@@ -1,7 +1,7 @@
 import { pluralize } from '@nao/shared';
 import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import { useQuery } from '@tanstack/react-query';
-import { CircleAlert, CircleDashed, History } from 'lucide-react';
+import { CircleAlert, CircleDashed, History, Search, X } from 'lucide-react';
 import { useState } from 'react';
 
 import type { SuiteRunScope } from '@/components/settings/test-run-actions';
@@ -15,7 +15,7 @@ import type {
 	TestSuiteListing,
 } from '@/components/settings/test-run-types';
 import { DraftContextWarnings, hasDraftContextWarnings } from '@/components/settings/test-draft-comparison';
-import { PanelHeader, RecentRunsHeader, RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
+import { PanelHeader, RecentRunsHeader, RunsColumn } from '@/components/settings/test-drawer-layout';
 import { ModelDot } from '@/components/settings/test-model-labels';
 import { TestRow } from '@/components/settings/test-row';
 import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
@@ -40,6 +40,9 @@ interface SuiteSelection {
 	onSelectedPathsChange: (paths: Set<string>) => void;
 	selectedTags: string[];
 	onSelectedTagsChange: (tags: string[]) => void;
+	/** Shows only the tests whose name or path holds it. */
+	search: string;
+	onSearchChange: (search: string) => void;
 }
 
 interface TestSuitePanelProps {
@@ -49,7 +52,7 @@ interface TestSuitePanelProps {
 	selectedRunId: string | null;
 	selection: SuiteSelection;
 	onSelectRun: (runId: string | null) => void;
-	onOpenTest: (explorerPath: string) => void;
+	onOpenTest: (explorerPath: string, runId?: string) => void;
 }
 
 export function TestSuitePanel({
@@ -72,10 +75,7 @@ export function TestSuitePanel({
 			{draft && hasDraftContextWarnings(draft) && <DraftWarningsNotice draft={draft} />}
 
 			<div className='flex min-h-0 flex-1'>
-				<nav
-					className={cn('flex shrink-0 flex-col overflow-y-auto border-r text-xs', RUNS_COLUMN_WIDTH_CLASS)}
-					aria-label='Test runs'
-				>
+				<RunsColumn label='Test runs'>
 					<RecentRunsHeader filters={runFilters} onChange={setRunFilters} />
 					{runs?.length === 0 && <span className='px-3 py-2 text-muted-foreground'>No run yet.</span>}
 					{runs && runs.length > 0 && listedRuns?.length === 0 && (
@@ -93,7 +93,7 @@ export function TestSuitePanel({
 							))}
 						</div>
 					)}
-				</nav>
+				</RunsColumn>
 
 				<div className='min-w-0 flex-1 overflow-y-auto'>
 					{selectedRunId === null ? (
@@ -108,7 +108,7 @@ export function TestSuitePanel({
 							key={selectedRunId}
 							runId={selectedRunId}
 							mainBranch={runListContext.mainBranch}
-							onOpenTest={onOpenTest}
+							onOpenTest={(explorerPath) => onOpenTest(explorerPath, selectedRunId)}
 						/>
 					)}
 				</div>
@@ -126,7 +126,7 @@ export function getSuiteRunScope(tests: TestDefinition[], selection: SuiteSelect
 			label: `${selection.selectedPaths.size} selected`,
 		};
 	}
-	const visibleTests = filterByTags(tests, selection.selectedTags);
+	const visibleTests = filterTests(tests, selection);
 	if (visibleTests.length < tests.length) {
 		return {
 			paths: visibleTests.map((test) => test.path),
@@ -174,7 +174,7 @@ function SuiteTests({
 			</Empty>
 		);
 	}
-	const visibleTests = filterByTags(suite.tests, selection.selectedTags);
+	const visibleTests = filterTests(suite.tests, selection);
 	return (
 		<div className='flex flex-col text-xs'>
 			<SuiteTestsHeader tests={suite.tests} visibleTests={visibleTests} selection={selection} />
@@ -199,6 +199,9 @@ function SuiteTests({
 						onOpen={onOpenTest}
 					/>
 				))}
+				{suite.tests.length > 0 && visibleTests.length === 0 && (
+					<li className='px-3 py-2 text-muted-foreground'>No test matches the filters.</li>
+				)}
 				{visibleTests.map((test) => (
 					<SuiteTestRow
 						key={test.path}
@@ -243,6 +246,11 @@ function SuiteTestsHeader({
 		selection.onSelectedPathsChange(new Set());
 	};
 
+	const changeSearch = (search: string) => {
+		selection.onSearchChange(search);
+		selection.onSelectedPathsChange(new Set());
+	};
+
 	return (
 		<PanelHeader className='gap-2.5'>
 			<Checkbox
@@ -278,7 +286,39 @@ function SuiteTestsHeader({
 					))}
 				</div>
 			)}
+			<TestSearchInput value={selection.search} onChange={changeSearch} />
 		</PanelHeader>
+	);
+}
+
+function TestSearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+	return (
+		<label className='ml-auto flex h-6 w-56 shrink-0 items-center gap-1.5 rounded-md border bg-background px-2 focus-within:border-ring'>
+			<Search className='size-3 shrink-0' />
+			<input
+				type='search'
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key === 'Escape') {
+						onChange('');
+					}
+				}}
+				placeholder='Search tests'
+				aria-label='Search tests'
+				className='min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden'
+			/>
+			{value && (
+				<button
+					type='button'
+					aria-label='Clear the search'
+					onClick={() => onChange('')}
+					className='flex cursor-pointer items-center hover:text-foreground'
+				>
+					<X className='size-3' />
+				</button>
+			)}
+		</label>
 	);
 }
 
@@ -369,11 +409,18 @@ function ModelOutcomes({ models }: { models: TestModelOutcome[] }) {
 	);
 }
 
-function filterByTags(tests: TestDefinition[], tags: string[]): TestDefinition[] {
-	if (tags.length === 0) {
-		return tests;
-	}
-	return tests.filter((test) => test.tags.some((tag) => tags.includes(tag)));
+/** The tests of the picked tags, else all of them, whose name or path holds the search. */
+function filterTests(tests: TestDefinition[], selection: Pick<SuiteSelection, 'selectedTags' | 'search'>) {
+	const search = selection.search.trim().toLowerCase();
+	return tests.filter((test) => hasPickedTag(test, selection.selectedTags) && matchesSearch(test, search));
+}
+
+function hasPickedTag(test: TestDefinition, tags: string[]): boolean {
+	return tags.length === 0 || test.tags.some((tag) => tags.includes(tag));
+}
+
+function matchesSearch(test: TestDefinition, search: string): boolean {
+	return !search || test.name.toLowerCase().includes(search) || test.path.toLowerCase().includes(search);
 }
 
 function countTests(count: number): string {

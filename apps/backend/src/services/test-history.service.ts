@@ -118,8 +118,14 @@ export async function getModelStats(projectId: string): Promise<TestModelStats[]
 	return testRunQueries.listRecentModelStats(projectId, new Date(Date.now() - MODEL_STATS_WINDOW_MS));
 }
 
-export async function getTestHistory(projectId: string, testPath: string, tolerances: TestComparisonTolerances) {
-	const runs = await testRunQueries.listRunsOfTest(projectId, testPath, TEST_HISTORY_RUN_LIMIT);
+/** The latest runs of a test, with an older one of them too when asked for, as when opened from a run of several tests. */
+export async function getTestHistory(
+	projectId: string,
+	testPath: string,
+	tolerances: TestComparisonTolerances,
+	includedRunId?: string,
+) {
+	const runs = await listShownRunsOfTest(projectId, testPath, includedRunId);
 	const results = await testRunQueries.listResultsOfTest(
 		runs.map((run) => run.id),
 		testPath,
@@ -142,6 +148,15 @@ export async function getTestHistory(projectId: string, testPath: string, tolera
 					: null,
 		};
 	});
+}
+
+async function listShownRunsOfTest(projectId: string, testPath: string, includedRunId: string | undefined) {
+	const runs = await testRunQueries.listRunsOfTest(projectId, testPath, TEST_HISTORY_RUN_LIMIT);
+	if (!includedRunId || runs.some((run) => run.id === includedRunId)) {
+		return runs;
+	}
+	const includedRun = await testRunQueries.findRunOfTest(projectId, testPath, includedRunId);
+	return includedRun ? [...runs, includedRun] : runs;
 }
 
 /**

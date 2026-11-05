@@ -4,7 +4,7 @@ import { useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 import type { ReactNode } from 'react';
 
 import type { TestDefinition, TestRunSummary } from '@/components/settings/test-run-types';
-import { RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
+import { RunsColumnWidthContext, useRunsColumnWidthState } from '@/components/settings/test-drawer-layout';
 import { DrawerTab, getTestTabLabel, SortableTestTabs } from '@/components/settings/test-drawer-tabs';
 import { SuiteRunActions, TestFileRunActions } from '@/components/settings/test-run-actions';
 import { getSuiteRunScope, TestSuitePanel } from '@/components/settings/test-suite-panel';
@@ -39,11 +39,13 @@ interface TestDrawerLayoutProps {
 	selectedRunId: string | null;
 	/** Opens the drawer again whenever it changes, even after the user closed it. */
 	openRequestId: number;
-	onSelectTab: (testPath: string | null) => void;
+	/** Shows a tab, with the run to open in it. */
+	onSelectTab: (testPath: string | null, runId?: string) => void;
 	onCloseTab: (testPath: string) => void;
 	onMoveTab: (testPath: string, targetPath: string) => void;
 	onSelectRun: (runId: string | null) => void;
-	onOpenTest: (explorerPath: string) => void;
+	/** Opens a test, from a run of several tests when given, so its tab shows that run. */
+	onOpenTest: (explorerPath: string, runId?: string) => void;
 }
 
 export function TestDrawerLayout({
@@ -70,17 +72,27 @@ export function TestDrawerLayout({
 	const runSettings = useTestRunSettings();
 	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 	const [selectedTags, setSelectedTags] = useState<string[]>([]);
+	const [testSearch, setTestSearch] = useState('');
 	const selection = {
 		selectedPaths,
 		onSelectedPathsChange: setSelectedPaths,
 		selectedTags,
 		onSelectedTagsChange: setSelectedTags,
+		search: testSearch,
+		onSearchChange: setTestSearch,
 	};
+	const runsColumnWidth = useRunsColumnWidthState();
+	const [suiteRunId, setSuiteRunId] = useState<string | null>(null);
 	const shownTestFile = activeTestPath ? activeTestFile : null;
 	const validation = useTestFileValidation(shownTestFile);
 	const isPanelReadyRef = useRef(false);
 	const shouldOpenWhenReadyRef = useRef(false);
 	const hasBeenOpenRef = useRef(false);
+
+	/** The "All tests" tab keeps the run opened in it, to show it again when coming back from a test. */
+	if (activeTestPath === null && selectedRunId !== suiteRunId) {
+		setSuiteRunId(selectedRunId);
+	}
 
 	const open = useCallback(() => {
 		const panel = panelRef.current;
@@ -137,7 +149,7 @@ export function TestDrawerLayout({
 	/** Clicking the tab already shown goes back from an opened run to the tab's own view, then closes the drawer. */
 	const selectTab = (testPath: string | null) => {
 		if (testPath !== activeTestPath) {
-			onSelectTab(testPath);
+			showTab(testPath);
 		} else if (isOpen && selectedRunId) {
 			onSelectRun(null);
 			return;
@@ -146,6 +158,18 @@ export function TestDrawerLayout({
 			return;
 		}
 		open();
+	};
+
+	const showTab = (testPath: string | null) => {
+		if (testPath === null && suiteRunId) {
+			onSelectTab(null, suiteRunId);
+		} else {
+			onSelectTab(testPath);
+		}
+	};
+
+	const openSuiteRun = (runId: string) => {
+		onSelectTab(null, runId);
 	};
 
 	const selectTabToRun = (testPath: string) => {
@@ -226,7 +250,7 @@ export function TestDrawerLayout({
 										</Button>
 									</SimpleTooltip>
 								}
-								className={RUNS_COLUMN_WIDTH_CLASS}
+								width={runsColumnWidth.width}
 								isActive={isOpen && activeTestPath === null}
 								onSelect={() => selectTab(null)}
 							/>
@@ -279,36 +303,39 @@ export function TestDrawerLayout({
 						</div>
 					</div>
 					{(isOpen || isAnimating) && (
-						<div className='min-h-0 flex-1 overflow-hidden'>
-							{activeTestPath ? (
-								activeTestFile ? (
-									<TestWorkbench
-										key={activeTestFile.path}
-										testFile={activeTestFile}
-										validation={validation}
-										draft={draft}
-										selectedRunId={selectedRunId}
-										onSelectRun={onSelectRun}
-										runSettings={runSettings}
-										activeRun={activeRun}
-										onRunStarted={handleRunStarted}
-									/>
+						<RunsColumnWidthContext.Provider value={runsColumnWidth}>
+							<div className='min-h-0 flex-1 overflow-hidden'>
+								{activeTestPath ? (
+									activeTestFile ? (
+										<TestWorkbench
+											key={activeTestFile.path}
+											testFile={activeTestFile}
+											validation={validation}
+											draft={draft}
+											selectedRunId={selectedRunId}
+											onSelectRun={onSelectRun}
+											onOpenSuiteRun={openSuiteRun}
+											runSettings={runSettings}
+											activeRun={activeRun}
+											onRunStarted={handleRunStarted}
+										/>
+									) : (
+										<div className='flex h-full items-center justify-center'>
+											<Spinner />
+										</div>
+									)
 								) : (
-									<div className='flex h-full items-center justify-center'>
-										<Spinner />
-									</div>
-								)
-							) : (
-								<TestSuitePanel
-									draft={draft}
-									runs={runs}
-									selectedRunId={selectedRunId}
-									selection={selection}
-									onSelectRun={onSelectRun}
-									onOpenTest={onOpenTest}
-								/>
-							)}
-						</div>
+									<TestSuitePanel
+										draft={draft}
+										runs={runs}
+										selectedRunId={selectedRunId}
+										selection={selection}
+										onSelectRun={onSelectRun}
+										onOpenTest={onOpenTest}
+									/>
+								)}
+							</div>
+						</RunsColumnWidthContext.Provider>
 					)}
 				</section>
 			</ResizablePanel>

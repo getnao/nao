@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ModelFrontierChart } from './test-model-frontier-chart';
 import type { TestModelSummary, TestRunWithResults } from './test-run-types';
@@ -10,6 +10,8 @@ const OPUS = { provider: 'anthropic', modelId: 'claude-opus-5-5' } as const;
 const HAIKU = { provider: 'anthropic', modelId: 'claude-haiku-5-5' } as const;
 
 describe('ModelFrontierChart', () => {
+	beforeEach(() => localStorage.clear());
+
 	afterEach(cleanup);
 
 	it('draws a line through the efforts of a model, labeled once, and shows the effort and values of the point hovered', () => {
@@ -30,6 +32,23 @@ describe('ModelFrontierChart', () => {
 		fireEvent.mouseEnter(screen.getByText('claude-opus-5-5'));
 		expect(screen.getByText('high effort')).toBeTruthy();
 		expect(container.querySelector('g.pointer-events-none')?.textContent).toBe('90%$0.08');
+	});
+
+	it('collapses the chart under its title, and stays collapsed for the next runs', () => {
+		const models = [summary(OPUS, 9, 0.08), summary(HAIKU, 5, 0.01)];
+		render(<ModelFrontierChart run={run(models)} />);
+		const toggle = screen.getByRole('button', { name: 'Accuracy vs. cost' });
+
+		fireEvent.click(toggle);
+		expect(toggle.getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByText('claude-opus-5-5')).toBeNull();
+
+		cleanup();
+		render(<ModelFrontierChart run={run(models)} />);
+		expect(screen.queryByText('claude-opus-5-5')).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Accuracy vs. cost' }));
+		expect(screen.getByText('claude-opus-5-5')).toBeTruthy();
 	});
 
 	it('shows nothing when fewer than two points have a cost', () => {

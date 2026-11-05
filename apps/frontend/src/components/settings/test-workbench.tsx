@@ -1,5 +1,4 @@
 import { fromExplorerTestPath } from '@nao/shared/test-paths';
-import { useQuery } from '@tanstack/react-query';
 import { CircleAlert, Play } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -11,18 +10,16 @@ import type { DraftContext, TestHistoryRun, TestRunSummary } from '@/components/
 import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import type { ContextRunMode } from '@/hooks/use-test-run-start';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
-import { RecentRunsHeader, RUNS_COLUMN_WIDTH_CLASS } from '@/components/settings/test-drawer-layout';
+import { RecentRunsHeader, RunsColumn } from '@/components/settings/test-drawer-layout';
 import { RunDetails } from '@/components/settings/test-run-details';
 import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filter-menu';
 import { BranchCode, BranchName, getMainBranch, getRunBranches } from '@/components/settings/test-run-labels';
 import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
-import { ACTIVE_RUN_REFETCH_MS, isActiveRun } from '@/components/settings/test-run-types';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
+import { useTestHistory } from '@/hooks/use-test-history';
 import { useTestFileRun } from '@/hooks/use-test-run-start';
-import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
 
 interface TestWorkbenchProps {
 	testFile: { path: string; content: string };
@@ -31,6 +28,8 @@ interface TestWorkbenchProps {
 	/** The run shown, or `null` for the latest one. */
 	selectedRunId: string | null;
 	onSelectRun: (runId: string) => void;
+	/** Opens a run of several tests in the "All tests" tab, with all its tests. */
+	onOpenSuiteRun: (runId: string) => void;
 	runSettings: TestRunSettings;
 	activeRun: TestRunSummary | undefined;
 	onRunStarted: (run: { id: string }) => void;
@@ -42,14 +41,12 @@ export function TestWorkbench({
 	draft,
 	selectedRunId,
 	onSelectRun,
+	onOpenSuiteRun,
 	runSettings,
 	activeRun,
 	onRunStarted,
 }: TestWorkbenchProps) {
-	const history = useQuery({
-		...trpc.testRun.getTestHistory.queryOptions({ path: testFile.path }),
-		refetchInterval: (query) => (query.state.data?.some(isActiveRun) ? ACTIVE_RUN_REFETCH_MS : false),
-	});
+	const history = useTestHistory(testFile.path, selectedRunId);
 	const currentHash = validation.validation?.test?.hash;
 	const runs = history.data ?? [];
 	const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs.at(0);
@@ -88,6 +85,7 @@ export function TestWorkbench({
 						run={selectedRun}
 						isOutdated={isRunOfAnotherVersion(selectedRun, currentHash)}
 						branches={getRunBranches(selectedRun, draft)}
+						onOpenSuiteRun={onOpenSuiteRun}
 					/>
 				</div>
 			)}
@@ -111,7 +109,7 @@ function RunList({
 	const [filters, setFilters] = useState<RunFilters>(ALL_RUNS);
 	const listedRuns = runs.filter((run) => matchesRunFilters(run, filters));
 	return (
-		<div className={cn('flex shrink-0 flex-col overflow-y-auto border-r text-xs', RUNS_COLUMN_WIDTH_CLASS)}>
+		<RunsColumn>
 			<RecentRunsHeader filters={filters} onChange={setFilters} />
 			{listedRuns.length === 0 && (
 				<span className='px-3 py-2 text-muted-foreground'>No run matches the filter.</span>
@@ -128,7 +126,7 @@ function RunList({
 					/>
 				))}
 			</div>
-		</div>
+		</RunsColumn>
 	);
 }
 

@@ -79,7 +79,7 @@ export function DrawerTab({
 	label,
 	leading,
 	title,
-	className,
+	width,
 	isActive,
 	onSelect,
 	onClose,
@@ -88,7 +88,7 @@ export function DrawerTab({
 	label: string;
 	leading?: ReactNode;
 	title?: string;
-	className?: string;
+	width?: number;
 	isActive: boolean;
 	onSelect: () => void;
 	onClose?: () => void;
@@ -106,7 +106,7 @@ export function DrawerTab({
 	return (
 		<div
 			ref={setTabRef}
-			style={drag?.style}
+			style={{ ...drag?.style, width }}
 			{...drag?.listeners}
 			className={cn(
 				'group flex h-full shrink-0 items-center border-r transition-colors',
@@ -114,7 +114,6 @@ export function DrawerTab({
 					? 'bg-background text-foreground'
 					: 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
 				drag?.isDragging && 'relative z-10 cursor-grabbing bg-background shadow-md',
-				className,
 			)}
 			onAuxClick={(event) => {
 				if (event.button === 1 && onClose) {
