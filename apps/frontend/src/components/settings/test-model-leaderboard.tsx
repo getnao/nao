@@ -107,7 +107,7 @@ export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
 			<ModelFrontierChart run={run} />
 			<table className='w-full text-xs'>
 				<thead>
-					<tr className='border-b text-left text-[11px] text-muted-foreground'>
+					<tr className='text-left text-[11px] text-muted-foreground'>
 						<SortableHeader column={MODEL_COLUMN} sort={sort} onSort={toggleSort} />
 						<SortableHeader column={ACCURACY_COLUMN} sort={sort} onSort={toggleSort} />
 						{LEADERBOARD_COLUMNS.map((column) => (
@@ -166,6 +166,7 @@ export function ModelLeaderboard({ run }: { run: TestRunWithResults }) {
 	);
 }
 
+/** Sticks under the header of the run while the table scrolls, the bottom border drawn as a shadow to stick along. */
 function SortableHeader({
 	column,
 	sort,
@@ -181,7 +182,10 @@ function SortableHeader({
 	const DirectionIcon = direction === 'ascending' ? ArrowUp : ArrowDown;
 	return (
 		<th
-			className={cn('px-3 py-1.5 font-medium', isNumeric && 'text-right')}
+			className={cn(
+				'sticky top-9 z-[5] bg-background px-3 py-1.5 font-medium shadow-[inset_0_-1px_0_var(--border)]',
+				isNumeric && 'text-right',
+			)}
 			title={column.title}
 			aria-sort={direction ?? undefined}
 		>
