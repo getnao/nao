@@ -24,6 +24,7 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
 import { resetLastAppLocation, useTrackLastAppLocation } from '@/hooks/use-last-app-location';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
@@ -79,8 +80,12 @@ export function Sidebar() {
 	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
 	const isInSettings = !!isSettingsRoute && (!isViewer || (isCloud && isOrgAdmin));
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
+	const { limbo } = useCloudSetupState();
 	const showTrialOnboarding =
-		isCloud && project.isSuccess && project.data === null && locationPath === '/' && !effectiveIsCollapsed;
+		isCloud &&
+		locationPath === '/' &&
+		!effectiveIsCollapsed &&
+		((project.isSuccess && project.data === null) || limbo);
 	useTrackLastAppLocation();
 
 	useEffect(() => {
@@ -316,6 +321,7 @@ export function Sidebar() {
 						filters={filters}
 						isViewer={isViewer}
 						isTrial={project.isSuccess && project.data === null}
+						resumeOnboarding={(project.isSuccess && project.data === null) || limbo}
 					/>
 				</>
 			)}
@@ -437,12 +443,14 @@ function SidebarNav({
 	filters,
 	isViewer,
 	isTrial,
+	resumeOnboarding,
 }: {
 	isCollapsed: boolean;
 	groupBy: ChatGroupBy;
 	filters: ChatFilterType[];
 	isViewer: boolean;
 	isTrial: boolean;
+	resumeOnboarding: boolean;
 }) {
 	const groupedChats = useQuery({
 		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
@@ -484,7 +492,7 @@ function SidebarNav({
 		>
 			{showAttentionChat && (
 				<div className='px-2 space-y-1'>
-					<ChatListItem chat={showAttentionChat} needsAttention resumeOnboarding={isTrial} />
+					<ChatListItem chat={showAttentionChat} needsAttention resumeOnboarding={resumeOnboarding} />
 				</div>
 			)}
 			{groups?.map((group) => (
@@ -493,7 +501,7 @@ function SidebarNav({
 					group={group}
 					groupBy={groupBy}
 					attentionChatId={onboardingNeedsAttention ? onboardingChatId : undefined}
-					resumeOnboardingChatId={isTrial ? onboardingChatId : undefined}
+					resumeOnboardingChatId={resumeOnboarding ? onboardingChatId : undefined}
 				/>
 			))}
 

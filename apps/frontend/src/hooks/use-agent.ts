@@ -30,6 +30,7 @@ import {
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
 	resolveImagesFromMessage,
+	usesChatAllowance,
 } from '@/lib/ai';
 import { useSession } from '@/lib/auth-client';
 import { createLocalStorage } from '@/lib/local-storage';
@@ -431,15 +432,18 @@ export const useAgent = ({
 		}
 	}, [chatId, agentInstance, cancelAgentMutation.mutateAsync, setMessages, navigate, queryClient]); // eslint-disable-line
 
+	const chatAllowanceExhausted =
+		usesChatAllowance(hasProject, mode) && parseChatAllowanceExhaustedError(error) !== null;
+
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
-			if (!hasProject && parseChatAllowanceExhaustedError(error)) {
+			if (chatAllowanceExhausted) {
 				return;
 			}
 			clearError();
 			return sendMessage(...args);
 		},
-		[sendMessage, clearError, error, hasProject],
+		[sendMessage, clearError, chatAllowanceExhausted],
 	);
 
 	const queueOrSendMessage = useCallback(
@@ -489,7 +493,7 @@ export const useAgent = ({
 			images: newImages,
 			documents: newDocuments,
 		}: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents'>) => {
-			if (isRunning) {
+			if (isRunning || chatAllowanceExhausted) {
 				return;
 			}
 
@@ -516,12 +520,12 @@ export const useAgent = ({
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[setMessages, isRunning, handleSendMessage, agentInstance],
+		[setMessages, isRunning, chatAllowanceExhausted, handleSendMessage, agentInstance],
 	);
 
 	const resendMessage = useCallback(
 		async ({ messageId }: { messageId: string }) => {
-			if (isRunning) {
+			if (isRunning || chatAllowanceExhausted) {
 				return;
 			}
 
@@ -547,7 +551,7 @@ export const useAgent = ({
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[setMessages, isRunning, handleSendMessage, agentInstance],
+		[setMessages, isRunning, chatAllowanceExhausted, handleSendMessage, agentInstance],
 	);
 
 	const switchMessageVersion = useCallback(

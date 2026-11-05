@@ -61,6 +61,7 @@ import {
 	parseBudgetError,
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
+	usesChatAllowance,
 } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
@@ -238,7 +239,8 @@ function ChatInputBase({
 	const managedCreditError = parseManagedCreditsError(error);
 	const requiredBalanceMicroUsd = managedCreditError?.requiredBalanceMicroUsd;
 	const isManagedModel = selectedModel?.provider === 'nao';
-	const checksManagedCredits = variant !== 'onboarding' && isManagedModel;
+	const isExample = mode === 'example';
+	const checksManagedCredits = variant !== 'onboarding' && !isExample && isManagedModel;
 	const managedCredit = useQuery({
 		...trpc.account.getManagedCreditStatus.queryOptions(),
 		enabled: hasProject && checksManagedCredits,
@@ -254,7 +256,9 @@ function ChatInputBase({
 			(requiredBalanceMicroUsd !== undefined &&
 				(!hasVerifiedManagedCreditBalance ||
 					!hasManagedCreditsForRequest(currentBalanceMicroUsd, requiredBalanceMicroUsd))));
-	const allowanceExhaustedScope = hasProject ? null : parseChatAllowanceExhaustedError(error);
+	const allowanceExhaustedScope = usesChatAllowance(hasProject, mode)
+		? parseChatAllowanceExhaustedError(error)
+		: null;
 	const isSendBlocked =
 		!!parseBudgetError(error) ||
 		!!allowanceExhaustedScope ||
@@ -656,7 +660,7 @@ function ChatInputBase({
 						creditOrganizationId={isOrgAdmin ? managedCredit.data?.organization?.id : undefined}
 					/>
 					<ManagedCreditsLockedComposer
-						isExample={mode === 'example'}
+						isExample={isExample}
 						onOpen={() => setManagedCreditDialogOpen(true)}
 					/>
 				</>
@@ -701,7 +705,7 @@ function ChatInputBase({
 						{!isManagedCreditsBlocked &&
 							variant !== 'onboarding' &&
 							(!isTranscribeReady || (!isRecording && !isTranscribing)) && (
-								<ChatInputModelSelect isExample={mode === 'example'} />
+								<ChatInputModelSelect isExample={isExample} />
 							)}
 
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}

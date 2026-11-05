@@ -131,13 +131,22 @@ function OnboardingPage() {
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const createdProject = findCreatedOnboardingProject(projects.data, onboardingStartedAt);
 	const onboardingProject = waitingForDeployment ? createdProject : currentProject.data;
-	const missingEnvVars = useOnboardingMissingEnvVars(progress, onboardingProject?.id);
-	const showEnvVarsCard = (missingEnvVars?.length ?? 0) > 0;
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const billingAccess = useCloudBillingAccess({
 		enabled: config.data?.cloudBillingEnabled === true,
 		pollWhileRestricted: true,
 	});
+	const holdForMissingSetup =
+		config.data?.cloudBillingEnabled === true &&
+		billingAccess.data?.hasAccess === false &&
+		progress?.flow !== 'github' &&
+		onboardingProject != null;
+	const missingEnvVars = useOnboardingMissingEnvVars(
+		progress,
+		onboardingProject?.id,
+		holdForMissingSetup && !waitingForDeployment,
+	);
+	const showEnvVarsCard = (missingEnvVars?.length ?? 0) > 0;
 	const search = Route.useSearch();
 	const inputAreaRef = useRef<HTMLDivElement>(null);
 	const actionAreaRef = useRef<HTMLDivElement>(null);
@@ -211,7 +220,7 @@ function OnboardingPage() {
 	useEffect(() => {
 		const project = onboardingProject;
 		if (
-			(!onboardingComplete && !waitingForDeployment) ||
+			(!onboardingComplete && !waitingForDeployment && !holdForMissingSetup) ||
 			!project ||
 			!session?.user.id ||
 			activatedProjectIdRef.current === project.id
@@ -222,7 +231,14 @@ function OnboardingPage() {
 		activatedProjectIdRef.current = project.id;
 		setActiveProjectId(project.id);
 		queryClient.invalidateQueries().catch(console.error);
-	}, [onboardingComplete, onboardingProject, queryClient, session?.user.id, waitingForDeployment]);
+	}, [
+		holdForMissingSetup,
+		onboardingComplete,
+		onboardingProject,
+		queryClient,
+		session?.user.id,
+		waitingForDeployment,
+	]);
 
 	const alignActionDialogs = useCallback(() => {
 		const rect = actionAreaRef.current?.getBoundingClientRect();

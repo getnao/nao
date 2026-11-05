@@ -14,6 +14,11 @@ export async function touchProjectUpdatedAt(projectId: string): Promise<void> {
 	await projectChanged(projectId);
 }
 
+export async function recordProjectDeployment(projectId: string, deployedAt = new Date()): Promise<void> {
+	await projectQueries.recordProjectDeployment(projectId, deployedAt);
+	await projectChanged(projectId);
+}
+
 export async function updateProjectEnvVars(projectId: string, envVars: Record<string, string>): Promise<void> {
 	await projectQueries.updateEnvVars(projectId, envVars);
 	await projectChanged(projectId);
