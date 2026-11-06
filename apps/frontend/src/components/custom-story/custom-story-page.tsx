@@ -254,7 +254,9 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 	const isArchived = Boolean(story?.archivedAt);
 	const isAskInputHidden = viewMode !== 'app';
 	const canAsk = !isArchived && !isAskInputHidden;
-	useOnAskRequest(() => setViewMode('app'));
+	useOnAskRequest(() => {
+		setViewMode('app');
+	});
 
 	return (
 		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>

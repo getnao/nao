@@ -125,7 +125,10 @@ function VersionHistory({
 }: StoryVersionNavProps & { onClose: () => void }) {
 	const { data: session } = useSession();
 	const { openChat, isReady } = useOpenStoryChat(storyId ?? null);
-	const days = groupByDay(versions.map((entry, index) => ({ ...entry, version: index + 1 })).reverse());
+	const numberedVersions = versions.map((entry, index) => {
+		return { ...entry, version: index + 1 };
+	});
+	const days = groupByDay(numberedVersions.reverse());
 
 	return (
 		<DropdownMenuRadioGroup
@@ -211,7 +214,9 @@ function VersionDescription({ change, viewerId }: { change: StoryVersionChange |
 }
 
 function OpenChatButton({ onOpen }: { onOpen: () => void }) {
-	const keepFromRow = (event: SyntheticEvent) => event.stopPropagation();
+	const keepFromRow = (event: SyntheticEvent) => {
+		event.stopPropagation();
+	};
 	return (
 		<button
 			type='button'
