@@ -5,6 +5,10 @@
   Requirements:
     - nao_config.yaml must contain an `llm` section with provider + credentials.
     - `db.templates` must include `ai_summary` for this template to render.
+
+  Optional context, passed by `nao sync` when the files exist:
+    - project_rules: the project RULES.md, without group-restricted blocks.
+    - table_annotations: the table annotations.md, without its front matter.
 #}
 {% set columns = db.columns() %}
 {% set table_description = db.description() %}
@@ -33,6 +37,31 @@ Columns:
 - {{ col.name }} ({{ col.type }}){% if col.description %}: {{ col.description }}{% endif %}
 {% endfor %}
 
+{% if project_rules or table_annotations %}
+
+Project rules and table annotations:
+The analytics agent reads the rules and annotations below alongside this summary, and they are authoritative. Your summary must stay consistent with them:
+- Never contradict them.
+- Never recommend a column, join, filter or calculation that they forbid or describe as unreliable.
+- If the profiling statistics or the preview seem to contradict them, follow them; you may point out the discrepancy.
+- Do not restate them in full, since the agent already has them.
+- Do not invent business definitions (acronyms, statuses, metrics) that neither they nor the table description provide.
+{% if project_rules %}
+
+Project rules (RULES.md):
+<project_rules>
+{{ project_rules }}
+</project_rules>
+{% endif %}
+{% if table_annotations %}
+
+Table annotations (annotations.md):
+<table_annotations>
+{{ table_annotations }}
+</table_annotations>
+{% endif %}
+
+{% endif %}
 Preview (a tiny, non-representative sample of up to 10 rows — do NOT infer data quality, null-rates, volume, or value distributions from these rows):
 {{ preview_rows | to_json(indent=2) }}
 
