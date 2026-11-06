@@ -327,7 +327,7 @@ async function resolveFallbackModels(input: Pick<StartTestRunInput, 'projectId'>
 
 async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan): Promise<void> {
 	const jobs = buildAttemptJobs(plan);
-	if (!(await testRunQueries.markRunRunning(run.id, jobs.length))) {
+	if (!(await markRunRunningOrFail(run, jobs.length))) {
 		return;
 	}
 
@@ -346,6 +346,15 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 	} finally {
 		clearInterval(heartbeat);
 		liveRuns.delete(run.id);
+	}
+}
+
+async function markRunRunningOrFail(run: DBTestRun, attemptCount: number): Promise<boolean> {
+	try {
+		return await testRunQueries.markRunRunning(run.id, attemptCount);
+	} catch (error) {
+		await testRunQueries.failRun(run.id, error instanceof Error ? error.message : String(error));
+		return false;
 	}
 }
 

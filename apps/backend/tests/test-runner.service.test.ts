@@ -332,6 +332,16 @@ describe('startTestRun', () => {
 		expect(mocks.recordResultWhileRunning).toHaveBeenCalledTimes(2);
 	});
 
+	it('fails a run it cannot start instead of leaving it queued', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		mocks.markRunRunning.mockRejectedValueOnce(new Error('database unavailable'));
+
+		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
+		await vi.waitFor(() => expect(mocks.failRun).toHaveBeenCalledWith('run-1', 'database unavailable'));
+
+		expect(mocks.runTestInChat).not.toHaveBeenCalled();
+	});
+
 	it('rejects a run while another one is active', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 		mocks.createRunUnlessActive.mockResolvedValue(null);

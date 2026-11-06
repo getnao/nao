@@ -38,7 +38,8 @@ import { isProductionOnly } from './draft-context.service';
 import { getRepoProviderDisplayName } from './review-request-provider';
 
 const SEARCH_TIMEOUT_MS = 5_000;
-const MAX_SEARCH_FILES = 200;
+export const MAX_SEARCH_FILES = 200;
+export const MAX_SEARCH_PREVIEW_LENGTH = 500;
 export const MAX_CONTEXT_FILE_SIZE = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const FRONTMATTER_READ_SIZE = 8 * 1024;
@@ -435,7 +436,7 @@ function buildSearchArguments(query: string, searchPath: string, naoignorePatter
 		'--max-filesize',
 		'1M',
 		'--max-columns',
-		'500',
+		String(MAX_SEARCH_PREVIEW_LENGTH),
 		'--max-columns-preview',
 	];
 

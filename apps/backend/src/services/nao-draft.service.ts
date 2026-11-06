@@ -17,6 +17,8 @@ import {
 	compareTreeEntries,
 	getFileTree,
 	hashContent,
+	MAX_SEARCH_FILES,
+	MAX_SEARCH_PREVIEW_LENGTH,
 	readValidatedContextFileSync,
 	resolveAndValidatePath,
 	searchFileContents,
@@ -42,7 +44,10 @@ export async function getNaoDraftFileTree(owner: DraftOwner, projectFolder: stri
 	return entries;
 }
 
-/** Searches the live files with the draft's content in place of theirs, and the files the draft adds. */
+/**
+ * Searches the live files with the draft's content in place of theirs, and the files the draft adds, within the
+ * limits of the live search. The draft matches come first, so a busy live search cannot hide the user's own edits.
+ */
 export async function searchNaoDraftContents(
 	owner: DraftOwner,
 	projectFolder: string,
@@ -57,9 +62,10 @@ export async function searchNaoDraftContents(
 		const result = searchText(`/${file.path}`, file.content, query);
 		return result ? [result] : [];
 	});
+	const results = [...draftResults, ...liveSearch.results.filter((result) => !draftPaths.has(result.path))];
 	return {
-		results: [...liveSearch.results.filter((result) => !draftPaths.has(result.path)), ...draftResults],
-		truncated: liveSearch.truncated,
+		results: results.slice(0, MAX_SEARCH_FILES),
+		truncated: liveSearch.truncated || results.length > MAX_SEARCH_FILES,
 	};
 }
 
@@ -176,7 +182,7 @@ function searchText(virtualPath: string, content: string, query: string): FileCo
 		path: virtualPath,
 		count: matchingLines.reduce((total, line) => total + line.count, 0),
 		line: first.line,
-		text: first.text.trim(),
+		text: first.text.trim().slice(0, MAX_SEARCH_PREVIEW_LENGTH),
 	};
 }
 
