@@ -216,16 +216,11 @@ async function loadSearchedStories(scope: StoryMountScope, targetedStoryId: stri
 	if (!targetedStoryId || stories.some((story) => story.storyId === targetedStoryId)) {
 		return stories;
 	}
-	const targetedStory = await findMountedStory(scope, targetedStoryId);
-	return targetedStory ? [...stories, targetedStory] : stories;
-}
-
-async function findMountedStory(scope: StoryMountScope, storyId: string): Promise<MountedStory | null> {
-	try {
-		return await loadMountedStory(scope, storyId);
-	} catch {
-		return null;
+	const found = await findEditableStory(scope, targetedStoryId);
+	if ('error' in found || found.story.format !== 'custom') {
+		return stories;
 	}
+	return [...stories, { storyId: targetedStoryId, files: await storyFileQueries.listDraftFiles(found.story.id) }];
 }
 
 async function loadMountedStory(scope: StoryMountScope, storyId: string): Promise<MountedStory> {

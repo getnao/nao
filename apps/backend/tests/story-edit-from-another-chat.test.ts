@@ -260,7 +260,10 @@ describe('editing a story from another chat', () => {
 	});
 
 	it('finds the files of a custom story of another chat when a search names its id', async () => {
+		process.env.BETA_CUSTOM_STORIES_ENABLED = 'true';
+		__reloadEnvForTesting();
 		const scope = { chatId: EDITING_CHAT_ID, userId: OWNER_ID, projectId: PROJECT_ID };
+		await writeStoryMountFile(scope, `/stories/${CUSTOM_STORY_ID}/app.jsx`, 'export default function App() {}\n');
 		const isInStory = (mountRelativePath: string) => {
 			return mountRelativePath.startsWith(`stories/${CUSTOM_STORY_ID}/`);
 		};
