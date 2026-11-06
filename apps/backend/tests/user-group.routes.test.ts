@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	listUserGroups: vi.fn(),
+	listActiveUserGroups: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
 	revokeUnauthorizedProjectWideShares: vi.fn(),
 	env: { BETTER_AUTH_URL: 'http://localhost:5005/' } as Record<string, string | undefined>,
@@ -89,6 +90,7 @@ vi.mock('../src/services/sso-user-group-mapping.service', () => ({
 vi.mock('../src/services/user-group-availability.service', () => ({
 	assertUserGroupManageable: mocks.assertUserGroupManageable,
 	getAvailableUserGroupOverview: mocks.getUserGroupOverview,
+	listActiveUserGroups: mocks.listActiveUserGroups,
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
 vi.mock('../src/services/file-tree-catalog.service', () => ({
@@ -1073,8 +1075,8 @@ describe('user group routes', () => {
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
-	it('saves share targets without the group itself or groups outside the project', async () => {
-		mocks.listUserGroups.mockResolvedValue([
+	it('saves share targets without the group itself or groups that are not active custom groups', async () => {
+		mocks.listActiveUserGroups.mockResolvedValue([
 			{ id: 'all-users', isDefault: true },
 			{ id: 'group-id', isDefault: false },
 			{ id: 'client-b', isDefault: false },

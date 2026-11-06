@@ -53,7 +53,11 @@ import {
 	listEffectiveEntraUserGroupMappings,
 	listEffectiveOidcUserGroupMappings,
 } from '../services/sso-user-group-mapping.service';
-import { assertUserGroupManageable, getAvailableUserGroupOverview } from '../services/user-group-availability.service';
+import {
+	assertUserGroupManageable,
+	getAvailableUserGroupOverview,
+	listActiveUserGroups,
+} from '../services/user-group-availability.service';
 import {
 	getEffectiveUserGroupAccess,
 	getEffectiveUserGroupAccessForUserDetail,
@@ -527,7 +531,7 @@ async function saveGroupBudget(
 	}
 }
 
-/** Drops the group itself and groups that are not custom groups of the project, like ones deleted meanwhile. */
+/** Drops the group itself and groups that are not active custom groups of the project, like deleted or locked ones. */
 async function keepExistingShareTargetGroups(
 	projectId: string,
 	shareTargets: GroupShareTargets,
@@ -536,7 +540,7 @@ async function keepExistingShareTargetGroups(
 	if (shareTargets.groupIds.length === 0) {
 		return shareTargets;
 	}
-	const groups = await userGroupQueries.listUserGroups(projectId);
+	const groups = await listActiveUserGroups(projectId);
 	const targetableGroupIds = new Set(
 		groups.filter((group) => !group.isDefault && group.id !== groupId).map((group) => group.id),
 	);
