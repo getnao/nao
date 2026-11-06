@@ -4,6 +4,7 @@ import { z } from 'zod/v4';
 
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
+import { readStoryChartPluginSources } from '../services/chart-plugin';
 import {
 	getActiveThemeForStory,
 	getStandaloneCustomStoryFile,
@@ -95,6 +96,8 @@ export const standaloneCustomStoryRoutes = {
 			throw toCustomStoryTrpcError(error);
 		}
 	}),
+
+	getChartPlugins: standaloneOwnerProcedure.query(({ ctx }) => readStoryChartPluginSources(ctx.story.id)),
 
 	getState: standaloneOwnerProcedure.query(({ ctx }) => getCustomStoryStateByStoryId(ctx.story.id, ctx.user.id)),
 

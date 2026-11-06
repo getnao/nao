@@ -113,6 +113,9 @@ function chartPluginsOptions(dataSource: CustomStoryDataSource) {
 	if (dataSource.kind === 'share') {
 		return trpc.storyShare.getCustomStoryChartPlugins.queryOptions({ storyId: dataSource.storyId });
 	}
+	if (dataSource.kind === 'standalone') {
+		return trpc.standaloneCustomStory.getChartPlugins.queryOptions({ storyId: dataSource.storyId });
+	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryChartPlugins.queryOptions({ chatId, storySlug });
 }
