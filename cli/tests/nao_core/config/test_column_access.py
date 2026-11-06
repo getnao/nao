@@ -106,6 +106,20 @@ def test_group_denied_columns_are_blocked_without_static_exclusions(project_path
         validate_column_access(sql, config, project_path, column_security_policies=policies)
 
 
+def test_group_denied_columns_are_blocked_in_whole_row_references(tmp_path: Path):
+    config = FakeDatabaseConfig([], database_type="postgres")
+    write_catalog(tmp_path, config, {"public": {"users": ["id", "email"]}})
+    policies = {("public", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    with pytest.raises(ColumnAccessError, match=r"public\.users\.email"):
+        validate_column_access(
+            "SELECT row_to_json(u) FROM public.users AS u",
+            config,
+            tmp_path,
+            column_security_policies=policies,
+        )
+
+
 def test_group_denied_column_can_be_removed_from_star(project_path: Path):
     config = FakeDatabaseConfig([])
     policies = {("main", "users"): {"access": "restricted", "denied_columns": ["email"]}}

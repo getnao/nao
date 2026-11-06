@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from sqlglot import exp
-from sqlglot.optimizer.scope import Scope, traverse_scope
+from sqlglot.optimizer.scope import Scope, find_all_in_scope, traverse_scope
 
 
 class _DatabaseConfigLike(Protocol):
@@ -76,6 +76,9 @@ class _ColumnAccessAnalyzer:
         for scope in self.scopes:
             for column in scope.columns:
                 origins = self._resolve_column(scope, column)
+                excluded.update(origin for origin in origins if self._is_excluded(origin))
+            for table_column in find_all_in_scope(scope.expression, exp.TableColumn):
+                origins = self._resolve_whole_row(scope, table_column.name)
                 excluded.update(origin for origin in origins if self._is_excluded(origin))
         return excluded
 
@@ -207,6 +210,16 @@ class _ColumnAccessAnalyzer:
         if origins or has_unnest_source:
             return origins
         raise _blocked(f"column '{column_name}' could not be tied to a source")
+
+    def _resolve_whole_row(self, scope: Scope, source_alias: str) -> set[_ColumnOrigin]:
+        source = scope.sources.get(source_alias)
+        parent = scope.parent
+        while source is None and parent is not None:
+            source = parent.sources.get(source_alias)
+            parent = parent.parent
+        if source is None:
+            raise _blocked(f"whole-row source alias '{source_alias}' could not be resolved")
+        return {origin for output in self._source_outputs(source) for origin in output.origins}
 
     def _table_column_origins(self, table: exp.Table, column_name: str) -> set[_ColumnOrigin]:
         origins = set()
