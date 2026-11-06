@@ -5,7 +5,6 @@ import { afterEach, expect, it, vi } from 'vitest';
 
 import { ChatInputModelSelect } from './chat-input-model-select';
 import type { ReactNode } from 'react';
-import type * as SharedTypes from '@nao/shared/types';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({
@@ -31,11 +30,6 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/components/ui/llm-provider-icon', () => ({
 	LlmProviderIcon: ({ provider }: { provider: string }) => <span aria-label={`${provider} model`} />,
-}));
-
-vi.mock('@nao/shared/types', async (importOriginal) => ({
-	...(await importOriginal<typeof SharedTypes>()),
-	isSameModel: () => false,
 }));
 
 vi.mock('@/hooks/use-model-selection', () => ({
@@ -134,8 +128,13 @@ it('locks nao models when managed credits are exhausted', () => {
 
 	fireEvent.keyDown(modelSelector, { key: 'Enter' });
 
-	expect(screen.getByRole('option', { name: /Auto/ }).getAttribute('aria-disabled')).toBe('true');
-	expect(screen.getByRole('option', { name: /Managed/ }).getAttribute('aria-disabled')).toBe('true');
-	expect(screen.getByRole('option', { name: /Configured/ }).getAttribute('aria-disabled')).toBeNull();
+	expect(
+		screen.getAllByRole('option').map((option) => [option.textContent, option.getAttribute('aria-disabled')]),
+	).toEqual([
+		['AutoManaged', 'true'],
+		['Managed', 'true'],
+		['Configured', null],
+		['Manage models', null],
+	]);
 	expect(screen.getAllByLabelText('Unavailable: nao credits exhausted')).toHaveLength(2);
 });
