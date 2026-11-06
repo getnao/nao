@@ -730,6 +730,7 @@ describe('user group queries', () => {
 				canChange: false,
 			},
 			projectSharing: 'blocked',
+			shareTargets: { includeOwnGroup: true, groupIds: [] },
 			showAllSettings: false,
 			preloadedSkills: [],
 		});

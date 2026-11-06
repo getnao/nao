@@ -1097,6 +1097,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Users & Groups',
 		section: 'Manage Groups',
 		search: { tab: 'groups' },
+		title: 'Groups members can share with',
+		description: 'Choose which groups members of a group can share chats and stories with.',
+		keywords: ['share', 'sharing', 'share targets', 'exclusive', 'other groups', 'restrict sharing', 'groups'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
 		title: 'Skills',
 		description:
 			'Choose which project skills a group can use, and which ones load in full at the start of every chat.',
