@@ -1435,6 +1435,20 @@ export const storyDataCache = pgTable('story_data_cache', {
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
 
+export const storyFilterOptionsCache = pgTable(
+	'story_filter_options_cache',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		cacheKey: text('cache_key').notNull(),
+		options: jsonb('options').$type<string[]>().notNull(),
+		isComplete: boolean('is_complete').notNull(),
+		cachedAt: timestamp('cached_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.cacheKey] })],
+);
+
 export const storyAppState = pgTable(
 	'story_app_state',
 	{

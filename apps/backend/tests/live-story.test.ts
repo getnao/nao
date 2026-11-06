@@ -390,6 +390,33 @@ describe('live story SQL execution', () => {
 		});
 	});
 
+	it('refreshes a parameterized semantic story query with the story parameter default', async () => {
+		const code = [
+			`<parameter id="metric" type="metric" options='["revenue","orders"]' default="orders" />`,
+			'<chart query_id="query_metric" />',
+		].join('\n');
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_metric: {
+				sqlQuery: 'SELECT 1',
+				databaseId: 'analytics',
+				adminMode: false,
+				semanticQuery: {
+					metrics: ['{{ params.metric }}'],
+					group_by: ['metric_time__{{ params.grain }}'],
+					params: { metric: 'revenue', grain: 'week' },
+				},
+			},
+		});
+		const fetchMock = stubSemanticLayerFetch('SELECT 2', { columns: ['orders'], data: [{ orders: 3 }] });
+
+		await refreshStoryData('chat-1', 'metric');
+
+		const compileBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(compileBody).toMatchObject({ metrics: ['orders'], group_by: ['metric_time__week'] });
+		expect(compileBody).not.toHaveProperty('params');
+	});
+
 	it('compiles a semantic live query again before running it', async () => {
 		mocks.getSqlQueryById.mockResolvedValue({
 			sqlQuery: 'SELECT count(*) AS orders FROM orders',
@@ -409,6 +436,22 @@ describe('live story SQL execution', () => {
 		expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
 			sql: 'SELECT count(DISTINCT order_id) AS orders FROM orders',
 		});
+	});
+
+	it('runs a no-cache live query with the story parameter default', async () => {
+		mocks.getSqlQueryById.mockResolvedValue({
+			sqlQuery: 'SELECT 1',
+			databaseId: 'analytics',
+			adminMode: false,
+			semanticQuery: { metrics: ['{{ params.metric }}'], params: { metric: 'revenue' } },
+		});
+		const fetchMock = stubSemanticLayerFetch('SELECT 2', { columns: ['orders'], data: [{ orders: 3 }] });
+
+		await executeLiveQuery('chat-1', 'query_metric', {
+			storyCode: `<parameter id="metric" options='["revenue","orders"]' default="orders" />`,
+		});
+
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ metrics: ['orders'] });
 	});
 
 	it('never sends a local live query to the warehouse', async () => {

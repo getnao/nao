@@ -56,13 +56,16 @@ export function StoryTabbedContent({
 	const [activeTabIndex, setActiveIndex] = useActiveStoryTab({ tabs, storySlug });
 	const isTabbed = Boolean(tabs?.length);
 	const activeCode = isTabbed && tabs ? tabs[activeTabIndex].innerCode : stripStoryTabsMarkup(code);
-	const segments = useMemo(() => splitCodeIntoSegments(activeCode), [activeCode]);
 	const storyFilters = useStoryFilters({
 		code,
 		baselineQueryData,
 		api: filterApi,
 		enabled: Boolean(filterApi),
 	});
+	const segments = useMemo(
+		() => splitCodeIntoSegments(activeCode, storyFilters.resolvedParameters),
+		[activeCode, storyFilters.resolvedParameters],
+	);
 	const querySqlSource = useMemo(
 		() =>
 			filterApi
@@ -92,6 +95,8 @@ export function StoryTabbedContent({
 					<div className={contentClassName}>
 						<StoryFilterBar
 							filters={storyFilters.filters}
+							parameters={storyFilters.parameters}
+							skippedFilters={storyFilters.skippedFilters}
 							selections={storyFilters.selections}
 							onSelectionChange={storyFilters.setSelection}
 							onClear={storyFilters.clearSelections}

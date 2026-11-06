@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
 	refreshStoryData: vi.fn(),
+	warmStoryFilterOptions: vi.fn(),
 }));
 
 vi.mock('../src/queries/story.queries', () => ({
@@ -23,6 +24,9 @@ vi.mock('../src/queries/activity.queries', () => ({
 vi.mock('../src/services/live-story', () => ({
 	refreshStoryData: mocks.refreshStoryData,
 }));
+vi.mock('../src/services/story-filter-options', () => ({
+	warmStoryFilterOptions: mocks.warmStoryFilterOptions,
+}));
 vi.mock('../src/handlers/story-delivery.handler', () => ({
 	deliverStoryOnRefresh: vi.fn(async () => undefined),
 	STORY_DELIVERY_JOB_NAME: 'story-delivery',
@@ -34,7 +38,7 @@ vi.mock('../src/utils/analytics-event', () => ({
 	logAnalyticsEvent: vi.fn(),
 }));
 vi.mock('../src/utils/logger', () => ({
-	logger: { error: vi.fn() },
+	logger: { error: vi.fn(), warn: vi.fn() },
 }));
 
 import { runScheduledStoryRefresh } from '../src/handlers/story-refresh.handler';
@@ -53,6 +57,7 @@ describe('scheduled Story refresh principal', () => {
 		});
 		mocks.startStoryRefreshActivity.mockResolvedValue({ id: 'activity-1' });
 		mocks.refreshStoryData.mockResolvedValue({ queryData: {} });
+		mocks.warmStoryFilterOptions.mockResolvedValue(undefined);
 	});
 
 	it('executes warehouse queries as the Story owner', async () => {
@@ -61,6 +66,23 @@ describe('scheduled Story refresh principal', () => {
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
+	});
+
+	it('warms story filter options after refreshing the data', async () => {
+		await runScheduledStoryRefresh('story-1');
+
+		expect(mocks.warmStoryFilterOptions).toHaveBeenCalledWith('chat-1', 'orders', {
+			billingAccessVerifiedProjectId: 'project-1',
+		});
+	});
+
+	it('keeps the refresh successful when warming filter options fails', async () => {
+		mocks.warmStoryFilterOptions.mockRejectedValue(new Error('warehouse timeout'));
+
+		await runScheduledStoryRefresh('story-1');
+
+		expect(mocks.completeActivity).toHaveBeenCalled();
+		expect(mocks.failActivity).not.toHaveBeenCalled();
 	});
 
 	it('fails the scheduled refresh when the owner has lost project access', async () => {

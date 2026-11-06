@@ -32,12 +32,8 @@ import { notifySharedItem } from '../services/notification.service';
 import { assertCanShareToProject, assertCanShareWith, listShareableGroups } from '../services/project-sharing.service';
 import { assertShareableUserGroupIds, filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import { unshareStory } from '../services/shared-story.service';
-import {
-	assertStoryFiltersEnabled,
-	getFilteredStoryQueryData,
-	getStoryFilterOptions,
-	getStoryQuerySql,
-} from '../services/story-filters';
+import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
+import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
@@ -408,20 +404,28 @@ export const sharedStoryRoutes = {
 			}
 			return executeLiveQuery(shared.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				storyCode: shared.code,
 			});
 		}),
 
 	getFilterOptions: cloudBillingShareAccessProcedure
-		.input(z.object({ storyId: z.string(), filterId: z.string() }))
+		.input(z.object({ storyId: z.string(), filterId: z.string(), ...filterOptionsRequestSchema.shape }))
 		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
 			const shared = ctx.resource;
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId, {
-				billingAccessVerifiedProjectId: shared.projectId,
-			});
+			const { filterId, search, parentSelection } = input;
+			return getStoryFilterOptions(
+				shared.chatId,
+				shared.slug,
+				filterId,
+				{ search, parentSelection },
+				{
+					billingAccessVerifiedProjectId: shared.projectId,
+				},
+			);
 		}),
 
 	getFilteredQueryData: cloudBillingShareAccessProcedure

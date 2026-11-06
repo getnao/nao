@@ -18,6 +18,7 @@ import {
 	StoryBlockDragContext,
 } from '../story-editor-drag-context';
 import { resolveDragSelection } from '../story-block-selection';
+import { StoryEditorParametersContext } from '../story-editor-parameters-context';
 import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type {
@@ -67,6 +68,7 @@ function findColumnInsertionIndex(grid: HTMLElement, clientX: number, clientY: n
 export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor }: ReactNodeViewProps) {
 	const rawContent = node.attrs.rawContent as string;
 	const gridDragSourceRef = useContext(GridDragContext);
+	const parameters = useContext(StoryEditorParametersContext);
 	const storyBlockDrag = useContext(StoryBlockDragContext);
 	const gridRef = useRef<HTMLDivElement>(null);
 	const dragRef = useRef<GridResizeDrag | null>(null);
@@ -84,7 +86,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			return { segments: [] as Segment[], cols: 2, widths: null };
 		}
 		const attrs = parseChartAttributes(gridMatch[1] ?? '');
-		const { children, spans } = parseGridColumns(gridMatch[2]);
+		const { children, spans } = parseGridColumns(gridMatch[2], parameters);
 		return {
 			segments: children,
 			cols: parseInt(attrs.cols || String(children.length || 1), 10),
@@ -95,7 +97,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 						? spans
 						: null,
 		};
-	}, [rawContent]);
+	}, [rawContent, parameters]);
 
 	useEffect(() => {
 		setLiveWidths(null);
