@@ -12,6 +12,7 @@ import type { StoredSqlQuery } from '../queries/execute-sql.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as filterOptionsCacheQueries from '../queries/story-filter-options-cache.queries';
 import { logger } from '../utils/logger';
+import { extractConfiguredDatabases } from '../utils/nao-config';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
 import { createStoryExecutionContext, executeRawSql, isCacheExpired, type StoryExecutionContext } from './live-story';
 import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
@@ -25,9 +26,9 @@ const DIMENSION_NAME_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const STRING_CAST_TYPE_BY_DIALECT: Record<string, string> = {
 	bigquery: 'STRING',
 	databricks: 'STRING',
-	spark: 'STRING',
-	hive: 'STRING',
 	mysql: 'CHAR',
+	mssql: 'NVARCHAR(MAX)',
+	fabric: 'VARCHAR(8000)',
 };
 
 const pendingRefreshes = new Map<string, Promise<FilterOptionsResult>>();
@@ -63,7 +64,6 @@ interface WarehouseOptionsSource {
 	table: string;
 	column: string;
 	databaseId?: string;
-	dialect?: string;
 	parentCondition: string | null;
 }
 
@@ -211,7 +211,8 @@ async function fetchWarehouseOptionValues(
 	executionOptions: FilterOptionsExecutionOptions,
 	search?: string,
 ): Promise<Array<string | null>> {
-	const result = await executeRawSql(buildOptionsSql(source, search), {
+	const dialect = findDatabaseType(executionContext.toolContext.projectFolder, source.databaseId);
+	const result = await executeRawSql(buildOptionsSql(source, dialect, search), {
 		executionContext,
 		databaseId: source.databaseId,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
@@ -287,13 +288,13 @@ function listStorySemanticMetrics(sqlQueries: Record<string, StoredSqlQuery>): s
 	return [...new Set(metrics)];
 }
 
-function buildOptionsSql(source: WarehouseOptionsSource, search?: string): string {
+function buildOptionsSql(source: WarehouseOptionsSource, dialect: string | undefined, search?: string): string {
 	const conditions = [`${source.column} IS NOT NULL`];
 	if (source.parentCondition) {
 		conditions.push(source.parentCondition);
 	}
 	if (search) {
-		const castType = STRING_CAST_TYPE_BY_DIALECT[source.dialect ?? ''] ?? 'VARCHAR';
+		const castType = STRING_CAST_TYPE_BY_DIALECT[dialect ?? ''] ?? 'VARCHAR';
 		conditions.push(`LOWER(CAST(${source.column} AS ${castType})) LIKE ${quoteSqlString(`%${search}%`)}`);
 	}
 
@@ -312,7 +313,6 @@ function buildOptionsSource(
 			table: assertSafeSqlIdentifier(filter.table, 'table'),
 			column: assertSafeSqlIdentifier(filter.column, 'column'),
 			databaseId,
-			dialect: findDialect(context.sqlQueries, databaseId),
 			parentCondition: buildParentCondition(filter, context.filters, parentSelection, 'warehouse'),
 		};
 	}
@@ -403,8 +403,11 @@ function findDefaultDatabaseId(sqlQueries: Record<string, StoredSqlQuery>): stri
 	return databaseIds.find((id) => id !== LOCAL_DATABASE_ID) ?? databaseIds[0];
 }
 
-function findDialect(sqlQueries: Record<string, StoredSqlQuery>, databaseId: string | undefined): string | undefined {
-	return Object.values(sqlQueries).find((query) => query.databaseId === databaseId && query.dialect)?.dialect;
+/** Mirrors the warehouse executor, which uses the only configured database regardless of the requested id. */
+function findDatabaseType(projectFolder: string | undefined, databaseId: string | undefined): string | undefined {
+	const databases = projectFolder ? extractConfiguredDatabases(projectFolder) : [];
+	const database = databases.length === 1 ? databases[0] : databases.find(({ id }) => id === databaseId);
+	return database?.type?.toLowerCase();
 }
 
 /** Column names are matched case-insensitively because some warehouses upper-case unquoted aliases. */
