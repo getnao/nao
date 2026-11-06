@@ -70,6 +70,29 @@ export default App;
 		expect(appended).toMatch(/<h1>Sales<\/h1>\s*<Chart queryId="query_2"[^>]*\/>\s*<\/>/);
 	});
 
+	it('imports the component under an alias when the file already has a name of its own for it', () => {
+		const source = `import { KpiCard } from '@nao/story-kit';
+
+function Chart() {
+	return <svg />;
+}
+
+export default function App() {
+	return (
+		<main>
+			<Chart />
+		</main>
+	);
+}
+`;
+
+		const appended = appendKitBlock('app.jsx', source, PLUGIN_CHART);
+
+		expect(appended).toContain("import { KpiCard, Chart as KitChart } from '@nao/story-kit';");
+		expect(appended).toMatch(/<Chart \/>\s*<KitChart queryId="query_2"[^>]*\/>\s*<\/main>/);
+		expect(parseKitSource('app.jsx', appended)).not.toBeNull();
+	});
+
 	it('imports the kit when the file does not use it yet', () => {
 		const source = 'export default function App() {\n\treturn <main></main>;\n}\n';
 

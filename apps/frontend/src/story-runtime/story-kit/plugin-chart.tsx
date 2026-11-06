@@ -100,10 +100,11 @@ function PluginChartBody({ chartType, height, rows, config }: PluginChartBodyPro
 	);
 
 	React.useEffect(() => {
-		const element = containerRef.current;
-		if (!element || !plugin.module) {
+		const container = containerRef.current;
+		if (!container || !plugin.module) {
 			return;
 		}
+		const element = appendDrawTarget(container);
 		let disposed = false;
 		let cleanup: ChartPluginCleanup;
 		setRenderError(null);
@@ -125,7 +126,7 @@ function PluginChartBody({ chartType, height, rows, config }: PluginChartBodyPro
 		return () => {
 			disposed = true;
 			cleanup?.();
-			element.replaceChildren();
+			element.remove();
 		};
 	}, [plugin.module, context]);
 
@@ -141,6 +142,15 @@ function PluginChartBody({ chartType, height, rows, config }: PluginChartBodyPro
 			<div ref={containerRef} className='nao-chart' style={{ height }} hidden={renderError !== null} />
 		</>
 	);
+}
+
+/** Each draw gets its own element, so a slow draw that is no longer current cannot write into the next one. */
+function appendDrawTarget(container: HTMLElement): HTMLDivElement {
+	const element = document.createElement('div');
+	element.style.width = '100%';
+	element.style.height = '100%';
+	container.appendChild(element);
+	return element;
 }
 
 function PluginChartError({ error }: { error: string }) {

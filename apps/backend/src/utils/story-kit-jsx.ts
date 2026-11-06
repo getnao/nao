@@ -28,6 +28,7 @@ interface KitImport {
 	localNames: Map<string, string>;
 	namespace: string | null;
 	lastSpecifierEnd: number | null;
+	takenNames: Set<string>;
 }
 
 interface RenderedRoot {
@@ -173,7 +174,12 @@ export function parseScript(path: string, source: string): Node | null {
 }
 
 function readKitImport(program: Node): KitImport {
-	const kitImport: KitImport = { localNames: new Map(), namespace: null, lastSpecifierEnd: null };
+	const kitImport: KitImport = {
+		localNames: new Map(),
+		namespace: null,
+		lastSpecifierEnd: null,
+		takenNames: collectIdentifierNames(program),
+	};
 	if (program.type !== 'Program') {
 		return kitImport;
 	}
@@ -335,13 +341,38 @@ function referenceKitComponent(kitImport: KitImport, component: string, edits: S
 	if (kitImport.namespace) {
 		return `${kitImport.namespace}.${component}`;
 	}
+	const name = unusedName(component, kitImport.takenNames);
+	const specifier = name === component ? component : `${component} as ${name}`;
 	if (kitImport.lastSpecifierEnd === null) {
-		edits.push({ start: 0, end: 0, text: `import { ${component} } from "${STORY_KIT_MODULE}";\n` });
+		edits.push({ start: 0, end: 0, text: `import { ${specifier} } from "${STORY_KIT_MODULE}";\n` });
 	} else {
-		edits.push({ start: kitImport.lastSpecifierEnd, end: kitImport.lastSpecifierEnd, text: `, ${component}` });
+		edits.push({ start: kitImport.lastSpecifierEnd, end: kitImport.lastSpecifierEnd, text: `, ${specifier}` });
 	}
-	kitImport.localNames.set(component, component);
-	return component;
+	kitImport.localNames.set(component, name);
+	kitImport.takenNames.add(name);
+	return name;
+}
+
+/** The file may already declare a name of its own like `Chart`, so the kit's is then imported under an alias. */
+function unusedName(component: string, takenNames: Set<string>): string {
+	if (!takenNames.has(component)) {
+		return component;
+	}
+	let candidate = `Kit${component}`;
+	for (let suffix = 2; takenNames.has(candidate); suffix++) {
+		candidate = `Kit${component}${suffix}`;
+	}
+	return candidate;
+}
+
+function collectIdentifierNames(program: Node): Set<string> {
+	const names = new Set<string>();
+	traverseFast(program, (node) => {
+		if (node.type === 'Identifier' || node.type === 'JSXIdentifier') {
+			names.add(node.name);
+		}
+	});
+	return names;
 }
 
 function findRenderedRoot(program: Program, kitImport: KitImport): RenderedRoot | null {
