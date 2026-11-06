@@ -62,6 +62,7 @@ import { assertMemberBudgetLicensed } from '../utils/member-budget';
 import { parseEntraGroupNaoGroupMapping, parseOidcGroupNaoGroupMapping } from '../utils/sso-group-mapping';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
+const MAX_BULK_MEMBERSHIP_USERS = 1_000;
 const groupNameSchema = z.string().trim().min(1, 'Group name is required.').max(80, 'Group name is too long.');
 const featureGrantsSchema = z.array(z.enum(USER_GROUP_FEATURES)).max(USER_GROUP_FEATURES.length);
 const toolCallDensityPolicySchema = z.object({
@@ -472,6 +473,22 @@ export const userGroupRoutes = {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
+			);
+			await revokeUnauthorizedProjectWideShares(ctx.project.id);
+		}),
+
+	setMemberships: adminProtectedProcedure
+		.input(
+			z.object({
+				groupId: z.string().min(1),
+				userIds: z.array(z.string().min(1)).min(1).max(MAX_BULK_MEMBERSHIP_USERS),
+				isMember: z.boolean(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+			await handleQuery(() =>
+				userGroupQueries.setUserGroupMemberships(ctx.project.id, input.groupId, input.userIds, input.isMember),
 			);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),

@@ -580,19 +580,37 @@ export const setUserGroupMembership = async (
 	userId: string,
 	isMember: boolean,
 ): Promise<void> => {
+	await setUserGroupMemberships(projectId, groupId, [userId], isMember);
+};
+
+export const setUserGroupMemberships = async (
+	projectId: string,
+	groupId: string,
+	userIds: string[],
+	isMember: boolean,
+): Promise<void> => {
+	const uniqueUserIds = [...new Set(userIds)];
 	const group = await getUserGroup(projectId, groupId);
 	if (group.isDefault) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'Membership in All Users cannot be changed.');
 	}
-	const effectiveUsers = await listUsersWithProjectAccess(projectId);
-	if (!effectiveUsers.some((user) => user.id === userId)) {
-		throw new UserGroupQueryError('BAD_REQUEST', 'This user does not have access to the project.');
+	const effectiveUserIds = new Set((await listUsersWithProjectAccess(projectId)).map((user) => user.id));
+	if (uniqueUserIds.some((userId) => !effectiveUserIds.has(userId))) {
+		throw new UserGroupQueryError(
+			'BAD_REQUEST',
+			uniqueUserIds.length === 1
+				? 'This user does not have access to the project.'
+				: 'One or more users do not have access to the project.',
+		);
+	}
+	if (uniqueUserIds.length === 0) {
+		return;
 	}
 
 	if (isMember) {
 		await db
 			.insert(s.userGroupMember)
-			.values({ groupId, userId, provider: 'manual' })
+			.values(uniqueUserIds.map((userId) => ({ groupId, userId, provider: 'manual' as const })))
 			.onConflictDoNothing()
 			.execute();
 		return;
@@ -602,7 +620,7 @@ export const setUserGroupMembership = async (
 		.where(
 			and(
 				eq(s.userGroupMember.groupId, groupId),
-				eq(s.userGroupMember.userId, userId),
+				inArray(s.userGroupMember.userId, uniqueUserIds),
 				eq(s.userGroupMember.provider, 'manual'),
 			),
 		)

@@ -7,16 +7,19 @@ import type { ReactNode } from 'react';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
+import type { ProjectUserFilters } from '@/lib/project-user-filters';
 import {
 	AddMemberDialog,
 	EditMemberDialog,
 	NewCredentialsDialog,
 	RemoveMemberDialog,
 } from '@/components/settings/team';
+import { ProjectUsersToolbar } from '@/components/settings/project-users-toolbar';
 import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
 	DropdownMenu,
@@ -30,7 +33,11 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useSession } from '@/lib/auth-client';
-import { trpc } from '@/main';
+import { ALL_GROUPS_FILTER, filterProjectUsers, hasActiveProjectUserFilters } from '@/lib/project-user-filters';
+import { trpc, trpcClient } from '@/main';
+
+const BULK_MEMBERSHIP_BATCH_SIZE = 1_000;
+const LISTED_SKIPPED_USERS_LIMIT = 3;
 
 export type ProjectAccessSource = 'project' | 'organization' | 'both';
 
@@ -61,9 +68,22 @@ interface GroupAccess {
 	ssoMembershipKeys: Set<string>;
 }
 
+interface BulkMembershipChange {
+	groupId: string;
+	userIds: string[];
+	isMember: boolean;
+}
+
+interface UserSelection {
+	selectedUserIds: Set<string>;
+	onToggleUser: (userId: string, isSelected: boolean) => void;
+	onToggleAll: (isSelected: boolean) => void;
+}
+
 interface UserAccessManagement {
 	groupAccess: GroupAccess;
 	memberActions: ProjectMemberActions;
+	selection: UserSelection;
 	onOpenUser: (userId: string) => void;
 }
 
@@ -142,10 +162,27 @@ function ManagedProjectUsersTable({
 	const [resetPasswordError, setResetPasswordError] = useState('');
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 
+	const [filters, setFilters] = useState<ProjectUserFilters>({ search: '', groupFilter: ALL_GROUPS_FILTER });
+	const customGroups = useMemo(() => groups.filter((group) => !group.isDefault), [groups]);
+	const visibleUsers = useMemo(() => {
+		const customGroupIds = customGroups.map((group) => group.id);
+		return {
+			projectUsers: filterProjectUsers(projectUsers, filters, customGroupIds, membershipKeys),
+			organizationUsers: filterProjectUsers(organizationUsers, filters, customGroupIds, membershipKeys),
+		};
+	}, [projectUsers, organizationUsers, filters, customGroups, membershipKeys]);
+	const selectableUsers = [...visibleUsers.projectUsers, ...visibleUsers.organizationUsers];
+	const selection = useVisibleUserSelection(selectableUsers);
+	const [bulkNotice, setBulkNotice] = useState('');
+
 	const addUser = useMutation(trpc.user.addUserToProject.mutationOptions());
 	const modifyUser = useMutation(trpc.user.modify.mutationOptions());
 	const removeUser = useMutation(trpc.project.removeProjectMember.mutationOptions());
 	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
+	const setMemberships = useMutation({
+		mutationKey: trpc.userGroup.setMemberships.mutationKey(),
+		mutationFn: setMembershipsInBatches,
+	});
 
 	const invalidateMembers = () => {
 		return Promise.all([
@@ -206,6 +243,25 @@ function ManagedProjectUsersTable({
 		setResetPasswordError('');
 	};
 
+	const handleBulkMembershipChange = (groupId: string, isMember: boolean) => {
+		const selectedUsers = selectableUsers.filter((user) => selection.selectedUserIds.has(user.id));
+		const isManagedBySso = (user: ProjectUser) => ssoMembershipKeys.has(`${groupId}:${user.id}`);
+		const ssoManagedUsers = selectedUsers.filter(isManagedBySso);
+		const userIds = selectedUsers.filter((user) => !isManagedBySso(user)).map((user) => user.id);
+		const groupName = groups.find((group) => group.id === groupId)?.name ?? 'this group';
+		setBulkNotice(describeSsoManagedUsers(ssoManagedUsers, groupName));
+		if (userIds.length === 0) {
+			return;
+		}
+		setMemberships.mutate(
+			{ groupId, userIds, isMember },
+			{
+				onSuccess: () => selection.clear(),
+				onSettled: () => invalidateUserGroupQueries(queryClient),
+			},
+		);
+	};
+
 	const management: UserAccessManagement = {
 		groupAccess: { groups, membershipKeys, ssoMembershipKeys },
 		memberActions: {
@@ -213,6 +269,7 @@ function ManagedProjectUsersTable({
 			onRemove: setRemoveMember,
 			onResetPassword: isCloud ? undefined : setResetPasswordMember,
 		},
+		selection,
 		onOpenUser,
 	};
 
@@ -229,11 +286,27 @@ function ManagedProjectUsersTable({
 					</Button>
 				}
 			>
+				<ProjectUsersToolbar
+					filters={filters}
+					onFiltersChange={setFilters}
+					customGroups={customGroups}
+					selectedCount={selection.selectedUserIds.size}
+					isBulkPending={setMemberships.isPending}
+					bulkError={setMemberships.error?.message}
+					bulkNotice={bulkNotice}
+					onBulkMembershipChange={handleBulkMembershipChange}
+					onClearSelection={() => {
+						selection.clear();
+						setMemberships.reset();
+						setBulkNotice('');
+					}}
+				/>
 				<UserAccessTable
-					projectUsers={projectUsers}
-					organizationUsers={organizationUsers}
+					projectUsers={visibleUsers.projectUsers}
+					organizationUsers={visibleUsers.organizationUsers}
 					currentUserId={session?.user?.id}
 					management={management}
+					emptyMessage={hasActiveProjectUserFilters(filters) ? 'No users match your filters.' : undefined}
 				/>
 			</SettingsCard>
 
@@ -288,17 +361,70 @@ function toTeamMember(user: ProjectUser): TeamMember {
 	return { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status };
 }
 
+/** The endpoint caps each request, while a selection can include every user of the project. */
+async function setMembershipsInBatches({ groupId, userIds, isMember }: BulkMembershipChange): Promise<void> {
+	for (let start = 0; start < userIds.length; start += BULK_MEMBERSHIP_BATCH_SIZE) {
+		await trpcClient.userGroup.setMemberships.mutate({
+			groupId,
+			userIds: userIds.slice(start, start + BULK_MEMBERSHIP_BATCH_SIZE),
+			isMember,
+		});
+	}
+}
+
+/** SSO sync owns these memberships, so a manual change would be duplicated or undone. */
+function describeSsoManagedUsers(users: ProjectUser[], groupName: string): string {
+	if (users.length === 0) {
+		return '';
+	}
+	const names = users.slice(0, LISTED_SKIPPED_USERS_LIMIT).map((user) => user.name);
+	const hiddenCount = users.length - names.length;
+	const userList = hiddenCount > 0 ? `${names.join(', ')} and ${hiddenCount} more` : names.join(', ');
+	return `Skipped ${userList}: SSO manages their membership in ${groupName}.`;
+}
+
+/** Only visible users stay selected, so bulk actions never touch users hidden by the current filters. */
+function useVisibleUserSelection(visibleUsers: ProjectUser[]) {
+	const [checkedUserIds, setCheckedUserIds] = useState<Set<string>>(() => new Set());
+	const visibleUserIds = visibleUsers.map((user) => user.id);
+	const selectedUserIds = new Set(visibleUserIds.filter((userId) => checkedUserIds.has(userId)));
+
+	const onToggleUser = (userId: string, isSelected: boolean) => {
+		setCheckedUserIds((current) => {
+			const next = new Set(current);
+			if (isSelected) {
+				next.add(userId);
+			} else {
+				next.delete(userId);
+			}
+			return next;
+		});
+	};
+
+	const onToggleAll = (isSelected: boolean) => {
+		setCheckedUserIds(isSelected ? new Set(visibleUserIds) : new Set());
+	};
+
+	const clear = () => {
+		setCheckedUserIds(new Set());
+	};
+
+	return { selectedUserIds, onToggleUser, onToggleAll, clear };
+}
+
 function UserAccessTable({
 	projectUsers,
 	organizationUsers,
 	currentUserId,
 	management,
+	emptyMessage = 'No users have access to this project.',
 }: ProjectUsersProps & {
 	currentUserId?: string;
 	management?: UserAccessManagement;
+	emptyMessage?: string;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
-	const columnCount = management ? 4 : 2;
+	const columnCount = management ? 5 : 2;
 
 	return (
 		<div className='overflow-x-auto'>
@@ -307,7 +433,13 @@ function UserAccessTable({
 					<TableRow className='[&_th]:h-12'>
 						{management ? (
 							<>
-								<TableHead className='w-[36%]'>User</TableHead>
+								<TableHead className='w-10'>
+									<SelectAllUsersCheckbox
+										selection={management.selection}
+										userCount={projectUsers.length + organizationUsers.length}
+									/>
+								</TableHead>
+								<TableHead className='w-[32%]'>User</TableHead>
 								<TableHead className='w-1/5'>Role</TableHead>
 								<TableHead className='w-[38%]'>Groups</TableHead>
 								<TableHead className='w-[6%]' />
@@ -324,7 +456,7 @@ function UserAccessTable({
 					{!hasUsers && (
 						<TableRow>
 							<TableCell colSpan={columnCount} className='h-24 text-center'>
-								No users have access to this project.
+								{emptyMessage}
 							</TableCell>
 						</TableRow>
 					)}
@@ -410,10 +542,22 @@ function ManagedUserAccessRow({
 	management: UserAccessManagement;
 	showMemberActions: boolean;
 }) {
-	const { groupAccess, memberActions, onOpenUser } = management;
+	const { groupAccess, memberActions, selection, onOpenUser } = management;
+	const isSelected = selection.selectedUserIds.has(user.id);
 
 	return (
-		<TableRow className='cursor-pointer hover:bg-primary/10' onClick={() => onOpenUser(user.id)}>
+		<TableRow
+			className='cursor-pointer hover:bg-primary/10'
+			data-state={isSelected ? 'selected' : undefined}
+			onClick={() => onOpenUser(user.id)}
+		>
+			<TableCell onClick={(event) => event.stopPropagation()}>
+				<Checkbox
+					checked={isSelected}
+					onCheckedChange={(checked) => selection.onToggleUser(user.id, checked === true)}
+					aria-label={`Select ${user.name}`}
+				/>
+			</TableCell>
 			<TableCell className='min-w-0 overflow-hidden'>
 				<UserIdentity
 					user={user}
@@ -442,6 +586,21 @@ function ManagedUserAccessRow({
 				{showMemberActions && !isCurrentUser && <MemberRowActions user={user} actions={memberActions} />}
 			</TableCell>
 		</TableRow>
+	);
+}
+
+function SelectAllUsersCheckbox({ selection, userCount }: { selection: UserSelection; userCount: number }) {
+	const selectedCount = selection.selectedUserIds.size;
+	const checked = userCount > 0 && selectedCount === userCount ? true : selectedCount > 0 ? 'indeterminate' : false;
+
+	return (
+		<Checkbox
+			checked={checked}
+			disabled={userCount === 0}
+			onCheckedChange={() => selection.onToggleAll(checked !== true)}
+			aria-label='Select all users'
+			className='data-[state=indeterminate]:bg-primary/15 data-[state=indeterminate]:text-primary/70 data-[state=indeterminate]:shadow-none'
+		/>
 	);
 }
 
