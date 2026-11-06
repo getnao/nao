@@ -241,13 +241,18 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 		[storyId, versionNumber],
 	);
 	const download = useCustomStoryDownload(content, dataSource, renderExport);
-	const handleAskBlock = useCallback((block: StoryBlockReference) => {
-		requestAsk({ chatId: null, selection: { text: block.title ?? '', block } });
-	}, []);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
+	const handleAsk = useCallback(
+		({ text, block, intent }: StoryElementCitation) => {
+			requestAsk({ chatId: null, selection: { text, block, intent, storySlug } });
+		},
+		[storySlug],
+	);
 
 	useTrackViewDuration({ assetType: 'story', storyId, versionNumber });
 	const isArchived = Boolean(story?.archivedAt);
 	const isAskInputHidden = viewMode !== 'app';
+	const canAsk = !isArchived && !isAskInputHidden;
 
 	return (
 		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
@@ -266,6 +271,9 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				canRename
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={{ viewMode, onViewModeChange: setViewMode }}
+				elementSelection={
+					canAsk ? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements } : undefined
+				}
 			/>
 
 			<div className='relative flex min-h-0 flex-1 flex-col'>
@@ -273,13 +281,14 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 					viewMode={viewMode}
 					app={
 						<CustomStoryBody
-							bottomInset={isArchived || isAskInputHidden ? undefined : STORY_ASK_BAR_INSET}
+							bottomInset={canAsk ? STORY_ASK_BAR_INSET : undefined}
 							dataSource={dataSource}
 							content={content}
 							isLoading={contentQuery.isLoading}
 							error={contentQuery.error}
 							hasPublishedVersion
-							onAskBlock={handleAskBlock}
+							onAsk={canAsk ? handleAsk : undefined}
+							isSelectingElements={canAsk && isSelectingElements}
 						/>
 					}
 					files={
