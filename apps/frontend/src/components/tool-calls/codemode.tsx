@@ -7,6 +7,7 @@ import type { codemode } from '@nao/shared/tools';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { cn } from '@/lib/utils';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 type ViewMode = 'output' | 'code';
 
@@ -33,7 +34,7 @@ export const CodemodeToolCall = ({ toolPart: { output, input } }: ToolCallCompon
 			id: 'copy',
 			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
-				navigator.clipboard.writeText(input?.code ?? '');
+				copyTextToClipboard(input?.code ?? '');
 			},
 			title: 'Copy code',
 		},

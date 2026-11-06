@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 interface ProjectItem {
 	id: string;
@@ -489,7 +490,7 @@ function CopyButton({ text }: { text: string }) {
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = async () => {
-		await navigator.clipboard.writeText(text);
+		await copyTextToClipboard(text);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
 	};

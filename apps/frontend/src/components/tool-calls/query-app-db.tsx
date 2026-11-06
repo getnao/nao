@@ -6,6 +6,7 @@ import { ToolOutputFallback } from './tool-output-fallback';
 import { TableDisplay } from './display-table';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 type ViewMode = 'results' | 'query';
 
@@ -47,7 +48,7 @@ export const QueryAppDbToolCall = ({ toolPart }: ToolCallComponentProps) => {
 			id: 'copy',
 			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
-				navigator.clipboard.writeText(input?.sql ?? '');
+				copyTextToClipboard(input?.sql ?? '');
 			},
 			title: 'Copy query',
 		},

@@ -16,6 +16,7 @@ import { useLoadAllQueryRows, useQueryRowsSource } from '@/hooks/use-query-rows'
 import { useToolCallContext } from '@/contexts/tool-call';
 import { SidePanelContent } from '@/components/side-panel/sql-editor';
 import { trpc } from '@/main';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 type ViewMode = 'results' | 'query';
 
@@ -80,7 +81,7 @@ export const ExecuteSqlToolCall = ({
 			id: 'copy',
 			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
-				navigator.clipboard.writeText(input?.sql_query ?? '');
+				copyTextToClipboard(input?.sql_query ?? '');
 			},
 			title: 'Copy query',
 		},

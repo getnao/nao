@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { trpc, trpcClient } from '@/main';
 
 import { requireAdminNonCloud } from '@/lib/route-guards';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/logs')({
 	beforeLoad: requireAdminNonCloud,
@@ -221,7 +222,7 @@ function LogsPage() {
 			.join('\n');
 
 		try {
-			await navigator.clipboard.writeText(text);
+			await copyTextToClipboard(text);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 1500);
 		} catch {

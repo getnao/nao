@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useActiveProjectId } from '@/lib/active-project';
 import { trpc } from '@/main';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 export function useShareAudience() {
 	const activeProjectId = useActiveProjectId();
@@ -124,8 +125,12 @@ export function useCopyWithFeedback(delay = 1500) {
 	useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
 	const copy = useCallback(
-		(text: string) => {
-			navigator.clipboard.writeText(text);
+		async (text: string) => {
+			try {
+				await copyTextToClipboard(text);
+			} catch {
+				return;
+			}
 			setIsCopied(true);
 			clearTimeout(timeoutRef.current);
 			timeoutRef.current = setTimeout(() => setIsCopied(false), delay);

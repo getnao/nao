@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 import { useGroupPicker, useMemberPicker, useCopyWithFeedback, useShareAudience } from '@/hooks/use-share-dialog';
+import { copyDeferredTextToClipboard } from '@/lib/clipboard';
 
 export type ShareStoryIntent = 'share' | 'pin';
 
@@ -114,6 +115,15 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 
 	const shareMutation = useMutation(trpc.storyShare.create.mutationOptions());
 
+	const showConfirmationAndClose = useCallback(() => {
+		setIsConfirmed(true);
+		clearTimeout(timeoutRef.current);
+		timeoutRef.current = setTimeout(() => {
+			setIsConfirmed(false);
+			onOpenChange(false);
+		}, 1500);
+	}, [onOpenChange]);
+
 	const handleConfirm = useCallback(() => {
 		const isSpecific = effectiveVisibility === 'specific';
 		const promise = shareMutation
@@ -128,22 +138,14 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 			})
 			.then((data) => {
 				invalidateShareQueries();
-				setIsConfirmed(true);
-				clearTimeout(timeoutRef.current);
-				timeoutRef.current = setTimeout(() => {
-					setIsConfirmed(false);
-					onOpenChange(false);
-				}, 1500);
 				return data;
 			});
 
-		if (!isPinIntent) {
-			const blobPromise = promise.then((data) => new Blob([buildStoryUrl(data.storyId)], { type: 'text/plain' }));
-			blobPromise.catch(() => {});
-			navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
-		}
-
 		promise.catch(() => {});
+		const completion = isPinIntent
+			? promise
+			: copyDeferredTextToClipboard(promise.then((data) => buildStoryUrl(data.storyId)));
+		completion.then(showConfirmationAndClose).catch(() => {});
 	}, [
 		chatId,
 		storySlug,
@@ -154,7 +156,7 @@ function CreateShareDialog({ open, onOpenChange, chatId, storySlug, intent = 'sh
 		isSmtpEnabled,
 		shareMutation,
 		invalidateShareQueries,
-		onOpenChange,
+		showConfirmationAndClose,
 		isPinIntent,
 	]);
 

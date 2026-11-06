@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 import { useMemberPicker, useCopyWithFeedback, useShareAudience } from '@/hooks/use-share-dialog';
+import { copyDeferredTextToClipboard } from '@/lib/clipboard';
 
 interface ShareChatDialogProps {
 	open: boolean;
@@ -103,8 +104,17 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 
 	const shareMutation = useMutation(trpc.sharedChat.create.mutationOptions());
 
+	const showCopiedAndClose = useCallback(() => {
+		setIsCopied(true);
+		clearTimeout(timeoutRef.current);
+		timeoutRef.current = setTimeout(() => {
+			setIsCopied(false);
+			onOpenChange(false);
+		}, 1500);
+	}, [onOpenChange]);
+
 	const handleShare = useCallback(() => {
-		const blobPromise = shareMutation
+		const urlPromise = shareMutation
 			.mutateAsync({
 				chatId,
 				visibility: effectiveVisibility,
@@ -113,17 +123,13 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 			})
 			.then((data) => {
 				invalidateShareQueries();
-				setIsCopied(true);
-				clearTimeout(timeoutRef.current);
-				timeoutRef.current = setTimeout(() => {
-					setIsCopied(false);
-					onOpenChange(false);
-				}, 1500);
-				return new Blob([`${window.location.origin}/shared-chat/${data.id}`], { type: 'text/plain' });
+				return `${window.location.origin}/shared-chat/${data.id}`;
 			});
 
-		blobPromise.catch(() => {});
-		navigator.clipboard.write([new ClipboardItem({ 'text/plain': blobPromise })]).catch(() => {});
+		urlPromise.catch(() => {});
+		copyDeferredTextToClipboard(urlPromise)
+			.then(showCopiedAndClose)
+			.catch(() => {});
 	}, [
 		chatId,
 		effectiveVisibility,
@@ -132,7 +138,7 @@ function CreateShareDialog({ open, onOpenChange, chatId }: ShareChatDialogProps)
 		isSmtpEnabled,
 		shareMutation,
 		invalidateShareQueries,
-		onOpenChange,
+		showCopiedAndClose,
 	]);
 
 	const canShare = effectiveVisibility === 'project' || selectedUserIds.size > 0;
