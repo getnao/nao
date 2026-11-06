@@ -10,15 +10,13 @@ import * as storyQueries from '../../queries/story.queries';
 import { agentService } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
-import type { UIMessage, UIMessagePart } from '../../types/chat';
 import {
-	describeModelInput,
-	getProjectAvailableModels,
-	RequestedModelError,
-	resolveDefaultChatModel,
-	resolvePinnedModel,
-	resolveRequestedModel,
-} from '../../utils/llm';
+	getAvailableModelsForUser,
+	getDefaultChatModelForUser,
+	resolveUserModelSelection,
+} from '../../services/user-group-llm-access.service';
+import type { UIMessage, UIMessagePart } from '../../types/chat';
+import { describeModelInput, pickRequestedModel, RequestedModelError } from '../../utils/llm';
 import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
 import { chatUrl, storyUrl } from '../urls';
@@ -178,8 +176,9 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 			const modelSelection = await agentService.resolveModelSelection(
 				ctx.projectId,
 				model !== undefined
-					? await resolveRequestedModel(ctx.projectId, model)
+					? pickRequestedModel(await getAvailableModelsForUser(ctx.projectId, ctx.userId), model)
 					: await resolveSubAgentModel(ctx),
+				ctx.userId,
 			);
 			const modelLabel = `${modelSelection.provider}/${modelSelection.modelId}`;
 			await mcpService.initializeMcpState(ctx.projectId);
@@ -239,10 +238,10 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 async function describeAvailableModels(ctx: McpContext): Promise<string> {
 	try {
 		const [available, pinned] = await Promise.all([
-			getProjectAvailableModels(ctx.projectId),
+			getAvailableModelsForUser(ctx.projectId, ctx.userId),
 			resolveSubAgentModel(ctx),
 		]);
-		const defaultModel = pinned ?? (await resolveDefaultChatModel(ctx.projectId));
+		const defaultModel = pinned ?? (await getDefaultChatModelForUser(ctx.projectId, ctx.userId));
 		return describeModelInput(available, defaultModel);
 	} catch (error) {
 		// The catalog is a convenience for the caller; a failed lookup must not keep `ask_nao` from registering.
@@ -260,7 +259,7 @@ async function resolveSubAgentModel(ctx: McpContext): Promise<LlmSelectedModel |
 	if (!pinned) {
 		return undefined;
 	}
-	return (await resolvePinnedModel(ctx.projectId, pinned)) ?? undefined;
+	return resolveUserModelSelection(ctx.projectId, ctx.userId, pinned);
 }
 
 /**

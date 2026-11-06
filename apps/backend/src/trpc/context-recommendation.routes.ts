@@ -24,6 +24,7 @@ import {
 } from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
+import { getAvailableModelsForUser } from '../services/user-group-llm-access.service';
 import {
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
 	CONTEXT_RECOMMENDATION_STATUSES,
@@ -31,7 +32,6 @@ import {
 	MIN_AUTO_PRS_PER_RUN,
 } from '../types/context-recommendation';
 import { llmProviderSchema } from '../types/llm';
-import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
@@ -119,7 +119,7 @@ export const contextRecommendationRoutes = {
 	}),
 
 	listAvailableModels: recommendationsProcedure.query(async ({ ctx }) => {
-		return getProjectAvailableModels(ctx.project.id);
+		return getAvailableModelsForUser(ctx.project.id, ctx.user.id);
 	}),
 
 	getConfig: recommendationsProcedure.query(async ({ ctx }) => {

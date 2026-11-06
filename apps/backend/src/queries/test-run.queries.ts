@@ -81,6 +81,7 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 			testHash: s.testRunResult.testHash,
 			llmProvider: s.testRunResult.llmProvider,
 			llmModelId: s.testRunResult.llmModelId,
+			llmConfigId: s.testRunResult.llmConfigId,
 			reasoningEffort: s.testRunResult.reasoningEffort,
 			totalAttempts: sql<number>`count(*)`.mapWith(Number),
 			passedAttempts: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
@@ -103,6 +104,7 @@ export async function listLatestCompletedOutcomes(projectId: string, testPaths: 
 			s.testRunResult.testHash,
 			s.testRunResult.llmProvider,
 			s.testRunResult.llmModelId,
+			s.testRunResult.llmConfigId,
 			s.testRunResult.reasoningEffort,
 		)
 		.orderBy(asc(s.testRunResult.llmModelId))
@@ -120,6 +122,7 @@ export async function listTestAttemptTotals(runIds: string[]) {
 			contextVariant: s.testRunResult.contextVariant,
 			provider: s.testRunResult.llmProvider,
 			modelId: s.testRunResult.llmModelId,
+			llmConfigId: s.testRunResult.llmConfigId,
 			reasoningEffort: s.testRunResult.reasoningEffort,
 			totalAttempts: sql<number>`count(*)`.mapWith(Number),
 			passedAttempts: sql<number>`sum(case when ${s.testRunResult.passed} then 1 else 0 end)`.mapWith(Number),
@@ -132,6 +135,7 @@ export async function listTestAttemptTotals(runIds: string[]) {
 			s.testRunResult.contextVariant,
 			s.testRunResult.llmProvider,
 			s.testRunResult.llmModelId,
+			s.testRunResult.llmConfigId,
 			s.testRunResult.reasoningEffort,
 		)
 		.execute();
@@ -142,6 +146,7 @@ export async function listRecentModelStats(projectId: string, since: Date) {
 		.select({
 			provider: s.testRunResult.llmProvider,
 			modelId: s.testRunResult.llmModelId,
+			llmConfigId: s.testRunResult.llmConfigId,
 			attempts: sql<number>`count(*)`.mapWith(Number),
 			averageCost: sql<number | null>`avg(${s.testRunResult.totalCost})`.mapWith(Number),
 			averageDurationMs: sql<number | null>`avg(${s.testRunResult.durationMs})`.mapWith(Number),
@@ -149,7 +154,7 @@ export async function listRecentModelStats(projectId: string, since: Date) {
 		.from(s.testRunResult)
 		.innerJoin(s.testRun, eq(s.testRun.id, s.testRunResult.runId))
 		.where(and(eq(s.testRun.projectId, projectId), gte(s.testRunResult.createdAt, since)))
-		.groupBy(s.testRunResult.llmProvider, s.testRunResult.llmModelId)
+		.groupBy(s.testRunResult.llmProvider, s.testRunResult.llmModelId, s.testRunResult.llmConfigId)
 		.execute();
 }
 
@@ -162,6 +167,7 @@ export async function listResultOutcomes(runId: string) {
 			testName: s.testRunResult.testName,
 			llmProvider: s.testRunResult.llmProvider,
 			llmModelId: s.testRunResult.llmModelId,
+			llmConfigId: s.testRunResult.llmConfigId,
 			reasoningEffort: s.testRunResult.reasoningEffort,
 			contextVariant: s.testRunResult.contextVariant,
 			passed: s.testRunResult.passed,
@@ -234,6 +240,7 @@ export async function listEarlierModelAttempts(input: {
 			testPath: s.testRunResult.testPath,
 			llmProvider: s.testRunResult.llmProvider,
 			llmModelId: s.testRunResult.llmModelId,
+			llmConfigId: s.testRunResult.llmConfigId,
 			reasoningEffort: s.testRunResult.reasoningEffort,
 			contextVariant: s.testRunResult.contextVariant,
 			passed: s.testRunResult.passed,
@@ -254,6 +261,9 @@ export async function listEarlierModelAttempts(input: {
 						and(
 							eq(s.testRunResult.llmProvider, model.provider),
 							eq(s.testRunResult.llmModelId, model.modelId),
+							model.llmConfigId
+								? eq(s.testRunResult.llmConfigId, model.llmConfigId)
+								: isNull(s.testRunResult.llmConfigId),
 							model.reasoningEffort
 								? eq(s.testRunResult.reasoningEffort, model.reasoningEffort)
 								: isNull(s.testRunResult.reasoningEffort),

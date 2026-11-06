@@ -148,7 +148,7 @@ export const testRunRoutes = {
 	getModelStats: contextAdminProtectedProcedure.query(({ ctx }) => getModelStats(ctx.project.id)),
 
 	getDefaultReasoningEfforts: contextAdminProtectedProcedure.query(({ ctx }) =>
-		listDefaultReasoningEfforts(ctx.project.id),
+		listDefaultReasoningEfforts(ctx.project.id, ctx.user.id),
 	),
 
 	getTestHistory: contextAdminProtectedProcedure

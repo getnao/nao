@@ -8,6 +8,16 @@ import { UsageFilters } from './usage-filters';
 import { UsagePeriodFilter } from './usage-period-filter';
 import type { SavedUsagePeriod } from '@nao/backend/usage';
 
+vi.stubGlobal(
+	'ResizeObserver',
+	class {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	},
+);
+Element.prototype.scrollIntoView = vi.fn();
+
 const savedPeriods: SavedUsagePeriod[] = [{ id: 'year', days: 365, granularity: 'month' }];
 
 describe('UsageFilters', () => {
@@ -85,6 +95,39 @@ describe('UsageFilters', () => {
 		fireEvent.click(toggle);
 
 		expect(onSplitByUserChange).toHaveBeenCalledWith(true);
+	});
+
+	it('filters usage by credential selection', () => {
+		const onSelectedCredentialIdsChange = vi.fn();
+		render(
+			<UsageFilters
+				provider='all'
+				onProviderChange={vi.fn()}
+				periodSelection={DEFAULT_USAGE_PERIOD_SELECTION}
+				onPeriodSelectionChange={vi.fn()}
+				savedPeriods={[]}
+				onCreateSavedPeriod={vi.fn()}
+				onUpdateSavedPeriod={vi.fn()}
+				onDeleteSavedPeriod={vi.fn()}
+				availableProviders={[]}
+				availableCredentials={[
+					{ id: 'client-a', name: 'Client A' },
+					{ id: 'client-b', name: 'Client B' },
+				]}
+				onSelectedCredentialIdsChange={onSelectedCredentialIdsChange}
+				chatFacets={undefined}
+				selectedUserNames={undefined}
+				onSelectedUserNamesChange={vi.fn()}
+				selectedSources={undefined}
+				onSelectedSourcesChange={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Credentials' }));
+		fireEvent.click(screen.getByText('Client B'));
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+		expect(onSelectedCredentialIdsChange).toHaveBeenCalledWith(['client-a']);
 	});
 
 	it.each([

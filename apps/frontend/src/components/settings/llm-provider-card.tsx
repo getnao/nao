@@ -1,13 +1,16 @@
-import { Pencil, Trash2 } from 'lucide-react';
 import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
 import { providerKind, providerLabel, providerLabels, providerName } from '@nao/shared/types';
 import { Link } from '@tanstack/react-router';
+import { Pencil, Trash2 } from 'lucide-react';
+
 import { LlmProviderIcon } from '../ui/llm-provider-icon';
 import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 
 interface ProviderCardProps {
 	provider: LlmProvider;
+	configId?: string;
+	name?: string;
 	apiKeyPreview?: string | null;
 	credentialPreviews?: Record<string, string> | null;
 	baseUrl?: string | null;
@@ -22,11 +25,13 @@ interface ProviderCardProps {
 	onEdit?: () => void;
 	onDelete?: () => void;
 	isDeleting?: boolean;
-	getModelDisplayName: (provider: LlmProvider, modelId: string) => string;
+	getModelDisplayName: (provider: LlmProvider, modelId: string, configId?: string) => string;
 }
 
 export function ProviderCard({
 	provider,
+	configId,
+	name,
 	apiKeyPreview,
 	credentialPreviews,
 	baseUrl,
@@ -48,8 +53,8 @@ export function ProviderCard({
 				<div className='flex-1 grid gap-1'>
 					<div className='flex items-center gap-2'>
 						<LlmProviderIcon provider={provider} baseUrl={baseUrl || envBaseUrl} className='size-3.5' />
-						<span className='text-sm font-medium text-foreground'>{providerLabel(provider)}</span>
-						{providerName(provider) && (
+						<span className='text-sm font-medium text-foreground'>{name ?? providerLabel(provider)}</span>
+						{(name || providerName(provider)) && (
 							<span className='text-xs text-muted-foreground'>
 								{providerLabels[providerKind(provider)]}
 							</span>
@@ -115,7 +120,13 @@ export function ProviderCard({
 				{isAdmin && (onEdit || onDelete) && (
 					<div className='flex items-center gap-1'>
 						{onEdit && (
-							<Button variant='ghost' size='icon-sm' onClick={onEdit} disabled={isFormActive}>
+							<Button
+								variant='ghost'
+								size='icon-sm'
+								onClick={onEdit}
+								disabled={isFormActive}
+								aria-label={`Edit ${name ?? providerLabel(provider)}`}
+							>
 								<Pencil className='size-3 text-muted-foreground' />
 							</Button>
 						)}
@@ -125,6 +136,7 @@ export function ProviderCard({
 								size='icon-sm'
 								onClick={onDelete}
 								disabled={isDeleting || isFormActive}
+								aria-label={`Deactivate ${name ?? providerLabel(provider)}`}
 							>
 								<Trash2 className='size-4 text-destructive' />
 							</Button>
@@ -139,7 +151,7 @@ export function ProviderCard({
 						<div className='flex flex-wrap gap-1.5 mt-1.5'>
 							{enabledModels.map((modelId) => (
 								<span key={modelId} className='px-2 py-0.5 text-xs rounded bg-primary/10 text-primary'>
-									{getModelDisplayName(provider, modelId)}
+									{getModelDisplayName(provider, modelId, configId)}
 								</span>
 							))}
 						</div>

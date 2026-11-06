@@ -1,3 +1,4 @@
+import { isSameModel } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { useId } from 'react';
@@ -7,10 +8,18 @@ import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { llmModelValue, toLlmSelectedModel } from '@/lib/llm-model';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
-type AvailableModel = { provider: LlmProvider; modelId: string; name: string; baseUrl: string | null };
+type AvailableModel = {
+	provider: LlmProvider;
+	modelId: string;
+	name: string;
+	baseUrl: string | null;
+	llmConfigId?: string;
+	llmConfigName?: string;
+};
 
 const INHERIT_VALUE = '__chat_model__';
 
@@ -71,9 +80,7 @@ function ModelField({
 	onChange: (selection: LlmSelectedModel | null) => void;
 }) {
 	const labelId = useId();
-	const selected = value
-		? availableModels.find((model) => model.provider === value.provider && model.modelId === value.modelId)
-		: null;
+	const selected = value ? availableModels.find((model) => isSameModel(model, value)) : null;
 	const isUnavailable = !!value && !selected;
 
 	const handleChange = (nextValue: string) => {
@@ -81,9 +88,9 @@ function ModelField({
 			onChange(null);
 			return;
 		}
-		const model = availableModels.find((candidate) => modelValue(candidate) === nextValue);
+		const model = availableModels.find((candidate) => llmModelValue(candidate) === nextValue);
 		if (model) {
-			onChange({ provider: model.provider, modelId: model.modelId });
+			onChange(toLlmSelectedModel(model));
 		}
 	};
 
@@ -99,7 +106,11 @@ function ModelField({
 					</SimpleTooltip>
 				)}
 			</div>
-			<Select value={value ? modelValue(value) : INHERIT_VALUE} onValueChange={handleChange} disabled={disabled}>
+			<Select
+				value={value ? llmModelValue(value) : INHERIT_VALUE}
+				onValueChange={handleChange}
+				disabled={disabled}
+			>
 				<SelectTrigger className='w-full' aria-labelledby={labelId}>
 					<SelectValue>
 						{value ? (
@@ -112,6 +123,9 @@ function ModelField({
 								<span className={cn(isUnavailable && 'text-amber-600 dark:text-amber-500')}>
 									{selected?.name ?? value.modelId}
 								</span>
+								{selected?.llmConfigName && (
+									<span className='text-muted-foreground'>{selected.llmConfigName}</span>
+								)}
 							</div>
 						) : (
 							<span className='text-muted-foreground'>Same model as the chat</span>
@@ -121,17 +135,16 @@ function ModelField({
 				<SelectContent>
 					<SelectItem value={INHERIT_VALUE}>Same model as the chat</SelectItem>
 					{availableModels.map((model) => (
-						<SelectItem key={modelValue(model)} value={modelValue(model)}>
+						<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 							<LlmProviderIcon provider={model.provider} baseUrl={model.baseUrl} className='size-4' />
 							{model.name}
+							{model.llmConfigName && (
+								<span className='text-muted-foreground'>{model.llmConfigName}</span>
+							)}
 						</SelectItem>
 					))}
 				</SelectContent>
 			</Select>
 		</div>
 	);
-}
-
-function modelValue(model: { provider: string; modelId: string }): string {
-	return JSON.stringify([model.provider, model.modelId]);
 }

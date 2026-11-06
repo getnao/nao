@@ -5,9 +5,9 @@ import { useState } from 'react';
 
 import type { AutomationFormValue } from '@/components/automations-form';
 import GithubIcon from '@/components/icons/github-icon.svg';
-import { MobileHeader } from '@/components/mobile-header';
 import { AutomationForm } from '@/components/automations-form';
 import SlackIcon from '@/components/icons/slack.svg';
+import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -161,6 +161,7 @@ function AutomationDetailPage() {
 							scheduleDescription: automation.scheduleDescription ?? undefined,
 							modelProvider: automation.modelProvider ?? undefined,
 							modelId: automation.modelId ?? undefined,
+							llmConfigId: automation.llmConfigId ?? undefined,
 							enabled: automation.enabled,
 							mcpEnabled: automation.mcpEnabled,
 							mcpServers: automation.mcpServers ?? undefined,

@@ -88,6 +88,7 @@ function UserGroupDetailPage() {
 function isUserGroupEditorTab(value: unknown): value is UserGroupEditorTab {
 	return (
 		value === 'features' ||
+		value === 'llm-access' ||
 		value === 'context' ||
 		value === 'mcp' ||
 		value === 'skills' ||

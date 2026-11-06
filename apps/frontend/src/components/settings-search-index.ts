@@ -443,6 +443,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Agent',
 		section: 'Models',
 		search: { tab: 'models' },
+		title: 'Restrict models by user group',
+		description: 'Limit each user to models from the LLM credentials assigned to their groups.',
+		keywords: ['llm access', 'credentials', 'api keys', 'group models', 'model permissions'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Models',
+		search: { tab: 'models' },
 		title: 'Default models',
 		description:
 			'Choose the model new chats start on, the model each messaging integration and the MCP ask_nao tool answer with, and the models behind background tasks.',
@@ -1124,6 +1134,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'playbook',
 			'groups',
 		],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
+		title: 'LLM Access',
+		description: 'Assign all models or a selected model subset from each LLM credential to a user group.',
+		keywords: ['models', 'providers', 'credentials', 'api keys', 'group access', 'llm permissions', 'allowlist'],
 		adminOnly: true,
 	},
 	{

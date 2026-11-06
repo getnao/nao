@@ -15,7 +15,7 @@ import {
 	USER_GROUP_FEATURES,
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
-import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
+import type { LlmAccessMode, UpdatedAtFilter, UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, notExists, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
@@ -48,6 +48,11 @@ export const getProjectByPath = async (path: string): Promise<DBProject | null> 
 export const getProjectById = async (id: string): Promise<DBProject | null> => {
 	const [project] = await db.select().from(s.project).where(eq(s.project.id, id)).execute();
 	return project ?? null;
+};
+
+export const listProjectIds = async (): Promise<string[]> => {
+	const projects = await db.select({ id: s.project.id }).from(s.project).execute();
+	return projects.map((project) => project.id);
 };
 
 export const getProjectByOrgAndName = async (orgId: string, name: string): Promise<DBProject | null> => {
@@ -409,6 +414,11 @@ export const updateDefaultModelSettings = async (
 ): Promise<DefaultModelSettings> => {
 	await db.update(s.project).set({ defaultModels: settings }).where(eq(s.project.id, projectId)).execute();
 	return settings;
+};
+
+export const updateLlmAccessMode = async (projectId: string, llmAccessMode: LlmAccessMode): Promise<LlmAccessMode> => {
+	await db.update(s.project).set({ llmAccessMode }).where(eq(s.project.id, projectId)).execute();
+	return llmAccessMode;
 };
 
 export const getMapSettings = async (projectId: string): Promise<MapSettings> => {

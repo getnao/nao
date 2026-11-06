@@ -6,6 +6,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const testState = vi.hoisted(() => ({
 	projectPath: '',
+	getProjectLlmConfigByProvider: vi.fn(),
 	upsertProjectLlmConfig: vi.fn(),
 }));
 
@@ -16,7 +17,7 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 
 vi.mock('../src/queries/project-llm-config.queries', () => ({
-	getProjectLlmConfigByProvider: vi.fn(() => null),
+	getProjectLlmConfigByProvider: testState.getProjectLlmConfigByProvider,
 	upsertProjectLlmConfig: testState.upsertProjectLlmConfig,
 }));
 
@@ -45,6 +46,8 @@ const directories: string[] = [];
 
 describe('project LLM config overrides', () => {
 	beforeEach(() => {
+		testState.getProjectLlmConfigByProvider.mockReset();
+		testState.getProjectLlmConfigByProvider.mockResolvedValue(null);
 		testState.upsertProjectLlmConfig.mockReset();
 		testState.upsertProjectLlmConfig.mockImplementation((config) => ({
 			id: 'config-id',
@@ -103,6 +106,47 @@ describe('project LLM config overrides', () => {
 			}),
 		);
 	});
+
+	it('saves an environment provider as an ENV-backed credential without copying its secret', async () => {
+		writeConfig([]);
+		process.env.OPENAI_API_KEY = 'sk-from-env';
+
+		await callUpsert('openai');
+
+		expect(testState.upsertProjectLlmConfig).toHaveBeenCalledWith(
+			expect.objectContaining({
+				provider: 'openai',
+				credentialSource: 'env',
+				apiKey: '',
+			}),
+		);
+	});
+
+	it('converts an ENV-backed credential when an admin supplies a replacement key', async () => {
+		writeConfig([]);
+		process.env.OPENAI_API_KEY = 'sk-from-env';
+		testState.getProjectLlmConfigByProvider.mockResolvedValue({
+			id: 'env-openai',
+			name: 'OpenAI (ENV)',
+			provider: 'openai',
+			credentialSource: 'env',
+			apiKey: '',
+			credentials: null,
+			enabledModels: [],
+			customModels: [],
+			modelSettings: {},
+			baseUrl: null,
+		});
+
+		await callUpsert('openai', 'sk-replacement');
+
+		expect(testState.upsertProjectLlmConfig).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credentialSource: 'database',
+				apiKey: 'sk-replacement',
+			}),
+		);
+	});
 });
 
 function project() {
@@ -121,7 +165,7 @@ function writeConfig(lines: string[]): void {
 	testState.projectPath = directory;
 }
 
-async function callUpsert(provider: 'openai' | 'bedrock'): Promise<void> {
+async function callUpsert(provider: 'openai' | 'bedrock', apiKey?: string): Promise<void> {
 	const caller = testRouter.createCaller({
 		session: { user: { id: 'user-id' } },
 		selectedProjectId: 'project-id',
@@ -129,6 +173,7 @@ async function callUpsert(provider: 'openai' | 'bedrock'): Promise<void> {
 
 	await caller.upsertLlmConfig({
 		provider,
+		apiKey,
 		enabledModels: [],
 		customModels: [],
 		modelSettings: {},

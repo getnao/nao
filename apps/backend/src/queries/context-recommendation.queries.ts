@@ -108,6 +108,7 @@ export async function createRun(input: {
 	windowEnd?: Date;
 	llmProvider?: DBContextRecommendationRun['llmProvider'];
 	llmModelId?: string;
+	llmConfigId?: string;
 }): Promise<DBContextRecommendationRun> {
 	const [run] = await db.insert(s.contextRecommendationRun).values(input).returning().execute();
 	return run;
@@ -129,6 +130,7 @@ export async function completeRun(
 		totalTokens?: number;
 		llmProvider?: DBContextRecommendationRun['llmProvider'];
 		llmModelId?: string;
+		llmConfigId?: string;
 	} = {},
 	executor: DBExecutor = db,
 ): Promise<void> {

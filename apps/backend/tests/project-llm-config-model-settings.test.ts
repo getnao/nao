@@ -1,10 +1,16 @@
 import fs from 'node:fs';
 
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getProjectLlmConfigByProvider, upsertProjectLlmConfig } from '../src/queries/project-llm-config.queries';
+import {
+	deactivateProjectLlmConfig,
+	getProjectLlmConfigByProvider,
+	saveProjectLlmConfig,
+	upsertProjectLlmConfig,
+} from '../src/queries/project-llm-config.queries';
 import type { ModelSettingsMap } from '../src/types/llm';
 import { getDefaultModelId, getProjectAvailableModels } from '../src/utils/llm';
 
@@ -47,6 +53,11 @@ describe('project_llm_config model settings round-trip (sqlite)', () => {
 	afterAll(() => {
 		db.$client.close();
 		fs.rmSync(TEST_DB_PATH, { force: true });
+	});
+
+	it('creates projects with model restrictions disabled', async () => {
+		const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId));
+		expect(project.llmAccessMode).toBe('project');
 	});
 
 	it('has a non-null model_settings column defaulting to an empty object', () => {
@@ -128,6 +139,46 @@ describe('project_llm_config model settings round-trip (sqlite)', () => {
 		expect(created.modelSettings).toEqual({});
 	});
 
+	it('creates a fresh credential when an inactive credential has the same name', async () => {
+		const reuseProjectId = `${projectId}-reuse-name`;
+		await db
+			.insert(s.project)
+			.values({ id: reuseProjectId, name: 'Reuse Name Test', type: 'local', path: '/tmp/reuse-name-test' });
+		const inactive = await saveProjectLlmConfig({
+			projectId: reuseProjectId,
+			name: 'Warehouse',
+			provider: 'anthropic',
+			credentialSource: 'database',
+			apiKey: 'old-key',
+			credentials: null,
+			enabledModels: [],
+			customModels: [],
+			modelSettings: {},
+			baseUrl: null,
+		});
+		await deactivateProjectLlmConfig(reuseProjectId, inactive.id);
+
+		const restored = await saveProjectLlmConfig({
+			projectId: reuseProjectId,
+			name: 'Warehouse',
+			provider: 'openai',
+			credentialSource: 'database',
+			apiKey: 'new-key',
+			credentials: null,
+			enabledModels: ['gpt-5'],
+			customModels: [],
+			modelSettings: {},
+			baseUrl: null,
+		});
+
+		const [retained] = await db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.id, inactive.id));
+
+		expect(restored).toMatchObject({ provider: 'openai', disabledAt: null });
+		expect(restored.id).not.toBe(inactive.id);
+		expect(retained.disabledAt).not.toBeNull();
+		expect(retained.provider).toBe('anthropic');
+	});
+
 	it('resolves an empty enabled model list like an explicit provider default', async () => {
 		const implicitProjectId = `${projectId}-implicit-default`;
 		const explicitProjectId = `${projectId}-explicit-default`;
@@ -170,7 +221,9 @@ describe('project_llm_config model settings round-trip (sqlite)', () => {
 			(m) => m.provider === 'anthropic',
 		);
 
-		expect(implicitModels).toEqual(explicitModels);
+		expect(implicitModels.map(({ llmConfigId: _id, ...model }) => model)).toEqual(
+			explicitModels.map(({ llmConfigId: _id, ...model }) => model),
+		);
 		expect(implicitModels).toEqual([expect.objectContaining({ provider: 'anthropic', modelId: defaultModelId })]);
 	});
 });
