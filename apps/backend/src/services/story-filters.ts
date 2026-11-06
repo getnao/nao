@@ -54,7 +54,10 @@ export async function getStoryQuerySql(
 	renderedSql: string;
 	databaseId?: string;
 	dialect?: string;
+	/** The saved query, placeholders included: what editors load and save back. */
 	semanticQuery?: SemanticQuery;
+	/** Read-only preview of the semantic query as it runs for these selections. */
+	effectiveSemanticQuery?: SemanticQuery;
 }> {
 	const { code, sqlQueries } = await loadStoryCodeAndQueries(chatId, storySlug);
 	const query = sqlQueries[queryId];
@@ -80,14 +83,14 @@ async function previewBoundSemanticQuery(
 	code: string,
 	semanticQuery: SemanticQuery,
 	selections: StoryFilterSelections,
-): Promise<{ semanticQuery: SemanticQuery; renderedSql?: string }> {
+): Promise<{ effectiveSemanticQuery: SemanticQuery; renderedSql?: string }> {
 	const { toolContext } = await createStoryExecutionContext(chatId);
 	const bound = await bindSemanticQuery(semanticQuery, semanticBindingsFromCode(code, selections), () =>
 		describeSemanticLayerCached(toolContext).catch(() => null),
 	);
 	const effectiveQuery = resolveSemanticQueryParameters(bound.query);
 	const compiled = await compileSemanticQuery(effectiveQuery, toolContext).catch(() => null);
-	return { semanticQuery: effectiveQuery, ...(compiled && { renderedSql: compiled.sql }) };
+	return { effectiveSemanticQuery: effectiveQuery, ...(compiled && { renderedSql: compiled.sql }) };
 }
 
 function filterSpecsFromCode(code: string): StoryFilterSpecById {
