@@ -20,7 +20,7 @@ interface StoryOwner {
 
 /**
  * Gives a story created outside any chat a chat of its own, seeded with its cached query data, so it can be
- * edited there like any other story.
+ * edited there like any other story. When two callers race, both get the chat of the one that claimed it first.
  */
 export async function attachChatToStandaloneStory(
 	story: StandaloneStory,
@@ -36,8 +36,12 @@ export async function attachChatToStandaloneStory(
 		seedMessages,
 	);
 
+	if (!(await storyQueries.claimStandaloneStoryChat(story.id, chat.id))) {
+		await chatQueries.deleteChat(chat.id);
+		return { chatId: await getClaimedChatId(story.id) };
+	}
+
 	const latestVersion = await storyQueries.getLatestVersionByStoryId(story.id);
-	await storyQueries.assignChatToStory(story.id, chat.id);
 	await pinStoryMessageToChat({
 		chatId: chat.id,
 		slug: story.slug,
@@ -48,6 +52,14 @@ export async function attachChatToStandaloneStory(
 	});
 
 	return { chatId: chat.id };
+}
+
+async function getClaimedChatId(storyId: string): Promise<string> {
+	const chatId = (await storyQueries.getStoryById(storyId))?.chatId;
+	if (!chatId) {
+		throw new Error(`Story ${storyId} no longer exists.`);
+	}
+	return chatId;
 }
 
 async function listVersionFilePaths(versionId: string | undefined): Promise<string[]> {

@@ -32,6 +32,7 @@ export type ReferenceableStoryListing = {
 	isPinned: boolean;
 	isCertified: boolean;
 	isSharedWithMe: boolean;
+	canEdit: boolean;
 	updatedAt: Date;
 };
 
@@ -172,6 +173,7 @@ function toReferenceableStory<Row extends ListingRow>(
 		isPinned: isPinned === true,
 		isCertified: certifiedAt !== null,
 		isSharedWithMe: shareVisibility === 'specific' && row.ownerId !== userId,
+		canEdit: row.ownerId === userId,
 	};
 }
 

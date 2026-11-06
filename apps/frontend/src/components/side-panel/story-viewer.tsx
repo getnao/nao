@@ -175,8 +175,12 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 	const isChatAgentRunning = useChatActivity(chatId).running;
 
+	const { data: viewedStory } = useQuery({
+		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
+		enabled: !isReadonlyMode,
+	});
 	const { allStories, draftStory, latestStoryOutputVersion, isAgentRunning, isStoryUpdating, isStoryInterrupted } =
-		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning);
+		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning, viewedStory?.id ?? null);
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
 	const isStoryStreaming = Boolean(draftStory?.isStreaming);
 	const prevSlugRef = useRef(resolvedStorySlug);

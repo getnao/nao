@@ -2,15 +2,17 @@ import { randomUUID } from 'node:crypto';
 
 /**
  * Top-level folder of the virtual tree exposing the draft files of the chat's
- * custom stories, one folder per story slug: `/stories/<slug>/app.jsx`.
+ * custom stories, one folder per story id: `/stories/<id>/app.jsx`.
  * The name is reserved like `home`: a project folder called `stories` is never exposed.
  */
 export const STORIES_MOUNT = 'stories';
 
+const GLOB_CHARACTERS = /[*?[\]{}()!+@]/;
+
 export type StoryMountPath =
 	| { kind: 'root' }
-	| { kind: 'story'; slug: string }
-	| { kind: 'file'; slug: string; filePath: string };
+	| { kind: 'story'; storyId: string }
+	| { kind: 'file'; storyId: string; filePath: string };
 
 /** True when a virtual path addresses the stories mount: `/stories` or anything below it. */
 export const isStoriesPath = (virtualPath: string | undefined | null): boolean => {
@@ -21,7 +23,7 @@ export const isStoriesPath = (virtualPath: string | undefined | null): boolean =
 	return trimmed === STORIES_MOUNT || trimmed.startsWith(`${STORIES_MOUNT}/`);
 };
 
-/** Splits a stories virtual path into its story slug and the path inside that story. */
+/** Splits a stories virtual path into its story id and the path inside that story. */
 export const parseStoriesPath = (virtualPath: string): StoryMountPath => {
 	if (!isStoriesPath(virtualPath)) {
 		throw new Error(`Path '${virtualPath}' is not under /${STORIES_MOUNT}`);
@@ -30,14 +32,14 @@ export const parseStoriesPath = (virtualPath: string): StoryMountPath => {
 	if (inside === '') {
 		return { kind: 'root' };
 	}
-	const [slug, ...rest] = inside.split('/');
-	return rest.length === 0 ? { kind: 'story', slug } : { kind: 'file', slug, filePath: rest.join('/') };
+	const [storyId, ...rest] = inside.split('/');
+	return rest.length === 0 ? { kind: 'story', storyId } : { kind: 'file', storyId, filePath: rest.join('/') };
 };
 
 const STORY_SLUG = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/;
 export const STORY_SLUG_RULE = 'up to 100 letters, digits, dashes or underscores, starting with a letter or digit';
 
-/** A custom story slug names a single folder of the mount, so it must never contain `/` or `@`. */
+/** A custom story slug is part of the URLs and paths built from it, so it must never contain `/` or `@`. */
 export const isValidStorySlug = (slug: string): boolean => {
 	return STORY_SLUG.test(slug);
 };
@@ -52,14 +54,22 @@ export const generateStorySlug = (title: string): string => {
 };
 
 /** Virtual path of a story folder, or of a file inside it. */
-export const toStoriesVirtualPath = (slug?: string, filePath?: string): string => {
-	const segments = [STORIES_MOUNT, slug, filePath].filter((segment) => segment && segment !== '');
+export const toStoriesVirtualPath = (storyId?: string, filePath?: string): string => {
+	const segments = [STORIES_MOUNT, storyId, filePath].filter((segment) => segment && segment !== '');
 	return `/${segments.join('/')}`;
 };
 
-/** The path relative to the mount root, as matched by glob patterns: `stories/<slug>/<file>`. */
-export const toStoriesMountRelativePath = (slug: string, filePath: string): string => {
-	return `${STORIES_MOUNT}/${slug}/${filePath}`;
+/** The story a glob pattern names right after `mount`, such as `stories/<id>/**`, when it names a single one. */
+export const storyIdOfMountPattern = (pattern: string, mount: string): string | null => {
+	const segments = pattern.split('/');
+	const mountIndex = segments.indexOf(mount);
+	const storyId = mountIndex === -1 ? undefined : segments[mountIndex + 1];
+	return storyId && !GLOB_CHARACTERS.test(storyId) ? storyId : null;
+};
+
+/** The path relative to the mount root, as matched by glob patterns: `stories/<id>/<file>`. */
+export const toStoriesMountRelativePath = (storyId: string, filePath: string): string => {
+	return `${STORIES_MOUNT}/${storyId}/${filePath}`;
 };
 
 const trimSlashes = (value: string): string => {

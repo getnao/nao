@@ -404,8 +404,15 @@ export async function deleteStory(storyId: string): Promise<void> {
 	await db.delete(s.story).where(eq(s.story.id, storyId)).execute();
 }
 
-export async function assignChatToStory(storyId: string, chatId: string): Promise<void> {
-	await db.update(s.story).set({ chatId }).where(eq(s.story.id, storyId)).execute();
+/** Gives a standalone story its chat, unless another chat claimed it first. */
+export async function claimStandaloneStoryChat(storyId: string, chatId: string): Promise<boolean> {
+	const claimed = await db
+		.update(s.story)
+		.set({ chatId })
+		.where(and(eq(s.story.id, storyId), isNull(s.story.chatId)))
+		.returning({ id: s.story.id })
+		.execute();
+	return claimed.length > 0;
 }
 
 export async function archiveStory(chatId: string, slug: string): Promise<void> {

@@ -12,6 +12,7 @@ import { findStoryLibraryFiles } from '../../services/story-library';
 import { findStoryMountFiles, isCustomStoriesEnabled } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { isStoryLibraryPattern, storyIdOfLibraryPattern } from '../../utils/story-library';
+import { STORIES_MOUNT, storyIdOfMountPattern } from '../../utils/story-mount';
 import {
 	loadNaoignorePatterns,
 	resolveCanonicalProjectPath,
@@ -71,8 +72,10 @@ const searchStories = (recursivePattern: string, context: ToolContext): Promise<
 	if (!isCustomStoriesEnabled()) {
 		return Promise.resolve([]);
 	}
-	return findStoryMountFiles(context, (mountRelativePath) =>
-		minimatch(mountRelativePath, recursivePattern, { dot: true }),
+	return findStoryMountFiles(
+		context,
+		(mountRelativePath) => minimatch(mountRelativePath, recursivePattern, { dot: true }),
+		storyIdOfMountPattern(recursivePattern, STORIES_MOUNT),
 	);
 };
 

@@ -89,7 +89,6 @@ describe('quick questions on a story', () => {
 		expect(await resolveLinkedStory({ userId: OWNER_ID, projectId: PROJECT_ID, forkMetadata })).toMatchObject({
 			storyId: STORY_ID,
 			chatId: ORIGIN_CHAT_ID,
-			slug: SLUG,
 			canEdit: true,
 		});
 		expect(await resolveLinkedStory({ userId: VIEWER_ID, projectId: PROJECT_ID, forkMetadata })).toMatchObject({
@@ -263,7 +262,7 @@ describe('quick questions on a story', () => {
 		const newCode = `${ORIGINAL_CODE}<table query_id="query_question" />\n`;
 
 		const output = await runStoryTool(
-			{ action: 'replace', id: SLUG, code: newCode },
+			{ action: 'replace', id: STORY_ID, code: newCode },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
 		);
 
@@ -288,7 +287,7 @@ describe('quick questions on a story', () => {
 		]);
 
 		const output = await runStoryTool(
-			{ action: 'replace', id: SLUG, code: `${ORIGINAL_CODE}<table query_id="query_same_turn" />\n` },
+			{ action: 'replace', id: STORY_ID, code: `${ORIGINAL_CODE}<table query_id="query_same_turn" />\n` },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory, queryResults },
 		);
 
@@ -319,7 +318,7 @@ describe('quick questions on a story', () => {
 		const code = `${ORIGINAL_CODE}<table query_id="query_semantic" />\n<table query_id="query_semantic_same_turn" />\n`;
 
 		await runStoryTool(
-			{ action: 'replace', id: SLUG, code },
+			{ action: 'replace', id: STORY_ID, code },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory, queryResults },
 		);
 
@@ -347,13 +346,13 @@ describe('quick questions on a story', () => {
 		});
 
 		const output = await runStoryTool(
-			{ action: 'replace', id: SLUG, code: '# Hacked' },
+			{ action: 'replace', id: STORY_ID, code: '# Hacked' },
 			{ chatId: VIEWER_QUESTION_CHAT_ID, userId: VIEWER_ID, linkedStory },
 		);
 
 		expect(output).toMatchObject({
 			success: false,
-			error: `Story "${SLUG}" is read-only here: only its owner can edit it.`,
+			error: `Story "${STORY_ID}" is read-only here: only its owner can edit it.`,
 		});
 		expect((await getLatestVersionByChatAndSlug(ORIGIN_CHAT_ID, SLUG))?.code).not.toBe('# Hacked');
 	});
@@ -371,13 +370,31 @@ describe('quick questions on a story', () => {
 		const newCode = `${ORIGINAL_CODE}<!-- linked -->\n`;
 
 		const output = await runStoryTool(
-			{ action: 'replace', id: SLUG, code: newCode },
+			{ action: 'replace', id: STORY_ID, code: newCode },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
 		);
 
 		expect(output).toMatchObject({ success: true });
 		expect((await getLatestVersionByChatAndSlug(ORIGIN_CHAT_ID, SLUG))?.code).toBe(newCode);
 		expect((await getLatestVersionByChatAndSlug(QUESTION_CHAT_ID, SLUG))?.code).toBe('# Shadow');
+	});
+
+	it('refuses to create a story under the id of the story the question is about', async () => {
+		const linkedStory = await resolveLinkedStory({
+			userId: OWNER_ID,
+			projectId: PROJECT_ID,
+			forkMetadata: questionMetadata(),
+		});
+
+		const output = await runStoryTool(
+			{ action: 'create', id: STORY_ID, code: '# Copy' },
+			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
+		);
+
+		expect(output).toMatchObject({
+			success: false,
+			error: expect.stringContaining('it is the story this question is about'),
+		});
 	});
 
 	it('refuses to create a story under the slug of the story the question is about', async () => {
@@ -392,7 +409,10 @@ describe('quick questions on a story', () => {
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
 		);
 
-		expect(output).toMatchObject({ success: false });
+		expect(output).toMatchObject({
+			success: false,
+			error: expect.stringContaining('it is the story this question is about'),
+		});
 	});
 
 	it('stops linking the story once it is no longer shared with the user', async () => {

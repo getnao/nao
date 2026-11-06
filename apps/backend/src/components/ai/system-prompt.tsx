@@ -685,7 +685,8 @@ function ExistingStoriesBlock({ trustedStories, canGrep }: { trustedStories: Sto
 					To show or build on its data, re-run its SQL with execute_sql and say which story you built on.
 				</ListItem>
 				<ListItem>
-					These stories are read-only here; to change one, the user opens it from its own chat.
+					Stories marked editable can be changed from here when the user asks: pass the story id to the story
+					tool, the new version lands on the story itself. Every other story is read-only here.
 				</ListItem>
 			</List>
 			{trustedStories.length > 0 && (
@@ -706,8 +707,12 @@ function ExistingStoriesBlock({ trustedStories, canGrep }: { trustedStories: Sto
 }
 
 function describeTrustedStory(story: StorySummary): string {
-	const trust = [story.pinned ? 'pinned' : null, story.certified ? 'certified' : null].filter(Boolean).join(', ');
-	return `${JSON.stringify(story.title)} (id: ${story.id}) — ${trust}`;
+	const marks = [
+		story.pinned ? 'pinned' : null,
+		story.certified ? 'certified' : null,
+		story.editable ? 'editable' : null,
+	].filter(Boolean);
+	return `${JSON.stringify(story.title)} (id: ${story.id}) — ${marks.join(', ')}`;
 }
 
 function LocalDatabaseBlock({
