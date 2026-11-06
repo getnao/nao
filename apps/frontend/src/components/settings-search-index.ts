@@ -898,6 +898,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/integrations/slack',
 		pageLabel: 'Integrations & MCP',
 		section: 'Slack',
+		title: 'Start a new thread for each direct message',
+		description: 'Make every direct message to nao start its own chat, answered in a Slack thread.',
+		keywords: ['slack dm', 'direct message', 'private message', 'dm threads', 'new chat per message'],
+	},
+	{
+		page: '/settings/project/integrations/slack',
+		pageLabel: 'Integrations & MCP',
+		section: 'Slack',
 		title: 'Slack transport mode',
 		description: 'Switch between Webhook and Socket Mode for Slack delivery.',
 		keywords: [
