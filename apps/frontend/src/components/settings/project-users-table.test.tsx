@@ -431,6 +431,82 @@ describe('ProjectUsersTable filtering and bulk group assignment', () => {
 	});
 });
 
+describe('ProjectUsersTable pagination', () => {
+	it('hides pagination for small teams', () => {
+		renderTable();
+
+		expect(screen.queryByRole('button', { name: 'Go to next page' })).toBeNull();
+	});
+
+	it('pages read-only members and continues into the organisation section', () => {
+		const { members, organizationMembers } = makeManyUsers();
+		render(<ProjectUsersTable canManage={false} projectUsers={members} organizationUsers={organizationMembers} />);
+
+		expect(screen.getByText('Member 49')).toBeTruthy();
+		expect(screen.queryByText('Member 50')).toBeNull();
+		expect(screen.queryByText('Organisation Members')).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+
+		expect(screen.getByText('Member 59')).toBeTruthy();
+		expect(screen.getByText('Organisation Members')).toBeTruthy();
+		expect(screen.getByText('Org Member 4')).toBeTruthy();
+		expect(screen.queryByText('Member 0')).toBeNull();
+	});
+
+	it('returns to the first page when the filters change', () => {
+		renderManyManagedUsers();
+		fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+		expect(screen.getByText('Page 2 of 2')).toBeTruthy();
+
+		fireEvent.change(screen.getByRole('searchbox', { name: 'Search users' }), { target: { value: 'member5' } });
+
+		expect(screen.getByText('Member 5')).toBeTruthy();
+		expect(screen.getByText('Member 59')).toBeTruthy();
+		expect(screen.getByText('Page 1 of 1')).toBeTruthy();
+	});
+
+	it('selects every matching user across pages', () => {
+		renderManyManagedUsers();
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select all users' }));
+
+		expect(screen.getByText('65 users selected')).toBeTruthy();
+		expect(screen.getByRole('checkbox', { name: 'Select all users' }).getAttribute('data-state')).toBe('checked');
+	});
+});
+
+function makeManyUsers() {
+	const members = Array.from({ length: 60 }, (_, index) => ({
+		...projectUser,
+		id: `member-${index}`,
+		name: `Member ${index}`,
+		email: `member${index}@example.com`,
+	}));
+	const organizationMembers = Array.from({ length: 5 }, (_, index) => ({
+		...organizationUser,
+		id: `org-member-${index}`,
+		name: `Org Member ${index}`,
+		email: `org-member${index}@example.com`,
+	}));
+	return { members, organizationMembers };
+}
+
+function renderManyManagedUsers() {
+	const { members, organizationMembers } = makeManyUsers();
+	return render(
+		<ProjectUsersTable
+			canManage
+			projectUsers={members}
+			organizationUsers={organizationMembers}
+			groups={groups}
+			membershipKeys={new Set()}
+			ssoMembershipKeys={new Set()}
+			onOpenUser={vi.fn()}
+		/>,
+	);
+}
+
 function selectGroupFilter(optionName: string) {
 	fireEvent.keyDown(screen.getByRole('combobox', { name: 'Filter by group' }), { key: 'Enter' });
 	fireEvent.click(screen.getByRole('option', { name: optionName }));
