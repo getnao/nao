@@ -1,4 +1,9 @@
-import type { StoryKitBlockChange, StoryKitBlockRef } from '@nao/shared/story-app';
+import {
+	isHtmlStoryEntry,
+	type StoryApp,
+	type StoryKitBlockChange,
+	type StoryKitBlockRef,
+} from '@nao/shared/story-app';
 
 import type { DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBTransaction } from '../db/db';
@@ -7,10 +12,10 @@ import type { StoryFileInput } from '../queries/story-file.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import { formatStoryFile } from '../utils/story-file-format';
 import { isViewableStoryFile, normalizeStoryFilePath } from '../utils/story-file-path';
-import { applyKitBlockChange, matchesKitBlock, parseKitSource } from '../utils/story-kit-jsx';
+import { appendKitBlock, applyKitBlockChange, matchesKitBlock, parseKitSource } from '../utils/story-kit-jsx';
 import { CustomStoryNotFoundError } from './custom-story';
 import { queueCustomStoryThumbnail } from './custom-story-thumbnail';
-import { buildStoryApp } from './story-app-build';
+import { buildStoryApp, resolveStoryEntry } from './story-app-build';
 
 interface StoryBlockEditInput {
 	chatId: string;
@@ -19,6 +24,14 @@ interface StoryBlockEditInput {
 	versionNumber: number;
 	block: StoryKitBlockRef;
 	change: StoryKitBlockChange;
+}
+
+interface StoryBlockAppendInput {
+	chatId: string;
+	authorId: string;
+	storySlug: string;
+	versionNumber: number;
+	block: StoryKitBlockRef;
 }
 
 interface StoryVersionRestoreInput {
@@ -40,6 +53,8 @@ interface StoryFilesSaveInput {
 type StoryFilesSaveResult = { success: true; version: number } | { success: false; buildErrors: string[] };
 
 type LatestVersionInput = Pick<StoryBlockEditInput, 'chatId' | 'storySlug' | 'versionNumber'>;
+
+type EditorInput = Pick<StoryBlockEditInput, 'authorId' | 'versionNumber'>;
 
 export class StoryBlockEditError extends Error {}
 
@@ -64,26 +79,25 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 		throw new StoryBlockEditError(`This edit would break the story: ${build.errors[0]}`);
 	}
 
-	const version = await commitEdit(story.id, async (tx) => {
-		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
-			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
-		}
-		await storyFileQueries.writeDraftFile(story.id, { path: target.file.path, content }, tx);
-		const cut = await storyFileQueries.cutVersionFromDraft(
-			{
-				storyId: story.id,
-				action: 'update',
-				source: 'user',
-				origin: 'editor',
-				authorId: input.authorId,
-				sourceChatId: null,
-				versionNumber: input.versionNumber + 1,
-			},
-			tx,
-		);
-		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
-		return cut.version;
-	});
+	const edit = { path: target.file.path, content };
+	const version = await publishFileEdits(story.id, input, draft, [edit], build.app);
+	return { version: version.version };
+}
+
+export async function appendCustomStoryBlock(input: StoryBlockAppendInput): Promise<{ version: number }> {
+	const story = await getEditableCustomStory(input.chatId, input.storySlug);
+	const draft = await loadDraftMatchingLatestVersion(story.id, input);
+	const entry = findEntryFile(draft);
+	const content = await formatStoryFile(entry.path, appendKitBlock(entry.path, entry.content, input.block));
+	const files = draft.map((file) => (file.path === entry.path ? { path: file.path, content } : file));
+
+	const build = await buildStoryApp(files);
+	if (!build.ok) {
+		throw new StoryBlockEditError(`Adding this block would break the story: ${build.errors[0]}`);
+	}
+
+	const edit = { path: entry.path, content };
+	const version = await publishFileEdits(story.id, input, draft, [edit], build.app);
 	return { version: version.version };
 }
 
@@ -101,28 +115,8 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 		return { success: false, buildErrors: build.errors };
 	}
 
-	const version = await commitEdit(story.id, async (tx) => {
-		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
-			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
-		}
-		for (const [path, content] of edits) {
-			await storyFileQueries.writeDraftFile(story.id, { path, content }, tx);
-		}
-		const cut = await storyFileQueries.cutVersionFromDraft(
-			{
-				storyId: story.id,
-				action: 'update',
-				source: 'user',
-				origin: 'editor',
-				authorId: input.authorId,
-				sourceChatId: null,
-				versionNumber: input.versionNumber + 1,
-			},
-			tx,
-		);
-		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
-		return cut.version;
-	});
+	const changedFiles = [...edits].map(([path, content]) => ({ path, content }));
+	const version = await publishFileEdits(story.id, input, draft, changedFiles, build.app);
 	return { success: true, version: version.version };
 }
 
@@ -181,6 +175,38 @@ async function getEditableCustomStory(chatId: string, storySlug: string) {
 	return story;
 }
 
+/** Writes the edited files into the draft, unless the agent changed it meanwhile, and publishes it with its build. */
+function publishFileEdits(
+	storyId: string,
+	editor: EditorInput,
+	draft: StoryFileInput[],
+	changedFiles: StoryFileInput[],
+	app: StoryApp,
+): Promise<DBStoryVersion> {
+	return commitEdit(storyId, async (tx) => {
+		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(storyId, tx), draft)) {
+			throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
+		}
+		for (const file of changedFiles) {
+			await storyFileQueries.writeDraftFile(storyId, file, tx);
+		}
+		const cut = await storyFileQueries.cutVersionFromDraft(
+			{
+				storyId,
+				action: 'update',
+				source: 'user',
+				origin: 'editor',
+				authorId: editor.authorId,
+				sourceChatId: null,
+				versionNumber: editor.versionNumber + 1,
+			},
+			tx,
+		);
+		await storyFileQueries.setVersionBundle(cut.version.id, app, tx);
+		return cut.version;
+	});
+}
+
 /** Each edit creates the version right after the one it started from, so a concurrent edit loses on the unique constraint. */
 async function commitEdit(
 	storyId: string,
@@ -218,6 +244,17 @@ async function loadDraftMatchingLatestVersion(storyId: string, input: LatestVers
 		throw new StoryBlockEditError(AGENT_CHANGES_MESSAGE);
 	}
 	return draft.map((file) => ({ path: file.path, content: file.content }));
+}
+
+function findEntryFile(files: StoryFileInput[]): StoryFileInput {
+	const entry = resolveStoryEntry(Object.fromEntries(files.map((file) => [file.path, file.content])));
+	if (!entry.ok) {
+		throw new StoryBlockEditError(entry.errors[0]);
+	}
+	if (isHtmlStoryEntry(entry.path)) {
+		throw new StoryBlockEditError('Blocks cannot be added to an HTML story. Ask the agent to add it.');
+	}
+	return files.find((file) => file.path === entry.path)!;
 }
 
 function locateBlock(files: StoryFileInput[], block: StoryKitBlockRef) {

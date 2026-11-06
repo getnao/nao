@@ -101,6 +101,7 @@ export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
 	narratives: StoryNarratives;
 	state?: StoryStateSnapshot;
+	chartPlugins?: Record<string, string>;
 }
 
 /** `user` rows are each viewer's own state; `project` rows are the state every viewer reads and writes together. */
@@ -222,6 +223,7 @@ export type StoryFrameMessage =
 	| ({ type: 'nao-story:edit-block' } & StoryBlockEditPayload)
 	| ({ type: 'nao-story:edit-table-format' } & StoryTableFormatEditRequest)
 	| { type: 'nao-story:query-sql'; requestId: string; queryId: string }
+	| { type: 'nao-story:chart-plugin'; requestId: string; chartType: string }
 	| ({ type: 'nao-story:set-state' } & StoryStateChange)
 	| { type: 'nao-story:ask-block'; block: StoryBlockReference }
 	| ({ type: 'nao-story:ask' } & StoryElementAsk)
@@ -245,6 +247,8 @@ export type StoryHostMessage =
 	| { type: 'nao-story:query-error'; requestId: string; message: string }
 	| { type: 'nao-story:query-sql-result'; requestId: string; sqlQuery: string }
 	| { type: 'nao-story:query-sql-error'; requestId: string; message: string }
+	| { type: 'nao-story:chart-plugin-result'; requestId: string; source: string }
+	| { type: 'nao-story:chart-plugin-error'; requestId: string; message: string }
 	| { type: 'nao-story:narratives-result'; requestId: string; narratives: StoryNarratives }
 	| { type: 'nao-story:editing'; enabled: boolean }
 	| { type: 'nao-story:inspector'; enabled: boolean; selectsElements: boolean }
@@ -284,6 +288,7 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:edit-block',
 			'nao-story:edit-table-format',
 			'nao-story:query-sql',
+			'nao-story:chart-plugin',
 			'nao-story:set-state',
 			'nao-story:ask-block',
 			'nao-story:ask',
@@ -300,6 +305,8 @@ export const isStoryHostMessage = (value: unknown): value is StoryHostMessage =>
 			'nao-story:query-error',
 			'nao-story:query-sql-result',
 			'nao-story:query-sql-error',
+			'nao-story:chart-plugin-result',
+			'nao-story:chart-plugin-error',
 			'nao-story:narratives-result',
 			'nao-story:editing',
 			'nao-story:inspector',

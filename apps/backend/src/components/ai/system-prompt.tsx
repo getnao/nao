@@ -872,9 +872,9 @@ function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
 		<Block>
 			<Title level={2}>Custom charts</Title>
 			<Span>
-				The project provides the custom chart types below. Use them through display_chart only when their
-				description fits the request. They render in interactive web chats only, so do not use them in stories
-				or exports.
+				The project provides the custom chart types below. Use them only when their description fits the
+				request: through display_chart, which draws them in interactive web chats only, or in a custom story as{' '}
+				{'<Chart type="...">'} from @nao/story-kit. Do not use them in classic stories.
 			</Span>
 			<List>
 				{visibleCharts.map((chart) => (

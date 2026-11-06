@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query';
 import type { CustomStoryViewerAccess, StoryStateChange } from '@nao/shared/story-app';
 import { trpc, trpcClient } from '@/main';
 import { chatActivityStore } from '@/stores/chat-activity';
@@ -80,6 +81,43 @@ export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: stri
 	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId });
+}
+
+/** Chart plugins come from the story's own project `agent/charts` folder, whichever project the viewer has selected. */
+export async function fetchChartPluginSource(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+	chartType: string,
+): Promise<string> {
+	const sources = await fetchChartPluginSources(queryClient, dataSource);
+	const source = sources[chartType];
+	if (source === undefined) {
+		throw new Error(`Custom chart "${chartType}" is not available.`);
+	}
+	return source;
+}
+
+/** Every chart plugin's source by type, so a downloaded story draws its `<Chart type>` blocks offline. */
+export function fetchChartPluginSources(
+	queryClient: QueryClient,
+	dataSource: CustomStoryDataSource,
+): Promise<Record<string, string>> {
+	return queryClient.fetchQuery({ ...chartPluginsOptions(dataSource), staleTime: 0 });
+}
+
+function chartPluginsOptions(dataSource: CustomStoryDataSource) {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		return trpc.customStoryViewer.getChartPlugins.queryOptions({ access, storySlug });
+	}
+	if (dataSource.kind === 'share') {
+		return trpc.storyShare.getCustomStoryChartPlugins.queryOptions({ storyId: dataSource.storyId });
+	}
+	if (dataSource.kind === 'standalone') {
+		return trpc.standaloneCustomStory.getChartPlugins.queryOptions({ storyId: dataSource.storyId });
+	}
+	const { chatId, storySlug } = dataSource;
+	return trpc.story.getCustomStoryChartPlugins.queryOptions({ chatId, storySlug });
 }
 
 export function narrativesOptions(dataSource: CustomStoryDataSource) {

@@ -9,6 +9,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
+import { readStoryChartPluginSources } from '../services/chart-plugin';
 import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
@@ -321,6 +322,10 @@ export const sharedStoryRoutes = {
 			throw toCustomStoryTrpcError(error);
 		}
 	}),
+
+	getCustomStoryChartPlugins: shareAccessProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(({ ctx }) => readStoryChartPluginSources(ctx.resource.storyId)),
 
 	getCustomStoryState: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;

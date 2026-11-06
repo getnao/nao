@@ -16,6 +16,7 @@ import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { agentService } from '../services/agent';
+import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
 	getActiveThemeForProject,
@@ -43,6 +44,7 @@ import {
 import { nextCronTick } from '../services/scheduler.service';
 import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import {
+	appendCustomStoryBlock,
 	editCustomStoryBlock,
 	restoreCustomStoryVersion,
 	saveCustomStoryFiles,
@@ -477,6 +479,10 @@ export const storyRoutes = {
 			}
 		}),
 
+	getCustomStoryChartPlugins: chatStoryProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(({ input }) => readCustomStoryChartPluginSources(input.chatId, input.storySlug)),
+
 	getCustomStoryState: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input, ctx }) => {
@@ -560,6 +566,32 @@ export const storyRoutes = {
 			}
 			try {
 				return await editCustomStoryBlock({ ...input, authorId: ctx.user.id });
+			} catch (error) {
+				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+				}
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	appendCustomStoryBlock: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+				block: z.object({ component: storyKitBlockComponent, props: z.record(z.string(), z.unknown()) }),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			if (agentService.get(input.chatId)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The agent is working on this chat. Add to the story once it is done.',
+				});
+			}
+			try {
+				return await appendCustomStoryBlock({ ...input, authorId: ctx.user.id });
 			} catch (error) {
 				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
@@ -670,6 +702,12 @@ export const storyRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			const existingStory = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			if (existingStory?.format === 'custom') {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Custom stories are versioned from their files, not from markdown.',
+				});
+			}
 			if (!existingStory) {
 				const projectId = await chatQueries.getChatProjectId(input.chatId);
 				if (!projectId) {
