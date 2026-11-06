@@ -49,6 +49,17 @@ describe('describeStoryElement', () => {
 	it('describes the whole block when no part is cited', () => {
 		expect(describeStoryElement(barChart)).toBe('the bar-chart block "Monthly Revenue", reading q1');
 	});
+
+	it('describes a selectable element of the story by its name and detail, inside a kit block or not', () => {
+		const part = { kind: 'element', label: 'Card', value: '7 of hearts' } as const;
+
+		expect(describeStoryElement({ kind: 'element', part })).toBe(
+			`the element "Card" ("7 of hearts"), marked with selectable() in the story's source`,
+		);
+		expect(describeStoryElement({ ...barChart, part: { kind: 'element', label: 'Undo' } })).toBe(
+			`the element "Undo" in the bar-chart block "Monthly Revenue", reading q1, marked with selectable() in the story's source`,
+		);
+	});
 });
 
 describe('CitationDataSchema', () => {

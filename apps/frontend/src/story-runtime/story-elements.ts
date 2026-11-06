@@ -1,4 +1,4 @@
-import { PART_SELECTOR, readPart } from '@nao/shared/story-parts';
+import { PART_SELECTOR, readPart, STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import type { StoryBlockReference } from '@nao/shared/types';
 import type { StoryElementAsk } from '@nao/shared/story-app';
 import type { StoryBlockPart } from '@nao/shared/story-parts';
@@ -28,7 +28,7 @@ export function findInspectableElement(target: EventTarget | null): Element | nu
 export function describeElement(element: Element): StoryElementAsk {
 	const part = readElementPart(element);
 	if (part) {
-		const block = readBlockReference(element.closest(BLOCK_SELECTOR)!);
+		const block = readEnclosingBlockReference(element);
 		return { block: { ...block, part }, text: readPartQuote(part) ?? block.title ?? '' };
 	}
 	if (element.matches(BLOCK_SELECTOR)) {
@@ -43,16 +43,21 @@ export function readBlockReference(element: Element): StoryBlockReference {
 	return { kind: naoBlockKind ?? 'block', title: naoBlockTitle, queryId: naoBlockQuery };
 }
 
+function readEnclosingBlockReference(element: Element): StoryBlockReference {
+	const block = element.closest(BLOCK_SELECTOR);
+	return block ? readBlockReference(block) : { kind: STORY_ELEMENT_BLOCK_KIND };
+}
+
 export function toQuote(text: string): string {
 	return truncate(text, MAX_QUOTE_LENGTH);
 }
 
 /** A data point or cell can have no text of its own: its category then identifies it. */
 export function readElementPart(element: Element): StoryBlockPart | null {
-	if (!element.closest(BLOCK_SELECTOR)) {
+	const dataset = toPartDataset((element as HTMLElement).dataset);
+	if (dataset.naoPart !== 'element' && !element.closest(BLOCK_SELECTOR)) {
 		return null;
 	}
-	const dataset = toPartDataset((element as HTMLElement).dataset);
 	const part = readPart(dataset, toPartField(element.textContent ?? ''));
 	if (part) {
 		return part;
@@ -86,6 +91,9 @@ function readIdentityFallback(dataset: DOMStringMap): string | undefined {
 
 /** KPI values and table cells are quoted by what they show, as their label only names it. */
 function readPartQuote(part: StoryBlockPart): string | undefined {
+	if (part.kind === 'element') {
+		return [part.label, part.value].filter(Boolean).join(' · ');
+	}
 	const shownValue = QUOTED_BY_VALUE_KINDS.has(part.kind) ? part.value : undefined;
 	return shownValue ?? part.label ?? readIdentityText(part);
 }

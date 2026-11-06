@@ -1,5 +1,6 @@
 import { ChartColumn, ChartLine, ChartPie, Code, Gauge, LayoutPanelTop, MapPin, Quote, Table } from 'lucide-react';
 import { CITATION_MENTION_TRIGGER } from '@nao/shared';
+import { STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import { CODE_CITATION_KIND, MAX_CITATION_TEXT_LENGTH } from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
 import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
@@ -36,6 +37,9 @@ export function describeCitationSource({ start, end, block }: CitationData): str
 	}
 	if (block.kind === CODE_CITATION_KIND) {
 		return `@code · ${describeCodeSource(block)}`;
+	}
+	if (block.kind === STORY_ELEMENT_BLOCK_KIND && block.part) {
+		return `@element · ${partName(block.part)}`;
 	}
 	const source = block.title ? `@${block.kind} block · ${block.title}` : `@${block.kind} block`;
 	return withPartName(source, block);
@@ -175,6 +179,9 @@ function describeCitationPill({ block, text }: CitationData): string {
 	if (block?.kind === CODE_CITATION_KIND) {
 		return describeCodeSource({ ...block, title: block.title?.split('/').pop() });
 	}
+	if (block?.kind === STORY_ELEMENT_BLOCK_KIND && block.part) {
+		return truncateForPill(toSingleLine(partName(block.part)));
+	}
 	if (block && block.kind !== 'text') {
 		const label = toSingleLine(block.title ?? '') || block.kind.replaceAll('-', ' ');
 		return withPartName(label, block, truncateForPill);
@@ -207,6 +214,8 @@ function partName({ kind, label, category, value }: StoryBlockPart): string {
 			return [label, category].filter(Boolean).join(' · ') || fallback;
 		case 'data-point':
 			return category ?? label ?? fallback;
+		case 'element':
+			return [label, value].filter(Boolean).join(' · ') || fallback;
 		default:
 			return label ?? fallback;
 	}

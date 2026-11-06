@@ -12,6 +12,7 @@ export const STORY_BLOCK_PART_KINDS = [
 	'kpi-comparison',
 	'column',
 	'cell',
+	'element',
 ] as const;
 
 export type StoryBlockPartKind = (typeof STORY_BLOCK_PART_KINDS)[number];
@@ -25,6 +26,13 @@ export interface StoryBlockPart {
 }
 
 export const PART_SELECTOR = '[data-nao-part]';
+
+export const STORY_ELEMENT_BLOCK_KIND = 'element';
+
+export interface SelectableElement {
+	name: string;
+	detail?: string;
+}
 
 export function isStoryBlockPartKind(value: unknown): value is StoryBlockPartKind {
 	return STORY_BLOCK_PART_KINDS.some((kind) => kind === value);
@@ -42,6 +50,11 @@ export function partAttributes(part: StoryBlockPart): Record<string, string> {
 		string,
 		string
 	>;
+}
+
+/** Spread on an element of a story's own code so selection mode outlines it and cites it by its name and detail. */
+export function selectable({ name, detail }: SelectableElement): Record<string, string> {
+	return partAttributes({ kind: 'element', label: name, value: detail });
 }
 
 export function readPart(dataset: DOMStringMap, fallbackLabel?: string): StoryBlockPart | null {

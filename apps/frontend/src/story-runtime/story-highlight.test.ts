@@ -50,6 +50,21 @@ describe('highlightStoryElement', () => {
 		await vi.waitFor(() => expect(scrolled.map((element) => element.id)).toEqual(['growth']));
 	});
 
+	it('outlines the selectable element whose detail was cited, outside any kit block', () => {
+		document.body.insertAdjacentHTML(
+			'beforeend',
+			`<div id="six" data-nao-part="element" data-nao-part-label="Card" data-nao-part-value="6 of hearts">6♥</div>
+			<div id="seven" data-nao-part="element" data-nao-part-label="Card" data-nao-part-value="7 of hearts">7♥</div>`,
+		);
+
+		highlightStoryElement({
+			block: { kind: 'element', part: { kind: 'element', label: 'Card', value: '7 of hearts' } },
+			text: 'Card · 7 of hearts',
+		});
+
+		expect(scrolled.map((element) => element.id)).toEqual(['seven']);
+	});
+
 	it('waits for a cited block the story has not rendered yet', async () => {
 		highlightStoryElement({ block: { kind: 'kpi', title: 'Margin', queryId: 'q3' }, text: 'Margin' });
 		expect(scrolled).toEqual([]);

@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { selectable } from '@nao/shared/story-parts';
+
 import { configureStoryInspector } from './story-inspector';
 
 const BOX = { top: 100, left: 20, right: 420, bottom: 300, width: 400, height: 200, x: 20, y: 100 } as DOMRect;
@@ -145,6 +147,35 @@ describe('story inspector', () => {
 			expect(onAsk).toHaveBeenCalledWith({ block: { kind: 'text' }, text: 'Loose' });
 		});
 
+		it('cites a selectable element of the story by its name and detail, inside a kit block or not', () => {
+			const card = document.createElement('div');
+			setAttributes(card, selectable({ name: 'Card', detail: '7 of hearts' }));
+			card.innerHTML = '<p>7♥</p>';
+			document.querySelector('main')!.append(card);
+			const undo = document.createElement('button');
+			setAttributes(undo, selectable({ name: 'Undo' }));
+			document.querySelector('section')!.append(undo);
+
+			card.querySelector('p')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			undo.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+			expect(onAsk.mock.calls.map(([ask]) => ask)).toEqual([
+				{
+					block: { kind: 'element', part: { kind: 'element', label: 'Card', value: '7 of hearts' } },
+					text: 'Card · 7 of hearts',
+				},
+				{
+					block: {
+						kind: 'bar-chart',
+						title: 'Revenue',
+						queryId: 'q1',
+						part: { kind: 'element', label: 'Undo' },
+					},
+					text: 'Undo',
+				},
+			]);
+		});
+
 		it('quotes a text block with its text', () => {
 			document.querySelector('b')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
@@ -152,6 +183,12 @@ describe('story inspector', () => {
 		});
 	});
 });
+
+function setAttributes(element: Element, attributes: Record<string, string>) {
+	for (const [name, value] of Object.entries(attributes)) {
+		element.setAttribute(name, value);
+	}
+}
 
 function hover(target: Element) {
 	target.dispatchEvent(new Event('pointerover', { bubbles: true }));

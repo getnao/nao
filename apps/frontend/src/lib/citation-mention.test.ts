@@ -134,6 +134,16 @@ describe('citation mentions', () => {
 		).toBe('Orders · Amount · Alice');
 	});
 
+	it('names a selectable element of the story by its name and detail alone', () => {
+		const part = { kind: 'element' as const, label: 'Card', value: '7 of hearts' };
+		const card = { start: 0, end: 0, text: 'Card · 7 of hearts', block: { kind: 'element', part } };
+		const inBlock = { ...card, block: { kind: 'kpi', title: 'Orders', part } };
+
+		expect(toCitationMentionOption(card, 'c1').label).toBe('Card · 7 of hearts');
+		expect(describeCitationSource(card)).toBe('@element · Card · 7 of hearts');
+		expect(toCitationMentionOption(inBlock, 'c2').label).toBe('Orders · Card · 7 of hearts');
+	});
+
 	it('shortens a long part name in the pill like a quote', () => {
 		const label = 'Revenue from enterprise customers in the north region';
 		const tick = {
