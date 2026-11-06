@@ -29,16 +29,18 @@ interface TrialStartedDialogProps {
 export function TrialStartedDialogController() {
 	const { isOrgAdmin } = usePermissions();
 	const { data: session } = useSession();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const cloudBillingEnabled = config.data?.cloudBillingEnabled === true;
 	const setupCreditGrant = useQuery({
 		...trpc.account.getOrganizationSetupCreditGrant.queryOptions(),
-		enabled: isOrgAdmin,
+		enabled: cloudBillingEnabled && isOrgAdmin,
 		staleTime: 0,
 	});
-	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const billingAccess = useCloudBillingAccess({ enabled: config.data?.cloudBillingEnabled === true && isOrgAdmin });
+	const billingAccess = useCloudBillingAccess({ enabled: cloudBillingEnabled && isOrgAdmin });
 	const [seenGrantIds, setSeenGrantIds] = useState(getSeenSetupCreditGrantIds);
 	const grant = setupCreditGrant.data;
-	const open = isOrgAdmin && grant !== null && grant !== undefined && !seenGrantIds.includes(grant.id);
+	const open =
+		cloudBillingEnabled && isOrgAdmin && grant !== null && grant !== undefined && !seenGrantIds.includes(grant.id);
 
 	const handleOpenChange = (nextOpen: boolean) => {
 		if (nextOpen || !grant) {
@@ -49,7 +51,7 @@ export function TrialStartedDialogController() {
 		setSeenGrantIds(nextSeenGrantIds);
 	};
 
-	if (!grant) {
+	if (!cloudBillingEnabled || !grant) {
 		return null;
 	}
 

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as EnvModule from '../src/env';
+
 const state = vi.hoisted(() => ({
 	role: 'admin',
+	cloudBillingEnabled: true,
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -20,6 +23,11 @@ vi.mock('../src/auth', () => ({
 vi.mock('../src/agents/managed-ai', () => ({
 	isManagedAiEnabled: vi.fn(() => true),
 }));
+
+vi.mock('../src/env', async (importOriginal) => {
+	const actual = await importOriginal<typeof EnvModule>();
+	return { ...actual, isCloudBillingEnabled: () => state.cloudBillingEnabled };
+});
 
 vi.mock('../src/queries/account.queries', () => ({}));
 
@@ -51,6 +59,7 @@ const testRouter = router({ account: accountRoutes });
 describe('account wallet activity authorization', () => {
 	beforeEach(() => {
 		state.role = 'admin';
+		state.cloudBillingEnabled = true;
 		vi.clearAllMocks();
 		mocks.getCreditSummary.mockResolvedValue({
 			balanceMicroUsd: 20_000_000,
@@ -126,6 +135,13 @@ describe('account wallet activity authorization', () => {
 			limit: 10,
 		});
 		expect(mocks.listManagedAiUsage).toHaveBeenCalledWith({ orgId: 'org-id' }, { cursor: undefined, limit: 10 });
+	});
+
+	it('does not return setup grants when cloud billing is disabled', async () => {
+		state.cloudBillingEnabled = false;
+
+		await expect(caller().account.getOrganizationSetupCreditGrant()).resolves.toBeNull();
+		expect(mocks.getOrganizationSetupCreditGrant).not.toHaveBeenCalled();
 	});
 
 	it('uses the selected project organization when a different organization is selected', async () => {

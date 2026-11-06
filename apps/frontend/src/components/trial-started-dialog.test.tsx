@@ -12,17 +12,18 @@ const mocks = vi.hoisted(() => ({
 		amountMicroUsd: number;
 	} | null,
 	isOrgAdmin: true,
+	cloudBillingEnabled: true,
 	freeTierEnabled: true,
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: ({ queryKey, enabled }: { queryKey: string[]; enabled?: boolean }) => {
+	useQuery: ({ queryKey }: { queryKey: string[] }) => {
 		const data: Record<string, unknown> = {
 			'organization-setup-credit-grant': mocks.grant,
-			'public-config': { cloudBillingEnabled: true },
+			'public-config': { cloudBillingEnabled: mocks.cloudBillingEnabled },
 			'billing-access': { freeTierEnabled: mocks.freeTierEnabled },
 		};
-		return { data: enabled === false ? undefined : data[queryKey[0]] };
+		return { data: data[queryKey[0]] };
 	},
 }));
 
@@ -57,6 +58,7 @@ vi.mock('@/main', () => ({
 beforeEach(() => {
 	mocks.grant = { id: 'setup-grant-id', amountMicroUsd: 20_000_000 };
 	mocks.isOrgAdmin = true;
+	mocks.cloudBillingEnabled = true;
 	mocks.freeTierEnabled = true;
 	const values = new Map<string, string>();
 	vi.stubGlobal('localStorage', {
@@ -104,6 +106,14 @@ it('counts setup credits up when motion is allowed', () => {
 
 it('does not show setup credits to non-admins', () => {
 	mocks.isOrgAdmin = false;
+
+	render(<TrialStartedDialogController />);
+
+	expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('does not show cached setup credits when cloud billing is disabled', () => {
+	mocks.cloudBillingEnabled = false;
 
 	render(<TrialStartedDialogController />);
 
