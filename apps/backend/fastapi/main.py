@@ -56,6 +56,11 @@ from nao_core.config.databases.column_access import (  # noqa: E402
     ColumnAccessError,
     validate_column_access,
 )
+from nao_core.config.databases.error_redaction import (  # noqa: E402
+    AUTHENTICATION_FAILED_MESSAGE,
+    is_authentication_error,
+    redact_warehouse_error,
+)
 from nao_core.config.databases.row_security_guard import (  # noqa: E402
     RowSecurityGuardError,
     RowSecurityPolicy,
@@ -581,6 +586,7 @@ async def health_check():
 
 @app.post("/execute_sql", response_model=ExecuteSQLResponse, dependencies=internal_only)
 def execute_sql(request: ExecuteSQLRequest):
+    db_config = None
     try:
         project_path, db_config, database_folder = _load_database(request)
         group_allowed_tables = _active_group_allowed_tables(
@@ -641,7 +647,7 @@ def execute_sql(request: ExecuteSQLRequest):
     except BigQueryServiceAccountRequired as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _warehouse_error(e, db_config)
 
 
 @app.post(
@@ -650,6 +656,7 @@ def execute_sql(request: ExecuteSQLRequest):
     dependencies=internal_only,
 )
 def validate_sql(request: ExecuteSQLRequest):
+    db_config = None
     try:
         project_path, db_config, database_folder = _load_database(request)
         group_allowed_tables = _active_group_allowed_tables(
@@ -681,7 +688,17 @@ def validate_sql(request: ExecuteSQLRequest):
     except BigQueryServiceAccountRequired as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _warehouse_error(e, db_config)
+
+
+def _warehouse_error(error: Exception, db_config: Any) -> HTTPException:
+    """Driver errors reach the chat, the agent and chat history, so credentials are redacted first."""
+    message = redact_warehouse_error(str(error), db_config)
+    if is_authentication_error(message):
+        connection_name = getattr(db_config, "name", "unknown")
+        print(f"[Warehouse] Authentication failed for '{connection_name}': {message}")
+        return HTTPException(status_code=500, detail=AUTHENTICATION_FAILED_MESSAGE)
+    return HTTPException(status_code=500, detail=message)
 
 
 @app.post(
