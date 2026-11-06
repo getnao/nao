@@ -20,7 +20,11 @@ import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
 import type { StoryDownloadOptions } from '@/components/story-download';
 import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
-import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import {
+	CustomStoryElementSelectionToggle,
+	CustomStoryViewModeToggle,
+	isCustomStoryViewMode,
+} from '@/components/custom-story/custom-story-view-mode';
 import { useMentionedStoriesContext } from '@/contexts/mentioned-stories';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
@@ -317,6 +321,10 @@ export const StoryHeader = memo(function StoryHeader({
 	const feedbackButtons = storyId ? <StoryFeedbackButtons storyId={storyId} /> : null;
 	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
 
+	const elementSelectionToggle = isCustomStoryViewModeControls(viewModeControls) && (
+		<CustomStoryElementSelectionToggle {...viewModeControls} />
+	);
+
 	const actionButtons = showActionsMenu && (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -364,6 +372,7 @@ export const StoryHeader = memo(function StoryHeader({
 						{favoritedButton}
 						{shareButton}
 						{replayAnalyticsButton}
+						{elementSelectionToggle}
 						{actionButtons}
 					</div>
 					<div className='flex items-center gap-2 border-b px-4 py-2'>
@@ -392,6 +401,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{favoritedButton}
 					{shareButton}
 					{replayAnalyticsButton}
+					{elementSelectionToggle}
 					{actionButtons}
 				</div>
 			)}

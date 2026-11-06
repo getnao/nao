@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	createStoryVersion: vi.fn(),
 	getChatMessages: vi.fn(),
 	getLatestSqlQueryDataByIds: vi.fn(),
+	getLatestSqlQueriesByIds: vi.fn(),
 	getLatestVersionByStoryId: vi.fn(),
 	getReferenceableStory: vi.fn(),
 	getStoryByIdForUser: vi.fn(),
@@ -67,9 +68,14 @@ vi.mock('../src/queries/story-file.queries', () => ({
 }));
 vi.mock('../src/queries/execute-sql.queries', () => ({
 	getLatestSqlQueryDataByIds: mocks.getLatestSqlQueryDataByIds,
+	getLatestSqlQueriesByIds: mocks.getLatestSqlQueriesByIds,
 }));
 vi.mock('../src/services/custom-story-authoring', () => ({
 	publishCustomStoryDraft: mocks.publishCustomStoryDraft,
+}));
+vi.mock('../src/services/story-mount', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/story-mount')>()),
+	isCustomStoriesEnabled: () => true,
 }));
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
@@ -337,6 +343,7 @@ describe('fork of any accessible Story', () => {
 		mocks.createForkedChat.mockResolvedValue({ id: 'fork-chat-id' });
 		mocks.createStoryVersion.mockResolvedValue({ storyId: 'fork-story-id', version: 1 });
 		mocks.getLatestSqlQueryDataByIds.mockResolvedValue({});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({});
 		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({}));
 		mocks.getStoryProjectId.mockResolvedValue('project-id');
 	});
@@ -470,6 +477,10 @@ describe('fork of any accessible Story', () => {
 	});
 
 	it('copies the files of a custom Story and publishes them', async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['customStoryCreation'],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+		});
 		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
 		mocks.getLatestVersionByStoryId.mockResolvedValue({ id: 'version-id' });
 		mocks.listVersionFiles.mockResolvedValue([
@@ -492,7 +503,20 @@ describe('fork of any accessible Story', () => {
 		);
 	});
 
+	it('denies the fork of a custom Story without the custom story creation grant', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
+
+		await expect(createCaller('owner-id').chatFork.forkStory({ storyId: 'story-id' })).rejects.toThrow(
+			'Custom story creation is not enabled',
+		);
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+	});
+
 	it('deletes the forked chat when the copy of a custom Story does not build', async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['customStoryCreation'],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+		});
 		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
 		mocks.getLatestVersionByStoryId.mockResolvedValue({ id: 'version-id' });
 		mocks.listVersionFiles.mockResolvedValue([
@@ -512,7 +536,6 @@ function createReferenceableStory(overrides: Record<string, unknown>) {
 	return {
 		storyId: 'story-id',
 		chatId: 'source-chat-id',
-		chatTitle: 'Source chat',
 		slug: 'story',
 		title: 'Story',
 		format: 'classic',

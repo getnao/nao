@@ -1,5 +1,5 @@
 {
-  "id": "94c3856f-baec-4c9a-a1a4-96eed7e68b47",
+  "id": "b2b2ad4f-4f20-40be-9a40-8b2b63efd1a4",
   "prevId": "2842830f-0490-4e15-89a0-29cd04fc4ed5",
   "version": "7",
   "dialect": "postgresql",
@@ -1681,8 +1681,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "citation": {
-          "name": "citation",
+        "citations": {
+          "name": "citations",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
@@ -6986,12 +6986,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "column_security": {
-          "name": "column_security",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "row_security": {
           "name": "row_security",
           "type": "jsonb",
@@ -10913,12 +10907,6 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "column_policies": {
-          "name": "column_policies",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

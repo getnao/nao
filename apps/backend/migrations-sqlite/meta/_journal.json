@@ -684,8 +684,15 @@
     {
       "idx": 97,
       "version": "6",
-      "when": 1793875085592,
-      "tag": "0097_column_security",
+      "when": 1793883284679,
+      "tag": "0097_chat_message_citations",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "6",
+      "when": 1793956959035,
+      "tag": "0098_column_security",
       "breakpoints": true
     }
   ]

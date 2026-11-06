@@ -206,7 +206,7 @@ const createChat = async (
 	const title = createChatTitle(message);
 	return await chatQueries.createChat(
 		{ title, userId, projectId },
-		{ text: message.text, citation: message.citation, source },
+		{ text: message.text, citations: message.citations, source },
 		attachmentParts,
 	);
 };
@@ -242,7 +242,7 @@ const insertOrSupersedeMessage = async (opts: {
 		chatId,
 		senderUserId: userId,
 		source,
-		citation: message.citation,
+		citations: message.citations,
 		versionGroupId,
 	});
 };

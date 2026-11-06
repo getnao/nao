@@ -36,7 +36,6 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
 import { findStories } from '@/lib/story.utils';
@@ -120,7 +119,6 @@ function ChatPage() {
 	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-	const chatInputCallback = useSetChatInputCallback();
 
 	useTrackViewDuration({ assetType: 'chat', chatId });
 
@@ -128,10 +126,9 @@ function ChatPage() {
 		(data: SelectionData) => {
 			const { range, ...selection } = data;
 			const storyMeta = resolveStoryCitationMeta(sidePanel.currentStorySlug, range);
-			chatPendingCitationStore.set({ chatId, ...selection, ...storyMeta });
-			chatInputCallback.fire('');
+			chatPendingCitationStore.add(chatId, { ...selection, ...storyMeta });
 		},
-		[chatId, chatInputCallback, sidePanel.currentStorySlug],
+		[chatId, sidePanel.currentStorySlug],
 	);
 
 	const isSelectionFork = SELECTION_FORK_TYPES.includes(chat.data?.forkMetadata?.type ?? 'chat');
@@ -370,12 +367,12 @@ function findLatestStorySlug(messages: UIMessage[]): string | undefined {
 function resolveStoryCitationMeta(
 	currentStorySlug: string | null,
 	range: Range,
-): { storySlug: string; start: number; end: number } | null {
+): { storySlug: string; storyChatId?: string; start: number; end: number } | null {
 	if (!currentStorySlug) {
 		return null;
 	}
 
-	const storyContainer = document.querySelector('[data-story-content]');
+	const storyContainer = document.querySelector<HTMLElement>('[data-story-content]');
 	if (!storyContainer || !storyContainer.contains(range.commonAncestorContainer)) {
 		return null;
 	}
@@ -386,7 +383,7 @@ function resolveStoryCitationMeta(
 		return null;
 	}
 
-	return { storySlug: currentStorySlug, start, end };
+	return { storySlug: currentStorySlug, storyChatId: storyContainer.dataset.storyChatId, start, end };
 }
 
 function buildHeaderCitation(meta: ForkMetadata | undefined): { citation: string; text: string } | null {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1cdb673a-26d1-4fff-bd80-8a983d74cb0c",
+  "id": "c20af784-7c1f-4ed3-949c-76aee97d67b2",
   "prevId": "c4855574-113b-4aa8-97e1-a1fd1895748d",
   "tables": {
     "account": {
@@ -1480,8 +1480,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "citation": {
-          "name": "citation",
+        "citations": {
+          "name": "citations",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -6434,13 +6434,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "column_security": {
-          "name": "column_security",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "row_security": {
           "name": "row_security",
           "type": "text",
@@ -10143,13 +10136,6 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "column_policies": {
-          "name": "column_policies",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

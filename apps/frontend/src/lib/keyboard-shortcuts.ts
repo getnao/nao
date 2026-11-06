@@ -1,3 +1,4 @@
+import { ADD_SELECTION_TO_CHAT_SHORTCUT } from '@nao/shared/keyboard-shortcut';
 import type { Shortcut } from '@/lib/platform';
 import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
 
@@ -12,7 +13,9 @@ export type ShortcutId =
 	| 'stop-generation'
 	| 'cycle-model'
 	| 'toggle-test-drawer'
-	| 'run-tests';
+	| 'run-tests'
+	| 'add-selection-to-chat'
+	| 'add-block-to-chat';
 export type ShortcutGroup = 'General' | 'Navigation' | 'Chat' | 'File Explorer';
 
 export type ShortcutDefinition = {
@@ -22,6 +25,7 @@ export type ShortcutDefinition = {
 	shortcut: Shortcut;
 	alternateShortcuts?: readonly Shortcut[];
 	allowInInput?: boolean;
+	isHandledInStory?: boolean;
 };
 
 export const SHORTCUTS: readonly ShortcutDefinition[] = [
@@ -93,6 +97,20 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		group: 'File Explorer',
 		shortcut: { mod: true, key: 'e' },
 	},
+	{
+		id: 'add-selection-to-chat',
+		label: 'Add selection to chat',
+		group: 'Chat',
+		shortcut: ADD_SELECTION_TO_CHAT_SHORTCUT,
+		isHandledInStory: true,
+	},
+	{
+		id: 'add-block-to-chat',
+		label: 'Add story block to chat',
+		group: 'Chat',
+		shortcut: { mod: true, key: 'Click' },
+		isHandledInStory: true,
+	},
 ];
 
 export function getShortcut(id: ShortcutId): ShortcutDefinition {
@@ -108,7 +126,7 @@ export function getShortcutTokens(id: ShortcutId): string[] {
 }
 
 export function getAppWideShortcuts(): Shortcut[] {
-	return SHORTCUTS.filter((entry) => entry.shortcut.mod).flatMap((entry) => [
+	return SHORTCUTS.filter((entry) => entry.shortcut.mod && !entry.isHandledInStory).flatMap((entry) => [
 		entry.shortcut,
 		...(entry.alternateShortcuts ?? []),
 	]);
