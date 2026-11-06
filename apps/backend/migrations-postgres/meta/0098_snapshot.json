@@ -1,5 +1,5 @@
 {
-  "id": "1805b05c-0531-4b32-aaec-805007955256",
+  "id": "fbdf8345-533e-4a63-9335-4cb169a17044",
   "prevId": "b2b2ad4f-4f20-40be-9a40-8b2b63efd1a4",
   "version": "7",
   "dialect": "postgresql",
@@ -912,12 +912,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "mcp_enabled": {
           "name": "mcp_enabled",
           "type": "boolean",
@@ -1098,12 +1092,6 @@
         },
         "error_message": {
           "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -1665,12 +1653,6 @@
         },
         "llm_model_id": {
           "name": "llm_model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -2682,12 +2664,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "input_total_tokens": {
           "name": "input_total_tokens",
           "type": "integer",
@@ -3634,12 +3610,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "input_total_tokens": {
           "name": "input_total_tokens",
@@ -7016,13 +6986,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "llm_access_mode": {
-          "name": "llm_access_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'project'"
-        },
         "row_security": {
           "name": "row_security",
           "type": "jsonb",
@@ -7293,24 +7256,11 @@
           "primaryKey": false,
           "notNull": true
         },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "provider": {
           "name": "provider",
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "credential_source": {
-          "name": "credential_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'database'"
         },
         "api_key": {
           "name": "api_key",
@@ -7348,12 +7298,6 @@
         "base_url": {
           "name": "base_url",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
@@ -7406,12 +7350,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "project_llm_config_project_name": {
-          "name": "project_llm_config_project_name",
+        "project_llm_config_project_provider": {
+          "name": "project_llm_config_project_provider",
           "nullsNotDistinct": false,
           "columns": [
             "project_id",
-            "name"
+            "provider"
           ]
         }
       },
@@ -10260,6 +10204,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_chat_id": {
+          "name": "source_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -10297,6 +10259,32 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_version_author_id_user_id_fk": {
+          "name": "story_version_author_id_user_id_fk",
+          "tableFrom": "story_version",
+          "tableTo": "user",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "story_version_source_chat_id_chat_id_fk": {
+          "name": "story_version_source_chat_id_chat_id_fk",
+          "tableFrom": "story_version",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "source_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -10646,12 +10634,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "reasoning_effort": {
           "name": "reasoning_effort",
           "type": "text",
@@ -10978,20 +10960,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "llm_config_ids": {
-          "name": "llm_config_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "llm_model_ids_by_config": {
-          "name": "llm_model_ids_by_config",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "created_at": {
           "name": "created_at",

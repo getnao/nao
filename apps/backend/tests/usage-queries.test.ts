@@ -20,6 +20,7 @@ import { usagePeriodRangeSchema } from '../src/types/usage';
 import { formatDate } from '../src/utils/date';
 
 const mocks = vi.hoisted(() => ({
+	getAllProjectLlmConfigs: vi.fn(async () => []),
 	getProjectLlmConfigs: vi.fn(async () => []),
 }));
 
@@ -43,6 +44,7 @@ vi.mock('../src/db/db', async () => {
 });
 
 vi.mock('../src/queries/project-llm-config.queries', () => ({
+	getAllProjectLlmConfigs: mocks.getAllProjectLlmConfigs,
 	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
 }));
 
@@ -70,6 +72,7 @@ describe('usage query results', () => {
 	});
 
 	beforeEach(async () => {
+		mocks.getAllProjectLlmConfigs.mockResolvedValue([]);
 		mocks.getProjectLlmConfigs.mockResolvedValue([]);
 		await db.delete(s.userPreference);
 		await db.delete(s.llmInference);
@@ -402,7 +405,7 @@ describe('usage query results', () => {
 	});
 
 	it('prices the same provider model by credential', async () => {
-		mocks.getProjectLlmConfigs.mockResolvedValue([
+		const configs = [
 			{
 				id: 'credential-a',
 				name: 'Client A',
@@ -421,7 +424,9 @@ describe('usage query results', () => {
 				customModels: [{ id: 'custom-priced-model', costPerM: { inputNoCache: 2 } }],
 				baseUrl: null,
 			},
-		]);
+		];
+		mocks.getAllProjectLlmConfigs.mockResolvedValue(configs);
+		mocks.getProjectLlmConfigs.mockResolvedValue(configs);
 		await db.insert(s.chatMessage).values([
 			{
 				id: 'priced-by-a',
@@ -451,6 +456,56 @@ describe('usage query results', () => {
 
 		expect(clientA.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(1);
 		expect(all.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(3);
+	});
+
+	it('keeps legacy and disabled credential prices in historical usage', async () => {
+		mocks.getAllProjectLlmConfigs.mockResolvedValue([
+			{
+				id: 'disabled-credential',
+				name: 'Disabled',
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: ['gpt-4o', 'custom-priced-model'],
+				customModels: [
+					{ id: 'gpt-4o', costPerM: { inputNoCache: 7 } },
+					{ id: 'custom-priced-model', costPerM: { inputNoCache: 2 } },
+				],
+				baseUrl: null,
+				disabledAt: new Date(),
+			},
+		]);
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'legacy-built-in-price',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				inputNoCacheTokens: 1_000_000,
+			},
+			{
+				id: 'disabled-credential-price',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'custom-priced-model',
+				llmConfigId: 'disabled-credential',
+				inputNoCacheTokens: 1_000_000,
+			},
+		]);
+		await db.insert(s.llmInference).values({
+			id: 'legacy-custom-price',
+			projectId: PROJECT_ID,
+			userId: USER_ID,
+			type: 'compaction',
+			llmProvider: 'openai',
+			llmModelId: 'custom-priced-model',
+			inputNoCacheTokens: 1_000_000,
+		});
+
+		const usage = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } });
+
+		expect(usage.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(11);
 	});
 
 	it('breaks down messages, tokens and cost per user for every date', async () => {

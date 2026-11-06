@@ -223,6 +223,59 @@ describe('extractConfiguredTestSettings', () => {
 			expect.stringContaining('test.comparison is invalid'),
 		]);
 	});
+
+	it('reads the reasoning efforts of a model, all of them or the ones listed from the lowest', () => {
+		fs.writeFileSync(
+			path.join(projectFolder, 'nao_config.yaml'),
+			[
+				'test:',
+				'  models:',
+				'    - openai:gpt-4.1',
+				'    - model: openai:gpt-5',
+				'      reasoning_efforts: [high, low]',
+				'    - model: anthropic:claude-opus-4-6',
+				'      reasoning_efforts: all',
+			].join('\n'),
+		);
+
+		expect(extractConfiguredTestSettings(projectFolder)).toMatchObject({
+			models: [
+				{ provider: 'openai', modelId: 'gpt-4.1' },
+				{ provider: 'openai', modelId: 'gpt-5', reasoningEfforts: ['low', 'high'] },
+				{
+					provider: 'anthropic',
+					modelId: 'claude-opus-4-6',
+					reasoningEfforts: ['low', 'medium', 'high', 'max'],
+				},
+			],
+			errors: [],
+		});
+	});
+
+	it('reports reasoning efforts a model does not support', () => {
+		fs.writeFileSync(
+			path.join(projectFolder, 'nao_config.yaml'),
+			[
+				'test:',
+				'  models:',
+				'    - model: openai:gpt-5',
+				'      reasoning_efforts: [low, extreme]',
+				'    - model: openai:gpt-4.1',
+				'      reasoning_efforts: all',
+				'    - model: openai:gpt-5',
+				'      reasoning_effort: [low]',
+			].join('\n'),
+		);
+
+		const settings = extractConfiguredTestSettings(projectFolder);
+
+		expect(settings.models).toBeNull();
+		expect(settings.errors).toEqual([
+			'test.models reasoning_efforts of openai:gpt-5 has unsupported efforts "extreme", expected some of minimal, low, medium, high, max.',
+			'test.models reasoning_efforts of openai:gpt-4.1: this model has no reasoning efforts to pick.',
+			'test.models has an invalid entry {"model":"openai:gpt-5","reasoning_effort":["low"]}, expected { model: \'provider:model_id\', reasoning_efforts: [low, high] or all }.',
+		]);
+	});
 });
 
 function writeTestFile(relativePath: string, content: string) {

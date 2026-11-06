@@ -323,23 +323,41 @@ const getReasoningParts = (part: GroupedMessagePart): ReasoningUIPart[] | null =
 
 /** Several actions on one story read as one artifact: only the latest keeps its card, earlier ones become status lines. */
 const collapseSupersededStoryActions = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
-	const latestIndexBySlug = new Map<string, number>();
-	for (const [index, part] of parts.entries()) {
-		const slug = isStoryToolPart(part) ? getStoryToolPartSlug(part) : undefined;
-		if (slug) {
-			latestIndexBySlug.set(slug, index);
+	const storyKeys = getStoryKeys(parts);
+	const latestIndexByStory = new Map<string, number>();
+	for (const [index, storyKey] of storyKeys.entries()) {
+		if (storyKey) {
+			latestIndexByStory.set(storyKey, index);
 		}
 	}
 
 	return parts.map((part, index) => {
-		if (!isStoryToolPart(part)) {
-			return part;
-		}
-		const slug = getStoryToolPartSlug(part);
-		if (!slug || latestIndexBySlug.get(slug) === index) {
+		const storyKey = storyKeys[index];
+		if (!isStoryToolPart(part) || !storyKey || latestIndexByStory.get(storyKey) === index) {
 			return part;
 		}
 		return { type: 'story-status', part };
+	});
+};
+
+/**
+ * Stories of other chats may share a slug, so story calls are told apart by story id.
+ * A call that reached no story, such as a failed create, falls back on its slug.
+ */
+const getStoryKeys = (parts: GroupedMessagePart[]): (string | undefined)[] => {
+	const storyIdBySlug = new Map<string, string>();
+	for (const part of parts) {
+		if (isStoryToolPart(part) && part.output?.story_id) {
+			storyIdBySlug.set(part.output.id, part.output.story_id);
+		}
+	}
+
+	return parts.map((part) => {
+		if (!isStoryToolPart(part)) {
+			return undefined;
+		}
+		const slug = getStoryToolPartSlug(part);
+		return part.output?.story_id ?? (slug && (storyIdBySlug.get(slug) ?? slug));
 	});
 };
 

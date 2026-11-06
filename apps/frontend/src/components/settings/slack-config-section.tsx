@@ -32,6 +32,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
 	const transportMode = projectConfig?.transportMode ?? 'webhook';
 	const replyMode = projectConfig?.replyMode ?? 'thread';
+	const dmThreadsEnabled = projectConfig?.dmThreadsEnabled ?? false;
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -47,6 +48,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 	const upsertSlackConfig = useMutation(trpc.project.upsertSlackConfig.mutationOptions());
 	const updateSlackModel = useMutation(trpc.project.updateSlackModelConfig.mutationOptions());
 	const updateSlackReplyMode = useMutation(trpc.project.updateSlackReplyMode.mutationOptions());
+	const updateSlackDmThreads = useMutation(trpc.project.updateSlackDmThreads.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
 
 	const handleSubmit = async (values: {
@@ -112,6 +114,17 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 		},
 		[queryClient, updateSlackReplyMode],
 	);
+
+	const handleDmThreadsChange = (enabled: boolean) => {
+		updateSlackDmThreads.mutate(
+			{ enabled },
+			{
+				onSuccess: () => {
+					void queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+				},
+			},
+		);
+	};
 
 	if (!isAdmin) {
 		return (
@@ -253,6 +266,19 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 								checked={replyMode === 'mention'}
 								onCheckedChange={handleReplyModeChange}
 								disabled={updateSlackReplyMode.isPending}
+							/>
+						}
+					/>
+					<SettingsControlRow
+						id='slack-dm-threads'
+						label='Start a new thread for each direct message'
+						description='When enabled, every message sent to nao in a direct message starts its own chat and nao answers in a thread, like in channels.'
+						control={
+							<Switch
+								id='slack-dm-threads'
+								checked={dmThreadsEnabled}
+								onCheckedChange={handleDmThreadsChange}
+								disabled={updateSlackDmThreads.isPending}
 							/>
 						}
 					/>

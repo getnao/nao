@@ -521,7 +521,12 @@ export function ContextGitPanel({
 												: 'Nothing to push'}
 									</span>
 									<div className='flex shrink-0 items-center gap-1'>
-										{hasDraftChanges && <TestChangesButton onClick={onOpenTests} />}
+										{hasDraftChanges && (
+											<TestChangesButton
+												mainBranch={defaultBranch ?? undefined}
+												onClick={onOpenTests}
+											/>
+										)}
 										{reviewRequestUrl && (
 											<Button
 												variant='ghost-muted'
@@ -793,13 +798,13 @@ function NaoDraftChanges({
 	);
 }
 
-function TestChangesButton({ onClick }: { onClick: () => void }) {
+function TestChangesButton({ mainBranch = 'main', onClick }: { mainBranch?: string; onClick: () => void }) {
 	return (
 		<Button
 			variant='ghost-muted'
 			size='sm'
 			className='h-6 shrink-0 gap-1 px-1.5 text-[11px]'
-			title='Run the tests on your changes and on production side by side'
+			title={`Run the tests on your changes and on ${mainBranch} side by side`}
 			onClick={onClick}
 		>
 			<FlaskConical className='size-3' />

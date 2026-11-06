@@ -220,6 +220,45 @@ describe('test routes', () => {
 		expect(reply.send).toHaveBeenCalledWith(expect.objectContaining({ text: 'answer', verification: undefined }));
 	});
 
+	it('runs the model at the reasoning effort the CLI asks for', async () => {
+		await runExpectedQuery({
+			prompt: 'Question',
+			model: { provider: 'openai', modelId: 'gpt-5', reasoningEffort: 'high' },
+		});
+
+		expect(mocks.runTest).toHaveBeenCalledWith(
+			'project-id',
+			'user-id',
+			'Question',
+			{ provider: 'openai', modelId: 'gpt-5', reasoningEffort: 'high' },
+			undefined,
+		);
+	});
+
+	it('rejects a reasoning effort the model does not support', async () => {
+		const reply = await runExpectedQuery({
+			prompt: 'Question',
+			model: { provider: 'openai', modelId: 'gpt-4.1', reasoningEffort: 'high' },
+		});
+
+		expect(reply.status).toHaveBeenCalledWith(400);
+		expect(reply.send).toHaveBeenCalledWith({
+			error: 'openai:gpt-4.1 cannot run at the reasoning effort high, expected none, as it has no reasoning efforts.',
+		});
+		expect(mocks.runTest).not.toHaveBeenCalled();
+	});
+
+	it('lists the reasoning efforts of a model for the CLI', async () => {
+		const reply = createReply();
+		const app = { addHook: vi.fn(), post: vi.fn(), get: vi.fn() };
+		await testRoutes(app as never);
+		const [, options, handler] = app.get.mock.calls.find(([routePath]) => routePath === '/reasoning-efforts')!;
+
+		await handler({ query: options.schema.querystring.parse({ provider: 'openai', modelId: 'gpt-5' }) }, reply);
+
+		expect(reply.send).toHaveBeenCalledWith({ reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'max'] });
+	});
+
 	it('rejects project viewers before running a test', async () => {
 		mocks.getUserRoleInProject.mockResolvedValue('viewer');
 
@@ -237,6 +276,7 @@ async function runExpectedQuery(
 	let bodySchema: { parse: (value: unknown) => unknown } | undefined;
 	const app = {
 		addHook: vi.fn(),
+		get: vi.fn(),
 		post: vi.fn((_path, options, routeHandler) => {
 			handler = routeHandler;
 			bodySchema = options.schema.body;

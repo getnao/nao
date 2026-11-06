@@ -55,6 +55,8 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
 import { ExportDataMenu } from '@/components/export-data-menu';
 import { useSourceQuery } from '@/hooks/use-source-query';
+import { useAppendCustomStoryBlock } from '@/hooks/use-append-custom-story-block';
+import { kitBlockFromConfig } from '@/story-runtime/story-kit/block-config';
 
 const LEGEND_SCROLL_OFFSET = 120;
 const HORIZONTAL_LABEL_GAP = 12;
@@ -106,7 +108,10 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		}),
 	);
 
+	const { mutate: addToCustomStory, error: addToCustomStoryError } = useAppendCustomStoryBlock();
+
 	const [isDownloading, setIsDownloading] = useState(false);
+	const [classicStoryError, setClassicStoryError] = useState<string | null>(null);
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && isBuiltinChart);
 
@@ -218,6 +223,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		if (!targetId || !chartConfig || !chatId) {
 			return;
 		}
+		setClassicStoryError(null);
 
 		const data = await queryClient.fetchQuery({
 			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
@@ -225,6 +231,25 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		});
 		const latest = data.versions.at(-1);
 		if (!latest) {
+			return;
+		}
+
+		if (data.format === 'custom') {
+			const { component, props } = kitBlockFromConfig(chartConfig);
+			addToCustomStory({
+				chatId,
+				storySlug: targetId,
+				versionNumber: latest.version,
+				block: { component, props: { queryId: chartConfig.query_id, ...props } },
+			});
+			if (!usingVisibleStory) {
+				openSidePanel(<StoryViewer chatId={chatId} storySlug={targetId} />, targetId);
+			}
+			return;
+		}
+
+		if (!isBuiltinChart) {
+			setClassicStoryError('Custom charts can only be added to custom stories.');
 			return;
 		}
 
@@ -325,7 +350,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 								<Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
 							</Button>
 						)}
-						{storyIds.length > 0 && isBuiltinChart && (
+						{storyIds.length > 0 && (
 							<Button
 								variant='ghost-muted'
 								size='icon-xs'
@@ -382,6 +407,12 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					)}
 				</div>
 			</div>
+
+			{(classicStoryError || addToCustomStoryError) && (
+				<div className='text-xs text-red-400' role='alert'>
+					Could not add the chart to the story: {classicStoryError ?? addToCustomStoryError?.message}
+				</div>
+			)}
 
 			{isEditable && isBuiltinChartType(chartConfig.chart_type) && (
 				<DisplayChartEditDialog

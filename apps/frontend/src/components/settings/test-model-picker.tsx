@@ -2,10 +2,12 @@ import { getModelReasoningEfforts } from '@nao/backend/provider-meta';
 import { pluralize } from '@nao/shared';
 import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, Cpu, Minus, Plus } from 'lucide-react';
-import type { LlmSelectedModel } from '@nao/shared/types';
-import type { TestModelDefaultEffort, TestModelSelection } from '@nao/backend/test-run';
+import { Check, ChevronDown, Copy, Cpu, Minus, Plus } from 'lucide-react';
+import { useState } from 'react';
+
 import type { ActiveEffort, ReasoningEffort } from '@nao/backend/llm';
+import type { TestModelDefaultEffort, TestModelSelection } from '@nao/backend/test-run';
+import type { LlmSelectedModel } from '@nao/shared/types';
 
 import type { TestModelStats } from '@/components/settings/test-run-types';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
@@ -23,6 +25,8 @@ import {
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { formatTestSettingsYaml } from '@/lib/test-settings-yaml';
 import {
 	countModelRuns,
 	countRunEfforts,
@@ -38,7 +42,7 @@ import { trpc } from '@/main';
 interface TestModelPickerProps {
 	settings: TestRunSettings;
 	testCount: number;
-	/** Context variants the next run tries, 2 when it compares the user's changes with production. */
+	/** Context variants the next run tries, 2 when it compares the user's changes with the main branch. */
 	variantCount: number;
 	disabled?: boolean;
 }
@@ -133,11 +137,11 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 				</ul>
 				<div className='flex items-center justify-between gap-3 border-t px-3 py-2'>
 					<span className='flex flex-col'>
-						<span>Attempts per test</span>
-						<span className='text-muted-foreground'>Several attempts reveal flaky answers.</span>
+						<span>Times to ask each test</span>
+						<span className='text-muted-foreground'>Several answers reveal flaky tests.</span>
 					</span>
 					<NumberStepper
-						label='Attempts per test'
+						label='Times to ask each test'
 						value={attempts}
 						max={MAX_TEST_RUN_ATTEMPTS}
 						onChange={(next) => settings.update({ attempts: next })}
@@ -146,7 +150,7 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 				<div className='flex items-center justify-between gap-3 border-t px-3 py-2'>
 					<span className='flex flex-col'>
 						<span>Threads</span>
-						<span className='text-muted-foreground'>Attempts that run at the same time.</span>
+						<span className='text-muted-foreground'>Answers generated at the same time.</span>
 					</span>
 					<NumberStepper
 						label='Threads'
@@ -163,6 +167,7 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 					threads={threads}
 					variantCount={variantCount}
 				/>
+				<CopyAsConfigButton settings={settings} />
 			</PopoverContent>
 		</Popover>
 	);
@@ -294,7 +299,7 @@ function ModelCostHint({ stats }: { stats: TestModelStats | undefined }) {
 	}
 	return (
 		<SimpleTooltip
-			content={`Average cost of one test attempt with this model, over its ${stats.attempts} ${pluralize('attempt', stats.attempts)} of the last 30 days.`}
+			content={`Average cost of one answer with this model, over its ${stats.attempts} ${pluralize('answer', stats.attempts)} of the last 30 days.`}
 		>
 			<span className='min-w-24 shrink-0 cursor-help text-right text-muted-foreground tabular-nums'>
 				{formatUnitCost(stats.averageCost)}/question
@@ -373,9 +378,9 @@ function RunEstimate({
 		longestAttemptMs,
 	);
 	return (
-		<div className='mx-3 mb-3 rounded-md bg-muted/60 px-2.5 py-2'>
+		<div className='mx-3 mb-1 rounded-md bg-muted/60 px-2.5 py-2'>
 			<span className='font-medium'>
-				{attemptCount} {pluralize('attempt', attemptCount)}
+				{attemptCount} {pluralize('answer', attemptCount)}
 			</span>
 			<span className='text-muted-foreground'>
 				{' '}
@@ -394,6 +399,36 @@ function RunEstimate({
 					'No estimate: some models have not run yet.'
 				)}
 			</div>
+		</div>
+	);
+}
+
+/** Copies the selection as the `test` block of nao_config.yaml, to make it the project defaults through review. */
+function CopyAsConfigButton({ settings }: { settings: TestRunSettings }) {
+	const { isCopied, copy } = useCopyToClipboard();
+	const [copyFailed, setCopyFailed] = useState(false);
+	const copyLabel = copyFailed ? 'Copy failed' : isCopied ? 'Copied' : 'Copy as nao_config.yaml';
+
+	const handleCopy = async () => {
+		setCopyFailed(false);
+		try {
+			await copy(formatTestSettingsYaml(settings));
+		} catch {
+			setCopyFailed(true);
+		}
+	};
+
+	return (
+		<div className='flex justify-end px-3 pb-2'>
+			<button
+				type='button'
+				className='flex cursor-pointer items-center gap-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline'
+				disabled={settings.models.length === 0}
+				onClick={handleCopy}
+			>
+				{isCopied ? <Check className='size-3' /> : <Copy className='size-3' />}
+				<span className={copyFailed ? 'text-destructive' : undefined}>{copyLabel}</span>
+			</button>
 		</div>
 	);
 }

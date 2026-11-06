@@ -70,6 +70,7 @@ export const DisplayMapToolCall = ({
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [isExpanded, setIsExpanded] = useState(false);
+	const [addToStoryError, setAddToStoryError] = useState<string | null>(null);
 	const slotRef = useRef<HTMLDivElement>(null);
 	const breakoutStyle = useBreakoutStyle(slotRef, isExpanded && viewMode === 'map');
 	const mapViewRef = useRef<MapViewHandle>(null);
@@ -132,6 +133,7 @@ export const DisplayMapToolCall = ({
 		if (!targetId || !config || !chatId) {
 			return;
 		}
+		setAddToStoryError(null);
 
 		const data = await queryClient.fetchQuery({
 			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
@@ -139,6 +141,11 @@ export const DisplayMapToolCall = ({
 		});
 		const latest = data.versions.at(-1);
 		if (!latest) {
+			return;
+		}
+
+		if (data.format === 'custom') {
+			setAddToStoryError('Maps cannot be added to custom stories yet. Ask the agent to add it.');
 			return;
 		}
 
@@ -347,6 +354,12 @@ export const DisplayMapToolCall = ({
 							)}
 						</div>
 					</div>
+
+					{addToStoryError && (
+						<div className='px-3 pb-2 text-xs text-red-400' role='alert'>
+							{addToStoryError}
+						</div>
+					)}
 
 					{isEditable && (
 						<MapConfigEditDialog

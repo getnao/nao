@@ -1,11 +1,13 @@
 import type { DBStory, DBStoryVersion } from '../db/abstractSchema';
 import { db } from '../db/db';
+import type { VersionProvenance } from '../queries/story.queries';
 import * as storyQueries from '../queries/story.queries';
 import type { StoryFileInput } from '../queries/story-file.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { formatStoryFiles } from '../utils/story-file-format';
 import { normalizeStoryFilePath } from '../utils/story-file-path';
+import { extractStoryNarratives } from '../utils/story-kit-narratives';
 import { queueCustomStoryThumbnail } from './custom-story-thumbnail';
 import { buildStoryApp } from './story-app-build';
 import { scaffoldCustomStoryFiles } from './story-scaffold';
@@ -19,18 +21,17 @@ interface StoryOwner {
 	projectId: string;
 }
 
-export async function createCustomStoryDraft(data: {
-	chatId: string;
+export async function createCustomStoryDraft({
+	files: requestedFiles,
+	...storyData
+}: storyQueries.StoryOwnership & {
 	slug: string;
 	title: string;
 	files: StoryFileInput[];
 }): Promise<{ story: DBStory; files: string[] }> {
-	const initialFiles = scaffoldCustomStoryFiles(data.title, await formatStoryFiles(data.files));
+	const initialFiles = scaffoldCustomStoryFiles(storyData.title, await formatStoryFiles(requestedFiles));
 	return db.transaction(async (tx) => {
-		const story = await storyQueries.createCustomStory(
-			{ chatId: data.chatId, slug: data.slug, title: data.title },
-			tx,
-		);
+		const story = await storyQueries.createCustomStory(storyData, tx);
 		const files = await storyFileQueries.seedDraftFiles(story.id, initialFiles, tx);
 		return { story, files: files.map((file) => file.path) };
 	});
@@ -62,25 +63,44 @@ export async function applyCustomStoryDraftChanges(
 export async function publishCustomStoryDraft(
 	story: DBStory,
 	owner: StoryOwner,
-	source: DBStoryVersion['source'],
+	version: { source: DBStoryVersion['source'] } & VersionProvenance,
 ): Promise<CustomStoryPublishResult> {
 	const draft = await storyFileQueries.listDraftFiles(story.id);
 	const build = await buildStoryApp(draft.map((file) => ({ path: file.path, content: file.content })));
 	if (!build.ok) {
 		return { ok: false, buildErrors: build.errors, files: draft.map((file) => file.path) };
 	}
+	const previousVersion = await storyQueries.getLatestVersionByStoryId(story.id);
 
-	const { version, files } = await db.transaction(async (tx) => {
+	const published = await db.transaction(async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new Error('The draft changed while it was being built. Publish again.');
 		}
-		const cut = await storyFileQueries.cutVersionFromDraft({ storyId: story.id, action: 'publish', source }, tx);
+		const cut = await storyFileQueries.cutVersionFromDraft(
+			{ storyId: story.id, action: 'publish', ...version },
+			tx,
+		);
 		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
 		if (cut.version.version === 1) {
 			await storyFolderQueries.saveStoryInPrivateRoot(owner.userId, owner.projectId, story.id, tx);
 		}
 		return cut;
 	});
-	queueCustomStoryThumbnail(story.id, version.id);
-	return { ok: true, version: version.version, files: files.map((file) => file.path) };
+	if (previousVersion) {
+		await dropFrozenNarrativesOfEditedSources(story.id, previousVersion.id, draft);
+	}
+	queueCustomStoryThumbnail(story.id, published.version.id);
+	return { ok: true, version: published.version.version, files: published.files.map((file) => file.path) };
+}
+
+/** A frozen narrative rewrites the text written in its source, so it only outlives a publish that keeps that text. */
+async function dropFrozenNarrativesOfEditedSources(
+	storyId: string,
+	previousVersionId: string,
+	publishedFiles: { path: string; content: string }[],
+): Promise<void> {
+	const previousSources = extractStoryNarratives(await storyFileQueries.listVersionFiles(previousVersionId));
+	const publishedTexts = new Map(extractStoryNarratives(publishedFiles).map(({ id, text }) => [id, text]));
+	const unchangedIds = previousSources.filter(({ id, text }) => publishedTexts.get(id) === text).map(({ id }) => id);
+	await storyQueries.keepOnlyFrozenStoryNarratives(storyId, unchangedIds);
 }

@@ -1,4 +1,4 @@
-import type { StoryFilterType } from './sql-template';
+import type { StoryFilterType, StoryFilterValueType } from './sql-template';
 import type * as displayChart from './tools/display-chart';
 import type * as displayMap from './tools/display-map';
 
@@ -132,6 +132,9 @@ export interface StoryFilterBlockInput {
 	table?: string;
 	database_id?: string;
 	options?: string[];
+	value_type?: StoryFilterValueType;
+	depends_on?: string;
+	allow_custom?: boolean;
 }
 
 export function buildStoryFilterBlock(input: StoryFilterBlockInput): string {
@@ -140,5 +143,8 @@ export function buildStoryFilterBlock(input: StoryFilterBlockInput): string {
 	const tableAttr = input.table ? ` table="${escapeDoubleQuotedStoryAttr(input.table)}"` : '';
 	const databaseIdAttr = input.database_id ? ` database_id="${escapeDoubleQuotedStoryAttr(input.database_id)}"` : '';
 	const optionsAttr = input.options ? ` options='${escapeSingleQuotedStoryAttr(JSON.stringify(input.options))}'` : '';
-	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsAttr} />`;
+	const valueTypeAttr = input.value_type ? ` value_type="${input.value_type}"` : '';
+	const dependsOnAttr = input.depends_on ? ` depends_on="${escapeDoubleQuotedStoryAttr(input.depends_on)}"` : '';
+	const allowCustomAttr = input.allow_custom ? ' allow_custom="true"' : '';
+	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsAttr}${valueTypeAttr}${dependsOnAttr}${allowCustomAttr} />`;
 }

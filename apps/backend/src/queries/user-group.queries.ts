@@ -1,5 +1,6 @@
 import {
 	type DatabaseContextAccess,
+	DEFAULT_GROUP_SHARE_TARGETS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	type DocsContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
@@ -10,6 +11,7 @@ import {
 	EMPTY_USER_GROUP_ROW_POLICIES,
 	type FilesContextAccess,
 	filterUserGroupRowPoliciesByDatabaseContext,
+	type GroupShareTargets,
 	isSkillGranted,
 	type McpAccess,
 	parseStoredProjectRowSecurity,
@@ -62,6 +64,7 @@ export interface UserGroup extends Omit<
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	projectSharing: ProjectSharingPermission;
+	shareTargets: GroupShareTargets;
 	showAllSettings: boolean;
 	preloadedSkills: string[];
 	databaseAccess: DatabaseContextAccess;
@@ -302,6 +305,7 @@ export const createUserGroup = async (
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	llmConfigIds: string[] = [],
 	llmModelIdsByConfig: LlmModelIdsByConfig = {},
 ): Promise<UserGroup> => {
@@ -320,6 +324,7 @@ export const createUserGroup = async (
 		showAllSettings,
 		preloadedSkills,
 		skillsAccess,
+		shareTargets,
 		llmConfigIds,
 		llmModelIdsByConfig,
 	);
@@ -360,6 +365,7 @@ export const createUserGroupWithinLimit = async (
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	llmConfigIds: string[] = [],
 	llmModelIdsByConfig: LlmModelIdsByConfig = {},
 ): Promise<UserGroup> => {
@@ -378,6 +384,7 @@ export const createUserGroupWithinLimit = async (
 		showAllSettings,
 		preloadedSkills,
 		skillsAccess,
+		shareTargets,
 		llmConfigIds,
 		llmModelIdsByConfig,
 	);
@@ -431,6 +438,7 @@ export const updateUserGroup = async (
 		rowPolicies?: UserGroupRowPolicies;
 		rowPoliciesRegistry?: ProjectRowSecurity;
 		projectSharing?: ProjectSharingPermission;
+		shareTargets?: GroupShareTargets;
 		preloadedSkills?: string[];
 		llmConfigIds?: string[];
 		llmModelIdsByConfig?: LlmModelIdsByConfig;
@@ -470,6 +478,7 @@ export const updateUserGroup = async (
 			data.projectSharing ?? currentConfig.projectSharing,
 			data.showAllSettings ?? currentConfig.showAllSettings,
 			data.preloadedSkills ?? currentConfig.preloadedSkills,
+			data.shareTargets ?? currentConfig.shareTargets,
 		),
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
@@ -770,6 +779,7 @@ function createUserGroupValues(
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	llmConfigIds: string[] = [],
 	llmModelIdsByConfig: LlmModelIdsByConfig = {},
 ): NewUserGroup {
@@ -783,6 +793,7 @@ function createUserGroupValues(
 			projectSharing,
 			showAllSettings,
 			preloadedSkills,
+			shareTargets,
 		),
 		contextGrants: serializeUserGroupContextAccess({
 			databaseAccess,
@@ -939,6 +950,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
 		projectSharing: config.projectSharing,
+		shareTargets: config.shareTargets,
 		showAllSettings: config.showAllSettings,
 		preloadedSkills: config.preloadedSkills,
 		databaseAccess: contextAccess.databaseAccess,

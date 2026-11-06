@@ -139,7 +139,7 @@ describe('project_llm_config model settings round-trip (sqlite)', () => {
 		expect(created.modelSettings).toEqual({});
 	});
 
-	it('reuses and reactivates an inactive credential name', async () => {
+	it('creates a fresh credential when an inactive credential has the same name', async () => {
 		const reuseProjectId = `${projectId}-reuse-name`;
 		await db
 			.insert(s.project)
@@ -171,7 +171,12 @@ describe('project_llm_config model settings round-trip (sqlite)', () => {
 			baseUrl: null,
 		});
 
-		expect(restored).toMatchObject({ id: inactive.id, provider: 'openai', disabledAt: null });
+		const [retained] = await db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.id, inactive.id));
+
+		expect(restored).toMatchObject({ provider: 'openai', disabledAt: null });
+		expect(restored.id).not.toBe(inactive.id);
+		expect(retained.disabledAt).not.toBeNull();
+		expect(retained.provider).toBe('anthropic');
 	});
 
 	it('resolves an empty enabled model list like an explicit provider default', async () => {

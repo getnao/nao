@@ -1,6 +1,17 @@
 import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
-import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES, type StoryFilterType } from './sql-template';
+import {
+	STORY_FILTER_ID_REGEX,
+	STORY_FILTER_TYPES,
+	STORY_FILTER_VALUE_TYPES,
+	type StoryFilterType,
+	type StoryFilterValueType,
+} from './sql-template';
+import {
+	type ResolvedStoryParameters,
+	substituteStoryParameters,
+	substituteStoryParametersInAttributes,
+} from './story-parameter-template';
 import type { SeriesConfig } from './tools/display-chart';
 import type * as displayMap from './tools/display-map';
 import type { ColorScale, MapType, RegionBoundaries } from './tools/display-map';
@@ -73,7 +84,35 @@ export interface ParsedFilterBlock {
 	databaseId?: string;
 	/** Hardcoded dropdown values; when set, options are not loaded from `table.column`. */
 	options?: string[];
+	/** How a `text` filter value is rendered: quoted string (default) or validated unquoted number. */
+	valueType?: StoryFilterValueType;
+	/** Parent filter id whose selection narrows this filter's options (category > sub-category). */
+	dependsOn?: string;
+	/** Lets select/multi_select users submit a typed value that is not in the option list. */
+	allowCustom?: boolean;
+	/** Semantic layer dimension (e.g. `customer__region`) the filter applies to on semantic-layer charts. */
+	dimension?: string;
+	/** Metric used to list the values of `dimension`; defaults to a metric of the story's semantic queries. */
+	metric?: string;
 	/** The original `<filter ... />` tag this block was parsed from, when available. */
+	rawTag?: string;
+}
+
+export const STORY_PARAMETER_TYPES = ['metric', 'value'] as const;
+
+export type StoryParameterType = (typeof STORY_PARAMETER_TYPES)[number];
+
+export interface StoryParameterOption {
+	value: string;
+	label: string;
+}
+
+export interface ParsedParameterBlock {
+	id: string;
+	label: string;
+	parameterType: StoryParameterType;
+	options: StoryParameterOption[];
+	defaultValue: string;
 	rawTag?: string;
 }
 
@@ -101,9 +140,13 @@ export function mapTagRegex(flags = ''): RegExp {
 
 export function storyBlockRegex(): RegExp {
 	return new RegExp(
-		String.raw`<grid(?:\s+(${TAG_ATTRS}))?>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>|<filter\s+(${TAG_ATTRS})\/?>|<map\s+(${TAG_ATTRS})\/?>`,
+		String.raw`<grid(?:\s+(${TAG_ATTRS}))?>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>|<filter\s+(${TAG_ATTRS})\/?>|<map\s+(${TAG_ATTRS})\/?>|<parameter\s+(${TAG_ATTRS})\/?>`,
 		'g',
 	);
+}
+
+export function parameterTagRegex(flags = ''): RegExp {
+	return new RegExp(String.raw`<parameter\s+(${TAG_ATTRS})\/?>`, flags);
 }
 
 function unescapeAttributeValue(value: string): string {
@@ -249,7 +292,7 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 	const needsOptionsSource = filterType === 'select' || filterType === 'multi_select';
 	const hasHardcodedOptions = Boolean(options?.length);
 	const hasTableSource = Boolean(attrs.table && attrs.column);
-	if (needsOptionsSource && !hasHardcodedOptions && !hasTableSource) {
+	if (needsOptionsSource && !hasHardcodedOptions && !hasTableSource && !attrs.dimension) {
 		return null;
 	}
 
@@ -261,7 +304,91 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 		...(attrs.table && { table: attrs.table }),
 		...(attrs.database_id && { databaseId: attrs.database_id }),
 		...(hasHardcodedOptions && { options }),
+		...(filterType === 'text' && isFilterValueType(attrs.value_type) && { valueType: attrs.value_type }),
+		...(needsOptionsSource && attrs.depends_on && { dependsOn: attrs.depends_on }),
+		...(needsOptionsSource && attrs.allow_custom === 'true' && { allowCustom: true }),
+		...(attrs.dimension && { dimension: attrs.dimension }),
+		...(attrs.metric && { metric: attrs.metric }),
 	};
+}
+
+export function parseParameterBlock(attrString: string): ParsedParameterBlock | null {
+	const attrs = parseChartAttributes(attrString);
+	const options = parseParameterOptions(attrs.options);
+	if (!attrs.id || !STORY_FILTER_ID_REGEX.test(attrs.id) || !options?.length) {
+		return null;
+	}
+
+	const defaultOption = options.find((option) => option.value === attrs.default) ?? options[0];
+	return {
+		id: attrs.id,
+		label: attrs.label || attrs.id,
+		parameterType: attrs.type === 'metric' ? 'metric' : 'value',
+		options,
+		defaultValue: defaultOption.value,
+	};
+}
+
+/** Accepts `["a","b"]` or `[{"value":"a","label":"A"}]`. */
+export function parseParameterOptions(value: string | undefined): StoryParameterOption[] | undefined {
+	if (!value) {
+		return undefined;
+	}
+	try {
+		const parsed: unknown = JSON.parse(value);
+		if (!Array.isArray(parsed)) {
+			return undefined;
+		}
+		const options = parsed.map(toParameterOption);
+		return options.every((option) => option !== null) ? options : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function getStoryParametersFromCode(code: string): ParsedParameterBlock[] {
+	const parameters: ParsedParameterBlock[] = [];
+	for (const match of code.matchAll(parameterTagRegex('g'))) {
+		const parameter = parseParameterBlock(match[1]);
+		if (parameter) {
+			parameters.push({ ...parameter, rawTag: match[0] });
+		}
+	}
+	return parameters;
+}
+
+/** Each parameter's selected option, falling back to its default when the selection is not a known option. */
+export function resolveStoryParameters(
+	parameters: ParsedParameterBlock[],
+	selections: Record<string, unknown> = {},
+): ResolvedStoryParameters {
+	return Object.fromEntries(
+		parameters.map((parameter) => {
+			const selected = selections[parameter.id];
+			const option =
+				parameter.options.find((candidate) => candidate.value === selected) ??
+				parameter.options.find((candidate) => candidate.value === parameter.defaultValue) ??
+				parameter.options[0];
+			return [parameter.id, { value: option.value, label: option.label }];
+		}),
+	);
+}
+
+function toParameterOption(item: unknown): StoryParameterOption | null {
+	if (typeof item === 'string') {
+		return { value: item, label: item };
+	}
+	if (item && typeof item === 'object') {
+		const { value, label } = item as Record<string, unknown>;
+		if (typeof value === 'string') {
+			return { value, label: typeof label === 'string' ? label : value };
+		}
+	}
+	return null;
+}
+
+export function isFilterValueType(value: string | undefined): value is StoryFilterValueType {
+	return STORY_FILTER_VALUE_TYPES.includes(value as StoryFilterValueType);
 }
 
 export function parseStringArrayAttribute(value: string | undefined): string[] | undefined {
@@ -591,7 +718,10 @@ function splitRawStoryBlocks(code: string): string[] {
 	return blocks;
 }
 
-export function parseGridColumns(inner: string): { children: Segment[]; spans: number[] } {
+export function parseGridColumns(
+	inner: string,
+	parameters?: ResolvedStoryParameters,
+): { children: Segment[]; spans: number[] } {
 	const children: Segment[] = [];
 	const spans: number[] = [];
 	const spanDivRegex = new RegExp(GRID_SPAN_DIV_PATTERN, 'gi');
@@ -599,7 +729,7 @@ export function parseGridColumns(inner: string): { children: Segment[]; spans: n
 	let lastIndex = 0;
 
 	const addColumns = (content: string, span: number, combineSegments = false) => {
-		const segments = splitCodeIntoSegments(content);
+		const segments = splitCodeIntoSegments(content, parameters);
 		if (segments.length === 0) {
 			return;
 		}
@@ -717,7 +847,16 @@ export function extractQueryIds(code: string): Set<string> {
 	return ids;
 }
 
-export function splitCodeIntoSegments(code: string): Segment[] {
+/**
+ * Splits story code into renderable segments. `{{ params.<id> }}` placeholders in markdown and tag
+ * attributes are substituted with `parameters` (defaults from the code's <parameter> tags when omitted);
+ * each block keeps its original `rawTag` so editors can still find it in the code.
+ */
+export function splitCodeIntoSegments(code: string, parameters?: ResolvedStoryParameters): Segment[] {
+	const resolvedParameters = parameters ?? resolveStoryParameters(getStoryParametersFromCode(code));
+	const substitute = (text: string) => substituteStoryParameters(text, resolvedParameters);
+	const substituteAttributes = (attrString: string) =>
+		substituteStoryParametersInAttributes(attrString, resolvedParameters);
 	const segments: Segment[] = [];
 	const blockRegex = storyBlockRegex();
 	let match;
@@ -727,13 +866,13 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 		if (match.index > lastIndex) {
 			const md = code.slice(lastIndex, match.index).trim();
 			if (md) {
-				segments.push({ type: 'markdown', content: md });
+				segments.push({ type: 'markdown', content: substitute(md) });
 			}
 		}
 
 		if (match[2] !== undefined) {
 			const gridAttrs = parseChartAttributes(match[1] ?? '');
-			const { children, spans } = parseGridColumns(match[2]);
+			const { children, spans } = parseGridColumns(match[2], resolvedParameters);
 			const cols = parseInt(gridAttrs.cols || String(children.length || 1), 10);
 			const widths =
 				gridAttrs.widths !== undefined
@@ -743,22 +882,22 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 						: null;
 			segments.push({ type: 'grid', cols, widths, children });
 		} else if (match[3] !== undefined) {
-			const chart = parseChartBlock(match[3]);
+			const chart = parseChartBlock(substituteAttributes(match[3]));
 			if (chart) {
 				segments.push({ type: 'chart', chart: { ...chart, rawTag: match[0] } });
 			}
 		} else if (match[4] !== undefined) {
-			const table = parseTableBlock(match[4]);
+			const table = parseTableBlock(substituteAttributes(match[4]));
 			if (table) {
 				segments.push({ type: 'table', table: { ...table, rawTag: match[0] } });
 			}
 		} else if (match[5] !== undefined) {
-			const filter = parseFilterBlock(match[5]);
+			const filter = parseFilterBlock(substituteAttributes(match[5]));
 			if (filter) {
 				segments.push({ type: 'filter', filter: { ...filter, rawTag: match[0] } });
 			}
 		} else if (match[6] !== undefined) {
-			const map = parseMapBlock(match[6]);
+			const map = parseMapBlock(substituteAttributes(match[6]));
 			if (map) {
 				segments.push({ type: 'map', map: { ...map, rawTag: match[0] } });
 			}
@@ -770,7 +909,7 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 	if (lastIndex < code.length) {
 		const md = code.slice(lastIndex).trim();
 		if (md) {
-			segments.push({ type: 'markdown', content: md });
+			segments.push({ type: 'markdown', content: substitute(md) });
 		}
 	}
 

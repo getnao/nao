@@ -44,6 +44,7 @@ const config: SlackConfig = {
 	appToken: '',
 	replyMode: 'thread',
 	dmScopeMissing: false,
+	dmThreadsEnabled: false,
 };
 
 describe('ProjectSlackBot billing access', () => {

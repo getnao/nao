@@ -19,6 +19,7 @@ import {
 } from '../types/usage';
 import { fillMissingDates, generateDateSeries, getLookbackTimestamp } from '../utils/date';
 import { getProjectDeclaredModels } from '../utils/llm';
+import { getAllProjectLlmConfigs } from './project-llm-config.queries';
 
 const COST_COLS = [
 	'provider',
@@ -629,6 +630,10 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
 	const builtInCosts = new Map<string, ModelCosts>();
 	const costs = new Map<string, ModelCosts>();
+	const [declaredModels, retainedConfigs] = await Promise.all([
+		getProjectDeclaredModels(projectId),
+		getAllProjectLlmConfigs(projectId),
+	]);
 
 	for (const [provider, config] of Object.entries(LLM_PROVIDERS)) {
 		for (const model of config.models) {
@@ -638,18 +643,32 @@ async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]
 		}
 	}
 
-	for (const { provider, llmConfigId, models } of await getProjectDeclaredModels(projectId)) {
-		if (llmConfigId) {
-			for (const [key, cost] of builtInCosts) {
-				if (key.startsWith(`${provider}\u0000`)) {
-					costs.set(`${key}\u0000${llmConfigId}`, { ...cost });
-				}
+	const legacyCredentialPrices = new Set<string>();
+	for (const config of retainedConfigs) {
+		for (const [key, cost] of builtInCosts) {
+			if (key.startsWith(`${config.provider}\u0000`)) {
+				costs.set(`${key}\u0000${config.id}`, { ...cost });
 			}
+		}
+		for (const model of config.customModels) {
+			const baseKey = `${config.provider}\u0000${model.id}`;
+			const modelCosts = { ...builtInCosts.get(baseKey), ...model.costPerM };
+			costs.set(`${baseKey}\u0000${config.id}`, modelCosts);
+			if (!legacyCredentialPrices.has(baseKey)) {
+				costs.set(`${baseKey}\u0000`, modelCosts);
+				legacyCredentialPrices.add(baseKey);
+			}
+		}
+	}
+
+	const retainedProviders = new Set(retainedConfigs.map((config) => config.provider));
+	for (const { provider, llmConfigId, models } of declaredModels) {
+		if (llmConfigId || retainedProviders.has(provider)) {
+			continue;
 		}
 		for (const model of models) {
 			const baseKey = `${provider}\u0000${model.id}`;
-			const key = `${baseKey}\u0000${llmConfigId ?? ''}`;
-			costs.set(key, { ...builtInCosts.get(baseKey), ...model.costPerM });
+			costs.set(`${baseKey}\u0000`, { ...builtInCosts.get(baseKey), ...model.costPerM });
 		}
 	}
 

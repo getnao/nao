@@ -1017,6 +1017,10 @@ export const QUICK_QUESTION_FORK_TYPES = [
 	'chat_selection',
 ] as const;
 
+export function isQuickQuestionForkType(type: string | undefined): boolean {
+	return QUICK_QUESTION_FORK_TYPES.some((quickQuestionType) => quickQuestionType === type);
+}
+
 export const isNotQuickQuestionChat = () => {
 	return sql`coalesce(${forkMetadataField('type')}, '') not in (${sql.join(
 		QUICK_QUESTION_FORK_TYPES.map((type) => sql`${type}`),

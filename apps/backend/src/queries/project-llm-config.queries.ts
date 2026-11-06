@@ -1,5 +1,5 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import s, { DBProjectLlmConfig, NewProjectLlmConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -124,9 +124,7 @@ export const saveProjectLlmConfig = async (
 	},
 	configId?: string,
 ): Promise<DBProjectLlmConfig> => {
-	const existing = configId
-		? await getProjectLlmConfigById(config.projectId, configId)
-		: await getInactiveProjectLlmConfigByName(config.projectId, config.name);
+	const existing = configId ? await getProjectLlmConfigById(config.projectId, configId) : null;
 	if (configId && !existing) {
 		throw new Error('LLM credential not found.');
 	}
@@ -159,22 +157,6 @@ export const saveProjectLlmConfig = async (
 		.execute();
 	return created;
 };
-
-async function getInactiveProjectLlmConfigByName(projectId: string, name: string): Promise<DBProjectLlmConfig | null> {
-	const [config] = await db
-		.select()
-		.from(s.projectLlmConfig)
-		.where(
-			and(
-				eq(s.projectLlmConfig.projectId, projectId),
-				eq(s.projectLlmConfig.name, name),
-				isNotNull(s.projectLlmConfig.disabledAt),
-			),
-		)
-		.limit(1)
-		.execute();
-	return config ?? null;
-}
 
 export const deactivateProjectLlmConfig = async (projectId: string, configId: string): Promise<void> => {
 	await db

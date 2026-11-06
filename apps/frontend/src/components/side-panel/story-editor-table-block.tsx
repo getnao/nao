@@ -1,24 +1,27 @@
 import { parseTableBlock, TAG_ATTRS } from '@nao/shared/story-segments';
 import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
-import { useMemo } from 'react';
+import { useContext, useMemo } from 'react';
+import { substituteStoryParameters } from '@nao/shared/story-parameter-template';
 import { StoryTableEmbed } from './story-table-embed';
 import { StoryBlockDragGrip, StoryBlockDropZones, useStoryBlockDrag } from './story-editor-block-drag';
 import { decodeFromAttr } from './story-editor-utils';
+import { StoryEditorParametersContext } from './story-editor-parameters-context';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import { StoryTableFrame } from '@/components/story-block';
 
 function TableBlockView({ node, editor, getPos }: ReactNodeViewProps) {
 	const rawTag = node.attrs.rawTag as string;
+	const parameters = useContext(StoryEditorParametersContext);
 
 	const table = useMemo(() => {
 		const attrMatch = rawTag.match(new RegExp(`<table\\s+(${TAG_ATTRS})\\/?>`));
 		if (!attrMatch) {
 			return null;
 		}
-		const parsed = parseTableBlock(attrMatch[1]);
+		const parsed = parseTableBlock(substituteStoryParameters(attrMatch[1], parameters));
 		return parsed ? { ...parsed, rawTag } : null;
-	}, [rawTag]);
+	}, [rawTag, parameters]);
 	const { handleDragStart, handleDragEnd } = useStoryBlockDrag({ node, editor, getPos });
 
 	if (!table) {

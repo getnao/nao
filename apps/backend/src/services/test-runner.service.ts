@@ -52,7 +52,7 @@ const TEST_RUN_STALE_MS = 4 * TEST_RUN_HEARTBEAT_MS;
 const CONTEXT_SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60_000;
 const TEST_RUN_STALE_MESSAGE = 'The test run was interrupted before it finished.';
 const MAX_STORED_ROWS = 50;
-const NO_CONTEXT_CHANGES_MESSAGE = 'Your File Explorer has no context changes to compare with production.';
+const NO_CONTEXT_CHANGES_MESSAGE = 'Your File Explorer has no context changes to compare.';
 
 /** Runs this process is executing, so a cancellation can stop their attempts. */
 const liveRuns = new Map<string, AbortController>();

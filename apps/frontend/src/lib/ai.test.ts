@@ -206,6 +206,30 @@ describe('story actions', () => {
 		expect(groupToolCalls([revenue, churn])).toEqual([revenue, churn]);
 	});
 
+	it('keeps one card per story when stories of other chats share a slug', () => {
+		const ownStory = createStoryPart('call-1', {
+			input: { action: 'update', id: 'own-story-id' },
+			output: { success: true, id: 'revenue', version: 2, story_id: 'own-story-id' },
+		});
+		const otherChatStory = createStoryPart('call-2', {
+			input: { action: 'update', id: 'other-story-id' },
+			output: { success: true, id: 'revenue', version: 4, story_id: 'other-story-id' },
+		});
+
+		expect(groupToolCalls([ownStory, otherChatStory])).toEqual([ownStory, otherChatStory]);
+	});
+
+	it('demotes a failed create once the story it retried exists', () => {
+		const failed = createStoryPart('call-1', {
+			output: { success: false, id: 'revenue', version: 0, error: '"code" and "title" are required' },
+		});
+		const created = createStoryPart('call-2', {
+			output: { success: true, id: 'revenue', version: 1, story_id: 'story-id' },
+		});
+
+		expect(groupToolCalls([failed, created])).toEqual([{ type: 'story-status', part: failed }, created]);
+	});
+
 	it('demotes a failed attempt once a later action on the story exists', () => {
 		const failed = createStoryPart('call-1', {
 			input: { action: 'update', id: 'revenue' },
@@ -216,15 +240,15 @@ describe('story actions', () => {
 		expect(groupToolCalls([failed, retried])).toEqual([{ type: 'story-status', part: failed }, retried]);
 	});
 
-	it('follows the story id from a streaming input before any output exists', () => {
+	it('keeps a story card until the streaming edit that follows names its slug in its output', () => {
 		const created = createStoryPart('call-1');
 		const streaming = createStoryPart('call-2', {
 			state: 'input-streaming',
-			input: { action: 'update', id: 'revenue' },
+			input: { action: 'update', id: 'story-id' },
 			output: undefined,
 		});
 
-		expect(groupToolCalls([created, streaming])).toEqual([{ type: 'story-status', part: created }, streaming]);
+		expect(groupToolCalls([created, streaming])).toEqual([created, streaming]);
 	});
 
 	it('leaves a story action whose id is not known yet as a card', () => {

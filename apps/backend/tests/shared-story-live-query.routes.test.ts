@@ -60,6 +60,7 @@ describe('storyShare.getLiveQueryData', () => {
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'q_customers', {
 			billingAccessVerifiedProjectId: 'project-1',
+			storyCode: expect.any(String),
 		});
 	});
 

@@ -269,6 +269,19 @@ describe('startTestRun', () => {
 		);
 	});
 
+	it('runs a model at the reasoning efforts nao_config.yaml lists for it when the run picks no model', async () => {
+		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeConfig('test:\n  models:\n    - model: openai:gpt-5\n      reasoning_efforts: [high, low]');
+
+		const run = await startTestRun({ projectId: 'project-1', userId: 'user-1' });
+		await vi.waitFor(() => expect(mocks.completeRun).toHaveBeenCalled());
+
+		expect(run.models).toEqual([
+			{ provider: 'openai', modelId: 'gpt-5', reasoningEffort: 'low' },
+			{ provider: 'openai', modelId: 'gpt-5', reasoningEffort: 'high' },
+		]);
+	});
+
 	it('runs a model without reasoning efforts once, even when picked with some', async () => {
 		writeTestFile('revenue.yml', 'prompt: What is the revenue?');
 		const model = { provider: 'openai', modelId: 'gpt-4.1' } as const;

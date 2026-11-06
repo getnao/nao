@@ -685,7 +685,8 @@ function ExistingStoriesBlock({ trustedStories, canGrep }: { trustedStories: Sto
 					To show or build on its data, re-run its SQL with execute_sql and say which story you built on.
 				</ListItem>
 				<ListItem>
-					These stories are read-only here; to change one, the user opens it from its own chat.
+					Stories marked editable can be changed from here when the user asks: pass the story id to the story
+					tool, the new version lands on the story itself. Every other story is read-only here.
 				</ListItem>
 			</List>
 			{trustedStories.length > 0 && (
@@ -706,8 +707,12 @@ function ExistingStoriesBlock({ trustedStories, canGrep }: { trustedStories: Sto
 }
 
 function describeTrustedStory(story: StorySummary): string {
-	const trust = [story.pinned ? 'pinned' : null, story.certified ? 'certified' : null].filter(Boolean).join(', ');
-	return `${JSON.stringify(story.title)} (id: ${story.id}) — ${trust}`;
+	const marks = [
+		story.pinned ? 'pinned' : null,
+		story.certified ? 'certified' : null,
+		story.editable ? 'editable' : null,
+	].filter(Boolean);
+	return `${JSON.stringify(story.title)} (id: ${story.id}) — ${marks.join(', ')}`;
 }
 
 function LocalDatabaseBlock({
@@ -867,9 +872,9 @@ function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
 		<Block>
 			<Title level={2}>Custom charts</Title>
 			<Span>
-				The project provides the custom chart types below. Use them through display_chart only when their
-				description fits the request. They render in interactive web chats only, so do not use them in stories
-				or exports.
+				The project provides the custom chart types below. Use them only when their description fits the
+				request: through display_chart, which draws them in interactive web chats only, or in a custom story as{' '}
+				{'<Chart type="...">'} from @nao/story-kit. Do not use them in classic stories.
 			</Span>
 			<List>
 				{visibleCharts.map((chart) => (
