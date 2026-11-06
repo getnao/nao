@@ -1205,6 +1205,9 @@ export class ProjectSlackBot {
 			agent.stop();
 		}
 		await this._readStreamAndUpdateSlackMessage(stream, ctx, activeStream);
+		if (!this._getSlackStreamMessageTs(ctx)) {
+			return;
+		}
 
 		const previousCompletion = this._lastCompletionCard.get(ctx.thread.id);
 		if (previousCompletion) {
@@ -1601,11 +1604,31 @@ export class ProjectSlackBot {
 				}
 			}
 		}
-		const finalBlocks =
-			ctx.blocks.length > 0
-				? ctx.blocks
-				: [createTextBlock(activeStream.stopRequested ? '_Generation stopped._' : '_No response._')];
-		await this._editConversationCard(ctx, finalBlocks, true);
+		if (ctx.blocks.length > 0) {
+			await this._editConversationCard(ctx, ctx.blocks, true);
+		} else if (activeStream.stopRequested) {
+			await this._editConversationCard(ctx, [createTextBlock('_Generation stopped._')], true);
+		} else {
+			await this._deleteConversationCard(ctx);
+		}
+	}
+
+	/** An empty answer is a deliberate silence (e.g. a rule telling the agent not to reply), so leave no trace. */
+	private async _deleteConversationCard(ctx: ConversationContext): Promise<void> {
+		const streamState = this._getSlackStreamState(ctx);
+		if (!streamState.messageTs) {
+			return;
+		}
+		const { channelId } = this._getSlackMessageDestination(ctx);
+		try {
+			await this._slackClient.chat.delete({ channel: channelId, ts: streamState.messageTs });
+		} catch (error) {
+			logger.warn(`Failed to delete Slack answering card after an empty answer: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, threadId: ctx.thread.id, messageTs: streamState.messageTs },
+			});
+		}
+		streamState.messageTs = null;
 	}
 
 	private _updateTextBlock(
