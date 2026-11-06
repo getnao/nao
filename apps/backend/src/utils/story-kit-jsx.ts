@@ -183,17 +183,14 @@ function readKitImport(program: Node): KitImport {
 	if (program.type !== 'Program') {
 		return kitImport;
 	}
-	const declarations = program.body.filter(
-		(statement): statement is ImportDeclaration =>
-			statement.type === 'ImportDeclaration' && statement.source.value === STORY_KIT_MODULE,
-	);
+	const declarations = program.body.filter(isKitValueImport);
 	for (const declaration of declarations) {
 		for (const specifier of declaration.specifiers) {
 			if (specifier.type === 'ImportNamespaceSpecifier') {
 				kitImport.namespace = specifier.local.name;
 				continue;
 			}
-			if (specifier.type !== 'ImportSpecifier') {
+			if (specifier.type !== 'ImportSpecifier' || isTypeOnly(specifier.importKind)) {
 				continue;
 			}
 			kitImport.lastSpecifierEnd = specifier.end ?? kitImport.lastSpecifierEnd;
@@ -203,6 +200,19 @@ function readKitImport(program: Node): KitImport {
 		}
 	}
 	return kitImport;
+}
+
+/** Type-only imports vanish from the build, so a component referenced through one would be undefined at runtime. */
+function isKitValueImport(statement: Statement): statement is ImportDeclaration {
+	return (
+		statement.type === 'ImportDeclaration' &&
+		statement.source.value === STORY_KIT_MODULE &&
+		!isTypeOnly(statement.importKind)
+	);
+}
+
+function isTypeOnly(importKind: ImportDeclaration['importKind']): boolean {
+	return importKind === 'type' || importKind === 'typeof';
 }
 
 function toKitElement(node: JSXElement, kitImport: KitImport): KitElement | null {

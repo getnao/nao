@@ -93,6 +93,39 @@ export default function App() {
 		expect(parseKitSource('app.jsx', appended)).not.toBeNull();
 	});
 
+	it('adds the component to a value import of the kit, never to a type-only one', () => {
+		const source = `import { KpiCard, type Theme } from '@nao/story-kit';
+import type { ChartProps } from '@nao/story-kit';
+
+export default function App() {
+	return (
+		<main>
+			<KpiCard queryId="query_1" />
+		</main>
+	);
+}
+`;
+
+		const appended = appendKitBlock('app.tsx', source, PLUGIN_CHART);
+
+		expect(appended).toContain("import { KpiCard, Chart, type Theme } from '@nao/story-kit';");
+		expect(appended).toContain("import type { ChartProps } from '@nao/story-kit';");
+	});
+
+	it('does not treat a component imported as a type as already imported', () => {
+		const source = `import type { Chart } from '@nao/story-kit';
+
+export default function App() {
+	return <main></main>;
+}
+`;
+
+		const appended = appendKitBlock('app.tsx', source, PLUGIN_CHART);
+
+		expect(appended).toMatch(/^import \{ Chart as KitChart \} from "@nao\/story-kit";\n/);
+		expect(appended).toMatch(/<KitChart queryId="query_2"/);
+	});
+
 	it('imports the kit when the file does not use it yet', () => {
 		const source = 'export default function App() {\n\treturn <main></main>;\n}\n';
 
