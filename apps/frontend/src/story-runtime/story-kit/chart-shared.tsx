@@ -12,7 +12,7 @@ import { useId } from 'react';
 import { Legend, ResponsiveContainer, Tooltip } from 'recharts';
 
 import { Block, BlockState } from './block';
-import { chartBlockConfig, resolveChart, toSeriesConfigs } from './block-config';
+import { chartBlockConfig, resolveChart, resolveShowLegend, toSeriesConfigs } from './block-config';
 import { withNumericValues } from './columns';
 import { useStoryTheme } from './hooks';
 import { piePresentation, pieTooltipLabel } from './pie';
@@ -57,11 +57,12 @@ export function ChartBlock({
 }: ChartBlockProps) {
 	const source = useBlockData({ queryId, data });
 	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options, chartType) : null;
+	const showLegend = resolved ? resolveShowLegend(chartType, resolved, options.showLegend) : false;
 	const edit =
 		resolved && source.status === 'ready'
 			? {
 					block: blockRef,
-					config: chartBlockConfig(chartType, queryId, title, resolved, options),
+					config: chartBlockConfig(chartType, queryId, title, resolved, { ...options, showLegend }),
 					columns: source.columns,
 					rows: source.rows,
 				}
@@ -86,7 +87,7 @@ export function ChartBlock({
 							xAxisKey={resolved.xAxisKey}
 							series={toSeriesConfigs(resolved.series, options)}
 							height={height}
-							showLegend={options.showLegend ?? (isPieChart(chartType) || resolved.series.length > 1)}
+							showLegend={showLegend}
 							showGrid={showGrid}
 							options={options}
 						/>
