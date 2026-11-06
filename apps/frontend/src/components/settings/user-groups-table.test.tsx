@@ -840,7 +840,7 @@ describe('UserGroupsTable', () => {
 		expect(mocks.mutate).not.toHaveBeenCalled();
 	});
 
-	it('keeps the users table columns fixed while group chips overflow inside their cell', () => {
+	it('keeps the users table columns fixed while group tokens wrap inside their cell', () => {
 		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
 
 		const table = screen.getByRole('table');
@@ -855,8 +855,8 @@ describe('UserGroupsTable', () => {
 		expect(headers[2]?.classList.contains('w-1/5')).toBe(true);
 		expect(headers[3]?.classList.contains('w-[38%]')).toBe(true);
 		expect(projectUserCells[3]?.classList.contains('overflow-hidden')).toBe(true);
-		expect(groupsButton.classList.contains('w-full')).toBe(true);
-		expect(groupsButton.classList.contains('min-w-0')).toBe(true);
+		expect(groupsButton.parentElement?.classList.contains('w-full')).toBe(true);
+		expect(groupsButton.parentElement?.classList.contains('flex-wrap')).toBe(true);
 	});
 
 	it('reports tab changes to the route', () => {
