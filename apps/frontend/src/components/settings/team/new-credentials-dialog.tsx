@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Check, Copy, AlertTriangle, Mail } from 'lucide-react';
 
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { trpc } from '@/main';
 
 interface NewCredentialsDialogProps {
 	open: boolean;
@@ -12,6 +14,8 @@ interface NewCredentialsDialogProps {
 
 export function NewCredentialsDialog({ open, onOpenChange, credentials }: NewCredentialsDialogProps) {
 	const [copied, setCopied] = useState(false);
+	const smtpQuery = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
+	const isSmtpNotSetup = smtpQuery.data === false;
 
 	const handleCopy = async () => {
 		if (credentials?.password) {
@@ -24,13 +28,8 @@ export function NewCredentialsDialog({ open, onOpenChange, credentials }: NewCre
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className='max-w-md'>
-				<div className='space-y-4'>
-					<div className='flex items-start gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg mt-5'>
-						<Mail className='size-5 text-blue-500 shrink-0 mt-0.5' />
-						<p className='text-sm text-blue-700 dark:text-blue-400'>
-							If setup, an email has been sent to the user.
-						</p>
-					</div>
+				<div className='space-y-4 pt-5'>
+					{isSmtpNotSetup && <SmtpNotSetupNotice />}
 
 					<div className='flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg'>
 						<AlertTriangle className='size-5 text-amber-500 shrink-0 mt-0.5' />
@@ -75,5 +74,16 @@ export function NewCredentialsDialog({ open, onOpenChange, credentials }: NewCre
 				</div>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function SmtpNotSetupNotice() {
+	return (
+		<div className='flex items-start gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg'>
+			<Mail className='size-5 text-blue-500 shrink-0 mt-0.5' />
+			<p className='text-sm text-blue-700 dark:text-blue-400'>
+				No email was sent because SMTP is not set up. Share these credentials with the user directly.
+			</p>
+		</div>
 	);
 }
