@@ -8,6 +8,7 @@ import type { MemberStatus, UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
 import type { ProjectUserFilters } from '@/lib/project-user-filters';
+import type { UserSectionsPagination } from '@/hooks/use-paginated-user-sections';
 import {
 	AddMemberDialog,
 	EditMemberDialog,
@@ -31,9 +32,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { TablePagination } from '@/components/ui/table-pagination';
 import { useIsCloud } from '@/hooks/use-nao-mode';
+import { usePaginatedUserSections } from '@/hooks/use-paginated-user-sections';
 import { useSession } from '@/lib/auth-client';
 import { ALL_GROUPS_FILTER, filterProjectUsers, hasActiveProjectUserFilters } from '@/lib/project-user-filters';
+import { countUsers } from '@/lib/user-sections-pagination';
 import { trpc, trpcClient } from '@/main';
 
 const BULK_MEMBERSHIP_BATCH_SIZE = 1_000;
@@ -76,6 +80,7 @@ interface BulkMembershipChange {
 
 interface UserSelection {
 	selectedUserIds: Set<string>;
+	selectableCount: number;
 	onToggleUser: (userId: string, isSelected: boolean) => void;
 	onToggleAll: (isSelected: boolean) => void;
 }
@@ -131,13 +136,16 @@ export function ReadOnlyProjectUsers() {
 
 function ReadOnlyProjectUsersTable({ projectUsers, organizationUsers }: ProjectUsersProps) {
 	const { data: session } = useSession();
+	const users = { projectUsers, organizationUsers };
+	const { page, pagination } = usePaginatedUserSections(users, countUsers(users));
 
 	return (
 		<SettingsCard title='Members' description='People who have access to this project.' flush>
 			<UserAccessTable
-				projectUsers={projectUsers}
-				organizationUsers={organizationUsers}
+				projectUsers={page.projectUsers}
+				organizationUsers={page.organizationUsers}
 				currentUserId={session?.user?.id}
+				pagination={pagination}
 			/>
 		</SettingsCard>
 	);
@@ -173,6 +181,7 @@ function ManagedProjectUsersTable({
 	}, [projectUsers, organizationUsers, filters, customGroups, membershipKeys]);
 	const selectableUsers = [...visibleUsers.projectUsers, ...visibleUsers.organizationUsers];
 	const selection = useVisibleUserSelection(selectableUsers);
+	const paginatedUsers = usePaginatedUserSections(visibleUsers, projectUsers.length + organizationUsers.length);
 	const [bulkNotice, setBulkNotice] = useState('');
 
 	const addUser = useMutation(trpc.user.addUserToProject.mutationOptions());
@@ -288,7 +297,10 @@ function ManagedProjectUsersTable({
 			>
 				<ProjectUsersToolbar
 					filters={filters}
-					onFiltersChange={setFilters}
+					onFiltersChange={(nextFilters) => {
+						setFilters(nextFilters);
+						paginatedUsers.goToFirstPage();
+					}}
 					customGroups={customGroups}
 					selectedCount={selection.selectedUserIds.size}
 					isBulkPending={setMemberships.isPending}
@@ -302,10 +314,11 @@ function ManagedProjectUsersTable({
 					}}
 				/>
 				<UserAccessTable
-					projectUsers={visibleUsers.projectUsers}
-					organizationUsers={visibleUsers.organizationUsers}
+					projectUsers={paginatedUsers.page.projectUsers}
+					organizationUsers={paginatedUsers.page.organizationUsers}
 					currentUserId={session?.user?.id}
 					management={management}
+					pagination={paginatedUsers.pagination}
 					emptyMessage={hasActiveProjectUserFilters(filters) ? 'No users match your filters.' : undefined}
 				/>
 			</SettingsCard>
@@ -409,7 +422,7 @@ function useVisibleUserSelection(visibleUsers: ProjectUser[]) {
 		setCheckedUserIds(new Set());
 	};
 
-	return { selectedUserIds, onToggleUser, onToggleAll, clear };
+	return { selectedUserIds, selectableCount: visibleUserIds.length, onToggleUser, onToggleAll, clear };
 }
 
 function UserAccessTable({
@@ -417,11 +430,38 @@ function UserAccessTable({
 	organizationUsers,
 	currentUserId,
 	management,
+	pagination,
 	emptyMessage = 'No users have access to this project.',
 }: ProjectUsersProps & {
 	currentUserId?: string;
 	management?: UserAccessManagement;
+	pagination?: UserSectionsPagination;
 	emptyMessage?: string;
+}) {
+	return (
+		<div className='flex flex-col'>
+			<UserAccessTableContent
+				projectUsers={projectUsers}
+				organizationUsers={organizationUsers}
+				currentUserId={currentUserId}
+				management={management}
+				emptyMessage={emptyMessage}
+			/>
+			{pagination?.isVisible && <TablePagination {...pagination} />}
+		</div>
+	);
+}
+
+function UserAccessTableContent({
+	projectUsers,
+	organizationUsers,
+	currentUserId,
+	management,
+	emptyMessage,
+}: ProjectUsersProps & {
+	currentUserId?: string;
+	management?: UserAccessManagement;
+	emptyMessage: string;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
 	const columnCount = management ? 5 : 2;
@@ -434,10 +474,7 @@ function UserAccessTable({
 						{management ? (
 							<>
 								<TableHead className='w-10'>
-									<SelectAllUsersCheckbox
-										selection={management.selection}
-										userCount={projectUsers.length + organizationUsers.length}
-									/>
+									<SelectAllUsersCheckbox selection={management.selection} />
 								</TableHead>
 								<TableHead className='w-[32%]'>User</TableHead>
 								<TableHead className='w-1/5'>Role</TableHead>
@@ -589,14 +626,16 @@ function ManagedUserAccessRow({
 	);
 }
 
-function SelectAllUsersCheckbox({ selection, userCount }: { selection: UserSelection; userCount: number }) {
+function SelectAllUsersCheckbox({ selection }: { selection: UserSelection }) {
+	const { selectableCount } = selection;
 	const selectedCount = selection.selectedUserIds.size;
-	const checked = userCount > 0 && selectedCount === userCount ? true : selectedCount > 0 ? 'indeterminate' : false;
+	const checked =
+		selectableCount > 0 && selectedCount === selectableCount ? true : selectedCount > 0 ? 'indeterminate' : false;
 
 	return (
 		<Checkbox
 			checked={checked}
-			disabled={userCount === 0}
+			disabled={selectableCount === 0}
 			onCheckedChange={() => selection.onToggleAll(checked !== true)}
 			aria-label='Select all users'
 			className='data-[state=indeterminate]:bg-primary/15 data-[state=indeterminate]:text-primary/70 data-[state=indeterminate]:shadow-none'
