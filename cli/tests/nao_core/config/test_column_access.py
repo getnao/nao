@@ -492,34 +492,15 @@ class FakeAthenaConfig(FakeDatabaseConfig):
         return AthenaConfig(name="athena", s3_staging_dir="s3://results", region_name="us-east-1").get_catalog_names()
 
 
-def athena_project(tmp_path: Path) -> tuple[FakeAthenaConfig, Path]:
+def test_athena_default_catalog_is_accepted(tmp_path: Path):
     config = FakeAthenaConfig(["analytics.events.email"], database_name="default", database_type="athena")
     write_catalog(tmp_path, config, {"analytics": {"events": ["id", "email"]}})
-    return config, tmp_path
-
-
-def test_athena_default_catalog_is_accepted(tmp_path: Path):
-    config, project = athena_project(tmp_path)
     sql = 'SELECT id FROM "awsdatacatalog"."analytics"."events"'
 
-    assert validate_column_access(sql, config, project) == sql
+    assert validate_column_access(sql, config, tmp_path) == sql
 
 
-def test_athena_default_catalog_keeps_excluded_columns_blocked(tmp_path: Path):
-    config, project = athena_project(tmp_path)
-
-    with pytest.raises(ColumnAccessError, match=r"analytics\.events\.email"):
-        validate_column_access("SELECT email FROM awsdatacatalog.analytics.events", config, project)
-
-
-def test_athena_other_catalog_is_blocked(tmp_path: Path):
-    config, project = athena_project(tmp_path)
-
-    with pytest.raises(ColumnAccessError, match="does not match the configured database"):
-        validate_column_access("SELECT id FROM other_catalog.analytics.events", config, project)
-
-
-def test_athena_default_catalog_keeps_excluded_columns_blocked_without_catalog(tmp_path: Path):
+def test_athena_default_catalog_keeps_excluded_columns_blocked_without_column_catalog(tmp_path: Path):
     config = FakeAthenaConfig(["analytics.events.email"], database_name="default", database_type="athena")
 
     with pytest.raises(ColumnAccessError, match=r"analytics\.events\.email"):

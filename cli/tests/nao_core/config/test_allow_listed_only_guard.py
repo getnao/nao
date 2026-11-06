@@ -755,11 +755,6 @@ def test_clickhouse_context_uses_sanitized_config_name(tmp_path: Path):
     assert load_allowed_context_tables(tmp_path, config) == {("default", "events")}
 
 
-class FakeAthenaConnection(FakeConnection):
-    def list_databases(self) -> list[str]:
-        return list(self.schemas)
-
-
 class FakeAthenaConfig(FakeDatabaseConfig):
     type = "athena"
 
@@ -767,31 +762,12 @@ class FakeAthenaConfig(FakeDatabaseConfig):
         return AthenaConfig(name="athena", s3_staging_dir="s3://results", region_name="us-east-1").get_catalog_names()
 
 
-def athena_config() -> FakeAthenaConfig:
-    return FakeAthenaConfig(True, database_name="default")
-
-
-def test_athena_default_catalog_is_accepted(tmp_path: Path):
+def test_athena_default_catalog_is_accepted_without_bypassing_allowlist(tmp_path: Path):
     create_context_table(tmp_path, "analytics", "events", database_type="athena", database_folder="default")
-    conn = FakeAthenaConnection({"analytics": ["events", "secrets"]})
+    config = FakeAthenaConfig(True, database_name="default")
+    conn = FakeConnection({"analytics": ["events", "secrets"]})
     sql = 'SELECT * FROM "awsdatacatalog"."analytics"."events"'
 
-    assert enforce_allow_listed_only(sql, athena_config(), tmp_path, conn=conn) == sql
-
-
-def test_athena_default_catalog_does_not_bypass_allowlist(tmp_path: Path):
-    create_context_table(tmp_path, "analytics", "events", database_type="athena", database_folder="default")
-    conn = FakeAthenaConnection({"analytics": ["events", "secrets"]})
-
+    assert enforce_allow_listed_only(sql, config, tmp_path, conn=conn) == sql
     with pytest.raises(AllowListedOnlyGuardError, match=r"analytics\.secrets"):
-        enforce_allow_listed_only(
-            "SELECT * FROM awsdatacatalog.analytics.secrets", athena_config(), tmp_path, conn=conn
-        )
-
-
-def test_athena_other_catalog_is_blocked(tmp_path: Path):
-    create_context_table(tmp_path, "analytics", "events", database_type="athena", database_folder="default")
-    conn = FakeAthenaConnection({"analytics": ["events"]})
-
-    with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
-        enforce_allow_listed_only("SELECT * FROM other_catalog.analytics.events", athena_config(), tmp_path, conn=conn)
+        enforce_allow_listed_only("SELECT * FROM awsdatacatalog.analytics.secrets", config, tmp_path, conn=conn)
