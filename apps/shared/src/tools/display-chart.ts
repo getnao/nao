@@ -179,7 +179,7 @@ export const ChartInputObjectSchema = z.object({
 	show_legend: z
 		.boolean()
 		.describe(
-			'Explicitly show (true) or hide (false) the chart legend, regardless of how many series the chart has. Set to false when the legend would only repeat the title, e.g. a single-series chart such as "Total inspections". Leave unset to keep the default (legend shown).',
+			'Explicitly show (true) or hide (false) the chart legend, regardless of how many series the chart has. Set to false when the legend would only repeat the title, e.g. a single-series chart such as "Total inspections". Leave unset to keep the default legend behavior.',
 		)
 		.optional(),
 	hide_total: z
