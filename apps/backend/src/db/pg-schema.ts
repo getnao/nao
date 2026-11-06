@@ -38,6 +38,7 @@ import {
 	STORY_ACTIONS,
 	STORY_FORMATS,
 	STORY_SOURCES,
+	STORY_VERSION_ORIGINS,
 	USER_ROLES,
 } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
@@ -1301,6 +1302,9 @@ export const storyVersion = pgTable(
 		code: text('code').notNull(),
 		action: text('action', { enum: STORY_ACTIONS }).notNull(),
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
+		origin: text('origin', { enum: STORY_VERSION_ORIGINS }),
+		authorId: text('author_id').references(() => user.id, { onDelete: 'set null' }),
+		sourceChatId: text('source_chat_id').references(() => chat.id, { onDelete: 'set null' }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [

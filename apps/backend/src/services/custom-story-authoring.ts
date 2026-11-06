@@ -1,5 +1,6 @@
 import type { DBStory, DBStoryVersion } from '../db/abstractSchema';
 import { db } from '../db/db';
+import type { VersionProvenance } from '../queries/story.queries';
 import * as storyQueries from '../queries/story.queries';
 import type { StoryFileInput } from '../queries/story-file.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
@@ -62,7 +63,7 @@ export async function applyCustomStoryDraftChanges(
 export async function publishCustomStoryDraft(
 	story: DBStory,
 	owner: StoryOwner,
-	source: DBStoryVersion['source'],
+	version: { source: DBStoryVersion['source'] } & VersionProvenance,
 ): Promise<CustomStoryPublishResult> {
 	const draft = await storyFileQueries.listDraftFiles(story.id);
 	const build = await buildStoryApp(draft.map((file) => ({ path: file.path, content: file.content })));
@@ -71,11 +72,14 @@ export async function publishCustomStoryDraft(
 	}
 	const previousVersion = await storyQueries.getLatestVersionByStoryId(story.id);
 
-	const { version, files } = await db.transaction(async (tx) => {
+	const published = await db.transaction(async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
 			throw new Error('The draft changed while it was being built. Publish again.');
 		}
-		const cut = await storyFileQueries.cutVersionFromDraft({ storyId: story.id, action: 'publish', source }, tx);
+		const cut = await storyFileQueries.cutVersionFromDraft(
+			{ storyId: story.id, action: 'publish', ...version },
+			tx,
+		);
 		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
 		if (cut.version.version === 1) {
 			await storyFolderQueries.saveStoryInPrivateRoot(owner.userId, owner.projectId, story.id, tx);
@@ -85,8 +89,8 @@ export async function publishCustomStoryDraft(
 	if (previousVersion) {
 		await dropFrozenNarrativesOfEditedSources(story.id, previousVersion.id, draft);
 	}
-	queueCustomStoryThumbnail(story.id, version.id);
-	return { ok: true, version: version.version, files: files.map((file) => file.path) };
+	queueCustomStoryThumbnail(story.id, published.version.id);
+	return { ok: true, version: published.version.version, files: published.files.map((file) => file.path) };
 }
 
 /** A frozen narrative rewrites the text written in its source, so it only outlives a publish that keeps that text. */

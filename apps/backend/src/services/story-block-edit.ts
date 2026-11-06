@@ -14,6 +14,7 @@ import { buildStoryApp } from './story-app-build';
 
 interface StoryBlockEditInput {
 	chatId: string;
+	authorId: string;
 	storySlug: string;
 	versionNumber: number;
 	block: StoryKitBlockRef;
@@ -22,6 +23,7 @@ interface StoryBlockEditInput {
 
 interface StoryVersionRestoreInput {
 	chatId: string;
+	authorId: string;
 	storySlug: string;
 	versionNumber: number;
 	restoreVersionNumber: number;
@@ -29,6 +31,7 @@ interface StoryVersionRestoreInput {
 
 interface StoryFilesSaveInput {
 	chatId: string;
+	authorId: string;
 	storySlug: string;
 	versionNumber: number;
 	files: StoryFileInput[];
@@ -67,7 +70,15 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 		}
 		await storyFileQueries.writeDraftFile(story.id, { path: target.file.path, content }, tx);
 		const cut = await storyFileQueries.cutVersionFromDraft(
-			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
+			{
+				storyId: story.id,
+				action: 'update',
+				source: 'user',
+				origin: 'editor',
+				authorId: input.authorId,
+				sourceChatId: null,
+				versionNumber: input.versionNumber + 1,
+			},
 			tx,
 		);
 		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
@@ -98,7 +109,15 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 			await storyFileQueries.writeDraftFile(story.id, { path, content }, tx);
 		}
 		const cut = await storyFileQueries.cutVersionFromDraft(
-			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
+			{
+				storyId: story.id,
+				action: 'update',
+				source: 'user',
+				origin: 'editor',
+				authorId: input.authorId,
+				sourceChatId: null,
+				versionNumber: input.versionNumber + 1,
+			},
 			tx,
 		);
 		await storyFileQueries.setVersionBundle(cut.version.id, build.app, tx);
@@ -134,7 +153,15 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 			tx,
 		);
 		const cut = await storyFileQueries.cutVersionFromDraft(
-			{ storyId: story.id, action: 'update', source: 'user', versionNumber: input.versionNumber + 1 },
+			{
+				storyId: story.id,
+				action: 'update',
+				source: 'user',
+				origin: 'editor',
+				authorId: input.authorId,
+				sourceChatId: null,
+				versionNumber: input.versionNumber + 1,
+			},
 			tx,
 		);
 		await storyFileQueries.setVersionBundle(cut.version.id, restoredApp, tx);

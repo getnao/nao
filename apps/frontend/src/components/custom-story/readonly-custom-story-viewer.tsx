@@ -78,7 +78,7 @@ export function ReadonlyCustomStoryViewer({ chatId, storySlug, access }: Readonl
 				viewMode={viewMode}
 				onViewModeChange={setViewMode}
 				currentVersion={content ? 1 : 0}
-				versionDates={content ? [content.version.createdAt] : []}
+				versions={content ? [{ createdAt: content.version.createdAt }] : []}
 				versionNumber={content?.version.number}
 				versionDate={content?.version.createdAt}
 				onSelectVersion={ignore}

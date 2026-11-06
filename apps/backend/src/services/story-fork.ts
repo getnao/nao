@@ -107,6 +107,9 @@ async function copyClassicStory(story: ForkableStory, chatId: string, owner: For
 		code: story.code,
 		action: 'create',
 		source: 'assistant',
+		origin: 'copy',
+		authorId: owner.userId,
+		sourceChatId: null,
 	});
 	await pinStoryMessageToChat({
 		chatId,
@@ -126,7 +129,12 @@ async function copyCustomStory(
 ): Promise<void> {
 	const copy = await storyQueries.createCustomStory({ chatId, slug: story.slug, title: story.title });
 	await storyFileQueries.seedDraftFiles(copy.id, files);
-	const published = await publishCustomStoryDraft(copy, owner, 'assistant');
+	const published = await publishCustomStoryDraft(copy, owner, {
+		source: 'assistant',
+		origin: 'copy',
+		authorId: owner.userId,
+		sourceChatId: null,
+	});
 	if (!published.ok) {
 		throw new Error(`The copy of "${story.title}" does not build.`);
 	}

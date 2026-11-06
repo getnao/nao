@@ -162,7 +162,7 @@ async function createClassicStory(input: story.Input, context: ToolContext): Pro
 	const code = await carryOverTableFormatting(input.code, chatId);
 	const version = await db.transaction(async (tx) => {
 		const created = await storyQueries.createStoryVersion(
-			{ chatId, slug: input.id, title, code, action: 'create', source: 'assistant' },
+			{ chatId, slug: input.id, title, code, action: 'create', source: 'assistant', ...agentProvenance(context) },
 			tx,
 		);
 		await storyFolderQueries.saveStoryInPrivateRoot(userId, projectId, created.storyId, tx);
@@ -197,6 +197,7 @@ async function updateClassicStory(
 		code: await carryOverTableFormatting(splicedCode, context.chatId),
 		action: 'update',
 		source: 'assistant',
+		...agentProvenance(context),
 	});
 	return classicResult(slug, version, context, chatId);
 }
@@ -220,6 +221,7 @@ async function replaceClassicStory(
 		code: await carryOverTableFormatting(input.code, context.chatId),
 		action: 'replace',
 		source: 'assistant',
+		...agentProvenance(context),
 	});
 	return classicResult(slug, version, context, chatId);
 }
@@ -391,7 +393,10 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 			);
 		}
 
-		const result = await publishCustomStoryDraft(existingStory, context, 'assistant');
+		const result = await publishCustomStoryDraft(existingStory, context, {
+			source: 'assistant',
+			...agentProvenance(context),
+		});
 		if (!result.ok) {
 			return {
 				...fail(
@@ -467,6 +472,10 @@ async function rememberEditedStory(
 		return;
 	}
 	await copyQueriesToStoryChat(context, storyChatId, queryIds);
+}
+
+function agentProvenance(context: ToolContext): storyQueries.VersionProvenance {
+	return { origin: 'agent', authorId: context.userId, sourceChatId: context.chatId };
 }
 
 function rememberStoryArtifact(context: ToolContext, id: string, title: string): void {

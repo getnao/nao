@@ -61,6 +61,7 @@ import {
 } from '../services/story-filters';
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { listMostViewedStories } from '../services/story-reference';
+import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -360,7 +361,7 @@ export const storyRoutes = {
 
 	listVersions: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				return {
@@ -376,7 +377,10 @@ export const storyRoutes = {
 				};
 			}
 
-			const versions = await storyQueries.listStoryVersions(input.chatId, input.storySlug);
+			const [versions, changes] = await Promise.all([
+				storyQueries.listStoryVersions(input.chatId, input.storySlug),
+				listStoryVersionChanges(story, ctx.user.id),
+			]);
 			return {
 				id: story.id as string | null,
 				title: story.title,
@@ -386,7 +390,7 @@ export const storyRoutes = {
 				cacheSchedule: story.cacheSchedule,
 				cacheScheduleDescription: story.cacheScheduleDescription,
 				archivedAt: story.archivedAt,
-				versions,
+				versions: versions.map((version) => ({ ...version, change: changes.get(version.version) ?? null })),
 			};
 		}),
 
@@ -547,7 +551,7 @@ export const storyRoutes = {
 				}),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
 			if (agentService.get(input.chatId)) {
 				throw new TRPCError({
 					code: 'CONFLICT',
@@ -555,7 +559,7 @@ export const storyRoutes = {
 				});
 			}
 			try {
-				return await editCustomStoryBlock(input);
+				return await editCustomStoryBlock({ ...input, authorId: ctx.user.id });
 			} catch (error) {
 				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
@@ -589,7 +593,7 @@ export const storyRoutes = {
 			}
 			await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'customStoryCreation');
 			try {
-				return await saveCustomStoryFiles(input);
+				return await saveCustomStoryFiles({ ...input, authorId: ctx.user.id });
 			} catch (error) {
 				if (error instanceof StoryBlockEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
@@ -607,7 +611,7 @@ export const storyRoutes = {
 				restoreVersionNumber: z.number().int().positive(),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
 			if (agentService.get(input.chatId)) {
 				throw new TRPCError({
 					code: 'CONFLICT',
@@ -615,7 +619,7 @@ export const storyRoutes = {
 				});
 			}
 			try {
-				return await restoreCustomStoryVersion(input);
+				return await restoreCustomStoryVersion({ ...input, authorId: ctx.user.id });
 			} catch (error) {
 				if (error instanceof StoryBlockEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
@@ -680,6 +684,9 @@ export const storyRoutes = {
 				code: input.code,
 				action: input.action,
 				source: 'user',
+				origin: 'editor',
+				authorId: ctx.user.id,
+				sourceChatId: null,
 			});
 
 			if (!existingStory) {

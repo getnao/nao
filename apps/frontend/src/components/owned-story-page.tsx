@@ -29,6 +29,7 @@ import { requestAskAboutCode, requestAskAboutElement, requestAskAboutSelection }
 import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
 import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
+import { useOnAskRequest } from '@/hooks/use-on-ask-request';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -112,6 +113,11 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		(selection: CodeSelection) => requestAskAboutCode(selection, { storySlug }),
 		[storySlug],
 	);
+	useOnAskRequest(() => {
+		if (isAskInputHidden) {
+			editor.setViewMode('preview');
+		}
+	});
 
 	return (
 		<div
@@ -151,7 +157,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
-					versionDates: editor.versionNav.versionDates,
+					versions: editor.versionNav.versions,
 					versionDate: editor.versionNav.versionDate,
 					isViewingLatest: editor.versionNav.isViewingLatest,
 					onSelectVersion: editor.versionNav.goToVersion,

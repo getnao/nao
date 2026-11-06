@@ -492,6 +492,7 @@ async function createStandaloneStory(args: {
 		title: args.title,
 		code: args.code,
 		source: 'user',
+		origin: 'mcp',
 	});
 
 	if (!story) {
@@ -534,6 +535,7 @@ async function createChatLinkedStory(args: {
 		code: args.code,
 		action: 'create',
 		source: 'assistant',
+		...mcpProvenance(args.ctx),
 	});
 	const created = await storyQueries.getStoryByChatAndSlug(args.chatId, args.slug);
 	if (!created) {
@@ -573,6 +575,7 @@ async function saveNewVersion(
 			code,
 			action: 'update',
 			source: 'user',
+			...mcpProvenance(ctx),
 		});
 		const updated = await storyQueries.getStoryByChatAndSlug(story.chatId, story.slug);
 		if (!updated) {
@@ -589,10 +592,15 @@ async function saveNewVersion(
 		code,
 		action: 'update',
 		source: 'user',
+		origin: 'mcp',
 	});
 	const updated = await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, story.slug);
 	if (!updated) {
 		throw new Error(`Failed to retrieve updated story: ${ctx.userId}/${story.slug}`);
 	}
 	return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
+}
+
+function mcpProvenance(ctx: McpContext): storyQueries.VersionProvenance {
+	return { origin: 'mcp', authorId: ctx.userId, sourceChatId: null };
 }

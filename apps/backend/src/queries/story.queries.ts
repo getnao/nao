@@ -1,11 +1,12 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
-import { type StorySharingInfo } from '@nao/shared/types';
+import { type StorySharingInfo, type StoryVersionOrigin } from '@nao/shared/types';
 import { aliasedTable, and, asc, countDistinct, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import type { StoryQuerySources } from '../types/story-cache';
 import { getOpenProjectIds } from '../utils/open-projects';
+import { isQuickQuestionForkType } from './chat.queries';
 import * as executeSqlQueries from './execute-sql.queries';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 
@@ -284,6 +285,12 @@ export async function listLatestVersionsInChat(chatId: string): Promise<ChatStor
 		.execute();
 }
 
+export type VersionProvenance = {
+	origin: StoryVersionOrigin;
+	authorId: string | null;
+	sourceChatId: string | null;
+};
+
 export async function createStoryVersion(
 	data: {
 		chatId: string;
@@ -292,7 +299,7 @@ export async function createStoryVersion(
 		code: string;
 		action: 'create' | 'update' | 'replace';
 		source: 'assistant' | 'user';
-	},
+	} & VersionProvenance,
 	executor: DBExecutor = db,
 ): Promise<DBStoryVersion & { title: string }> {
 	const story = await getOrCreateStory({ chatId: data.chatId, slug: data.slug, title: data.title }, executor);
@@ -309,6 +316,9 @@ export async function createStoryVersion(
 			code: data.code,
 			action: data.action,
 			source: data.source,
+			origin: data.origin,
+			authorId: data.authorId,
+			sourceChatId: data.sourceChatId,
 			version: sql`(${nextVersion})`,
 		})
 		.returning()
@@ -325,6 +335,7 @@ export async function createStandaloneVersion(data: {
 	code: string;
 	action: 'create' | 'update' | 'replace';
 	source: 'assistant' | 'user';
+	origin: StoryVersionOrigin;
 }): Promise<DBStoryVersion & { title: string }> {
 	const story = await getOrCreateStandaloneStory({
 		userId: data.userId,
@@ -345,6 +356,8 @@ export async function createStandaloneVersion(data: {
 			code: data.code,
 			action: data.action,
 			source: data.source,
+			origin: data.origin,
+			authorId: data.userId,
 			version: sql`(${nextVersion})`,
 		})
 		.returning()
@@ -360,6 +373,7 @@ export async function createStandaloneStory(data: {
 	title: string;
 	code: string;
 	source: 'assistant' | 'user';
+	origin: StoryVersionOrigin;
 }): Promise<{ id: string; slug: string; title: string; createdAt: Date; version: number } | null> {
 	return db.transaction(async (tx) => {
 		const [story] = await tx
@@ -385,6 +399,8 @@ export async function createStandaloneStory(data: {
 				code: data.code,
 				action: 'create',
 				source: data.source,
+				origin: data.origin,
+				authorId: data.userId,
 				version: 1,
 			})
 			.returning()
@@ -599,6 +615,58 @@ export function listStoryVersions(chatId: string, slug: string): Promise<DBStory
 
 export function listStoryVersionsByStoryId(storyId: string): Promise<DBStoryVersion[]> {
 	return listVersions(eq(s.story.id, storyId));
+}
+
+export type StoryVersionChangeRow = Pick<DBStoryVersion, 'version' | 'origin' | 'source' | 'authorId'> & {
+	authorName: string | null;
+	sourceChat: {
+		id: string;
+		ownerId: string;
+		title: string;
+		isDeleted: boolean;
+		isQuickQuestion: boolean;
+	} | null;
+};
+
+/** Each version with its author and the chat it was made from, oldest first. */
+export async function listStoryVersionChanges(storyId: string): Promise<StoryVersionChangeRow[]> {
+	const rows = await db
+		.select({
+			version: s.storyVersion.version,
+			origin: s.storyVersion.origin,
+			source: s.storyVersion.source,
+			authorId: s.storyVersion.authorId,
+			authorName: s.user.name,
+			sourceChatId: s.chat.id,
+			sourceChatOwnerId: s.chat.userId,
+			sourceChatTitle: s.chat.title,
+			sourceChatDeletedAt: s.chat.deletedAt,
+			sourceChatForkMetadata: s.chat.forkMetadata,
+		})
+		.from(s.storyVersion)
+		.leftJoin(s.user, eq(s.user.id, s.storyVersion.authorId))
+		.leftJoin(s.chat, eq(s.chat.id, s.storyVersion.sourceChatId))
+		.where(eq(s.storyVersion.storyId, storyId))
+		.orderBy(asc(s.storyVersion.version))
+		.execute();
+
+	return rows.map(({ sourceChatId, sourceChatOwnerId, sourceChatTitle, sourceChatDeletedAt, ...row }) => ({
+		version: row.version,
+		origin: row.origin,
+		source: row.source,
+		authorId: row.authorId,
+		authorName: row.authorName,
+		sourceChat:
+			sourceChatId && sourceChatOwnerId
+				? {
+						id: sourceChatId,
+						ownerId: sourceChatOwnerId,
+						title: sourceChatTitle ?? '',
+						isDeleted: sourceChatDeletedAt !== null,
+						isQuickQuestion: isQuickQuestionForkType(row.sourceChatForkMetadata?.type),
+					}
+				: null,
+	}));
 }
 
 /** Titles of the stories the user owns in the project, in a chat or standalone, that start with the prefix. */
@@ -906,6 +974,9 @@ async function getStoryVersion(
 			code: s.storyVersion.code,
 			action: s.storyVersion.action,
 			source: s.storyVersion.source,
+			origin: s.storyVersion.origin,
+			authorId: s.storyVersion.authorId,
+			sourceChatId: s.storyVersion.sourceChatId,
 			createdAt: s.storyVersion.createdAt,
 			title: s.story.title,
 			slug: s.story.slug,
@@ -936,6 +1007,9 @@ function listVersions(whereCondition: SQL): Promise<DBStoryVersion[]> {
 			code: s.storyVersion.code,
 			action: s.storyVersion.action,
 			source: s.storyVersion.source,
+			origin: s.storyVersion.origin,
+			authorId: s.storyVersion.authorId,
+			sourceChatId: s.storyVersion.sourceChatId,
 			createdAt: s.storyVersion.createdAt,
 		})
 		.from(s.storyVersion)

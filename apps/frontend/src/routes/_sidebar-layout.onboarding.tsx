@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Github, HelpCircle, KeyRound } from 'lucide-react';
+import { ArrowRight, HelpCircle, KeyRound } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ImportedProject } from '@/components/settings/import-provider-card';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { MobileHeader } from '@/components/mobile-header';
@@ -342,7 +343,7 @@ function OnboardingPage() {
 							) : githubAvailable.data ? (
 								<ImportProviderCard
 									providerLabel='GitHub'
-									icon={Github}
+									icon={GithubIcon}
 									connectHref='/api/github/connect?returnTo=%2Fonboarding'
 									connectTarget='github-oauth'
 									resourceNounSingular='repository'

@@ -164,7 +164,12 @@ export async function resolveCustomStory(storyId: string, ctx: McpContext): Prom
 }
 
 async function publishResult(story: DBStory, ctx: McpContext): Promise<ToolResult> {
-	const result = await publishCustomStoryDraft(story, ctx, 'user');
+	const result = await publishCustomStoryDraft(story, ctx, {
+		source: 'user',
+		origin: 'mcp',
+		authorId: ctx.userId,
+		sourceChatId: null,
+	});
 	if (result.ok) {
 		return buildCustomStoryToolResult({ ...storyLinks(story), version: result.version });
 	}

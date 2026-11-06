@@ -6,7 +6,6 @@ import {
 	BellPlus,
 	ChevronLeft,
 	ChevronRight,
-	Github,
 	Loader2,
 	Mail,
 	MessageSquare,
@@ -36,6 +35,7 @@ import type {
 import type { ComponentType, ReactNode } from 'react';
 
 import type { QueryDataMap } from '@/components/story-embeds';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
@@ -907,7 +907,7 @@ function getIntegrationIconConfig(type: string): { label: string; icon: ReactNod
 	if (type === 'github') {
 		return {
 			label: 'GitHub',
-			icon: <Github className='size-3.5' />,
+			icon: <GithubIcon className='size-3.5' />,
 			successClassName: 'border-transparent bg-foreground text-background',
 		};
 	}
