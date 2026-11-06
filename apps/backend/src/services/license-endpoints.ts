@@ -2,3 +2,4 @@
 
 export const LICENSES_BASE_URL = 'https://licenses.getnao.io';
 export const LICENSES_STARTUP_PING_URL = `${LICENSES_BASE_URL}/ping`;
+export const LICENSES_ERROR_INGEST_URL = `${LICENSES_BASE_URL}/api/errors/`;

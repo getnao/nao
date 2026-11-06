@@ -22,7 +22,29 @@ moon.getnao.io {
 }
 
 licenses.getnao.io {
-	reverse_proxy localhost:8585
+	encode zstd gzip
+
+	@error_ingest path /api/errors /api/errors/*
+	handle @error_ingest {
+		@not_post not method POST
+		respond @not_post "Method Not Allowed" 405
+
+		request_body {
+			max_size 32KB
+		}
+
+		reverse_proxy 127.0.0.1:8585 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8585 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
 }
 
 app.getnao.io {
