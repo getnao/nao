@@ -1205,17 +1205,11 @@ export class ProjectSlackBot {
 			agent.stop();
 		}
 		await this._readStreamAndUpdateSlackMessage(stream, ctx, activeStream);
+		await this._deletePreviousCompletionCard(ctx.thread.id);
 		if (!this._getSlackStreamMessageTs(ctx)) {
 			return;
 		}
 
-		const previousCompletion = this._lastCompletionCard.get(ctx.thread.id);
-		if (previousCompletion) {
-			await this._slackClient.chat.delete({
-				channel: previousCompletion.channelId,
-				ts: previousCompletion.messageTs,
-			});
-		}
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const { channelId } = this._getSlackMessageDestination(ctx);
 		const hiddenTables = countHiddenTableNotices(this._getSlackStreamState(ctx).lastDeliveredChildren);
@@ -1225,6 +1219,19 @@ export class ProjectSlackBot {
 			createCompletionCard(chatUrl, { hiddenTables, appName }).children,
 		);
 		this._lastCompletionCard.set(ctx.thread.id, { channelId, messageTs, chatUrl, hiddenTables });
+	}
+
+	/** Feedback buttons always rate the latest assistant message, so only the newest answer may carry them. */
+	private async _deletePreviousCompletionCard(threadId: string): Promise<void> {
+		const previousCompletion = this._lastCompletionCard.get(threadId);
+		if (!previousCompletion) {
+			return;
+		}
+		this._lastCompletionCard.delete(threadId);
+		await this._slackClient.chat.delete({
+			channel: previousCompletion.channelId,
+			ts: previousCompletion.messageTs,
+		});
 	}
 
 	private async _createAgentStream(
@@ -1613,7 +1620,10 @@ export class ProjectSlackBot {
 		}
 	}
 
-	/** An empty answer is a deliberate silence (e.g. a rule telling the agent not to reply), so leave no trace. */
+	/**
+	 * An empty answer is a deliberate silence (e.g. a rule telling the agent not to reply), so leave no trace.
+	 * If Slack refuses the delete, settle the card instead so it never stays stuck on "answering".
+	 */
 	private async _deleteConversationCard(ctx: ConversationContext): Promise<void> {
 		const streamState = this._getSlackStreamState(ctx);
 		if (!streamState.messageTs) {
@@ -1627,6 +1637,7 @@ export class ProjectSlackBot {
 				source: 'system',
 				context: { chatId: ctx.chatId, threadId: ctx.thread.id, messageTs: streamState.messageTs },
 			});
+			await this._editConversationCard(ctx, [createTextBlock('_No response._')], true);
 		}
 		streamState.messageTs = null;
 	}
