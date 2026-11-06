@@ -1,8 +1,9 @@
 import { isSameModel, type LlmSelectedModel } from '@nao/shared/types';
 
+import { getAvailableModelsForUser } from '../../services/user-group-llm-access.service';
 import type { ToolContext } from '../../types/tools';
 import { assertBudgetNotExceeded } from '../../utils/budget';
-import { getProjectAvailableModels, resolveProviderModel } from '../../utils/llm';
+import { type ProjectAvailableModel, resolveProviderModel } from '../../utils/llm';
 import type { ProviderModelResult } from '../providers';
 
 export interface SubagentModel {
@@ -10,7 +11,7 @@ export interface SubagentModel {
 	config: ProviderModelResult;
 }
 
-type AvailableModel = Awaited<ReturnType<typeof getProjectAvailableModels>>[number];
+type AvailableModel = ProjectAvailableModel;
 
 /**
  * The model a subagent runs on, in order of precedence: a model the user explicitly asked for,
@@ -19,14 +20,22 @@ type AvailableModel = Awaited<ReturnType<typeof getProjectAvailableModels>>[numb
 export async function resolveSubagentModel(context: ToolContext, requestedModelId?: string): Promise<SubagentModel> {
 	const selection = await resolveSelection(context, requestedModelId);
 	await assertBudgetNotExceeded(context.projectId, selection.provider, context.userId);
-	const config = await resolveProviderModel(context.projectId, selection.provider, selection.modelId, true, {
-		userId: context.userId,
-		projectId: context.projectId,
-		chatId: context.chatId ?? undefined,
-		runId: context.usageRunId,
-		category: 'subagent',
-		billingMode: context.managedAiBillingMode,
-	});
+	const config = await resolveProviderModel(
+		context.projectId,
+		selection.provider,
+		selection.modelId,
+		true,
+		{
+			userId: context.userId,
+			projectId: context.projectId,
+			chatId: context.chatId ?? undefined,
+			runId: context.usageRunId,
+			category: 'subagent',
+			billingMode: context.managedAiBillingMode,
+		},
+		undefined,
+		selection.llmConfigId,
+	);
 	if (!config) {
 		throw new Error(`The model ${selection.modelId} (${selection.provider}) could not be resolved.`);
 	}
@@ -34,7 +43,7 @@ export async function resolveSubagentModel(context: ToolContext, requestedModelI
 }
 
 async function resolveSelection(context: ToolContext, requestedModelId?: string): Promise<LlmSelectedModel> {
-	const available = await getProjectAvailableModels(context.projectId);
+	const available = await getAvailableModelsForUser(context.projectId, context.userId);
 
 	if (requestedModelId) {
 		return findRequestedModel(available, requestedModelId);
@@ -67,5 +76,9 @@ function findRequestedModel(available: AvailableModel[], requestedModelId: strin
 			`Unknown model '${requestedModelId}'. Available models: ${names}. Omit model_id to use the default subagent model.`,
 		);
 	}
-	return { provider: match.provider, modelId: match.modelId };
+	return {
+		provider: match.provider,
+		modelId: match.modelId,
+		...(match.llmConfigId && { llmConfigId: match.llmConfigId }),
+	};
 }

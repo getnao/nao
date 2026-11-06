@@ -21,10 +21,10 @@ import { generateText, Output } from 'ai';
 
 import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../../agents/providers';
 import { llmTelemetry } from '../../agents/telemetry';
-import * as llmConfigQueries from '../../queries/project-llm-config.queries';
 import { convertToTokenUsage } from '../../utils/ai';
 import { resolveDefaultModelSelection, resolveProviderModel } from '../../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../../utils/schedule-task';
+import { resolveUserBackgroundModelSelection } from '../user-group-llm-access.service';
 import { documentColors, fitDocumentsToPrompt, renderDocuments, type SourceDocument } from './document';
 import { applyGuards, type GenerateResult, type GuardContext } from './guard';
 import { detectGround, type ImageSample, sampleImage, snapToImageColors } from './pixels';
@@ -61,7 +61,7 @@ export interface SourceImage {
 	mediaType: string;
 }
 
-type ResolvedModel = { provider: LlmProvider; modelId: string; model: ProviderModelResult };
+type ResolvedModel = { provider: LlmProvider; modelId: string; model: ProviderModelResult; llmConfigId?: string };
 
 /** Who the generation runs for: the project's model answers, and the user is charged in llm_inference. */
 export interface GenerationScope {
@@ -888,6 +888,7 @@ async function proposeWithModel(
 		userId: scope.userId,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId,
 		...convertToTokenUsage(usage),
 	});
 	return toThemeProposal(output);
@@ -895,17 +896,23 @@ async function proposeWithModel(
 
 async function resolveModel({ projectId, userId }: GenerationScope): Promise<ResolvedModel | null> {
 	const pinned = await resolveDefaultModelSelection(projectId, 'other');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
-	if (!provider) {
-		return null;
-	}
-	const modelId = pinned?.modelId ?? getProviderMeta(provider).summaryModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false, {
-		userId,
+	const selection = await resolveUserBackgroundModelSelection(projectId, userId, pinned);
+	const provider = selection.provider;
+	const modelId = pinned ? selection.modelId : getProviderMeta(provider).summaryModelId;
+	const model = await resolveProviderModel(
 		projectId,
-		category: 'story',
-	});
-	return model ? { provider, modelId, model } : null;
+		provider,
+		modelId,
+		false,
+		{
+			userId,
+			projectId,
+			category: 'story',
+		},
+		undefined,
+		selection.llmConfigId,
+	);
+	return model ? { provider, modelId, model, llmConfigId: selection.llmConfigId } : null;
 }
 
 function describeError(error: unknown): string {

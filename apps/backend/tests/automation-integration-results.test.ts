@@ -20,6 +20,7 @@ vi.mock('../src/queries/automation.queries', () => ({
 	attachRunChat: mocks.attachRunChat,
 	completeAutomationRun: mocks.completeAutomationRun,
 	failAutomationRun: mocks.failAutomationRun,
+	setRunLlmConfig: vi.fn(),
 }));
 vi.mock('../src/queries/chat.queries', () => ({
 	createChat: mocks.createChat,
@@ -79,7 +80,10 @@ describe('automation run integration results', () => {
 		mocks.createChat.mockResolvedValue([{ id: 'chat-1' }]);
 		mocks.getChat.mockResolvedValue([{ id: 'chat-1', messages: [] }]);
 		mocks.getGithubToken.mockResolvedValue(null);
-		mocks.createAgent.mockResolvedValue({ stream: createEmptyStream });
+		mocks.createAgent.mockResolvedValue({
+			stream: createEmptyStream,
+			getModelSelection: () => ({ provider: 'openai', modelId: 'gpt-5-mini', llmConfigId: 'config-1' }),
+		});
 	});
 
 	it('records one Slack result per channel', async () => {

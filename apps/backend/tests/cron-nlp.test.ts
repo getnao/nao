@@ -22,6 +22,9 @@ vi.mock('../src/queries/project-llm-config.queries', () => ({
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: vi.fn(),
 }));
+vi.mock('../src/services/user-group-llm-access.service', () => ({
+	resolveUserBackgroundModelSelection: vi.fn(async () => ({ provider: 'nao', modelId: 'gpt-6-luna' })),
+}));
 
 vi.mock('../src/utils/llm', () => ({
 	resolveDefaultModelSelection: mocks.resolveDefaultModelSelection,

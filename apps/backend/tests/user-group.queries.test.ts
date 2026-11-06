@@ -47,6 +47,7 @@ import {
 	setUserGroupMemberships,
 	updateProjectRowSecurity,
 	updateUserGroup,
+	updateUserGroupLlmConfigIds,
 	validateAssignableUserGroupIds,
 } from '../src/queries/user-group.queries';
 import { addProjectMemberWithUserGroups } from '../src/services/project-user-group-membership.service';
@@ -163,6 +164,17 @@ describe('user group queries', () => {
 			updateUserGroup(PROJECT_ID, defaultGroup?.id ?? '', { featureGrants: ['automationCreation'] }),
 		).resolves.toMatchObject({
 			featureGrants: ['automationCreation'],
+		});
+	});
+
+	it('updates only LLM credential assignments', async () => {
+		const group = await createUserGroup(PROJECT_ID, 'Analysts', ['storyCreation']);
+
+		await expect(
+			updateUserGroupLlmConfigIds(PROJECT_ID, group.id, ['credential-a', 'credential-a', 'credential-b']),
+		).resolves.toMatchObject({
+			featureGrants: ['storyCreation'],
+			llmConfigIds: ['credential-a', 'credential-b'],
 		});
 	});
 

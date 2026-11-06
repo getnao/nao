@@ -1,12 +1,67 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import s, { DBProjectLlmConfig, NewProjectLlmConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { getDefaultEnvProvider, getDefaultModelId, getProjectAvailableModels } from '../utils/llm';
 
 export const getProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {
-	return db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.projectId, projectId)).execute();
+	return db
+		.select()
+		.from(s.projectLlmConfig)
+		.where(and(eq(s.projectLlmConfig.projectId, projectId), isNull(s.projectLlmConfig.disabledAt)))
+		.orderBy(asc(s.projectLlmConfig.createdAt))
+		.execute();
+};
+
+export const getAllProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {
+	return db
+		.select()
+		.from(s.projectLlmConfig)
+		.where(eq(s.projectLlmConfig.projectId, projectId))
+		.orderBy(asc(s.projectLlmConfig.createdAt))
+		.execute();
+};
+
+export const createEnvProjectLlmConfig = async (
+	projectId: string,
+	provider: LlmProvider,
+	name: string,
+): Promise<boolean> => {
+	const created = await db
+		.insert(s.projectLlmConfig)
+		.values({
+			projectId,
+			name,
+			provider,
+			credentialSource: 'env',
+			apiKey: '',
+			enabledModels: [],
+			customModels: [],
+			modelSettings: {},
+		})
+		.onConflictDoNothing()
+		.returning({ id: s.projectLlmConfig.id })
+		.execute();
+	return created.length > 0;
+};
+
+export const getProjectLlmConfigById = async (
+	projectId: string,
+	configId: string,
+): Promise<DBProjectLlmConfig | null> => {
+	const [config] = await db
+		.select()
+		.from(s.projectLlmConfig)
+		.where(
+			and(
+				eq(s.projectLlmConfig.projectId, projectId),
+				eq(s.projectLlmConfig.id, configId),
+				isNull(s.projectLlmConfig.disabledAt),
+			),
+		)
+		.execute();
+	return config ?? null;
 };
 
 export const getProjectLlmConfigByProvider = async (
@@ -16,13 +71,23 @@ export const getProjectLlmConfigByProvider = async (
 	const [config] = await db
 		.select()
 		.from(s.projectLlmConfig)
-		.where(and(eq(s.projectLlmConfig.projectId, projectId), eq(s.projectLlmConfig.provider, provider)))
+		.where(
+			and(
+				eq(s.projectLlmConfig.projectId, projectId),
+				eq(s.projectLlmConfig.provider, provider),
+				isNull(s.projectLlmConfig.disabledAt),
+			),
+		)
+		.orderBy(asc(s.projectLlmConfig.createdAt))
 		.execute();
 	return config ?? null;
 };
 
 export const upsertProjectLlmConfig = async (
-	config: Omit<NewProjectLlmConfig, 'id' | 'createdAt' | 'updatedAt'> & { apiKey: string | null },
+	config: Omit<NewProjectLlmConfig, 'id' | 'createdAt' | 'updatedAt' | 'name'> & {
+		name?: string;
+		apiKey: string | null;
+	},
 ): Promise<DBProjectLlmConfig> => {
 	const existing = await getProjectLlmConfigByProvider(config.projectId, config.provider as LlmProvider);
 
@@ -30,6 +95,8 @@ export const upsertProjectLlmConfig = async (
 		const [updated] = await db
 			.update(s.projectLlmConfig)
 			.set({
+				...(config.name !== undefined && { name: config.name }),
+				...(config.credentialSource !== undefined && { credentialSource: config.credentialSource }),
 				...(config.apiKey !== null && { apiKey: config.apiKey }),
 				...(config.credentials !== undefined && { credentials: config.credentials }),
 				enabledModels: config.enabledModels,
@@ -45,16 +112,76 @@ export const upsertProjectLlmConfig = async (
 
 	const [created] = await db
 		.insert(s.projectLlmConfig)
-		.values({ ...config, apiKey: config.apiKey })
+		.values({ ...config, name: config.name ?? String(config.provider), apiKey: config.apiKey })
 		.returning()
 		.execute();
 	return created;
 };
 
+export const saveProjectLlmConfig = async (
+	config: Omit<NewProjectLlmConfig, 'id' | 'createdAt' | 'updatedAt' | 'disabledAt'> & {
+		apiKey: string | null;
+	},
+	configId?: string,
+): Promise<DBProjectLlmConfig> => {
+	const existing = configId ? await getProjectLlmConfigById(config.projectId, configId) : null;
+	if (configId && !existing) {
+		throw new Error('LLM credential not found.');
+	}
+	if (existing) {
+		const [updated] = await db
+			.update(s.projectLlmConfig)
+			.set({
+				name: config.name,
+				provider: config.provider,
+				credentialSource: config.credentialSource,
+				...(config.apiKey !== null && { apiKey: config.apiKey }),
+				credentials: config.credentials,
+				enabledModels: config.enabledModels,
+				customModels: config.customModels,
+				modelSettings: config.modelSettings,
+				baseUrl: config.baseUrl,
+				updatedAt: new Date(),
+			})
+			.where(eq(s.projectLlmConfig.id, existing.id))
+			.returning()
+			.execute();
+		return updated;
+	}
+
+	const [created] = await db
+		.insert(s.projectLlmConfig)
+		.values({ ...config, apiKey: config.apiKey ?? '' })
+		.returning()
+		.execute();
+	return created;
+};
+
+export const deactivateProjectLlmConfig = async (projectId: string, configId: string): Promise<void> => {
+	await db
+		.update(s.projectLlmConfig)
+		.set({ disabledAt: new Date(), updatedAt: new Date() })
+		.where(
+			and(
+				eq(s.projectLlmConfig.projectId, projectId),
+				eq(s.projectLlmConfig.id, configId),
+				isNull(s.projectLlmConfig.disabledAt),
+			),
+		)
+		.execute();
+};
+
 export const deleteProjectLlmConfig = async (projectId: string, provider: LlmProvider): Promise<void> => {
 	await db
-		.delete(s.projectLlmConfig)
-		.where(and(eq(s.projectLlmConfig.projectId, projectId), eq(s.projectLlmConfig.provider, provider)))
+		.update(s.projectLlmConfig)
+		.set({ disabledAt: new Date(), updatedAt: new Date() })
+		.where(
+			and(
+				eq(s.projectLlmConfig.projectId, projectId),
+				eq(s.projectLlmConfig.provider, provider),
+				isNull(s.projectLlmConfig.disabledAt),
+			),
+		)
 		.execute();
 };
 

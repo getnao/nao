@@ -38,6 +38,7 @@ import { z } from 'zod';
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
+import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
@@ -72,6 +73,7 @@ const toolCallDensityPolicySchema = z.object({
 const projectSharingSchema = z.enum(PROJECT_SHARING_PERMISSIONS);
 const skillNameSchema = z.string().trim().min(1).max(200);
 const preloadedSkillsSchema = z.array(skillNameSchema).max(MAX_PRELOADED_SKILLS);
+const llmConfigIdsSchema = z.array(z.string().min(1)).max(200);
 const skillsAccessSchema = z.discriminatedUnion('mode', [
 	z.object({ mode: z.literal('all') }).strict(),
 	z.object({ mode: z.literal('restricted'), skills: z.array(skillNameSchema).max(10_000) }).strict(),
@@ -232,6 +234,27 @@ const userGroupRowPoliciesSchema = z
 	})
 	.strict();
 
+async function validateLlmConfigIds(projectId: string, configIds: string[]): Promise<string[]> {
+	if (configIds.length === 0) {
+		return [];
+	}
+	if (!(await hasFeature(LICENSE_FEATURES.userGroups, { projectId }))) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'An Enterprise user-groups license is required to assign LLM credentials.',
+		});
+	}
+	const uniqueIds = [...new Set(configIds)];
+	const activeIds = new Set((await llmConfigQueries.getProjectLlmConfigs(projectId)).map((config) => config.id));
+	if (uniqueIds.some((configId) => !activeIds.has(configId))) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Every LLM credential must be active and belong to this project.',
+		});
+	}
+	return uniqueIds;
+}
+
 export const userGroupRoutes = {
 	effectiveAccess: projectProtectedProcedure.query(async ({ ctx }) => {
 		return getEffectiveUserGroupAccess(ctx.project.id, ctx.user.id, ctx.userRole);
@@ -332,11 +355,13 @@ export const userGroupRoutes = {
 				skillsAccess: skillsAccessSchema.default(EMPTY_SKILLS_ACCESS),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
+				llmConfigIds: llmConfigIdsSchema.default([]),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+			const llmConfigIds = await validateLlmConfigIds(ctx.project.id, input.llmConfigIds);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
@@ -372,6 +397,7 @@ export const userGroupRoutes = {
 					input.showAllSettings,
 					input.preloadedSkills,
 					skillsAccess,
+					llmConfigIds,
 				] as const;
 				return createUserGroup(...values);
 			});
@@ -396,12 +422,17 @@ export const userGroupRoutes = {
 				skillsAccess: skillsAccessSchema.optional(),
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
+				llmConfigIds: llmConfigIdsSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+			const llmConfigIds =
+				input.llmConfigIds === undefined
+					? undefined
+					: await validateLlmConfigIds(ctx.project.id, input.llmConfigIds);
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
@@ -448,11 +479,27 @@ export const userGroupRoutes = {
 						? {}
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
 					...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
+					...(llmConfigIds === undefined ? {} : { llmConfigIds }),
 				}),
 			);
 			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			return group;
+		}),
+
+	updateLlmAccess: adminProtectedProcedure
+		.input(
+			z.object({
+				groupId: z.string().min(1),
+				llmConfigIds: llmConfigIdsSchema,
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+			const llmConfigIds = await validateLlmConfigIds(ctx.project.id, input.llmConfigIds);
+			return handleQuery(() =>
+				userGroupQueries.updateUserGroupLlmConfigIds(ctx.project.id, input.groupId, llmConfigIds),
+			);
 		}),
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {

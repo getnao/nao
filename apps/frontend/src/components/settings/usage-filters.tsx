@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckIcon, Radio, Split, ThumbsUp, Users, Wrench } from 'lucide-react';
+import { CheckIcon, KeyRound, Radio, Split, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
 import type { SavedUsagePeriod, SavedUsagePeriodInput, UsagePeriodSelection, UsageSource } from '@nao/backend/usage';
@@ -33,6 +33,9 @@ interface UsageFiltersProps {
 	onUpdateSavedPeriod: (value: SavedUsagePeriod) => void | Promise<void>;
 	onDeleteSavedPeriod: (id: string) => void | Promise<void>;
 	availableProviders: LlmProvider[] | undefined;
+	availableCredentials?: Array<{ id: string; name: string }>;
+	selectedCredentialIds?: string[];
+	onSelectedCredentialIdsChange?: (value: string[] | undefined) => void;
 	chatFacets: ProjectChatReplayFacets | undefined;
 	selectedUserNames: string[] | undefined;
 	onSelectedUserNamesChange: (value: string[] | undefined) => void;
@@ -57,6 +60,9 @@ export function UsageFilters({
 	onUpdateSavedPeriod,
 	onDeleteSavedPeriod,
 	availableProviders,
+	availableCredentials,
+	selectedCredentialIds,
+	onSelectedCredentialIdsChange,
 	chatFacets,
 	selectedUserNames,
 	onSelectedUserNamesChange,
@@ -82,6 +88,18 @@ export function UsageFilters({
 							))}
 						</SelectContent>
 					</Select>
+					{onSelectedCredentialIdsChange && (
+						<MultiSelectFilter
+							label='Credentials'
+							icon={KeyRound}
+							options={(availableCredentials ?? []).map((credential) => ({
+								value: credential.id,
+								label: credential.name,
+							}))}
+							selectedValues={selectedCredentialIds}
+							onChange={onSelectedCredentialIdsChange}
+						/>
+					)}
 					<UsagePeriodFilter
 						value={periodSelection}
 						savedPeriods={savedPeriods}

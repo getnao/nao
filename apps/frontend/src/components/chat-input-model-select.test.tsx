@@ -2,10 +2,9 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-
 import { ChatInputModelSelect } from './chat-input-model-select';
 import type { ReactNode } from 'react';
-import type * as SharedTypes from '@nao/shared/types';
+
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({
@@ -16,9 +15,11 @@ const mocks = vi.hoisted(() => ({
 		modelId: string;
 		name: string;
 		baseUrl: null;
+		llmConfigId?: string;
+		llmConfigName?: string;
 	}[],
-	selectedModel: null as { provider: 'nao' | 'openai'; modelId: string } | null,
-	defaultModel: null as { provider: 'nao' | 'openai'; modelId: string } | null,
+	selectedModel: null as { provider: 'nao' | 'openai'; modelId: string; llmConfigId?: string } | null,
+	defaultModel: null as { provider: 'nao' | 'openai'; modelId: string; llmConfigId?: string } | null,
 	usesDefaultModel: true,
 	canCycleModels: false,
 	hasProject: false,
@@ -31,11 +32,6 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/components/ui/llm-provider-icon', () => ({
 	LlmProviderIcon: ({ provider }: { provider: string }) => <span aria-label={`${provider} model`} />,
-}));
-
-vi.mock('@nao/shared/types', async (importOriginal) => ({
-	...(await importOriginal<typeof SharedTypes>()),
-	isSameModel: () => false,
 }));
 
 vi.mock('@/hooks/use-model-selection', () => ({
@@ -135,7 +131,50 @@ it('locks nao models when managed credits are exhausted', () => {
 	fireEvent.keyDown(modelSelector, { key: 'Enter' });
 
 	expect(screen.getByRole('option', { name: /Auto/ }).getAttribute('aria-disabled')).toBe('true');
-	expect(screen.getByRole('option', { name: /Managed/ }).getAttribute('aria-disabled')).toBe('true');
+	expect(
+		screen
+			.getAllByRole('option')
+			.find((option) => option.textContent === 'Managed')
+			?.getAttribute('aria-disabled'),
+	).toBe('true');
 	expect(screen.getByRole('option', { name: /Configured/ }).getAttribute('aria-disabled')).toBeNull();
 	expect(screen.getAllByLabelText('Unavailable: nao credits exhausted')).toHaveLength(2);
+});
+
+it('selects the credential when two credentials expose the same model', () => {
+	mocks.availableModels = [
+		{
+			provider: 'openai',
+			modelId: 'gpt',
+			name: 'GPT',
+			baseUrl: null,
+			llmConfigId: 'primary',
+			llmConfigName: 'Primary',
+		},
+		{
+			provider: 'openai',
+			modelId: 'gpt',
+			name: 'GPT',
+			baseUrl: null,
+			llmConfigId: 'backup',
+			llmConfigName: 'Backup',
+		},
+	];
+	mocks.canCycleModels = true;
+
+	render(
+		<TooltipProvider>
+			<ChatInputModelSelect />
+		</TooltipProvider>,
+	);
+	fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+	const backupOption = screen.getAllByRole('option').find((option) => option.textContent?.includes('Backup'));
+	expect(backupOption).toBeTruthy();
+	fireEvent.click(backupOption!);
+
+	expect(mocks.setSelectedModel).toHaveBeenCalledWith({
+		provider: 'openai',
+		modelId: 'gpt',
+		llmConfigId: 'backup',
+	});
 });

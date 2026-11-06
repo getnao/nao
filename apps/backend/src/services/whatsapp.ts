@@ -356,7 +356,7 @@ class WhatsappService {
 
 		try {
 			const audio = await this._encodeAttachmentAsBase64(audioAttachment);
-			const transcript = (await transcribeService.transcribeAudio(this._projectId, audio)).trim();
+			const transcript = (await transcribeService.transcribeAudio(this._projectId, ctx.user!.id, audio)).trim();
 			if (!transcript) {
 				throw new Error('Transcription returned empty text');
 			}

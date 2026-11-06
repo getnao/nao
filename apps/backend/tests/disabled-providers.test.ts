@@ -120,7 +120,13 @@ describe('DISABLED_PROVIDERS', () => {
 	});
 
 	it('overrides credentials configured in the database', async () => {
-		testState.dbConfig = { apiKey: 'db-key', baseUrl: null, credentials: null, modelSettings: {} };
+		testState.dbConfig = {
+			provider: 'bedrock',
+			apiKey: 'db-key',
+			baseUrl: null,
+			credentials: null,
+			modelSettings: {},
+		};
 		setDisabledProviders(undefined);
 		expect(await resolveProviderSettings('project-1', 'bedrock')).not.toBeNull();
 

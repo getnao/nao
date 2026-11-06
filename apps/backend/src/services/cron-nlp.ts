@@ -4,10 +4,10 @@ import { CronExpressionParser } from 'cron-parser';
 
 import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
 import { llmTelemetry } from '../agents/telemetry';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { sanitizeCron } from '../utils/cron';
 import { ManagedCreditsExhaustedError } from '../utils/error';
 import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 /** Reasoning models spend most of the budget thinking before writing the expression. */
 const MAX_OUTPUT_TOKENS = 1024;
@@ -58,16 +58,21 @@ async function resolveModelForProject(
 	userId: string,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
 	const pinned = await resolveDefaultModelSelection(projectId, 'other');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
-	if (!provider) {
-		return null;
-	}
-
-	const modelId = pinned?.modelId ?? getProviderMeta(provider).extractorModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false, {
-		userId,
+	const selection = await resolveUserBackgroundModelSelection(projectId, userId, pinned);
+	const provider = selection.provider;
+	const modelId = pinned ? selection.modelId : getProviderMeta(provider).extractorModelId;
+	const model = await resolveProviderModel(
 		projectId,
-		category: 'cron',
-	});
+		provider,
+		modelId,
+		false,
+		{
+			userId,
+			projectId,
+			category: 'cron',
+		},
+		undefined,
+		selection.llmConfigId,
+	);
 	return model ? { provider, model } : null;
 }

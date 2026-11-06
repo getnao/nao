@@ -81,6 +81,7 @@ export interface UserGroupOverview {
 
 export interface EffectiveUserGroupAccess {
 	groupNames: string[];
+	llmConfigIds: string[];
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	showAllSettings: boolean;
@@ -179,6 +180,7 @@ export const resolveUserGroupAccess = async (
 
 	return {
 		groupNames: applicableGroups.map((group) => group.name),
+		llmConfigIds: [...new Set(applicableGroups.flatMap((group) => group.llmConfigIds))],
 		features: withSatisfiedFeatureDependencies(
 			USER_GROUP_FEATURES.filter((feature) => grantedFeatures.has(feature)),
 		),
@@ -268,6 +270,7 @@ export const createUserGroup = async (
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	llmConfigIds: string[] = [],
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -284,6 +287,7 @@ export const createUserGroup = async (
 		showAllSettings,
 		preloadedSkills,
 		skillsAccess,
+		llmConfigIds,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -322,6 +326,7 @@ export const createUserGroupWithinLimit = async (
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	llmConfigIds: string[] = [],
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -338,6 +343,7 @@ export const createUserGroupWithinLimit = async (
 		showAllSettings,
 		preloadedSkills,
 		skillsAccess,
+		llmConfigIds,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -390,6 +396,7 @@ export const updateUserGroup = async (
 		rowPoliciesRegistry?: ProjectRowSecurity;
 		projectSharing?: ProjectSharingPermission;
 		preloadedSkills?: string[];
+		llmConfigIds?: string[];
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
@@ -443,6 +450,7 @@ export const updateUserGroup = async (
 					}),
 				}),
 		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
+		...(data.llmConfigIds === undefined ? {} : { llmConfigIds: [...new Set(data.llmConfigIds)] }),
 		rowPolicies: serializeUserGroupRowPolicies(resultingRowPolicies),
 		updatedAt: new Date(),
 	};
@@ -498,6 +506,23 @@ export const updateUserGroup = async (
 			return stored;
 		});
 	});
+	return normalizeUserGroup(updated);
+};
+
+export const updateUserGroupLlmConfigIds = async (
+	projectId: string,
+	groupId: string,
+	llmConfigIds: string[],
+): Promise<UserGroup> => {
+	const [updated] = await db
+		.update(s.userGroup)
+		.set({ llmConfigIds: [...new Set(llmConfigIds)], updatedAt: new Date() })
+		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+		.returning()
+		.execute();
+	if (!updated) {
+		throw new UserGroupQueryError('NOT_FOUND', 'User group not found.');
+	}
 	return normalizeUserGroup(updated);
 };
 
@@ -694,6 +719,7 @@ function createUserGroupValues(
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	llmConfigIds: string[] = [],
 ): NewUserGroup {
 	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	return {
@@ -715,6 +741,7 @@ function createUserGroupValues(
 		}),
 		ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
 		rowPolicies: serializeUserGroupRowPolicies(filteredRowPolicies),
+		llmConfigIds: [...new Set(llmConfigIds)],
 		isDefault: false,
 	};
 }
@@ -842,6 +869,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		isDefault: group.isDefault,
 		createdAt: group.createdAt,
 		updatedAt: group.updatedAt,
+		llmConfigIds: group.llmConfigIds,
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
 		projectSharing: config.projectSharing,

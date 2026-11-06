@@ -84,6 +84,7 @@ import { whatsappRoutes } from './routes/whatsapp';
 import { reconcileOrganizationSetupGrants } from './services/credit-grant.service';
 import { validateCreditTopUpConfiguration } from './services/credit-top-up.service';
 import { discordService } from './services/discord';
+import { registerEnvLlmConfigsForAllProjects } from './services/env-llm-config.service';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
@@ -520,6 +521,12 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		}
 	} else {
 		await ensureOrganizationSetup();
+	}
+	const registeredEnvLlmConfigs = await registerEnvLlmConfigsForAllProjects();
+	if (registeredEnvLlmConfigs > 0) {
+		logger.info(`Registered ${registeredEnvLlmConfigs} environment-backed LLM credentials`, {
+			source: 'system',
+		});
 	}
 	await logLicenseStatus();
 	await reconcileOrganizationSetupGrants();

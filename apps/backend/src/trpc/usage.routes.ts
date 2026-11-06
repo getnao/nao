@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as usageQueries from '../queries/usage.queries';
 import {
 	assertSavedPeriodExists,
@@ -17,7 +18,7 @@ import {
 	usageFilterSchema,
 	usagePeriodSelectionSchema,
 } from '../types/usage';
-import { nonViewerProtectedProcedure } from './trpc';
+import { adminProtectedProcedure, nonViewerProtectedProcedure } from './trpc';
 
 const projectPreferenceInputSchema = z.object({ projectId: z.string().min(1) });
 const usagePeriodPreferenceProcedure = nonViewerProtectedProcedure
@@ -55,6 +56,15 @@ export const usageRoutes = {
 
 	getUsedProviders: nonViewerProtectedProcedure.query(async ({ ctx }) => {
 		return usageQueries.getUsedProviders(ctx.project.id, ctx.userRole === 'admin' ? undefined : ctx.user.id);
+	}),
+
+	getLlmCredentials: adminProtectedProcedure.query(async ({ ctx }) => {
+		return (await llmConfigQueries.getAllProjectLlmConfigs(ctx.project.id)).map((config) => ({
+			id: config.id,
+			name: config.name,
+			provider: config.provider,
+			disabled: config.disabledAt !== null,
+		}));
 	}),
 
 	getPeriodSettings: usagePeriodPreferenceProcedure.query(async ({ ctx }) => {

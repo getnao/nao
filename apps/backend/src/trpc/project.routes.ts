@@ -1,6 +1,12 @@
 import { BACKGROUND_MODEL_CATEGORIES, type CustomBoundarySet } from '@nao/shared';
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
-import { type LlmProvider, type LlmSelectedModel, SEMANTIC_LAYER_MODES } from '@nao/shared/types';
+import {
+	LLM_ACCESS_MODES,
+	type LlmProvider,
+	type LlmSelectedModel,
+	providerLabel,
+	SEMANTIC_LAYER_MODES,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -32,6 +38,7 @@ import {
 } from '../services/default-models.service';
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject, DiscordConnectionError, validateDiscordConnection } from '../services/discord-helpers';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
 import { mcpService } from '../services/mcp';
@@ -43,6 +50,11 @@ import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
+import {
+	getAvailableModelsForUser,
+	getDefaultChatModelForUser,
+	getLlmAccessReadiness,
+} from '../services/user-group-llm-access.service';
 import {
 	getProjectWarehouseCredentialsSummary,
 	updateProjectWarehouseCredentials,
@@ -61,12 +73,12 @@ import { getChatContextUsage } from '../utils/chat-context-usage';
 import { isValidIsoDateString } from '../utils/date';
 import {
 	getEnvApiKey,
+	getEnvBaseUrl,
 	getEnvBaseUrls,
 	getEnvProviders,
-	getProjectAvailableModels,
 	getProjectConfigLlm,
 	getProjectModelNameResolver,
-	resolveDefaultChatModel,
+	hasEnvApiKey,
 } from '../utils/llm';
 import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
@@ -90,6 +102,7 @@ const isoDateString = z.string().refine(isValidIsoDateString, {
 const backgroundModelSelectionSchema = z.object({
 	provider: llmProviderSchema,
 	modelId: z.string().min(1),
+	llmConfigId: z.string().min(1).optional(),
 });
 
 const backgroundModelCategoriesSchema = z.object(
@@ -112,6 +125,17 @@ const integrationModelInputSchema = z.object({
 
 function toIntegrationModelSelection(input: z.infer<typeof integrationModelInputSchema>): LlmSelectedModel | null {
 	return input.modelProvider && input.modelId ? { provider: input.modelProvider, modelId: input.modelId } : null;
+}
+
+function hasReplacementProviderCredentials(
+	provider: LlmProvider,
+	credentials: Record<string, string> | undefined,
+): boolean {
+	return (
+		getProviderAuth(provider).extraFields?.some(
+			(field) => (field.secret || field.name === 'keyFile') && Boolean(credentials?.[field.name]),
+		) ?? false
+	);
 }
 
 const httpUrlSchema = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
@@ -238,7 +262,9 @@ export const projectRoutes = {
 
 			const projectConfigs = configs.map((c) => ({
 				id: c.id,
+				name: c.name,
 				provider: c.provider as LlmProvider,
+				credentialSource: c.credentialSource,
 				apiKeyPreview: previewApiKey(c.apiKey),
 				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
@@ -268,6 +294,28 @@ export const projectRoutes = {
 			return { projectConfigs, configProviders, envProviders, envBaseUrls: getEnvBaseUrls() };
 		}),
 
+	getLlmAccessReadiness: adminProtectedProcedure.query(({ ctx }) => {
+		return getLlmAccessReadiness(ctx.project.id);
+	}),
+
+	updateLlmAccessMode: adminProtectedProcedure
+		.input(z.object({ mode: z.enum(LLM_ACCESS_MODES) }))
+		.mutation(async ({ ctx, input }) => {
+			if (!(await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))) {
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: 'An Enterprise user-groups license is required to configure group LLM access.',
+				});
+			}
+			if (input.mode === 'user_group' && !(await getLlmAccessReadiness(ctx.project.id)).canEnable) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Assign at least one active LLM credential to a user group before enabling restrictions.',
+				});
+			}
+			return { mode: await projectQueries.updateLlmAccessMode(ctx.project.id, input.mode) };
+		}),
+
 	/** Get all available models for the current project (for user model selection) */
 	listAvailableTranscribeModels: projectProtectedProcedure
 		.output(
@@ -277,6 +325,8 @@ export const projectRoutes = {
 					modelId: z.string(),
 					name: z.string(),
 					baseUrl: z.string().nullable(),
+					llmConfigId: z.string().optional(),
+					llmConfigName: z.string().optional(),
 				}),
 			),
 		)
@@ -284,12 +334,14 @@ export const projectRoutes = {
 			if (!ctx.project) {
 				return [];
 			}
-			return getProjectAvailableModels(ctx.project.id);
+			return getAvailableModelsForUser(ctx.project.id, ctx.user.id);
 		}),
 
 	upsertLlmConfig: adminProtectedProcedure
 		.input(
 			z.object({
+				configId: z.string().optional(),
+				name: z.string().trim().min(1).max(80).optional(),
 				provider: llmProviderSchema,
 				apiKey: z.string().min(1).optional(),
 				credentials: z.record(z.string(), z.string()).optional(),
@@ -304,13 +356,25 @@ export const projectRoutes = {
 			if (isManagedProvider(input.provider)) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'The nao-managed provider is configured by nao.' });
 			}
-			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
+			const existingConfig = input.configId
+				? await llmConfigQueries.getProjectLlmConfigById(ctx.project.id, input.configId)
+				: input.name
+					? null
+					: await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const inheritedConfig = existingConfig
 				? null
 				: findConfigLlmProvider(await getProjectConfigLlm(ctx.project.id), input.provider);
 			const envApiKey = getEnvApiKey(input.provider);
 
 			const hasNewCredentials = Object.values(input.credentials ?? {}).some(Boolean);
+			const hasReplacementCredentials =
+				Boolean(input.apiKey) || hasReplacementProviderCredentials(input.provider, input.credentials);
+			const credentialSource =
+				!hasReplacementCredentials &&
+				(existingConfig?.credentialSource === 'env' ||
+					(!existingConfig && !inheritedConfig && hasEnvApiKey(input.provider)))
+					? 'env'
+					: 'database';
 			const credentials = hasNewCredentials
 				? {
 						...(existingConfig?.credentials ?? inheritedConfig?.credentials),
@@ -320,7 +384,9 @@ export const projectRoutes = {
 
 			let apiKey: string | null;
 
-			if (input.apiKey) {
+			if (credentialSource === 'env') {
+				apiKey = existingConfig ? null : '';
+			} else if (input.apiKey) {
 				apiKey = input.apiKey;
 			} else if (hasNewCredentials) {
 				apiKey = '';
@@ -346,20 +412,36 @@ export const projectRoutes = {
 					)
 				: undefined;
 
-			const config = await llmConfigQueries.upsertProjectLlmConfig({
+			const values = {
 				projectId: ctx.project.id,
+				name: input.name ?? existingConfig?.name ?? providerLabel(input.provider),
 				provider: input.provider,
+				credentialSource,
 				apiKey,
 				credentials,
 				enabledModels,
 				customModels,
 				modelSettings,
-				baseUrl: input.baseUrl || null,
-			} as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0]);
+				baseUrl:
+					credentialSource === 'env' && input.baseUrl === getEnvBaseUrl(input.provider)
+						? null
+						: input.baseUrl || null,
+			};
+			const config =
+				input.configId || input.name
+					? await llmConfigQueries.saveProjectLlmConfig(
+							values as Parameters<typeof llmConfigQueries.saveProjectLlmConfig>[0],
+							input.configId,
+						)
+					: await llmConfigQueries.upsertProjectLlmConfig(
+							values as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0],
+						);
 
 			return {
 				id: config.id,
+				name: config.name,
 				provider: config.provider as LlmProvider,
+				credentialSource: config.credentialSource,
 				apiKeyPreview: previewApiKey(config.apiKey),
 				credentialPreviews: buildCredentialPreviews(config.credentials),
 				enabledModels: config.enabledModels ?? [],
@@ -370,10 +452,14 @@ export const projectRoutes = {
 		}),
 
 	deleteLlmConfig: adminProtectedProcedure
-		.input(z.object({ provider: llmProviderSchema }))
+		.input(z.union([z.object({ configId: z.string().min(1) }), z.object({ provider: llmProviderSchema })]))
 		.output(z.object({ success: z.boolean() }))
 		.mutation(async ({ ctx, input }) => {
-			await llmConfigQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
+			if ('configId' in input) {
+				await llmConfigQueries.deactivateProjectLlmConfig(ctx.project.id, input.configId);
+			} else {
+				await llmConfigQueries.deleteProjectLlmConfig(ctx.project.id, input.provider);
+			}
 			return { success: true };
 		}),
 
@@ -967,7 +1053,7 @@ export const projectRoutes = {
 	}),
 
 	getKnownTranscribeModels: projectProtectedProcedure.query(({ ctx }) => {
-		return getAvailableTranscribeModels(ctx.project.id);
+		return getAvailableTranscribeModels(ctx.project.id, ctx.user.id);
 	}),
 
 	removeProjectMember: adminProtectedProcedure
@@ -1193,7 +1279,7 @@ export const projectRoutes = {
 		if (!ctx.project) {
 			return null;
 		}
-		return resolveDefaultChatModel(ctx.project.id);
+		return getDefaultChatModelForUser(ctx.project.id, ctx.user.id);
 	}),
 
 	updateDefaultModels: adminProtectedProcedure

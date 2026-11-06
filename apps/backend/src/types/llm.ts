@@ -22,7 +22,11 @@ export const llmProviderSchema = z.custom<LlmProvider>((value) => typeof value =
 export const llmSelectedModelSchema = z.object({
 	provider: llmProviderSchema,
 	modelId: z.string(),
+	llmConfigId: z.string().optional(),
 });
+
+export const LLM_CREDENTIAL_SOURCES = ['database', 'env'] as const;
+export type LlmCredentialSource = (typeof LLM_CREDENTIAL_SOURCES)[number];
 
 export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
 
@@ -116,13 +120,16 @@ export type ModelSource = {
 		projectId: string,
 		provider: LlmProvider,
 		modelId: string,
+		llmConfigId?: string,
 	): Promise<ModelInferenceSettings | null>;
 	/** Credentials for calling the provider directly. A source that must wrap every call leaves it out. */
-	resolveSettings?(projectId: string, provider: LlmProvider): Promise<ProviderSettings | null>;
+	resolveSettings?(projectId: string, provider: LlmProvider, llmConfigId?: string): Promise<ProviderSettings | null>;
 };
 
 export type ProviderModelSource = {
 	provider: LlmProvider;
+	llmConfigId?: string;
+	llmConfigName?: string;
 	enabledModels: string[];
 	customModels: CustomModelMetadata[];
 	baseUrl: string | null;
@@ -132,6 +139,7 @@ export type ModelRequest = {
 	projectId: string;
 	provider: LlmProvider;
 	modelId: string;
+	llmConfigId?: string;
 	applyUserSettings: boolean;
 	usageContext?: ManagedAiUsageContext;
 	/** Settings that win over the ones configured for the model, such as the reasoning effort a test runs at. */
@@ -212,7 +220,9 @@ export type ParamControl =
 
 export const llmConfigSchema = z.object({
 	id: z.string(),
+	name: z.string(),
 	provider: llmProviderSchema,
+	credentialSource: z.enum(LLM_CREDENTIAL_SOURCES),
 	apiKeyPreview: z.string().nullable(),
 	credentialPreviews: z.record(z.string(), z.string()).nullable(),
 	enabledModels: z.array(z.string()).nullable(),

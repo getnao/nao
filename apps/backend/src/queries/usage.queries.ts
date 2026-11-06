@@ -1,5 +1,5 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { and, eq, isNotNull, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
@@ -537,6 +537,10 @@ function buildUsageWhereConditions(projectId: string, filter: UsageFilter, userI
 	if (provider) {
 		messageWhereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
 		inferenceWhereConditions.push(eq(s.llmInference.llmProvider, provider));
+	}
+	if (filter.llmConfigIds?.length) {
+		messageWhereConditions.push(inArray(s.chatMessage.llmConfigId, filter.llmConfigIds));
+		inferenceWhereConditions.push(inArray(s.llmInference.llmConfigId, filter.llmConfigIds));
 	}
 	if (userId) {
 		messageWhereConditions.push(eq(MESSAGE_SENDER_EXPR, userId));

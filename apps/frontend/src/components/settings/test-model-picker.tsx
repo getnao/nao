@@ -3,17 +3,15 @@ import { pluralize } from '@nao/shared';
 import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Cpu, Minus, Plus } from 'lucide-react';
-
-import type { ActiveEffort, ReasoningEffort } from '@nao/backend/llm';
-import type { TestModelDefaultEffort, TestModelSelection } from '@nao/backend/test-run';
 import type { LlmSelectedModel } from '@nao/shared/types';
+import type { TestModelDefaultEffort, TestModelSelection } from '@nao/backend/test-run';
+import type { ActiveEffort, ReasoningEffort } from '@nao/backend/llm';
+
 import type { TestModelStats } from '@/components/settings/test-run-types';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import { formatUnitCost } from '@/components/settings/test-run-types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
@@ -22,8 +20,9 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SimpleTooltip } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
 import {
 	countModelRuns,
 	countRunEfforts,
@@ -32,6 +31,8 @@ import {
 	MAX_TEST_RUN_MODELS,
 	MAX_TEST_RUN_THREADS,
 } from '@/hooks/use-test-run-settings';
+import { llmModelValue, toLlmSelectedModel } from '@/lib/llm-model';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 interface TestModelPickerProps {
@@ -52,7 +53,7 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 		const isSelected = models.some((selected) => isSameModel(selected, model));
 		const nextModels = isSelected
 			? models.filter((selected) => !isSameModel(selected, model))
-			: [...models, { provider: model.provider, modelId: model.modelId }];
+			: [...models, toLlmSelectedModel(model)];
 		if (nextModels.length > 0 && nextModels.length <= MAX_TEST_RUN_MODELS) {
 			settings.update({ models: nextModels });
 		}
@@ -103,7 +104,7 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 						const isSelected = selected !== undefined;
 						return (
 							<li
-								key={`${model.provider}:${model.modelId}`}
+								key={llmModelValue(model)}
 								className='flex items-center gap-2 px-3 py-1.5 hover:bg-accent/50'
 							>
 								<label className='flex min-w-0 flex-1 cursor-pointer items-center gap-2'>
@@ -114,6 +115,9 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 										className='size-3.5'
 									/>
 									<span className='min-w-0 flex-1 truncate'>{model.name}</span>
+									{model.llmConfigName && (
+										<span className='truncate text-muted-foreground'>{model.llmConfigName}</span>
+									)}
 								</label>
 								{selected && (
 									<ReasoningEffortBars

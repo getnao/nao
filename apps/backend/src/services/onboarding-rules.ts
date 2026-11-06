@@ -44,6 +44,8 @@ export async function generateOnboardingRules(
 			category: 'chat',
 			billingMode: 'unbilled',
 		},
+		undefined,
+		modelSelection.llmConfigId,
 	);
 	if (!llmModel) {
 		throw new Error('The onboarding model is unavailable');

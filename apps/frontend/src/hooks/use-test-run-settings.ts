@@ -2,10 +2,10 @@ import { getModelReasoningEfforts } from '@nao/backend/provider-meta';
 import { getDefaultTestRunThreads, MAX_TEST_RUN_ATTEMPTS, MAX_TEST_RUN_THREADS } from '@nao/backend/test-run';
 import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useState } from 'react';
-
-import type { ActiveEffort } from '@nao/backend/llm';
+import { useCallback, useEffect, useState } from 'react';
 import type { TestModelSelection } from '@nao/backend/test-run';
+import type { ActiveEffort } from '@nao/backend/llm';
+
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 
@@ -43,6 +43,25 @@ export function useTestRunSettings(): TestRunSettings {
 	const availableStoredModels = stored?.models.filter(
 		(model) => !availableModels.data || availableModels.data.some((available) => isSameModel(available, model)),
 	);
+	useEffect(() => {
+		if (!projectId || !availableModels.data) {
+			return;
+		}
+		const storage = testRunSettingsStorage(projectId);
+		const current = storage.get();
+		const reconciledModels = current?.models.filter((model) =>
+			availableModels.data.some((available) => isSameModel(available, model)),
+		);
+		if (!current || reconciledModels?.length === current.models.length) {
+			return;
+		}
+		if (reconciledModels?.length) {
+			storage.set({ ...current, models: reconciledModels });
+		} else {
+			localStorage.removeItem(storageKey(projectId));
+		}
+		setRevision((revision) => revision + 1);
+	}, [availableModels.data, projectId]);
 	const projectModels = suite.data?.settings.models ?? (defaultModel.data ? [defaultModel.data] : []);
 	const models = availableStoredModels?.length ? availableStoredModels : projectModels;
 	const attempts = Math.min(stored?.attempts ?? suite.data?.settings.attempts ?? 1, MAX_TEST_RUN_ATTEMPTS);

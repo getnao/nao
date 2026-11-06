@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
@@ -47,6 +48,11 @@ describe('project_llm_config model settings round-trip (sqlite)', () => {
 	afterAll(() => {
 		db.$client.close();
 		fs.rmSync(TEST_DB_PATH, { force: true });
+	});
+
+	it('creates projects with model restrictions disabled', async () => {
+		const [project] = await db.select().from(s.project).where(eq(s.project.id, projectId));
+		expect(project.llmAccessMode).toBe('project');
 	});
 
 	it('has a non-null model_settings column defaulting to an empty object', () => {
@@ -170,7 +176,9 @@ describe('project_llm_config model settings round-trip (sqlite)', () => {
 			(m) => m.provider === 'anthropic',
 		);
 
-		expect(implicitModels).toEqual(explicitModels);
+		expect(implicitModels.map(({ llmConfigId: _id, ...model }) => model)).toEqual(
+			explicitModels.map(({ llmConfigId: _id, ...model }) => model),
+		);
 		expect(implicitModels).toEqual([expect.objectContaining({ provider: 'anthropic', modelId: defaultModelId })]);
 	});
 });

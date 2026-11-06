@@ -23,6 +23,9 @@ vi.mock('../src/utils/llm', () => ({
 vi.mock('../src/utils/schedule-task', () => ({
 	scheduleSaveLlmInferenceRecord: mocks.scheduleSaveMock,
 }));
+vi.mock('../src/services/user-group-llm-access.service', () => ({
+	resolveUserBackgroundModelSelection: async (_projectId: string, _userId: string, selection: unknown) => selection,
+}));
 
 class FakeTokenCounter implements ITokenCounter {
 	estimateMessages = vi.fn<(messages: ModelMessage[]) => number>();
@@ -88,8 +91,7 @@ describe('compactionService.compactConversationIfNeeded', () => {
 			];
 			const result = await compactionService.compactConversationIfNeeded({
 				chat: { id: 'chat-gpt6', projectId: 'project-1', userId: 'user-1' },
-				provider: 'bedrock',
-				modelId,
+				modelSelection: { provider: 'bedrock', modelId },
 				messages,
 				tools: {},
 				maxOutputTokens,
@@ -122,8 +124,7 @@ describe('compactionService.compactConversationIfNeeded', () => {
 
 		const result = await compactionService.compactConversationIfNeeded({
 			chat: { id: 'chat-1', projectId: 'project-1', userId: 'user-1' },
-			provider: 'openai',
-			modelId: 'gpt-5.5',
+			modelSelection: { provider: 'openai', modelId: 'gpt-5.5' },
 			messages,
 			tools: {},
 			maxOutputTokens: 16,
@@ -155,8 +156,7 @@ describe('compactionService.compactConversationIfNeeded', () => {
 
 		const result = await compactionService.compactConversationIfNeeded({
 			chat: { id: 'chat-2', projectId: 'project-2', userId: 'user-2' },
-			provider: 'openai',
-			modelId: 'gpt-5.5',
+			modelSelection: { provider: 'openai', modelId: 'gpt-5.5' },
 			messages,
 			tools: {} as AgentTools,
 			maxOutputTokens: 50,
@@ -210,8 +210,7 @@ describe('compactionService.compactConversationIfNeeded', () => {
 
 		await compactionService.compactConversationIfNeeded({
 			chat: { id: 'chat-3', projectId: 'project-3', userId: 'user-3' },
-			provider: 'openaiCompatible/litellm',
-			modelId: 'gemini-3.1-pro-preview',
+			modelSelection: { provider: 'openaiCompatible/litellm', modelId: 'gemini-3.1-pro-preview' },
 			messages,
 			tools: {} as AgentTools,
 			maxOutputTokens: 50,
@@ -354,8 +353,7 @@ describe('RunCompaction', () => {
 
 	const stepOptions = (messages: ModelMessage[]) => ({
 		chat: { id: 'chat-3', projectId: 'project-3', userId: 'user-3' },
-		provider: 'openai' as const,
-		modelId: 'gpt-5.5',
+		modelSelection: { provider: 'openai' as const, modelId: 'gpt-5.5' },
 		messages,
 		tools: {} as AgentTools,
 		maxOutputTokens: 50,

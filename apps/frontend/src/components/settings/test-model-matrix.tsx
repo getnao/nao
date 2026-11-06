@@ -1,8 +1,8 @@
 import { isSameTestModel, testResultModel } from '@nao/backend/test-run';
 import { TESTS_FOLDER } from '@nao/shared/test-paths';
-
 import type { ActiveEffort } from '@nao/backend/llm';
 import type { TestModel } from '@nao/backend/test-run';
+
 import type { TestResultOutcome, TestRunWithResults } from '@/components/settings/test-run-types';
 import { AttemptDots, ModelName } from '@/components/settings/test-model-labels';
 import {
@@ -128,5 +128,9 @@ function listEffortColumns(models: TestModel[]): (ActiveEffort | null)[] {
 }
 
 function toBaseModel(model: TestModel): TestModel {
-	return { provider: model.provider, modelId: model.modelId };
+	return {
+		provider: model.provider,
+		modelId: model.modelId,
+		...(model.llmConfigId && { llmConfigId: model.llmConfigId }),
+	};
 }

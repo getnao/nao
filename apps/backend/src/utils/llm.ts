@@ -1,5 +1,5 @@
 import { type BackgroundModelCategory, type DefaultModelSettings, selectBackgroundModel } from '@nao/shared';
-import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
+import { isSameModel, type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
 
 import { managedAiSource, type ManagedAiUsageContext } from '../agents/managed-ai';
 import {
@@ -109,12 +109,13 @@ export function getEnvModelSelections(): LlmSelectedModel[] {
 export async function resolveProviderSettings(
 	projectId: string,
 	provider: LlmProvider,
+	llmConfigId?: string,
 ): Promise<ProviderSettings | null> {
 	if (isProviderDisabled(provider)) {
 		return null;
 	}
 	for (const source of getSourcesServing(provider)) {
-		const settings = await source.resolveSettings?.(projectId, provider);
+		const settings = await source.resolveSettings?.(projectId, provider, llmConfigId);
 		if (settings) {
 			return settings;
 		}
@@ -133,6 +134,7 @@ export async function resolveProviderModel(
 	applyUserSettings = true,
 	usageContext?: ManagedAiUsageContext,
 	inferenceOverrides?: ModelInferenceSettings,
+	llmConfigId?: string,
 ): Promise<ProviderModelResult | null> {
 	if (isProviderDisabled(provider)) {
 		return null;
@@ -141,6 +143,7 @@ export async function resolveProviderModel(
 		projectId,
 		provider,
 		modelId,
+		llmConfigId,
 		applyUserSettings,
 		usageContext,
 		inferenceOverrides,
@@ -159,10 +162,11 @@ export async function resolveModelInferenceSettings(
 	projectId: string,
 	provider: LlmProvider,
 	modelId: string,
+	llmConfigId?: string,
 ): Promise<ModelInferenceSettings> {
 	for (const source of getSourcesServing(provider)) {
 		const settings = source.resolveModelSettings
-			? await source.resolveModelSettings(projectId, provider, modelId)
+			? await source.resolveModelSettings(projectId, provider, modelId, llmConfigId)
 			: {};
 		if (settings) {
 			return settings;
@@ -207,7 +211,9 @@ export async function resolveAnnotationModelId(
 	}
 
 	const { provider, modelId } = modelSelection;
-	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
+	const config = modelSelection.llmConfigId
+		? await projectLlmConfigQueries.getProjectLlmConfigById(projectId, modelSelection.llmConfigId)
+		: await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config?.baseUrl) {
 		return modelId;
 	}
@@ -286,50 +292,94 @@ export async function resolveDefaultChatModel(projectId: string): Promise<LlmSel
 /** `resolveDefaultChatModel` over settings and a catalog the caller already loaded. */
 export function selectDefaultChatModel(
 	settings: DefaultModelSettings | null,
-	available: Array<{ provider: LlmProvider; modelId: string }>,
+	available: LlmSelectedModel[],
 ): LlmSelectedModel | null {
 	if (settings?.chat) {
 		return substituteUnavailableModel(available, settings.chat);
 	}
 	const first = available.at(0);
-	return first ? { provider: first.provider, modelId: first.modelId } : null;
+	return first ? { ...first } : null;
 }
 
 function substituteUnavailableModel(
-	available: Array<{ provider: LlmProvider; modelId: string }>,
+	available: LlmSelectedModel[],
 	configured: LlmSelectedModel,
 ): LlmSelectedModel | null {
 	if (available.length === 0) {
 		return null;
 	}
-	if (available.some((m) => m.provider === configured.provider && m.modelId === configured.modelId)) {
-		return configured;
+	const exact = available.find((model) => isSameModel(model, configured));
+	if (exact) {
+		return { ...exact };
 	}
-	const substitute = available.find((m) => m.provider === configured.provider) ?? available[0];
-	return { provider: substitute.provider, modelId: substitute.modelId };
+	const sameModel = available.filter(
+		(model) => model.provider === configured.provider && model.modelId === configured.modelId,
+	);
+	const substitute =
+		(sameModel.length === 1 ? sameModel[0] : undefined) ??
+		available.find((model) => model.provider === configured.provider) ??
+		available[0];
+	return { ...substitute };
 }
 
 export const getProjectAvailableModels = async (
 	projectId: string,
-): Promise<Array<{ provider: LlmProvider; modelId: string; name: string; baseUrl: string | null }>> => {
-	const sources = await getProjectModelSources(projectId);
+): Promise<
+	Array<
+		LlmSelectedModel & {
+			name: string;
+			baseUrl: string | null;
+			llmConfigName?: string;
+		}
+	>
+> => {
+	return toAvailableModels(await getProjectModelSources(projectId));
+};
 
-	return sources.flatMap(({ provider, enabledModels, customModels, baseUrl }) => {
+export const getProjectAvailableModelsForConfigs = async (
+	projectId: string,
+	configIds: readonly string[],
+): ReturnType<typeof getProjectAvailableModels> => {
+	const allowedIds = new Set(configIds);
+	const configs = (await projectLlmConfigQueries.getProjectLlmConfigs(projectId)).filter(
+		(config) => allowedIds.has(config.id) && isProjectLlmConfigAvailable(config),
+	);
+	return toAvailableModels(
+		configs.map((config) => ({
+			provider: config.provider as LlmProvider,
+			llmConfigId: config.id,
+			llmConfigName: config.name,
+			enabledModels: config.enabledModels ?? [],
+			customModels: config.customModels ?? [],
+			baseUrl: config.baseUrl ?? getEnvBaseUrl(config.provider as LlmProvider) ?? null,
+		})),
+	);
+};
+
+function toAvailableModels(
+	sources: ProviderModelSource[],
+): Array<LlmSelectedModel & { name: string; baseUrl: string | null; llmConfigName?: string }> {
+	return sources.flatMap(({ provider, llmConfigId, llmConfigName, enabledModels, customModels, baseUrl }) => {
+		const identity = {
+			provider,
+			...(llmConfigId && { llmConfigId }),
+			...(llmConfigName && { llmConfigName }),
+		};
 		if (enabledModels.length === 0) {
 			// Providers with no built-in catalogue (Azure deployments, custom endpoints) only
 			// expose the models an admin declared, so they contribute nothing until then.
 			const modelId = getDefaultModelId(provider);
-			return modelId ? [{ provider, modelId, name: getModelName(provider, modelId), baseUrl }] : [];
+			return modelId ? [{ ...identity, modelId, name: getModelName(provider, modelId), baseUrl }] : [];
 		}
 
 		return enabledModels.map((modelId) => ({
-			provider,
+			...identity,
 			modelId,
 			name: customModels.find((m) => m.id === modelId)?.displayName?.trim() || getModelName(provider, modelId),
 			baseUrl,
 		}));
 	});
-};
+}
 
 export type ProjectAvailableModel = Awaited<ReturnType<typeof getProjectAvailableModels>>[number];
 
@@ -369,7 +419,11 @@ export function pickRequestedModel(available: ProjectAvailableModel[], requested
 	}
 
 	if (candidates.length === 1) {
-		return { provider: candidates[0].provider, modelId: candidates[0].modelId };
+		return {
+			provider: candidates[0].provider,
+			modelId: candidates[0].modelId,
+			...(candidates[0].llmConfigId && { llmConfigId: candidates[0].llmConfigId }),
+		};
 	}
 	if (candidates.length === 0) {
 		const list = available.map((m) => `${m.provider}/${m.modelId}`).join(', ') || 'none';
@@ -460,12 +514,21 @@ async function getProjectModelSources(projectId: string): Promise<ProviderModelS
 
 async function collectProviders(projectId: string, { managed }: { managed: boolean }): Promise<ProviderModelSource[]> {
 	const collected: ProviderModelSource[] = [];
+	const declaredProviders = new Set<LlmProvider>();
 	for (const source of getModelSources().filter((candidate) => Boolean(candidate.managed) === managed)) {
+		const sourceProviders = new Set<LlmProvider>();
 		for (const entry of await source.listProviders(projectId)) {
-			const isFirstDeclaration = !collected.some((existing) => existing.provider === entry.provider);
-			if (isFirstDeclaration && servesProvider(source, entry.provider) && !isProviderDisabled(entry.provider)) {
+			sourceProviders.add(entry.provider);
+			if (
+				!declaredProviders.has(entry.provider) &&
+				servesProvider(source, entry.provider) &&
+				!isProviderDisabled(entry.provider)
+			) {
 				collected.push(entry);
 			}
+		}
+		for (const provider of sourceProviders) {
+			declaredProviders.add(provider);
 		}
 	}
 	return collected;
@@ -487,22 +550,22 @@ type ProviderAccess = { settings: ProviderSettings; modelSettings?: ModelSetting
 
 type CredentialSource = {
 	listProviders(projectId: string): Promise<ProviderModelSource[]>;
-	findAccess(projectId: string, provider: LlmProvider): Promise<ProviderAccess | null>;
+	findAccess(projectId: string, provider: LlmProvider, llmConfigId?: string): Promise<ProviderAccess | null>;
 };
 
 /** A source holding the project's own credentials, which can also be handed out for direct provider calls. */
 function credentialSource(source: CredentialSource): ModelSource {
 	return {
 		listProviders: source.listProviders,
-		async resolveSettings(projectId, provider) {
-			return (await source.findAccess(projectId, provider))?.settings ?? null;
+		async resolveSettings(projectId, provider, llmConfigId) {
+			return (await source.findAccess(projectId, provider, llmConfigId))?.settings ?? null;
 		},
-		async resolveModelSettings(projectId, provider, modelId) {
-			const access = await source.findAccess(projectId, provider);
+		async resolveModelSettings(projectId, provider, modelId, llmConfigId) {
+			const access = await source.findAccess(projectId, provider, llmConfigId);
 			return access ? (access.modelSettings?.[modelId] ?? {}) : null;
 		},
-		async resolveModel({ projectId, provider, modelId, applyUserSettings, inferenceOverrides }) {
-			const access = await source.findAccess(projectId, provider);
+		async resolveModel({ projectId, provider, modelId, llmConfigId, applyUserSettings, inferenceOverrides }) {
+			const access = await source.findAccess(projectId, provider, llmConfigId);
 			if (!access) {
 				return null;
 			}
@@ -515,18 +578,38 @@ function credentialSource(source: CredentialSource): ModelSource {
 
 const projectConfigSource = credentialSource({
 	async listProviders(projectId) {
-		const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
+		const configs = (await projectLlmConfigQueries.getProjectLlmConfigs(projectId)).filter(
+			isProjectLlmConfigAvailable,
+		);
 		return configs.map((config) => ({
 			provider: config.provider as LlmProvider,
+			llmConfigId: config.id,
+			llmConfigName: config.name,
 			enabledModels: config.enabledModels ?? [],
 			customModels: config.customModels ?? [],
 			baseUrl: config.baseUrl ?? getEnvBaseUrl(config.provider as LlmProvider) ?? null,
 		}));
 	},
-	async findAccess(projectId, provider) {
-		const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
-		if (!config) {
+	async findAccess(projectId, provider, llmConfigId) {
+		const config = llmConfigId
+			? await projectLlmConfigQueries.getProjectLlmConfigById(projectId, llmConfigId)
+			: await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
+		if (!config || config.provider !== provider) {
 			return null;
+		}
+		if (config.credentialSource === 'env') {
+			if (!hasEnvApiKey(provider)) {
+				return null;
+			}
+			const baseURL = config.baseUrl ?? getEnvBaseUrl(provider);
+			return {
+				settings: {
+					apiKey: getEnvApiKey(provider) ?? '',
+					...(baseURL && { baseURL }),
+					...(config.credentials && { credentials: config.credentials }),
+				},
+				modelSettings: config.modelSettings,
+			};
 		}
 		const settings = {
 			apiKey: config.apiKey,
@@ -536,6 +619,10 @@ const projectConfigSource = credentialSource({
 		return { settings, modelSettings: config.modelSettings };
 	},
 });
+
+function isProjectLlmConfigAvailable(config: { provider: string; credentialSource?: 'database' | 'env' }): boolean {
+	return config.credentialSource !== 'env' || hasEnvApiKey(config.provider as LlmProvider);
+}
 
 const naoConfigFileSource = credentialSource({
 	async listProviders(projectId) {
@@ -547,7 +634,10 @@ const naoConfigFileSource = credentialSource({
 			baseUrl: configured.baseUrl ?? getEnvBaseUrl(configured.provider) ?? null,
 		}));
 	},
-	async findAccess(projectId, provider) {
+	async findAccess(projectId, provider, llmConfigId) {
+		if (llmConfigId) {
+			return null;
+		}
 		const configured = findConfigLlmProvider(await getProjectConfigLlm(projectId), provider);
 		if (!configured) {
 			return null;
@@ -565,7 +655,10 @@ const envSource = credentialSource({
 			baseUrl: getEnvBaseUrl(provider) ?? null,
 		}));
 	},
-	async findAccess(_projectId, provider) {
+	async findAccess(_projectId, provider, llmConfigId) {
+		if (llmConfigId) {
+			return null;
+		}
 		if (!hasEnvApiKey(provider)) {
 			return null;
 		}

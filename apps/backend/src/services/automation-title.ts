@@ -3,9 +3,9 @@ import { generateText } from 'ai';
 
 import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
 import { llmTelemetry } from '../agents/telemetry';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
+import { resolveUserBackgroundModelSelection, resolveUserModelSelection } from './user-group-llm-access.service';
 
 const FALLBACK_TITLE = 'Untitled automation';
 
@@ -46,21 +46,27 @@ async function resolveModelForProject(
 	modelSelection?: LlmSelectedModel,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
 	const pinned = modelSelection ? null : await resolveDefaultModelSelection(projectId, 'title');
-	const provider =
-		modelSelection?.provider ?? pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
-	if (!provider) {
-		return null;
-	}
-
+	const selection = modelSelection
+		? await resolveUserModelSelection(projectId, userId, modelSelection)
+		: await resolveUserBackgroundModelSelection(projectId, userId, pinned);
+	const provider = selection.provider;
 	const defaultModelId = getProviderMeta(provider).summaryModelId;
 	const modelId = modelSelection
-		? await resolveAnnotationModelId(projectId, modelSelection, defaultModelId)
-		: (pinned?.modelId ?? defaultModelId);
-	const model = await resolveProviderModel(projectId, provider, modelId, false, {
-		userId,
+		? await resolveAnnotationModelId(projectId, selection, defaultModelId)
+		: (selection.modelId ?? defaultModelId);
+	const model = await resolveProviderModel(
 		projectId,
-		category: 'automation',
-	});
+		provider,
+		modelId,
+		false,
+		{
+			userId,
+			projectId,
+			category: 'automation',
+		},
+		undefined,
+		selection.llmConfigId,
+	);
 	return model ? { provider, model } : null;
 }
 

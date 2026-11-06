@@ -24,6 +24,8 @@ import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { QueryClient } from '@tanstack/react-query';
+import type { ToolCallDensity, UserRole } from '@nao/shared/types';
 import type {
 	DatabaseContextAccess,
 	DocsContextAccess,
@@ -36,8 +38,6 @@ import type {
 	UserGroupRowPolicies,
 	UserGroupSsoMappings,
 } from '@nao/shared';
-import type { ToolCallDensity, UserRole } from '@nao/shared/types';
-import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
@@ -45,6 +45,7 @@ import { UserGroupAdvancedSettings } from '@/components/settings/user-group-adva
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
+import { UserGroupLlmAccess } from '@/components/settings/user-group-llm-access';
 import { UserGroupMcpAccess } from '@/components/settings/user-group-mcp-access';
 import { UserGroupProjectSharing } from '@/components/settings/user-group-project-sharing';
 import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
@@ -89,10 +90,20 @@ export interface UserGroupEditorGroup {
 	mcpAccess: McpAccess;
 	skillsAccess: SkillsAccess;
 	ssoMappings: UserGroupSsoMappings;
+	llmConfigIds: string[];
 	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab = 'features' | 'context' | 'mcp' | 'skills' | 'security' | 'budget' | 'advanced' | 'sso';
+export type UserGroupEditorTab =
+	| 'features'
+	| 'llm-access'
+	| 'context'
+	| 'mcp'
+	| 'skills'
+	| 'security'
+	| 'budget'
+	| 'advanced'
+	| 'sso';
 
 interface UserGroupEditorProps {
 	group: UserGroupEditorGroup | 'new';
@@ -105,6 +116,7 @@ interface UserGroupEditorProps {
 
 const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'features', label: 'Features' },
+	{ id: 'llm-access', label: 'LLM Access' },
 	{ id: 'context', label: 'Context' },
 	{ id: 'mcp', label: 'MCP' },
 	{ id: 'skills', label: 'Skills' },
@@ -158,6 +170,7 @@ export function UserGroupEditor({
 	const [ssoMappings, setSsoMappings] = useState<UserGroupSsoMappings>(
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
 	);
+	const [llmConfigIds, setLlmConfigIds] = useState<string[]>(existingGroup?.llmConfigIds ?? []);
 	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
 	const [projectSharing, setProjectSharing] = useState<ProjectSharingPermission>(
 		existingGroup?.projectSharing ?? 'inherit',
@@ -173,11 +186,15 @@ export function UserGroupEditor({
 	const previousGroupRef = useRef(editorGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
 	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
+	const { mutateAsync: updateLlmAccess, isPending: isLlmAccessSaving } = useMutation(
+		trpc.userGroup.updateLlmAccess.mutationOptions(),
+	);
 	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
 	const licenseFeatures = useLicenseFeatures();
 	const hasSso = licenseFeatures.data?.sso === true;
 	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
 	const hasMemberBudget = licenseFeatures.data?.['user-budget'] === true;
+	const hasUserGroupsLicense = licenseFeatures.data?.['user-groups'] === true;
 	const memberBudgetTabUnavailable = !licenseFeatures.isLoading && !hasMemberBudget;
 	const memberBudgetOverview = useQuery({
 		...trpc.memberBudget.getOverview.queryOptions(),
@@ -262,6 +279,7 @@ export function UserGroupEditor({
 	const lockedTabs = new Set<UserGroupEditorTab>([
 		...(memberBudgetTabUnavailable ? (['budget'] as const) : []),
 		...(mcpTabUnavailable ? (['mcp'] as const) : []),
+		...(!licenseFeatures.isLoading && !hasUserGroupsLicense ? (['llm-access'] as const) : []),
 	]);
 	const tabs = (hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs).map((tab) =>
 		lockedTabs.has(tab.id) ? { ...tab, label: <LockedTabLabel label={tab.label} /> } : tab,
@@ -283,6 +301,7 @@ export function UserGroupEditor({
 			mcpAccess,
 			skillsAccess,
 			ssoMappings,
+			llmConfigIds: existingGroup?.llmConfigIds ?? llmConfigIds,
 			rowPolicies,
 		});
 
@@ -299,6 +318,7 @@ export function UserGroupEditor({
 		setMcpAccess(existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS);
 		setSkillsAccess(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
+		setLlmConfigIds(existingGroup?.llmConfigIds ?? []);
 		setRowPolicies(existingRowPolicies);
 		setFormError(null);
 		setShowRowPolicyValidationErrors(false);
@@ -324,6 +344,7 @@ export function UserGroupEditor({
 				mcpAccess,
 				skillsAccess,
 				ssoMappings,
+				llmConfigIds,
 				rowPolicies,
 			});
 
@@ -337,6 +358,7 @@ export function UserGroupEditor({
 		featureGrants,
 		filesAccess,
 		mcpAccess,
+		llmConfigIds,
 		name,
 		preloadedSkills,
 		projectSharing,
@@ -368,6 +390,31 @@ export function UserGroupEditor({
 		setSkillsAccess(change.skillsAccess);
 		setPreloadedSkills(change.preloadedSkills);
 	};
+
+	const handleLlmConfigIdsChange = useCallback(
+		async (nextLlmConfigIds: string[]) => {
+			if (isLlmAccessSaving) {
+				return;
+			}
+			const previousLlmConfigIds = llmConfigIds;
+			setLlmConfigIds(nextLlmConfigIds);
+			if (!existingGroup || !hasUserGroupsLicense) {
+				return;
+			}
+			setFormError(null);
+			try {
+				await updateLlmAccess({
+					groupId: existingGroup.id,
+					llmConfigIds: nextLlmConfigIds,
+				});
+				await invalidateUserGroupQueries(queryClient);
+			} catch (error) {
+				setLlmConfigIds(previousLlmConfigIds);
+				setFormError(error instanceof Error ? error.message : 'Failed to save LLM access.');
+			}
+		},
+		[existingGroup, hasUserGroupsLicense, isLlmAccessSaving, llmConfigIds, queryClient, updateLlmAccess],
+	);
 
 	const handleSave = async () => {
 		setFormError(null);
@@ -420,6 +467,7 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
+					...(hasUserGroupsLicense ? { llmConfigIds } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -438,6 +486,7 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
+					...(hasUserGroupsLicense ? { llmConfigIds } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -511,7 +560,7 @@ export function UserGroupEditor({
 						activeTab={activeTab}
 						onTabChange={onTabChange}
 						idBase='user-group-editor'
-						className='border-b'
+						className='overflow-x-auto border-b'
 					/>
 					<TabPanel idBase='user-group-editor' tabId={activeTab} className='pt-5'>
 						{activeTab === 'features' && (
@@ -526,6 +575,24 @@ export function UserGroupEditor({
 								onProjectSharingChange={setProjectSharing}
 								toolCallDensityPolicy={toolCallDensityPolicy}
 								onToolCallDensityPolicyChange={setToolCallDensityPolicy}
+							/>
+						)}
+						{activeTab === 'llm-access' && (
+							<UserGroupLlmAccess
+								llmConfigIds={llmConfigIds}
+								inheritedLlmConfigIds={
+									existingGroup?.isDefault
+										? []
+										: (userGroupOverview.data?.groups.flatMap((candidateGroup) =>
+												candidateGroup.isDefault && 'llmConfigIds' in candidateGroup
+													? candidateGroup.llmConfigIds
+													: [],
+											) ?? [])
+								}
+								isLicensed={hasUserGroupsLicense}
+								autoSave={existingGroup !== null}
+								isSaving={isLlmAccessSaving}
+								onChange={handleLlmConfigIdsChange}
 							/>
 						)}
 						{activeTab === 'context' && (
@@ -1010,6 +1077,7 @@ export function hasUserGroupEditorChanges(
 		mcpAccess?: McpAccess;
 		skillsAccess?: SkillsAccess;
 		ssoMappings?: UserGroupSsoMappings;
+		llmConfigIds?: string[];
 		rowPolicies?: UserGroupRowPolicies;
 	},
 ): boolean {
@@ -1027,6 +1095,7 @@ export function hasUserGroupEditorChanges(
 		!haveSameMcpAccess(values.mcpAccess ?? group.mcpAccess, group.mcpAccess) ||
 		!haveSameSkillsAccess(values.skillsAccess ?? group.skillsAccess, group.skillsAccess) ||
 		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
+		!haveSameItems(values.llmConfigIds ?? group.llmConfigIds, group.llmConfigIds) ||
 		!haveSameRowPolicies(
 			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
 			group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
@@ -1042,6 +1111,7 @@ export function invalidateUserGroupQueries(queryClient: QueryClient) {
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveOidcEnvMappings.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveMicrosoftEnvMappings.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.project.getDatabaseObjects.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.project.getLlmAccessReadiness.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: [['memberBudget']] }),
 	]);
 }
