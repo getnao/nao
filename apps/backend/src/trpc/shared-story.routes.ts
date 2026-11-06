@@ -73,9 +73,10 @@ const legacyShareAccessProcedure = resourceProjectProcedure(
 
 export const sharedStoryRoutes = {
 	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
-		const projects = await projectQueries.listUserProjects(ctx.user.id);
-		const projectIds = projects.map((p) => p.id);
-		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, input.projectId);
+		if (!(await projectQueries.getUserRoleInProject(input.projectId, ctx.user.id))) {
+			return [];
+		}
+		const stories = await sharedStoryQueries.listUserSharedStories(input.projectId, ctx.user.id);
 		const items = stories.map(({ id: _shareId, ...story }) => ({
 			...story,
 			storySlug: story.slug,
@@ -232,6 +233,7 @@ export const sharedStoryRoutes = {
 			userRole: ctx.userRole,
 			canRefresh,
 			canFork,
+			isArchived: Boolean(storyRow?.archivedAt),
 		};
 	}),
 

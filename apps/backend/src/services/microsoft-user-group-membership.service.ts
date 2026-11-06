@@ -17,6 +17,7 @@ import {
 	parseEntraGroupOrganizationRoleMapping,
 	readGroupsClaim,
 } from '../utils/sso-group-mapping';
+import { chunk } from '../utils/utils';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { isMicrosoftConfigured } from './microsoft-auth.service';
 import { syncOrganizationRoleFromMicrosoftGroups } from './sso-group-mapping.service';
@@ -218,12 +219,6 @@ function isValidGraphResponse(value: unknown, requestedIds: string[]): value is 
 		(membership) =>
 			isMicrosoftEntraGroupId(membership) &&
 			requested.has(normalizeSsoGroupIdentifiers('microsoft', [membership])[0]),
-	);
-}
-
-function chunk<T>(values: T[], size: number): T[][] {
-	return Array.from({ length: Math.ceil(values.length / size) }, (_, index) =>
-		values.slice(index * size, (index + 1) * size),
 	);
 }
 

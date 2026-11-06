@@ -24,10 +24,12 @@ export const automationWebhookRoutes = async (app: App) => {
 			return reply.status(401).send({ error: 'Missing or invalid Authorization header' });
 		}
 
-		const org = await validateApiKey(authHeader.slice(7));
-		if (!org) {
+		const apiKey = await validateApiKey(authHeader.slice(7));
+		if (!apiKey) {
 			return reply.status(401).send({ error: 'Invalid API key' });
 		}
+		request.actorUserId = apiKey.createdBy;
+		const org = apiKey.organization;
 
 		const { automationId } = request.params as { automationId: string };
 		const automation = await automationQueries.getAutomationById(automationId);
@@ -55,6 +57,7 @@ export const automationWebhookRoutes = async (app: App) => {
 		logger.info('Automation webhook triggered run', {
 			source: 'http',
 			projectId: automation.projectId,
+			userId: request.actorUserId,
 			context: { automationId, runId: run.id, orgId: org.id },
 		});
 

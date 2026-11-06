@@ -1,4 +1,10 @@
-export type HandlerErrorCode = 'BAD_REQUEST' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT';
+export type HandlerErrorCode =
+	| 'BAD_REQUEST'
+	| 'UNAUTHORIZED'
+	| 'FORBIDDEN'
+	| 'NOT_FOUND'
+	| 'CONFLICT'
+	| 'SERVICE_UNAVAILABLE';
 
 /**
  * A general error class for route/procedure handling errors.
@@ -23,7 +29,7 @@ export class BudgetExceededError extends HandlerError {
 }
 
 export class ManagedCreditsExhaustedError extends HandlerError {
-	constructor() {
+	constructor(readonly requiredBalanceMicroUsd: number) {
 		super(
 			'FORBIDDEN',
 			"Your organization's nao-managed AI credits have been used. Add a project provider key to continue.",
@@ -52,4 +58,5 @@ const httpStatusByHandlerErrorCode: Record<HandlerErrorCode, number> = {
 	FORBIDDEN: 403,
 	NOT_FOUND: 404,
 	CONFLICT: 409,
+	SERVICE_UNAVAILABLE: 503,
 };

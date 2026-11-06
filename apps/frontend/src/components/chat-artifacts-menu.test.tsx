@@ -11,6 +11,15 @@ const mocks = vi.hoisted(() => ({
 	openSidePanel: vi.fn(),
 }));
 
+vi.mock('@/hooks/use-mentioned-stories', () => ({
+	useMentionedStories: () => [],
+	useOpenMentionedStory: () => vi.fn(),
+}));
+
+vi.mock('@/components/side-panel/open-story-in-side-panel', () => ({
+	useOpenStoryInSidePanel: () => vi.fn(),
+}));
+
 vi.mock('@/hooks/use-tool-call-density', () => ({
 	useToolCallDensity: () => [mocks.density, vi.fn(), { canChange: true, isLoading: false }],
 }));

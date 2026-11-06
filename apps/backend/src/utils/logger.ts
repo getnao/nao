@@ -5,6 +5,7 @@ import { scheduleTask } from './schedule-task';
 interface LogOptions {
 	source: LogSource;
 	projectId?: string;
+	userId?: string;
 	context?: Record<string, unknown>;
 }
 
@@ -54,13 +55,15 @@ function getErrorLikeMessage(value: unknown): string {
 	return typeof message === 'string' ? message : String(value);
 }
 
-const SENSITIVE_KEYS = new Set(['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key']);
+export const SENSITIVE_CONTEXT_KEYS = ['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key'];
+export const REDACTED_CONTEXT_VALUE = '[REDACTED]';
+const SENSITIVE_KEYS = new Set(SENSITIVE_CONTEXT_KEYS);
 
-function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {
+export function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {
 	const redacted: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(ctx)) {
 		if (SENSITIVE_KEYS.has(key.toLowerCase())) {
-			redacted[key] = '[REDACTED]';
+			redacted[key] = REDACTED_CONTEXT_VALUE;
 		} else {
 			redacted[key] = value;
 		}
@@ -81,6 +84,7 @@ function writeLog(level: LogLevel, message: string, opts: LogOptions): void {
 			message,
 			source: opts.source,
 			projectId: opts.projectId,
+			userId: opts.userId,
 			context,
 		}),
 	);

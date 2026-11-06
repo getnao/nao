@@ -89,6 +89,7 @@ export function useCustomStory(chatId: string, storySlug: string) {
 		content: contentQuery.data,
 		dataSource,
 		isAgentRunning,
+		isArchived: Boolean(versionsQuery.data?.archivedAt),
 		versionNumbers,
 		latestVersion,
 		viewedVersion,

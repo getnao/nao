@@ -5,6 +5,7 @@ import { aliasedTable, and, asc, countDistinct, desc, eq, inArray, isNull, max, 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import type { StoryQuerySources } from '../types/story-cache';
+import { getOpenProjectIds } from '../utils/open-projects';
 import * as executeSqlQueries from './execute-sql.queries';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 
@@ -503,6 +504,8 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 		where ${s.orgMember.orgId} = ${s.project.orgId}
 		  and ${s.orgMember.userId} = ${userId}
 	)`;
+	const openProjectIds = getOpenProjectIds();
+	const isOpenProject = openProjectIds.length > 0 ? inArray(s.sharedStory.projectId, openProjectIds) : undefined;
 
 	const [shared] = await db
 		.select({ id: s.sharedStory.id })
@@ -513,7 +516,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 				eq(s.sharedStory.storyId, storyId),
 				or(
 					eq(s.sharedStory.userId, userId),
-					and(eq(s.sharedStory.visibility, 'project'), or(isProjectMember, isOrgMember)),
+					and(eq(s.sharedStory.visibility, 'project'), or(isProjectMember, isOrgMember, isOpenProject)),
 					and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId)),
 				),
 			),
@@ -700,14 +703,14 @@ export async function getSqlQueriesFromCode(
 export async function getSqlQueriesByIds(
 	chatId: string,
 	queryIds: Set<string>,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
+): Promise<Record<string, executeSqlQueries.StoredSqlQuery>> {
 	return executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
 }
 
 export async function getSqlQueryById(
 	chatId: string,
 	queryId: string,
-): Promise<{ sqlQuery: string; databaseId?: string; adminMode: boolean } | null> {
+): Promise<executeSqlQueries.StoredSqlQuery | null> {
 	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
 	if (!part) {
 		return null;
@@ -716,6 +719,7 @@ export async function getSqlQueryById(
 		sqlQuery: part.toolInput.sql_query,
 		...(part.toolInput.database_id && { databaseId: part.toolInput.database_id }),
 		adminMode: part.adminMode,
+		...(part.semanticQuery && { semanticQuery: part.semanticQuery }),
 	};
 }
 

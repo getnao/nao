@@ -8,6 +8,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useOpenOrganizationBilling } from '@/hooks/use-open-organization-billing';
 import {
 	getLastUserMessageIdx,
+	isOnboardingCompleteError,
 	parseBudgetError,
 	parseChatAllowanceExhaustedError,
 	parseManagedCreditsError,
@@ -62,7 +63,8 @@ export function ChatError({ className }: Props) {
 		!error ||
 		parseBudgetError(error) ||
 		parseManagedCreditsError(error) ||
-		parseChatAllowanceExhaustedError(error)
+		parseChatAllowanceExhaustedError(error) ||
+		isOnboardingCompleteError(error)
 	) {
 		return null;
 	}
@@ -96,11 +98,11 @@ export function ChatError({ className }: Props) {
 
 	return (
 		<div className={cn('flex items-start gap-2.5 px-4 py-3 text-red-500', className)}>
-			<AlertCircleIcon className='size-4 shrink-0 mt-1' />
+			<AlertCircleIcon className='size-4 shrink-0 mt-0.5' />
 
-			<div className='flex-1 min-w-0 text-sm wrap-break-word'>
+			<div className='flex flex-1 min-w-0 flex-col items-start gap-1 text-sm wrap-break-word'>
 				{parsed?.error && <span className='font-medium'>{parsed.error}</span>}
-				{parsed?.message && <p className='text-red-400 mt leading-relaxed'>{parsed.message}</p>}
+				{parsed?.message && <p className='text-red-400 leading-relaxed'>{parsed.message}</p>}
 				{requestId && (
 					<div className='mt-2 flex items-center gap-1 text-xs text-muted-foreground'>
 						<span>Provider request ID:</span>
@@ -123,7 +125,7 @@ export function ChatError({ className }: Props) {
 					<Button
 						variant='outline'
 						size='sm'
-						className='mt-3'
+						className='mt-2'
 						disabled={isRunning}
 						onClick={() => {
 							void retry();
@@ -177,8 +179,8 @@ function BillingAccessError({
 						? 'Billing details could not be loaded.'
 						: access?.trialAvailable
 							? access.canManageBilling
-								? 'Start your free trial, then retry your message.'
-								: 'Ask an organization admin to start the free trial, then retry your message.'
+								? 'Finish setting up your first project to start your free trial, then retry your message.'
+								: 'Ask an organization admin to finish setting up the first project, then retry your message.'
 							: 'Manage your subscription, then retry your message.'}
 			</p>
 			<div className='mt-3 flex flex-wrap gap-2'>

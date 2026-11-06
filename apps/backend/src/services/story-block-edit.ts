@@ -43,12 +43,10 @@ export class StoryBlockEditError extends Error {}
 const SCRIPT_FILE = /\.(jsx?|tsx?)$/i;
 const NEWER_VERSION_MESSAGE = 'The story has a newer version. Reload it and edit again.';
 const AGENT_CHANGES_MESSAGE = 'The agent has unpublished changes to this story. Edit it once they are published.';
+const ARCHIVED_MESSAGE = 'This story is archived. Unarchive it to edit it.';
 
 export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<{ version: number }> {
-	const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-	if (!story || story.format !== 'custom') {
-		throw new CustomStoryNotFoundError();
-	}
+	const story = await getEditableCustomStory(input.chatId, input.storySlug);
 	const draft = await loadDraftMatchingLatestVersion(story.id, input);
 
 	const target = locateBlock(draft, input.block);
@@ -79,10 +77,7 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 }
 
 export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<StoryFilesSaveResult> {
-	const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-	if (!story || story.format !== 'custom') {
-		throw new CustomStoryNotFoundError();
-	}
+	const story = await getEditableCustomStory(input.chatId, input.storySlug);
 	const draft = await loadDraftMatchingLatestVersion(story.id, input);
 	const edits = await normalizeFileEdits(draft, input.files);
 	if (edits.size === 0) {
@@ -114,10 +109,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 
 /** Restoring re-publishes an older version's files and bundle as the new latest version. */
 export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput): Promise<{ version: number }> {
-	const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-	if (!story || story.format !== 'custom') {
-		throw new CustomStoryNotFoundError();
-	}
+	const story = await getEditableCustomStory(input.chatId, input.storySlug);
 	const draft = await loadDraftMatchingLatestVersion(story.id, input);
 	const restored = await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.restoreVersionNumber);
 	if (!restored) {
@@ -149,6 +141,17 @@ export async function restoreCustomStoryVersion(input: StoryVersionRestoreInput)
 		return cut.version;
 	});
 	return { version: version.version };
+}
+
+async function getEditableCustomStory(chatId: string, storySlug: string) {
+	const story = await storyQueries.getStoryByChatAndSlug(chatId, storySlug);
+	if (!story || story.format !== 'custom') {
+		throw new CustomStoryNotFoundError();
+	}
+	if (story.archivedAt) {
+		throw new StoryBlockEditError(ARCHIVED_MESSAGE);
+	}
+	return story;
 }
 
 /** Each edit creates the version right after the one it started from, so a concurrent edit loses on the unique constraint. */

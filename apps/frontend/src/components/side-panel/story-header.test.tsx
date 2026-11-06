@@ -10,8 +10,21 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 type ClassicStoryHeaderProps = Extract<StoryHeaderProps, { viewMode: StoryViewMode }>;
 
-const { favoritesQuery } = vi.hoisted(() => ({
+const { favoritesQuery, mentionedStories } = vi.hoisted(() => ({
 	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
+	mentionedStories: {
+		value: {
+			conversationChatId: null as string | null,
+			conversationStories: [] as { id: string; title: string }[],
+			stories: [] as { storyId: string; chatId: string; slug: string; title: string }[],
+			open: () => {},
+			openConversationStory: (() => {}) as (storySlug: string) => void,
+		},
+	},
+}));
+
+vi.mock('@/contexts/mentioned-stories', () => ({
+	useMentionedStoriesContext: () => mentionedStories.value,
 }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -151,6 +164,30 @@ describe('StoryHeader editing subheader', () => {
 
 		expect(screen.getByText('Editing code')).toBeDefined();
 		expect(screen.getByRole('button', { name: /save/i })).toBeDefined();
+	});
+});
+
+describe('StoryHeader story switcher', () => {
+	afterEach(cleanup);
+
+	it('lists the conversation stories when viewing a mentioned story from another chat', () => {
+		const openConversationStory = vi.fn();
+		mentionedStories.value = {
+			conversationChatId: 'chat-1',
+			conversationStories: [{ id: 'churn', title: 'Churn' }],
+			stories: [{ storyId: 'story-2', chatId: 'chat-2', slug: 'revenue', title: 'Revenue' }],
+			open: vi.fn(),
+			openConversationStory,
+		};
+		renderHeader({ chatId: 'chat-2' });
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: 'Switch story' }), { button: 0, ctrlKey: false });
+
+		expect(screen.queryByRole('menuitem', { name: 'Revenue' })).toBeNull();
+
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Churn' }));
+
+		expect(openConversationStory).toHaveBeenCalledWith('churn');
 	});
 });
 

@@ -74,8 +74,16 @@ const loggerMocks = vi.hoisted(() => ({
 	warn: vi.fn(),
 }));
 
+const contextDraftMocks = vi.hoisted(() => ({
+	getDraftFile: vi.fn(async () => null),
+	saveDraftFile: vi.fn(async () => true),
+	deleteDraftFile: vi.fn(async () => undefined),
+	deleteDraftFileIfUnchanged: vi.fn(async () => true),
+}));
+
 vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 vi.mock('../src/queries/context-recommendation.queries', () => contextConfigMocks);
+vi.mock('../src/queries/context-draft.queries', () => contextDraftMocks);
 vi.mock('../src/utils/logger', () => {
 	const redactCredentialedUrls = (value: string) => value.replace(/:\/\/[^/\s@]+@/g, '://***@');
 	return {
@@ -182,6 +190,21 @@ printf '%s|%s' "$user" "$GIT_ASKPASS"
 
 		expect(actualUsername).toBe(username);
 		expect(fs.existsSync(helperPath)).toBe(false);
+	});
+
+	it('resets configured credential helpers so a stored token cannot replace the askpass token', () => {
+		const root = temporaryRoot(temporaryRoots);
+		runGit(root, ['init']);
+		runGit(root, ['config', 'credential.helper', 'osxkeychain']);
+
+		const effectiveHelper = runGitWithOAuth(
+			root,
+			['config', '--get', 'credential.helper'],
+			getGitOAuthCredential('github', 'oauth-secret'),
+		).toString();
+
+		expect(runGit(root, ['config', '--get', 'credential.helper']).toString()).toBe('osxkeychain\n');
+		expect(effectiveHelper).toBe('\n');
 	});
 
 	it.each([
@@ -549,6 +572,79 @@ describe('deployment context source', () => {
 		expect(lookupUrl.searchParams.get('state')).toBe('OPEN');
 		expect(branchOwnershipMocks.reviewRequests.get(key)).toEqual(created);
 	});
+
+	it.each([
+		{
+			label: 'an SSH remote on the GitHub Enterprise host',
+			url: 'ssh://git@ghe.example.com/nao/context.git',
+			baseUrl: 'https://ghe.example.com',
+			apiUrl: undefined,
+			expectedApiUrl: 'https://ghe.example.com/api/v3',
+		},
+		{
+			label: 'a GitHub Enterprise remote with an API override',
+			url: 'https://ghe.example.com/nao/context.git',
+			baseUrl: 'https://ghe.example.com',
+			apiUrl: 'https://api.ghe.example.com',
+			expectedApiUrl: 'https://api.ghe.example.com',
+		},
+		{
+			label: 'an SSH shorthand remote with a GitHub Enterprise base on a custom port',
+			url: 'git@ghe.example.com:nao/context.git',
+			baseUrl: 'https://ghe.example.com:8443',
+			apiUrl: undefined,
+			expectedApiUrl: 'https://ghe.example.com:8443/api/v3',
+		},
+		{
+			label: 'an HTTPS remote on another port of the GitHub Enterprise host',
+			url: 'https://ghe.example.com:9443/nao/context.git',
+			baseUrl: 'https://ghe.example.com:8443',
+			apiUrl: 'https://api.ghe.example.com',
+			expectedApiUrl: 'https://ghe.example.com:9443/api/v3',
+		},
+		{
+			label: 'a github.com remote with an API override',
+			url: 'https://github.com/nao/context.git',
+			baseUrl: undefined,
+			apiUrl: 'https://proxy.example.com/github',
+			expectedApiUrl: 'https://proxy.example.com/github',
+		},
+		{
+			label: 'a github.com remote alongside a GitHub Enterprise setup',
+			url: 'https://github.com/nao/context.git',
+			baseUrl: 'https://ghe.example.com',
+			apiUrl: 'https://api.ghe.example.com',
+			expectedApiUrl: 'https://api.github.com',
+		},
+	])(
+		'looks up GitHub pull requests for $label on the matching API',
+		async ({ url, baseUrl, apiUrl, expectedApiUrl }) => {
+			for (const [name, value] of [
+				['GITHUB_BASE_URL', baseUrl],
+				['GITHUB_API_URL', apiUrl],
+			] as const) {
+				if (value) {
+					process.env[name] = value;
+				} else {
+					delete process.env[name];
+				}
+			}
+			setContextSourceEnv({ url, token: 'repository-access-token' });
+			const fetchMock = vi.fn().mockResolvedValue(Response.json([]));
+			vi.stubGlobal('fetch', fetchMock);
+
+			await GENERIC_GIT_PROVIDER.findOpenReviewRequest({
+				token: 'repository-access-token',
+				repoFullName: url,
+				branch: 'nao/test',
+				projectId: 'project-id',
+				userId: 'user-1',
+			});
+
+			expect(fetchMock).toHaveBeenCalledOnce();
+			expect(fetchMock.mock.calls[0][0]).toMatch(new RegExp(`^${expectedApiUrl}/repos/nao/context/pulls\\?`));
+		},
+	);
 
 	it('uses the saved review link when Bitbucket pull request lookup fails', async () => {
 		setContextSourceEnv({
@@ -1446,32 +1542,28 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expect((await readFileContent('/context.md', secondAccess)).content).toBe('repository content\n');
 	});
 
-	it('keeps a cloned project read-only when no repository setting exists', async () => {
+	it('saves edits of a cloned project to a nao draft when no repository setting exists', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		fixture.context.configOverride = undefined;
 		const worktree = getContextWorktreePath('project-id', fixture.live, 'user-1');
+		const before = snapshot(fixture.live);
 
 		const access = await fileAccess(fixture.context);
 		const status = await getContextRepositoryStatus(fixture.context);
 		const tree = await getFileTree(fixture.live);
 		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'changed\n', file.hash, access);
 
 		expect(access.git).toMatchObject({ status: 'unavailable', reason: 'no-repo', repo: null });
 		expect(status).toMatchObject({ repo: null, gitUnavailableReason: 'no-repo', isGitRepository: false });
 		expect(tree.map((entry) => entry.name)).toContain('context.md');
-		expect(file).toMatchObject({
-			content: 'repository content\n',
-			isEditable: false,
-			reason: 'no-repo',
-			guidance: {
-				message: 'No context repository is connected. Connect one in Git settings to edit context files.',
-				actionKind: 'route',
-				actionPath: '/settings/git',
-			},
-		});
-		await expect(writeFileContent('/context.md', 'changed\n', file.hash, access)).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-		});
+		expect(file).toMatchObject({ content: 'repository content\n', isEditable: true, reason: null });
+		expect(contextDraftMocks.saveDraftFile).toHaveBeenCalledWith(
+			{ projectId: 'project-id', userId: 'user-1' },
+			{ path: 'context.md', content: 'changed\n', baseHash: file.hash },
+			null,
+		);
+		expectLiveUnchanged(fixture.live, before);
 		expect(fs.existsSync(worktree)).toBe(false);
 	});
 
@@ -1912,6 +2004,7 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 			const file = await readFileContent('/context.md', {
 				projectFolder: fixture.live,
 				git,
+				draftOwner: { projectId: fixture.context.projectId, userId: fixture.context.userId },
 			});
 
 			expect(git).toMatchObject({
@@ -2602,23 +2695,22 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		}
 	});
 
-	it('keeps browsing available with no repo or token while refusing mutation', async () => {
+	it('keeps browsing available without a token while refusing mutation', async () => {
 		const root = temporaryRoot(temporaryRoots);
 		const live = path.join(root, 'live');
 		fs.mkdirSync(live);
 		fs.writeFileSync(path.join(live, 'context.md'), 'live\n');
-		const contexts: ContextExplorerGitContext[] = [baseContext(live, null), { ...baseContext(live), token: null }];
+		const context: ContextExplorerGitContext = { ...baseContext(live), token: null };
 
-		for (const context of contexts) {
-			const access = await fileAccess(context);
-			const file = await readFileContent('/context.md', access);
-			expect(file.content).toBe('live\n');
-			expect(file.isEditable).toBe(false);
-			await expect(writeFileContent('/context.md', 'blocked\n', file.hash, access)).rejects.toMatchObject({
-				code: 'FORBIDDEN',
-			});
-			await expect(discardAllContextChanges(context)).rejects.toMatchObject({ code: 'FORBIDDEN' });
-		}
+		const access = await fileAccess(context);
+		const file = await readFileContent('/context.md', access);
+		expect(file.content).toBe('live\n');
+		expect(file.isEditable).toBe(false);
+		await expect(writeFileContent('/context.md', 'blocked\n', file.hash, access)).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(discardAllContextChanges(context)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(contextDraftMocks.saveDraftFile).not.toHaveBeenCalled();
 	});
 
 	it('rejects every unsafe destructive target, including a repository containing the live folder', () => {
@@ -2775,6 +2867,7 @@ async function fileAccess(context: ContextExplorerGitContext) {
 	return {
 		projectFolder: context.projectFolder,
 		git: await resolveContextExplorerGit(context),
+		draftOwner: { projectId: context.projectId, userId: context.userId },
 	};
 }
 

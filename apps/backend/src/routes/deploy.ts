@@ -10,7 +10,7 @@ import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
-import { createProject, touchProjectUpdatedAt } from '../services/project.service';
+import { createProject, recordProjectDeployment } from '../services/project.service';
 
 export const deployRoutes = async (app: App) => {
 	app.post('/deploy', async (request, reply) => {
@@ -19,10 +19,12 @@ export const deployRoutes = async (app: App) => {
 			return reply.status(401).send({ error: 'Missing or invalid Authorization header' });
 		}
 
-		const org = await validateApiKey(authHeader.slice(7));
-		if (!org) {
+		const apiKey = await validateApiKey(authHeader.slice(7));
+		if (!apiKey) {
 			return reply.status(401).send({ error: 'Invalid API key' });
 		}
+		request.actorUserId = apiKey.createdBy;
+		const org = apiKey.organization;
 
 		const file = await request.file();
 		if (!file) {
@@ -75,7 +77,7 @@ export const deployRoutes = async (app: App) => {
 				}
 				fs.mkdirSync(existing.path!, { recursive: true });
 				copyDirectoryContents(extractDir, existing.path!);
-				await touchProjectUpdatedAt(projectId);
+				await recordProjectDeployment(projectId);
 			} else {
 				const projectId_ = crypto.randomUUID();
 				const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId_);
@@ -87,6 +89,7 @@ export const deployRoutes = async (app: App) => {
 					type: 'local',
 					path: projectDir,
 					orgId: org.id,
+					deployedAt: new Date(),
 				});
 				projectId = project.id;
 				status = 'created';

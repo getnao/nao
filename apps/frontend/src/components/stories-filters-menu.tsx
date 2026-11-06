@@ -126,7 +126,9 @@ export function StoriesFiltersMenu({ filters, onFiltersChange, showArchived, onS
 				{activeCount > 0 && (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem onSelect={clearAll}>Clear all filters</DropdownMenuItem>
+						<DropdownMenuItem onSelect={clearAll} className='py-1 text-sm font-normal'>
+							Clear all filters
+						</DropdownMenuItem>
 					</>
 				)}
 			</DropdownMenuContent>

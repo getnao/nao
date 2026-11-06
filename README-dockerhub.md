@@ -1,6 +1,8 @@
-# nao - The #1 Open-Source Analytics Agent
+# nao - The #1 open source agentic BI builder
 
-nao is a framework to build and deploy analytics agents. Create context for your analytics agent with the nao-core CLI, then deploy a chat UI for anyone to interact with your data.
+Your data team builds the analytics agent and owns the context layer. Everyone in the company builds on data.
+
+Build your own agentic BI with nao. Build your data context layer with the nao-core CLI (or let your coding agent do it with the nao skills), then deploy this image so anyone in the company can chat with your data and build live dashboards, data apps and slides.
 
 🌐 [Website](https://getnao.io) · 📚 [Documentation](https://docs.getnao.io) · 💬 [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ) · 🐙 [GitHub](https://github.com/getnao/nao)
 
@@ -47,7 +49,7 @@ docker run -d \
 | `NAO_CONTEXT_GIT_BRANCH`   | No       | Branch to clone (default: `main`)                                             |
 | `NAO_CONTEXT_GIT_TOKEN`    | No       | Access token for private HTTPS repos                                          |
 | `NAO_CONTEXT_GIT_PLATFORM` | No       | Platform override for self-hosted GitHub, GitLab, or Bitbucket hosts          |
-| `NAO_CONTEXT_GIT_SSH_KEY`  | No       | Raw SSH private key contents (deploy key) — for `git@…`/`ssh://…` URLs        |
+| `NAO_CONTEXT_GIT_SSH_KEY`  | No       | Raw SSH private key contents (deploy key), for `git@…`/`ssh://…` URLs         |
 | `NAO_CONTEXT_GIT_SUBPATH`  | No       | Subfolder of the repo to use as the project (sparse checkout, e.g. monorepos) |
 
 \* At least one LLM API key is required to make AI queries.
@@ -133,11 +135,11 @@ Enable **Allow write access** when creating a GitHub deploy key. It is off by de
 
 ## Key Features
 
-- 🧱 **Open Context Builder** — Create file-system context for your agent
-- 🏳️ **Data Stack Agnostic** — Works with any data warehouse, stack, LLM
-- 🔒 **Self-hosted & Secure** — Use your own LLM keys for maximum data security
-- 🤖 **Natural Language to Insights** — Ask questions in plain English
-- 📊 **Native Data Visualization** — Create visualizations directly in chat
+- 🧱 **Open Context Builder**: Create file-system context for your agent
+- 🏳️ **Data Stack Agnostic**: Works with any data warehouse, stack, LLM
+- 🔒 **Self-hosted & Secure**: Use your own LLM keys for maximum data security
+- 🤖 **Natural Language to Insights**: Ask questions in plain English
+- 📊 **Native Data Visualization**: Create visualizations directly in chat
 
 ## License
 

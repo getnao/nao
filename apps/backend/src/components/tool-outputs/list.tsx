@@ -64,8 +64,6 @@ function formatFileEntry(entry: list.Entry) {
 }
 
 function formatDirectoryEntry(entry: list.Entry) {
-	if (entry.itemCount !== undefined) {
-		return `${entry.name} (${entry.itemCount} items)`;
-	}
-	return entry.name;
+	const name = entry.itemCount !== undefined ? `${entry.name} (${entry.itemCount} items)` : entry.name;
+	return entry.description ? `${name}: ${entry.description}` : name;
 }

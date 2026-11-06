@@ -2,12 +2,20 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import type { SavedPrompt } from '@nao/backend/saved-prompts';
 import { trpc } from '@/main';
 
-export function useSavedPromptsQuery() {
+/** Saved prompts of `projectId`, or of the current project when it is omitted. */
+export function useSavedPromptsQuery(projectId?: string) {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const savedPromptsQuery = useQuery({
 		...trpc.project.getSavedPrompts.queryOptions(),
-		enabled: project.isError || project.data != null,
+		enabled: !projectId && (project.isError || project.data != null),
 	});
+	const projectSavedPromptsQuery = useQuery({
+		...trpc.project.getProjectSavedPrompts.queryOptions({ projectId: projectId ?? '' }),
+		enabled: !!projectId,
+	});
+	if (projectId) {
+		return projectSavedPromptsQuery;
+	}
 	return {
 		...savedPromptsQuery,
 		data: project.data === null ? undefined : savedPromptsQuery.data,

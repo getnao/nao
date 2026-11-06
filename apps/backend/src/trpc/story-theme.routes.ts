@@ -1,6 +1,7 @@
 import { MAX_STORY_LOGO_BYTES, STORY_LOGO_MEDIA_TYPES, storyThemePairSchema } from '@nao/shared/story-theme';
 import { storyThemeGenerationSchema } from '@nao/shared/story-theme-generation';
 import {
+	MAX_DOCUMENT_PROMPT_CHARACTERS,
 	MAX_IMAGE_BYTES,
 	MAX_SOURCE_IMAGES,
 	MAX_THEME_INSTRUCTIONS_LENGTH,
@@ -38,6 +39,11 @@ const pdfInputSchema = z.object({
 	pageCount: z.number().int().positive(),
 	fromZip: z.boolean().default(false),
 	pages: z.array(imageInputSchema).min(1).max(MAX_SOURCE_IMAGES),
+});
+
+const documentInputSchema = z.object({
+	fileName: z.string().trim().min(1).max(200),
+	text: z.string().trim().min(1).max(MAX_DOCUMENT_PROMPT_CHARACTERS),
 });
 
 function assertCustomStoriesEnabled() {
@@ -125,6 +131,7 @@ export const storyThemeRoutes = {
 						})
 						.optional(),
 					pdfs: z.array(pdfInputSchema).max(MAX_SOURCE_IMAGES).default([]),
+					document: documentInputSchema.optional(),
 					instructions: z.string().trim().max(MAX_THEME_INSTRUCTIONS_LENGTH).optional(),
 					useWhiteLabel: z.boolean().default(true),
 				})
@@ -135,10 +142,11 @@ export const storyThemeRoutes = {
 						value.zip ||
 						value.logo ||
 						value.pdfs.length > 0 ||
+						value.document ||
 						value.instructions ||
 						value.useWhiteLabel,
 					{
-						message: 'Add a website, an image, a PDF, a ZIP or instructions.',
+						message: 'Add a website, an image, a PDF, a ZIP, a document or instructions.',
 					},
 				)
 				.refine((value) => value.pdfs.flatMap((pdf) => pdf.pages).length <= MAX_SOURCE_IMAGES, {
@@ -180,6 +188,7 @@ export const storyThemeRoutes = {
 								mediaType: page.mediaType,
 							})),
 						})),
+						document: input.document,
 						instructions: input.instructions,
 						useWhiteLabel: input.useWhiteLabel,
 					},

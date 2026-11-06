@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	consumeHistoricalContextDiffSearch,
+	consumeOpenTestsSearch,
 	getHistoricalContextDiffTarget,
 	parseContextExplorerCommit,
 	parseContextExplorerPath,
@@ -51,6 +52,44 @@ describe('context explorer search', () => {
 			).toEqual({ path: '/RULES.md' });
 		},
 	);
+
+	it('keeps where the Tests drawer is, with or without an open file', () => {
+		expect(validateContextExplorerSearch({ testRun: 'run-1' })).toEqual({ testRun: 'run-1' });
+		expect(
+			validateContextExplorerSearch({ path: '/RULES.md', test: '/tests/revenue.yml', testRun: 'run-2' }),
+		).toEqual({
+			path: '/RULES.md',
+			test: '/tests/revenue.yml',
+			testRun: 'run-2',
+		});
+	});
+
+	it.each([
+		[{ test: '/tests/../RULES.md' }, {}],
+		[{ test: 'tests/revenue.yml', testRun: 'run-1' }, { testRun: 'run-1' }],
+		[{ test: '/tests/revenue.yml', testRun: '../run' }, { test: '/tests/revenue.yml' }],
+	])('ignores an invalid Tests drawer location %o', (search, expected) => {
+		expect(validateContextExplorerSearch(search)).toEqual(expected);
+	});
+
+	it('keeps the Tests drawer location when consuming a historical diff', () => {
+		const search = validateContextExplorerSearch({
+			path: '/RULES.md',
+			from: 'a'.repeat(40),
+			to: 'b'.repeat(40),
+			test: '/tests/revenue.yml',
+		});
+
+		expect(consumeHistoricalContextDiffSearch(search)).toEqual({ path: '/RULES.md', test: '/tests/revenue.yml' });
+	});
+
+	it('keeps a request to open the Tests drawer until it is consumed', () => {
+		const search = validateContextExplorerSearch({ path: '/RULES.md', tests: 'open' });
+
+		expect(search).toEqual({ path: '/RULES.md', tests: 'open' });
+		expect(consumeOpenTestsSearch(search)).toEqual({ path: '/RULES.md' });
+		expect(validateContextExplorerSearch({ tests: 'closed' })).toEqual({});
+	});
 
 	it('does not activate a partial historical range', () => {
 		const search = validateContextExplorerSearch({

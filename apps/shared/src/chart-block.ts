@@ -82,6 +82,7 @@ export type StoryMapBlockInput = Pick<
 	| 'radius'
 	| 'size_key'
 	| 'value_key'
+	| 'color_scale'
 	| 'region_key'
 	| 'region_boundaries'
 	| 'boundaries_url'
@@ -110,6 +111,7 @@ export function buildStoryMapBlock(input: StoryMapBlockInput): string {
 		radiusAttr +
 		stringAttr('size_key', input.size_key) +
 		stringAttr('value_key', input.value_key) +
+		stringAttr('color_scale', input.color_scale) +
 		stringAttr('region_key', input.region_key) +
 		stringAttr('region_boundaries', input.region_boundaries) +
 		stringAttr('boundaries_url', input.boundaries_url) +

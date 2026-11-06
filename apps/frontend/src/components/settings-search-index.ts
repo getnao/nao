@@ -20,6 +20,7 @@ export interface SettingsSearchEntry {
 	cloudOnly?: boolean;
 	cloudBillingOnly?: boolean;
 	betaSubagentsOnly?: boolean;
+	betaAutomationsOnly?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -263,8 +264,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project',
 		pageLabel: 'Project Settings',
 		title: 'Information',
-		description: 'View your project name and filesystem path.',
-		keywords: ['project name', 'project path'],
+		description: 'View or rename your project and see its filesystem path.',
+		keywords: ['project name', 'rename project', 'project path'],
 	},
 	{
 		page: '/settings/project',
@@ -272,6 +273,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Environment Variables',
 		description: 'Set environment variables referenced in nao_config.yaml.',
 		keywords: ['env', 'environment', 'variable', 'secret', 'credential', 'config', 'jinja'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project',
+		pageLabel: 'Project Settings',
+		title: 'Warehouse credentials',
+		description: 'Replace the warehouse connection details stored encrypted in nao.',
+		keywords: ['warehouse', 'credentials', 'password', 'token', 'secret', 'connection', 'database'],
 		adminOnly: true,
 	},
 
@@ -317,6 +326,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'close to limit',
 			'under budget',
 			'filter by group',
+			'export',
+			'csv',
+			'download usage',
 			'enterprise',
 		],
 		adminOnly: true,
@@ -551,18 +563,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Agent',
 		section: 'Experimental',
 		search: { tab: 'tools' },
-		title: 'Python sandboxing',
-		description: 'Allow the agent to execute Python code in a secure sandboxed environment.',
-		keywords: ['code execution', 'sandbox', 'python'],
-	},
-	{
-		page: '/settings/project/agent',
-		pageLabel: 'Agent',
-		section: 'Experimental',
-		search: { tab: 'tools' },
-		title: 'Python execution duration',
-		description: 'Configure how long Python code can run before it is stopped.',
-		keywords: ['code execution', 'timeout', 'duration', 'python', 'seconds'],
+		title: 'Code mode',
+		description: 'Let the agent write JavaScript that combines several MCP tool calls in a single step.',
+		keywords: ['codemode', 'code execution', 'javascript', 'script', 'mcp', 'sandbox', 'python'],
 	},
 	{
 		page: '/settings/project/agent',
@@ -1115,6 +1118,29 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 
+	// ── Project > Automations ────────────────────────────────
+	{
+		page: '/settings/project/automations',
+		pageLabel: 'Automations',
+		title: 'All automations',
+		description: 'Review, disable, reassign, and delete the automations created by every member of this project.',
+		keywords: [
+			'automations',
+			'schedules',
+			'cron',
+			'webhook',
+			'disable',
+			'pause',
+			'transfer',
+			'owner',
+			'orphaned',
+			'delete',
+			'remove',
+		],
+		adminOnly: true,
+		betaAutomationsOnly: true,
+	},
+
 	// ── Usage & Costs ──────────────────────────────────────────
 	{
 		page: '/settings/usage',
@@ -1414,7 +1440,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Stories',
 		title: 'Start from a brand',
 		description:
-			'Read colours, fonts and shapes from a website, an image or a ZIP of brand assets — or several together.',
+			'Read colours, fonts and shapes from a website, an image, a PDF, brand guidelines in Markdown or text, or a ZIP of brand assets — or several together.',
 		keywords: [
 			'inspiration',
 			'generate',
@@ -1423,7 +1449,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'url',
 			'screenshot',
 			'image',
+			'pdf',
 			'zip',
+			'markdown',
+			'md',
+			'text',
+			'txt',
+			'document',
+			'guidelines',
 			'paste',
 			'drop',
 			'upload',
@@ -1521,8 +1554,20 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		search: { tab: 'stories' },
 		section: 'Stories',
 		title: 'Blocks',
-		description: 'Background, border and radius shared by KPI tiles and charts.',
-		keywords: ['block', 'card', 'kpi', 'border', 'radius', 'button', 'pill', 'highlight', 'tinted', 'filters'],
+		description: 'Background, border and radius shared by KPI tiles, charts and filters; tabs share the border.',
+		keywords: [
+			'block',
+			'card',
+			'kpi',
+			'border',
+			'radius',
+			'button',
+			'pill',
+			'highlight',
+			'tinted',
+			'filters',
+			'tabs',
+		],
 		adminOnly: true,
 	},
 	{
@@ -1553,6 +1598,43 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'File Explorer',
 		description: 'Browse and inspect the files and context available to the agent.',
 		keywords: ['files', 'context', 'documents', 'knowledge base'],
+		adminOrContextAdmin: true,
+	},
+
+	{
+		page: '/settings/context-explorer',
+		pageLabel: 'File Explorer',
+		search: { tests: 'open' },
+		title: 'Tests',
+		description: 'Run the context tests from the Tests drawer of the File Explorer and review their results.',
+		keywords: ['tests', 'evaluation', 'eval', 'nao test', 'run tests', 'pass rate', 'reliability'],
+		adminOrContextAdmin: true,
+	},
+	{
+		page: '/settings/context-explorer',
+		pageLabel: 'File Explorer',
+		search: { tests: 'open' },
+		title: 'Compare models',
+		description: 'Run the tests on several models and compare their accuracy, cost, tool calls and time.',
+		keywords: [
+			'models',
+			'benchmark',
+			'compare models',
+			'llm',
+			'cost',
+			'cost per question',
+			'tool calls',
+			'leaderboard',
+		],
+		adminOrContextAdmin: true,
+	},
+	{
+		page: '/settings/context-explorer',
+		pageLabel: 'File Explorer',
+		search: { tests: 'open' },
+		title: 'Compare with production',
+		description: 'Run the tests on your File Explorer changes and on production side by side.',
+		keywords: ['compare', 'comparison', 'draft', 'changes', 'regression', 'before after', 'production', 'branch'],
 		adminOrContextAdmin: true,
 	},
 ];

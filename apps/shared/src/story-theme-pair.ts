@@ -1,6 +1,7 @@
 import {
 	DEFAULT_DARK_STORY_THEME,
 	DEFAULT_STORY_THEME,
+	hasFlatBlocks,
 	oppositeStoryThemeMode,
 	parseStoredStoryTheme,
 	type StoryTheme,
@@ -36,7 +37,6 @@ const SURFACE_LIGHTNESS = {
 } as const;
 const SURFACE_MAX_CHROMA = 0.02;
 const MIN_SURFACE_STEP = 1.08;
-const FLAT_BLOCK_STEP = 1.03;
 const VISIBLE_FILL_CONTRAST = 1.5;
 const LINE_STEP = { light: -0.11, dark: 0.14 } as const;
 
@@ -75,7 +75,7 @@ export function deriveStoryThemeVariant(theme: StoryTheme, mode: StoryThemeMode)
 
 	const page = flipSurface(theme.surfaces.page, targets.page);
 	const sunken = separateSurface(flipSurface(theme.surfaces.sunken, targets.sunken), page, MIN_SURFACE_STEP);
-	const isFlat = contrastRatio(theme.block.background, theme.surfaces.page) < FLAT_BLOCK_STEP;
+	const isFlat = hasFlatBlocks(theme);
 	const blockBackground = isFlat ? page : flipSurface(theme.block.background, targets.block);
 	const blockVanishes =
 		!isFlat && theme.block.borderWidth === 0 && contrastRatio(blockBackground, page) < MIN_SURFACE_STEP;

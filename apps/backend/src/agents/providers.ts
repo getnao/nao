@@ -22,6 +22,7 @@ import { createOllama } from 'ai-sdk-ollama';
 
 import type {
 	ActiveEffort,
+	ExtraParamKey,
 	LlmProvidersType,
 	ModelCapabilities,
 	ModelInferenceSettings,
@@ -43,6 +44,7 @@ import {
 	OPENAI_COMPATIBLE_BASE_URLS,
 	PROVIDER_META,
 } from './provider-meta';
+import { TOOL_RESULT_CLEARING_EDIT } from './tool-result-clearing';
 import { withWellFormedPrompt } from './well-formed-prompt';
 
 export {
@@ -72,30 +74,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		create: (settings, modelId) => withProgressUpdates(createAnthropic(settings).chat(modelId)),
 		defaultOptions: {
 			disableParallelToolUse: false,
-			contextManagement: {
-				edits: [
-					{
-						type: 'clear_tool_uses_20250919',
-						trigger: {
-							type: 'input_tokens',
-							value: 180_000,
-						},
-						clearToolInputs: false,
-						excludeTools: [
-							'display_chart',
-							'execute_python',
-							'execute_semantic_query',
-							'execute_sql',
-							'execute_sandboxed_code',
-							'grep',
-							'list',
-							'read',
-							'search',
-							'story',
-						],
-					},
-				],
-			},
+			contextManagement: { edits: [TOOL_RESULT_CLEARING_EDIT] },
 		} satisfies AnthropicProviderOptions,
 	},
 	openai: {
@@ -455,7 +434,7 @@ type ThinkingResult = { providerOverrides?: Record<string, unknown>; thinkingAct
 const THINKING_INACTIVE: ThinkingResult = { thinkingActive: false };
 
 /** Snap a stored effort to the nearest option the model declares, so a stale setting can't error. */
-function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
+export function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
 	if (!options || options.includes(effort)) {
 		return effort;
 	}
@@ -633,6 +612,11 @@ function resolveEffortThinking(
 	return { providerOverrides: toOverrides(effort), thinkingActive: true };
 }
 
+/** Sent when the admin leaves the param unset: Gemini bills its thinking but only returns it when asked. */
+const EXTRA_PARAM_DEFAULTS: Partial<Pick<ModelInferenceSettings, ExtraParamKey>> = {
+	includeThoughts: true,
+};
+
 function resolveExtraOptions(
 	provider: LlmProvider,
 	modelId: string,
@@ -646,7 +630,7 @@ function resolveExtraOptions(
 
 	const overrides: Record<string, unknown> = {};
 	for (const key of extraParams) {
-		const value = settings[key];
+		const value = settings[key] ?? EXTRA_PARAM_DEFAULTS[key];
 		if (value === undefined || key === 'thinkingDisplay') {
 			continue;
 		}

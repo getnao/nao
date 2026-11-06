@@ -21,6 +21,10 @@ const optionalNonEmptyString = z
 	.optional()
 	.transform((value) => value?.trim() || undefined);
 
+function blankToUndefined(value: unknown): unknown {
+	return typeof value === 'string' && value.trim() === '' ? undefined : value;
+}
+
 const emittedDeprecationWarnings = new Set<string>();
 
 function resolveOidcGroupNaoRoleMapping(
@@ -130,6 +134,16 @@ const baseRawEnvSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	GITHUB_BASE_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_BASE_URL must be a valid URL' }).optional()),
+	GITHUB_API_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_API_URL must be a valid URL' }).optional()),
 
 	GITLAB_CLIENT_ID: z.string().optional(),
 	GITLAB_CLIENT_SECRET: z.string().optional(),
@@ -207,12 +221,21 @@ const baseRawEnvSchema = z.object({
 		}),
 	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
-	SMTP_PASSWORD: z.string().optional(),
-	SMTP_HOST: z.string().optional(),
-	SMTP_PORT: z.string().optional(),
-	SMTP_USER: z.string().optional(),
-	SMTP_MAIL_FROM: z.string().optional(),
-	SMTP_SSL: z.enum(['true', 'false']).optional(),
+	SMTP_PASSWORD: z
+		.string()
+		.optional()
+		.transform((value) => value || undefined),
+	SMTP_HOST: optionalNonEmptyString,
+	SMTP_PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65_535).default(587)),
+	SMTP_USER: optionalNonEmptyString,
+	SMTP_MAIL_FROM: optionalNonEmptyString,
+	SMTP_SSL: z.preprocess(
+		blankToUndefined,
+		z
+			.enum(['true', 'false'])
+			.default('false')
+			.transform((value) => value === 'true'),
+	),
 
 	/**
 	 * Declarative Slack setup: when SLACK_BOT_TOKEN is set, these seed the default project's Slack
@@ -614,10 +637,21 @@ export function isCloudBillingEnabled(
 	return data.NAO_MODE === 'cloud' && data.CLOUD_BILLING_ENABLED;
 }
 
+export function isCloudWelcomeEmailEnabled(
+	data: Pick<
+		z.output<typeof baseRawEnvSchema>,
+		'NAO_MODE' | 'CLOUD_BILLING_ENABLED' | 'SMTP_HOST' | 'SMTP_MAIL_FROM' | 'SMTP_PASSWORD'
+	> = env,
+): boolean {
+	return isCloudBillingEnabled(data) && Boolean(data.SMTP_HOST && data.SMTP_MAIL_FROM && data.SMTP_PASSWORD);
+}
+
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
 
 const normalizedMcpPublicUrl = env.MCP_PUBLIC_URL?.replace(/\/+$/, '');
+/** The public MCP origin (MCP_PUBLIC_URL without a trailing slash), when set. */
+export const MCP_PUBLIC_ORIGIN = normalizedMcpPublicUrl;
 /** The `/mcp` URL on the public host, when MCP_PUBLIC_URL is set. */
 export const MCP_PUBLIC_SERVER_URL = normalizedMcpPublicUrl ? `${normalizedMcpPublicUrl}/mcp` : undefined;
 /** OAuth resource identifiers the token endpoint accepts (RFC 8707 audiences). */
@@ -638,10 +672,15 @@ const mcpPublicHost = normalizedMcpPublicUrl ? new URL(normalizedMcpPublicUrl).h
  * on it, else BETTER_AUTH_URL — never an arbitrary Host header, so only known origins are advertised.
  */
 export function resolveMcpFacingOrigin(requestHost: string | undefined): string {
-	if (normalizedMcpPublicUrl && requestHost && requestHost.toLowerCase() === mcpPublicHost) {
+	if (normalizedMcpPublicUrl && isMcpPublicHost(requestHost)) {
 		return normalizedMcpPublicUrl;
 	}
 	return normalizedBaseUrl;
+}
+
+/** Whether the request came in on the public MCP host (MCP_PUBLIC_URL). */
+export function isMcpPublicHost(requestHost: string | undefined): boolean {
+	return Boolean(mcpPublicHost && requestHost && requestHost.toLowerCase() === mcpPublicHost);
 }
 
 export function noProjectMessage(): string {

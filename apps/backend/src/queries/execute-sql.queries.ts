@@ -5,33 +5,49 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { takeFirstOrThrow } from '../utils/queries';
+import { chunk } from '../utils/utils';
 
 export const EXECUTE_SQL_TOOL_NAME = 'execute_sql';
 export const EXECUTE_SEMANTIC_QUERY_TOOL_NAME = 'execute_semantic_query';
 
-/** Tools whose output is a query result addressable by `query_id` (charts, stories, read_query_result). */
+/** Tools whose output is a query result addressable by `query_id` (charts, stories, page_query_result). */
 export const QUERY_TOOL_NAMES = [EXECUTE_SQL_TOOL_NAME, EXECUTE_SEMANTIC_QUERY_TOOL_NAME] as const;
 export type QueryToolName = (typeof QUERY_TOOL_NAMES)[number];
+
+const MAX_QUERY_IDS_PER_LOOKUP = 500;
 
 export function isQueryToolPart() {
 	return inArray(s.messagePart.toolName, [...QUERY_TOOL_NAMES]);
 }
 
-type QueryPart = { toolInput: executeSql.Input; toolOutput: executeSql.Output };
+type QueryPart = {
+	toolInput: executeSql.Input;
+	toolOutput: executeSql.Output;
+	semanticQuery?: executeSemanticQuery.SemanticQuery;
+};
 
-export type StoredSqlQuery = { sqlQuery: string; databaseId?: string; dialect?: string; adminMode: boolean };
+export type StoredSqlQuery = {
+	sqlQuery: string;
+	databaseId?: string;
+	dialect?: string;
+	adminMode: boolean;
+	/** The metric query to compile again before running, so the semantic layer's current definitions apply. */
+	semanticQuery?: executeSemanticQuery.SemanticQuery;
+};
 
 /**
  * Reads a stored query part as plain SQL whichever tool produced it: a semantic query
- * resolves to the SQL the layer compiled, on the database the layer chose.
+ * resolves to the SQL the layer compiled, on the database the layer chose, and keeps
+ * the metric query it was compiled from.
  */
 function readQueryPart(toolName: string, toolInput: unknown, toolOutput: unknown): QueryPart {
 	if (toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME) {
-		const input = executeSemanticQuery.InputSchema.parse(toolInput);
+		const { name, ...semanticQuery } = executeSemanticQuery.InputSchema.parse(toolInput);
 		const output = executeSemanticQuery.OutputSchema.parse(toolOutput);
 		return {
-			toolInput: { sql_query: output.compiled_sql, database_id: output.database_id, name: input.name },
+			toolInput: { sql_query: output.compiled_sql, database_id: output.database_id, name },
 			toolOutput: output,
+			semanticQuery,
 		};
 	}
 	return {
@@ -62,6 +78,7 @@ export type LatestExecuteSqlRow = {
 	toolName: QueryToolName;
 	toolInput: executeSql.Input;
 	toolOutput: executeSql.Output;
+	semanticQuery?: executeSemanticQuery.SemanticQuery;
 	adminMode: boolean;
 };
 
@@ -125,6 +142,7 @@ export async function getExecuteSqlPartByQueryIdInChat(
 	toolName: QueryToolName;
 	toolInput: executeSql.Input;
 	toolOutput: executeSql.Output;
+	semanticQuery?: executeSemanticQuery.SemanticQuery;
 	adminMode: boolean;
 } | null> {
 	const [row] = await db
@@ -189,6 +207,26 @@ export async function updateExecuteSqlPart(
 	);
 }
 
+export async function updateSemanticQueryPart(
+	toolCallId: string,
+	toolInput: executeSemanticQuery.Input,
+	toolOutput: executeSemanticQuery.Output,
+): Promise<void> {
+	await takeFirstOrThrow(
+		db
+			.update(s.messagePart)
+			.set({ toolInput, toolOutput })
+			.where(
+				and(
+					eq(s.messagePart.toolCallId, toolCallId),
+					eq(s.messagePart.toolName, EXECUTE_SEMANTIC_QUERY_TOOL_NAME),
+				),
+			)
+			.returning({ toolCallId: s.messagePart.toolCallId })
+			.execute(),
+	);
+}
+
 /** Same as `getLatestSqlQueryDataByIds` for several chats at once, in a single query. */
 export async function getLatestSqlQueryDataByChats(
 	queryIdsByChat: Map<string, Set<string>>,
@@ -225,9 +263,10 @@ export async function getLatestSqlQueryDataByChats(
 	return dataByChat;
 }
 
-async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) {
+async function loadLatestExecuteSqlParts(chatIds: string[], queryIds: Set<string>) {
 	return db
 		.select({
+			chatId: s.chatMessage.chatId,
 			toolName: s.messagePart.toolName,
 			toolInput: s.messagePart.toolInput,
 			toolOutput: s.messagePart.toolOutput,
@@ -237,7 +276,7 @@ async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) 
 		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
 		.where(
 			and(
-				eq(s.chatMessage.chatId, chatId),
+				inArray(s.chatMessage.chatId, chatIds),
 				isNull(s.chatMessage.supersededAt),
 				isQueryToolPart(),
 				messagePartToolOutputIdIn(queryIds),
@@ -247,36 +286,46 @@ async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) 
 		.execute();
 }
 
-/**
- * Load SQL templates for the given query ids from a chat.
- * When duplicates exist, the latest non-superseded part wins.
- */
 export async function getLatestSqlQueriesByIds(
 	chatId: string,
 	queryIds: Set<string>,
 ): Promise<Record<string, StoredSqlQuery>> {
-	if (queryIds.size === 0) {
-		return {};
-	}
+	const queriesByChat = await getLatestSqlQueriesByChats(new Map([[chatId, queryIds]]));
+	return queriesByChat.get(chatId) ?? {};
+}
 
-	const parts = await loadLatestExecuteSqlParts(chatId, queryIds);
-	const queries: Record<string, StoredSqlQuery> = {};
-	for (const part of parts) {
+/** Load SQL templates for the given query ids from several chats at once. */
+export async function getLatestSqlQueriesByChats(
+	queryIdsByChat: Map<string, Set<string>>,
+): Promise<Map<string, Record<string, StoredSqlQuery>>> {
+	const chatIds = [...queryIdsByChat.keys()];
+	const allQueryIds = [...new Set([...queryIdsByChat.values()].flatMap((ids) => [...ids]))];
+	const partBatches = await Promise.all(
+		chunk(allQueryIds, MAX_QUERY_IDS_PER_LOOKUP).map((queryIds) =>
+			loadLatestExecuteSqlParts(chatIds, new Set(queryIds)),
+		),
+	);
+
+	const queriesByChat = new Map<string, Record<string, StoredSqlQuery>>();
+	for (const part of partBatches.flat()) {
 		const output = part.toolOutput as { id?: string; dialect?: string } | null;
-		if (!output?.id || !queryIds.has(output.id) || !part.toolName) {
+		if (!output?.id || !queryIdsByChat.get(part.chatId)?.has(output.id) || !part.toolName) {
 			continue;
 		}
-		const { sqlQuery, databaseId } = readStoredSql(part.toolName, part.toolInput, part.toolOutput);
+		const { sqlQuery, databaseId, semanticQuery } = readStoredSql(part.toolName, part.toolInput, part.toolOutput);
 		if (sqlQuery) {
-			queries[output.id] = {
+			const chatQueries = queriesByChat.get(part.chatId) ?? {};
+			chatQueries[output.id] = {
 				sqlQuery,
 				...(databaseId && { databaseId }),
 				...(output.dialect && { dialect: output.dialect }),
 				adminMode: part.messageSource === 'admin',
+				...(semanticQuery && { semanticQuery }),
 			};
+			queriesByChat.set(part.chatId, chatQueries);
 		}
 	}
-	return queries;
+	return queriesByChat;
 }
 
 /** Loose read of the SQL a stored part ran, tolerant of parts written by older versions. */
@@ -284,10 +333,15 @@ function readStoredSql(
 	toolName: string,
 	toolInput: unknown,
 	toolOutput: unknown,
-): { sqlQuery?: string; databaseId?: string } {
+): { sqlQuery?: string; databaseId?: string; semanticQuery?: executeSemanticQuery.SemanticQuery } {
 	if (toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME) {
 		const output = toolOutput as { compiled_sql?: string; database_id?: string } | null;
-		return { sqlQuery: output?.compiled_sql, databaseId: output?.database_id };
+		const semanticQuery = executeSemanticQuery.SemanticQuerySchema.safeParse(toolInput);
+		return {
+			sqlQuery: output?.compiled_sql,
+			databaseId: output?.database_id,
+			...(semanticQuery.success && { semanticQuery: semanticQuery.data }),
+		};
 	}
 	const input = toolInput as { sql_query?: string; database_id?: string } | null;
 	return { sqlQuery: input?.sql_query, databaseId: input?.database_id };
@@ -305,7 +359,7 @@ export async function getLatestSqlQueryDataByIds(
 		return {};
 	}
 
-	const parts = await loadLatestExecuteSqlParts(chatId, queryIds);
+	const parts = await loadLatestExecuteSqlParts([chatId], queryIds);
 	const data: Record<string, { data: unknown[]; columns: string[] }> = {};
 	for (const part of parts) {
 		const output = part.toolOutput as { id?: string; data?: unknown[]; columns?: string[] } | null;

@@ -29,7 +29,11 @@ export const getErrorMessage = (error: unknown): string | null => {
 
 export const formatErrorMessageForUI = (error: unknown): string => {
 	if (error instanceof ManagedCreditsExhaustedError) {
-		return JSON.stringify({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+		return JSON.stringify({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
 	}
 	if (isTypeValidationError(error)) {
 		const payload = error.value;
@@ -193,7 +197,7 @@ export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, str
 
 /** Names whose effective value comes from the process environment because the project does not override them. */
 export const getProcessEnvSourcedVarNames = (names: string[], projectEnv: Record<string, string>): string[] => {
-	return names.filter((name) => !projectEnv[name] && !!process.env[name]);
+	return names.filter((name) => !Object.hasOwn(projectEnv, name) && !!process.env[name]);
 };
 
 /** Truncate a string to a maximum length and add an ellipsis in the middle. */
@@ -233,6 +237,12 @@ const isLowSurrogate = (charCode: number): boolean => charCode >= 0xdc00 && char
 export const removeNewLine = (str: string): string => {
 	return str.replace(/[\r\n]/g, '');
 };
+
+export function chunk<T>(items: T[], size: number): T[][] {
+	return Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+		items.slice(index * size, (index + 1) * size),
+	);
+}
 
 export function groupBy<T, K extends string>(
 	items: T[],
@@ -278,3 +288,7 @@ export const formatSize = (bytes: number) => {
 	}
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
+
+export function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

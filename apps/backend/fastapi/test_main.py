@@ -2,6 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import duckdb
 import main
@@ -1195,6 +1196,31 @@ def bigquery_project_folder():
         yield tmpdir
 
 
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+@pytest.mark.parametrize(
+    "sql", ["SELECT SESSION_USER() AS identity", "SELECT * FROM customer.orders"]
+)
+def test_cloud_bigquery_sso_never_uses_server_credentials(
+    bigquery_project_folder, monkeypatch, endpoint, sql
+):
+    monkeypatch.setenv("NAO_MODE", "cloud")
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    with patch("ibis.bigquery.connect") as connect:
+        response = client.post(
+            endpoint,
+            json={
+                "sql": sql,
+                "nao_project_folder": bigquery_project_folder,
+                "table_access": UNENFORCED_TABLE_ACCESS,
+            },
+        )
+
+    assert response.status_code == 403, response.text
+    assert "service account" in response.json()["detail"]
+    connect.assert_not_called()
+
+
 def test_execute_sql_simple_bigquery(bigquery_project_folder):
     """Test execute_sql endpoint with BigQuery using SSO."""
     client = TestClient(app, headers=INTERNAL_HEADERS)
@@ -1330,6 +1356,38 @@ def test_compile_semantic_query_without_semantic_layer(duckdb_project_folder):
     response = client.post(
         "/semantic_layer/compile",
         json={"nao_project_folder": duckdb_project_folder, "metrics": ["revenue"]},
+    )
+
+    assert response.status_code == 400
+    assert "semantic_layer" in response.json()["detail"]
+
+
+def test_describe_semantic_layer(semantic_layer_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/catalog",
+        json={"nao_project_folder": semantic_layer_project_folder},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metrics = {metric["name"]: metric for metric in body["metrics"]}
+    dimensions = {dimension["name"]: dimension for dimension in body["dimensions"]}
+    assert set(metrics) == {"average_order_value", "orders", "revenue"}
+    assert metrics["revenue"]["label"] == "Revenue"
+    assert "order__status" in metrics["revenue"]["dimensions"]
+    assert dimensions["order__ordered_at"]["type"] == "time"
+    assert dimensions["order__ordered_at"]["granularity"] == "day"
+    assert dimensions["order__status"]["description"] == "Order status"
+
+
+def test_describe_semantic_layer_without_semantic_layer(duckdb_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/catalog",
+        json={"nao_project_folder": duckdb_project_folder},
     )
 
     assert response.status_code == 400

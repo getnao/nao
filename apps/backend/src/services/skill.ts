@@ -63,6 +63,10 @@ class SkillService {
 		return this._projects.get(projectId)?.skills ?? [];
 	}
 
+	public getSkill(projectId: string, skillName: string): Skill | undefined {
+		return this.getSkills(projectId).find((skill) => skill.name === skillName.trim());
+	}
+
 	public getSkillLoadErrors(projectId: string): SkillLoadError[] {
 		return this._projects.get(projectId)?.loadErrors ?? [];
 	}
@@ -91,6 +95,14 @@ class SkillService {
 		}
 	}
 
+	public getSkillBody(projectId: string, skillName: string): string | null {
+		const rawContent = this.getSkillContent(projectId, skillName);
+		if (!rawContent) {
+			return null;
+		}
+		return matter(rawContent).content.trim() || null;
+	}
+
 	/**
 	 * Preloaded skills ride along in every request, so the set is capped: each skill body is truncated,
 	 * then skills are taken in the order the operator listed them, skipping any that no longer fit the total budget.
@@ -101,12 +113,7 @@ class SkillService {
 		let totalChars = 0;
 
 		for (const skill of this._findSkillsByName(projectId, names)) {
-			const rawContent = this.getSkillContent(projectId, skill.name);
-			if (!rawContent) {
-				continue;
-			}
-
-			const body = matter(rawContent).content.trim();
+			const body = this.getSkillBody(projectId, skill.name);
 			if (!body) {
 				continue;
 			}

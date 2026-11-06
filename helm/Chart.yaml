@@ -23,7 +23,7 @@ maintainers:
   - name: Christophe Blefari
     url: https://github.com/Bl3f
 
-kubeVersion: ">=1.24.0"
+kubeVersion: ">=1.24.0-0"
 
 dependencies:
   - name: postgresql

@@ -20,7 +20,8 @@ from nao_core.ui import UI
 
 from .assertions import combine_check_messages, evaluate_assertions
 from .case import TESTS_FOLDER, InvalidTestFileError, TestCase, discover_tests
-from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
+from .client import BACKEND_URL, AgentClientError, TestVerdict, VerificationResult, get_client
+from .client import TestResult as AgentTestResult
 from .compare import normalize_dataframe_numbers
 from .summary import (
     ModelSummary,
@@ -199,6 +200,8 @@ def run_test(
     model: ModelConfig,
     email: str | None = None,
     password: str | None = None,
+    api_key: str | None = None,
+    project_name: str | None = None,
     costs: ModelCosts | None = None,
     comparison: ComparisonConfig | None = None,
 ) -> TestRunResult:
@@ -206,10 +209,12 @@ def run_test(
     UI.print(f"[bold]Running:[/bold] {test_case.name} [dim]({model})[/dim]")
     UI.print(f"[dim]  Prompt: {test_case.prompt}[/dim]")
 
-    client = get_client(email=email, password=password)
+    client = get_client(email=email, password=password, api_key=api_key, project_name=project_name)
 
     try:
-        result = client.run_test(test_case, provider=model.provider, model_id=model.model_id, costs=costs)
+        result = client.run_test(
+            test_case, provider=model.provider, model_id=model.model_id, costs=costs, comparison=comparison
+        )
 
         if result.text:
             UI.print(f"[dim]  Response: {result.text[:200]}...[/dim]")
@@ -222,6 +227,9 @@ def run_test(
         UI.print(f"[dim]  Tokens: {result.usage.totalTokens}[/dim]")
         UI.print(f"[dim]  Cost: ${result.cost.totalCost}[/dim]")
         UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
+
+        if result.verdict:
+            return server_verdict_result(test_case, model, result, result.verdict, tool_call_count)
 
         assertions_passed, assertions_msg = evaluate_assertions(test_case.assertions, result.tool_calls)
 
@@ -324,6 +332,42 @@ def run_test(
             error=str(e),
             details=TestRunDetails(reference_sql=test_case.sql),
         )
+
+
+def server_verdict_result(
+    test_case: TestCase,
+    model: ModelConfig,
+    result: AgentTestResult,
+    verdict: TestVerdict,
+    tool_call_count: int,
+) -> TestRunResult:
+    """Build the run result from the pass/fail decision the backend computed."""
+    verification = result.verification
+    if verification and verification.sql:
+        UI.print(f"[dim]  Verification SQL: {verification.sql}[/dim]")
+    if verdict.comparison:
+        UI.print(f"[dim]{verdict.comparison}[/dim]")
+    UI.print(f"  {status_icon(verdict.passed)} {verdict.message}")
+
+    return TestRunResult(
+        name=test_case.name,
+        model=str(model),
+        passed=verdict.passed,
+        message=verdict.message,
+        tokens=result.usage.totalTokens,
+        cost=result.cost.totalCost,
+        duration_ms=result.duration_ms,
+        tool_call_count=tool_call_count,
+        details=TestRunDetails(
+            response_text=result.text,
+            actual_data=verification.data if verification else None,
+            expected_data=verification.expectedData if verification else None,
+            comparison=verdict.comparison,
+            tool_calls=result.tool_calls,
+            reference_sql=test_case.sql,
+            verification_sql=verification.sql if verification else None,
+        ),
+    )
 
 
 def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | None:
@@ -585,6 +629,13 @@ def test(
             help="Password for authentication. Falls back to NAO_PASSWORD env var.",
         ),
     ] = None,
+    api_key: Annotated[
+        str | None,
+        Parameter(
+            name=["--api-key"],
+            help="Organization API key for authentication, replaces the login. Falls back to NAO_API_KEY env var.",
+        ),
+    ] = None,
 ):
     """Run tests from the tests/ folder.
 
@@ -599,9 +650,11 @@ def test(
         nao test -s test_name
         nao test -s 12,13,14
         nao test -u user@example.com --password secret
+        nao test --api-key nao_xxx
     """
     email = username or os.environ.get("NAO_USERNAME")
     pwd = password or os.environ.get("NAO_PASSWORD")
+    key = api_key or os.environ.get("NAO_API_KEY")
 
     UI.info("\n🧪 Running nao tests...\n")
 
@@ -675,6 +728,8 @@ def test(
                 model,
                 email=email,
                 password=pwd,
+                api_key=key,
+                project_name=config.project_name,
                 costs=resolve_model_costs(config, model),
                 comparison=test_config.comparison,
             )
@@ -692,6 +747,8 @@ def test(
                     m,
                     email=email,
                     password=pwd,
+                    api_key=key,
+                    project_name=config.project_name,
                     costs=resolve_model_costs(config, m),
                     comparison=test_config.comparison,
                 ): (index, attempt)

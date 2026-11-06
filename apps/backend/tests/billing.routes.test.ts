@@ -372,7 +372,7 @@ describe('billing.createTrialCheckoutSession', () => {
 		stripeMocks.createCheckout.mockResolvedValue('https://checkout.stripe.com/trial');
 	});
 
-	it('opens a legacy trial Checkout with a stable duration in the selected currency', async () => {
+	it('allows an admin to subscribe before the trial starts', async () => {
 		await expect(
 			caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly', currency: 'eur' }),
 		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
@@ -381,7 +381,6 @@ describe('billing.createTrialCheckoutSession', () => {
 			currency: 'eur',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
-			trialDays: 14,
 		});
 	});
 
@@ -465,6 +464,13 @@ describe('billing.createTrialCheckoutSession', () => {
 	});
 
 	it('maps unavailable Stripe trial Checkout to a conflict', async () => {
+		const trialEndsAt = new Date('2099-10-08T00:00:00.000Z');
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			billingAccessEndsAt: trialEndsAt,
+			trialStartedAt: new Date('2099-09-24T00:00:00.000Z'),
+			trialEndsAt,
+		});
 		stripeMocks.createCheckout.mockRejectedValueOnce(
 			new stripeService.CloudInitialCheckoutUnavailableError('Trial Checkout is unavailable'),
 		);
@@ -784,7 +790,6 @@ function cloudPlan(amount: number, billingInterval: 'monthly' | 'yearly' = 'mont
 		currency: 'usd',
 		interval: billingInterval === 'monthly' ? 'month' : 'year',
 		intervalCount: 1,
-		trialDays: 14,
 		userLimit: null,
 	};
 }

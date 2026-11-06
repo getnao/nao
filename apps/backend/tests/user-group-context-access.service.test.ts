@@ -111,20 +111,6 @@ describe('warehouse Context access', () => {
 		expect(resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 
-	it('resolves context after a system project request was already authorized', async () => {
-		vi.mocked(getUserRoleInProject).mockResolvedValue(null);
-
-		await expect(
-			resolveProjectContextAccess('system-example-project', 'user-1', '/project', {
-				projectAccessAlreadyAuthorized: true,
-			}),
-		).resolves.toMatchObject({
-			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
-		});
-		expect(getUserRoleInProject).not.toHaveBeenCalled();
-		expect(resolveUserGroupAccess).toHaveBeenCalledWith('system-example-project', 'user-1');
-	});
-
 	it('enforces docs, features, and RULES groups without unlimited entitlement', async () => {
 		vi.mocked(hasFeature).mockResolvedValue(false);
 		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toEqual({

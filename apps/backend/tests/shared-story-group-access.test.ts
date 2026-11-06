@@ -108,8 +108,8 @@ describe('sharing a story with user groups', () => {
 	it('lists group shares for members with user and group counts', async () => {
 		await shareWithGroupAndDirectUser();
 
-		const memberStories = await listUserSharedStories([PROJECT_ID], GROUP_MEMBER_ID, PROJECT_ID);
-		const outsiderStories = await listUserSharedStories([PROJECT_ID], OUTSIDER_ID, PROJECT_ID);
+		const memberStories = await listUserSharedStories(PROJECT_ID, GROUP_MEMBER_ID);
+		const outsiderStories = await listUserSharedStories(PROJECT_ID, OUTSIDER_ID);
 		const sharingInfo = await getStorySharingInfo([STORY_ID]);
 
 		expect(memberStories).toHaveLength(1);

@@ -83,10 +83,6 @@ export type StorySubscriptionNotificationPayload = {
 	ownerName: string;
 };
 
-export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
-export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
-export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
-
 export const MAX_PRELOADED_SKILLS = 50;
 
 /** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
@@ -249,6 +245,15 @@ export type LlmSelectedModel = {
 	modelId: string;
 };
 
+export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
+	return model.provider === other.provider && model.modelId === other.modelId;
+}
+
+/** The model a stored result names in its own columns, under the shape of a selected model. */
+export function resultModel(result: { llmProvider: LlmProvider; llmModelId: string }): LlmSelectedModel {
+	return { provider: result.llmProvider, modelId: result.llmModelId };
+}
+
 export type SummarySegment =
 	| { type: 'text'; content: string }
 	| {
@@ -295,7 +300,8 @@ export type FileEditabilityReason =
 	| 'generated'
 	| 'rendered-template'
 	| 'synced-source'
-	| 'not-tracked';
+	| 'not-tracked'
+	| 'production-only';
 
 export type FileEditabilityGuidance =
 	| {
@@ -459,18 +465,35 @@ export type AnalyticsEventMetadata =
 	| { type: 'refresh'; trigger: 'manual' | 'scheduled'; queriesRefreshed?: number }
 	| { type: 'view_duration'; durationMs: number; startedAt: number; versionNumber?: number };
 
+export const MAX_CITATIONS_PER_MESSAGE = 100;
+export const MAX_CITATION_TEXT_LENGTH = 10_000;
+
 export interface CitationData {
 	start: number;
 	end: number;
 	text: string;
 	storySlug?: string;
+	/** The chat the cited story belongs to, which can differ from the chat that quotes it. */
+	storyChatId?: string;
 	block?: StoryBlockReference;
+	intent?: StoryCitationIntent;
 }
+
+export type StoryCitationIntent = 'ask' | 'edit';
+
+/** Code cited from a story's source or a file of a custom story, whose path is the reference's title. */
+export const CODE_CITATION_KIND = 'code';
 
 export interface StoryBlockReference {
 	kind: string;
 	title?: string;
 	queryId?: string;
+	lines?: StoryCodeLines;
+}
+
+export interface StoryCodeLines {
+	start: number;
+	end: number;
 }
 
 export type MessageBubble = { role: 'user' | 'assistant'; charCount: number };

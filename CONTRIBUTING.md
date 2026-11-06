@@ -105,7 +105,7 @@ chat/
 
 Some files in this repo are part of the commercial nao Enterprise Edition.
 They are clearly marked with `/* @license Enterprise */` at the top of the
-file and are subject to the commercial terms in [LICENSE](LICENSE) rather
+file and are subject to the commercial terms in [LICENSE-ENTERPRISE](LICENSE-ENTERPRISE) rather
 than Apache 2.0.
 
 Every EE feature is gated behind a signed `NAO_LICENSE` token (JWS / Ed25519),

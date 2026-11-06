@@ -75,6 +75,11 @@ export const ListToolCall = ({ toolPart }: ToolCallComponentProps<'list'>) => {
 							>
 								{getIcon(item.type)}
 								<span className='text-xs flex-1 truncate leading-none min-w-0'>{item.name}</span>
+								{item.description && (
+									<span className='text-xs text-foreground/40 truncate min-w-0 max-w-1/2'>
+										{item.description}
+									</span>
+								)}
 								{item.type === 'directory' && item.itemCount !== undefined && (
 									<span className='text-xs text-foreground/40'>
 										{item.itemCount} {item.itemCount === 1 ? 'item' : 'items'}

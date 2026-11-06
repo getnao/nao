@@ -12,6 +12,11 @@ export interface GeneratedKey {
 	prefix: string;
 }
 
+export interface ValidatedApiKey {
+	createdBy: string;
+	organization: DBOrganization;
+}
+
 export const generateApiKey = (): GeneratedKey => {
 	const randomHex = crypto.randomBytes(KEY_RANDOM_BYTES).toString('hex');
 	const plaintext = `${KEY_PREFIX}${randomHex}`;
@@ -24,8 +29,12 @@ export const hashKey = (plaintext: string): string => {
 	return crypto.createHash('sha256').update(plaintext).digest('hex');
 };
 
-export const validateApiKey = async (plaintext: string): Promise<DBOrganization | null> => {
-	if (!plaintext.startsWith(KEY_PREFIX)) {
+export const isApiKey = (token: string): boolean => {
+	return token.startsWith(KEY_PREFIX);
+};
+
+export const validateApiKey = async (plaintext: string): Promise<ValidatedApiKey | null> => {
+	if (!isApiKey(plaintext)) {
 		return null;
 	}
 
@@ -38,5 +47,6 @@ export const validateApiKey = async (plaintext: string): Promise<DBOrganization 
 	apiKeyQueries.updateApiKeyLastUsed(apiKey.id).catch(() => {});
 
 	const { getOrganizationById } = await import('../queries/organization.queries');
-	return getOrganizationById(apiKey.orgId);
+	const organization = await getOrganizationById(apiKey.orgId);
+	return organization ? { createdBy: apiKey.createdBy, organization } : null;
 };

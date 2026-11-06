@@ -33,6 +33,7 @@ vi.mock('../src/services/credit-grant.service', () => ({
 	recordProjectJoinCandidate: vi.fn(),
 }));
 
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import { and, eq } from 'drizzle-orm';
 
 import s from '../src/db/abstractSchema';
@@ -50,6 +51,8 @@ const ORG_ID = 'org-1';
 const PROJECT_ID = 'project-1';
 const ADMIN_ID = 'user-admin';
 const MEMBER_ID = 'user-member';
+const ONBOARDING_USER_ID = 'user-onboarding';
+const ONBOARDING_ORG_ID = 'org-onboarding';
 
 describe('cloud backoffice routes', () => {
 	let app: FastifyInstance;
@@ -64,6 +67,9 @@ describe('cloud backoffice routes', () => {
 		process.env.CLOUD_GITHUB_PROJECT_APP_ID = '123';
 		process.env.CLOUD_GITHUB_PROJECT_INSTALLATION_ID = '456';
 		process.env.CLOUD_GITHUB_PROJECT_PRIVATE_KEY = 'test-private-key';
+		process.env.SMTP_HOST = 'smtp.example.com';
+		process.env.SMTP_MAIL_FROM = 'hello@example.com';
+		process.env.SMTP_PASSWORD = 'secret';
 		__reloadEnvForTesting();
 		projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-backoffice-test-'));
 		await fs.writeFile(
@@ -227,6 +233,100 @@ describe('cloud backoffice routes', () => {
 		expect(JSON.stringify(user.json())).not.toContain(SECRET);
 	});
 
+	it('serves the logs of the whole instance with column filters and sorting', async () => {
+		const now = Date.now();
+		await db.insert(s.log).values([
+			{
+				id: 'log-http',
+				level: 'info',
+				source: 'http',
+				message: 'GET /api/chats 200',
+				context: { method: 'GET', statusCode: 200 },
+				userId: ADMIN_ID,
+				createdAt: new Date(now - 60_000),
+			},
+			{
+				id: 'log-agent',
+				level: 'warn',
+				source: 'agent',
+				message: 'Échec du tool call, nouvel essai',
+				projectId: PROJECT_ID,
+				createdAt: new Date(now - 120_000),
+			},
+			{
+				id: 'log-deploy',
+				level: 'info',
+				source: 'http',
+				message: 'POST /api/deploy 202',
+				userId: MEMBER_ID,
+				createdAt: new Date(now - 180_000),
+			},
+		]);
+
+		const logs = await listLogs();
+		expect(logs.statusCode, logs.body).toBe(200);
+		expect(logs.json().total).toBe(4);
+		expect(logIds(logs)).toEqual(['log-1', 'log-http', 'log-agent', 'log-deploy']);
+		expect(logs.json().items[0]).toMatchObject({
+			projectName: 'Backoffice Project',
+			orgId: ORG_ID,
+			orgName: 'Backoffice Organization',
+			userId: null,
+			userEmail: null,
+			context: { secret: '[REDACTED]' },
+		});
+		expect(logs.json().items[1]).toMatchObject({
+			projectId: null,
+			projectName: null,
+			orgName: null,
+			userId: ADMIN_ID,
+			userEmail: 'admin@example.com',
+			userName: 'Admin User',
+		});
+		expect(logs.json().items[3]).toMatchObject({ userId: MEMBER_ID, userEmail: 'member@example.com' });
+		expect(logs.json().items[3]).not.toHaveProperty('apiKeyId');
+		expect(logs.body).not.toContain(SECRET);
+
+		const levelFilter = [{ column: 'level', operator: 'in', values: ['error', 'warn'] }];
+		expect(logIds(await listLogs({ filters: levelFilter }))).toEqual(['log-1', 'log-agent']);
+		const projectlessFilter = [{ column: 'project', operator: 'isEmpty' }];
+		expect(logIds(await listLogs({ filters: projectlessFilter }))).toEqual(['log-http', 'log-deploy']);
+		const userFilter = [{ column: 'user', operator: 'contains', value: 'ADMIN@' }];
+		expect(logIds(await listLogs({ filters: userFilter }))).toEqual(['log-http']);
+		const memberFilter = [{ column: 'user', operator: 'equals', value: 'Member@Example.com' }];
+		expect(logIds(await listLogs({ filters: memberFilter }))).toEqual(['log-deploy']);
+		const anonymousFilter = [{ column: 'user', operator: 'isEmpty' }];
+		expect(logIds(await listLogs({ filters: anonymousFilter }))).toEqual(['log-1', 'log-agent']);
+		const messageFilter = [{ column: 'message', operator: 'contains', value: 'API/CHATS' }];
+		expect(logIds(await listLogs({ filters: messageFilter }))).toEqual(['log-http']);
+		const accentedFilter = [{ column: 'message', operator: 'startsWith', value: 'Échec' }];
+		expect(logIds(await listLogs({ filters: accentedFilter }))).toEqual(['log-agent']);
+		const contextFilter = [{ column: 'context', operator: 'contains', value: 'statusCode' }];
+		expect(logIds(await listLogs({ filters: contextFilter }))).toEqual(['log-http']);
+		const redactedValueFilter = [{ column: 'context', operator: 'contains', value: SECRET }];
+		expect((await listLogs({ filters: redactedValueFilter })).json().total).toBe(0);
+		const redactedKeyFilter = [{ column: 'context', operator: 'contains', value: '"secret":"[REDACTED]"' }];
+		expect(logIds(await listLogs({ filters: redactedKeyFilter }))).toEqual(['log-1']);
+		const organizationFilter = [{ column: 'organization', operator: 'notContains', value: 'backoffice' }];
+		expect(logIds(await listLogs({ filters: organizationFilter }))).toEqual(['log-http', 'log-deploy']);
+		const combinedFilters = [
+			{ column: 'createdAt', operator: 'after', value: new Date(now - 90_000).toISOString() },
+			{ column: 'source', operator: 'notIn', values: ['system'] },
+		];
+		expect(logIds(await listLogs({ filters: combinedFilters }))).toEqual(['log-http']);
+		expect(logIds(await listLogs({ sort: 'level', direction: 'asc' }))).toEqual([
+			'log-http',
+			'log-deploy',
+			'log-agent',
+			'log-1',
+		]);
+		expect((await listLogs({ sort: 'user', direction: 'asc' })).statusCode).toBe(200);
+
+		expect((await get('/logs?filters=not-json')).statusCode).toBe(400);
+		const missingValue = await listLogs({ filters: [{ column: 'message', operator: 'contains' }] });
+		expect(missingValue.statusCode).toBe(400);
+	});
+
 	it('serves organization billing state and the billing overview', async () => {
 		const organizations = await get('/organizations');
 		expect(organizations.json().items[0].billing).toMatchObject({
@@ -259,6 +359,56 @@ describe('cloud backoffice routes', () => {
 		await db.delete(s.organizationBilling);
 		const bypassed = await request('PATCH', `/organizations/${ORG_ID}`, { bypassBilling: true });
 		expect(bypassed.json().billing).toMatchObject({ state: 'bypassed', status: null, hasAccess: true });
+	});
+
+	it('tops up an organization wallet once per request and reports it everywhere', async () => {
+		const empty = await get(`/organizations/${ORG_ID}/credits`);
+		expect(empty.statusCode).toBe(200);
+		expect(empty.json()).toMatchObject({ balanceMicroUsd: 0, purchasedMicroUsd: 0, movements: [] });
+
+		const topUp = {
+			amountCents: 2_500,
+			reason: 'Design partner',
+			grantedBy: 'Ops@GetNao.io',
+			requestId: '6f1d8c1e-2f4b-4c8e-9a51-6f0e4f3c2a10',
+		};
+		const created = await request('POST', `/organizations/${ORG_ID}/credits`, topUp);
+		expect(created.statusCode, created.body).toBe(200);
+		expect(created.json()).toMatchObject({
+			balanceMicroUsd: 25_000_000,
+			giftedMicroUsd: 25_000_000,
+			movements: [
+				{
+					kind: 'backoffice_top_up',
+					deltaMicroUsd: 25_000_000,
+					balanceAfterMicroUsd: 25_000_000,
+					grantedBy: 'ops@getnao.io',
+					reason: 'Design partner',
+				},
+			],
+		});
+
+		const replayed = await request('POST', `/organizations/${ORG_ID}/credits`, topUp);
+		expect(replayed.json().balanceMicroUsd).toBe(25_000_000);
+		expect(replayed.json().movements).toHaveLength(1);
+
+		const invalid = await request('POST', `/organizations/${ORG_ID}/credits`, { ...topUp, amountCents: 0 });
+		expect(invalid.statusCode).toBe(400);
+		const unknown = await request('POST', '/organizations/org-missing/credits', topUp);
+		expect(unknown.statusCode).toBe(404);
+
+		const organizations = await get('/organizations');
+		expect(organizations.json().items[0]).toMatchObject({ id: ORG_ID, creditBalanceMicroUsd: 25_000_000 });
+
+		const overview = await get('/billing');
+		expect(overview.json().organizations[0]).toMatchObject({ creditBalanceMicroUsd: 25_000_000 });
+		expect(overview.json().credits).toMatchObject({
+			outstandingBalanceMicroUsd: 25_000_000,
+			fundedOrganizations: 1,
+			purchased12mMicroUsd: 0,
+			backofficeTopUps30dMicroUsd: 25_000_000,
+			recentTopUps: [{ kind: 'backoffice_top_up', orgId: ORG_ID, amountMicroUsd: 25_000_000 }],
+		});
 	});
 
 	it('stores a verified organization license without ever returning the token', async () => {
@@ -391,16 +541,165 @@ describe('cloud backoffice routes', () => {
 		expect(cleanupContextWorktree).toHaveBeenCalledWith(PROJECT_ID, projectPath, MEMBER_ID);
 	});
 
+	it('serves the onboarding funnel of every user and the journey of one', async () => {
+		await seedOnboarding(projectPath);
+
+		const funnel = await get('/onboarding');
+		expect(funnel.statusCode).toBe(200);
+		const summaries = new Map(
+			(funnel.json().items as Array<{ userId: string }>).map((summary) => [summary.userId, summary]),
+		);
+		expect(summaries.get(ONBOARDING_USER_ID)).toMatchObject({
+			stage: 'nao_sync',
+			path: 'cloud',
+			provider: 'snowflake',
+			blocker: null,
+		});
+		expect(summaries.get(ADMIN_ID)).toMatchObject({ stage: 'project_ready', path: 'direct', blocker: null });
+		expect(summaries.get(MEMBER_ID)).toMatchObject({ stage: 'project_ready', path: 'direct', blocker: null });
+
+		const journey = await get(`/users/${ONBOARDING_USER_ID}/onboarding`);
+		expect(journey.statusCode).toBe(200);
+		expect(journey.json().events.map((event: { title: string }) => event.title)).toEqual([
+			'Signed up',
+			'Messaged the jaffle shop example',
+			'Wrote to the onboarding agent',
+			'Started connecting Snowflake',
+			'Snowflake connection OK',
+			'Started the Snowflake cloud setup',
+			'Snowflake cloud setup failed during nao init',
+			'Started the Snowflake cloud setup',
+			'Snowflake cloud setup waiting for business context',
+		]);
+		expect(journey.json().setups).toMatchObject([
+			{ projectId: 'project-onboarding', status: 'awaiting_context', steps: [] },
+			{ status: 'failed', failedStatus: 'initializing', error: 'Warehouse setup failed.', steps: [] },
+		]);
+
+		const missing = await get('/users/missing-user/onboarding');
+		expect(missing.statusCode).toBe(404);
+	});
+
+	it('lists the latest cloud setup failures with the user who hit them', async () => {
+		await seedOnboarding(projectPath);
+
+		const failures = await get('/onboarding/setup-failures?limit=5');
+
+		expect(failures.statusCode).toBe(200);
+		expect(failures.json().items).toMatchObject([
+			{
+				userId: ONBOARDING_USER_ID,
+				userEmail: 'onboarding@example.com',
+				provider: 'snowflake',
+				failedStatus: 'initializing',
+				error: 'Warehouse setup failed.',
+				errorDetail: 'nao init failed: connector missing',
+				failedAt: expect.any(String),
+			},
+		]);
+	});
+
 	async function get(url: string) {
 		return app.inject({ method: 'GET', url: `/api/backoffice${url}`, headers: AUTHORIZATION });
 	}
 
-	async function request(method: 'PATCH' | 'PUT' | 'DELETE', url: string, payload?: unknown) {
+	async function request(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', url: string, payload?: unknown) {
 		return app.inject({ method, url: `/api/backoffice${url}`, headers: AUTHORIZATION, payload });
+	}
+
+	async function listLogs(query: { sort?: string; direction?: string; filters?: unknown[] } = {}) {
+		const { filters, ...params } = query;
+		const search = new URLSearchParams({ ...params, ...(filters && { filters: JSON.stringify(filters) }) });
+		return get(`/logs?${search}`);
+	}
+
+	function logIds(response: Awaited<ReturnType<typeof get>>): string[] {
+		return response.json().items.map((item: { id: string }) => item.id);
 	}
 });
 
+async function seedOnboarding(projectPath: string) {
+	const minutesFromNow = (minutes: number) => new Date(Date.now() + minutes * 60_000);
+	await db.insert(s.user).values({
+		id: ONBOARDING_USER_ID,
+		name: 'Onboarding User',
+		email: 'onboarding@example.com',
+		emailVerified: true,
+	});
+	await db.insert(s.organization).values({ id: ONBOARDING_ORG_ID, name: 'Onboarding', slug: 'onboarding' });
+	await db.insert(s.orgMember).values({ orgId: ONBOARDING_ORG_ID, userId: ONBOARDING_USER_ID, role: 'admin' });
+	await db.insert(s.project).values([
+		{ id: SYSTEM_EXAMPLE_PROJECT_ID, name: 'Jaffle shop', type: 'local', path: projectPath },
+		{ id: 'project-onboarding', orgId: ONBOARDING_ORG_ID, name: 'Setting up', type: 'local', path: projectPath },
+	]);
+	await db.insert(s.chat).values([
+		{ id: 'chat-example', projectId: SYSTEM_EXAMPLE_PROJECT_ID, userId: ONBOARDING_USER_ID },
+		{ id: 'chat-onboarding', projectId: SYSTEM_EXAMPLE_PROJECT_ID, userId: ONBOARDING_USER_ID },
+	]);
+	await db.insert(s.chatMessage).values([
+		{ id: 'example-user', chatId: 'chat-example', role: 'user', source: 'web', createdAt: minutesFromNow(1) },
+		{
+			id: 'onboarding-user',
+			chatId: 'chat-onboarding',
+			role: 'user',
+			source: 'onboarding',
+			createdAt: minutesFromNow(2),
+		},
+		{
+			id: 'onboarding-assistant',
+			chatId: 'chat-onboarding',
+			role: 'assistant',
+			source: 'onboarding',
+			createdAt: minutesFromNow(3),
+		},
+	]);
+	await db.insert(s.messagePart).values([
+		{ messageId: 'onboarding-user', order: 0, type: 'text', text: 'Connect my warehouse' },
+		{
+			messageId: 'onboarding-assistant',
+			order: 0,
+			type: 'tool-request_warehouse_credentials',
+			toolCallId: 'tool-call-credentials',
+			toolName: 'request_warehouse_credentials',
+			toolState: 'output-available',
+			toolInput: { provider: 'snowflake' },
+		},
+	]);
+	await db.insert(s.warehouseConnectionCheck).values({
+		userId: ONBOARDING_USER_ID,
+		provider: 'snowflake',
+		outcome: 'ok',
+		createdAt: minutesFromNow(4),
+	});
+	await db.insert(s.warehouseProvisioningJob).values([
+		{
+			userId: ONBOARDING_USER_ID,
+			orgId: ONBOARDING_ORG_ID,
+			projectName: 'Setting up',
+			provider: 'snowflake',
+			status: 'failed',
+			failedStatus: 'initializing',
+			error: 'Warehouse setup failed.',
+			errorDetail: 'nao init failed: connector missing',
+			createdAt: minutesFromNow(5),
+			finishedAt: minutesFromNow(6),
+		},
+		{
+			userId: ONBOARDING_USER_ID,
+			orgId: ONBOARDING_ORG_ID,
+			projectId: 'project-onboarding',
+			projectName: 'Setting up',
+			provider: 'snowflake',
+			status: 'awaiting_context',
+			createdAt: minutesFromNow(7),
+			updatedAt: minutesFromNow(8),
+		},
+	]);
+}
+
 async function clearData() {
+	await db.delete(s.warehouseConnectionCheck);
+	await db.delete(s.warehouseProvisioningJob);
 	await db.delete(s.session);
 	await db.delete(s.log);
 	await db.delete(s.llmInference);
@@ -414,6 +713,8 @@ async function clearData() {
 	await db.delete(s.orgMember);
 	await db.delete(s.project);
 	await db.delete(s.stripeWebhookEvent);
+	await db.delete(s.creditLedger);
+	await db.delete(s.creditWallet);
 	await db.delete(s.organizationBilling);
 	await db.delete(s.organization);
 	await db.delete(s.user);

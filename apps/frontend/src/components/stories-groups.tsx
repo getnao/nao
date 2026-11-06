@@ -13,10 +13,11 @@ import {
 	Star,
 } from 'lucide-react';
 import { useState } from 'react';
-import type { MouseEvent, ReactNode } from 'react';
+import type { DragEvent, MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 
 import type { StoryItem } from '@/lib/stories-page';
+import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
 import {
 	AuthorDateLabel,
 	CertifiedBadge,
@@ -37,7 +38,10 @@ import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
 import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
+import { useChatActivity } from '@/hooks/use-chat-activity';
 import { usePermissions } from '@/hooks/use-permissions';
+import { hasAnyStoryReference, setStoryDragData } from '@/lib/story-reference';
+import { selectedStoryReferencesStore } from '@/stores/story-references';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -101,17 +105,19 @@ export function StoryCard({
 	selectionActive?: boolean;
 	onToggleSelect?: (storyId: string) => void;
 }) {
-	const { isAdmin, isViewer } = usePermissions();
+	const { role, isAdmin, isViewer } = usePermissions();
 	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 	const isHomePage = useRouterState({ select: (s) => s.location.pathname === '/' });
 	const storyTheme = useActiveStoryTheme();
+	const { running: isAgentEditingStory } = useChatActivity(item.chatId ?? '');
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
-	const canMove = isOwnedByUser || isAdmin;
+	const canMove = (isOwnedByUser || isAdmin) && !isAgentEditingStory;
+	const isMoveDragDisabled = isViewer || !canMove || (selectionActive && !selected);
 	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
 		id: draggableId,
-		disabled: isViewer || selectionActive || !canMove,
+		disabled: isMoveDragDisabled,
 		data: { type: 'story', isOwnedByUser },
 	});
 	const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
@@ -120,6 +126,7 @@ export function StoryCard({
 	const canOpenPinShareDialog = isAdmin && !item.isShared && item.kind === 'own' && !!item.chatId && !!item.storySlug;
 
 	const canSelect =
+		!!role &&
 		!isViewer &&
 		!isHomePage &&
 		((item.kind === 'own' && !!item.chatId && !!item.storySlug) ||
@@ -142,6 +149,18 @@ export function StoryCard({
 		if (canSelect && onToggleSelect) {
 			onToggleSelect(item.storyId);
 		}
+	}
+
+	function handleNativeDragStart(e: DragEvent<HTMLDivElement>) {
+		if (showArchived) {
+			e.preventDefault();
+			return;
+		}
+		const selection = selectedStoryReferencesStore.getSnapshot();
+		setStoryDragData(
+			e,
+			selected && hasAnyStoryReference(selection) ? selection : { storyIds: [item.storyId], folderIds: [] },
+		);
 	}
 
 	function handleLinkClick(e: MouseEvent<HTMLAnchorElement>) {
@@ -171,6 +190,8 @@ export function StoryCard({
 					{...listeners}
 					className={cn(GRID_CARD_CLASS, isDragging && 'opacity-0', selected && 'ring-2 ring-primary')}
 					onClick={handleCardClick}
+					draggable={selectionActive && isMoveDragDisabled}
+					onDragStart={handleNativeDragStart}
 				>
 					<div className={GRID_THUMBNAIL_CLASS}>
 						{item.format === 'custom' ? (
@@ -267,6 +288,7 @@ export function StoryCard({
 				{...listeners}
 				className={cn(LINES_CARD_CLASS, isDragging && 'opacity-0', selected && 'bg-accent')}
 				onClick={handleCardClick}
+				onDragStart={handleNativeDragStart}
 			>
 				<div className='flex items-center flex-1 min-w-0'>
 					{canSelect && (
@@ -544,14 +566,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 	const { isViewer, isAdmin } = usePermissions();
 
 	function invalidateAfterArchive() {
-		queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listSharedArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+		invalidateStoryArchiveCaches(queryClient);
 	}
 
 	const archiveChatStory = useMutation(trpc.story.archive.mutationOptions({ onSuccess: invalidateAfterArchive }));

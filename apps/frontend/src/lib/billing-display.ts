@@ -1,3 +1,4 @@
+import { capitalizeWords } from '@nao/shared';
 import { isTerminalBillingStatus } from '@nao/shared/billing';
 
 type BillingStatusView = {
@@ -128,9 +129,7 @@ export function formatBillingInterval(interval: string, intervalCount: number): 
 }
 
 export function formatBillingStatus(status: string | null): string {
-	return status
-		? status.replaceAll('_', ' ').replace(/\b\w/g, (character) => character.toUpperCase())
-		: 'Not configured';
+	return status ? capitalizeWords(status.replaceAll('_', ' ')) : 'Not configured';
 }
 
 export function formatInvoiceLabel(date: Date): string {

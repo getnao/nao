@@ -1,13 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUpRight, Clock } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import { extractStorySummary } from '../../../../backend/src/utils/story-summary';
-import { StoryThumbnail } from '../story-thumbnail';
-import { CustomStoryThumbnail } from '../custom-story-thumbnail';
+import { StoryCard } from '../story-card';
 import { Skeleton } from '../ui/skeleton';
 import { TextShimmer } from '../ui/text-shimmer';
-import { Button } from '../ui/button';
 import type { ToolCallComponentProps } from '.';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
@@ -30,10 +28,10 @@ const STORY_ACTION_LABELS = {
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {
 	const { open: openSidePanel, isVisible, currentStorySlug, chatId: sidePanelChatId } = useSidePanel();
 	const contextOrUrlChatId = useChatId();
-	const chatId = contextOrUrlChatId ?? sidePanelChatId;
 	const input = toolPart.input;
 	const isStreaming = toolPart.state === 'input-streaming';
 	const output = toolPart.output;
+	const chatId = output?.story_chat_id ?? contextOrUrlChatId ?? sidePanelChatId;
 	const hasAutoOpenedRef = useRef(false);
 
 	const finalStorySlug = output?.id ?? input?.id;
@@ -133,51 +131,25 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	};
 
 	return (
-		<button
-			type='button'
-			onClick={handleOpen}
-			disabled={!canOpen}
-			className='group my-2 -mx-3 flex items-center gap-3 pr-3 rounded-lg border bg-background text-left transition-colors hover:bg-accent/50 disabled:opacity-50 disabled:cursor-default cursor-pointer overflow-hidden'
-		>
-			<div className='items-end relative h-16 w-30 shrink-0'>
-				{isCustomStory ? (
-					<CustomStoryThumbnail
-						storyId={latestStory?.storyId}
-						version={latestStory?.version}
-						isToolPart={true}
-						summary={summary}
-						theme={storyTheme}
-						queryData={latestStory?.queryData as QueryDataMap | null | undefined}
-					/>
-				) : (
-					<StoryThumbnail
-						summary={summary}
-						className='rounded-lg overflow-visible right-6'
-						isToolPart={true}
-						theme={storyTheme}
-						queryData={latestStory?.queryData as QueryDataMap | null | undefined}
-					/>
-				)}
-			</div>
-
-			<div className='flex flex-col gap-1 min-w-0 flex-1 pl-5 py-3'>
-				<span className='text-sm font-medium truncate'>{title}</span>
-				<div className='flex items-center gap-2'>
+		<StoryCard
+			title={title ?? ''}
+			isCustomStory={isCustomStory}
+			summary={summary}
+			storyId={latestStory?.storyId}
+			version={latestStory?.version}
+			theme={storyTheme}
+			queryData={latestStory?.queryData as QueryDataMap | null | undefined}
+			canOpen={canOpen}
+			onOpen={handleOpen}
+			status={
+				<>
 					<span className='text-xs text-muted-foreground'>{statusLabel}</span>
 					{latestStory?.isLive && latestStory?.cachedAt && (
 						<LiveStoryTimestamp cachedAt={latestStory.cachedAt} />
 					)}
-				</div>
-			</div>
-
-			{canOpen && (
-				<Button variant='ghost-muted' size='icon-xs' className='hover:bg-transparent' asChild>
-					<span>
-						<ArrowUpRight className='size-3.5' />
-					</span>
-				</Button>
-			)}
-		</button>
+				</>
+			}
+		/>
 	);
 };
 

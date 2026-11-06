@@ -28,6 +28,7 @@ import { ManagedCreditsExhaustedError } from '../src/utils/error';
 import { logger } from '../src/utils/logger';
 
 const {
+	assertManagedAiCreditsAvailable,
 	issueCreditGrant,
 	issueCreditPurchase,
 	recordManagedAiUsageAndChargeWallet,
@@ -105,12 +106,12 @@ describe('managed AI usage and organization credits', () => {
 			{ grantType: 'user_join', amountMicroUsd: USER_JOIN_GRANT_MICRO_USD, maxGrantsPerOrg: 100 },
 		]);
 		await db.insert(s.user).values([
-			{ id: MANAGED_USER_ID, name: 'Managed User', email: 'managed@example.com' },
-			{ id: BYOK_USER_ID, name: 'BYOK User', email: 'byok@example.com' },
-			{ id: EXHAUSTED_USER_ID, name: 'Exhausted User', email: 'exhausted@example.com' },
-			{ id: SECOND_USER_ID, name: 'Second User', email: 'second@example.com' },
-			{ id: UNCLAIMED_USER_ID, name: 'Unclaimed User', email: 'unclaimed@example.com' },
-			{ id: RACE_USER_ID, name: 'Race User', email: 'race@example.com' },
+			{ id: MANAGED_USER_ID, name: 'Managed User', email: 'managed@example.com', emailVerified: true },
+			{ id: BYOK_USER_ID, name: 'BYOK User', email: 'byok@example.com', emailVerified: true },
+			{ id: EXHAUSTED_USER_ID, name: 'Exhausted User', email: 'exhausted@example.com', emailVerified: true },
+			{ id: SECOND_USER_ID, name: 'Second User', email: 'second@example.com', emailVerified: true },
+			{ id: UNCLAIMED_USER_ID, name: 'Unclaimed User', email: 'unclaimed@example.com', emailVerified: true },
+			{ id: RACE_USER_ID, name: 'Race User', email: 'race@example.com', emailVerified: true },
 		]);
 		await db.insert(s.organization).values([
 			{ id: ORG_ID, name: 'Managed Org', slug: ORG_ID },
@@ -152,6 +153,15 @@ describe('managed AI usage and organization credits', () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+	});
+
+	it('rejects an organization without spendable managed credits', async () => {
+		const error = await assertManagedAiCreditsAvailable('organization-without-wallet').catch(
+			(reason: unknown) => reason,
+		);
+
+		expect(error).toBeInstanceOf(ManagedCreditsExhaustedError);
+		expect((error as ManagedCreditsExhaustedError).requiredBalanceMicroUsd).toBe(1);
 	});
 
 	it('creates the database-configured organization setup gift exactly once', async () => {
@@ -652,9 +662,9 @@ describe('managed AI usage and organization credits', () => {
 			category: 'chat',
 		});
 
-		await expect(model.doGenerate({} as LanguageModelV3CallOptions)).rejects.toBeInstanceOf(
-			ManagedCreditsExhaustedError,
-		);
+		const error = await model.doGenerate({} as LanguageModelV3CallOptions).catch((reason: unknown) => reason);
+		expect(error).toBeInstanceOf(ManagedCreditsExhaustedError);
+		expect((error as ManagedCreditsExhaustedError).requiredBalanceMicroUsd).toBeGreaterThan(0);
 		expect(providerCall).not.toHaveBeenCalled();
 	});
 

@@ -30,6 +30,7 @@ let warehouseTableAccess: WarehouseTableAccess;
 let docsContextAccess: ResolvedDocsContextAccess;
 let filesContextAccess: ResolvedFilesContextAccess;
 const userRulesGroupAccess: UserRulesGroupAccess = { enforced: false };
+const STORY_LIBRARY_ENTRY = { path: '/story-library', name: 'story-library', type: 'directory' };
 
 const context = () =>
 	({
@@ -231,6 +232,7 @@ describe('list', () => {
 			entries: [
 				{ path: '/RULES.md', name: 'RULES.md', type: 'file', size: '5', itemCount: undefined },
 				{ path: '/home', name: 'home', type: 'directory' },
+				STORY_LIBRARY_ENTRY,
 			],
 		});
 	});
@@ -238,16 +240,18 @@ describe('list', () => {
 	it('omits /home when storage is disabled', async () => {
 		useBackend('none');
 
-		expect(await run(listTool, { path: '/' })).toEqual({ _version: '1', entries: [] });
+		expect(await run(listTool, { path: '/' })).toEqual({ _version: '1', entries: [STORY_LIBRARY_ENTRY] });
 	});
 
-	it('hides a project folder called home', async () => {
-		await fs.mkdir(path.join(projectFolder, 'home'));
-		await fs.writeFile(path.join(projectFolder, 'home/decoy.md'), 'decoy');
+	it('hides project folders named like a mount', async () => {
+		for (const mount of ['home', 'story-library']) {
+			await fs.mkdir(path.join(projectFolder, mount));
+			await fs.writeFile(path.join(projectFolder, mount, 'decoy.md'), 'decoy');
+		}
 
 		const output = (await run(listTool, { path: '/' })) as { entries: { name: string; itemCount?: number }[] };
 
-		expect(output.entries).toEqual([{ path: '/home', name: 'home', type: 'directory' }]);
+		expect(output.entries).toEqual([{ path: '/home', name: 'home', type: 'directory' }, STORY_LIBRARY_ENTRY]);
 	});
 
 	it('lists a folder inside /home', async () => {

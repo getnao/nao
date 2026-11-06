@@ -213,7 +213,8 @@ describe('Telegram user validation', () => {
 		expect(mocks.createAgent).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'chat-id', projectId: 'project-id' }),
 			undefined,
-			{ billingAccessVerifiedProjectId: 'project-id', supportsCustomCharts: false },
+			expect.objectContaining({ source: 'telegram', messagingProvider: 'telegram', supportsCustomCharts: false }),
+			{ billingAccessVerifiedProjectId: 'project-id' },
 		);
 	});
 });

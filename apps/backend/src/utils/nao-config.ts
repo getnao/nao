@@ -1,12 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { RepoProvider } from '@nao/shared/types';
+import { isLlmProvider, type LlmSelectedModel, type RepoProvider } from '@nao/shared/types';
 import yaml from 'js-yaml';
+import { z } from 'zod/v4';
 
-import { escapeRegExp, gitlabBaseUrl } from '../services/gitlab';
+import { parseGithubRemoteRepoFullName } from '../services/github';
+import { gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
+import {
+	type ConfiguredTestSettings,
+	DEFAULT_TEST_COMPARISON_TOLERANCES,
+	testComparisonTolerancesSchema,
+} from '../types/test-run';
 import { logger } from './logger';
+import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
 const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
@@ -257,6 +265,69 @@ export function extractConfiguredSemanticLayer(projectFolder: string): Configure
 	};
 }
 
+/** The `test` section of nao_config.yaml, read with the same defaults and validation as `nao test`. */
+export function extractConfiguredTestSettings(projectFolder: string): ConfiguredTestSettings {
+	const config = loadProjectConfig(projectFolder);
+	const testConfig = isRecord(config) && isRecord(config.test) ? config.test : {};
+	const errors: string[] = [];
+
+	const models = parseTestModels(testConfig.models, errors);
+	const attempts = testConfig.k ?? 1;
+	const isValidAttempts = isPositiveInteger(attempts);
+	if (!isValidAttempts) {
+		errors.push(`test.k must be an integer of at least 1, got ${JSON.stringify(attempts)}.`);
+	}
+	const threads = testConfig.threads ?? null;
+	const isValidThreads = threads === null || isPositiveInteger(threads);
+	if (!isValidThreads) {
+		errors.push(`test.threads must be an integer of at least 1, got ${JSON.stringify(threads)}.`);
+	}
+	const tolerances = testComparisonTolerancesSchema.safeParse(testConfig.comparison ?? {});
+	if (!tolerances.success) {
+		errors.push(`test.comparison is invalid: ${z.prettifyError(tolerances.error)}`);
+	}
+
+	return {
+		models,
+		attempts: isValidAttempts ? attempts : 1,
+		threads: isValidThreads ? threads : null,
+		tolerances: tolerances.success ? tolerances.data : DEFAULT_TEST_COMPARISON_TOLERANCES,
+		errors,
+	};
+}
+
+function isPositiveInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+}
+
+function parseTestModels(models: unknown, errors: string[]): LlmSelectedModel[] | null {
+	if (models === undefined || models === null) {
+		return null;
+	}
+	if (!Array.isArray(models)) {
+		errors.push("test.models must be a list of 'provider:model_id' entries.");
+		return null;
+	}
+	const parsed = models.flatMap((model) => {
+		const selectedModel = parseTestModel(model);
+		if (!selectedModel) {
+			errors.push(`test.models has an invalid entry ${JSON.stringify(model)}, expected 'provider:model_id'.`);
+		}
+		return selectedModel ? [selectedModel] : [];
+	});
+	return parsed.length > 0 ? parsed : null;
+}
+
+function parseTestModel(model: unknown): LlmSelectedModel | null {
+	if (typeof model !== 'string') {
+		return null;
+	}
+	const separatorIndex = model.indexOf(':');
+	const provider = model.slice(0, separatorIndex);
+	const modelId = model.slice(separatorIndex + 1);
+	return separatorIndex > 0 && modelId && isLlmProvider(provider) ? { provider, modelId } : null;
+}
+
 function deriveDatabaseNameFromPath(databasePath: string): string {
 	const trimmedPath = databasePath.trim();
 	if (trimmedPath === ':memory:') {
@@ -301,7 +372,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parseRepoFullName(url: string): { repoFullName: string; provider: RepoProvider } | null {
-	const githubRepoFullName = parseGithubRepoFullName(url);
+	const githubRepoFullName = parseGithubRemoteRepoFullName(url);
 	if (githubRepoFullName) {
 		return { repoFullName: githubRepoFullName, provider: 'github' };
 	}
@@ -312,11 +383,6 @@ function parseRepoFullName(url: string): { repoFullName: string; provider: RepoP
 	}
 
 	return null;
-}
-
-function parseGithubRepoFullName(url: string): string | null {
-	const match = url.match(/github\.com[:/]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:[#?].*)?$/i);
-	return match ? `${match[1]}/${match[2]}` : null;
 }
 
 function parseGitlabRepoFullName(url: string): string | null {

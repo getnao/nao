@@ -12,8 +12,10 @@ import {
 import { toProjectPathError } from '../../services/project-path-error.service';
 import { isStorageEnabled } from '../../services/storage';
 import { listUserDirectory } from '../../services/storage/user-files';
+import { listStoryLibrary } from '../../services/story-library';
 import { isCustomStoriesEnabled, listStoryMount } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
+import { isStoryLibraryPath, STORY_LIBRARY_MOUNT, toStoryLibraryVirtualPath } from '../../utils/story-library';
 import { isStoriesPath, STORIES_MOUNT, toStoriesVirtualPath } from '../../utils/story-mount';
 import {
 	isStoragePath,
@@ -39,7 +41,10 @@ export default createTool<list.Input, list.Output>({
 
 const listAnywhere = (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	if (isStoriesPath(virtualPath)) {
-		return listStoryMount(context.chatId, virtualPath);
+		return listStoryMount(context, virtualPath);
+	}
+	if (isStoryLibraryPath(virtualPath)) {
+		return listStoryLibrary(context, virtualPath);
 	}
 	if (isStoragePath(virtualPath)) {
 		return listStorage(virtualPath, context);
@@ -142,7 +147,7 @@ function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 
 	}
 }
 
-/** Permanent storage and custom stories show up as ordinary folders at the root of the tree. */
+/** Permanent storage, custom stories's files and story library show up as ordinary folders at the root of the tree. */
 const mountEntries = (): list.Entry[] => {
 	return [
 		...(isStorageEnabled()
@@ -151,5 +156,6 @@ const mountEntries = (): list.Entry[] => {
 		...(isCustomStoriesEnabled()
 			? [{ path: toStoriesVirtualPath(), name: STORIES_MOUNT, type: 'directory' as const }]
 			: []),
+		{ path: toStoryLibraryVirtualPath(), name: STORY_LIBRARY_MOUNT, type: 'directory' as const },
 	];
 };

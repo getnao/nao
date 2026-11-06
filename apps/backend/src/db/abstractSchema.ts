@@ -36,6 +36,9 @@ export type NewProjectWarehouseCredentials = typeof sqliteSchema.projectWarehous
 export type DBWarehouseProvisioningJob = typeof sqliteSchema.warehouseProvisioningJob.$inferSelect;
 export type NewWarehouseProvisioningJob = typeof sqliteSchema.warehouseProvisioningJob.$inferInsert;
 
+export type DBWarehouseConnectionCheck = typeof sqliteSchema.warehouseConnectionCheck.$inferSelect;
+export type NewWarehouseConnectionCheck = typeof sqliteSchema.warehouseConnectionCheck.$inferInsert;
+
 export type DBProjectMember = typeof sqliteSchema.projectMember.$inferSelect;
 export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
 
@@ -187,6 +190,14 @@ export type DBContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferSelect;
 export type NewContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferInsert;
+
+export type DBTestRun = typeof sqliteSchema.testRun.$inferSelect;
+export type NewTestRun = typeof sqliteSchema.testRun.$inferInsert;
+
+export type DBTestRunResult = typeof sqliteSchema.testRunResult.$inferSelect;
+export type NewTestRunResult = typeof sqliteSchema.testRunResult.$inferInsert;
+
+export type DBContextDraftFile = typeof sqliteSchema.contextDraftFile.$inferSelect;
 
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;

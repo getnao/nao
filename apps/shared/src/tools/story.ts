@@ -68,6 +68,12 @@ export const OutputSchema = z.object({
 	template_warnings: z.array(z.string()).optional(),
 	build_errors: z.array(z.string()).optional().describe('Why a custom story failed to build; nothing was published.'),
 	message: z.string().optional().describe('What the action did to a custom story draft, and what to do next.'),
+	story_chat_id: z
+		.string()
+		.optional()
+		.describe(
+			'Only set when the story is edited from a quick question: the chat holding its versions, where the UI opens it.',
+		),
 });
 
 export type Input = z.infer<typeof InputSchema>;

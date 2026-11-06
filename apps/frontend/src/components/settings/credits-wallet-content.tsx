@@ -164,7 +164,7 @@ function CreditHistoryContent() {
 									<td className='py-2'>{formatDate(group.createdAt)}</td>
 									<td className='py-2'>
 										{ledgerLabel(entry.entryType, entry.deltaMicroUsd, grantType, group)}
-										{entry.entryType === 'gift' && grantType !== 'organization_setup' && (
+										{entry.entryType === 'gift' && grantType === 'user_join' && (
 											<span className='ml-2 text-muted-foreground'>
 												{' '}
 												{group.grantedForUserName ?? 'Former user'}
@@ -595,7 +595,9 @@ function ledgerLabel(
 					? 'project setup grant'
 					: grantType === 'user_join'
 						? 'member join grant'
-						: 'nao gift'
+						: isBackofficeTopUp(group)
+							? 'credits added by nao'
+							: 'nao gift'
 			}`
 		: entryType === 'usage'
 			? `nao AI - ${group.usageUserName ?? 'Former user'}`
@@ -615,6 +617,10 @@ function ledgerLabel(
 function getGrantType(group: CreditLedgerGroup): string | null {
 	const grantType = group.entries.find((entry) => entry.metadata?.grantType)?.metadata?.grantType;
 	return typeof grantType === 'string' ? grantType : null;
+}
+
+function isBackofficeTopUp(group: CreditLedgerGroup): boolean {
+	return group.entries.some((entry) => entry.metadata?.source === 'backoffice');
 }
 
 function getAdjustmentType(group: CreditLedgerGroup): string | null {

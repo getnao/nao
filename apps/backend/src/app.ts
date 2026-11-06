@@ -9,13 +9,14 @@ import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
-import { env, isCloud, isCloudBillingEnabled } from './env';
+import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
 import {
 	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
 	cloudTrialProvisioningHandler,
 } from './handlers/cloud-trial-provisioning.handler';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler } from './handlers/cloud-welcome-email.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
@@ -86,6 +87,7 @@ import { discordService } from './services/discord';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { reportManagedGithubConfiguration } from './services/managed-github-repository';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
@@ -110,6 +112,7 @@ import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
+const BACKOFFICE_LOGS_PATH = '/api/backoffice/logs';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
 const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
@@ -148,13 +151,18 @@ app.setErrorHandler((error, request, reply) => {
 			: undefined;
 	logger.error(describeError(error), {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode },
 	});
 	if (error instanceof BudgetExceededError) {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
 	}
 	if (error instanceof ManagedCreditsExhaustedError) {
-		return reply.status(error.code).send({ error: error.message, code: 'MANAGED_CREDITS_EXHAUSTED' });
+		return reply.status(error.code).send({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
 	}
 	if (error instanceof ExampleChatAllowanceExhaustedError) {
 		return reply.status(error.code).send({ error: error.message, code: 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED' });
@@ -170,7 +178,11 @@ app.setErrorHandler((error, request, reply) => {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.listLogs') || request.url === HEALTH_PATH) {
+	if (
+		request.url.includes('log.listLogs') ||
+		request.url.startsWith(BACKOFFICE_LOGS_PATH) ||
+		request.url === HEALTH_PATH
+	) {
 		done();
 		return;
 	}
@@ -180,6 +192,7 @@ app.addHook('onResponse', (request, reply, done) => {
 	}
 	logger.info(`${request.method} ${request.url} ${reply.statusCode}`, {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode: reply.statusCode, elapsed: reply.elapsedTime },
 	});
 	done();
@@ -204,9 +217,10 @@ app.register(fastifyTRPCPlugin, {
 	trpcOptions: {
 		router: trpcRouter,
 		createContext,
-		onError({ path, error }) {
+		onError({ path, error, req }) {
 			logger.error(`tRPC error on ${path}: ${describeError(error)}`, {
 				source: 'http',
+				userId: req.actorUserId,
 				context: { path, code: error.code },
 			});
 		},
@@ -336,10 +350,12 @@ app.register(mcpServerRoutes, {
 
 async function sendProtectedResourceMetadata(request: { host: string }, reply: FastifyReply) {
 	const { buildProtectedResourceMetadata } = await import('./auth');
-	const { resolveMcpFacingOrigin } = await import('./env');
-	const metadata = await buildProtectedResourceMetadata({
-		resource: `${resolveMcpFacingOrigin(request.host)}/mcp`,
-	});
+	const { isMcpPublicHost, resolveMcpFacingOrigin } = await import('./env');
+	const origin = resolveMcpFacingOrigin(request.host);
+	const metadata = await buildProtectedResourceMetadata(
+		{ resource: `${origin}/mcp` },
+		isMcpPublicHost(request.host) ? origin : undefined,
+	);
 	reply
 		.status(200)
 		.header('Content-Type', 'application/json')
@@ -354,27 +370,59 @@ app.get('/.well-known/oauth-protected-resource/mcp/:projectId', sendProtectedRes
 
 async function relayWebResponse(
 	handler: (req: Request) => Promise<Response>,
-	request: { url: string; headers: Record<string, string | string[] | undefined> },
+	request: { url: string; host: string; headers: Record<string, string | string[] | undefined> },
 	reply: FastifyReply,
+	transform?: (body: string) => string,
 ) {
 	const url = new URL(request.url, env.BETTER_AUTH_URL);
 	const { convertHeaders } = await import('./utils/utils');
 	const response = await handler(new Request(url, { method: 'GET', headers: convertHeaders(request.headers) }));
 	reply.status(response.status);
-	response.headers.forEach((value, key) => reply.header(key, value));
-	reply.send(await response.text());
+	response.headers.forEach((value, key) => {
+		// A transformed body has a different length; let Fastify compute it.
+		if (!(transform && key.toLowerCase() === 'content-length')) {
+			reply.header(key, value);
+		}
+	});
+	const body = await response.text();
+	reply.send(transform ? transform(body) : body);
+}
+
+/**
+ * On the public MCP host, rebase the discovery document onto that host (see
+ * `rewriteAuthServerMetadataForPublicHost`). Other hosts get it unchanged.
+ */
+async function publicHostMetadataTransform(requestHost: string): Promise<((body: string) => string) | undefined> {
+	const { isMcpPublicHost, resolveMcpFacingOrigin } = await import('./env');
+	if (!isMcpPublicHost(requestHost)) {
+		return undefined;
+	}
+	const { rewriteAuthServerMetadataForPublicHost } = await import('./mcp/public-auth-metadata');
+	const publicOrigin = resolveMcpFacingOrigin(requestHost);
+	return (body) => {
+		try {
+			const metadata = JSON.parse(body) as Record<string, unknown>;
+			const rewritten = rewriteAuthServerMetadataForPublicHost(metadata, {
+				uiOrigin: env.BETTER_AUTH_URL,
+				publicOrigin,
+			});
+			return JSON.stringify(rewritten);
+		} catch {
+			return body;
+		}
+	};
 }
 
 async function relayAuthServerMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
 	const { getAuthServerMetadataHandler } = await import('./auth');
 	const handler = await getAuthServerMetadataHandler();
-	await relayWebResponse(handler, request, reply);
+	await relayWebResponse(handler, request, reply, await publicHostMetadataTransform(request.host));
 }
 
 async function relayOpenIdConfigMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
 	const { getOpenIdConfigMetadataHandler } = await import('./auth');
 	const handler = await getOpenIdConfigMetadataHandler();
-	await relayWebResponse(handler, request, reply);
+	await relayWebResponse(handler, request, reply, await publicHostMetadataTransform(request.host));
 }
 
 app.get('/.well-known/oauth-authorization-server/api/auth', relayAuthServerMetadata);
@@ -414,6 +462,9 @@ const isReservedBackendPath = (url: string) => {
 	);
 };
 
+/** Hashed build chunks must 404 when missing (e.g. after a deploy) rather than fall back to index.html. */
+const isBuiltAssetPath = (url: string) => url.startsWith('/assets/');
+
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
 /** Only the sandboxed custom-story frame (opaque origin) gets CORS access, and only to the story runtime modules. */
@@ -441,7 +492,7 @@ if (staticRoot) {
 // SPA fallback: serve index.html for all non-API routes.
 // In dev mode without a built frontend, redirect to the Vite dev server.
 app.setNotFoundHandler((request, reply) => {
-	if (isReservedBackendPath(request.url)) {
+	if (isReservedBackendPath(request.url) || isBuiltAssetPath(request.url)) {
 		reply.status(404).send({ error: 'Not found' });
 	} else if (staticRoot) {
 		reply.sendFile('index.html');
@@ -514,6 +565,9 @@ export const startServer = async (opts: { port: number; host: string }) => {
 			uniqueKey: BILLING_LIFECYCLE_JOB_NAME,
 		});
 	}
+	if (isCloudWelcomeEmailEnabled()) {
+		registerJob(CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler);
+	}
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
 	await ensureRecurring({
@@ -556,6 +610,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
 	startWarehouseProvisioningReconciler();
+	void reportManagedGithubConfiguration();
 
 	void pingLicensesServer();
 	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());

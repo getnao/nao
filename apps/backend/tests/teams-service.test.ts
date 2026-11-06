@@ -196,7 +196,8 @@ describe('TeamsService', () => {
 		expect(teamsHarness.createAgent).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'chat-id', projectId: 'project-a' }),
 			undefined,
-			{ billingAccessVerifiedProjectId: 'project-a', supportsCustomCharts: false },
+			expect.objectContaining({ source: 'teams', messagingProvider: 'teams', supportsCustomCharts: false }),
+			{ billingAccessVerifiedProjectId: 'project-a' },
 		);
 	});
 

@@ -47,6 +47,7 @@ import {
 	bigint,
 	boolean,
 	check,
+	doublePrecision,
 	foreignKey,
 	index,
 	integer,
@@ -77,7 +78,7 @@ import {
 	RecommendationInsight,
 } from '../types/context-recommendation';
 import { EXAMPLE_CHAT_ALLOWANCE_SCOPES, type ExampleChatAllowanceScope } from '../types/example-chat-allowance';
-import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
+import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
 	CREDIT_GRANT_TYPES,
@@ -103,12 +104,22 @@ import {
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
+import {
+	TEST_CONTEXT_VARIANTS,
+	TEST_RUN_STATUSES,
+	TEST_RUN_TRIGGERS,
+	TestContextChange,
+	TestRunModels,
+	TestRunResultDetails,
+} from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
 import {
+	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
 	WAREHOUSE_PROVISIONING_STATUSES,
 	type WarehouseProvider,
 	type WarehouseProvisioningBusinessContext,
 	type WarehouseProvisioningModelSelection,
+	type WarehouseProvisioningStep,
 } from '../types/warehouse';
 
 export const user = pgTable('user', {
@@ -301,6 +312,7 @@ export const project = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
+		deployedAt: timestamp('deployed_at'),
 	},
 	(t) => [
 		check('local_project_path_required', sql`CASE WHEN "type" = 'local' THEN "path" IS NOT NULL ELSE TRUE END`),
@@ -387,8 +399,11 @@ export const warehouseProvisioningJob = pgTable(
 		modelSelection: jsonb('model_selection').$type<WarehouseProvisioningModelSelection>(),
 		modelProjectId: text('model_project_id'),
 		status: text('status', { enum: WAREHOUSE_PROVISIONING_STATUSES }).notNull().default('queued'),
+		failedStatus: text('failed_status', { enum: WAREHOUSE_PROVISIONING_STATUSES }),
+		steps: jsonb('steps').$type<WarehouseProvisioningStep[]>(),
 		logs: text('logs'),
 		error: text('error'),
+		errorDetail: text('error_detail'),
 		temporaryDirectory: text('temporary_directory'),
 		lockedBy: text('locked_by'),
 		lockedAt: timestamp('locked_at'),
@@ -407,6 +422,23 @@ export const warehouseProvisioningJob = pgTable(
 			.on(t.userId)
 			.where(sql`${t.status} NOT IN ('ready', 'failed', 'cancelled')`),
 	],
+);
+
+export const warehouseConnectionCheck = pgTable(
+	'warehouse_connection_check',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<WarehouseProvider>().notNull(),
+		outcome: text('outcome', { enum: WAREHOUSE_CONNECTION_CHECK_OUTCOMES }).notNull(),
+		error: text('error'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [index('warehouse_connection_check_userId_idx').on(t.userId)],
 );
 
 export const chat = pgTable(
@@ -468,7 +500,7 @@ export const chatMessage = pgTable(
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: boolean('isForked'),
-		citation: jsonb('citation').$type<CitationData>(),
+		citations: jsonb('citations').$type<CitationData[]>(),
 		discordMessageId: text('discord_message_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
@@ -1112,6 +1144,108 @@ export const contextRecommendationLinkedFeedback = pgTable(
 	],
 );
 
+export const testRun = pgTable(
+	'test_run',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		triggeredByUserId: text('triggered_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+		trigger: text('trigger', { enum: TEST_RUN_TRIGGERS }).notNull().default('manual'),
+		status: text('status', { enum: TEST_RUN_STATUSES }).notNull().default('queued'),
+		contextRef: text('context_ref'),
+		contextCommit: text('context_commit'),
+		contextChanges: jsonb('context_changes').$type<TestContextChange[]>(),
+		models: jsonb('models').$type<TestRunModels>().notNull(),
+		attempts: integer('attempts').notNull().default(1),
+		selection: jsonb('selection').$type<string[]>(),
+		totalAttempts: integer('total_attempts').notNull().default(0),
+		completedAttempts: integer('completed_attempts').notNull().default(0),
+		passedAttempts: integer('passed_attempts').notNull().default(0),
+		totalTokens: integer('total_tokens').notNull().default(0),
+		totalCost: doublePrecision('total_cost'),
+		errorMessage: text('error_message'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		startedAt: timestamp('started_at'),
+		completedAt: timestamp('completed_at'),
+		/** Refreshed by the process executing the run, so other processes can tell a run left behind by a restart. */
+		heartbeatAt: timestamp('heartbeat_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('test_run_projectId_idx').on(t.projectId),
+		index('test_run_status_idx').on(t.status),
+		uniqueIndex('test_run_active_project_idx')
+			.on(t.projectId)
+			.where(sql`${t.status} IN ('queued', 'running')`),
+	],
+);
+
+export const testRunResult = pgTable(
+	'test_run_result',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => testRun.id, { onDelete: 'cascade' }),
+		testPath: text('test_path').notNull(),
+		testName: text('test_name').notNull(),
+		testHash: text('test_hash').notNull(),
+		tags: jsonb('tags').$type<string[]>().notNull().default([]),
+		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmModelId: text('llm_model_id').notNull(),
+		/** Null when the model ran at the reasoning effort configured for it. */
+		reasoningEffort: text('reasoning_effort').$type<ActiveEffort>(),
+		contextVariant: text('context_variant', { enum: TEST_CONTEXT_VARIANTS }).notNull().default('production'),
+		attempt: integer('attempt').notNull(),
+		passed: boolean('passed').notNull(),
+		message: text('message').notNull(),
+		errorMessage: text('error_message'),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		totalTokens: integer('total_tokens'),
+		totalCost: doublePrecision('total_cost'),
+		durationMs: integer('duration_ms'),
+		toolCallCount: integer('tool_call_count'),
+		details: jsonb('details').$type<TestRunResultDetails>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('test_run_result_runId_idx').on(t.runId),
+		index('test_run_result_chatId_idx').on(t.chatId),
+		index('test_run_result_testPath_idx').on(t.testPath),
+	],
+);
+
+/** File Explorer edits of a project without a context repository, kept per user until they are published. */
+export const contextDraftFile = pgTable(
+	'context_draft_file',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		path: text('path').notNull(),
+		content: text('content').notNull(),
+		/** Hash of the production file the draft started from, null when the draft adds the file. */
+		baseHash: text('base_hash'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.notNull()
+			.$onUpdate(() => /* @__PURE__ */ new Date()),
+	},
+	(t) => [uniqueIndex('context_draft_file_project_user_path_idx').on(t.projectId, t.userId, t.path)],
+);
+
 export const story = pgTable(
 	'story',
 	{
@@ -1720,6 +1854,7 @@ export const log = pgTable(
 		context: jsonb('context').$type<Record<string, unknown>>(),
 		source: text('source', { enum: LOG_SOURCES }).notNull(),
 		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [

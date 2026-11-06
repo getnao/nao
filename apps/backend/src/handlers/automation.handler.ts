@@ -1,7 +1,7 @@
 import type { InferUIMessageChunk } from 'ai';
 import { getToolName, isToolUIPart, readUIMessageStream } from 'ai';
 
-import { getTools } from '../agents/tools';
+import { automationAgent } from '../agents/profiles/automation';
 import { renderAutomationRunPrompt } from '../components/ai/automation-run-prompt';
 import type { DBAutomationRun, DBScheduledJob } from '../db/abstractSchema';
 import type { AutomationWithSchedule } from '../queries/automation.queries';
@@ -15,6 +15,7 @@ import {
 	createAutomationTools,
 	getAutomationIntegrationToolNames,
 	isGithubAutomationTool,
+	type SlackChannelDelivery,
 } from '../services/automation-tools';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
@@ -27,6 +28,12 @@ const STREAM_PERSIST_INTERVAL_MS = 1_000;
 
 type AutomationJobPayload = {
 	automationId?: string;
+};
+
+type IntegrationToolOutput = {
+	ok?: boolean;
+	url?: string;
+	deliveries?: SlackChannelDelivery[];
 };
 
 type RunAutomationOptions = {
@@ -139,39 +146,21 @@ async function finishAutomationRun(
 
 		const githubToken = await userQueries.getGithubToken(automation.userId);
 		const expectedTools = getAutomationIntegrationToolNames(automation.integrations);
+		const integrationTools = createAutomationTools({
+			automationId: automation.id,
+			currentRunId: run.id,
+			projectId: automation.projectId,
+			chatId: chat.id,
+			githubToken,
+			integrations: automation.integrations,
+		});
 		const agent = await agentService.create(
 			{ ...uiChat, userId: automation.userId, projectId: automation.projectId },
 			automation.modelProvider && automation.modelId
 				? { provider: automation.modelProvider, modelId: automation.modelId }
 				: undefined,
-			{
-				billingAccessVerifiedProjectId,
-				excludeFollowUps: true,
-				supportsCustomCharts: false,
-				usageCategory: 'automation',
-				tools: ({ agentSettings, toolContext, webTools }) =>
-					getTools(
-						agentSettings,
-						{
-							...(webTools ?? {}),
-							...createAutomationTools({
-								automationId: automation.id,
-								currentRunId: run.id,
-								projectId: automation.projectId,
-								chatId: chat.id,
-								githubToken,
-								integrations: automation.integrations,
-							}),
-						},
-						{
-							mcpEnabled: automation.mcpEnabled,
-							mcpServers: automation.mcpServers,
-							mcpAccess: toolContext.mcpAccess,
-							excludeFollowUps: true,
-							semanticLayerMode: toolContext.semanticLayerMode,
-						},
-					),
-			},
+			automationAgent(automation, integrationTools),
+			{ billingAccessVerifiedProjectId },
 		);
 
 		logger.info('Automation run starting', {
@@ -283,11 +272,21 @@ function extractIntegrationResults(parts: UIMessagePart[]): AutomationIntegratio
 		if (!isAutomationIntegrationTool(name)) {
 			return [];
 		}
-		const output = part.state === 'output-available' ? (part.output as { ok?: boolean; url?: string }) : undefined;
+		const output = part.state === 'output-available' ? (part.output as IntegrationToolOutput) : undefined;
+		const type = integrationTypeFromTool(name);
+		if (output?.deliveries) {
+			return output.deliveries.map((delivery) => ({
+				type,
+				label: name,
+				ok: delivery.ok,
+				message: delivery.error,
+				destination: delivery.channel,
+			}));
+		}
 		const ok = part.state === 'output-error' ? false : output?.ok !== false;
 		return [
 			{
-				type: integrationTypeFromTool(name),
+				type,
 				label: name,
 				ok,
 				url: output?.url,

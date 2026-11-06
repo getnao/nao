@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Editor, useMonaco } from '@monaco-editor/react';
 import { validateSqlFilterTemplate } from '@nao/shared/sql-template';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { AlertTriangle, Loader2, Play, Save } from 'lucide-react';
 import { usePanelRef } from 'react-resizable-panels';
 import { ResizableSeparator, ResizablePanel, ResizablePanelGroup } from '../ui/resizable';
 import type { Monaco } from '@monaco-editor/react';
-import type { UIMessage } from '@nao/backend/chat';
 import type { executeSql } from '@nao/shared/tools';
 import type { editor } from 'monaco-editor';
 
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
+import { usePublishSavedQuery } from '@/hooks/use-publish-saved-query';
 import { useQueryRowsSource, useServerPaginatedRows } from '@/hooks/use-query-rows';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
 import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
@@ -50,13 +50,11 @@ interface SqlQueryEditorProps extends SqlEditorProps {
 
 /** SQL editor with run / save & run actions and the result table underneath. */
 export function SqlQueryEditor({ input, output, toolCallId, editable = false, onOutputChange }: SqlQueryEditorProps) {
-	const queryClient = useQueryClient();
 	const monaco = useMonaco();
 	const editorTheme = useEditorTheme();
 	const [shikiReady, setShikiReady] = useState(false);
 	const agent = useOptionalAgentContext();
-	const agentRef = useRef(agent);
-	agentRef.current = agent;
+	const publishSavedQuery = usePublishSavedQuery();
 	const queryId = output.id;
 	const [sqlQuery, setSqlQuery] = useState(input.sql_query);
 	const [savedSql, setSavedSql] = useState(input.sql_query);
@@ -162,29 +160,13 @@ export function SqlQueryEditor({ input, output, toolCallId, editable = false, on
 				setSavedSql(result.input.sql_query);
 				setError(null);
 				onOutputChangeRef.current?.(result.output);
-
-				const applyUpdate = (messages: UIMessage[]) =>
-					applyExecuteSqlResultToMessages(messages, result.output.id, result.input, result.output);
-
-				const currentAgent = agentRef.current;
-				if (currentAgent) {
-					currentAgent.setMessages((messages) => applyUpdate(messages));
-					if (currentAgent.chatId) {
-						queryClient.setQueryData(trpc.chat.get.queryKey({ chatId: currentAgent.chatId }), (previous) =>
-							previous ? { ...previous, messages: applyUpdate(previous.messages) } : previous,
-						);
-					}
-				}
-
-				queryClient.removeQueries(trpc.chat.getQueryRows.pathFilter());
-				void queryClient.invalidateQueries(trpc.story.getQuerySql.pathFilter());
-				void queryClient.invalidateQueries(trpc.story.getFilteredQueryData.pathFilter());
-				void queryClient.invalidateQueries(trpc.storyShare.getQuerySql.pathFilter());
-				void queryClient.invalidateQueries(trpc.storyShare.getFilteredQueryData.pathFilter());
+				publishSavedQuery((messages) =>
+					applyExecuteSqlResultToMessages(messages, result.output.id, result.input, result.output),
+				);
 			},
 			onError: (err) => setError(getMutationErrorMessage(err)),
 		});
-	}, [beginMutation, buildMutationInput, saveMutation, queryClient]);
+	}, [beginMutation, buildMutationInput, saveMutation, publishSavedQuery]);
 
 	useEffect(() => {
 		if (!canEdit) {
@@ -385,7 +367,7 @@ function SqlValidationBanner({ queryId, issues }: { queryId: string | undefined;
 	);
 }
 
-function getMutationErrorMessage(err: unknown): string {
+export function getMutationErrorMessage(err: unknown): string {
 	if (err instanceof Error && err.message) {
 		return err.message;
 	}

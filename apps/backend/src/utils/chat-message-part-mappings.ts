@@ -8,6 +8,9 @@ import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from './to
 
 const PROVIDER_EXECUTED_TOOLS = new Set(['web_search', 'web_fetch', 'google_search']);
 
+/** Stored calls to a renamed tool load under its current name, so the model only ever sees tools it can call. */
+const RENAMED_TOOLS = new Map([['read_query_result', 'page_query_result']]);
+
 /**
  * Converts a list of UI message parts to a list of database message parts.
  */
@@ -157,16 +160,18 @@ const isToolDBPart = (part: DBMessagePart): part is DBMessagePart & { type: UITo
 };
 
 const convertDBToolPartToUIPart = (part: DBMessagePart & { type: UIToolPart['type'] }): UIToolPart => {
+	const renamedTool = RENAMED_TOOLS.get(part.toolName!);
+	const toolName = renamedTool ?? part.toolName!;
 	const toolPart = {
-		type: part.type,
-		toolName: part.toolName!,
+		type: renamedTool && part.type !== 'dynamic-tool' ? `tool-${renamedTool}` : part.type,
+		toolName,
 		toolCallId: part.toolCallId!,
 		state: part.toolState as any,
 		input: part.toolInput as any,
 		rawInput: part.toolRawInput as any,
 		output: part.toolOutput as any,
 		errorText: part.toolErrorText as any,
-		providerExecuted: PROVIDER_EXECUTED_TOOLS.has(part.toolName!),
+		providerExecuted: PROVIDER_EXECUTED_TOOLS.has(toolName),
 		approval: part.toolApprovalId
 			? {
 					id: part.toolApprovalId!,

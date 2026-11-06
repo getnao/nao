@@ -11,13 +11,14 @@ const mocks = vi.hoisted(() => ({
 	createPaymentMethod: vi.fn(),
 	createPortal: vi.fn(),
 	createResubscribe: vi.fn(),
+	getUser: vi.fn(),
 	getUpcomingInvoice: vi.fn(),
 	listInvoices: vi.fn(),
 	resumeSubscription: vi.fn(),
 }));
 
 vi.mock('../src/queries/user.queries', () => ({
-	getUser: vi.fn(),
+	getUser: mocks.getUser,
 }));
 
 vi.mock('../src/queries/billing.queries', () => ({
@@ -148,6 +149,30 @@ describe('billing management organization loading', () => {
 			organizationIdHint: 'org-id',
 		});
 		expect(mocks.createCheckout).not.toHaveBeenCalled();
+	});
+
+	it('allows an immediate initial Checkout before the trial starts', async () => {
+		mocks.getOrganizationWithBilling.mockResolvedValue({
+			id: 'org-id',
+			name: 'Organization',
+			billing: null,
+		});
+		mocks.getUser.mockResolvedValue({ email: 'admin@example.com' });
+		mocks.createCustomer.mockResolvedValue({ id: 'cus_cloud' });
+		mocks.attachCustomer.mockResolvedValue({ stripeCustomerId: 'cus_cloud' });
+		mocks.createCheckout.mockResolvedValue('https://checkout.stripe.com/cloud');
+
+		await expect(
+			createCloudTrialCheckoutForAdmin({ ...adminInput, billingInterval: 'monthly', currency: 'usd' }),
+		).resolves.toBe('https://checkout.stripe.com/cloud');
+
+		expect(mocks.createCustomer).toHaveBeenCalledOnce();
+		expect(mocks.createCheckout).toHaveBeenCalledWith({
+			billingInterval: 'monthly',
+			currency: 'usd',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+		});
 	});
 
 	it('reconciles a Stripe Customer before allowing recovery Checkout', async () => {

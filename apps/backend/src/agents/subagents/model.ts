@@ -1,4 +1,4 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import { isSameModel, type LlmSelectedModel } from '@nao/shared/types';
 
 import type { ToolContext } from '../../types/tools';
 import { assertBudgetNotExceeded } from '../../utils/budget';
@@ -68,8 +68,4 @@ function findRequestedModel(available: AvailableModel[], requestedModelId: strin
 		);
 	}
 	return { provider: match.provider, modelId: match.modelId };
-}
-
-function isSameModel(left: LlmSelectedModel, right: LlmSelectedModel): boolean {
-	return left.provider === right.provider && left.modelId === right.modelId;
 }

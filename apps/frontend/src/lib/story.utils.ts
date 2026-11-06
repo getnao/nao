@@ -46,7 +46,7 @@ export function findStories(messages: UIMessage[]): StorySummary[] {
 			}
 
 			const output = part.output;
-			if (output?.success && output.id) {
+			if (output?.success && output.id && !output.story_chat_id) {
 				seen.set(output.id, output.title);
 			}
 		}

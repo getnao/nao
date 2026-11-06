@@ -34,12 +34,15 @@ export interface AttachmentPayload {
 interface UseAttachmentUploadOptions {
 	/** Off when the instance has no permanent storage, which is where documents are kept. */
 	documentsEnabled: boolean | undefined;
+	/** Shown instead of the storage message when documents are off for another reason. */
+	documentsDisabledReason?: string;
 	maxDocumentSizeMb: number;
 	disabled?: boolean;
 }
 
 export function useAttachmentUpload({
 	documentsEnabled,
+	documentsDisabledReason,
 	maxDocumentSizeMb,
 	disabled = false,
 }: UseAttachmentUploadOptions) {
@@ -57,7 +60,11 @@ export function useAttachmentUpload({
 			setRejection(undefined);
 			const accepted: File[] = [];
 			for (const file of candidates) {
-				const problem = describeRejection(file, { documentsEnabled, maxDocumentSizeMb });
+				const problem = describeRejection(file, {
+					documentsEnabled,
+					documentsDisabledReason,
+					maxDocumentSizeMb,
+				});
 				if (problem) {
 					setRejection(problem);
 				} else {
@@ -82,7 +89,7 @@ export function useAttachmentUpload({
 				added.map((attachment, index) => prepare(attachment, withinLimit[index], setAttachments)),
 			);
 		},
-		[attachments.length, disabled, documentsEnabled, maxDocumentSizeMb],
+		[attachments.length, disabled, documentsEnabled, documentsDisabledReason, maxDocumentSizeMb],
 	);
 
 	const removeAttachment = useCallback((id: string) => {
@@ -229,7 +236,7 @@ const prepare = async (
 
 const describeRejection = (
 	file: File,
-	{ documentsEnabled, maxDocumentSizeMb }: UseAttachmentUploadOptions,
+	{ documentsEnabled, documentsDisabledReason, maxDocumentSizeMb }: UseAttachmentUploadOptions,
 ): string | undefined => {
 	if (isImageMediaType(file.type)) {
 		return file.size === 0
@@ -246,7 +253,9 @@ const describeRejection = (
 		return 'Storage configuration is still loading. Try attaching the document again in a moment.';
 	}
 	if (!documentsEnabled) {
-		return 'Attaching files needs permanent storage, which is turned off on this instance.';
+		return (
+			documentsDisabledReason ?? 'Attaching files needs permanent storage, which is turned off on this instance.'
+		);
 	}
 	if (file.size > maxDocumentSizeMb * 1024 * 1024) {
 		return `${file.name} is over the ${maxDocumentSizeMb} MB upload limit.`;

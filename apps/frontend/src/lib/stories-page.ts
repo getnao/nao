@@ -117,6 +117,21 @@ export function getStoredSetting<T extends string>(key: string, allowed: T[], fa
 	return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
+export function getFolderSubtreeIds(rootFolderIds: string[], folders: FolderItem[]): Set<string> {
+	const result = new Set<string>();
+	const queue = [...rootFolderIds];
+	while (queue.length > 0) {
+		const current = queue.shift()!;
+		result.add(current);
+		for (const folder of folders) {
+			if (folder.parentId === current) {
+				queue.push(folder.id);
+			}
+		}
+	}
+	return result;
+}
+
 export function isSystemFolder(folder: FolderItem): boolean {
 	return folder.systemType != null;
 }

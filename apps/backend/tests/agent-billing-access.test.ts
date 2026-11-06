@@ -29,8 +29,11 @@ vi.mock('../src/services/account-status.service', () => ({
 	assertUserIsActive: mocks.assertUserIsActive,
 }));
 
+import { analyticsAgent } from '../src/agents/profiles/analytics';
 import { agentRoutes } from '../src/routes/agent';
 import { AgentService } from '../src/services/agent';
+
+const CHAT = { id: 'chat-1', projectId: 'project-1', userId: 'user-1' };
 
 describe('agent billing access', () => {
 	beforeEach(() => {
@@ -43,9 +46,7 @@ describe('agent billing access', () => {
 		const deactivatedError = new Error('This account has been deactivated.');
 		mocks.assertUserIsActive.mockRejectedValue(deactivatedError);
 
-		await expect(service.create({ id: 'chat-1', projectId: 'project-1', userId: 'user-1' })).rejects.toBe(
-			deactivatedError,
-		);
+		await expect(service.create(CHAT, undefined, analyticsAgent)).rejects.toBe(deactivatedError);
 
 		expect(mocks.assertUserIsActive).toHaveBeenCalledWith('user-1');
 		expect(mocks.assertProjectCloudBillingAccess).not.toHaveBeenCalled();
@@ -59,9 +60,7 @@ describe('agent billing access', () => {
 		agents.set('chat-1', existingAgent);
 		mocks.assertProjectCloudBillingAccess.mockRejectedValue(accessError);
 
-		await expect(service.create({ id: 'chat-1', projectId: 'project-1', userId: 'user-1' })).rejects.toBe(
-			accessError,
-		);
+		await expect(service.create(CHAT, undefined, analyticsAgent)).rejects.toBe(accessError);
 
 		expect(existingAgent.stop).not.toHaveBeenCalled();
 		expect(service.get('chat-1')).toBe(existingAgent);
@@ -77,8 +76,9 @@ describe('agent billing access', () => {
 
 		await expect(
 			service.create(
-				{ id: 'chat-1', projectId: 'project-1', userId: 'user-1' },
+				CHAT,
 				undefined,
+				analyticsAgent,
 				billingAccessVerifiedProjectId ? { billingAccessVerifiedProjectId } : {},
 			),
 		).rejects.toBe(nextStepError);
@@ -97,10 +97,16 @@ describe('agent route billing access', () => {
 	});
 
 	it.each([
-		['new message', { message: { text: 'Hello' }, adminMode: false }],
+		['new message', { message: { text: 'Hello' }, mode: 'default', adminMode: false }],
 		[
 			'message edit',
-			{ chatId: 'chat-1', messageToEditId: 'message-1', message: { text: 'Edited' }, adminMode: false },
+			{
+				chatId: 'chat-1',
+				messageToEditId: 'message-1',
+				message: { text: 'Edited' },
+				mode: 'default',
+				adminMode: false,
+			},
 		],
 	])('checks billing access before handling a %s', async (_label, body) => {
 		const accessError = new Error('Cloud billing access is restricted');

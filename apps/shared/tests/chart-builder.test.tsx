@@ -146,6 +146,19 @@ describe('buildChart', () => {
 		expect(getGradient(firstChart)?.props.id).not.toBe(getGradient(secondChart)?.props.id);
 	});
 
+	it('renders line charts without an area fill', () => {
+		const chart = buildChart({
+			data: [{ name: 'A', value: 10 }],
+			chartType: 'line',
+			xAxisKey: 'name',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+		});
+
+		expect(getGradient(chart)).toBeUndefined();
+		expect(getArea(chart)?.props.fill).toBe('none');
+	});
+
 	it('shows and angles every compact category label with a custom tick font size', () => {
 		const xAxis = getXAxis(
 			buildChart({

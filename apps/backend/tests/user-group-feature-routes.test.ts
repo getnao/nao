@@ -103,6 +103,7 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 }));
 vi.mock('../src/services/activity', () => ({ logActivity: mocks.logActivity }));
 vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
+vi.mock('../src/agents/profiles/messaging', () => ({ messagingAgent: vi.fn() }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),

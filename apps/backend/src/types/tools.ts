@@ -1,7 +1,7 @@
 import type { McpAccess, UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
-import type { displayChart, displayMap } from '@nao/shared/tools';
-import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
+import type { displayChart, displayMap, executeSemanticQuery } from '@nao/shared/tools';
+import type { LlmSelectedModel, SemanticLayerMode, StoryFormat } from '@nao/shared/types';
 
 import type { WarehouseTableAccess } from '../services/context-access';
 import type {
@@ -14,7 +14,8 @@ import { AgentSettings } from './agent-settings';
 export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
-	compiledBySemanticLayer?: boolean;
+	/** Set when the semantic layer compiled the SQL from this metric query. */
+	semanticQuery?: executeSemanticQuery.SemanticQuery;
 	/** The SQL as the model wrote it (filter templates included), set for results produced in the current run. */
 	sqlQuery?: string;
 	databaseId?: string;
@@ -74,9 +75,20 @@ export interface ToolContext {
 	 * project-scoped app-database views instead of the user's warehouse.
 	 */
 	adminMode?: boolean;
+	/** The story a quick question is about; the story tool edits it in its own chat when `canEdit`. */
+	linkedStory?: LinkedStory;
 }
 
 export type McpToolContext = Omit<ToolContext, 'chatId'> & {
 	chatId: null;
 	storyCreationEnabled?: boolean;
 };
+
+export interface LinkedStory {
+	storyId: string;
+	chatId: string;
+	slug: string;
+	title: string;
+	format: StoryFormat;
+	canEdit: boolean;
+}

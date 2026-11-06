@@ -496,6 +496,12 @@ def get_html_template() -> str:
                                             <pre>{typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result, null, 2)}</pre>
                                         </div>
                                     )}
+                                    {tc.error && (
+                                        <div className="tool-call-section">
+                                            <div className="tool-call-label">Error</div>
+                                            <pre style={{ color: '#ef4444' }}>{tc.error}</pre>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

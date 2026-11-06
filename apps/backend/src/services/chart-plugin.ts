@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 
-import type { ChartPluginManifestEntry } from '@nao/shared';
+import { capitalizeWords, type ChartPluginManifestEntry } from '@nao/shared';
 import { isBuiltinChartType } from '@nao/shared/chart-types';
 import { z } from 'zod';
 
@@ -137,5 +137,5 @@ function parseMetadata(source: string | null): z.infer<typeof MetadataSchema> {
 }
 
 function titleize(type: string): string {
-	return type.replace(/[-_]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+	return capitalizeWords(type.replace(/[-_]+/g, ' '));
 }

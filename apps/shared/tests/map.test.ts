@@ -5,6 +5,8 @@ import {
 	BUBBLE_MAX_RADIUS,
 	BUBBLE_MIN_RADIUS,
 	buildChoroplethEntries,
+	buildChoroplethLegend,
+	buildChoroplethScale,
 	buildMapPoints,
 	CHOROPLETH_MAX_OPACITY,
 	CHOROPLETH_MIN_OPACITY,
@@ -363,6 +365,202 @@ describe('choroplethValueDomain', () => {
 
 	it('returns null when nothing can be shaded', () => {
 		expect(choroplethValueDomain([entry(5, null), entry(null, 'fr')])).toBeNull();
+	});
+});
+
+const entries = (...values: (number | null)[]) =>
+	values.map((value, index) => ({ region: `r${index}`, value, geometry: null, row: {} }));
+
+describe('buildChoroplethScale', () => {
+	it('stays linear by default', () => {
+		expect(buildChoroplethScale(entries(1, 10, 100))).toEqual({ type: 'linear', min: 1, max: 100 });
+	});
+
+	it('spans only the positive values for a log scale', () => {
+		expect(buildChoroplethScale(entries(-5, 0, 2, 2000, null), 'log')).toEqual({ type: 'log', min: 2, max: 2000 });
+	});
+
+	it('falls back to linear when no value is positive for a log scale', () => {
+		expect(buildChoroplethScale(entries(-5, 0), 'log')).toEqual({ type: 'linear', min: -5, max: 0 });
+	});
+
+	it('splits quantiles into five classes with the same number of values', () => {
+		const scale = buildChoroplethScale(entries(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), 'quantile');
+		expect(scale).toMatchObject({ type: 'quantile', min: 1, max: 10, thresholds: [3, 5, 7, 9] });
+		expect(scale && 'classes' in scale && scale.classes).toEqual([
+			{ min: 1, max: 2 },
+			{ min: 3, max: 4 },
+			{ min: 5, max: 6 },
+			{ min: 7, max: 8 },
+			{ min: 9, max: 10 },
+		]);
+	});
+
+	it('ignores nulls and merges tied quantile breaks into fewer classes', () => {
+		const scale = buildChoroplethScale(entries(1, 1, 1, 1, 1, 1, 1, 1, 2, 100, null), 'quantile');
+		expect(scale).toMatchObject({ thresholds: [2, 100] });
+		expect(scale && 'classes' in scale && scale.classes).toEqual([
+			{ min: 1, max: 1 },
+			{ min: 2, max: 2 },
+			{ min: 100, max: 100 },
+		]);
+	});
+
+	it('keeps a single class when every value is the same', () => {
+		const scale = buildChoroplethScale(entries(7, 7, 7), 'quantile');
+		expect(scale).toMatchObject({ thresholds: [], classes: [{ min: 7, max: 7 }] });
+		expect(choroplethOpacity(7, scale)).toBeCloseTo((CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2);
+	});
+
+	it('returns null when there is no value to shade', () => {
+		expect(buildChoroplethScale(entries(null), 'quantile')).toBeNull();
+		expect(buildChoroplethScale(entries(null), 'log')).toBeNull();
+	});
+});
+
+describe('choroplethOpacity with a color scale', () => {
+	const opacityRange = CHOROPLETH_MAX_OPACITY - CHOROPLETH_MIN_OPACITY;
+
+	it('shades a log scale by order of magnitude', () => {
+		const scale = { type: 'log' as const, min: 1, max: 10_000 };
+		expect(choroplethOpacity(1, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY);
+		expect(choroplethOpacity(100, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY + opacityRange / 2);
+		expect(choroplethOpacity(10_000, scale)).toBeCloseTo(CHOROPLETH_MAX_OPACITY);
+	});
+
+	it('gives zero, negative and null values the lightest shade on a log scale', () => {
+		const scale = { type: 'log' as const, min: 1, max: 100 };
+		expect(choroplethOpacity(0, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY);
+		expect(choroplethOpacity(-3, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY);
+		expect(choroplethOpacity(null, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY);
+	});
+
+	it('keeps zero lighter than the only positive value on a log scale', () => {
+		const scale = buildChoroplethScale(entries(0, 5000), 'log');
+		expect(choroplethOpacity(0, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY);
+		expect(choroplethOpacity(5000, scale)).toBeCloseTo((CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2);
+	});
+
+	it('steps through evenly spaced shades per quantile class', () => {
+		const scale = {
+			type: 'quantile' as const,
+			min: 1,
+			max: 9,
+			thresholds: [4, 8],
+			classes: [
+				{ min: 1, max: 3 },
+				{ min: 4, max: 7 },
+				{ min: 8, max: 9 },
+			],
+		};
+		expect(choroplethOpacity(3.9, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY);
+		expect(choroplethOpacity(4, scale)).toBeCloseTo(CHOROPLETH_MIN_OPACITY + opacityRange / 2);
+		expect(choroplethOpacity(9, scale)).toBeCloseTo(CHOROPLETH_MAX_OPACITY);
+	});
+});
+
+describe('choroplethOpacityExpression with a color scale', () => {
+	it('interpolates on log10 of the value, clamped to the smallest positive value', () => {
+		expect(choroplethOpacityExpression({ type: 'log', min: 1, max: 1000 })).toEqual([
+			'interpolate',
+			['linear'],
+			['log10', ['max', ['coalesce', ['get', 'value'], 1], 1]],
+			0,
+			CHOROPLETH_MIN_OPACITY,
+			3,
+			CHOROPLETH_MAX_OPACITY,
+		]);
+	});
+
+	it('keeps values ≤ 0 lightest when a single positive value fixes the log domain', () => {
+		expect(choroplethOpacityExpression({ type: 'log', min: 5000, max: 5000 })).toEqual([
+			'case',
+			['<=', ['coalesce', ['get', 'value'], 5000], 0],
+			CHOROPLETH_MIN_OPACITY,
+			(CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2,
+		]);
+	});
+
+	it('uses a step expression with one stop per quantile threshold', () => {
+		const scale = {
+			type: 'quantile' as const,
+			min: 1,
+			max: 9,
+			thresholds: [4, 8],
+			classes: [
+				{ min: 1, max: 3 },
+				{ min: 4, max: 7 },
+				{ min: 8, max: 9 },
+			],
+		};
+		expect(choroplethOpacityExpression(scale)).toEqual([
+			'step',
+			['coalesce', ['get', 'value'], 1],
+			CHOROPLETH_MIN_OPACITY,
+			4,
+			(CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2,
+			8,
+			CHOROPLETH_MAX_OPACITY,
+		]);
+	});
+});
+
+describe('buildChoroplethLegend', () => {
+	it('labels a linear gradient with its min and max', () => {
+		expect(buildChoroplethLegend({ min: 3, max: 12_500 })).toEqual({
+			kind: 'gradient',
+			ticks: [
+				{ label: '3', position: 0, align: 'start' },
+				{ label: '12.5K', position: 1, align: 'end' },
+			],
+		});
+	});
+
+	it('adds the powers of 10 inside a log domain, in raw units', () => {
+		const legend = buildChoroplethLegend({ type: 'log', min: 1, max: 1000 });
+		expect(legend).toEqual({
+			kind: 'gradient',
+			ticks: [
+				{ label: '1', position: 0, align: 'start' },
+				{ label: '10', position: 1 / 3, align: 'center' },
+				{ label: '1,000', position: 1, align: 'end' },
+			],
+		});
+	});
+
+	it('drops log ticks whose label would touch a neighbour', () => {
+		const legend = buildChoroplethLegend({ type: 'log', min: 1, max: 1e8 });
+		const labels = legend.kind === 'gradient' ? legend.ticks.map((tick) => tick.label) : [];
+		expect(labels).toEqual(['1', '100', '10K', '100M']);
+	});
+
+	it('shows full precision when compact quantile labels would collide', () => {
+		const scale = buildChoroplethScale(entries(12_460, 12_470, 12_480, 12_490, 12_500), 'quantile');
+		const legend = scale && buildChoroplethLegend(scale);
+		const labels = legend?.kind === 'classes' ? legend.classes.map((item) => item.label) : [];
+		expect(labels).toEqual(['12,460', '12,470', '12,480', '12,490', '12,500']);
+	});
+
+	it('lists one swatch per quantile class with its raw value range', () => {
+		const legend = buildChoroplethLegend({
+			type: 'quantile',
+			min: 1,
+			max: 40_000,
+			thresholds: [4, 13],
+			classes: [
+				{ min: 1, max: 3 },
+				{ min: 4, max: 12 },
+				{ min: 13, max: 40_000 },
+			],
+		});
+		expect(legend).toEqual({
+			kind: 'classes',
+			classes: [
+				{ label: '1–3', opacity: CHOROPLETH_MIN_OPACITY },
+				{ label: '4–12', opacity: (CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2 },
+				{ label: '13–40K', opacity: CHOROPLETH_MAX_OPACITY },
+			],
+		});
 	});
 });
 

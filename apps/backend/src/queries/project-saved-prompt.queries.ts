@@ -19,6 +19,19 @@ export const listSavedPrompts = async (projectId: string): Promise<SavedPrompt[]
 		.execute();
 };
 
+export const upsertSavedPrompts = async (savedPrompts: NewProjectSavedPrompt[]): Promise<void> => {
+	for (const savedPrompt of savedPrompts) {
+		await db
+			.insert(s.projectSavedPrompt)
+			.values(savedPrompt)
+			.onConflictDoUpdate({
+				target: s.projectSavedPrompt.id,
+				set: { title: savedPrompt.title, prompt: savedPrompt.prompt },
+			})
+			.execute();
+	}
+};
+
 export const createSavedPrompt = async (data: NewProjectSavedPrompt): Promise<DBProjectSavedPrompt> => {
 	const [created] = await db.insert(s.projectSavedPrompt).values(data).returning().execute();
 	return created;

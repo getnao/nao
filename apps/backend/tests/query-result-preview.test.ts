@@ -36,7 +36,7 @@ describe('withQueryResultPreviewsInStream', () => {
 		const input: UIMessageChunk[] = [
 			{ type: 'tool-input-start', toolCallId: 'call-1', toolName: 'execute_semantic_query' },
 			{ type: 'tool-output-available', toolCallId: 'call-1', output: smallOutput },
-			{ type: 'tool-input-start', toolCallId: 'call-2', toolName: 'read_query_result' },
+			{ type: 'tool-input-start', toolCallId: 'call-2', toolName: 'page_query_result' },
 			{ type: 'tool-output-available', toolCallId: 'call-2', output: otherToolOutput },
 		];
 

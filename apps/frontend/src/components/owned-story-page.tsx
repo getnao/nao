@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { ArchiveRestoreIcon } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
+import type { StoryElementAsk } from '@nao/shared/story-app';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
+import type { CodeSelection } from '@/stores/ask-bar';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { HighlightBubble } from '@/components/highlight-bubble';
+import { StoryElementPicker } from '@/components/story-element-picker';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
@@ -17,26 +19,30 @@ import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-sett
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { StoryPageBody } from '@/components/story-page-body';
+import { STORY_ASK_BAR_INSET_STYLE, StoryAskBar } from '@/components/story-ask-bar';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
 import { StoryTableEditProvider } from '@/contexts/story-table-edit';
-import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { requestAskAboutCode, requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
 import { useChatActivity } from '@/hooks/use-chat-activity';
+import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 
 export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlug: string }) {
 	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storySlug }));
 	const queryClient = useQueryClient();
-	const navigate = useNavigate();
 	const { running: isChatRunning } = useChatActivity(chatId);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 
 	const {
 		storyId,
@@ -68,6 +74,12 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		latestCode: story.code,
 		isAgentRunning: isChatRunning,
 	});
+	useCodeRevealFollower(storySlug, () => editor.setViewMode('code'));
+	useCitedElementFollower(storySlug, () => {
+		if (editor.viewMode === 'code') {
+			editor.setViewMode('preview');
+		}
+	});
 	const { queryData, isPending: isQueryDataPending } = useStoryVersionQueryData({
 		chatId,
 		storySlug,
@@ -75,19 +87,6 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		isViewingLatest: editor.versionNav.isViewingLatest,
 		latestQueryData: story.queryData as QueryDataMap | null,
 	});
-
-	const handleSelectionAsk = useCallback(
-		(data: SelectionData) => {
-			chatPendingCitationStore.set({ chatId, storySlug, ...data });
-			navigate({ to: '/$chatId', params: { chatId } });
-		},
-		[navigate, chatId, storySlug],
-	);
-
-	const handleOpenChat = useCallback(() => {
-		navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: storySlug } });
-	}, [navigate, chatId, storySlug]);
-
 	const unarchiveMutation = useMutation(
 		trpc.story.unarchive.mutationOptions({
 			onSuccess: () => {
@@ -98,14 +97,31 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		}),
 	);
 
-	const canEditCharts = !story.archivedAt;
+	const isArchived = Boolean(story.archivedAt);
+	const canEditCharts = !isArchived;
 	const storyTheme = useStoryThemeForCurrentMode(story.theme);
+	const showAskBar = Boolean(storyId) && !isArchived;
+	const isAskInputHidden = editor.viewMode === 'edit';
+	const canSelectElements = showAskBar && editor.viewMode === 'preview';
+	const askAboutElement = useCallback((ask: StoryElementAsk) => requestAskAboutElement(ask, storySlug), [storySlug]);
+	const askAboutSelection = useCallback(
+		(selection: SelectionData) => requestAskAboutSelection(selection, storySlug),
+		[storySlug],
+	);
+	const askAboutCode = useCallback(
+		(selection: CodeSelection) => requestAskAboutCode(selection, { storySlug }),
+		[storySlug],
+	);
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
+		<div
+			className='relative flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'
+			style={showAskBar && !isAskInputHidden ? STORY_ASK_BAR_INSET_STYLE : undefined}
+		>
 			<StoryPageHeader
 				title={story.title}
-				onOpenChat={handleOpenChat}
+				storyChat={{ storyId, isOwner: true, canChat: !isArchived }}
+				canDuplicate={!isArchived}
 				live={{
 					isLive,
 					cachedAt: story.cachedAt,
@@ -140,6 +156,11 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 					onSelectVersion: editor.versionNav.goToVersion,
 					onRestore: editor.handleRestore,
 				}}
+				elementSelection={
+					canSelectElements
+						? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+						: undefined
+				}
 			/>
 
 			{story.archivedAt && (
@@ -158,31 +179,46 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				</div>
 			)}
 
-			<StoryPageBody
-				editor={editor}
-				queryData={queryData}
-				theme={storyTheme}
-				preview={
-					<SelectionProvider key={storySlug}>
-						<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
-						{renderWithChartEditProvider(
-							canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
-							{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
-							<PreviewContent
-								code={editor.code}
-								queryData={queryData}
-								theme={storyTheme}
-								chatId={chatId}
-								storySlug={storySlug}
-								cacheSchedule={story.cacheSchedule}
-								filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
-								isDataPending={isQueryDataPending}
-								isViewingLatest={editor.versionNav.isViewingLatest}
-							/>,
-						)}
-					</SelectionProvider>
-				}
-			/>
+			<div className='relative flex min-h-0 flex-1 flex-col'>
+				<SelectionProvider resetKey={storySlug}>
+					<StoryPageBody
+						editor={editor}
+						queryData={queryData}
+						theme={storyTheme}
+						onAskAboutCode={showAskBar ? askAboutCode : undefined}
+						preview={
+							<>
+								<HighlightBubble onAsk={askAboutSelection} disabled={isChatRunning} />
+								<StoryElementPicker
+									isPicking={canSelectElements && isSelectingElements}
+									storySlug={storySlug}
+									onPick={askAboutElement}
+								>
+									{renderWithChartEditProvider(
+										canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
+										{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
+										<PreviewContent
+											code={editor.code}
+											queryData={queryData}
+											theme={storyTheme}
+											chatId={chatId}
+											storySlug={storySlug}
+											cacheSchedule={story.cacheSchedule}
+											filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
+											isDataPending={isQueryDataPending}
+											isViewingLatest={editor.versionNav.isViewingLatest}
+										/>,
+									)}
+								</StoryElementPicker>
+							</>
+						}
+					/>
+
+					{showAskBar && storyId && (
+						<StoryAskBar storyId={storyId} isOwner isInputHidden={isAskInputHidden} />
+					)}
+				</SelectionProvider>
+			</div>
 
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
@@ -357,6 +393,7 @@ function PreviewContent({
 	return (
 		<StoryTabbedContent
 			code={code}
+			storySlug={storySlug}
 			baselineQueryData={queryData}
 			filterApi={filterApi}
 			theme={theme}
