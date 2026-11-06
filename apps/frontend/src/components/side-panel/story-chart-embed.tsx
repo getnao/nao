@@ -94,6 +94,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				yAxisRightMax={chart.yAxisRightMax}
 				yAxisRightLabel={chart.yAxisRightLabel}
 				showDataLabels={chart.showDataLabels}
+				showLegend={chart.showLegend}
 				comparisonMode={chart.comparisonMode}
 				normalSize
 				hideTotal={chart.hideTotal}
@@ -169,6 +170,7 @@ export function StoryChartEmbedShell({
 			y_axis_right_label: chart.yAxisRightLabel,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
+			show_legend: chart.showLegend,
 			comparison_mode: chart.comparisonMode,
 			hide_total: chart.hideTotal,
 		}),

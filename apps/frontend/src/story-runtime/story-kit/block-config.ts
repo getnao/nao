@@ -1,4 +1,5 @@
 import { labelize } from '@nao/shared/chart-builder';
+import { isPieChart } from '@nao/shared/chart-types';
 import { isNumericColumn } from './columns';
 import { toChartValueFormat } from './format';
 import type { ChartType } from '@nao/shared/chart-types';
@@ -42,6 +43,7 @@ export interface ChartOptions extends ChartAxisProps, FormatOptions {
 	xKey?: string;
 	series?: SeriesInput[];
 	showDataLabels?: boolean;
+	showLegend?: boolean;
 	hideTotal?: boolean;
 }
 
@@ -75,6 +77,10 @@ export function resolveChart(
 
 export function resolveXKey(rows: Row[], columns: string[], xKey?: string): string {
 	return xKey ?? columns.find((column) => !isNumericColumn(rows, column)) ?? columns[0];
+}
+
+export function resolveShowLegend(chartType: ChartType, resolved: ResolvedChart, showLegend?: boolean): boolean {
+	return showLegend ?? (isPieChart(chartType) || resolved.series.length > 1);
 }
 
 export function toSeriesConfigs(series: SeriesSpec[], options: FormatOptions): displayChart.SeriesConfig[] {
@@ -131,6 +137,7 @@ export function chartBlockConfig(
 		y_axis_right_max: options.yAxisRightMax,
 		y_axis_right_label: options.yAxisRightLabel,
 		show_data_labels: options.showDataLabels,
+		show_legend: options.showLegend,
 		hide_total: options.hideTotal,
 	});
 }
@@ -185,6 +192,7 @@ export function kitBlockFromConfig(config: StoryBlockChartConfig): KitBlockEleme
 			yAxisRightMax: config.y_axis_right_max,
 			yAxisRightLabel: config.y_axis_right_label,
 			showDataLabels: config.show_data_labels,
+			showLegend: config.show_legend,
 			hideTotal: config.hide_total,
 		}),
 	};

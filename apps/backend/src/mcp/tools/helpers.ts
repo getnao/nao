@@ -161,6 +161,7 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_max,
 		y_axis_right_label,
 		title,
+		show_legend,
 	} = artifact;
 	const block = buildStoryChartBlock({
 		query_id,
@@ -176,6 +177,7 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_max,
 		y_axis_right_label,
 		title,
+		show_legend,
 	});
 
 	const queryData = await resolveChartQueryData({
@@ -218,6 +220,7 @@ export async function buildChartEmbedFromArtifact(
 				yAxisRightMax: y_axis_right_max,
 				yAxisRightLabel: y_axis_right_label,
 				title,
+				showLegend: show_legend,
 			},
 			sourceChatId: effectiveChatId,
 		});

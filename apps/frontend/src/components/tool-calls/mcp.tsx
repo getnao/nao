@@ -95,6 +95,7 @@ const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
 					yAxisRightMin={chart.yAxisRightMin}
 					yAxisRightMax={chart.yAxisRightMax}
 					yAxisRightLabel={chart.yAxisRightLabel}
+					showLegend={chart.showLegend}
 				/>
 			</div>
 		</div>
