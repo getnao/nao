@@ -44,4 +44,18 @@ describe('formatTestSettingsYaml', () => {
 		expect(yaml).toContain('    - openai:gpt-4.1\n');
 		expect(yaml).not.toContain('reasoning_efforts');
 	});
+
+	it('quotes model ids that YAML would misread', () => {
+		const yaml = formatTestSettingsYaml({
+			models: [
+				{ provider: 'ollama', modelId: 'llama3:8b' },
+				{ provider: 'openai', modelId: 'my model #2' },
+			],
+			attempts: 1,
+			threads: 1,
+		});
+
+		expect(yaml).toContain('    - ollama:llama3:8b\n');
+		expect(yaml).toContain('    - "openai:my model #2"\n');
+	});
 });

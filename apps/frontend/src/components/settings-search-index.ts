@@ -1620,8 +1620,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/context-explorer',
 		pageLabel: 'File Explorer',
 		search: { tests: 'open' },
-		title: 'Compare your changes with the main branch',
-		description: 'Run the tests on your File Explorer changes and on the main branch side by side.',
+		title: 'Compare your changes with the default branch',
+		description: 'Run the tests on your File Explorer changes and on the default branch side by side.',
 		keywords: [
 			'compare',
 			'comparison',
@@ -1631,6 +1631,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'before after',
 			'production',
 			'main',
+			'default branch',
 			'branch',
 		],
 		adminOrContextAdmin: true,

@@ -706,14 +706,14 @@ def test(
 
     if k_count < 1:
         UI.error(f"k must be >= 1, got {k_count}")
-        return
+        sys.exit(1)
 
     client = get_client(email=email, password=pwd, api_key=key, project_name=config.project_name)
     try:
         model_configs = resolve_model_configs(list(models or test_config.models), client)
     except (ValueError, AgentClientError) as e:
         UI.error(str(e))
-        return
+        sys.exit(1)
 
     project_path = Path.cwd()
     tests_dir = project_path / TESTS_FOLDER

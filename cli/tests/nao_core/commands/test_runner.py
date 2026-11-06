@@ -857,6 +857,21 @@ def test_run_expands_the_reasoning_efforts_of_the_test_block(tmp_path, monkeypat
     assert [str(run["model"]) for run in runs] == ["openai:gpt-5 · low", "openai:gpt-5 · high"]
 
 
+def test_run_exits_with_an_error_when_the_reasoning_efforts_are_not_supported(tmp_path, monkeypatch):
+    client = Mock()
+    client.get_reasoning_efforts.return_value = ["low", "high"]
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+    config = NaoConfig(
+        project_name="test-project",
+        test=TestConfig(models=[TestModelConfig(model="openai:gpt-5", reasoning_efforts=["max"])]),
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        run_test_command(monkeypatch, tmp_path, config)
+
+    assert exit_info.value.code == 1
+
+
 def test_single_model_runs_keep_legacy_output_for_k1(tmp_path, monkeypatch):
     tables: list = []
 
@@ -1048,9 +1063,10 @@ def test_invalid_k_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(test_runner_module.UI, "error", lambda msg: errors.append(msg))
     config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"]))
 
-    runs = run_test_command(monkeypatch, tmp_path, config, k=0)
+    with pytest.raises(SystemExit) as exit_info:
+        run_test_command(monkeypatch, tmp_path, config, k=0)
 
-    assert runs == []
+    assert exit_info.value.code == 1
     assert errors and "k must be >= 1" in errors[0]
 
 

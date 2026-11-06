@@ -154,8 +154,8 @@ class AgentClient:
         model_id: str = "gpt-4.1",
         costs: ModelCosts | None = None,
         comparison: ComparisonConfig | None = None,
-        reasoning_effort: str | None = None,
         retry_auth: bool = True,
+        reasoning_effort: str | None = None,
     ) -> TestResult:
         """Run a test prompt and return the result."""
         session, auth_generation = self._get_session()

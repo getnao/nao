@@ -3,6 +3,7 @@ import { pluralize } from '@nao/shared';
 import { isSameModel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronDown, Copy, Cpu, Minus, Plus } from 'lucide-react';
+import { useState } from 'react';
 
 import type { ActiveEffort, ReasoningEffort } from '@nao/backend/llm';
 import type { TestModelDefaultEffort, TestModelSelection } from '@nao/backend/test-run';
@@ -400,16 +401,28 @@ function RunEstimate({
 /** Copies the selection as the `test` block of nao_config.yaml, to make it the project defaults through review. */
 function CopyAsConfigButton({ settings }: { settings: TestRunSettings }) {
 	const { isCopied, copy } = useCopyToClipboard();
+	const [copyFailed, setCopyFailed] = useState(false);
+	const copyLabel = copyFailed ? 'Copy failed' : isCopied ? 'Copied' : 'Copy as nao_config.yaml';
+
+	const handleCopy = async () => {
+		setCopyFailed(false);
+		try {
+			await copy(formatTestSettingsYaml(settings));
+		} catch {
+			setCopyFailed(true);
+		}
+	};
+
 	return (
 		<div className='flex justify-end px-3 pb-2'>
 			<button
 				type='button'
 				className='flex cursor-pointer items-center gap-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline'
 				disabled={settings.models.length === 0}
-				onClick={() => copy(formatTestSettingsYaml(settings))}
+				onClick={handleCopy}
 			>
 				{isCopied ? <Check className='size-3' /> : <Copy className='size-3' />}
-				{isCopied ? 'Copied' : 'Copy as nao_config.yaml'}
+				<span className={copyFailed ? 'text-destructive' : undefined}>{copyLabel}</span>
 			</button>
 		</div>
 	);

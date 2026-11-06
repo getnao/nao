@@ -228,7 +228,7 @@ function RunDescription({ run, mainBranch }: { run: TestRunWithResults; mainBran
 			{run.comparison &&
 				`${mainBranch} ${formatPassRate(run.comparison.production.passedAttempts, run.comparison.production.totalAttempts)} → your changes ${formatPassRate(run.comparison.draft.passedAttempts, run.comparison.draft.totalAttempts)} · `}
 			{models}
-			{run.attempts > 1 && ` · each test asked ${run.attempts} times`}
+			{run.attempts > 1 && ` · ${run.attempts} answers per test`}
 			{run.errorMessage && <span className='text-destructive'> · {run.errorMessage}</span>}
 		</span>
 	);

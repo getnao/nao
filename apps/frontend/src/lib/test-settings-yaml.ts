@@ -22,7 +22,7 @@ export function formatTestSettingsYaml({ models, attempts, threads }: TestSettin
 
 /** A model alone, or with the efforts picked for it, `all` when every effort it supports is. */
 function formatModelEntry(model: TestModelSelection): string[] {
-	const name = `${model.provider}:${model.modelId}`;
+	const name = formatYamlScalar(`${model.provider}:${model.modelId}`);
 	const supported = getModelReasoningEfforts(model.provider, model.modelId);
 	const picked = supported.filter((effort) => model.reasoningEfforts?.includes(effort));
 	if (picked.length === 0) {
@@ -30,4 +30,9 @@ function formatModelEntry(model: TestModelSelection): string[] {
 	}
 	const efforts = picked.length === supported.length ? 'all' : `[${picked.join(', ')}]`;
 	return [`    - model: ${name}`, `      reasoning_efforts: ${efforts}`];
+}
+
+/** Quotes a value that YAML would otherwise misread, such as a custom model id with `#` or `: `. */
+function formatYamlScalar(value: string): string {
+	return /^[A-Za-z0-9._/:-]+$/.test(value) ? value : JSON.stringify(value);
 }
