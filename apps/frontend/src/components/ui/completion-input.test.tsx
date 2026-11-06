@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CompletionInput } from './completion-input';
 import { Dialog, DialogContent, DialogTitle } from './dialog';
-import type { CompletionOptions } from './completion-input';
+import type { CompletionOption, CompletionOptions } from './completion-input';
 
 vi.stubGlobal(
 	'ResizeObserver',
@@ -88,11 +88,40 @@ describe('CompletionInput', () => {
 
 		expect(screen.queryByRole('listbox')).toBeNull();
 	});
+
+	it('accepts several checked completions at once and keeps the draft', () => {
+		const accepted: string[][] = [];
+		render(<MultipleHarness onAccept={(items) => accepted.push(items.map((item) => item.insertText))} />);
+
+		type('or');
+		fireEvent.click(screen.getByRole('option', { name: 'orders' }));
+		fireEvent.change(input(), { target: { value: 'rev', selectionStart: 3 } });
+		fireEvent.click(screen.getByRole('option', { name: 'revenue' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Add 2' }));
+
+		expect(accepted).toEqual([['orders', 'revenue']]);
+		expect(input().value).toBe('rev');
+		expect(screen.queryByRole('listbox')).toBeNull();
+	});
 });
 
 function Harness() {
 	const [value, setValue] = useState('');
 	return <CompletionInput aria-label='Metric' value={value} onValueChange={setValue} getCompletions={completeName} />;
+}
+
+function MultipleHarness({ onAccept }: { onAccept: (items: CompletionOption[]) => void }) {
+	const [value, setValue] = useState('');
+	return (
+		<CompletionInput
+			multiple
+			aria-label='Metric'
+			value={value}
+			onValueChange={setValue}
+			getCompletions={completeName}
+			onAccept={onAccept}
+		/>
+	);
 }
 
 function completeName(value: string, cursor: number): CompletionOptions {

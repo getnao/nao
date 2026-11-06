@@ -7,12 +7,14 @@ import type { PromptHandle } from 'prompt-mentions';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react';
 import type { LlmProvider } from '@nao/shared/types';
 import type { McpServerStatus } from '@nao/shared';
+import type { CompletionOptions } from '@/components/ui/completion-input';
 
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { SlackChannelsInput } from '@/components/slack-channels-input';
 import { Button } from '@/components/ui/button';
+import { CompletionInput } from '@/components/ui/completion-input';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -25,7 +27,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ErrorMessage } from '@/components/ui/error-message';
-import { Input, NakedInput } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -1295,7 +1297,7 @@ function ToolRow({
 					)}
 					<div className='grid items-center gap-2'>
 						<Input
-							className='h-8'
+							className='h-8 dark:bg-transparent'
 							placeholder='Override subject'
 							value={email.subject ?? ''}
 							onChange={(event) =>
@@ -2027,7 +2029,6 @@ export function EmailRecipientsInput({
 }) {
 	const [draft, setDraft] = useState('');
 	const [isDraftAppended, setIsDraftAppended] = useState(false);
-	const inputRef = useRef<HTMLInputElement>(null);
 	const draftRecipient = draft.trim().toLowerCase();
 	const tokens = isDraftAppended && recipients.at(-1) === draftRecipient ? recipients.slice(0, -1) : recipients;
 	const validRecipients = tokens.filter(isValidEmailAddress);
@@ -2038,6 +2039,28 @@ export function EmailRecipientsInput({
 	const nonMemberRecipients = new Set(
 		(recipientValidation.data?.nonMemberRecipients ?? []).map((recipient) => recipient.toLowerCase()),
 	);
+	const members = useQuery(trpc.automation.listEmailRecipients.queryOptions());
+
+	function completeRecipients(value: string, cursor: number): CompletionOptions {
+		const typed = value.slice(0, cursor).trim().toLowerCase();
+		const taken = new Set(tokens.map((recipient) => recipient.toLowerCase()));
+		return {
+			from: 0,
+			to: value.length,
+			items: (members.data ?? [])
+				.filter((member) => !taken.has(member.email.toLowerCase()))
+				.filter((member) => {
+					const email = member.email.toLowerCase();
+					const name = member.name.toLowerCase();
+					return typed === '' || email.includes(typed) || name.includes(typed);
+				})
+				.map((member) => ({
+					label: member.email,
+					detail: member.name,
+					insertText: member.email,
+				})),
+		};
+	}
 
 	function mergeRecipients(currentRecipients: string[], additions: string[]) {
 		const existing = new Set(currentRecipients.map((recipient) => recipient.toLowerCase()));
@@ -2098,7 +2121,12 @@ export function EmailRecipientsInput({
 
 	return (
 		<div
-			onClick={() => inputRef.current?.focus()}
+			onClick={(event) => {
+				if (event.target instanceof HTMLInputElement) {
+					return;
+				}
+				event.currentTarget.querySelector('input')?.focus();
+			}}
 			aria-invalid={Boolean(error)}
 			className={cn(
 				'flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-1.5 py-1 shadow-xs transition-[color,box-shadow]',
@@ -2123,15 +2151,25 @@ export function EmailRecipientsInput({
 					/>
 				);
 			})}
-			<NakedInput
-				ref={inputRef}
+			<CompletionInput
 				value={draft}
 				disabled={disabled}
+				multiple
 				aria-label='Email recipients'
 				aria-describedby={error ? 'automation-email-recipients-error' : undefined}
 				placeholder={tokens.length === 0 ? 'Email addresses, comma or space separated' : ''}
-				className='h-6 min-w-32 flex-1 px-1 text-sm placeholder:text-muted-foreground'
-				onChange={(event) => handleDraftChange(event.target.value)}
+				className='h-6 min-w-32 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent'
+				getCompletions={completeRecipients}
+				onValueChange={handleDraftChange}
+				onAccept={(items) =>
+					update(
+						mergeRecipients(
+							tokens,
+							items.map((item) => item.insertText),
+						),
+						'',
+					)
+				}
 				onKeyDown={handleKeyDown}
 				onBlur={commitDraft}
 			/>

@@ -275,6 +275,11 @@ export const automationRoutes = {
 			nonMemberRecipients: await getNonMemberAutomationEmailRecipients(ctx.project.id, input.recipients),
 		})),
 
+	listEmailRecipients: automationProcedure.query(async ({ ctx }) => {
+		const users = await projectQueries.listUsersWithProjectAccess(ctx.project.id);
+		return users.map((user) => ({ email: user.email, name: user.name }));
+	}),
+
 	listAllForAdmin: automationAdminProcedure.query(async ({ ctx }) => {
 		return listProjectAutomationsWithOwnerAccess(ctx.project.id);
 	}),
