@@ -170,6 +170,7 @@ export class ProjectSlackBot {
 				slack: createSlackAdapter({
 					botToken: config.botToken,
 					signingSecret: this._adapterSigningSecret,
+					agentView: config.dmThreadsEnabled,
 				}),
 			},
 			state: createMemoryState(),
@@ -1811,6 +1812,7 @@ class SlackService {
 			previous.transportMode !== next.transportMode ||
 			previous.appToken !== next.appToken ||
 			previous.replyMode !== next.replyMode ||
+			previous.dmThreadsEnabled !== next.dmThreadsEnabled ||
 			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
 			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
 			previous.modelSelection?.provider !== next.modelSelection?.provider ||

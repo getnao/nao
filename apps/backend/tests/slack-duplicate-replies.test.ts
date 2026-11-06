@@ -51,6 +51,7 @@ const config: SlackConfig = {
 	appToken: 'xapp-test',
 	replyMode: 'thread',
 	dmScopeMissing: false,
+	dmThreadsEnabled: false,
 };
 
 describe('Slack mention delivered as both `message` and `app_mention` events', () => {
