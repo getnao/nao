@@ -785,6 +785,30 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByRole('menuitemcheckbox', { name: 'Analysts' })).toBeTruthy();
 	});
 
+	it('removes a membership from its group token without opening the user', () => {
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		expect(screen.queryByRole('button', { name: 'Remove group All Users' })).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Remove group Analysts' }));
+
+		expect(mocks.mutate).toHaveBeenCalledWith({
+			groupId: 'analysts',
+			userId: 'project-user',
+			isMember: false,
+		});
+		expect(mocks.navigate).not.toHaveBeenCalled();
+	});
+
+	it('blocks group token removal while a membership update is pending', () => {
+		mocks.useMutation.mockReturnValue({ mutate: mocks.mutate, mutateAsync: mocks.mutateAsync, isPending: true });
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		const removeButton = screen.getByRole('button', { name: 'Remove group Analysts' }) as HTMLButtonElement;
+		expect(removeButton.disabled).toBe(true);
+		fireEvent.click(removeButton);
+		expect(mocks.mutate).not.toHaveBeenCalled();
+	});
+
 	it('omits locked groups from user chips and assignment menus', () => {
 		mocks.useQuery.mockReturnValue({
 			isLoading: false,
@@ -838,9 +862,10 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Managed by SSO')).toBeTruthy();
 		fireEvent.click(managedMembership);
 		expect(mocks.mutate).not.toHaveBeenCalled();
+		expect(screen.queryByRole('button', { name: 'Remove group Analysts' })).toBeNull();
 	});
 
-	it('keeps the users table columns fixed while group chips overflow inside their cell', () => {
+	it('keeps the users table columns fixed while group tokens wrap inside their cell', () => {
 		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
 
 		const table = screen.getByRole('table');
@@ -855,8 +880,8 @@ describe('UserGroupsTable', () => {
 		expect(headers[2]?.classList.contains('w-1/5')).toBe(true);
 		expect(headers[3]?.classList.contains('w-[38%]')).toBe(true);
 		expect(projectUserCells[3]?.classList.contains('overflow-hidden')).toBe(true);
-		expect(groupsButton.classList.contains('w-full')).toBe(true);
-		expect(groupsButton.classList.contains('min-w-0')).toBe(true);
+		expect(groupsButton.parentElement?.classList.contains('w-full')).toBe(true);
+		expect(groupsButton.parentElement?.classList.contains('flex-wrap')).toBe(true);
 	});
 
 	it('reports tab changes to the route', () => {
