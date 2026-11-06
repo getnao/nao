@@ -901,6 +901,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Start a new thread for each direct message',
 		description: 'Make every direct message to nao start its own chat, answered in a Slack thread.',
 		keywords: ['slack dm', 'direct message', 'private message', 'dm threads', 'new chat per message'],
+		adminOnly: true,
 	},
 	{
 		page: '/settings/project/integrations/slack',
