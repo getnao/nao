@@ -288,6 +288,7 @@ function ManagedProjectUsersTable({
 				title='Members'
 				description='Add members to the project and assign them to groups.'
 				flush
+				className='gap-0'
 				action={
 					<Button onClick={() => setIsAddOpen(true)}>
 						<Plus />
@@ -470,10 +471,10 @@ function UserAccessTableContent({
 		<div className='overflow-x-auto'>
 			<Table className='min-w-3xl table-fixed'>
 				<TableHeader>
-					<TableRow className='[&_th]:h-12'>
+					<TableRow className='hover:bg-transparent [&_th]:h-10 [&_th]:text-xs [&_th]:text-muted-foreground'>
 						{management ? (
 							<>
-								<TableHead className='w-10'>
+								<TableHead className='w-10 [&>[role=checkbox]]:translate-y-0'>
 									<SelectAllUsersCheckbox selection={management.selection} />
 								</TableHead>
 								<TableHead className='w-[32%]'>User</TableHead>
@@ -584,11 +585,11 @@ function ManagedUserAccessRow({
 
 	return (
 		<TableRow
-			className='cursor-pointer hover:bg-primary/10'
+			className='cursor-pointer'
 			data-state={isSelected ? 'selected' : undefined}
 			onClick={() => onOpenUser(user.id)}
 		>
-			<TableCell onClick={(event) => event.stopPropagation()}>
+			<TableCell className='[&>[role=checkbox]]:translate-y-0' onClick={(event) => event.stopPropagation()}>
 				<Checkbox
 					checked={isSelected}
 					onCheckedChange={(checked) => selection.onToggleUser(user.id, checked === true)}
@@ -715,13 +716,13 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 				<Button
 					variant='outline'
 					size='sm'
-					className='h-8 w-full min-w-0 justify-between overflow-hidden bg-background font-normal'
+					className='h-7 w-full min-w-0 justify-between overflow-hidden bg-transparent px-2 font-normal shadow-none'
 					aria-label={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
 					title={selectedGroupLabel}
 					onClick={(event) => event.stopPropagation()}
 				>
 					<ResponsiveGroupChips names={selectedGroupNames} />
-					<ChevronDown className='shrink-0' />
+					<ChevronDown className='shrink-0 text-muted-foreground' />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
