@@ -79,6 +79,7 @@ function SettledMarkdown({ markdown }: { markdown: string }) {
 		<Streamdown
 			linkSafety={markdownLinkSafety}
 			className='assistant-markdown'
+			dir='auto'
 			plugins={markdownPlugins}
 			allowedTags={ALLOWED_TAGS}
 			literalTagContent={LITERAL_TAG_CONTENT}

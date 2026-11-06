@@ -363,14 +363,18 @@ export const useAgent = ({
 			syncedAdminChatRef.current = chatId;
 			return;
 		}
-		if (chat.isLoading || messages.length === 0 || syncedAdminChatRef.current === chatId) {
+		if (chat.isLoading || syncedAdminChatRef.current === chatId) {
+			return;
+		}
+		const settledUserMessages = getSettledUserMessages(messages, isRunning);
+		if (settledUserMessages.length === 0) {
 			return;
 		}
 		syncedAdminChatRef.current = chatId;
-		const userMessages = messages.filter((m) => m.role === 'user');
-		const conversationIsAdmin = userMessages.at(0)?.source === 'admin' || userMessages.at(-1)?.source === 'admin';
+		const conversationIsAdmin =
+			settledUserMessages.at(0)?.source === 'admin' || settledUserMessages.at(-1)?.source === 'admin';
 		setAdminMode(conversationIsAdmin);
-	}, [chatId, chat.isLoading, messages, setAdminMode]);
+	}, [chatId, chat.isLoading, messages, isRunning, setAdminMode]);
 
 	const stopCurrentGeneration = useCallback(async () => {
 		if (!chatId) {
@@ -637,6 +641,16 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 		wasRunningRef.current = agent.isRunning;
 	}, [agent.isRunning, setChat, chatId]);
 };
+
+/**
+ * User messages without the optimistic copy the server has not acknowledged yet: while the agent
+ * runs, a last user message without a source may still be that copy.
+ */
+function getSettledUserMessages(messages: UIMessage[], isRunning: boolean): UIMessage[] {
+	const userMessages = messages.filter((message) => message.role === 'user');
+	const isAwaitingAcknowledgement = isRunning && userMessages.at(-1)?.source === undefined;
+	return isAwaitingAcknowledgement ? userMessages.slice(0, -1) : userMessages;
+}
 
 /** What to ask when someone attaches files without typing anything. */
 function defaultAttachmentPrompt({

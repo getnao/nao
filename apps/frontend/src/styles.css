@@ -605,6 +605,12 @@ code.dollar:before {
 	overscroll-behavior: contain;
 }
 
+.prompt-input,
+.message-content {
+	unicode-bidi: plaintext;
+	text-align: start;
+}
+
 .nao-input-resizable .prompt-input {
 	min-height: var(--prompt-min-height);
 	max-height: none;
@@ -977,6 +983,27 @@ code.dollar:before {
 	background: transparent;
 	border-radius: 0;
 	padding: 0;
+}
+
+/* Right-to-left messages (Hebrew, Arabic…): mirror Streamdown's physical spacing, keep code left-to-right. */
+[dir='rtl'] [data-streamdown='blockquote'] {
+	border-left-width: 0;
+	border-right-width: 4px;
+	padding-left: 0;
+	padding-right: calc(var(--spacing) * 4);
+}
+
+[dir='rtl'] [data-streamdown='list-item'] :is([data-streamdown='ordered-list'], [data-streamdown='unordered-list']) {
+	padding-left: 0;
+	padding-right: calc(var(--spacing) * 6);
+}
+
+[dir='rtl'] [data-streamdown='table-header-cell'] {
+	text-align: right;
+}
+
+[dir='rtl'] :is([data-streamdown='code-block'], [data-streamdown='mermaid-block'], .katex-display) {
+	direction: ltr;
 }
 
 /*

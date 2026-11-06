@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setGroupBudget: vi.fn(),
 	setUserGroupMembership: vi.fn(),
+	setUserGroupMemberships: vi.fn(),
 	updateUserGroup: vi.fn(),
 	updateProjectColumnSecurity: vi.fn(),
 	updateProjectRowSecurity: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	listUserGroups: mocks.listUserGroups,
 	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
+	setUserGroupMemberships: mocks.setUserGroupMemberships,
 	updateUserGroup: mocks.updateUserGroup,
 	updateProjectColumnSecurity: mocks.updateProjectColumnSecurity,
 	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
@@ -1416,6 +1418,15 @@ describe('user group routes', () => {
 					isMember: true,
 				}),
 		],
+		[
+			'setMemberships',
+			() =>
+				createCaller().setMemberships({
+					groupId: 'locked-id',
+					userIds: ['target-user-id'],
+					isMember: true,
+				}),
+		],
 	])('rejects %s for a suspended group', async (_operation, call) => {
 		mocks.assertUserGroupManageable.mockRejectedValueOnce(
 			new mocks.UserGroupQueryError('FORBIDDEN', 'Upgrade to Enterprise to reactivate this saved group.'),
@@ -1428,6 +1439,35 @@ describe('user group routes', () => {
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 		expect(mocks.deleteUserGroup).not.toHaveBeenCalled();
 		expect(mocks.setUserGroupMembership).not.toHaveBeenCalled();
+		expect(mocks.setUserGroupMemberships).not.toHaveBeenCalled();
+	});
+
+	it('changes memberships for several users at once and unshares content no longer allowed', async () => {
+		await createCaller().setMemberships({
+			groupId: 'group-id',
+			userIds: ['first-user-id', 'second-user-id'],
+			isMember: true,
+		});
+
+		expect(mocks.setUserGroupMemberships).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			['first-user-id', 'second-user-id'],
+			true,
+		);
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
+	});
+
+	it('rejects bulk membership changes for non-admins or without users', async () => {
+		await expect(
+			createCaller().setMemberships({ groupId: 'group-id', userIds: [], isMember: true }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+		mocks.role = 'user';
+		await expect(
+			createCaller().setMemberships({ groupId: 'group-id', userIds: ['first-user-id'], isMember: true }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.setUserGroupMemberships).not.toHaveBeenCalled();
 	});
 
 	it('preserves database access when update omits it', async () => {
