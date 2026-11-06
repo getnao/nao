@@ -731,7 +731,9 @@ async function validateProjectColumnSecurityCatalog(
 	const catalog = getDatabaseContextCatalog(projectPath, { fresh: true });
 	for (const table of columnSecurity.tables) {
 		const currentTable = currentTables.get(columnSecurityTableKey(table));
-		if (currentTable && JSON.stringify(currentTable) === JSON.stringify(table)) {
+		const currentColumns = new Set(currentTable?.restrictedColumns ?? []);
+		const addedColumns = table.restrictedColumns.filter((column) => !currentColumns.has(column));
+		if (addedColumns.length === 0) {
 			continue;
 		}
 		const catalogTable = catalog.objects.find(
@@ -747,7 +749,7 @@ async function validateProjectColumnSecurityCatalog(
 				message: `Table ${table.schema}.${table.table} is not in the synced catalog.`,
 			});
 		}
-		if (table.restrictedColumns.some((column) => !catalogTable.columns.includes(column))) {
+		if (addedColumns.some((column) => !catalogTable.columns.includes(column))) {
 			throw new TRPCError({
 				code: 'BAD_REQUEST',
 				message: `Invalid hidden column for ${table.schema}.${table.table}.`,

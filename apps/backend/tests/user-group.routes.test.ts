@@ -351,6 +351,33 @@ describe('user group routes', () => {
 		});
 	});
 
+	it('allows one unavailable column to be removed while preserving another', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['legacy_cost', 'legacy_margin'] }],
+		});
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['id'] }],
+		});
+
+		await expect(
+			createCaller().updateColumnSecurity({
+				version: 1,
+				tables: [{ ...orders, restrictedColumns: ['legacy_margin'] }],
+			}),
+		).resolves.toEqual({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['legacy_margin'] }],
+		});
+	});
+
 	it('requires group table access before granting a restricted column', async () => {
 		const orders = {
 			databaseType: 'duckdb',

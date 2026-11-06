@@ -137,7 +137,11 @@ def _assert_restricted_tables_have_catalog_columns(
     for infos in table_infos.values():
         for info in infos:
             policy = _lookup_column_security_policy(policies, info.schema, info.table)
-            if policy is not None and policy.get("access") == "restricted" and not info.columns:
+            if policy is None or policy.get("access") != "restricted":
+                continue
+            catalog_columns = {column.casefold() for column in info.columns}
+            denied_columns = {column.casefold() for column in policy.get("denied_columns", [])}
+            if not info.columns or not denied_columns.issubset(catalog_columns):
                 raise _blocked(
                     f"column metadata is unavailable for policy-protected table '{info.schema}.{info.table}'"
                 )

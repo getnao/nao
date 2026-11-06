@@ -139,8 +139,8 @@ def test_group_policy_does_not_enable_static_exclusions(project_path: Path):
         )
 
 
-@pytest.mark.parametrize("schemas", [{}, {"main": {"users": []}}])
-def test_group_policy_requires_non_empty_catalog_metadata(
+@pytest.mark.parametrize("schemas", [{}, {"main": {"users": []}}, {"main": {"users": ["id"]}}])
+def test_group_policy_requires_complete_catalog_metadata(
     tmp_path: Path,
     schemas: dict[str, dict[str, list[str]]],
 ):

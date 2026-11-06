@@ -47,7 +47,12 @@ export function ProjectColumnSecurity({
 	const update = useMutation(
 		trpc.userGroup.updateColumnSecurity.mutationOptions({
 			onSuccess: async () => {
-				await queryClient.invalidateQueries({ queryKey: trpc.userGroup.columnSecurity.queryKey() });
+				await Promise.all([
+					queryClient.invalidateQueries({ queryKey: trpc.userGroup.columnSecurity.queryKey() }),
+					queryClient.invalidateQueries({ queryKey: trpc.userGroup.overview.queryKey() }),
+					queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccess.queryKey() }),
+					queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccessForUser.queryKey() }),
+				]);
 			},
 		}),
 	);

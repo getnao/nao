@@ -6,7 +6,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProjectColumnSecurity } from './project-column-security';
 
 const mocks = vi.hoisted(() => ({
+	invalidateQueries: vi.fn(),
 	mutate: vi.fn(),
+	onMutationSuccess: undefined as undefined | (() => Promise<void>),
 	securityData: { version: 1, tables: [] } as {
 		version: 1;
 		tables: Array<{
@@ -29,6 +31,15 @@ vi.mock('@/main', () => ({
 				queryKey: () => ['column-security'],
 				queryOptions: () => ({ queryKey: ['column-security'] }),
 			},
+			effectiveAccess: {
+				queryKey: () => ['effective-access'],
+			},
+			effectiveAccessForUser: {
+				queryKey: () => ['effective-access-for-user'],
+			},
+			overview: {
+				queryKey: () => ['overview'],
+			},
 			updateColumnSecurity: {
 				mutationOptions: (options: unknown) => options,
 			},
@@ -36,17 +47,36 @@ vi.mock('@/main', () => ({
 	},
 }));
 vi.mock('@tanstack/react-query', () => ({
-	useMutation: () => ({ mutate: mocks.mutate, isPending: false, error: null }),
+	useMutation: (options: { onSuccess: () => Promise<void> }) => {
+		mocks.onMutationSuccess = options.onSuccess;
+		return { mutate: mocks.mutate, isPending: false, error: null };
+	},
 	useQuery: () => ({ data: mocks.securityData, isLoading: false, isError: false }),
-	useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
 
 beforeEach(() => {
+	mocks.invalidateQueries.mockReset();
+	mocks.invalidateQueries.mockResolvedValue(undefined);
 	mocks.mutate.mockReset();
+	mocks.onMutationSuccess = undefined;
 	mocks.securityData = { version: 1, tables: [] };
 });
 
 afterEach(cleanup);
+
+it('invalidates column and group access queries after saving', async () => {
+	render(<ProjectColumnSecurity objects={[]} />);
+
+	await mocks.onMutationSuccess?.();
+
+	expect(mocks.invalidateQueries.mock.calls).toEqual([
+		[{ queryKey: ['column-security'] }],
+		[{ queryKey: ['overview'] }],
+		[{ queryKey: ['effective-access'] }],
+		[{ queryKey: ['effective-access-for-user'] }],
+	]);
+});
 
 it('saves a newly hidden column without hiding other columns', () => {
 	render(
