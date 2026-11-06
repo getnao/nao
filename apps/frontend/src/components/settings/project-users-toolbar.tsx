@@ -37,7 +37,7 @@ export function ProjectUsersToolbar({
 	onClearSelection,
 }: ProjectUsersToolbarProps) {
 	return (
-		<div className='flex flex-col gap-2 border-b p-4'>
+		<div className='flex flex-col gap-2 border-b px-4 py-3'>
 			<div className='flex flex-wrap items-center gap-2'>
 				<div className='relative min-w-48 flex-1'>
 					<Search className='pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground' />
@@ -82,7 +82,7 @@ function GroupFilter({
 }) {
 	return (
 		<Select value={value} onValueChange={onChange}>
-			<SelectTrigger size='sm' aria-label='Filter by group' className='min-w-40 font-normal'>
+			<SelectTrigger aria-label='Filter by group' className='min-w-40 rounded-md font-normal'>
 				<SelectValue />
 			</SelectTrigger>
 			<SelectContent>

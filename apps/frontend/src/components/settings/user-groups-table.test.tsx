@@ -752,7 +752,7 @@ describe('UserGroupsTable', () => {
 
 		const userRow = screen.getByRole('row', { name: /Project User/ });
 		expect(userRow.className).toContain('cursor-pointer');
-		expect(userRow.className).toContain('hover:bg-primary/10');
+		expect(userRow.className).toContain('hover:bg-muted/50');
 		expect(screen.getByRole('link', { name: 'Project User' })).toBeTruthy();
 
 		fireEvent.click(userRow);
