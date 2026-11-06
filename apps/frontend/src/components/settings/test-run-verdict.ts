@@ -66,7 +66,7 @@ function describeAttempts(run: TestHistoryRun): RunVerdict {
 	const passed = run.results.filter((result) => result.passed).length;
 	const total = run.results.length;
 	if (total === 0) {
-		return { tone: 'neutral', title: 'No result', detail: 'The run recorded no attempt for this test.' };
+		return { tone: 'neutral', title: 'No result', detail: 'The run recorded no answer for this test.' };
 	}
 	if (passed === total) {
 		return { tone: 'pass', title: 'Passed', detail: null };
@@ -75,7 +75,7 @@ function describeAttempts(run: TestHistoryRun): RunVerdict {
 		const failure = run.results.find((result) => !result.passed);
 		return { tone: 'fail', title: 'Failed', detail: failure?.errorMessage ?? failure?.message ?? null };
 	}
-	return { tone: 'mixed', title: 'Flaky', detail: `${passed} of ${total} attempts pass.` };
+	return { tone: 'mixed', title: 'Flaky', detail: `${passed} of ${total} answers pass.` };
 }
 
 /** What a run of several models says about the test: on which models every attempt passed. */
@@ -97,7 +97,7 @@ function describeModels(run: TestHistoryRun): RunVerdict {
 	return {
 		tone: 'mixed',
 		title: `Passes on ${passingCount} of ${outcomes.length} models`,
-		detail: `${failing.join(', ')} ${failing.length === 1 ? 'misses' : 'miss'} some attempts.`,
+		detail: `${failing.join(', ')} ${failing.length === 1 ? 'fails' : 'fail'} some answers.`,
 	};
 }
 

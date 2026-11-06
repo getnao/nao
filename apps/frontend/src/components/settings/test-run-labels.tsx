@@ -52,17 +52,17 @@ export function getRunBranches(run: { contextRef?: string | null }, draft: Draft
 	};
 }
 
-/** The branch production comes from, `main` when the context has no git repository. */
+/** The configured default branch of the context, `main` when the context has no git repository. */
 export function getMainBranch(draft: DraftContext | null): string {
 	return draft?.productionBranch ?? DEFAULT_MAIN_BRANCH;
 }
 
 /** A git branch, inline with the text around it so that its monospace name sits on the same baseline. */
-export function BranchName({ name }: { name: string }) {
+export function BranchName({ name, className }: { name: string; className?: string }) {
 	return (
 		<span className='whitespace-nowrap'>
 			<GitBranch aria-hidden className='mr-0.5 inline size-3 align-[-2px]' />
-			<BranchCode name={name} className='text-foreground' />
+			<BranchCode name={name} className={cn('text-foreground', className)} />
 		</span>
 	);
 }

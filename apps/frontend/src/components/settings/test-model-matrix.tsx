@@ -40,7 +40,7 @@ export function TestModelMatrix({
 					<th className='px-3 py-1.5 font-medium whitespace-nowrap'>Model</th>
 					{efforts.map((effort) => (
 						<th key={effort ?? 'default'} className='w-24 px-3 py-1.5 font-medium'>
-							{effort ?? (efforts.length === 1 ? 'Attempts' : 'Default')}
+							{effort ?? (efforts.length === 1 ? 'Answers' : 'Default')}
 						</th>
 					))}
 					<th aria-hidden className='w-full' />

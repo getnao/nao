@@ -1,15 +1,15 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
 import { NoObjectGeneratedError } from 'ai';
 import { z } from 'zod/v4';
 
+import { getModelReasoningEfforts } from '../agents/provider-meta';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { sessionOrApiKeyAuthMiddleware } from '../middleware/auth';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { testAgentService } from '../services/test-agent.service';
 import { evaluateTestAttempt, type TestAttemptEvaluation } from '../services/test-evaluation.service';
-import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
-import { testAssertionSchema, testComparisonTolerancesSchema } from '../types/test-run';
+import { activeEffortSchema, customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
+import { testAssertionSchema, testComparisonTolerancesSchema, type TestModel } from '../types/test-run';
 import { truncateMiddle } from '../utils/utils';
 
 const describeRunError = (err: unknown): string => {
@@ -39,7 +39,7 @@ export const testRoutes = async (app: App) => {
 			schema: {
 				body: z.object({
 					prompt: z.string(),
-					model: llmSelectedModelSchema,
+					model: llmSelectedModelSchema.extend({ reasoningEffort: activeEffortSchema.optional() }),
 					sql: z.string().optional(),
 					databaseId: z.string().optional(),
 					assertions: z.array(testAssertionSchema).default([]),
@@ -66,16 +66,19 @@ export const testRoutes = async (app: App) => {
 			if (!userRole || userRole === 'viewer') {
 				return reply.status(403).send({ error: 'Viewers cannot run tests' });
 			}
+			const unsupportedEffortError = describeUnsupportedEffort(model);
+			if (unsupportedEffortError) {
+				return reply.status(400).send({ error: unsupportedEffortError });
+			}
 
 			try {
-				const modelSelection = model as LlmSelectedModel | undefined;
-				const result = await testAgentService.runTest(projectId, userId, prompt, modelSelection, costs);
+				const result = await testAgentService.runTest(projectId, userId, prompt, model, costs);
 				const { toolCalls, verification, verdict } = await evaluateTestAttempt({
 					projectId,
 					userId,
 					test: { prompt, sql, databaseId, assertions, tolerances: comparison },
 					result,
-					verificationModel: modelSelection,
+					verificationModel: model,
 				});
 
 				return reply.send({
@@ -93,7 +96,22 @@ export const testRoutes = async (app: App) => {
 			}
 		},
 	);
+
+	/** The reasoning efforts a model can run at, for `nao test` to expand `reasoning_efforts: all` and check the others. */
+	app.get('/reasoning-efforts', { schema: { querystring: llmSelectedModelSchema } }, async (request, reply) => {
+		const { provider, modelId } = request.query;
+		return reply.send({ reasoningEfforts: getModelReasoningEfforts(provider, modelId) });
+	});
 };
+
+function describeUnsupportedEffort({ provider, modelId, reasoningEffort }: TestModel): string | null {
+	const supported = getModelReasoningEfforts(provider, modelId);
+	if (!reasoningEffort || supported.includes(reasoningEffort)) {
+		return null;
+	}
+	const expected = supported.length > 0 ? `one of ${supported.join(', ')}` : 'none, as it has no reasoning efforts';
+	return `${provider}:${modelId} cannot run at the reasoning effort ${reasoningEffort}, expected ${expected}.`;
+}
 
 /** Keeps the verification fields `nao test` knows, as released CLIs reject unknown ones. */
 function toCliVerification(verification: NonNullable<TestAttemptEvaluation['verification']>) {

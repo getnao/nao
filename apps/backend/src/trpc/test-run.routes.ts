@@ -49,7 +49,7 @@ import { summarizeModels } from '../utils/test-model-summary';
 import { draftOwnerOf, requireProjectPath } from './route-context';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
-const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with production.';
+const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with the default branch.';
 const NOT_A_TEST_FILE_MESSAGE = `Tests are YAML files in the ${TESTS_FOLDER}/ folder.`;
 
 interface TestRunRouteContext {
@@ -79,7 +79,12 @@ const startRunSchema = z.object({
 		.array(llmSelectedModelSchema.extend({ reasoningEfforts: z.array(activeEffortSchema).optional() }))
 		.max(MAX_TEST_RUN_MODELS)
 		.optional(),
-	attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
+	attempts: z
+		.number()
+		.int()
+		.min(1)
+		.max(MAX_TEST_RUN_ATTEMPTS, { message: `Ask each test at most ${MAX_TEST_RUN_ATTEMPTS} times.` })
+		.optional(),
 	threads: z.number().int().min(1).max(MAX_TEST_RUN_THREADS).optional(),
 });
 

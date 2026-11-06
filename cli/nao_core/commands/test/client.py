@@ -154,6 +154,7 @@ class AgentClient:
         model_id: str = "gpt-4.1",
         costs: ModelCosts | None = None,
         comparison: ComparisonConfig | None = None,
+        reasoning_effort: str | None = None,
         retry_auth: bool = True,
     ) -> TestResult:
         """Run a test prompt and return the result."""
@@ -165,6 +166,9 @@ class AgentClient:
             },
             "prompt": test_case.prompt,
         }
+
+        if reasoning_effort:
+            payload["model"]["reasoningEffort"] = reasoning_effort
 
         if test_case.sql:
             payload["sql"] = test_case.sql
@@ -190,7 +194,13 @@ class AgentClient:
         if response.status_code == 401:
             if retry_auth and self._handle_auth_retry(auth_generation):
                 return self.run_test(
-                    test_case, provider, model_id, costs=costs, comparison=comparison, retry_auth=False
+                    test_case,
+                    provider,
+                    model_id,
+                    costs=costs,
+                    comparison=comparison,
+                    reasoning_effort=reasoning_effort,
+                    retry_auth=False,
                 )
             raise AgentClientError(
                 "Invalid API key." if self._api_key else "Unauthorized. Please check your credentials."
@@ -212,6 +222,29 @@ class AgentClient:
             else None,
             verdict=from_known_fields(TestVerdict, data["verdict"]) if data.get("verdict") else None,
         )
+
+    def get_reasoning_efforts(self, provider: str, model_id: str, retry_auth: bool = True) -> list[str]:
+        """List the reasoning efforts the backend can run a model at, from the lowest."""
+        session, auth_generation = self._get_session()
+        response = session.get(
+            f"{self.backend_url}/api/test/reasoning-efforts",
+            params={"provider": provider, "modelId": model_id},
+        )
+
+        if response.status_code == 401:
+            if retry_auth and self._handle_auth_retry(auth_generation):
+                return self.get_reasoning_efforts(provider, model_id, retry_auth=False)
+            raise AgentClientError(
+                "Invalid API key." if self._api_key else "Unauthorized. Please check your credentials."
+            )
+
+        if response.status_code == 404:
+            raise AgentClientError("This nao server cannot run models at reasoning efforts, update it first.")
+
+        if response.status_code != 200:
+            raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
+
+        return response.json()["reasoningEfforts"]
 
 
 _client: AgentClient | None = None

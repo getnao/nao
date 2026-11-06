@@ -89,7 +89,7 @@ export function RunDetails({
 				/>
 			) : (
 				<Empty className='flex-1'>
-					{isActiveRun(run) ? 'Waiting for the first attempt…' : 'No attempt recorded.'}
+					{isActiveRun(run) ? 'Waiting for the first answer…' : 'No answer recorded.'}
 				</Empty>
 			)}
 		</div>
@@ -163,7 +163,7 @@ function AttemptPicker({
 	onSelect: (attempt: number) => void;
 }) {
 	return (
-		<div role='radiogroup' aria-label='Attempt' className='flex flex-wrap items-center gap-1'>
+		<div role='radiogroup' aria-label='Answer' className='flex flex-wrap items-center gap-1'>
 			{attempts.map((attempt) => (
 				<button
 					key={attempt.attempt}
@@ -179,7 +179,7 @@ function AttemptPicker({
 					)}
 				>
 					<ToneIcon tone={attemptTone(run, attempt)} />
-					Attempt {attempt.attempt}
+					Answer {attempt.attempt}
 				</button>
 			))}
 		</div>
@@ -215,7 +215,7 @@ function TestModelStrip({
 								</th>
 							</>
 						) : (
-							<th className='px-3 py-1 font-medium'>Attempts</th>
+							<th className='px-3 py-1 font-medium'>Answers</th>
 						)}
 						<th className='px-3 py-1 text-right font-medium'>$ / question</th>
 						<th className='px-3 py-1 text-right font-medium'>Tool calls</th>
