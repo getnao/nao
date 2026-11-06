@@ -8,6 +8,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
+import * as userGroupQueries from '../queries/user-group.queries';
 import { logActivity } from '../services/activity';
 import {
 	getActiveThemeForProject,
@@ -18,7 +19,7 @@ import {
 	getSharedCustomStoryQuerySql,
 } from '../services/custom-story';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, hasRowSecurity, refreshStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import { assertCanShareToProject, assertCanShareWith, listShareableGroups } from '../services/project-sharing.service';
 import { assertShareableUserGroupIds, filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
@@ -88,6 +89,10 @@ export const sharedStoryRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
+		const { tables } = await userGroupQueries.getProjectRowSecurity(input.projectId);
+		if (tables.length > 0) {
+			return items.map((story) => ({ ...story, kpiPreviewData: null }));
+		}
 		return withKpiPreviewData(items, (story) => story.storyId);
 	}),
 
@@ -288,6 +293,7 @@ export const sharedStoryRoutes = {
 					shared.slug,
 					input.queryId,
 					input.versionNumber,
+					ctx.user.id,
 				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
@@ -297,7 +303,7 @@ export const sharedStoryRoutes = {
 	getCustomStoryNarratives: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;
 		try {
-			return await getCustomStoryNarratives(shared.chatId!, shared.slug);
+			return await getCustomStoryNarratives(shared.chatId!, shared.slug, { viewerUserId: ctx.user.id });
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}
@@ -380,6 +386,7 @@ export const sharedStoryRoutes = {
 			}
 			return executeLiveQuery(shared.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				viewerUserId: ctx.user.id,
 			});
 		}),
 
@@ -393,6 +400,7 @@ export const sharedStoryRoutes = {
 			}
 			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				viewerUserId: ctx.user.id,
 			});
 		}),
 
@@ -411,6 +419,7 @@ export const sharedStoryRoutes = {
 			}
 			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				viewerUserId: ctx.user.id,
 			});
 		}),
 
@@ -458,6 +467,9 @@ export const sharedStoryRoutes = {
 				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, {
 					billingAccessVerifiedProjectId: shared.projectId,
 				});
+				if (await hasRowSecurity(shared.chatId!)) {
+					await storyQueries.deleteStoryViewerDataCache(story.id);
+				}
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
@@ -610,6 +622,7 @@ export const sharedStoryRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				{ viewerUserId: ctx.user.id },
 			);
 
 			logAnalyticsEvent({

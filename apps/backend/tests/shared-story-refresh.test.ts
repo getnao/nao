@@ -53,6 +53,7 @@ vi.mock('../src/services/cloud-billing-access.service', () => ({
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
 	getStoryQueryData: mocks.getStoryQueryData,
+	hasRowSecurity: vi.fn(async () => false),
 	refreshStoryData: mocks.refreshStoryData,
 }));
 vi.mock('../src/services/story-filters', () => ({

@@ -21,6 +21,7 @@ vi.mock('../src/queries/activity.queries', () => ({
 	failActivity: mocks.failActivity,
 }));
 vi.mock('../src/services/live-story', () => ({
+	hasRowSecurity: vi.fn(async () => false),
 	refreshStoryData: mocks.refreshStoryData,
 }));
 vi.mock('../src/handlers/story-delivery.handler', () => ({

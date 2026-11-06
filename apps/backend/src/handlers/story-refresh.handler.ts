@@ -1,7 +1,7 @@
 import type { DBScheduledJob } from '../db/abstractSchema';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
-import { refreshStoryData } from '../services/live-story';
+import { hasRowSecurity, refreshStoryData } from '../services/live-story';
 import {
 	NotificationChannelDeliveryError,
 	notifyStoryRefreshed,
@@ -61,6 +61,9 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 		throw new Error(`Story has no chat to refresh: ${storyId}`);
 	}
 	if (!story.isLive || story.archivedAt) {
+		return;
+	}
+	if (await hasRowSecurity(story.chatId)) {
 		return;
 	}
 

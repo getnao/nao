@@ -13,7 +13,7 @@ import { isViewableStoryFile } from '../utils/story-file-path';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
 import type { RefreshResult } from './live-story';
-import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
+import { executeLiveQuery, hasRowSecurity, isCacheExpired, refreshStoryData } from './live-story';
 
 export interface CustomStoryVersionView {
 	storyId: string;
@@ -38,6 +38,7 @@ export interface CustomStoryVersionView {
 interface CustomStoryDataOptions {
 	/** Serve the stored data of a story awaiting its background refresh, instead of refreshing inline. */
 	deferRefresh?: boolean;
+	viewerUserId?: string;
 }
 
 export interface CustomStoryFileSummary {
@@ -141,6 +142,10 @@ export async function getCustomStoryQueryData(
 	if (!story.isLive) {
 		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
 	}
+	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	if (viewerUserId) {
+		return getViewerCustomStoryQueryData(chatId, story, queryId, viewerUserId);
+	}
 	if (story.cacheSchedule === NO_CACHE_SCHEDULE) {
 		return runStoryQuery(chatId, queryId);
 	}
@@ -160,14 +165,37 @@ export async function getCustomStoryQueryData(
 	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
 }
 
+async function getViewerCustomStoryQueryData(
+	chatId: string,
+	story: DBStory,
+	queryId: string,
+	viewerUserId: string,
+): Promise<StoryQueryResult> {
+	if (story.cacheSchedule === NO_CACHE_SCHEDULE) {
+		return runStoryQuery(chatId, queryId, viewerUserId);
+	}
+
+	const cache = await storyQueries.getStoryViewerDataCache(chatId, story.slug, viewerUserId);
+	const cachedResult = cache?.queryData[queryId];
+	if (cache && isCacheFresh(story, cache) && cachedResult) {
+		return cachedResult;
+	}
+
+	const queryData = await refreshOnce(chatId, story.slug, viewerUserId).then(
+		(result) => result.queryData,
+		() => cache?.queryData,
+	);
+	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId, viewerUserId);
+}
+
 async function getChatQueryData(chatId: string, queryId: string): Promise<StoryQueryResult | undefined> {
 	const stored = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, new Set([queryId]));
 	return stored[queryId];
 }
 
-async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQueryResult> {
+async function runStoryQuery(chatId: string, queryId: string, viewerUserId?: string): Promise<StoryQueryResult> {
 	try {
-		return await executeLiveQuery(chatId, queryId);
+		return await executeLiveQuery(chatId, queryId, viewerUserId ? { viewerUserId } : {});
 	} catch (error) {
 		throw new CustomStoryQueryExecutionError(error instanceof Error ? error.message : String(error));
 	}
@@ -182,6 +210,10 @@ export async function getCustomStoryNarratives(
 	if (!story.isLive || !story.isLiveTextDynamic) {
 		return {};
 	}
+	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	if (viewerUserId) {
+		return getViewerCustomStoryNarratives(chatId, story, viewerUserId);
+	}
 
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 	const cachedNarratives = cache?.analysisResults ?? {};
@@ -193,6 +225,23 @@ export async function getCustomStoryNarratives(
 		return cachedNarratives;
 	}
 	return refreshOnce(chatId, storySlug).then(
+		(result) => result.narratives,
+		() => cachedNarratives,
+	);
+}
+
+async function getViewerCustomStoryNarratives(
+	chatId: string,
+	story: DBStory,
+	viewerUserId: string,
+): Promise<StoryNarratives> {
+	const cache = await storyQueries.getStoryViewerDataCache(chatId, story.slug, viewerUserId);
+	const cachedNarratives = cache?.analysisResults ?? {};
+	const isCacheUsable = cache && (story.cacheSchedule === NO_CACHE_SCHEDULE || isCacheFresh(story, cache));
+	if (isCacheUsable) {
+		return cachedNarratives;
+	}
+	return refreshOnce(chatId, story.slug, viewerUserId).then(
 		(result) => result.narratives,
 		() => cachedNarratives,
 	);
@@ -234,13 +283,14 @@ export async function getSharedCustomStoryQueryData(
 	storySlug: string,
 	queryId: string,
 	versionNumber?: number,
+	viewerUserId?: string,
 ): Promise<StoryQueryResult> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
 	const referencedIds = extractCustomStoryQueryIds(await storyFileQueries.listVersionFiles(version.id));
 	if (!referencedIds.has(queryId)) {
 		throw new CustomStoryQueryNotAllowedError(queryId);
 	}
-	return getCustomStoryQueryData(chatId, storySlug, queryId);
+	return getCustomStoryQueryData(chatId, storySlug, queryId, { viewerUserId });
 }
 
 export async function getCustomStoryQuerySql(chatId: string, storySlug: string, queryId: string): Promise<string> {
@@ -286,7 +336,7 @@ function usesStoryCache(story: DBStory): boolean {
 	return story.isLive && story.cacheSchedule !== NO_CACHE_SCHEDULE;
 }
 
-function isCacheFresh(story: DBStory, cache: DBStoryDataCache | null): boolean {
+function isCacheFresh(story: DBStory, cache: { cachedAt: Date } | null): boolean {
 	return cache !== null && !isCacheExpired(cache.cachedAt, story.cacheSchedule);
 }
 
@@ -323,13 +373,15 @@ async function getCustomStoryVersionRow(chatId: string, storySlug: string, versi
 }
 
 /** Every block and narrative of a story asks at once; they share one refresh instead of each starting its own. */
-function refreshOnce(chatId: string, storySlug: string): Promise<RefreshResult> {
-	const key = `${chatId}:${storySlug}`;
+function refreshOnce(chatId: string, storySlug: string, viewerUserId?: string): Promise<RefreshResult> {
+	const key = `${chatId}:${storySlug}:${viewerUserId ?? ''}`;
 	const pending = pendingRefreshes.get(key);
 	if (pending) {
 		return pending;
 	}
-	const refresh = refreshStoryData(chatId, storySlug).finally(() => pendingRefreshes.delete(key));
+	const refresh = refreshStoryData(chatId, storySlug, viewerUserId ? { viewerUserId } : {}).finally(() =>
+		pendingRefreshes.delete(key),
+	);
 	pendingRefreshes.set(key, refresh);
 	return refresh;
 }

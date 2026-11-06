@@ -908,6 +908,10 @@ export async function upsertStoryViewerDataCache(
 		.execute();
 }
 
+export async function deleteStoryViewerDataCache(storyId: string): Promise<void> {
+	await db.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).execute();
+}
+
 export async function getStorySharingInfo(storyIds: string[]): Promise<Map<string, StorySharingInfo>> {
 	if (storyIds.length === 0) {
 		return new Map();

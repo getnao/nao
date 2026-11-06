@@ -64,10 +64,17 @@ export async function executeLiveQuery(
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
 
+	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	const executionContext = viewerUserId ? await createStoryExecutionContext(chatId, viewerUserId) : undefined;
+
 	const queryData = await executeStoryQueries(
 		chatId,
 		{ [queryId]: query },
-		{ renderSql: stripSqlFilterBlocks, billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId },
+		{
+			renderSql: stripSqlFilterBlocks,
+			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+			executionContext,
+		},
 	);
 	return queryData[queryId]!;
 }
@@ -251,7 +258,7 @@ async function getViewerStoryQueryData(
 	}
 }
 
-async function hasRowSecurity(chatId: string): Promise<boolean> {
+export async function hasRowSecurity(chatId: string): Promise<boolean> {
 	const projectId = await requireChatProjectId(chatId);
 	const { tables } = await userGroupQueries.getProjectRowSecurity(projectId);
 	return tables.length > 0;

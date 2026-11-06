@@ -12,12 +12,14 @@ import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
 import { createStoryExecutionContext, executeRawSql, executeStoryQueries } from './live-story';
+import { hasRowSecurity } from './live-story';
 import type { SemanticQuery } from './semantic-layer.service';
 
 const FILTER_OPTIONS_LIMIT = 100;
 
 interface StoryFilterExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
+	viewerUserId?: string;
 }
 
 export function assertStoryFiltersEnabled() {
@@ -32,7 +34,11 @@ export async function getStoryFilterOptions(
 	filterId: string,
 	executionOptions: StoryFilterExecutionOptions = {},
 ): Promise<{ options: string[] }> {
-	const { code, executionContext, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
+	const { code, executionContext, databaseId } = await loadStoryExecutionContext(
+		chatId,
+		storySlug,
+		executionOptions.viewerUserId,
+	);
 	const filter = getStoryFiltersFromCode(code).find((candidate) => candidate.id === filterId);
 	if (!filter) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Filter "${filterId}" not found in story.` });
@@ -76,7 +82,11 @@ export async function getFilteredStoryQueryData(
 	selections: StoryFilterSelections,
 	executionOptions: StoryFilterExecutionOptions = {},
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
-	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
+	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(
+		chatId,
+		storySlug,
+		executionOptions.viewerUserId,
+	);
 	const types = filterTypesFromCode(code);
 
 	return executeStoryQueries(chatId, sqlQueries, {
@@ -123,10 +133,11 @@ function renderStorySql(sqlQuery: string, selections: StoryFilterSelections, typ
 		: renderSqlTemplate(sqlQuery, selections, types);
 }
 
-async function loadStoryExecutionContext(chatId: string, storySlug: string) {
+async function loadStoryExecutionContext(chatId: string, storySlug: string, viewerUserId?: string) {
+	const executionUserId = viewerUserId && (await hasRowSecurity(chatId)) ? viewerUserId : undefined;
 	const [{ code, sqlQueries }, executionContext] = await Promise.all([
 		loadStoryCodeAndQueries(chatId, storySlug),
-		createStoryExecutionContext(chatId),
+		createStoryExecutionContext(chatId, executionUserId),
 	]);
 	const databaseIds = Object.values(sqlQueries).flatMap((query) => (query.databaseId ? [query.databaseId] : []));
 	const databaseId = databaseIds.find((id) => id !== LOCAL_DATABASE_ID) ?? databaseIds[0];
