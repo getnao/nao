@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { QueryKey } from '@tanstack/react-query';
 import type { CSSProperties } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
 
@@ -8,7 +9,7 @@ import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
 
-const STORY_QUERY_KEYS = [[['story']], [['storyShare']], [['customStoryViewer']]];
+const STORY_ROUTERS = new Set(['story', 'storyShare', 'customStoryViewer']);
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
@@ -71,7 +72,10 @@ export function StoryAskBar({
 	);
 }
 
-/** The agent may edit the story from a quick question: the page shows the new version once it answered. */
+/**
+ * The agent may edit the story from a quick question: the page shows the new version once it answered.
+ * Only the results of the queries the agent ran are refetched, so the blocks it left alone don't re-query the warehouse.
+ */
 function StoryRefreshAfterEdit() {
 	const queryClient = useQueryClient();
 	const messages = useAgentMessages();
@@ -85,9 +89,8 @@ function StoryRefreshAfterEdit() {
 			return;
 		}
 		handledMessageId.current = lastMessage.id;
-		for (const queryKey of STORY_QUERY_KEYS) {
-			queryClient.invalidateQueries({ queryKey });
-		}
+		const ranQueryIds = findRanQueryIds(lastMessage);
+		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query.queryKey, ranQueryIds) });
 	}, [editedStory, messages, queryClient]);
 
 	return null;
@@ -113,6 +116,23 @@ function StoryPageRefreshAfterAnswer({ onAnswered }: { onAnswered: () => void })
 	}, [isRunning, onAnswered]);
 
 	return null;
+}
+
+function isOutdatedByEdit(queryKey: QueryKey, ranQueryIds: Set<string>): boolean {
+	const [path, options] = queryKey as [unknown, { input?: { queryId?: unknown } } | undefined];
+	if (!Array.isArray(path) || !STORY_ROUTERS.has(path[0])) {
+		return false;
+	}
+	const queryId = options?.input?.queryId;
+	return typeof queryId !== 'string' || ranQueryIds.has(queryId);
+}
+
+function findRanQueryIds(message: UIMessage): Set<string> {
+	return new Set(
+		message.parts.flatMap((part) =>
+			part.type === 'tool-execute_sql' && part.state === 'output-available' ? [part.output.id] : [],
+		),
+	);
 }
 
 function hasStoryEdit(message: UIMessage | undefined): boolean {

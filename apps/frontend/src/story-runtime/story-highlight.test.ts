@@ -50,6 +50,21 @@ describe('highlightStoryElement', () => {
 		await vi.waitFor(() => expect(scrolled.map((element) => element.id)).toEqual(['growth']));
 	});
 
+	it('outlines the selectable element whose detail was cited, outside any kit block', () => {
+		document.body.insertAdjacentHTML(
+			'beforeend',
+			`<div id="six" data-nao-part="element" data-nao-part-label="Card" data-nao-part-value="6 of hearts">6♥</div>
+			<div id="seven" data-nao-part="element" data-nao-part-label="Card" data-nao-part-value="7 of hearts">7♥</div>`,
+		);
+
+		highlightStoryElement({
+			block: { kind: 'element', part: { kind: 'element', label: 'Card', value: '7 of hearts' } },
+			text: 'Card · 7 of hearts',
+		});
+
+		expect(scrolled.map((element) => element.id)).toEqual(['seven']);
+	});
+
 	it('waits for a cited block the story has not rendered yet', async () => {
 		highlightStoryElement({ block: { kind: 'kpi', title: 'Margin', queryId: 'q3' }, text: 'Margin' });
 		expect(scrolled).toEqual([]);
@@ -62,5 +77,80 @@ describe('highlightStoryElement', () => {
 		await vi.waitFor(() =>
 			expect(scrolled.map((element) => element.getAttribute('data-nao-block-title'))).toEqual(['Margin']),
 		);
+	});
+
+	describe('a cited part', () => {
+		const block = { kind: 'bar-chart', title: 'Revenue', queryId: 'q1' };
+
+		beforeEach(() => {
+			document.body.innerHTML = `
+				<section data-nao-block-kind="bar-chart" data-nao-block-title="Revenue" data-nao-block-query="q1">
+					<svg><rect data-nao-part="data-point" data-nao-part-series="revenue" data-nao-part-category="2018-02" data-nao-part-value="26"></rect></svg>
+				</section>`;
+		});
+
+		it('outlines the cited part', () => {
+			const rect = document.querySelector('rect')!;
+			rect.getBoundingClientRect = () => ({ top: 50, left: 30, width: 10, height: 20 }) as DOMRect;
+
+			highlightStoryElement({
+				block: { ...block, part: { kind: 'data-point', series: 'revenue', category: '2018-02' } },
+				text: 'Revenue',
+			});
+
+			expect(scrolled).toEqual([rect]);
+			const box = document.body.lastElementChild as HTMLElement;
+			expect([box.style.top, box.style.left, box.style.width, box.style.height]).toEqual([
+				'46px',
+				'26px',
+				'18px',
+				'28px',
+			]);
+		});
+
+		describe('not rendered yet', () => {
+			const laterPart = { kind: 'data-point' as const, series: 'revenue', category: '2019-01' };
+
+			beforeEach(() => {
+				vi.useFakeTimers({
+					toFake: [
+						'setTimeout',
+						'clearTimeout',
+						'requestAnimationFrame',
+						'cancelAnimationFrame',
+						'performance',
+					],
+				});
+			});
+
+			afterEach(() => {
+				vi.useRealTimers();
+			});
+
+			it('waits for the cited part rather than settling on its block', async () => {
+				highlightStoryElement({ block: { ...block, part: laterPart }, text: 'Revenue' });
+				expect(scrolled).toEqual([]);
+
+				document
+					.querySelector('svg')!
+					.insertAdjacentHTML(
+						'beforeend',
+						'<rect id="later" data-nao-part="data-point" data-nao-part-series="revenue" data-nao-part-category="2019-01"></rect>',
+					);
+				await vi.advanceTimersByTimeAsync(50);
+
+				expect(scrolled.map((element) => element.id)).toEqual(['later']);
+			});
+
+			it('falls back to the block once the part is still missing after a grace period', async () => {
+				highlightStoryElement({ block: { ...block, part: laterPart }, text: 'Revenue' });
+
+				await vi.advanceTimersByTimeAsync(999);
+				expect(scrolled).toEqual([]);
+
+				await vi.advanceTimersByTimeAsync(1);
+				expect(scrolled).toEqual([document.querySelector('section')]);
+			});
+		});
 	});
 });

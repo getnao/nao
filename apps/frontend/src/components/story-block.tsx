@@ -43,6 +43,10 @@ export function tableBlockReference({ title, queryId }: ParsedTableBlock): Story
 	return { kind: 'data-table', title: title || undefined, queryId };
 }
 
+export function markdownTableBlockReference(columns: string[]): StoryBlockReference {
+	return { kind: 'markdown-table', title: columns.join(', ') || undefined };
+}
+
 export function mapBlockReference({ mapType, title, queryId }: ParsedMapBlock): StoryBlockReference {
 	return { kind: MAP_BLOCK_KINDS[mapType], title: title || undefined, queryId };
 }
@@ -53,7 +57,7 @@ const MAP_BLOCK_KINDS: Record<ParsedMapBlock['mapType'], string> = {
 	choropleth: 'choropleth-map',
 };
 
-function toBlockAttributes(block: StoryBlockReference | undefined) {
+export function toBlockAttributes(block: StoryBlockReference | undefined) {
 	if (!block) {
 		return {};
 	}
