@@ -86,21 +86,39 @@ describe('publishing a custom story', () => {
 		expect(await db.select().from(s.storyVersion)).toEqual([]);
 	});
 
-	it('drops frozen narratives once revised files are published, so the new prose shows', async () => {
+	it('drops only the frozen narratives whose text was revised, so their new prose shows', async () => {
+		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('Old trend') });
 		await publish();
 		await db.insert(s.storyDataCache).values({
 			storyId: STORY_ID,
 			queryData: {},
 			querySources: null,
-			analysisResults: { summary: 'Frozen narrative' },
+			analysisResults: { summary: 'Frozen summary', trend: 'Frozen trend' },
 			cachedAt: new Date(),
 		});
-		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: 'export default () => 1;' });
+		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('New trend') });
 
 		await publish();
 
 		const [cache] = await db.select().from(s.storyDataCache);
-		expect(cache.analysisResults).toBeNull();
+		expect(cache.analysisResults).toEqual({ summary: 'Frozen summary' });
+	});
+
+	it('keeps the frozen narratives when the same files are published again', async () => {
+		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('Old trend') });
+		await publish();
+		await db.insert(s.storyDataCache).values({
+			storyId: STORY_ID,
+			queryData: {},
+			querySources: null,
+			analysisResults: { summary: 'Frozen summary', trend: 'Frozen trend' },
+			cachedAt: new Date(),
+		});
+
+		await publish();
+
+		const [cache] = await db.select().from(s.storyDataCache);
+		expect(cache.analysisResults).toEqual({ summary: 'Frozen summary', trend: 'Frozen trend' });
 	});
 });
 
@@ -115,4 +133,16 @@ function publish() {
 			generatedArtifacts: { stories: [] },
 		} as unknown as ToolContext,
 	} as Parameters<NonNullable<typeof tool.execute>>[1]);
+}
+
+function narrativesApp(trendText: string) {
+	return [
+		"import { Narrative } from '@nao/story-kit';",
+		'export default () => (',
+		'\t<>',
+		'\t\t<Narrative id="summary">Revenue grew</Narrative>',
+		`\t\t<Narrative id="trend">${trendText}</Narrative>`,
+		'\t</>',
+		');',
+	].join('\n');
 }
