@@ -2,17 +2,21 @@ import type { CustomStoryViewerAccess, StoryStateChange } from '@nao/shared/stor
 import { trpc, trpcClient } from '@/main';
 import { chatActivityStore } from '@/stores/chat-activity';
 
-/** Where a custom story's `useQueryData` calls are answered from: the owner's chat, a share link, or a read-only viewer. */
+/**
+ * Where a custom story's `useQueryData` calls are answered from: the owner's chat, a share link, a read-only viewer,
+ * or the rows saved with a standalone story.
+ */
 export type CustomStoryDataSource =
 	| { kind: 'owner'; chatId: string; storySlug: string }
 	| { kind: 'share'; storyId: string; versionNumber?: number }
-	| { kind: 'viewer'; access: CustomStoryViewerAccess; storySlug: string; versionNumber?: number };
+	| { kind: 'viewer'; access: CustomStoryViewerAccess; storySlug: string; versionNumber?: number }
+	| { kind: 'standalone'; storyId: string; storySlug: string; versionNumber?: number };
 
 const QUERY_RETRY_DELAY_MS = 1500;
 const MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING = 10;
 
 /** Files are readable by the owner and by read-only viewers of the chat, never through a story share link. */
-export type CustomStoryFileSource = Extract<CustomStoryDataSource, { kind: 'owner' | 'viewer' }>;
+export type CustomStoryFileSource = Extract<CustomStoryDataSource, { kind: 'owner' | 'viewer' | 'standalone' }>;
 
 export function fileOptions(source: CustomStoryFileSource, path: string, versionNumber: number) {
 	if (source.kind === 'viewer') {
@@ -22,6 +26,9 @@ export function fileOptions(source: CustomStoryFileSource, path: string, version
 			path,
 			versionNumber,
 		});
+	}
+	if (source.kind === 'standalone') {
+		return trpc.standaloneCustomStory.getFile.queryOptions({ storyId: source.storyId, path, versionNumber });
 	}
 	return trpc.story.getCustomVersionFile.queryOptions({
 		chatId: source.chatId,
@@ -42,6 +49,10 @@ export function queryDataOptions(dataSource: CustomStoryDataSource, queryId: str
 			queryId,
 			versionNumber: dataSource.versionNumber,
 		});
+	}
+	if (dataSource.kind === 'standalone') {
+		const { storyId, versionNumber } = dataSource;
+		return trpc.standaloneCustomStory.getQueryData.queryOptions({ storyId, queryId, versionNumber });
 	}
 	const { chatId, storySlug } = dataSource;
 	return {
@@ -64,6 +75,9 @@ export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: stri
 			versionNumber: dataSource.versionNumber,
 		});
 	}
+	if (dataSource.kind === 'standalone') {
+		return trpc.standaloneCustomStory.getQuerySql.queryOptions({ storyId: dataSource.storyId, queryId });
+	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId });
 }
@@ -75,6 +89,9 @@ export function narrativesOptions(dataSource: CustomStoryDataSource) {
 	}
 	if (dataSource.kind === 'share') {
 		return trpc.storyShare.getCustomStoryNarratives.queryOptions({ storyId: dataSource.storyId });
+	}
+	if (dataSource.kind === 'standalone') {
+		return trpc.standaloneCustomStory.getNarratives.queryOptions({ storyId: dataSource.storyId });
 	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryNarratives.queryOptions({ chatId, storySlug });
@@ -88,6 +105,9 @@ export function stateOptions(dataSource: CustomStoryDataSource) {
 	if (dataSource.kind === 'share') {
 		return trpc.storyShare.getCustomStoryState.queryOptions({ storyId: dataSource.storyId });
 	}
+	if (dataSource.kind === 'standalone') {
+		return trpc.standaloneCustomStory.getState.queryOptions({ storyId: dataSource.storyId });
+	}
 	const { chatId, storySlug } = dataSource;
 	return trpc.story.getCustomStoryState.queryOptions({ chatId, storySlug });
 }
@@ -100,6 +120,10 @@ export async function saveStoryState(dataSource: CustomStoryDataSource, change: 
 	}
 	if (dataSource.kind === 'share') {
 		await trpcClient.storyShare.setCustomStoryState.mutate({ storyId: dataSource.storyId, change });
+		return;
+	}
+	if (dataSource.kind === 'standalone') {
+		await trpcClient.standaloneCustomStory.setState.mutate({ storyId: dataSource.storyId, change });
 		return;
 	}
 	const { chatId, storySlug } = dataSource;

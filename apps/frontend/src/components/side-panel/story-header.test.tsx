@@ -48,6 +48,14 @@ vi.mock('@/components/story-page-header', () => ({
 	StoryRefreshFailureBanner: () => null,
 }));
 
+vi.mock('@/hooks/use-duplicate-story', () => ({
+	useDuplicateStory: () => ({ duplicate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('@/hooks/use-effective-user-group-features', () => ({
+	useEffectiveUserGroupFeatures: () => ({ customStoryCreationEnabled: true }),
+}));
+
 vi.mock('@/hooks/use-is-mobile', () => ({
 	useIsMobile: () => false,
 }));
@@ -64,6 +72,9 @@ vi.mock('@/main', () => ({
 			},
 		},
 		story: {
+			resolve: {
+				queryOptions: () => ({ queryKey: ['resolveStory'] }),
+			},
 			listStories: {
 				queryOptions: () => ({ queryKey: ['stories'] }),
 			},
@@ -113,7 +124,7 @@ describe('StoryHeader actions', () => {
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 	});
 
-	it('lists download, favorite, analytics and expand in the actions menu', () => {
+	it('lists download, favorite, analytics, expand and duplicate in the actions menu', () => {
 		renderHeader({ storyId: 'story-1' });
 
 		openActionsMenu();
@@ -122,6 +133,7 @@ describe('StoryHeader actions', () => {
 		expect(screen.getByRole('menuitem', { name: 'Favorite' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Expand' })).toBeDefined();
+		expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeDefined();
 	});
 
 	it('only shows the header star once the story is favorited', () => {

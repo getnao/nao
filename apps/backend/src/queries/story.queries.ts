@@ -59,8 +59,11 @@ export function listCustomStoriesInChat(chatId: string, executor: DBExecutor = d
 		.execute();
 }
 
+/** A story lives in its chat, or stands alone in its owner's project. */
+export type StoryOwnership = { chatId: string } | { projectId: string; userId: string };
+
 export async function createCustomStory(
-	data: { chatId: string; slug: string; title: string },
+	data: StoryOwnership & { slug: string; title: string },
 	executor: DBExecutor = db,
 ): Promise<DBStory> {
 	const [row] = await executor
@@ -576,22 +579,62 @@ export function getVersionByNumber(
 	);
 }
 
-export async function listStoryVersions(chatId: string, slug: string): Promise<DBStoryVersion[]> {
-	return db
-		.select({
-			id: s.storyVersion.id,
-			storyId: s.storyVersion.storyId,
-			version: s.storyVersion.version,
-			code: s.storyVersion.code,
-			action: s.storyVersion.action,
-			source: s.storyVersion.source,
-			createdAt: s.storyVersion.createdAt,
-		})
-		.from(s.storyVersion)
-		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-		.orderBy(asc(s.storyVersion.version))
+export function getVersionByStoryIdAndNumber(
+	storyId: string,
+	versionNumber: number,
+): Promise<StoryVersionWithStory | null> {
+	return getStoryVersion(and(eq(s.story.id, storyId), eq(s.storyVersion.version, versionNumber))!);
+}
+
+export function listStoryVersions(chatId: string, slug: string): Promise<DBStoryVersion[]> {
+	return listVersions(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug))!);
+}
+
+export function listStoryVersionsByStoryId(storyId: string): Promise<DBStoryVersion[]> {
+	return listVersions(eq(s.story.id, storyId));
+}
+
+/** Titles of the stories the user owns in the project, in a chat or standalone, that start with the prefix. */
+export async function listOwnedStoryTitlesStartingWith(
+	userId: string,
+	projectId: string,
+	prefix: string,
+): Promise<string[]> {
+	const rows = await db
+		.select({ title: s.story.title })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(
+			and(
+				or(
+					and(eq(s.chat.userId, userId), eq(s.chat.projectId, projectId)),
+					and(isNull(s.story.chatId), eq(s.story.userId, userId), eq(s.story.projectId, projectId)),
+				),
+				sql`substr(${s.story.title}, 1, ${[...prefix].length}) = ${prefix}`,
+			),
+		)
 		.execute();
+	return rows.map((row) => row.title);
+}
+
+export async function listStandaloneSlugsStartingWith(
+	userId: string,
+	projectId: string,
+	prefix: string,
+): Promise<string[]> {
+	const rows = await db
+		.select({ slug: s.story.slug })
+		.from(s.story)
+		.where(
+			and(
+				eq(s.story.projectId, projectId),
+				eq(s.story.userId, userId),
+				isNull(s.story.chatId),
+				sql`substr(${s.story.slug}, 1, ${prefix.length}) = ${prefix}`,
+			),
+		)
+		.execute();
+	return rows.map((row) => row.slug);
 }
 
 export async function updateLatestVersionCode(chatId: string, slug: string, code: string): Promise<void> {
@@ -677,15 +720,45 @@ export async function upsertStoryDataCache(
 export async function upsertStoryDataCacheByStoryId(
 	storyId: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	analysisResults?: Record<string, string> | null,
 ): Promise<void> {
+	const narratives = analysisResults === undefined ? {} : { analysisResults };
 	await db
 		.insert(s.storyDataCache)
-		.values({ storyId, queryData, querySources: null, cachedAt: new Date() })
+		.values({ storyId, queryData, querySources: null, cachedAt: new Date(), ...narratives })
 		.onConflictDoUpdate({
 			target: s.storyDataCache.storyId,
-			set: { queryData, querySources: null, cachedAt: new Date() },
+			set: { queryData, querySources: null, cachedAt: new Date(), ...narratives },
 		})
 		.execute();
+}
+
+/** Frozen narratives are saved with a snapshot (no query sources), unlike the ones a live refresh generates. */
+export async function keepOnlyFrozenStoryNarratives(storyId: string, narrativeIds: string[]): Promise<void> {
+	for (let attempt = 0; attempt < MAX_NARRATIVE_WRITE_ATTEMPTS; attempt++) {
+		const isSettled = await tryKeepOnlyFrozenStoryNarratives(storyId, narrativeIds);
+		if (isSettled) {
+			return;
+		}
+	}
+}
+
+const MAX_NARRATIVE_WRITE_ATTEMPTS = 3;
+
+async function tryKeepOnlyFrozenStoryNarratives(storyId: string, narrativeIds: string[]): Promise<boolean> {
+	const frozenCache = and(eq(s.storyDataCache.storyId, storyId), isNull(s.storyDataCache.querySources));
+	const [cache] = await db.select().from(s.storyDataCache).where(frozenCache).execute();
+	if (!cache?.analysisResults) {
+		return true;
+	}
+	const kept = Object.fromEntries(Object.entries(cache.analysisResults).filter(([id]) => narrativeIds.includes(id)));
+	const updated = await db
+		.update(s.storyDataCache)
+		.set({ analysisResults: Object.keys(kept).length > 0 ? kept : null })
+		.where(and(frozenCache, eq(s.storyDataCache.analysisResults, cache.analysisResults)))
+		.returning({ storyId: s.storyDataCache.storyId })
+		.execute();
+	return updated.length > 0;
 }
 
 export async function getSqlQueriesFromCode(
@@ -845,6 +918,24 @@ async function getStoryVersion(
 	const [row] = await ordered.limit(1).execute();
 
 	return row ?? null;
+}
+
+function listVersions(whereCondition: SQL): Promise<DBStoryVersion[]> {
+	return db
+		.select({
+			id: s.storyVersion.id,
+			storyId: s.storyVersion.storyId,
+			version: s.storyVersion.version,
+			code: s.storyVersion.code,
+			action: s.storyVersion.action,
+			source: s.storyVersion.source,
+			createdAt: s.storyVersion.createdAt,
+		})
+		.from(s.storyVersion)
+		.innerJoin(s.story, eq(s.storyVersion.storyId, s.story.id))
+		.where(whereCondition)
+		.orderBy(asc(s.storyVersion.version))
+		.execute();
 }
 
 async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache | null> {

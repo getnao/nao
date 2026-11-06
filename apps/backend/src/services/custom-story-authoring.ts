@@ -6,6 +6,7 @@ import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { formatStoryFiles } from '../utils/story-file-format';
 import { normalizeStoryFilePath } from '../utils/story-file-path';
+import { extractStoryNarratives } from '../utils/story-kit-narratives';
 import { queueCustomStoryThumbnail } from './custom-story-thumbnail';
 import { buildStoryApp } from './story-app-build';
 import { scaffoldCustomStoryFiles } from './story-scaffold';
@@ -19,18 +20,17 @@ interface StoryOwner {
 	projectId: string;
 }
 
-export async function createCustomStoryDraft(data: {
-	chatId: string;
+export async function createCustomStoryDraft({
+	files: requestedFiles,
+	...storyData
+}: storyQueries.StoryOwnership & {
 	slug: string;
 	title: string;
 	files: StoryFileInput[];
 }): Promise<{ story: DBStory; files: string[] }> {
-	const initialFiles = scaffoldCustomStoryFiles(data.title, await formatStoryFiles(data.files));
+	const initialFiles = scaffoldCustomStoryFiles(storyData.title, await formatStoryFiles(requestedFiles));
 	return db.transaction(async (tx) => {
-		const story = await storyQueries.createCustomStory(
-			{ chatId: data.chatId, slug: data.slug, title: data.title },
-			tx,
-		);
+		const story = await storyQueries.createCustomStory(storyData, tx);
 		const files = await storyFileQueries.seedDraftFiles(story.id, initialFiles, tx);
 		return { story, files: files.map((file) => file.path) };
 	});
@@ -69,6 +69,7 @@ export async function publishCustomStoryDraft(
 	if (!build.ok) {
 		return { ok: false, buildErrors: build.errors, files: draft.map((file) => file.path) };
 	}
+	const previousVersion = await storyQueries.getLatestVersionByStoryId(story.id);
 
 	const { version, files } = await db.transaction(async (tx) => {
 		if (!storyFileQueries.hasSameFiles(await storyFileQueries.listDraftFiles(story.id, tx), draft)) {
@@ -81,6 +82,21 @@ export async function publishCustomStoryDraft(
 		}
 		return cut;
 	});
+	if (previousVersion) {
+		await dropFrozenNarrativesOfEditedSources(story.id, previousVersion.id, draft);
+	}
 	queueCustomStoryThumbnail(story.id, version.id);
 	return { ok: true, version: version.version, files: files.map((file) => file.path) };
+}
+
+/** A frozen narrative rewrites the text written in its source, so it only outlives a publish that keeps that text. */
+async function dropFrozenNarrativesOfEditedSources(
+	storyId: string,
+	previousVersionId: string,
+	publishedFiles: { path: string; content: string }[],
+): Promise<void> {
+	const previousSources = extractStoryNarratives(await storyFileQueries.listVersionFiles(previousVersionId));
+	const publishedTexts = new Map(extractStoryNarratives(publishedFiles).map(({ id, text }) => [id, text]));
+	const unchangedIds = previousSources.filter(({ id, text }) => publishedTexts.get(id) === text).map(({ id }) => id);
+	await storyQueries.keepOnlyFrozenStoryNarratives(storyId, unchangedIds);
 }
