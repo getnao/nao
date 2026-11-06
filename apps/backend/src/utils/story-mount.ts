@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto';
  */
 export const STORIES_MOUNT = 'stories';
 
+const GLOB_CHARACTERS = /[*?[\]{}()!+@]/;
+
 export type StoryMountPath =
 	| { kind: 'root' }
 	| { kind: 'story'; storyId: string }
@@ -55,6 +57,14 @@ export const generateStorySlug = (title: string): string => {
 export const toStoriesVirtualPath = (storyId?: string, filePath?: string): string => {
 	const segments = [STORIES_MOUNT, storyId, filePath].filter((segment) => segment && segment !== '');
 	return `/${segments.join('/')}`;
+};
+
+/** The story a glob pattern names right after `mount`, such as `stories/<id>/**`, when it names a single one. */
+export const storyIdOfMountPattern = (pattern: string, mount: string): string | null => {
+	const segments = pattern.split('/');
+	const mountIndex = segments.indexOf(mount);
+	const storyId = mountIndex === -1 ? undefined : segments[mountIndex + 1];
+	return storyId && !GLOB_CHARACTERS.test(storyId) ? storyId : null;
 };
 
 /** The path relative to the mount root, as matched by glob patterns: `stories/<id>/<file>`. */

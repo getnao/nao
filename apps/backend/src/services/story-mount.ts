@@ -104,8 +104,9 @@ export async function writeStoryMountFile(
 export async function findStoryMountFiles(
 	scope: StoryMountScope,
 	matches: (mountRelativePath: string) => boolean,
+	targetedStoryId: string | null = null,
 ): Promise<searchFiles.File[]> {
-	const stories = await loadMountedStories(scope);
+	const stories = await loadSearchedStories(scope, targetedStoryId);
 	return stories.flatMap(({ storyId, files }) =>
 		files
 			.filter((file) => matches(toStoriesMountRelativePath(storyId, file.path)))
@@ -207,6 +208,24 @@ async function loadMountedStories(scope: StoryMountScope): Promise<MountedStory[
 	return Promise.all(
 		stories.map(async (story) => ({ storyId: story.id, files: await storyFileQueries.listDraftFiles(story.id) })),
 	);
+}
+
+/** A search naming one story also covers it when it is editable from another chat, like a direct read does. */
+async function loadSearchedStories(scope: StoryMountScope, targetedStoryId: string | null): Promise<MountedStory[]> {
+	const stories = await loadMountedStories(scope);
+	if (!targetedStoryId || stories.some((story) => story.storyId === targetedStoryId)) {
+		return stories;
+	}
+	const targetedStory = await findMountedStory(scope, targetedStoryId);
+	return targetedStory ? [...stories, targetedStory] : stories;
+}
+
+async function findMountedStory(scope: StoryMountScope, storyId: string): Promise<MountedStory | null> {
+	try {
+		return await loadMountedStory(scope, storyId);
+	} catch {
+		return null;
+	}
 }
 
 async function loadMountedStory(scope: StoryMountScope, storyId: string): Promise<MountedStory> {

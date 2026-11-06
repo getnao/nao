@@ -14,6 +14,7 @@ import { getDraftFile } from '../src/queries/story-file.queries';
 import { findEditableStory } from '../src/services/editable-story';
 import { attachChatToStandaloneStory } from '../src/services/standalone-story';
 import {
+	findStoryMountFiles,
 	listStoryMount,
 	listStoryMountFilesToGrep,
 	readStoryMountFile,
@@ -256,6 +257,25 @@ describe('editing a story from another chat', () => {
 		expect(await listStoryMountFilesToGrep(scope, `/stories/${CUSTOM_STORY_ID}`, undefined)).toMatchObject([
 			{ virtualPath: `/stories/${CUSTOM_STORY_ID}/app.jsx` },
 		]);
+	});
+
+	it('finds the files of a custom story of another chat when a search names its id', async () => {
+		const scope = { chatId: EDITING_CHAT_ID, userId: OWNER_ID, projectId: PROJECT_ID };
+		const isInStory = (mountRelativePath: string) => {
+			return mountRelativePath.startsWith(`stories/${CUSTOM_STORY_ID}/`);
+		};
+
+		expect(await findStoryMountFiles(scope, isInStory, CUSTOM_STORY_ID)).toMatchObject([
+			{ path: `/stories/${CUSTOM_STORY_ID}/app.jsx` },
+		]);
+		expect(await findStoryMountFiles(scope, isInStory)).toEqual([]);
+		expect(
+			await findStoryMountFiles(
+				{ chatId: VIEWER_CHAT_ID, userId: 'edit-stranger', projectId: PROJECT_ID },
+				isInStory,
+				CUSTOM_STORY_ID,
+			),
+		).toEqual([]);
 	});
 
 	it('only gives a standalone custom story a chat once a new version needs one', async () => {
