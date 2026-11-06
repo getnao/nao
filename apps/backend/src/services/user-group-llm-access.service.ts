@@ -184,6 +184,27 @@ export async function resolveUserBackgroundModelSelection(
 	return resolveUserModelSelection(projectId, userId);
 }
 
+export async function resolveUserBackgroundModelId(
+	projectId: string,
+	userId: string,
+	selection: LlmSelectedModel,
+	preferredModelId: string,
+): Promise<string> {
+	try {
+		return (
+			await resolveUserModelSelection(projectId, userId, {
+				...selection,
+				modelId: preferredModelId,
+			})
+		).modelId;
+	} catch (error) {
+		if (!(error instanceof HandlerError)) {
+			throw error;
+		}
+		return selection.modelId;
+	}
+}
+
 export async function resolveModelForUser(
 	projectId: string,
 	userId: string,

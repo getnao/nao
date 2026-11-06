@@ -314,18 +314,29 @@ function substituteUnavailableModel(
 	if (available.length === 0) {
 		return null;
 	}
+	const resolved = resolveAvailableModelSelection(available, configured);
+	if (resolved) {
+		return resolved;
+	}
+	const substitute = available.find((model) => model.provider === configured.provider) ?? available[0];
+	return { ...substitute };
+}
+
+export function resolveAvailableModelSelection(
+	available: LlmSelectedModel[],
+	configured: LlmSelectedModel,
+): LlmSelectedModel | null {
 	const exact = available.find((model) => isSameModel(model, configured));
 	if (exact) {
 		return { ...exact };
 	}
+	if (configured.llmConfigId) {
+		return null;
+	}
 	const sameModel = available.filter(
 		(model) => model.provider === configured.provider && model.modelId === configured.modelId,
 	);
-	const substitute =
-		(sameModel.length === 1 ? sameModel[0] : undefined) ??
-		available.find((model) => model.provider === configured.provider) ??
-		available[0];
-	return { ...substitute };
+	return sameModel.length === 1 ? { ...sameModel[0] } : null;
 }
 
 export const getProjectAvailableModels = async (
@@ -419,8 +430,9 @@ export class RequestedModelError extends Error {
 
 /**
  * Picks the model an MCP caller asked for among the project's available models. `requested` is a
- * model id as the model picker lists it (`mistral-large-4`), or `provider/model-id` when the same
- * id is served by several providers. Matching ignores case and also accepts the display name.
+ * model id as the model picker lists it (`mistral-large-4`), `provider/model-id` when the same
+ * id is served by several providers, or `provider/model-id@credential-id` when several
+ * credentials serve the same provider and model. Matching ignores case and also accepts the display name.
  * Provider ids and model ids may themselves contain `/` (`openaiCompatible/prod`,
  * `mistralai/mistral-large`), so every split of the requested value is tried.
  */
@@ -428,6 +440,13 @@ export function pickRequestedModel(available: ProjectAvailableModel[], requested
 	const wanted = requested.trim().toLowerCase();
 	if (!wanted) {
 		throw new RequestedModelError('`model` must not be empty.');
+	}
+
+	const credentialMatch = available.filter(
+		(model) => model.llmConfigId && credentialModelSelector(model).toLowerCase() === wanted,
+	);
+	if (credentialMatch.length === 1) {
+		return toModelSelection(credentialMatch[0]);
 	}
 
 	const matchesId = (m: ProjectAvailableModel, id: string): boolean =>
@@ -445,20 +464,26 @@ export function pickRequestedModel(available: ProjectAvailableModel[], requested
 	}
 
 	if (candidates.length === 1) {
-		return {
-			provider: candidates[0].provider,
-			modelId: candidates[0].modelId,
-			...(candidates[0].llmConfigId && { llmConfigId: candidates[0].llmConfigId }),
-		};
+		return toModelSelection(candidates[0]);
 	}
 	if (candidates.length === 0) {
-		const list = available.map((m) => `${m.provider}/${m.modelId}`).join(', ') || 'none';
+		const list = available.map(credentialModelSelector).join(', ') || 'none';
 		throw new RequestedModelError(`Unknown model "${requested}". Available models: ${list}.`);
 	}
-	const qualified = candidates.map((m) => `${m.provider}/${m.modelId}`).join(', ');
-	throw new RequestedModelError(
-		`Model "${requested}" is served by several providers. Qualify it as provider/model-id: ${qualified}.`,
-	);
+	const qualified = candidates.map(credentialModelSelector).join(', ');
+	throw new RequestedModelError(`Model "${requested}" is ambiguous. Use one of: ${qualified}.`);
+}
+
+function toModelSelection(model: ProjectAvailableModel): LlmSelectedModel {
+	return {
+		provider: model.provider,
+		modelId: model.modelId,
+		...(model.llmConfigId && { llmConfigId: model.llmConfigId }),
+	};
+}
+
+function credentialModelSelector(model: ProjectAvailableModel): string {
+	return `${model.provider}/${model.modelId}${model.llmConfigId ? `@${model.llmConfigId}` : ''}`;
 }
 
 /** Models listed in the `ask_nao` `model` description; the rest are only reachable by name. */
@@ -467,7 +492,8 @@ export const MODEL_INPUT_LISTED_MAX = 20;
 /**
  * The `model` input description of `ask_nao`, with the project's available models so an MCP
  * caller picks one without a failed round trip. Models are written the way `pickRequestedModel`
- * resolves them: the bare id, or `provider/model-id` when several providers serve the same id.
+ * resolves them: the bare id, `provider/model-id` when several providers serve the same id, or
+ * `provider/model-id@credential-id` when duplicate credentials serve the same provider and model.
  * The default is the model a call without `model` runs on. `available` is null when the catalog
  * could not be read, in which case the description carries no list.
  */
@@ -478,13 +504,30 @@ export function describeModelInput(
 	if (available === null) {
 		return `${MODEL_INPUT_INTRO} ${MODEL_INPUT_OMIT}`;
 	}
-	const isDefault = (m: ProjectAvailableModel): boolean =>
-		defaultModel !== null && m.provider === defaultModel.provider && m.modelId === defaultModel.modelId;
+	const isDefault = (m: ProjectAvailableModel): boolean => defaultModel !== null && isSameModel(m, defaultModel);
 	const sharedIds = new Set(
 		available.filter((m, i) => available.some((o, j) => j !== i && o.modelId === m.modelId)).map((m) => m.modelId),
 	);
-	const label = (m: ProjectAvailableModel): string =>
-		`\`${sharedIds.has(m.modelId) ? `${m.provider}/${m.modelId}` : m.modelId}\`${isDefault(m) ? ' (default)' : ''}`;
+	const duplicatedCredentials = new Set(
+		available
+			.filter((model, index) =>
+				available.some(
+					(other, otherIndex) =>
+						otherIndex !== index && other.provider === model.provider && other.modelId === model.modelId,
+				),
+			)
+			.map((model) => `${model.provider}\u0000${model.modelId}`),
+	);
+	const label = (model: ProjectAvailableModel): string => {
+		const duplicateCredential = duplicatedCredentials.has(`${model.provider}\u0000${model.modelId}`);
+		const selector = duplicateCredential
+			? credentialModelSelector(model)
+			: sharedIds.has(model.modelId)
+				? `${model.provider}/${model.modelId}`
+				: model.modelId;
+		const credentialName = duplicateCredential && model.llmConfigName ? ` (${model.llmConfigName})` : '';
+		return `\`${selector}\`${credentialName}${isDefault(model) ? ' (default)' : ''}`;
+	};
 
 	const listed = available.slice(0, MODEL_INPUT_LISTED_MAX).map(label);
 	const hidden = available.length - listed.length;
@@ -498,7 +541,8 @@ export function describeModelInput(
 
 const MODEL_INPUT_INTRO =
 	'Model to run the sub-agent with, as listed in the project model picker (e.g. `mistral-large-4`), ' +
-	'or `provider/model-id` when several providers serve the same id.';
+	'`provider/model-id` when several providers serve the same id, or ' +
+	'`provider/model-id@credential-id` when several credentials serve it.';
 const MODEL_INPUT_OMIT =
 	'Omit to use the default: the model pinned in the MCP settings, else the project default chat model.';
 
@@ -510,9 +554,13 @@ export async function resolveRequestedModel(projectId: string, requested: string
 /** The models declared for each provider, used to price usage on top of nao's built-in table. */
 export const getProjectDeclaredModels = async (
 	projectId: string,
-): Promise<Array<{ provider: LlmProvider; models: CustomModelMetadata[] }>> => {
+): Promise<Array<{ provider: LlmProvider; llmConfigId?: string; models: CustomModelMetadata[] }>> => {
 	const sources = await getProjectModelSources(projectId);
-	return sources.map(({ provider, customModels }) => ({ provider, models: customModels }));
+	return sources.map(({ provider, llmConfigId, customModels }) => ({
+		provider,
+		...(llmConfigId && { llmConfigId }),
+		models: customModels,
+	}));
 };
 
 /** Names models the way the project lists them, falling back to nao's catalogue then the raw model id. */
@@ -647,7 +695,8 @@ const projectConfigSource = credentialSource({
 });
 
 function isProjectLlmConfigAvailable(config: { provider: string; credentialSource?: 'database' | 'env' }): boolean {
-	return config.credentialSource !== 'env' || hasEnvApiKey(config.provider as LlmProvider);
+	const provider = config.provider as LlmProvider;
+	return !isProviderDisabled(provider) && (config.credentialSource !== 'env' || hasEnvApiKey(provider));
 }
 
 const naoConfigFileSource = credentialSource({

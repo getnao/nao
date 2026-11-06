@@ -313,7 +313,10 @@ export const projectRoutes = {
 	updateLlmAccessMode: adminProtectedProcedure
 		.input(z.object({ mode: z.enum(LLM_ACCESS_MODES) }))
 		.mutation(async ({ ctx, input }) => {
-			if (!(await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))) {
+			if (
+				input.mode === 'user_group' &&
+				!(await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))
+			) {
 				throw new TRPCError({
 					code: 'FORBIDDEN',
 					message: 'An Enterprise user-groups license is required to configure group LLM access.',

@@ -1310,6 +1310,7 @@ export const testRunResult = sqliteTable(
 		tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),
 		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
+		llmConfigId: text('llm_config_id'),
 		/** Null when the model ran at the reasoning effort configured for it. */
 		reasoningEffort: text('reasoning_effort').$type<ActiveEffort>(),
 		contextVariant: text('context_variant', { enum: TEST_CONTEXT_VARIANTS }).notNull().default('production'),

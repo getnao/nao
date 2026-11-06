@@ -33,7 +33,7 @@ export function LlmAccessModeControl() {
 	const isLicensed = license.data?.['user-groups'] === true;
 	const isRestricted = readiness.data?.mode === 'user_group';
 	const canEnable = readiness.data?.canEnable === true;
-	const disabled = license.isLoading || readiness.isLoading || updateMode.isPending || !isLicensed;
+	const disabled = license.isLoading || readiness.isLoading || updateMode.isPending || (!isLicensed && !isRestricted);
 	const warning = readiness.data ? describeReadiness(readiness.data) : null;
 	const showWarning = warning && isRestricted;
 

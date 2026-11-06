@@ -5,7 +5,11 @@ import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from
 import { llmTelemetry } from '../agents/telemetry';
 import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
-import { resolveUserBackgroundModelSelection, resolveUserModelSelection } from './user-group-llm-access.service';
+import {
+	resolveUserBackgroundModelId,
+	resolveUserBackgroundModelSelection,
+	resolveUserModelSelection,
+} from './user-group-llm-access.service';
 
 const FALLBACK_TITLE = 'Untitled automation';
 
@@ -51,9 +55,10 @@ async function resolveModelForProject(
 		: await resolveUserBackgroundModelSelection(projectId, userId, pinned);
 	const provider = selection.provider;
 	const defaultModelId = getProviderMeta(provider).summaryModelId;
-	const modelId = modelSelection
+	const preferredModelId = modelSelection
 		? await resolveAnnotationModelId(projectId, selection, defaultModelId)
 		: (selection.modelId ?? defaultModelId);
+	const modelId = await resolveUserBackgroundModelId(projectId, userId, selection, preferredModelId);
 	const model = await resolveProviderModel(
 		projectId,
 		provider,

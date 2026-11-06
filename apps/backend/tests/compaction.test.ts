@@ -25,6 +25,12 @@ vi.mock('../src/utils/schedule-task', () => ({
 }));
 vi.mock('../src/services/user-group-llm-access.service', () => ({
 	resolveUserBackgroundModelSelection: async (_projectId: string, _userId: string, selection: unknown) => selection,
+	resolveUserBackgroundModelId: async (
+		_projectId: string,
+		_userId: string,
+		_selection: unknown,
+		preferredModelId: string,
+	) => preferredModelId,
 }));
 
 class FakeTokenCounter implements ITokenCounter {

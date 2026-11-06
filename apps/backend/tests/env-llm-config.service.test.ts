@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	getAllProjectLlmConfigs: vi.fn(),
 	createEnvProjectLlmConfig: vi.fn(),
 	getEnvProviders: vi.fn(),
+	getProjectConfigLlm: vi.fn(),
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
@@ -18,6 +19,7 @@ vi.mock('../src/queries/project-llm-config.queries', () => ({
 
 vi.mock('../src/utils/llm', () => ({
 	getEnvProviders: mocks.getEnvProviders,
+	getProjectConfigLlm: mocks.getProjectConfigLlm,
 }));
 
 import { registerEnvLlmConfigs, registerEnvLlmConfigsForAllProjects } from '../src/services/env-llm-config.service';
@@ -27,6 +29,7 @@ describe('environment LLM credential registration', () => {
 		vi.clearAllMocks();
 		mocks.getEnvProviders.mockReturnValue(['openai', 'anthropic']);
 		mocks.getAllProjectLlmConfigs.mockResolvedValue([]);
+		mocks.getProjectConfigLlm.mockResolvedValue(null);
 		mocks.createEnvProjectLlmConfig.mockResolvedValue(true);
 	});
 
@@ -50,11 +53,19 @@ describe('environment LLM credential registration', () => {
 	it('restores ENV ownership after a manual override was deactivated', async () => {
 		mocks.getEnvProviders.mockReturnValue(['openai']);
 		mocks.getAllProjectLlmConfigs.mockResolvedValue([
-			{ provider: 'openai', credentialSource: 'database', disabledAt: new Date() },
+			{ provider: 'openai', name: 'OpenAI', credentialSource: 'database', disabledAt: new Date() },
 		]);
 
 		await expect(registerEnvLlmConfigs('project-1')).resolves.toBe(1);
-		expect(mocks.createEnvProjectLlmConfig).toHaveBeenCalledWith('project-1', 'openai', 'OpenAI');
+		expect(mocks.createEnvProjectLlmConfig).toHaveBeenCalledWith('project-1', 'openai', 'OpenAI (ENV)');
+	});
+
+	it('does not register an ENV row that would override YAML settings', async () => {
+		mocks.getEnvProviders.mockReturnValue(['openai']);
+		mocks.getProjectConfigLlm.mockResolvedValue({ providers: [{ provider: 'openai' }] });
+
+		await expect(registerEnvLlmConfigs('project-1')).resolves.toBe(0);
+		expect(mocks.createEnvProjectLlmConfig).not.toHaveBeenCalled();
 	});
 
 	it('registers credentials for every existing project', async () => {

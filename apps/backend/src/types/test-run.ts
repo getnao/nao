@@ -126,11 +126,7 @@ export interface TestModelSelection extends LlmSelectedModel {
 }
 
 export function isSameTestModel(model: TestModel, other: TestModel): boolean {
-	return (
-		model.provider === other.provider &&
-		model.modelId === other.modelId &&
-		(model.reasoningEffort ?? null) === (other.reasoningEffort ?? null)
-	);
+	return isSameModel(model, other) && (model.reasoningEffort ?? null) === (other.reasoningEffort ?? null);
 }
 
 /**
@@ -148,9 +144,15 @@ export function testModelColorIndex(runModels: TestModel[], model: LlmSelectedMo
 export function testResultModel(result: {
 	llmProvider: LlmSelectedModel['provider'];
 	llmModelId: string;
+	llmConfigId?: string | null;
 	reasoningEffort: ActiveEffort | null;
 }): TestModel {
-	return { provider: result.llmProvider, modelId: result.llmModelId, reasoningEffort: result.reasoningEffort };
+	return {
+		provider: result.llmProvider,
+		modelId: result.llmModelId,
+		...(result.llmConfigId && { llmConfigId: result.llmConfigId }),
+		reasoningEffort: result.reasoningEffort,
+	};
 }
 
 /** How the tests of a run did, where a test passes only when all its attempts pass. */

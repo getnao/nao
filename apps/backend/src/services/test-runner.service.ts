@@ -435,6 +435,7 @@ async function runAttempt(
 		tags: test.tags,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId ?? null,
 		reasoningEffort: model.reasoningEffort ?? null,
 		contextVariant: variant,
 		attempt,

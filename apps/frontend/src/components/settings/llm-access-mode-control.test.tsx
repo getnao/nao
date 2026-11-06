@@ -9,9 +9,13 @@ const mocks = vi.hoisted(() => ({
 	invalidateQueries: vi.fn(),
 	mutate: vi.fn(),
 	navigate: vi.fn(),
+	license: {
+		data: { 'user-groups': true },
+		isLoading: false,
+	},
 	readiness: {
 		data: {
-			mode: 'project' as const,
+			mode: 'project' as 'project' | 'user_group',
 			canEnable: true,
 			staleConfigIds: [],
 			unassignedGroupIds: ['group-1'],
@@ -38,10 +42,10 @@ vi.mock('@tanstack/react-router', () => ({
 	useNavigate: () => mocks.navigate,
 }));
 vi.mock('@/hooks/use-license', () => ({
-	useLicenseFeatures: () => ({
-		data: { 'user-groups': true },
-		isLoading: false,
-	}),
+	useLicenseFeatures: () => mocks.license,
+}));
+vi.mock('@/components/settings/upgrade-to-enterprise', () => ({
+	UpgradeToEnterprise: () => <span>Upgrade to Enterprise</span>,
 }));
 vi.mock('@/main', () => ({
 	trpc: {
@@ -77,6 +81,8 @@ vi.mock('@/components/ui/confirmation-dialog', () => ({
 describe('LlmAccessModeControl', () => {
 	beforeEach(() => {
 		mocks.readiness.data.canEnable = true;
+		mocks.readiness.data.mode = 'project';
+		mocks.license.data['user-groups'] = true;
 	});
 
 	afterEach(() => {
@@ -110,5 +116,16 @@ describe('LlmAccessModeControl', () => {
 			search: { tab: 'groups' },
 		});
 		expect(mocks.mutate).not.toHaveBeenCalled();
+	});
+
+	it('allows disabling restrictions after the Enterprise license expires', () => {
+		mocks.readiness.data.mode = 'user_group';
+		mocks.license.data['user-groups'] = false;
+		render(<LlmAccessModeControl />);
+
+		const control = screen.getByRole('switch', { name: 'Restrict models by user group' });
+		expect(control.hasAttribute('disabled')).toBe(false);
+		fireEvent.click(control);
+		expect(mocks.mutate).toHaveBeenCalledWith({ mode: 'project' });
 	});
 });

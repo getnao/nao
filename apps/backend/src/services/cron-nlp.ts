@@ -7,7 +7,7 @@ import { llmTelemetry } from '../agents/telemetry';
 import { sanitizeCron } from '../utils/cron';
 import { ManagedCreditsExhaustedError } from '../utils/error';
 import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
-import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
+import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 /** Reasoning models spend most of the budget thinking before writing the expression. */
 const MAX_OUTPUT_TOKENS = 1024;
@@ -60,7 +60,12 @@ async function resolveModelForProject(
 	const pinned = await resolveDefaultModelSelection(projectId, 'other');
 	const selection = await resolveUserBackgroundModelSelection(projectId, userId, pinned);
 	const provider = selection.provider;
-	const modelId = pinned ? selection.modelId : getProviderMeta(provider).extractorModelId;
+	const modelId = await resolveUserBackgroundModelId(
+		projectId,
+		userId,
+		selection,
+		pinned ? selection.modelId : getProviderMeta(provider).extractorModelId,
+	);
 	const model = await resolveProviderModel(
 		projectId,
 		provider,

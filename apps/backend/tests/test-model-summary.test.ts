@@ -44,6 +44,18 @@ describe('summarizeModels', () => {
 		]);
 	});
 
+	it('summarizes separate credentials for the same model independently', () => {
+		const summaries = summarizeModels([
+			attempt('opus', 'revenue.yml', true, { llmConfigId: 'config-a' }),
+			attempt('opus', 'revenue.yml', false, { llmConfigId: 'config-b' }),
+		]);
+
+		expect(summaries).toMatchObject([
+			{ modelId: 'opus', llmConfigId: 'config-a', passedAttempts: 1 },
+			{ modelId: 'opus', llmConfigId: 'config-b', passedAttempts: 0 },
+		]);
+	});
+
 	it('ranks equally accurate models by the cost of a correct answer', () => {
 		const summaries = summarizeModels([
 			attempt('sonnet', 'revenue.yml', true, { totalCost: 0.05 }),
@@ -98,7 +110,10 @@ function attempt(
 	testPath: string,
 	passed: boolean,
 	metrics: Partial<
-		Pick<SummarizedTestResult, 'totalCost' | 'totalTokens' | 'durationMs' | 'toolCallCount' | 'reasoningEffort'>
+		Pick<
+			SummarizedTestResult,
+			'totalCost' | 'totalTokens' | 'durationMs' | 'toolCallCount' | 'reasoningEffort' | 'llmConfigId'
+		>
 	>,
 	contextVariant: TestContextVariant = 'production',
 ): SummarizedTestResult {
@@ -106,6 +121,7 @@ function attempt(
 		testPath,
 		llmProvider: 'anthropic',
 		llmModelId: modelId,
+		llmConfigId: null,
 		reasoningEffort: null,
 		contextVariant,
 		passed,

@@ -24,7 +24,7 @@ import { llmTelemetry } from '../../agents/telemetry';
 import { convertToTokenUsage } from '../../utils/ai';
 import { resolveDefaultModelSelection, resolveProviderModel } from '../../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../../utils/schedule-task';
-import { resolveUserBackgroundModelSelection } from '../user-group-llm-access.service';
+import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from '../user-group-llm-access.service';
 import { documentColors, fitDocumentsToPrompt, renderDocuments, type SourceDocument } from './document';
 import { applyGuards, type GenerateResult, type GuardContext } from './guard';
 import { detectGround, type ImageSample, sampleImage, snapToImageColors } from './pixels';
@@ -898,7 +898,12 @@ async function resolveModel({ projectId, userId }: GenerationScope): Promise<Res
 	const pinned = await resolveDefaultModelSelection(projectId, 'other');
 	const selection = await resolveUserBackgroundModelSelection(projectId, userId, pinned);
 	const provider = selection.provider;
-	const modelId = pinned ? selection.modelId : getProviderMeta(provider).summaryModelId;
+	const modelId = await resolveUserBackgroundModelId(
+		projectId,
+		userId,
+		selection,
+		pinned ? selection.modelId : getProviderMeta(provider).summaryModelId,
+	);
 	const model = await resolveProviderModel(
 		projectId,
 		provider,

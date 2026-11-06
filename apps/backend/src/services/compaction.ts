@@ -19,7 +19,7 @@ import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProvider
 import { sanitizeToolCalls } from '../utils/model-message';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
-import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
+import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 const CONTEXT_WINDOW_COMPACTION_THRESHOLD = 0.75;
 
@@ -249,13 +249,14 @@ export class CompactionService {
 			pinned ?? selectedModel,
 		);
 		const effectiveProvider = authorized.provider;
-		const modelId = pinned
+		const preferredModelId = pinned
 			? authorized.modelId
 			: await resolveAnnotationModelId(
 					chat.projectId,
 					authorized,
 					getProviderMeta(effectiveProvider).extractorModelId,
 				);
+		const modelId = await resolveUserBackgroundModelId(chat.projectId, chat.userId, authorized, preferredModelId);
 		const model = await resolveProviderModel(
 			chat.projectId,
 			effectiveProvider,

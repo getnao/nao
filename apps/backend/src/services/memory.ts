@@ -17,7 +17,7 @@ import type {
 import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { posthog, PostHogEvent } from './posthog';
-import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
+import { resolveUserBackgroundModelId, resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 /**
  * Manages persistent user memories: injecting them into agent context and
@@ -73,7 +73,8 @@ class MemoryService {
 			},
 		);
 		const provider = selected.provider;
-		const modelId = pinned ? selected.modelId : await this._getExtractorModelId(opts.projectId, selected);
+		const preferredModelId = pinned ? selected.modelId : await this._getExtractorModelId(opts.projectId, selected);
+		const modelId = await resolveUserBackgroundModelId(opts.projectId, opts.userId, selected, preferredModelId);
 		const model = await this._resolveModel(opts, provider, modelId, selected.llmConfigId);
 		if (!model) {
 			return;

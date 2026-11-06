@@ -10646,6 +10646,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "llm_config_id": {
+          "name": "llm_config_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "reasoning_effort": {
           "name": "reasoning_effort",
           "type": "text",

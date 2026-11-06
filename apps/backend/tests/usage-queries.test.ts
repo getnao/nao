@@ -19,6 +19,10 @@ import type { UsagePeriodRange } from '../src/types/usage';
 import { usagePeriodRangeSchema } from '../src/types/usage';
 import { formatDate } from '../src/utils/date';
 
+const mocks = vi.hoisted(() => ({
+	getProjectLlmConfigs: vi.fn(async () => []),
+}));
+
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
@@ -39,7 +43,7 @@ vi.mock('../src/db/db', async () => {
 });
 
 vi.mock('../src/queries/project-llm-config.queries', () => ({
-	getProjectLlmConfigs: async () => [],
+	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
 }));
 
 const PROJECT_ID = 'usage-project';
@@ -66,6 +70,7 @@ describe('usage query results', () => {
 	});
 
 	beforeEach(async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([]);
 		await db.delete(s.userPreference);
 		await db.delete(s.llmInference);
 		await db.delete(s.chatMessage);
@@ -394,6 +399,58 @@ describe('usage query results', () => {
 
 		expect(filtered.reduce((sum, record) => sum + record.totalTokens, 0)).toBe(110);
 		expect(unfiltered.reduce((sum, record) => sum + record.totalTokens, 0)).toBe(315);
+	});
+
+	it('prices the same provider model by credential', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([
+			{
+				id: 'credential-a',
+				name: 'Client A',
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: ['custom-priced-model'],
+				customModels: [{ id: 'custom-priced-model', costPerM: { inputNoCache: 1 } }],
+				baseUrl: null,
+			},
+			{
+				id: 'credential-b',
+				name: 'Client B',
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: ['custom-priced-model'],
+				customModels: [{ id: 'custom-priced-model', costPerM: { inputNoCache: 2 } }],
+				baseUrl: null,
+			},
+		]);
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'priced-by-a',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'custom-priced-model',
+				llmConfigId: 'credential-a',
+				inputNoCacheTokens: 1_000_000,
+			},
+			{
+				id: 'priced-by-b',
+				chatId: CHAT_ID,
+				role: 'assistant',
+				llmProvider: 'openai',
+				llmModelId: 'custom-priced-model',
+				llmConfigId: 'credential-b',
+				inputNoCacheTokens: 1_000_000,
+			},
+		]);
+		const period = { value: 15, unit: 'day' as const };
+
+		const [clientA, all] = await Promise.all([
+			getMessagesUsage(PROJECT_ID, { period, llmConfigIds: ['credential-a'] }),
+			getMessagesUsage(PROJECT_ID, { period }),
+		]);
+
+		expect(clientA.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(1);
+		expect(all.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(3);
 	});
 
 	it('breaks down messages, tokens and cost per user for every date', async () => {

@@ -4,6 +4,7 @@ ALTER TABLE "automation_run" ADD COLUMN "llm_config_id" text;--> statement-break
 ALTER TABLE "chat_message" ADD COLUMN "llm_config_id" text;--> statement-breakpoint
 ALTER TABLE "context_recommendation_run" ADD COLUMN "llm_config_id" text;--> statement-breakpoint
 ALTER TABLE "llm_inference" ADD COLUMN "llm_config_id" text;--> statement-breakpoint
+ALTER TABLE "test_run_result" ADD COLUMN "llm_config_id" text;--> statement-breakpoint
 ALTER TABLE "project" ADD COLUMN "llm_access_mode" text DEFAULT 'project' NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_llm_config" ADD COLUMN "name" text;--> statement-breakpoint
 UPDATE "project_llm_config" SET "name" = "provider";--> statement-breakpoint

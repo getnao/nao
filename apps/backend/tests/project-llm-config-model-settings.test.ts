@@ -5,7 +5,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getProjectLlmConfigByProvider, upsertProjectLlmConfig } from '../src/queries/project-llm-config.queries';
+import {
+	deactivateProjectLlmConfig,
+	getProjectLlmConfigByProvider,
+	saveProjectLlmConfig,
+	upsertProjectLlmConfig,
+} from '../src/queries/project-llm-config.queries';
 import type { ModelSettingsMap } from '../src/types/llm';
 import { getDefaultModelId, getProjectAvailableModels } from '../src/utils/llm';
 
@@ -132,6 +137,41 @@ describe('project_llm_config model settings round-trip (sqlite)', () => {
 		});
 
 		expect(created.modelSettings).toEqual({});
+	});
+
+	it('reuses and reactivates an inactive credential name', async () => {
+		const reuseProjectId = `${projectId}-reuse-name`;
+		await db
+			.insert(s.project)
+			.values({ id: reuseProjectId, name: 'Reuse Name Test', type: 'local', path: '/tmp/reuse-name-test' });
+		const inactive = await saveProjectLlmConfig({
+			projectId: reuseProjectId,
+			name: 'Warehouse',
+			provider: 'anthropic',
+			credentialSource: 'database',
+			apiKey: 'old-key',
+			credentials: null,
+			enabledModels: [],
+			customModels: [],
+			modelSettings: {},
+			baseUrl: null,
+		});
+		await deactivateProjectLlmConfig(reuseProjectId, inactive.id);
+
+		const restored = await saveProjectLlmConfig({
+			projectId: reuseProjectId,
+			name: 'Warehouse',
+			provider: 'openai',
+			credentialSource: 'database',
+			apiKey: 'new-key',
+			credentials: null,
+			enabledModels: ['gpt-5'],
+			customModels: [],
+			modelSettings: {},
+			baseUrl: null,
+		});
+
+		expect(restored).toMatchObject({ id: inactive.id, provider: 'openai', disabledAt: null });
 	});
 
 	it('resolves an empty enabled model list like an explicit provider default', async () => {

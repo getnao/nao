@@ -1,9 +1,9 @@
-import { isSameModel, type LlmSelectedModel } from '@nao/shared/types';
+import type { LlmSelectedModel } from '@nao/shared/types';
 
 import { getAvailableModelsForUser } from '../../services/user-group-llm-access.service';
 import type { ToolContext } from '../../types/tools';
 import { assertBudgetNotExceeded } from '../../utils/budget';
-import { type ProjectAvailableModel, resolveProviderModel } from '../../utils/llm';
+import { type ProjectAvailableModel, resolveAvailableModelSelection, resolveProviderModel } from '../../utils/llm';
 import type { ProviderModelResult } from '../providers';
 
 export interface SubagentModel {
@@ -50,8 +50,11 @@ async function resolveSelection(context: ToolContext, requestedModelId?: string)
 	}
 
 	const pinned = context.agentSettings?.subagent?.model;
-	if (pinned && available.some((model) => isSameModel(model, pinned))) {
-		return pinned;
+	if (pinned) {
+		const resolved = resolveAvailableModelSelection(available, pinned);
+		if (resolved) {
+			return resolved;
+		}
 	}
 
 	if (context.modelSelection) {

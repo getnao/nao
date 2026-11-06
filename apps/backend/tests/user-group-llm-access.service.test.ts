@@ -4,6 +4,7 @@ import {
 	getAvailableModelsForUser,
 	getLlmAccessReadiness,
 	resolveModelForUser,
+	resolveUserBackgroundModelId,
 	resolveUserBackgroundModelSelection,
 	resolveUserModelSelection,
 } from '../src/services/user-group-llm-access.service';
@@ -174,6 +175,14 @@ describe('user group LLM access', () => {
 			modelId: 'gpt-5-mini',
 			llmConfigId: 'config-a',
 		});
+	});
+
+	it('keeps the authorized model when a background task prefers a restricted model', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'user_group' });
+
+		await expect(resolveUserBackgroundModelId('project-1', 'user-1', clientAModel, 'gpt-5-pro')).resolves.toBe(
+			'gpt-5-mini',
+		);
 	});
 
 	it('summarizes credentials that activation would ignore or leave unavailable', async () => {

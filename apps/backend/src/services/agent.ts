@@ -131,7 +131,11 @@ import {
 	appendAgentUserGroupRestrictions,
 	resolveAgentUserGroupAccess,
 } from './user-group-feature-access.service';
-import { resolveUserBackgroundModelSelection, resolveUserModelSelection } from './user-group-llm-access.service';
+import {
+	resolveUserBackgroundModelId,
+	resolveUserBackgroundModelSelection,
+	resolveUserModelSelection,
+} from './user-group-llm-access.service';
 
 export interface AgentRunResult {
 	text: string;
@@ -890,9 +894,15 @@ export class AgentManager {
 			pinned ?? this._modelSelection,
 		);
 		const provider = selected.provider;
-		const summaryModelId = pinned
+		const preferredModelId = pinned
 			? selected.modelId
 			: await resolveAnnotationModelId(this.chat.projectId, selected, getProviderMeta(provider).summaryModelId);
+		const summaryModelId = await resolveUserBackgroundModelId(
+			this.chat.projectId,
+			this.chat.userId,
+			selected,
+			preferredModelId,
+		);
 		const modelResult = await resolveProviderModel(
 			this.chat.projectId,
 			provider,
@@ -1060,7 +1070,12 @@ export class AgentManager {
 	private async _computeCost(usage: TokenUsage, costs?: ModelCosts): Promise<TokenCost> {
 		const customModels = await getProjectDeclaredModels(this.chat.projectId)
 			.then(
-				(sources) => sources.find((source) => source.provider === this._modelSelection.provider)?.models ?? [],
+				(sources) =>
+					sources.find(
+						(source) =>
+							source.provider === this._modelSelection.provider &&
+							source.llmConfigId === this._modelSelection.llmConfigId,
+					)?.models ?? [],
 			)
 			.catch(() => []);
 		return convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId, customModels, costs);
