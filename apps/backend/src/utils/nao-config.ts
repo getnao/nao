@@ -5,13 +5,16 @@ import { isLlmProvider, type LlmSelectedModel, type RepoProvider } from '@nao/sh
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
+import { getModelReasoningEfforts } from '../agents/provider-meta';
 import { parseGithubRemoteRepoFullName } from '../services/github';
 import { gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
+import type { ActiveEffort } from '../types/llm';
 import {
 	type ConfiguredTestSettings,
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
 	testComparisonTolerancesSchema,
+	type TestModelSelection,
 } from '../types/test-run';
 import { logger } from './logger';
 import { escapeRegExp } from './utils';
@@ -28,6 +31,8 @@ export type ContextPresence = {
 };
 const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
 const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
+const TEST_MODEL_FORMAT = "'provider:model_id'";
+const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
 
 type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
@@ -300,22 +305,41 @@ function isPositiveInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isInteger(value) && value >= 1;
 }
 
-function parseTestModels(models: unknown, errors: string[]): LlmSelectedModel[] | null {
+function parseTestModels(models: unknown, errors: string[]): TestModelSelection[] | null {
 	if (models === undefined || models === null) {
 		return null;
 	}
 	if (!Array.isArray(models)) {
-		errors.push("test.models must be a list of 'provider:model_id' entries.");
+		errors.push(`test.models must be a list of ${TEST_MODEL_FORMAT} or ${TEST_MODEL_OBJECT_FORMAT} entries.`);
 		return null;
 	}
 	const parsed = models.flatMap((model) => {
-		const selectedModel = parseTestModel(model);
-		if (!selectedModel) {
-			errors.push(`test.models has an invalid entry ${JSON.stringify(model)}, expected 'provider:model_id'.`);
+		const selection = parseTestModelEntry(model);
+		if (typeof selection === 'string') {
+			errors.push(selection);
+			return [];
 		}
-		return selectedModel ? [selectedModel] : [];
+		return [selection];
 	});
 	return parsed.length > 0 ? parsed : null;
+}
+
+/** A `provider:model_id` entry, or an object naming the model with the reasoning efforts to run it at, or `all`. */
+function parseTestModelEntry(entry: unknown): TestModelSelection | string {
+	const invalidEntry = `test.models has an invalid entry ${JSON.stringify(entry)}, expected`;
+	if (!isRecord(entry)) {
+		return parseTestModel(entry) ?? `${invalidEntry} ${TEST_MODEL_FORMAT}.`;
+	}
+	const model = parseTestModel(entry.model);
+	const unknownKeys = Object.keys(entry).filter((key) => key !== 'model' && key !== 'reasoning_efforts');
+	if (!model || unknownKeys.length > 0) {
+		return `${invalidEntry} ${TEST_MODEL_OBJECT_FORMAT}.`;
+	}
+	if (entry.reasoning_efforts === undefined || entry.reasoning_efforts === null) {
+		return model;
+	}
+	const reasoningEfforts = parseReasoningEfforts(model, entry.reasoning_efforts);
+	return typeof reasoningEfforts === 'string' ? reasoningEfforts : { ...model, reasoningEfforts };
 }
 
 function parseTestModel(model: unknown): LlmSelectedModel | null {
@@ -326,6 +350,28 @@ function parseTestModel(model: unknown): LlmSelectedModel | null {
 	const provider = model.slice(0, separatorIndex);
 	const modelId = model.slice(separatorIndex + 1);
 	return separatorIndex > 0 && modelId && isLlmProvider(provider) ? { provider, modelId } : null;
+}
+
+/** The efforts listed for a model, from the lowest, or the error naming the ones it does not support. */
+function parseReasoningEfforts(model: LlmSelectedModel, efforts: unknown): ActiveEffort[] | string {
+	const label = `test.models reasoning_efforts of ${model.provider}:${model.modelId}`;
+	const supported = getModelReasoningEfforts(model.provider, model.modelId);
+	if (supported.length === 0) {
+		return `${label}: this model has no reasoning efforts to pick.`;
+	}
+	if (efforts === 'all') {
+		return supported;
+	}
+	if (!Array.isArray(efforts) || efforts.length === 0) {
+		return `${label} must be 'all' or a list of efforts among ${supported.join(', ')}.`;
+	}
+	const unsupported = efforts.filter((effort: unknown) => {
+		return !supported.some((candidate) => candidate === effort);
+	});
+	if (unsupported.length > 0) {
+		return `${label} has unsupported efforts ${unsupported.map((effort) => JSON.stringify(effort)).join(', ')}, expected some of ${supported.join(', ')}.`;
+	}
+	return supported.filter((effort) => efforts.includes(effort));
 }
 
 function deriveDatabaseNameFromPath(databasePath: string): string {

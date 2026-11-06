@@ -41,7 +41,7 @@ describe('TestModelMatrix', () => {
 			['revenue', 'claude-opus-5-5', '', '0/1', '', ''],
 			['claude-haiku-5-5', '', '', '', ''],
 		]);
-		expect(within(rows[1]).getByLabelText('1 of 1 attempts passed')).toBeTruthy();
+		expect(within(rows[1]).getByLabelText('1 of 1 answers passed')).toBeTruthy();
 	});
 });
 

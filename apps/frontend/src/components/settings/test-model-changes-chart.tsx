@@ -78,7 +78,7 @@ export function ModelChangesChart({ run, mainBranch }: { run: TestRunWithResults
 				details: [
 					`${mainBranch}: ${formatAccuracy(production)} · ${production ? formatMetric(metric, production) : '—'}`,
 					`Your changes: ${formatAccuracy(draft)} · ${formatMetric(metric, draft)}`,
-					`${draft.attempts} attempts per side`,
+					`${draft.attempts} answers per side`,
 				],
 			},
 		];

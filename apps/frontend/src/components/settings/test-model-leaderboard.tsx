@@ -41,7 +41,7 @@ const MODEL_COLUMN: SortableColumn = { label: 'Model', value: formatTestModel, b
 
 const ACCURACY_COLUMN: SortableColumn = {
 	label: 'Accuracy',
-	title: 'Share of the attempts that passed',
+	title: 'Share of the answers that passed',
 	value: getAccuracy,
 	best: 'highest',
 };
@@ -49,7 +49,7 @@ const ACCURACY_COLUMN: SortableColumn = {
 const LEADERBOARD_COLUMNS: LeaderboardColumn[] = [
 	{
 		label: 'Reliable',
-		title: 'Tests where every attempt passed',
+		title: 'Tests where every answer passed',
 		value: (summary) => summary.reliableTestCount / Math.max(summary.testCount, 1),
 		format: (_, summary) => `${summary.reliableTestCount}/${summary.testCount}`,
 		best: 'highest',
@@ -63,7 +63,7 @@ const LEADERBOARD_COLUMNS: LeaderboardColumn[] = [
 	},
 	{
 		label: '$ / correct',
-		title: 'Total cost divided by the attempts that passed: cheap but wrong models rank low',
+		title: 'Total cost divided by the answers that passed: cheap but wrong models rank low',
 		value: (summary) => summary.costPerCorrectAnswer,
 		format: formatUnitCost,
 		best: 'lowest',

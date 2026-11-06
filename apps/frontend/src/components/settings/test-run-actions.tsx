@@ -9,6 +9,7 @@ import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import type { ContextRunMode } from '@/hooks/use-test-run-start';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import { TestModelPicker } from '@/components/settings/test-model-picker';
+import { BranchName, getMainBranch } from '@/components/settings/test-run-labels';
 import { getContextChanges } from '@/components/settings/test-run-types';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,14 +27,14 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 interface ContextRunAction {
-	label: string;
-	tooltip: string;
+	label: ReactNode;
+	tooltip: ReactNode;
 }
 
-const CONTEXT_RUN_MODES: Record<ContextRunMode, { icon: ReactNode; menuLabel: string }> = {
-	compare: { icon: <GitCompareArrows className='size-3.5' />, menuLabel: 'Compare with production' },
-	changes: { icon: <FilePen className='size-3.5' />, menuLabel: 'Run with your changes only' },
-	production: { icon: <Play className='size-3.5' />, menuLabel: 'Run on production only' },
+const CONTEXT_RUN_MODE_ICONS: Record<ContextRunMode, ReactNode> = {
+	compare: <GitCompareArrows className='size-3.5' />,
+	changes: <FilePen className='size-3.5' />,
+	production: <Play className='size-3.5' />,
 };
 
 interface RunActionsBaseProps {
@@ -67,6 +68,7 @@ export function SuiteRunActions({
 		onRunStarted,
 	});
 	const verb = settings.models.length > 1 ? 'Benchmark' : 'Run';
+	const mainBranch = <BranchName name={getMainBranch(draft)} className='text-current' />;
 
 	return (
 		<RunActionsRow
@@ -83,19 +85,32 @@ export function SuiteRunActions({
 		>
 			{testRun.hasContextChanges ? (
 				<ContextRunButton
+					mainBranch={mainBranch}
 					actions={{
 						compare: {
-							label: `Compare ${scope.label} with production`,
-							tooltip:
-								'Runs the tests on production and with your changes, side by side, to see which ones your changes break or fix.',
+							label: (
+								<>
+									Compare {scope.label} with {mainBranch}
+								</>
+							),
+							tooltip: (
+								<>
+									Runs the tests on {mainBranch} and with your changes, side by side, to see which
+									ones your changes break or fix.
+								</>
+							),
 						},
 						changes: {
 							label: `Run ${scope.label} with your changes`,
 							tooltip: 'Runs the tests with your changes only.',
 						},
 						production: {
-							label: `Run ${scope.label} on production`,
-							tooltip: 'Runs the tests against the production context only.',
+							label: (
+								<>
+									Run {scope.label} on {mainBranch}
+								</>
+							),
+							tooltip: <>Runs the tests on {mainBranch} only.</>,
 						},
 					}}
 					disabledReason={testRun.disabledReason}
@@ -106,7 +121,7 @@ export function SuiteRunActions({
 				<StartButton
 					icon={<Play className='size-3.5' />}
 					label={`${verb} ${scope.label}`}
-					tooltip='Runs the tests against the production context.'
+					tooltip={<>Runs the tests on {mainBranch}.</>}
 					disabledReason={testRun.disabledReason}
 					isStarting={testRun.isStarting}
 					onClick={testRun.run}
@@ -136,6 +151,7 @@ export function TestFileRunActions({
 	});
 	const contextChangeCount = getContextChanges(draft).length;
 	const changedFiles = `${contextChangeCount} changed ${pluralize('file', contextChangeCount)}`;
+	const mainBranch = <BranchName name={getMainBranch(draft)} className='text-current' />;
 
 	return (
 		<RunActionsRow
@@ -152,18 +168,24 @@ export function TestFileRunActions({
 		>
 			{testRun.hasContextChanges ? (
 				<ContextRunButton
+					mainBranch={mainBranch}
 					actions={{
 						compare: {
-							label: 'Compare with production',
-							tooltip: `Runs this test, as it is in the editor, on production and with your ${changedFiles}, side by side.`,
+							label: <>Compare with {mainBranch}</>,
+							tooltip: (
+								<>
+									Runs this test, as it is in the editor, side by side on {mainBranch} and with your{' '}
+									{changedFiles}.
+								</>
+							),
 						},
 						changes: {
 							label: 'Run with your changes',
 							tooltip: `Runs this test, as it is in the editor, with your ${changedFiles} only.`,
 						},
 						production: {
-							label: 'Run on production',
-							tooltip: 'Runs this test, as it is in the editor, against the production context only.',
+							label: <>Run on {mainBranch}</>,
+							tooltip: <>Runs this test, as it is in the editor, on {mainBranch} only.</>,
 						},
 					}}
 					disabledReason={testRun.disabledReason}
@@ -174,7 +196,7 @@ export function TestFileRunActions({
 				<StartButton
 					icon={<Play className='size-3.5' />}
 					label='Run test'
-					tooltip='Runs this test, as it is in the editor, against the production context.'
+					tooltip={<>Runs this test, as it is in the editor, on {mainBranch}.</>}
 					disabledReason={testRun.disabledReason}
 					isStarting={testRun.isStarting}
 					onClick={testRun.run}
@@ -241,8 +263,8 @@ function StartButton({
 	className,
 }: {
 	icon: ReactNode;
-	label: string;
-	tooltip: string;
+	label: ReactNode;
+	tooltip: ReactNode;
 	disabledReason: string | null;
 	isStarting: boolean;
 	onClick: () => void;
@@ -257,7 +279,16 @@ function StartButton({
 	});
 
 	return (
-		<SimpleTooltip content={disabledReason ?? `${tooltip} (${getShortcutLabel('run-tests')})`} side='top'>
+		<SimpleTooltip
+			content={
+				disabledReason ?? (
+					<>
+						{tooltip} ({getShortcutLabel('run-tests')})
+					</>
+				)
+			}
+			side='top'
+		>
 			<span className='shrink-0'>
 				<Button
 					type='button'
@@ -267,7 +298,7 @@ function StartButton({
 					onClick={onClick}
 				>
 					{isStarting ? <Spinner className='size-3.5' /> : icon}
-					{label}
+					<span>{label}</span>
 				</Button>
 			</span>
 		</SimpleTooltip>
@@ -275,15 +306,17 @@ function StartButton({
 }
 
 /**
- * Starts a run on production, with the user's changes, or both side by side. Picking another way to run in the menu
- * makes it the button's action, remembered in this browser.
+ * Starts a run on the main branch, with the user's changes, or both side by side. Picking another way to run in the
+ * menu makes it the button's action, remembered in this browser.
  */
 function ContextRunButton({
+	mainBranch,
 	actions,
 	disabledReason,
 	isStarting,
 	onRun,
 }: {
+	mainBranch: ReactNode;
 	actions: Record<ContextRunMode, ContextRunAction>;
 	disabledReason: string | null;
 	isStarting: boolean;
@@ -291,12 +324,14 @@ function ContextRunButton({
 }) {
 	const [selectedMode, setMode] = useContextRunMode();
 	const action = actions[selectedMode];
-	const otherModes = (Object.keys(CONTEXT_RUN_MODES) as ContextRunMode[]).filter((other) => other !== selectedMode);
+	const otherModes = (Object.keys(CONTEXT_RUN_MODE_ICONS) as ContextRunMode[]).filter(
+		(other) => other !== selectedMode,
+	);
 
 	return (
 		<span className='flex shrink-0 items-center'>
 			<StartButton
-				icon={CONTEXT_RUN_MODES[selectedMode].icon}
+				icon={CONTEXT_RUN_MODE_ICONS[selectedMode]}
 				label={action.label}
 				tooltip={action.tooltip}
 				disabledReason={disabledReason}
@@ -319,12 +354,25 @@ function ContextRunButton({
 				<DropdownMenuContent align='end' className='text-xs'>
 					{otherModes.map((other) => (
 						<DropdownMenuItem key={other} onSelect={() => setMode(other)}>
-							{CONTEXT_RUN_MODES[other].icon}
-							{CONTEXT_RUN_MODES[other].menuLabel}
+							{CONTEXT_RUN_MODE_ICONS[other]}
+							<span>
+								<ContextRunMenuLabel mode={other} mainBranch={mainBranch} />
+							</span>
 						</DropdownMenuItem>
 					))}
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</span>
 	);
+}
+
+function ContextRunMenuLabel({ mode, mainBranch }: { mode: ContextRunMode; mainBranch: ReactNode }) {
+	switch (mode) {
+		case 'compare':
+			return <>Compare with {mainBranch}</>;
+		case 'changes':
+			return <>Run with your changes only</>;
+		case 'production':
+			return <>Run on {mainBranch} only</>;
+	}
 }

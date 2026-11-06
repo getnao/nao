@@ -20,7 +20,7 @@ type LineChange = 'removed' | 'added';
 export function AttemptSql({ result }: { result: TestRunResult }) {
 	const referenceSql = result.details?.referenceSql;
 	if (!agentQueryOf(result) && !referenceSql) {
-		return <p className='text-muted-foreground'>No SQL recorded for this attempt.</p>;
+		return <p className='text-muted-foreground'>No SQL recorded for this answer.</p>;
 	}
 	return (
 		<div className='grid gap-3 lg:grid-cols-2'>

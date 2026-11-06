@@ -34,7 +34,7 @@ export function AttemptDots({
 }) {
 	const passed = results.filter((result) => result.passed).length;
 	return (
-		<span className='flex items-center gap-1' aria-label={`${passed} of ${results.length} attempts passed`}>
+		<span className='flex items-center gap-1' aria-label={`${passed} of ${results.length} answers passed`}>
 			<span className='flex gap-0.5'>
 				{results.map((result) => (
 					<span
