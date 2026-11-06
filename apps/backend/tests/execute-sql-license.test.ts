@@ -165,6 +165,8 @@ function createContext(
 					},
 		envVars: {},
 		warehouseTableAccess,
+		warehouseColumnSecurity: { enforced: false },
+		warehouseRowSecurity: { enforced: false },
 		azureAccessToken: null,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },

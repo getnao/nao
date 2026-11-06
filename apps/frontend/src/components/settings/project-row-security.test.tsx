@@ -136,7 +136,7 @@ describe('ProjectRowSecurity', () => {
 	it('leaves only the protected table list bordered', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 
-		const protectedTables = screen.getByRole('region', { name: 'Protected tables' });
+		const protectedTables = screen.getByRole('region', { name: 'Tables with record rules' });
 		const settingsBody = protectedTables.parentElement;
 
 		expect(protectedTables.classList.contains('border')).toBe(true);
@@ -153,9 +153,10 @@ describe('ProjectRowSecurity', () => {
 
 		openConfiguration();
 
-		expect(screen.getByRole('dialog', { name: 'Add protected tables' })).toBeTruthy();
+		expect(screen.getByRole('dialog', { name: 'Add record access rules' })).toBeTruthy();
+		expect(screen.getByText(/admins included/)).toBeTruthy();
 		expect(screen.getByTestId('project-row-security-tree')).toBeTruthy();
-		expect(screen.getByRole('textbox', { name: 'Search row-level security tables' })).toBeTruthy();
+		expect(screen.getByRole('textbox', { name: 'Search record access tables' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Cancel' }).classList.contains('rounded-full')).toBe(true);
 		expect(screen.getByRole('button', { name: 'Save' }).classList.contains('rounded-full')).toBe(true);
 		const databaseButton = screen.getByRole('button', { name: 'Expand analytics database' });
@@ -167,7 +168,7 @@ describe('ProjectRowSecurity', () => {
 		expect(screen.getByText('1 configured')).toBeTruthy();
 
 		expandToOrders();
-		const tenantCheckbox = screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' });
+		const tenantCheckbox = screen.getByRole('checkbox', { name: 'tenant_id rule field for orders' });
 		expect(tenantCheckbox.getAttribute('data-state')).toBe('checked');
 		expect(tenantCheckbox.className).toContain('cursor-pointer');
 		expect(tenantCheckbox.parentElement?.className).toContain('cursor-pointer');
@@ -229,7 +230,7 @@ describe('ProjectRowSecurity', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 		openConfiguration();
 
-		fireEvent.change(screen.getByRole('textbox', { name: 'Search row-level security tables' }), {
+		fireEvent.change(screen.getByRole('textbox', { name: 'Search record access tables' }), {
 			target: { value: 'a' },
 		});
 
@@ -237,7 +238,7 @@ describe('ProjectRowSecurity', () => {
 		expect(database.getAttribute('aria-expanded')).toBe('false');
 		expect(screen.queryByText('sales')).toBeNull();
 		expect(screen.queryByText('customers')).toBeNull();
-		expect(screen.queryByRole('checkbox', { name: 'region constraint column for customers' })).toBeNull();
+		expect(screen.queryByRole('checkbox', { name: 'region rule field for customers' })).toBeNull();
 	});
 
 	it('reveals all matching tables without expanding their columns', () => {
@@ -262,7 +263,7 @@ describe('ProjectRowSecurity', () => {
 			/>,
 		);
 		openConfiguration();
-		const search = screen.getByRole('textbox', { name: 'Search row-level security tables' });
+		const search = screen.getByRole('textbox', { name: 'Search record access tables' });
 
 		fireEvent.change(search, { target: { value: 'CuStOm' } });
 
@@ -276,15 +277,15 @@ describe('ProjectRowSecurity', () => {
 		expect(
 			screen.getByRole('button', { name: 'Expand custom_orders table columns' }).getAttribute('aria-expanded'),
 		).toBe('false');
-		expect(screen.queryByRole('checkbox', { name: 'customer_id constraint column for customers' })).toBeNull();
-		expect(screen.queryByRole('checkbox', { name: 'customer_id constraint column for custom_orders' })).toBeNull();
+		expect(screen.queryByRole('checkbox', { name: 'customer_id rule field for customers' })).toBeNull();
+		expect(screen.queryByRole('checkbox', { name: 'customer_id rule field for custom_orders' })).toBeNull();
 	});
 
 	it('opens only the database when a schema matches the search', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 		openConfiguration();
 
-		fireEvent.change(screen.getByRole('textbox', { name: 'Search row-level security tables' }), {
+		fireEvent.change(screen.getByRole('textbox', { name: 'Search record access tables' }), {
 			target: { value: 'main' },
 		});
 
@@ -310,28 +311,28 @@ describe('ProjectRowSecurity', () => {
 		);
 		openConfiguration();
 
-		fireEvent.change(screen.getByRole('textbox', { name: 'Search row-level security tables' }), {
+		fireEvent.change(screen.getByRole('textbox', { name: 'Search record access tables' }), {
 			target: { value: 'REGION' },
 		});
 
 		expect(screen.getByRole('button', { name: 'Collapse analytics database' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Collapse sales schema' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Collapse customers table columns' })).toBeTruthy();
-		expect(screen.getByRole('checkbox', { name: 'region constraint column for customers' })).toBeTruthy();
+		expect(screen.getByRole('checkbox', { name: 'region rule field for customers' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Collapse warehouse database' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Collapse reporting schema' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Collapse stores table columns' })).toBeTruthy();
-		expect(screen.getByRole('checkbox', { name: 'region_code constraint column for stores' })).toBeTruthy();
+		expect(screen.getByRole('checkbox', { name: 'region_code rule field for stores' })).toBeTruthy();
 	});
 
 	it('preserves manual expansion when search-driven expansion changes', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 		openConfiguration();
 		fireEvent.click(screen.getByRole('button', { name: 'Expand analytics database' }));
-		const search = screen.getByRole('textbox', { name: 'Search row-level security tables' });
+		const search = screen.getByRole('textbox', { name: 'Search record access tables' });
 
 		fireEvent.change(search, { target: { value: 'region' } });
-		expect(screen.getByRole('checkbox', { name: 'region constraint column for customers' })).toBeTruthy();
+		expect(screen.getByRole('checkbox', { name: 'region rule field for customers' })).toBeTruthy();
 
 		fireEvent.change(search, { target: { value: 'a' } });
 		expect(screen.getByRole('button', { name: 'Collapse analytics database' }).getAttribute('aria-expanded')).toBe(
@@ -341,7 +342,7 @@ describe('ProjectRowSecurity', () => {
 		expect(screen.queryByText('customers')).toBeNull();
 
 		fireEvent.change(search, { target: { value: 'missing' } });
-		expect(screen.getByText('No matching tables or columns.')).toBeTruthy();
+		expect(screen.getByText('No matching tables or fields.')).toBeTruthy();
 		fireEvent.change(search, { target: { value: '' } });
 		expect(screen.getByRole('button', { name: 'Collapse analytics database' })).toBeTruthy();
 	});
@@ -350,14 +351,14 @@ describe('ProjectRowSecurity', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 		openConfiguration();
 		expandToOrders();
-		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id rule field for orders' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
 		expect(screen.queryByRole('dialog')).toBeNull();
 		openConfiguration();
 		expandToOrders();
 		expect(
-			screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' }).getAttribute('data-state'),
+			screen.getByRole('checkbox', { name: 'tenant_id rule field for orders' }).getAttribute('data-state'),
 		).toBe('unchecked');
 		expect(mocks.mutate).not.toHaveBeenCalled();
 	});
@@ -369,7 +370,7 @@ describe('ProjectRowSecurity', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Expand analytics database' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Expand sales schema' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Expand customers table columns' }));
-		fireEvent.click(screen.getByRole('checkbox', { name: 'region constraint column for customers' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'region rule field for customers' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(mocks.mutate).toHaveBeenCalledWith(
@@ -407,12 +408,12 @@ describe('ProjectRowSecurity', () => {
 		const editButton = screen.getByRole('button', { name: 'Edit orders' });
 		fireEvent.click(editButton);
 
-		const dialog = screen.getByRole('dialog', { name: 'Edit protected table' });
+		const dialog = screen.getByRole('dialog', { name: 'Edit record access rule' });
 		expect(within(dialog).getByText('analytics/main/orders')).toBeTruthy();
-		expect(within(dialog).getByRole('checkbox', { name: 'id constraint column for orders' })).toBeTruthy();
+		expect(within(dialog).getByRole('checkbox', { name: 'id rule field for orders' })).toBeTruthy();
 		expect(
 			within(dialog)
-				.getByRole('checkbox', { name: 'tenant_id constraint column for orders' })
+				.getByRole('checkbox', { name: 'tenant_id rule field for orders' })
 				.getAttribute('data-state'),
 		).toBe('checked');
 		expect(within(dialog).queryByRole('textbox')).toBeNull();
@@ -426,7 +427,7 @@ describe('ProjectRowSecurity', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Edit orders' }));
-		fireEvent.click(screen.getByRole('checkbox', { name: 'id constraint column for orders' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'id rule field for orders' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(mocks.mutate).toHaveBeenCalledWith(
@@ -453,7 +454,7 @@ describe('ProjectRowSecurity', () => {
 		);
 		await waitFor(() => {
 			expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['row-security'] });
-			expect(screen.queryByRole('dialog', { name: 'Edit protected table' })).toBeNull();
+			expect(screen.queryByRole('dialog', { name: 'Edit record access rule' })).toBeNull();
 		});
 	});
 
@@ -462,13 +463,13 @@ describe('ProjectRowSecurity', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Edit orders' }));
-		fireEvent.click(screen.getByRole('checkbox', { name: 'id constraint column for orders' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'id rule field for orders' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Edit orders' }));
 
-		expect(
-			screen.getByRole('checkbox', { name: 'id constraint column for orders' }).getAttribute('data-state'),
-		).toBe('unchecked');
+		expect(screen.getByRole('checkbox', { name: 'id rule field for orders' }).getAttribute('data-state')).toBe(
+			'unchecked',
+		);
 		expect(mocks.mutate).not.toHaveBeenCalled();
 	});
 
@@ -477,9 +478,9 @@ describe('ProjectRowSecurity', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Edit orders' }));
-		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id rule field for orders' }));
 
-		expect(screen.getByText('Select at least one constraint column to save.')).toBeTruthy();
+		expect(screen.getByText('Select at least one rule field to save.')).toBeTruthy();
 		expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 		expect(mocks.mutate).not.toHaveBeenCalled();
@@ -497,13 +498,15 @@ describe('ProjectRowSecurity', () => {
 		expect(removeButton.getAttribute('data-size')).toBe('icon-sm');
 
 		fireEvent.click(removeButton);
-		expect(screen.getByRole('dialog', { name: 'Remove protected table?' })).toBeTruthy();
+		expect(screen.getByRole('dialog', { name: 'Remove record access rule?' })).toBeTruthy();
 		expect(
-			screen.getByText('analytics/main/orders will no longer be available for row-level group policies.'),
+			screen.getByText(
+				'analytics/main/orders will no longer limit records by group. Everyone with table access will see all records.',
+			),
 		).toBeTruthy();
 		expect(screen.queryByRole('alertdialog')).toBeNull();
 		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-		expect(screen.queryByRole('dialog', { name: 'Remove protected table?' })).toBeNull();
+		expect(screen.queryByRole('dialog', { name: 'Remove record access rule?' })).toBeNull();
 
 		fireEvent.click(removeButton);
 		fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
@@ -514,7 +517,7 @@ describe('ProjectRowSecurity', () => {
 		);
 		await waitFor(() => {
 			expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['row-security'] });
-			expect(screen.queryByRole('dialog', { name: 'Remove protected table?' })).toBeNull();
+			expect(screen.queryByRole('dialog', { name: 'Remove record access rule?' })).toBeNull();
 		});
 	});
 
@@ -530,19 +533,19 @@ describe('ProjectRowSecurity', () => {
 		expect((screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(true);
 		expect((screen.getByRole('button', { name: 'Remove' }) as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-		expect(screen.getByRole('dialog', { name: 'Remove protected table?' })).toBeTruthy();
+		expect(screen.getByRole('dialog', { name: 'Remove record access rule?' })).toBeTruthy();
 
 		mocks.mutationPending = false;
 		rerender(<ProjectRowSecurity objects={objects} />);
 		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-		expect(screen.queryByRole('dialog', { name: 'Remove protected table?' })).toBeNull();
+		expect(screen.queryByRole('dialog', { name: 'Remove record access rule?' })).toBeNull();
 	});
 
 	it('shows an actionable empty state', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 
-		expect(screen.getByText('No protected tables')).toBeTruthy();
-		const addButtons = screen.getAllByRole('button', { name: 'Add protected table' });
+		expect(screen.getByText('No record access rules')).toBeTruthy();
+		const addButtons = screen.getAllByRole('button', { name: 'Add table' });
 		expect(addButtons).toHaveLength(2);
 		expect(addButtons[0].getAttribute('data-size')).toBe('default');
 		expect(addButtons[0].classList.contains('rounded-md')).toBe(true);
@@ -574,13 +577,13 @@ describe('ProjectRowSecurity', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 
 		expect(screen.getByText(/missing_column/).textContent).toContain('unavailable');
-		expect(screen.getByText('Some saved columns are unavailable after sync.')).toBeTruthy();
+		expect(screen.getByText('Some saved rule fields are unavailable after sync.')).toBeTruthy();
 		expect(screen.getByText('archive/main/legacy_orders')).toBeTruthy();
 		expect(screen.getByText('Unavailable')).toBeTruthy();
 
 		fireEvent.click(screen.getByRole('button', { name: 'Edit orders' }));
 		const missingColumn = screen.getByRole('checkbox', {
-			name: 'missing_column constraint column for orders',
+			name: 'missing_column rule field for orders',
 		});
 		expect(missingColumn.getAttribute('data-state')).toBe('checked');
 		expect(within(missingColumn.parentElement!).getByText('Unavailable')).toBeTruthy();
@@ -611,7 +614,7 @@ describe('ProjectRowSecurity', () => {
 		);
 		await waitFor(() => {
 			expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['row-security'] });
-			expect(screen.queryByRole('dialog', { name: 'Edit protected table' })).toBeNull();
+			expect(screen.queryByRole('dialog', { name: 'Edit record access rule' })).toBeNull();
 		});
 	});
 
@@ -631,17 +634,17 @@ describe('ProjectRowSecurity', () => {
 		render(<ProjectRowSecurity objects={objects} />);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Edit legacy_orders' }));
-		const dialog = screen.getByRole('dialog', { name: 'Edit protected table' });
+		const dialog = screen.getByRole('dialog', { name: 'Edit record access rule' });
 		expect(within(dialog).getByText('archive/main/legacy_orders')).toBeTruthy();
 		expect(within(dialog).getAllByText('Unavailable')).toHaveLength(2);
 		expect(
 			within(dialog).getByText(
-				'This table was not found in the latest sync. Use Remove outside this dialog to stop protecting it.',
+				'This table was not found in the latest sync. Use Remove outside this dialog to remove its record rules.',
 			),
 		).toBeTruthy();
 		expect(
 			within(dialog).getByRole('checkbox', {
-				name: 'tenant_id constraint column for legacy_orders',
+				name: 'tenant_id rule field for legacy_orders',
 			}),
 		).toBeTruthy();
 		expect(within(dialog).queryByRole('textbox')).toBeNull();
@@ -688,12 +691,12 @@ describe('ProjectRowSecurity', () => {
 		expect(screen.getByText('analytics/main/orders')).toBeTruthy();
 		expect(
 			screen.getByText(
-				'Queries on protected tables are blocked until the license is restored. Remove tables to unblock them.',
+				'Queries on tables with record rules are blocked until the license is restored. Remove tables to unblock them.',
 			),
 		).toBeTruthy();
 		expect((screen.getByRole('button', { name: 'Edit orders' }) as HTMLButtonElement).disabled).toBe(true);
 		expect((screen.getByRole('button', { name: 'Remove orders' }) as HTMLButtonElement).disabled).toBe(false);
-		expect((screen.getByRole('button', { name: 'Add protected table' }) as HTMLButtonElement).disabled).toBe(true);
+		expect((screen.getByRole('button', { name: 'Add table' }) as HTMLButtonElement).disabled).toBe(true);
 		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 });
@@ -730,7 +733,7 @@ function configuredRegistryWithTwoTables() {
 }
 
 function openConfiguration() {
-	fireEvent.click(screen.getAllByRole('button', { name: 'Add protected table' })[0]);
+	fireEvent.click(screen.getAllByRole('button', { name: 'Add table' })[0]);
 }
 
 function expandToOrders() {

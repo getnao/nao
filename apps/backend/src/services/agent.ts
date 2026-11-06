@@ -266,6 +266,7 @@ async function _buildContextBase(opts: {
 		semanticLayerMode: resolveSemanticLayerMode(projectFolder, agentSettings),
 		envVars,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
+		warehouseColumnSecurity: contextAccess.warehouseColumnSecurity,
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
 		docsContextAccess: contextAccess.docsContextAccess,
 		filesContextAccess: contextAccess.filesContextAccess,
@@ -1133,6 +1134,7 @@ export class AgentManager {
 			this._toolContext.projectFolder,
 			fqdn,
 			this._toolContext.warehouseTableAccess,
+			this._toolContext.warehouseColumnSecurity,
 		);
 		return content ? `[Table: ${fqdn}]\n${content}` : undefined;
 	}

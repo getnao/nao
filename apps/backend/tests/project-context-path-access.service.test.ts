@@ -1,9 +1,13 @@
 import type { FilesContextAccess } from '@nao/shared';
 import { describe, expect, it } from 'vitest';
 
-import { isProjectContextPathAllowed } from '../src/services/project-context-path-access.service';
+import {
+	isProjectContextPathAllowed,
+	isProjectContextPathRenderAllowed,
+} from '../src/services/project-context-path-access.service';
 
 const unrestrictedWarehouse = { enforced: false as const };
+const unrestrictedWarehouseColumns = { enforced: false as const };
 const unenforcedDocs = { enforced: false as const };
 const unenforcedFiles = { enforced: false as const };
 const allMcpAccess = { mode: 'all' as const };
@@ -11,6 +15,7 @@ const allMcpAccess = { mode: 'all' as const };
 function filesContext(access: FilesContextAccess) {
 	return {
 		warehouseTableAccess: unrestrictedWarehouse,
+		warehouseColumnSecurity: unrestrictedWarehouseColumns,
 		docsContextAccess: unenforcedDocs,
 		filesContextAccess: { enforced: true as const, access },
 		mcpAccess: allMcpAccess,
@@ -21,6 +26,7 @@ describe('project context path access', () => {
 	it('allows unaffected project paths and an unlicensed docs bypass', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: unenforcedDocs,
 			filesContextAccess: unenforcedFiles,
 			mcpAccess: allMcpAccess,
@@ -33,6 +39,7 @@ describe('project context path access', () => {
 	it('allows granted docs files and required ancestors while hiding siblings', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: {
 				enforced: true as const,
 				access: { mode: 'restricted' as const, grants: [{ kind: 'file' as const, path: 'legal/terms.md' }] },
@@ -52,6 +59,7 @@ describe('project context path access', () => {
 	it('rejects traversal and symlink aliases when lexical and canonical docs paths differ', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: { enforced: true as const, access: { mode: 'all' as const } },
 			filesContextAccess: unenforcedFiles,
 			mcpAccess: allMcpAccess,
@@ -64,6 +72,7 @@ describe('project context path access', () => {
 	it('rejects malformed paths without blocking genuine non-docs paths', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: unenforcedDocs,
 			filesContextAccess: unenforcedFiles,
 			mcpAccess: allMcpAccess,
@@ -76,6 +85,7 @@ describe('project context path access', () => {
 	it('hides nao_config.yaml wherever it lives and however it is addressed', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: { enforced: false as const },
 			filesContextAccess: unenforcedFiles,
 			mcpAccess: allMcpAccess,
@@ -98,6 +108,7 @@ describe('project context path access', () => {
 	it('treats nested docs grant paths as relative to the outer docs root', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: {
 				enforced: true as const,
 				access: { mode: 'restricted' as const, grants: [{ kind: 'folder' as const, path: 'docs' }] },
@@ -116,6 +127,7 @@ describe('project context path access', () => {
 				strict: true,
 				tables: [{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'allowed' }],
 			},
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: { enforced: true as const, access: { mode: 'all' as const } },
 			filesContextAccess: unenforcedFiles,
 			mcpAccess: allMcpAccess,
@@ -136,6 +148,37 @@ describe('project context path access', () => {
 				'file',
 			),
 		).toBe(false);
+	});
+
+	it('allows synthesized columns while blocking raw restricted table artifacts', () => {
+		const context = {
+			...filesContext({ mode: 'all' as const }),
+			warehouseColumnSecurity: {
+				enforced: true as const,
+				tables: [
+					{
+						databaseType: 'postgres',
+						database: 'app',
+						schema: 'public',
+						table: 'orders',
+						restrictedColumns: ['cost'],
+						access: 'restricted' as const,
+						deniedColumns: ['cost'],
+					},
+				],
+			},
+		};
+		const tablePath = '/databases/type=postgres/database=app/schema=public/table=orders';
+
+		expect(
+			isProjectContextPathRenderAllowed(context, `${tablePath}/columns.md`, `${tablePath}/columns.md`, 'file'),
+		).toBe(true);
+		expect(isProjectContextPathAllowed(context, `${tablePath}/preview.md`, `${tablePath}/preview.md`, 'file')).toBe(
+			false,
+		);
+		expect(isProjectContextPathAllowed(context, `${tablePath}/columns.md`, `${tablePath}/columns.md`, 'file')).toBe(
+			false,
+		);
 	});
 });
 
@@ -192,6 +235,7 @@ describe('project file access', () => {
 	it('keeps docs and project files as independent policies', () => {
 		const docsOnly = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: { enforced: true as const, access: { mode: 'all' as const } },
 			filesContextAccess: { enforced: true as const, access: { mode: 'restricted' as const, grants: [] } },
 			mcpAccess: allMcpAccess,
@@ -203,6 +247,7 @@ describe('project file access', () => {
 
 		const filesOnly = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: { enforced: true as const, access: { mode: 'restricted' as const, grants: [] } },
 			filesContextAccess: { enforced: true as const, access: { mode: 'all' as const } },
 			mcpAccess: allMcpAccess,
@@ -239,6 +284,7 @@ describe('project file access', () => {
 	it('hides mcp.json from every user while keeping the tool specs reachable', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: unenforcedDocs,
 			filesContextAccess: unenforcedFiles,
 			mcpAccess: allMcpAccess,
@@ -257,6 +303,7 @@ describe('project file access', () => {
 	it('hides the MCP tool specs that the user groups do not grant', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: unenforcedDocs,
 			filesContextAccess: unenforcedFiles,
 			mcpAccess: {
@@ -292,6 +339,7 @@ describe('project file access', () => {
 	it('hides the skill files that the user groups do not grant', () => {
 		const context = {
 			warehouseTableAccess: unrestrictedWarehouse,
+			warehouseColumnSecurity: unrestrictedWarehouseColumns,
 			docsContextAccess: unenforcedDocs,
 			filesContextAccess: unenforcedFiles,
 			mcpAccess: allMcpAccess,

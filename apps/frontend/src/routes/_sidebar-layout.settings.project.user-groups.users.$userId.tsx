@@ -1,4 +1,9 @@
-import { EMPTY_PROJECT_ROW_SECURITY, normalizeProjectRowSecurity } from '@nao/shared';
+import {
+	EMPTY_PROJECT_COLUMN_SECURITY,
+	EMPTY_PROJECT_ROW_SECURITY,
+	normalizeProjectColumnSecurity,
+	normalizeProjectRowSecurity,
+} from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
@@ -26,6 +31,7 @@ function UserGroupUserDetailPage() {
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
 	const filesContextCatalog = useQuery(trpc.userGroup.filesContextCatalog.queryOptions());
+	const columnSecurity = useQuery(trpc.userGroup.columnSecurity.queryOptions());
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const overviewData = overview.data;
 	const user = overviewData?.users.find((candidate) => candidate.id === userId);
@@ -83,8 +89,13 @@ function UserGroupUserDetailPage() {
 				onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
 				onRetryFilesCatalog={() => void filesContextCatalog.refetch()}
 				projectRowSecurity={normalizeProjectRowSecurity(rowSecurity.data ?? EMPTY_PROJECT_ROW_SECURITY)}
+				projectColumnSecurity={normalizeProjectColumnSecurity(
+					columnSecurity.data ?? EMPTY_PROJECT_COLUMN_SECURITY,
+				)}
 				securityState={rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready'}
+				columnSecurityState={columnSecurity.isLoading ? 'loading' : columnSecurity.isError ? 'error' : 'ready'}
 				onRetrySecurity={() => void rowSecurity.refetch()}
+				onRetryColumnSecurity={() => void columnSecurity.refetch()}
 				activeTab={tab}
 				onTabChange={(nextTab) => {
 					void navigate({

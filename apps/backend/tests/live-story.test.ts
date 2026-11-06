@@ -147,6 +147,7 @@ describe('live story SQL execution', () => {
 			azureAccessToken: 'owner-token',
 			agentSettings: null,
 			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
+			warehouseColumnSecurity: { enforced: false },
 			warehouseRowSecurity: {
 				enforced: true,
 				tables: [
@@ -278,6 +279,7 @@ describe('live story SQL execution', () => {
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
 			azure_access_token: 'owner-token',
 			table_access: { enforced: true, tables: [] },
+			column_security: { enforced: false },
 			row_security: {
 				enforced: true,
 				tables: [expect.objectContaining({ table: 'orders', predicate: 'tenant_id = 1' })],
@@ -530,6 +532,83 @@ describe('live story SQL execution', () => {
 
 		await expect(executeRawSql('SELECT * FROM orders', { executionContext })).rejects.toThrow('restricted');
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('sends the owner column policy and propagates a denied-column guard failure', async () => {
+		mocks.buildToolContext.mockResolvedValueOnce({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId: 'owner-1',
+			chatId: 'chat-1',
+			queryResults: new Map(),
+			envVars: {},
+			azureAccessToken: null,
+			agentSettings: null,
+			warehouseTableAccess: { enforced: false },
+			warehouseColumnSecurity: {
+				enforced: true,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'analytics',
+						schema: 'main',
+						table: 'orders',
+						restrictedColumns: ['cost'],
+						access: 'restricted',
+						deniedColumns: ['cost'],
+					},
+				],
+			},
+			warehouseRowSecurity: { enforced: false },
+		});
+		const fetchMock = vi.fn(async () =>
+			Response.json({ detail: 'Column access denied: main.orders.cost' }, { status: 400 }),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const executionContext = await createStoryExecutionContext('chat-1');
+
+		await expect(executeRawSql('SELECT cost FROM orders', { executionContext })).rejects.toThrow(
+			'main.orders.cost',
+		);
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+			column_security: {
+				enforced: true,
+				tables: [expect.objectContaining({ table: 'orders', access: 'restricted', denied_columns: ['cost'] })],
+			},
+		});
+	});
+
+	it('sends an owner grant as full column access', async () => {
+		const baseContext = await mocks.buildToolContext();
+		mocks.buildToolContext.mockResolvedValueOnce({
+			...baseContext,
+			warehouseColumnSecurity: {
+				enforced: true,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'analytics',
+						schema: 'main',
+						table: 'orders',
+						restrictedColumns: ['cost'],
+						access: 'full',
+					},
+				],
+			},
+		});
+		const fetchMock = vi.fn(async () => Response.json({ data: [{ cost: 10 }], row_count: 1, columns: ['cost'] }));
+		vi.stubGlobal('fetch', fetchMock);
+		const executionContext = await createStoryExecutionContext('chat-1');
+
+		await expect(executeRawSql('SELECT cost FROM orders', { executionContext })).resolves.toMatchObject({
+			data: [{ cost: 10 }],
+		});
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+			column_security: {
+				enforced: true,
+				tables: [expect.objectContaining({ table: 'orders', access: 'full' })],
+			},
+		});
 	});
 
 	it('does not build the story execution context when cloud billing access is restricted', async () => {

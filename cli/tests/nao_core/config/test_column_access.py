@@ -96,6 +96,120 @@ def test_explicit_excluded_select_column_is_blocked(project_path: Path):
 @pytest.mark.parametrize(
     "sql",
     [
+        "SELECT email FROM users",
+        "SELECT name FROM users WHERE email IS NOT NULL",
+        "WITH source AS (SELECT email FROM users) SELECT email FROM source",
+        "SELECT * FROM users",
+    ],
+)
+def test_group_denied_columns_are_blocked_without_static_exclusions(project_path: Path, sql: str):
+    config = FakeDatabaseConfig([])
+    policies = {("main", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access(sql, config, project_path, column_security_policies=policies)
+
+
+def test_group_denied_columns_are_blocked_in_whole_row_references(tmp_path: Path):
+    config = FakeDatabaseConfig([], database_type="postgres")
+    write_catalog(tmp_path, config, {"public": {"users": ["id", "email"]}})
+    policies = {("public", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    with pytest.raises(ColumnAccessError, match=r"public\.users\.email"):
+        validate_column_access(
+            "SELECT row_to_json(u) FROM public.users AS u",
+            config,
+            tmp_path,
+            column_security_policies=policies,
+        )
+
+
+def test_group_denied_column_can_be_removed_from_star(project_path: Path):
+    config = FakeDatabaseConfig([])
+    policies = {("main", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+    sql = "SELECT * EXCLUDE (email) FROM users"
+
+    assert validate_column_access(sql, config, project_path, column_security_policies=policies) == sql
+
+
+def test_group_policy_does_not_enable_static_exclusions(project_path: Path):
+    config = FakeDatabaseConfig(["*.email"])
+    policies = {("main", "users"): {"access": "restricted", "denied_columns": ["ssn"]}}
+    sql = "SELECT email FROM users"
+
+    assert (
+        validate_column_access(
+            sql,
+            config,
+            project_path,
+            column_security_policies=policies,
+            enforce_static_exclusions=False,
+        )
+        == sql
+    )
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.ssn"):
+        validate_column_access(
+            "SELECT ssn FROM users",
+            config,
+            project_path,
+            column_security_policies=policies,
+            enforce_static_exclusions=False,
+        )
+
+
+@pytest.mark.parametrize("schemas", [{}, {"main": {"users": []}}, {"main": {"users": ["id"]}}])
+def test_group_policy_requires_complete_catalog_metadata(
+    tmp_path: Path,
+    schemas: dict[str, dict[str, list[str]]],
+):
+    config = FakeDatabaseConfig([])
+    write_catalog(tmp_path, config, schemas)
+    policies = {("main", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    with pytest.raises(ColumnAccessError, match="column metadata is unavailable"):
+        validate_column_access("SELECT * FROM users", config, tmp_path, column_security_policies=policies)
+
+
+def test_unqualified_policy_table_missing_from_catalog_is_blocked(tmp_path: Path):
+    config = FakeDatabaseConfig([], database_type="postgres")
+    write_catalog(tmp_path, config, {"archive": {"users": ["id", "email"]}})
+    policies = {("public", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    with pytest.raises(ColumnAccessError, match=r"policy-protected table 'public\.users'"):
+        validate_column_access("SELECT email FROM users", config, tmp_path, column_security_policies=policies)
+    assert (
+        validate_column_access(
+            "SELECT email FROM archive.users",
+            config,
+            tmp_path,
+            column_security_policies=policies,
+        )
+        == "SELECT email FROM archive.users"
+    )
+
+
+def test_case_insensitive_policy_ambiguity_is_blocked(project_path: Path):
+    config = FakeDatabaseConfig([])
+    policies = {
+        ("main", "users"): {"access": "restricted", "denied_columns": ["email"]},
+        ("MAIN", "USERS"): {"access": "blocked", "reason": "Blocked"},
+    }
+
+    with pytest.raises(ColumnAccessError, match="multiple column-security policies"):
+        validate_column_access("SELECT id FROM main.users", config, project_path, column_security_policies=policies)
+
+
+def test_blocked_column_security_table_is_blocked(project_path: Path):
+    config = FakeDatabaseConfig([])
+    policies = {("main", "users"): {"access": "blocked", "reason": "Enterprise license inactive."}}
+
+    with pytest.raises(ColumnAccessError, match="Enterprise license inactive"):
+        validate_column_access("SELECT id FROM users", config, project_path, column_security_policies=policies)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
         "SELECT name FROM users WHERE email IS NOT NULL",
         "SELECT u.name FROM users u JOIN orders o ON u.email = o.user_id",
         "SELECT name FROM users ORDER BY email",

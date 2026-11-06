@@ -1,4 +1,10 @@
-import { EMPTY_FILES_CONTEXT_ACCESS, EMPTY_MCP_ACCESS, EMPTY_SKILLS_ACCESS, MAX_PRELOADED_SKILLS } from '@nao/shared';
+import {
+	EMPTY_FILES_CONTEXT_ACCESS,
+	EMPTY_MCP_ACCESS,
+	EMPTY_SKILLS_ACCESS,
+	EMPTY_USER_GROUP_COLUMN_POLICIES,
+	MAX_PRELOADED_SKILLS,
+} from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 	getFilesContextCatalog: vi.fn(),
 	listEffectiveEntraUserGroupMappings: vi.fn(),
 	listEffectiveOidcUserGroupMappings: vi.fn(),
+	getProjectColumnSecurity: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
 	getShareAudience: vi.fn(),
 	getUserRoleInProject: vi.fn(),
@@ -26,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 	setUserGroupMembership: vi.fn(),
 	setUserGroupMemberships: vi.fn(),
 	updateUserGroup: vi.fn(),
+	updateProjectColumnSecurity: vi.fn(),
 	updateProjectRowSecurity: vi.fn(),
 	validateWarehouseRowPredicate: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
@@ -53,12 +61,14 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	createUserGroupWithinLimit: mocks.createUserGroupWithinLimit,
 	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
+	getProjectColumnSecurity: mocks.getProjectColumnSecurity,
 	getProjectRowSecurity: mocks.getProjectRowSecurity,
 	listUserGroups: mocks.listUserGroups,
 	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	setUserGroupMemberships: mocks.setUserGroupMemberships,
 	updateUserGroup: mocks.updateUserGroup,
+	updateProjectColumnSecurity: mocks.updateProjectColumnSecurity,
 	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
 }));
 vi.mock('../src/services/license.service', () => ({
@@ -115,15 +125,18 @@ describe('user group routes', () => {
 		mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 		mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
 		mocks.getFilesContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
+		mocks.getProjectColumnSecurity.mockResolvedValue({ version: 1, tables: [] });
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
 		mocks.listEffectiveOidcUserGroupMappings.mockResolvedValue([]);
 		mocks.listEffectiveEntraUserGroupMappings.mockResolvedValue([]);
 		mocks.updateProjectRowSecurity.mockImplementation(async (_projectId, value) => value);
+		mocks.updateProjectColumnSecurity.mockImplementation(async (_projectId, value) => value);
 		mocks.validateWarehouseRowPredicate.mockImplementation(async (predicate) => predicate);
 		mocks.resolveUserGroupAccess.mockResolvedValue({
 			features: ['storyCreation'],
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
+			columnPolicies: [{ version: 1, policies: [] }],
 			rowPolicies: [{ version: 1, policies: [] }],
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
@@ -236,6 +249,211 @@ describe('user group routes', () => {
 			message: 'Table main.orders is not in the synced catalog.',
 		});
 		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('validates and saves project column restrictions from the synced catalog', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['id', 'email'] }],
+		});
+
+		await expect(
+			createCaller().updateColumnSecurity({
+				version: 1,
+				tables: [{ ...orders, restrictedColumns: ['email'] }],
+			}),
+		).resolves.toEqual({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['email'] }],
+		});
+		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', {
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['email'] }],
+		});
+	});
+
+	it('passes the expected column registry revision into updates', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const expectedCurrent = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		};
+		const next = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost', 'margin'] }],
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue(expectedCurrent);
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['cost', 'margin'] }],
+		});
+
+		await createCaller().updateColumnSecurity({ ...next, expectedCurrent });
+
+		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', next, expectedCurrent);
+	});
+
+	it('allows unlicensed column-security removal but rejects new restrictions', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			restrictedColumns: ['email'],
+		};
+		const customers = { ...orders, table: 'customers' };
+		mocks.hasFeature.mockResolvedValue(false);
+		mocks.getProjectColumnSecurity.mockResolvedValue({ version: 1, tables: [orders, customers] });
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['email'] }],
+		});
+
+		await expect(createCaller().updateColumnSecurity({ version: 1, tables: [orders] })).resolves.toEqual({
+			version: 1,
+			tables: [orders],
+		});
+		await expect(
+			createCaller().updateColumnSecurity({
+				version: 1,
+				tables: [{ ...orders, restrictedColumns: ['email', 'phone'] }],
+			}),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+	});
+
+	it('allows removals while preserving another unchanged table missing from the catalog', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			restrictedColumns: ['cost'],
+		};
+		const customers = { ...orders, table: 'customers' };
+		mocks.getProjectColumnSecurity.mockResolvedValue({ version: 1, tables: [orders, customers] });
+
+		await expect(createCaller().updateColumnSecurity({ version: 1, tables: [customers] })).resolves.toEqual({
+			version: 1,
+			tables: [customers],
+		});
+		expect(mocks.updateProjectColumnSecurity).toHaveBeenCalledWith('project-id', {
+			version: 1,
+			tables: [customers],
+		});
+	});
+
+	it('allows one unavailable column to be removed while preserving another', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['legacy_cost', 'legacy_margin'] }],
+		});
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: ['id'] }],
+		});
+
+		await expect(
+			createCaller().updateColumnSecurity({
+				version: 1,
+				tables: [{ ...orders, restrictedColumns: ['legacy_margin'] }],
+			}),
+		).resolves.toEqual({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['legacy_margin'] }],
+		});
+	});
+
+	it('requires group table access before granting a restricted column', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const columnPolicies = {
+			version: 1 as const,
+			policies: [{ ...orders, grantedColumns: ['email'] }],
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['email'] }],
+		});
+
+		await expect(
+			createCaller().update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+				databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+				columnPolicies,
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('without access') });
+
+		await createCaller().update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+			databaseAccess: { mode: 'all', strict: true },
+			columnPolicies,
+		});
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({
+				columnPolicies,
+				columnPoliciesRegistry: {
+					version: 1,
+					tables: [{ ...orders, restrictedColumns: ['email'] }],
+				},
+			}),
+		);
+	});
+
+	it('passes the validated column registry into group creation', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const registry = {
+			version: 1 as const,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		};
+		mocks.getProjectColumnSecurity.mockResolvedValue(registry);
+
+		await createCaller().create({
+			name: 'Analysts',
+			databaseAccess: { mode: 'all', strict: true },
+			columnPolicies: {
+				version: 1,
+				policies: [{ ...orders, grantedColumns: ['cost'] }],
+			},
+		});
+
+		const call = mocks.createUserGroup.mock.calls[0];
+		expect(call[14]).toEqual({
+			version: 1,
+			policies: [{ ...orders, grantedColumns: ['cost'] }],
+		});
+		expect(call[16]).toEqual(registry);
 	});
 
 	it('rejects unlicensed group creates and updates with row policies before mutation', async () => {
@@ -640,7 +858,7 @@ describe('user group routes', () => {
 
 		await expect(
 			updateWithConditions([{ column: 'region', operator: 'equals', value: 'west' }]),
-		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Invalid constraint column for main.orders.' });
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Invalid filter column for main.orders.' });
 		expect(mocks.validateWarehouseRowPredicate).not.toHaveBeenCalled();
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 	});
@@ -756,6 +974,7 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 		);
 	});
 
@@ -782,6 +1001,7 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -844,6 +1064,7 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 		);
 	});
 
@@ -897,6 +1118,7 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 		);
 	});
 
@@ -926,6 +1148,7 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 		);
 	});
 
@@ -1011,6 +1234,7 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 		);
 	});
 
@@ -1097,7 +1321,7 @@ describe('user group routes', () => {
 			preloadedSkills: [' churn '],
 		});
 
-		expect(mocks.createUserGroup.mock.calls[0].at(-2)).toEqual(['revenue-recognition']);
+		expect(mocks.createUserGroup.mock.calls[0].at(-3)).toEqual(['revenue-recognition']);
 		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
 			'project-id',
 			'group-id',
@@ -1130,6 +1354,7 @@ describe('user group routes', () => {
 			false,
 			[],
 			EMPTY_SKILLS_ACCESS,
+			EMPTY_USER_GROUP_COLUMN_POLICIES,
 		);
 	});
 

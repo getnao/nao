@@ -377,6 +377,7 @@ async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlEx
 		azureAccessToken: context.azureAccessToken,
 		enforceExcludedColumns: options.executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		columnSecurity: context.warehouseColumnSecurity,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	});
 	return { data: data.data, columns: data.columns };

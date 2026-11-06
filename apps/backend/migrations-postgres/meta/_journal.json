@@ -687,6 +687,13 @@
       "when": 1793883302427,
       "tag": "0097_chat_message_citations",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1793956958532,
+      "tag": "0098_column_security",
+      "breakpoints": true
     }
   ]
 }
