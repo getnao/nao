@@ -15,9 +15,16 @@ import {
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import type { StoryDownloadOptions } from '@/components/story-download';
-import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
+import type {
+	CustomStoryElementSelection,
+	CustomStoryViewModeControls,
+} from '@/components/custom-story/custom-story-view-mode';
 import type { StoryChatControls } from '@/components/story-chat-button';
-import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import {
+	ElementSelectionToggle,
+	CustomStoryViewModeToggle,
+	isCustomStoryViewMode,
+} from '@/components/custom-story/custom-story-view-mode';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { StoryChatButton } from '@/components/story-chat-button';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
@@ -100,6 +107,7 @@ export interface StoryPageHeaderProps {
 	onOpenAnalytics?: () => void;
 	viewModeControls?: ViewModeControls;
 	versionControls?: VersionControls;
+	elementSelection?: CustomStoryElementSelection;
 }
 
 export function StoryPageHeader({
@@ -116,6 +124,7 @@ export function StoryPageHeader({
 	onOpenAnalytics,
 	viewModeControls,
 	versionControls,
+	elementSelection,
 }: StoryPageHeaderProps) {
 	const liveMenu = live?.isLive && live.isInActionsMenu ? live : undefined;
 	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics || !!liveMenu;
@@ -155,6 +164,8 @@ export function StoryPageHeader({
 					{storyId && <StoryFavoritedButton storyId={storyId} />}
 
 					{onShare && <ShareButton isShared={isShared} onShare={onShare} />}
+
+					{elementSelection && <ElementSelectionToggle {...elementSelection} />}
 
 					{showActionsMenu && (
 						<DropdownMenu>

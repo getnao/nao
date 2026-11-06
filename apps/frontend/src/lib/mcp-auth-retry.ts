@@ -21,7 +21,7 @@ export function lastUserMessagePayload(messages: UIMessage[]): SendMessageArgs |
 		return {
 			text,
 			...(images.length > 0 && { images }),
-			...(message.citation && { citation: message.citation }),
+			...(message.citations && { citations: message.citations }),
 		};
 	}
 	return null;

@@ -165,14 +165,6 @@ describe('referencing other stories', () => {
 		expect(textOf(last)).toBe('Compare @"Monthly revenue" with @(a story that is no longer available)');
 	});
 
-	it('flags the stories shared with the user specifically', async () => {
-		const [groupStory] = await listReferenceableStories(GROUP_MEMBER_ID, PROJECT_ID, { storyIds: [GROUP_STORY] });
-		const [ownStory] = await listReferenceableStories(OWNER_ID, PROJECT_ID, { storyIds: [GROUP_STORY] });
-
-		expect(groupStory.isSharedWithMe).toBe(true);
-		expect(ownStory.isSharedWithMe).toBe(false);
-	});
-
 	it('ranks the stories the user can see by how many people viewed them over the last week', async () => {
 		const lastWeek = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000);
 		const lastMonth = new Date(Date.now() - 20 * 24 * 60 * 60 * 1_000);

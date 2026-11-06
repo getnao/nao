@@ -680,6 +680,13 @@
       "when": 1793808043313,
       "tag": "0096_project_deployed_at",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1793883302427,
+      "tag": "0097_chat_message_citations",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
-import type { AskSelection } from '@/stores/ask-bar';
+import type { CitationData } from '@nao/shared/types';
 import { AskBar } from '@/components/ask-bar';
 import { trpc } from '@/main';
 
@@ -16,8 +16,8 @@ export function SharedChatAskBar({ shareId }: { shareId: string }) {
 		}),
 	);
 
-	const askSharedChat = async (selection?: AskSelection) => {
-		const { chatId } = await askMutation.mutateAsync({ shareId, selection: toForkSelection(selection) });
+	const askSharedChat = async (citations: CitationData[]) => {
+		const { chatId } = await askMutation.mutateAsync({ shareId, selection: toForkSelection(citations) });
 		return chatId;
 	};
 
@@ -31,9 +31,8 @@ export function SharedChatAskBar({ shareId }: { shareId: string }) {
 	);
 }
 
-function toForkSelection(selection?: AskSelection) {
-	if (!selection || selection.start === undefined || selection.end === undefined) {
-		return undefined;
-	}
-	return { start: selection.start, end: selection.end, text: selection.text };
+/** The fork anchors on the first passage quoted from the chat, so the shared chat can show where it was asked. */
+function toForkSelection(citations: CitationData[]) {
+	const passage = citations.find((citation) => !citation.block);
+	return passage && { start: passage.start, end: passage.end, text: passage.text };
 }

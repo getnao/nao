@@ -12,11 +12,11 @@ describe('lastUserMessagePayload', () => {
 			userMessage([{ type: 'text', text: 'older' }]),
 			{ id: 'assistant', role: 'assistant', parts: [] } as unknown as UIMessage,
 			userMessage([{ type: 'text', text: ' latest ' }], {
-				citation: { start: 0, end: 6, text: 'latest' },
+				citations: [{ start: 0, end: 6, text: 'latest' }],
 			}),
 		]);
 
-		expect(payload).toEqual({ text: 'latest', citation: { start: 0, end: 6, text: 'latest' } });
+		expect(payload).toEqual({ text: 'latest', citations: [{ start: 0, end: 6, text: 'latest' }] });
 	});
 
 	it('reconstructs image-only payloads from file parts', () => {

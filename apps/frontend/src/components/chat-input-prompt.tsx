@@ -16,6 +16,7 @@ import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-
 import { isMenuItemMarkedWith } from '@/hooks/use-highlighted-mention';
 import { useReferenceableStories, useReferenceMentionMenu } from '@/hooks/use-reference-mention-menu';
 import { useActiveProjectId } from '@/lib/active-project';
+import { CITATION_MENTION_TRIGGER } from '@/lib/citation-mention';
 import { toStoryReferenceOption } from '@/lib/reference-mention-menu';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -60,11 +61,14 @@ type ChatPromptProps = {
 	placeholder: string;
 	initialValue?: string;
 	minHeight?: string;
+	compact?: boolean;
 	resizable?: boolean;
 	submitOnEnter?: boolean;
 	storyCreationEnabled: boolean;
+	citationOptions?: MentionOption[];
 	onChange: (value: string, mentions: SelectedMention[]) => void;
 	onEnter?: (value: string, mentions: SelectedMention[]) => void;
+	onMentionDeleted?: (mention: SelectedMention) => void;
 };
 
 const theme: PromptTheme = {
@@ -99,16 +103,23 @@ const theme: PromptTheme = {
 	},
 };
 
+const COMPACT_MIN_HEIGHT = '32px';
+const COMPACT_PADDING = '6px 8px';
+const COMPACT_LINE_HEIGHT = '20px';
+
 export function ChatPrompt({
 	promptRef,
 	placeholder,
 	initialValue,
 	minHeight,
+	compact = false,
 	resizable = false,
 	submitOnEnter = true,
 	storyCreationEnabled,
+	citationOptions = [],
 	onChange,
 	onEnter,
+	onMentionDeleted,
 }: ChatPromptProps) {
 	const activeProjectId = useActiveProjectId();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
@@ -121,7 +132,16 @@ export function ChatPrompt({
 	const skills = hasProject && !skillsQuery.isFetching ? skillsQuery.data : undefined;
 	const storyMentionOptions = useStoryMentionOptions(storyCreationEnabled);
 	const referenceOptions = useReferenceOptions();
-	const promptTheme = minHeight ? { ...theme, minHeight } : theme;
+	const promptTheme = compact
+		? {
+				...theme,
+				minHeight: minHeight ?? COMPACT_MIN_HEIGHT,
+				padding: COMPACT_PADDING,
+				lineHeight: COMPACT_LINE_HEIGHT,
+			}
+		: minHeight
+			? { ...theme, minHeight }
+			: theme;
 
 	const handleChange = (value: string, mentions: SelectedMention[]) => {
 		referenceOptions.setIsSearching(isTypingMentionQuery(DATABASE_MENTION_TRIGGER));
@@ -161,14 +181,24 @@ export function ChatPrompt({
 						menuPosition: 'above',
 						options: referenceOptions.options,
 					},
+					...(citationOptions.length > 0
+						? [
+								{
+									trigger: CITATION_MENTION_TRIGGER,
+									menuPosition: 'above' as const,
+									options: citationOptions,
+								},
+							]
+						: []),
 				]}
 				onChange={handleChange}
 				onEnter={onEnter}
+				onMentionDeleted={onMentionDeleted}
 				submitOnEnter={submitOnEnter}
 				className={cn('w-full nao-input', resizable && 'nao-input-resizable')}
 				style={
 					{
-						'--prompt-min-height': minHeight || '70px',
+						'--prompt-min-height': promptTheme.minHeight,
 					} as React.CSSProperties
 				}
 				theme={promptTheme}
