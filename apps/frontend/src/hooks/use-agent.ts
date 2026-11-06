@@ -643,12 +643,13 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 };
 
 /**
- * User messages whose source is known. While the agent runs, the last user message may still be
- * the optimistic copy the server has not acknowledged, so it carries no source yet.
+ * User messages without the optimistic copy the server has not acknowledged yet: while the agent
+ * runs, a last user message without a source may still be that copy.
  */
 function getSettledUserMessages(messages: UIMessage[], isRunning: boolean): UIMessage[] {
 	const userMessages = messages.filter((message) => message.role === 'user');
-	return isRunning ? userMessages.slice(0, -1) : userMessages;
+	const isAwaitingAcknowledgement = isRunning && userMessages.at(-1)?.source === undefined;
+	return isAwaitingAcknowledgement ? userMessages.slice(0, -1) : userMessages;
 }
 
 /** What to ask when someone attaches files without typing anything. */

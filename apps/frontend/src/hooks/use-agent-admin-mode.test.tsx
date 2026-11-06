@@ -5,6 +5,8 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useAgent } from './use-agent';
+import { NEW_CHAT_ID } from '@/lib/ai';
+import { agentService } from '@/services/agents';
 
 const mocks = vi.hoisted(() => {
 	Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:test') });
@@ -40,6 +42,8 @@ vi.mock('@/queries/use-chat-query', () => ({
 }));
 
 const sentBodies: Array<{ adminMode?: boolean }> = [];
+const openStreams: ReadableStreamDefaultController<string>[] = [];
+let keepStreamOpen = false;
 
 vi.stubGlobal(
 	'fetch',
@@ -48,26 +52,36 @@ vi.stubGlobal(
 		const chunks = [
 			{ type: 'start', messageId: 'assistant-1' },
 			{ type: 'data-newUserMessage', data: { newId: 'user-message-1' } },
-			{ type: 'finish' },
 		];
-		const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
-		return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+		const stream = new ReadableStream<string>({
+			start(controller) {
+				chunks.forEach((chunk) => controller.enqueue(toServerSentEvent(chunk)));
+				if (keepStreamOpen) {
+					openStreams.push(controller);
+					return;
+				}
+				closeStream(controller);
+			},
+		});
+		return new Response(stream.pipeThrough(new TextEncoderStream()), {
+			headers: { 'content-type': 'text/event-stream' },
+		});
 	}),
 );
 
 afterEach(() => {
+	openStreams.splice(0).forEach(closeStream);
 	cleanup();
 	sentBodies.length = 0;
+	keepStreamOpen = false;
 	mocks.contextChatId = undefined;
+	agentService.disposeAgent(NEW_CHAT_ID);
 });
 
 describe('useAgent admin mode', () => {
 	it('keeps admin mode when the first known message of the chat is the one being sent', async () => {
 		mocks.contextChatId = 'chat-without-loaded-messages';
-		const queryClient = new QueryClient();
-		const { result } = renderHook(() => useAgent(), {
-			wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
-		});
+		const { result } = renderAgent();
 
 		act(() => result.current.setAdminMode(true));
 		await act(() => result.current.queueOrSendMessage({ text: 'How many chats this week?' }));
@@ -76,4 +90,39 @@ describe('useAgent admin mode', () => {
 		expect(sentBodies[0].adminMode).toBe(true);
 		expect(result.current.adminMode).toBe(true);
 	});
+
+	it('restores admin mode when reopening a chat whose admin reply is still running', async () => {
+		mocks.contextChatId = 'running-admin-chat';
+		keepStreamOpen = true;
+		const firstMount = renderAgent();
+
+		act(() => firstMount.result.current.setAdminMode(true));
+		act(() => {
+			void firstMount.result.current.queueOrSendMessage({ text: 'How many chats this week?' });
+		});
+		await waitFor(() => expect(firstMount.result.current.messages.at(0)?.source).toBe('admin'));
+		firstMount.unmount();
+
+		const { result } = renderAgent();
+
+		expect(result.current.isRunning).toBe(true);
+		await waitFor(() => expect(result.current.adminMode).toBe(true));
+	});
 });
+
+function renderAgent() {
+	const queryClient = new QueryClient();
+	return renderHook(() => useAgent(), {
+		wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+	});
+}
+
+function toServerSentEvent(chunk: unknown): string {
+	return `data: ${JSON.stringify(chunk)}\n\n`;
+}
+
+function closeStream(controller: ReadableStreamDefaultController<string>) {
+	controller.enqueue(toServerSentEvent({ type: 'finish' }));
+	controller.enqueue('data: [DONE]\n\n');
+	controller.close();
+}
