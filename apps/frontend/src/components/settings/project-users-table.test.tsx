@@ -16,10 +16,15 @@ const mocks = vi.hoisted(() => ({
 	useQuery: vi.fn(),
 	setMembership: vi.fn(),
 	setMemberships: vi.fn(),
+	setMembershipsRequest: vi.fn(),
+	setMembershipsMutationFn: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-	useMutation: (options: { mutationKey: string[] }) => {
+	useMutation: (options: { mutationKey: string[]; mutationFn?: (input: unknown) => Promise<unknown> }) => {
+		if (options.mutationKey[0] === 'set-memberships') {
+			mocks.setMembershipsMutationFn.mockImplementation(options.mutationFn ?? (() => Promise.resolve()));
+		}
 		const mutateAsync = {
 			'add-user': mocks.addUser,
 			'modify-user': mocks.modifyUser,
@@ -86,7 +91,12 @@ vi.mock('@/main', () => ({
 		},
 		userGroup: {
 			setMembership: { mutationOptions: () => ({ mutationKey: ['set-membership'] }) },
-			setMemberships: { mutationOptions: () => ({ mutationKey: ['set-memberships'] }) },
+			setMemberships: { mutationKey: () => ['set-memberships'] },
+		},
+	},
+	trpcClient: {
+		userGroup: {
+			setMemberships: { mutate: mocks.setMembershipsRequest },
 		},
 	},
 }));
@@ -332,9 +342,13 @@ describe('ProjectUsersTable filtering and bulk group assignment', () => {
 
 		expect(mocks.setMemberships).toHaveBeenCalledWith(
 			{ groupId: 'finance', userIds: ['admin-id', 'organization-user'], isMember: true },
-			expect.objectContaining({ onSuccess: expect.any(Function) }),
+			expect.objectContaining({ onSuccess: expect.any(Function), onSettled: expect.any(Function) }),
 		);
-		await act(() => mocks.setMemberships.mock.calls[0][1].onSuccess());
+		const { onSuccess, onSettled } = mocks.setMemberships.mock.calls[0][1];
+		await act(async () => {
+			onSuccess();
+			await onSettled();
+		});
 		expect(mocks.invalidateUserGroupQueries).toHaveBeenCalledOnce();
 		expect(screen.queryByText(/selected/)).toBeNull();
 	});
@@ -374,6 +388,47 @@ describe('ProjectUsersTable filtering and bulk group assignment', () => {
 		expect(screen.queryByText(/selected/)).toBeNull();
 		expect(mocks.setMemberships).not.toHaveBeenCalled();
 	});
+
+	it('skips users whose membership in the group is managed by SSO and names them', () => {
+		renderTable(vi.fn(), new Set(['analysts:project-user']));
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select all users' }));
+		fireEvent.pointerDown(screen.getByRole('button', { name: 'Remove from group' }), { button: 0, ctrlKey: false });
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Analysts' }));
+
+		expect(mocks.setMemberships).toHaveBeenCalledWith(
+			{ groupId: 'analysts', userIds: ['admin-id', 'organization-user'], isMember: false },
+			expect.anything(),
+		);
+		expect(screen.getByText('Skipped Project User: SSO manages their membership in Analysts.')).toBeTruthy();
+	});
+
+	it('changes nothing when every selected membership is managed by SSO', () => {
+		renderTable(vi.fn(), new Set(['analysts:project-user']));
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Project User' }));
+		fireEvent.pointerDown(screen.getByRole('button', { name: 'Add to group' }), { button: 0, ctrlKey: false });
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Analysts' }));
+
+		expect(mocks.setMemberships).not.toHaveBeenCalled();
+		expect(screen.getByText('Skipped Project User: SSO manages their membership in Analysts.')).toBeTruthy();
+	});
+
+	it('sends large selections in batches the endpoint accepts', async () => {
+		renderTable();
+		const userIds = Array.from({ length: 2_500 }, (_, index) => `user-${index}`);
+
+		await mocks.setMembershipsMutationFn({ groupId: 'finance', userIds, isMember: true });
+
+		expect(mocks.setMembershipsRequest.mock.calls.map(([input]) => input.userIds.length)).toEqual([
+			1_000, 1_000, 500,
+		]);
+		expect(mocks.setMembershipsRequest).toHaveBeenLastCalledWith({
+			groupId: 'finance',
+			userIds: userIds.slice(2_000),
+			isMember: true,
+		});
+	});
 });
 
 function selectGroupFilter(optionName: string) {
@@ -381,7 +436,7 @@ function selectGroupFilter(optionName: string) {
 	fireEvent.click(screen.getByRole('option', { name: optionName }));
 }
 
-function renderTable(onOpenUser = vi.fn()) {
+function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>()) {
 	return render(
 		<ProjectUsersTable
 			canManage
@@ -396,7 +451,7 @@ function renderTable(onOpenUser = vi.fn()) {
 					'analysts:project-user',
 				])
 			}
-			ssoMembershipKeys={new Set()}
+			ssoMembershipKeys={ssoMembershipKeys}
 			onOpenUser={onOpenUser}
 		/>,
 	);

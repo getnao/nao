@@ -20,6 +20,7 @@ interface ProjectUsersToolbarProps {
 	selectedCount: number;
 	isBulkPending: boolean;
 	bulkError?: string;
+	bulkNotice?: string;
 	onBulkMembershipChange: (groupId: string, isMember: boolean) => void;
 	onClearSelection: () => void;
 }
@@ -31,6 +32,7 @@ export function ProjectUsersToolbar({
 	selectedCount,
 	isBulkPending,
 	bulkError,
+	bulkNotice,
 	onBulkMembershipChange,
 	onClearSelection,
 }: ProjectUsersToolbarProps) {
@@ -64,6 +66,7 @@ export function ProjectUsersToolbar({
 					onClearSelection={onClearSelection}
 				/>
 			)}
+			{bulkNotice && <p className='text-xs text-muted-foreground'>{bulkNotice}</p>}
 		</div>
 	);
 }

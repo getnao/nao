@@ -34,7 +34,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useSession } from '@/lib/auth-client';
 import { ALL_GROUPS_FILTER, filterProjectUsers, hasActiveProjectUserFilters } from '@/lib/project-user-filters';
-import { trpc } from '@/main';
+import { trpc, trpcClient } from '@/main';
+
+const BULK_MEMBERSHIP_BATCH_SIZE = 1_000;
+const LISTED_SKIPPED_USERS_LIMIT = 3;
 
 export type ProjectAccessSource = 'project' | 'organization' | 'both';
 
@@ -63,6 +66,12 @@ interface GroupAccess {
 	groups: AssignableUserGroup[];
 	membershipKeys: Set<string>;
 	ssoMembershipKeys: Set<string>;
+}
+
+interface BulkMembershipChange {
+	groupId: string;
+	userIds: string[];
+	isMember: boolean;
 }
 
 interface UserSelection {
@@ -162,13 +171,18 @@ function ManagedProjectUsersTable({
 			organizationUsers: filterProjectUsers(organizationUsers, filters, customGroupIds, membershipKeys),
 		};
 	}, [projectUsers, organizationUsers, filters, customGroups, membershipKeys]);
-	const selection = useVisibleUserSelection([...visibleUsers.projectUsers, ...visibleUsers.organizationUsers]);
+	const selectableUsers = [...visibleUsers.projectUsers, ...visibleUsers.organizationUsers];
+	const selection = useVisibleUserSelection(selectableUsers);
+	const [bulkNotice, setBulkNotice] = useState('');
 
 	const addUser = useMutation(trpc.user.addUserToProject.mutationOptions());
 	const modifyUser = useMutation(trpc.user.modify.mutationOptions());
 	const removeUser = useMutation(trpc.project.removeProjectMember.mutationOptions());
 	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
-	const setMemberships = useMutation(trpc.userGroup.setMemberships.mutationOptions());
+	const setMemberships = useMutation({
+		mutationKey: trpc.userGroup.setMemberships.mutationKey(),
+		mutationFn: setMembershipsInBatches,
+	});
 
 	const invalidateMembers = () => {
 		return Promise.all([
@@ -230,13 +244,20 @@ function ManagedProjectUsersTable({
 	};
 
 	const handleBulkMembershipChange = (groupId: string, isMember: boolean) => {
+		const selectedUsers = selectableUsers.filter((user) => selection.selectedUserIds.has(user.id));
+		const isManagedBySso = (user: ProjectUser) => ssoMembershipKeys.has(`${groupId}:${user.id}`);
+		const ssoManagedUsers = selectedUsers.filter(isManagedBySso);
+		const userIds = selectedUsers.filter((user) => !isManagedBySso(user)).map((user) => user.id);
+		const groupName = groups.find((group) => group.id === groupId)?.name ?? 'this group';
+		setBulkNotice(describeSsoManagedUsers(ssoManagedUsers, groupName));
+		if (userIds.length === 0) {
+			return;
+		}
 		setMemberships.mutate(
-			{ groupId, userIds: [...selection.selectedUserIds], isMember },
+			{ groupId, userIds, isMember },
 			{
-				onSuccess: async () => {
-					selection.clear();
-					await invalidateUserGroupQueries(queryClient);
-				},
+				onSuccess: () => selection.clear(),
+				onSettled: () => invalidateUserGroupQueries(queryClient),
 			},
 		);
 	};
@@ -272,10 +293,12 @@ function ManagedProjectUsersTable({
 					selectedCount={selection.selectedUserIds.size}
 					isBulkPending={setMemberships.isPending}
 					bulkError={setMemberships.error?.message}
+					bulkNotice={bulkNotice}
 					onBulkMembershipChange={handleBulkMembershipChange}
 					onClearSelection={() => {
 						selection.clear();
 						setMemberships.reset();
+						setBulkNotice('');
 					}}
 				/>
 				<UserAccessTable
@@ -336,6 +359,28 @@ function ManagedProjectUsersTable({
 
 function toTeamMember(user: ProjectUser): TeamMember {
 	return { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status };
+}
+
+/** The endpoint caps each request, while a selection can include every user of the project. */
+async function setMembershipsInBatches({ groupId, userIds, isMember }: BulkMembershipChange): Promise<void> {
+	for (let start = 0; start < userIds.length; start += BULK_MEMBERSHIP_BATCH_SIZE) {
+		await trpcClient.userGroup.setMemberships.mutate({
+			groupId,
+			userIds: userIds.slice(start, start + BULK_MEMBERSHIP_BATCH_SIZE),
+			isMember,
+		});
+	}
+}
+
+/** SSO sync owns these memberships, so a manual change would be duplicated or undone. */
+function describeSsoManagedUsers(users: ProjectUser[], groupName: string): string {
+	if (users.length === 0) {
+		return '';
+	}
+	const names = users.slice(0, LISTED_SKIPPED_USERS_LIMIT).map((user) => user.name);
+	const hiddenCount = users.length - names.length;
+	const userList = hiddenCount > 0 ? `${names.join(', ')} and ${hiddenCount} more` : names.join(', ');
+	return `Skipped ${userList}: SSO manages their membership in ${groupName}.`;
 }
 
 /** Only visible users stay selected, so bulk actions never touch users hidden by the current filters. */

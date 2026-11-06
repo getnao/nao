@@ -137,7 +137,7 @@ vi.mock('@/main', () => ({
 				queryKey: vi.fn(() => ['effective-microsoft-env-mappings']),
 			},
 			setMembership: { mutationOptions: vi.fn() },
-			setMemberships: { mutationOptions: vi.fn() },
+			setMemberships: { mutationKey: () => ['set-memberships'] },
 			create: { mutationOptions: vi.fn() },
 			update: { mutationOptions: vi.fn() },
 			delete: { mutationOptions: vi.fn() },
