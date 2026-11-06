@@ -10,6 +10,7 @@ import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { agentService } from '../services/agent';
+import { getNonMemberAutomationEmailRecipients } from '../services/automation-email-policy';
 import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { nextCronTick } from '../services/scheduler.service';
@@ -267,6 +268,17 @@ export const automationRoutes = {
 			const cron = await naturalLanguageToCron(ctx.project.id, ctx.user.id, input.text);
 			return { cron };
 		}),
+
+	validateEmailRecipients: automationProcedure
+		.input(z.object({ recipients: z.array(z.string().trim().toLowerCase().email()) }))
+		.query(async ({ ctx, input }) => ({
+			nonMemberRecipients: await getNonMemberAutomationEmailRecipients(ctx.project.id, input.recipients),
+		})),
+
+	listEmailRecipients: automationProcedure.query(async ({ ctx }) => {
+		const users = await projectQueries.listUsersWithProjectAccess(ctx.project.id);
+		return users.map((user) => ({ email: user.email, name: user.name }));
+	}),
 
 	listAllForAdmin: automationAdminProcedure.query(async ({ ctx }) => {
 		return listProjectAutomationsWithOwnerAccess(ctx.project.id);
