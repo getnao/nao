@@ -94,7 +94,7 @@ describe('EmailRecipientsInput', () => {
 		fireEvent.focus(input);
 		fireEvent.click(screen.getByRole('option', { name: /ada@example.com/ }));
 		fireEvent.click(screen.getByRole('option', { name: /bea@example.com/ }));
-		fireEvent.click(screen.getByRole('button', { name: 'Add 2' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
 		expect(changes.at(-1)).toEqual(['ada@example.com', 'bea@example.com']);
 	});

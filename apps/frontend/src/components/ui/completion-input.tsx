@@ -39,6 +39,10 @@ export function CompletionInput({
 	...props
 }: CompletionInputProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
+	const addButtonRef = useRef<HTMLButtonElement>(null);
+	const keepOpenRef = useRef(false);
+	const suppressOpenRef = useRef(false);
 	const listId = useId();
 	const [cursor, setCursor] = useState(value.length);
 	const [isOpen, setIsOpen] = useState(false);
@@ -87,6 +91,14 @@ export function CompletionInput({
 		onAccept?.(chosen);
 		setSelected(new Map());
 		setIsOpen(false);
+		if (document.activeElement !== inputRef.current) {
+			suppressOpenRef.current = true;
+			inputRef.current?.focus();
+		}
+	}
+
+	function isInsidePopover(target: EventTarget | null) {
+		return target instanceof Node && (contentRef.current?.contains(target) ?? false);
 	}
 
 	function clearSelection() {
@@ -101,6 +113,12 @@ export function CompletionInput({
 	};
 
 	function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+		if (multiple && event.key === 'Tab' && !event.shiftKey && selected.size > 0) {
+			event.preventDefault();
+			keepOpenRef.current = true;
+			addButtonRef.current?.focus();
+			return;
+		}
 		if (multiple && event.key === 'Enter' && (event.metaKey || event.ctrlKey) && selected.size > 0) {
 			event.preventDefault();
 			confirmSelection();
@@ -145,9 +163,31 @@ export function CompletionInput({
 	}
 
 	function handleBlur(event: FocusEvent<HTMLInputElement>) {
+		if (keepOpenRef.current || isInsidePopover(event.relatedTarget)) {
+			keepOpenRef.current = false;
+			return;
+		}
 		setIsOpen(false);
 		clearSelection();
 		onBlur?.(event);
+	}
+
+	function handleAddKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+		if (event.key === 'Tab' && event.shiftKey) {
+			event.preventDefault();
+			keepOpenRef.current = true;
+			inputRef.current?.focus();
+		}
+	}
+
+	function handleAddBlur(event: FocusEvent<HTMLButtonElement>) {
+		if (keepOpenRef.current || event.relatedTarget === inputRef.current || isInsidePopover(event.relatedTarget)) {
+			keepOpenRef.current = false;
+			return;
+		}
+		setIsOpen(false);
+		clearSelection();
+		onBlur?.(event as FocusEvent<HTMLInputElement>);
 	}
 
 	return (
@@ -175,7 +215,13 @@ export function CompletionInput({
 					onChange={handleChange}
 					onKeyDown={handleKeyDown}
 					onSelect={(event) => setCursor(event.currentTarget.selectionStart ?? value.length)}
-					onFocus={() => setIsOpen(true)}
+					onFocus={() => {
+						if (suppressOpenRef.current) {
+							suppressOpenRef.current = false;
+							return;
+						}
+						setIsOpen(true);
+					}}
 					onBlur={handleBlur}
 				/>
 			</PopoverAnchor>
@@ -190,57 +236,66 @@ export function CompletionInput({
 					}
 				}}
 			>
-				<ul
-					id={listId}
-					role='listbox'
-					aria-multiselectable={multiple || undefined}
-					className='max-h-64 overflow-y-auto'
-				>
-					{items.map((item, index) => {
-						const isChecked = selected.has(item.insertText);
-						return (
-							<li
-								key={item.label}
-								id={optionId(listId, index)}
-								role='option'
-								aria-selected={multiple ? isChecked : index === active}
-								className={cn(
-									'flex cursor-pointer items-baseline justify-between gap-4 rounded-sm px-2 py-1.5 text-xs',
-									index === active && 'bg-accent text-accent-foreground',
-								)}
-								onMouseDown={(event) => event.preventDefault()}
-								onMouseEnter={() => setActiveIndex(index)}
-								onClick={() => (multiple ? toggleSelection(item) : accept(item))}
-							>
-								<span className='flex min-w-0 items-center gap-1.5'>
-									{multiple && (
-										<Check
-											className={cn('size-3 shrink-0', !isChecked && 'invisible')}
-											aria-hidden
-										/>
-									)}
-									<span className='min-w-0 truncate font-mono'>{item.label}</span>
-								</span>
-								{item.detail && (
-									<span className='max-w-[55%] min-w-0 truncate text-muted-foreground'>
-										{item.detail}
-									</span>
-								)}
-							</li>
-						);
-					})}
-				</ul>
-				{multiple && (
-					<button
-						type='button'
-						disabled={selected.size === 0}
-						className='mt-1 flex h-7 w-full items-center justify-center rounded-sm text-xs font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-40'
-						onMouseDown={(event) => event.preventDefault()}
-						onClick={confirmSelection}
+				<div ref={contentRef}>
+					<ul
+						id={listId}
+						role='listbox'
+						aria-multiselectable={multiple || undefined}
+						className='max-h-64 overflow-y-auto'
 					>
-						Add
-					</button>
-				)}
+						{items.map((item, index) => {
+							const isChecked = selected.has(item.insertText);
+							return (
+								<li
+									key={item.label}
+									id={optionId(listId, index)}
+									role='option'
+									aria-selected={multiple ? isChecked : index === active}
+									className={cn(
+										'flex cursor-pointer items-baseline justify-between gap-4 rounded-sm px-2 py-1.5 text-xs',
+										index === active && 'bg-accent text-accent-foreground',
+									)}
+									onMouseDown={(event) => event.preventDefault()}
+									onMouseEnter={() => setActiveIndex(index)}
+									onClick={() => (multiple ? toggleSelection(item) : accept(item))}
+								>
+									<span className='flex min-w-0 items-center gap-1.5'>
+										{multiple && (
+											<Check
+												className={cn('size-3 shrink-0', !isChecked && 'invisible')}
+												aria-hidden
+											/>
+										)}
+										<span className='min-w-0 truncate font-mono'>{item.label}</span>
+									</span>
+									{item.detail && (
+										<span className='max-w-[55%] min-w-0 truncate text-muted-foreground'>
+											{item.detail}
+										</span>
+									)}
+								</li>
+							);
+						})}
+					</ul>
+					{multiple && (
+						<button
+							ref={addButtonRef}
+							type='button'
+							disabled={selected.size === 0}
+							aria-keyshortcuts='Meta+Enter Control+Enter'
+							className='mt-1 flex h-7 w-full items-center justify-center gap-1.5 rounded-sm text-xs font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-40'
+							onMouseDown={(event) => event.preventDefault()}
+							onKeyDown={handleAddKeyDown}
+							onBlur={handleAddBlur}
+							onClick={confirmSelection}
+						>
+							Add
+							<span className='text-muted-foreground' aria-hidden>
+								⌘/Ctrl+Enter
+							</span>
+						</button>
+					)}
+				</div>
 			</PopoverContent>
 		</Popover>
 	);

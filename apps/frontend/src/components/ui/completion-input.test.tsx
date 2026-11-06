@@ -89,6 +89,23 @@ describe('CompletionInput', () => {
 		expect(screen.queryByRole('listbox')).toBeNull();
 	});
 
+	it('keeps checked completions when Tab moves to Add', () => {
+		const accepted: string[][] = [];
+		render(<MultipleHarness onAccept={(items) => accepted.push(items.map((item) => item.insertText))} />);
+
+		type('or');
+		fireEvent.keyDown(input(), { key: 'Enter' });
+		fireEvent.keyDown(input(), { key: 'Tab' });
+
+		const add = screen.getByRole('button', { name: 'Add' });
+		expect(add).toBe(document.activeElement);
+		expect(screen.getByRole('listbox')).toBeTruthy();
+
+		fireEvent.click(add);
+
+		expect(accepted).toEqual([['orders']]);
+	});
+
 	it('accepts several checked completions at once and keeps the draft', () => {
 		const accepted: string[][] = [];
 		render(<MultipleHarness onAccept={(items) => accepted.push(items.map((item) => item.insertText))} />);
@@ -97,7 +114,7 @@ describe('CompletionInput', () => {
 		fireEvent.click(screen.getByRole('option', { name: 'orders' }));
 		fireEvent.change(input(), { target: { value: 'rev', selectionStart: 3 } });
 		fireEvent.click(screen.getByRole('option', { name: 'revenue' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Add 2' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
 		expect(accepted).toEqual([['orders', 'revenue']]);
 		expect(input().value).toBe('rev');
