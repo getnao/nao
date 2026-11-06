@@ -771,3 +771,12 @@ def test_athena_default_catalog_is_accepted_without_bypassing_allowlist(tmp_path
     assert enforce_allow_listed_only(sql, config, tmp_path, conn=conn) == sql
     with pytest.raises(AllowListedOnlyGuardError, match=r"analytics\.secrets"):
         enforce_allow_listed_only("SELECT * FROM awsdatacatalog.analytics.secrets", config, tmp_path, conn=conn)
+
+
+def test_athena_schema_name_is_not_accepted_as_catalog(tmp_path: Path):
+    create_context_table(tmp_path, "analytics", "events", database_type="athena", database_folder="default")
+    config = FakeAthenaConfig(True, database_name="default")
+    conn = FakeConnection({"analytics": ["events"]})
+
+    with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
+        enforce_allow_listed_only('SELECT * FROM "default"."analytics"."events"', config, tmp_path, conn=conn)
