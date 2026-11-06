@@ -111,6 +111,7 @@ import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
 import { customStoryAuthoringError } from './story-mount';
+import { resolveStoryOriginConversationSafely } from './story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
 import {
 	keepStoryReferencesThroughCompaction,
@@ -802,6 +803,7 @@ export class AgentManager {
 						basePrompt: renderedPrompt,
 						forkMetadata: this.chat.forkMetadata,
 						linkedStory: this._toolContext.linkedStory,
+						storyOriginConversation: await resolveStoryOriginConversationSafely(this.chat),
 					}),
 				)
 			: renderedPrompt;

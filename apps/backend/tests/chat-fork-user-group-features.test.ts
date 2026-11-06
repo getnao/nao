@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	createStoryVersion: vi.fn(),
 	getChatMessages: vi.fn(),
 	getLatestSqlQueryDataByIds: vi.fn(),
+	getLatestSqlQueriesByIds: vi.fn(),
 	getLatestVersionByStoryId: vi.fn(),
 	getReferenceableStory: vi.fn(),
 	getStoryByIdForUser: vi.fn(),
@@ -67,6 +68,7 @@ vi.mock('../src/queries/story-file.queries', () => ({
 }));
 vi.mock('../src/queries/execute-sql.queries', () => ({
 	getLatestSqlQueryDataByIds: mocks.getLatestSqlQueryDataByIds,
+	getLatestSqlQueriesByIds: mocks.getLatestSqlQueriesByIds,
 }));
 vi.mock('../src/services/custom-story-authoring', () => ({
 	publishCustomStoryDraft: mocks.publishCustomStoryDraft,
@@ -341,6 +343,7 @@ describe('fork of any accessible Story', () => {
 		mocks.createForkedChat.mockResolvedValue({ id: 'fork-chat-id' });
 		mocks.createStoryVersion.mockResolvedValue({ storyId: 'fork-story-id', version: 1 });
 		mocks.getLatestSqlQueryDataByIds.mockResolvedValue({});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({});
 		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({}));
 		mocks.getStoryProjectId.mockResolvedValue('project-id');
 	});

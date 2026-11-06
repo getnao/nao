@@ -24,7 +24,7 @@ export async function attachChatToStandaloneStory(
 ): Promise<{ chatId: string }> {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 	const seedMessages = cache?.queryData
-		? buildQueryDataMessages(cache.queryData as Record<string, { data: unknown[]; columns: string[] }>)
+		? buildQueryDataMessages(cache.queryData as Record<string, { data: unknown[]; columns: string[] }>, {})
 		: [];
 
 	const chat = await chatQueries.createForkedChat(

@@ -86,12 +86,47 @@ describe('addPromptCache', () => {
 		expect(getPromptCacheProvider(modelSelection('bedrock', modelId))).toBe('bedrock');
 	});
 
+	it('marks only the last result of a parallel tool step for Anthropic models', () => {
+		const cached = addPromptCache(
+			[...messages, toolResults(['call_1', 'call_2'])],
+			modelSelection('openrouter', 'anthropic/claude-sonnet-4.6'),
+		);
+		const toolMessage = cached.at(-1);
+
+		expect(toolMessage?.providerOptions).toBeUndefined();
+		expect(toolMessage?.role === 'tool' && toolMessage.content.map((part) => part.providerOptions)).toEqual([
+			undefined,
+			{ anthropic: { cacheControl: { type: 'ephemeral' } } },
+		]);
+	});
+
+	it('keeps a single message cache point on a Bedrock parallel tool step', () => {
+		const cached = addPromptCache(
+			[...messages, toolResults(['call_1', 'call_2'])],
+			modelSelection('bedrock', 'us.anthropic.claude-sonnet-4-6'),
+		);
+
+		expect(cached.at(-1)?.providerOptions).toEqual({ bedrock: { cachePoint: { type: 'default' } } });
+	});
+
 	it('does not cache Bedrock models that are not identifiable as Anthropic', () => {
 		const modelId = 'arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/analytics-prod';
 
 		expect(addPromptCache(messages, modelSelection('bedrock', modelId))).toBe(messages);
 	});
 });
+
+function toolResults(toolCallIds: string[]): ModelMessage {
+	return {
+		role: 'tool',
+		content: toolCallIds.map((toolCallId) => ({
+			type: 'tool-result',
+			toolCallId,
+			toolName: 'execute_sql',
+			output: { type: 'text', value: 'ok' },
+		})),
+	};
+}
 
 function modelSelection(provider: LlmSelectedModel['provider'], modelId: string): LlmSelectedModel {
 	return { provider, modelId };
