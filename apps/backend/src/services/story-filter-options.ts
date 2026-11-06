@@ -12,9 +12,14 @@ import type { StoredSqlQuery } from '../queries/execute-sql.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as filterOptionsCacheQueries from '../queries/story-filter-options-cache.queries';
 import { logger } from '../utils/logger';
-import { extractConfiguredDatabases } from '../utils/nao-config';
-import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
-import { createStoryExecutionContext, executeRawSql, isCacheExpired, type StoryExecutionContext } from './live-story';
+import { toSafeSqlIdentifier } from '../utils/sql-identifiers';
+import {
+	createStoryExecutionContext,
+	executeRawSql,
+	isCacheExpired,
+	resolveRawSqlDatabaseType,
+	type StoryExecutionContext,
+} from './live-story';
 import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
 import { canFilterMetrics, dimensionExpression } from './semantic-story-bindings';
 
@@ -23,7 +28,7 @@ const FILTER_OPTIONS_MAX_AGE_MS = 60 * 60 * 1000;
 const FILTER_OPTIONS_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const PARENT_FILTER_TYPES = new Set<ParsedFilterBlock['filterType']>(['select', 'multi_select', 'text']);
 const DIMENSION_NAME_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const STRING_CAST_TYPE_BY_DIALECT: Record<string, string> = {
+const STRING_CAST_TYPE_BY_DATABASE_TYPE: Record<string, string> = {
 	bigquery: 'STRING',
 	databricks: 'STRING',
 	mysql: 'CHAR',
@@ -211,8 +216,8 @@ async function fetchWarehouseOptionValues(
 	executionOptions: FilterOptionsExecutionOptions,
 	search?: string,
 ): Promise<Array<string | null>> {
-	const dialect = findDatabaseType(executionContext.toolContext.projectFolder, source.databaseId);
-	const result = await executeRawSql(buildOptionsSql(source, dialect, search), {
+	const databaseType = search ? await resolveRawSqlDatabaseType(executionContext, source.databaseId) : undefined;
+	const result = await executeRawSql(buildOptionsSql(source, databaseType, search), {
 		executionContext,
 		databaseId: source.databaseId,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
@@ -288,13 +293,13 @@ function listStorySemanticMetrics(sqlQueries: Record<string, StoredSqlQuery>): s
 	return [...new Set(metrics)];
 }
 
-function buildOptionsSql(source: WarehouseOptionsSource, dialect: string | undefined, search?: string): string {
+function buildOptionsSql(source: WarehouseOptionsSource, databaseType: string | undefined, search?: string): string {
 	const conditions = [`${source.column} IS NOT NULL`];
 	if (source.parentCondition) {
 		conditions.push(source.parentCondition);
 	}
 	if (search) {
-		const castType = STRING_CAST_TYPE_BY_DIALECT[dialect ?? ''] ?? 'VARCHAR';
+		const castType = STRING_CAST_TYPE_BY_DATABASE_TYPE[databaseType ?? ''] ?? 'VARCHAR';
 		conditions.push(`LOWER(CAST(${source.column} AS ${castType})) LIKE ${quoteSqlString(`%${search}%`)}`);
 	}
 
@@ -310,8 +315,8 @@ function buildOptionsSource(
 		const databaseId = filter.databaseId ?? findDefaultDatabaseId(context.sqlQueries);
 		return {
 			kind: 'warehouse',
-			table: assertSafeSqlIdentifier(filter.table, 'table'),
-			column: assertSafeSqlIdentifier(filter.column, 'column'),
+			table: toSafeSqlIdentifier(filter.table, 'table'),
+			column: toSafeSqlIdentifier(filter.column, 'column'),
 			databaseId,
 			parentCondition: buildParentCondition(filter, context.filters, parentSelection, 'warehouse'),
 		};
@@ -354,7 +359,7 @@ function buildParentCondition(
 
 function parentTargetExpression(parent: ParsedFilterBlock, kind: FilterOptionsSource['kind']): string | null {
 	if (kind === 'warehouse') {
-		return parent.column ? assertSafeSqlIdentifier(parent.column, 'column') : null;
+		return parent.column ? toSafeSqlIdentifier(parent.column, 'column') : null;
 	}
 	return parent.dimension && DIMENSION_NAME_REGEX.test(parent.dimension)
 		? dimensionExpression(parent.dimension)
@@ -390,27 +395,17 @@ function buildCacheKey(source: FilterOptionsSource): string {
 	return createHash('sha256').update(JSON.stringify(source)).digest('hex');
 }
 
-/** Wildcards are stripped rather than escaped because LIKE escape syntax differs between warehouses. */
+/**
+ * Quotes and backslashes become the single-character wildcard because their escaping differs between
+ * warehouses (BigQuery rejects doubled quotes). `%` and `_` stay: as wildcards they still match themselves.
+ */
 function normalizeSearchTerm(search: string | undefined): string {
-	return (search ?? '')
-		.trim()
-		.toLowerCase()
-		.replace(/[%_\\]/g, '');
+	return (search ?? '').trim().toLowerCase().replace(/['\\]/g, '_');
 }
 
 function findDefaultDatabaseId(sqlQueries: Record<string, StoredSqlQuery>): string | undefined {
 	const databaseIds = Object.values(sqlQueries).flatMap((query) => (query.databaseId ? [query.databaseId] : []));
 	return databaseIds.find((id) => id !== LOCAL_DATABASE_ID) ?? databaseIds[0];
-}
-
-/** Mirrors the warehouse executor, which uses the only configured database regardless of the requested id. */
-function findDatabaseType(projectFolder: string | undefined, databaseId: string | undefined): string | undefined {
-	if (databaseId === LOCAL_DATABASE_ID) {
-		return 'duckdb';
-	}
-	const databases = projectFolder ? extractConfiguredDatabases(projectFolder) : [];
-	const database = databases.length === 1 ? databases[0] : databases.find(({ id }) => id === databaseId);
-	return database?.type?.toLowerCase();
 }
 
 /** Column names are matched case-insensitively because some warehouses upper-case unquoted aliases. */

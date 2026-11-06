@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 	executeRawSql: vi.fn(),
 	compileSemanticQuery: vi.fn(),
 	describeSemanticLayer: vi.fn(),
-	extractConfiguredDatabases: vi.fn(),
+	resolveRawSqlDatabaseType: vi.fn(),
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -29,12 +29,10 @@ vi.mock('../src/services/semantic-layer.service', () => ({
 	compileSemanticQuery: mocks.compileSemanticQuery,
 	describeSemanticLayerCached: mocks.describeSemanticLayer,
 }));
-vi.mock('../src/utils/nao-config', () => ({
-	extractConfiguredDatabases: mocks.extractConfiguredDatabases,
-}));
 vi.mock('../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeRawSql: mocks.executeRawSql,
+	resolveRawSqlDatabaseType: mocks.resolveRawSqlDatabaseType,
 	isCacheExpired: () => false,
 }));
 
@@ -55,7 +53,7 @@ describe('getStoryFilterOptions', () => {
 			q1: { sqlQuery: 'SELECT 1', databaseId: 'warehouse', dialect: 'bigquery', adminMode: false },
 		});
 		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
-		mocks.extractConfiguredDatabases.mockReturnValue([{ id: 'warehouse', type: 'bigquery' }]);
+		mocks.resolveRawSqlDatabaseType.mockResolvedValue('bigquery');
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Sports' }, { value: 'Home' }], columns: ['value'] });
 	});
 
@@ -108,35 +106,59 @@ describe('getStoryFilterOptions', () => {
 	it('searches truncated lists on the server without caching the result', async () => {
 		await getStoryFilterOptions('chat-1', 'story', 'category', { search: ' Sp%o_ ' });
 
-		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(category AS STRING)) LIKE '%spo%'");
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(category AS STRING)) LIKE '%sp%o_%'");
 		expect(mocks.getFilterOptionsCache).not.toHaveBeenCalled();
 		expect(mocks.upsertFilterOptionsCache).not.toHaveBeenCalled();
 	});
 
-	it('casts searches with the configured warehouse type when the story only has semantic queries', async () => {
-		mocks.getSqlQueriesFromCode.mockResolvedValue({});
-		mocks.extractConfiguredDatabases.mockReturnValue([
-			{ id: 'local', type: 'duckdb' },
-			{ id: 'warehouse', type: 'bigquery' },
-		]);
+	it('casts searches with the database type resolved by the warehouse executor', async () => {
+		mocks.resolveRawSqlDatabaseType.mockResolvedValue('mssql');
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
 			code: '<filter id="company" type="multi_select" table="companies" column="name" database_id="warehouse" />',
 		});
 
 		await getStoryFilterOptions('chat-1', 'story', 'company', { search: 'fiver' });
 
-		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS STRING)) LIKE '%fiver%'");
+		expect(mocks.resolveRawSqlDatabaseType).toHaveBeenCalledWith(expect.anything(), 'warehouse');
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS NVARCHAR(MAX))) LIKE '%fiver%'");
 	});
 
-	it('keeps the DuckDB cast for local filters when a single warehouse is configured', async () => {
-		mocks.extractConfiguredDatabases.mockReturnValue([{ id: 'warehouse', type: 'mssql' }]);
+	it('casts to VARCHAR for database types without a dedicated string type', async () => {
+		mocks.resolveRawSqlDatabaseType.mockResolvedValue('duckdb');
+
+		await getStoryFilterOptions('chat-1', 'story', 'category', { search: 'sport' });
+
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(category AS VARCHAR)) LIKE '%sport%'");
+	});
+
+	it('searches a hyphenated BigQuery table narrowed by its parent filter', async () => {
+		mocks.getSqlQueriesFromCode.mockResolvedValue({});
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
-			code: '<filter id="company" type="multi_select" table="companies" column="name" database_id="duckdb_local" />',
+			code: [
+				'<filter id="deployment" type="multi_select" table="nao-production.prod_silver.kpis" column="deployment_type" database_id="nao-production" />',
+				'<filter id="company" type="multi_select" table="nao-production.prod_silver.kpis" column="company_name" depends_on="deployment" database_id="nao-production" />',
+			].join('\n'),
 		});
 
-		await getStoryFilterOptions('chat-1', 'story', 'company', { search: 'fiver' });
+		await getStoryFilterOptions('chat-1', 'story', 'company', { parentSelection: ['cloud'], search: 'my_co.io' });
 
-		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS VARCHAR)) LIKE '%fiver%'");
+		expect(mocks.executeRawSql.mock.calls[0][0]).toBe(
+			"SELECT DISTINCT company_name AS value FROM `nao-production`.prod_silver.kpis WHERE company_name IS NOT NULL AND deployment_type IN ('cloud') AND LOWER(CAST(company_name AS STRING)) LIKE '%my_co.io%' ORDER BY company_name LIMIT 101",
+		);
+	});
+
+	it('turns quotes and backslashes in searches into single-character wildcards', async () => {
+		await getStoryFilterOptions('chat-1', 'story', 'category', { search: "Kid's \\toys" });
+
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LIKE '%kid_s _toys%'");
+	});
+
+	it('does not resolve the database type when listing options without a search', async () => {
+		mocks.getFilterOptionsCache.mockResolvedValue(null);
+
+		await getStoryFilterOptions('chat-1', 'story', 'category');
+
+		expect(mocks.resolveRawSqlDatabaseType).not.toHaveBeenCalled();
 	});
 
 	it('marks the list incomplete when the warehouse returns more than the limit', async () => {
