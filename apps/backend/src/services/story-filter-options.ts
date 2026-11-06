@@ -405,6 +405,9 @@ function findDefaultDatabaseId(sqlQueries: Record<string, StoredSqlQuery>): stri
 
 /** Mirrors the warehouse executor, which uses the only configured database regardless of the requested id. */
 function findDatabaseType(projectFolder: string | undefined, databaseId: string | undefined): string | undefined {
+	if (databaseId === LOCAL_DATABASE_ID) {
+		return 'duckdb';
+	}
 	const databases = projectFolder ? extractConfiguredDatabases(projectFolder) : [];
 	const database = databases.length === 1 ? databases[0] : databases.find(({ id }) => id === databaseId);
 	return database?.type?.toLowerCase();

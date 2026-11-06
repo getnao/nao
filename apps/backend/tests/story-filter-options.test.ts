@@ -128,6 +128,17 @@ describe('getStoryFilterOptions', () => {
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS STRING)) LIKE '%fiver%'");
 	});
 
+	it('keeps the DuckDB cast for local filters when a single warehouse is configured', async () => {
+		mocks.extractConfiguredDatabases.mockReturnValue([{ id: 'warehouse', type: 'mssql' }]);
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '<filter id="company" type="multi_select" table="companies" column="name" database_id="duckdb_local" />',
+		});
+
+		await getStoryFilterOptions('chat-1', 'story', 'company', { search: 'fiver' });
+
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS VARCHAR)) LIKE '%fiver%'");
+	});
+
 	it('marks the list incomplete when the warehouse returns more than the limit', async () => {
 		mocks.getFilterOptionsCache.mockResolvedValue(null);
 		const rows = Array.from({ length: 101 }, (_, index) => ({ value: `v${String(index).padStart(3, '0')}` }));
