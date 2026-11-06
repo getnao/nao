@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { StoryFilterSelection } from '@nao/shared/sql-template';
 import type { ParsedFilterBlock } from '@nao/shared/story-segments';
 
@@ -35,10 +35,12 @@ export function StoryFilterOptionsSelect({
 		onOptionError(filter.id, optionsState.error);
 	}, [filter.id, optionsState.error, onOptionError]);
 
-	useDropSelectionsOutsideParent({
+	useDropSelectionsOnParentChange({
 		filter,
+		parentSelection,
 		selectedValues,
 		completeOptions: optionsState.completeOptions,
+		isLoading: optionsState.isLoading,
 		onChange: (kept) => onChange(isMulti ? kept : ''),
 	});
 
@@ -123,28 +125,39 @@ export function StoryFilterOptionsSelect({
 	);
 }
 
-/** Clears child selections that no longer exist once the parent filter narrows the option list. */
-function useDropSelectionsOutsideParent({
+/**
+ * Once the options for a new parent selection load, drops child values outside them, or all of them when the
+ * list is truncated and cannot be checked. Runs only on parent changes, so values typed with allow_custom stay.
+ */
+function useDropSelectionsOnParentChange({
 	filter,
+	parentSelection,
 	selectedValues,
 	completeOptions,
+	isLoading,
 	onChange,
 }: {
 	filter: ParsedFilterBlock;
+	parentSelection: StoryFilterSelection | undefined;
 	selectedValues: string[];
 	completeOptions: string[] | null;
+	isLoading: boolean;
 	onChange: (kept: string[]) => void;
 }) {
+	const parentKey = JSON.stringify(parentSelection ?? null);
+	const handledParentKey = useRef(parentKey);
+
 	useEffect(() => {
-		if (!filter.dependsOn || !completeOptions || selectedValues.length === 0) {
+		if (!filter.dependsOn || isLoading || handledParentKey.current === parentKey) {
 			return;
 		}
-		const allowed = new Set(completeOptions);
+		handledParentKey.current = parentKey;
+		const allowed = new Set(completeOptions ?? []);
 		const kept = selectedValues.filter((value) => allowed.has(value));
 		if (kept.length !== selectedValues.length) {
 			onChange(kept);
 		}
-	}, [filter.dependsOn, completeOptions, selectedValues, onChange]);
+	}, [filter.dependsOn, isLoading, parentKey, completeOptions, selectedValues, onChange]);
 }
 
 function OptionsFooter({

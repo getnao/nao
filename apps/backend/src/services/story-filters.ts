@@ -4,14 +4,15 @@ import {
 	type StoryFilterSpecById,
 	stripSqlFilterBlocks,
 } from '@nao/shared/sql-template';
+import { resolveSemanticQueryParameters } from '@nao/shared/story-parameter-template';
 import { getStoryFiltersFromCode } from '@nao/shared/story-segments';
 import { TRPCError } from '@trpc/server';
 
 import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import { createStoryExecutionContext, executeStoryQueries, type StoryQueryData } from './live-story';
-import type { SemanticQuery } from './semantic-layer.service';
-import { semanticBindingsFromCode } from './semantic-story-bindings';
+import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
+import { bindSemanticQuery, semanticBindingsFromCode } from './semantic-story-bindings';
 
 interface StoryFilterExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
@@ -61,13 +62,32 @@ export async function getStoryQuerySql(
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Query "${queryId}" not found.` });
 	}
 
-	return {
+	const base = {
 		sqlQuery: query.sqlQuery,
 		renderedSql: renderStorySql(query.sqlQuery, selections, filterSpecsFromCode(code)),
 		databaseId: query.databaseId,
 		dialect: query.dialect,
 		semanticQuery: query.semanticQuery,
 	};
+	return query.semanticQuery
+		? { ...base, ...(await previewBoundSemanticQuery(chatId, code, query.semanticQuery, selections)) }
+		: base;
+}
+
+/** The semantic query as it runs for these selections: parameters resolved, dimension filters applied, compiled. */
+async function previewBoundSemanticQuery(
+	chatId: string,
+	code: string,
+	semanticQuery: SemanticQuery,
+	selections: StoryFilterSelections,
+): Promise<{ semanticQuery: SemanticQuery; renderedSql?: string }> {
+	const { toolContext } = await createStoryExecutionContext(chatId);
+	const bound = await bindSemanticQuery(semanticQuery, semanticBindingsFromCode(code, selections), () =>
+		describeSemanticLayerCached(toolContext).catch(() => null),
+	);
+	const effectiveQuery = resolveSemanticQueryParameters(bound.query);
+	const compiled = await compileSemanticQuery(effectiveQuery, toolContext).catch(() => null);
+	return { semanticQuery: effectiveQuery, ...(compiled && { renderedSql: compiled.sql }) };
 }
 
 function filterSpecsFromCode(code: string): StoryFilterSpecById {

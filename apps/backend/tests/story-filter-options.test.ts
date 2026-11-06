@@ -26,7 +26,7 @@ vi.mock('../src/queries/story-filter-options-cache.queries', () => ({
 }));
 vi.mock('../src/services/semantic-layer.service', () => ({
 	compileSemanticQuery: mocks.compileSemanticQuery,
-	describeSemanticLayer: mocks.describeSemanticLayer,
+	describeSemanticLayerCached: mocks.describeSemanticLayer,
 }));
 vi.mock('../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,

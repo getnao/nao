@@ -116,8 +116,8 @@ function SkippedFiltersNotice({ skippedFilters }: { skippedFilters: SkippedStory
 				<li key={filter.id} className='flex items-center gap-1.5'>
 					<Info className='size-3.5 shrink-0' />
 					<span>
-						<span className='font-medium'>{filter.label}</span> is not applied to {filter.chartCount}{' '}
-						{filter.chartCount === 1 ? 'chart' : 'charts'}: its metric can't be filtered by this field.
+						<span className='font-medium'>{filter.label}</span> is not applied to every chart: some metrics
+						can't be filtered by this field.
 					</span>
 				</li>
 			))}

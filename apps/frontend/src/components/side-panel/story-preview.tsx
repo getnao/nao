@@ -79,9 +79,12 @@ export const StoryPreview = memo(function StoryPreview({
 	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
 		() =>
 			isNoCacheMode
-				? { queryOptions: (queryId) => trpc.story.getLiveQueryData.queryOptions({ chatId, queryId }) }
+				? {
+						queryOptions: (queryId) =>
+							trpc.story.getLiveQueryData.queryOptions({ chatId, queryId, storySlug }),
+					}
 				: undefined,
-		[isNoCacheMode, chatId],
+		[isNoCacheMode, chatId, storySlug],
 	);
 
 	const effectiveQueryData = storyFilters.queryData;

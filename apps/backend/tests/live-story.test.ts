@@ -438,6 +438,22 @@ describe('live story SQL execution', () => {
 		});
 	});
 
+	it('runs a no-cache live query with the story parameter default', async () => {
+		mocks.getSqlQueryById.mockResolvedValue({
+			sqlQuery: 'SELECT 1',
+			databaseId: 'analytics',
+			adminMode: false,
+			semanticQuery: { metrics: ['{{ params.metric }}'], params: { metric: 'revenue' } },
+		});
+		const fetchMock = stubSemanticLayerFetch('SELECT 2', { columns: ['orders'], data: [{ orders: 3 }] });
+
+		await executeLiveQuery('chat-1', 'query_metric', {
+			storyCode: `<parameter id="metric" options='["revenue","orders"]' default="orders" />`,
+		});
+
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ metrics: ['orders'] });
+	});
+
 	it('never sends a local live query to the warehouse', async () => {
 		mocks.getSqlQueryById.mockResolvedValue({
 			sqlQuery: 'SELECT * FROM query_upstream',

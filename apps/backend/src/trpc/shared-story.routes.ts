@@ -399,6 +399,7 @@ export const sharedStoryRoutes = {
 			}
 			return executeLiveQuery(shared.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				storyCode: shared.code,
 			});
 		}),
 

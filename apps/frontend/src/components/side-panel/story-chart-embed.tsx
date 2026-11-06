@@ -1,4 +1,5 @@
 import { resolveDataKey } from '@nao/shared';
+import { extractParameterIds } from '@nao/shared/story-parameter-template';
 import { Code, Pencil } from 'lucide-react';
 import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { StoryBlockDragContext } from './story-editor-drag-context';
@@ -135,7 +136,7 @@ export function StoryChartEmbedShell({
 	const [editorView, setEditorView] = useState<ChartEditorView>('chart');
 	const [showQuery, setShowQuery] = useState(false);
 	const [palette, setPalette] = useState<string[] | undefined>();
-	const canEdit = Boolean(edit && chart.rawTag);
+	const canEdit = Boolean(edit && chart.rawTag && !usesStoryParameters(chart.rawTag));
 	const sourceQuery = useStoryChartSourceQuery({
 		queryId: chart.queryId,
 		story: edit?.story,
@@ -260,4 +261,9 @@ export function StoryChartEmbedShell({
 			)}
 		</div>
 	);
+}
+
+/** The visual editor rebuilds the tag from resolved values, which would drop `{{ params.<id> }}` placeholders. */
+function usesStoryParameters(rawTag: string): boolean {
+	return extractParameterIds(rawTag).length > 0;
 }

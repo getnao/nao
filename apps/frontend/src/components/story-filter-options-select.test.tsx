@@ -43,6 +43,14 @@ vi.stubGlobal(
 Element.prototype.scrollIntoView = vi.fn();
 
 const OWNED_API = { kind: 'owned', chatId: 'chat-1', storySlug: 'story' } as const;
+const SUBCATEGORY_FILTER: ParsedFilterBlock = {
+	id: 'subcategory',
+	label: 'Sub-category',
+	filterType: 'multi_select',
+	table: 'products',
+	column: 'subcategory',
+	dependsOn: 'category',
+};
 
 beforeEach(() => {
 	mocks.fetchOptions.mockReset();
@@ -88,28 +96,66 @@ describe('StoryFilterOptionsSelect', () => {
 		expect(onChange).toHaveBeenCalledWith('B-42');
 	});
 
-	it('loads options for the parent selection and drops values outside it', async () => {
-		mocks.fetchOptions.mockResolvedValue({ options: ['Laptops', 'Phones'], isComplete: true });
+	it('drops child values outside the new parent once its options load', async () => {
+		mocks.fetchOptions.mockImplementation(async (input: { parentSelection?: string }) =>
+			input.parentSelection === 'Electronics'
+				? { options: ['Laptops', 'Phones'], isComplete: true }
+				: { options: ['Laptops', 'Yoga'], isComplete: true },
+		);
 		const onChange = vi.fn();
-		renderSelect({
-			filter: {
-				id: 'subcategory',
-				label: 'Sub-category',
-				filterType: 'multi_select',
-				table: 'products',
-				column: 'subcategory',
-				dependsOn: 'category',
-			},
+		const props = {
+			filter: SUBCATEGORY_FILTER,
 			selection: ['Laptops', 'Yoga'],
-			parentSelection: 'Electronics',
+			parentSelection: 'Mixed',
 			onChange,
 			api: OWNED_API,
-		});
+		};
+		const view = renderSelect(props);
+		await waitFor(() => expect(mocks.fetchOptions).toHaveBeenCalledTimes(1));
+		expect(onChange).not.toHaveBeenCalled();
+
+		view.rerenderWith({ ...props, parentSelection: 'Electronics' });
 
 		await waitFor(() => expect(onChange).toHaveBeenCalledWith(['Laptops']));
 		expect(mocks.fetchOptions).toHaveBeenCalledWith(
 			expect.objectContaining({ filterId: 'subcategory', parentSelection: 'Electronics' }),
 		);
+	});
+
+	it('clears child values when the new parent list is truncated', async () => {
+		mocks.fetchOptions.mockResolvedValue({ options: ['Laptops'], isComplete: false });
+		const onChange = vi.fn();
+		const props = {
+			filter: SUBCATEGORY_FILTER,
+			selection: ['Laptops'],
+			parentSelection: 'Sports',
+			onChange,
+			api: OWNED_API,
+		};
+		const view = renderSelect(props);
+
+		view.rerenderWith({ ...props, parentSelection: 'Electronics' });
+
+		await waitFor(() => expect(onChange).toHaveBeenCalledWith([]));
+	});
+
+	it('keeps a typed child value while the parent stays the same', async () => {
+		mocks.fetchOptions.mockResolvedValue({ options: ['Laptops'], isComplete: true });
+		const onChange = vi.fn();
+		const props = {
+			filter: { ...SUBCATEGORY_FILTER, allowCustom: true },
+			selection: ['Laptops'],
+			parentSelection: 'Electronics',
+			onChange,
+			api: OWNED_API,
+		};
+		const view = renderSelect(props);
+		await waitFor(() => expect(mocks.fetchOptions).toHaveBeenCalled());
+
+		view.rerenderWith({ ...props, selection: ['Laptops', 'Typed SKU'] });
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		expect(onChange).not.toHaveBeenCalled();
 	});
 
 	it('searches on the server when the loaded list was truncated', async () => {
@@ -131,21 +177,25 @@ describe('StoryFilterOptionsSelect', () => {
 	});
 });
 
-function renderSelect({
-	filter,
-	selection,
-	parentSelection,
-	onChange,
-	api = null,
-}: {
+type SelectProps = {
 	filter: ParsedFilterBlock;
 	selection?: StoryFilterSelection;
 	parentSelection?: StoryFilterSelection;
 	onChange: (selection: StoryFilterSelection) => void;
 	api?: typeof OWNED_API | null;
-}) {
+};
+
+function renderSelect(props: SelectProps) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-	return render(
+	const view = render(selectElement(queryClient, props));
+	return { ...view, rerenderWith: (next: SelectProps) => view.rerender(selectElement(queryClient, next)) };
+}
+
+function selectElement(
+	queryClient: QueryClient,
+	{ filter, selection, parentSelection, onChange, api = null }: SelectProps,
+) {
+	return (
 		<QueryClientProvider client={queryClient}>
 			<StoryFilterOptionsSelect
 				filter={filter}
@@ -155,7 +205,7 @@ function renderSelect({
 				onOptionError={vi.fn()}
 				api={api}
 			/>
-		</QueryClientProvider>,
+		</QueryClientProvider>
 	);
 }
 

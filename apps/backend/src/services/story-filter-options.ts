@@ -14,7 +14,7 @@ import * as filterOptionsCacheQueries from '../queries/story-filter-options-cach
 import { logger } from '../utils/logger';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
 import { createStoryExecutionContext, executeRawSql, isCacheExpired, type StoryExecutionContext } from './live-story';
-import { compileSemanticQuery, describeSemanticLayer, type SemanticQuery } from './semantic-layer.service';
+import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
 import { canFilterMetrics, dimensionExpression } from './semantic-story-bindings';
 
 const FILTER_OPTIONS_LIMIT = 100;
@@ -269,7 +269,7 @@ async function pickMetricForDimension(
 			message: `Filter "${filterId}" is bound to dimension "${dimension}" but the story has no semantic-layer query to list its values. Set metric="<metric>" on the filter.`,
 		});
 	}
-	const catalog = await describeSemanticLayer(executionContext.toolContext).catch(() => null);
+	const catalog = await describeSemanticLayerCached(executionContext.toolContext).catch(() => null);
 	return metrics.find((metric) => canFilterMetrics(catalog, [metric], dimension)) ?? metrics[0];
 }
 

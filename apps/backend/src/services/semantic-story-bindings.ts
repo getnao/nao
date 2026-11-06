@@ -66,7 +66,11 @@ export async function bindSemanticQuery(
 
 	const metrics = resolveSemanticQueryParameters(parameterized).metrics;
 	const catalog = await loadCatalog();
-	const applicable = activeFilters.filter((filter) => canFilterMetrics(catalog, metrics, filter.dimension!));
+	const applicable = activeFilters.filter(
+		(filter) =>
+			canFilterMetrics(catalog, metrics, filter.dimension!) &&
+			(filter.filterType !== 'date_range' || isTimeDimension(catalog, filter.dimension!)),
+	);
 
 	return {
 		query: applicable.reduce<SemanticQuery>(
@@ -93,6 +97,15 @@ export function canFilterMetrics(
 		const metric = catalog.metrics.find((candidate) => candidate.name === metricName);
 		return !metric || metric.dimensions.includes(dimension);
 	});
+}
+
+/** Date ranges compile to TimeDimension predicates, which the semantic layer rejects on categorical dimensions. */
+export function isTimeDimension(catalog: executeSemanticQuery.Catalog | null, dimension: string): boolean {
+	if (!catalog || dimension === METRIC_TIME_DIMENSION) {
+		return true;
+	}
+	const catalogDimension = catalog.dimensions.find((candidate) => candidate.name === dimension);
+	return !catalogDimension || catalogDimension.type === 'time';
 }
 
 export function dimensionExpression(dimension: string): string {

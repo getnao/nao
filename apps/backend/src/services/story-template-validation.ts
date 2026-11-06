@@ -1,4 +1,4 @@
-import { findUnreferencedStoryFilters, validateSqlFilterTemplate } from '@nao/shared/sql-template';
+import { extractSqlFilterIds, findUnreferencedStoryFilters, validateSqlFilterTemplate } from '@nao/shared/sql-template';
 import { extractQueryIds, getStoryFiltersFromCode } from '@nao/shared/story-segments';
 import { QueryIdSchema } from '@nao/shared/tools';
 
@@ -31,7 +31,12 @@ export async function getStoryTemplateWarnings(
 
 	if (env.BETA_STORY_FILTERS_ENABLED) {
 		warnings.push(...getFilterWarnings(code, sqlQueries));
-		warnings.push(...(await getSemanticStoryWarnings(code, collectSemanticQueries(sqlQueries), loadCatalog)));
+		warnings.push(
+			...(await getSemanticStoryWarnings(code, collectSemanticQueries(sqlQueries), {
+				loadCatalog,
+				sqlFilterIds: collectSqlFilterIds(sqlQueries),
+			})),
+		);
 	}
 
 	return warnings;
@@ -130,6 +135,10 @@ function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
 	}
 
 	return warnings;
+}
+
+function collectSqlFilterIds(sqlQueries: SqlQueryMap): Set<string> {
+	return new Set(Object.values(sqlQueries).flatMap((query) => extractSqlFilterIds(query.sqlQuery)));
 }
 
 function collectSemanticQueries(sqlQueries: SqlQueryMap): Record<string, SemanticQuery> {

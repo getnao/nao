@@ -57,11 +57,11 @@ describe('StoryFilterBar with semantic parameters', () => {
 	it('says which filters a chart could not apply', () => {
 		renderBar({
 			selections: { channel: 'Online' },
-			skippedFilters: [{ id: 'channel', label: 'Channel', chartCount: 2 }],
+			skippedFilters: [{ id: 'channel', label: 'Channel' }],
 		});
 
-		expect(screen.getByText(/is not applied to 2 charts/).textContent).toContain(
-			"Channel is not applied to 2 charts: its metric can't be filtered by this field.",
+		expect(screen.getByText(/is not applied to every chart/).textContent).toContain(
+			"Channel is not applied to every chart: some metrics can't be filtered by this field.",
 		);
 	});
 });
@@ -77,7 +77,7 @@ function barElement({
 }: {
 	selections: Record<string, string>;
 	onSelectionChange: (id: string, value: unknown) => void;
-	skippedFilters?: { id: string; label: string; chartCount: number }[];
+	skippedFilters?: { id: string; label: string }[];
 }) {
 	return (
 		<QueryClientProvider client={new QueryClient()}>

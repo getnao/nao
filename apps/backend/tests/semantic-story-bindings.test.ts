@@ -7,7 +7,10 @@ const CATALOG = {
 		{ name: 'revenue', label: 'Revenue', description: null, dimensions: ['customer__region', 'order__channel'] },
 		{ name: 'unique_sales', label: 'Unique sales', description: null, dimensions: ['customer__region'] },
 	],
-	dimensions: [],
+	dimensions: [
+		{ name: 'customer__region', type: 'categorical', granularity: null, description: null },
+		{ name: 'customer__first_order', type: 'time', granularity: 'day', description: null },
+	],
 };
 
 const CODE = [
@@ -73,6 +76,31 @@ describe('bindSemanticQuery', () => {
 		const bound = await bindSemanticQuery(QUERY, bindings, async () => null);
 
 		expect(bound.query.where).toEqual(["{{ Dimension('order__channel') }} = 'Online'"]);
+	});
+
+	it('only applies date ranges to time dimensions', async () => {
+		const code = [
+			'<filter id="first_order" type="date_range" dimension="customer__first_order" />',
+			'<filter id="region_range" type="date_range" dimension="customer__region" />',
+		].join('\n');
+		const bindings = semanticBindingsFromCode(code, {
+			first_order: ['2018-01-01', '2018-01-31'],
+			region_range: ['2018-01-01', '2018-01-31'],
+		});
+		const catalogWithDimensions = {
+			...CATALOG,
+			metrics: CATALOG.metrics.map((metric) => ({
+				...metric,
+				dimensions: [...metric.dimensions, 'customer__first_order'],
+			})),
+		};
+
+		const bound = await bindSemanticQuery(QUERY, bindings, async () => catalogWithDimensions);
+
+		expect(bound.query.where).toEqual([
+			"{{ TimeDimension('customer__first_order', 'day') }} BETWEEN '2018-01-01' AND '2018-01-31'",
+		]);
+		expect(bound.skippedFilterIds).toEqual(['region_range']);
 	});
 
 	it('leaves the query untouched without bindings', async () => {

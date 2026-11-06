@@ -21,6 +21,9 @@ export type CompiledSemanticQuery = {
 
 type SemanticLayerContext = Pick<ToolContext, 'projectFolder' | 'envVars'>;
 
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const catalogCache = new Map<string, { expiresAt: number; catalog: Promise<executeSemanticQuery.Catalog> }>();
+
 /**
  * The semantic layer routing mode in effect for a run, or null when the project
  * declares no `semantic_layer` in nao_config.yaml. The repo decides whether a layer
@@ -81,6 +84,21 @@ function resolveParameters(query: SemanticQuery, parameterValues: Record<string,
 	} catch (error) {
 		throw new SemanticQueryCompileError(error instanceof Error ? error.message : String(error));
 	}
+}
+
+/**
+ * `describeSemanticLayer` cached per project for a few minutes: story filters consult the catalog on every
+ * filtered request, and it only changes when the project's semantic models do.
+ */
+export function describeSemanticLayerCached(context: SemanticLayerContext): Promise<executeSemanticQuery.Catalog> {
+	const cached = catalogCache.get(context.projectFolder);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.catalog;
+	}
+	const catalog = describeSemanticLayer(context);
+	catalogCache.set(context.projectFolder, { expiresAt: Date.now() + CATALOG_CACHE_TTL_MS, catalog });
+	catalog.catch(() => catalogCache.delete(context.projectFolder));
+	return catalog;
 }
 
 function postToSemanticLayer(

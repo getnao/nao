@@ -33,7 +33,7 @@ import { buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { runQueryOnLocalFiles } from './local-query.service';
-import { compileSemanticQuery, describeSemanticLayer, type SemanticQuery } from './semantic-layer.service';
+import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
 import {
 	bindSemanticQuery,
 	type CatalogLoader,
@@ -69,7 +69,7 @@ export interface StoryQueryResult {
 export async function executeLiveQuery(
 	chatId: string,
 	queryId: string,
-	options: StoryRefreshOptions = {},
+	options: LiveQueryOptions = {},
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
@@ -79,7 +79,11 @@ export async function executeLiveQuery(
 	const queryData = await executeStoryQueries(
 		chatId,
 		{ [queryId]: query },
-		{ renderSql: stripSqlFilterBlocks, billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId },
+		{
+			renderSql: stripSqlFilterBlocks,
+			semanticBindings: options.storyCode ? semanticBindingsFromCode(options.storyCode) : undefined,
+			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+		},
 	);
 	return queryData[queryId]!;
 }
@@ -91,6 +95,11 @@ export interface RefreshResult {
 
 interface StoryRefreshOptions {
 	billingAccessVerifiedProjectId?: string;
+}
+
+interface LiveQueryOptions extends StoryRefreshOptions {
+	/** The story displaying the query, so its parameter defaults apply to semantic-layer queries. */
+	storyCode?: string;
 }
 
 export async function refreshStoryData(
@@ -406,7 +415,7 @@ async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlEx
 function memoizeCatalog(executionContext: StoryExecutionContext): CatalogLoader {
 	let catalog: ReturnType<CatalogLoader> | null = null;
 	return () => {
-		catalog ??= describeSemanticLayer(executionContext.toolContext).catch(() => null);
+		catalog ??= describeSemanticLayerCached(executionContext.toolContext).catch(() => null);
 		return catalog;
 	};
 }

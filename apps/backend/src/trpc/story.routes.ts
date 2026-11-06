@@ -980,10 +980,14 @@ export const storyRoutes = {
 		}),
 
 	getLiveQueryData: cloudBillingChatStoryProcedure
-		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.input(z.object({ chatId: z.string(), queryId: z.string(), storySlug: z.string().optional() }))
 		.query(async ({ input, ctx }) => {
+			const storyVersion = input.storySlug
+				? await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug)
+				: null;
 			return executeLiveQuery(input.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: ctx.projectId,
+				storyCode: storyVersion?.code,
 			});
 		}),
 

@@ -23,13 +23,16 @@ type SemanticQueries = Record<string, SemanticQuery>;
 export async function getSemanticStoryWarnings(
 	code: string,
 	semanticQueries: SemanticQueries,
-	loadCatalog?: CatalogLoader,
+	{ loadCatalog, sqlFilterIds = new Set() }: { loadCatalog?: CatalogLoader; sqlFilterIds?: Set<string> } = {},
 ): Promise<string[]> {
 	const parameters = getStoryParametersFromCode(code);
 	const dimensionFilters = getStoryFiltersFromCode(code).filter((filter) => filter.dimension);
 	const warnings = [
 		...getParameterUsageWarnings(code, parameters, semanticQueries),
-		...getDimensionFilterUsageWarnings(dimensionFilters, semanticQueries),
+		...getDimensionFilterUsageWarnings(
+			dimensionFilters.filter((filter) => !sqlFilterIds.has(filter.id)),
+			semanticQueries,
+		),
 	];
 
 	const catalog = loadCatalog && (parameters.length > 0 || dimensionFilters.length > 0) ? await loadCatalog() : null;

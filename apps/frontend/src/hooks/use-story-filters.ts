@@ -22,7 +22,6 @@ const NO_PARAMETERS: ParsedParameterBlock[] = [];
 export interface SkippedStoryFilter {
 	id: string;
 	label: string;
-	chartCount: number;
 }
 
 export function useStoryFilters({
@@ -193,15 +192,10 @@ function listSkippedFilters(
 	filters: ParsedFilterBlock[],
 	queryData: FilteredQueryDataMap | undefined,
 ): SkippedStoryFilter[] {
-	const chartCountByFilterId = new Map<string, number>();
-	for (const result of Object.values(queryData ?? {})) {
-		for (const filterId of result.skippedFilterIds ?? []) {
-			chartCountByFilterId.set(filterId, (chartCountByFilterId.get(filterId) ?? 0) + 1);
-		}
-	}
+	const skippedFilterIds = new Set(Object.values(queryData ?? {}).flatMap((result) => result.skippedFilterIds ?? []));
 	return filters
-		.filter((filter) => chartCountByFilterId.has(filter.id))
-		.map((filter) => ({ id: filter.id, label: filter.label, chartCount: chartCountByFilterId.get(filter.id)! }));
+		.filter((filter) => skippedFilterIds.has(filter.id))
+		.map((filter) => ({ id: filter.id, label: filter.label }));
 }
 
 function isNonDefaultParameterValue(parameter: ParsedParameterBlock, selection: StoryFilterSelection | undefined) {

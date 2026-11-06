@@ -44,6 +44,13 @@ describe('resolveSemanticQueryParameters', () => {
 		);
 	});
 
+	it('does not treat Object.prototype members as parameters', () => {
+		expect(substituteStoryParameters('{{ params.toString }}', {})).toBe('{{ params.toString }}');
+		expect(() => resolveSemanticQueryParameters({ metrics: ['{{ params.constructor }}'] })).toThrow(
+			/params\.constructor \}\} without a value/,
+		);
+	});
+
 	it('lists the parameters a query uses', () => {
 		expect(extractSemanticQueryParameterIds(query)).toEqual(['metric', 'grain']);
 	});

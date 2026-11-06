@@ -17,6 +17,8 @@ export { StoryBlockDragGrip, StoryBlockDropZones } from './story-editor-block-dr
 
 interface StoryEditorProps {
 	code: string;
+	/** Full story code holding the <parameter> tags, when `code` is only one tab of it. */
+	parameterCode?: string;
 	editorRef: React.MutableRefObject<Editor | null>;
 	onSave?: () => void;
 	onDragControlsChange?: (controls: StoryEditorDragControls | null) => void;
@@ -25,6 +27,7 @@ interface StoryEditorProps {
 
 export const StoryEditor = memo(function StoryEditor({
 	code,
+	parameterCode,
 	editorRef,
 	onSave,
 	onDragControlsChange,
@@ -43,7 +46,11 @@ export const StoryEditor = memo(function StoryEditor({
 		onElementDragEnd,
 		getDragHandleOrigin,
 	} = useStoryEditor({ code, editorRef, onSave, onDragControlsChange, onChange });
-	const parameterDefaults = useMemo(() => resolveStoryParameters(getStoryParametersFromCode(code)), [code]);
+	const parameterSource = parameterCode ?? code;
+	const parameterDefaults = useMemo(
+		() => resolveStoryParameters(getStoryParametersFromCode(parameterSource)),
+		[parameterSource],
+	);
 
 	const hideFloatingHandle =
 		handleNodeType === 'gridBlock' ||

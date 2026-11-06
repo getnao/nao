@@ -324,9 +324,12 @@ function PreviewContent({
 	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
 		() =>
 			useLiveUnfiltered
-				? { queryOptions: (queryId) => trpc.story.getLiveQueryData.queryOptions({ chatId, queryId }) }
+				? {
+						queryOptions: (queryId) =>
+							trpc.story.getLiveQueryData.queryOptions({ chatId, queryId, storySlug }),
+					}
 				: undefined,
-		[useLiveUnfiltered, chatId],
+		[useLiveUnfiltered, chatId, storySlug],
 	);
 
 	const renderChart = useCallback(

@@ -939,6 +939,20 @@ describe('story parameters', () => {
 		expect(segments[0]).toEqual({ type: 'markdown', content: '## Unique sales by week' });
 	});
 
+	it('escapes inserted labels for plain and JSON attributes', () => {
+		const quotedCode = [
+			`<parameter id="metric" options='[{"value":"net_revenue","label":"Revenue \\u0022net\\u0022 & co\\u0027s"}]' />`,
+			`<chart query_id="query_1" chart_type="line" x_axis_key="month" title="{{ params.metric.label }}" series='[{"data_key":"{{ params.metric }}","label":"{{ params.metric.label }}"}]' />`,
+		].join('\n');
+		const chart = splitCodeIntoSegments(quotedCode).find((segment) => segment.type === 'chart');
+
+		expect(chart?.type === 'chart' && chart.chart.title).toBe(`Revenue "net" & co's`);
+		expect(chart?.type === 'chart' && chart.chart.series[0]).toMatchObject({
+			data_key: 'net_revenue',
+			label: `Revenue "net" & co's`,
+		});
+	});
+
 	it('falls back to the default for unknown selections', () => {
 		expect(resolveStoryParameters(getStoryParametersFromCode(code), { metric: 'orders' })).toEqual({
 			metric: { value: 'revenue', label: 'Revenue' },

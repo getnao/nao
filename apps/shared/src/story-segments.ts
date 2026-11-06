@@ -7,7 +7,11 @@ import {
 	type StoryFilterType,
 	type StoryFilterValueType,
 } from './sql-template';
-import { type ResolvedStoryParameters, substituteStoryParameters } from './story-parameter-template';
+import {
+	type ResolvedStoryParameters,
+	substituteStoryParameters,
+	substituteStoryParametersInAttributes,
+} from './story-parameter-template';
 import type { SeriesConfig } from './tools/display-chart';
 import type * as displayMap from './tools/display-map';
 import type { ColorScale, MapType, RegionBoundaries } from './tools/display-map';
@@ -851,6 +855,8 @@ export function extractQueryIds(code: string): Set<string> {
 export function splitCodeIntoSegments(code: string, parameters?: ResolvedStoryParameters): Segment[] {
 	const resolvedParameters = parameters ?? resolveStoryParameters(getStoryParametersFromCode(code));
 	const substitute = (text: string) => substituteStoryParameters(text, resolvedParameters);
+	const substituteAttributes = (attrString: string) =>
+		substituteStoryParametersInAttributes(attrString, resolvedParameters);
 	const segments: Segment[] = [];
 	const blockRegex = storyBlockRegex();
 	let match;
@@ -876,22 +882,22 @@ export function splitCodeIntoSegments(code: string, parameters?: ResolvedStoryPa
 						: null;
 			segments.push({ type: 'grid', cols, widths, children });
 		} else if (match[3] !== undefined) {
-			const chart = parseChartBlock(substitute(match[3]));
+			const chart = parseChartBlock(substituteAttributes(match[3]));
 			if (chart) {
 				segments.push({ type: 'chart', chart: { ...chart, rawTag: match[0] } });
 			}
 		} else if (match[4] !== undefined) {
-			const table = parseTableBlock(substitute(match[4]));
+			const table = parseTableBlock(substituteAttributes(match[4]));
 			if (table) {
 				segments.push({ type: 'table', table: { ...table, rawTag: match[0] } });
 			}
 		} else if (match[5] !== undefined) {
-			const filter = parseFilterBlock(substitute(match[5]));
+			const filter = parseFilterBlock(substituteAttributes(match[5]));
 			if (filter) {
 				segments.push({ type: 'filter', filter: { ...filter, rawTag: match[0] } });
 			}
 		} else if (match[6] !== undefined) {
-			const map = parseMapBlock(substitute(match[6]));
+			const map = parseMapBlock(substituteAttributes(match[6]));
 			if (map) {
 				segments.push({ type: 'map', map: { ...map, rawTag: match[0] } });
 			}

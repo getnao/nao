@@ -25,7 +25,9 @@ describe('getSemanticStoryWarnings', () => {
 			'## {{ params.metric.label }} by {{ params.grain }}',
 		].join('\n');
 
-		expect(await getSemanticStoryWarnings(code, { q1: PARAMETERIZED_QUERY }, async () => CATALOG)).toEqual([]);
+		expect(
+			await getSemanticStoryWarnings(code, { q1: PARAMETERIZED_QUERY }, { loadCatalog: async () => CATALOG }),
+		).toEqual([]);
 	});
 
 	it('flags placeholders without a parameter tag and unused parameters', async () => {
@@ -59,6 +61,16 @@ describe('getSemanticStoryWarnings', () => {
 		expect(warnings).toEqual([expect.stringContaining('no chart uses a semantic-layer query')]);
 	});
 
+	it('does not flag dimension filters that SQL charts already use', async () => {
+		const warnings = await getSemanticStoryWarnings(
+			'<filter id="region" type="select" dimension="customer__region" table="orders" column="region" />',
+			{},
+			{ sqlFilterIds: new Set(['region']) },
+		);
+
+		expect(warnings).toEqual([]);
+	});
+
 	it('uses the catalog to flag unknown metric options and unsupported dimensions', async () => {
 		const code = [
 			`<parameter id="metric" type="metric" options='["revenue","unique_sales","margin"]' />`,
@@ -66,7 +78,11 @@ describe('getSemanticStoryWarnings', () => {
 			'<filter id="channel" type="select" dimension="order__channel" />',
 		].join('\n');
 
-		const warnings = await getSemanticStoryWarnings(code, { q1: PARAMETERIZED_QUERY }, async () => CATALOG);
+		const warnings = await getSemanticStoryWarnings(
+			code,
+			{ q1: PARAMETERIZED_QUERY },
+			{ loadCatalog: async () => CATALOG },
+		);
 
 		expect(warnings).toEqual([
 			expect.stringContaining('offers "margin", which is not a metric'),
