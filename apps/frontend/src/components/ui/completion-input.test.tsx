@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CompletionInput } from './completion-input';
 import { Dialog, DialogContent, DialogTitle } from './dialog';
+import type { FocusEvent } from 'react';
 import type { CompletionOption, CompletionOptions } from './completion-input';
 
 vi.stubGlobal(
@@ -89,6 +90,18 @@ describe('CompletionInput', () => {
 		expect(screen.queryByRole('listbox')).toBeNull();
 	});
 
+	it('returns focus to the input when Escape closes Add', () => {
+		render(<MultipleHarness onAccept={() => undefined} />);
+
+		type('or');
+		fireEvent.keyDown(input(), { key: 'Enter' });
+		fireEvent.keyDown(input(), { key: 'Tab' });
+		fireEvent.keyDown(screen.getByRole('button', { name: 'Add' }), { key: 'Escape' });
+
+		expect(screen.queryByRole('listbox')).toBeNull();
+		expect(input()).toBe(document.activeElement);
+	});
+
 	it('keeps checked completions when Tab moves to Add', () => {
 		const accepted: string[][] = [];
 		render(<MultipleHarness onAccept={(items) => accepted.push(items.map((item) => item.insertText))} />);
@@ -104,6 +117,18 @@ describe('CompletionInput', () => {
 		fireEvent.click(add);
 
 		expect(accepted).toEqual([['orders']]);
+	});
+
+	it('forwards an input blur when focus leaves Add', () => {
+		const targets: EventTarget[] = [];
+		render(<MultipleHarness onAccept={() => undefined} onBlur={(event) => targets.push(event.currentTarget)} />);
+
+		type('or');
+		fireEvent.keyDown(input(), { key: 'Enter' });
+		fireEvent.keyDown(input(), { key: 'Tab' });
+		fireEvent.blur(screen.getByRole('button', { name: 'Add' }), { relatedTarget: document.body });
+
+		expect(targets).toEqual([input()]);
 	});
 
 	it('accepts several checked completions at once and keeps the draft', () => {
@@ -127,7 +152,13 @@ function Harness() {
 	return <CompletionInput aria-label='Metric' value={value} onValueChange={setValue} getCompletions={completeName} />;
 }
 
-function MultipleHarness({ onAccept }: { onAccept: (items: CompletionOption[]) => void }) {
+function MultipleHarness({
+	onAccept,
+	onBlur,
+}: {
+	onAccept: (items: CompletionOption[]) => void;
+	onBlur?: (event: FocusEvent<HTMLInputElement>) => void;
+}) {
 	const [value, setValue] = useState('');
 	return (
 		<CompletionInput
@@ -137,6 +168,7 @@ function MultipleHarness({ onAccept }: { onAccept: (items: CompletionOption[]) =
 			onValueChange={setValue}
 			getCompletions={completeName}
 			onAccept={onAccept}
+			onBlur={onBlur}
 		/>
 	);
 }

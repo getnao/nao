@@ -41,7 +41,6 @@ export function CompletionInput({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 	const addButtonRef = useRef<HTMLButtonElement>(null);
-	const keepOpenRef = useRef(false);
 	const suppressOpenRef = useRef(false);
 	const listId = useId();
 	const [cursor, setCursor] = useState(value.length);
@@ -115,7 +114,6 @@ export function CompletionInput({
 	function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
 		if (multiple && event.key === 'Tab' && !event.shiftKey && selected.size > 0) {
 			event.preventDefault();
-			keepOpenRef.current = true;
 			addButtonRef.current?.focus();
 			return;
 		}
@@ -163,8 +161,7 @@ export function CompletionInput({
 	}
 
 	function handleBlur(event: FocusEvent<HTMLInputElement>) {
-		if (keepOpenRef.current || isInsidePopover(event.relatedTarget)) {
-			keepOpenRef.current = false;
+		if (isInsidePopover(event.relatedTarget)) {
 			return;
 		}
 		setIsOpen(false);
@@ -172,22 +169,46 @@ export function CompletionInput({
 		onBlur?.(event);
 	}
 
+	function returnFocusToInput() {
+		suppressOpenRef.current = true;
+		inputRef.current?.focus();
+	}
+
 	function handleAddKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
 		if (event.key === 'Tab' && event.shiftKey) {
 			event.preventDefault();
-			keepOpenRef.current = true;
 			inputRef.current?.focus();
+			return;
+		}
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			setIsOpen(false);
+			clearSelection();
+			returnFocusToInput();
 		}
 	}
 
 	function handleAddBlur(event: FocusEvent<HTMLButtonElement>) {
-		if (keepOpenRef.current || event.relatedTarget === inputRef.current || isInsidePopover(event.relatedTarget)) {
-			keepOpenRef.current = false;
+		if (event.relatedTarget === inputRef.current || isInsidePopover(event.relatedTarget)) {
 			return;
 		}
 		setIsOpen(false);
 		clearSelection();
-		onBlur?.(event as FocusEvent<HTMLInputElement>);
+		forwardInputBlur(event.relatedTarget);
+	}
+
+	function forwardInputBlur(relatedTarget: EventTarget | null) {
+		const input = inputRef.current;
+		if (!input) {
+			return;
+		}
+		onBlur?.({
+			target: input,
+			currentTarget: input,
+			relatedTarget,
+			type: 'blur',
+		} as FocusEvent<HTMLInputElement>);
 	}
 
 	return (
@@ -229,7 +250,12 @@ export function CompletionInput({
 				align='start'
 				className='w-auto max-w-md min-w-(--radix-popover-trigger-width) p-1'
 				onOpenAutoFocus={(event) => event.preventDefault()}
-				onCloseAutoFocus={(event) => event.preventDefault()}
+				onCloseAutoFocus={(event) => {
+					event.preventDefault();
+					if (isInsidePopover(document.activeElement)) {
+						returnFocusToInput();
+					}
+				}}
 				onInteractOutside={(event) => {
 					if (event.target === inputRef.current) {
 						event.preventDefault();
