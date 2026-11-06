@@ -178,7 +178,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 				</div>
 			)}
 			{displayText && (
-				<div ref={messageRef}>
+				<div ref={messageRef} dir='auto'>
 					<CitationPillPreview containerRef={messageRef} findCitation={findSentCitation} />
 					<Message
 						value={displayText}
