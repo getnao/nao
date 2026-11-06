@@ -605,7 +605,8 @@ code.dollar:before {
 	overscroll-behavior: contain;
 }
 
-.prompt-input {
+.prompt-input,
+.message-content {
 	unicode-bidi: plaintext;
 	text-align: start;
 }
