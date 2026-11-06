@@ -735,17 +735,30 @@ export async function upsertStoryDataCacheByStoryId(
 
 /** Frozen narratives are saved with a snapshot (no query sources), unlike the ones a live refresh generates. */
 export async function keepOnlyFrozenStoryNarratives(storyId: string, narrativeIds: string[]): Promise<void> {
+	for (let attempt = 0; attempt < MAX_NARRATIVE_WRITE_ATTEMPTS; attempt++) {
+		const isSettled = await tryKeepOnlyFrozenStoryNarratives(storyId, narrativeIds);
+		if (isSettled) {
+			return;
+		}
+	}
+}
+
+const MAX_NARRATIVE_WRITE_ATTEMPTS = 3;
+
+async function tryKeepOnlyFrozenStoryNarratives(storyId: string, narrativeIds: string[]): Promise<boolean> {
 	const frozenCache = and(eq(s.storyDataCache.storyId, storyId), isNull(s.storyDataCache.querySources));
 	const [cache] = await db.select().from(s.storyDataCache).where(frozenCache).execute();
 	if (!cache?.analysisResults) {
-		return;
+		return true;
 	}
 	const kept = Object.fromEntries(Object.entries(cache.analysisResults).filter(([id]) => narrativeIds.includes(id)));
-	await db
+	const updated = await db
 		.update(s.storyDataCache)
 		.set({ analysisResults: Object.keys(kept).length > 0 ? kept : null })
-		.where(frozenCache)
+		.where(and(frozenCache, eq(s.storyDataCache.analysisResults, cache.analysisResults)))
+		.returning({ storyId: s.storyDataCache.storyId })
 		.execute();
+	return updated.length > 0;
 }
 
 export async function getSqlQueriesFromCode(

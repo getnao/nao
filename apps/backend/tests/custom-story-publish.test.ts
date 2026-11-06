@@ -88,7 +88,7 @@ describe('publishing a custom story', () => {
 
 	it('drops only the frozen narratives whose text was revised, so their new prose shows', async () => {
 		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('Old trend') });
-		await publish();
+		await expectPublished();
 		await db.insert(s.storyDataCache).values({
 			storyId: STORY_ID,
 			queryData: {},
@@ -98,7 +98,7 @@ describe('publishing a custom story', () => {
 		});
 		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('New trend') });
 
-		await publish();
+		await expectPublished();
 
 		const [cache] = await db.select().from(s.storyDataCache);
 		expect(cache.analysisResults).toEqual({ summary: 'Frozen summary' });
@@ -106,7 +106,7 @@ describe('publishing a custom story', () => {
 
 	it('keeps the frozen narratives when the same files are published again', async () => {
 		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('Old trend') });
-		await publish();
+		await expectPublished();
 		await db.insert(s.storyDataCache).values({
 			storyId: STORY_ID,
 			queryData: {},
@@ -115,7 +115,7 @@ describe('publishing a custom story', () => {
 			cachedAt: new Date(),
 		});
 
-		await publish();
+		await expectPublished();
 
 		const [cache] = await db.select().from(s.storyDataCache);
 		expect(cache.analysisResults).toEqual({ summary: 'Frozen summary', trend: 'Frozen trend' });
@@ -133,6 +133,10 @@ function publish() {
 			generatedArtifacts: { stories: [] },
 		} as unknown as ToolContext,
 	} as Parameters<NonNullable<typeof tool.execute>>[1]);
+}
+
+async function expectPublished() {
+	expect(await publish()).toMatchObject({ success: true });
 }
 
 function narrativesApp(trendText: string) {
