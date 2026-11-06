@@ -50,7 +50,7 @@ export function buildStoryToolDescription({
 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
 		'Use "create" to initialize a new story under a slug of your choice, "update" to search-and-replace within it (producing a new version),',
 		'or "replace" to overwrite the entire content (producing a new version). Every action but "create" takes the story id, which "create" returns.',
-		'To change part of an existing story, use "update" on just that part rather than "replace".',
+		'For classic stories, change part of an existing story with "update" on just that part rather than "replace".',
 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
 		'For kpi_card charts you may add comparison_mode="percentage|variation|absolute" to show a period-over-period change pill; this requires the query to return at least two time-ordered rows (one per period) for the metric, and kpi_card does not need x_axis_key.',
 		'SQL result tables are embedded via <table query_id="..." title="..." />.',

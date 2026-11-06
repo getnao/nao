@@ -9,7 +9,7 @@ import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
 
-const STORY_ROUTERS = new Set(['story', 'storyShare', 'customStoryViewer']);
+const STORY_ROUTERS = new Set(['story', 'storyShare', 'customStoryViewer', 'standaloneCustomStory']);
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
@@ -118,19 +118,26 @@ function StoryPageRefreshAfterAnswer({ onAnswered }: { onAnswered: () => void })
 	return null;
 }
 
+/** Filtered results combine every query of the story, so they only go stale when the agent ran one. */
 function isOutdatedByEdit(queryKey: QueryKey, ranQueryIds: Set<string>): boolean {
-	const [path, options] = queryKey as [unknown, { input?: { queryId?: unknown } } | undefined];
+	const [path, options] = queryKey as [unknown, { input?: { queryId?: unknown; selections?: unknown } } | undefined];
 	if (!Array.isArray(path) || !STORY_ROUTERS.has(path[0])) {
 		return false;
 	}
 	const queryId = options?.input?.queryId;
-	return typeof queryId !== 'string' || ranQueryIds.has(queryId);
+	if (typeof queryId === 'string') {
+		return ranQueryIds.has(queryId);
+	}
+	return options?.input?.selections === undefined || ranQueryIds.size > 0;
 }
 
 function findRanQueryIds(message: UIMessage): Set<string> {
 	return new Set(
 		message.parts.flatMap((part) =>
-			part.type === 'tool-execute_sql' && part.state === 'output-available' ? [part.output.id] : [],
+			(part.type === 'tool-execute_sql' || part.type === 'tool-execute_semantic_query') &&
+			part.state === 'output-available'
+				? [part.output.id]
+				: [],
 		),
 	);
 }

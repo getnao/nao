@@ -19,6 +19,11 @@ const ELEMENT_IDENTITY_FIELDS = [...PART_IDENTITY_FIELDS, 'value'] as const;
 const OUTLINE_STYLE =
 	'position:fixed;box-sizing:border-box;pointer-events:none;border:2px solid var(--primary);border-radius:var(--story-block-radius, 6px);background:color-mix(in srgb, var(--primary) 8%, transparent);transition:opacity .3s';
 
+interface CitedElementSearch {
+	find: (settlesOnBlock: boolean) => Element | null;
+	isBlockAwaitingPart: () => boolean;
+}
+
 interface HighlightOptions {
 	root?: Element;
 	zIndex?: number;
@@ -39,7 +44,14 @@ export function highlightStoryElement(
 		show(element);
 		return () => {};
 	}
-	return waitForElement((settlesOnBlock) => findCitedElement(ask, root, settlesOnBlock), root, show);
+	return waitForElement(
+		{
+			find: (settlesOnBlock) => findCitedElement(ask, root, settlesOnBlock),
+			isBlockAwaitingPart: () => findBlockAwaitingPart(ask, root) !== null,
+		},
+		root,
+		show,
+	);
 }
 
 /** A cited part's block is only settled on once its part had a grace period to render. */
@@ -60,12 +72,21 @@ function findCitedElement({ block, text }: StoryElementAsk, root: ParentNode, se
 	return findPart(block.part, blockElement) ?? (settlesOnBlock ? blockElement : null);
 }
 
+function findBlockAwaitingPart({ block }: StoryElementAsk, root: ParentNode): Element | null {
+	if (block.kind === 'text' || block.kind === STORY_ELEMENT_BLOCK_KIND || !block.part) {
+		return null;
+	}
+	return findBlock(block, root);
+}
+
+/** The part's grace period starts once its block is shown, as a block renders its parts only after its data loads. */
 function waitForElement(
-	find: (settlesOnBlock: boolean) => Element | null,
+	{ find, isBlockAwaitingPart }: CitedElementSearch,
 	root: Element,
 	onFound: (element: Element) => void,
 ): () => void {
 	let frame = 0;
+	let grace = 0;
 	let settlesOnBlock = false;
 	const stop = () => {
 		observer.disconnect();
@@ -73,13 +94,25 @@ function waitForElement(
 		window.clearTimeout(timeout);
 		window.clearTimeout(grace);
 	};
+	const startGraceOnceBlockShown = () => {
+		if (!grace && isBlockAwaitingPart()) {
+			grace = window.setTimeout(settleOnBlock, PART_GRACE_MS);
+		}
+	};
 	const search = () => {
 		frame = 0;
 		const element = find(settlesOnBlock);
 		if (element) {
 			stop();
 			onFound(element);
+			return;
 		}
+		startGraceOnceBlockShown();
+	};
+	const settleOnBlock = () => {
+		settlesOnBlock = true;
+		cancelAnimationFrame(frame);
+		search();
 	};
 	const observer = new MutationObserver(() => {
 		if (!frame) {
@@ -87,12 +120,8 @@ function waitForElement(
 		}
 	});
 	const timeout = window.setTimeout(stop, MAX_WAIT_MS);
-	const grace = window.setTimeout(() => {
-		settlesOnBlock = true;
-		cancelAnimationFrame(frame);
-		search();
-	}, PART_GRACE_MS);
 	observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true });
+	startGraceOnceBlockShown();
 	return stop;
 }
 
@@ -106,9 +135,9 @@ function findPart(cited: StoryBlockPart, block: ParentNode): Element | null {
 	return parts.find((element) => isSamePart(cited, readElementPart(element))) ?? null;
 }
 
-/** A selectable element's detail tells apart the elements a list renders under one name. */
+/** A value tells apart the elements a list renders under one name, and the cells of rows sharing a first column. */
 function isSamePart(cited: StoryBlockPart, found: StoryBlockPart | null): boolean {
-	const fields = cited.kind === 'element' ? ELEMENT_IDENTITY_FIELDS : PART_IDENTITY_FIELDS;
+	const fields = cited.kind === 'element' || cited.kind === 'cell' ? ELEMENT_IDENTITY_FIELDS : PART_IDENTITY_FIELDS;
 	return (
 		found !== null &&
 		found.kind === cited.kind &&
