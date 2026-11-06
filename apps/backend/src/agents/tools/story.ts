@@ -15,6 +15,7 @@ import {
 	publishCustomStoryDraft,
 } from '../../services/custom-story-authoring';
 import { ensureStoryChat, findEditableStory } from '../../services/editable-story';
+import { describeSemanticLayer } from '../../services/semantic-layer.service';
 import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
 import { copyQueriesToStoryChat } from '../../services/story-question';
 import { getStoryTemplateWarnings, sqlQueriesFromResults } from '../../services/story-template-validation';
@@ -25,8 +26,13 @@ import { extractCustomStoryQueryIds } from '../../utils/story-query-data';
 import { createTool } from '../../utils/tools';
 
 const STORY_FILTER_DESCRIPTION = [
-	'Story-level filters are declared via <filter id="..." label="..." type="select|multi_select|search|date_range" ... />.',
-	'For select/multi_select, provide either table+column (options from SELECT DISTINCT) or options=\'["a","b"]\' (hardcoded values).',
+	'Story-level filters are declared via <filter id="..." label="..." type="select|multi_select|text|search|date_range" ... />.',
+	'For select/multi_select, provide either table+column (options from SELECT DISTINCT, searchable in the UI) or options=\'["a","b"]\' (hardcoded values). Add allow_custom="true" to let users type a value that is not in the list.',
+	'IDs and exact codes (user id, order id, SKU) MUST use type="text": it renders the exact value, so write AND user_id = {{ filters.user.sql }}. On numeric columns add value_type="number" so the value renders unquoted (and is validated as a number).',
+	'type="search" renders \'%value%\' — already wrapped in % and escaped — so only compare it with LIKE/ILIKE: AND name ILIKE {{ filters.q.sql }}. Never use = or IN with a search filter and never strip the %; use type="text" for exact matches.',
+	'For hierarchies (category > sub-category), add depends_on="<parent_filter_id>" on the child select/multi_select: its options are narrowed by the parent selection, using the parent filter column on the child table.',
+	'Semantic-layer charts (execute_semantic_query) ignore {% filter %} SQL blocks: bind the filter to a dimension instead with dimension="customer__region" (no table/column needed). nao adds the matching where constraint to every semantic-layer chart whose metrics support that dimension, and lists its options through the layer (set metric="<metric>" to choose which metric lists them). A date_range filter with dimension="metric_time" sets the query start_time/end_time.',
+	'To let readers switch a metric or grain on semantic-layer charts, run execute_semantic_query with placeholders and defaults, e.g. metrics ["{{ params.metric }}"], group_by ["metric_time__{{ params.grain }}"], params {"metric":"revenue","grain":"week"}, then declare <parameter id="metric" label="Metric" type="metric" options=\'[{"value":"revenue","label":"Revenue"},{"value":"unique_sales","label":"Unique sales"}]\' default="revenue" /> (type="value" for anything else, e.g. grains). Result columns are named after the selected values, so use the same placeholders in chart tags: x_axis_key="metric_time__{{ params.grain }}" series=\'[{"data_key":"{{ params.metric }}","label":"{{ params.metric.label }}"}]\'. {{ params.<id> }} and {{ params.<id>.label }} also work in titles and text.',
 	'When using table+column and multiple databases are configured, set database_id on the filter so option loading targets the correct database.',
 	'Matching SQL must use template blocks that reference the same filter id, e.g. WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
 	"For date_range, {{ filters.<id>.sql }} already expands to 'start' AND 'end' — write {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}. Never use .start/.end/.value.",
@@ -451,7 +457,12 @@ async function storyTemplateWarnings(
 	storyChatId: string,
 ): Promise<{ template_warnings?: string[] }> {
 	try {
-		const warnings = await getStoryTemplateWarnings(storyChatId, code, sqlQueriesFromResults(context.queryResults));
+		const warnings = await getStoryTemplateWarnings(
+			storyChatId,
+			code,
+			sqlQueriesFromResults(context.queryResults),
+			() => describeSemanticLayer(context).catch(() => null),
+		);
 		return warnings.length > 0 ? { template_warnings: warnings } : {};
 	} catch (error) {
 		console.error('Failed to compute story template warnings', error);

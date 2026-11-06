@@ -1,20 +1,17 @@
 import {
 	renderSqlTemplate,
 	type StoryFilterSelections,
-	type StoryFilterTypeById,
+	type StoryFilterSpecById,
 	stripSqlFilterBlocks,
 } from '@nao/shared/sql-template';
 import { getStoryFiltersFromCode } from '@nao/shared/story-segments';
-import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { TRPCError } from '@trpc/server';
 
 import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
-import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
-import { createStoryExecutionContext, executeRawSql, executeStoryQueries } from './live-story';
+import { createStoryExecutionContext, executeStoryQueries, type StoryQueryData } from './live-story';
 import type { SemanticQuery } from './semantic-layer.service';
-
-const FILTER_OPTIONS_LIMIT = 100;
+import { semanticBindingsFromCode } from './semantic-story-bindings';
 
 interface StoryFilterExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
@@ -26,62 +23,22 @@ export function assertStoryFiltersEnabled() {
 	}
 }
 
-export async function getStoryFilterOptions(
-	chatId: string,
-	storySlug: string,
-	filterId: string,
-	executionOptions: StoryFilterExecutionOptions = {},
-): Promise<{ options: string[] }> {
-	const { code, executionContext, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
-	const filter = getStoryFiltersFromCode(code).find((candidate) => candidate.id === filterId);
-	if (!filter) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: `Filter "${filterId}" not found in story.` });
-	}
-
-	if (filter.options?.length) {
-		return { options: [...new Set(filter.options)] };
-	}
-
-	if (!filter.table || !filter.column) {
-		throw new TRPCError({
-			code: 'BAD_REQUEST',
-			message: `Filter "${filterId}" has no hardcoded options and is missing table/column.`,
-		});
-	}
-
-	const table = assertSafeSqlIdentifier(filter.table, 'table');
-	const column = assertSafeSqlIdentifier(filter.column, 'column');
-	const sql = `SELECT DISTINCT ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${column} LIMIT ${FILTER_OPTIONS_LIMIT}`;
-	const result = await executeRawSql(sql, {
-		executionContext,
-		databaseId: filter.databaseId ?? databaseId,
-		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
-	});
-	const options = result.data
-		.map((row) => {
-			if (!row || typeof row !== 'object') {
-				return null;
-			}
-			const value = (row as Record<string, unknown>).value;
-			return value === null || value === undefined ? null : String(value);
-		})
-		.filter((value): value is string => value !== null && value.trim() !== '');
-
-	return { options: [...new Set(options)].sort((a, b) => a.localeCompare(b)) };
-}
-
 export async function getFilteredStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	selections: StoryFilterSelections,
 	executionOptions: StoryFilterExecutionOptions = {},
-): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
-	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
-	const types = filterTypesFromCode(code);
+): Promise<StoryQueryData> {
+	const [{ code, sqlQueries }, executionContext] = await Promise.all([
+		loadStoryCodeAndQueries(chatId, storySlug),
+		createStoryExecutionContext(chatId),
+	]);
+	const specs = filterSpecsFromCode(code);
 
 	return executeStoryQueries(chatId, sqlQueries, {
 		executionContext,
-		renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, types),
+		renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, specs),
+		semanticBindings: semanticBindingsFromCode(code, selections),
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
 	});
 }
@@ -106,37 +63,26 @@ export async function getStoryQuerySql(
 
 	return {
 		sqlQuery: query.sqlQuery,
-		renderedSql: renderStorySql(query.sqlQuery, selections, filterTypesFromCode(code)),
+		renderedSql: renderStorySql(query.sqlQuery, selections, filterSpecsFromCode(code)),
 		databaseId: query.databaseId,
 		dialect: query.dialect,
 		semanticQuery: query.semanticQuery,
 	};
 }
 
-function filterTypesFromCode(code: string): StoryFilterTypeById {
-	return Object.fromEntries(getStoryFiltersFromCode(code).map((filter) => [filter.id, filter.filterType]));
+function filterSpecsFromCode(code: string): StoryFilterSpecById {
+	return Object.fromEntries(
+		getStoryFiltersFromCode(code).map((filter) => [
+			filter.id,
+			{ type: filter.filterType, valueType: filter.valueType },
+		]),
+	);
 }
 
-function renderStorySql(sqlQuery: string, selections: StoryFilterSelections, types: StoryFilterTypeById): string {
+function renderStorySql(sqlQuery: string, selections: StoryFilterSelections, specs: StoryFilterSpecById): string {
 	return Object.keys(selections).length === 0
 		? stripSqlFilterBlocks(sqlQuery)
-		: renderSqlTemplate(sqlQuery, selections, types);
-}
-
-async function loadStoryExecutionContext(chatId: string, storySlug: string) {
-	const [{ code, sqlQueries }, executionContext] = await Promise.all([
-		loadStoryCodeAndQueries(chatId, storySlug),
-		createStoryExecutionContext(chatId),
-	]);
-	const databaseIds = Object.values(sqlQueries).flatMap((query) => (query.databaseId ? [query.databaseId] : []));
-	const databaseId = databaseIds.find((id) => id !== LOCAL_DATABASE_ID) ?? databaseIds[0];
-
-	return {
-		code,
-		executionContext,
-		databaseId,
-		sqlQueries,
-	};
+		: renderSqlTemplate(sqlQuery, selections, specs);
 }
 
 async function loadStoryCodeAndQueries(chatId: string, storySlug: string) {

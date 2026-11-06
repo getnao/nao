@@ -53,12 +53,8 @@ import {
 	disableStoryDelivery,
 	syncStoryDeliveryJob,
 } from '../services/story-delivery.service';
-import {
-	assertStoryFiltersEnabled,
-	getFilteredStoryQueryData,
-	getStoryFilterOptions,
-	getStoryQuerySql,
-} from '../services/story-filters';
+import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
+import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { listMostViewedStories } from '../services/story-reference';
 import { listStoryVersionChanges } from '../services/story-version-history';
@@ -992,10 +988,18 @@ export const storyRoutes = {
 		}),
 
 	getFilterOptions: cloudBillingChatStoryProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string(), filterId: z.string() }))
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				filterId: z.string(),
+				...filterOptionsRequestSchema.shape,
+			}),
+		)
 		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
-			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId, {
+			const { chatId, storySlug, filterId, ...request } = input;
+			return getStoryFilterOptions(chatId, storySlug, filterId, request, {
 				billingAccessVerifiedProjectId: ctx.projectId,
 			});
 		}),

@@ -4,6 +4,7 @@ import { buildStoryChartBlock, buildStoryFilterBlock, buildStoryMapBlock } from 
 import {
 	getGridTemplateColumns,
 	getStoryFiltersFromCode,
+	getStoryParametersFromCode,
 	groupBlocksIntoGrid,
 	insertGridColumn,
 	mapBlockToInput,
@@ -15,6 +16,7 @@ import {
 	reorderGridColumns,
 	resizeGridColumns,
 	resolveGridWidths,
+	resolveStoryParameters,
 	setGridColumnsMarkup,
 	splitCodeIntoSegments,
 	splitGridColumnsRaw,
@@ -758,6 +760,34 @@ describe('story filter tags', () => {
 			},
 		]);
 	});
+
+	it('parses exact text filters and dependent selects', () => {
+		const code = [
+			buildStoryFilterBlock({ id: 'user', label: 'User ID', type: 'text', value_type: 'number' }),
+			buildStoryFilterBlock({
+				id: 'subcategory',
+				column: 'subcategory',
+				type: 'multi_select',
+				table: 'products',
+				depends_on: 'category',
+				allow_custom: true,
+			}),
+		].join('\n');
+
+		expect(getStoryFiltersFromCode(code)).toEqual([
+			{ id: 'user', label: 'User ID', filterType: 'text', valueType: 'number', rawTag: expect.any(String) },
+			{
+				id: 'subcategory',
+				column: 'subcategory',
+				label: 'subcategory',
+				filterType: 'multi_select',
+				table: 'products',
+				dependsOn: 'category',
+				allowCustom: true,
+				rawTag: expect.any(String),
+			},
+		]);
+	});
 });
 
 describe('buildStoryMapBlock', () => {
@@ -868,5 +898,50 @@ describe('mapBlockToInput', () => {
 	it('defaults the map type to points', () => {
 		const map = parseMapBlock('query_id="q1" latitude_key="lat" longitude_key="lng" title="Points"');
 		expect(mapBlockToInput(map!).map_type).toBe('points');
+	});
+});
+
+describe('story parameters', () => {
+	const code = [
+		`<parameter id="metric" label="Metric" type="metric" options='[{"value":"revenue","label":"Revenue"},{"value":"unique_sales","label":"Unique sales"}]' default="revenue" />`,
+		'## {{ params.metric.label }} by week',
+		`<chart query_id="query_1" chart_type="line" x_axis_key="metric_time__week" series='[{"data_key":"{{ params.metric }}","label":"{{ params.metric.label }}"}]' />`,
+	].join('\n');
+
+	it('parses parameter tags with labelled options', () => {
+		expect(getStoryParametersFromCode(code)).toEqual([
+			{
+				id: 'metric',
+				label: 'Metric',
+				parameterType: 'metric',
+				options: [
+					{ value: 'revenue', label: 'Revenue' },
+					{ value: 'unique_sales', label: 'Unique sales' },
+				],
+				defaultValue: 'revenue',
+				rawTag: expect.any(String),
+			},
+		]);
+	});
+
+	it('substitutes defaults in markdown and tags while keeping the raw tag', () => {
+		const segments = splitCodeIntoSegments(code);
+		expect(segments.map((segment) => segment.type)).toEqual(['markdown', 'chart']);
+		expect(segments[0]).toEqual({ type: 'markdown', content: '## Revenue by week' });
+		const chart = segments[1].type === 'chart' ? segments[1].chart : null;
+		expect(chart?.series[0]).toMatchObject({ data_key: 'revenue', label: 'Revenue' });
+		expect(chart?.rawTag).toContain('{{ params.metric }}');
+	});
+
+	it('substitutes the selected option', () => {
+		const parameters = resolveStoryParameters(getStoryParametersFromCode(code), { metric: 'unique_sales' });
+		const segments = splitCodeIntoSegments(code, parameters);
+		expect(segments[0]).toEqual({ type: 'markdown', content: '## Unique sales by week' });
+	});
+
+	it('falls back to the default for unknown selections', () => {
+		expect(resolveStoryParameters(getStoryParametersFromCode(code), { metric: 'orders' })).toEqual({
+			metric: { value: 'revenue', label: 'Revenue' },
+		});
 	});
 });

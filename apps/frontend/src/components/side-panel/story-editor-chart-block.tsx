@@ -1,10 +1,12 @@
 import { parseChartBlock, TAG_ATTRS } from '@nao/shared/story-segments';
+import { substituteStoryParameters } from '@nao/shared/story-parameter-template';
 import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { useCallback, useContext, useMemo } from 'react';
 import { StoryChartEmbed } from './story-chart-embed';
 import { StoryBlockDragGrip, StoryBlockDropZones, useStoryBlockDrag } from './story-editor-block-drag';
 import { SelectedBlockPositionsContext } from './story-block-selection-context';
+import { StoryEditorParametersContext } from './story-editor-parameters-context';
 import { decodeFromAttr } from './story-editor-utils';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import { StoryBlock } from '@/components/story-block';
@@ -12,15 +14,16 @@ import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 
 function ChartBlockView({ node, editor, getPos, updateAttributes }: ReactNodeViewProps) {
 	const rawTag = node.attrs.rawTag as string;
+	const parameters = useContext(StoryEditorParametersContext);
 
 	const chart = useMemo(() => {
 		const attrMatch = rawTag.match(new RegExp(`<chart\\s+(${TAG_ATTRS})\\/?>`));
 		if (!attrMatch) {
 			return null;
 		}
-		const parsed = parseChartBlock(attrMatch[1]);
+		const parsed = parseChartBlock(substituteStoryParameters(attrMatch[1], parameters));
 		return parsed ? { ...parsed, rawTag } : null;
-	}, [rawTag]);
+	}, [rawTag, parameters]);
 	const { handleDragStart, handleDragEnd } = useStoryBlockDrag({ node, editor, getPos });
 	const selectedBlocks = useContext(SelectedBlockPositionsContext);
 	const pos = getPos();

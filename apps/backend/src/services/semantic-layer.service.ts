@@ -1,3 +1,4 @@
+import { resolveSemanticQueryParameters } from '@nao/shared/story-parameter-template';
 import type { executeSemanticQuery } from '@nao/shared/tools';
 import { DEFAULT_SEMANTIC_LAYER_MODE, type SemanticLayerMode } from '@nao/shared/types';
 
@@ -48,12 +49,16 @@ export function isWarehouseSqlEnabled(mode: SemanticLayerMode | null | undefined
 	return mode !== 'exclusive';
 }
 
-/** Compiles metrics and dimensions to SQL with the project's semantic layer; execution stays with execute_sql. */
+/**
+ * Compiles metrics and dimensions to SQL with the project's semantic layer; execution stays with execute_sql.
+ * `{{ params.<id> }}` placeholders are resolved from `parameterValues`, falling back to the query's own defaults.
+ */
 export async function compileSemanticQuery(
 	query: SemanticQuery,
 	context: SemanticLayerContext,
+	parameterValues: Record<string, string> = {},
 ): Promise<CompiledSemanticQuery> {
-	const response = await postToSemanticLayer('compile', query, context);
+	const response = await postToSemanticLayer('compile', resolveParameters(query, parameterValues), context);
 	if (!response.ok) {
 		const message = `Error compiling semantic query: ${await readErrorDetail(response)}`;
 		throw response.status === 422 ? new SemanticQueryCompileError(message) : new Error(message);
@@ -68,6 +73,14 @@ export async function describeSemanticLayer(context: SemanticLayerContext): Prom
 		throw new Error(`Error describing the semantic layer: ${await readErrorDetail(response)}`);
 	}
 	return (await response.json()) as executeSemanticQuery.Catalog;
+}
+
+function resolveParameters(query: SemanticQuery, parameterValues: Record<string, string>) {
+	try {
+		return resolveSemanticQueryParameters(query, parameterValues);
+	} catch (error) {
+		throw new SemanticQueryCompileError(error instanceof Error ? error.message : String(error));
+	}
 }
 
 function postToSemanticLayer(

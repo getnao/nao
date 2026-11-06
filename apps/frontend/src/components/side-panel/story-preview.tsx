@@ -59,11 +59,6 @@ export const StoryPreview = memo(function StoryPreview({
 	const contentRef = useRef<HTMLDivElement>(null);
 	useCitedElementHighlight(contentRef, storySlug);
 	const previousSegmentsRef = useRef<ReturnType<typeof splitCodeIntoSegments>>([]);
-	const segments = useMemo(() => {
-		const nextSegments = stabilizeStorySegments(splitCodeIntoSegments(code), previousSegmentsRef.current);
-		previousSegmentsRef.current = nextSegments;
-		return nextSegments;
-	}, [code]);
 	const isNoCacheMode = cacheSchedule === NO_CACHE_SCHEDULE;
 	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
 	const storyFilters = useStoryFilters({
@@ -72,6 +67,14 @@ export const StoryPreview = memo(function StoryPreview({
 		api: filterApi,
 		enabled: filtersEnabled,
 	});
+	const segments = useMemo(() => {
+		const nextSegments = stabilizeStorySegments(
+			splitCodeIntoSegments(code, storyFilters.resolvedParameters),
+			previousSegmentsRef.current,
+		);
+		previousSegmentsRef.current = nextSegments;
+		return nextSegments;
+	}, [code, storyFilters.resolvedParameters]);
 
 	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
 		() =>
@@ -181,6 +184,8 @@ export const StoryPreview = memo(function StoryPreview({
 				>
 					<StoryFilterBar
 						filters={storyFilters.filters}
+						parameters={storyFilters.parameters}
+						skippedFilters={storyFilters.skippedFilters}
 						selections={storyFilters.selections}
 						onSelectionChange={storyFilters.setSelection}
 						onClear={storyFilters.clearSelections}

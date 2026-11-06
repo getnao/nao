@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { isFilterSelectionActive } from '@nao/shared/sql-template';
-import { getStoryFiltersFromCode } from '@nao/shared/story-segments';
+import {
+	getStoryFiltersFromCode,
+	getStoryParametersFromCode,
+	resolveStoryParameters,
+} from '@nao/shared/story-segments';
 import type { StoryFilterSelection, StoryFilterSelections } from '@nao/shared/sql-template';
-import type { ParsedFilterBlock } from '@nao/shared/story-segments';
+import type { ParsedFilterBlock, ParsedParameterBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -12,6 +16,14 @@ import { trpc } from '@/main';
 export type StoryFilterApi = { kind: 'owned'; chatId: string; storySlug: string } | { kind: 'shared'; storyId: string };
 
 const FILTER_PARAM_PREFIX = 'story_filter_';
+const NO_SELECTIONS: StoryFilterSelections = {};
+const NO_PARAMETERS: ParsedParameterBlock[] = [];
+
+export interface SkippedStoryFilter {
+	id: string;
+	label: string;
+	chartCount: number;
+}
 
 export function useStoryFilters({
 	code,
@@ -32,7 +44,14 @@ export function useStoryFilters({
 		() => (filtersEnabled ? dedupeFilters(getStoryFiltersFromCode(code)) : []),
 		[code, filtersEnabled],
 	);
-	const [selections, setSelections] = useState<StoryFilterSelections>(() => readSelectionsFromUrl(filters));
+	const parametersInCode = useMemo(() => getStoryParametersFromCode(code), [code]);
+	const parameters = useMemo(
+		() => (filtersEnabled ? parametersInCode : NO_PARAMETERS),
+		[parametersInCode, filtersEnabled],
+	);
+	const [selections, setSelections] = useState<StoryFilterSelections>(() =>
+		readSelectionsFromUrl(filters, parameters),
+	);
 	const skipNextUrlWrite = useRef(true);
 
 	useEffect(() => {
@@ -40,8 +59,8 @@ export function useStoryFilters({
 		if (!filtersEnabled) {
 			return;
 		}
-		setSelections(readSelectionsFromUrl(filters));
-	}, [filters, filtersEnabled]);
+		setSelections(readSelectionsFromUrl(filters, parameters));
+	}, [filters, parameters, filtersEnabled]);
 
 	useEffect(() => {
 		if (!filtersEnabled) {
@@ -51,8 +70,8 @@ export function useStoryFilters({
 			skipNextUrlWrite.current = false;
 			return;
 		}
-		writeSelectionsToUrl(selections, filters);
-	}, [selections, filters, filtersEnabled]);
+		writeSelectionsToUrl(selections, filters, parameters);
+	}, [selections, filters, parameters, filtersEnabled]);
 
 	const setSelection = useCallback((filterId: string, selection: StoryFilterSelection) => {
 		setSelections((current) => {
@@ -72,12 +91,18 @@ export function useStoryFilters({
 		const active: StoryFilterSelections = {};
 		for (const filter of filters) {
 			const selection = selections[filter.id];
-			if (isFilterSelectionActive(filter.filterType, selection)) {
+			if (isFilterSelectionActive(filter.filterType, selection, filter.valueType)) {
 				active[filter.id] = selection;
 			}
 		}
+		for (const parameter of parameters) {
+			const selection = selections[parameter.id];
+			if (isNonDefaultParameterValue(parameter, selection)) {
+				active[parameter.id] = selection;
+			}
+		}
 		return active;
-	}, [filters, selections]);
+	}, [filters, parameters, selections]);
 
 	const hasActiveFilters = Object.keys(activeSelections).length > 0;
 	const debouncedSelections = useDebouncedValue(activeSelections, 300);
@@ -102,14 +127,31 @@ export function useStoryFilters({
 		placeholderData: keepPreviousData,
 	});
 
-	const filteredQueryData = (api?.kind === 'shared' ? sharedQuery.data : ownedQuery.data) as QueryDataMap | undefined;
-	const isFetching = api?.kind === 'shared' ? sharedQuery.isFetching : ownedQuery.isFetching;
+	const activeQuery = api?.kind === 'shared' ? sharedQuery : ownedQuery;
+	const filteredQueryData = activeQuery.data as FilteredQueryDataMap | undefined;
+	const isFetching = activeQuery.isFetching;
+	const displayedSelections = useDisplayedSelections({
+		debouncedSelections,
+		isActive: debouncedHasActive,
+		hasSettledData: Boolean(activeQuery.data) && !activeQuery.isPlaceholderData,
+	});
+	const resolvedParameters = useMemo(
+		() => resolveStoryParameters(parametersInCode, displayedSelections),
+		[parametersInCode, displayedSelections],
+	);
+	const skippedFilters = useMemo(
+		() => (debouncedHasActive ? listSkippedFilters(filters, filteredQueryData) : []),
+		[debouncedHasActive, filters, filteredQueryData],
+	);
 	const isSelectionsPending = !areSelectionsEqual(activeSelections, debouncedSelections);
 	const isFiltering = isSelectionsPending || isFetching;
 
 	return {
 		filtersEnabled,
 		filters,
+		parameters,
+		resolvedParameters,
+		skippedFilters,
 		selections,
 		activeSelections,
 		debouncedSelections,
@@ -119,6 +161,55 @@ export function useStoryFilters({
 		isFiltering,
 		queryData: debouncedHasActive ? (filteredQueryData ?? baselineQueryData ?? null) : (baselineQueryData ?? null),
 	};
+}
+
+type FilteredQueryDataMap = Record<string, QueryDataMap[string] & { skippedFilterIds?: string[] }>;
+
+/**
+ * The selections behind the data on screen: while new filtered data loads, the previous data stays
+ * visible, so parameter labels must keep describing it rather than the newer selection.
+ */
+function useDisplayedSelections({
+	debouncedSelections,
+	isActive,
+	hasSettledData,
+}: {
+	debouncedSelections: StoryFilterSelections;
+	isActive: boolean;
+	hasSettledData: boolean;
+}): StoryFilterSelections {
+	const [settledSelections, setSettledSelections] = useState<StoryFilterSelections>(NO_SELECTIONS);
+
+	useEffect(() => {
+		if (isActive && hasSettledData) {
+			setSettledSelections(debouncedSelections);
+		}
+	}, [isActive, hasSettledData, debouncedSelections]);
+
+	return isActive ? settledSelections : NO_SELECTIONS;
+}
+
+function listSkippedFilters(
+	filters: ParsedFilterBlock[],
+	queryData: FilteredQueryDataMap | undefined,
+): SkippedStoryFilter[] {
+	const chartCountByFilterId = new Map<string, number>();
+	for (const result of Object.values(queryData ?? {})) {
+		for (const filterId of result.skippedFilterIds ?? []) {
+			chartCountByFilterId.set(filterId, (chartCountByFilterId.get(filterId) ?? 0) + 1);
+		}
+	}
+	return filters
+		.filter((filter) => chartCountByFilterId.has(filter.id))
+		.map((filter) => ({ id: filter.id, label: filter.label, chartCount: chartCountByFilterId.get(filter.id)! }));
+}
+
+function isNonDefaultParameterValue(parameter: ParsedParameterBlock, selection: StoryFilterSelection | undefined) {
+	return (
+		typeof selection === 'string' &&
+		selection !== parameter.defaultValue &&
+		parameter.options.some((option) => option.value === selection)
+	);
 }
 
 function areSelectionsEqual(a: StoryFilterSelections, b: StoryFilterSelections): boolean {
@@ -163,7 +254,10 @@ function isEmptySelection(selection: StoryFilterSelection): boolean {
 		: selection.length === 0 || selection.every((value) => value.trim() === '');
 }
 
-function readSelectionsFromUrl(filters: ParsedFilterBlock[]): StoryFilterSelections {
+function readSelectionsFromUrl(
+	filters: ParsedFilterBlock[],
+	parameters: ParsedParameterBlock[],
+): StoryFilterSelections {
 	if (typeof window === 'undefined') {
 		return {};
 	}
@@ -175,7 +269,7 @@ function readSelectionsFromUrl(filters: ParsedFilterBlock[]): StoryFilterSelecti
 		if (raw === null) {
 			continue;
 		}
-		if (filter.filterType === 'select' || filter.filterType === 'search') {
+		if (hasStringSelection(filter)) {
 			selections[filter.id] = raw;
 			continue;
 		}
@@ -188,10 +282,20 @@ function readSelectionsFromUrl(filters: ParsedFilterBlock[]): StoryFilterSelecti
 			// ignore malformed URL values
 		}
 	}
+	for (const parameter of parameters) {
+		const raw = params.get(`${FILTER_PARAM_PREFIX}${parameter.id}`);
+		if (raw !== null) {
+			selections[parameter.id] = raw;
+		}
+	}
 	return selections;
 }
 
-function writeSelectionsToUrl(selections: StoryFilterSelections, filters: ParsedFilterBlock[]) {
+function writeSelectionsToUrl(
+	selections: StoryFilterSelections,
+	filters: ParsedFilterBlock[],
+	parameters: ParsedParameterBlock[],
+) {
 	if (typeof window === 'undefined') {
 		return;
 	}
@@ -204,13 +308,14 @@ function writeSelectionsToUrl(selections: StoryFilterSelections, filters: Parsed
 	}
 
 	const filterById = new Map(filters.map((filter) => [filter.id, filter]));
+	const parameterIds = new Set(parameters.map((parameter) => parameter.id));
 	for (const [filterId, selection] of Object.entries(selections)) {
 		const filter = filterById.get(filterId);
-		if (!filter || isEmptySelection(selection)) {
+		if ((!filter && !parameterIds.has(filterId)) || isEmptySelection(selection)) {
 			continue;
 		}
 		const key = `${FILTER_PARAM_PREFIX}${filterId}`;
-		if (filter.filterType === 'select' || filter.filterType === 'search') {
+		if (!filter || hasStringSelection(filter)) {
 			url.searchParams.set(key, selection as string);
 		} else {
 			url.searchParams.set(key, JSON.stringify(selection));
@@ -218,4 +323,8 @@ function writeSelectionsToUrl(selections: StoryFilterSelections, filters: Parsed
 	}
 
 	window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function hasStringSelection(filter: ParsedFilterBlock): boolean {
+	return filter.filterType === 'select' || filter.filterType === 'search' || filter.filterType === 'text';
 }

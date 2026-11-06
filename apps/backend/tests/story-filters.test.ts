@@ -25,7 +25,7 @@ WHERE 1 = 1
 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}
 `.trim();
 
-		expect(renderSqlTemplate(sql, { country: ['US', 'FR'] }, { country: 'multi_select' })).toContain(
+		expect(renderSqlTemplate(sql, { country: ['US', 'FR'] }, { country: { type: 'multi_select' } })).toContain(
 			"AND country IN ('US', 'FR')",
 		);
 	});

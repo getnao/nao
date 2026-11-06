@@ -5,8 +5,11 @@ import { QueryIdSchema } from '@nao/shared/tools';
 import { env } from '../env';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
 import type { QueryResult } from '../types/tools';
+import type { SemanticQuery } from './semantic-layer.service';
+import type { CatalogLoader } from './semantic-story-bindings';
+import { getSemanticStoryWarnings } from './story-semantic-validation';
 
-export type SqlQueryMap = Record<string, { sqlQuery: string; databaseId?: string }>;
+export type SqlQueryMap = Record<string, { sqlQuery: string; databaseId?: string; semanticQuery?: SemanticQuery }>;
 
 /**
  * Queries run earlier in the current agent turn are not persisted until the turn ends,
@@ -16,6 +19,7 @@ export async function getStoryTemplateWarnings(
 	chatId: string,
 	code: string,
 	sameTurnQueries: SqlQueryMap = {},
+	loadCatalog?: CatalogLoader,
 ): Promise<string[]> {
 	const warnings: string[] = [];
 	const { wellFormedIds, malformedWarnings } = partitionReferencedQueryIds(code);
@@ -27,6 +31,7 @@ export async function getStoryTemplateWarnings(
 
 	if (env.BETA_STORY_FILTERS_ENABLED) {
 		warnings.push(...getFilterWarnings(code, sqlQueries));
+		warnings.push(...(await getSemanticStoryWarnings(code, collectSemanticQueries(sqlQueries), loadCatalog)));
 	}
 
 	return warnings;
@@ -39,6 +44,7 @@ export function sqlQueriesFromResults(queryResults: ReadonlyMap<string, QueryRes
 			sqlQueries[queryId] = {
 				sqlQuery: result.sqlQuery,
 				...(result.databaseId && { databaseId: result.databaseId }),
+				...(result.semanticQuery && { semanticQuery: result.semanticQuery }),
 			};
 		}
 	}
@@ -95,6 +101,7 @@ function getMissingQueryWarnings(wellFormedIds: Set<string>, sqlQueries: SqlQuer
 function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
 	const filters = getStoryFiltersFromCode(code);
 	const knownFilterIds = filters.map((filter) => filter.id);
+	const filterTypes = Object.fromEntries(filters.map((filter) => [filter.id, filter.filterType]));
 	const warnings: string[] = [];
 
 	for (const duplicateId of findDuplicateFilterIds(knownFilterIds)) {
@@ -104,14 +111,18 @@ function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
 	}
 
 	for (const [queryId, { sqlQuery }] of Object.entries(sqlQueries)) {
-		for (const issue of validateSqlFilterTemplate(sqlQuery, { knownFilterIds })) {
+		for (const issue of validateSqlFilterTemplate(sqlQuery, { knownFilterIds, filterTypes })) {
 			warnings.push(`[${queryId}] ${issue}`);
 		}
 	}
 
-	if (knownFilterIds.length > 0) {
+	const hasSemanticQueries = Object.values(sqlQueries).some((query) => query.semanticQuery);
+	const sqlBoundFilterIds = filters
+		.filter((filter) => !(filter.dimension && hasSemanticQueries))
+		.map((filter) => filter.id);
+	if (sqlBoundFilterIds.length > 0) {
 		const sqlList = Object.values(sqlQueries).map((query) => query.sqlQuery);
-		for (const filterId of findUnreferencedStoryFilters(knownFilterIds, sqlList)) {
+		for (const filterId of findUnreferencedStoryFilters(sqlBoundFilterIds, sqlList)) {
 			warnings.push(
 				`Story filter "${filterId}" is declared but not referenced in any chart/table SQL. Add {% filter ${filterId} %} ... {{ filters.${filterId}.sql }} ... {% endfilter %} to the relevant queries, or remove the unused <filter> tag.`,
 			);
@@ -119,6 +130,14 @@ function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
 	}
 
 	return warnings;
+}
+
+function collectSemanticQueries(sqlQueries: SqlQueryMap): Record<string, SemanticQuery> {
+	return Object.fromEntries(
+		Object.entries(sqlQueries).flatMap(([queryId, query]) =>
+			query.semanticQuery ? [[queryId, query.semanticQuery]] : [],
+		),
+	);
 }
 
 function findDuplicateFilterIds(filterIds: string[]): string[] {
