@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	executeRawSql: vi.fn(),
 	compileSemanticQuery: vi.fn(),
 	describeSemanticLayer: vi.fn(),
+	extractConfiguredDatabases: vi.fn(),
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -27,6 +28,9 @@ vi.mock('../src/queries/story-filter-options-cache.queries', () => ({
 vi.mock('../src/services/semantic-layer.service', () => ({
 	compileSemanticQuery: mocks.compileSemanticQuery,
 	describeSemanticLayerCached: mocks.describeSemanticLayer,
+}));
+vi.mock('../src/utils/nao-config', () => ({
+	extractConfiguredDatabases: mocks.extractConfiguredDatabases,
 }));
 vi.mock('../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
@@ -50,7 +54,8 @@ describe('getStoryFilterOptions', () => {
 		mocks.getSqlQueriesFromCode.mockResolvedValue({
 			q1: { sqlQuery: 'SELECT 1', databaseId: 'warehouse', dialect: 'bigquery', adminMode: false },
 		});
-		mocks.createStoryExecutionContext.mockResolvedValue({});
+		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
+		mocks.extractConfiguredDatabases.mockReturnValue([{ id: 'warehouse', type: 'bigquery' }]);
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Sports' }, { value: 'Home' }], columns: ['value'] });
 	});
 
@@ -108,6 +113,32 @@ describe('getStoryFilterOptions', () => {
 		expect(mocks.upsertFilterOptionsCache).not.toHaveBeenCalled();
 	});
 
+	it('casts searches with the configured warehouse type when the story only has semantic queries', async () => {
+		mocks.getSqlQueriesFromCode.mockResolvedValue({});
+		mocks.extractConfiguredDatabases.mockReturnValue([
+			{ id: 'local', type: 'duckdb' },
+			{ id: 'warehouse', type: 'bigquery' },
+		]);
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '<filter id="company" type="multi_select" table="companies" column="name" database_id="warehouse" />',
+		});
+
+		await getStoryFilterOptions('chat-1', 'story', 'company', { search: 'fiver' });
+
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS STRING)) LIKE '%fiver%'");
+	});
+
+	it('keeps the DuckDB cast for local filters when a single warehouse is configured', async () => {
+		mocks.extractConfiguredDatabases.mockReturnValue([{ id: 'warehouse', type: 'mssql' }]);
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '<filter id="company" type="multi_select" table="companies" column="name" database_id="duckdb_local" />',
+		});
+
+		await getStoryFilterOptions('chat-1', 'story', 'company', { search: 'fiver' });
+
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS VARCHAR)) LIKE '%fiver%'");
+	});
+
 	it('marks the list incomplete when the warehouse returns more than the limit', async () => {
 		mocks.getFilterOptionsCache.mockResolvedValue(null);
 		const rows = Array.from({ length: 101 }, (_, index) => ({ value: `v${String(index).padStart(3, '0')}` }));
@@ -133,7 +164,7 @@ describe('warmStoryFilterOptions', () => {
 		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', projectId: 'project-1', cacheSchedule: null });
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code: STORY_CODE });
 		mocks.getSqlQueriesFromCode.mockResolvedValue({});
-		mocks.createStoryExecutionContext.mockResolvedValue({});
+		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Home' }], columns: ['value'] });
 
 		await warmStoryFilterOptions('chat-1', 'story');
