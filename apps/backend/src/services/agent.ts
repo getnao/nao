@@ -12,6 +12,7 @@ import {
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import type { StoryBlockPart, StoryBlockPartKind } from '@nao/shared/story-parts';
+import { STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import { story } from '@nao/shared/tools';
 import type { CitationData, LlmProvider, LlmSelectedModel, StoryBlockReference } from '@nao/shared/types';
 import { CODE_CITATION_KIND } from '@nao/shared/types';
@@ -1342,13 +1343,25 @@ export function describeStoryElement(block: StoryBlockReference): string {
 	if (block.kind === 'text') {
 		return 'a passage of text';
 	}
-	const title = block.title ? ` "${block.title}"` : '';
-	const query = block.queryId ? `, reading ${block.queryId}` : '';
-	const blockDescription = `the ${block.kind} block${title}${query}`;
-	if (!block.part) {
-		return blockDescription;
+	if (block.part?.kind === 'element') {
+		return describeSelectableElement(block.part, block.kind === STORY_ELEMENT_BLOCK_KIND ? undefined : block);
 	}
-	return `${describePart(block.part)} ${PARTS_INSIDE_BLOCK.has(block.part.kind) ? 'in' : 'of'} ${blockDescription}`;
+	if (!block.part) {
+		return describeBlock(block);
+	}
+	return `${describePart(block.part)} ${PARTS_INSIDE_BLOCK.has(block.part.kind) ? 'in' : 'of'} ${describeBlock(block)}`;
+}
+
+function describeBlock({ kind, title, queryId }: StoryBlockReference): string {
+	const titled = title ? ` "${title}"` : '';
+	const query = queryId ? `, reading ${queryId}` : '';
+	return `the ${kind} block${titled}${query}`;
+}
+
+function describeSelectableElement({ label, value }: StoryBlockPart, block?: StoryBlockReference): string {
+	const detail = value ? ` (${JSON.stringify(value)})` : '';
+	const place = block ? ` in ${describeBlock(block)}` : '';
+	return `the element ${JSON.stringify(label ?? '')}${detail}${place}, marked with selectable() in the story's source`;
 }
 
 const PARTS_INSIDE_BLOCK: ReadonlySet<StoryBlockPartKind> = new Set(['data-point', 'cell']);
@@ -1367,6 +1380,7 @@ const PART_NOUNS: Record<StoryBlockPartKind, string> = {
 	'kpi-comparison': 'KPI comparison',
 	column: 'column',
 	cell: 'cell',
+	element: 'element',
 };
 
 function describePart({ kind, label, series, category, value }: StoryBlockPart): string {

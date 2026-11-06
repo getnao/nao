@@ -1,4 +1,4 @@
-import { PART_SELECTOR } from '@nao/shared/story-parts';
+import { PART_SELECTOR, STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import { BLOCK_SELECTOR, readElementPart } from './story-elements';
 import type { StoryBlockPart } from '@nao/shared/story-parts';
 import type { StoryElementAsk } from '@nao/shared/story-app';
@@ -14,6 +14,8 @@ const OUTLINE_DURATION_MS = 1800;
 const MAX_WAIT_MS = 8000;
 const PART_GRACE_MS = Math.min(1000, MAX_WAIT_MS);
 const TOP_LAYER_Z_INDEX = 2147483646;
+const PART_IDENTITY_FIELDS = ['label', 'series', 'category'] as const;
+const ELEMENT_IDENTITY_FIELDS = [...PART_IDENTITY_FIELDS, 'value'] as const;
 const OUTLINE_STYLE =
 	'position:fixed;box-sizing:border-box;pointer-events:none;border:2px solid var(--primary);border-radius:var(--story-block-radius, 6px);background:color-mix(in srgb, var(--primary) 8%, transparent);transition:opacity .3s';
 
@@ -44,6 +46,9 @@ export function highlightStoryElement(
 function findCitedElement({ block, text }: StoryElementAsk, root: ParentNode, settlesOnBlock: boolean): Element | null {
 	if (block.kind === 'text') {
 		return findQuotedElement(text, root);
+	}
+	if (block.kind === STORY_ELEMENT_BLOCK_KIND) {
+		return block.part ? findPart(block.part, root) : null;
 	}
 	const blockElement = findBlock(block, root);
 	if (!blockElement) {
@@ -96,18 +101,18 @@ function revealElement(element: Element): boolean {
 	return !element.dispatchEvent(new Event(STORY_REVEAL_EVENT, { bubbles: true, cancelable: true }));
 }
 
-function findPart(cited: StoryBlockPart, block: Element): Element | null {
+function findPart(cited: StoryBlockPart, block: ParentNode): Element | null {
 	const parts = [...block.querySelectorAll(PART_SELECTOR)];
 	return parts.find((element) => isSamePart(cited, readElementPart(element))) ?? null;
 }
 
+/** A selectable element's detail tells apart the elements a list renders under one name. */
 function isSamePart(cited: StoryBlockPart, found: StoryBlockPart | null): boolean {
+	const fields = cited.kind === 'element' ? ELEMENT_IDENTITY_FIELDS : PART_IDENTITY_FIELDS;
 	return (
 		found !== null &&
 		found.kind === cited.kind &&
-		(['label', 'series', 'category'] as const).every(
-			(field) => cited[field] === undefined || cited[field] === found[field],
-		)
+		fields.every((field) => cited[field] === undefined || cited[field] === found[field])
 	);
 }
 
