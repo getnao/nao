@@ -166,6 +166,24 @@ def test_group_policy_requires_complete_catalog_metadata(
         validate_column_access("SELECT * FROM users", config, tmp_path, column_security_policies=policies)
 
 
+def test_unqualified_policy_table_missing_from_catalog_is_blocked(tmp_path: Path):
+    config = FakeDatabaseConfig([], database_type="postgres")
+    write_catalog(tmp_path, config, {"archive": {"users": ["id", "email"]}})
+    policies = {("public", "users"): {"access": "restricted", "denied_columns": ["email"]}}
+
+    with pytest.raises(ColumnAccessError, match=r"policy-protected table 'public\.users'"):
+        validate_column_access("SELECT email FROM users", config, tmp_path, column_security_policies=policies)
+    assert (
+        validate_column_access(
+            "SELECT email FROM archive.users",
+            config,
+            tmp_path,
+            column_security_policies=policies,
+        )
+        == "SELECT email FROM archive.users"
+    )
+
+
 def test_case_insensitive_policy_ambiguity_is_blocked(project_path: Path):
     config = FakeDatabaseConfig([])
     policies = {

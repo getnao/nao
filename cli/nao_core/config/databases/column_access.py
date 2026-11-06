@@ -82,6 +82,7 @@ def validate_column_access(
 
     try:
         table_infos = _load_table_infos(expression, project_path, db_config, database_folder)
+        _assert_unqualified_tables_cover_protected_sources(table_infos, column_security_policies or {})
         _assert_no_blocked_tables(table_infos, column_security_policies or {})
         _assert_restricted_tables_have_catalog_columns(table_infos, column_security_policies or {})
         qualified = _qualify_query(expression, dialect, table_infos)
@@ -114,6 +115,21 @@ def validate_column_access(
         raise
     except Exception as error:
         raise _blocked(str(error)) from error
+
+
+def _assert_unqualified_tables_cover_protected_sources(
+    table_infos: TableInfos,
+    policies: dict[tuple[str, str], dict[str, Any]],
+) -> None:
+    for (requested_catalog, requested_schema, requested_table), infos in table_infos.items():
+        if requested_catalog or requested_schema:
+            continue
+        resolved_schemas = {info.schema.casefold() for info in infos}
+        for policy_schema, policy_table in policies:
+            if policy_table.casefold() == requested_table and policy_schema.casefold() not in resolved_schemas:
+                raise _blocked(
+                    f"column metadata is unavailable for policy-protected table '{policy_schema}.{policy_table}'"
+                )
 
 
 def _assert_no_blocked_tables(
