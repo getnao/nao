@@ -10980,6 +10980,13 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
+        "llm_model_ids_by_config": {
+          "name": "llm_model_ids_by_config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",

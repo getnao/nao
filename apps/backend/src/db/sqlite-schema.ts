@@ -22,6 +22,7 @@ import type {
 	AnalyticsEventMetadata,
 	CitationData,
 	LlmAccessMode,
+	LlmModelIdsByConfig,
 	LlmProvider,
 	NotificationChannel,
 	RepoProvider,
@@ -685,6 +686,10 @@ export const userGroup = sqliteTable(
 		ssoMappings: text('sso_mappings', { mode: 'json' }).$type<StoredUserGroupSsoMappings>(),
 		rowPolicies: text('row_policies', { mode: 'json' }).$type<StoredUserGroupRowPolicies>(),
 		llmConfigIds: text('llm_config_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
+		llmModelIdsByConfig: text('llm_model_ids_by_config', { mode: 'json' })
+			.$type<LlmModelIdsByConfig>()
+			.notNull()
+			.default({}),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

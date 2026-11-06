@@ -1123,8 +1123,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Manage Groups',
 		search: { tab: 'groups' },
 		title: 'LLM Access',
-		description: 'Assign LLM credentials and their models to user groups.',
-		keywords: ['models', 'providers', 'credentials', 'api keys', 'group access', 'llm permissions'],
+		description: 'Assign all models or a selected model subset from each LLM credential to a user group.',
+		keywords: ['models', 'providers', 'credentials', 'api keys', 'group access', 'llm permissions', 'allowlist'],
 		adminOnly: true,
 	},
 	{

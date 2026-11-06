@@ -242,6 +242,7 @@ export function isLlmProvider(value: string): value is LlmProvider {
 
 export const LLM_ACCESS_MODES = ['project', 'user_group'] as const;
 export type LlmAccessMode = (typeof LLM_ACCESS_MODES)[number];
+export type LlmModelIdsByConfig = Record<string, string[]>;
 
 export type LlmSelectedModel = {
 	provider: LlmProvider;

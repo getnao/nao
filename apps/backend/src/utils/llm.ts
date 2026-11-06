@@ -1,5 +1,11 @@
 import { type BackgroundModelCategory, type DefaultModelSettings, selectBackgroundModel } from '@nao/shared';
-import { isSameModel, type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
+import {
+	isSameModel,
+	type LlmModelIdsByConfig,
+	type LlmProvider,
+	type LlmSelectedModel,
+	providerKind,
+} from '@nao/shared/types';
 
 import { managedAiSource, type ManagedAiUsageContext } from '../agents/managed-ai';
 import {
@@ -339,22 +345,42 @@ export const getProjectAvailableModels = async (
 export const getProjectAvailableModelsForConfigs = async (
 	projectId: string,
 	configIds: readonly string[],
+	modelIdsByConfig: LlmModelIdsByConfig = {},
 ): ReturnType<typeof getProjectAvailableModels> => {
 	const allowedIds = new Set(configIds);
 	const configs = (await projectLlmConfigQueries.getProjectLlmConfigs(projectId)).filter(
 		(config) => allowedIds.has(config.id) && isProjectLlmConfigAvailable(config),
 	);
-	return toAvailableModels(
-		configs.map((config) => ({
-			provider: config.provider as LlmProvider,
-			llmConfigId: config.id,
-			llmConfigName: config.name,
-			enabledModels: config.enabledModels ?? [],
-			customModels: config.customModels ?? [],
-			baseUrl: config.baseUrl ?? getEnvBaseUrl(config.provider as LlmProvider) ?? null,
-		})),
+	return filterModelsByConfigAccess(
+		toAvailableModels(
+			configs.map((config) => ({
+				provider: config.provider as LlmProvider,
+				llmConfigId: config.id,
+				llmConfigName: config.name,
+				enabledModels: config.enabledModels ?? [],
+				customModels: config.customModels ?? [],
+				baseUrl: config.baseUrl ?? getEnvBaseUrl(config.provider as LlmProvider) ?? null,
+			})),
+		),
+		configIds,
+		modelIdsByConfig,
 	);
 };
+
+export function filterModelsByConfigAccess<T extends { llmConfigId?: string; modelId: string }>(
+	models: T[],
+	configIds: readonly string[],
+	modelIdsByConfig: LlmModelIdsByConfig,
+): T[] {
+	const allowedConfigIds = new Set(configIds);
+	return models.filter(
+		(model) =>
+			model.llmConfigId !== undefined &&
+			allowedConfigIds.has(model.llmConfigId) &&
+			(!Object.hasOwn(modelIdsByConfig, model.llmConfigId) ||
+				modelIdsByConfig[model.llmConfigId].includes(model.modelId)),
+	);
+}
 
 function toAvailableModels(
 	sources: ProviderModelSource[],

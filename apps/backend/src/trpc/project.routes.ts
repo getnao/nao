@@ -76,6 +76,7 @@ import {
 	getEnvBaseUrl,
 	getEnvBaseUrls,
 	getEnvProviders,
+	getProjectAvailableModelsForConfigs,
 	getProjectConfigLlm,
 	getProjectModelNameResolver,
 	hasEnvApiKey,
@@ -247,7 +248,11 @@ export const projectRoutes = {
 	getLlmConfigs: projectProtectedProcedure
 		.output(
 			z.object({
-				projectConfigs: z.array(llmConfigSchema),
+				projectConfigs: z.array(
+					llmConfigSchema.extend({
+						availableModels: z.array(z.object({ id: z.string(), name: z.string() })),
+					}),
+				),
 				configProviders: z.array(configLlmProviderSchema),
 				envProviders: z.array(llmProviderSchema),
 				envBaseUrls: z.record(z.string(), z.string()),
@@ -259,6 +264,10 @@ export const projectRoutes = {
 			}
 
 			const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
+			const availableModels = await getProjectAvailableModelsForConfigs(
+				ctx.project.id,
+				configs.map((config) => config.id),
+			);
 
 			const projectConfigs = configs.map((c) => ({
 				id: c.id,
@@ -268,6 +277,9 @@ export const projectRoutes = {
 				apiKeyPreview: previewApiKey(c.apiKey),
 				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
+				availableModels: availableModels
+					.filter((model) => model.llmConfigId === c.id)
+					.map((model) => ({ id: model.modelId, name: model.name })),
 				customModels: c.customModels ?? [],
 				modelSettings: c.modelSettings ?? {},
 				baseUrl: c.baseUrl ?? null,

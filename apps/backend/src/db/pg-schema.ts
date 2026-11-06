@@ -22,6 +22,7 @@ import type {
 	AnalyticsEventMetadata,
 	CitationData,
 	LlmAccessMode,
+	LlmModelIdsByConfig,
 	LlmProvider,
 	NotificationChannel,
 	RepoProvider,
@@ -652,6 +653,7 @@ export const userGroup = pgTable(
 		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
 		rowPolicies: jsonb('row_policies').$type<StoredUserGroupRowPolicies>(),
 		llmConfigIds: jsonb('llm_config_ids').$type<string[]>().notNull().default([]),
+		llmModelIdsByConfig: jsonb('llm_model_ids_by_config').$type<LlmModelIdsByConfig>().notNull().default({}),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

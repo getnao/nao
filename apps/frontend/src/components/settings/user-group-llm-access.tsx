@@ -2,29 +2,39 @@ import { providerLabel } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useEffect } from 'react';
-import type { LlmProvider } from '@nao/shared/types';
+import type { LlmModelIdsByConfig, LlmProvider } from '@nao/shared/types';
 
 import { LockedFieldset } from '@/components/settings/locked-fieldset';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { Callout } from '@/components/ui/callout';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { trpc } from '@/main';
+
+export interface UserGroupLlmAccessValue {
+	llmConfigIds: string[];
+	llmModelIdsByConfig: LlmModelIdsByConfig;
+}
 
 export function UserGroupLlmAccess({
 	llmConfigIds,
+	llmModelIdsByConfig,
 	inheritedLlmConfigIds = [],
+	inheritedLlmModelIdsByConfig = {},
 	isLicensed,
 	autoSave = false,
-	isSaving = false,
+	saveStatus = 'idle',
 	onChange,
 }: {
 	llmConfigIds: string[];
+	llmModelIdsByConfig: LlmModelIdsByConfig;
 	inheritedLlmConfigIds?: string[];
+	inheritedLlmModelIdsByConfig?: LlmModelIdsByConfig;
 	isLicensed: boolean;
 	autoSave?: boolean;
-	isSaving?: boolean;
-	onChange: (llmConfigIds: string[]) => void;
+	saveStatus?: 'idle' | 'saving' | 'saved';
+	onChange: (value: UserGroupLlmAccessValue) => void;
 }) {
 	const configs = useQuery(trpc.project.getLlmConfigs.queryOptions());
 	const projectConfigs = configs.data?.projectConfigs ?? [];
@@ -42,9 +52,44 @@ export function UserGroupLlmAccess({
 		const activeIds = new Set(configs.data.projectConfigs.map((config) => config.id));
 		const availableIds = llmConfigIds.filter((configId) => activeIds.has(configId));
 		if (availableIds.length !== llmConfigIds.length) {
-			onChange(availableIds);
+			onChange({
+				llmConfigIds: availableIds,
+				llmModelIdsByConfig: filterModelIdsByConfigs(llmModelIdsByConfig, activeIds),
+			});
 		}
-	}, [configs.data, llmConfigIds, onChange]);
+	}, [configs.data, llmConfigIds, llmModelIdsByConfig, onChange]);
+
+	const changeCredential = (configId: string, checked: boolean) => {
+		onChange({
+			llmConfigIds: checked
+				? [...new Set([...llmConfigIds, configId])]
+				: llmConfigIds.filter((id) => id !== configId),
+			llmModelIdsByConfig: removeModelRestriction(llmModelIdsByConfig, configId),
+		});
+	};
+
+	const changeMode = (configId: string, mode: 'all' | 'selected', availableModelIds: string[]) => {
+		onChange({
+			llmConfigIds,
+			llmModelIdsByConfig:
+				mode === 'all'
+					? removeModelRestriction(llmModelIdsByConfig, configId)
+					: { ...llmModelIdsByConfig, [configId]: availableModelIds },
+		});
+	};
+
+	const changeModel = (configId: string, modelId: string, checked: boolean) => {
+		const selectedModelIds = llmModelIdsByConfig[configId] ?? [];
+		onChange({
+			llmConfigIds,
+			llmModelIdsByConfig: {
+				...llmModelIdsByConfig,
+				[configId]: checked
+					? [...new Set([...selectedModelIds, modelId])]
+					: selectedModelIds.filter((id) => id !== modelId),
+			},
+		});
+	};
 
 	return (
 		<section className='flex min-w-0 flex-col gap-4'>
@@ -52,11 +97,9 @@ export function UserGroupLlmAccess({
 				<div>
 					<div className='flex items-center gap-2'>
 						<h3 className='text-sm font-medium'>LLM credentials</h3>
-						{isSaving && (
-							<span role='status' className='text-xs text-muted-foreground'>
-								Saving...
-							</span>
-						)}
+						<span role='status' className='inline-block w-14 text-xs text-muted-foreground'>
+							{saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : null}
+						</span>
 					</div>
 					<p className='mt-1 text-xs text-muted-foreground'>
 						Choose which credentials provide models to members of this group. Users in multiple groups
@@ -72,63 +115,129 @@ export function UserGroupLlmAccess({
 			) : projectConfigs.length === 0 ? (
 				<NoProjectCredentials inheritedProviders={inheritedProviders} />
 			) : (
-				<LockedFieldset disabled={!isLicensed || isSaving} className='gap-2'>
-					<div className='grid gap-2 sm:grid-cols-2' role='group' aria-label='Allowed LLM credentials'>
+				<LockedFieldset disabled={!isLicensed} className='gap-2'>
+					<div className='grid gap-3' role='group' aria-label='Allowed LLM credentials'>
 						{projectConfigs.map((config) => {
 							const checkboxId = `user-group-llm-config-${config.id}`;
 							const inherited = inheritedLlmConfigIds.includes(config.id);
 							const directlyAssigned = llmConfigIds.includes(config.id);
-							const checked = directlyAssigned || inherited;
+							const inheritedAll = inherited && !Object.hasOwn(inheritedLlmModelIdsByConfig, config.id);
+							const directMode = Object.hasOwn(llmModelIdsByConfig, config.id) ? 'selected' : 'all';
+							const directModelIds = llmModelIdsByConfig[config.id] ?? [];
+							const inheritedModelIds = inheritedLlmModelIdsByConfig[config.id] ?? [];
+							const availableModels = config.availableModels ?? [];
 							const credentialPreview =
 								(config.credentialSource === 'env' ? 'ENV' : config.apiKeyPreview) ??
 								(config.credentialPreviews
 									? Object.values(config.credentialPreviews).join(', ')
 									: null);
 							return (
-								<label
-									key={config.id}
-									htmlFor={checkboxId}
-									className={`flex min-w-0 items-start gap-3 rounded-lg border p-3 transition-colors ${
-										inherited ? 'cursor-default' : 'cursor-pointer hover:bg-muted/40'
-									}`}
-								>
-									<Checkbox
-										id={checkboxId}
-										checked={checked}
-										disabled={inherited}
-										onCheckedChange={(nextChecked) =>
-											onChange(
-												nextChecked
-													? [...llmConfigIds, config.id]
-													: llmConfigIds.filter((id) => id !== config.id),
-											)
-										}
-									/>
-									<LlmProviderIcon
-										provider={config.provider}
-										baseUrl={config.baseUrl}
-										className='mt-0.5 size-4 shrink-0'
-									/>
-									<span className='min-w-0'>
-										<span className='flex flex-wrap items-center gap-1 text-sm font-medium'>
-											<span className='truncate'>{config.name}</span>
-											{inherited && (
-												<span className='rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground'>
-													Inherited from All Users
-												</span>
-											)}
-										</span>
-										<span className='block truncate text-xs text-muted-foreground'>
-											{providerLabel(config.provider)}
-											{credentialPreview ? ` · ${credentialPreview}` : ''}
-										</span>
-										{(config.enabledModels?.length ?? 0) > 0 && (
-											<span className='block truncate text-xs text-muted-foreground'>
-												{config.enabledModels?.join(', ')}
+								<div key={config.id} className='flex min-w-0 flex-col gap-3 rounded-lg border p-3'>
+									<div className='flex min-w-0 items-start gap-3'>
+										<Checkbox
+											id={checkboxId}
+											checked={directlyAssigned || inheritedAll}
+											disabled={inheritedAll}
+											onCheckedChange={(nextChecked) =>
+												changeCredential(config.id, nextChecked === true)
+											}
+										/>
+										<LlmProviderIcon
+											provider={config.provider}
+											baseUrl={config.baseUrl}
+											className='mt-0.5 size-4 shrink-0'
+										/>
+										<label
+											htmlFor={checkboxId}
+											className={`min-w-0 flex-1 ${inheritedAll ? 'cursor-default' : 'cursor-pointer'}`}
+										>
+											<span className='flex flex-wrap items-center gap-1 text-sm font-medium'>
+												<span className='truncate'>{config.name}</span>
+												{inherited && (
+													<span className='rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground'>
+														Inherited from All Users
+													</span>
+												)}
 											</span>
+											<span className='block truncate text-xs text-muted-foreground'>
+												{providerLabel(config.provider)}
+												{credentialPreview ? ` · ${credentialPreview}` : ''}
+											</span>
+										</label>
+										{directlyAssigned && !inheritedAll && (
+											<Select
+												value={directMode}
+												onValueChange={(mode) =>
+													changeMode(
+														config.id,
+														mode as 'all' | 'selected',
+														availableModels.map((model) => model.id),
+													)
+												}
+											>
+												<SelectTrigger
+													className='h-8 w-full sm:w-40'
+													aria-label={`${config.name} model access`}
+												>
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value='all'>All models</SelectItem>
+													<SelectItem value='selected'>Selected models</SelectItem>
+												</SelectContent>
+											</Select>
 										)}
-									</span>
-								</label>
+									</div>
+									{(directlyAssigned || inherited) && availableModels.length > 0 && (
+										<div
+											className='grid gap-2 border-t pt-3 sm:grid-cols-2'
+											role='group'
+											aria-label={`${config.name} models`}
+										>
+											{availableModels.map((model) => {
+												const modelInherited =
+													inheritedAll || inheritedModelIds.includes(model.id);
+												const modelDirect =
+													directlyAssigned &&
+													(directMode === 'all' || directModelIds.includes(model.id));
+												const modelCheckboxId = `${checkboxId}-${model.id}`;
+												return (
+													<label
+														key={model.id}
+														htmlFor={modelCheckboxId}
+														className='flex min-w-0 items-center gap-2 text-sm'
+													>
+														<Checkbox
+															id={modelCheckboxId}
+															checked={modelInherited || modelDirect}
+															disabled={
+																modelInherited ||
+																!directlyAssigned ||
+																directMode === 'all'
+															}
+															onCheckedChange={(checked) =>
+																changeModel(config.id, model.id, checked === true)
+															}
+														/>
+														<span className='min-w-0 truncate'>
+															{model.name}
+															{modelInherited && (
+																<span className='ml-1 text-xs text-muted-foreground'>
+																	(inherited)
+																</span>
+															)}
+														</span>
+													</label>
+												);
+											})}
+										</div>
+									)}
+									{(directlyAssigned || inherited) && availableModels.length === 0 && (
+										<p className='text-xs text-muted-foreground'>
+											This credential currently exposes no models.
+										</p>
+									)}
+								</div>
 							);
 						})}
 					</div>
@@ -136,6 +245,17 @@ export function UserGroupLlmAccess({
 			)}
 		</section>
 	);
+}
+
+function removeModelRestriction(llmModelIdsByConfig: LlmModelIdsByConfig, configId: string): LlmModelIdsByConfig {
+	return Object.fromEntries(Object.entries(llmModelIdsByConfig).filter(([id]) => id !== configId));
+}
+
+function filterModelIdsByConfigs(
+	llmModelIdsByConfig: LlmModelIdsByConfig,
+	configIds: ReadonlySet<string>,
+): LlmModelIdsByConfig {
+	return Object.fromEntries(Object.entries(llmModelIdsByConfig).filter(([configId]) => configIds.has(configId)));
 }
 
 function NoProjectCredentials({ inheritedProviders }: { inheritedProviders: LlmProvider[] }) {

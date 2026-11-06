@@ -5,9 +5,11 @@ import type { ProviderModelResult } from '../agents/providers';
 import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
+import { mergeUserGroupLlmAccess } from '../queries/user-group.queries';
 import type { ModelInferenceSettings } from '../types/llm';
 import { HandlerError } from '../utils/error';
 import {
+	filterModelsByConfigAccess,
 	getProjectAvailableModels,
 	getProjectAvailableModelsForConfigs,
 	type ProjectAvailableModel,
@@ -45,40 +47,52 @@ export async function getLlmAccessReadiness(projectId: string): Promise<LlmAcces
 			.filter((id) => configIds.has(id)),
 	);
 	const configuredIds = activeGroups.flatMap((group) => ('llmConfigIds' in group ? group.llmConfigIds : []));
-	const userIdsWithoutModels = overview.users
-		.filter((user) => {
+	const databaseModels = projectModels.filter((model) => model.llmConfigId);
+	const groupsWithoutModels = activeGroups
+		.filter((group) => {
+			if (!('llmConfigIds' in group) || !('llmModelIdsByConfig' in group)) {
+				return true;
+			}
+			const access = mergeUserGroupLlmAccess([group]);
+			return (
+				filterModelsByConfigAccess(databaseModels, access.llmConfigIds, access.llmModelIdsByConfig).length === 0
+			);
+		})
+		.map((group) => group.id);
+	const userModelsById = new Map(
+		overview.users.map((user) => {
 			const groupIds = new Set(
 				overview.memberships
 					.filter((membership) => membership.userId === user.id)
 					.map((membership) => membership.groupId),
 			);
-			return !activeGroups.some(
-				(group) =>
-					groupIds.has(group.id) &&
-					'llmConfigIds' in group &&
-					group.llmConfigIds.some((configId) => configIds.has(configId)),
+			const access = mergeUserGroupLlmAccess(
+				activeGroups.filter(
+					(group) => groupIds.has(group.id) && 'llmConfigIds' in group && 'llmModelIdsByConfig' in group,
+				),
 			);
-		})
+			return [
+				user.id,
+				filterModelsByConfigAccess(databaseModels, access.llmConfigIds, access.llmModelIdsByConfig),
+			] as const;
+		}),
+	);
+	const userIdsWithoutModels = overview.users
+		.filter((user) => userModelsById.get(user.id)?.length === 0)
 		.map((user) => user.id);
-	const databaseModels = projectModels.filter((model) => model.llmConfigId);
 	const staleDefaultCount = getConfiguredDefaults(defaultSettings).filter(
 		(selection) => !hasAvailableSelection(databaseModels, selection),
 	).length;
 	const automationModelsByUser = new Map(
-		await Promise.all(
-			[...new Set(automations.map((automation) => automation.userId))].map(async (userId) => {
-				const access = await resolveAvailableUserGroupAccess(projectId, userId);
-				return [userId, await getProjectAvailableModelsForConfigs(projectId, access.llmConfigIds)] as const;
-			}),
+		[...new Set(automations.map((automation) => automation.userId))].map(
+			(userId) => [userId, userModelsById.get(userId) ?? []] as const,
 		),
 	);
 	return {
 		mode,
 		assignedConfigCount: assignedIds.size,
 		staleConfigIds: [...new Set(configuredIds.filter((id) => !configIds.has(id)))],
-		unassignedGroupIds: activeGroups
-			.filter((group) => !('llmConfigIds' in group) || group.llmConfigIds.length === 0)
-			.map((group) => group.id),
+		unassignedGroupIds: groupsWithoutModels,
 		userIdsWithoutModels,
 		ignoredProviderIds: [
 			...new Set(projectModels.filter((model) => !model.llmConfigId).map((model) => model.provider)),
@@ -96,7 +110,7 @@ export async function getLlmAccessReadiness(projectId: string): Promise<LlmAcces
 				});
 			})
 			.map((automation) => automation.id),
-		canEnable: assignedIds.size > 0,
+		canEnable: [...userModelsById.values()].some((models) => models.length > 0),
 	};
 }
 
@@ -106,7 +120,7 @@ export async function getAvailableModelsForUser(projectId: string, userId: strin
 		return getProjectAvailableModels(projectId);
 	}
 	const access = await resolveAvailableUserGroupAccess(projectId, userId);
-	return getProjectAvailableModelsForConfigs(projectId, access.llmConfigIds);
+	return getProjectAvailableModelsForConfigs(projectId, access.llmConfigIds, access.llmModelIdsByConfig);
 }
 
 export async function getDefaultChatModelForUser(projectId: string, userId: string): Promise<LlmSelectedModel | null> {

@@ -11,4 +11,5 @@ ALTER TABLE "project_llm_config" ALTER COLUMN "name" SET NOT NULL;--> statement-
 ALTER TABLE "project_llm_config" ADD COLUMN "credential_source" text DEFAULT 'database' NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_llm_config" ADD COLUMN "disabled_at" timestamp;--> statement-breakpoint
 ALTER TABLE "user_group" ADD COLUMN "llm_config_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "user_group" ADD COLUMN "llm_model_ids_by_config" jsonb DEFAULT '{}'::jsonb NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_llm_config" ADD CONSTRAINT "project_llm_config_project_name" UNIQUE("project_id","name");

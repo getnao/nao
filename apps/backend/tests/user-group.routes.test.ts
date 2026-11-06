@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 	setUserGroupMembership: vi.fn(),
 	setUserGroupMemberships: vi.fn(),
 	updateUserGroup: vi.fn(),
-	updateUserGroupLlmConfigIds: vi.fn(),
+	updateUserGroupLlmAccess: vi.fn(),
 	updateProjectRowSecurity: vi.fn(),
 	validateWarehouseRowPredicate: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
@@ -64,7 +64,7 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	setUserGroupMemberships: mocks.setUserGroupMemberships,
 	updateUserGroup: mocks.updateUserGroup,
-	updateUserGroupLlmConfigIds: mocks.updateUserGroupLlmConfigIds,
+	updateUserGroupLlmAccess: mocks.updateUserGroupLlmAccess,
 	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
 }));
 vi.mock('../src/services/license.service', () => ({
@@ -1076,20 +1076,35 @@ describe('user group routes', () => {
 
 	it('updates only the assigned LLM credentials', async () => {
 		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'credential-a' }, { id: 'credential-b' }]);
-		mocks.updateUserGroupLlmConfigIds.mockResolvedValue({ id: 'group-id' });
+		mocks.updateUserGroupLlmAccess.mockResolvedValue({ id: 'group-id' });
 
 		await expect(
 			createCaller().updateLlmAccess({
 				groupId: 'group-id',
 				llmConfigIds: ['credential-a', 'credential-b'],
+				llmModelIdsByConfig: { 'credential-a': ['model-a', 'model-a'] },
 			}),
 		).resolves.toEqual({ id: 'group-id' });
 
-		expect(mocks.updateUserGroupLlmConfigIds).toHaveBeenCalledWith('project-id', 'group-id', [
-			'credential-a',
-			'credential-b',
-		]);
+		expect(mocks.updateUserGroupLlmAccess).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			['credential-a', 'credential-b'],
+			{ 'credential-a': ['model-a'] },
+		);
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('rejects model restrictions for an unassigned credential', async () => {
+		await expect(
+			createCaller().updateLlmAccess({
+				groupId: 'group-id',
+				llmConfigIds: ['credential-a'],
+				llmModelIdsByConfig: { 'credential-b': ['model-b'] },
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+		expect(mocks.updateUserGroupLlmAccess).not.toHaveBeenCalled();
 	});
 
 	it('saves the project sharing permission and unshares project-wide content no longer allowed', async () => {

@@ -38,6 +38,7 @@ vi.mock('@/main', () => ({
 
 describe('UserGroupLlmAccess', () => {
 	beforeEach(() => {
+		Element.prototype.scrollIntoView = vi.fn();
 		mocks.useQuery.mockReturnValue({
 			data: {
 				projectConfigs: [
@@ -49,6 +50,7 @@ describe('UserGroupLlmAccess', () => {
 						apiKeyPreview: null,
 						credentialPreviews: null,
 						enabledModels: [],
+						availableModels: [{ id: 'gpt-5-mini', name: 'GPT-5 mini' }],
 						customModels: [],
 						modelSettings: {},
 						baseUrl: null,
@@ -70,39 +72,104 @@ describe('UserGroupLlmAccess', () => {
 
 	it('assigns an automatically registered ENV credential', () => {
 		const onChange = vi.fn();
-		render(<UserGroupLlmAccess llmConfigIds={[]} isLicensed onChange={onChange} />);
+		render(<UserGroupLlmAccess llmConfigIds={[]} llmModelIdsByConfig={{}} isLicensed onChange={onChange} />);
 
 		fireEvent.click(screen.getByRole('checkbox', { name: /OpenAI \(ENV\)/ }));
 
-		expect(onChange).toHaveBeenCalledWith(['env-openai']);
+		expect(onChange).toHaveBeenCalledWith({
+			llmConfigIds: ['env-openai'],
+			llmModelIdsByConfig: {},
+		});
 		expect(screen.getByText('OpenAI · ENV')).toBeTruthy();
+	});
+
+	it('keeps access controls interactive while autosaving', () => {
+		const onChange = vi.fn();
+		const { rerender } = render(
+			<UserGroupLlmAccess
+				llmConfigIds={[]}
+				llmModelIdsByConfig={{}}
+				isLicensed
+				saveStatus='saving'
+				onChange={onChange}
+			/>,
+		);
+
+		expect((screen.getByRole('checkbox', { name: /OpenAI \(ENV\)/ }) as HTMLButtonElement).disabled).toBe(false);
+		expect(screen.getByRole('status').textContent).toBe('Saving...');
+
+		rerender(
+			<UserGroupLlmAccess
+				llmConfigIds={[]}
+				llmModelIdsByConfig={{}}
+				isLicensed
+				saveStatus='saved'
+				onChange={onChange}
+			/>,
+		);
+		expect(screen.getByRole('status').textContent).toBe('Saved');
 	});
 
 	it('silently removes unavailable credential assignments from the form', async () => {
 		const onChange = vi.fn();
 		render(
-			<UserGroupLlmAccess llmConfigIds={['unavailable-config', 'env-openai']} isLicensed onChange={onChange} />,
-		);
-
-		await waitFor(() => expect(onChange).toHaveBeenCalledWith(['env-openai']));
-		expect(screen.queryByText(/unavailable credential/)).toBeNull();
-	});
-
-	it('shows inherited credentials as checked and read-only', () => {
-		const onChange = vi.fn();
-		render(
 			<UserGroupLlmAccess
-				llmConfigIds={[]}
-				inheritedLlmConfigIds={['env-openai']}
+				llmConfigIds={['unavailable-config', 'env-openai']}
+				llmModelIdsByConfig={{
+					'unavailable-config': ['old-model'],
+					'env-openai': ['gpt-5-mini'],
+				}}
 				isLicensed
 				onChange={onChange}
 			/>,
 		);
 
-		const inheritedCredential = screen.getByRole('checkbox', { name: /OpenAI \(ENV\)/ }) as HTMLButtonElement;
-		expect(inheritedCredential.getAttribute('aria-checked')).toBe('true');
-		expect(inheritedCredential.disabled).toBe(true);
-		fireEvent.click(inheritedCredential);
+		await waitFor(() =>
+			expect(onChange).toHaveBeenCalledWith({
+				llmConfigIds: ['env-openai'],
+				llmModelIdsByConfig: { 'env-openai': ['gpt-5-mini'] },
+			}),
+		);
+		expect(screen.queryByText(/unavailable credential/)).toBeNull();
+	});
+
+	it('shows inherited models as checked and read-only', () => {
+		const onChange = vi.fn();
+		render(
+			<UserGroupLlmAccess
+				llmConfigIds={[]}
+				llmModelIdsByConfig={{}}
+				inheritedLlmConfigIds={['env-openai']}
+				inheritedLlmModelIdsByConfig={{ 'env-openai': ['gpt-5-mini'] }}
+				isLicensed
+				onChange={onChange}
+			/>,
+		);
+
+		const inheritedModel = screen.getByRole('checkbox', { name: /GPT-5 mini/ }) as HTMLButtonElement;
+		expect(inheritedModel.getAttribute('aria-checked')).toBe('true');
+		expect(inheritedModel.disabled).toBe(true);
+		fireEvent.click(inheritedModel);
 		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it('freezes the current catalog when switching from all to selected models', () => {
+		const onChange = vi.fn();
+		render(
+			<UserGroupLlmAccess
+				llmConfigIds={['env-openai']}
+				llmModelIdsByConfig={{}}
+				isLicensed
+				onChange={onChange}
+			/>,
+		);
+
+		fireEvent.keyDown(screen.getByRole('combobox', { name: 'OpenAI (ENV) model access' }), { key: 'Enter' });
+		fireEvent.click(screen.getByRole('option', { name: 'Selected models' }));
+
+		expect(onChange).toHaveBeenCalledWith({
+			llmConfigIds: ['env-openai'],
+			llmModelIdsByConfig: { 'env-openai': ['gpt-5-mini'] },
+		});
 	});
 });

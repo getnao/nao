@@ -25,7 +25,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
-import type { ToolCallDensity, UserRole } from '@nao/shared/types';
+import type { LlmModelIdsByConfig, ToolCallDensity, UserRole } from '@nao/shared/types';
 import type {
 	DatabaseContextAccess,
 	DocsContextAccess,
@@ -39,6 +39,7 @@ import type {
 	UserGroupSsoMappings,
 } from '@nao/shared';
 
+import type { UserGroupLlmAccessValue } from '@/components/settings/user-group-llm-access';
 import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupAdvancedSettings } from '@/components/settings/user-group-advanced-settings';
@@ -91,6 +92,7 @@ export interface UserGroupEditorGroup {
 	skillsAccess: SkillsAccess;
 	ssoMappings: UserGroupSsoMappings;
 	llmConfigIds: string[];
+	llmModelIdsByConfig: LlmModelIdsByConfig;
 	rowPolicies?: UserGroupRowPolicies;
 }
 
@@ -171,6 +173,22 @@ export function UserGroupEditor({
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
 	);
 	const [llmConfigIds, setLlmConfigIds] = useState<string[]>(existingGroup?.llmConfigIds ?? []);
+	const [llmModelIdsByConfig, setLlmModelIdsByConfig] = useState<LlmModelIdsByConfig>(
+		existingGroup?.llmModelIdsByConfig ?? {},
+	);
+	const [llmAccessSaveStatus, setLlmAccessSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+	const latestLlmAccessRef = useRef({
+		groupId: existingGroup?.id ?? null,
+		access: {
+			llmConfigIds: existingGroup?.llmConfigIds ?? [],
+			llmModelIdsByConfig: existingGroup?.llmModelIdsByConfig ?? {},
+		},
+	});
+	const lastSavedLlmAccessRef = useRef(latestLlmAccessRef.current);
+	const llmAccessSaveQueueRef = useRef(Promise.resolve());
+	const pendingLlmAccessSaveCountRef = useRef(0);
+	const latestLlmAccessSaveFailedRef = useRef(false);
+	const llmAccessSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
 	const [projectSharing, setProjectSharing] = useState<ProjectSharingPermission>(
 		existingGroup?.projectSharing ?? 'inherit',
@@ -186,9 +204,7 @@ export function UserGroupEditor({
 	const previousGroupRef = useRef(editorGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
 	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
-	const { mutateAsync: updateLlmAccess, isPending: isLlmAccessSaving } = useMutation(
-		trpc.userGroup.updateLlmAccess.mutationOptions(),
-	);
+	const { mutateAsync: updateLlmAccess } = useMutation(trpc.userGroup.updateLlmAccess.mutationOptions());
 	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
 	const licenseFeatures = useLicenseFeatures();
 	const hasSso = licenseFeatures.data?.sso === true;
@@ -302,6 +318,7 @@ export function UserGroupEditor({
 			skillsAccess,
 			ssoMappings,
 			llmConfigIds: existingGroup?.llmConfigIds ?? llmConfigIds,
+			llmModelIdsByConfig: existingGroup?.llmModelIdsByConfig ?? llmModelIdsByConfig,
 			rowPolicies,
 		});
 
@@ -319,6 +336,16 @@ export function UserGroupEditor({
 		setSkillsAccess(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
 		setLlmConfigIds(existingGroup?.llmConfigIds ?? []);
+		setLlmModelIdsByConfig(existingGroup?.llmModelIdsByConfig ?? {});
+		const savedLlmAccess = {
+			groupId: existingGroup?.id ?? null,
+			access: {
+				llmConfigIds: existingGroup?.llmConfigIds ?? [],
+				llmModelIdsByConfig: existingGroup?.llmModelIdsByConfig ?? {},
+			},
+		};
+		latestLlmAccessRef.current = savedLlmAccess;
+		lastSavedLlmAccessRef.current = savedLlmAccess;
 		setRowPolicies(existingRowPolicies);
 		setFormError(null);
 		setShowRowPolicyValidationErrors(false);
@@ -345,6 +372,7 @@ export function UserGroupEditor({
 				skillsAccess,
 				ssoMappings,
 				llmConfigIds,
+				llmModelIdsByConfig,
 				rowPolicies,
 			});
 
@@ -359,6 +387,7 @@ export function UserGroupEditor({
 		filesAccess,
 		mcpAccess,
 		llmConfigIds,
+		llmModelIdsByConfig,
 		name,
 		preloadedSkills,
 		projectSharing,
@@ -373,6 +402,23 @@ export function UserGroupEditor({
 	useEffect(() => {
 		setGroupBudgetUsd(savedGroupBudgetUsd);
 	}, [existingGroup?.id, savedGroupBudgetUsd]);
+
+	useEffect(() => {
+		if (llmAccessSavedTimerRef.current) {
+			clearTimeout(llmAccessSavedTimerRef.current);
+			llmAccessSavedTimerRef.current = null;
+		}
+		setLlmAccessSaveStatus('idle');
+	}, [existingGroup?.id]);
+
+	useEffect(
+		() => () => {
+			if (llmAccessSavedTimerRef.current) {
+				clearTimeout(llmAccessSavedTimerRef.current);
+			}
+		},
+		[],
+	);
 
 	useEffect(() => {
 		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
@@ -391,29 +437,62 @@ export function UserGroupEditor({
 		setPreloadedSkills(change.preloadedSkills);
 	};
 
-	const handleLlmConfigIdsChange = useCallback(
-		async (nextLlmConfigIds: string[]) => {
-			if (isLlmAccessSaving) {
-				return;
-			}
-			const previousLlmConfigIds = llmConfigIds;
-			setLlmConfigIds(nextLlmConfigIds);
+	const handleLlmAccessChange = useCallback(
+		(nextAccess: UserGroupLlmAccessValue) => {
+			setLlmConfigIds(nextAccess.llmConfigIds);
+			setLlmModelIdsByConfig(nextAccess.llmModelIdsByConfig);
+			latestLlmAccessRef.current = { groupId: existingGroup?.id ?? null, access: nextAccess };
 			if (!existingGroup || !hasUserGroupsLicense) {
 				return;
 			}
 			setFormError(null);
-			try {
-				await updateLlmAccess({
-					groupId: existingGroup.id,
-					llmConfigIds: nextLlmConfigIds,
-				});
-				await invalidateUserGroupQueries(queryClient);
-			} catch (error) {
-				setLlmConfigIds(previousLlmConfigIds);
-				setFormError(error instanceof Error ? error.message : 'Failed to save LLM access.');
+			if (llmAccessSavedTimerRef.current) {
+				clearTimeout(llmAccessSavedTimerRef.current);
+				llmAccessSavedTimerRef.current = null;
 			}
+			latestLlmAccessSaveFailedRef.current = false;
+			const groupId = existingGroup.id;
+			pendingLlmAccessSaveCountRef.current += 1;
+			setLlmAccessSaveStatus('saving');
+			llmAccessSaveQueueRef.current = llmAccessSaveQueueRef.current.then(async () => {
+				try {
+					await updateLlmAccess({ groupId, ...nextAccess });
+					if (latestLlmAccessRef.current.groupId === groupId) {
+						lastSavedLlmAccessRef.current = { groupId, access: nextAccess };
+						if (latestLlmAccessRef.current.access === nextAccess) {
+							latestLlmAccessSaveFailedRef.current = false;
+						}
+					}
+				} catch (error) {
+					const latestAccess = latestLlmAccessRef.current;
+					if (latestAccess.groupId === groupId && latestAccess.access === nextAccess) {
+						const lastSavedAccess = lastSavedLlmAccessRef.current;
+						if (lastSavedAccess.groupId === groupId) {
+							setLlmConfigIds(lastSavedAccess.access.llmConfigIds);
+							setLlmModelIdsByConfig(lastSavedAccess.access.llmModelIdsByConfig);
+							latestLlmAccessRef.current = lastSavedAccess;
+						}
+						latestLlmAccessSaveFailedRef.current = true;
+						setFormError(error instanceof Error ? error.message : 'Failed to save LLM access.');
+					}
+				} finally {
+					pendingLlmAccessSaveCountRef.current -= 1;
+					if (pendingLlmAccessSaveCountRef.current === 0) {
+						if (latestLlmAccessSaveFailedRef.current) {
+							setLlmAccessSaveStatus('idle');
+						} else {
+							setLlmAccessSaveStatus('saved');
+							llmAccessSavedTimerRef.current = setTimeout(() => {
+								setLlmAccessSaveStatus('idle');
+								llmAccessSavedTimerRef.current = null;
+							}, 2_000);
+						}
+						await invalidateUserGroupQueries(queryClient).catch(() => undefined);
+					}
+				}
+			});
 		},
-		[existingGroup, hasUserGroupsLicense, isLlmAccessSaving, llmConfigIds, queryClient, updateLlmAccess],
+		[existingGroup, hasUserGroupsLicense, queryClient, updateLlmAccess],
 	);
 
 	const handleSave = async () => {
@@ -467,7 +546,7 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
-					...(hasUserGroupsLicense ? { llmConfigIds } : {}),
+					...(hasUserGroupsLicense ? { llmConfigIds, llmModelIdsByConfig } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -486,7 +565,7 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
-					...(hasUserGroupsLicense ? { llmConfigIds } : {}),
+					...(hasUserGroupsLicense ? { llmConfigIds, llmModelIdsByConfig } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -560,7 +639,7 @@ export function UserGroupEditor({
 						activeTab={activeTab}
 						onTabChange={onTabChange}
 						idBase='user-group-editor'
-						className='overflow-x-auto border-b'
+						className='overflow-x-auto overflow-y-hidden border-b'
 					/>
 					<TabPanel idBase='user-group-editor' tabId={activeTab} className='pt-5'>
 						{activeTab === 'features' && (
@@ -580,6 +659,7 @@ export function UserGroupEditor({
 						{activeTab === 'llm-access' && (
 							<UserGroupLlmAccess
 								llmConfigIds={llmConfigIds}
+								llmModelIdsByConfig={llmModelIdsByConfig}
 								inheritedLlmConfigIds={
 									existingGroup?.isDefault
 										? []
@@ -589,10 +669,17 @@ export function UserGroupEditor({
 													: [],
 											) ?? [])
 								}
+								inheritedLlmModelIdsByConfig={
+									existingGroup?.isDefault ||
+									!allUsersGroup ||
+									!('llmModelIdsByConfig' in allUsersGroup)
+										? {}
+										: allUsersGroup.llmModelIdsByConfig
+								}
 								isLicensed={hasUserGroupsLicense}
 								autoSave={existingGroup !== null}
-								isSaving={isLlmAccessSaving}
-								onChange={handleLlmConfigIdsChange}
+								saveStatus={llmAccessSaveStatus}
+								onChange={handleLlmAccessChange}
 							/>
 						)}
 						{activeTab === 'context' && (
@@ -1078,6 +1165,7 @@ export function hasUserGroupEditorChanges(
 		skillsAccess?: SkillsAccess;
 		ssoMappings?: UserGroupSsoMappings;
 		llmConfigIds?: string[];
+		llmModelIdsByConfig?: LlmModelIdsByConfig;
 		rowPolicies?: UserGroupRowPolicies;
 	},
 ): boolean {
@@ -1096,6 +1184,7 @@ export function hasUserGroupEditorChanges(
 		!haveSameSkillsAccess(values.skillsAccess ?? group.skillsAccess, group.skillsAccess) ||
 		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
 		!haveSameItems(values.llmConfigIds ?? group.llmConfigIds, group.llmConfigIds) ||
+		!haveSameModelIdsByConfig(values.llmModelIdsByConfig ?? group.llmModelIdsByConfig, group.llmModelIdsByConfig) ||
 		!haveSameRowPolicies(
 			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
 			group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
@@ -1270,6 +1359,15 @@ function haveSameItems<T>(left: T[], right: T[]): boolean {
 	const leftItems = new Set(left);
 	const rightItems = new Set(right);
 	return leftItems.size === rightItems.size && [...leftItems].every((item) => rightItems.has(item));
+}
+
+function haveSameModelIdsByConfig(left: LlmModelIdsByConfig, right: LlmModelIdsByConfig): boolean {
+	const leftConfigIds = Object.keys(left);
+	const rightConfigIds = Object.keys(right);
+	return (
+		haveSameItems(leftConfigIds, rightConfigIds) &&
+		leftConfigIds.every((configId) => haveSameItems(left[configId], right[configId] ?? []))
+	);
 }
 
 function haveSameOrderedItems<T>(left: readonly T[], right: readonly T[]): boolean {

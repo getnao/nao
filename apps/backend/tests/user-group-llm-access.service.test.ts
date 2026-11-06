@@ -39,6 +39,18 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 }));
 
 vi.mock('../src/utils/llm', () => ({
+	filterModelsByConfigAccess: (
+		models: (typeof clientAModel)[],
+		configIds: string[],
+		modelIdsByConfig: Record<string, string[]>,
+	) =>
+		models.filter(
+			(model) =>
+				model.llmConfigId !== undefined &&
+				configIds.includes(model.llmConfigId) &&
+				(!Object.hasOwn(modelIdsByConfig, model.llmConfigId) ||
+					modelIdsByConfig[model.llmConfigId].includes(model.modelId)),
+		),
 	getProjectAvailableModels: mocks.getProjectAvailableModels,
 	getProjectAvailableModelsForConfigs: mocks.getProjectAvailableModelsForConfigs,
 	resolveProviderModel: mocks.resolveProviderModel,
@@ -60,7 +72,10 @@ describe('user group LLM access', () => {
 		vi.clearAllMocks();
 		mocks.getDefaultModelSettings.mockResolvedValue(null);
 		mocks.getProjectLlmConfigs.mockResolvedValue([]);
-		mocks.resolveAvailableUserGroupAccess.mockResolvedValue({ llmConfigIds: ['config-a'] });
+		mocks.resolveAvailableUserGroupAccess.mockResolvedValue({
+			llmConfigIds: ['config-a'],
+			llmModelIdsByConfig: {},
+		});
 		mocks.getAvailableUserGroupOverview.mockResolvedValue({ groups: [], users: [], memberships: [] });
 		mocks.getProjectAvailableModels.mockResolvedValue([clientAModel, clientBModel]);
 		mocks.getProjectAvailableModelsForConfigs.mockResolvedValue([clientAModel]);
@@ -76,11 +91,16 @@ describe('user group LLM access', () => {
 
 	it('uses only the union of config ids resolved from the users groups', async () => {
 		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'user_group' });
-		mocks.resolveAvailableUserGroupAccess.mockResolvedValue({ llmConfigIds: ['config-a', 'config-b'] });
+		mocks.resolveAvailableUserGroupAccess.mockResolvedValue({
+			llmConfigIds: ['config-a', 'config-b'],
+			llmModelIdsByConfig: { 'config-a': ['gpt-5-mini'] },
+		});
 
 		await getAvailableModelsForUser('project-1', 'user-1');
 
-		expect(mocks.getProjectAvailableModelsForConfigs).toHaveBeenCalledWith('project-1', ['config-a', 'config-b']);
+		expect(mocks.getProjectAvailableModelsForConfigs).toHaveBeenCalledWith('project-1', ['config-a', 'config-b'], {
+			'config-a': ['gpt-5-mini'],
+		});
 	});
 
 	it('rejects a forged credential selection', async () => {
@@ -91,6 +111,18 @@ describe('user group LLM access', () => {
 				provider: 'openai',
 				modelId: 'gpt-5-mini',
 				llmConfigId: 'config-b',
+			}),
+		).rejects.toMatchObject({ code: 403 });
+	});
+
+	it('rejects a model outside the credential subset', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'user_group' });
+
+		await expect(
+			resolveUserModelSelection('project-1', 'user-1', {
+				provider: 'openai',
+				modelId: 'gpt-5-pro',
+				llmConfigId: 'config-a',
 			}),
 		).rejects.toMatchObject({ code: 403 });
 	});
@@ -161,7 +193,14 @@ describe('user group LLM access', () => {
 			chat: { provider: 'openai', modelId: 'gpt-5-mini', llmConfigId: 'missing-config' },
 		});
 		mocks.getAvailableUserGroupOverview.mockResolvedValue({
-			groups: [{ id: 'group-1', isLocked: false, llmConfigIds: ['config-a'] }],
+			groups: [
+				{
+					id: 'group-1',
+					isLocked: false,
+					llmConfigIds: ['config-a'],
+					llmModelIdsByConfig: {},
+				},
+			],
 			users: [{ id: 'user-1' }],
 			memberships: [{ userId: 'user-1', groupId: 'group-1' }],
 		});
@@ -170,6 +209,29 @@ describe('user group LLM access', () => {
 			canEnable: true,
 			ignoredProviderIds: ['anthropic'],
 			staleDefaultCount: 1,
+		});
+	});
+
+	it('does not enable group access when every assigned model subset is empty', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
+		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'config-a' }]);
+		mocks.getAvailableUserGroupOverview.mockResolvedValue({
+			groups: [
+				{
+					id: 'group-1',
+					isLocked: false,
+					llmConfigIds: ['config-a'],
+					llmModelIdsByConfig: { 'config-a': [] },
+				},
+			],
+			users: [{ id: 'user-1' }],
+			memberships: [{ userId: 'user-1', groupId: 'group-1' }],
+		});
+
+		await expect(getLlmAccessReadiness('project-1')).resolves.toMatchObject({
+			canEnable: false,
+			unassignedGroupIds: ['group-1'],
+			userIdsWithoutModels: ['user-1'],
 		});
 	});
 });

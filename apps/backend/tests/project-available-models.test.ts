@@ -5,7 +5,12 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { __reloadEnvForTesting } from '../src/env';
-import { getProjectAvailableModels, resolveProviderModel, resolveProviderSettings } from '../src/utils/llm';
+import {
+	filterModelsByConfigAccess,
+	getProjectAvailableModels,
+	resolveProviderModel,
+	resolveProviderSettings,
+} from '../src/utils/llm';
 
 const mocks = vi.hoisted(() => ({
 	getProjectById: vi.fn(),
@@ -67,6 +72,24 @@ describe('getProjectAvailableModels', () => {
 		while (dirs.length > 0) {
 			fs.rmSync(dirs.pop() as string, { force: true, recursive: true });
 		}
+	});
+
+	it('filters models by credential and explicit model subset', () => {
+		const models = [
+			{ llmConfigId: 'config-a', modelId: 'model-a' },
+			{ llmConfigId: 'config-a', modelId: 'model-b' },
+			{ llmConfigId: 'config-b', modelId: 'model-c' },
+			{ modelId: 'model-d' },
+		];
+
+		expect(
+			filterModelsByConfigAccess(models, ['config-a', 'config-b'], {
+				'config-a': ['model-b'],
+			}),
+		).toEqual([
+			{ llmConfigId: 'config-a', modelId: 'model-b' },
+			{ llmConfigId: 'config-b', modelId: 'model-c' },
+		]);
 	});
 
 	it('keeps the curated nao models available after BYOK is configured', async () => {

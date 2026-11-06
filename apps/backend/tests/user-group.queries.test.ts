@@ -42,12 +42,13 @@ import {
 	getUserGroupOverview,
 	listUserGroupMemberships,
 	listUserGroupSsoMemberships,
+	mergeUserGroupLlmAccess,
 	resolveUserGroupAccess,
 	setUserGroupMembership,
 	setUserGroupMemberships,
 	updateProjectRowSecurity,
 	updateUserGroup,
-	updateUserGroupLlmConfigIds,
+	updateUserGroupLlmAccess,
 	validateAssignableUserGroupIds,
 } from '../src/queries/user-group.queries';
 import { addProjectMemberWithUserGroups } from '../src/services/project-user-group-membership.service';
@@ -171,10 +172,36 @@ describe('user group queries', () => {
 		const group = await createUserGroup(PROJECT_ID, 'Analysts', ['storyCreation']);
 
 		await expect(
-			updateUserGroupLlmConfigIds(PROJECT_ID, group.id, ['credential-a', 'credential-a', 'credential-b']),
+			updateUserGroupLlmAccess(PROJECT_ID, group.id, ['credential-a', 'credential-a', 'credential-b'], {
+				'credential-a': ['model-a', 'model-a'],
+			}),
 		).resolves.toMatchObject({
 			featureGrants: ['storyCreation'],
 			llmConfigIds: ['credential-a', 'credential-b'],
+			llmModelIdsByConfig: { 'credential-a': ['model-a'] },
+		});
+	});
+
+	it('unions model subsets and lets an all-model grant win', () => {
+		expect(
+			mergeUserGroupLlmAccess([
+				{
+					llmConfigIds: ['credential-a', 'credential-b'],
+					llmModelIdsByConfig: {
+						'credential-a': ['model-a'],
+						'credential-b': ['model-b'],
+					},
+				},
+				{
+					llmConfigIds: ['credential-a', 'credential-b'],
+					llmModelIdsByConfig: {
+						'credential-a': ['model-c'],
+					},
+				},
+			]),
+		).toEqual({
+			llmConfigIds: ['credential-a', 'credential-b'],
+			llmModelIdsByConfig: { 'credential-a': ['model-a', 'model-c'] },
 		});
 	});
 

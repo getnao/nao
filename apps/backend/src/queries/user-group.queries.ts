@@ -39,6 +39,7 @@ import {
 	type UserGroupSsoMappings,
 	withSatisfiedFeatureDependencies,
 } from '@nao/shared';
+import type { LlmModelIdsByConfig } from '@nao/shared/types';
 import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
 
 import type { DBUserGroup, NewUserGroup } from '../db/abstractSchema';
@@ -82,6 +83,7 @@ export interface UserGroupOverview {
 export interface EffectiveUserGroupAccess {
 	groupNames: string[];
 	llmConfigIds: string[];
+	llmModelIdsByConfig: LlmModelIdsByConfig;
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	showAllSettings: boolean;
@@ -92,6 +94,35 @@ export interface EffectiveUserGroupAccess {
 	skillsAccess: SkillsAccess;
 	rowPolicies: UserGroupRowPolicies[];
 	preloadedSkills: string[];
+}
+
+export interface UserGroupLlmAccess {
+	llmConfigIds: string[];
+	llmModelIdsByConfig: LlmModelIdsByConfig;
+}
+
+export function mergeUserGroupLlmAccess(
+	groups: Array<{ llmConfigIds: string[]; llmModelIdsByConfig: LlmModelIdsByConfig }>,
+): UserGroupLlmAccess {
+	const llmConfigIds = [...new Set(groups.flatMap((group) => group.llmConfigIds))];
+	const unrestrictedConfigIds = new Set<string>();
+	const merged: LlmModelIdsByConfig = {};
+	for (const group of groups) {
+		for (const configId of group.llmConfigIds) {
+			if (!Object.hasOwn(group.llmModelIdsByConfig, configId)) {
+				unrestrictedConfigIds.add(configId);
+				delete merged[configId];
+				continue;
+			}
+			if (!unrestrictedConfigIds.has(configId)) {
+				merged[configId] = [...new Set([...(merged[configId] ?? []), ...group.llmModelIdsByConfig[configId]])];
+			}
+		}
+	}
+	return {
+		llmConfigIds,
+		llmModelIdsByConfig: normalizeLlmModelIdsByConfig(llmConfigIds, merged),
+	};
 }
 
 export class UserGroupQueryError extends Error {
@@ -177,10 +208,11 @@ export const resolveUserGroupAccess = async (
 		)[0];
 	const densitySource = newestExplicitGroup ?? defaultGroup;
 	const skillsAccess = unionSkillsAccess(applicableGroups.map((group) => group.contextAccess.skillsAccess));
+	const llmAccess = mergeUserGroupLlmAccess(applicableGroups);
 
 	return {
 		groupNames: applicableGroups.map((group) => group.name),
-		llmConfigIds: [...new Set(applicableGroups.flatMap((group) => group.llmConfigIds))],
+		...llmAccess,
 		features: withSatisfiedFeatureDependencies(
 			USER_GROUP_FEATURES.filter((feature) => grantedFeatures.has(feature)),
 		),
@@ -271,6 +303,7 @@ export const createUserGroup = async (
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	llmConfigIds: string[] = [],
+	llmModelIdsByConfig: LlmModelIdsByConfig = {},
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -288,6 +321,7 @@ export const createUserGroup = async (
 		preloadedSkills,
 		skillsAccess,
 		llmConfigIds,
+		llmModelIdsByConfig,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -327,6 +361,7 @@ export const createUserGroupWithinLimit = async (
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	llmConfigIds: string[] = [],
+	llmModelIdsByConfig: LlmModelIdsByConfig = {},
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -344,6 +379,7 @@ export const createUserGroupWithinLimit = async (
 		preloadedSkills,
 		skillsAccess,
 		llmConfigIds,
+		llmModelIdsByConfig,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -397,6 +433,7 @@ export const updateUserGroup = async (
 		projectSharing?: ProjectSharingPermission;
 		preloadedSkills?: string[];
 		llmConfigIds?: string[];
+		llmModelIdsByConfig?: LlmModelIdsByConfig;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
@@ -451,6 +488,14 @@ export const updateUserGroup = async (
 				}),
 		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
 		...(data.llmConfigIds === undefined ? {} : { llmConfigIds: [...new Set(data.llmConfigIds)] }),
+		...(data.llmModelIdsByConfig === undefined
+			? {}
+			: {
+					llmModelIdsByConfig: normalizeLlmModelIdsByConfig(
+						data.llmConfigIds ?? group.llmConfigIds,
+						data.llmModelIdsByConfig,
+					),
+				}),
 		rowPolicies: serializeUserGroupRowPolicies(resultingRowPolicies),
 		updatedAt: new Date(),
 	};
@@ -509,14 +554,20 @@ export const updateUserGroup = async (
 	return normalizeUserGroup(updated);
 };
 
-export const updateUserGroupLlmConfigIds = async (
+export const updateUserGroupLlmAccess = async (
 	projectId: string,
 	groupId: string,
 	llmConfigIds: string[],
+	llmModelIdsByConfig: LlmModelIdsByConfig,
 ): Promise<UserGroup> => {
+	const uniqueConfigIds = [...new Set(llmConfigIds)];
 	const [updated] = await db
 		.update(s.userGroup)
-		.set({ llmConfigIds: [...new Set(llmConfigIds)], updatedAt: new Date() })
+		.set({
+			llmConfigIds: uniqueConfigIds,
+			llmModelIdsByConfig: normalizeLlmModelIdsByConfig(uniqueConfigIds, llmModelIdsByConfig),
+			updatedAt: new Date(),
+		})
 		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
 		.returning()
 		.execute();
@@ -720,6 +771,7 @@ function createUserGroupValues(
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	llmConfigIds: string[] = [],
+	llmModelIdsByConfig: LlmModelIdsByConfig = {},
 ): NewUserGroup {
 	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	return {
@@ -742,6 +794,7 @@ function createUserGroupValues(
 		ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
 		rowPolicies: serializeUserGroupRowPolicies(filteredRowPolicies),
 		llmConfigIds: [...new Set(llmConfigIds)],
+		llmModelIdsByConfig: normalizeLlmModelIdsByConfig(llmConfigIds, llmModelIdsByConfig),
 		isDefault: false,
 	};
 }
@@ -795,6 +848,18 @@ function getChangedSsoProviders(
 
 function haveSameIdentifiers(left: string[], right: string[]): boolean {
 	return left.length === right.length && left.every((identifier) => right.includes(identifier));
+}
+
+function normalizeLlmModelIdsByConfig(
+	llmConfigIds: readonly string[],
+	llmModelIdsByConfig: LlmModelIdsByConfig,
+): LlmModelIdsByConfig {
+	const assignedConfigIds = new Set(llmConfigIds);
+	return Object.fromEntries(
+		Object.entries(llmModelIdsByConfig)
+			.filter(([configId]) => assignedConfigIds.has(configId))
+			.map(([configId, modelIds]) => [configId, [...new Set(modelIds)]]),
+	);
 }
 
 function isSsoProvisioningConfigured(mappings: ReturnType<typeof serializeUserGroupSsoMappings>): boolean {
@@ -870,6 +935,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		createdAt: group.createdAt,
 		updatedAt: group.updatedAt,
 		llmConfigIds: group.llmConfigIds,
+		llmModelIdsByConfig: group.llmModelIdsByConfig,
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
 		projectSharing: config.projectSharing,

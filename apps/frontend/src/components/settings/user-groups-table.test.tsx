@@ -282,6 +282,7 @@ const allUsers = {
 	skillsAccess: ALL_SKILLS_ACCESS,
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 	llmConfigIds: [] as string[],
+	llmModelIdsByConfig: {},
 };
 const analysts = {
 	...allUsers,
@@ -1020,9 +1021,41 @@ describe('UserGroupEditor', () => {
 			expect(mocks.mutateAsync).toHaveBeenCalledWith({
 				groupId: 'analysts',
 				llmConfigIds: ['credential-b'],
+				llmModelIdsByConfig: {},
 			}),
 		);
+		await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Saved'));
 		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+	});
+
+	it('queues another access change while an autosave is in flight', async () => {
+		let finishFirstSave: (() => void) | undefined;
+		mocks.mutateAsync
+			.mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						finishFirstSave = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({});
+		renderEditor('llm-access');
+
+		const credential = screen.getByRole('checkbox', { name: /OpenAI backup/ });
+		fireEvent.click(credential);
+		await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+
+		fireEvent.click(credential);
+		expect(credential.getAttribute('aria-checked')).toBe('false');
+		expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
+
+		finishFirstSave?.();
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenLastCalledWith({
+				groupId: 'analysts',
+				llmConfigIds: [],
+				llmModelIdsByConfig: {},
+			}),
+		);
 	});
 
 	it('keeps credential assignments in the draft for a new group', () => {

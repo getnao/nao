@@ -10221,6 +10221,14 @@
           "autoincrement": false,
           "default": "'[]'"
         },
+        "llm_model_ids_by_config": {
+          "name": "llm_model_ids_by_config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",

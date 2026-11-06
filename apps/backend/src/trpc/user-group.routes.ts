@@ -32,6 +32,7 @@ import {
 	USER_ROLES,
 	type UserGroupRowPolicies,
 } from '@nao/shared';
+import type { LlmModelIdsByConfig } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -74,6 +75,7 @@ const projectSharingSchema = z.enum(PROJECT_SHARING_PERMISSIONS);
 const skillNameSchema = z.string().trim().min(1).max(200);
 const preloadedSkillsSchema = z.array(skillNameSchema).max(MAX_PRELOADED_SKILLS);
 const llmConfigIdsSchema = z.array(z.string().min(1)).max(200);
+const llmModelIdsByConfigSchema = z.record(z.string().min(1), z.array(z.string().trim().min(1).max(500)).max(1_000));
 const skillsAccessSchema = z.discriminatedUnion('mode', [
 	z.object({ mode: z.literal('all') }).strict(),
 	z.object({ mode: z.literal('restricted'), skills: z.array(skillNameSchema).max(10_000) }).strict(),
@@ -234,9 +236,21 @@ const userGroupRowPoliciesSchema = z
 	})
 	.strict();
 
-async function validateLlmConfigIds(projectId: string, configIds: string[]): Promise<string[]> {
-	if (configIds.length === 0) {
-		return [];
+async function validateLlmAccess(
+	projectId: string,
+	configIds: string[],
+	modelIdsByConfig: LlmModelIdsByConfig,
+): Promise<{ llmConfigIds: string[]; llmModelIdsByConfig: LlmModelIdsByConfig }> {
+	const uniqueIds = [...new Set(configIds)];
+	const assignedIds = new Set(uniqueIds);
+	if (Object.keys(modelIdsByConfig).some((configId) => !assignedIds.has(configId))) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Model restrictions must reference an assigned LLM credential.',
+		});
+	}
+	if (uniqueIds.length === 0) {
+		return { llmConfigIds: [], llmModelIdsByConfig: {} };
 	}
 	if (!(await hasFeature(LICENSE_FEATURES.userGroups, { projectId }))) {
 		throw new TRPCError({
@@ -244,7 +258,6 @@ async function validateLlmConfigIds(projectId: string, configIds: string[]): Pro
 			message: 'An Enterprise user-groups license is required to assign LLM credentials.',
 		});
 	}
-	const uniqueIds = [...new Set(configIds)];
 	const activeIds = new Set((await llmConfigQueries.getProjectLlmConfigs(projectId)).map((config) => config.id));
 	if (uniqueIds.some((configId) => !activeIds.has(configId))) {
 		throw new TRPCError({
@@ -252,7 +265,12 @@ async function validateLlmConfigIds(projectId: string, configIds: string[]): Pro
 			message: 'Every LLM credential must be active and belong to this project.',
 		});
 	}
-	return uniqueIds;
+	return {
+		llmConfigIds: uniqueIds,
+		llmModelIdsByConfig: Object.fromEntries(
+			Object.entries(modelIdsByConfig).map(([configId, modelIds]) => [configId, [...new Set(modelIds)]]),
+		),
+	};
 }
 
 export const userGroupRoutes = {
@@ -356,12 +374,13 @@ export const userGroupRoutes = {
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				llmConfigIds: llmConfigIdsSchema.default([]),
+				llmModelIdsByConfig: llmModelIdsByConfigSchema.default({}),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
-			const llmConfigIds = await validateLlmConfigIds(ctx.project.id, input.llmConfigIds);
+			const llmAccess = await validateLlmAccess(ctx.project.id, input.llmConfigIds, input.llmModelIdsByConfig);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
@@ -397,9 +416,11 @@ export const userGroupRoutes = {
 					input.showAllSettings,
 					input.preloadedSkills,
 					skillsAccess,
-					llmConfigIds,
+					llmAccess.llmConfigIds,
 				] as const;
-				return createUserGroup(...values);
+				return Object.keys(llmAccess.llmModelIdsByConfig).length === 0
+					? createUserGroup(...values)
+					: createUserGroup(...values, llmAccess.llmModelIdsByConfig);
 			});
 			await saveGroupBudget(ctx.project.id, group.id, input.budgetLimitUsd);
 			return group;
@@ -423,16 +444,23 @@ export const userGroupRoutes = {
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				llmConfigIds: llmConfigIdsSchema.optional(),
+				llmModelIdsByConfig: llmModelIdsByConfigSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
-			const llmConfigIds =
+			const llmAccess =
 				input.llmConfigIds === undefined
 					? undefined
-					: await validateLlmConfigIds(ctx.project.id, input.llmConfigIds);
+					: await validateLlmAccess(ctx.project.id, input.llmConfigIds, input.llmModelIdsByConfig ?? {});
+			if (input.llmModelIdsByConfig !== undefined && llmAccess === undefined) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'LLM credential assignments are required with model restrictions.',
+				});
+			}
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
@@ -479,7 +507,7 @@ export const userGroupRoutes = {
 						? {}
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
 					...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
-					...(llmConfigIds === undefined ? {} : { llmConfigIds }),
+					...(llmAccess === undefined ? {} : llmAccess),
 				}),
 			);
 			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
@@ -492,13 +520,19 @@ export const userGroupRoutes = {
 			z.object({
 				groupId: z.string().min(1),
 				llmConfigIds: llmConfigIdsSchema,
+				llmModelIdsByConfig: llmModelIdsByConfigSchema.default({}),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-			const llmConfigIds = await validateLlmConfigIds(ctx.project.id, input.llmConfigIds);
+			const llmAccess = await validateLlmAccess(ctx.project.id, input.llmConfigIds, input.llmModelIdsByConfig);
 			return handleQuery(() =>
-				userGroupQueries.updateUserGroupLlmConfigIds(ctx.project.id, input.groupId, llmConfigIds),
+				userGroupQueries.updateUserGroupLlmAccess(
+					ctx.project.id,
+					input.groupId,
+					llmAccess.llmConfigIds,
+					llmAccess.llmModelIdsByConfig,
+				),
 			);
 		}),
 
