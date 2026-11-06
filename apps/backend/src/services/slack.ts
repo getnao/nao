@@ -1206,14 +1206,11 @@ export class ProjectSlackBot {
 			agent.stop();
 		}
 		await this._readStreamAndUpdateSlackMessage(stream, ctx, activeStream);
-
-		const previousCompletion = this._lastCompletionCard.get(ctx.thread.id);
-		if (previousCompletion) {
-			await this._slackClient.chat.delete({
-				channel: previousCompletion.channelId,
-				ts: previousCompletion.messageTs,
-			});
+		await this._deletePreviousCompletionCard(ctx.thread.id);
+		if (!this._getSlackStreamMessageTs(ctx)) {
+			return;
 		}
+
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const { channelId } = this._getSlackMessageDestination(ctx);
 		const hiddenTables = countHiddenTableNotices(this._getSlackStreamState(ctx).lastDeliveredChildren);
@@ -1223,6 +1220,19 @@ export class ProjectSlackBot {
 			createCompletionCard(chatUrl, { hiddenTables, appName }).children,
 		);
 		this._lastCompletionCard.set(ctx.thread.id, { channelId, messageTs, chatUrl, hiddenTables });
+	}
+
+	/** Feedback buttons always rate the latest assistant message, so only the newest answer may carry them. */
+	private async _deletePreviousCompletionCard(threadId: string): Promise<void> {
+		const previousCompletion = this._lastCompletionCard.get(threadId);
+		if (!previousCompletion) {
+			return;
+		}
+		this._lastCompletionCard.delete(threadId);
+		await this._slackClient.chat.delete({
+			channel: previousCompletion.channelId,
+			ts: previousCompletion.messageTs,
+		});
 	}
 
 	private async _createAgentStream(
@@ -1602,11 +1612,35 @@ export class ProjectSlackBot {
 				}
 			}
 		}
-		const finalBlocks =
-			ctx.blocks.length > 0
-				? ctx.blocks
-				: [createTextBlock(activeStream.stopRequested ? '_Generation stopped._' : '_No response._')];
-		await this._editConversationCard(ctx, finalBlocks, true);
+		if (ctx.blocks.length > 0) {
+			await this._editConversationCard(ctx, ctx.blocks, true);
+		} else if (activeStream.stopRequested) {
+			await this._editConversationCard(ctx, [createTextBlock('_Generation stopped._')], true);
+		} else {
+			await this._deleteConversationCard(ctx);
+		}
+	}
+
+	/**
+	 * An empty answer is a deliberate silence (e.g. a rule telling the agent not to reply), so leave no trace.
+	 * If Slack refuses the delete, settle the card instead so it never stays stuck on "answering".
+	 */
+	private async _deleteConversationCard(ctx: ConversationContext): Promise<void> {
+		const streamState = this._getSlackStreamState(ctx);
+		if (!streamState.messageTs) {
+			return;
+		}
+		const { channelId } = this._getSlackMessageDestination(ctx);
+		try {
+			await this._slackClient.chat.delete({ channel: channelId, ts: streamState.messageTs });
+		} catch (error) {
+			logger.warn(`Failed to delete Slack answering card after an empty answer: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, threadId: ctx.thread.id, messageTs: streamState.messageTs },
+			});
+			await this._editConversationCard(ctx, [createTextBlock('_No response._')], true);
+		}
+		streamState.messageTs = null;
 	}
 
 	private _updateTextBlock(
