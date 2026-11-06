@@ -75,7 +75,7 @@ export function UserGroupPicker({
 	}
 
 	const tokens: UserGroupToken[] = [
-		{ key: 'default', name: defaultGroupName, title: `${defaultGroupName} is added automatically` },
+		{ key: 'default', name: defaultGroupName, title: 'Added automatically' },
 		...selectedGroups.map((group) => ({
 			key: group.id,
 			name: group.name,

@@ -715,6 +715,7 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 			tokens={tokens}
 			triggerLabel={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
 			placeholder={hasGroupsToAdd ? 'Add groups' : ''}
+			isRemoveDisabled={setMembership.isPending}
 		>
 			<DropdownMenuContent
 				align='start'
@@ -753,7 +754,7 @@ function toGroupToken(
 	setGroupMembership: (groupId: string, isMember: boolean) => void,
 ): UserGroupToken {
 	if (group.isDefault) {
-		return { key: group.id, name: group.name, title: `${group.name} is added automatically` };
+		return { key: group.id, name: group.name, title: 'Added automatically' };
 	}
 	if (isManagedBySso) {
 		return { key: group.id, name: group.name, title: 'Managed by SSO' };

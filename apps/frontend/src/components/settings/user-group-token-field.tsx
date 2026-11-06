@@ -17,12 +17,14 @@ export function UserGroupTokenField({
 	triggerLabel,
 	placeholder,
 	disabled = false,
+	isRemoveDisabled = false,
 	children,
 }: {
 	tokens: UserGroupToken[];
 	triggerLabel: string;
 	placeholder: string;
 	disabled?: boolean;
+	isRemoveDisabled?: boolean;
 	children: ReactNode;
 }) {
 	return (
@@ -37,7 +39,7 @@ export function UserGroupTokenField({
 				)}
 			>
 				{tokens.map((token) => (
-					<GroupToken key={token.key} token={token} disabled={disabled} />
+					<GroupToken key={token.key} token={token} isRemoveDisabled={disabled || isRemoveDisabled} />
 				))}
 				<DropdownMenuTrigger asChild>
 					<button
@@ -56,10 +58,10 @@ export function UserGroupTokenField({
 	);
 }
 
-function GroupToken({ token, disabled }: { token: UserGroupToken; disabled: boolean }) {
+function GroupToken({ token, isRemoveDisabled }: { token: UserGroupToken; isRemoveDisabled: boolean }) {
 	return (
 		<span
-			title={token.title}
+			title={token.title ? `${token.name}: ${token.title}` : token.name}
 			className={cn(
 				'inline-flex h-6 max-w-full items-center gap-1 rounded-md border border-border bg-muted/60 pl-1.5 text-xs text-foreground',
 				token.onRemove ? 'pr-0.5' : 'pr-1.5',
@@ -70,9 +72,9 @@ function GroupToken({ token, disabled }: { token: UserGroupToken; disabled: bool
 				<button
 					type='button'
 					onClick={token.onRemove}
-					disabled={disabled}
+					disabled={isRemoveDisabled}
 					aria-label={`Remove group ${token.name}`}
-					className='inline-flex size-4 shrink-0 items-center justify-center rounded-sm opacity-70 transition-opacity hover:bg-background/60 hover:opacity-100'
+					className='inline-flex size-4 shrink-0 items-center justify-center rounded-sm opacity-70 transition-opacity hover:bg-background/60 hover:opacity-100 disabled:pointer-events-none disabled:opacity-30'
 				>
 					<X className='size-3' />
 				</button>
