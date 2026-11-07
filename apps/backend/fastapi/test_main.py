@@ -972,6 +972,80 @@ def test_execute_sql_serializes_every_column_type(monkeypatch: pytest.MonkeyPatc
     )
 
 
+WAREHOUSE_PASSWORD = "Sup3r-S3cret-pw"
+
+
+@pytest.fixture
+def postgres_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    from nao_core.config.databases.postgres import PostgresConfig
+
+    db_config = PostgresConfig(
+        name="warehouse",
+        host="db.internal",
+        database="analytics",
+        user="nao",
+        password=WAREHOUSE_PASSWORD,
+    )
+    config = SimpleNamespace(databases=[db_config])
+    monkeypatch.setattr(main.NaoConfig, "try_load", staticmethod(lambda *args, **kwargs: config))
+    return tmp_path
+
+
+def _raise_warehouse_error(message: str):
+    def raise_error(*args, **kwargs):
+        raise RuntimeError(message)
+
+    return raise_error
+
+
+@pytest.mark.parametrize("path", ["/execute_sql", "/validate_sql"])
+def test_warehouse_authentication_error_hides_password(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    postgres_project: Path,
+    path: str,
+):
+    from nao_core.config.databases.postgres import PostgresConfig
+
+    driver_error = (
+        f'connection to server failed: FATAL: password authentication failed for user "nao" '
+        f"(dsn: postgresql://nao:{WAREHOUSE_PASSWORD}@db.internal/analytics, password={WAREHOUSE_PASSWORD})"
+    )
+    monkeypatch.setattr(PostgresConfig, "execute_sql", _raise_warehouse_error(driver_error))
+    monkeypatch.setattr(main, "_validate_sql", _raise_warehouse_error(driver_error))
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        path,
+        json={"sql": "SELECT 1", "nao_project_folder": str(postgres_project), "table_access": UNENFORCED_TABLE_ACCESS},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == main.AUTHENTICATION_FAILED_MESSAGE
+    logs = capsys.readouterr().out
+    assert "password authentication failed" in logs
+    assert WAREHOUSE_PASSWORD not in logs
+
+
+def test_warehouse_query_error_is_redacted(monkeypatch: pytest.MonkeyPatch, postgres_project: Path):
+    from nao_core.config.databases.postgres import PostgresConfig
+
+    monkeypatch.setattr(
+        PostgresConfig,
+        "execute_sql",
+        _raise_warehouse_error(f'relation "orders" does not exist (session password {WAREHOUSE_PASSWORD})'),
+    )
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={"sql": "SELECT 1", "nao_project_folder": str(postgres_project), "table_access": UNENFORCED_TABLE_ACCESS},
+    )
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert WAREHOUSE_PASSWORD not in detail
+    assert 'relation "orders" does not exist' in detail
+
+
 def test_execute_sql_simple_duckdb(duckdb_project_folder):
     """Test execute_sql endpoint with a DuckDB in-memory database."""
     client = TestClient(app, headers=INTERNAL_HEADERS)
