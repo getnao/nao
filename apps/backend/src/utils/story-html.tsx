@@ -44,7 +44,7 @@ import {
 } from '@nao/shared/date';
 import { STORY_MAP_TILE_LAYERS } from '@nao/shared/story-map-tiles';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
-import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
+import { incompleteMapMessage, mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
@@ -322,7 +322,7 @@ async function prefetchBasemaps(
 	const maps: ParsedMapBlock[] = [];
 	const collect = (segs: Segment[]) => {
 		for (const seg of segs) {
-			if (seg.type === 'map') {
+			if (seg.type === 'map' && !seg.map.missingAttributes) {
 				maps.push(seg.map);
 			} else if (seg.type === 'grid') {
 				collect(seg.children);
@@ -853,6 +853,9 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 
 function MapBlock({ map, queryData }: { map: ParsedMapBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
+	if (map.missingAttributes) {
+		return <Placeholder label={map.title || 'Map'} message={incompleteMapMessage(map)} />;
+	}
 	const rows = queryData?.[map.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
 		return <Placeholder label={map.title || 'Map'} message='Data unavailable' />;

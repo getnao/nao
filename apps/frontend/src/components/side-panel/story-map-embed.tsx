@@ -1,6 +1,6 @@
 import { FoldHorizontal, Pencil, UnfoldHorizontal } from 'lucide-react';
 import { memo, useMemo, useRef, useState } from 'react';
-import { mapBlockToInput } from '@nao/shared/story-segments';
+import { incompleteMapMessage, mapBlockToInput } from '@nao/shared/story-segments';
 import { StoryEmbedFallback } from './story-embed-fallback';
 import type { ParsedMapBlock } from '@nao/shared/story-segments';
 
@@ -25,6 +25,10 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	const embedSourceData = embedData?.[map.queryId];
 	const { sourceData: agentSourceData } = useSourceQuery(embedSourceData ? undefined : map.queryId);
 	const sourceData = embedSourceData ?? agentSourceData;
+
+	if (map.missingAttributes) {
+		return <StoryEmbedFallback dragHandle={dragHandle}>{incompleteMapMessage(map)}</StoryEmbedFallback>;
+	}
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (

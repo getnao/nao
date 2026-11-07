@@ -86,8 +86,8 @@ function TemplateWarnings({ warnings }: { warnings: string[] }) {
 	return (
 		<Block separator={'\n'}>
 			<Span>
-				Story filter template warnings — fix the referenced SQL with execute_sql (prefer query_id) and/or the
-				story filter tags:
+				Story template warnings — fix the referenced SQL with execute_sql (prefer query_id) and/or the story
+				tags:
 			</Span>
 			<List>
 				{warnings.map((warning) => (

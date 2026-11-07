@@ -70,6 +70,8 @@ export interface ParsedMapBlock {
 	boundariesJoinProperty?: string;
 	geometryKey?: string;
 	title: string;
+	/** Coordinate columns a point map cannot render without; the block shows a placeholder naming them. */
+	missingAttributes?: string[];
 	/** The original `<map ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
 }
@@ -229,9 +231,7 @@ export function parseMapBlock(attrString: string): ParsedMapBlock | null {
 		return null;
 	}
 	const mapType = MapTypeEnum.catch('points').parse(attrs.map_type);
-	if (mapType !== 'choropleth' && (!attrs.latitude_key || !attrs.longitude_key)) {
-		return null;
-	}
+	const missingAttributes = getMissingCoordinateAttributes(mapType, attrs);
 
 	return {
 		queryId: attrs.query_id,
@@ -251,7 +251,15 @@ export function parseMapBlock(attrString: string): ParsedMapBlock | null {
 		boundariesJoinProperty: attrs.boundaries_join_property || undefined,
 		geometryKey: attrs.geometry_key || undefined,
 		title: attrs.title || '',
+		...(missingAttributes.length > 0 && { missingAttributes }),
 	};
+}
+
+function getMissingCoordinateAttributes(mapType: MapType, attrs: Record<string, string>): string[] {
+	if (mapType === 'choropleth') {
+		return [];
+	}
+	return ['latitude_key', 'longitude_key'].filter((key) => !attrs[key]);
 }
 
 /** Maps a parsed story `<map>` block to the `displayMap` tool input consumed by the live and static renderers. */
@@ -275,6 +283,10 @@ export function mapBlockToInput(map: ParsedMapBlock): displayMap.Input {
 		geometry_key: map.geometryKey,
 		title: map.title,
 	};
+}
+
+export function incompleteMapMessage(map: ParsedMapBlock): string {
+	return `Map cannot be displayed: the <map> tag is missing ${map.missingAttributes?.join(', ')} (query: ${map.queryId})`;
 }
 
 export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {

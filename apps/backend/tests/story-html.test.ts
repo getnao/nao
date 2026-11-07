@@ -9,6 +9,19 @@ const CHART_ONE =
 const CHART_TWO =
 	'<chart query_id="q2" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"orders"}]\' title="Orders" />';
 
+describe('generateStoryHtml incomplete maps', () => {
+	it('renders a placeholder naming the missing coordinate columns', async () => {
+		const html = await generateStoryHtml(
+			{ title: 'Story', code: '<map query_id="q1" map_type="scatter_bubble" title="Stores" />' },
+			null,
+		);
+
+		expect(html).toContain('Stores');
+		expect(html).toContain('missing latitude_key, longitude_key (query: q1)');
+		expect(html).not.toContain('Data unavailable');
+	});
+});
+
 describe('generateStoryHtml grid flattening', () => {
 	it('flattens grids with widths', async () => {
 		const html = await generateStoryHtml(

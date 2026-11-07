@@ -1,6 +1,13 @@
 import { extractSqlFilterIds, findUnreferencedStoryFilters, validateSqlFilterTemplate } from '@nao/shared/sql-template';
-import { extractQueryIds, getStoryFiltersFromCode } from '@nao/shared/story-segments';
-import { QueryIdSchema } from '@nao/shared/tools';
+import {
+	extractQueryIds,
+	getStoryFiltersFromCode,
+	mapBlockToInput,
+	mapTagRegex,
+	type ParsedMapBlock,
+	parseMapBlock,
+} from '@nao/shared/story-segments';
+import { displayMap, QueryIdSchema } from '@nao/shared/tools';
 
 import { env } from '../env';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
@@ -28,6 +35,7 @@ export async function getStoryTemplateWarnings(
 	const sqlQueries = await resolveSqlQueries(chatId, wellFormedIds, sameTurnQueries);
 
 	warnings.push(...getMissingQueryWarnings(wellFormedIds, sqlQueries));
+	warnings.push(...getIncompleteMapWarnings(code));
 
 	if (env.BETA_STORY_FILTERS_ENABLED) {
 		warnings.push(...getFilterWarnings(code, sqlQueries));
@@ -101,6 +109,25 @@ function getMissingQueryWarnings(wellFormedIds: Set<string>, sqlQueries: SqlQuer
 		}
 	}
 	return warnings;
+}
+
+function getIncompleteMapWarnings(code: string): string[] {
+	const warnings: string[] = [];
+	for (const match of code.matchAll(mapTagRegex('g'))) {
+		const map = parseMapBlock(match[1]);
+		if (!map) {
+			continue;
+		}
+		const missingAttributes = displayMap.getMissingMapAttributes(mapBlockToInput(map));
+		if (missingAttributes.length > 0) {
+			warnings.push(incompleteMapWarning(map, missingAttributes));
+		}
+	}
+	return warnings;
+}
+
+function incompleteMapWarning(map: ParsedMapBlock, missingAttributes: string[]): string {
+	return `<map query_id="${map.queryId}" map_type="${map.mapType}"> is missing ${missingAttributes.join(', ')}. Add the columns display_map requires for this map_type to the tag; until then the map may not render.`;
 }
 
 function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
