@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { memo, useMemo } from 'react';
+import { incompleteMapMessage } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { ChartType } from '@nao/shared/chart-types';
 
@@ -185,6 +186,14 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	const resolved = resolvedData.data;
 	const displayData = resolved?.data ?? [];
 	const showRefreshing = isRefreshing || resolvedData.isFetching;
+
+	if (map.missingAttributes) {
+		return (
+			<StoryMapEmbedShell map={map}>
+				<EmbedPlaceholder>{incompleteMapMessage(map)}</EmbedPlaceholder>
+			</StoryMapEmbedShell>
+		);
+	}
 
 	if (resolvedData.isLoading) {
 		return <EmbedLoading />;
