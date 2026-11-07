@@ -188,7 +188,11 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	const showRefreshing = isRefreshing || resolvedData.isFetching;
 
 	if (map.missingAttributes) {
-		return <EmbedPlaceholder>{incompleteMapMessage(map)}</EmbedPlaceholder>;
+		return (
+			<StoryMapEmbedShell map={map}>
+				<EmbedPlaceholder>{incompleteMapMessage(map)}</EmbedPlaceholder>
+			</StoryMapEmbedShell>
+		);
 	}
 
 	if (resolvedData.isLoading) {

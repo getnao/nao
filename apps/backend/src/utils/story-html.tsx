@@ -44,7 +44,12 @@ import {
 } from '@nao/shared/date';
 import { STORY_MAP_TILE_LAYERS } from '@nao/shared/story-map-tiles';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
-import { incompleteMapMessage, mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
+import {
+	collectMapBlocks,
+	incompleteMapMessage,
+	mapBlockToInput,
+	splitCodeIntoSegments,
+} from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
@@ -151,10 +156,11 @@ export async function generateStoryHtml(
 	const palette = storyExportPalette(options?.theme);
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
-	const hasMap = segmentsIncludeMap(segments);
-	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], staticMaps);
+	const maps = collectRenderableMaps(segments);
+	const hasMap = maps.length > 0;
+	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], staticMaps);
 	const basemaps = staticMaps
-		? await prefetchBasemaps(segments, queryData, inlinedBoundaries)
+		? await prefetchBasemaps(maps, queryData, inlinedBoundaries)
 		: new Map<string, Basemap>();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
@@ -197,8 +203,9 @@ export async function generateStoryEmailHtml(
 	const palette = storyExportPalette(theme);
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
-	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], true);
-	const basemaps = await prefetchBasemaps(segments, queryData, inlinedBoundaries);
+	const maps = collectRenderableMaps(segments);
+	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], true);
+	const basemaps = await prefetchBasemaps(maps, queryData, inlinedBoundaries);
 	const sink = createEmailImageSink();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
@@ -233,12 +240,13 @@ function emailContainerStyle(palette: StoryExportPalette): React.CSSProperties {
 	};
 }
 
-function segmentsIncludeMap(segments: Segment[]): boolean {
-	return segments.some((seg) => seg.type === 'map' || (seg.type === 'grid' && segmentsIncludeMap(seg.children)));
+/** Maps missing their columns render a placeholder, so they need no boundaries, basemap or map library. */
+function collectRenderableMaps(segments: Segment[]): ParsedMapBlock[] {
+	return collectMapBlocks(segments).filter((map) => !map.missingAttributes);
 }
 
 async function prefetchCustomBoundaries(
-	segments: Segment[],
+	maps: ParsedMapBlock[],
 	customBoundaries: CustomBoundarySet[],
 	staticMaps: boolean,
 ): Promise<InlinedBoundaries> {
@@ -247,27 +255,20 @@ async function prefetchCustomBoundaries(
 	const customKeysNeeded = new Set<string>();
 	const boundaryUrlsNeeded = new Set<string>();
 
-	const collect = (segs: Segment[]) => {
-		for (const seg of segs) {
-			if (seg.type === 'map') {
-				// Static rendering resolves region geometry server-side, so it needs the built-in
-				// boundary sets inlined too — not just custom ones.
-				if (seg.map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
-					customKeysNeeded.add(seg.map.regionBoundaries);
-				}
-				if (seg.map.boundariesUrl) {
-					boundaryUrlsNeeded.add(seg.map.boundariesUrl);
-				}
-				const isPointMap = seg.map.mapType === 'points' || seg.map.mapType === 'scatter_bubble';
-				if (staticMaps && isPointMap) {
-					customKeysNeeded.add(WORLD_BACKDROP_KEY);
-				}
-			} else if (seg.type === 'grid') {
-				collect(seg.children);
-			}
+	for (const map of maps) {
+		// Static rendering resolves region geometry server-side, so it needs the built-in
+		// boundary sets inlined too — not just custom ones.
+		if (map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
+			customKeysNeeded.add(map.regionBoundaries);
 		}
-	};
-	collect(segments);
+		if (map.boundariesUrl) {
+			boundaryUrlsNeeded.add(map.boundariesUrl);
+		}
+		const isPointMap = map.mapType === 'points' || map.mapType === 'scatter_bubble';
+		if (staticMaps && isPointMap) {
+			customKeysNeeded.add(WORLD_BACKDROP_KEY);
+		}
+	}
 
 	await Promise.all([
 		...[...customKeysNeeded].map(async (key) => {
@@ -314,23 +315,11 @@ async function prefetchCustomBoundaries(
 }
 
 async function prefetchBasemaps(
-	segments: Segment[],
+	maps: ParsedMapBlock[],
 	queryData: QueryDataMap | null,
 	inlinedBoundaries: InlinedBoundaries,
 ): Promise<Basemaps> {
 	const result: Basemaps = new Map();
-	const maps: ParsedMapBlock[] = [];
-	const collect = (segs: Segment[]) => {
-		for (const seg of segs) {
-			if (seg.type === 'map' && !seg.map.missingAttributes) {
-				maps.push(seg.map);
-			} else if (seg.type === 'grid') {
-				collect(seg.children);
-			}
-		}
-	};
-	collect(segments);
-
 	const byteBudget = basemapByteBudgetForCount(new Set(maps.map(mapBasemapKey)).size);
 	await Promise.all(
 		maps.map(async (map) => {

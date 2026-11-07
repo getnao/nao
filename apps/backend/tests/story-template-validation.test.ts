@@ -76,6 +76,17 @@ describe('getStoryTemplateWarnings', () => {
 		]);
 	});
 
+	it('checks a map block with its parameters replaced by their defaults', async () => {
+		const code = [
+			`<parameter id="kind" options='["choropleth","points"]' default="choropleth" />`,
+			`<map query_id="${SAME_TURN_ID}" map_type="{{ params.kind }}" value_key="sales" region_key="country" region_boundaries="world_countries" title="Sales" />`,
+		].join('\n');
+
+		const warnings = await getStoryTemplateWarnings('chat-1', code, { [SAME_TURN_ID]: { sqlQuery: 'SELECT 2' } });
+
+		expect(warnings).toEqual([]);
+	});
+
 	it('does not flag a complete map block', async () => {
 		const code = `<map query_id="${SAME_TURN_ID}" map_type="points" latitude_key="lat" longitude_key="lng" title="Stores" />`;
 

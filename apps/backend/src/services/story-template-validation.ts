@@ -1,11 +1,11 @@
 import { extractSqlFilterIds, findUnreferencedStoryFilters, validateSqlFilterTemplate } from '@nao/shared/sql-template';
 import {
+	collectMapBlocks,
 	extractQueryIds,
 	getStoryFiltersFromCode,
 	mapBlockToInput,
-	mapTagRegex,
 	type ParsedMapBlock,
-	parseMapBlock,
+	splitCodeIntoSegments,
 } from '@nao/shared/story-segments';
 import { displayMap, QueryIdSchema } from '@nao/shared/tools';
 
@@ -111,19 +111,12 @@ function getMissingQueryWarnings(wellFormedIds: Set<string>, sqlQueries: SqlQuer
 	return warnings;
 }
 
+/** Checks the maps as they render, with `{{ params.<id> }}` placeholders replaced by their defaults. */
 function getIncompleteMapWarnings(code: string): string[] {
-	const warnings: string[] = [];
-	for (const match of code.matchAll(mapTagRegex('g'))) {
-		const map = parseMapBlock(match[1]);
-		if (!map) {
-			continue;
-		}
+	return collectMapBlocks(splitCodeIntoSegments(code)).flatMap((map) => {
 		const missingAttributes = displayMap.getMissingMapAttributes(mapBlockToInput(map));
-		if (missingAttributes.length > 0) {
-			warnings.push(incompleteMapWarning(map, missingAttributes));
-		}
-	}
-	return warnings;
+		return missingAttributes.length > 0 ? [incompleteMapWarning(map, missingAttributes)] : [];
+	});
 }
 
 function incompleteMapWarning(map: ParsedMapBlock, missingAttributes: string[]): string {

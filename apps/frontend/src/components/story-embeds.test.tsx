@@ -5,6 +5,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseMapBlock } from '@nao/shared/story-segments';
 import { StoryMapEmbed } from './story-embeds';
+import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 
 vi.mock('@/main', () => ({ trpc: {} }));
 
@@ -19,11 +20,13 @@ vi.mock('@/components/story-map-embed', () => ({
 afterEach(cleanup);
 
 function renderMapEmbed(attributes: string) {
-	const map = parseMapBlock(attributes)!;
+	const map = { ...parseMapBlock(attributes)!, rawTag: `<map ${attributes} />` };
 	const queryData = { q1: { data: [{ lat: 48.85, lng: 2.35 }], columns: ['lat', 'lng'] } };
 	render(
 		<QueryClientProvider client={new QueryClient()}>
-			<StoryMapEmbed map={map} queryData={queryData} />
+			<EditorStoryMapEditProvider onReplaceTag={() => {}}>
+				<StoryMapEmbed map={map} queryData={queryData} />
+			</EditorStoryMapEditProvider>
 		</QueryClientProvider>,
 	);
 }
@@ -38,6 +41,7 @@ describe('StoryMapEmbed', () => {
 			),
 		).toBeTruthy();
 		expect(screen.queryByText('map rendered')).toBeNull();
+		expect(screen.getByTitle('Edit map')).toBeTruthy();
 	});
 
 	it('renders a complete map', () => {

@@ -927,3 +927,12 @@ export function splitCodeIntoSegments(code: string, parameters?: ResolvedStoryPa
 
 	return segments;
 }
+
+export function collectMapBlocks(segments: Segment[]): ParsedMapBlock[] {
+	return segments.flatMap((segment) => {
+		if (segment.type === 'map') {
+			return [segment.map];
+		}
+		return segment.type === 'grid' ? collectMapBlocks(segment.children) : [];
+	});
+}

@@ -144,7 +144,7 @@ export const InputSchema = buildInputSchema();
 
 /** Lists the columns `InputSchema` requires for the input's map_type that the input leaves out. */
 export function getMissingMapAttributes(input: Input): string[] {
-	const result = InputSchema.safeParse(input);
+	const result = InputSchema.safeParse(withBuiltinRegionBoundaries(input));
 	if (result.success) {
 		return [];
 	}
@@ -152,6 +152,17 @@ export function getMissingMapAttributes(input: Input): string[] {
 }
 
 const CHOROPLETH_BOUNDARY_ATTRIBUTES = 'region_key with region_boundaries or boundaries_url, or geometry_key';
+
+/**
+ * Only the presence of region_boundaries matters for missing columns. A project's custom set fails the
+ * built-in enum, which would stop the schema before it checks the required columns.
+ */
+function withBuiltinRegionBoundaries(input: Input): Input {
+	if (!input.region_boundaries) {
+		return input;
+	}
+	return { ...input, region_boundaries: RegionBoundariesEnum.options[0] };
+}
 
 function describeMissingAttribute(issue: z.ZodIssue): string[] {
 	if (issue.code === z.ZodIssueCode.invalid_type && issue.received === 'undefined') {

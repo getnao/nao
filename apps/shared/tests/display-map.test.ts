@@ -39,4 +39,14 @@ describe('getMissingMapAttributes', () => {
 		};
 		expect(displayMap.getMissingMapAttributes(input)).toEqual([]);
 	});
+
+	it('lists the value column a choropleth on a custom boundary set lacks', () => {
+		const input = {
+			...baseInput,
+			map_type: 'choropleth' as const,
+			region_key: 'department',
+			region_boundaries: 'custom_departments',
+		};
+		expect(displayMap.getMissingMapAttributes(input)).toEqual(['value_key']);
+	});
 });

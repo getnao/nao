@@ -27,7 +27,11 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	const sourceData = embedSourceData ?? agentSourceData;
 
 	if (map.missingAttributes) {
-		return <StoryEmbedFallback dragHandle={dragHandle}>{incompleteMapMessage(map)}</StoryEmbedFallback>;
+		return (
+			<StoryMapEmbedShell map={map} dragHandle={dragHandle}>
+				<StoryEmbedFallback>{incompleteMapMessage(map)}</StoryEmbedFallback>
+			</StoryMapEmbedShell>
+		);
 	}
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
