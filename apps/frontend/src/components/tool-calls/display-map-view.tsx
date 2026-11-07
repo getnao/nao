@@ -56,6 +56,7 @@ const REGIONS_SOURCE_ID = 'query-regions';
 const REGIONS_FILL_ID = 'query-regions-fill';
 const REGIONS_LINE_ID = 'query-regions-line';
 const POINT_STROKE_WIDTH = 1;
+const NO_BOUNDARIES: CustomBoundarySet[] = [];
 
 export interface MapViewHandle {
 	captureImage: (type?: string) => Promise<string | null>;
@@ -101,7 +102,7 @@ export default memo(function MapView({
 	const isChoropleth = config.map_type === 'choropleth';
 	const isBubble = config.map_type === 'scatter_bubble';
 
-	const { data: fetchedBoundaries = [] } = useQuery({
+	const { data: fetchedBoundaries = NO_BOUNDARIES } = useQuery({
 		...trpc.project.getMapBoundaries.queryOptions(),
 		enabled: injectedBoundaries === undefined,
 	});

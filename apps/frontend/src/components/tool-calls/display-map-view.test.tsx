@@ -70,7 +70,9 @@ vi.mock('@/lib/maplibre', () => ({
 vi.mock('@/main', () => ({
 	trpc: {
 		project: {
-			getMapBoundaries: { queryOptions: () => ({ queryKey: ['map-boundaries'], queryFn: async () => [] }) },
+			getMapBoundaries: {
+				queryOptions: () => ({ queryKey: ['map-boundaries'], queryFn: () => new Promise(() => {}) }),
+			},
 		},
 	},
 }));
@@ -81,6 +83,14 @@ const CONFIG: displayMap.Input = {
 	map_type: 'points',
 	latitude_key: 'lat',
 	longitude_key: 'lng',
+};
+const CHOROPLETH_CONFIG: displayMap.Input = {
+	query_id: 'query',
+	title: 'Regions',
+	map_type: 'choropleth',
+	region_boundaries: 'world_countries',
+	region_key: 'country',
+	value_key: 'sales',
 };
 const PARIS: MapPoint[] = [{ latitude: 48.85, longitude: 2.35, row: {} }];
 const TOKYO: MapPoint[] = [{ latitude: 35.68, longitude: 139.69, row: {} }];
@@ -148,14 +158,32 @@ describe('MapView camera across viewport releases', () => {
 		expect(lastMap().jumpTo).not.toHaveBeenCalled();
 		expect(lastMap().fitBounds).toHaveBeenCalledOnce();
 	});
+
+	it('restores the camera of a choropleth while its boundary sets are still loading', () => {
+		renderWithQueryClient(<MapView points={[]} rows={[]} config={CHOROPLETH_CONFIG} />);
+		setNearViewport(true);
+		const firstMap = lastMap();
+		act(() => firstMap.emit('style.load'));
+		firstMap.camera = { center: { lng: 5, lat: 45 }, zoom: 9, bearing: 10, pitch: 20 };
+
+		setNearViewport(false);
+		setNearViewport(true);
+		act(() => lastMap().emit('style.load'));
+
+		expect(lastMap().jumpTo).toHaveBeenCalledWith(firstMap.camera);
+	});
 });
 
 function renderMap(points: MapPoint[]) {
+	return renderWithQueryClient(<MapView points={points} rows={[]} config={CONFIG} customBoundaries={[]} />);
+}
+
+function renderWithQueryClient(element: ReactNode) {
 	const queryClient = new QueryClient();
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 	);
-	return render(<MapView points={points} rows={[]} config={CONFIG} customBoundaries={[]} />, { wrapper });
+	return render(element, { wrapper });
 }
 
 function lastMap() {
