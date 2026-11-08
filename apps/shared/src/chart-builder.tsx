@@ -1583,7 +1583,6 @@ function dataPointPart(
 	};
 }
 
-/** Large charts skip their data point markup, which would otherwise add one element per row and series. */
 function hasSelectablePoints(data: Record<string, unknown>[]): boolean {
 	return data.length <= MAX_SELECTABLE_POINTS;
 }

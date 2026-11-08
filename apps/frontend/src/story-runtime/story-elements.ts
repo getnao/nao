@@ -12,7 +12,7 @@ const MAX_PART_FIELD_LENGTH = 200;
 const PART_FIELD_KEYS = ['naoPartLabel', 'naoPartSeries', 'naoPartCategory', 'naoPartValue'];
 const QUOTED_BY_VALUE_KINDS: ReadonlySet<StoryBlockPart['kind']> = new Set(['kpi-value', 'kpi-comparison', 'cell']);
 
-/** The part under the pointer inside a block, else the block, else the text block holding it: what a click in selection mode quotes. */
+/** The part under the pointer, else its block, else the text block holding it: what a click in selection mode quotes. */
 export function findInspectableElement(target: EventTarget | null): Element | null {
 	if (!(target instanceof Element)) {
 		return null;
@@ -26,7 +26,6 @@ export function findInspectableElement(target: EventTarget | null): Element | nu
 	return element && element.textContent?.trim() ? element : null;
 }
 
-/** A selectable element wrapping a kit block must not take the clicks meant for that block. */
 function isWithinBlock(part: Element, block: Element | null): boolean {
 	return !block || block.contains(part);
 }
@@ -95,7 +94,6 @@ function readIdentityFallback(dataset: DOMStringMap): string | undefined {
 	return isIdentifiedByCategory(dataset.naoPart) ? dataset.naoPartCategory : undefined;
 }
 
-/** KPI values and table cells are quoted by what they show, as their label only names it. */
 function readPartQuote(part: StoryBlockPart): string | undefined {
 	if (part.kind === 'element') {
 		return [part.label, part.value].filter(Boolean).join(' · ');

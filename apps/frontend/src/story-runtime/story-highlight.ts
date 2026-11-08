@@ -54,7 +54,6 @@ export function highlightStoryElement(
 	);
 }
 
-/** A cited part's block is only settled on once its part had a grace period to render. */
 function findCitedElement({ block, text }: StoryElementAsk, root: ParentNode, settlesOnBlock: boolean): Element | null {
 	if (block.kind === 'text') {
 		return findQuotedElement(text, root);
@@ -136,7 +135,6 @@ function revealElement(element: Element): boolean {
 	return !element.dispatchEvent(new Event(STORY_REVEAL_EVENT, { bubbles: true, cancelable: true }));
 }
 
-/** A cell whose value changed since it was cited, after a refresh, is still found by its column and row. */
 function findPart(cited: StoryBlockPart, block: ParentNode): Element | null {
 	const parts = [...block.querySelectorAll(PART_SELECTOR)].map((element) => ({
 		element,
@@ -148,7 +146,6 @@ function findPart(cited: StoryBlockPart, block: ParentNode): Element | null {
 	return (exact ?? sameCell)?.element ?? null;
 }
 
-/** A value tells apart the elements a list renders under one name, and the cells of rows sharing a first column. */
 function identityFields(cited: StoryBlockPart): readonly (keyof StoryBlockPart)[] {
 	return cited.kind === 'element' || cited.kind === 'cell' ? ELEMENT_IDENTITY_FIELDS : PART_IDENTITY_FIELDS;
 }

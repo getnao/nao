@@ -69,10 +69,7 @@ export function StoryAskBar({
 	);
 }
 
-/**
- * The agent may edit the story from a quick question: the page shows the new version once it answered.
- * Only the results of the queries the agent ran are refetched, so the blocks it left alone don't re-query the warehouse.
- */
+/** The agent may edit the story from a quick question: the page shows the new version once it answered. */
 function StoryRefreshAfterEdit() {
 	const queryClient = useQueryClient();
 	const messages = useAgentMessages();
