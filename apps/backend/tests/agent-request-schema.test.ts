@@ -48,6 +48,7 @@ describe('describeStoryElement', () => {
 
 	it('describes the whole block when no part is cited', () => {
 		expect(describeStoryElement(barChart)).toBe('the bar-chart block "Monthly Revenue", reading q1');
+		expect(describeStoryElement({ kind: 'kpi', title: 'Revenue "net"' })).toBe('the kpi block "Revenue \\"net\\""');
 	});
 
 	it('describes a selectable element of the story by its name and detail, inside a kit block or not', () => {
@@ -63,7 +64,9 @@ describe('describeStoryElement', () => {
 });
 
 describe('CitationDataSchema', () => {
-	const citation = (part: object) => ({ start: 0, end: 4, text: 'Feb', block: { kind: 'bar-chart', part } });
+	const citation = (part: object) => {
+		return { start: 0, end: 4, text: 'Feb', block: { kind: 'bar-chart', part } };
+	};
 
 	it('rejects an unknown part kind', () => {
 		expect(CitationDataSchema.safeParse(citation({ kind: 'bogus' })).success).toBe(false);

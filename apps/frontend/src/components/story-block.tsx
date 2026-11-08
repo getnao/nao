@@ -10,6 +10,8 @@ interface StoryContainerProps {
 	block?: StoryBlockReference;
 }
 
+const MAX_TABLE_TITLE_LENGTH = 120;
+
 export function StoryBlock({ children, className, block }: StoryContainerProps) {
 	return (
 		<div className={cn('story-block', className)} {...toBlockAttributes(block)}>
@@ -44,7 +46,14 @@ export function tableBlockReference({ title, queryId }: ParsedTableBlock): Story
 }
 
 export function markdownTableBlockReference(columns: string[]): StoryBlockReference {
-	return { kind: 'markdown-table', title: columns.join(', ') || undefined };
+	const title = columns.join(', ');
+	if (!title) {
+		return { kind: 'markdown-table' };
+	}
+	return {
+		kind: 'markdown-table',
+		title: title.length > MAX_TABLE_TITLE_LENGTH ? `${title.slice(0, MAX_TABLE_TITLE_LENGTH)}…` : title,
+	};
 }
 
 export function mapBlockReference({ mapType, title, queryId }: ParsedMapBlock): StoryBlockReference {

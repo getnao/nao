@@ -176,6 +176,21 @@ describe('story inspector', () => {
 			]);
 		});
 
+		it('cites a kit block inside a selectable element as the block, not the element', () => {
+			const section = document.createElement('div');
+			setAttributes(section, selectable({ name: 'Revenue section' }));
+			const block = document.querySelector('section')!;
+			block.replaceWith(section);
+			section.append(block);
+
+			document.querySelector('h3')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+			expect(onAsk).toHaveBeenCalledWith({
+				block: { kind: 'bar-chart', title: 'Revenue', queryId: 'q1' },
+				text: 'Revenue',
+			});
+		});
+
 		it('quotes a text block with its text', () => {
 			document.querySelector('b')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 

@@ -90,8 +90,8 @@ export function storyKitGuideItems(): ReactElement[] {
 			@nao/story-kit on it. Users click it in selection mode to ask about or edit that element alone, and its name
 			is how they and you refer to it: keep each name short and distinct, and in lists pass a <Bold>detail</Bold>{' '}
 			telling the items apart ({'{...selectable({ name: "Card", detail: "7 of hearts" })}'}). Kit blocks are
-			already selectable. Whenever you write, update or edit a story, add it to the elements you write or touch
-			that lack it. In an HTML story, write{' '}
+			already selectable. Give it to every element of a story you write; when you edit a story, give it only to
+			the elements the request changes and leave the others untouched. In an HTML story, write{' '}
 			<Bold>{'data-nao-part="element" data-nao-part-label="<name>" data-nao-part-value="<detail>"'}</Bold> on the
 			element instead, replacing the placeholders with its own name and optional detail.
 		</ListItem>,

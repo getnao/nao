@@ -1353,7 +1353,7 @@ export function describeStoryElement(block: StoryBlockReference): string {
 }
 
 function describeBlock({ kind, title, queryId }: StoryBlockReference): string {
-	const titled = title ? ` "${title}"` : '';
+	const titled = title ? ` ${JSON.stringify(title)}` : '';
 	const query = queryId ? `, reading ${queryId}` : '';
 	return `the ${kind} block${titled}${query}`;
 }
@@ -1389,10 +1389,10 @@ function describePart({ kind, label, series, category, value }: StoryBlockPart):
 	const secondary = isCell ? { word: 'row', text: category } : { word: 'series', text: series };
 	const parts = [`the ${PART_NOUNS[kind]}`];
 	if (name) {
-		parts.push(`"${name}"`);
+		parts.push(JSON.stringify(name));
 	}
 	if (secondary.text && secondary.text !== name) {
-		parts.push(`of ${secondary.word} "${secondary.text}"`);
+		parts.push(`of ${secondary.word} ${JSON.stringify(secondary.text)}`);
 	}
 	if (value) {
 		parts.push(`(value ${value})`);

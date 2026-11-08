@@ -87,6 +87,7 @@ const AXIS_TICK = { fontSize: CHART_LABEL_FONT_SIZE, fontFamily: CHART_FONT_STAC
 const AXIS_TICK_PART = partAttributes({ kind: 'axis-tick' });
 const SELECTABLE_AXIS_TICK = { ...AXIS_TICK, ...AXIS_TICK_PART };
 const POINT_HIT_RADIUS = 4;
+const MAX_SELECTABLE_POINTS = 1000;
 const CATEGORY_XAXIS_HEIGHT = 56;
 const X_AXIS_LABEL_HEIGHT = 22;
 
@@ -1332,7 +1333,7 @@ function buildAreaChart(props: ResolvedProps) {
 					stroke={colorFor(s.data_key, i)}
 					fill={isLine ? 'none' : `url(#${gradientIdFor(i)})`}
 					stackId={isStacked ? 'stack' : undefined}
-					dot={renderPartDot(s, xAxisKey)}
+					dot={renderPartDot(data, s, xAxisKey)}
 					activeDot={renderPartActiveDot(s, xAxisKey)}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
@@ -1533,7 +1534,7 @@ function renderComboSeries(
 				type='monotone'
 				stroke={color}
 				strokeWidth={2}
-				dot={renderPartDot(series, xAxisKey)}
+				dot={renderPartDot(data, series, xAxisKey)}
 				activeDot={renderPartActiveDot(series, xAxisKey)}
 				isAnimationActive={false}
 			/>
@@ -1548,7 +1549,7 @@ function renderComboSeries(
 				type='monotone'
 				stroke={color}
 				fill={`url(#${idPrefix}grad-combo-${index})`}
-				dot={renderPartDot(series, xAxisKey)}
+				dot={renderPartDot(data, series, xAxisKey)}
 				activeDot={renderPartActiveDot(series, xAxisKey)}
 				isAnimationActive={false}
 			/>
@@ -1582,11 +1583,22 @@ function dataPointPart(
 	};
 }
 
+/** Large charts skip their data point markup, which would otherwise add one element per row and series. */
+function hasSelectablePoints(data: Record<string, unknown>[]): boolean {
+	return data.length <= MAX_SELECTABLE_POINTS;
+}
+
 function renderDataPointCells(data: Record<string, unknown>[], series: displayChart.SeriesConfig, xAxisKey: string) {
+	if (!hasSelectablePoints(data)) {
+		return null;
+	}
 	return data.map((row, index) => <Cell key={index} {...partAttributes(dataPointPart(row, series, xAxisKey))} />);
 }
 
-function renderPartDot(series: displayChart.SeriesConfig, xAxisKey: string) {
+function renderPartDot(data: Record<string, unknown>[], series: displayChart.SeriesConfig, xAxisKey: string) {
+	if (!hasSelectablePoints(data)) {
+		return false;
+	}
 	return function PartDot({
 		key,
 		cx,

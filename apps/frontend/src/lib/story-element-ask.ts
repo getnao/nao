@@ -26,9 +26,13 @@ export function readStoryElementAsk({ block, text }: StoryElementAsk): StoryElem
 }
 
 /** A block's own edit button asks about the whole block, so a part posted with it is dropped. */
-export function toWholeBlockReference(block: StoryBlockReference): StoryBlockReference {
-	const { part: _part, ...reference } = block;
-	return reference;
+export function readBlockAsk(block: StoryBlockReference | undefined): StoryElementAsk | null {
+	const ask = readStoryElementAsk({ block: block as StoryBlockReference, text: block?.title ?? '' });
+	if (!ask) {
+		return null;
+	}
+	const { part: _part, ...wholeBlock } = ask.block;
+	return { block: wholeBlock, text: ask.text };
 }
 
 function readPart(part: unknown): StoryBlockPart | undefined {

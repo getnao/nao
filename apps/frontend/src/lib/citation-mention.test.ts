@@ -11,7 +11,7 @@ import {
 	toCopiedText,
 	writeCitedText,
 } from './citation-mention';
-import { readStoryElementAsk, toWholeBlockReference } from './story-element-ask';
+import { readBlockAsk, readStoryElementAsk } from './story-element-ask';
 import type { PromptHandle } from 'prompt-mentions';
 import type { StoryBlockPart } from '@nao/shared/story-parts';
 
@@ -116,12 +116,9 @@ describe('citation mentions', () => {
 	});
 
 	it('names KPI values and table cells by what they show', () => {
-		const citeOf = (part: StoryBlockPart) => ({
-			start: 0,
-			end: 0,
-			text: '',
-			block: { kind: 'kpi', title: 'Orders', part },
-		});
+		const citeOf = (part: StoryBlockPart) => {
+			return { start: 0, end: 0, text: '', block: { kind: 'kpi', title: 'Orders', part } };
+		};
 
 		expect(
 			toCitationMentionOption(citeOf({ kind: 'kpi-value', label: 'Total orders', value: '1,103' }), 'c1').label,
@@ -157,12 +154,9 @@ describe('citation mentions', () => {
 	});
 
 	it('tells citations of different parts of the same block apart', () => {
-		const citeOf = (part?: { kind: 'cell'; value: string }) => ({
-			start: 0,
-			end: 0,
-			text: 'Total',
-			block: { kind: 'data-table', title: 'Orders', part },
-		});
+		const citeOf = (part?: { kind: 'cell'; value: string }) => {
+			return { start: 0, end: 0, text: 'Total', block: { kind: 'data-table', title: 'Orders', part } };
+		};
 
 		expect(isSameCitation(citeOf({ kind: 'cell', value: 'a' }), citeOf({ kind: 'cell', value: 'b' }))).toBe(false);
 		expect(isSameCitation(citeOf({ kind: 'cell', value: 'a' }), citeOf())).toBe(false);
@@ -218,10 +212,16 @@ describe('readStoryElementAsk', () => {
 	});
 });
 
-describe('toWholeBlockReference', () => {
-	it('drops any part the frame posted with a whole-block ask', () => {
-		const forged = { kind: 'kpi', title: 'Total', queryId: 'q1', part: { kind: 'bogus' } };
+describe('readBlockAsk', () => {
+	it('asks about the whole block, dropping any part the frame posted with it', () => {
+		const forged = { kind: 'kpi', title: 'Total', queryId: 'q1', part: { kind: 'kpi-value' as const, value: '3' } };
 
-		expect(toWholeBlockReference(forged as never)).toEqual({ kind: 'kpi', title: 'Total', queryId: 'q1' });
+		expect(readBlockAsk(forged)).toEqual({ block: { kind: 'kpi', title: 'Total', queryId: 'q1' }, text: 'Total' });
+	});
+
+	it('rejects a missing or malformed block', () => {
+		expect(readBlockAsk(undefined)).toBeNull();
+		expect(readBlockAsk({ kind: 'kpi', title: 3 } as never)).toBeNull();
+		expect(readBlockAsk({ kind: 'code' })).toBeNull();
 	});
 });

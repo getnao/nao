@@ -442,6 +442,16 @@ describe('chart parts', () => {
 		expect(countMatches(render(monthlyConfig({ chartType, ...overrides })), DATA_POINT)).toBe(count);
 	});
 
+	it('leaves the bars and dots of a large chart unmarked', () => {
+		const data = Array.from({ length: 1001 }, (_, index) => ({ month: `m${index}`, revenue: index, cost: 1 }));
+		const series = [{ data_key: 'revenue', series_type: 'line' as const }, { data_key: 'cost' }];
+
+		const markup = render(monthlyConfig({ chartType: 'mixed', series, data }));
+
+		expect(markup).not.toContain(DATA_POINT);
+		expect(markup).not.toContain('fill="transparent"');
+	});
+
 	it('keeps the horizontal bar track out of the data points', () => {
 		const tracks = render(monthlyConfig({ chartType: 'horizontal_bar' })).match(
 			/<path[^>]*recharts-bar-background-rectangle[^>]*>/g,

@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { QueryKey } from '@tanstack/react-query';
 import type { CSSProperties } from 'react';
-import type { UIMessage } from '@nao/backend/chat';
 
 import { AskBar } from '@/components/ask-bar';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { hasStoryEdit, isOutdatedByEdit, readStoryEdit } from '@/lib/story-edit-refresh';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
-
-const STORY_ROUTERS = new Set(['story', 'storyShare', 'customStoryViewer', 'standaloneCustomStory']);
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
@@ -89,8 +86,8 @@ function StoryRefreshAfterEdit() {
 			return;
 		}
 		handledMessageId.current = lastMessage.id;
-		const ranQueryIds = findRanQueryIds(lastMessage);
-		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query.queryKey, ranQueryIds) });
+		const edit = readStoryEdit(lastMessage);
+		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query, edit) });
 	}, [editedStory, messages, queryClient]);
 
 	return null;
@@ -116,35 +113,4 @@ function StoryPageRefreshAfterAnswer({ onAnswered }: { onAnswered: () => void })
 	}, [isRunning, onAnswered]);
 
 	return null;
-}
-
-/** Filtered results combine every query of the story, so they only go stale when the agent ran one. */
-function isOutdatedByEdit(queryKey: QueryKey, ranQueryIds: Set<string>): boolean {
-	const [path, options] = queryKey as [unknown, { input?: { queryId?: unknown; selections?: unknown } } | undefined];
-	if (!Array.isArray(path) || !STORY_ROUTERS.has(path[0])) {
-		return false;
-	}
-	const queryId = options?.input?.queryId;
-	if (typeof queryId === 'string') {
-		return ranQueryIds.has(queryId);
-	}
-	return options?.input?.selections === undefined || ranQueryIds.size > 0;
-}
-
-function findRanQueryIds(message: UIMessage): Set<string> {
-	return new Set(
-		message.parts.flatMap((part) =>
-			(part.type === 'tool-execute_sql' || part.type === 'tool-execute_semantic_query') &&
-			part.state === 'output-available'
-				? [part.output.id]
-				: [],
-		),
-	);
-}
-
-function hasStoryEdit(message: UIMessage | undefined): boolean {
-	return (
-		message?.role === 'assistant' &&
-		message.parts.some((part) => part.type === 'tool-story' && part.state === 'output-available')
-	);
 }

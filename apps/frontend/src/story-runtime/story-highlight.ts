@@ -12,7 +12,7 @@ const MAX_SEARCHED_QUOTE_LENGTH = 80;
 const MIN_QUOTE_START_WORDS = 3;
 const OUTLINE_DURATION_MS = 1800;
 const MAX_WAIT_MS = 8000;
-const PART_GRACE_MS = Math.min(1000, MAX_WAIT_MS);
+const PART_GRACE_MS = 1000;
 const TOP_LAYER_Z_INDEX = 2147483646;
 const PART_IDENTITY_FIELDS = ['label', 'series', 'category'] as const;
 const ELEMENT_IDENTITY_FIELDS = [...PART_IDENTITY_FIELDS, 'value'] as const;
@@ -119,7 +119,13 @@ function waitForElement(
 			frame = requestAnimationFrame(search);
 		}
 	});
-	const timeout = window.setTimeout(stop, MAX_WAIT_MS);
+	const giveUp = () => {
+		if (grace) {
+			settleOnBlock();
+		}
+		stop();
+	};
+	const timeout = window.setTimeout(giveUp, MAX_WAIT_MS);
 	observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true });
 	startGraceOnceBlockShown();
 	return stop;
@@ -130,14 +136,28 @@ function revealElement(element: Element): boolean {
 	return !element.dispatchEvent(new Event(STORY_REVEAL_EVENT, { bubbles: true, cancelable: true }));
 }
 
+/** A cell whose value changed since it was cited, after a refresh, is still found by its column and row. */
 function findPart(cited: StoryBlockPart, block: ParentNode): Element | null {
-	const parts = [...block.querySelectorAll(PART_SELECTOR)];
-	return parts.find((element) => isSamePart(cited, readElementPart(element))) ?? null;
+	const parts = [...block.querySelectorAll(PART_SELECTOR)].map((element) => ({
+		element,
+		part: readElementPart(element),
+	}));
+	const exact = parts.find(({ part }) => isSamePart(cited, part, identityFields(cited)));
+	const sameCell =
+		cited.kind === 'cell' ? parts.find(({ part }) => isSamePart(cited, part, PART_IDENTITY_FIELDS)) : undefined;
+	return (exact ?? sameCell)?.element ?? null;
 }
 
 /** A value tells apart the elements a list renders under one name, and the cells of rows sharing a first column. */
-function isSamePart(cited: StoryBlockPart, found: StoryBlockPart | null): boolean {
-	const fields = cited.kind === 'element' || cited.kind === 'cell' ? ELEMENT_IDENTITY_FIELDS : PART_IDENTITY_FIELDS;
+function identityFields(cited: StoryBlockPart): readonly (keyof StoryBlockPart)[] {
+	return cited.kind === 'element' || cited.kind === 'cell' ? ELEMENT_IDENTITY_FIELDS : PART_IDENTITY_FIELDS;
+}
+
+function isSamePart(
+	cited: StoryBlockPart,
+	found: StoryBlockPart | null,
+	fields: readonly (keyof StoryBlockPart)[],
+): boolean {
 	return (
 		found !== null &&
 		found.kind === cited.kind &&

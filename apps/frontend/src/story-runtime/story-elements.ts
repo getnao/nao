@@ -17,12 +17,18 @@ export function findInspectableElement(target: EventTarget | null): Element | nu
 	if (!(target instanceof Element)) {
 		return null;
 	}
+	const block = target.closest(BLOCK_SELECTOR);
 	const part = target.closest(PART_SELECTOR);
-	if (part && readElementPart(part)) {
+	if (part && isWithinBlock(part, block) && readElementPart(part)) {
 		return part;
 	}
-	const element = target.closest(BLOCK_SELECTOR) ?? target.closest(TEXT_SELECTOR);
+	const element = block ?? target.closest(TEXT_SELECTOR);
 	return element && element.textContent?.trim() ? element : null;
+}
+
+/** A selectable element wrapping a kit block must not take the clicks meant for that block. */
+function isWithinBlock(part: Element, block: Element | null): boolean {
+	return !block || block.contains(part);
 }
 
 export function describeElement(element: Element): StoryElementAsk {

@@ -151,6 +151,53 @@ describe('highlightStoryElement', () => {
 				await vi.advanceTimersByTimeAsync(1);
 				expect(scrolled).toEqual([document.querySelector('section')]);
 			});
+
+			it('starts the grace period once the block appears', async () => {
+				const section = document.querySelector('section')!;
+				section.remove();
+				highlightStoryElement({ block: { ...block, part: laterPart }, text: 'Revenue' });
+
+				await vi.advanceTimersByTimeAsync(500);
+				document.body.append(section);
+				await vi.advanceTimersByTimeAsync(999);
+				expect(scrolled).toEqual([]);
+
+				await vi.advanceTimersByTimeAsync(20);
+				expect(scrolled).toEqual([section]);
+			});
+
+			it('settles on the block when the wait ends during its grace period', async () => {
+				const section = document.querySelector('section')!;
+				section.remove();
+				highlightStoryElement({ block: { ...block, part: laterPart }, text: 'Revenue' });
+
+				await vi.advanceTimersByTimeAsync(7800);
+				document.body.append(section);
+				await vi.advanceTimersByTimeAsync(220);
+
+				expect(scrolled).toEqual([section]);
+			});
+		});
+
+		it('still finds a cited cell whose value changed after a refresh', () => {
+			document.body.innerHTML = `
+				<section data-nao-block-kind="data-table" data-nao-block-title="Orders">
+					<table><tr>
+						<td id="first" data-nao-part="cell" data-nao-part-series="amount" data-nao-part-category="Alice" data-nao-part-value="10">10</td>
+						<td id="second" data-nao-part="cell" data-nao-part-series="amount" data-nao-part-category="Bob" data-nao-part-value="35">35</td>
+					</tr></table>
+				</section>`;
+
+			highlightStoryElement({
+				block: {
+					kind: 'data-table',
+					title: 'Orders',
+					part: { kind: 'cell', series: 'amount', category: 'Bob', value: '30' },
+				},
+				text: '30',
+			});
+
+			expect(scrolled.map((element) => element.id)).toEqual(['second']);
 		});
 	});
 });

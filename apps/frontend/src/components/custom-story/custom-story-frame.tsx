@@ -33,7 +33,7 @@ import type { StoryTheme } from '@nao/shared/story-theme';
 import type { CustomStoryDataSource } from './story-data-options';
 import type { StoryRuntimeLocation } from './story-frame-document';
 import { useDateFormat } from '@/hooks/use-date-format';
-import { readStoryElementAsk, toWholeBlockReference } from '@/lib/story-element-ask';
+import { readBlockAsk, readStoryElementAsk } from '@/lib/story-element-ask';
 import { getAppWideShortcuts, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
@@ -259,15 +259,13 @@ export function CustomStoryFrame({
 						});
 					}
 					break;
-				case 'nao-story:ask-block':
-					if (editable) {
-						onAsk?.({
-							block: toWholeBlockReference(message.block),
-							text: message.block.title ?? '',
-							intent: 'edit',
-						});
+				case 'nao-story:ask-block': {
+					const ask = editable ? readBlockAsk(message.block) : null;
+					if (ask) {
+						onAsk?.({ ...ask, intent: 'edit' });
 					}
 					break;
+				}
 				case 'nao-story:ask': {
 					const ask = isUserGesture() ? readStoryElementAsk(message) : null;
 					if (ask) {

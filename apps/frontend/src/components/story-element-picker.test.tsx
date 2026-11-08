@@ -89,9 +89,12 @@ describe('MarkdownTable', () => {
 });
 
 function markdownTable(columns: string[], rows: string[][]) {
-	const row = (tagName: string, cells: string[]) => ({
-		tagName: 'tr',
-		children: cells.map((value) => ({ tagName, children: [{ type: 'text', value }] })),
-	});
-	return { tagName: 'table', children: [row('th', columns), ...rows.map((cells) => row('td', cells))] };
+	return {
+		tagName: 'table',
+		children: [tableRow('th', columns), ...rows.map((cells) => tableRow('td', cells))],
+	};
+}
+
+function tableRow(tagName: string, cells: string[]) {
+	return { tagName: 'tr', children: cells.map((value) => ({ tagName, children: [{ type: 'text', value }] })) };
 }
