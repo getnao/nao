@@ -19,6 +19,7 @@ import {
 	projectProtectedProcedure,
 	protectedProcedure,
 	resolveOrganizationMembership,
+	sessionProcedure,
 } from './trpc';
 
 const creditLedgerPaginationInput = z
@@ -123,7 +124,7 @@ export const accountRoutes = {
 
 			return { password };
 		}),
-	modifyPassword: protectedProcedure
+	modifyPassword: sessionProcedure
 		.input(
 			z.object({
 				newPassword: z.string(),

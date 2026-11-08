@@ -286,6 +286,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['2fa', 'mfa', 'otp', 'totp', 'google authenticator', 'email code', 'security'],
 		orgAdminOnly: true,
 	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Two-factor authentication',
+		title: 'Require two-factor authentication',
+		description: 'Make every email and password member set up two-factor authentication within a grace period.',
+		keywords: ['2fa', 'mfa', 'enforce', 'mandatory', 'require', 'grace period', 'deadline', 'security'],
+		orgAdminOnly: true,
+	},
 
 	// ── Project Settings ─────────────────────────────────────
 	{

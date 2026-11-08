@@ -113,7 +113,11 @@ import {
 	TestRunModels,
 	TestRunResultDetails,
 } from '../types/test-run';
-import { DEFAULT_TWO_FACTOR_METHODS, type TwoFactorMethod } from '../types/two-factor';
+import {
+	DEFAULT_TWO_FACTOR_GRACE_PERIOD_DAYS,
+	DEFAULT_TWO_FACTOR_METHODS,
+	type TwoFactorMethod,
+} from '../types/two-factor';
 import type { StoredUserPreferences } from '../types/usage';
 import {
 	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
@@ -249,6 +253,10 @@ export const organization = pgTable('organization', {
 		.$type<TwoFactorMethod[]>()
 		.notNull()
 		.default(DEFAULT_TWO_FACTOR_METHODS),
+	twoFactorRequiredAt: timestamp('two_factor_required_at'),
+	twoFactorGracePeriodDays: integer('two_factor_grace_period_days')
+		.notNull()
+		.default(DEFAULT_TWO_FACTOR_GRACE_PERIOD_DAYS),
 
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
@@ -298,6 +306,7 @@ export const orgMember = pgTable(
 			.references(() => user.id, { onDelete: 'cascade' }),
 		role: text('role', { enum: ORG_ROLES }).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
+		twoFactorGraceRestartedAt: timestamp('two_factor_grace_restarted_at'),
 	},
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
 );

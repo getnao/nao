@@ -12,8 +12,9 @@ import { emailService } from '../services/email';
 import { addOrganizationMember, putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
 import { isTwoFactorEmailAvailable } from '../services/two-factor.service';
+import { getOrgMembersTwoFactorDeadlines } from '../services/two-factor-requirement.service';
 import { ORG_ROLES } from '../types/organization';
-import { TWO_FACTOR_METHODS } from '../types/two-factor';
+import { MAX_TWO_FACTOR_GRACE_PERIOD_DAYS, TWO_FACTOR_METHODS, type TwoFactorMethod } from '../types/two-factor';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
@@ -65,11 +66,11 @@ export const organizationRoutes = {
 
 	getMembers: orgAdminProcedure.query(async ({ ctx }) => {
 		const members = await orgQueries.listOrgMembersWithUsers(ctx.org.id);
-		const canSeeTwoFactor = ctx.orgRole === 'admin';
-		return members.map((member) => ({
-			...member,
-			twoFactorEnabled: canSeeTwoFactor ? member.twoFactorEnabled : undefined,
-		}));
+		if (ctx.orgRole !== 'admin') {
+			return members.map((member) => ({ ...member, twoFactorEnabled: undefined, twoFactorDeadline: undefined }));
+		}
+		const deadlines = await getOrgMembersTwoFactorDeadlines(ctx.org.id);
+		return members.map((member) => ({ ...member, twoFactorDeadline: deadlines.get(member.id) ?? null }));
 	}),
 
 	getUserCounts: orgAdminProcedure.query(async ({ ctx }) => {
@@ -105,10 +106,11 @@ export const organizationRoutes = {
 		}),
 
 	getTwoFactorSettings: orgAdminProcedure.query(async ({ ctx }) => {
-		return {
-			methods: await twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id),
-			emailAvailable: isTwoFactorEmailAvailable(),
-		};
+		const [methods, requirement] = await Promise.all([
+			twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id),
+			twoFactorQueries.getOrganizationTwoFactorRequirement(ctx.org.id),
+		]);
+		return { methods, emailAvailable: isTwoFactorEmailAvailable(), ...requirement };
 	}),
 
 	updateTwoFactorMethods: orgAdminOnlyProcedure
@@ -123,8 +125,27 @@ export const organizationRoutes = {
 					message: 'Email codes require an email provider to be configured.',
 				});
 			}
+			const { required } = await twoFactorQueries.getOrganizationTwoFactorRequirement(ctx.org.id);
+			if (required) {
+				assertSomeMethodUsable(methods);
+			}
 			await twoFactorQueries.updateOrganizationTwoFactorMethods(ctx.org.id, methods);
 			return { methods };
+		}),
+
+	updateTwoFactorRequirement: orgAdminOnlyProcedure
+		.input(
+			z.object({
+				required: z.boolean(),
+				gracePeriodDays: z.number().int().min(0).max(MAX_TWO_FACTOR_GRACE_PERIOD_DAYS),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			if (input.required) {
+				assertSomeMethodUsable(await twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id));
+			}
+			await twoFactorQueries.updateOrganizationTwoFactorRequirement(ctx.org.id, input);
+			return input;
 		}),
 
 	updateMemberRole: orgAdminOnlyProcedure
@@ -232,6 +253,16 @@ export const organizationRoutes = {
 			await twoFactorQueries.resetUserTwoFactor(input.userId);
 		}),
 
+	restartMemberTwoFactorGracePeriod: orgAdminOnlyProcedure
+		.input(z.object({ userId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			const memberRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
+			if (!memberRole) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this organization.' });
+			}
+			await twoFactorQueries.restartMemberTwoFactorGracePeriod(ctx.org.id, input.userId);
+		}),
+
 	removeMember: orgAdminOnlyProcedure.input(z.object({ userId: z.string() })).mutation(async ({ input, ctx }) => {
 		if (input.userId === ctx.user.id) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'You cannot remove yourself from the organization.' });
@@ -273,5 +304,16 @@ async function assertDomainsClaimable(orgId: string, domains: string[]): Promise
 				message: `"${domain}" is already claimed by another organization.`,
 			});
 		}
+	}
+}
+
+/** Requiring two-factor authentication only makes sense while members can set up at least one method. */
+function assertSomeMethodUsable(methods: TwoFactorMethod[]): void {
+	const usableMethods = methods.filter((method) => method !== 'email' || isTwoFactorEmailAvailable());
+	if (!usableMethods.length) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Allow at least one two-factor authentication method that members can set up.',
+		});
 	}
 }

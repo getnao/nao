@@ -1,11 +1,12 @@
-import { useCallback, useState } from 'react';
 import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router';
+import { useCallback, useState } from 'react';
 
-import { CommandMenu } from '@/components/command-menu';
 import { CloudBillingAccessBanner } from '@/components/cloud-billing-access-banner';
+import { CommandMenu } from '@/components/command-menu';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { Sidebar } from '@/components/sidebar';
 import { TrialStartedDialogController } from '@/components/trial-started-dialog';
+import { TwoFactorRequirementBanner } from '@/components/two-factor-requirement-banner';
 import { CommandMenuCallbackProvider, useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { SidebarProvider, useSidebar } from '@/contexts/sidebar';
 import { useTheme } from '@/contexts/theme.provider';
@@ -38,6 +39,7 @@ function SidebarLayoutContent() {
 			<TrialStartedDialogController />
 			<div className='flex min-h-0 min-w-0 flex-1 flex-col'>
 				<CloudBillingAccessBanner />
+				<TwoFactorRequirementBanner />
 				<div className='flex min-h-0 min-w-0 flex-1'>
 					<Outlet />
 				</div>

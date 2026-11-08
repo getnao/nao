@@ -1,11 +1,10 @@
+import { USER_ROLE_LABELS } from '@nao/shared/types';
 import { EllipsisVertical } from 'lucide-react';
 
-import { USER_ROLE_LABELS } from '@nao/shared/types';
-
+import { formatTwoFactorDeadline } from '../two-factor-types';
 import type { TeamMember } from './types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -13,6 +12,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface TeamMembersListProps {
 	members: TeamMember[];
@@ -60,11 +60,7 @@ export function TeamMembersList({
 										Invited
 									</Badge>
 								)}
-								{member.twoFactorEnabled && (
-									<Badge variant='success' className='ml-2'>
-										2FA
-									</Badge>
-								)}
+								<TwoFactorBadge member={member} />
 							</TableCell>
 							<TableCell className='font-mono text-muted-foreground'>{member.email}</TableCell>
 							<TableCell>
@@ -120,5 +116,30 @@ function MemberActions({
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+function TwoFactorBadge({ member }: { member: TeamMember }) {
+	if (member.twoFactorEnabled) {
+		return (
+			<Badge variant='success' className='ml-2'>
+				2FA
+			</Badge>
+		);
+	}
+	if (!member.twoFactorDeadline) {
+		return null;
+	}
+	if (member.twoFactorDeadline <= new Date()) {
+		return (
+			<Badge variant='error' className='ml-2'>
+				2FA overdue
+			</Badge>
+		);
+	}
+	return (
+		<Badge variant='outline' className='ml-2'>
+			2FA due {formatTwoFactorDeadline(member.twoFactorDeadline)}
+		</Badge>
 	);
 }

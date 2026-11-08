@@ -13,6 +13,7 @@ import {
 	assertProjectCloudBillingAccess,
 } from '../services/cloud-billing-access.service';
 import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
+import { isTwoFactorSetupOverdue, TWO_FACTOR_SETUP_REQUIRED_MESSAGE } from '../services/two-factor.service';
 import { canSeeAdvancedSettings } from '../services/user-group-feature-access.service';
 import { isTrialAvailable } from '../types/billing';
 import { HandlerError } from '../utils/error';
@@ -29,8 +30,18 @@ export const createContext = async (opts: CreateFastifyContextOptions) => {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),
 		selectedOrganizationId: headers.get('x-nao-organization-id'),
+		isTwoFactorSetupOverdue: session ? checkTwoFactorSetupOnce(session.user.id) : undefined,
 	};
 };
+
+/** Batched calls share the request context, so the check runs once per request. */
+function checkTwoFactorSetupOnce(userId: string): () => Promise<boolean> {
+	let overdue: Promise<boolean> | undefined;
+	return () => {
+		overdue ??= isTwoFactorSetupOverdue(userId);
+		return overdue;
+	};
+}
 
 /**
  * Initialization of tRPC backend
@@ -92,12 +103,21 @@ const withHandlerErrors = t.middleware(async ({ next }) => {
 
 export const publicProcedure = t.procedure.use(withHandlerErrors);
 
-export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
+/** Authenticated, but still reachable by users who must set up two-factor authentication first. */
+export const sessionProcedure = publicProcedure.use(async ({ ctx, next }) => {
 	if (!ctx.session?.user) {
 		throw new TRPCError({ code: 'UNAUTHORIZED' });
 	}
 
 	return next({ ctx: { user: ctx.session.user } });
+});
+
+export const protectedProcedure = sessionProcedure.use(async ({ ctx, next }) => {
+	if (await ctx.isTwoFactorSetupOverdue?.()) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: TWO_FACTOR_SETUP_REQUIRED_MESSAGE });
+	}
+
+	return next();
 });
 
 export async function resolveOrganizationMembership(

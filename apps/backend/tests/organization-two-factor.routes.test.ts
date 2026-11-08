@@ -4,6 +4,9 @@ const mocks = vi.hoisted(() => ({
 	role: 'admin' as 'admin' | 'user',
 	emailEnabled: true,
 	storedMethods: ['totp', 'email'] as string[],
+	required: false,
+	updateOrganizationTwoFactorRequirement: vi.fn(),
+	restartMemberTwoFactorGracePeriod: vi.fn(),
 	getUserRoleInOrg: vi.fn(),
 	isUserConfinedToOrganization: vi.fn(),
 	updateOrganizationTwoFactorMethods: vi.fn(),
@@ -28,6 +31,18 @@ vi.mock('../src/queries/two-factor.queries', () => ({
 	getOrganizationTwoFactorMethods: vi.fn(async () => mocks.storedMethods),
 	updateOrganizationTwoFactorMethods: mocks.updateOrganizationTwoFactorMethods,
 	resetUserTwoFactor: mocks.resetUserTwoFactor,
+	getOrganizationTwoFactorRequirement: vi.fn(async () => ({ required: mocks.required, gracePeriodDays: 7 })),
+	updateOrganizationTwoFactorRequirement: mocks.updateOrganizationTwoFactorRequirement,
+	restartMemberTwoFactorGracePeriod: mocks.restartMemberTwoFactorGracePeriod,
+	listOrgMembersTwoFactorGracePeriods: vi.fn(async () => [
+		{
+			userId: 'member-1',
+			requiredAt: new Date('2026-01-01T00:00:00Z'),
+			memberSince: new Date('2025-06-01T00:00:00Z'),
+			graceRestartedAt: null,
+			gracePeriodDays: 7,
+		},
+	]),
 }));
 vi.mock('../src/services/email', () => ({ emailService: { isEnabled: () => mocks.emailEnabled } }));
 vi.mock('../src/services/membership.service', () => ({}));
@@ -45,6 +60,7 @@ describe('organization two-factor settings', () => {
 		mocks.role = 'admin';
 		mocks.emailEnabled = true;
 		mocks.storedMethods = ['totp', 'email'];
+		mocks.required = false;
 		mocks.getUserRoleInOrg.mockResolvedValue('user');
 		mocks.isUserConfinedToOrganization.mockResolvedValue(true);
 	});
@@ -83,7 +99,60 @@ describe('organization two-factor settings', () => {
 		const [memberView] = await createCaller().organization.getMembers();
 
 		expect(adminView.twoFactorEnabled).toBe(true);
+		expect(adminView.twoFactorDeadline).toEqual(new Date('2026-01-08T00:00:00Z'));
 		expect(memberView.twoFactorEnabled).toBeUndefined();
+		expect(memberView.twoFactorDeadline).toBeUndefined();
+	});
+
+	it('requires two-factor authentication with a grace period', async () => {
+		await createCaller().organization.updateTwoFactorRequirement({ required: true, gracePeriodDays: 14 });
+
+		expect(mocks.updateOrganizationTwoFactorRequirement).toHaveBeenCalledWith('org-1', {
+			required: true,
+			gracePeriodDays: 14,
+		});
+	});
+
+	it('refuses to require two-factor authentication when members cannot set up any method', async () => {
+		mocks.emailEnabled = false;
+		mocks.storedMethods = ['email'];
+
+		await expect(
+			createCaller().organization.updateTwoFactorRequirement({ required: true, gracePeriodDays: 7 }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.updateOrganizationTwoFactorRequirement).not.toHaveBeenCalled();
+	});
+
+	it('refuses to remove every method while two-factor authentication is required', async () => {
+		mocks.required = true;
+
+		await expect(createCaller().organization.updateTwoFactorMethods({ methods: [] })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+		expect(mocks.updateOrganizationTwoFactorMethods).not.toHaveBeenCalled();
+	});
+
+	it('only lets admins require two-factor authentication', async () => {
+		mocks.role = 'user';
+
+		await expect(
+			createCaller().organization.updateTwoFactorRequirement({ required: true, gracePeriodDays: 7 }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+	});
+
+	it('restarts the grace period of a member', async () => {
+		await createCaller().organization.restartMemberTwoFactorGracePeriod({ userId: 'member-1' });
+
+		expect(mocks.restartMemberTwoFactorGracePeriod).toHaveBeenCalledWith('org-1', 'member-1');
+	});
+
+	it('refuses to restart the grace period of a user outside the organization', async () => {
+		mocks.getUserRoleInOrg.mockResolvedValue(null);
+
+		await expect(
+			createCaller().organization.restartMemberTwoFactorGracePeriod({ userId: 'stranger-1' }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.restartMemberTwoFactorGracePeriod).not.toHaveBeenCalled();
 	});
 
 	it('only lets admins change the allowed methods', async () => {

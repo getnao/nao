@@ -1,7 +1,7 @@
+import { ORG_MEMBER_ROLES } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, Plus } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { ORG_MEMBER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
@@ -38,6 +38,7 @@ export function OrgMembers() {
 	const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 	const [resetTwoFactorMember, setResetTwoFactorMember] = useState<TeamMember | null>(null);
+	const [restartGraceMember, setRestartGraceMember] = useState<TeamMember | null>(null);
 
 	const invalidateMembers = useCallback(() => {
 		queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() });
@@ -48,6 +49,7 @@ export function OrgMembers() {
 	const removeOrgMember = useMutation(trpc.organization.removeMember.mutationOptions());
 	const resetPassword = useMutation(trpc.organization.resetMemberPassword.mutationOptions());
 	const resetTwoFactor = useMutation(trpc.organization.resetMemberTwoFactor.mutationOptions());
+	const restartGracePeriod = useMutation(trpc.organization.restartMemberTwoFactorGracePeriod.mutationOptions());
 
 	const members: TeamMember[] =
 		membersQuery.data?.map((member) => ({
@@ -57,6 +59,7 @@ export function OrgMembers() {
 			role: member.role as UserRole,
 			status: member.status,
 			twoFactorEnabled: member.twoFactorEnabled,
+			twoFactorDeadline: member.twoFactorDeadline,
 		})) ?? [];
 
 	const handleAdd = async (data: { email: string; name?: string }) => {
@@ -131,6 +134,26 @@ export function OrgMembers() {
 		setResetTwoFactorMember(null);
 	};
 
+	const handleRestartGracePeriod = () => {
+		if (!restartGraceMember) {
+			return;
+		}
+		restartGracePeriod.mutate(
+			{ userId: restartGraceMember.id },
+			{
+				onSuccess: () => {
+					invalidateMembers();
+					closeRestartGraceDialog();
+				},
+			},
+		);
+	};
+
+	const closeRestartGraceDialog = () => {
+		restartGracePeriod.reset();
+		setRestartGraceMember(null);
+	};
+
 	const openResetPasswordDialog = (member: TeamMember) => {
 		setResetPasswordError(null);
 		setResetPasswordMember(member);
@@ -192,6 +215,11 @@ export function OrgMembers() {
 									{member.twoFactorEnabled && (
 										<DropdownMenuItem onSelect={() => setResetTwoFactorMember(member)}>
 											Reset two-factor authentication
+										</DropdownMenuItem>
+									)}
+									{member.twoFactorDeadline && (
+										<DropdownMenuItem onSelect={() => setRestartGraceMember(member)}>
+											Restart two-factor grace period
 										</DropdownMenuItem>
 									)}
 								</>
@@ -259,6 +287,19 @@ export function OrgMembers() {
 				isPending={resetTwoFactor.isPending}
 				preventCloseWhilePending
 				error={resetTwoFactor.error?.message}
+			/>
+
+			<ConfirmationDialog
+				open={!!restartGraceMember}
+				onOpenChange={(open) => !open && closeRestartGraceDialog()}
+				title={`Give ${restartGraceMember?.name} more time to set up two-factor authentication?`}
+				description='Their grace period starts over today. They can use the app normally until it ends.'
+				confirmLabel='Restart grace period'
+				confirmVariant='default'
+				onConfirm={handleRestartGracePeriod}
+				isPending={restartGracePeriod.isPending}
+				preventCloseWhilePending
+				error={restartGracePeriod.error?.message}
 			/>
 
 			<NewCredentialsDialog
