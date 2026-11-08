@@ -11,20 +11,29 @@ import { signOut } from '@/lib/auth-client';
 
 interface RequiredTwoFactorSetupProps {
 	allowedMethods: TwoFactorMethod[];
+	/** Called once two-factor authentication is on, while the backup codes are still shown. */
+	onEnabled: () => void;
+	onFinished: () => void;
 }
 
 /** Shown instead of the app once the grace period to set up two-factor authentication is over. */
-export function RequiredTwoFactorSetup({ allowedMethods }: RequiredTwoFactorSetupProps) {
+export function RequiredTwoFactorSetup({ allowedMethods, onEnabled, onFinished }: RequiredTwoFactorSetupProps) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const navigation = useAuthRoute();
 	const [isSetupOpen, setIsSetupOpen] = useState(false);
 	const [isEnabled, setIsEnabled] = useState(false);
 
+	const handleEnabled = () => {
+		setIsEnabled(true);
+		onEnabled();
+	};
+
 	const handleSetupOpenChange = (open: boolean) => {
 		setIsSetupOpen(open);
 		if (!open && isEnabled) {
 			queryClient.invalidateQueries();
+			onFinished();
 		}
 	};
 
@@ -62,7 +71,7 @@ export function RequiredTwoFactorSetup({ allowedMethods }: RequiredTwoFactorSetu
 					open={isSetupOpen}
 					allowedMethods={allowedMethods}
 					onOpenChange={handleSetupOpenChange}
-					onEnabled={() => setIsEnabled(true)}
+					onEnabled={handleEnabled}
 				/>
 			)}
 		</div>

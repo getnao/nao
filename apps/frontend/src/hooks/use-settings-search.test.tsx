@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	config: {
 		betaSubagentsEnabled: false,
 		cloudBillingEnabled: false,
+		enableUserLogin: true,
 	},
 	isCloud: false,
 	twoFactorStatus: { hasPassword: false },
@@ -61,6 +62,7 @@ vi.mock('@/main', () => ({
 describe('useSettingsSearch', () => {
 	beforeEach(() => {
 		mocks.config.cloudBillingEnabled = false;
+		mocks.config.enableUserLogin = true;
 		mocks.isCloud = false;
 		mocks.twoFactorStatus.hasPassword = false;
 		Object.assign(mocks.permissions, {
@@ -121,5 +123,17 @@ describe('useSettingsSearch', () => {
 		rerender();
 
 		expect(result.current.some((entry) => entry.page === '/settings/account')).toBe(true);
+	});
+
+	it('only returns the organization two-factor settings while email and password login is enabled', () => {
+		mocks.permissions.isOrgAdmin = true;
+		const { result, rerender } = renderHook(() => useSettingsSearch('Require two-factor authentication'));
+
+		expect(result.current.some((entry) => entry.page === '/settings/organization')).toBe(true);
+
+		mocks.config.enableUserLogin = false;
+		rerender();
+
+		expect(result.current.some((entry) => entry.page === '/settings/organization')).toBe(false);
 	});
 });

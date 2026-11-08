@@ -143,6 +143,16 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		expect(request.user).toBeUndefined();
 	});
 
+	it('blocks API keys of creators who are overdue to set up two-factor authentication', async () => {
+		mocks.isTwoFactorSetupOverdue.mockResolvedValue(true);
+
+		const { request, reply } = await authenticate({ authorization: 'Bearer nao_valid' });
+
+		expect(mocks.isTwoFactorSetupOverdue).toHaveBeenCalledWith(KEY_CREATOR.id);
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(request.user).toBeUndefined();
+	});
+
 	it('rejects requests with neither an API key nor a session', async () => {
 		mocks.getSession.mockResolvedValue(null);
 

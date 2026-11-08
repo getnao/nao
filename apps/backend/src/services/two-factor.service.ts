@@ -8,16 +8,32 @@ import {
 	type TwoFactorStatus,
 } from '../types/two-factor';
 import { emailService } from './email';
-import { getTwoFactorDeadline } from './two-factor-requirement.service';
+import { computeGracePeriodDeadline, getTwoFactorDeadline } from './two-factor-requirement.service';
 
 export const TWO_FACTOR_SETUP_REQUIRED_MESSAGE =
 	'Your organization requires two-factor authentication. Set it up to continue.';
 
 /** A user in several organizations may only use the methods every one of them allows. */
 export async function getAllowedTwoFactorMethods(userId: string): Promise<TwoFactorMethod[]> {
-	const policies = await twoFactorQueries.listUserOrganizationsTwoFactorMethods(userId);
-	const allowed = policies.length ? intersectPolicies(policies) : DEFAULT_TWO_FACTOR_METHODS;
-	return allowed.filter(isMethodAvailable);
+	return resolveAllowedMethods(await twoFactorQueries.listUserOrganizationsTwoFactorMethods(userId));
+}
+
+/**
+ * Deadlines of the organization's password members who still have to set up two-factor authentication.
+ * Members who cannot set up any allowed method are left out, as they are never blocked.
+ */
+export async function getOrgMembersTwoFactorDeadlines(orgId: string): Promise<Map<string, Date>> {
+	const gracePeriods = await twoFactorQueries.listOrgMembersTwoFactorGracePeriods(orgId);
+	const policiesByUser = await twoFactorQueries.listUsersOrganizationsTwoFactorMethods(
+		gracePeriods.map((gracePeriod) => gracePeriod.userId),
+	);
+	const deadlines = new Map<string, Date>();
+	for (const gracePeriod of gracePeriods) {
+		if (resolveAllowedMethods(policiesByUser.get(gracePeriod.userId) ?? []).length) {
+			deadlines.set(gracePeriod.userId, computeGracePeriodDeadline(gracePeriod));
+		}
+	}
+	return deadlines;
 }
 
 export async function getTwoFactorStatus(userId: string): Promise<TwoFactorStatus> {
@@ -64,6 +80,11 @@ export function isTwoFactorEmailAvailable(): boolean {
 
 function buildRequirement(deadline: Date): TwoFactorRequirement {
 	return { deadline, isOverdue: deadline <= new Date() };
+}
+
+function resolveAllowedMethods(policies: TwoFactorMethod[][]): TwoFactorMethod[] {
+	const allowed = policies.length ? intersectPolicies(policies) : DEFAULT_TWO_FACTOR_METHODS;
+	return allowed.filter(isMethodAvailable);
 }
 
 function intersectPolicies(policies: TwoFactorMethod[][]): TwoFactorMethod[] {

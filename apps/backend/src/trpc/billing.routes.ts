@@ -39,18 +39,20 @@ import {
 } from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
-import { publicProcedure, resolveOrganizationMembership } from './trpc';
+import { publicProcedure, resolveOrganizationMembership, twoFactorSetupMiddleware } from './trpc';
 
-const cloudBillingProcedure = publicProcedure.use(async ({ ctx, next }) => {
-	if (!isCloudBillingEnabled()) {
-		throw new TRPCError({ code: 'NOT_FOUND' });
-	}
-	if (!ctx.session?.user) {
-		throw new TRPCError({ code: 'UNAUTHORIZED' });
-	}
+const cloudBillingProcedure = publicProcedure
+	.use(async ({ ctx, next }) => {
+		if (!isCloudBillingEnabled()) {
+			throw new TRPCError({ code: 'NOT_FOUND' });
+		}
+		if (!ctx.session?.user) {
+			throw new TRPCError({ code: 'UNAUTHORIZED' });
+		}
 
-	return next({ ctx: { user: ctx.session.user } });
-});
+		return next({ ctx: { user: ctx.session.user } });
+	})
+	.use(twoFactorSetupMiddleware);
 
 const cloudBillingMemberProcedure = cloudBillingProcedure.use(async ({ ctx, next }) => {
 	const membership = await resolveOrganizationMembership(

@@ -10,12 +10,6 @@ export async function getTwoFactorDeadline(userId: string): Promise<Date | null>
 	return deadlines.length ? new Date(Math.min(...deadlines.map((deadline) => deadline.getTime()))) : null;
 }
 
-/** Deadlines of the organization's password members who have not set up two-factor authentication yet. */
-export async function getOrgMembersTwoFactorDeadlines(orgId: string): Promise<Map<string, Date>> {
-	const gracePeriods = await twoFactorQueries.listOrgMembersTwoFactorGracePeriods(orgId);
-	return new Map(gracePeriods.map((gracePeriod) => [gracePeriod.userId, computeGracePeriodDeadline(gracePeriod)]));
-}
-
 /** The grace period starts when the organization required it, the member joined, or an admin restarted it. */
 export function computeGracePeriodDeadline(gracePeriod: TwoFactorGracePeriod): Date {
 	const startedAt = Math.max(

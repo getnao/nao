@@ -112,13 +112,16 @@ export const sessionProcedure = publicProcedure.use(async ({ ctx, next }) => {
 	return next({ ctx: { user: ctx.session.user } });
 });
 
-export const protectedProcedure = sessionProcedure.use(async ({ ctx, next }) => {
+/** Rejects users whose grace period to set up two-factor authentication is over. */
+export const twoFactorSetupMiddleware = t.middleware(async ({ ctx, next }) => {
 	if (await ctx.isTwoFactorSetupOverdue?.()) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: TWO_FACTOR_SETUP_REQUIRED_MESSAGE });
 	}
 
 	return next();
 });
+
+export const protectedProcedure = sessionProcedure.use(twoFactorSetupMiddleware);
 
 export async function resolveOrganizationMembership(
 	userId: string,

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	emailEnabled: true,
 	storedMethods: ['totp', 'email'] as string[],
 	required: false,
+	memberPolicies: [['totp', 'email']] as string[][],
 	updateOrganizationTwoFactorRequirement: vi.fn(),
 	restartMemberTwoFactorGracePeriod: vi.fn(),
 	getUserRoleInOrg: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('../src/queries/two-factor.queries', () => ({
 	getOrganizationTwoFactorRequirement: vi.fn(async () => ({ required: mocks.required, gracePeriodDays: 7 })),
 	updateOrganizationTwoFactorRequirement: mocks.updateOrganizationTwoFactorRequirement,
 	restartMemberTwoFactorGracePeriod: mocks.restartMemberTwoFactorGracePeriod,
+	listUsersOrganizationsTwoFactorMethods: vi.fn(async () => new Map([['member-1', mocks.memberPolicies]])),
 	listOrgMembersTwoFactorGracePeriods: vi.fn(async () => [
 		{
 			userId: 'member-1',
@@ -61,6 +63,7 @@ describe('organization two-factor settings', () => {
 		mocks.emailEnabled = true;
 		mocks.storedMethods = ['totp', 'email'];
 		mocks.required = false;
+		mocks.memberPolicies = [['totp', 'email']];
 		mocks.getUserRoleInOrg.mockResolvedValue('user');
 		mocks.isUserConfinedToOrganization.mockResolvedValue(true);
 	});
@@ -102,6 +105,14 @@ describe('organization two-factor settings', () => {
 		expect(adminView.twoFactorDeadline).toEqual(new Date('2026-01-08T00:00:00Z'));
 		expect(memberView.twoFactorEnabled).toBeUndefined();
 		expect(memberView.twoFactorDeadline).toBeUndefined();
+	});
+
+	it('shows no deadline for members who cannot set up any allowed method', async () => {
+		mocks.memberPolicies = [['totp'], ['email']];
+
+		const [member] = await createCaller().organization.getMembers();
+
+		expect(member.twoFactorDeadline).toBeNull();
 	});
 
 	it('requires two-factor authentication with a grace period', async () => {

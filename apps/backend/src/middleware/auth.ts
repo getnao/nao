@@ -48,6 +48,9 @@ export async function sessionOrApiKeyAuthMiddleware(request: FastifyRequest, rep
 	if (!apiKey || !user || user.deactivatedAt) {
 		return reply.status(401).send({ error: 'Invalid API key' });
 	}
+	if (await isTwoFactorSetupOverdue(user.id)) {
+		return reply.status(403).send({ error: TWO_FACTOR_SETUP_REQUIRED_MESSAGE });
+	}
 
 	const headers = convertHeaders(request.headers);
 	request.user = user;

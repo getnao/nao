@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, like } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, like } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -51,6 +51,27 @@ export const listUserOrganizationsTwoFactorMethods = async (userId: string): Pro
 	return rows.map((row) => row.methods);
 };
 
+/** Allowed methods of every organization of each user, keyed by user. */
+export const listUsersOrganizationsTwoFactorMethods = async (
+	userIds: string[],
+): Promise<Map<string, TwoFactorMethod[][]>> => {
+	if (!userIds.length) {
+		return new Map();
+	}
+	const rows = await db
+		.select({ userId: s.orgMember.userId, methods: s.organization.twoFactorMethods })
+		.from(s.orgMember)
+		.innerJoin(s.organization, eq(s.organization.id, s.orgMember.orgId))
+		.where(inArray(s.orgMember.userId, userIds))
+		.execute();
+
+	const policiesByUser = new Map<string, TwoFactorMethod[][]>();
+	for (const row of rows) {
+		policiesByUser.set(row.userId, [...(policiesByUser.get(row.userId) ?? []), row.methods]);
+	}
+	return policiesByUser;
+};
+
 export const getOrganizationTwoFactorMethods = async (orgId: string): Promise<TwoFactorMethod[]> => {
 	const [org] = await db
 		.select({ methods: s.organization.twoFactorMethods })
@@ -87,7 +108,11 @@ export const listOrgMembersTwoFactorGracePeriods = async (orgId: string): Promis
 		.innerJoin(s.user, eq(s.user.id, s.orgMember.userId))
 		.innerJoin(
 			s.account,
-			and(eq(s.account.userId, s.orgMember.userId), eq(s.account.providerId, CREDENTIAL_PROVIDER_ID)),
+			and(
+				eq(s.account.userId, s.orgMember.userId),
+				eq(s.account.providerId, CREDENTIAL_PROVIDER_ID),
+				isNotNull(s.account.password),
+			),
 		)
 		.where(
 			and(

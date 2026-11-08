@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router';
+import { useState } from 'react';
 
 import { BrandColor } from '../components/brand-color';
 import { BrandingHead } from '../components/branding-head';
@@ -28,6 +29,7 @@ function RootComponent() {
 function AuthenticatedRoot() {
 	const session = useSessionOrNavigateToIndexPage();
 	const twoFactor = useTwoFactorRequirement();
+	const [isSavingBackupCodes, setIsSavingBackupCodes] = useState(false);
 	useDisposeInactiveAgents();
 	useIdentifyPostHog();
 
@@ -39,8 +41,14 @@ function AuthenticatedRoot() {
 		return <RootLoadingState />;
 	}
 
-	if (twoFactor.status && twoFactor.requirement?.isOverdue) {
-		return <RequiredTwoFactorSetup allowedMethods={twoFactor.status.allowedMethods} />;
+	if (twoFactor.status && (twoFactor.requirement?.isOverdue || isSavingBackupCodes)) {
+		return (
+			<RequiredTwoFactorSetup
+				allowedMethods={twoFactor.status.allowedMethods}
+				onEnabled={() => setIsSavingBackupCodes(true)}
+				onFinished={() => setIsSavingBackupCodes(false)}
+			/>
+		);
 	}
 
 	return (

@@ -78,7 +78,7 @@ export function OrgTwoFactorSettings({ isAdmin }: OrgTwoFactorSettingsProps) {
 				description='Members who log in with email and password must set it up before their grace period ends. SSO members are not affected.'
 				checked={required}
 				onCheckedChange={(checked) => saveRequirement({ required: checked, gracePeriodDays })}
-				disabled={!isAdmin || !methods.length || isPending}
+				disabled={!isAdmin || (!required && !methods.length) || isPending}
 			/>
 			{required && (
 				<SettingsControlRow
