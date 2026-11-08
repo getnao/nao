@@ -82,6 +82,7 @@ export function AskBar({
 	const request = useAskRequest();
 	const requestIdAtMount = useRef(request?.id);
 	const isFocusRequested = useRef(false);
+	const [isShaking, setIsShaking] = useState(false);
 
 	const cite = (selection: AskSelection) => setSession((current) => withCitation(current, toAskCitation(selection)));
 
@@ -104,6 +105,7 @@ export function AskBar({
 		}
 		isFocusRequested.current = false;
 		inputRef.current?.focus();
+		setIsShaking(Boolean(request?.shouldShake));
 	}, [request, isInputHidden]);
 
 	const startSession = async (message: AskMessage) => {
@@ -130,6 +132,7 @@ export function AskBar({
 		onEnd?.();
 		setSession(NO_SESSION);
 	};
+	const stopShaking = () => setIsShaking(false);
 	const citationControls = {
 		citations: session.citations,
 		onRemoveCitation: removeCitation,
@@ -138,7 +141,7 @@ export function AskBar({
 
 	if (!session.chatId) {
 		return (
-			<FloatingBar isHidden={isInputHidden}>
+			<FloatingBar isHidden={isInputHidden} isShaking={isShaking} onShakeEnd={stopShaking}>
 				<AskInput
 					promptRef={inputRef}
 					placeholder={placeholder}
@@ -179,7 +182,7 @@ export function AskBar({
 							onClose={endSession}
 						/>
 					) : (
-						<FloatingBar isHidden={isInputHidden}>
+						<FloatingBar isHidden={isInputHidden} isShaking={isShaking} onShakeEnd={stopShaking}>
 							<AskStatus onOpen={() => setPanelOpen(true)} onClose={endSession} />
 							<SessionInput {...citationControls} promptRef={inputRef} placeholder={placeholder} />
 						</FloatingBar>
@@ -190,7 +193,17 @@ export function AskBar({
 	);
 }
 
-function FloatingBar({ isHidden, children }: { isHidden: boolean; children: ReactNode }) {
+function FloatingBar({
+	isHidden,
+	isShaking,
+	onShakeEnd,
+	children,
+}: {
+	isHidden: boolean;
+	isShaking: boolean;
+	onShakeEnd: () => void;
+	children: ReactNode;
+}) {
 	return (
 		<div
 			data-selection-ignore
@@ -199,7 +212,15 @@ function FloatingBar({ isHidden, children }: { isHidden: boolean; children: Reac
 				isHidden && 'hidden',
 			)}
 		>
-			<div className='pointer-events-auto flex w-full max-w-2xl flex-col items-center gap-2'>{children}</div>
+			<div
+				className={cn(
+					'pointer-events-auto flex w-full max-w-2xl flex-col items-center gap-2',
+					isShaking && 'animate-shake motion-reduce:animate-none',
+				)}
+				onAnimationEnd={(event) => event.target === event.currentTarget && onShakeEnd()}
+			>
+				{children}
+			</div>
 		</div>
 	);
 }
