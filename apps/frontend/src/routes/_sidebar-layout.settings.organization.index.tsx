@@ -12,6 +12,7 @@ import { EditableOrganizationName } from '@/components/settings/editable-organiz
 import { OrganizationHeading } from '@/components/settings/organization-heading';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
+import { OrgTwoFactorMethods } from '@/components/settings/org-two-factor-methods';
 import { SsoSettingsSection } from '@/components/settings/sso-settings-section';
 import { SsoTokenInspector } from '@/components/settings/sso-token-inspector';
 import { Badge } from '@/components/ui/badge';
@@ -142,6 +143,7 @@ function OrganizationSettingsPage() {
 							<GoogleConfigSection isAdmin={isOrgAdmin} />
 						</SettingsCard>
 					)}
+					<OrgTwoFactorMethods isAdmin={isOrgAdmin} />
 					<OrgApiKeys isAdmin={isOrgAdmin} />
 				</div>
 			</div>

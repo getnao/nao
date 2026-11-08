@@ -96,6 +96,22 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/account',
 		pageLabel: 'Account',
+		title: 'Two-factor authentication',
+		description: 'Require a code from an authenticator app or your email after your password.',
+		keywords: [
+			'2fa',
+			'mfa',
+			'otp',
+			'totp',
+			'google authenticator',
+			'authenticator app',
+			'backup codes',
+			'security',
+		],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
 		title: 'Danger Zone',
 		description: 'Delete your account or perform other destructive actions.',
 		keywords: ['delete account', 'remove'],
@@ -257,6 +273,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['google', 'bigquery', 'service account', 'gcp', 'sso', 'client id', 'auth domain'],
 		orgAdminOnly: true,
 		cloudHidden: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Two-factor authentication',
+		title: 'Two-factor authentication methods',
+		description: 'Choose which two-factor methods members can use: authenticator app, email code, or both.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'google authenticator', 'email code', 'security'],
+		orgAdminOnly: true,
 	},
 
 	// ── Project Settings ─────────────────────────────────────

@@ -464,6 +464,7 @@ export interface OrgMemberWithUser {
 	email: string;
 	role: OrgRole;
 	status: MemberStatus;
+	twoFactorEnabled: boolean;
 }
 
 export interface OrgProjectWithAccess {
@@ -510,6 +511,7 @@ export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberW
 			email: s.user.email,
 			role: s.orgMember.role,
 			status: userQueries.userMemberStatus,
+			twoFactorEnabled: s.user.twoFactorEnabled,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))

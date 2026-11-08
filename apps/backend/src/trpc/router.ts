@@ -47,6 +47,7 @@ import { systemRoutes } from './system.routes';
 import { testRunRoutes } from './test-run.routes';
 import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
+import { twoFactorRoutes } from './two-factor.routes';
 import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
 import { userGroupRoutes } from './user-group.routes';
@@ -103,6 +104,7 @@ export const trpcRouter = router({
 	skill: skillRoutes,
 	testRun: testRunRoutes,
 	transcribe: transcribeRoutes,
+	twoFactor: twoFactorRoutes,
 });
 
 export type TrpcRouter = typeof trpcRouter;

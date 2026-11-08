@@ -233,6 +233,9 @@ def login(backend_url: str, email: str, password: str) -> dict[str, str] | None:
         )
 
         if response.status_code == 200:
+            if _requires_two_factor(response):
+                UI.error("Two-factor authentication is enabled on this account. Log in through the browser instead.")
+                return None
             cookies = dict(response.cookies)
             if cookies:
                 store_cookies(cookies)
@@ -255,6 +258,13 @@ def login(backend_url: str, email: str, password: str) -> dict[str, str] | None:
     except requests.RequestException as e:
         UI.error(f"Connection error: {e}")
         return None
+
+
+def _requires_two_factor(response: requests.Response) -> bool:
+    try:
+        return bool(response.json().get("twoFactorRedirect"))
+    except ValueError:
+        return False
 
 
 def prompt_password_login(backend_url: str) -> dict[str, str] | None:

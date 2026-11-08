@@ -5,16 +5,20 @@ import { z } from 'zod/v4';
 import { env, isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as orgQueries from '../queries/organization.queries';
+import * as twoFactorQueries from '../queries/two-factor.queries';
 import * as usageQueries from '../queries/usage.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
 import { addOrganizationMember, putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
+import { isTwoFactorEmailAvailable } from '../services/two-factor.service';
 import { ORG_ROLES } from '../types/organization';
+import { TWO_FACTOR_METHODS } from '../types/two-factor';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import {
+	assertCanManageUserAccount,
 	assertCanRenameUser,
 	assertOrganizationRolesAreEditable,
 	protectedProcedure,
@@ -93,6 +97,25 @@ export const organizationRoutes = {
 				requestedDomains.length ? requestedDomains.join(',') : null,
 			);
 			return { domains: requestedDomains };
+		}),
+
+	getTwoFactorSettings: orgAdminProcedure.query(async ({ ctx }) => ({
+		methods: await twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id),
+		emailAvailable: isTwoFactorEmailAvailable(),
+	})),
+
+	updateTwoFactorMethods: orgAdminOnlyProcedure
+		.input(z.object({ methods: z.array(z.enum(TWO_FACTOR_METHODS)) }))
+		.mutation(async ({ input, ctx }) => {
+			const methods = TWO_FACTOR_METHODS.filter((method) => input.methods.includes(method));
+			if (methods.includes('email') && !isTwoFactorEmailAvailable()) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Email codes require an email provider to be configured.',
+				});
+			}
+			await twoFactorQueries.updateOrganizationTwoFactorMethods(ctx.org.id, methods);
+			return { methods };
 		}),
 
 	updateMemberRole: orgAdminOnlyProcedure
@@ -182,6 +205,22 @@ export const organizationRoutes = {
 			}
 
 			return { password };
+		}),
+
+	resetMemberTwoFactor: orgAdminOnlyProcedure
+		.input(z.object({ userId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			const memberRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
+			if (!memberRole) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this organization.' });
+			}
+			await assertCanManageUserAccount(
+				ctx.user.id,
+				input.userId,
+				ctx.org.id,
+				'reset their two-factor authentication',
+			);
+			await twoFactorQueries.resetUserTwoFactor(input.userId);
 		}),
 
 	removeMember: orgAdminOnlyProcedure.input(z.object({ userId: z.string() })).mutation(async ({ input, ctx }) => {

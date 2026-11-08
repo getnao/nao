@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { sendVerificationEmail, signIn } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
 import { EmailVerificationPending } from '@/components/email-verification-pending';
+import { TwoFactorChallenge } from '@/components/two-factor-challenge';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import {
 	buildEmailVerificationCallbackUrl,
@@ -37,6 +38,7 @@ export function Login() {
 	const { error: oauthError, redirect } = Route.useSearch();
 	const [serverError, setServerError] = useState<string | undefined>(getSignInErrorMessage(oauthError));
 	const [pendingEmail, setPendingEmail] = useState<string>();
+	const [twoFactorMethods, setTwoFactorMethods] = useState<string[]>();
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isCloud = useIsCloud();
@@ -47,6 +49,17 @@ export function Login() {
 	const safeRedirect = getSafeRedirectPath(redirect);
 	const verificationCallbackURL = buildEmailVerificationCallbackUrl(oauthAuthorizeUrl ?? safeRedirect);
 
+	const redirectAfterSignIn = () => {
+		rememberSignInMethod('email');
+		if (oauthAuthorizeUrl) {
+			window.location.href = oauthAuthorizeUrl;
+		} else if (safeRedirect) {
+			router.history.push(safeRedirect);
+		} else {
+			navigate({ to: '/' });
+		}
+	};
+
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
 		onSubmit: async ({ value }) => {
@@ -54,7 +67,7 @@ export function Login() {
 				return;
 			}
 			setServerError(undefined);
-			const { error } = await signIn.email(value);
+			const { data, error } = await signIn.email(value);
 			if (error) {
 				if (isEmailNotVerifiedError(error)) {
 					try {
@@ -81,24 +94,22 @@ export function Login() {
 				return;
 			}
 
-			rememberSignInMethod('email');
-			if (oauthAuthorizeUrl) {
-				window.location.href = oauthAuthorizeUrl;
-			} else if (safeRedirect) {
-				router.history.push(safeRedirect);
-			} else {
-				navigate({ to: '/' });
+			if (data && 'twoFactorRedirect' in data && data.twoFactorRedirect) {
+				setTwoFactorMethods(readTwoFactorMethods(data));
+				return;
 			}
+
+			redirectAfterSignIn();
 		},
 	});
 
 	return (
 		<AuthForm
 			form={form}
-			title={pendingEmail ? 'Check your inbox' : 'Log in'}
+			title={pendingEmail ? 'Check your inbox' : twoFactorMethods ? 'Two-factor authentication' : 'Log in'}
 			submitText='Log in'
 			serverError={serverError}
-			displaySocialProviders={!pendingEmail}
+			displaySocialProviders={!pendingEmail && !twoFactorMethods}
 			socialCallbackUrl={oauthAuthorizeUrl ?? safeRedirect ?? undefined}
 			displayEmailPasswordForm={isUserLoginEnabled}
 			emailPasswordDisabledMessage='Email and password login is disabled. Use a configured sign-in provider to continue.'
@@ -109,10 +120,16 @@ export function Login() {
 						callbackURL={verificationCallbackURL}
 						onChangeEmail={() => setPendingEmail(undefined)}
 					/>
+				) : twoFactorMethods ? (
+					<TwoFactorChallenge
+						methods={twoFactorMethods}
+						onVerified={redirectAfterSignIn}
+						onCancel={() => setTwoFactorMethods(undefined)}
+					/>
 				) : undefined
 			}
 			footer={
-				!pendingEmail && isCloud && isUserSignupEnabled ? (
+				!pendingEmail && !twoFactorMethods && isCloud && isUserSignupEnabled ? (
 					<>
 						Don&apos;t have an account?{' '}
 						<Link
@@ -153,4 +170,9 @@ export function Login() {
 			)}
 		</AuthForm>
 	);
+}
+
+function readTwoFactorMethods(data: object): string[] {
+	const methods = (data as { twoFactorMethods?: unknown }).twoFactorMethods;
+	return Array.isArray(methods) ? methods.filter((method): method is string => typeof method === 'string') : [];
 }
