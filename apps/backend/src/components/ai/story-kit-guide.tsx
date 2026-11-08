@@ -92,8 +92,8 @@ export function storyKitGuideItems(): ReactElement[] {
 			telling the items apart ({'{...selectable({ name: "Card", detail: "7 of hearts" })}'}). Kit blocks are
 			already selectable. Whenever you write, update or edit a story, add it to the elements you write or touch
 			that lack it. In an HTML story, write{' '}
-			<Bold>{'data-nao-part="element" data-nao-part-label="<name>" data-nao-part-value="<detail>"'}</Bold> on
-			the element instead, replacing the placeholders with its own name and optional detail.
+			<Bold>{'data-nao-part="element" data-nao-part-label="<name>" data-nao-part-value="<detail>"'}</Bold> on the
+			element instead, replacing the placeholders with its own name and optional detail.
 		</ListItem>,
 		<ListItem key='narrative'>
 			Wrap prose that states numbers or trends in <Bold>{'<Narrative id="...">text</Narrative>'}</Bold> inside
