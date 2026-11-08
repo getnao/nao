@@ -257,6 +257,7 @@ export function OrgMembers() {
 				confirmLabel='Reset'
 				onConfirm={handleResetTwoFactor}
 				isPending={resetTwoFactor.isPending}
+				preventCloseWhilePending
 				error={resetTwoFactor.error?.message}
 			/>
 

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	role: 'admin' as 'admin' | 'user',
 	emailEnabled: true,
+	storedMethods: ['totp', 'email'] as string[],
 	getUserRoleInOrg: vi.fn(),
 	isUserConfinedToOrganization: vi.fn(),
 	updateOrganizationTwoFactorMethods: vi.fn(),
@@ -14,6 +15,9 @@ vi.mock('../src/queries/account.queries', () => ({}));
 vi.mock('../src/queries/organization.queries', () => ({
 	getUserOrgMembership: vi.fn(async () => ({ organization: { id: 'org-1', name: 'Org' }, role: mocks.role })),
 	getUserRoleInOrg: mocks.getUserRoleInOrg,
+	listOrgMembersWithUsers: vi.fn(async () => [
+		{ id: 'member-1', name: 'Member', email: 'member@example.com', role: 'user', twoFactorEnabled: true },
+	]),
 }));
 vi.mock('../src/queries/project.queries', () => ({}));
 vi.mock('../src/queries/usage.queries', () => ({}));
@@ -21,7 +25,7 @@ vi.mock('../src/queries/user.queries', () => ({
 	isUserConfinedToOrganization: mocks.isUserConfinedToOrganization,
 }));
 vi.mock('../src/queries/two-factor.queries', () => ({
-	getOrganizationTwoFactorMethods: vi.fn(async () => ['totp', 'email']),
+	getOrganizationTwoFactorMethods: vi.fn(async () => mocks.storedMethods),
 	updateOrganizationTwoFactorMethods: mocks.updateOrganizationTwoFactorMethods,
 	resetUserTwoFactor: mocks.resetUserTwoFactor,
 }));
@@ -40,6 +44,7 @@ describe('organization two-factor settings', () => {
 		vi.clearAllMocks();
 		mocks.role = 'admin';
 		mocks.emailEnabled = true;
+		mocks.storedMethods = ['totp', 'email'];
 		mocks.getUserRoleInOrg.mockResolvedValue('user');
 		mocks.isUserConfinedToOrganization.mockResolvedValue(true);
 	});
@@ -55,11 +60,30 @@ describe('organization two-factor settings', () => {
 
 	it('rejects email codes when no email provider is configured', async () => {
 		mocks.emailEnabled = false;
+		mocks.storedMethods = ['totp'];
 
 		await expect(createCaller().organization.updateTwoFactorMethods({ methods: ['email'] })).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
 		});
 		expect(mocks.updateOrganizationTwoFactorMethods).not.toHaveBeenCalled();
+	});
+
+	it('keeps already allowed email codes while no email provider is configured', async () => {
+		mocks.emailEnabled = false;
+
+		const result = await createCaller().organization.updateTwoFactorMethods({ methods: ['email'] });
+
+		expect(result.methods).toEqual(['email']);
+		expect(mocks.updateOrganizationTwoFactorMethods).toHaveBeenCalledWith('org-1', ['email']);
+	});
+
+	it('only shows the two-factor status of members to admins', async () => {
+		const [adminView] = await createCaller().organization.getMembers();
+		mocks.role = 'user';
+		const [memberView] = await createCaller().organization.getMembers();
+
+		expect(adminView.twoFactorEnabled).toBe(true);
+		expect(memberView.twoFactorEnabled).toBeUndefined();
 	});
 
 	it('only lets admins change the allowed methods', async () => {

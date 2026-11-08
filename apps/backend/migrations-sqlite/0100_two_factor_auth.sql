@@ -9,6 +9,6 @@ CREATE TABLE `two_factor` (
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `two_factor_userId_idx` ON `two_factor` (`user_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `two_factor_user_id_unique` ON `two_factor` (`user_id`);--> statement-breakpoint
 ALTER TABLE `organization` ADD `two_factor_methods` text DEFAULT '["totp","email"]' NOT NULL;--> statement-breakpoint
 ALTER TABLE `user` ADD `two_factor_enabled` integer DEFAULT false NOT NULL;

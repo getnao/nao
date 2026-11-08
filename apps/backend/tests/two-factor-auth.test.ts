@@ -122,7 +122,24 @@ describe('two-factor authentication policy', () => {
 
 		await browser.json('/two-factor/enable', { password: PASSWORD });
 
-		expect((await browser.post('/two-factor/send-otp', {})).status).toBe(403);
+		expect((await browser.post('/two-factor/send-otp', {})).status).toBe(503);
+	});
+
+	it('tells email code users at sign-in when codes cannot be delivered', async () => {
+		state.policies = [['email']];
+		const browser = new Browser(auth);
+		await browser.signUp('smtp-removed@example.com');
+		await browser.json('/two-factor/enable', { password: PASSWORD });
+		await browser.json('/two-factor/send-otp', {});
+		await browser.post('/two-factor/verify-otp', { code: state.sentCodes.at(-1) });
+		state.emailEnabled = false;
+
+		const signIn = new Browser(auth);
+		await signIn.json('/sign-in/email', { email: 'smtp-removed@example.com', password: PASSWORD });
+		const response = await signIn.post('/two-factor/send-otp', {});
+
+		expect(response.status).toBe(503);
+		expect(state.sentCodes).toHaveLength(1);
 	});
 
 	it('uses the methods every organization of the user allows', async () => {

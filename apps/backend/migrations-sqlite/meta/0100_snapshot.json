@@ -10145,12 +10145,12 @@
         }
       },
       "indexes": {
-        "two_factor_userId_idx": {
-          "name": "two_factor_userId_idx",
+        "two_factor_user_id_unique": {
+          "name": "two_factor_user_id_unique",
           "columns": [
             "user_id"
           ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {

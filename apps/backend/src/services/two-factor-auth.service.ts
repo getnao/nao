@@ -8,6 +8,7 @@ import type { TwoFactorMethod } from '../types/two-factor';
 import { DEFAULT_APP_NAME } from './branding.service';
 import {
 	getAllowedTwoFactorMethods,
+	isTwoFactorEmailAvailable,
 	sendTwoFactorCodeEmail,
 	TWO_FACTOR_EMAIL_CODE_TTL_MINUTES,
 } from './two-factor.service';
@@ -15,7 +16,8 @@ import {
 const TWO_FACTOR_COOKIE_NAME = 'two_factor';
 const ENABLE_PATH = '/two-factor/enable';
 const VERIFY_TOTP_PATH = '/two-factor/verify-totp';
-const EMAIL_CODE_PATHS = new Set(['/two-factor/send-otp', '/two-factor/verify-otp']);
+const SEND_OTP_PATH = '/two-factor/send-otp';
+const EMAIL_CODE_PATHS = new Set([SEND_OTP_PATH, '/two-factor/verify-otp']);
 const POLICY_PATHS = new Set([ENABLE_PATH, VERIFY_TOTP_PATH, ...EMAIL_CODE_PATHS]);
 
 type AuthMiddlewareContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
@@ -27,7 +29,9 @@ export function twoFactorPlugins(): BetterAuthPlugin[] {
 			otpOptions: {
 				period: TWO_FACTOR_EMAIL_CODE_TTL_MINUTES,
 				storeOTP: 'hashed',
-				sendOTP: ({ user, otp }) => sendTwoFactorCodeEmail(user, otp),
+				sendOTP: async ({ user, otp }) => {
+					await sendTwoFactorCodeEmail(user, otp);
+				},
 			},
 		}),
 		twoFactorPolicy(),
@@ -45,8 +49,13 @@ function twoFactorPolicy(): BetterAuthPlugin {
 		hooks: {
 			before: [
 				{
-					matcher: (context) => POLICY_PATHS.has(context.path ?? ''),
+					matcher: (context) => {
+						return POLICY_PATHS.has(context.path ?? '');
+					},
 					handler: createAuthMiddleware(async (ctx) => {
+						if (ctx.path === SEND_OTP_PATH) {
+							assertEmailDeliveryAvailable();
+						}
 						const session = await getSessionFromCtx(ctx);
 						if (session) {
 							await assertSetupAllowed(ctx.path, session.user.id);
@@ -104,6 +113,14 @@ function assertUsesEmailCodes(enrollment: twoFactorQueries.TwoFactorEnrollment |
 	if (enrollment.totpVerified) {
 		throw new APIError('FORBIDDEN', {
 			message: 'This account uses an authenticator app. Enter a code from the app or a backup code.',
+		});
+	}
+}
+
+function assertEmailDeliveryAvailable(): void {
+	if (!isTwoFactorEmailAvailable()) {
+		throw new APIError('SERVICE_UNAVAILABLE', {
+			message: 'Email codes cannot be sent because no email provider is configured. Use a backup code instead.',
 		});
 	}
 }

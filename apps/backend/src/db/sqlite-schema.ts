@@ -240,7 +240,7 @@ export const twoFactor = sqliteTable(
 		failedVerificationCount: integer('failed_verification_count').default(0).notNull(),
 		lockedUntil: integer('locked_until', { mode: 'timestamp_ms' }),
 	},
-	(table) => [index('two_factor_userId_idx').on(table.userId)],
+	(table) => [uniqueIndex('two_factor_user_id_unique').on(table.userId)],
 );
 
 export const organization = sqliteTable('organization', {

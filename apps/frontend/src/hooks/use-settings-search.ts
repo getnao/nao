@@ -61,6 +61,8 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 	const cloudBillingEnabled = config.data?.cloudBillingEnabled;
 	const licenseFeatures = useLicenseFeatures();
 	const enabledLicenseFeatures = licenseFeatures.data as Record<string, boolean> | undefined;
+	const twoFactorStatus = useQuery(trpc.twoFactor.getStatus.queryOptions());
+	const hasPassword = twoFactorStatus.data?.hasPassword === true;
 
 	return useMemo(
 		() =>
@@ -77,7 +79,8 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.cloudOnly || isCloud) &&
 						(!entry.cloudBillingOnly || cloudBillingEnabled === true) &&
 						(!entry.betaSubagentsOnly || betaSubagentsEnabled) &&
-						(!entry.betaAutomationsOnly || betaAutomationsEnabled),
+						(!entry.betaAutomationsOnly || betaAutomationsEnabled) &&
+						(!entry.requiresPassword || hasPassword),
 				)
 				.filter((entry) => canSeeAdvancedSettings || viewerVisiblePages.includes(entry.page)),
 		[
@@ -87,6 +90,7 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 			canSeeAdvancedSettings,
 			cloudBillingEnabled,
 			enabledLicenseFeatures,
+			hasPassword,
 			isAdmin,
 			isCloud,
 			isContextAdmin,

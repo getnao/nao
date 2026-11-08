@@ -20,11 +20,13 @@ export function OrgTwoFactorMethods({ isAdmin }: OrgTwoFactorMethodsProps) {
 		return null;
 	}
 
-	const { emailAvailable } = settings.data;
-	const methods = settings.data.methods.filter((method) => emailAvailable || method !== 'email');
+	const { emailAvailable, methods: storedMethods } = settings.data;
+	const methods = storedMethods.filter((method) => emailAvailable || method !== 'email');
 
 	const toggle = (method: TwoFactorMethod, allowed: boolean) => {
-		const nextMethods = allowed ? [...methods, method] : methods.filter((current) => current !== method);
+		const nextMethods = allowed
+			? [...storedMethods, method]
+			: storedMethods.filter((current) => current !== method);
 		updateMethods.mutate(
 			{ methods: nextMethods },
 			{

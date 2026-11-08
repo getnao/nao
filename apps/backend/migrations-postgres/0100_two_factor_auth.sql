@@ -11,4 +11,4 @@ CREATE TABLE "two_factor" (
 ALTER TABLE "organization" ADD COLUMN "two_factor_methods" jsonb DEFAULT '["totp","email"]'::jsonb NOT NULL;--> statement-breakpoint
 ALTER TABLE "user" ADD COLUMN "two_factor_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "two_factor_userId_idx" ON "two_factor" USING btree ("user_id");
+CREATE UNIQUE INDEX "two_factor_user_id_unique" ON "two_factor" USING btree ("user_id");

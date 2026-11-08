@@ -27,7 +27,9 @@ export function TwoFactorSettings() {
 		return null;
 	}
 
-	const refreshStatus = () => queryClient.invalidateQueries({ queryKey: trpc.twoFactor.getStatus.queryKey() });
+	const refreshStatus = () => {
+		queryClient.invalidateQueries({ queryKey: trpc.twoFactor.getStatus.queryKey() });
+	};
 
 	return (
 		<SettingsCard title='Two-factor authentication' divide>
@@ -97,6 +99,12 @@ function PasswordActionDialog({ action, onClose, onDisabled }: PasswordActionDia
 		onClose();
 	};
 
+	const handleOpenChange = (open: boolean) => {
+		if (!open && !isPending) {
+			close();
+		}
+	};
+
 	const confirm = async () => {
 		setError(undefined);
 		setIsPending(true);
@@ -121,7 +129,7 @@ function PasswordActionDialog({ action, onClose, onDisabled }: PasswordActionDia
 	};
 
 	return (
-		<Dialog open={!!action} onOpenChange={(open) => !open && close()}>
+		<Dialog open={!!action} onOpenChange={handleOpenChange}>
 			<DialogContent className='max-w-md'>
 				<DialogHeader>
 					<DialogTitle>
@@ -154,7 +162,7 @@ function PasswordActionDialog({ action, onClose, onDisabled }: PasswordActionDia
 						</Button>
 					) : (
 						<>
-							<Button variant='outline' className='rounded-full' onClick={close}>
+							<Button variant='outline' className='rounded-full' disabled={isPending} onClick={close}>
 								Cancel
 							</Button>
 							<Button

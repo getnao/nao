@@ -64,7 +64,12 @@ export const organizationRoutes = {
 	}),
 
 	getMembers: orgAdminProcedure.query(async ({ ctx }) => {
-		return orgQueries.listOrgMembersWithUsers(ctx.org.id);
+		const members = await orgQueries.listOrgMembersWithUsers(ctx.org.id);
+		const canSeeTwoFactor = ctx.orgRole === 'admin';
+		return members.map((member) => ({
+			...member,
+			twoFactorEnabled: canSeeTwoFactor ? member.twoFactorEnabled : undefined,
+		}));
 	}),
 
 	getUserCounts: orgAdminProcedure.query(async ({ ctx }) => {
@@ -99,16 +104,20 @@ export const organizationRoutes = {
 			return { domains: requestedDomains };
 		}),
 
-	getTwoFactorSettings: orgAdminProcedure.query(async ({ ctx }) => ({
-		methods: await twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id),
-		emailAvailable: isTwoFactorEmailAvailable(),
-	})),
+	getTwoFactorSettings: orgAdminProcedure.query(async ({ ctx }) => {
+		return {
+			methods: await twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id),
+			emailAvailable: isTwoFactorEmailAvailable(),
+		};
+	}),
 
 	updateTwoFactorMethods: orgAdminOnlyProcedure
 		.input(z.object({ methods: z.array(z.enum(TWO_FACTOR_METHODS)) }))
 		.mutation(async ({ input, ctx }) => {
 			const methods = TWO_FACTOR_METHODS.filter((method) => input.methods.includes(method));
-			if (methods.includes('email') && !isTwoFactorEmailAvailable()) {
+			const storedMethods = await twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id);
+			const isAddingEmail = methods.includes('email') && !storedMethods.includes('email');
+			if (isAddingEmail && !isTwoFactorEmailAvailable()) {
 				throw new TRPCError({
 					code: 'BAD_REQUEST',
 					message: 'Email codes require an email provider to be configured.',

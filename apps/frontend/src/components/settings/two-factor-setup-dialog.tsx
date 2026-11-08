@@ -41,6 +41,13 @@ export function TwoFactorSetupDialog({ open, allowedMethods, onOpenChange, onEna
 		onOpenChange(nextOpen);
 	};
 
+	/** Backup codes are only shown once, so on that step the dialog closes through the Done button only. */
+	const handleDismiss = (nextOpen: boolean) => {
+		if (!isPending && step !== 'backup-codes') {
+			handleOpenChange(nextOpen);
+		}
+	};
+
 	const run = async (action: () => Promise<string | undefined>) => {
 		setError(undefined);
 		setIsPending(true);
@@ -49,37 +56,46 @@ export function TwoFactorSetupDialog({ open, allowedMethods, onOpenChange, onEna
 		setError(actionError);
 	};
 
-	const start = () =>
-		run(async () => {
+	const start = async () => {
+		await run(async () => {
 			const { data, error: enableError } = await twoFactor.enable({ password, issuer });
 			if (enableError || !data) {
 				return enableError?.message ?? 'Could not start the setup.';
 			}
 			if (method === 'email') {
-				const { error: sendError } = await twoFactor.sendOtp();
+				const sendError = await sendEmailCode();
 				if (sendError) {
-					return sendError.message ?? 'Could not send the code.';
+					return sendError;
 				}
 			}
 			setTotpUri(data.totpURI);
 			setBackupCodes(data.backupCodes);
 			setStep('verify');
 		});
+	};
 
-	const verify = () =>
-		run(async () => {
+	const resend = async () => {
+		await run(sendEmailCode);
+	};
+
+	const verify = async () => {
+		await run(async () => {
+			const trimmedCode = code.trim();
 			const { error: verifyError } =
-				method === 'totp' ? await twoFactor.verifyTotp({ code }) : await twoFactor.verifyOtp({ code });
+				method === 'totp'
+					? await twoFactor.verifyTotp({ code: trimmedCode })
+					: await twoFactor.verifyOtp({ code: trimmedCode });
 			if (verifyError) {
 				return verifyError.message ?? 'Invalid code. Please try again.';
 			}
 			onEnabled();
 			setStep('backup-codes');
 		});
+	};
 
 	return (
-		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent className='max-w-md'>
+		<Dialog open={open} onOpenChange={handleDismiss}>
+			<DialogContent className='max-w-md' showCloseButton={step !== 'backup-codes'}>
 				<DialogHeader>
 					<DialogTitle>Set up two-factor authentication</DialogTitle>
 					<DialogDescription>{describeStep(step, method)}</DialogDescription>
@@ -126,6 +142,11 @@ export function TwoFactorSetupDialog({ open, allowedMethods, onOpenChange, onEna
 							Continue
 						</Button>
 					)}
+					{step === 'verify' && method === 'email' && (
+						<Button variant='ghost' className='rounded-full' disabled={isPending} onClick={resend}>
+							Resend code
+						</Button>
+					)}
 					{step === 'verify' && (
 						<Button
 							className='rounded-full'
@@ -145,6 +166,11 @@ export function TwoFactorSetupDialog({ open, allowedMethods, onOpenChange, onEna
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+async function sendEmailCode(): Promise<string | undefined> {
+	const { error } = await twoFactor.sendOtp();
+	return error ? (error.message ?? 'Could not send the code.') : undefined;
 }
 
 function MethodPicker({ value, onChange }: { value: TwoFactorMethod; onChange: (method: TwoFactorMethod) => void }) {

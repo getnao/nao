@@ -230,7 +230,7 @@ export const twoFactor = pgTable(
 		failedVerificationCount: integer('failed_verification_count').default(0).notNull(),
 		lockedUntil: timestamp('locked_until'),
 	},
-	(table) => [index('two_factor_userId_idx').on(table.userId)],
+	(table) => [uniqueIndex('two_factor_user_id_unique').on(table.userId)],
 );
 
 export const organization = pgTable('organization', {

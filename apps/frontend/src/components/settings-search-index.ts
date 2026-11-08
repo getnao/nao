@@ -21,6 +21,8 @@ export interface SettingsSearchEntry {
 	cloudBillingOnly?: boolean;
 	betaSubagentsOnly?: boolean;
 	betaAutomationsOnly?: boolean;
+	/** Hidden for accounts that only sign in through SSO. */
+	requiresPassword?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -98,6 +100,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Account',
 		title: 'Two-factor authentication',
 		description: 'Require a code from an authenticator app or your email after your password.',
+		requiresPassword: true,
 		keywords: [
 			'2fa',
 			'mfa',
