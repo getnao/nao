@@ -19,7 +19,7 @@ import {
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { isNotPageScopedChat } from './chat.queries';
-import { sharedStoryGrantsUser } from './shared-story.queries';
+import { sharedStoryGrantsEditor, sharedStoryGrantsUser } from './shared-story.queries';
 
 export type ReferenceableStoryListing = {
 	storyId: string;
@@ -73,7 +73,7 @@ export async function listReferenceableStories(
 	const latestVersions = latestVersionsSubquery();
 	const rows = await db
 		.select({
-			...listingColumns(),
+			...listingColumns(userId),
 			versionId: s.storyVersion.id,
 			version: s.storyVersion.version,
 			code: s.storyVersion.code,
@@ -102,7 +102,7 @@ export async function listAllReferenceableStoryListings(
 	projectId: string,
 ): Promise<ReferenceableStoryListing[]> {
 	const rows = await db
-		.select(listingColumns())
+		.select(listingColumns(userId))
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
 		.leftJoin(s.sharedStory, and(eq(s.sharedStory.storyId, s.story.id), eq(s.sharedStory.projectId, projectId)))
@@ -148,7 +148,7 @@ export async function listMentioningChats(
 	return rows.map((row) => ({ ...row, isOrigin: row.chatId === originChatId }));
 }
 
-function listingColumns() {
+function listingColumns(userId: string) {
 	return {
 		storyId: s.story.id,
 		chatId: s.story.chatId,
@@ -161,11 +161,12 @@ function listingColumns() {
 		shareVisibility: s.sharedStory.visibility,
 		certifiedAt: s.story.certifiedAt,
 		updatedAt: s.story.updatedAt,
+		isShareEditor: sql<unknown>`case when ${isNotNull(s.sharedStory.id)} and ${sharedStoryGrantsEditor(userId)} then 1 else 0 end`,
 	};
 }
 
 function toReferenceableStory<Row extends ListingRow>(
-	{ isPinned, certifiedAt, shareVisibility, ...row }: Row,
+	{ isPinned, certifiedAt, shareVisibility, isShareEditor, ...row }: Row,
 	userId: string,
 ) {
 	return {
@@ -173,7 +174,7 @@ function toReferenceableStory<Row extends ListingRow>(
 		isPinned: isPinned === true,
 		isCertified: certifiedAt !== null,
 		isSharedWithMe: shareVisibility === 'specific' && row.ownerId !== userId,
-		canEdit: row.ownerId === userId,
+		canEdit: row.ownerId === userId || Number(isShareEditor) === 1,
 	};
 }
 
@@ -182,6 +183,7 @@ type ListingRow = {
 	isPinned: boolean | null;
 	certifiedAt: Date | null;
 	shareVisibility: string | null;
+	isShareEditor: unknown;
 };
 
 function isReferenceable(userId: string, projectId: string, filters: ReferenceableStoryFilters = {}): SQL | undefined {

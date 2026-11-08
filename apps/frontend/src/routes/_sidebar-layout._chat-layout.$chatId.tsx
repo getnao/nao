@@ -31,7 +31,7 @@ import { EditableChatTitle } from '@/components/editable-chat-title';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { useHeight } from '@/hooks/use-height';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
-import { ShareChatDialog } from '@/components/share-dialog.chat';
+import { ShareDialog } from '@/components/share-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
@@ -93,7 +93,7 @@ function ChatPage() {
 
 	const isOnboardingChat = chat.data?.isOnboarding === true;
 	const shareQuery = useQuery({
-		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
+		...trpc.sharedChat.getShareSettings.queryOptions({ chatId }),
 		enabled: !!chat.data && !shouldShowChatError && !isOnboardingChat,
 	});
 	const isShared = !!shareQuery.data?.shareId;
@@ -339,7 +339,11 @@ function ChatPage() {
 					)}
 				</div>
 			</SelectionProvider>
-			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chatId} />
+			<ShareDialog
+				open={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				target={{ kind: 'chat', chatId }}
+			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
 				onOpenChange={setIsAnalyticsOpen}

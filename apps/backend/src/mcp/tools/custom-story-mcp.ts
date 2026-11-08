@@ -11,6 +11,11 @@ import {
 	createCustomStoryDraft,
 	publishCustomStoryDraft,
 } from '../../services/custom-story-authoring';
+import {
+	assertWriterAddsNoChatQueries,
+	CustomStoryQueryNotAllowedError,
+} from '../../services/custom-story-query-access';
+import { assertStoryEditable, StoryEditLockedError } from '../../services/story-edit-lock.service';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
 import {
 	backfillMissingQueryDataByIds,
@@ -125,6 +130,14 @@ export async function updateCustomStoryForMcp(
 	if (story.chatId && input.queryData) {
 		return errorResult(CHAT_QUERY_DATA_REFUSAL);
 	}
+	const lockError = await storyEditLockRefusal(story.id, ctx.userId);
+	if (lockError) {
+		return errorResult(lockError);
+	}
+	const queryRefusal = await chatQueryRefusal(story, ctx.userId, input.files);
+	if (queryRefusal) {
+		return errorResult(queryRefusal);
+	}
 	await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
 	if (input.title !== undefined && input.title !== story.title) {
 		await storyQueries.renameStory(story.id, input.title);
@@ -133,6 +146,31 @@ export async function updateCustomStoryForMcp(
 		await saveStandaloneQueryData(story.id, input.queryData, ctx);
 	}
 	return publishResult({ ...story, title: input.title ?? story.title }, ctx);
+}
+
+async function chatQueryRefusal(story: DBStory, userId: string, files: StoryFileInput[]): Promise<string | null> {
+	try {
+		await assertWriterAddsNoChatQueries(story, userId, files);
+		return null;
+	} catch (error) {
+		if (error instanceof CustomStoryQueryNotAllowedError) {
+			return error.message;
+		}
+		throw error;
+	}
+}
+
+/** The reason an MCP client may not edit the story right now, or null when it may. */
+export async function storyEditLockRefusal(storyId: string, userId: string): Promise<string | null> {
+	try {
+		await assertStoryEditable(storyId, { userId, chatId: null });
+		return null;
+	} catch (error) {
+		if (error instanceof StoryEditLockedError) {
+			return error.message;
+		}
+		throw error;
+	}
 }
 
 export async function getCustomStoryForMcp(storyId: string, ctx: McpContext): Promise<ToolResult | null> {

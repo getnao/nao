@@ -17,7 +17,7 @@ import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-vi
 import { rememberStatePrompt } from '@/components/custom-story/remember-state-header';
 import { useCustomStory } from '@/components/custom-story/use-custom-story';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
-import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { ShareDialog } from '@/components/share-dialog';
 import { useStoryViewerEnlarge } from '@/components/side-panel/hooks/use-story-viewer-enlarge';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { useStoryViewerSharing } from '@/components/side-panel/hooks/use-story-viewer-sharing';
@@ -33,6 +33,8 @@ import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
 import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-edit-session';
+import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
 import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { toAskCitation, toCodeAsk } from '@/stores/ask-bar';
@@ -58,7 +60,23 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const { content } = story;
 	const theme = useActiveStoryTheme(content?.theme);
 	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
-	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && !isReadonlyMode;
+	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
+	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
+	const [hasFileChanges, setHasFileChanges] = useState(false);
+	const presence = useStoryEditSession({
+		target: !isReadonlyMode && storyId ? { storyId, chatId, storySlug } : null,
+		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
+	});
+	const canEditBlocks =
+		story.isViewingLatest &&
+		!story.isAgentRunning &&
+		!story.isArchived &&
+		!isReadonlyMode &&
+		!presence.isLockedByOthers;
+	useCloseWhenUneditable(canEditBlocks, () => {
+		setEditTarget(null);
+		setTableFormatTarget(null);
+	});
 
 	const sharing = useStoryViewerSharing({ chatId, storySlug });
 	const live = useStoryViewerLiveSettings({ chatId, storySlug });
@@ -76,8 +94,6 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 	const canAsk = !isReadonlyMode;
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
-	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
-	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
 	const renderStoryViewer = useCallback(
 		(nextStorySlug: string) => <StoryViewer chatId={chatId} storySlug={nextStorySlug} />,
 		[chatId],
@@ -169,6 +185,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				onEnlarge={handleEnlarge}
 				isShared={sharing.isShared}
 				isAgentRunning={story.isAgentRunning}
+				isEditLocked={presence.isLockedByOthers}
 				isStoryUpdating={false}
 				isSaving={story.isRestoring}
 				isReadonlyMode={isReadonlyMode}
@@ -184,6 +201,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				onDownload={story.download}
 			/>
 
+			<StoryEditPresenceBanner presence={presence} />
 			{story.isArchived && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
 			{story.restoreError && <ActionErrorBanner message={story.restoreError.message} />}
 
@@ -214,6 +232,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 							versionNumber={content.version.number}
 							files={content.files}
 							editable={canEditBlocks && customStoryCreationEnabled}
+							onHasChangesChange={setHasFileChanges}
 							onAskAboutCode={canAsk ? handleAskAboutCode : undefined}
 						/>
 					)
@@ -229,11 +248,10 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				target={canEditBlocks ? tableFormatTarget : null}
 				onClose={() => setTableFormatTarget(null)}
 			/>
-			<ShareStoryDialog
+			<ShareDialog
 				open={sharing.isShareDialogOpen}
 				onOpenChange={sharing.setIsShareDialogOpen}
-				chatId={chatId}
-				storySlug={storySlug}
+				target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
 			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}

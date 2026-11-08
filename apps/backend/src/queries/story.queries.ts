@@ -116,6 +116,22 @@ export async function getStoryOwnerId(storyId: string): Promise<string | undefin
 	return row?.chatUserId ?? row?.storyUserId ?? undefined;
 }
 
+export type StoryOwner = { id: string; name: string; email: string };
+
+export async function getStoryOwner(storyId: string): Promise<StoryOwner | null> {
+	const ownerId = await getStoryOwnerId(storyId);
+	if (!ownerId) {
+		return null;
+	}
+	const [row] = await db
+		.select({ id: s.user.id, name: s.user.name, email: s.user.email })
+		.from(s.user)
+		.where(eq(s.user.id, ownerId))
+		.limit(1)
+		.execute();
+	return row ?? null;
+}
+
 export async function getStoryByIdForUser(storyId: string, userId: string): Promise<UserStoryRow | null> {
 	const latestVersions = latestVersionsSubquery();
 
@@ -291,6 +307,30 @@ export type VersionProvenance = {
 	sourceChatId: string | null;
 };
 
+const STORY_VERSION_UNIQUE_CONSTRAINT = 'story_version_story_version_unique';
+
+export class StoryVersionConflictError extends Error {
+	constructor(
+		message = 'Someone saved a newer version while you were editing. Copy your changes, then cancel to see the latest version.',
+	) {
+		super(message);
+		this.name = 'StoryVersionConflictError';
+	}
+}
+
+/** True when an insert lost the race for a story version number to a concurrent save. */
+export function isStoryVersionUniqueViolation(error: unknown): boolean {
+	const databaseError = error instanceof Error && error.cause ? error.cause : error;
+	if (!databaseError || typeof databaseError !== 'object') {
+		return false;
+	}
+	const { code, constraint_name: constraintName, message } = databaseError as Record<string, unknown>;
+	return (
+		(code === '23505' && constraintName === STORY_VERSION_UNIQUE_CONSTRAINT) ||
+		(typeof message === 'string' && message.includes('UNIQUE constraint failed: story_version'))
+	);
+}
+
 export async function createStoryVersion(
 	data: {
 		chatId: string;
@@ -299,6 +339,7 @@ export async function createStoryVersion(
 		code: string;
 		action: 'create' | 'update' | 'replace';
 		source: 'assistant' | 'user';
+		basedOnVersion?: number;
 	} & VersionProvenance,
 	executor: DBExecutor = db,
 ): Promise<DBStoryVersion & { title: string }> {
@@ -309,22 +350,31 @@ export async function createStoryVersion(
 		.from(s.storyVersion)
 		.where(eq(s.storyVersion.storyId, story.id));
 
-	const [created] = await executor
-		.insert(s.storyVersion)
-		.values({
-			storyId: story.id,
-			code: data.code,
-			action: data.action,
-			source: data.source,
-			origin: data.origin,
-			authorId: data.authorId,
-			sourceChatId: data.sourceChatId,
-			version: sql`(${nextVersion})`,
-		})
-		.returning()
-		.execute();
-
-	return { ...created, title: story.title };
+	if (data.basedOnVersion !== undefined) {
+		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, executor);
+	}
+	try {
+		const [created] = await executor
+			.insert(s.storyVersion)
+			.values({
+				storyId: story.id,
+				code: data.code,
+				action: data.action,
+				source: data.source,
+				origin: data.origin,
+				authorId: data.authorId,
+				sourceChatId: data.sourceChatId,
+				version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
+			})
+			.returning()
+			.execute();
+		return { ...created, title: story.title };
+	} catch (error) {
+		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
+			throw new StoryVersionConflictError();
+		}
+		throw error;
+	}
 }
 
 export async function createStandaloneVersion(data: {
@@ -590,6 +640,20 @@ export function getLatestVersionByChatAndSlug(chatId: string, slug: string): Pro
 
 export function getLatestVersionByStoryId(storyId: string): Promise<StoryVersionWithStory | null> {
 	return getStoryVersion(eq(s.story.id, storyId), { latest: true });
+}
+
+export async function getLatestVersionStamp(
+	storyId: string,
+): Promise<{ version: number; authorName: string | null } | null> {
+	const [row] = await db
+		.select({ version: s.storyVersion.version, authorName: s.user.name })
+		.from(s.storyVersion)
+		.leftJoin(s.user, eq(s.user.id, s.storyVersion.authorId))
+		.where(eq(s.storyVersion.storyId, storyId))
+		.orderBy(desc(s.storyVersion.version))
+		.limit(1)
+		.execute();
+	return row ?? null;
 }
 
 export function getVersionByNumber(
@@ -914,6 +978,23 @@ async function queryStoriesWithLatestVersion(
 		return query.limit(options.limit).execute();
 	}
 	return query.execute();
+}
+
+async function assertBasedOnLatestVersion(
+	storyId: string,
+	basedOnVersion: number,
+	executor: DBExecutor,
+): Promise<void> {
+	const [latest] = await executor
+		.select({ version: s.storyVersion.version })
+		.from(s.storyVersion)
+		.where(eq(s.storyVersion.storyId, storyId))
+		.orderBy(desc(s.storyVersion.version))
+		.limit(1)
+		.execute();
+	if ((latest?.version ?? 0) !== basedOnVersion) {
+		throw new StoryVersionConflictError();
+	}
 }
 
 async function getOrCreateStory(

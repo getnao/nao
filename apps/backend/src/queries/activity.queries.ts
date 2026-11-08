@@ -397,6 +397,12 @@ function visibleToUser(projectId: string, userId: string) {
 			WHERE sca.shared_chat_id = ${s.activity.sharedChatId}
 				AND sca.user_id = ${userId}
 		)`,
+		sql`EXISTS (
+			SELECT 1 FROM ${s.sharedChatGroupAccess} scga
+			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = scga.group_id
+			WHERE scga.shared_chat_id = ${s.activity.sharedChatId}
+				AND ugm.user_id = ${userId}
+		)`,
 	);
 
 	return or(

@@ -3,7 +3,7 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
-import { useMemberPicker, useShareAudience } from './use-share-dialog';
+import { useShareAudience, useShareCandidates } from './use-share-dialog';
 
 const mocks = vi.hoisted(() => ({
 	activeProjectId: null as string | null,
@@ -41,6 +41,9 @@ vi.mock('@/main', () => ({
 			getCurrent: { queryOptions: () => ({ queryKey: ['project'] }) },
 			getProjectMembersByChatId: { queryOptions: () => ({ queryKey: ['members'] }) },
 		},
+		storyShare: {
+			listShareableGroups: { queryOptions: () => ({ queryKey: ['groups'] }) },
+		},
 		userGroup: {
 			projectSharingAccess: { queryOptions: () => ({ queryKey: ['sharing-access'] }) },
 		},
@@ -57,12 +60,16 @@ beforeEach(() => {
 it('hides cached sharing access and members when no project is active', () => {
 	const { result } = renderHook(() => ({
 		audience: useShareAudience(),
-		memberPicker: useMemberPicker('current-user', undefined, 'chat-id'),
+		candidates: useShareCandidates({
+			chatId: 'chat-id',
+			withGroups: false,
+			excludedKeys: new Set(),
+			enabled: true,
+		}),
 	}));
 
 	expect(result.current.audience.canShareToProject).toBe(false);
-	expect(result.current.memberPicker.otherMembers).toEqual([]);
-	expect(result.current.memberPicker.filteredMembers).toEqual([]);
+	expect(result.current.candidates.candidates).toEqual([]);
 	expect(mocks.queries.find((query) => query.queryKey[0] === 'sharing-access')?.enabled).toBe(false);
 	expect(mocks.queries.find((query) => query.queryKey[0] === 'members')?.enabled).toBe(false);
 });
@@ -74,10 +81,15 @@ it('hides previous project sharing data while the selected project refetches', (
 
 	const { result } = renderHook(() => ({
 		audience: useShareAudience(),
-		memberPicker: useMemberPicker('current-user', undefined, 'chat-id'),
+		candidates: useShareCandidates({
+			chatId: 'chat-id',
+			withGroups: false,
+			excludedKeys: new Set(),
+			enabled: true,
+		}),
 	}));
 
 	expect(result.current.audience.canShareToProject).toBe(false);
-	expect(result.current.memberPicker.otherMembers).toEqual([]);
-	expect(result.current.memberPicker.isLoading).toBe(true);
+	expect(result.current.candidates.candidates).toEqual([]);
+	expect(result.current.candidates.isLoading).toBe(true);
 });

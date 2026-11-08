@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { TRPCClientError } from '@trpc/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useStoryViewerVersionActions } from './use-story-viewer-version-actions';
 import type { StoryCodeViewHandle } from '../story-code-view';
 import type { MutableRefObject } from 'react';
+import type { TrpcRouter } from '@nao/backend/trpc';
 
 interface CreateVersionInput {
 	chatId: string;
@@ -12,12 +14,15 @@ interface CreateVersionInput {
 	title: string;
 	code: string;
 	action: 'replace';
+	basedOnVersion?: number;
 }
+
+const SAVED_VERSION = { version: 2 };
 
 const mocks = vi.hoisted(() => ({
 	invalidateQueries: vi.fn(async () => {}),
 	mutate: vi.fn(),
-	mutateAsync: vi.fn(async (_input: CreateVersionInput) => {}),
+	mutateAsync: vi.fn(async (_input: CreateVersionInput) => ({ version: 2 })),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -75,11 +80,11 @@ describe('useStoryViewerVersionActions', () => {
 		mocks.invalidateQueries.mockResolvedValue(undefined);
 		mocks.mutate.mockClear();
 		mocks.mutateAsync.mockReset();
-		mocks.mutateAsync.mockResolvedValue(undefined);
+		mocks.mutateAsync.mockResolvedValue(SAVED_VERSION);
 	});
 
 	it('does not let an old save continue into a newly rendered Story', async () => {
-		const firstMutation = deferred<void>();
+		const firstMutation = deferred<typeof SAVED_VERSION>();
 		mocks.mutateAsync.mockImplementationOnce(() => firstMutation.promise);
 		const onStoryASaved = vi.fn();
 		const onStoryBSaved = vi.fn();
@@ -126,7 +131,7 @@ describe('useStoryViewerVersionActions', () => {
 		});
 
 		await act(async () => {
-			firstMutation.resolve();
+			firstMutation.resolve(SAVED_VERSION);
 			expect(await savePromise).toBe('unavailable');
 		});
 
@@ -168,7 +173,7 @@ describe('useStoryViewerVersionActions', () => {
 	});
 
 	it('persists newer edits made to the same Story while saving', async () => {
-		const firstMutation = deferred<void>();
+		const firstMutation = deferred<typeof SAVED_VERSION>();
 		const refresh = deferred<void>();
 		mocks.mutateAsync.mockImplementationOnce(() => firstMutation.promise);
 		mocks.invalidateQueries.mockImplementationOnce(() => refresh.promise);
@@ -216,7 +221,7 @@ describe('useStoryViewerVersionActions', () => {
 		});
 
 		act(() => {
-			firstMutation.resolve();
+			firstMutation.resolve(SAVED_VERSION);
 		});
 		await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(2));
 		await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalledTimes(3));
@@ -234,7 +239,62 @@ describe('useStoryViewerVersionActions', () => {
 		expect(onVersionSaved).toHaveBeenCalledOnce();
 		expect(onVersionSaved).toHaveBeenCalledWith('# Newer edit');
 	});
+
+	it('saves on top of the version being edited, then on top of the version it saved', async () => {
+		mocks.mutateAsync.mockResolvedValueOnce({ version: 6 }).mockResolvedValueOnce({ version: 7 });
+		const { result, rerender } = renderVersionedHook({ currentCode: '# First edit' });
+
+		await act(async () => {
+			expect(await result.current.saveCurrentVersion()).toBe('saved');
+		});
+		rerender({ currentCode: '# Second edit' });
+		await act(async () => {
+			expect(await result.current.saveCurrentVersion()).toBe('saved');
+		});
+
+		expect(mocks.mutateAsync.mock.calls.map(([input]) => input.basedOnVersion)).toEqual([5, 6]);
+		expect(result.current.saveError).toBeNull();
+	});
+
+	it('tells the user when someone saved a newer version meanwhile, instead of overwriting it', async () => {
+		mocks.mutateAsync.mockRejectedValueOnce(
+			TRPCClientError.from<TrpcRouter>({
+				error: {
+					code: -32009,
+					message: 'Someone saved a newer version while you were editing.',
+					data: { code: 'CONFLICT', httpStatus: 409 },
+				},
+			}),
+		);
+		const { result } = renderVersionedHook({ currentCode: '# My edit' });
+
+		await act(async () => {
+			expect(await result.current.saveCurrentVersion()).toBe('failed');
+		});
+
+		expect(result.current.saveError).toMatch(/newer version/);
+	});
 });
+
+function renderVersionedHook(initialProps: { currentCode: string }) {
+	return renderHook(
+		(props: { currentCode: string }) =>
+			useStoryViewerVersionActions({
+				chatId: 'chat-a',
+				storySlug: 'story-a',
+				storyTitle: 'Story A',
+				currentVersionCode: '# Story A',
+				currentVersionNumber: 5,
+				isViewingLatest: true,
+				goToLatestVersion: vi.fn(),
+				codeViewRef,
+				getCurrentCode: () => props.currentCode,
+				viewMode: 'edit',
+				setViewMode: vi.fn(),
+			}),
+		{ initialProps },
+	);
+}
 
 function deferred<T>() {
 	let resolve!: (value: T | PromiseLike<T>) => void;

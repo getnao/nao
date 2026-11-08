@@ -81,6 +81,7 @@ interface StoryHeaderBaseProps {
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
+	isEditLocked?: boolean;
 	isStoryUpdating: boolean;
 	isSaving?: boolean;
 	isReadonlyMode: boolean;
@@ -135,6 +136,7 @@ export const StoryHeader = memo(function StoryHeader({
 	onEnlarge,
 	isShared,
 	isAgentRunning,
+	isEditLocked = false,
 	isStoryUpdating,
 	isSaving = false,
 	isReadonlyMode,
@@ -242,6 +244,7 @@ export const StoryHeader = memo(function StoryHeader({
 			controls={viewModeControls}
 			isReadonlyMode={isReadonlyMode}
 			isAgentRunning={isAgentRunning}
+			isEditLocked={isEditLocked}
 			isSaving={isSaving}
 		/>
 	);
@@ -470,7 +473,7 @@ export const StoryHeader = memo(function StoryHeader({
 								variant='outline'
 								size='sm'
 								onClick={onRestore}
-								disabled={isSaving}
+								disabled={isSaving || isEditLocked}
 								className='gap-1.5 rounded-full'
 							>
 								<RotateCcw className='size-3' strokeWidth={2.25} />
@@ -529,10 +532,11 @@ interface ViewModeToggleProps {
 	controls: StoryViewModeControls | CustomStoryViewModeControls;
 	isReadonlyMode: boolean;
 	isAgentRunning: boolean;
+	isEditLocked: boolean;
 	isSaving: boolean;
 }
 
-function ViewModeToggle({ controls, isReadonlyMode, isAgentRunning, isSaving }: ViewModeToggleProps) {
+function ViewModeToggle({ controls, isReadonlyMode, isAgentRunning, isEditLocked, isSaving }: ViewModeToggleProps) {
 	if (isCustomStoryViewModeControls(controls)) {
 		return <CustomStoryViewModeToggle {...controls} />;
 	}
@@ -562,7 +566,7 @@ function ViewModeToggle({ controls, isReadonlyMode, isAgentRunning, isSaving }: 
 						'hover:rounded-full',
 					)}
 					onClick={() => onViewModeChange('edit')}
-					disabled={isAgentRunning || isSaving}
+					disabled={isAgentRunning || isSaving || isEditLocked}
 				>
 					<Pencil className='size-3' strokeWidth={2.25} />
 				</Button>

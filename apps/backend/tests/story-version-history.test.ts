@@ -6,7 +6,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import storyTool from '../src/agents/tools/story';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { createStoryVersion } from '../src/queries/story.queries';
+import { createStoryVersion, getLatestVersionByStoryId, StoryVersionConflictError } from '../src/queries/story.queries';
+import {
+	acquireStoryEditLock,
+	releaseAgentStoryEditLocks,
+	releaseStoryEditLock,
+} from '../src/services/story-edit-lock.service';
 import { listStoryVersionChanges } from '../src/services/story-version-history';
 import type { ToolContext } from '../src/types/tools';
 
@@ -56,17 +61,7 @@ describe('story version history', () => {
 		await editWithAgent(ORIGIN_CHAT_ID, '# Revenue v2');
 		await editWithAgent(QUESTION_CHAT_ID, '# Revenue v3');
 		await editWithAgent(OTHER_CHAT_ID, '# Revenue v4');
-		await createStoryVersion({
-			chatId: ORIGIN_CHAT_ID,
-			slug: SLUG,
-			title: 'Revenue',
-			code: '# Revenue v5',
-			action: 'replace',
-			source: 'user',
-			origin: 'editor',
-			authorId: OWNER_ID,
-			sourceChatId: null,
-		});
+		await saveByHand(OWNER_ID, '# Revenue v5');
 
 		const changes = await listStoryVersionChanges(STORY, OWNER_ID);
 
@@ -93,11 +88,61 @@ describe('story version history', () => {
 
 		expect(changes.get(1)).toEqual({ author: null, via: 'agent', chat: null });
 	});
+
+	it('keeps the agent from editing while someone else edits the story, and names them', async () => {
+		await acquireStoryEditLock(STORY_ID, { userId: VIEWER_ID, chatId: null });
+
+		const output = await runAgentEdit(OTHER_CHAT_ID, '# Overwritten');
+
+		expect(output).toMatchObject({
+			success: false,
+			error: expect.stringContaining('Viewer is editing this story'),
+		});
+		await releaseStoryEditLock(STORY_ID, { userId: VIEWER_ID, chatId: null });
+	});
+
+	it('keeps the first of two saves made on the same version and turns down the second', async () => {
+		await expect(saveByHand(OWNER_ID, '# Owner edit', 5)).resolves.toMatchObject({ version: 6 });
+		await expect(saveByHand(VIEWER_ID, '# Viewer edit', 5)).rejects.toBeInstanceOf(StoryVersionConflictError);
+
+		expect(await getLatestVersionByStoryId(STORY_ID)).toMatchObject({ version: 6, code: '# Owner edit' });
+		await expect(saveByHand(VIEWER_ID, '# Viewer edit', 6)).resolves.toMatchObject({ version: 7 });
+	});
+
+	it('turns down a save based on a version the story never had', async () => {
+		const latest = await getLatestVersionByStoryId(STORY_ID);
+
+		await expect(saveByHand(OWNER_ID, '# Ahead', (latest?.version ?? 0) + 30)).rejects.toBeInstanceOf(
+			StoryVersionConflictError,
+		);
+		expect(await getLatestVersionByStoryId(STORY_ID)).toMatchObject({ version: latest?.version });
+	});
 });
 
+function saveByHand(authorId: string, code: string, basedOnVersion?: number) {
+	return createStoryVersion({
+		chatId: ORIGIN_CHAT_ID,
+		slug: SLUG,
+		title: 'Revenue',
+		code,
+		action: 'replace',
+		source: 'user',
+		origin: 'editor',
+		authorId,
+		sourceChatId: null,
+		basedOnVersion,
+	});
+}
+
 async function editWithAgent(chatId: string, code: string) {
+	const output = await runAgentEdit(chatId, code);
+	await releaseAgentStoryEditLocks(chatId);
+	expect(output).toMatchObject({ success: true });
+}
+
+function runAgentEdit(chatId: string, code: string) {
 	const tool = storyTool as Tool<{ action: 'replace'; id: string; code: string }, { success: boolean }>;
-	const output = await tool.execute!(
+	return tool.execute!(
 		{ action: 'replace', id: STORY_ID, code },
 		{
 			toolCallId: 'story-call',
@@ -112,7 +157,6 @@ async function editWithAgent(chatId: string, code: string) {
 			} as unknown as ToolContext,
 		},
 	);
-	expect(output).toMatchObject({ success: true });
 }
 
 async function seed() {

@@ -31,6 +31,13 @@ vi.mock('../src/queries/story.queries', () => ({
 }));
 vi.mock('../src/queries/story-file.queries', () => ({ listDraftFiles: mocks.listDraftFiles }));
 vi.mock('../src/queries/mcp-query-data.queries', () => ({ getMcpQueryData: mocks.getMcpQueryData }));
+vi.mock('../src/services/story-edit-lock.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/story-edit-lock.service')>()),
+	assertStoryEditable: vi.fn(async () => undefined),
+	acquireStoryEditLock: vi.fn(async () => undefined),
+	getStoryEditLockState: vi.fn(async () => null),
+	releaseStoryEditLock: vi.fn(async () => undefined),
+}));
 vi.mock('../src/services/custom-story-authoring', () => ({
 	applyCustomStoryDraftChanges: mocks.applyCustomStoryDraftChanges,
 	createCustomStoryDraft: mocks.createCustomStoryDraft,

@@ -4,7 +4,7 @@ import type { MutableRefObject } from 'react';
 import type { StoryViewMode } from '../story-viewer.types';
 import type { StoryCodeViewHandle } from '../story-code-view';
 import type { StorySaveResult } from '@/lib/story-save';
-import { saveStoryCodeIfChanged } from '@/lib/story-save';
+import { isStoryVersionConflict, saveStoryCodeIfChanged } from '@/lib/story-save';
 import { trpc } from '@/main';
 
 interface UseStoryViewerVersionActionsParams {
@@ -12,6 +12,7 @@ interface UseStoryViewerVersionActionsParams {
 	storySlug: string;
 	storyTitle?: string;
 	currentVersionCode?: string;
+	currentVersionNumber?: number;
 	isViewingLatest: boolean;
 	goToLatestVersion: () => void;
 	codeViewRef: MutableRefObject<StoryCodeViewHandle | null>;
@@ -31,6 +32,7 @@ export const useStoryViewerVersionActions = ({
 	storySlug,
 	storyTitle,
 	currentVersionCode,
+	currentVersionNumber,
 	isViewingLatest,
 	goToLatestVersion,
 	codeViewRef,
@@ -44,7 +46,8 @@ export const useStoryViewerVersionActions = ({
 	const listVersionsQueryKey = trpc.story.listVersions.queryKey({ chatId, storySlug });
 	const identity = { chatId, storySlug };
 	const currentIdentityRef = useRef(identity);
-	const baselineRef = useRef({ identity, code: currentVersionCode });
+	const baselineRef = useRef({ identity, code: currentVersionCode, version: currentVersionNumber });
+	const [saveError, setSaveError] = useState<string | null>(null);
 	const savePromiseRef = useRef<{ identity: StoryIdentity; promise: Promise<StorySaveResult> } | null>(null);
 	const [isSavingVersion, setIsSavingVersion] = useState(false);
 	const paramsRef = useRef({
@@ -60,7 +63,7 @@ export const useStoryViewerVersionActions = ({
 
 	currentIdentityRef.current = identity;
 	if (!isSameStoryIdentity(baselineRef.current.identity, identity)) {
-		baselineRef.current = { identity, code: currentVersionCode };
+		baselineRef.current = { identity, code: currentVersionCode, version: currentVersionNumber };
 	}
 	paramsRef.current = {
 		identity,
@@ -91,9 +94,17 @@ export const useStoryViewerVersionActions = ({
 		const hasActiveSaveForStory =
 			activeSave !== null && isSameStoryIdentity(activeSave.identity, { chatId, storySlug });
 		if (currentVersionCode !== undefined && !hasActiveSaveForStory) {
-			baselineRef.current = { identity: { chatId, storySlug }, code: currentVersionCode };
+			baselineRef.current = {
+				identity: { chatId, storySlug },
+				code: currentVersionCode,
+				version: currentVersionNumber,
+			};
 		}
-	}, [chatId, currentVersionCode, storySlug]);
+	}, [chatId, currentVersionCode, currentVersionNumber, storySlug]);
+
+	useEffect(() => {
+		setSaveError(null);
+	}, [chatId, storySlug]);
 
 	const readCurrentCode = useCallback(
 		(saveIdentity: StoryIdentity): { code: string } | StorySaveResult => {
@@ -161,6 +172,7 @@ export const useStoryViewerVersionActions = ({
 					return 'unavailable';
 				}
 
+				let savedVersion = baselineRef.current.version;
 				const result = await saveStoryCodeIfChanged({
 					baselineCode: baselineRef.current.code,
 					code: snapshot.code,
@@ -168,15 +180,22 @@ export const useStoryViewerVersionActions = ({
 						if (!isSaveIdentityActive()) {
 							return;
 						}
-						await saveTarget.persist({
-							chatId: saveTarget.chatId,
-							storySlug: saveTarget.storySlug,
-							title: saveTarget.storyTitle,
-							code: snapshot.code,
-							action: 'replace',
-						});
-						if (!isSaveIdentityActive()) {
-							return;
+						try {
+							const created = await saveTarget.persist({
+								chatId: saveTarget.chatId,
+								storySlug: saveTarget.storySlug,
+								title: saveTarget.storyTitle,
+								code: snapshot.code,
+								action: 'replace',
+								basedOnVersion: baselineRef.current.version,
+							});
+							savedVersion = created.version;
+							setSaveError(null);
+						} catch (error) {
+							if (isStoryVersionConflict(error)) {
+								setSaveError((error as Error).message);
+							}
+							throw error;
 						}
 					},
 				});
@@ -210,7 +229,7 @@ export const useStoryViewerVersionActions = ({
 					return result;
 				}
 
-				baselineRef.current = { identity: saveTarget.identity, code: snapshot.code };
+				baselineRef.current = { identity: saveTarget.identity, code: snapshot.code, version: savedVersion };
 				saved = true;
 			}
 		};
@@ -250,8 +269,12 @@ export const useStoryViewerVersionActions = ({
 			},
 			{
 				onSuccess: async () => {
+					setSaveError(null);
 					await refreshQueries();
 					goToLatestVersion();
+				},
+				onError: (error) => {
+					setSaveError(error.message);
 				},
 			},
 		);
@@ -271,6 +294,7 @@ export const useStoryViewerVersionActions = ({
 		saveCurrentVersion,
 		handleRestore,
 		isSaving: createVersionMutation.isPending || isSavingVersion,
+		saveError,
 	};
 };
 

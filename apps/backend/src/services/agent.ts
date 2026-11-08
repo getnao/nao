@@ -119,6 +119,11 @@ import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
+import {
+	releaseAgentStoryEditLocks,
+	renewAgentStoryEditLocks,
+	STORY_EDIT_LOCK_RENEW_MS,
+} from './story-edit-lock.service';
 import { customStoryAuthoringError } from './story-mount';
 import { resolveStoryOriginConversationSafely } from './story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
@@ -288,6 +293,7 @@ async function assertModelBudget(projectId: string, model: LlmSelectedModel, use
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
+	private _storyLockRenewals = new Map<string, ReturnType<typeof setInterval>>();
 
 	async assertRunAvailable(
 		projectId: string,
@@ -378,7 +384,7 @@ export class AgentService {
 			profile,
 			modelConfig,
 			resolvedLlmSelectedModel,
-			() => this._agents.delete(chat.id),
+			() => this._forgetAgent(chat.id),
 			new AbortController(),
 			agentTools,
 			toolContext,
@@ -386,6 +392,7 @@ export class AgentService {
 			usageContext,
 		);
 		this._agents.set(chat.id, agent);
+		this._keepStoryEditLocks(chat.id);
 		return agent;
 	}
 
@@ -415,7 +422,33 @@ export class AgentService {
 			return;
 		}
 		agent.stop();
+		this._forgetAgent(chatId);
+	}
+
+	private _forgetAgent(chatId: string): void {
 		this._agents.delete(chatId);
+		clearInterval(this._storyLockRenewals.get(chatId));
+		this._storyLockRenewals.delete(chatId);
+		releaseAgentStoryEditLocks(chatId).catch((error) =>
+			logger.error(`Failed to release the story edit locks of an agent run: ${String(error)}`, {
+				source: 'agent',
+				context: { chatId },
+			}),
+		);
+	}
+
+	private _keepStoryEditLocks(chatId: string): void {
+		clearInterval(this._storyLockRenewals.get(chatId));
+		const renewal = setInterval(() => {
+			renewAgentStoryEditLocks(chatId).catch((error) => {
+				logger.error(`Failed to renew the story edit locks of an agent run: ${String(error)}`, {
+					source: 'agent',
+					context: { chatId },
+				});
+			});
+		}, STORY_EDIT_LOCK_RENEW_MS);
+		renewal.unref();
+		this._storyLockRenewals.set(chatId, renewal);
 	}
 
 	get(chatId: string): AgentManager | undefined {

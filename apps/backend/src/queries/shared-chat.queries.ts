@@ -1,8 +1,8 @@
-import type { MessageBubble } from '@nao/shared/types';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import type { MessageBubble, Visibility } from '@nao/shared/types';
+import { and, asc, countDistinct, desc, eq, inArray, isNull, type SQL, sql, type SQLWrapper } from 'drizzle-orm';
 
 import s, { type DBSharedChat } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
 import { type ForkMetadata } from '../types/chat';
 
 export type SharedChatWithDetails = DBSharedChat & {
@@ -13,6 +13,19 @@ export type SharedChatWithDetails = DBSharedChat & {
 	forkMetadata?: ForkMetadata;
 	messageBubbles?: MessageBubble[];
 };
+
+export function sharedChatGrantsUser(userId: string): SQL {
+	return sql`(exists (
+		select 1 from ${s.sharedChatAccess}
+		where ${s.sharedChatAccess.sharedChatId} = ${s.sharedChat.id}
+		  and ${s.sharedChatAccess.userId} = ${userId}
+	) or (exists (
+		select 1 from ${s.sharedChatGroupAccess}
+		inner join ${s.userGroupMember} on ${s.userGroupMember.groupId} = ${s.sharedChatGroupAccess.groupId}
+		where ${s.sharedChatGroupAccess.sharedChatId} = ${s.sharedChat.id}
+		  and ${s.userGroupMember.userId} = ${userId}
+	) and ${canEnterSharedChatProject(userId)}))`;
+}
 
 export async function listUserSharedChats(projectIds: string[], userId: string): Promise<SharedChatWithDetails[]> {
 	if (projectIds.length === 0) {
@@ -33,14 +46,10 @@ export async function listUserSharedChats(projectIds: string[], userId: string):
 		.from(s.sharedChat)
 		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
 		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.leftJoin(
-			s.sharedChatAccess,
-			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
-		)
 		.where(
 			and(
 				inArray(s.chat.projectId, projectIds),
-				sql`(${s.sharedChat.visibility} = 'project' OR ${s.chat.userId} = ${userId} OR ${s.sharedChatAccess.userId} IS NOT NULL)`,
+				sql`(${s.sharedChat.visibility} = 'project' OR ${s.chat.userId} = ${userId} OR ${sharedChatGrantsUser(userId)})`,
 			),
 		)
 		.orderBy(desc(s.sharedChat.createdAt))
@@ -103,9 +112,10 @@ export async function createSharedChat(
 
 export async function canUserAccessSharedChat(shareId: string, userId: string): Promise<boolean> {
 	const [row] = await db
-		.select({ sharedChatId: s.sharedChatAccess.sharedChatId })
-		.from(s.sharedChatAccess)
-		.where(and(eq(s.sharedChatAccess.sharedChatId, shareId), eq(s.sharedChatAccess.userId, userId)))
+		.select({ id: s.sharedChat.id })
+		.from(s.sharedChat)
+		.where(and(eq(s.sharedChat.id, shareId), sharedChatGrantsUser(userId)))
+		.limit(1)
 		.execute();
 	return !!row;
 }
@@ -179,6 +189,77 @@ export async function updateSharedChatAllowedUsers(shareId: string, userIds: str
 	});
 }
 
+export type SharedChatUserGrant = { id: string; name: string; email: string };
+
+export async function listSharedChatUserGrants(shareId: string): Promise<SharedChatUserGrant[]> {
+	return db
+		.select({ id: s.user.id, name: s.user.name, email: s.user.email })
+		.from(s.sharedChatAccess)
+		.innerJoin(s.user, eq(s.user.id, s.sharedChatAccess.userId))
+		.where(eq(s.sharedChatAccess.sharedChatId, shareId))
+		.orderBy(s.user.name)
+		.execute();
+}
+
+export async function addSharedChatUsers(shareId: string, userIds: string[], executor: DBExecutor = db): Promise<void> {
+	if (userIds.length === 0) {
+		return;
+	}
+	await executor
+		.insert(s.sharedChatAccess)
+		.values(userIds.map((userId) => ({ sharedChatId: shareId, userId })))
+		.onConflictDoNothing()
+		.execute();
+}
+
+export async function removeSharedChatUsers(
+	shareId: string,
+	userIds: string[],
+	executor: DBExecutor = db,
+): Promise<void> {
+	if (userIds.length === 0) {
+		return;
+	}
+	await executor
+		.delete(s.sharedChatAccess)
+		.where(and(eq(s.sharedChatAccess.sharedChatId, shareId), inArray(s.sharedChatAccess.userId, userIds)))
+		.execute();
+}
+
+/** Replaces the people and groups the share names, and its visibility, all at once. */
+export async function replaceSharedChatAccess(
+	shareId: string,
+	access: { visibility: Visibility; userIds: string[]; groupIds: string[] },
+): Promise<void> {
+	const [currentUserIds, currentGroupIds] = await Promise.all([
+		getShareAllowedUserIds(shareId),
+		getShareAllowedGroupIds(shareId),
+	]);
+	await db.transaction(async (transaction) => {
+		await removeSharedChatUsers(
+			shareId,
+			currentUserIds.filter((id) => !access.userIds.includes(id)),
+			transaction,
+		);
+		await removeSharedChatGroups(
+			shareId,
+			currentGroupIds.filter((id) => !access.groupIds.includes(id)),
+			transaction,
+		);
+		await addSharedChatUsers(shareId, access.userIds, transaction);
+		await addSharedChatGroups(shareId, access.groupIds, transaction);
+		await updateSharedChatVisibility(shareId, access.visibility, transaction);
+	});
+}
+
+export async function updateSharedChatVisibility(
+	shareId: string,
+	visibility: Visibility,
+	executor: DBExecutor = db,
+): Promise<void> {
+	await executor.update(s.sharedChat).set({ visibility }).where(eq(s.sharedChat.id, shareId)).execute();
+}
+
 export async function deleteSharedChat(id: string): Promise<void> {
 	await db.delete(s.sharedChat).where(eq(s.sharedChat.id, id)).execute();
 }
@@ -207,4 +288,97 @@ export async function deleteSharedChats(ids: string[]): Promise<void> {
 		return;
 	}
 	await db.delete(s.sharedChat).where(inArray(s.sharedChat.id, ids)).execute();
+}
+
+export type SharedChatGroupGrant = { id: string; name: string; memberCount: number };
+
+export async function listSharedChatGroupGrants(shareId: string): Promise<SharedChatGroupGrant[]> {
+	const rows = await db
+		.select({ id: s.userGroup.id, name: s.userGroup.name, memberCount: countDistinct(s.userGroupMember.userId) })
+		.from(s.sharedChatGroupAccess)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.sharedChatGroupAccess.groupId))
+		.leftJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.userGroup.id))
+		.where(eq(s.sharedChatGroupAccess.sharedChatId, shareId))
+		.groupBy(s.userGroup.id, s.userGroup.name)
+		.orderBy(s.userGroup.name)
+		.execute();
+	return rows.map((row) => ({ ...row, memberCount: Number(row.memberCount) }));
+}
+
+export async function getShareAllowedGroupIds(shareId: string): Promise<string[]> {
+	const rows = await db
+		.select({ groupId: s.sharedChatGroupAccess.groupId })
+		.from(s.sharedChatGroupAccess)
+		.where(eq(s.sharedChatGroupAccess.sharedChatId, shareId))
+		.execute();
+	return rows.map((row) => row.groupId);
+}
+
+/** Users granted directly plus the members of every granted user group who still belong to the project. */
+export async function getSharedChatRecipientUserIds(shareId: string): Promise<string[]> {
+	const [directUserIds, groupMembers] = await Promise.all([
+		getShareAllowedUserIds(shareId),
+		db
+			.selectDistinct({ userId: s.userGroupMember.userId })
+			.from(s.sharedChatGroupAccess)
+			.innerJoin(s.sharedChat, eq(s.sharedChat.id, s.sharedChatGroupAccess.sharedChatId))
+			.innerJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.sharedChatGroupAccess.groupId))
+			.where(
+				and(
+					eq(s.sharedChatGroupAccess.sharedChatId, shareId),
+					canEnterSharedChatProject(s.userGroupMember.userId),
+				),
+			)
+			.execute(),
+	]);
+	return [...new Set([...directUserIds, ...groupMembers.map((member) => member.userId)])];
+}
+
+export async function addSharedChatGroups(
+	shareId: string,
+	groupIds: string[],
+	executor: DBExecutor = db,
+): Promise<void> {
+	if (groupIds.length === 0) {
+		return;
+	}
+	await executor
+		.insert(s.sharedChatGroupAccess)
+		.values(groupIds.map((groupId) => ({ sharedChatId: shareId, groupId })))
+		.onConflictDoNothing()
+		.execute();
+}
+
+export async function removeSharedChatGroups(
+	shareId: string,
+	groupIds: string[],
+	executor: DBExecutor = db,
+): Promise<void> {
+	if (groupIds.length === 0) {
+		return;
+	}
+	await executor
+		.delete(s.sharedChatGroupAccess)
+		.where(
+			and(eq(s.sharedChatGroupAccess.sharedChatId, shareId), inArray(s.sharedChatGroupAccess.groupId, groupIds)),
+		)
+		.execute();
+}
+
+/** Mirrors `listUsersWithProjectAccess`: a project member, or a member of the project's organization. */
+function canEnterSharedChatProject(userId: string | SQLWrapper): SQL {
+	return sql`exists (
+		select 1 from ${s.chat}
+		inner join ${s.project} on ${s.project.id} = ${s.chat.projectId}
+		where ${s.chat.id} = ${s.sharedChat.chatId}
+		  and (exists (
+			select 1 from ${s.projectMember}
+			where ${s.projectMember.projectId} = ${s.project.id}
+			  and ${s.projectMember.userId} = ${userId}
+		  ) or exists (
+			select 1 from ${s.orgMember}
+			where ${s.orgMember.orgId} = ${s.project.orgId}
+			  and ${s.orgMember.userId} = ${userId}
+		  ))
+	)`;
 }

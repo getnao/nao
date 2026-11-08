@@ -136,7 +136,7 @@ describe('editing a story from another chat', () => {
 
 		expect(output).toMatchObject({
 			success: false,
-			error: `Story "${STORY_ID}" is read-only here: only its owner can edit it.`,
+			error: `Story "${STORY_ID}" is read-only here: only its owner and its editors can change it.`,
 		});
 		expect((await getLatestVersionByChatAndSlug(ORIGIN_CHAT_ID, SLUG))?.code).not.toBe('# Hacked');
 	});

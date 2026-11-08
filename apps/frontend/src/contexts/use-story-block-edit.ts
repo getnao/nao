@@ -8,6 +8,7 @@ interface StoryBlockEditParams {
 	storySlug: string;
 	storyTitle: string;
 	storyCode: string;
+	storyVersion?: number;
 }
 
 export interface StoryBlockEdit {
@@ -21,7 +22,13 @@ export interface StoryBlockEdit {
  * serialized and each builds on the previous result via a code buffer, so
  * saving two embeds in quick succession never discards the earlier edit.
  */
-export function useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode }: StoryBlockEditParams): StoryBlockEdit {
+export function useStoryBlockEdit({
+	chatId,
+	storySlug,
+	storyTitle,
+	storyCode,
+	storyVersion,
+}: StoryBlockEditParams): StoryBlockEdit {
 	const queryClient = useQueryClient();
 	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storySlug });
 
@@ -55,9 +62,11 @@ export function useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode }: 
 	// Mutable buffer of the freshest known story code. Kept in sync with the prop
 	// (new versions loaded elsewhere) and updated eagerly on each queued save.
 	const codeRef = useRef(storyCode);
+	const versionRef = useRef(storyVersion);
 	useEffect(() => {
 		codeRef.current = storyCode;
-	}, [storyCode]);
+		versionRef.current = storyVersion;
+	}, [storyCode, storyVersion]);
 
 	// Serializes saves so a later one builds on the earlier one's applied code.
 	const chainRef = useRef<Promise<void>>(Promise.resolve());
@@ -72,13 +81,15 @@ export function useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode }: 
 				}
 				codeRef.current = nextCode;
 				try {
-					await createVersionMutation.mutateAsync({
+					const created = await createVersionMutation.mutateAsync({
 						chatId,
 						storySlug,
 						title: storyTitle,
 						code: nextCode,
 						action: 'replace',
+						basedOnVersion: versionRef.current,
 					});
+					versionRef.current = created.version;
 				} catch (error) {
 					codeRef.current = currentCode;
 					throw error;

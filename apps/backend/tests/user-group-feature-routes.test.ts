@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 	buildDownloadResponse: vi.fn(),
 	deleteAutomation: vi.fn(),
 	createSharedStory: vi.fn(),
+	pinSharedStory: vi.fn(),
 	createStoryVersion: vi.fn(),
 	getDisplaySettings: vi.fn(),
 	getAutomation: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 	getStorySharingInfo: vi.fn(),
 	getStoryOwnerId: vi.fn(),
 	getStoryProjectId: vi.fn(),
+	getStoryShareRole: vi.fn(),
 	getVersionByNumber: vi.fn(),
 	hasLicenseFeature: vi.fn(),
 	listAutomationFeedRuns: vi.fn(),
@@ -79,17 +81,32 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	getSharedStoryByStoryId: vi.fn(),
 	getSharedStoryRecipientUserIds: vi.fn(async () => []),
 	getStoryShareAccess: vi.fn(async () => null),
+	getSharedStoryInfo: vi.fn(async () => null),
+	getStoryShareRole: mocks.getStoryShareRole,
+	replaceSharedStoryAccess: vi.fn(),
+	getSharedStoryAllowedUserIds: vi.fn(async () => []),
+	getSharedStoryAllowedGroupIds: vi.fn(async () => []),
+	pinSharedStory: mocks.pinSharedStory,
+}));
+vi.mock('../src/services/project-sharing.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/project-sharing.service')>()),
+	assertCanShareWith: vi.fn(),
+	assertCanShareToProject: vi.fn(),
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
-vi.mock('../src/queries/story.queries', () => ({
+vi.mock('../src/queries/story.queries', async (importOriginal) => ({
+	StoryVersionConflictError: (await importOriginal<typeof import('../src/queries/story.queries')>())
+		.StoryVersionConflictError,
 	createStoryVersion: mocks.createStoryVersion,
 	archiveStory: mocks.archiveStory,
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
+	getStoryById: mocks.getStoryByChatAndSlug,
 	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
 	getStoryOwnerId: mocks.getStoryOwnerId,
 	getStoryProjectId: mocks.getStoryProjectId,
+	canUserAccessStory: vi.fn(async () => true),
 	getStorySharingInfo: mocks.getStorySharingInfo,
 	getStoryQueryDataByStoryIds: vi.fn(async () => new Map()),
 	getVersionByNumber: mocks.getVersionByNumber,
@@ -102,6 +119,13 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 	saveStoryInPrivateRoot: mocks.saveStoryInPrivateRoot,
 }));
 vi.mock('../src/services/activity', () => ({ logActivity: mocks.logActivity }));
+vi.mock('../src/services/story-edit-lock.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/story-edit-lock.service')>()),
+	assertStoryEditable: vi.fn(async () => undefined),
+	acquireStoryEditLock: vi.fn(async () => undefined),
+	getStoryEditLockState: vi.fn(async () => null),
+	releaseStoryEditLock: vi.fn(async () => undefined),
+}));
 vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../src/agents/profiles/messaging', () => ({ messagingAgent: vi.fn() }));
 vi.mock('../src/services/cloud-billing-access.service', () => ({
@@ -124,6 +148,12 @@ vi.mock('../src/services/story-delivery.service', () => ({
 vi.mock('../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));
 vi.mock('../src/utils/story-download', () => ({ buildDownloadResponse: mocks.buildDownloadResponse }));
 
+import { StoryVersionConflictError } from '../src/queries/story.queries';
+import {
+	acquireStoryEditLock,
+	assertStoryEditable,
+	StoryEditLockedError,
+} from '../src/services/story-edit-lock.service';
 import { automationRoutes } from '../src/trpc/automation.routes';
 import { sharedStoryRoutes } from '../src/trpc/shared-story.routes';
 import { storyRoutes } from '../src/trpc/story.routes';
@@ -313,19 +343,29 @@ describe('user group feature route enforcement', () => {
 			}),
 		).resolves.toEqual({ body: 'download' });
 		await expect(
-			createCaller().storyShare.create({
-				chatId: 'chat-id',
-				storySlug: 'existing-story',
+			createCaller().storyShare.saveShareSettings({
+				storyId: 'story-id',
 				visibility: 'specific',
-				notify: false,
+				users: [{ id: 'teammate', role: 'editor' }],
 			}),
-		).resolves.toEqual({ storyId: 'story-id' });
+		).resolves.toBeUndefined();
 		expect(mocks.createSharedStory).toHaveBeenCalledWith(
-			expect.objectContaining({ storyId: 'story-id' }),
-			expect.anything(),
-			expect.anything(),
+			expect.objectContaining({ storyId: 'story-id', visibility: 'specific' }),
 		);
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
+	it('opens a story nobody can see yet to the whole project when an admin pins it', async () => {
+		mockEffectiveFeatures([]);
+		const pin = () => createCaller().storyShare.togglePin({ storyId: 'story-id' });
+
+		await expect(pin()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.pinSharedStory).not.toHaveBeenCalled();
+
+		mocks.role = 'admin';
+		await expect(pin()).resolves.toBeUndefined();
+		expect(mocks.createSharedStory).toHaveBeenCalledWith(expect.objectContaining({ storyId: 'story-id' }));
+		expect(mocks.pinSharedStory).toHaveBeenCalledWith('story-id');
 	});
 
 	it('downloads a selected live version without refreshing the latest version', async () => {
@@ -440,6 +480,100 @@ describe('user group feature route enforcement', () => {
 		).resolves.toEqual({ storyId: 'story-id', version: 2 });
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 		expect(mocks.saveStoryInPrivateRoot).not.toHaveBeenCalled();
+	});
+
+	describe('story editors', () => {
+		beforeEach(() => {
+			mocks.getChatOwnerId.mockResolvedValue('owner-id');
+			mocks.getStoryShareRole.mockResolvedValue('editor');
+		});
+
+		it('lets an editor of a shared story save a version on top of the one they edited', async () => {
+			await expect(saveEdit({ basedOnVersion: 2 })).resolves.toEqual({ storyId: 'story-id', version: 2 });
+
+			expect(mocks.getStoryShareRole).toHaveBeenCalledWith('story-id', 'user-id');
+			expect(mocks.createStoryVersion).toHaveBeenCalledWith(
+				expect.objectContaining({ basedOnVersion: 2, authorId: 'user-id', origin: 'editor' }),
+			);
+		});
+
+		it('lets an editor read the story they can edit', async () => {
+			await expect(
+				createCaller().story.getLatest({ chatId: 'chat-id', storySlug: 'existing-story' }),
+			).resolves.toMatchObject({ version: 2 });
+		});
+
+		it('refuses someone the story is shared with as a viewer', async () => {
+			mocks.getStoryShareRole.mockResolvedValue('viewer');
+
+			await expect(saveEdit({ basedOnVersion: 2 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+			await expect(
+				createCaller().story.getLatest({ chatId: 'chat-id', storySlug: 'existing-story' }),
+			).rejects.toMatchObject({ code: 'FORBIDDEN' });
+			expect(mocks.createStoryVersion).not.toHaveBeenCalled();
+		});
+
+		it('refuses a save by hand while someone else is editing the story', async () => {
+			vi.mocked(assertStoryEditable).mockRejectedValueOnce(new StoryEditLockedError('Sarah'));
+
+			await expect(saveEdit({ basedOnVersion: 2 })).rejects.toMatchObject({
+				code: 'CONFLICT',
+				message: expect.stringContaining('Sarah is editing this story'),
+			});
+			expect(assertStoryEditable).toHaveBeenCalledWith('story-id', {
+				userId: 'user-id',
+				chatId: null,
+				sessionId: null,
+			});
+			expect(mocks.createStoryVersion).not.toHaveBeenCalled();
+		});
+
+		it('holds the edit lock for the tab of an editor', async () => {
+			mocks.getStoryOwnerId.mockResolvedValue('owner-id');
+
+			await createCaller().story.acquireEditLock({ storyId: 'story-id', sessionId: 'tab-1' });
+
+			expect(acquireStoryEditLock).toHaveBeenCalledWith('story-id', {
+				userId: 'user-id',
+				chatId: null,
+				sessionId: 'tab-1',
+			});
+		});
+
+		it('never gives the edit lock to someone the story is shared with as a viewer', async () => {
+			mocks.getStoryOwnerId.mockResolvedValue('owner-id');
+			mocks.getStoryShareRole.mockResolvedValue('viewer');
+
+			await expect(
+				createCaller().story.acquireEditLock({ storyId: 'story-id', sessionId: 'tab-1' }),
+			).rejects.toMatchObject({ code: 'FORBIDDEN' });
+			expect(acquireStoryEditLock).not.toHaveBeenCalled();
+		});
+
+		it('never lets an editor change who has access', async () => {
+			mocks.getStoryOwnerId.mockResolvedValue('owner-id');
+
+			await expect(
+				createCaller().storyShare.saveShareSettings({ storyId: 'story-id', visibility: 'project' }),
+			).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		});
+
+		it('reports a conflict instead of overwriting a version saved meanwhile', async () => {
+			mocks.createStoryVersion.mockRejectedValue(new StoryVersionConflictError());
+
+			await expect(saveEdit({ basedOnVersion: 1 })).rejects.toMatchObject({ code: 'CONFLICT' });
+		});
+
+		function saveEdit(change: { basedOnVersion: number }) {
+			return createCaller().story.createVersion({
+				chatId: 'chat-id',
+				storySlug: 'existing-story',
+				title: 'Existing Story',
+				code: '# Edited',
+				action: 'replace',
+				...change,
+			});
+		}
 	});
 });
 

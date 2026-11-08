@@ -17,10 +17,12 @@ import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
-import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { ShareDialog } from '@/components/share-dialog';
 import { StoryPageBody } from '@/components/story-page-body';
 import { STORY_ASK_BAR_INSET_STYLE, StoryAskBar } from '@/components/story-ask-bar';
+import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
 import { StoryPageHeader } from '@/components/story-page-header';
+import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
@@ -36,7 +38,15 @@ import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
 
-export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlug: string }) {
+export function OwnedStoryPage({
+	chatId,
+	storySlug,
+	isOwner,
+}: {
+	chatId: string;
+	storySlug: string;
+	isOwner: boolean;
+}) {
 	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storySlug }));
 	const queryClient = useQueryClient();
 	const { running: isChatRunning } = useChatActivity(chatId);
@@ -58,7 +68,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 	} = useStoryViewerLiveSettings({ chatId, storySlug });
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
-		needsRefresh: story.needsRefresh,
+		needsRefresh: isOwner && story.needsRefresh,
 		isRefreshing,
 		refresh: handleRefreshData,
 	});
@@ -118,6 +128,16 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 			editor.setViewMode('preview');
 		}
 	});
+	const isEditing = editor.viewMode === 'edit' || editor.isCodeDirty;
+	const presence = useStoryEditSession({
+		target: storyId ? { storyId, chatId, storySlug } : null,
+		isEditing,
+	});
+	useCloseWhenUneditable(!presence.isLockedByOthers || editor.isCodeDirty, () => {
+		if (editor.viewMode === 'edit') {
+			editor.setViewMode('preview');
+		}
+	});
 
 	return (
 		<div
@@ -126,7 +146,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 		>
 			<StoryPageHeader
 				title={story.title}
-				storyChat={{ storyId, isOwner: true, canChat: !isArchived }}
+				storyChat={{ storyId, isOwner, canEdit: true, canChat: !isArchived }}
 				canDuplicate={!isArchived}
 				viewedVersionNumber={editor.versionNav.storedVersionNumber || undefined}
 				live={{
@@ -135,15 +155,15 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 					lastRefreshFailure: story.lastRefreshFailure,
 					isRefreshing,
 					isUpdating,
-					onRefresh: () => handleRefreshData(),
-					onOpenSettings: () => setIsLiveSettingsOpen(true),
+					onRefresh: isOwner ? () => handleRefreshData() : undefined,
+					onOpenSettings: isOwner ? () => setIsLiveSettingsOpen(true) : undefined,
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
-				canRename
+				canRename={isOwner}
 				isShared={isShared}
-				onShare={() => setIsShareDialogOpen(true)}
-				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+				onShare={isOwner ? () => setIsShareDialogOpen(true) : undefined}
+				onOpenAnalytics={isOwner ? () => setIsAnalyticsOpen(true) : undefined}
 				viewModeControls={{
 					viewMode: editor.viewMode,
 					onViewModeChange: editor.setViewMode,
@@ -154,6 +174,8 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 					onSave: editor.handleSave,
 					onCancel: editor.handleCancel,
 					isSaving: editor.isSaving,
+					saveError: editor.saveError,
+					isEditLocked: presence.isLockedByOthers,
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
@@ -162,6 +184,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 					isViewingLatest: editor.versionNav.isViewingLatest,
 					onSelectVersion: editor.versionNav.goToVersion,
 					onRestore: editor.handleRestore,
+					isRestoreDisabled: presence.isLockedByOthers,
 				}}
 				elementSelection={
 					canSelectElements
@@ -170,7 +193,9 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 				}
 			/>
 
-			{story.archivedAt && (
+			<StoryEditPresenceBanner presence={presence} />
+
+			{story.archivedAt && isOwner && (
 				<div className='flex items-center justify-between gap-3 border-b bg-muted/50 px-4 py-2 md:px-6'>
 					<span className='text-xs text-muted-foreground'>This story has been archived.</span>
 					<Button
@@ -192,6 +217,7 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 						editor={editor}
 						queryData={queryData}
 						theme={storyTheme}
+						isReadOnly={presence.isLockedByOthers}
 						onAskAboutCode={showAskBar ? askAboutCode : undefined}
 						preview={
 							<>
@@ -202,14 +228,24 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 									onPick={askAboutElement}
 								>
 									{renderWithChartEditProvider(
-										canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
-										{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
+										canEditCharts &&
+											editor.versionNav.isViewingLatest &&
+											!isChatRunning &&
+											!presence.isLockedByOthers,
+										{
+											chatId,
+											storySlug,
+											storyTitle: story.title,
+											storyCode: editor.code,
+											storyVersion: editor.versionNav.storedVersionNumber || undefined,
+										},
 										<PreviewContent
 											code={editor.code}
 											queryData={queryData}
 											theme={storyTheme}
 											chatId={chatId}
 											storySlug={storySlug}
+											liveQueryStoryId={isOwner ? null : storyId}
 											cacheSchedule={story.cacheSchedule}
 											filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
 											isDataPending={isQueryDataPending}
@@ -222,45 +258,48 @@ export function OwnedStoryPage({ chatId, storySlug }: { chatId: string; storySlu
 					/>
 
 					{showAskBar && storyId && (
-						<StoryAskBar storyId={storyId} isOwner isInputHidden={isAskInputHidden} />
+						<StoryAskBar storyId={storyId} canEdit isInputHidden={isAskInputHidden} />
 					)}
 				</SelectionProvider>
 			</div>
 
-			<LiveStorySettingsDialog
-				open={isLiveSettingsOpen}
-				onOpenChange={setIsLiveSettingsOpen}
-				chatId={chatId}
-				storySlug={storySlug}
-				isLive={isLive}
-				isLiveTextDynamic={isLiveTextDynamic}
-				cacheSchedule={liveCacheSchedule}
-				cacheScheduleDescription={cacheScheduleDescription}
-				isUpdating={isUpdating}
-				onSaveSettings={handleSaveSettings}
-			/>
+			{isOwner && (
+				<>
+					<LiveStorySettingsDialog
+						open={isLiveSettingsOpen}
+						onOpenChange={setIsLiveSettingsOpen}
+						chatId={chatId}
+						storySlug={storySlug}
+						isLive={isLive}
+						isLiveTextDynamic={isLiveTextDynamic}
+						cacheSchedule={liveCacheSchedule}
+						cacheScheduleDescription={cacheScheduleDescription}
+						isUpdating={isUpdating}
+						onSaveSettings={handleSaveSettings}
+					/>
 
-			<ShareStoryDialog
-				open={isShareDialogOpen}
-				onOpenChange={setIsShareDialogOpen}
-				chatId={chatId}
-				storySlug={storySlug}
-			/>
+					<ShareDialog
+						open={isShareDialogOpen}
+						onOpenChange={setIsShareDialogOpen}
+						target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
+					/>
 
-			<AssetAnalyticsDialog
-				open={isAnalyticsOpen}
-				onOpenChange={setIsAnalyticsOpen}
-				assetType='story'
-				storyId={storyId ?? undefined}
-				chatId={chatId}
-			/>
+					<AssetAnalyticsDialog
+						open={isAnalyticsOpen}
+						onOpenChange={setIsAnalyticsOpen}
+						assetType='story'
+						storyId={storyId ?? undefined}
+						chatId={chatId}
+					/>
+				</>
+			)}
 		</div>
 	);
 }
 
 function renderWithChartEditProvider(
 	enabled: boolean,
-	params: { chatId: string; storySlug: string; storyTitle: string; storyCode: string },
+	params: { chatId: string; storySlug: string; storyTitle: string; storyCode: string; storyVersion?: number },
 	children: React.ReactNode,
 ) {
 	if (!enabled) {
@@ -273,18 +312,21 @@ function renderWithChartEditProvider(
 			storySlug={params.storySlug}
 			storyTitle={params.storyTitle}
 			storyCode={params.storyCode}
+			storyVersion={params.storyVersion}
 		>
 			<StoryTableEditProvider
 				chatId={params.chatId}
 				storySlug={params.storySlug}
 				storyTitle={params.storyTitle}
 				storyCode={params.storyCode}
+				storyVersion={params.storyVersion}
 			>
 				<StoryMapEditProvider
 					chatId={params.chatId}
 					storySlug={params.storySlug}
 					storyTitle={params.storyTitle}
 					storyCode={params.storyCode}
+					storyVersion={params.storyVersion}
 				>
 					{children}
 				</StoryMapEditProvider>
@@ -299,6 +341,7 @@ function PreviewContent({
 	theme,
 	chatId,
 	storySlug,
+	liveQueryStoryId,
 	cacheSchedule,
 	filtersEnabled,
 	isDataPending,
@@ -309,6 +352,7 @@ function PreviewContent({
 	theme: ReturnType<typeof useStoryThemeForCurrentMode>;
 	chatId: string;
 	storySlug: string;
+	liveQueryStoryId: string | null;
 	cacheSchedule?: string | null;
 	filtersEnabled: boolean;
 	isDataPending: boolean;
@@ -322,14 +366,8 @@ function PreviewContent({
 	);
 
 	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
-		() =>
-			useLiveUnfiltered
-				? {
-						queryOptions: (queryId) =>
-							trpc.story.getLiveQueryData.queryOptions({ chatId, queryId, storySlug }),
-					}
-				: undefined,
-		[useLiveUnfiltered, chatId, storySlug],
+		() => (useLiveUnfiltered ? liveQueryConfig(chatId, storySlug, liveQueryStoryId) : undefined),
+		[useLiveUnfiltered, chatId, storySlug, liveQueryStoryId],
 	);
 
 	const renderChart = useCallback(
@@ -412,4 +450,14 @@ function PreviewContent({
 			renderMap={renderMap}
 		/>
 	);
+}
+
+function liveQueryConfig(chatId: string, storySlug: string, sharedStoryId: string | null): LiveQueryConfig {
+	if (sharedStoryId) {
+		return {
+			queryOptions: (queryId) =>
+				trpc.storyShare.getLiveQueryData.queryOptions({ storyId: sharedStoryId, queryId }),
+		};
+	}
+	return { queryOptions: (queryId) => trpc.story.getLiveQueryData.queryOptions({ chatId, queryId, storySlug }) };
 }

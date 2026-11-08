@@ -18,7 +18,9 @@ import {
 	toStoriesVirtualPath,
 } from '../utils/story-mount';
 import { entriesInVirtualDirectory } from '../utils/virtual-directory';
+import { assertWriterAddsNoChatQueries } from './custom-story-query-access';
 import { type EditableStoryScope, findEditableStory } from './editable-story';
+import { acquireStoryEditLock } from './story-edit-lock.service';
 
 /**
  * The chat whose custom stories are mounted, the story a quick question is about, if any, and the user whose
@@ -94,6 +96,8 @@ export async function writeStoryMountFile(
 		);
 	}
 	const story = await requireCustomStory(scope, target.storyId);
+	await acquireStoryEditLock(story.id, { userId: scope.userId, chatId: scope.chatId });
+	await assertWriterAddsNoChatQueries(story, scope.userId, [{ content }]);
 	const file = await storyFileQueries.writeDraftFile(story.id, {
 		path: target.filePath,
 		content: await formatStoryFile(target.filePath, content),

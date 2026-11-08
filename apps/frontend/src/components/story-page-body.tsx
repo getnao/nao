@@ -20,9 +20,17 @@ interface StoryPageBodyProps {
 	queryData?: QueryDataMap | null;
 	theme?: StoryTheme | null;
 	onAskAboutCode?: (selection: CodeSelection) => void;
+	isReadOnly?: boolean;
 }
 
-export function StoryPageBody({ editor, preview, queryData, theme, onAskAboutCode }: StoryPageBodyProps) {
+export function StoryPageBody({
+	editor,
+	preview,
+	queryData,
+	theme,
+	onAskAboutCode,
+	isReadOnly = false,
+}: StoryPageBodyProps) {
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	useDragAutoScroll(scrollContainerRef);
 	const unsavedChangesDialog = <StoryUnsavedChangesDialog {...editor.exitDialog} />;
@@ -79,6 +87,7 @@ export function StoryPageBody({ editor, preview, queryData, theme, onAskAboutCod
 						onValidChange={editor.setIsCodeValid}
 						onSave={editor.handleSave}
 						onAskAboutCode={onAskAboutCode}
+						readOnly={isReadOnly}
 					/>
 				</div>
 				{unsavedChangesDialog}

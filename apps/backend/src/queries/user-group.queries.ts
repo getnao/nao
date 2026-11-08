@@ -990,3 +990,15 @@ function deduplicateMemberships(
 		...new Map(memberships.map(({ groupId, userId }) => [`${groupId}:${userId}`, { groupId, userId }])).values(),
 	];
 }
+
+export async function listUserIdsInGroups(groupIds: string[]): Promise<string[]> {
+	if (groupIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.selectDistinct({ userId: s.userGroupMember.userId })
+		.from(s.userGroupMember)
+		.where(inArray(s.userGroupMember.groupId, groupIds))
+		.execute();
+	return rows.map((row) => row.userId);
+}

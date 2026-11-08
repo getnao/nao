@@ -81,6 +81,8 @@ interface ClassicViewModeControls {
 	onSave?: () => void;
 	onCancel?: () => void;
 	isSaving?: boolean;
+	saveError?: string | null;
+	isEditLocked?: boolean;
 }
 
 type ViewModeControls = ClassicViewModeControls | CustomStoryViewModeControls;
@@ -92,6 +94,7 @@ interface VersionControls {
 	isViewingLatest: boolean;
 	onSelectVersion: (version: number) => void;
 	onRestore: () => void;
+	isRestoreDisabled?: boolean;
 }
 
 export interface StoryPageHeaderProps {
@@ -219,7 +222,14 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 		return <CustomStoryViewModeToggle {...controls} />;
 	}
 
-	const { viewMode, onViewModeChange, canEdit = false, isAgentRunning = false, isSaving = false } = controls;
+	const {
+		viewMode,
+		onViewModeChange,
+		canEdit = false,
+		isAgentRunning = false,
+		isSaving = false,
+		isEditLocked = false,
+	} = controls;
 
 	return (
 		<div className='flex items-center gap-1.5 rounded-full border p-0.5'>
@@ -245,7 +255,7 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 						'hover:rounded-full',
 					)}
 					onClick={() => onViewModeChange('edit')}
-					disabled={isAgentRunning || isSaving}
+					disabled={isAgentRunning || isSaving || isEditLocked}
 					aria-label='Edit'
 				>
 					<Pencil className='size-3' strokeWidth={2.25} />
@@ -278,13 +288,24 @@ function StorySubHeader({
 	const isEditing = viewMode === 'edit' || (viewMode === 'code' && isCodeDirty);
 
 	if (classicControls && isEditing) {
-		const { onViewModeChange, onCancel, isCodeValid = true, onSave, isSaving = false } = classicControls;
+		const { onViewModeChange, onCancel, isCodeValid = true, onSave, isSaving = false, saveError } = classicControls;
 		const isEditingCode = viewMode === 'code' && isCodeDirty;
 		return (
-			<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2 md:px-6'>
-				<span className='text-xs text-muted-foreground'>
-					{viewMode === 'edit' ? 'Editing' : isCodeValid ? 'Editing code' : 'Fix validation errors to save'}
-				</span>
+			<div className='flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2 md:px-6'>
+				{saveError ? (
+					<span role='alert' className='flex items-center gap-1.5 text-xs text-destructive'>
+						<CircleAlert className='size-3.5 shrink-0' />
+						{saveError}
+					</span>
+				) : (
+					<span className='text-xs text-muted-foreground'>
+						{viewMode === 'edit'
+							? 'Editing'
+							: isCodeValid
+								? 'Editing code'
+								: 'Fix validation errors to save'}
+					</span>
+				)}
 				<div className='flex items-center gap-2'>
 					<Button
 						variant='outline'
@@ -321,6 +342,7 @@ function StorySubHeader({
 					variant='outline'
 					size='sm'
 					onClick={versionControls.onRestore}
+					disabled={versionControls.isRestoreDisabled}
 					className='gap-1.5 rounded-full'
 				>
 					<RotateCcw className='size-3' strokeWidth={2.25} />
