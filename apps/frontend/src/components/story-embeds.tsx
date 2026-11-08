@@ -187,12 +187,9 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	const displayData = resolved?.data ?? [];
 	const showRefreshing = isRefreshing || resolvedData.isFetching;
 
+	// Outside the shell: the map edit dialog has no column fields, so it cannot add the missing ones.
 	if (map.missingAttributes) {
-		return (
-			<StoryMapEmbedShell map={map}>
-				<EmbedPlaceholder>{incompleteMapMessage(map)}</EmbedPlaceholder>
-			</StoryMapEmbedShell>
-		);
+		return <EmbedPlaceholder>{incompleteMapMessage(map)}</EmbedPlaceholder>;
 	}
 
 	if (resolvedData.isLoading) {

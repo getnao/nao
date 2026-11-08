@@ -26,12 +26,9 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	const { sourceData: agentSourceData } = useSourceQuery(embedSourceData ? undefined : map.queryId);
 	const sourceData = embedSourceData ?? agentSourceData;
 
+	// Outside the shell: the map edit dialog has no column fields, so it cannot add the missing ones.
 	if (map.missingAttributes) {
-		return (
-			<StoryMapEmbedShell map={map} dragHandle={dragHandle}>
-				<StoryEmbedFallback>{incompleteMapMessage(map)}</StoryEmbedFallback>
-			</StoryMapEmbedShell>
-		);
+		return <StoryEmbedFallback dragHandle={dragHandle}>{incompleteMapMessage(map)}</StoryEmbedFallback>;
 	}
 
 	if (!sourceData?.data || sourceData.data.length === 0) {

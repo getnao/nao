@@ -41,12 +41,13 @@ describe('StoryMapEmbed', () => {
 			),
 		).toBeTruthy();
 		expect(screen.queryByText('map rendered')).toBeNull();
-		expect(screen.getByTitle('Edit map')).toBeTruthy();
+		expect(screen.queryByTitle('Edit map')).toBeNull();
 	});
 
 	it('renders a complete map', () => {
 		renderMapEmbed('query_id="q1" map_type="points" latitude_key="lat" longitude_key="lng" title="Stores"');
 
 		expect(screen.getByText('map rendered')).toBeTruthy();
+		expect(screen.getByTitle('Edit map')).toBeTruthy();
 	});
 });
