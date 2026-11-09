@@ -83,7 +83,7 @@ function StoryRefreshAfterEdit() {
 			return;
 		}
 		handledMessageId.current = lastMessage.id;
-		const edit = readStoryEdit(lastMessage);
+		const edit = readStoryEdit(messages);
 		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query, edit) });
 	}, [editedStory, messages, queryClient]);
 
