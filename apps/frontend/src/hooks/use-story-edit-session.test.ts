@@ -95,6 +95,29 @@ describe('useStoryEditSession', () => {
 		expect(mocks.acquire).toHaveBeenCalledTimes(2);
 	});
 
+	it('stops letting the person edit once the server refuses them the right to', () => {
+		const { result } = renderHook(() => useStoryEditSession({ target: TARGET, isEditing: true }));
+		expect(result.current.canEdit).toBe(true);
+
+		act(() => {
+			mocks.acquireOptions.onError?.(lockRefusal('FORBIDDEN'), { storyId: 'story-1' });
+		});
+
+		expect(result.current).toMatchObject({ isLockedByOthers: false, canEdit: false });
+	});
+
+	it('does not let the person edit while someone else holds the lock', () => {
+		mocks.editState = {
+			latestVersion: 1,
+			latestAuthorName: 'Ada',
+			lock: { holderName: 'Ada', isMine: false, isYou: false, byAgent: false },
+		};
+
+		const { result } = renderHook(() => useStoryEditSession({ target: TARGET, isEditing: false }));
+
+		expect(result.current.canEdit).toBe(false);
+	});
+
 	it('lets the lock lapse after a long idle spell, and takes it back on the next keystroke', () => {
 		renderHook(() => useStoryEditSession({ target: TARGET, isEditing: true }));
 
@@ -177,7 +200,11 @@ describe('isStoryContentQueryKey', () => {
 });
 
 function lockConflict(): TRPCClientError<TrpcRouter> {
-	const error = new TRPCClientError<TrpcRouter>('Ada is editing this story.');
-	Object.assign(error, { data: { code: 'CONFLICT' } });
+	return lockRefusal('CONFLICT');
+}
+
+function lockRefusal(code: 'CONFLICT' | 'FORBIDDEN'): TRPCClientError<TrpcRouter> {
+	const error = new TRPCClientError<TrpcRouter>('You cannot edit this story.');
+	Object.assign(error, { data: { code } });
 	return error;
 }

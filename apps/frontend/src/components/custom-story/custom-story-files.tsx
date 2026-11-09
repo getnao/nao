@@ -50,6 +50,7 @@ export function CustomStoryFiles({
 	useEffect(() => {
 		onHasChangesChange?.(edits.hasChanges);
 	}, [edits.hasChanges, onHasChangesChange]);
+	useEffect(() => () => onHasChangesChange?.(false), [onHasChangesChange]);
 	useCodeRevealFollower(source.storySlug, ({ filePath }) => {
 		if (filePath && (isStoryKitPath(filePath) || files.some((file) => file.path === filePath))) {
 			setSelectedPath(filePath);

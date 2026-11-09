@@ -27,6 +27,8 @@ export interface StoryEditPresence {
 	otherEditorName: string | null;
 	ownEditElsewhere: 'chat' | 'tab' | null;
 	isLockedByOthers: boolean;
+	/** False while someone else holds the lock, or once the server refuses this person the right to edit. */
+	canEdit: boolean;
 	updatedByName: string | null;
 }
 
@@ -50,7 +52,7 @@ export function useStoryEditSession({
 		refetchIntervalInBackground: false,
 	});
 	const refetchEditState = editState.refetch;
-	useHeldEditLock(storyId, isEditing, () => {
+	const isEditForbidden = useHeldEditLock(storyId, isEditing, () => {
 		void refetchEditState();
 	});
 	const updatedByName = useReloadOnNewVersion(target, editState.data, isEditing);
@@ -61,12 +63,15 @@ export function useStoryEditSession({
 		otherEditorName: isLockedByOthers && !lock.isYou ? lock.holderName : null,
 		ownEditElsewhere: isLockedByOthers && lock.isYou ? (lock.byAgent ? 'chat' : 'tab') : null,
 		isLockedByOthers,
+		canEdit: !isLockedByOthers && !isEditForbidden,
 		updatedByName,
 	};
 }
 
-function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: () => void) {
+/** Holds the lock while editing; returns whether the server refused this person the right to edit the story. */
+function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: () => void): boolean {
 	const [refusedStoryId, setRefusedStoryId] = useState<string | null>(null);
+	const [forbiddenStoryId, setForbiddenStoryId] = useState<string | null>(null);
 	const isRefused = storyId !== null && refusedStoryId === storyId;
 	const lastActivityRef = useLastUserActivity();
 	const acquire = useMutation(
@@ -74,6 +79,9 @@ function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: 
 			onError: (error, variables) => {
 				if (isLockRefusal(error)) {
 					setRefusedStoryId(variables.storyId);
+				}
+				if (isEditForbiddenError(error)) {
+					setForbiddenStoryId(variables.storyId);
 				}
 				onRefused();
 			},
@@ -107,6 +115,8 @@ function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: 
 			releaseRef.current(lockInput);
 		};
 	}, [storyId, isEditing, isRefused, lastActivityRef]);
+
+	return storyId !== null && forbiddenStoryId === storyId;
 }
 
 function useLastUserActivity() {
@@ -192,6 +202,10 @@ export function isStoryContentQueryKey(queryKey: readonly unknown[], target: Sto
 
 function isLockRefusal(error: unknown): boolean {
 	return error instanceof TRPCClientError && LOCK_REFUSAL_CODES.has(error.data?.code);
+}
+
+function isEditForbiddenError(error: unknown): boolean {
+	return error instanceof TRPCClientError && error.data?.code === 'FORBIDDEN';
 }
 
 /** Closes whatever is being edited as soon as the story can no longer be edited here. */

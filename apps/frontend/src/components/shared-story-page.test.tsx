@@ -93,6 +93,7 @@ vi.mock('@/hooks/use-story-edit-session', () => ({
 		otherEditorName: null,
 		ownEditElsewhere: null,
 		isLockedByOthers: false,
+		canEdit: true,
 		updatedByName: null,
 	}),
 }));

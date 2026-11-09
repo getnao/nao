@@ -58,6 +58,7 @@ import { useRegisterStoryBeforeAgentSend } from '@/contexts/story-before-agent-s
 import { StoryThemeProvider, useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { toAskCitation, toCodeAsk } from '@/stores/ask-bar';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 interface StoryViewerProps {
@@ -269,10 +270,10 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const isDirty = storyBuffer.isDirty;
 	const presence = useStoryEditSession({
 		target: !isReadonlyMode && storyId ? { storyId, chatId, storySlug: resolvedStorySlug } : null,
-		isEditing: viewMode === 'edit' || isCodeDirty,
+		isEditing: viewMode !== 'preview' || isCodeDirty,
 	});
-	useCloseWhenUneditable(!presence.isLockedByOthers || isDirty, () => {
-		if (viewMode === 'edit') {
+	useCloseWhenUneditable(presence.canEdit || isDirty, () => {
+		if (viewMode !== 'preview') {
 			setViewMode('preview');
 		}
 	});
@@ -461,7 +462,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
-				isEditLocked={presence.isLockedByOthers}
+				isEditLocked={!presence.canEdit}
 				isStoryUpdating={isStoryUpdating}
 				isSaving={isSaving}
 				isReadonlyMode={isReadonlyMode}
@@ -497,7 +498,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 						isViewingLatest &&
 						!archivedAt &&
 						!isAgentRunning &&
-						!presence.isLockedByOthers &&
+						presence.canEdit &&
 						viewMode !== 'edit',
 					{
 						chatId,
@@ -533,31 +534,33 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 								theme={storyTheme}
 								className='h-auto min-h-full bg-background text-foreground'
 							>
-								{isEditTabbedStory ? (
-									<StoryTabbedEditor
-										code={editCode}
-										editorRef={tiptapEditorRef}
-										onSave={handleSave}
-										onChange={storyBuffer.handleCodeChange}
-										getCodeRef={tabbedEditCodeRef}
-										barContentClassName='px-6'
-										contentClassName='p-6'
-									/>
-								) : (
-									<StoryEditor
-										code={editCode}
-										editorRef={tiptapEditorRef}
-										onSave={handleSave}
-										onChange={storyBuffer.handleCodeChange}
-									/>
-								)}
+								<div inert={!presence.canEdit} className={cn(!presence.canEdit && 'opacity-60')}>
+									{isEditTabbedStory ? (
+										<StoryTabbedEditor
+											code={editCode}
+											editorRef={tiptapEditorRef}
+											onSave={handleSave}
+											onChange={storyBuffer.handleCodeChange}
+											getCodeRef={tabbedEditCodeRef}
+											barContentClassName='px-6'
+											contentClassName='p-6'
+										/>
+									) : (
+										<StoryEditor
+											code={editCode}
+											editorRef={tiptapEditorRef}
+											onSave={handleSave}
+											onChange={storyBuffer.handleCodeChange}
+										/>
+									)}
+								</div>
 							</StoryThemeProvider>
 						</StoryEmbedDataProvider>
 					) : (
 						<StoryCodeView
 							code={codeDraft}
 							storySlug={resolvedStorySlug}
-							readOnly={isReadonlyMode || presence.isLockedByOthers}
+							readOnly={isReadonlyMode || !presence.canEdit}
 							codeRef={codeViewRef}
 							onCodeChange={storyBuffer.handleCodeChange}
 							onValidChange={setIsCodeValid}

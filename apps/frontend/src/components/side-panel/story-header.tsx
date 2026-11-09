@@ -173,7 +173,7 @@ export const StoryHeader = memo(function StoryHeader({
 			<EditableStoryTitle
 				storyId={storyId}
 				title={title}
-				canEdit={!isReadonlyMode}
+				canEdit={!isReadonlyMode && !isEditLocked}
 				heading='h3'
 				className='min-w-0 truncate text-sm font-medium'
 				inputClassName='text-sm font-medium'
@@ -215,7 +215,7 @@ export const StoryHeader = memo(function StoryHeader({
 			<EditableStoryTitle
 				storyId={storyId}
 				title={title}
-				canEdit={!isReadonlyMode}
+				canEdit={!isReadonlyMode && !isEditLocked}
 				heading='h3'
 				className='truncate text-sm font-medium'
 				inputClassName='text-sm font-medium'

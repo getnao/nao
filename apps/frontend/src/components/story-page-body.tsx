@@ -13,6 +13,7 @@ import { StoryTabbedEditor } from '@/components/side-panel/story-tabbed-editor';
 import { StoryUnsavedChangesDialog } from '@/components/story-unsaved-changes-dialog';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
+import { cn } from '@/lib/utils';
 
 interface StoryPageBodyProps {
 	editor: ReturnType<typeof useStoryPageEditor>;
@@ -46,7 +47,11 @@ export function StoryPageBody({
 						theme={theme ?? null}
 						className='flex flex-1 min-h-0 flex-col bg-background text-foreground'
 					>
-						<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
+						<div
+							ref={scrollContainerRef}
+							inert={isReadOnly}
+							className={cn('flex-1 min-h-0 overflow-auto', isReadOnly && 'opacity-60')}
+						>
 							{isTabbed ? (
 								<StoryTabbedEditor
 									code={editCode}

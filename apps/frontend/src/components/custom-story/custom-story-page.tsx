@@ -78,8 +78,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 		target: storyId ? { storyId, chatId, storySlug } : null,
 		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
 	});
-	const canEditBlocks =
-		story.isViewingLatest && !story.isAgentRunning && !story.isArchived && !presence.isLockedByOthers;
+	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && presence.canEdit;
 	useCloseWhenUneditable(canEditBlocks, () => {
 		setEditTarget(null);
 		setTableFormatTarget(null);
@@ -134,7 +133,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 				}}
 				download={{ chatId, storySlug, isOwner: true, onDownload: story.download }}
 				storyId={storyId}
-				canRename={isOwner}
+				canRename={isOwner && presence.canEdit}
 				isShared={sharing.isShared}
 				onShare={isOwner ? () => sharing.setIsShareDialogOpen(true) : undefined}
 				onOpenAnalytics={isOwner ? () => setIsAnalyticsOpen(true) : undefined}
@@ -151,7 +150,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 					isViewingLatest: story.isViewingLatest,
 					onSelectVersion: story.goToVersion,
 					onRestore: story.restore,
-					isRestoreDisabled: story.isRestoring || presence.isLockedByOthers,
+					isRestoreDisabled: story.isRestoring || !presence.canEdit,
 				}}
 			/>
 

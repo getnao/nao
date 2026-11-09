@@ -128,13 +128,13 @@ export function OwnedStoryPage({
 			editor.setViewMode('preview');
 		}
 	});
-	const isEditing = editor.viewMode === 'edit' || editor.isCodeDirty;
+	const isEditing = editor.viewMode !== 'preview' || editor.isCodeDirty;
 	const presence = useStoryEditSession({
 		target: storyId ? { storyId, chatId, storySlug } : null,
 		isEditing,
 	});
-	useCloseWhenUneditable(!presence.isLockedByOthers || editor.isCodeDirty, () => {
-		if (editor.viewMode === 'edit') {
+	useCloseWhenUneditable(presence.canEdit || editor.isCodeDirty, () => {
+		if (editor.viewMode !== 'preview') {
 			editor.setViewMode('preview');
 		}
 	});
@@ -160,7 +160,7 @@ export function OwnedStoryPage({
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
-				canRename={isOwner}
+				canRename={isOwner && presence.canEdit}
 				isShared={isShared}
 				onShare={isOwner ? () => setIsShareDialogOpen(true) : undefined}
 				onOpenAnalytics={isOwner ? () => setIsAnalyticsOpen(true) : undefined}
@@ -175,7 +175,7 @@ export function OwnedStoryPage({
 					onCancel: editor.handleCancel,
 					isSaving: editor.isSaving,
 					saveError: editor.saveError,
-					isEditLocked: presence.isLockedByOthers,
+					isEditLocked: !presence.canEdit,
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
@@ -184,7 +184,7 @@ export function OwnedStoryPage({
 					isViewingLatest: editor.versionNav.isViewingLatest,
 					onSelectVersion: editor.versionNav.goToVersion,
 					onRestore: editor.handleRestore,
-					isRestoreDisabled: presence.isLockedByOthers,
+					isRestoreDisabled: !presence.canEdit,
 				}}
 				elementSelection={
 					canSelectElements
@@ -217,7 +217,7 @@ export function OwnedStoryPage({
 						editor={editor}
 						queryData={queryData}
 						theme={storyTheme}
-						isReadOnly={presence.isLockedByOthers}
+						isReadOnly={!presence.canEdit}
 						onAskAboutCode={showAskBar ? askAboutCode : undefined}
 						preview={
 							<>
@@ -231,7 +231,7 @@ export function OwnedStoryPage({
 										canEditCharts &&
 											editor.versionNav.isViewingLatest &&
 											!isChatRunning &&
-											!presence.isLockedByOthers,
+											presence.canEdit,
 										{
 											chatId,
 											storySlug,

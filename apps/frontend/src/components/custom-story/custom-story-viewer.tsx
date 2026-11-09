@@ -68,11 +68,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
 	});
 	const canEditBlocks =
-		story.isViewingLatest &&
-		!story.isAgentRunning &&
-		!story.isArchived &&
-		!isReadonlyMode &&
-		!presence.isLockedByOthers;
+		story.isViewingLatest && !story.isAgentRunning && !story.isArchived && !isReadonlyMode && presence.canEdit;
 	useCloseWhenUneditable(canEditBlocks, () => {
 		setEditTarget(null);
 		setTableFormatTarget(null);
@@ -185,7 +181,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				onEnlarge={handleEnlarge}
 				isShared={sharing.isShared}
 				isAgentRunning={story.isAgentRunning}
-				isEditLocked={presence.isLockedByOthers}
+				isEditLocked={!presence.canEdit}
 				isStoryUpdating={false}
 				isSaving={story.isRestoring}
 				isReadonlyMode={isReadonlyMode}
