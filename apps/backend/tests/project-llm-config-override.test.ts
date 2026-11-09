@@ -147,6 +147,21 @@ describe('project LLM config overrides', () => {
 			}),
 		);
 	});
+
+	it('reports a duplicate credential name as a conflict', async () => {
+		writeConfig([]);
+		testState.upsertProjectLlmConfig.mockRejectedValue(
+			Object.assign(
+				new Error('UNIQUE constraint failed: project_llm_config.project_id, project_llm_config.name'),
+				{ code: 'SQLITE_CONSTRAINT_UNIQUE', errno: 2067 },
+			),
+		);
+
+		await expect(callUpsert('openai', 'sk-test')).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message: "A credential named 'OpenAI' already exists.",
+		});
+	});
 });
 
 function project() {

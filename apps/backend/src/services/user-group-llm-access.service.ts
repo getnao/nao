@@ -44,17 +44,22 @@ export async function getLlmAccessReadiness(projectId: string): Promise<LlmAcces
 	);
 	const configuredIds = activeGroups.flatMap((group) => ('llmConfigIds' in group ? group.llmConfigIds : []));
 	const databaseModels = projectModels.filter((model) => model.llmConfigId);
-	const groupsWithoutModels = activeGroups
-		.filter((group) => {
+	const defaultGroup = activeGroups.find(
+		(group) => group.isDefault && 'llmConfigIds' in group && 'llmModelIdsByConfig' in group,
+	);
+	const groupModelsById = new Map(
+		activeGroups.map((group) => {
+			const groupId = group.id;
 			if (!('llmConfigIds' in group) || !('llmModelIdsByConfig' in group)) {
-				return true;
+				return [groupId, [] as ProjectAvailableModel[]] as const;
 			}
-			const access = mergeUserGroupLlmAccess([group]);
-			return (
-				filterModelsByConfigAccess(databaseModels, access.llmConfigIds, access.llmModelIdsByConfig).length === 0
-			);
-		})
-		.map((group) => group.id);
+			const access = mergeUserGroupLlmAccess(defaultGroup && !group.isDefault ? [defaultGroup, group] : [group]);
+			return [
+				groupId,
+				filterModelsByConfigAccess(databaseModels, access.llmConfigIds, access.llmModelIdsByConfig),
+			] as const;
+		}),
+	);
 	const userModelsById = new Map(
 		overview.users.map((user) => {
 			const groupIds = new Set(
@@ -73,11 +78,21 @@ export async function getLlmAccessReadiness(projectId: string): Promise<LlmAcces
 			] as const;
 		}),
 	);
+	const userModelCatalogs = [...userModelsById.values()];
 	const userIdsWithoutModels = overview.users
 		.filter((user) => userModelsById.get(user.id)?.length === 0)
 		.map((user) => user.id);
+	const userIdsWithoutModelsSet = new Set(userIdsWithoutModels);
+	const groupsWithAffectedUsers = new Set(
+		overview.memberships
+			.filter((membership) => userIdsWithoutModelsSet.has(membership.userId))
+			.map((membership) => membership.groupId),
+	);
+	const groupsWithoutModels = activeGroups
+		.filter((group) => groupsWithAffectedUsers.has(group.id) && groupModelsById.get(group.id)?.length === 0)
+		.map((group) => group.id);
 	const staleDefaultCount = getConfiguredDefaults(defaultSettings).filter(
-		(selection) => !hasAvailableSelection(databaseModels, selection),
+		(selection) => !userModelCatalogs.some((models) => hasAvailableSelection(models, selection)),
 	).length;
 	const automationModelsByUser = new Map(
 		[...new Set(automations.map((automation) => automation.userId))].map(
@@ -106,7 +121,7 @@ export async function getLlmAccessReadiness(projectId: string): Promise<LlmAcces
 				});
 			})
 			.map((automation) => automation.id),
-		canEnable: [...userModelsById.values()].some((models) => models.length > 0),
+		canEnable: userModelCatalogs.some((models) => models.length > 0),
 	};
 }
 

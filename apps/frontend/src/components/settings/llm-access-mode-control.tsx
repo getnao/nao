@@ -75,7 +75,7 @@ export function LlmAccessModeControl() {
 				title={canEnable ? 'Restrict model access by user group?' : 'Set up LLM access first'}
 				description={
 					canEnable
-						? `${warning ? `${warning} ` : ''}YAML-only credentials will no longer be available. Users without an assigned active credential cannot run models.`
+						? `${warning ? `${warning} ` : ''}Each user will only be able to run models assigned through their groups.`
 						: (warning ?? 'Assign an active LLM credential to a user group before enabling restrictions.')
 				}
 				confirmLabel={canEnable ? 'Enable restrictions' : 'Go to Users & Groups'}
@@ -117,7 +117,7 @@ function describeReadiness(readiness: {
 			? `${readiness.userIdsWithoutModels.length} ${readiness.userIdsWithoutModels.length === 1 ? 'user has' : 'users have'} no assigned models`
 			: null,
 		readiness.unassignedGroupIds.length > 0
-			? `${readiness.unassignedGroupIds.length} ${readiness.unassignedGroupIds.length === 1 ? 'group has' : 'groups have'} no credentials`
+			? `${readiness.unassignedGroupIds.length} ${readiness.unassignedGroupIds.length === 1 ? 'group has' : 'groups have'} no available models`
 			: null,
 		readiness.staleConfigIds.length > 0
 			? `${readiness.staleConfigIds.length} stale credential ${readiness.staleConfigIds.length === 1 ? 'assignment needs' : 'assignments need'} cleanup`

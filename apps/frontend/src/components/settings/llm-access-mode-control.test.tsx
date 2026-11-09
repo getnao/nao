@@ -97,7 +97,16 @@ describe('LlmAccessModeControl', () => {
 			'false',
 		);
 		expect(screen.queryByText(/users have no assigned models/)).toBeNull();
-		expect(screen.queryByText(/group has no credentials/)).toBeNull();
+		expect(screen.queryByText(/group has no available models/)).toBeNull();
+	});
+
+	it('only warns about configuration that will actually be affected', () => {
+		render(<LlmAccessModeControl />);
+
+		fireEvent.click(screen.getByRole('switch', { name: 'Restrict models by user group' }));
+
+		expect(screen.getByText(/group has no available models/)).toBeDefined();
+		expect(screen.queryByText(/YAML-only credentials/)).toBeNull();
 	});
 
 	it('shows a blocking modal instead of an inline warning when no credential is assigned', () => {

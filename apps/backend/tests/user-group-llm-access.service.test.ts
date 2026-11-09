@@ -197,6 +197,133 @@ describe('user group LLM access', () => {
 		});
 	});
 
+	it('does not report groups as unassigned when they inherit models from All Users', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
+		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'config-a' }]);
+		mocks.getAvailableUserGroupOverview.mockResolvedValue({
+			groups: [
+				{
+					id: 'all-users',
+					isDefault: true,
+					isLocked: false,
+					llmConfigIds: ['config-a'],
+					llmModelIdsByConfig: {},
+				},
+				{
+					id: 'group-1',
+					isDefault: false,
+					isLocked: false,
+					llmConfigIds: [],
+					llmModelIdsByConfig: {},
+				},
+			],
+			users: [{ id: 'user-1' }],
+			memberships: [
+				{ userId: 'user-1', groupId: 'all-users' },
+				{ userId: 'user-1', groupId: 'group-1' },
+			],
+		});
+
+		await expect(getLlmAccessReadiness('project-1')).resolves.toMatchObject({
+			canEnable: true,
+			unassignedGroupIds: [],
+			userIdsWithoutModels: [],
+		});
+	});
+
+	it('does not report empty groups when their members have models from another group', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
+		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'config-a' }]);
+		mocks.getAvailableUserGroupOverview.mockResolvedValue({
+			groups: [
+				{
+					id: 'all-users',
+					isDefault: true,
+					isLocked: false,
+					llmConfigIds: [],
+					llmModelIdsByConfig: {},
+				},
+				{
+					id: 'group-with-models',
+					isDefault: false,
+					isLocked: false,
+					llmConfigIds: ['config-a'],
+					llmModelIdsByConfig: {},
+				},
+				{
+					id: 'group-without-members',
+					isDefault: false,
+					isLocked: false,
+					llmConfigIds: [],
+					llmModelIdsByConfig: {},
+				},
+			],
+			users: [{ id: 'user-1' }],
+			memberships: [
+				{ userId: 'user-1', groupId: 'all-users' },
+				{ userId: 'user-1', groupId: 'group-with-models' },
+			],
+		});
+
+		await expect(getLlmAccessReadiness('project-1')).resolves.toMatchObject({
+			canEnable: true,
+			unassignedGroupIds: [],
+			userIdsWithoutModels: [],
+		});
+	});
+
+	it('accepts a legacy default when each eligible user can resolve one matching credential', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
+		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'config-a' }, { id: 'config-b' }]);
+		mocks.getDefaultModelSettings.mockResolvedValue({
+			mode: 'single',
+			chat: { provider: 'openai', modelId: 'gpt-5-mini' },
+		});
+		mocks.getAvailableUserGroupOverview.mockResolvedValue({
+			groups: [
+				{
+					id: 'all-users',
+					isDefault: true,
+					isLocked: false,
+					llmConfigIds: ['config-a'],
+					llmModelIdsByConfig: {},
+				},
+			],
+			users: [{ id: 'user-1' }],
+			memberships: [{ userId: 'user-1', groupId: 'all-users' }],
+		});
+
+		await expect(getLlmAccessReadiness('project-1')).resolves.toMatchObject({
+			staleDefaultCount: 0,
+		});
+	});
+
+	it('reports a project default that no eligible user can access', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
+		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'config-a' }, { id: 'config-b' }]);
+		mocks.getDefaultModelSettings.mockResolvedValue({
+			mode: 'single',
+			chat: { provider: 'openai', modelId: 'gpt-5-mini', llmConfigId: 'config-b' },
+		});
+		mocks.getAvailableUserGroupOverview.mockResolvedValue({
+			groups: [
+				{
+					id: 'all-users',
+					isDefault: true,
+					isLocked: false,
+					llmConfigIds: ['config-a'],
+					llmModelIdsByConfig: {},
+				},
+			],
+			users: [{ id: 'user-1' }],
+			memberships: [{ userId: 'user-1', groupId: 'all-users' }],
+		});
+
+		await expect(getLlmAccessReadiness('project-1')).resolves.toMatchObject({
+			staleDefaultCount: 1,
+		});
+	});
+
 	it('does not enable group access when every assigned model subset is empty', async () => {
 		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
 		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'config-a' }]);

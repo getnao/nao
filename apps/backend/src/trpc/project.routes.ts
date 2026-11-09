@@ -449,15 +449,16 @@ export const projectRoutes = {
 						? null
 						: input.baseUrl || null,
 			};
-			const config =
+			const config = await handleLlmConfigQuery(values.name, () =>
 				input.configId || input.name
-					? await llmConfigQueries.saveProjectLlmConfig(
+					? llmConfigQueries.saveProjectLlmConfig(
 							values as Parameters<typeof llmConfigQueries.saveProjectLlmConfig>[0],
 							input.configId,
 						)
-					: await llmConfigQueries.upsertProjectLlmConfig(
+					: llmConfigQueries.upsertProjectLlmConfig(
 							values as Parameters<typeof llmConfigQueries.upsertProjectLlmConfig>[0],
-						);
+						),
+			);
 
 			return {
 				id: config.id,
@@ -1565,3 +1566,35 @@ export const projectRoutes = {
 			return projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
 		}),
 };
+
+async function handleLlmConfigQuery<T>(name: string, operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	} catch (error) {
+		if (isProjectLlmConfigNameUniqueViolation(error)) {
+			throw new TRPCError({ code: 'CONFLICT', message: `A credential named '${name}' already exists.` });
+		}
+		throw error;
+	}
+}
+
+function isProjectLlmConfigNameUniqueViolation(error: unknown): boolean {
+	const databaseError = error instanceof Error && error.cause ? error.cause : error;
+	if (!databaseError || typeof databaseError !== 'object') {
+		return false;
+	}
+	const {
+		code,
+		constraint,
+		constraint_name: constraintName,
+		errno,
+		message,
+	} = databaseError as Record<string, unknown>;
+	const expectedConstraint = 'project_llm_config_project_name';
+	return (
+		(code === '23505' && (constraint === expectedConstraint || constraintName === expectedConstraint)) ||
+		((code === 'SQLITE_CONSTRAINT_UNIQUE' || errno === 2067) &&
+			typeof message === 'string' &&
+			message.includes('UNIQUE constraint failed: project_llm_config.project_id, project_llm_config.name'))
+	);
+}
