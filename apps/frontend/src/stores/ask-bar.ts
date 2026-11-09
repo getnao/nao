@@ -19,7 +19,7 @@ export type AskRequest = {
 	id: number;
 	chatId: string | null;
 	selection?: AskSelection;
-	shouldShake?: boolean;
+	shouldHighlight?: boolean;
 };
 
 const askRequestStore = new ValueStore<AskRequest | null>(null);
