@@ -21,6 +21,7 @@ export interface StoryBlockEdit {
 interface StoryBlockSaveQueue {
 	tail: Promise<void>;
 	pendingSaves: number;
+	subscribers: number;
 	code: string;
 	version?: number;
 }
@@ -72,10 +73,15 @@ export function useStoryBlockEdit({
 
 	useEffect(() => {
 		const queue = getSaveQueue(queueKey, storyCode, storyVersion);
+		queue.subscribers += 1;
 		if (queue.pendingSaves === 0) {
 			queue.code = storyCode;
 			queue.version = storyVersion;
 		}
+		return () => {
+			queue.subscribers -= 1;
+			releaseIdleSaveQueue(queueKey, queue);
+		};
 	}, [queueKey, storyCode, storyVersion]);
 
 	const replaceBlock = useCallback(
@@ -107,6 +113,7 @@ export function useStoryBlockEdit({
 				})
 				.finally(() => {
 					queue.pendingSaves -= 1;
+					releaseIdleSaveQueue(queueKey, queue);
 				});
 			queue.tail = run.catch(() => {});
 			return run;
@@ -122,7 +129,13 @@ function getSaveQueue(key: string, code: string, version: number | undefined): S
 	if (existing) {
 		return existing;
 	}
-	const queue: StoryBlockSaveQueue = { tail: Promise.resolve(), pendingSaves: 0, code, version };
+	const queue: StoryBlockSaveQueue = { tail: Promise.resolve(), pendingSaves: 0, subscribers: 0, code, version };
 	saveQueues.set(key, queue);
 	return queue;
+}
+
+function releaseIdleSaveQueue(key: string, queue: StoryBlockSaveQueue): void {
+	if (queue.subscribers === 0 && queue.pendingSaves === 0 && saveQueues.get(key) === queue) {
+		saveQueues.delete(key);
+	}
 }
