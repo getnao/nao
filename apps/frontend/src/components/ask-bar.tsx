@@ -82,6 +82,7 @@ export function AskBar({
 	const request = useAskRequest();
 	const requestIdAtMount = useRef(request?.id);
 	const isFocusRequested = useRef(false);
+	const [highlightId, setHighlightId] = useState<number>();
 
 	const cite = (selection: AskSelection) => setSession((current) => withCitation(current, toAskCitation(selection)));
 
@@ -104,6 +105,9 @@ export function AskBar({
 		}
 		isFocusRequested.current = false;
 		inputRef.current?.focus();
+		if (request?.shouldHighlight) {
+			setHighlightId(request.id);
+		}
 	}, [request, isInputHidden]);
 
 	const startSession = async (message: AskMessage) => {
@@ -144,6 +148,7 @@ export function AskBar({
 					placeholder={placeholder}
 					citations={session.citations}
 					isSending={isAsking}
+					highlightId={highlightId}
 					error={hasAskFailed ? ASK_ERROR_MESSAGE : undefined}
 					onRemoveCitation={removeCitation}
 					onSubmit={startSession}
@@ -174,6 +179,7 @@ export function AskBar({
 						<AskPanel
 							{...citationControls}
 							placeholder={placeholder}
+							highlightId={highlightId}
 							onCite={cite}
 							onCollapse={() => setPanelOpen(false)}
 							onClose={endSession}
@@ -181,7 +187,12 @@ export function AskBar({
 					) : (
 						<FloatingBar isHidden={isInputHidden}>
 							<AskStatus onOpen={() => setPanelOpen(true)} onClose={endSession} />
-							<SessionInput {...citationControls} promptRef={inputRef} placeholder={placeholder} />
+							<SessionInput
+								{...citationControls}
+								promptRef={inputRef}
+								placeholder={placeholder}
+								highlightId={highlightId}
+							/>
 						</FloatingBar>
 					)}
 				</AgentProvider>
@@ -277,11 +288,13 @@ function SessionInput({
 	promptRef,
 	placeholder,
 	citations,
+	highlightId,
 	onRemoveCitation,
 	onCitationsSent,
 }: CitationControls & {
 	promptRef: RefObject<PromptHandle | null>;
 	placeholder: string;
+	highlightId?: number;
 }) {
 	const { isRunning } = useAgentContext();
 	const send = useSendWithCitations(onCitationsSent);
@@ -291,6 +304,7 @@ function SessionInput({
 			placeholder={placeholder}
 			citations={citations}
 			isSending={isRunning}
+			highlightId={highlightId}
 			onRemoveCitation={onRemoveCitation}
 			onSubmit={send}
 		/>
@@ -316,11 +330,13 @@ function AskPanel({
 	citations,
 	onRemoveCitation,
 	onCitationsSent,
+	highlightId,
 	onCite,
 	onCollapse,
 	onClose,
 }: CitationControls & {
 	placeholder: string;
+	highlightId?: number;
 	onCite: (selection: AskSelection) => void;
 	onCollapse: () => void;
 	onClose: () => void;
@@ -331,7 +347,7 @@ function AskPanel({
 
 	useEffect(() => {
 		panelInputRef.current?.focus();
-	}, []);
+	}, [highlightId]);
 
 	return (
 		<AskPanelFrame onCollapse={onCollapse} onClose={onClose}>
@@ -349,6 +365,7 @@ function AskPanel({
 						placeholder={placeholder}
 						citations={citations}
 						isSending={isRunning}
+						highlightId={highlightId}
 						fillsFromFollowUps
 						onRemoveCitation={onRemoveCitation}
 						onSubmit={send}
@@ -431,6 +448,7 @@ function AskInput({
 	placeholder,
 	citations,
 	isSending,
+	highlightId,
 	fillsFromFollowUps = false,
 	error,
 	onRemoveCitation,
@@ -440,6 +458,8 @@ function AskInput({
 	placeholder: string;
 	citations: PendingCitation[];
 	isSending: boolean;
+	/** Each id newer than the one at mount draws the border in again, as the chat input does, to show where to type. */
+	highlightId?: number;
 	/** Follow-up suggestions of the conversation fill the input, as they do in a chat. */
 	fillsFromFollowUps?: boolean;
 	error?: string;
@@ -449,6 +469,7 @@ function AskInput({
 }) {
 	const formRef = useRef<HTMLFormElement>(null);
 	const [value, setValue] = useState('');
+	const [highlightIdAtMount] = useState(highlightId);
 	const citationPills = useCitationPills({
 		promptRef,
 		containerRef: formRef,
@@ -496,7 +517,7 @@ function AskInput({
 				citations.length > 0 || isMultiline ? 'rounded-2xl' : 'rounded-full',
 			)}
 		>
-			<ChatInputAnimatedBorder isStatic />
+			<ChatInputAnimatedBorder key={highlightId} isStatic isDrawnIn={highlightId !== highlightIdAtMount} />
 			{fillsFromFollowUps && <FollowUpFiller onFill={fill} />}
 			<CitationPillPreview containerRef={formRef} findCitation={findCitation} onOpen={openCitation} />
 			<div className='flex min-w-0 flex-1 items-end gap-2'>

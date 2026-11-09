@@ -177,7 +177,7 @@ function useStoryChatActions(storyId: string | null, onOpenInChat: (() => void) 
 			startChatWithStories({ storyIds: [storyId], folderIds: [] });
 			return;
 		}
-		requestAsk();
+		requestAsk({ chatId: null, shouldHighlight: true });
 	};
 
 	return {
