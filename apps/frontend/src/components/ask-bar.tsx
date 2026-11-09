@@ -179,6 +179,7 @@ export function AskBar({
 						<AskPanel
 							{...citationControls}
 							placeholder={placeholder}
+							highlightId={highlightId}
 							onCite={cite}
 							onCollapse={() => setPanelOpen(false)}
 							onClose={endSession}
@@ -329,11 +330,13 @@ function AskPanel({
 	citations,
 	onRemoveCitation,
 	onCitationsSent,
+	highlightId,
 	onCite,
 	onCollapse,
 	onClose,
 }: CitationControls & {
 	placeholder: string;
+	highlightId?: number;
 	onCite: (selection: AskSelection) => void;
 	onCollapse: () => void;
 	onClose: () => void;
@@ -344,7 +347,7 @@ function AskPanel({
 
 	useEffect(() => {
 		panelInputRef.current?.focus();
-	}, []);
+	}, [highlightId]);
 
 	return (
 		<AskPanelFrame onCollapse={onCollapse} onClose={onClose}>
@@ -362,6 +365,7 @@ function AskPanel({
 						placeholder={placeholder}
 						citations={citations}
 						isSending={isRunning}
+						highlightId={highlightId}
 						fillsFromFollowUps
 						onRemoveCitation={onRemoveCitation}
 						onSubmit={send}
@@ -454,7 +458,7 @@ function AskInput({
 	placeholder: string;
 	citations: PendingCitation[];
 	isSending: boolean;
-	/** Each new id draws the border in again, as the chat input does, to show where to type. */
+	/** Each id newer than the one at mount draws the border in again, as the chat input does, to show where to type. */
 	highlightId?: number;
 	/** Follow-up suggestions of the conversation fill the input, as they do in a chat. */
 	fillsFromFollowUps?: boolean;
@@ -465,6 +469,7 @@ function AskInput({
 }) {
 	const formRef = useRef<HTMLFormElement>(null);
 	const [value, setValue] = useState('');
+	const [highlightIdAtMount] = useState(highlightId);
 	const citationPills = useCitationPills({
 		promptRef,
 		containerRef: formRef,
@@ -512,7 +517,7 @@ function AskInput({
 				citations.length > 0 || isMultiline ? 'rounded-2xl' : 'rounded-full',
 			)}
 		>
-			<ChatInputAnimatedBorder key={highlightId} isStatic isDrawnIn={highlightId !== undefined} />
+			<ChatInputAnimatedBorder key={highlightId} isStatic isDrawnIn={highlightId !== highlightIdAtMount} />
 			{fillsFromFollowUps && <FollowUpFiller onFill={fill} />}
 			<CitationPillPreview containerRef={formRef} findCitation={findCitation} onOpen={openCitation} />
 			<div className='flex min-w-0 flex-1 items-end gap-2'>
