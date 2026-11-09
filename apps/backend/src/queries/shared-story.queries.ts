@@ -256,8 +256,11 @@ export async function getStoryShareAccess(storyId: string, projectId: string): P
 	return { shareId: info.id, visibility: info.visibility, allowedUserIds, allowedGroupIds, recipientUserIds };
 }
 
-export async function getSharedStoryAllowedUserIds(sharedStoryId: string): Promise<string[]> {
-	const rows = await db
+export async function getSharedStoryAllowedUserIds(
+	sharedStoryId: string,
+	executor: DBExecutor = db,
+): Promise<string[]> {
+	const rows = await executor
 		.select({ userId: s.sharedStoryAccess.userId })
 		.from(s.sharedStoryAccess)
 		.where(eq(s.sharedStoryAccess.sharedStoryId, sharedStoryId))
@@ -266,8 +269,11 @@ export async function getSharedStoryAllowedUserIds(sharedStoryId: string): Promi
 	return rows.map((r) => r.userId);
 }
 
-export async function getSharedStoryAllowedGroupIds(sharedStoryId: string): Promise<string[]> {
-	const rows = await db
+export async function getSharedStoryAllowedGroupIds(
+	sharedStoryId: string,
+	executor: DBExecutor = db,
+): Promise<string[]> {
+	const rows = await executor
 		.select({ groupId: s.sharedStoryGroupAccess.groupId })
 		.from(s.sharedStoryGroupAccess)
 		.where(eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId))
@@ -405,7 +411,10 @@ export async function removeSharedStoryRecipients(
 
 export type SharedStoryRoleGrant = { id: string; role: ShareRole };
 
-/** Replaces who the share names, with their roles, and its general access, all at once. */
+/**
+ * Replaces who the share names, with their roles, and its general access, all at once.
+ * Updating the share row first locks it, so concurrent saves read the access they replace one after the other.
+ */
 export async function replaceSharedStoryAccess(
 	sharedStoryId: string,
 	access: Pick<DBSharedStory, 'visibility' | 'projectRole'> & {
@@ -413,11 +422,14 @@ export async function replaceSharedStoryAccess(
 		groups: SharedStoryRoleGrant[];
 	},
 ): Promise<void> {
-	const [currentUserIds, currentGroupIds] = await Promise.all([
-		getSharedStoryAllowedUserIds(sharedStoryId),
-		getSharedStoryAllowedGroupIds(sharedStoryId),
-	]);
 	await db.transaction(async (transaction) => {
+		await updateSharedStoryGeneralAccess(
+			sharedStoryId,
+			{ visibility: access.visibility, projectRole: access.projectRole },
+			transaction,
+		);
+		const currentUserIds = await getSharedStoryAllowedUserIds(sharedStoryId, transaction);
+		const currentGroupIds = await getSharedStoryAllowedGroupIds(sharedStoryId, transaction);
 		await removeSharedStoryRecipients(
 			sharedStoryId,
 			{
@@ -437,11 +449,6 @@ export async function replaceSharedStoryAccess(
 				transaction,
 			);
 		}
-		await updateSharedStoryGeneralAccess(
-			sharedStoryId,
-			{ visibility: access.visibility, projectRole: access.projectRole },
-			transaction,
-		);
 	});
 }
 

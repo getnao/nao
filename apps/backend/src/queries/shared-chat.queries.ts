@@ -175,8 +175,8 @@ export async function getSharedChatVisibilityById(shareId: string): Promise<{ vi
 	return row ?? null;
 }
 
-export async function getShareAllowedUserIds(shareId: string): Promise<string[]> {
-	const rows = await db
+export async function getShareAllowedUserIds(shareId: string, executor: DBExecutor = db): Promise<string[]> {
+	const rows = await executor
 		.select({ userId: s.sharedChatAccess.userId })
 		.from(s.sharedChatAccess)
 		.where(eq(s.sharedChatAccess.sharedChatId, shareId))
@@ -237,11 +237,10 @@ export async function replaceSharedChatAccess(
 	shareId: string,
 	access: { visibility: Visibility; userIds: string[]; groupIds: string[] },
 ): Promise<void> {
-	const [currentUserIds, currentGroupIds] = await Promise.all([
-		getShareAllowedUserIds(shareId),
-		getShareAllowedGroupIds(shareId),
-	]);
 	await db.transaction(async (transaction) => {
+		await updateSharedChatVisibility(shareId, access.visibility, transaction);
+		const currentUserIds = await getShareAllowedUserIds(shareId, transaction);
+		const currentGroupIds = await getShareAllowedGroupIds(shareId, transaction);
 		await removeSharedChatUsers(
 			shareId,
 			currentUserIds.filter((id) => !access.userIds.includes(id)),
@@ -254,7 +253,6 @@ export async function replaceSharedChatAccess(
 		);
 		await addSharedChatUsers(shareId, access.userIds, transaction);
 		await addSharedChatGroups(shareId, access.groupIds, transaction);
-		await updateSharedChatVisibility(shareId, access.visibility, transaction);
 	});
 }
 
@@ -311,8 +309,8 @@ export async function listSharedChatGroupGrants(shareId: string): Promise<Shared
 	return rows.map((row) => ({ ...row, memberCount: Number(row.memberCount) }));
 }
 
-export async function getShareAllowedGroupIds(shareId: string): Promise<string[]> {
-	const rows = await db
+export async function getShareAllowedGroupIds(shareId: string, executor: DBExecutor = db): Promise<string[]> {
+	const rows = await executor
 		.select({ groupId: s.sharedChatGroupAccess.groupId })
 		.from(s.sharedChatGroupAccess)
 		.where(eq(s.sharedChatGroupAccess.sharedChatId, shareId))
