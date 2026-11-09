@@ -4,7 +4,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getSharedStoryInfo, getStoryShareRole } from '../src/queries/shared-story.queries';
+import {
+	getSharedStoryInfo,
+	getStoryShareRole,
+	updateSharedStoryGeneralAccess,
+} from '../src/queries/shared-story.queries';
 import { getStoryById } from '../src/queries/story.queries';
 import { ensureStoryPrivate, moveStoryToFolder } from '../src/queries/story-folder.queries';
 import { getReferenceableStory } from '../src/queries/story-reference.queries';
@@ -125,6 +129,20 @@ describe('story edit rights shared through roles', () => {
 		await save({ visibility: 'project', projectRole: 'viewer', users: [editor(EDITOR_ID)] });
 		expect(await canEdit(EDITOR_ID)).toBe(true);
 		expect(await canEdit(OUTSIDER_ID)).toBe(false);
+	});
+
+	it('keeps a project-wide share free of group roles, which its settings do not show', async () => {
+		await save({ visibility: 'project', projectRole: 'viewer', groups: [editor(GROUP_ID)] });
+
+		expect(await canEdit(GROUP_MEMBER_ID)).toBe(false);
+		expect((await getStoryShareSettings(await story(), OWNER)).groups).toEqual([]);
+	});
+
+	it('ignores a group role left on a project-wide share by an earlier save', async () => {
+		await save({ groups: [editor(GROUP_ID)] });
+		await updateSharedStoryGeneralAccess(await shareId(), { visibility: 'project', projectRole: 'viewer' });
+
+		expect(await canEdit(GROUP_MEMBER_ID)).toBe(false);
 	});
 
 	it('replaces the people and roles with the saved ones', async () => {
@@ -304,6 +322,14 @@ function editor(id: string) {
 
 function viewer(id: string) {
 	return { id, role: 'viewer' as const };
+}
+
+async function shareId(): Promise<string> {
+	const share = await getSharedStoryInfo(STORY_ID, PROJECT_ID);
+	if (!share) {
+		throw new Error('The story is not shared.');
+	}
+	return share.id;
 }
 
 async function story() {

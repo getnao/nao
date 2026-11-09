@@ -45,7 +45,7 @@ export async function getStoryShareSettings(story: DBStory, actor: ShareActor): 
 	const [users, groups] = share
 		? await Promise.all([
 				sharedStoryQueries.listSharedStoryUserGrants(share.id),
-				sharedStoryQueries.listSharedStoryGroupGrants(share.id),
+				share.visibility === 'project' ? [] : sharedStoryQueries.listSharedStoryGroupGrants(share.id),
 			])
 		: [[], []];
 	return {
@@ -68,7 +68,8 @@ export async function saveStoryShareSettings(
 ): Promise<void> {
 	const ownerId = await storyQueries.getStoryOwnerId(story.id);
 	const users = change.users.filter((user) => user.id !== ownerId);
-	const recipients = { userIds: users.map((user) => user.id), groupIds: change.groups.map((group) => group.id) };
+	const groups = change.visibility === 'project' ? [] : change.groups;
+	const recipients = { userIds: users.map((user) => user.id), groupIds: groups.map((group) => group.id) };
 
 	if (change.visibility === 'specific' && recipients.userIds.length === 0 && recipients.groupIds.length === 0) {
 		await unshareIfShared(story, actor);
@@ -85,13 +86,13 @@ export async function saveStoryShareSettings(
 	const share = existingShare ?? (await createStoryShare(story, actor));
 	const wasProjectWide = share.visibility === 'project';
 	const previousProjectRole = share.projectRole;
-	const affectedUserIds = await listAffectedUserIds(share.id, users, change.groups);
+	const affectedUserIds = await listAffectedUserIds(share.id, users, groups);
 	const previousRoles = await effectiveRoles(story.id, affectedUserIds);
 	await sharedStoryQueries.replaceSharedStoryAccess(share.id, {
 		visibility: change.visibility,
 		projectRole: change.projectRole,
 		users,
-		groups: change.groups,
+		groups,
 	});
 	if (!existingShare || existingShare.visibility !== change.visibility) {
 		await placeStoryInFolder(story, actor, ownerId, change.visibility);

@@ -116,12 +116,16 @@ export function sharedStoryGrantsUser(userId: string, lockedGroupIds: readonly s
 
 /**
  * Matches `shared_story` rows that let the user edit. A role given to the user directly wins;
- * otherwise the highest of their groups' roles and the project-wide role applies.
+ * otherwise their groups' roles apply to a share with specific people, and the project-wide role to a project share.
  * Project viewers never edit, whatever role the share grants them.
  */
 export function sharedStoryGrantsEditor(userId: string, lockedGroupIds: readonly string[]): SQL {
 	const isProjectEditor = and(eq(s.sharedStory.visibility, 'project'), eq(s.sharedStory.projectRole, 'editor'));
-	const grantsEditorRole = sql`(${directlyGrantsUser(userId, ['editor'])} or (not ${directlyGrantsUser(userId, SHARE_ROLES)} and (${groupGrantsUser(userId, ['editor'], lockedGroupIds)} or ${isProjectEditor})))`;
+	const isGroupEditor = and(
+		eq(s.sharedStory.visibility, 'specific'),
+		groupGrantsUser(userId, ['editor'], lockedGroupIds),
+	);
+	const grantsEditorRole = sql`(${directlyGrantsUser(userId, ['editor'])} or (not ${directlyGrantsUser(userId, SHARE_ROLES)} and (${isGroupEditor} or ${isProjectEditor})))`;
 	return sql`(${grantsEditorRole} and ${canWriteInStoryProject(userId)})`;
 }
 
