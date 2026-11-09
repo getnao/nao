@@ -110,15 +110,20 @@ describe('useStoryEditSession', () => {
 		expect(mocks.acquire).toHaveBeenCalledTimes(2);
 	});
 
-	it('stops letting the person edit once the server refuses them the right to', () => {
-		const { result } = renderHook(() => useStoryEditSession({ target: TARGET, isEditing: true }));
+	it('stops letting the person edit once the server refuses them the right to, until the edit is closed', () => {
+		const { result, rerender } = renderHook(
+			(isEditing: boolean) => useStoryEditSession({ target: TARGET, isEditing }),
+			{ initialProps: true },
+		);
 		expect(result.current.canEdit).toBe(true);
 
 		act(() => {
 			mocks.acquireOptions.onError?.(lockRefusal('FORBIDDEN'), { storyId: 'story-1' });
 		});
-
 		expect(result.current).toMatchObject({ isLockedByOthers: false, canEdit: false });
+
+		rerender(false);
+		expect(result.current.canEdit).toBe(true);
 	});
 
 	it('does not let the person edit while someone else holds the lock', () => {

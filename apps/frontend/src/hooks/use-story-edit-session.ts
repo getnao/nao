@@ -98,6 +98,7 @@ function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: 
 	useEffect(() => {
 		if (!isEditing) {
 			setRefusedStoryId(null);
+			setForbiddenStoryId(null);
 		}
 	}, [isEditing]);
 
