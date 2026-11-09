@@ -935,8 +935,8 @@ export const PROVIDER_META: ProviderMetaMap = {
 			],
 		},
 		envVar: 'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
-		extractorModelId: 'gemini-2.5-flash',
-		summaryModelId: 'gemini-2.5-flash',
+		extractorModelId: 'gemini-3.8-flash',
+		summaryModelId: 'gemini-3.8-flash',
 		models: [
 			{
 				id: 'claude-sonnet-4-6',
@@ -1253,6 +1253,15 @@ export function findBedrockGeoTwin(models: readonly KnownModel[], modelId: strin
 
 /** Temperature upper bound when a model's capabilities don't declare one. */
 export const DEFAULT_TEMPERATURE_MAX = 2;
+
+/** The reasoning efforts a model can be asked to run at, from the lowest; none when its thinking is not set by an effort. */
+export function getModelReasoningEfforts(provider: LlmProvider, modelId: string): ActiveEffort[] {
+	const caps = getModelCapabilities(provider, modelId);
+	if (caps?.thinking !== 'adaptive') {
+		return [];
+	}
+	return (caps.effortOptions ?? EFFORT_OPTIONS).filter((effort): effort is ActiveEffort => effort !== 'off');
+}
 
 /**
  * Ordered list of editable inference-parameter controls for a model, derived from its

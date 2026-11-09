@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	canRoleSeeAdvancedSettings,
+	DEFAULT_GROUP_SHARE_TARGETS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_CONFIG,
 	parseStoredUserGroupConfig,
+	resolveGroupShareTargetIds,
 	resolvePreloadedSkills,
 	resolveProjectSharingPermission,
 	serializeUserGroupConfig,
@@ -42,6 +44,7 @@ describe('user group configuration', () => {
 				canChange: false,
 			},
 			projectSharing: 'inherit',
+			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: true,
 			preloadedSkills: [],
 		});
@@ -52,6 +55,35 @@ describe('user group configuration', () => {
 		expect(serializeUserGroupConfig([], { defaultDensity: 'detailed', canChange: true }, 'blocked')).toMatchObject({
 			projectSharing: 'blocked',
 		});
+	});
+
+	it('reads share targets and falls back to the own group for invalid ones', () => {
+		const stored = { version: 2, features: [], toolCallDensity: DEFAULT_TOOL_CALL_DENSITY_POLICY };
+		expect(
+			parseStoredUserGroupConfig({
+				...stored,
+				shareTargets: { includeOwnGroup: false, groupIds: ['client-b', 'client-b', 42, ''] },
+			}).shareTargets,
+		).toEqual({ includeOwnGroup: false, groupIds: ['client-b'] });
+		expect(parseStoredUserGroupConfig({ ...stored, shareTargets: 'everyone' }).shareTargets).toEqual(
+			DEFAULT_GROUP_SHARE_TARGETS,
+		);
+	});
+
+	it('resolves the custom groups a group may share with', () => {
+		const customGroupIds = new Set(['client-a', 'client-b']);
+		expect(
+			resolveGroupShareTargetIds(
+				{ id: 'client-a', shareTargets: { includeOwnGroup: true, groupIds: ['client-b', 'deleted'] } },
+				customGroupIds,
+			),
+		).toEqual(['client-a', 'client-b']);
+		expect(
+			resolveGroupShareTargetIds(
+				{ id: 'client-a', shareTargets: { includeOwnGroup: false, groupIds: ['client-b'] } },
+				customGroupIds,
+			),
+		).toEqual(['client-b']);
 	});
 
 	it('serializes trimmed, deduplicated preloaded skills', () => {
@@ -99,6 +131,7 @@ describe('user group configuration', () => {
 				canChange: true,
 			},
 			projectSharing: 'allowed',
+			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: true,
 			preloadedSkills: [],
 		});
@@ -153,6 +186,7 @@ describe('user group configuration', () => {
 				canChange: true,
 			},
 			projectSharing: 'inherit',
+			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: false,
 			preloadedSkills: [],
 		});
@@ -166,6 +200,7 @@ describe('user group configuration', () => {
 				canChange: false,
 			},
 			projectSharing: 'inherit',
+			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: false,
 			preloadedSkills: [],
 		});
@@ -184,6 +219,7 @@ describe('user group configuration', () => {
 				canChange: false,
 			},
 			projectSharing: 'inherit',
+			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: false,
 			preloadedSkills: [],
 		});
@@ -197,6 +233,7 @@ describe('user group configuration', () => {
 				canChange: false,
 			},
 			projectSharing: 'inherit',
+			shareTargets: DEFAULT_GROUP_SHARE_TARGETS,
 			showAllSettings: false,
 			preloadedSkills: [],
 		});

@@ -1,5 +1,6 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { convertToModelMessages, generateText, jsonSchema, type LanguageModel, type ModelMessage, tool } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -81,6 +82,20 @@ describe.each([
 	});
 });
 
+describe.each([
+	['anthropic', anthropicRequest],
+	['bedrock', bedrockRequest],
+	['openrouter', openRouterRequest],
+] as const)('prompt cache with parallel tool calls with %s', (_provider, sendRequest) => {
+	it('stays within the breakpoint limit when the last step returned several tool results', async () => {
+		const messages = await buildMessages(secondTurn, secondArtifacts);
+		const blocks = await sendRequest([...messages, ...parallelToolStep(['call_1', 'call_2', 'call_3'])]);
+
+		expect(blocks.filter((block) => block.hasBreakpoint).length).toBeLessThanOrEqual(MAX_BREAKPOINTS);
+		expect(blocks.at(-1)?.hasBreakpoint).toBe(true);
+	});
+});
+
 type RenderedBlock = { index: number; hasBreakpoint: boolean; content: unknown };
 
 async function buildMessages(messages: UIMessage[], artifacts: ChatArtifacts): Promise<ModelMessage[]> {
@@ -126,13 +141,33 @@ async function bedrockRequest(messages: ModelMessage[]): Promise<RenderedBlock[]
 	return renderBedrockBlocks(body);
 }
 
+async function openRouterRequest(messages: ModelMessage[]): Promise<RenderedBlock[]> {
+	const modelId = 'anthropic/claude-sonnet-4.6';
+	const provider = createOpenRouter({
+		apiKey: 'test',
+		fetch: respondWith({
+			id: 'gen_1',
+			object: 'chat.completion',
+			created: 0,
+			model: modelId,
+			choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+		}),
+	});
+	const body = await captureBody(provider.chat(modelId), 'openrouter', modelId, messages);
+	return renderOpenRouterBlocks(body as unknown as OpenRouterRequestBody);
+}
+
 let capturedBody: RequestBody | undefined;
 
 type RequestBody = { messages: { role: string; content: Record<string, unknown>[] }[] };
+type OpenRouterRequestBody = {
+	messages: { role: string; content: string | Record<string, unknown>[] | null; cache_control?: unknown }[];
+};
 
 async function captureBody(
 	model: LanguageModel,
-	provider: 'anthropic' | 'bedrock',
+	provider: 'anthropic' | 'bedrock' | 'openrouter',
 	modelId: string,
 	messages: ModelMessage[],
 ): Promise<RequestBody> {
@@ -184,6 +219,17 @@ function renderBedrockBlocks(body: RequestBody): RenderedBlock[] {
 	}));
 }
 
+/** OpenRouter carries a breakpoint on a content part, or on the message itself when its content is not a list. */
+function renderOpenRouterBlocks(body: OpenRouterRequestBody): RenderedBlock[] {
+	return body.messages
+		.flatMap((message) =>
+			Array.isArray(message.content)
+				? message.content.map((part) => ({ hasBreakpoint: 'cache_control' in part, content: part }))
+				: [{ hasBreakpoint: message.cache_control !== undefined, content: message }],
+		)
+		.map((block, index) => ({ index, ...block }));
+}
+
 function lastBreakpointBeforeArtifacts(blocks: RenderedBlock[]): number {
 	const artifactsIndex = blocks.findIndex((block) => JSON.stringify(block.content).includes(ARTIFACTS_TAG));
 	const beforeArtifacts = blocks[artifactsIndex - 1];
@@ -206,6 +252,29 @@ function toolStep(toolCallId: string): ModelMessage[] {
 			content: [
 				{ type: 'tool-result', toolCallId, toolName: 'execute_sql', output: { type: 'text', value: 'ok' } },
 			],
+		},
+	];
+}
+
+function parallelToolStep(toolCallIds: string[]): ModelMessage[] {
+	return [
+		{
+			role: 'assistant',
+			content: toolCallIds.map((toolCallId) => ({
+				type: 'tool-call',
+				toolCallId,
+				toolName: 'execute_sql',
+				input: { sql_query: 'SELECT 1' },
+			})),
+		},
+		{
+			role: 'tool',
+			content: toolCallIds.map((toolCallId) => ({
+				type: 'tool-result',
+				toolCallId,
+				toolName: 'execute_sql',
+				output: { type: 'text', value: 'ok' },
+			})),
 		},
 	];
 }

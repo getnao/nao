@@ -1,8 +1,8 @@
 import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Lock, Plus } from 'lucide-react';
-import { useMemo } from 'react';
+import { Lock, Plus, Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
@@ -14,6 +14,7 @@ import { ProjectRowSecurity } from '@/components/settings/project-row-security';
 import { ProjectUsersTable } from '@/components/settings/project-users-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
@@ -208,9 +209,13 @@ function GroupsTable({
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
+	const [search, setSearch] = useState('');
 	const customGroupCount = groups.filter((group) => !group.isDefault).length;
 	const canCreateGroup = entitlement === 'unlimited' || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
-	const sortedGroups = [...groups].sort(compareUserGroupsForDisplay);
+	const normalizedSearch = search.trim().toLowerCase();
+	const sortedGroups = groups
+		.filter((group) => group.name.toLowerCase().includes(normalizedSearch))
+		.sort(compareUserGroupsForDisplay);
 
 	return (
 		<SettingsCard
@@ -232,6 +237,19 @@ function GroupsTable({
 			}
 			flush
 		>
+			<div className='border-b p-4'>
+				<div className='relative'>
+					<Search className='pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground' />
+					<Input
+						type='search'
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+						placeholder='Search groups…'
+						aria-label='Search groups'
+						className='h-8 pl-8 text-sm'
+					/>
+				</div>
+			</div>
 			<Table>
 				<TableHeader>
 					<TableRow className='[&_th]:h-12'>
@@ -241,6 +259,13 @@ function GroupsTable({
 					</TableRow>
 				</TableHeader>
 				<TableBody>
+					{sortedGroups.length === 0 && (
+						<TableRow>
+							<TableCell colSpan={3} className='h-24 text-center text-muted-foreground'>
+								No groups match your search.
+							</TableCell>
+						</TableRow>
+					)}
 					{sortedGroups.map((group) => (
 						<TableRow
 							key={group.id}

@@ -119,6 +119,7 @@ export type NewStoryBundle = typeof sqliteSchema.storyBundle.$inferInsert;
 
 export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
+export type DBStoryFilterOptionsCache = typeof sqliteSchema.storyFilterOptionsCache.$inferSelect;
 
 export type DBStoryAppState = typeof sqliteSchema.storyAppState.$inferSelect;
 export type NewStoryAppState = typeof sqliteSchema.storyAppState.$inferInsert;
@@ -190,6 +191,14 @@ export type DBContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferSelect;
 export type NewContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferInsert;
+
+export type DBTestRun = typeof sqliteSchema.testRun.$inferSelect;
+export type NewTestRun = typeof sqliteSchema.testRun.$inferInsert;
+
+export type DBTestRunResult = typeof sqliteSchema.testRunResult.$inferSelect;
+export type NewTestRunResult = typeof sqliteSchema.testRunResult.$inferInsert;
+
+export type DBContextDraftFile = typeof sqliteSchema.contextDraftFile.$inferSelect;
 
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;

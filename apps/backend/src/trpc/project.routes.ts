@@ -37,7 +37,7 @@ import { MattermostConnectionError, validateMattermostConnection } from '../serv
 import { mcpService } from '../services/mcp';
 import { removeProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
-import { reconcileProjectReadiness, updateProjectEnvVars } from '../services/project.service';
+import { getMissingProjectEnvVars, reconcileProjectReadiness, updateProjectEnvVars } from '../services/project.service';
 import { isProjectSetupComplete } from '../services/project-readiness.service';
 import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
@@ -166,6 +166,7 @@ export const projectRoutes = {
 			path: project.path,
 			createdAt: project.createdAt,
 			updatedAt: project.updatedAt,
+			deployedAt: project.deployedAt,
 			userRole,
 		}));
 	}),
@@ -398,6 +399,7 @@ export const projectRoutes = {
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
 					replyMode: config.replyMode,
 					dmScopeMissing: config.dmScopeMissing,
+					dmThreadsEnabled: config.dmThreadsEnabled,
 				}
 			: null;
 
@@ -474,6 +476,15 @@ export const projectRoutes = {
 			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
 			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
 			return { replyMode: input.replyMode };
+		}),
+
+	updateSlackDmThreads: adminProtectedProcedure
+		.input(z.object({ enabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await slackConfigQueries.updateProjectSlackDmThreads(ctx.project.id, input.enabled);
+			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
+			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
+			return { dmThreadsEnabled: input.enabled };
 		}),
 
 	updateSlackAutoCreateUsers: adminProtectedProcedure
@@ -1315,6 +1326,8 @@ export const projectRoutes = {
 
 			return usage;
 		}),
+
+	getMissingEnvVars: projectProtectedProcedure.query(({ ctx }) => getMissingProjectEnvVars(ctx.project)),
 
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {
 		const [storedVars, warehouseCredentials] = await Promise.all([

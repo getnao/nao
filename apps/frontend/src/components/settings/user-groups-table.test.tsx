@@ -137,6 +137,7 @@ vi.mock('@/main', () => ({
 				queryKey: vi.fn(() => ['effective-microsoft-env-mappings']),
 			},
 			setMembership: { mutationOptions: vi.fn() },
+			setMemberships: { mutationKey: () => ['set-memberships'] },
 			create: { mutationOptions: vi.fn() },
 			update: { mutationOptions: vi.fn() },
 			delete: { mutationOptions: vi.fn() },
@@ -580,6 +581,27 @@ describe('UserGroupsTable', () => {
 		expect(groups.map((group) => group.id)).toEqual(['aardvark', 'zulu', 'all-users', 'beta', 'analysts']);
 	});
 
+	it('filters groups by name and shows an empty state when nothing matches', () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [allUsers, analysts, { ...analysts, id: 'finance', name: 'Finance' }] },
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+		const search = screen.getByRole('searchbox', { name: 'Search groups' });
+
+		fireEvent.change(search, { target: { value: '  fin ' } });
+		expect(screen.getByRole('row', { name: /Finance/ })).toBeTruthy();
+		expect(screen.queryByRole('row', { name: /Analysts/ })).toBeNull();
+		expect(screen.queryByRole('row', { name: /All Users/ })).toBeNull();
+
+		fireEvent.change(search, { target: { value: 'marketing' } });
+		expect(screen.getByText('No groups match your search.')).toBeTruthy();
+
+		fireEvent.change(search, { target: { value: '' } });
+		expect(screen.getAllByRole('row')).toHaveLength(4);
+	});
+
 	it('navigates from a group row and the create action', () => {
 		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
 
@@ -730,7 +752,7 @@ describe('UserGroupsTable', () => {
 
 		const userRow = screen.getByRole('row', { name: /Project User/ });
 		expect(userRow.className).toContain('cursor-pointer');
-		expect(userRow.className).toContain('hover:bg-primary/10');
+		expect(userRow.className).toContain('hover:bg-muted/50');
 		expect(screen.getByRole('link', { name: 'Project User' })).toBeTruthy();
 
 		fireEvent.click(userRow);
@@ -828,10 +850,11 @@ describe('UserGroupsTable', () => {
 
 		expect(table.classList.contains('table-fixed')).toBe(true);
 		expect(table.classList.contains('min-w-3xl')).toBe(true);
-		expect(headers[0]?.classList.contains('w-[36%]')).toBe(true);
-		expect(headers[1]?.classList.contains('w-1/5')).toBe(true);
-		expect(headers[2]?.classList.contains('w-[38%]')).toBe(true);
-		expect(projectUserCells[2]?.classList.contains('overflow-hidden')).toBe(true);
+		expect(headers[0]?.classList.contains('w-10')).toBe(true);
+		expect(headers[1]?.classList.contains('w-[32%]')).toBe(true);
+		expect(headers[2]?.classList.contains('w-1/5')).toBe(true);
+		expect(headers[3]?.classList.contains('w-[38%]')).toBe(true);
+		expect(projectUserCells[3]?.classList.contains('overflow-hidden')).toBe(true);
 		expect(groupsButton.classList.contains('w-full')).toBe(true);
 		expect(groupsButton.classList.contains('min-w-0')).toBe(true);
 	});
@@ -1020,6 +1043,43 @@ describe('UserGroupEditor', () => {
 			),
 		);
 		expect(screen.queryByText(/Unshare content shared with everyone/)).toBeNull();
+	});
+
+	it('lets a group share exclusively with other groups', async () => {
+		const finance = { ...analysts, id: 'finance', name: 'Finance' };
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [allUsers, analysts, finance] },
+		});
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: /Groups members can share with/ }), {
+			button: 0,
+			ctrlKey: false,
+		});
+		expect(screen.queryByRole('menuitemcheckbox', { name: 'All Users' })).toBeNull();
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Analysts (this group)' }));
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Finance' }));
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({
+					groupId: 'analysts',
+					shareTargets: { includeOwnGroup: false, groupIds: ['finance'] },
+				}),
+			),
+		);
+		expect(mocks.fetchQuery).not.toHaveBeenCalled();
+	});
+
+	it('does not offer share targets for All Users', () => {
+		renderEditor('features', vi.fn(), allUsers);
+
+		expect(screen.queryByRole('button', { name: /Groups members can share with/ })).toBeNull();
 	});
 
 	it('turns project sharing back on for All Users with a switch', async () => {

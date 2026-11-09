@@ -218,14 +218,18 @@ it('hides a cached payment estimate when the subscription will not renew', () =>
 	expect(screen.queryByText('Next payment estimate from Stripe')).toBeNull();
 });
 
-it('waits for project setup before offering Stripe Checkout', () => {
+it('allows an admin to subscribe before the trial starts', () => {
 	mocks.trialAvailable = true;
 	mocks.trialEndsAt = null;
 	mocks.trialStartedAt = null;
 
 	render(<OrganizationBillingSettings search={{}} />);
 
-	expect(screen.queryByRole('button', { name: 'Start your free trial in Stripe' })).toBeNull();
+	expect(screen.getByText('Not started')).toBeTruthy();
+	expect(screen.getByText(/Billing starts immediately in Stripe/)).toBeTruthy();
+	fireEvent.click(screen.getByRole('button', { name: 'Subscribe in Stripe' }));
+	expect(mocks.openTrialCheckout).toHaveBeenCalledOnce();
+	expect(mocks.resubscribe).not.toHaveBeenCalled();
 });
 
 it('defaults to monthly and shows the Stripe-derived yearly discount before Checkout', () => {

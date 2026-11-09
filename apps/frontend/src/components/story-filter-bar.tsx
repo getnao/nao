@@ -1,37 +1,34 @@
-import { AlertTriangle, FilterX, Loader2, X } from 'lucide-react';
+import { AlertTriangle, FilterX, Info, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { useCallback, useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { isFilterSelectionActive } from '@nao/shared/sql-template';
+import { isFilterSelectionActive, isValidFilterTextValue } from '@nao/shared/sql-template';
 import type { StoryFilterSelection } from '@nao/shared/sql-template';
 import type { DateRange } from 'react-day-picker';
-import type { ParsedFilterBlock } from '@nao/shared/story-segments';
+import type { ParsedFilterBlock, ParsedParameterBlock } from '@nao/shared/story-segments';
 
-import type { StoryFilterApi } from '@/hooks/use-story-filters';
+import type { SkippedStoryFilter, StoryFilterApi } from '@/hooks/use-story-filters';
 import { DateRangePicker } from '@/components/date-range-picker';
 import { FixInChatButton } from '@/components/fix-in-chat-button';
+import { StoryFilterOptionsSelect } from '@/components/story-filter-options-select';
+import { StoryParameterControl } from '@/components/story-parameter-control';
 import { Button } from '@/components/ui/button';
-import {
-	DropdownMenu,
-	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { trpc } from '@/main';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 
-const CLEAR_SELECT_VALUE = '__nao_clear_filter__';
-const SELECT_VALUE_PREFIX = '__nao_filter_value__:';
+const PARENT_SELECTION_DEBOUNCE_MS = 300;
 
 export function StoryFilterBar({
 	filters,
+	parameters = [],
+	skippedFilters = [],
 	selections,
 	onSelectionChange,
 	onClear,
 	api,
 }: {
 	filters: ParsedFilterBlock[];
+	parameters?: ParsedParameterBlock[];
+	skippedFilters?: SkippedStoryFilter[];
 	selections: Record<string, StoryFilterSelection>;
 	onSelectionChange: (filterId: string, selection: StoryFilterSelection) => void;
 	onClear: () => void;
@@ -64,22 +61,33 @@ export function StoryFilterBar({
 		});
 	}, []);
 
-	if (filters.length === 0) {
+	if (filters.length === 0 && parameters.length === 0) {
 		return null;
 	}
 
-	const hasActiveFilters = Object.values(selections).some((selection) =>
-		typeof selection === 'string' ? Boolean(selection) : selection.some(Boolean),
-	);
+	const hasActiveFilters = hasActiveSelections(filters, parameters, selections);
 
 	return (
 		<div className='flex flex-col gap-2'>
 			<div className='nao-filter-bar flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3'>
+				{parameters.map((parameter) => (
+					<StoryParameterControl
+						key={parameter.id}
+						parameter={parameter}
+						value={
+							typeof selections[parameter.id] === 'string'
+								? (selections[parameter.id] as string)
+								: undefined
+						}
+						onChange={(value) => onSelectionChange(parameter.id, value)}
+					/>
+				))}
 				{filters.map((filter) => (
 					<StoryFilterControl
 						key={filter.id}
 						filter={filter}
 						selection={selections[filter.id]}
+						parentSelection={getActiveParentSelection(filter, filters, selections)}
 						onChange={(selection) => onSelectionChange(filter.id, selection)}
 						onOptionError={reportOptionError}
 						api={api}
@@ -92,37 +100,73 @@ export function StoryFilterBar({
 					</Button>
 				)}
 			</div>
+			<SkippedFiltersNotice skippedFilters={skippedFilters} />
 			<FilterOptionsErrorBanner filters={filters} errors={optionErrors} />
 		</div>
 	);
 }
 
+function SkippedFiltersNotice({ skippedFilters }: { skippedFilters: SkippedStoryFilter[] }) {
+	if (skippedFilters.length === 0) {
+		return null;
+	}
+	return (
+		<ul className='flex flex-col gap-0.5 px-1 text-xs text-muted-foreground'>
+			{skippedFilters.map((filter) => (
+				<li key={filter.id} className='flex items-center gap-1.5'>
+					<Info className='size-3.5 shrink-0' />
+					<span>
+						<span className='font-medium'>{filter.label}</span> is not applied to every chart: some metrics
+						can't be filtered by this field.
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
+
+function hasActiveSelections(
+	filters: ParsedFilterBlock[],
+	parameters: ParsedParameterBlock[],
+	selections: Record<string, StoryFilterSelection>,
+): boolean {
+	const hasFilterSelection = filters.some((filter) => {
+		const selection = selections[filter.id];
+		return typeof selection === 'string' ? Boolean(selection) : Boolean(selection?.some(Boolean));
+	});
+	const hasChangedParameter = parameters.some((parameter) => {
+		const selection = selections[parameter.id];
+		return typeof selection === 'string' && selection !== parameter.defaultValue;
+	});
+	return hasFilterSelection || hasChangedParameter;
+}
+
 function StoryFilterControl({
 	filter,
 	selection,
+	parentSelection,
 	onChange,
 	onOptionError,
 	api,
 }: {
 	filter: ParsedFilterBlock;
 	selection: StoryFilterSelection | undefined;
+	parentSelection?: StoryFilterSelection;
 	onChange: (selection: StoryFilterSelection) => void;
 	onOptionError: (filterId: string, error: string | null) => void;
 	api?: StoryFilterApi | null;
 }) {
-	const { options, error, isLoading } = useFilterOptions(filter, api);
-
-	useEffect(() => {
-		onOptionError(filter.id, error);
-	}, [filter.id, error, onOptionError]);
-
-	const isActive = isFilterSelectionActive(filter.filterType, selection);
+	const debouncedParentSelection = useDebouncedValue(parentSelection, PARENT_SELECTION_DEBOUNCE_MS);
+	const isActive = isFilterSelectionActive(filter.filterType, selection, filter.valueType);
+	const hasSelection = isActive || (typeof selection === 'string' && selection !== '');
+	const isInvalidNumber = filter.valueType === 'number' && hasSelection && !isActive;
 
 	return (
 		<div className='nao-filter flex min-w-36 flex-col gap-1' data-active={isActive || undefined}>
 			<div className='flex items-center justify-between gap-1'>
 				<span className='nao-label text-xs font-medium text-muted-foreground'>{filter.label}</span>
-				{isActive && (
+				{isInvalidNumber && <span className='text-xs text-destructive'>Numbers only</span>}
+				{hasSelection && (
 					<button
 						type='button'
 						className='rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -133,45 +177,23 @@ function StoryFilterControl({
 					</button>
 				)}
 			</div>
-			{filter.filterType === 'select' ? (
-				isLoading ? (
-					<FilterOptionsLoading />
-				) : (
-					<Select
-						value={
-							typeof selection === 'string' && selection
-								? `${SELECT_VALUE_PREFIX}${selection}`
-								: CLEAR_SELECT_VALUE
-						}
-						onValueChange={(value) =>
-							onChange(value === CLEAR_SELECT_VALUE ? '' : value.slice(SELECT_VALUE_PREFIX.length))
-						}
-					>
-						<SelectTrigger className='nao-filter__control h-8 min-w-36 bg-background'>
-							<SelectValue placeholder='All' />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value={CLEAR_SELECT_VALUE}>All</SelectItem>
-							{options.map((option) => (
-								<SelectItem key={option} value={`${SELECT_VALUE_PREFIX}${option}`}>
-									{option}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				)
-			) : filter.filterType === 'multi_select' ? (
-				isLoading ? (
-					<FilterOptionsLoading />
-				) : (
-					<MultiSelectFilter
-						options={options}
-						value={Array.isArray(selection) ? selection : []}
-						onChange={onChange}
-					/>
-				)
+			{filter.filterType === 'select' || filter.filterType === 'multi_select' ? (
+				<StoryFilterOptionsSelect
+					filter={filter}
+					selection={selection}
+					parentSelection={debouncedParentSelection}
+					onChange={onChange}
+					onOptionError={onOptionError}
+					api={api}
+				/>
 			) : filter.filterType === 'date_range' ? (
 				<RangeFilter value={Array.isArray(selection) ? selection : []} onChange={onChange} />
+			) : filter.filterType === 'text' ? (
+				<TextFilter
+					filter={filter}
+					value={typeof selection === 'string' ? selection : ''}
+					onChange={onChange}
+				/>
 			) : (
 				<Input
 					type='search'
@@ -185,55 +207,45 @@ function StoryFilterControl({
 	);
 }
 
-function emptySelection(filterType: ParsedFilterBlock['filterType']): StoryFilterSelection {
-	return filterType === 'select' || filterType === 'search' ? '' : [];
-}
-
-function FilterOptionsLoading() {
-	return (
-		<div className='nao-filter__control flex h-8 min-w-36 items-center gap-2 rounded-md border bg-background px-3 text-xs text-muted-foreground'>
-			<Loader2 className='size-3.5 animate-spin' />
-			Loading…
-		</div>
-	);
-}
-
-function MultiSelectFilter({
-	options,
+function TextFilter({
+	filter,
 	value,
 	onChange,
 }: {
-	options: string[];
-	value: string[];
-	onChange: (value: string[]) => void;
+	filter: ParsedFilterBlock;
+	value: string;
+	onChange: (value: string) => void;
 }) {
+	const valueType = filter.valueType ?? 'string';
+	const isInvalid = value.trim() !== '' && !isValidFilterTextValue(value, valueType);
+
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					variant='outline'
-					size='sm'
-					className='nao-filter__control h-8 min-w-36 justify-between bg-background font-normal'
-				>
-					{value.length > 0 ? `${value.length} selected` : 'All'}
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent className='max-h-64 min-w-48'>
-				{options.map((option) => (
-					<DropdownMenuCheckboxItem
-						key={option}
-						checked={value.includes(option)}
-						onSelect={(event) => event.preventDefault()}
-						onCheckedChange={(checked) =>
-							onChange(checked ? [...value, option] : value.filter((candidate) => candidate !== option))
-						}
-					>
-						{option}
-					</DropdownMenuCheckboxItem>
-				))}
-			</DropdownMenuContent>
-		</DropdownMenu>
+		<Input
+			className='nao-filter__control h-8 min-w-44 bg-background'
+			placeholder={valueType === 'number' ? 'Exact number' : 'Exact value'}
+			inputMode={valueType === 'number' ? 'decimal' : undefined}
+			aria-invalid={isInvalid || undefined}
+			value={value}
+			onChange={(event) => onChange(event.target.value)}
+		/>
 	);
+}
+
+function getActiveParentSelection(
+	filter: ParsedFilterBlock,
+	filters: ParsedFilterBlock[],
+	selections: Record<string, StoryFilterSelection>,
+): StoryFilterSelection | undefined {
+	const parent = filter.dependsOn ? filters.find((candidate) => candidate.id === filter.dependsOn) : undefined;
+	if (!parent) {
+		return undefined;
+	}
+	const selection = selections[parent.id];
+	return isFilterSelectionActive(parent.filterType, selection, parent.valueType) ? selection : undefined;
+}
+
+function emptySelection(filterType: ParsedFilterBlock['filterType']): StoryFilterSelection {
+	return filterType === 'multi_select' || filterType === 'date_range' ? [] : '';
 }
 
 function RangeFilter({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
@@ -316,41 +328,4 @@ function FilterOptionsErrorBanner({
 			<FixInChatButton message={fixMessage} className='shrink-0 gap-1.5' />
 		</div>
 	);
-}
-
-function useFilterOptions(
-	filter: ParsedFilterBlock,
-	api?: StoryFilterApi | null,
-): { options: string[]; error: string | null; isLoading: boolean } {
-	const usesHardcodedOptions = Boolean(filter.options?.length);
-	const needsRemoteOptions =
-		!usesHardcodedOptions && (filter.filterType === 'select' || filter.filterType === 'multi_select');
-
-	const ownedQuery = useQuery({
-		...trpc.story.getFilterOptions.queryOptions({
-			chatId: api?.kind === 'owned' ? api.chatId : '',
-			storySlug: api?.kind === 'owned' ? api.storySlug : '',
-			filterId: filter.id,
-		}),
-		enabled: Boolean(api?.kind === 'owned' && needsRemoteOptions),
-	});
-
-	const sharedQuery = useQuery({
-		...trpc.storyShare.getFilterOptions.queryOptions({
-			storyId: api?.kind === 'shared' ? api.storyId : '',
-			filterId: filter.id,
-		}),
-		enabled: Boolean(api?.kind === 'shared' && needsRemoteOptions),
-	});
-
-	if (usesHardcodedOptions) {
-		return { options: filter.options ?? [], error: null, isLoading: false };
-	}
-
-	const query = api?.kind === 'shared' ? sharedQuery : ownedQuery;
-	return {
-		options: query.data?.options ?? [],
-		error: query.error?.message ?? null,
-		isLoading: needsRemoteOptions && Boolean(api) && query.isPending,
-	};
 }

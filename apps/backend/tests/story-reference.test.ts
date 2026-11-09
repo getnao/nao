@@ -165,14 +165,6 @@ describe('referencing other stories', () => {
 		expect(textOf(last)).toBe('Compare @"Monthly revenue" with @(a story that is no longer available)');
 	});
 
-	it('flags the stories shared with the user specifically', async () => {
-		const [groupStory] = await listReferenceableStories(GROUP_MEMBER_ID, PROJECT_ID, { storyIds: [GROUP_STORY] });
-		const [ownStory] = await listReferenceableStories(OWNER_ID, PROJECT_ID, { storyIds: [GROUP_STORY] });
-
-		expect(groupStory.isSharedWithMe).toBe(true);
-		expect(ownStory.isSharedWithMe).toBe(false);
-	});
-
 	it('ranks the stories the user can see by how many people viewed them over the last week', async () => {
 		const lastWeek = new Date(Date.now() - 2 * 24 * 60 * 60 * 1_000);
 		const lastMonth = new Date(Date.now() - 20 * 24 * 60 * 60 * 1_000);
@@ -257,12 +249,12 @@ describe('referencing other stories', () => {
 
 		for (const storyId of largeStoryIds.slice(0, 5)) {
 			expect(text).toContain(
-				`<referenced-story id="${storyId}" title="${storyId}" author="Owner" format="classic" version="1">`,
+				`<referenced-story id="${storyId}" title="${storyId}" author="Owner" format="classic" editable="true" version="1">`,
 			);
 		}
 		expect(text).toContain('Read these ones under /story-library/<id>/');
 		expect(text).toContain(
-			`<referenced-story id="story-large-f" title="story-large-f" author="Owner" format="classic" />`,
+			`<referenced-story id="story-large-f" title="story-large-f" author="Owner" format="classic" editable="true" />`,
 		);
 	});
 
@@ -363,7 +355,7 @@ describe('referencing other stories', () => {
 			'-- query_id: query_revenue\n-- database_id: warehouse\nselect month, sum(amount) from orders group by 1\n',
 		);
 		expect(await readStoryLibraryFile(MEMBER_SCOPE, `/story-library/${CERTIFIED_STORY}/story.yaml`)).toContain(
-			'title: "Monthly revenue"\nauthor: "Owner"\nformat: "classic"\npinned: false\ncertified: true\nversion: 2',
+			'title: "Monthly revenue"\nauthor: "Owner"\nformat: "classic"\npinned: false\ncertified: true\neditable: false\nversion: 2',
 		);
 	});
 

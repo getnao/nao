@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellOff, Loader2, Mail, Slack } from 'lucide-react';
+import { BellOff, Loader2, Mail } from 'lucide-react';
 import type { NotificationChannel } from '@nao/shared/types';
 
+import SlackIcon from '@/components/icons/slack.svg';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
@@ -27,7 +28,7 @@ const CHANNELS: { id: SubscriptionChannel; label: string; description: string; i
 		id: 'slack',
 		label: 'Slack',
 		description: 'Receive the latest version of this story as a Slack message.',
-		icon: <Slack className='size-4' />,
+		icon: <SlackIcon className='size-4' />,
 	},
 ];
 

@@ -1,9 +1,13 @@
-import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES } from './sql-template';
+import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES, STORY_FILTER_VALUE_TYPES } from './sql-template';
 import {
+	isFilterValueType,
 	parseChartAttributes,
 	parseGridColumns,
+	parseParameterOptions,
 	parseSeriesJsonArray,
 	parseStringArrayAttribute,
+	STORY_PARAMETER_TYPES,
+	type StoryParameterType,
 	TAG_ATTRS,
 } from './story-segments';
 import { ChartTypeEnum, SeriesTypeEnum, XAxisTypeEnum, YAxisSideEnum } from './tools/display-chart';
@@ -19,6 +23,8 @@ const REQUIRED_CHART_ATTRS = ['query_id', 'chart_type', 'x_axis_key'] as const;
 const CHART_TYPES_WITHOUT_X_AXIS_KEY = new Set(['kpi_card']);
 const REQUIRED_TABLE_ATTRS = ['query_id'] as const;
 const REQUIRED_FILTER_ATTRS = ['id', 'type'] as const;
+const REQUIRED_PARAMETER_ATTRS = ['id', 'options'] as const;
+const SEMANTIC_DIMENSION_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const VALID_CHART_TYPES = new Set<string>(ChartTypeEnum.options);
 
@@ -42,6 +48,7 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 	errors.push(...validateChartBlocks(code));
 	errors.push(...validateTableBlocks(code));
 	errors.push(...validateFilterBlocks(code));
+	errors.push(...validateParameterBlocks(code));
 	errors.push(...validateTabsBlocks(code));
 	errors.push(...validateUnterminatedTags(code));
 
@@ -281,10 +288,22 @@ function validateTableBlocks(code: string): StoryValidationError[] {
 	return errors;
 }
 
+interface DeclaredFilter {
+	id: string;
+	type?: string;
+	column?: string;
+	dimension?: string;
+	/** True when options come from the semantic layer dimension rather than `table`/`column`. */
+	usesDimensionOptions: boolean;
+	dependsOn?: string;
+	report: (message: string) => void;
+}
+
 function validateFilterBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
 	const filterRegex = new RegExp(String.raw`<filter\b(${TAG_ATTRS})(\/?)>`, 'g');
 	const filterIds = new Set<string>();
+	const declaredFilters: DeclaredFilter[] = [];
 	let match: RegExpExecArray | null;
 
 	while ((match = filterRegex.exec(code)) !== null) {
@@ -343,10 +362,10 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 		if (needsOptionsSource) {
 			const hasHardcodedOptions = Boolean(options?.length);
 			const hasTableSource = Boolean(attrs.table && attrs.column);
-			if (!hasHardcodedOptions && !hasTableSource) {
+			if (!hasHardcodedOptions && !hasTableSource && !attrs.dimension) {
 				errors.push({
 					message:
-						'Select filters require either `options=\'["a","b"]\'` or both `table` and `column` attributes.',
+						'Select filters require `options=\'["a","b"]\'`, both `table` and `column`, or a semantic layer `dimension`.',
 					line: position.line,
 					column: position.column,
 					length: fullMatch.length,
@@ -364,6 +383,155 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 		}
 		if (attrs.id) {
 			filterIds.add(attrs.id);
+		}
+
+		const report = (message: string) =>
+			errors.push({ message, line: position.line, column: position.column, length: fullMatch.length });
+		validateFilterExtensionAttributes(attrs, Boolean(options?.length), report);
+		if (attrs.id) {
+			declaredFilters.push({
+				id: attrs.id,
+				type: attrs.type,
+				column: attrs.column,
+				dimension: attrs.dimension,
+				usesDimensionOptions: Boolean(attrs.dimension) && !(attrs.table && attrs.column),
+				dependsOn: attrs.depends_on,
+				report,
+			});
+		}
+	}
+
+	validateFilterDependencies(declaredFilters);
+	return errors;
+}
+
+function validateFilterExtensionAttributes(
+	attrs: Record<string, string>,
+	hasHardcodedOptions: boolean,
+	report: (message: string) => void,
+) {
+	const isSelect = attrs.type === 'select' || attrs.type === 'multi_select';
+
+	if (attrs.value_type !== undefined) {
+		if (!isFilterValueType(attrs.value_type)) {
+			report(`Invalid value_type "${attrs.value_type}". Valid values: ${STORY_FILTER_VALUE_TYPES.join(', ')}.`);
+		} else if (attrs.type !== 'text') {
+			report('`value_type` only applies to type="text" filters.');
+		}
+	}
+
+	if (attrs.allow_custom !== undefined) {
+		if (!isSelect) {
+			report('`allow_custom` only applies to select and multi_select filters.');
+		} else if (attrs.allow_custom !== 'true' && attrs.allow_custom !== 'false') {
+			report('`allow_custom` must be "true" or "false".');
+		}
+	}
+
+	if (attrs.dimension !== undefined && !SEMANTIC_DIMENSION_REGEX.test(attrs.dimension)) {
+		report(`Invalid dimension "${attrs.dimension}". Use a semantic layer name such as "customer__region".`);
+	}
+	if (attrs.metric !== undefined && !attrs.dimension) {
+		report('`metric` only applies to filters bound to a semantic layer `dimension`.');
+	}
+
+	if (attrs.depends_on !== undefined) {
+		const hasRemoteOptions = Boolean((attrs.table && attrs.column) || attrs.dimension);
+		if (!isSelect || hasHardcodedOptions || !hasRemoteOptions) {
+			report(
+				'`depends_on` requires a select or multi_select filter whose options come from `table` and `column` or from a `dimension`.',
+			);
+		} else if (attrs.depends_on === attrs.id) {
+			report('A filter cannot depend on itself.');
+		}
+	}
+}
+
+function validateFilterDependencies(filters: DeclaredFilter[]) {
+	const filtersById = new Map(filters.map((filter) => [filter.id, filter]));
+
+	for (const filter of filters) {
+		if (!filter.dependsOn || filter.dependsOn === filter.id) {
+			continue;
+		}
+		const parent = filtersById.get(filter.dependsOn);
+		if (!parent) {
+			filter.report(`Filter "${filter.id}" depends on unknown filter "${filter.dependsOn}".`);
+			continue;
+		}
+		if (parent.type === 'search' || parent.type === 'date_range') {
+			filter.report(`Filter "${filter.id}" can only depend on a select, multi_select or text filter.`);
+		} else if (filter.usesDimensionOptions && !parent.dimension) {
+			filter.report(
+				`Parent filter "${parent.id}" needs a \`dimension\` so "${filter.id}" options can be narrowed by its selection.`,
+			);
+		} else if (!filter.usesDimensionOptions && !parent.column) {
+			filter.report(
+				`Parent filter "${parent.id}" needs a \`column\` so "${filter.id}" options can be narrowed by its selection.`,
+			);
+		}
+		if (hasDependencyCycle(filter, filtersById)) {
+			filter.report(`Filter "${filter.id}" is part of a depends_on cycle.`);
+		}
+	}
+}
+
+function hasDependencyCycle(start: DeclaredFilter, filtersById: Map<string, DeclaredFilter>): boolean {
+	const visited = new Set<string>([start.id]);
+	let current = start.dependsOn ? filtersById.get(start.dependsOn) : undefined;
+	while (current) {
+		if (visited.has(current.id)) {
+			return current.id === start.id;
+		}
+		visited.add(current.id);
+		current = current.dependsOn ? filtersById.get(current.dependsOn) : undefined;
+	}
+	return false;
+}
+
+function validateParameterBlocks(code: string): StoryValidationError[] {
+	const errors: StoryValidationError[] = [];
+	const usedIds = new Set(
+		[...code.matchAll(new RegExp(String.raw`<filter\b(${TAG_ATTRS})\/?>`, 'g'))].map(
+			(match) => parseChartAttributes(match[1] ?? '').id,
+		),
+	);
+
+	for (const match of code.matchAll(new RegExp(String.raw`<parameter\b(${TAG_ATTRS})(\/?)>`, 'g'))) {
+		const [fullMatch, attrString, slash] = match;
+		const position = getPosition(code, match.index);
+		const report = (message: string) =>
+			errors.push({ message, line: position.line, column: position.column, length: fullMatch.length });
+		const attrs = parseChartAttributes(attrString ?? '');
+
+		if (slash !== '/') {
+			report('<parameter> tag must be self-closing — use "/>" instead of ">".');
+		}
+		const missing = REQUIRED_PARAMETER_ATTRS.filter((attr) => !attrs[attr]);
+		if (missing.length > 0) {
+			report(`Parameter is missing required attribute${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}.`);
+		}
+		if (attrs.id && !STORY_FILTER_ID_REGEX.test(attrs.id)) {
+			report(
+				`Invalid parameter id "${attrs.id}". Use letters, numbers, and underscores, starting with a letter or underscore.`,
+			);
+		}
+		if (attrs.type && !STORY_PARAMETER_TYPES.includes(attrs.type as StoryParameterType)) {
+			report(`Invalid parameter type "${attrs.type}". Valid types: ${STORY_PARAMETER_TYPES.join(', ')}.`);
+		}
+
+		const options = parseParameterOptions(attrs.options);
+		if (attrs.options && !options?.length) {
+			report('Parameter `options` must be a non-empty JSON array of strings or of {"value","label"} objects.');
+		} else if (options && attrs.default && !options.some((option) => option.value === attrs.default)) {
+			report(`Parameter default "${attrs.default}" is not one of its options.`);
+		}
+
+		if (attrs.id && usedIds.has(attrs.id)) {
+			report(`Parameter id "${attrs.id}" must be unique among the story's filters and parameters.`);
+		}
+		if (attrs.id) {
+			usedIds.add(attrs.id);
 		}
 	}
 

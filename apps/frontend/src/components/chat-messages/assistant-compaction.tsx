@@ -24,7 +24,7 @@ export const AssistantCompaction = memo(({ part }: { part?: CompactionPart }) =>
 						{part.error ? (
 							<ErrorMessage message={part.error} />
 						) : (
-							<Streamdown linkSafety={markdownLinkSafety} mode='static'>
+							<Streamdown linkSafety={markdownLinkSafety} dir='auto' mode='static'>
 								{part.summary}
 							</Streamdown>
 						)}

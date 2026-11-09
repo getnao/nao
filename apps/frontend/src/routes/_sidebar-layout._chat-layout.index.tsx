@@ -16,6 +16,7 @@ import { StoryCard } from '@/components/stories-groups';
 import { ViewerHome } from '@/components/viewer-home';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useIsDarkMode } from '@/contexts/theme.provider';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
 import { useMultiProject } from '@/hooks/use-multi-project';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -60,11 +61,12 @@ function HomePage() {
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const { limbo, resolving } = useCloudSetupState();
 	const switchProject = useProjectSwitch(project.data?.id);
 	const multiProjectMode = useMultiProject();
 	const isCloud = useIsCloud();
 	const showProjectSetupCue = project.isSuccess && project.data === null;
-	const showExampleProject = isCloud && (showProjectSetupCue || exampleSearch === true);
+	const showExampleProject = isCloud && (showProjectSetupCue || exampleSearch === true || limbo || resolving);
 	const storiesProjectId = showExampleProject ? SYSTEM_EXAMPLE_PROJECT_ID : project.data?.id;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const isDark = useIsDarkMode();

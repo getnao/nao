@@ -372,14 +372,16 @@ describe('billing.createTrialCheckoutSession', () => {
 		stripeMocks.createCheckout.mockResolvedValue('https://checkout.stripe.com/trial');
 	});
 
-	it('requires project setup to start the trial before opening Checkout', async () => {
+	it('allows an admin to subscribe before the trial starts', async () => {
 		await expect(
 			caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly', currency: 'eur' }),
-		).rejects.toMatchObject({
-			code: 'BAD_REQUEST',
-			message: 'Finish setting up your first project before choosing a billing plan',
+		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
+		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
+			billingInterval: 'monthly',
+			currency: 'eur',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
 		});
-		expect(stripeMocks.createCheckout).not.toHaveBeenCalled();
 	});
 
 	it('uses the remaining local trial when an admin chooses a plan', async () => {

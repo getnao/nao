@@ -3,12 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	extractStoryFolderReferenceIds,
 	extractStoryReferenceIds,
-	getStoryIdFromMentionId,
-	isStoryFolderMentionId,
-	isStoryReferenceMentionId,
+	quoteCitationTokens,
 	replaceStoryAndFolderReferences,
-	toStoryFolderMentionId,
-	toStoryReferenceMentionId,
 } from './mentions';
 
 describe('story reference mentions', () => {
@@ -16,14 +12,6 @@ describe('story reference mentions', () => {
 		const text = 'Compare @[story:b] with @[story:a] using @[warehouse.public.orders] and @[story:b] again';
 
 		expect(extractStoryReferenceIds(text)).toEqual(['b', 'a']);
-	});
-
-	it('reads the story id back from a story mention', () => {
-		const mentionId = toStoryReferenceMentionId('story-1');
-
-		expect(isStoryReferenceMentionId(mentionId)).toBe(true);
-		expect(isStoryFolderMentionId(mentionId)).toBe(false);
-		expect(getStoryIdFromMentionId(mentionId)).toBe('story-1');
 	});
 
 	it('replaces story and folder references, leaving table mentions', () => {
@@ -50,14 +38,6 @@ describe('story reference mentions', () => {
 });
 
 describe('story folder mentions', () => {
-	it('is told apart from story mentions', () => {
-		const mentionId = toStoryFolderMentionId('folder-1');
-
-		expect(isStoryFolderMentionId(mentionId)).toBe(true);
-		expect(isStoryReferenceMentionId(mentionId)).toBe(false);
-		expect(getStoryIdFromMentionId(mentionId)).toBeNull();
-	});
-
 	it('extracts and replaces folder references only', () => {
 		const text =
 			'Sum up @[story-folder:f1] and @[story:a] then @[story-folder:__shared_with_me__] and @[story-folder:f1]';
@@ -70,5 +50,11 @@ describe('story folder mentions', () => {
 				folder: (folderId) => `<${folderId}>`,
 			}),
 		).toBe('Sum up <f1> and a then <__shared_with_me__> and <f1>');
+	});
+});
+
+describe('citation tokens', () => {
+	it('quotes each citation of a sent message, keeping a token that cites nothing', () => {
+		expect(quoteCitationTokens('❝[1] vs ❝[2]?', [{ text: 'Revenue\nin May' }])).toBe('“Revenue in May” vs ❝[2]?');
 	});
 });

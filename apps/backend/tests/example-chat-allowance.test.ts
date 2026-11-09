@@ -220,6 +220,45 @@ describe('example chat allowance', () => {
 		expect(mocks.handleAgentRoute).not.toHaveBeenCalled();
 	});
 
+	it('keeps example chats available while every project is unfinished', async () => {
+		const orgId = 'incomplete-org';
+		const userId = 'incomplete-project-user';
+		await db.insert(s.user).values({ id: userId, name: 'Incomplete User', email: 'incomplete@example.com' });
+		await db.insert(s.organization).values({ id: orgId, name: 'Incomplete Org', slug: orgId });
+		await db.insert(s.orgMember).values({ orgId, userId, role: 'admin' });
+		await db.insert(s.project).values({
+			id: 'incomplete-project',
+			orgId,
+			name: 'Incomplete Project',
+			type: 'local',
+			path: '/tmp/incomplete-project',
+		});
+		mocks.isProjectSetupComplete.mockResolvedValue(false);
+
+		await expect(reserveExampleChatRun(userId, 'example')).resolves.toBe(true);
+
+		const setupError = new Error('Unfinished project reached example setup');
+		vi.spyOn(chatQueries, 'isOnboardingChat').mockResolvedValue(false);
+		vi.spyOn(chatQueries, 'getChatProjectId').mockResolvedValue(SYSTEM_EXAMPLE_PROJECT_ID);
+		vi.spyOn(chatQueries, 'getChatOwnerId').mockResolvedValue(userId);
+		mocks.handleAgentRoute.mockRejectedValue(setupError);
+		const handler = await getAgentRouteHandler();
+
+		await expect(
+			handler({
+				user: { id: userId },
+				project: { id: 'incomplete-project' },
+				body: {
+					chatId: 'existing-example-chat',
+					message: { text: 'Continue the example conversation' },
+					mode: 'example',
+				},
+				headers: {},
+			}),
+		).rejects.toBe(setupError);
+		expect(mocks.handleAgentRoute).toHaveBeenCalled();
+	});
+
 	it('rejects example chat continuations after project setup', async () => {
 		const orgId = 'project-org';
 		await db.insert(s.organization).values({ id: orgId, name: 'Project Org', slug: orgId });

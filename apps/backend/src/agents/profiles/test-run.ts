@@ -2,11 +2,16 @@ import { analyticsAgent, analyticsToolsExcluding } from './analytics';
 import type { AgentProfile } from './types';
 
 /**
- * The analytics agent answering a `nao test` prompt, so test suites measure what users get.
- * Follow-up suggestions are UI-only and grade nothing, so the tool is left out.
+ * Tools a test attempt cannot use. Nobody answers a clarifying question or clicks a follow-up,
+ * and attempts run many times over, so they must not create stories or write files in the project.
  */
+export const TEST_RUN_EXCLUDED_TOOLS = ['clarification', 'suggest_follow_ups', 'story', 'write', 'str_replace'];
+
+/** The analytics agent answering a `nao test` prompt unattended, so test suites measure what users get. */
 export const testRunAgent: AgentProfile = {
 	...analyticsAgent,
-	tools: analyticsToolsExcluding(['suggest_follow_ups']),
+	tools: analyticsToolsExcluding(TEST_RUN_EXCLUDED_TOOLS),
+	source: 'test',
+	excludesMemories: true,
 	usageCategory: 'test',
 };

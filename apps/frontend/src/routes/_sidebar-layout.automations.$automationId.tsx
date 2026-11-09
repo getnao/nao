@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, Check, Github, Loader2, Mail, Play, Trash, X } from 'lucide-react';
+import { ArrowLeft, Check, Loader2, Mail, Play, Trash, X } from 'lucide-react';
 import { useState } from 'react';
 
 import type { AutomationFormValue } from '@/components/automations-form';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import { MobileHeader } from '@/components/mobile-header';
 import { AutomationForm } from '@/components/automations-form';
 import SlackIcon from '@/components/icons/slack.svg';
@@ -502,7 +503,7 @@ function getIntegrationIconConfig(type: string) {
 	if (type === 'github') {
 		return {
 			label: 'GitHub',
-			icon: <Github className='size-3.5' />,
+			icon: <GithubIcon className='size-3.5' />,
 			successClassName: 'border-transparent bg-foreground text-background',
 		};
 	}

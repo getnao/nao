@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 from .base import DatabaseConfig
 from .context import DatabaseContext
 
+ATHENA_DEFAULT_CATALOG = "awsdatacatalog"
+
 
 class AthenaDatabaseContext(DatabaseContext):
     def _array_unnest_join(self, table_sql: str, col_sql: str, alias: str) -> str:
@@ -130,6 +132,10 @@ class AthenaConfig(DatabaseConfig):
 
     def get_database_name(self) -> str:
         return self.schema_name or "default"
+
+    def get_catalog_names(self) -> list[str]:
+        """dbt and MetricFlow qualify tables with the Glue catalog, which is the one `connect()` uses."""
+        return [ATHENA_DEFAULT_CATALOG]
 
     def get_schemas(self, conn: BaseBackend) -> list[str]:
         """Return the list of schemas to sync."""

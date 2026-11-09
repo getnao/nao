@@ -511,17 +511,47 @@ describe('warehouse provisioning', () => {
 	});
 
 	it('rejects provisioning when the user already has a connected project', async () => {
-		vi.mocked(projectQueries.listUserProjects).mockResolvedValue([{ id: 'project-1' }] as never);
+		const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'connected-project-'));
+		fs.writeFileSync(
+			path.join(projectPath, 'nao_config.yaml'),
+			'databases:\n  - name: warehouse\n    type: postgres\n',
+		);
+		vi.mocked(projectQueries.listUserProjects).mockResolvedValue([{ id: 'project-1', path: projectPath }] as never);
 
-		await expect(
-			startWarehouseProvisioning({
-				userId: 'user-1',
-				orgId: 'org-1',
-				projectName: 'analytics',
-				provider: 'postgres',
-				credentials: { host: 'warehouse.example.com', password: 'secret' },
-			}),
-		).rejects.toMatchObject({ code: 'CONFLICT' });
+		try {
+			await expect(
+				startWarehouseProvisioning({
+					userId: 'user-1',
+					orgId: 'org-1',
+					projectName: 'analytics',
+					provider: 'postgres',
+					credentials: { host: 'warehouse.example.com', password: 'secret' },
+				}),
+			).rejects.toMatchObject({ code: 'CONFLICT' });
+		} finally {
+			fs.rmSync(projectPath, { recursive: true, force: true });
+		}
+	});
+
+	it('allows provisioning when an imported project has no database', async () => {
+		vi.useFakeTimers();
+		const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'unconnected-project-'));
+		fs.writeFileSync(path.join(projectPath, 'nao_config.yaml'), 'project_name: analytics\n');
+		vi.mocked(projectQueries.listUserProjects).mockResolvedValue([{ id: 'project-1', path: projectPath }] as never);
+
+		try {
+			await expect(
+				startWarehouseProvisioning({
+					userId: 'user-1',
+					orgId: 'org-1',
+					projectName: 'analytics',
+					provider: 'postgres',
+					credentials: { host: 'warehouse.example.com', password: 'secret' },
+				}),
+			).resolves.toMatchObject({ status: 'queued' });
+		} finally {
+			fs.rmSync(projectPath, { recursive: true, force: true });
+		}
 	});
 
 	it('ignores the project of a cancelled setup that is still being rolled back', async () => {

@@ -13,9 +13,26 @@ import {
 	buildUsernameAllowlist,
 	formatErrorMessageForUI,
 	getProcessEnvSourcedVarNames,
+	regexPassword,
 	replaceEnvVars,
 	truncateMiddle,
 } from '../src/utils/utils';
+
+describe('regexPassword', () => {
+	it.each(['Password1.', 'Password1!', 'Password1_', 'Password1,', 'Password1/', 'Password1~'])(
+		'accepts %s as containing a special character',
+		(password) => {
+			expect(regexPassword.test(password)).toBe(true);
+		},
+	);
+
+	it.each(['Password1', 'Password1 ', 'password1.', 'PASSWORD1.', 'Password.', 'Pass1.'])(
+		'rejects %s',
+		(password) => {
+			expect(regexPassword.test(password)).toBe(false);
+		},
+	);
+});
 
 describe('buildUsernameAllowlist', () => {
 	it('returns an empty set when unset', () => {
@@ -176,6 +193,12 @@ describe('getProcessEnvSourcedVarNames', () => {
 		vi.stubEnv('DB_PASSWORD', '');
 
 		expect(getProcessEnvSourcedVarNames(['DB_PASSWORD'], {})).toEqual([]);
+	});
+
+	it('does not fall back to process env when the project contains an empty override', () => {
+		vi.stubEnv('DB_PASSWORD', 'from-process');
+
+		expect(getProcessEnvSourcedVarNames(['DB_PASSWORD'], { DB_PASSWORD: '' })).toEqual([]);
 	});
 });
 

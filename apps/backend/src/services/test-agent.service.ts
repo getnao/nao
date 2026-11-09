@@ -1,4 +1,3 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
 import { z } from 'zod/v4';
 
@@ -6,8 +5,10 @@ import { testRunAgent } from '../agents/profiles/test-run';
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
+import type { TestModel, TestSourceQuery } from '../types/test-run';
+import type { QueryResult } from '../types/tools';
 import { getErrorMessage } from '../utils/utils';
-import { AgentRunResult, AgentService } from './agent';
+import { AgentChat, AgentRunResult, AgentService } from './agent';
 import { runSqlOverQueryResults } from './duckdb.service';
 import { buildVerificationMessages } from './test-agent-verification';
 
@@ -16,6 +17,8 @@ export interface VerificationResult {
 	data: Record<string, unknown>[] | null;
 	/** The DuckDB query the agent wrote over its own query results */
 	sql: string | null;
+	/** The agent's queries that the DuckDB query reads from */
+	sourceQueries: TestSourceQuery[];
 	error: string | null;
 }
 
@@ -45,7 +48,7 @@ export class TestAgentService extends AgentService {
 		projectId: string,
 		userId: string,
 		prompt: string,
-		modelSelection?: LlmSelectedModel,
+		model: TestModel,
 		costs?: ModelCosts,
 	): Promise<AgentRunResult> {
 		const userMessage = TestAgentService._buildUserMessage(prompt);
@@ -60,8 +63,40 @@ export class TestAgentService extends AgentService {
 			projectId,
 		};
 
-		const agent = await this.create(tempChat, modelSelection, testRunAgent, { attributeUsageToChat: false });
+		const { reasoningEffort, ...modelSelection } = model;
+		const agent = await this.create(tempChat, modelSelection, testRunAgent, {
+			attributeUsageToChat: false,
+			...(reasoningEffort && { inferenceOverrides: { reasoningEffort } }),
+		});
 		return agent.generate([userMessage], { costs });
+	}
+
+	/**
+	 * Run a test prompt in a persisted chat, so the attempt can be replayed like any conversation.
+	 * The chat must already hold the user message.
+	 */
+	async runTestInChat(
+		chat: AgentChat,
+		messages: UIMessage[],
+		model: TestModel,
+		options: { billingAccessVerifiedProjectId?: string; abortSignal?: AbortSignal; contextFolder?: string } = {},
+	): Promise<AgentRunResult> {
+		const { reasoningEffort, ...modelSelection } = model;
+		const agent = await this.create(chat, modelSelection, testRunAgent, {
+			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+			contextFolder: options.contextFolder,
+			...(reasoningEffort && { inferenceOverrides: { reasoningEffort } }),
+		});
+		const stopAgent = () => agent.stop();
+		options.abortSignal?.addEventListener('abort', stopAgent, { once: true });
+		try {
+			if (options.abortSignal?.aborted) {
+				agent.stop();
+			}
+			return await agent.streamToCompletion(messages);
+		} finally {
+			options.abortSignal?.removeEventListener('abort', stopAgent);
+		}
 	}
 
 	/**
@@ -75,19 +110,20 @@ export class TestAgentService extends AgentService {
 		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
-		modelSelection?: LlmSelectedModel,
+		model?: TestModel,
 	): Promise<VerificationResult> {
 		const { queryResults } = agentResult;
 		if (queryResults.size === 0) {
-			return { data: null, sql: null, error: 'The agent did not run any SQL query.' };
+			return { data: null, sql: null, sourceQueries: [], error: 'The agent did not run any SQL query.' };
 		}
 
-		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel, {
-			userId,
+		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, model);
+		const modelConfig = await this._getModelConfig(
 			projectId,
-			category: 'test',
-		});
+			resolvedSelectedModel,
+			{ userId, projectId, category: 'test' },
+			model?.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : undefined,
+		);
 
 		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 
@@ -104,12 +140,17 @@ export class TestAgentService extends AgentService {
 
 			sql = result.output.sql?.trim() || null;
 			if (!sql) {
-				return { data: null, sql: null, error: 'The agent could not answer from its query results.' };
+				return {
+					data: null,
+					sql: null,
+					sourceQueries: [],
+					error: 'The agent could not answer from its query results.',
+				};
 			}
 
 			try {
 				const { data } = await runSqlOverQueryResults(queryResults, sql);
-				return { data, sql, error: null };
+				return { data, sql, sourceQueries: findSourceQueries(sql, queryResults), error: null };
 			} catch (err) {
 				error = err instanceof Error ? err.message : String(err);
 				messages.push(
@@ -119,7 +160,7 @@ export class TestAgentService extends AgentService {
 			}
 		}
 
-		return { data: null, sql, error };
+		return { data: null, sql, sourceQueries: sql ? findSourceQueries(sql, queryResults) : [], error };
 	}
 
 	private static _buildUserMessage(text: string): UIMessage {
@@ -171,3 +212,14 @@ Return a corrected DuckDB query, or set sql to null if the tables cannot answer 
 
 // Singleton instance of the test agent service
 export const testAgentService = new TestAgentService();
+
+/** The queries of the chat whose result tables the verification SQL names, in the order they ran. */
+export function findSourceQueries(sql: string, queryResults: ReadonlyMap<string, QueryResult>): TestSourceQuery[] {
+	const sourceQueries: TestSourceQuery[] = [];
+	for (const [queryId, result] of queryResults) {
+		if (result.sqlQuery && new RegExp(`\\b${queryId}\\b`).test(sql)) {
+			sourceQueries.push({ id: queryId, sql: result.sqlQuery });
+		}
+	}
+	return sourceQueries;
+}

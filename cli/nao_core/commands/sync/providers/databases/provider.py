@@ -352,6 +352,8 @@ def sync_database(
 
         selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
 
+        db_config.prepare_sync_metadata(conn, schema_tables, pool)
+
         usage_stats: dict[str, TableUsageStats] = {}
         if has_query_history and raw_queries and selected_tables:
             dialect = db_config.type if db_config.type != "duckdb" else None
@@ -455,6 +457,7 @@ def sync_database(
         for future in pending:
             future.cancel()
         wait(pending)
+        db_config.clear_sync_metadata()
         conn.disconnect()
 
 

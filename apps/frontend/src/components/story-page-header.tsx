@@ -15,9 +15,17 @@ import {
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import type { StoryDownloadOptions } from '@/components/story-download';
-import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
+import type {
+	CustomStoryElementSelection,
+	CustomStoryViewModeControls,
+} from '@/components/custom-story/custom-story-view-mode';
 import type { StoryChatControls } from '@/components/story-chat-button';
-import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import type { StoryVersionEntry } from '@/components/story-version-nav';
+import {
+	ElementSelectionToggle,
+	CustomStoryViewModeToggle,
+	isCustomStoryViewMode,
+} from '@/components/custom-story/custom-story-view-mode';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { StoryChatButton } from '@/components/story-chat-button';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
@@ -41,6 +49,7 @@ import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
+import { requestAsk } from '@/stores/ask-bar';
 
 interface LiveControls {
 	isLive: boolean;
@@ -78,7 +87,7 @@ type ViewModeControls = ClassicViewModeControls | CustomStoryViewModeControls;
 
 interface VersionControls {
 	currentVersion: number;
-	versionDates: (string | Date)[];
+	versions: StoryVersionEntry[];
 	versionDate?: string | Date | null;
 	isViewingLatest: boolean;
 	onSelectVersion: (version: number) => void;
@@ -89,8 +98,10 @@ export interface StoryPageHeaderProps {
 	title: string;
 	authorName?: string;
 	storyChat?: StoryChatControls;
-	/** Offers to copy the story into a new chat of the user. */
+	/** Offers to copy the story into a new standalone story of the user. */
 	canDuplicate?: boolean;
+	/** The version the copy is made from; the latest one when omitted. */
+	viewedVersionNumber?: number;
 	live?: LiveControls;
 	download?: StoryDownloadOptions;
 	storyId?: string | null;
@@ -100,6 +111,7 @@ export interface StoryPageHeaderProps {
 	onOpenAnalytics?: () => void;
 	viewModeControls?: ViewModeControls;
 	versionControls?: VersionControls;
+	elementSelection?: CustomStoryElementSelection;
 }
 
 export function StoryPageHeader({
@@ -107,6 +119,7 @@ export function StoryPageHeader({
 	authorName,
 	storyChat,
 	canDuplicate = false,
+	viewedVersionNumber,
 	live,
 	download,
 	storyId,
@@ -116,6 +129,7 @@ export function StoryPageHeader({
 	onOpenAnalytics,
 	viewModeControls,
 	versionControls,
+	elementSelection,
 }: StoryPageHeaderProps) {
 	const liveMenu = live?.isLive && live.isInActionsMenu ? live : undefined;
 	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics || !!liveMenu;
@@ -138,9 +152,11 @@ export function StoryPageHeader({
 				<div className='ml-auto flex shrink-0 items-center gap-2'>
 					{versionControls && (
 						<StoryVersionNav
+							storyId={storyId}
 							currentVersion={versionControls.currentVersion}
-							versionDates={versionControls.versionDates}
+							versions={versionControls.versions}
 							onSelectVersion={versionControls.onSelectVersion}
+							onOpenQuickQuestion={storyChat?.canChat ? (chatId) => requestAsk({ chatId }) : undefined}
 						/>
 					)}
 					{viewModeControls && <ViewModeToggle controls={viewModeControls} />}
@@ -155,6 +171,8 @@ export function StoryPageHeader({
 					{storyId && <StoryFavoritedButton storyId={storyId} />}
 
 					{onShare && <ShareButton isShared={isShared} onShare={onShare} />}
+
+					{elementSelection && <ElementSelectionToggle {...elementSelection} />}
 
 					{showActionsMenu && (
 						<DropdownMenu>
@@ -179,7 +197,9 @@ export function StoryPageHeader({
 									</DropdownMenuItem>
 								)}
 								{liveMenu && <LiveStoryMenuItems live={liveMenu} />}
-								{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} />}
+								{canDuplicate && storyId && (
+									<StoryDuplicateMenuItem storyId={storyId} versionNumber={viewedVersionNumber} />
+								)}
 							</DropdownMenuContent>
 						</DropdownMenu>
 					)}

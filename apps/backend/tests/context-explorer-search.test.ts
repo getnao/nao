@@ -23,7 +23,10 @@ describe('context explorer content search', () => {
 		writeFileSync(join(projectFolder, 'ignored.txt'), 'excluded content\n');
 		writeFileSync(join(projectFolder, 'git-ignored.txt'), 'git ignored content\n');
 		writeFileSync(join(projectFolder, '.gitignore'), 'git-ignored.txt\n');
-		writeFileSync(join(projectFolder, '.naoignore'), 'ignored.txt\n');
+		writeFileSync(join(projectFolder, '.naoignore'), 'ignored.txt\ntests/\n*.yml\n');
+		writeFileSync(join(projectFolder, 'semantics.yml'), 'reference question\n');
+		mkdirSync(join(projectFolder, 'tests', 'sales'), { recursive: true });
+		writeFileSync(join(projectFolder, 'tests', 'sales', 'revenue.yml'), 'reference question\n');
 		mkdirSync(join(projectFolder, '.git'));
 		writeFileSync(join(projectFolder, '.git', 'config'), 'protected content\n');
 		writeFileSync(join(projectFolder, '.env'), 'protected content\n');
@@ -68,6 +71,12 @@ describe('context explorer content search', () => {
 		const response = await searchFileContents('excluded content', projectFolder);
 
 		expect(response.results).toEqual([]);
+	});
+
+	it('searches the tests folder despite .naoignore, like the explorer tree shows it', async () => {
+		const response = await searchFileContents('reference question', projectFolder);
+
+		expect(response.results.map((result) => result.path)).toEqual(['/tests/sales/revenue.yml']);
 	});
 
 	it('searches files matched by .gitignore', async () => {

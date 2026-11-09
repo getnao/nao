@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
 	restart: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('@/main', () => ({ trpc: {} }));
+
 vi.mock('@/contexts/agent.provider', () => ({
 	useAgentContext: () => ({ isRunning: mocks.isRunning }),
 	useAgentMessages: () => [],

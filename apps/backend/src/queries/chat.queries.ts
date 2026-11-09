@@ -117,6 +117,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotQuickQuestionChat(),
+				isNotTestChat(),
 			),
 		)
 		.orderBy(desc(s.chat.updatedAt))
@@ -154,6 +155,7 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
+				isNotTestChat(),
 				ne(s.chat.userId, userId),
 				or(
 					and(
@@ -289,7 +291,7 @@ const aggregateChatMessagParts = (
 					feedback: row.message_feedback ?? undefined,
 					source: row.chat_message.source ?? undefined,
 					isForked: row.chat_message.isForked ?? undefined,
-					citation: row.chat_message.citation ?? undefined,
+					citations: row.chat_message.citations ?? undefined,
 					stopReason: row.chat_message.stopReason ?? undefined,
 					llmProvider: row.chat_message.llmProvider ?? undefined,
 					createdAt: row.chat_message.createdAt?.getTime(),
@@ -538,7 +540,7 @@ export const createChat = async (
 	newUserMessage: {
 		text: string;
 		source?: UIMessage['source'];
-		citation?: CitationData;
+		citations?: CitationData[];
 	},
 	additionalParts: UIMessagePart[] = [],
 ): Promise<[DBChat, DBChatMessage]> => {
@@ -554,7 +556,7 @@ export const createChat = async (
 				senderUserId: savedChat.userId,
 				role: 'user',
 				source: newUserMessage.source,
-				citation: newUserMessage.citation ?? null,
+				citations: newUserMessage.citations ?? null,
 				versionGroupId: messageId,
 			})
 			.returning()
@@ -582,6 +584,7 @@ export const createForkedChat = async (newChat: NewChat, messages: Array<Omit<UI
 			chatId: savedChat.id,
 			role: message.role,
 			isForked: true,
+			citations: message.citations ?? null,
 			createdAt: new Date(baseTime + i),
 		}));
 
@@ -640,7 +643,7 @@ export const upsertMessage = async (
 			llmModelId: message.llmModelId,
 			source: message.source,
 			isForked: message.isForked,
-			citation: message.citation ?? null,
+			citations: message.citations ?? null,
 			versionGroupId: message.versionGroupId ?? (message.role === 'user' ? messageId : undefined),
 			...message.tokenUsage,
 		};
@@ -930,6 +933,7 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
 				isNotQuickQuestionChat(),
+				isNotTestChat(),
 				caseInsensitiveLike(s.chat.title, searchPattern),
 			),
 		)
@@ -958,6 +962,7 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
 				isNotQuickQuestionChat(),
+				isNotTestChat(),
 				caseInsensitiveLike(s.messagePart.text, searchPattern),
 			),
 		)
@@ -1010,6 +1015,10 @@ export const QUICK_QUESTION_FORK_TYPES = [
 	'chat_selection',
 ] as const;
 
+export function isQuickQuestionForkType(type: string | undefined): boolean {
+	return QUICK_QUESTION_FORK_TYPES.some((quickQuestionType) => quickQuestionType === type);
+}
+
 export const isNotQuickQuestionChat = () => {
 	return sql`coalesce(${forkMetadataField('type')}, '') not in (${sql.join(
 		QUICK_QUESTION_FORK_TYPES.map((type) => sql`${type}`),
@@ -1047,6 +1056,14 @@ const isNotOnboardingChat = () => {
 		select 1 from ${s.chatMessage}
 		where ${s.chatMessage.chatId} = ${s.chat.id}
 		and ${s.chatMessage.source} = 'onboarding'
+	)`;
+};
+
+export const isNotTestChat = () => {
+	return sql`not exists (
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} = 'test'
 	)`;
 };
 
