@@ -251,7 +251,7 @@ describe('user group LLM access', () => {
 					llmModelIdsByConfig: {},
 				},
 				{
-					id: 'group-without-members',
+					id: 'group-without-models',
 					isDefault: false,
 					isLocked: false,
 					llmConfigIds: [],
@@ -262,6 +262,7 @@ describe('user group LLM access', () => {
 			memberships: [
 				{ userId: 'user-1', groupId: 'all-users' },
 				{ userId: 'user-1', groupId: 'group-with-models' },
+				{ userId: 'user-1', groupId: 'group-without-models' },
 			],
 		});
 
