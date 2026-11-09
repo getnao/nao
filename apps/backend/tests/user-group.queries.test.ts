@@ -726,6 +726,7 @@ describe('user group queries', () => {
 				undefined,
 				stalePolicies,
 				undefined,
+				undefined,
 				validatedRegistry,
 			),
 		).rejects.toMatchObject({ code: 'CONFLICT' });
