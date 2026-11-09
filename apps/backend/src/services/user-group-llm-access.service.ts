@@ -1,19 +1,15 @@
 import type { LlmAccessMode, LlmSelectedModel } from '@nao/shared/types';
 
-import type { ManagedAiUsageContext } from '../agents/managed-ai';
-import type { ProviderModelResult } from '../agents/providers';
 import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import { mergeUserGroupLlmAccess } from '../queries/user-group.queries';
-import type { ModelInferenceSettings } from '../types/llm';
 import { HandlerError } from '../utils/error';
 import {
 	filterModelsByConfigAccess,
 	getProjectAvailableModels,
 	getProjectAvailableModelsForConfigs,
 	type ProjectAvailableModel,
-	resolveProviderModel,
 	selectDefaultChatModel,
 } from '../utils/llm';
 import { getAvailableUserGroupOverview, resolveAvailableUserGroupAccess } from './user-group-availability.service';
@@ -203,30 +199,6 @@ export async function resolveUserBackgroundModelId(
 		}
 		return selection.modelId;
 	}
-}
-
-export async function resolveModelForUser(
-	projectId: string,
-	userId: string,
-	requested?: LlmSelectedModel,
-	applyUserSettings = true,
-	usageContext?: ManagedAiUsageContext,
-	inferenceOverrides?: ModelInferenceSettings,
-): Promise<{ selection: LlmSelectedModel; model: ProviderModelResult }> {
-	const selection = await resolveUserModelSelection(projectId, userId, requested);
-	const model = await resolveProviderModel(
-		projectId,
-		selection.provider,
-		selection.modelId,
-		applyUserSettings,
-		usageContext,
-		inferenceOverrides,
-		selection.llmConfigId,
-	);
-	if (!model) {
-		throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
-	}
-	return { selection, model };
 }
 
 export async function getProjectLlmAccessMode(projectId: string): Promise<LlmAccessMode> {

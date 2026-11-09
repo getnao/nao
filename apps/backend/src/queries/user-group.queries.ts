@@ -99,7 +99,7 @@ export interface EffectiveUserGroupAccess {
 	preloadedSkills: string[];
 }
 
-export interface UserGroupLlmAccess {
+interface UserGroupLlmAccess {
 	llmConfigIds: string[];
 	llmModelIdsByConfig: LlmModelIdsByConfig;
 }

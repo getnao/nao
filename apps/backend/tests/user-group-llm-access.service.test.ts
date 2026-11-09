@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	getAvailableModelsForUser,
 	getLlmAccessReadiness,
-	resolveModelForUser,
 	resolveUserBackgroundModelId,
 	resolveUserBackgroundModelSelection,
 	resolveUserModelSelection,
@@ -17,7 +16,6 @@ const mocks = vi.hoisted(() => ({
 	getAvailableUserGroupOverview: vi.fn(),
 	getProjectAvailableModels: vi.fn(),
 	getProjectAvailableModelsForConfigs: vi.fn(),
-	resolveProviderModel: vi.fn(),
 	listProjectAutomationModelSelections: vi.fn(),
 }));
 
@@ -54,7 +52,6 @@ vi.mock('../src/utils/llm', () => ({
 		),
 	getProjectAvailableModels: mocks.getProjectAvailableModels,
 	getProjectAvailableModelsForConfigs: mocks.getProjectAvailableModelsForConfigs,
-	resolveProviderModel: mocks.resolveProviderModel,
 	selectDefaultChatModel: (_settings: unknown, available: unknown[]) => available[0] ?? null,
 }));
 
@@ -126,27 +123,6 @@ describe('user group LLM access', () => {
 				llmConfigId: 'config-a',
 			}),
 		).rejects.toMatchObject({ code: 403 });
-	});
-
-	it('passes the authorized credential id to provider resolution', async () => {
-		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'user_group' });
-		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'gpt-5-mini' } });
-
-		await resolveModelForUser('project-1', 'user-1', {
-			provider: 'openai',
-			modelId: 'gpt-5-mini',
-			llmConfigId: 'config-a',
-		});
-
-		expect(mocks.resolveProviderModel).toHaveBeenCalledWith(
-			'project-1',
-			'openai',
-			'gpt-5-mini',
-			true,
-			undefined,
-			undefined,
-			'config-a',
-		);
 	});
 
 	it('rejects a legacy selection when multiple authorized credentials expose the same model', async () => {
