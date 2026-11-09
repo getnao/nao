@@ -3,15 +3,27 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 
+let pendingHealthQuery: Promise<boolean> | undefined;
+
 export async function checkDatabaseConnection(timeoutMs?: number): Promise<boolean> {
-	const query = runHealthQuery().then(
-		() => true,
-		() => false,
-	);
+	const query = sharePendingHealthQuery();
 	if (timeoutMs === undefined) {
 		return query;
 	}
-	return Promise.race([query, rejectAfterTimeout(timeoutMs)]);
+	return Promise.race([query, resolveFalseAfter(timeoutMs)]);
+}
+
+/** Reuses the in-flight query so probes against a stalled database cannot pile up abandoned work. */
+function sharePendingHealthQuery(): Promise<boolean> {
+	pendingHealthQuery ??= runHealthQuery()
+		.then(
+			() => true,
+			() => false,
+		)
+		.finally(() => {
+			pendingHealthQuery = undefined;
+		});
+	return pendingHealthQuery;
 }
 
 async function runHealthQuery(): Promise<unknown> {
@@ -21,7 +33,7 @@ async function runHealthQuery(): Promise<unknown> {
 	return db.run(sql`select 1`);
 }
 
-function rejectAfterTimeout(timeoutMs: number): Promise<boolean> {
+function resolveFalseAfter(timeoutMs: number): Promise<boolean> {
 	return new Promise((resolve) => {
 		setTimeout(() => resolve(false), timeoutMs).unref();
 	});
