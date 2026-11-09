@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { getUnconfiguredMcpGrantServers, toggleMcpServerGrant, toggleMcpToolGrant } from './user-group-mcp-access';
+import {
+	getSpecificMcpAccess,
+	getUnconfiguredMcpGrantServers,
+	toggleMcpServerGrant,
+	toggleMcpToolGrant,
+} from './user-group-mcp-access';
 import type { McpAccess } from '@nao/shared';
 
 vi.mock('@/main', () => ({ trpc: {} }));
@@ -56,5 +61,23 @@ describe('user group MCP access toggles', () => {
 				[{ name: 'github' }],
 			),
 		).toEqual(['removed']);
+	});
+});
+
+describe('user group MCP specific selection', () => {
+	const savedAccess: McpAccess = { mode: 'restricted', grants: [{ kind: 'server', server: 'github' }] };
+
+	it('starts from no grants when licensed', () => {
+		expect(getSpecificMcpAccess({ mode: 'all' }, savedAccess, true)).toEqual({ mode: 'restricted', grants: [] });
+	});
+
+	it('restores the saved access when unlicensed so Everything can be undone', () => {
+		expect(getSpecificMcpAccess({ mode: 'all' }, savedAccess, false)).toEqual(savedAccess);
+		expect(getSpecificMcpAccess({ mode: 'all' }, { mode: 'all' }, false)).toEqual({ mode: 'all' });
+	});
+
+	it('keeps an existing restricted selection', () => {
+		const access: McpAccess = { mode: 'restricted', grants: [] };
+		expect(getSpecificMcpAccess(access, savedAccess, false)).toBe(access);
 	});
 });
