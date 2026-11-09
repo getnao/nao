@@ -8,6 +8,7 @@ import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import type { LinkedStory } from '../types/tools';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { formatStoryFile } from '../utils/story-file-format';
 import {
 	parsePublishedVersionPath,
@@ -96,11 +97,16 @@ export async function writeStoryMountFile(
 		);
 	}
 	const story = await requireCustomStory(scope, target.storyId);
-	await acquireLockForValidatedWrite(story, scope, content);
-	const file = await storyFileQueries.writeDraftFile(story.id, {
-		path: target.filePath,
-		content: await formatStoryFile(target.filePath, content),
-	});
+	const file = await withKeyedLock(
+		`story-mount-write:${story.id}:${scope.userId}:${scope.chatId ?? ''}`,
+		async () => {
+			await acquireLockForValidatedWrite(story, scope, content);
+			return storyFileQueries.writeDraftFile(story.id, {
+				path: target.filePath,
+				content: await formatStoryFile(target.filePath, content),
+			});
+		},
+	);
 	return { path: toStoriesVirtualPath(target.storyId, file.path), size: Buffer.byteLength(file.content, 'utf8') };
 }
 
