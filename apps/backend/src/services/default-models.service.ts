@@ -10,10 +10,12 @@ import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import * as teamsConfigQueries from '../queries/project-teams-config.queries';
 import * as telegramConfigQueries from '../queries/project-telegram-config.queries';
 import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queries';
+import { HandlerError } from '../utils/error';
 import {
 	getDefaultModelId,
 	getProjectAvailableModels,
 	resolveAnnotationModelId,
+	resolveAvailableModelSelection,
 	selectDefaultChatModel,
 } from '../utils/llm';
 import { discordService } from './discord';
@@ -132,9 +134,15 @@ export async function updateIntegrationModel(
 	integration: ModelIntegration,
 	selection: LlmSelectedModel | null,
 ): Promise<void> {
-	const provider = selection?.provider ?? null;
-	const modelId = selection?.modelId ?? null;
-	const llmConfigId = selection?.llmConfigId ?? null;
+	const resolvedSelection = selection
+		? resolveAvailableModelSelection(await getProjectAvailableModels(projectId), selection)
+		: null;
+	if (selection && !resolvedSelection) {
+		throw new HandlerError('BAD_REQUEST', 'The selected model is not available for this project.');
+	}
+	const provider = resolvedSelection?.provider ?? null;
+	const modelId = resolvedSelection?.modelId ?? null;
+	const llmConfigId = resolvedSelection?.llmConfigId ?? null;
 
 	switch (integration) {
 		case 'slack':

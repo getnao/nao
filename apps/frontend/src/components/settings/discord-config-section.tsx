@@ -230,6 +230,11 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 												className='size-4'
 											/>
 											{selectedModel.name}
+											{selectedModel.llmConfigName && (
+												<span className='text-muted-foreground'>
+													{selectedModel.llmConfigName}
+												</span>
+											)}
 										</div>
 									)}
 								</SelectValue>
@@ -243,6 +248,9 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 											className='size-4'
 										/>
 										{model.name}
+										{model.llmConfigName && (
+											<span className='text-muted-foreground'>{model.llmConfigName}</span>
+										)}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -256,6 +264,7 @@ export function DiscordConfigSection({ isAdmin, onCancelSetup }: DiscordConfigSe
 									className='size-4'
 								/>
 								<span>{selectedModel.name}</span>
+								{selectedModel.llmConfigName && <span>{selectedModel.llmConfigName}</span>}
 							</div>
 						)
 					)}
