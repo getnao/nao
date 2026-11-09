@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Check, Copy, Github, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
+import { Calendar, Check, Copy, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
 import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
 import type { McpServerStatus } from '@nao/shared';
 import type { LlmProvider } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
@@ -1342,7 +1343,7 @@ function ToolRow({
 
 	return (
 		<ToolRowShell
-			icon={<Github className='size-4 text-muted-foreground' />}
+			icon={<GithubIcon className='size-4 text-muted-foreground' />}
 			title='GitHub'
 			description={githubDescription}
 			onRemove={onRemoveGithub}
@@ -1526,7 +1527,7 @@ function GithubSubMenu({
 	if (state !== 'ready') {
 		return (
 			<DropdownMenuItem onSelect={() => onAddItem('read')} disabled={state !== 'needs-connect'}>
-				<Github className='size-4' />
+				<GithubIcon className='size-4' />
 				<span>GitHub</span>
 				<GithubMenuItemBadge state={state} />
 			</DropdownMenuItem>
@@ -1537,7 +1538,7 @@ function GithubSubMenu({
 	return (
 		<DropdownMenuSub>
 			<DropdownMenuSubTrigger>
-				<Github className='size-4' />
+				<GithubIcon className='size-4' />
 				<span>GitHub</span>
 			</DropdownMenuSubTrigger>
 			<DropdownMenuSubContent className='min-w-64'>

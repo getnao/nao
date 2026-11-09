@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+
 import { columnsOf } from './columns';
 import { useQueryData } from './hooks';
 import type { Row } from './columns';
@@ -17,6 +19,7 @@ export type BlockData =
 /** Rows come from a chat query by id, or from an array the story computed itself; the latter wins when both are given. */
 export function useBlockData({ queryId, data }: BlockDataSource): BlockData & { refetch: () => void } {
 	const query = useQueryData(queryId ?? '', { enabled: data === undefined && queryId !== undefined });
+	const queryRows = useMemo(() => query.data?.filter(isRow) ?? [], [query.data]);
 
 	if (data !== undefined) {
 		return { status: 'ready', rows: data, columns: columnsOf(data), error: null, refetch: noop };
@@ -30,11 +33,10 @@ export function useBlockData({ queryId, data }: BlockDataSource): BlockData & { 
 	if (query.status === 'error') {
 		return { status: 'error', rows: null, columns: null, error: query.error, refetch: query.refetch };
 	}
-	const rows = query.data.filter(isRow);
 	return {
 		status: 'ready',
-		rows,
-		columns: query.columns.length > 0 ? query.columns : columnsOf(rows),
+		rows: queryRows,
+		columns: query.columns.length > 0 ? query.columns : columnsOf(queryRows),
 		error: null,
 		refetch: query.refetch,
 	};

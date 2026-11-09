@@ -1,5 +1,6 @@
 import {
 	compileRowSecurityConditions,
+	DEFAULT_GROUP_SHARE_TARGETS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
@@ -7,6 +8,7 @@ import {
 	EMPTY_MCP_ACCESS,
 	EMPTY_SKILLS_ACCESS,
 	FREE_CUSTOM_USER_GROUP_LIMIT,
+	type GroupShareTargets,
 	isMicrosoftEntraGroupId,
 	MAX_PRELOADED_SKILLS,
 	type McpAccess,
@@ -52,7 +54,11 @@ import {
 	listEffectiveEntraUserGroupMappings,
 	listEffectiveOidcUserGroupMappings,
 } from '../services/sso-user-group-mapping.service';
-import { assertUserGroupManageable, getAvailableUserGroupOverview } from '../services/user-group-availability.service';
+import {
+	assertUserGroupManageable,
+	getAvailableUserGroupOverview,
+	listActiveUserGroups,
+} from '../services/user-group-availability.service';
 import {
 	getEffectiveUserGroupAccess,
 	getEffectiveUserGroupAccessForUserDetail,
@@ -63,6 +69,7 @@ import { assertMemberBudgetLicensed } from '../utils/member-budget';
 import { parseEntraGroupNaoGroupMapping, parseOidcGroupNaoGroupMapping } from '../utils/sso-group-mapping';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
+const MAX_BULK_MEMBERSHIP_USERS = 1_000;
 const groupNameSchema = z.string().trim().min(1, 'Group name is required.').max(80, 'Group name is too long.');
 const featureGrantsSchema = z.array(z.enum(USER_GROUP_FEATURES)).max(USER_GROUP_FEATURES.length);
 const toolCallDensityPolicySchema = z.object({
@@ -70,6 +77,12 @@ const toolCallDensityPolicySchema = z.object({
 	canChange: z.boolean(),
 });
 const projectSharingSchema = z.enum(PROJECT_SHARING_PERMISSIONS);
+const shareTargetsSchema = z
+	.object({
+		includeOwnGroup: z.boolean(),
+		groupIds: z.array(z.string().min(1)).max(10_000),
+	})
+	.strict();
 const skillNameSchema = z.string().trim().min(1).max(200);
 const preloadedSkillsSchema = z.array(skillNameSchema).max(MAX_PRELOADED_SKILLS);
 const skillsAccessSchema = z.discriminatedUnion('mode', [
@@ -325,6 +338,7 @@ export const userGroupRoutes = {
 				featureGrants: featureGrantsSchema.default([]),
 				toolCallDensityPolicy: toolCallDensityPolicySchema.default(DEFAULT_TOOL_CALL_DENSITY_POLICY),
 				projectSharing: projectSharingSchema.default('inherit'),
+				shareTargets: shareTargetsSchema.default(DEFAULT_GROUP_SHARE_TARGETS),
 				showAllSettings: z.boolean().default(false),
 				preloadedSkills: preloadedSkillsSchema.default([]),
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
@@ -346,6 +360,7 @@ export const userGroupRoutes = {
 			await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () => EMPTY_MCP_ACCESS);
 			const skillsAccess = normalizeSkillsAccess(input.skillsAccess);
 			await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () => EMPTY_SKILLS_ACCESS);
+			const shareTargets = await keepExistingShareTargetGroups(ctx.project.id, input.shareTargets);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			if (input.rowPolicies !== undefined) {
 				await assertRowSecurityLicensed(ctx.project.id);
@@ -374,6 +389,7 @@ export const userGroupRoutes = {
 					input.showAllSettings,
 					input.preloadedSkills,
 					skillsAccess,
+					shareTargets,
 				] as const;
 				return createUserGroup(...values);
 			});
@@ -389,6 +405,7 @@ export const userGroupRoutes = {
 				featureGrants: featureGrantsSchema,
 				toolCallDensityPolicy: toolCallDensityPolicySchema,
 				projectSharing: projectSharingSchema.optional(),
+				shareTargets: shareTargetsSchema.optional(),
 				showAllSettings: z.boolean().optional(),
 				preloadedSkills: preloadedSkillsSchema.optional(),
 				databaseAccess: databaseAccessSchema.optional(),
@@ -422,6 +439,10 @@ export const userGroupRoutes = {
 					getCurrentGroupSkillsAccess(ctx.project.id, input.groupId),
 				);
 			}
+			const shareTargets =
+				input.shareTargets === undefined
+					? undefined
+					: await keepExistingShareTargetGroups(ctx.project.id, input.shareTargets, input.groupId);
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			let rowPoliciesRegistry: ProjectRowSecurity | undefined;
 			if (input.rowPolicies !== undefined) {
@@ -439,6 +460,7 @@ export const userGroupRoutes = {
 					featureGrants: unique(input.featureGrants),
 					toolCallDensityPolicy: input.toolCallDensityPolicy,
 					projectSharing: input.projectSharing,
+					shareTargets,
 					showAllSettings: input.showAllSettings,
 					preloadedSkills: input.preloadedSkills,
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
@@ -483,6 +505,22 @@ export const userGroupRoutes = {
 			await storyQueries.invalidateUserViewerCaches(ctx.project.id, input.userId);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
+
+	setMemberships: adminProtectedProcedure
+		.input(
+			z.object({
+				groupId: z.string().min(1),
+				userIds: z.array(z.string().min(1)).min(1).max(MAX_BULK_MEMBERSHIP_USERS),
+				isMember: z.boolean(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+			await handleQuery(() =>
+				userGroupQueries.setUserGroupMemberships(ctx.project.id, input.groupId, input.userIds, input.isMember),
+			);
+			await revokeUnauthorizedProjectWideShares(ctx.project.id);
+		}),
 };
 
 async function assertGroupBudgetEditable(projectId: string, budgetLimitUsd: number | null | undefined): Promise<void> {
@@ -499,6 +537,25 @@ async function saveGroupBudget(
 	if (budgetLimitUsd !== undefined) {
 		await setGroupBudget(projectId, groupId, budgetLimitUsd);
 	}
+}
+
+/** Drops the group itself and groups that are not active custom groups of the project, like deleted or locked ones. */
+async function keepExistingShareTargetGroups(
+	projectId: string,
+	shareTargets: GroupShareTargets,
+	groupId?: string,
+): Promise<GroupShareTargets> {
+	if (shareTargets.groupIds.length === 0) {
+		return shareTargets;
+	}
+	const groups = await listActiveUserGroups(projectId);
+	const targetableGroupIds = new Set(
+		groups.filter((group) => !group.isDefault && group.id !== groupId).map((group) => group.id),
+	);
+	return {
+		includeOwnGroup: shareTargets.includeOwnGroup,
+		groupIds: unique(shareTargets.groupIds).filter((targetId) => targetableGroupIds.has(targetId)),
+	};
 }
 
 async function assertRowSecurityLicensed(projectId: string): Promise<void> {

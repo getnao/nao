@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	executeQuery: vi.fn(),
 	extractToolCalls: vi.fn(() => []),
+	getAgentSettings: vi.fn(),
 	getAzureAccessTokenForUser: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getProjectRuntimeEnvVars: vi.fn(),
 	hasFeature: vi.fn(),
 	resolveProjectContextAccess: vi.fn(),
+	resolveSemanticLayerMode: vi.fn(),
 	retrieveProjectById: vi.fn(),
 	runTest: vi.fn(),
 	runVerification: vi.fn(),
@@ -20,6 +22,7 @@ vi.mock('../src/middleware/auth', () => ({
 	sessionOrApiKeyAuthMiddleware: vi.fn(),
 }));
 vi.mock('../src/queries/project.queries', () => ({
+	getAgentSettings: mocks.getAgentSettings,
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	retrieveProjectById: mocks.retrieveProjectById,
 }));
@@ -32,6 +35,9 @@ vi.mock('../src/services/microsoft-auth.service', () => ({
 }));
 vi.mock('../src/services/project-runtime-env', () => ({
 	getProjectRuntimeEnvVars: mocks.getProjectRuntimeEnvVars,
+}));
+vi.mock('../src/services/semantic-layer.service', () => ({
+	resolveSemanticLayerMode: mocks.resolveSemanticLayerMode,
 }));
 vi.mock('../src/services/user-group-context-access.service', () => ({
 	resolveProjectContextAccess: mocks.resolveProjectContextAccess,
@@ -62,6 +68,8 @@ describe('test routes', () => {
 			userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
 		});
 		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.getAgentSettings.mockResolvedValue({ semanticLayer: { mode: 'exclusive' } });
+		mocks.resolveSemanticLayerMode.mockReturnValue('exclusive');
 		mocks.getProjectRuntimeEnvVars.mockResolvedValue({
 			WAREHOUSE_HOST: 'warehouse.example.com',
 			WAREHOUSE_PASSWORD: 'encrypted-storage-secret',
@@ -76,7 +84,49 @@ describe('test routes', () => {
 			finishReason: 'stop',
 			durationMs: 1,
 		});
-		mocks.runVerification.mockResolvedValue({ matches: true });
+		mocks.runVerification.mockResolvedValue({ data: [], sql: null, error: null });
+	});
+
+	it('returns the verdict computed from the assertions and the verified data', async () => {
+		mocks.executeQuery.mockResolvedValue({ data: [{ total: 10 }], columns: ['total'] });
+		mocks.runVerification.mockResolvedValue({ data: [{ total: '10' }], sql: 'SELECT total FROM q1', error: null });
+		mocks.extractToolCalls.mockReturnValueOnce([{ toolName: 'execute_sql', toolCallId: '1', args: {} }] as never);
+
+		const reply = await runExpectedQuery({
+			prompt: 'Question',
+			sql: 'SELECT 10 AS total',
+			assertions: [{ type: 'tool_call', tool: 'execute_sql' }],
+		});
+
+		expect(reply.send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				verdict: { passed: true, message: 'tool_call: execute_sql; match', comparison: null },
+			}),
+		);
+	});
+
+	it('sends the verification without the fields released CLIs do not know', async () => {
+		mocks.executeQuery.mockResolvedValue({ data: [{ total: 10 }], columns: ['total'] });
+		mocks.runVerification.mockResolvedValue({
+			data: [{ total: 10 }],
+			sql: 'SELECT total FROM query_1',
+			sourceQueries: [{ id: 'query_1', sql: 'SELECT 10 AS total' }],
+			error: null,
+		});
+
+		const reply = await runExpectedQuery();
+
+		expect(reply.send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				verification: {
+					data: [{ total: 10 }],
+					expectedData: [{ total: 10 }],
+					expectedColumns: ['total'],
+					sql: 'SELECT total FROM query_1',
+					error: null,
+				},
+			}),
+		);
 	});
 
 	it('uses project credentials while keeping expected-query verification restricted', async () => {
@@ -96,6 +146,7 @@ describe('test routes', () => {
 				projectId: 'project-id',
 				supportsCustomCharts: false,
 				agentSettings: null,
+				semanticLayerMode: 'exclusive',
 				adminMode: false,
 				envVars: {
 					WAREHOUSE_HOST: 'warehouse.example.com',
@@ -116,6 +167,30 @@ describe('test routes', () => {
 		expect(reply.status).not.toHaveBeenCalled();
 	});
 
+	it('keeps the reference SQL of users within the semantic layer mode of the project', async () => {
+		await runExpectedQuery();
+
+		expect(mocks.resolveSemanticLayerMode).toHaveBeenCalledWith('/project', {
+			semanticLayer: { mode: 'exclusive' },
+		});
+		expect(mocks.executeQuery).toHaveBeenCalledWith(
+			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
+			expect.objectContaining({ semanticLayerMode: 'exclusive' }),
+		);
+	});
+
+	it.each(['admin', 'context_admin'])('lets the reference SQL of a %s reach the warehouse', async (role) => {
+		mocks.getUserRoleInProject.mockResolvedValue(role);
+
+		await runExpectedQuery();
+
+		expect(mocks.resolveSemanticLayerMode).not.toHaveBeenCalled();
+		expect(mocks.executeQuery).toHaveBeenCalledWith(
+			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
+			expect.objectContaining({ semanticLayerMode: null }),
+		);
+	});
+
 	it('does not load Azure credentials without an SSO license', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
 
@@ -131,12 +206,57 @@ describe('test routes', () => {
 	it('skips SQL verification when the request omits reference sql', async () => {
 		const reply = await runExpectedQuery({ prompt: 'Question' });
 
-		expect(mocks.runTest).toHaveBeenCalledWith('project-id', 'user-id', 'Question', undefined, undefined);
+		expect(mocks.runTest).toHaveBeenCalledWith(
+			'project-id',
+			'user-id',
+			'Question',
+			{ provider: 'openai', modelId: 'gpt-4.1' },
+			undefined,
+		);
 		expect(mocks.retrieveProjectById).not.toHaveBeenCalled();
 		expect(mocks.executeQuery).not.toHaveBeenCalled();
 		expect(mocks.runVerification).not.toHaveBeenCalled();
 		expect(reply.status).not.toHaveBeenCalled();
 		expect(reply.send).toHaveBeenCalledWith(expect.objectContaining({ text: 'answer', verification: undefined }));
+	});
+
+	it('runs the model at the reasoning effort the CLI asks for', async () => {
+		await runExpectedQuery({
+			prompt: 'Question',
+			model: { provider: 'openai', modelId: 'gpt-5', reasoningEffort: 'high' },
+		});
+
+		expect(mocks.runTest).toHaveBeenCalledWith(
+			'project-id',
+			'user-id',
+			'Question',
+			{ provider: 'openai', modelId: 'gpt-5', reasoningEffort: 'high' },
+			undefined,
+		);
+	});
+
+	it('rejects a reasoning effort the model does not support', async () => {
+		const reply = await runExpectedQuery({
+			prompt: 'Question',
+			model: { provider: 'openai', modelId: 'gpt-4.1', reasoningEffort: 'high' },
+		});
+
+		expect(reply.status).toHaveBeenCalledWith(400);
+		expect(reply.send).toHaveBeenCalledWith({
+			error: 'openai:gpt-4.1 cannot run at the reasoning effort high, expected none, as it has no reasoning efforts.',
+		});
+		expect(mocks.runTest).not.toHaveBeenCalled();
+	});
+
+	it('lists the reasoning efforts of a model for the CLI', async () => {
+		const reply = createReply();
+		const app = { addHook: vi.fn(), post: vi.fn(), get: vi.fn() };
+		await testRoutes(app as never);
+		const [, options, handler] = app.get.mock.calls.find(([routePath]) => routePath === '/reasoning-efforts')!;
+
+		await handler({ query: options.schema.querystring.parse({ provider: 'openai', modelId: 'gpt-5' }) }, reply);
+
+		expect(reply.send).toHaveBeenCalledWith({ reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'max'] });
 	});
 
 	it('rejects project viewers before running a test', async () => {
@@ -153,10 +273,13 @@ async function runExpectedQuery(
 	body: Record<string, unknown> = { prompt: 'Question', sql: 'SELECT 1', databaseId: 'warehouse' },
 ) {
 	let handler: (request: unknown, reply: unknown) => Promise<unknown> = async () => {};
+	let bodySchema: { parse: (value: unknown) => unknown } | undefined;
 	const app = {
 		addHook: vi.fn(),
-		post: vi.fn((_path, _options, routeHandler) => {
+		get: vi.fn(),
+		post: vi.fn((_path, options, routeHandler) => {
 			handler = routeHandler;
+			bodySchema = options.schema.body;
 		}),
 	};
 	await testRoutes(app as never);
@@ -166,7 +289,7 @@ async function runExpectedQuery(
 		{
 			project: { id: 'project-id' },
 			user: { id: 'user-id' },
-			body,
+			body: bodySchema?.parse({ model: { provider: 'openai', modelId: 'gpt-4.1' }, ...body }),
 		},
 		reply,
 	);

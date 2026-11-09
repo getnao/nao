@@ -241,7 +241,7 @@ function FileTreeNode({
 				) : (
 					<>
 						<span className='size-3.5 shrink-0' />
-						<FileExplorerIcon name={entry.name} type='file' />
+						<FileExplorerIcon name={entry.name} type='file' path={entry.path} />
 					</>
 				)}
 				<span className='truncate'>{entry.name}</span>

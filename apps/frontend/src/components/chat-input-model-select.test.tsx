@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 
 import { ChatInputModelSelect } from './chat-input-model-select';
 import type { ReactNode } from 'react';
+import type * as SharedTypes from '@nao/shared/types';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({
@@ -32,8 +33,12 @@ vi.mock('@/components/ui/llm-provider-icon', () => ({
 	LlmProviderIcon: ({ provider }: { provider: string }) => <span aria-label={`${provider} model`} />,
 }));
 
-vi.mock('@/hooks/use-model-selection', () => ({
+vi.mock('@nao/shared/types', async (importOriginal) => ({
+	...(await importOriginal<typeof SharedTypes>()),
 	isSameModel: () => false,
+}));
+
+vi.mock('@/hooks/use-model-selection', () => ({
 	useModelSelection: () => ({
 		availableModels: mocks.availableModels,
 		defaultModel: mocks.defaultModel,

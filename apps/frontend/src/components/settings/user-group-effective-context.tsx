@@ -498,7 +498,7 @@ function ContextNode({
 				style={{ paddingLeft: `${getTreeNodePadding(depth)}px` }}
 			>
 				<span className='size-4 shrink-0' />
-				<FileExplorerIcon name={node.name} type='file' />
+				<FileExplorerIcon name={node.name} type='file' path={node.path} />
 				<span className='min-w-0 flex-1 truncate' title={node.path}>
 					{node.name}
 				</span>

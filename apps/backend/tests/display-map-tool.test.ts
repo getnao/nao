@@ -254,4 +254,70 @@ describe('display_map execute — choropleth with boundaries_url', () => {
 		expect(output).toMatchObject({ success: false });
 		expect((output as { error?: string }).error).toContain('missing_key');
 	});
+
+	describe('color_scale', () => {
+		const skewedResults = () =>
+			new Map([
+				[
+					'q1',
+					{
+						columns: ['country', 'value'],
+						data: [
+							{ country: 'FR', value: 0 },
+							{ country: 'DE', value: 5000 },
+						],
+					},
+				],
+			]);
+
+		function mockBoundaries() {
+			vi.mocked(safeFetchModule.safeFetch).mockResolvedValueOnce('');
+			vi.mocked(safeFetchModule.parseAndValidateGeoJson).mockReturnValueOnce({
+				geojson,
+				propertyKeys: ['iso'],
+				featureCount: 2,
+			});
+		}
+
+		it('warns without failing when a log scale meets values ≤ 0', async () => {
+			mockBoundaries();
+			const output = await executeChoropleth({ color_scale: 'log' }, skewedResults());
+			expect(output).toMatchObject({ success: true, region_count: 2 });
+			expect((output as { warning?: string }).warning).toContain('1 row(s) have a value ≤ 0');
+			expect((output as { warning?: string }).warning).toContain('"quantile"');
+		});
+
+		it('says the log scale fell back to linear when no value is positive', async () => {
+			mockBoundaries();
+			const queryResults = new Map([
+				[
+					'q1',
+					{
+						columns: ['country', 'value'],
+						data: [
+							{ country: 'FR', value: 0 },
+							{ country: 'DE', value: -3 },
+						],
+					},
+				],
+			]);
+			const output = await executeChoropleth({ color_scale: 'log' }, queryResults);
+			expect(output).toMatchObject({ success: true });
+			expect((output as { warning?: string }).warning).toContain('fell back to a linear scale');
+		});
+
+		it('stays linear by default and does not warn about values ≤ 0', async () => {
+			mockBoundaries();
+			const output = await executeChoropleth({}, skewedResults());
+			expect(output).toMatchObject({ success: true });
+			expect((output as { warning?: string }).warning).toBeUndefined();
+		});
+
+		it('rejects an unknown color scale', () => {
+			const schema = createDisplayMapTool().inputSchema as {
+				safeParse: (value: unknown) => { success: boolean };
+			};
+			expect(schema.safeParse({ ...choroplethInput, color_scale: 'sqrt' }).success).toBe(false);
+		});
+	});
 });

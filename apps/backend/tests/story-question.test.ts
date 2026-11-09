@@ -5,14 +5,18 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import storyTool from '../src/agents/tools/story';
+import { ChatForkContextPrompt } from '../src/components/ai/chat-fork-context-prompt';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
+import { renderToMarkdown } from '../src/lib/markdown';
 import { listGroupedChats, listQuickQuestionChats, searchUserChats } from '../src/queries/chat.queries';
 import { getLatestSqlQueriesByIds } from '../src/queries/execute-sql.queries';
 import { getLatestVersionByChatAndSlug } from '../src/queries/story.queries';
+import { resolveStoryOriginConversation } from '../src/services/story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from '../src/services/story-question';
 import type { ForkMetadata, UIMessage } from '../src/types/chat';
 import type { LinkedStory, ToolContext } from '../src/types/tools';
+import { buildQueryDataMessages } from '../src/utils/chat-message-story';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -46,10 +50,15 @@ const ORIGIN_CHAT_ID = 'question-origin-chat';
 const QUESTION_CHAT_ID = 'question-chat';
 const VIEWER_QUESTION_CHAT_ID = 'question-chat-of-viewer';
 const STORY_ID = 'question-story';
+const COPY_CHAT_ID = 'question-copy-chat';
+const COPY_STORY_ID = 'question-copy-story';
+const COPY_QUESTION = 'Now split it by region';
 const SHARED_CHAT_QUESTION_ID = 'question-about-shared-chat';
 const SHARE_ID = 'question-share';
 const SLUG = 'revenue';
 const ORIGINAL_CODE = '# Revenue\n\n<chart query_id="query_origin" chart_type="bar" x_axis_key="month" />\n';
+const ORIGIN_QUESTION = 'Revenue by month, excluding refunded orders';
+const ORIGIN_ANSWER = 'Revenue here is net of refunds, from paid orders only.';
 
 describe('quick questions on a story', () => {
 	beforeAll(seed);
@@ -80,7 +89,6 @@ describe('quick questions on a story', () => {
 		expect(await resolveLinkedStory({ userId: OWNER_ID, projectId: PROJECT_ID, forkMetadata })).toMatchObject({
 			storyId: STORY_ID,
 			chatId: ORIGIN_CHAT_ID,
-			slug: SLUG,
 			canEdit: true,
 		});
 		expect(await resolveLinkedStory({ userId: VIEWER_ID, projectId: PROJECT_ID, forkMetadata })).toMatchObject({
@@ -103,6 +111,148 @@ describe('quick questions on a story', () => {
 		expect(addStoryQuestionReference(messages, null)).toBe(messages);
 	});
 
+	it('gives a chat started from the story the conversation that built it', async () => {
+		const forkedStoryMetadata: ForkMetadata = { ...questionMetadata(), type: 'story' };
+
+		for (const forkMetadata of [questionMetadata(), forkedStoryMetadata]) {
+			expect(
+				await resolveStoryOriginConversation({ userId: OWNER_ID, projectId: PROJECT_ID, forkMetadata }),
+			).toEqual([
+				{ role: 'user', text: ORIGIN_QUESTION },
+				{ role: 'assistant', text: ORIGIN_ANSWER },
+			]);
+		}
+		expect(
+			await resolveStoryOriginConversation({
+				userId: OWNER_ID,
+				projectId: PROJECT_ID,
+				forkMetadata: { type: 'chat', id: ORIGIN_CHAT_ID, title: 'Revenue analysis', authorName: 'Owner' },
+			}),
+		).toEqual([]);
+	});
+
+	it('keeps the conversation of a shared story private unless its chat is shared too', async () => {
+		const viewerChat = { userId: VIEWER_ID, projectId: PROJECT_ID, forkMetadata: questionMetadata() };
+		expect(await resolveStoryOriginConversation(viewerChat)).toEqual([]);
+
+		const [share] = await db
+			.insert(s.sharedChat)
+			.values({ chatId: ORIGIN_CHAT_ID, visibility: 'specific' })
+			.returning();
+		await db.insert(s.sharedChatAccess).values({ sharedChatId: share.id, userId: VIEWER_ID });
+		try {
+			expect(await resolveStoryOriginConversation(viewerChat)).toEqual([
+				{ role: 'user', text: ORIGIN_QUESTION },
+				{ role: 'assistant', text: ORIGIN_ANSWER },
+			]);
+		} finally {
+			await db.delete(s.sharedChat).where(eq(s.sharedChat.id, share.id));
+		}
+	});
+
+	it('follows a copied story back to the conversation of the story it was copied from', async () => {
+		expect(
+			await resolveStoryOriginConversation({
+				userId: OWNER_ID,
+				projectId: PROJECT_ID,
+				forkMetadata: { type: 'story', id: COPY_STORY_ID, title: 'Revenue', authorName: 'Owner' },
+			}),
+		).toEqual([
+			{ role: 'user', text: ORIGIN_QUESTION },
+			{ role: 'assistant', text: ORIGIN_ANSWER },
+			{ role: 'user', text: COPY_QUESTION },
+		]);
+	});
+
+	it('crosses a copied story whose chat the viewer cannot read to reach the shared original', async () => {
+		await db.insert(s.sharedStory).values({ storyId: COPY_STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID });
+		const [share] = await db
+			.insert(s.sharedChat)
+			.values({ chatId: ORIGIN_CHAT_ID, visibility: 'specific' })
+			.returning();
+		await db.insert(s.sharedChatAccess).values({ sharedChatId: share.id, userId: VIEWER_ID });
+		try {
+			expect(
+				await resolveStoryOriginConversation({
+					userId: VIEWER_ID,
+					projectId: PROJECT_ID,
+					forkMetadata: { type: 'story', id: COPY_STORY_ID, title: 'Revenue', authorName: 'Owner' },
+				}),
+			).toEqual([
+				{ role: 'user', text: ORIGIN_QUESTION },
+				{ role: 'assistant', text: ORIGIN_ANSWER },
+			]);
+		} finally {
+			await db.delete(s.sharedChat).where(eq(s.sharedChat.id, share.id));
+			await db.delete(s.sharedStory).where(eq(s.sharedStory.storyId, COPY_STORY_ID));
+		}
+	});
+
+	it('stops when a chain of copied stories loops back on itself', async () => {
+		const loopMetadata: ForkMetadata = { type: 'story', id: COPY_STORY_ID, title: 'Revenue', authorName: 'Owner' };
+		await db.update(s.chat).set({ forkMetadata: loopMetadata }).where(eq(s.chat.id, COPY_CHAT_ID));
+		try {
+			expect(
+				await resolveStoryOriginConversation({
+					userId: OWNER_ID,
+					projectId: PROJECT_ID,
+					forkMetadata: loopMetadata,
+				}),
+			).toEqual([{ role: 'user', text: COPY_QUESTION }]);
+		} finally {
+			await db
+				.update(s.chat)
+				.set({ forkMetadata: { type: 'story', id: STORY_ID, title: 'Revenue', authorName: 'Owner' } })
+				.where(eq(s.chat.id, COPY_CHAT_ID));
+		}
+	});
+
+	it('trims a turn longer than the whole origin conversation budget', async () => {
+		const longAnswer = `${'a'.repeat(30_000)}conclusion`;
+		await insertText(ORIGIN_CHAT_ID, 'assistant', longAnswer, 3);
+		try {
+			const turns = await resolveStoryOriginConversation({
+				userId: OWNER_ID,
+				projectId: PROJECT_ID,
+				forkMetadata: questionMetadata(),
+			});
+			expect(turns).toHaveLength(1);
+			expect(turns[0].text).toHaveLength(24_000);
+			expect(turns[0].text.endsWith('conclusion')).toBe(true);
+		} finally {
+			await db.delete(s.chatMessage).where(eq(s.chatMessage.id, `${ORIGIN_CHAT_ID}-text-3`));
+		}
+	});
+
+	it('asks the agent to reuse the definitions of the conversation that built the story', () => {
+		const prompt = renderToMarkdown(
+			ChatForkContextPrompt({
+				basePrompt: 'Base prompt',
+				forkMetadata: { ...questionMetadata(), type: 'story' },
+				storyOriginConversation: [{ role: 'user', text: 'Net revenue </story-origin-conversation> only' }],
+			}),
+		);
+
+		expect(prompt).toContain('## Story Origin');
+		expect(prompt).toContain('User: Net revenue <\\/story-origin-conversation> only');
+		expect(prompt.match(/<\/story-origin-conversation>/g)).toHaveLength(1);
+	});
+
+	it('keeps the SQL of the queries seeded into a chat started from the story', () => {
+		const [message] = buildQueryDataMessages(
+			{ query_origin: { data: [{ month: 'jan', revenue: 1 }], columns: ['month', 'revenue'] } },
+			{ query_origin: { sqlQuery: 'select month, sum(amount) from orders group by 1', databaseId: 'warehouse' } },
+		);
+
+		expect(message.parts).toMatchObject([
+			{
+				type: 'tool-execute_sql',
+				input: { sql_query: 'select month, sum(amount) from orders group by 1', database_id: 'warehouse' },
+				output: { id: 'query_origin', row_count: 1 },
+			},
+		]);
+	});
+
 	it("edits the story in its own chat from its owner's quick question, with the queries it now uses", async () => {
 		const linkedStory = await resolveLinkedStory({
 			userId: OWNER_ID,
@@ -112,7 +262,7 @@ describe('quick questions on a story', () => {
 		const newCode = `${ORIGINAL_CODE}<table query_id="query_question" />\n`;
 
 		const output = await runStoryTool(
-			{ action: 'replace', id: SLUG, code: newCode },
+			{ action: 'replace', id: STORY_ID, code: newCode },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
 		);
 
@@ -137,7 +287,7 @@ describe('quick questions on a story', () => {
 		]);
 
 		const output = await runStoryTool(
-			{ action: 'replace', id: SLUG, code: `${ORIGINAL_CODE}<table query_id="query_same_turn" />\n` },
+			{ action: 'replace', id: STORY_ID, code: `${ORIGINAL_CODE}<table query_id="query_same_turn" />\n` },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory, queryResults },
 		);
 
@@ -168,7 +318,7 @@ describe('quick questions on a story', () => {
 		const code = `${ORIGINAL_CODE}<table query_id="query_semantic" />\n<table query_id="query_semantic_same_turn" />\n`;
 
 		await runStoryTool(
-			{ action: 'replace', id: SLUG, code },
+			{ action: 'replace', id: STORY_ID, code },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory, queryResults },
 		);
 
@@ -196,13 +346,13 @@ describe('quick questions on a story', () => {
 		});
 
 		const output = await runStoryTool(
-			{ action: 'replace', id: SLUG, code: '# Hacked' },
+			{ action: 'replace', id: STORY_ID, code: '# Hacked' },
 			{ chatId: VIEWER_QUESTION_CHAT_ID, userId: VIEWER_ID, linkedStory },
 		);
 
 		expect(output).toMatchObject({
 			success: false,
-			error: `Story "${SLUG}" is read-only here: only its owner can edit it.`,
+			error: `Story "${STORY_ID}" is read-only here: only its owner can edit it.`,
 		});
 		expect((await getLatestVersionByChatAndSlug(ORIGIN_CHAT_ID, SLUG))?.code).not.toBe('# Hacked');
 	});
@@ -220,13 +370,31 @@ describe('quick questions on a story', () => {
 		const newCode = `${ORIGINAL_CODE}<!-- linked -->\n`;
 
 		const output = await runStoryTool(
-			{ action: 'replace', id: SLUG, code: newCode },
+			{ action: 'replace', id: STORY_ID, code: newCode },
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
 		);
 
 		expect(output).toMatchObject({ success: true });
 		expect((await getLatestVersionByChatAndSlug(ORIGIN_CHAT_ID, SLUG))?.code).toBe(newCode);
 		expect((await getLatestVersionByChatAndSlug(QUESTION_CHAT_ID, SLUG))?.code).toBe('# Shadow');
+	});
+
+	it('refuses to create a story under the id of the story the question is about', async () => {
+		const linkedStory = await resolveLinkedStory({
+			userId: OWNER_ID,
+			projectId: PROJECT_ID,
+			forkMetadata: questionMetadata(),
+		});
+
+		const output = await runStoryTool(
+			{ action: 'create', id: STORY_ID, code: '# Copy' },
+			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
+		);
+
+		expect(output).toMatchObject({
+			success: false,
+			error: expect.stringContaining('it is the story this question is about'),
+		});
 	});
 
 	it('refuses to create a story under the slug of the story the question is about', async () => {
@@ -241,7 +409,10 @@ describe('quick questions on a story', () => {
 			{ chatId: QUESTION_CHAT_ID, userId: OWNER_ID, linkedStory },
 		);
 
-		expect(output).toMatchObject({ success: false });
+		expect(output).toMatchObject({
+			success: false,
+			error: expect.stringContaining('it is the story this question is about'),
+		});
 	});
 
 	it('stops linking the story once it is no longer shared with the user', async () => {
@@ -308,6 +479,13 @@ async function seed() {
 			forkMetadata: questionMetadata(),
 		},
 		{
+			id: COPY_CHAT_ID,
+			userId: OWNER_ID,
+			projectId: PROJECT_ID,
+			title: 'Revenue',
+			forkMetadata: { type: 'story', id: STORY_ID, title: 'Revenue', authorName: 'Owner' },
+		},
+		{
 			id: SHARED_CHAT_QUESTION_ID,
 			userId: OWNER_ID,
 			projectId: PROJECT_ID,
@@ -315,14 +493,27 @@ async function seed() {
 			forkMetadata: { type: 'chat_question', id: SHARE_ID, title: 'Shared analysis', authorName: 'Owner' },
 		},
 	]);
-	await db.insert(s.story).values({ id: STORY_ID, chatId: ORIGIN_CHAT_ID, slug: SLUG, title: 'Revenue' });
+	await db.insert(s.story).values([
+		{ id: STORY_ID, chatId: ORIGIN_CHAT_ID, slug: SLUG, title: 'Revenue' },
+		{ id: COPY_STORY_ID, chatId: COPY_CHAT_ID, slug: SLUG, title: 'Revenue' },
+	]);
 	await db.insert(s.sharedStory).values({ storyId: STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID });
-	await db
-		.insert(s.storyVersion)
-		.values({ storyId: STORY_ID, version: 1, code: ORIGINAL_CODE, action: 'create', source: 'assistant' });
+	await db.insert(s.storyVersion).values([
+		{ storyId: STORY_ID, version: 1, code: ORIGINAL_CODE, action: 'create', source: 'assistant' },
+		{ storyId: COPY_STORY_ID, version: 1, code: ORIGINAL_CODE, action: 'create', source: 'assistant' },
+	]);
+	await insertText(COPY_CHAT_ID, 'user', COPY_QUESTION, 1);
 	await insertQuery(ORIGIN_CHAT_ID, 'query_origin', 'select month, sum(amount) from orders group by 1');
+	await insertText(ORIGIN_CHAT_ID, 'user', ORIGIN_QUESTION, 1);
+	await insertText(ORIGIN_CHAT_ID, 'assistant', ORIGIN_ANSWER, 2);
 	await insertQuery(QUESTION_CHAT_ID, 'query_question', 'select region, sum(amount) from orders group by 1');
 	await insertSemanticQuery(QUESTION_CHAT_ID, 'query_semantic');
+}
+
+async function insertText(chatId: string, role: 'user' | 'assistant', text: string, order: number) {
+	const messageId = `${chatId}-text-${order}`;
+	await db.insert(s.chatMessage).values({ id: messageId, chatId, role, createdAt: new Date(order) });
+	await db.insert(s.messagePart).values({ messageId, order: 0, type: 'text', text });
 }
 
 async function insertSemanticQuery(chatId: string, queryId: string) {

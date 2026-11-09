@@ -37,12 +37,14 @@ import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
 import { sqlRoutes } from './sql.routes';
+import { standaloneCustomStoryRoutes } from './standalone-custom-story.routes';
 import { storageRoutes } from './storage.routes';
 import { storyRoutes } from './story.routes';
 import { storyFolderRoutes } from './story-folder.routes';
 import { storyThemeRoutes } from './story-theme.routes';
 import { supportRoutes } from './support.routes';
 import { systemRoutes } from './system.routes';
+import { testRunRoutes } from './test-run.routes';
 import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
 import { usageRoutes } from './usage.routes';
@@ -63,6 +65,7 @@ export const trpcRouter = router({
 	sql: sqlRoutes,
 	sharedChat: sharedChatRoutes,
 	customStoryViewer: customStoryViewerRoutes,
+	standaloneCustomStory: standaloneCustomStoryRoutes,
 	automation: automationRoutes,
 	chatFork: chatForkRoutes,
 	citation: citationRoutes,
@@ -98,6 +101,7 @@ export const trpcRouter = router({
 	support: supportRoutes,
 	system: systemRoutes,
 	skill: skillRoutes,
+	testRun: testRunRoutes,
 	transcribe: transcribeRoutes,
 });
 

@@ -1,4 +1,5 @@
 import type { DBScheduledJob } from '../db/abstractSchema';
+import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
 import { hasRowSecurity, refreshStoryData } from '../services/live-story';
@@ -8,6 +9,7 @@ import {
 	notifyStoryRefreshFailed,
 } from '../services/notification.service';
 import { enqueueOnce } from '../services/scheduler.service';
+import { warmStoryFilterOptions } from '../services/story-filter-options';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
@@ -79,18 +81,15 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	});
 
 	try {
-		let queryData = {};
+		const { queryData } = await refreshStoryData(story.chatId, story.slug, {
+			billingAccessVerifiedProjectId: projectId,
+		});
 		if (rowSecurityEnabled) {
 			await storyQueries.deleteStoryViewerDataCache(story.id);
-		} else {
-			queryData = (
-				await refreshStoryData(story.chatId, story.slug, {
-					billingAccessVerifiedProjectId: projectId,
-				})
-			).queryData;
 		}
 		const queriesRefreshed = Object.keys(queryData).length;
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
+		await warmFilterOptionsAfterRefresh(story.chatId, story.slug, projectId, storyId);
 		await notifyStoryRefreshed({
 			projectId,
 			ownerId: userId,
@@ -156,4 +155,17 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 		});
 		throw err;
 	}
+}
+
+async function warmFilterOptionsAfterRefresh(chatId: string, slug: string, projectId: string, storyId: string) {
+	if (!env.BETA_STORY_FILTERS_ENABLED) {
+		return;
+	}
+	await warmStoryFilterOptions(chatId, slug, { billingAccessVerifiedProjectId: projectId }).catch((error) => {
+		logger.warn(`Failed to warm story filter options: ${String(error)}`, {
+			source: 'system',
+			projectId,
+			context: { storyId },
+		});
+	});
 }

@@ -462,6 +462,9 @@ const isReservedBackendPath = (url: string) => {
 	);
 };
 
+/** Hashed build chunks must 404 when missing (e.g. after a deploy) rather than fall back to index.html. */
+const isBuiltAssetPath = (url: string) => url.startsWith('/assets/');
+
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
 /** Only the sandboxed custom-story frame (opaque origin) gets CORS access, and only to the story runtime modules. */
@@ -489,7 +492,7 @@ if (staticRoot) {
 // SPA fallback: serve index.html for all non-API routes.
 // In dev mode without a built frontend, redirect to the Vite dev server.
 app.setNotFoundHandler((request, reply) => {
-	if (isReservedBackendPath(request.url)) {
+	if (isReservedBackendPath(request.url) || isBuiltAssetPath(request.url)) {
 		reply.status(404).send({ error: 'Not found' });
 	} else if (staticRoot) {
 		reply.sendFile('index.html');

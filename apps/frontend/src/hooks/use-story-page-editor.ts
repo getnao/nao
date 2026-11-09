@@ -117,7 +117,7 @@ export function useStoryPageEditor({
 		versionNav: {
 			currentVersion: currentVersionNumber,
 			storedVersionNumber,
-			versionDates: versions.map((version) => version.createdAt),
+			versions,
 			versionDate: currentVersion?.createdAt,
 			isViewingLatest,
 			goToVersion: (versionNumber: number) => exitGuard.requestExit(() => goToVersion(versionNumber)),

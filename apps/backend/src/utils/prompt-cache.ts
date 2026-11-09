@@ -33,7 +33,7 @@ export function addPromptCache(messages: ModelMessage[], modelSelection: LlmSele
 		cachedMessages[0] = withPromptCache(cachedMessages[0], cacheProvider, '1h');
 	}
 	if (cachedMessages.length > 1) {
-		cachedMessages[lastIndex] = withPromptCache(cachedMessages[lastIndex], cacheProvider, '5m');
+		cachedMessages[lastIndex] = withLastMessageCache(cachedMessages[lastIndex], cacheProvider);
 	}
 	return withCrossTurnBreakpoints(cachedMessages, cacheProvider);
 }
@@ -53,6 +53,21 @@ export function getPromptCacheProvider(modelSelection: LlmSelectedModel): Prompt
 		return 'bedrock';
 	}
 	return null;
+}
+
+/**
+ * OpenRouter copies a tool message's breakpoint onto each of its results, so parallel tool calls
+ * would exceed Anthropic's limit of 4 breakpoints: mark the last tool result only.
+ */
+function withLastMessageCache(message: ModelMessage, provider: PromptCacheProvider): ModelMessage {
+	if (provider !== 'anthropic' || message.role !== 'tool') {
+		return withPromptCache(message, provider, '5m');
+	}
+	const lastResultIndex = message.content.map((part) => part.type === 'tool-result').lastIndexOf(true);
+	const content = message.content.map((part, index) =>
+		index === lastResultIndex && part.type === 'tool-result' ? withPromptCache(part, provider, '5m') : part,
+	);
+	return { ...message, content };
 }
 
 /**

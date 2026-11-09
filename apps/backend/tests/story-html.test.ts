@@ -79,3 +79,37 @@ describe('generateStoryHtml theme', () => {
 		expect(html).toContain('background:#e8dcc4');
 	});
 });
+
+const LEGEND_MARKER = 'gap:16px;padding-top:12px';
+
+describe('generateStoryHtml chart legend visibility', () => {
+	const chartStory = (chartType: string, attr = '') => ({
+		title: 'Story',
+		code: `<chart query_id="q2" chart_type="${chartType}" x_axis_key="month" series='[{"data_key":"orders"}]' title="Orders"${attr} />`,
+	});
+
+	it('shows the legend of a single-series bar chart by default', async () => {
+		expect(await generateStoryHtml(chartStory('bar'), QUERY_DATA)).toContain(LEGEND_MARKER);
+	});
+
+	it('hides the legend when show_legend is false', async () => {
+		const html = await generateStoryHtml(chartStory('bar', ' show_legend="false"'), QUERY_DATA);
+
+		expect(html).not.toContain(LEGEND_MARKER);
+	});
+
+	it('shows the legend of a single-series horizontal bar chart when show_legend is true', async () => {
+		expect(await generateStoryHtml(chartStory('horizontal_bar'), QUERY_DATA)).not.toContain(LEGEND_MARKER);
+		expect(await generateStoryHtml(chartStory('horizontal_bar', ' show_legend="true"'), QUERY_DATA)).toContain(
+			LEGEND_MARKER,
+		);
+	});
+
+	it('hides the legend of emailed charts when show_legend is false', async () => {
+		const shown = await generateStoryEmailHtml(chartStory('bar'), QUERY_DATA);
+		const hidden = await generateStoryEmailHtml(chartStory('bar', ' show_legend="false"'), QUERY_DATA);
+
+		expect(shown.html).toContain(LEGEND_MARKER);
+		expect(hidden.html).not.toContain(LEGEND_MARKER);
+	});
+});

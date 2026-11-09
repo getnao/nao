@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
 import { useOnboardingCompletion } from '@/hooks/use-onboarding-completion';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
@@ -35,7 +36,6 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
 import { findStories } from '@/lib/story.utils';
@@ -100,12 +100,12 @@ function ChatPage() {
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const { complete: onboardingComplete } = useOnboardingCompletion(chatId, isOnboardingChat);
+	const { limbo } = useCloudSetupState();
+	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
 	const showTrialOnboardingBanner =
 		config.data?.naoMode === 'cloud' &&
-		currentProject.isSuccess &&
-		currentProject.data === null &&
-		!chat.data?.isOnboarding;
-	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
+		!chat.data?.isOnboarding &&
+		((currentProject.isSuccess && currentProject.data === null) || (limbo && isExampleChat));
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
 
@@ -119,7 +119,6 @@ function ChatPage() {
 	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-	const chatInputCallback = useSetChatInputCallback();
 
 	useTrackViewDuration({ assetType: 'chat', chatId });
 
@@ -127,10 +126,9 @@ function ChatPage() {
 		(data: SelectionData) => {
 			const { range, ...selection } = data;
 			const storyMeta = resolveStoryCitationMeta(sidePanel.currentStorySlug, range);
-			chatPendingCitationStore.set({ chatId, ...selection, ...storyMeta });
-			chatInputCallback.fire('');
+			chatPendingCitationStore.add(chatId, { ...selection, ...storyMeta });
 		},
-		[chatId, chatInputCallback, sidePanel.currentStorySlug],
+		[chatId, sidePanel.currentStorySlug],
 	);
 
 	const isSelectionFork = SELECTION_FORK_TYPES.includes(chat.data?.forkMetadata?.type ?? 'chat');
@@ -369,12 +367,12 @@ function findLatestStorySlug(messages: UIMessage[]): string | undefined {
 function resolveStoryCitationMeta(
 	currentStorySlug: string | null,
 	range: Range,
-): { storySlug: string; start: number; end: number } | null {
+): { storySlug: string; storyChatId?: string; start: number; end: number } | null {
 	if (!currentStorySlug) {
 		return null;
 	}
 
-	const storyContainer = document.querySelector('[data-story-content]');
+	const storyContainer = document.querySelector<HTMLElement>('[data-story-content]');
 	if (!storyContainer || !storyContainer.contains(range.commonAncestorContainer)) {
 		return null;
 	}
@@ -385,7 +383,7 @@ function resolveStoryCitationMeta(
 		return null;
 	}
 
-	return { storySlug: currentStorySlug, start, end };
+	return { storySlug: currentStorySlug, storyChatId: storyContainer.dataset.storyChatId, start, end };
 }
 
 function buildHeaderCitation(meta: ForkMetadata | undefined): { citation: string; text: string } | null {

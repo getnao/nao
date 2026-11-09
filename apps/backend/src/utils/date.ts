@@ -134,6 +134,7 @@ export function fillMissingDates(
 				adminMessageCount: 0,
 				mcpMessageCount: 0,
 				contextRecommendationsMessageCount: 0,
+				testMessageCount: 0,
 				inputNoCacheTokens: 0,
 				inputCacheReadTokens: 0,
 				inputCacheWriteTokens: 0,

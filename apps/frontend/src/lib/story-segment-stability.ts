@@ -79,7 +79,13 @@ function reuseStoryBlock<T extends StoryBlock>(
 	if (!key) {
 		return block;
 	}
-	return (previousBlocks.get(key) as T | undefined) ?? block;
+	const previous = previousBlocks.get(key) as T | undefined;
+	return previous && isSameBlock(previous, block) ? previous : block;
+}
+
+/** The raw tag can stay the same while its parsed content changes, e.g. when a story parameter switches. */
+function isSameBlock(previous: StoryBlock, next: StoryBlock): boolean {
+	return JSON.stringify(previous) === JSON.stringify(next);
 }
 
 function storeStoryBlock(

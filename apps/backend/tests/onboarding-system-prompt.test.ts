@@ -166,6 +166,15 @@ describe('onboarding system prompt', () => {
 
 		expect(prompt).toContain('Call onboarding_progress with flow "github" and step 2');
 		expect(prompt).toContain('GitHub: 1 Connect GitHub, 2 Import repository');
+		expect(prompt).toContain('If the import report says that no database is configured');
+		expect(prompt).toContain('if the import report lists missing environment variables');
+		expect(prompt).toContain('Do not state that onboarding is complete');
+		expect(prompt).toContain(
+			'If the import report says the user is a project admin, tell them to enter the values in the "Environment variables" card above the chat.',
+		);
+		expect(prompt).toContain('If the import report says the user is not a project admin');
+		expect(prompt).toContain('tell them to ask a project admin to set the listed variables');
+		expect(prompt).toContain('Never ask them to paste the values in chat');
 		expect(prompt).not.toContain('flow "github" and step 4');
 	});
 });

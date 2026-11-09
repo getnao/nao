@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
+import { getStoryParametersFromCode, resolveStoryParameters, splitCodeIntoSegments } from '@nao/shared/story-segments';
 
 import { stabilizeStorySegments } from './story-segment-stability';
 
@@ -44,6 +44,26 @@ describe('stabilizeStorySegments', () => {
 		}
 
 		expect(second[0].chart).not.toBe(first[0].chart);
+	});
+
+	it('refreshes a block whose raw tag is unchanged when a story parameter switches', () => {
+		const code = [
+			`<parameter id="metric" options='["revenue","orders"]' />`,
+			'<chart query_id="query" chart_type="line" x_axis_key="month" series=\'[{"data_key":"{{ params.metric }}"}]\' />',
+		].join('\n');
+		const parameters = getStoryParametersFromCode(code);
+		const first = stabilizeStorySegments(splitCodeIntoSegments(code, resolveStoryParameters(parameters)), []);
+		const second = stabilizeStorySegments(
+			splitCodeIntoSegments(code, resolveStoryParameters(parameters, { metric: 'orders' })),
+			first,
+		);
+
+		if (first[0]?.type !== 'chart' || second[0]?.type !== 'chart') {
+			throw new Error('Expected chart segments');
+		}
+
+		expect(second[0].chart.rawTag).toBe(first[0].chart.rawTag);
+		expect(second[0].chart.series[0]?.data_key).toBe('orders');
 	});
 
 	it('reuses unchanged blocks nested in grids', () => {

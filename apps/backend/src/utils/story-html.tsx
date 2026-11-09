@@ -3,12 +3,14 @@ import {
 	bubbleLegendValues,
 	bucketPieData,
 	buildChoroplethEntries,
+	buildChoroplethLegend,
+	buildChoroplethScale,
 	buildMapPoints,
-	CHOROPLETH_MAX_OPACITY,
 	CHOROPLETH_MIN_OPACITY,
+	type ChoroplethLegendModel,
 	choroplethOpacity,
+	choroplethOpacityExpression,
 	choroplethTooltipKeys,
-	choroplethValueDomain,
 	computeKpiComparison,
 	type CustomBoundarySet,
 	DEFAULT_MARKER_COLOR,
@@ -547,7 +549,7 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
 	const isHorizontalBar = chart.chartType === 'horizontal_bar' || chart.chartType === 'horizontal_bar_100';
-	const showLegend = !isPie && (!isHorizontalBar || chart.series.length >= 2);
+	const showLegend = !isPie && (chart.showLegend ?? (!isHorizontalBar || chart.series.length >= 2));
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
@@ -650,7 +652,7 @@ function EmailChart({
 					alt={chart.title || 'Chart'}
 					style={{ display: 'block', width: '100%', maxWidth: CHART_WIDTH, height: 'auto' }}
 				/>
-				{!isPie && <ChartLegend series={chart.series} />}
+				{!isPie && chart.showLegend !== false && <ChartLegend series={chart.series} />}
 			</div>
 		);
 	} catch {
@@ -1169,7 +1171,7 @@ function ChoroplethMapBlock({
 	if (payload.regions.length === 0) {
 		return <Placeholder label={map.title || 'Map'} message='No regions to shade' />;
 	}
-	const legend = payload.domain ? <ChoroplethLegendOverlay color={payload.color} domain={payload.domain} /> : null;
+	const legend = payload.legend ? <ChoroplethLegendOverlay color={payload.color} legend={payload.legend} /> : null;
 	if (staticMaps) {
 		return <StaticChoroplethMap map={map} payload={payload} legend={legend} />;
 	}
@@ -1289,7 +1291,8 @@ interface PointPayload {
 interface ChoroplethPayload {
 	type: 'choropleth';
 	color: string;
-	domain: NumericDomain | null;
+	legend: ChoroplethLegendModel | null;
+	fillOpacity: number | unknown[];
 	boundaryUrl: string | null;
 	joinProps: string[] | null;
 	inlineGeoJson?: unknown;
@@ -1364,9 +1367,9 @@ function buildChoroplethPayload(
 		});
 	}
 	const color = config.color?.trim() || DEFAULT_MARKER_COLOR;
-	const domain = choroplethValueDomain(entries);
+	const scale = buildChoroplethScale(entries, config.color_scale);
 	for (const region of regions) {
-		region.dot = withOpacity(color, choroplethOpacity(region.value, domain));
+		region.dot = withOpacity(color, choroplethOpacity(region.value, scale));
 	}
 	const regionBoundaries = config.region_boundaries;
 	const inlinedByKey = regionBoundaries ? inlinedBoundaries?.get(regionBoundaries) : undefined;
@@ -1398,7 +1401,8 @@ function buildChoroplethPayload(
 	return {
 		type: 'choropleth',
 		color,
-		domain,
+		legend: scale && buildChoroplethLegend(scale),
+		fillOpacity: choroplethOpacityExpression(scale),
 		boundaryUrl,
 		joinProps,
 		...(inlineGeoJson !== undefined && { inlineGeoJson }),
@@ -1416,7 +1420,26 @@ function builtinBoundaryUrl(set: string): string {
 	return '';
 }
 
-function ChoroplethLegendOverlay({ color, domain }: { color: string; domain: NumericDomain }) {
+function ChoroplethLegendOverlay({ color, legend }: { color: string; legend: ChoroplethLegendModel }) {
+	if (legend.kind === 'classes') {
+		return (
+			<div style={{ ...LEGEND_BOX_STYLE, display: 'grid', gap: 2, color: '#6b7280' }}>
+				{legend.classes.map((item) => (
+					<div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+						<span
+							style={{
+								width: 10,
+								height: 10,
+								borderRadius: 2,
+								background: withOpacity(color, item.opacity),
+							}}
+						/>
+						<span>{item.label}</span>
+					</div>
+				))}
+			</div>
+		);
+	}
 	return (
 		<div style={LEGEND_BOX_STYLE}>
 			<div
@@ -1427,9 +1450,31 @@ function ChoroplethLegendOverlay({ color, domain }: { color: string; domain: Num
 					background: `linear-gradient(to right, ${withOpacity(color, CHOROPLETH_MIN_OPACITY)}, ${color})`,
 				}}
 			/>
-			<div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, color: '#6b7280' }}>
-				<span>{formatCompactNumber(domain.min)}</span>
-				<span>{formatCompactNumber(domain.max)}</span>
+			<div
+				style={{
+					position: 'relative',
+					display: 'flex',
+					justifyContent: 'space-between',
+					marginTop: 4,
+					color: '#6b7280',
+				}}
+			>
+				{legend.ticks.map((tick) =>
+					tick.align === 'center' ? (
+						<span
+							key={tick.position}
+							style={{
+								position: 'absolute',
+								left: `${tick.position * 100}%`,
+								transform: 'translateX(-50%)',
+							}}
+						>
+							{tick.label}
+						</span>
+					) : (
+						<span key={tick.position}>{tick.label}</span>
+					),
+				)}
 			</div>
 		</div>
 	);
@@ -1528,6 +1573,7 @@ function toChartConfig(chart: ParsedChartBlock) {
 		y_axis_right_label: chart.yAxisRightLabel,
 		title: chart.title,
 		show_data_labels: chart.showDataLabels,
+		show_legend: chart.showLegend,
 	};
 }
 
@@ -1979,12 +2025,6 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 const MAP_INIT_SCRIPT_TEMPLATE = `
 function naoInitMaps(maplibregl){
 	var STYLE_URL=__MAP_STYLE_URL__;
-	var MIN_OPACITY=${CHOROPLETH_MIN_OPACITY};
-	var MAX_OPACITY=${CHOROPLETH_MAX_OPACITY};
-	function fillOpacity(domain){
-		if(!domain||domain.min===domain.max)return (MIN_OPACITY+MAX_OPACITY)/2;
-		return ['interpolate',['linear'],['coalesce',['get','value'],domain.min],domain.min,MIN_OPACITY,domain.max,MAX_OPACITY];
-	}
 	var containers=document.querySelectorAll('.nao-map');
 	if(!containers.length){window.__naoMapsReady=true;window.__naoMapsRendered=0;return;}
 	var pending=containers.length;
@@ -2053,7 +2093,7 @@ function naoInitMaps(maplibregl){
 			features.push({type:'Feature',geometry:geometry,properties:{value:region.value,tip:JSON.stringify({label:region.label,rows:region.rows,dot:region.dot})}});
 		});
 		map.addSource('query-regions',{type:'geojson',data:{type:'FeatureCollection',features:features}});
-		map.addLayer({id:'query-regions-fill',type:'fill',source:'query-regions',paint:{'fill-color':cfg.color,'fill-opacity':fillOpacity(cfg.domain)}});
+		map.addLayer({id:'query-regions-fill',type:'fill',source:'query-regions',paint:{'fill-color':cfg.color,'fill-opacity':cfg.fillOpacity}});
 		map.addLayer({id:'query-regions-line',type:'line',source:'query-regions',paint:{'line-color':'#ffffff','line-width':0.75,'line-opacity':0.6}});
 		var bounds=new maplibregl.LngLatBounds();
 		features.forEach(function(f){extendBounds(bounds,f.geometry.coordinates);});

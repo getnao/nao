@@ -312,9 +312,34 @@ describe('validateStoryCode', () => {
 		it('flags select filters without any options source', () => {
 			expect(
 				validateStoryCode('<filter id="country" type="select" />').some((e) =>
-					/require either `options=/.test(e.message),
+					/Select filters require `options=.*an `options_query_id`, or a semantic layer `dimension`/.test(
+						e.message,
+					),
 				),
 			).toBe(true);
+		});
+
+		it('accepts select filters bound to a semantic layer dimension', () => {
+			expect(
+				validateStoryCode('<filter id="region" type="multi_select" dimension="customer__region" />'),
+			).toEqual([]);
+		});
+
+		it('flags malformed dimensions and metric without dimension', () => {
+			const messages = [
+				...validateStoryCode(`<filter id="region" type="select" dimension="customer.region" />`),
+				...validateStoryCode(`<filter id="region" type="select" options='["EU"]' metric="revenue" />`),
+			].map((error) => error.message);
+			expect(messages.some((message) => message.includes('Invalid dimension "customer.region"'))).toBe(true);
+			expect(messages.some((message) => message.includes('`metric` only applies'))).toBe(true);
+		});
+
+		it('requires a dimension on the parent of a dimension-bound dependent filter', () => {
+			const code = [
+				'<filter id="category" type="select" table="products" column="category" />',
+				'<filter id="subcategory" type="select" dimension="product__subcategory" depends_on="category" />',
+			].join('\n');
+			expect(validateStoryCode(code).some((error) => error.message.includes('needs a `dimension`'))).toBe(true);
 		});
 
 		it('flags invalid filter types', () => {
@@ -336,6 +361,77 @@ describe('validateStoryCode', () => {
 				'<filter id="country" column="region" type="select" table="orders" />',
 			].join('\n');
 			expect(validateStoryCode(code).some((e) => /must be unique/.test(e.message))).toBe(true);
+		});
+
+		it('accepts text filters with a numeric value type', () => {
+			expect(validateStoryCode('<filter id="user" label="User ID" type="text" value_type="number" />')).toEqual(
+				[],
+			);
+		});
+
+		it('flags value_type on non-text filters and unknown value types', () => {
+			const messages = [
+				...validateStoryCode('<filter id="q" type="search" value_type="number" />'),
+				...validateStoryCode('<filter id="user" type="text" value_type="integer" />'),
+			].map((error) => error.message);
+			expect(messages.some((message) => message.includes('only applies to type="text"'))).toBe(true);
+			expect(messages.some((message) => message.includes('Invalid value_type "integer"'))).toBe(true);
+		});
+
+		it('flags allow_custom outside select filters', () => {
+			const errors = validateStoryCode('<filter id="q" type="search" allow_custom="true" />');
+			expect(errors.some((error) => error.message.includes('`allow_custom` only applies'))).toBe(true);
+		});
+
+		it('accepts a sub-category filter that depends on its category', () => {
+			const code = [
+				'<filter id="category" type="select" table="products" column="category" />',
+				'<filter id="subcategory" type="multi_select" table="products" column="subcategory" depends_on="category" />',
+			].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags depends_on pointing to unknown filters, hardcoded options or cycles', () => {
+			const unknownParent = validateStoryCode(
+				'<filter id="sub" type="select" table="products" column="sub" depends_on="category" />',
+			);
+			expect(unknownParent.some((error) => error.message.includes('unknown filter "category"'))).toBe(true);
+
+			const hardcoded = validateStoryCode(
+				`<filter id="sub" type="select" options='["a"]' depends_on="category" />`,
+			);
+			expect(hardcoded.some((error) => error.message.includes('`depends_on` requires'))).toBe(true);
+
+			const cycle = validateStoryCode(
+				[
+					'<filter id="a" type="select" table="t" column="a" depends_on="b" />',
+					'<filter id="b" type="select" table="t" column="b" depends_on="a" />',
+				].join('\n'),
+			);
+			expect(cycle.some((error) => error.message.includes('depends_on cycle'))).toBe(true);
+		});
+
+		it('accepts a parameter with value or labelled options', () => {
+			const code = [
+				`<parameter id="metric" type="metric" options='[{"value":"revenue","label":"Revenue"},"unique_sales"]' default="revenue" />`,
+				`<parameter id="grain" options='["week","month"]' />`,
+			].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags invalid parameters', () => {
+			const messages = [
+				...validateStoryCode(`<parameter id="metric" options='["revenue"]' default="orders" />`),
+				...validateStoryCode(`<parameter id="metric" options='[]' />`),
+				...validateStoryCode(`<parameter id="metric" type="dimension" options='["a"]' />`),
+				...validateStoryCode(`<filter id="metric" type="search" />\n<parameter id="metric" options='["a"]' />`),
+			].map((error) => error.message);
+			expect(messages.some((message) => message.includes('default "orders" is not one of its options'))).toBe(
+				true,
+			);
+			expect(messages.some((message) => message.includes('non-empty JSON array'))).toBe(true);
+			expect(messages.some((message) => message.includes('Invalid parameter type "dimension"'))).toBe(true);
+			expect(messages.some((message) => message.includes('must be unique among'))).toBe(true);
 		});
 
 		it('accepts a filter tag whose attributes span several lines', () => {

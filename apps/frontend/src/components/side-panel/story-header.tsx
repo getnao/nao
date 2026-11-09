@@ -20,12 +20,19 @@ import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
 import type { StoryDownloadOptions } from '@/components/story-download';
 import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
-import { CustomStoryViewModeToggle, isCustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import type { StoryVersionEntry } from '@/components/story-version-nav';
+import {
+	CustomStoryElementSelectionToggle,
+	CustomStoryViewModeToggle,
+	isCustomStoryViewMode,
+} from '@/components/custom-story/custom-story-view-mode';
 import { useMentionedStoriesContext } from '@/contexts/mentioned-stories';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
 import {
 	ShareButton,
+	StoryDuplicateMenuItem,
 	StoryFavoriteMenuItem,
 	StoryFavoritedButton,
 	StoryFeedbackButtons,
@@ -61,7 +68,7 @@ interface StoryHeaderBaseProps {
 	allStories: StorySummary[];
 	onSwitchStory: (id: string) => void;
 	currentVersion: number;
-	versionDates: (string | Date)[];
+	versions: StoryVersionEntry[];
 	versionNumber?: number;
 	versionDate?: string | Date | null;
 	onSelectVersion: (version: number) => void;
@@ -115,7 +122,7 @@ export const StoryHeader = memo(function StoryHeader({
 	allStories,
 	onSwitchStory,
 	currentVersion,
-	versionDates,
+	versions,
 	versionNumber,
 	versionDate,
 	onSelectVersion,
@@ -147,6 +154,7 @@ export const StoryHeader = memo(function StoryHeader({
 }: StoryHeaderProps) {
 	const { viewMode } = viewModeControls;
 	const isMobile = useIsMobile();
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { otherStories, switchToStory, mentionedStories, openMentionedStory } = useSwitchableStories({
 		chatId,
 		storySlug,
@@ -222,8 +230,9 @@ export const StoryHeader = memo(function StoryHeader({
 
 	const versionNav = (
 		<StoryVersionNav
+			storyId={storyId}
 			currentVersion={currentVersion}
-			versionDates={versionDates}
+			versions={versions}
 			onSelectVersion={onSelectVersion}
 		/>
 	);
@@ -313,9 +322,15 @@ export const StoryHeader = memo(function StoryHeader({
 	};
 	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
 	const canFavorite = !isReadonlyMode && !!storyId;
+	const canDuplicate =
+		!isReadonlyMode && (customStoryCreationEnabled || !isCustomStoryViewModeControls(viewModeControls));
 
 	const feedbackButtons = storyId ? <StoryFeedbackButtons storyId={storyId} /> : null;
 	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
+
+	const elementSelectionToggle = isCustomStoryViewModeControls(viewModeControls) && (
+		<CustomStoryElementSelectionToggle {...viewModeControls} />
+	);
 
 	const actionButtons = showActionsMenu && (
 		<DropdownMenu>
@@ -339,6 +354,7 @@ export const StoryHeader = memo(function StoryHeader({
 						</DropdownMenuItem>
 					</>
 				)}
+				{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} versionNumber={versionNumber} />}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -364,6 +380,7 @@ export const StoryHeader = memo(function StoryHeader({
 						{favoritedButton}
 						{shareButton}
 						{replayAnalyticsButton}
+						{elementSelectionToggle}
 						{actionButtons}
 					</div>
 					<div className='flex items-center gap-2 border-b px-4 py-2'>
@@ -392,6 +409,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{favoritedButton}
 					{shareButton}
 					{replayAnalyticsButton}
+					{elementSelectionToggle}
 					{actionButtons}
 				</div>
 			)}

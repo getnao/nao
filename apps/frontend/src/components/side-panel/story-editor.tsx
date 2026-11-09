@@ -1,11 +1,13 @@
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { EditorContent } from '@tiptap/react';
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
+import { getStoryParametersFromCode, resolveStoryParameters } from '@nao/shared/story-segments';
 import { StoryBlockActionGrip } from './story-editor-block-drag';
 import { getStoryEditorMarkdown } from './story-editor-utils';
 import { useStoryEditor } from './hooks/use-story-editor';
 import { BlockSelectionContext, SelectedBlockPositionsContext } from './story-block-selection-context';
 import { GridDragContext, StoryBlockDragContext } from './story-editor-drag-context';
+import { StoryEditorParametersContext } from './story-editor-parameters-context';
 import type { StoryEditorDragControls } from './story-editor-drag-context';
 import type { Editor } from '@tiptap/react';
 import { cn } from '@/lib/utils';
@@ -15,6 +17,8 @@ export { StoryBlockDragGrip, StoryBlockDropZones } from './story-editor-block-dr
 
 interface StoryEditorProps {
 	code: string;
+	/** Full story code holding the <parameter> tags, when `code` is only one tab of it. */
+	parameterCode?: string;
 	editorRef: React.MutableRefObject<Editor | null>;
 	onSave?: () => void;
 	onDragControlsChange?: (controls: StoryEditorDragControls | null) => void;
@@ -23,6 +27,7 @@ interface StoryEditorProps {
 
 export const StoryEditor = memo(function StoryEditor({
 	code,
+	parameterCode,
 	editorRef,
 	onSave,
 	onDragControlsChange,
@@ -41,6 +46,11 @@ export const StoryEditor = memo(function StoryEditor({
 		onElementDragEnd,
 		getDragHandleOrigin,
 	} = useStoryEditor({ code, editorRef, onSave, onDragControlsChange, onChange });
+	const parameterSource = parameterCode ?? code;
+	const parameterDefaults = useMemo(
+		() => resolveStoryParameters(getStoryParametersFromCode(parameterSource)),
+		[parameterSource],
+	);
 
 	const hideFloatingHandle =
 		handleNodeType === 'gridBlock' ||
@@ -78,7 +88,9 @@ export const StoryEditor = memo(function StoryEditor({
 					)}
 					<BlockSelectionContext.Provider value={selectedGridColumns}>
 						<SelectedBlockPositionsContext.Provider value={selectedBlocks}>
-							<EditorContent editor={editor} />
+							<StoryEditorParametersContext.Provider value={parameterDefaults}>
+								<EditorContent editor={editor} />
+							</StoryEditorParametersContext.Provider>
 						</SelectedBlockPositionsContext.Provider>
 					</BlockSelectionContext.Provider>
 				</div>

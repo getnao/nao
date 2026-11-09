@@ -335,4 +335,32 @@ describe('AssistantTextWithCitation', () => {
 		expect(screen.queryByTestId('story-card')).toBeNull();
 		expect(container.querySelector('code')?.textContent).toContain('<story-reference id="story-1">');
 	});
+
+	it.each([false, true])('renders Hebrew and Arabic answers right-to-left while streaming is %s', (isStreaming) => {
+		const { container } = renderAnswer('שלום, ההכנסות עלו ב-12%\n\n- مرحبا بكم\n- ثانيا', isStreaming);
+
+		expect(getDirection(container, 'שלום, ההכנסות עלו ב-12%')).toBe('rtl');
+		expect(getDirection(container, 'مرحبا بكم')).toBe('rtl');
+	});
+
+	it.each([false, true])(
+		'detects direction per block in a mixed-language answer while streaming is %s',
+		(isStreaming) => {
+			const { container } = renderAnswer(
+				'Revenue grew last quarter.\n\nההכנסות עלו ברבעון האחרון.\n\n```sql\nSELECT 1\n```\n\nDone.',
+				isStreaming,
+			);
+
+			expect(getDirection(container, 'Revenue grew last quarter.')).toBe('ltr');
+			expect(getDirection(container, 'ההכנסות עלו ברבעון האחרון.')).toBe('rtl');
+			expect(getDirection(container, 'SELECT 1')).toBe('ltr');
+		},
+	);
 });
+
+function getDirection(container: HTMLElement, text: string): string | null | undefined {
+	const elements = Array.from(container.querySelectorAll('[dir]')).filter((element) =>
+		element.textContent?.includes(text),
+	);
+	return elements[elements.length - 1]?.getAttribute('dir');
+}

@@ -26,10 +26,12 @@ const mocks = vi.hoisted(() => {
 		currentProject: { id: 'project-id' } as { id: string } | null,
 		initialModel: { provider: 'nao', modelId: 'managed-model' } as LlmSelectedModel,
 		invalidateQueries,
+		messages: [] as Array<{ id: string; role: 'user' | 'assistant'; parts: [] }>,
 		navigate: vi.fn(),
 		queryClient: { invalidateQueries },
 		sendMessage: vi.fn(),
 		setChat: vi.fn(),
+		setMessages: vi.fn(),
 		transportConfig: null as TestTransportConfig | null,
 	};
 });
@@ -49,8 +51,8 @@ vi.mock('@ai-sdk/react', () => ({
 		error: mocks.chatError,
 		clearError: mocks.clearError,
 		sendMessage: mocks.sendMessage,
-		setMessages: vi.fn(),
-		messages: [],
+		setMessages: mocks.setMessages,
+		messages: mocks.messages,
 	}),
 }));
 
@@ -105,13 +107,15 @@ vi.mock('@/lib/ai', () => ({
 	getLastUserMessageIdx: () => undefined,
 	getMessageDocuments: () => [],
 	getMessageImages: () => [],
-	getMessageText: () => '',
+	getMessageText: () => 'question',
 	getTextFromUserMessageOrThrow: () => 'question',
 	NEW_CHAT_ID: 'new',
 	parseBudgetError: () => false,
 	parseChatAllowanceExhaustedError: (error: Error | undefined) => (error ? 'example' : null),
 	parseManagedCreditsError: () => false,
 	resolveImagesFromMessage: async () => [],
+	usesChatAllowance: (hasProject: boolean, mode: string | undefined) =>
+		!hasProject || mode === 'example' || mode === 'onboarding',
 }));
 
 vi.mock('@/lib/local-storage', () => ({
@@ -186,7 +190,9 @@ describe('useAgent managed credit refresh', () => {
 		mocks.chatError = undefined;
 		mocks.clearError.mockReset();
 		mocks.currentProject = { id: 'project-id' };
+		mocks.messages = [];
 		mocks.sendMessage.mockReset();
+		mocks.setMessages.mockReset();
 		mocks.transportConfig = null;
 		mocks.invalidateQueries.mockReset();
 	});
@@ -236,5 +242,20 @@ describe('useAgent managed credit refresh', () => {
 
 		expect(mocks.clearError).toHaveBeenCalledOnce();
 		expect(mocks.sendMessage).toHaveBeenCalledWith({ text: 'after project', files: undefined });
+	});
+
+	it('preserves messages when editing or resending after the chat allowance is exhausted', async () => {
+		mocks.chatError = new Error('allowance exhausted');
+		mocks.messages = [
+			{ id: 'user-message', role: 'user', parts: [] },
+			{ id: 'assistant-message', role: 'assistant', parts: [] },
+		];
+		const { result } = renderHook(() => useAgent({ mode: 'example' }));
+
+		await act(() => result.current.resendMessage({ messageId: 'user-message' }));
+		await act(() => result.current.editMessage({ messageId: 'user-message', text: 'edited question' }));
+
+		expect(mocks.setMessages).not.toHaveBeenCalled();
+		expect(mocks.sendMessage).not.toHaveBeenCalled();
 	});
 });

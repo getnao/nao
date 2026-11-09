@@ -24,7 +24,6 @@ import { sharedStoryGrantsUser } from './shared-story.queries';
 export type ReferenceableStoryListing = {
 	storyId: string;
 	chatId: string | null;
-	chatTitle: string | null;
 	slug: string;
 	title: string;
 	format: StoryFormat;
@@ -33,6 +32,7 @@ export type ReferenceableStoryListing = {
 	isPinned: boolean;
 	isCertified: boolean;
 	isSharedWithMe: boolean;
+	canEdit: boolean;
 	updatedAt: Date;
 };
 
@@ -152,7 +152,6 @@ function listingColumns() {
 	return {
 		storyId: s.story.id,
 		chatId: s.story.chatId,
-		chatTitle: s.chat.title,
 		slug: s.story.slug,
 		title: s.story.title,
 		format: s.story.format,
@@ -174,6 +173,7 @@ function toReferenceableStory<Row extends ListingRow>(
 		isPinned: isPinned === true,
 		isCertified: certifiedAt !== null,
 		isSharedWithMe: shareVisibility === 'specific' && row.ownerId !== userId,
+		canEdit: row.ownerId === userId,
 	};
 }
 
