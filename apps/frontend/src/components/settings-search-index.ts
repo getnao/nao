@@ -1131,8 +1131,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Users & Groups',
 		section: 'Data protection',
 		search: { tab: 'security' },
-		title: 'Record access rules',
-		description: 'Choose tables where groups should see different records and the fields those rules may use.',
+		title: 'Row-level security',
+		description: 'Limit accessible rows with filters on fields that remain visible.',
 		keywords: [
 			'security',
 			'records',
@@ -1153,8 +1153,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Users & Groups',
 		section: 'Data protection',
 		search: { tab: 'security' },
-		title: 'Sensitive fields',
-		description: 'Hide sensitive fields by default and make them visible to selected groups.',
+		title: 'Sensitive fields (column-level security)',
+		description: 'Limit accessible columns by hiding selected fields unless access is granted.',
 		keywords: [
 			'security',
 			'fields',

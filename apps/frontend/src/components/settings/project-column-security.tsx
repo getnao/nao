@@ -134,8 +134,8 @@ export function ProjectColumnSecurity({
 	return (
 		<>
 			<SettingsCard
-				title='Sensitive fields'
-				description='Choose fields to hide by default, then make them visible to selected groups in Data access. Also known as column-level security.'
+				title='Sensitive fields (column-level security)'
+				description='Limit which columns each group can access. Selected fields are hidden by default, then can be made visible to specific groups in Data access.'
 				action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
 				unstyled
 			>
@@ -219,8 +219,8 @@ export function ProjectColumnSecurity({
 						<DialogHeader>
 							<DialogTitle>Mark sensitive fields</DialogTitle>
 							<DialogDescription>
-								Expand a table and select fields to hide by default. You can make them visible to
-								specific groups from Data access.
+								Expand a table and select fields to hide by default. Selected fields are unavailable
+								unless you make them visible to specific groups in Data access.
 							</DialogDescription>
 						</DialogHeader>
 						<div className='flex items-center gap-2'>

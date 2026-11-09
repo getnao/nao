@@ -115,8 +115,8 @@ export function ProjectRowSecurity({
 	return (
 		<>
 			<SettingsCard
-				title='Record access rules'
-				description='Choose tables where groups should see different records, then choose fields for rules such as company_id or region. Also known as row-level security (RLS).'
+				title='Row-level security'
+				description='Limit which rows each group can access. Select fields for row filters, such as company_id or region; these fields stay visible, and allowed values are set per group in Data access.'
 				action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
 				unstyled
 			>
@@ -217,9 +217,9 @@ export function ProjectRowSecurity({
 						<DialogHeader>
 							<DialogTitle>Add record access rules</DialogTitle>
 							<DialogDescription>
-								Expand a table and choose fields that can separate records, such as company_id, region,
-								or department. Groups see no records from a selected table until you give them access,
-								admins included.
+								Expand a table and choose fields to use in row filters, such as company_id, region, or
+								department. These fields stay visible. Groups see no rows from a selected table until
+								you give them access in Data access, admins included.
 							</DialogDescription>
 						</DialogHeader>
 						<div className='flex items-center gap-2'>
