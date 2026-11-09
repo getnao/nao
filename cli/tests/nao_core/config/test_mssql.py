@@ -15,15 +15,17 @@ AZURE_HOST = "myserver.database.windows.net"
 
 
 def _service_principal_config(**kwargs) -> MssqlConfig:
-    return MssqlConfig(
-        name="azure-sql",
-        host=AZURE_HOST,
-        database="sales",
-        auth_mode=MssqlAuthMode.AZURE_SERVICE_PRINCIPAL,
-        client_id="my-client-id",
-        client_secret="my-secret",
-        tenant_id="my-tenant",
-        **kwargs,
+    return MssqlConfig.model_validate(
+        {
+            "name": "azure-sql",
+            "host": AZURE_HOST,
+            "database": "sales",
+            "auth_mode": MssqlAuthMode.AZURE_SERVICE_PRINCIPAL,
+            "client_id": "my-client-id",
+            "client_secret": "my-secret",
+            "tenant_id": "my-tenant",
+            **kwargs,
+        }
     )
 
 
@@ -119,13 +121,15 @@ def test_parses_entra_id_config_from_yaml_dict():
 
 
 def test_service_principal_reuses_fabric_entra_id_connection_string():
-    odbc = _service_principal_config(driver="ODBC Driver 18 for SQL Server")._to_entra_id_config().build_odbc_string()
+    config = _service_principal_config(driver="ODBC Driver 18 for SQL Server")
+    odbc = config._to_entra_id_config().build_odbc_string()
 
     assert f"Server={AZURE_HOST},1433" in odbc
     assert "Database=sales" in odbc
     assert "Encrypt=yes" in odbc
     assert "Authentication=ActiveDirectoryServicePrincipal" in odbc
-    assert "UID=my-client-id@my-tenant" in odbc
+    assert "UID=my-client-id;" in odbc
+    assert "my-tenant" not in odbc
     assert "PWD=my-secret" in odbc
 
 
@@ -134,9 +138,29 @@ def test_entra_id_connect_delegates_to_fabric_connection(monkeypatch: pytest.Mon
     monkeypatch.setattr("nao_core.deps.require_database_backend", lambda *args, **kwargs: None)
     monkeypatch.setattr(FabricConfig, "connect", lambda self: connected.append(self) or "connection")
 
-    assert _service_principal_config(driver="ODBC Driver 18 for SQL Server").connect() == "connection"
+    config = _service_principal_config(tenant_id=None, driver="ODBC Driver 18 for SQL Server")
+
+    assert config.connect() == "connection"
     assert connected[0].auth_mode == MssqlAuthMode.AZURE_SERVICE_PRINCIPAL
     assert connected[0].driver == "ODBC Driver 18 for SQL Server"
+
+
+def test_service_principal_with_tenant_injects_tenant_scoped_token(monkeypatch: pytest.MonkeyPatch):
+    import azure.identity
+
+    injected: list[tuple[FabricConfig, Any]] = []
+    monkeypatch.setattr("nao_core.deps.require_database_backend", lambda *args, **kwargs: None)
+    monkeypatch.setattr(azure.identity, "ClientSecretCredential", lambda *args: ("credential", *args))
+    monkeypatch.setattr(
+        FabricConfig,
+        "_connect_via_aad_token_injection",
+        lambda self, credential, message: injected.append((self, credential)) or "connection",
+    )
+
+    assert _service_principal_config().connect() == "connection"
+    fabric_config, credential = injected[0]
+    assert credential == ("credential", "my-tenant", "my-client-id", "my-secret")
+    assert fabric_config.tenant_id is None
 
 
 def test_sql_password_connect_uses_ibis_mssql_backend(monkeypatch: pytest.MonkeyPatch):

@@ -184,6 +184,9 @@ class MssqlConfig(DatabaseConfig):
 
         require_database_backend("mssql")
 
+        if self.auth_mode == MssqlAuthMode.AZURE_SERVICE_PRINCIPAL and self.tenant_id:
+            require_dependency("azure.identity", "mssql", "for Entra ID authentication")
+            return self._connect_with_tenant_service_principal()
         if self.auth_mode != MssqlAuthMode.SQL_PASSWORD:
             if self.auth_mode in (MssqlAuthMode.AZURE_CLI, MssqlAuthMode.AZURE_INTERACTIVE):
                 require_dependency("azure.identity", "mssql", "for Entra ID authentication")
@@ -200,6 +203,17 @@ class MssqlConfig(DatabaseConfig):
             driver=self.driver,
         )
 
+    def _connect_with_tenant_service_principal(self) -> BaseBackend:
+        """The ODBC driver only accepts the bare client ID as UID, so a pinned tenant needs an injected token."""
+        from azure.identity import ClientSecretCredential
+
+        if self.tenant_id is None or self.client_id is None or self.client_secret is None:
+            raise ValueError("tenant_id, client_id and client_secret are required for this connection")
+        credential = ClientSecretCredential(self.tenant_id, self.client_id, self.client_secret)
+        return self._to_entra_id_config()._connect_via_aad_token_injection(
+            credential, "Entra ID Service Principal: fetching token for the configured tenant."
+        )
+
     def _to_entra_id_config(self) -> FabricConfig:
         """Azure SQL runs the same engine and Entra ID token flow as Fabric, so its connection logic is reused."""
         return FabricConfig(
@@ -210,7 +224,6 @@ class MssqlConfig(DatabaseConfig):
             auth_mode=self.auth_mode,
             client_id=self.client_id,
             client_secret=self.client_secret,
-            tenant_id=self.tenant_id,
             driver=self.driver,
         )
 
