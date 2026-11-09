@@ -90,7 +90,13 @@ describe('projectLlmConfig modelSettings', () => {
 
 		const [created] = await db
 			.insert(projectLlmConfig)
-			.values({ projectId: PROJECT_ID, provider: 'anthropic', apiKey: 'key', modelSettings })
+			.values({
+				projectId: PROJECT_ID,
+				name: 'Anthropic',
+				provider: 'anthropic',
+				apiKey: 'key',
+				modelSettings,
+			})
 			.returning();
 
 		expect(created.modelSettings).toEqual(modelSettings);
@@ -100,7 +106,7 @@ describe('projectLlmConfig modelSettings', () => {
 
 		const [withoutSettings] = await db
 			.insert(projectLlmConfig)
-			.values({ projectId: PROJECT_ID, provider: 'openai', apiKey: 'key' })
+			.values({ projectId: PROJECT_ID, name: 'OpenAI', provider: 'openai', apiKey: 'key' })
 			.returning();
 		expect(withoutSettings.modelSettings).toEqual({});
 	});

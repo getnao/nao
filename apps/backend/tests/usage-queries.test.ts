@@ -508,6 +508,32 @@ describe('usage query results', () => {
 		expect(usage.reduce((sum, record) => sum + record.totalCost, 0)).toBeCloseTo(11);
 	});
 
+	it('prices usage with enough retained credentials to exceed SQLite compound-select limits', async () => {
+		mocks.getAllProjectLlmConfigs.mockResolvedValue(
+			Array.from({ length: 50 }, (_, index) => ({
+				id: `retained-credential-${index}`,
+				name: `Retained ${index}`,
+				provider: 'openai',
+				credentialSource: 'database',
+				enabledModels: [],
+				customModels: [],
+				baseUrl: null,
+				disabledAt: new Date(),
+			})),
+		);
+		await db.insert(s.chatMessage).values({
+			id: 'many-retained-credentials',
+			chatId: CHAT_ID,
+			role: 'assistant',
+			llmProvider: 'openai',
+			llmModelId: 'gpt-4o',
+			llmConfigId: 'retained-credential-49',
+			inputNoCacheTokens: 1_000_000,
+		});
+
+		await expect(getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } })).resolves.toHaveLength(15);
+	});
+
 	it('breaks down messages, tokens and cost per user for every date', async () => {
 		const now = new Date();
 		const previousDay = new Date(now);

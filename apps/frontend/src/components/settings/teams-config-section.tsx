@@ -7,6 +7,7 @@ import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { llmModelValue } from '@/lib/llm-model';
 import { trpc } from '@/main';
 
 interface TeamsConfigSectionProps {
@@ -33,7 +34,12 @@ export function TeamsConfigSection({ isAdmin, onCancelSetup }: TeamsConfigSectio
 		const persisted = projectConfig?.modelSelection;
 		const match =
 			persisted &&
-			availableModels.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+			availableModels.find(
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
+			);
 		setSelectedModel(match || availableModels[0]);
 	}, [availableModels, projectConfig]);
 
@@ -46,6 +52,7 @@ export function TeamsConfigSection({ isAdmin, onCancelSetup }: TeamsConfigSectio
 			...values,
 			modelProvider: selectedModel?.provider,
 			modelId: selectedModel?.modelId,
+			llmConfigId: selectedModel?.llmConfigId,
 		});
 		queryClient.invalidateQueries(trpc.project.getTeamsConfig.queryOptions());
 		setIsEditing(false);
@@ -68,16 +75,25 @@ export function TeamsConfigSection({ isAdmin, onCancelSetup }: TeamsConfigSectio
 		const persisted = projectConfig?.modelSelection;
 		const match =
 			persisted &&
-			availableModels?.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+			availableModels?.find(
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
+			);
 		setSelectedModel(match || (availableModels?.[0] ?? null));
 		setIsEditing(true);
 	};
 
 	const handleModelChange = useCallback(
 		async (value: string) => {
-			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
+			const model = availableModels?.find((candidate) => llmModelValue(candidate) === value);
 			if (model) {
-				await updateTeamsModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
+				await updateTeamsModel.mutateAsync({
+					modelProvider: model.provider,
+					modelId: model.modelId,
+					llmConfigId: model.llmConfigId,
+				});
 				setSelectedModel(model);
 				queryClient.invalidateQueries(trpc.project.getTeamsConfig.queryOptions());
 			}
@@ -169,7 +185,7 @@ export function TeamsConfigSection({ isAdmin, onCancelSetup }: TeamsConfigSectio
 					<p className='text-xs text-muted-foreground'>The model used to answer questions asked in Teams.</p>
 					{hasMultipleModels ? (
 						<Select
-							value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
+							value={selectedModel ? llmModelValue(selectedModel) : undefined}
 							onValueChange={handleModelChange}
 							disabled={updateTeamsModel.isPending}
 						>
@@ -189,10 +205,7 @@ export function TeamsConfigSection({ isAdmin, onCancelSetup }: TeamsConfigSectio
 							</SelectTrigger>
 							<SelectContent>
 								{availableModels?.map((model) => (
-									<SelectItem
-										key={`${model.provider}-${model.modelId}`}
-										value={`${model.provider}:${model.modelId}`}
-									>
+									<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 										<LlmProviderIcon
 											provider={model.provider}
 											baseUrl={model.baseUrl}

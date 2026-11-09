@@ -620,10 +620,9 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 		const rows = tuples.map(tupleToValuesRow);
 		return sql`(VALUES ${sql.join(rows, sql`, `)}) AS cost_lookup(${sql.raw(COST_COLS.join(', '))})`;
 	} else {
-		const [first, ...rest] = tuples;
-		const firstRow = tupleToSelectRow(first, true);
-		const restRows = rest.map((t) => tupleToSelectRow(t, false));
-		return sql`(${sql.join([firstRow, ...restRows], sql` UNION ALL `)}) AS cost_lookup`;
+		const rows = tuples.map(tupleToSqliteValuesRow);
+		const columns = COST_COLS.map((column, index) => `column${index + 1} AS ${column}`).join(', ');
+		return sql`(SELECT ${sql.raw(columns)} FROM (VALUES ${sql.join(rows, sql`, `)})) AS cost_lookup`;
 	}
 }
 
@@ -690,10 +689,6 @@ function tupleToValuesRow(tuple: CostLookupTuple): SQL {
 	return sql`(${tuple[0]}::text, ${tuple[1]}::text, ${tuple[2]}::text, ${tuple[3]}::double precision, ${tuple[4]}::double precision, ${tuple[5]}::double precision, ${tuple[6]}::double precision)`;
 }
 
-function tupleToSelectRow(tuple: CostLookupTuple, withAliases: boolean): SQL {
-	if (!withAliases) {
-		return sql`SELECT ${tuple[0]}, ${tuple[1]}, ${tuple[2]}, ${tuple[3]}, ${tuple[4]}, ${tuple[5]}, ${tuple[6]}`;
-	}
-
-	return sql`SELECT ${tuple[0]} AS provider, ${tuple[1]} AS model_id, ${tuple[2]} AS llm_config_id, ${tuple[3]} AS input_no_cache, ${tuple[4]} AS input_cache_read, ${tuple[5]} AS input_cache_write, ${tuple[6]} AS output`;
+function tupleToSqliteValuesRow(tuple: CostLookupTuple): SQL {
+	return sql`(${tuple[0]}, ${tuple[1]}, ${tuple[2]}, ${tuple[3]}, ${tuple[4]}, ${tuple[5]}, ${tuple[6]})`;
 }

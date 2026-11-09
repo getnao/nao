@@ -28,6 +28,7 @@ vi.mock('../src/db/db', async () => {
 });
 
 vi.mock('../src/queries/project-llm-config.queries', () => ({
+	getAllProjectLlmConfigs: async () => [],
 	getProjectLlmConfigs: async () => [],
 }));
 

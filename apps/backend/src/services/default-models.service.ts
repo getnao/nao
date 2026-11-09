@@ -134,33 +134,34 @@ export async function updateIntegrationModel(
 ): Promise<void> {
 	const provider = selection?.provider ?? null;
 	const modelId = selection?.modelId ?? null;
+	const llmConfigId = selection?.llmConfigId ?? null;
 
 	switch (integration) {
 		case 'slack':
-			await slackConfigQueries.updateProjectSlackModel(projectId, provider, modelId);
+			await slackConfigQueries.updateProjectSlackModel(projectId, provider, modelId, llmConfigId);
 			await slackService.syncProjectSocketMode(
 				await slackConfigQueries.getProjectSlackConfig(projectId),
 				projectId,
 			);
 			return;
 		case 'teams':
-			await teamsConfigQueries.updateProjectTeamsModel(projectId, provider, modelId);
+			await teamsConfigQueries.updateProjectTeamsModel(projectId, provider, modelId, llmConfigId);
 			return;
 		case 'telegram':
-			await telegramConfigQueries.updateProjectTelegramModel(projectId, provider, modelId);
+			await telegramConfigQueries.updateProjectTelegramModel(projectId, provider, modelId, llmConfigId);
 			return;
 		case 'whatsapp':
-			await whatsappConfigQueries.updateProjectWhatsappModel(projectId, provider, modelId);
+			await whatsappConfigQueries.updateProjectWhatsappModel(projectId, provider, modelId, llmConfigId);
 			return;
 		case 'mattermost':
-			await mattermostConfigQueries.updateProjectMattermostModel(projectId, provider, modelId);
+			await mattermostConfigQueries.updateProjectMattermostModel(projectId, provider, modelId, llmConfigId);
 			await mattermostService.syncProject(
 				await mattermostConfigQueries.getProjectMattermostConfig(projectId),
 				projectId,
 			);
 			return;
 		case 'discord':
-			await discordConfigQueries.updateProjectDiscordModel(projectId, provider, modelId);
+			await discordConfigQueries.updateProjectDiscordModel(projectId, provider, modelId, llmConfigId);
 			await discordService.syncProject(await discordConfigQueries.getProjectDiscordConfig(projectId), projectId);
 			return;
 	}

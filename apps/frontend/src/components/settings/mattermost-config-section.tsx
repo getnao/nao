@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { llmModelValue } from '@/lib/llm-model';
 import { trpc } from '@/main';
 
 interface MattermostConfigSectionProps {
@@ -33,7 +34,10 @@ export function MattermostConfigSection({ isAdmin, onCancelSetup }: MattermostCo
 		const match =
 			persisted &&
 			availableModels.find(
-				(model) => model.provider === persisted.provider && model.modelId === persisted.modelId,
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
 			);
 		setSelectedModel(match || availableModels[0]);
 	}, [availableModels, projectConfig]);
@@ -47,6 +51,7 @@ export function MattermostConfigSection({ isAdmin, onCancelSetup }: MattermostCo
 			...values,
 			modelProvider: selectedModel?.provider,
 			modelId: selectedModel?.modelId,
+			llmConfigId: selectedModel?.llmConfigId,
 		});
 		queryClient.invalidateQueries(trpc.project.getMattermostConfig.queryOptions());
 		setIsEditing(false);
@@ -70,18 +75,25 @@ export function MattermostConfigSection({ isAdmin, onCancelSetup }: MattermostCo
 		const match =
 			persisted &&
 			availableModels?.find(
-				(model) => model.provider === persisted.provider && model.modelId === persisted.modelId,
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
 			);
 		setSelectedModel(match || (availableModels?.[0] ?? null));
 		setIsEditing(true);
 	};
 
 	const handleModelChange = async (value: string) => {
-		const model = availableModels?.find((candidate) => `${candidate.provider}:${candidate.modelId}` === value);
+		const model = availableModels?.find((candidate) => llmModelValue(candidate) === value);
 		if (!model) {
 			return;
 		}
-		await updateMattermostModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
+		await updateMattermostModel.mutateAsync({
+			modelProvider: model.provider,
+			modelId: model.modelId,
+			llmConfigId: model.llmConfigId,
+		});
 		setSelectedModel(model);
 		queryClient.invalidateQueries(trpc.project.getMattermostConfig.queryOptions());
 	};
@@ -155,7 +167,7 @@ export function MattermostConfigSection({ isAdmin, onCancelSetup }: MattermostCo
 					</p>
 					{hasMultipleModels ? (
 						<Select
-							value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
+							value={selectedModel ? llmModelValue(selectedModel) : undefined}
 							onValueChange={handleModelChange}
 							disabled={updateMattermostModel.isPending}
 						>
@@ -175,10 +187,7 @@ export function MattermostConfigSection({ isAdmin, onCancelSetup }: MattermostCo
 							</SelectTrigger>
 							<SelectContent>
 								{availableModels?.map((model) => (
-									<SelectItem
-										key={`${model.provider}-${model.modelId}`}
-										value={`${model.provider}:${model.modelId}`}
-									>
+									<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 										<LlmProviderIcon
 											provider={model.provider}
 											baseUrl={model.baseUrl}

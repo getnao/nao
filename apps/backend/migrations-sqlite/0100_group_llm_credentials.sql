@@ -1,5 +1,6 @@
 DROP INDEX `project_llm_config_project_provider`;--> statement-breakpoint
-ALTER TABLE `project_llm_config` ADD `name` text NOT NULL;--> statement-breakpoint
+ALTER TABLE `project_llm_config` ADD `name` text NOT NULL DEFAULT '';--> statement-breakpoint
+UPDATE `project_llm_config` SET `name` = `provider`;--> statement-breakpoint
 ALTER TABLE `project_llm_config` ADD `credential_source` text DEFAULT 'database' NOT NULL;--> statement-breakpoint
 ALTER TABLE `project_llm_config` ADD `disabled_at` integer;--> statement-breakpoint
 CREATE UNIQUE INDEX `project_llm_config_project_name` ON `project_llm_config` (`project_id`,`name`) WHERE "project_llm_config"."disabled_at" IS NULL;--> statement-breakpoint

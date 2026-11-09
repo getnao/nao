@@ -122,10 +122,17 @@ const defaultModelSettingsSchema = z.object({
 const integrationModelInputSchema = z.object({
 	modelProvider: llmProviderSchema.optional(),
 	modelId: z.string().optional(),
+	llmConfigId: z.string().optional(),
 });
 
 function toIntegrationModelSelection(input: z.infer<typeof integrationModelInputSchema>): LlmSelectedModel | null {
-	return input.modelProvider && input.modelId ? { provider: input.modelProvider, modelId: input.modelId } : null;
+	return input.modelProvider && input.modelId
+		? {
+				provider: input.modelProvider,
+				modelId: input.modelId,
+				...(input.llmConfigId && { llmConfigId: input.llmConfigId }),
+			}
+		: null;
 }
 
 function hasReplacementProviderCredentials(
@@ -521,6 +528,7 @@ export const projectRoutes = {
 					transportMode: z.enum(['webhook', 'socket']).default('webhook'),
 					modelProvider: llmProviderSchema.optional(),
 					modelId: z.string().optional(),
+					llmConfigId: z.string().optional(),
 				})
 				.refine(
 					(value) =>
@@ -540,6 +548,7 @@ export const projectRoutes = {
 				transportMode: input.transportMode,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 			});
 
 			posthog.capture(ctx.user.id, PostHogEvent.SlackConfigured, {
@@ -648,6 +657,7 @@ export const projectRoutes = {
 				tenantId: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -658,6 +668,7 @@ export const projectRoutes = {
 				tenantId: input.tenantId,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 			});
 
 			posthog.capture(ctx.user.id, PostHogEvent.TeamsConfigured, {
@@ -713,6 +724,7 @@ export const projectRoutes = {
 				botToken: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -721,6 +733,7 @@ export const projectRoutes = {
 				botToken: input.botToken,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 			});
 
 			posthog.capture(ctx.user.id, PostHogEvent.TelegramConfigured, {
@@ -776,6 +789,7 @@ export const projectRoutes = {
 				botToken: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 				interactiveButtonsEnabled: z.boolean().default(false),
 				callbackUrl: z.union([z.literal(''), httpUrlSchema]).optional(),
 			}),
@@ -802,6 +816,7 @@ export const projectRoutes = {
 				botToken: input.botToken,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 				interactiveButtonsEnabled: input.interactiveButtonsEnabled,
 				callbackUrl: input.callbackUrl,
 			});
@@ -868,6 +883,7 @@ export const projectRoutes = {
 					.regex(/^[0-9a-f]{64}$/i, 'Enter the 64-character hex public key from the Discord application.'),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 				mentionRoleIds: z.array(z.string()).optional(),
 				respondToChannelIds: z.array(z.string()).optional(),
 				fallbackUserEmail: z.string().trim().toLowerCase().optional(),
@@ -994,6 +1010,7 @@ export const projectRoutes = {
 				verifyToken: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
+				llmConfigId: z.string().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -1005,6 +1022,7 @@ export const projectRoutes = {
 				verifyToken: input.verifyToken,
 				modelProvider: input.modelProvider,
 				modelId: input.modelId,
+				llmConfigId: input.llmConfigId,
 			});
 
 			posthog.capture(ctx.user.id, PostHogEvent.WhatsappConfigured, {

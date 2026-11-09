@@ -77,7 +77,8 @@ class TeamsService {
 			this._projectId !== config.projectId ||
 			this._redirectUrl !== config.redirectUrl ||
 			this._modelSelection?.provider !== config.modelSelection?.provider ||
-			this._modelSelection?.modelId !== config.modelSelection?.modelId
+			this._modelSelection?.modelId !== config.modelSelection?.modelId ||
+			this._modelSelection?.llmConfigId !== config.modelSelection?.llmConfigId
 		);
 	}
 

@@ -1161,6 +1161,8 @@ describe('user group queries', () => {
 		const activeGroupIds = new Set([defaultGroup.id, ...activeGroups.map((group) => group.id)]);
 		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID, activeGroupIds)).resolves.toEqual({
 			groupNames: ['All Users', 'First', 'Second', 'Third'],
+			llmConfigIds: [],
+			llmModelIdsByConfig: {},
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			showAllSettings: true,

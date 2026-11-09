@@ -1047,6 +1047,7 @@ class DiscordService {
 			current.redirectUrl !== next.redirectUrl ||
 			current.modelSelection?.provider !== next.modelSelection?.provider ||
 			current.modelSelection?.modelId !== next.modelSelection?.modelId ||
+			current.modelSelection?.llmConfigId !== next.modelSelection?.llmConfigId ||
 			!isSameStringArray(current.mentionRoleIds, next.mentionRoleIds) ||
 			!isSameStringArray(current.respondToChannelIds, next.respondToChannelIds) ||
 			current.fallbackUserId !== next.fallbackUserId ||

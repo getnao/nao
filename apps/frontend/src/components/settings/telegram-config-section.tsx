@@ -7,6 +7,7 @@ import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { llmModelValue } from '@/lib/llm-model';
 import { trpc } from '@/main';
 
 interface TelegramConfigSectionProps {
@@ -33,7 +34,12 @@ export function TelegramConfigSection({ isAdmin, onCancelSetup }: TelegramConfig
 		const persisted = projectConfig?.modelSelection;
 		const match =
 			persisted &&
-			availableModels.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+			availableModels.find(
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
+			);
 		setSelectedModel(match || availableModels[0]);
 	}, [availableModels, projectConfig]);
 
@@ -46,6 +52,7 @@ export function TelegramConfigSection({ isAdmin, onCancelSetup }: TelegramConfig
 			botToken: values.botToken,
 			modelProvider: selectedModel?.provider,
 			modelId: selectedModel?.modelId,
+			llmConfigId: selectedModel?.llmConfigId,
 		});
 
 		const webhookResponse = await fetch(`https://api.telegram.org/bot${values.botToken}/setWebhook`, {
@@ -81,16 +88,25 @@ export function TelegramConfigSection({ isAdmin, onCancelSetup }: TelegramConfig
 		const persisted = projectConfig?.modelSelection;
 		const match =
 			persisted &&
-			availableModels?.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+			availableModels?.find(
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
+			);
 		setSelectedModel(match || (availableModels?.[0] ?? null));
 		setIsEditing(true);
 	};
 
 	const handleModelChange = useCallback(
 		async (value: string) => {
-			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
+			const model = availableModels?.find((candidate) => llmModelValue(candidate) === value);
 			if (model) {
-				await updateTelegramModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
+				await updateTelegramModel.mutateAsync({
+					modelProvider: model.provider,
+					modelId: model.modelId,
+					llmConfigId: model.llmConfigId,
+				});
 				setSelectedModel(model);
 				queryClient.invalidateQueries(trpc.project.getTelegramConfig.queryOptions());
 			}
@@ -171,7 +187,7 @@ export function TelegramConfigSection({ isAdmin, onCancelSetup }: TelegramConfig
 					</p>
 					{hasMultipleModels ? (
 						<Select
-							value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
+							value={selectedModel ? llmModelValue(selectedModel) : undefined}
 							onValueChange={handleModelChange}
 							disabled={updateTelegramModel.isPending}
 						>
@@ -191,10 +207,7 @@ export function TelegramConfigSection({ isAdmin, onCancelSetup }: TelegramConfig
 							</SelectTrigger>
 							<SelectContent>
 								{availableModels?.map((model) => (
-									<SelectItem
-										key={`${model.provider}-${model.modelId}`}
-										value={`${model.provider}:${model.modelId}`}
-									>
+									<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 										<LlmProviderIcon
 											provider={model.provider}
 											baseUrl={model.baseUrl}

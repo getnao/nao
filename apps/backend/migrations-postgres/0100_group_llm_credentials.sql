@@ -5,7 +5,9 @@ ALTER TABLE "chat_message" ADD COLUMN "llm_config_id" text;--> statement-breakpo
 ALTER TABLE "context_recommendation_run" ADD COLUMN "llm_config_id" text;--> statement-breakpoint
 ALTER TABLE "llm_inference" ADD COLUMN "llm_config_id" text;--> statement-breakpoint
 ALTER TABLE "project" ADD COLUMN "llm_access_mode" text DEFAULT 'project' NOT NULL;--> statement-breakpoint
-ALTER TABLE "project_llm_config" ADD COLUMN "name" text NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_llm_config" ADD COLUMN "name" text;--> statement-breakpoint
+UPDATE "project_llm_config" SET "name" = "provider";--> statement-breakpoint
+ALTER TABLE "project_llm_config" ALTER COLUMN "name" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_llm_config" ADD COLUMN "credential_source" text DEFAULT 'database' NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_llm_config" ADD COLUMN "disabled_at" timestamp;--> statement-breakpoint
 ALTER TABLE "test_run_result" ADD COLUMN "llm_config_id" text;--> statement-breakpoint
