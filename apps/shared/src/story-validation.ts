@@ -343,10 +343,11 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 		if (needsOptionsSource) {
 			const hasHardcodedOptions = Boolean(options?.length);
 			const hasTableSource = Boolean(attrs.table && attrs.column);
-			if (!hasHardcodedOptions && !hasTableSource) {
+			const hasOptionsQuerySource = Boolean(attrs.options_query_id);
+			if (!hasHardcodedOptions && !hasTableSource && !hasOptionsQuerySource) {
 				errors.push({
 					message:
-						'Select filters require either `options=\'["a","b"]\'` or both `table` and `column` attributes.',
+						'Select filters require either `options=\'["a","b"]\'`, both `table` and `column` attributes, or an `options_query_id` attribute.',
 					line: position.line,
 					column: position.column,
 					length: fullMatch.length,

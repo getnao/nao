@@ -162,6 +162,10 @@ async function refreshStoryDataWithContext(
 		}
 	}
 
+	if (options.viewerUserId) {
+		refreshedCode = stripHardcodedFilterOptions(refreshedCode);
+	}
+
 	const narratives =
 		version.isLiveTextDynamic && version.format === 'custom'
 			? await regenerateCustomStoryNarratives(target, version, queryData)
@@ -275,7 +279,7 @@ async function getViewerStoryQueryData(
 		!isCacheExpired(cache.cachedAt, cacheSchedule) &&
 		findMissingQueryIds(code, cache.queryData).length === 0
 	) {
-		return { queryData: cache.queryData, cachedAt: cache.cachedAt, code: cache.code };
+		return { queryData: cache.queryData, cachedAt: cache.cachedAt, code: stripHardcodedFilterOptions(cache.code) };
 	}
 
 	try {
@@ -291,7 +295,11 @@ async function getViewerStoryQueryData(
 		};
 	} catch (error) {
 		if (cache?.code !== null && cache?.code !== undefined) {
-			return { queryData: cache.queryData, cachedAt: cache.cachedAt, code: cache.code };
+			return {
+				queryData: cache.queryData,
+				cachedAt: cache.cachedAt,
+				code: stripHardcodedFilterOptions(cache.code),
+			};
 		}
 		throw error;
 	}
@@ -767,4 +775,10 @@ function extractHeadingTokens(code: string): string[] {
 		.split('\n')
 		.map((line) => line.trim())
 		.filter((line) => /^#{1,6}\s+\S/.test(line));
+}
+
+function stripHardcodedFilterOptions(code: string): string {
+	const filterTagRegex = new RegExp(String.raw`<filter\s+${TAG_ATTRS}\/?>`, 'g');
+	const optionsAttributeRegex = /\s+options\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g;
+	return code.replace(filterTagRegex, (tag) => tag.replace(optionsAttributeRegex, ''));
 }

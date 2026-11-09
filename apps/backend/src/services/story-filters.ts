@@ -11,8 +11,13 @@ import { TRPCError } from '@trpc/server';
 import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
-import { createStoryExecutionContext, executeRawSql, executeStoryQueries } from './live-story';
-import { hasRowSecurity } from './live-story';
+import {
+	createStoryExecutionContext,
+	executeLiveQuery,
+	executeRawSql,
+	executeStoryQueries,
+	hasRowSecurity,
+} from './live-story';
 import type { SemanticQuery } from './semantic-layer.service';
 
 const FILTER_OPTIONS_LIMIT = 100;
@@ -34,7 +39,7 @@ export async function getStoryFilterOptions(
 	filterId: string,
 	executionOptions: StoryFilterExecutionOptions = {},
 ): Promise<{ options: string[] }> {
-	const { code, executionContext, databaseId } = await loadStoryExecutionContext(
+	const { code, executionContext, databaseId, appliesViewerRowSecurity } = await loadStoryExecutionContext(
 		chatId,
 		storySlug,
 		executionOptions.viewerUserId,
@@ -44,8 +49,28 @@ export async function getStoryFilterOptions(
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Filter "${filterId}" not found in story.` });
 	}
 
-	if (filter.options?.length) {
+	if (filter.optionsQueryId) {
+		const result = await executeLiveQuery(chatId, filter.optionsQueryId, {
+			viewerUserId: executionOptions.viewerUserId,
+			billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		});
+
+		if (!result.columns.includes('value')) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Options query "${filter.optionsQueryId}" must return a column named "value".`,
+			});
+		}
+
+		return { options: normalizeFilterOptions(result.data) };
+	}
+
+	if (filter.options?.length && !appliesViewerRowSecurity) {
 		return { options: [...new Set(filter.options)] };
+	}
+
+	if ((!filter.table || !filter.column) && appliesViewerRowSecurity) {
+		return { options: [] };
 	}
 
 	if (!filter.table || !filter.column) {
@@ -63,17 +88,11 @@ export async function getStoryFilterOptions(
 		databaseId: filter.databaseId ?? databaseId,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
 	});
-	const options = result.data
-		.map((row) => {
-			if (!row || typeof row !== 'object') {
-				return null;
-			}
-			const value = (row as Record<string, unknown>).value;
-			return value === null || value === undefined ? null : String(value);
-		})
-		.filter((value): value is string => value !== null && value.trim() !== '');
-
-	return { options: [...new Set(options)].sort((a, b) => a.localeCompare(b)) };
+	const configuredOptions = filter.options?.length ? new Set(filter.options) : null;
+	const visibleOptions = normalizeFilterOptions(result.data);
+	return {
+		options: configuredOptions ? visibleOptions.filter((option) => configuredOptions.has(option)) : visibleOptions,
+	};
 }
 
 export async function getFilteredStoryQueryData(
@@ -147,6 +166,7 @@ async function loadStoryExecutionContext(chatId: string, storySlug: string, view
 		executionContext,
 		databaseId,
 		sqlQueries,
+		appliesViewerRowSecurity: executionUserId !== undefined,
 	};
 }
 
@@ -162,4 +182,22 @@ async function loadStoryCodeAndQueries(chatId: string, storySlug: string) {
 		code: version.code,
 		sqlQueries,
 	};
+}
+
+function normalizeFilterOptions(rows: unknown[]): string[] {
+	const options = rows.flatMap((row) => {
+		if (!row || typeof row !== 'object') {
+			return [];
+		}
+
+		const value = (row as Record<string, unknown>).value;
+		if (value === null || value === undefined) {
+			return [];
+		}
+
+		const option = String(value);
+		return option.trim() ? [option] : [];
+	});
+
+	return [...new Set(options)].sort((a, b) => a.localeCompare(b)).slice(0, FILTER_OPTIONS_LIMIT);
 }

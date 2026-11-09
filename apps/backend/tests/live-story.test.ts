@@ -469,9 +469,14 @@ describe('live story SQL execution', () => {
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
-	it('returns a non-live viewer snapshot when row security is configured', async () => {
+	it('strips hardcoded filter options from a cached non-live viewer snapshot', async () => {
 		const ownerCode = 'Owner narrative\n<table query_id="query_warehouse" />';
-		const viewerCode = 'Viewer narrative\n<table query_id="query_warehouse" />';
+		const viewerCode =
+			`Viewer narrative\n<filter id="customer" type="select" table="customers" column="name" ` +
+			`options='["Alice","Bob"]' />\n<table query_id="query_warehouse" />`;
+		const safeViewerCode =
+			'Viewer narrative\n<filter id="customer" type="select" table="customers" column="name" />\n' +
+			'<table query_id="query_warehouse" />';
 		const cachedAt = new Date(0);
 		const queryData = {
 			query_warehouse: {
@@ -490,7 +495,7 @@ describe('live story SQL execution', () => {
 		).resolves.toEqual({
 			queryData,
 			cachedAt,
-			code: viewerCode,
+			code: safeViewerCode,
 		});
 
 		expect(mocks.getStoryViewerDataCache).toHaveBeenCalledWith('chat-1', 'orders', 'version-1', 'viewer-1');
@@ -500,7 +505,12 @@ describe('live story SQL execution', () => {
 
 	it('falls back to stale viewer code when a viewer refresh fails', async () => {
 		const ownerCode = 'Owner narrative\n<table query_id="query_admin" />';
-		const viewerCode = 'Viewer narrative\n<table query_id="query_admin" />';
+		const viewerCode =
+			`Viewer narrative\n<filter id="customer" type="select" table="customers" column="name" ` +
+			`options='["Alice","Bob"]' />\n<table query_id="query_admin" />`;
+		const safeViewerCode =
+			'Viewer narrative\n<filter id="customer" type="select" table="customers" column="name" />\n' +
+			'<table query_id="query_admin" />';
 		const cachedAt = new Date(0);
 		const queryData = {
 			query_admin: {
@@ -530,7 +540,7 @@ describe('live story SQL execution', () => {
 		).resolves.toEqual({
 			queryData,
 			cachedAt,
-			code: viewerCode,
+			code: safeViewerCode,
 		});
 	});
 
@@ -631,8 +641,15 @@ describe('live story SQL execution', () => {
 	});
 
 	it('generates and caches viewer-specific classic story text when requested', async () => {
-		const ownerCode = 'Owner narrative\n<table query_id="query_admin" />';
-		const viewerCode = 'Viewer narrative\n<table query_id="query_admin" />';
+		const ownerCode =
+			`Owner narrative\n<filter id="customer" type="select" table="customers" column="name" ` +
+			`options='["Alice","Bob"]' />\n<table query_id="query_admin" />`;
+		const viewerCode =
+			`Viewer narrative\n<filter id="customer" type="select" table="customers" column="name" ` +
+			`options='["Alice","Bob"]' />\n<table query_id="query_admin" />`;
+		const safeViewerCode =
+			'Viewer narrative\n<filter id="customer" type="select" table="customers" column="name" />\n' +
+			'<table query_id="query_admin" />';
 		const queryData = {
 			query_admin: {
 				columns: ['customer'],
@@ -678,7 +695,7 @@ describe('live story SQL execution', () => {
 				viewerUserId: 'viewer-1',
 				generateViewerCode: true,
 			}),
-		).resolves.toEqual({ queryData, code: viewerCode, narratives: {} });
+		).resolves.toEqual({ queryData, code: safeViewerCode, narratives: {} });
 
 		expect(mocks.updateLatestVersionCode).not.toHaveBeenCalled();
 		expect(mocks.upsertStoryViewerDataCache).toHaveBeenCalledWith(
@@ -690,7 +707,7 @@ describe('live story SQL execution', () => {
 				query_admin: querySource('SELECT customer FROM customers', null, true),
 			},
 			{},
-			viewerCode,
+			safeViewerCode,
 		);
 	});
 

@@ -303,7 +303,13 @@ describe('validateStoryCode', () => {
 			expect(validateStoryCode(code)).toEqual([]);
 		});
 
-		it('flags select filters missing both options and table/column', () => {
+		it('accepts a filter backed by an options query', () => {
+			const code =
+				'<filter id="customer" label="Customer" type="multi_select" options_query_id="query_customer_options" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags select filters without any options source', () => {
 			expect(
 				validateStoryCode('<filter id="country" type="select" />').some((e) =>
 					/require either `options=/.test(e.message),

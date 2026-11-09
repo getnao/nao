@@ -86,6 +86,10 @@ const CREATE_STORY_DESCRIPTION =
 	'Typical flow: `execute_sql` → `display_chart` → paste the returned `<chart>` block into `content`. ' +
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
 	'project-level story. The chat must belong to the calling user.\n\n' +
+	'STORY FILTERS: Hardcode `<filter options=\'["a","b"]\' />` only for universal constants that do not come from database rows. ' +
+	'Use `table` plus `column` for direct database-column values. For computed labels or other database-derived values, ' +
+	"run a separate `execute_sql` query that returns exactly one column named `value`, then set the filter's " +
+	'`options_query_id` to that query ID.\n\n' +
 	'IMPORTANT: once `create_story` returns, present its output directly to the user. Do NOT call ' +
 	'`display_chart` again for charts already embedded in the story content — the story embed renders ' +
 	'them automatically and re-calling `display_chart` would duplicate the output.';

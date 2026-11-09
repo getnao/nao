@@ -128,6 +128,7 @@ export interface StoryFilterBlockInput {
 	table?: string;
 	database_id?: string;
 	options?: string[];
+	options_query_id?: string;
 }
 
 export function buildStoryFilterBlock(input: StoryFilterBlockInput): string {
@@ -136,5 +137,8 @@ export function buildStoryFilterBlock(input: StoryFilterBlockInput): string {
 	const tableAttr = input.table ? ` table="${escapeDoubleQuotedStoryAttr(input.table)}"` : '';
 	const databaseIdAttr = input.database_id ? ` database_id="${escapeDoubleQuotedStoryAttr(input.database_id)}"` : '';
 	const optionsAttr = input.options ? ` options='${escapeSingleQuotedStoryAttr(JSON.stringify(input.options))}'` : '';
-	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsAttr} />`;
+	const optionsQueryIdAttr = input.options_query_id
+		? ` options_query_id="${escapeDoubleQuotedStoryAttr(input.options_query_id)}"`
+		: '';
+	return `<filter id="${escapeDoubleQuotedStoryAttr(input.id)}"${columnAttr}${labelAttr} type="${input.type}"${tableAttr}${databaseIdAttr}${optionsQueryIdAttr}${optionsAttr} />`;
 }

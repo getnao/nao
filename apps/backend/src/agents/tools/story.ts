@@ -25,7 +25,9 @@ import { createTool } from '../../utils/tools';
 
 const STORY_FILTER_DESCRIPTION = [
 	'Story-level filters are declared via <filter id="..." label="..." type="select|multi_select|search|date_range" ... />.',
-	'For select/multi_select, provide either table+column (options from SELECT DISTINCT) or options=\'["a","b"]\' (hardcoded values).',
+	'For select/multi_select, hardcode options=\'["a","b"]\' only for universal constants that do not come from database rows.',
+	'Use table+column when each option is the direct value of one database column.',
+	'For computed labels or any other database-derived values, execute a separate options query that returns exactly one column named value, then set options_query_id to that query_id.',
 	'When using table+column and multiple databases are configured, set database_id on the filter so option loading targets the correct database.',
 	'Matching SQL must use template blocks that reference the same filter id, e.g. WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
 	"For date_range, {{ filters.<id>.sql }} already expands to 'start' AND 'end' — write {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}. Never use .start/.end/.value.",
