@@ -11,6 +11,7 @@ import {
 import path from 'path';
 
 import type { ToolContext } from '../types/tools';
+import { isColumnSecurityTableFilePath } from './column-security-context.service';
 import { getColumnSecurityContextAccess, isContextPathAllowed } from './context-access';
 import type { ResolvedFileTreeAccess, ResolvedSkillsAccess } from './user-group-context-access.service';
 
@@ -141,7 +142,7 @@ function isDatabasePathAllowed(
 	if (access === 'blocked') {
 		return false;
 	}
-	return access !== 'restricted' || path.posix.basename(canonicalVirtualPath).toLowerCase() === 'columns.md';
+	return access !== 'restricted' || isColumnSecurityTableFilePath(canonicalVirtualPath);
 }
 
 /** The agent reaches MCP servers through the per-server tool specs; the raw server config only misleads it and can hold auth headers. */

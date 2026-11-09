@@ -173,6 +173,14 @@ describe('project context path access', () => {
 		expect(
 			isProjectContextPathRenderAllowed(context, `${tablePath}/columns.md`, `${tablePath}/columns.md`, 'file'),
 		).toBe(true);
+		expect(
+			isProjectContextPathRenderAllowed(
+				context,
+				`${tablePath}/notes/columns.md`,
+				`${tablePath}/notes/columns.md`,
+				'file',
+			),
+		).toBe(false);
 		expect(isProjectContextPathAllowed(context, `${tablePath}/preview.md`, `${tablePath}/preview.md`, 'file')).toBe(
 			false,
 		);

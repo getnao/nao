@@ -12,16 +12,20 @@ type ColumnCatalogDocument = {
 };
 
 const COLUMN_CATALOG_CACHE_MAX_ENTRIES = 100;
+const COLUMN_SECURITY_TABLE_FILE_PATTERN =
+	/^\/?databases\/type=([^/]+)\/database=([^/]+)\/schema=([^/]+)\/table=([^/]+)\/columns\.md$/i;
 const columnCatalogCache = new Map<string, { document: ColumnCatalogDocument | null; freshnessSignature: string }>();
+
+export function isColumnSecurityTableFilePath(virtualPath: string): boolean {
+	return COLUMN_SECURITY_TABLE_FILE_PATTERN.test(virtualPath);
+}
 
 export function renderColumnSecurityTableFile(
 	projectFolder: string,
 	virtualPath: string,
 	warehouseColumnSecurity: WarehouseColumnSecurity,
 ): string | null | undefined {
-	const match = /^\/?databases\/type=([^/]+)\/database=([^/]+)\/schema=([^/]+)\/table=([^/]+)\/columns\.md$/i.exec(
-		virtualPath,
-	);
+	const match = COLUMN_SECURITY_TABLE_FILE_PATTERN.exec(virtualPath);
 	if (!match) {
 		return undefined;
 	}
