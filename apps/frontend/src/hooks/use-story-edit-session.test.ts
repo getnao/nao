@@ -27,9 +27,9 @@ vi.mock('@tanstack/react-query', () => ({
 	useMutation: (options: MutationOptions & { kind: string }) => {
 		if (options.kind === 'acquire') {
 			mocks.acquireOptions = options;
-			return { mutate: mocks.acquire };
+			return { mutateAsync: mocks.acquire };
 		}
-		return { mutate: mocks.release };
+		return { mutateAsync: mocks.release };
 	},
 	useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
@@ -54,11 +54,12 @@ describe('useStoryEditSession', () => {
 		mocks.editState = { latestVersion: 1, latestAuthorName: 'Ada', lock: null };
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
+		await flushLockRequests();
 		vi.useRealTimers();
 	});
 
-	it('holds the lock for this tab while editing, renews it, and lets it go when editing stops', () => {
+	it('holds the lock for this tab while editing, renews it, and lets it go when editing stops', async () => {
 		const { rerender } = renderHook((isEditing: boolean) => useStoryEditSession({ target: TARGET, isEditing }), {
 			initialProps: true,
 		});
@@ -67,16 +68,31 @@ describe('useStoryEditSession', () => {
 		const lockInput = mocks.acquire.mock.calls[0][0];
 		expect(lockInput).toEqual({ storyId: 'story-1', sessionId: expect.any(String) });
 
-		act(() => {
-			vi.advanceTimersByTime(LOCK_RENEW_MS);
-		});
+		await act(() => vi.advanceTimersByTimeAsync(LOCK_RENEW_MS));
 		expect(mocks.acquire).toHaveBeenCalledTimes(2);
 
 		rerender(false);
+		await flushLockRequests();
 		expect(mocks.release).toHaveBeenCalledWith(lockInput);
 	});
 
-	it('stops asking for the lock once someone else holds it, until the person edits again', () => {
+	it('releases the lock only once the acquire it follows is answered', async () => {
+		const pendingAcquire = deferred();
+		mocks.acquire.mockReturnValueOnce(pendingAcquire.promise);
+		const { rerender } = renderHook((isEditing: boolean) => useStoryEditSession({ target: TARGET, isEditing }), {
+			initialProps: true,
+		});
+
+		rerender(false);
+		await flushLockRequests();
+		expect(mocks.release).not.toHaveBeenCalled();
+
+		pendingAcquire.resolve();
+		await flushLockRequests();
+		expect(mocks.release).toHaveBeenCalledOnce();
+	});
+
+	it('stops asking for the lock once someone else holds it, until the person edits again', async () => {
 		const { rerender } = renderHook((isEditing: boolean) => useStoryEditSession({ target: TARGET, isEditing }), {
 			initialProps: true,
 		});
@@ -84,14 +100,13 @@ describe('useStoryEditSession', () => {
 		act(() => {
 			mocks.acquireOptions.onError?.(lockConflict(), { storyId: 'story-1' });
 		});
-		act(() => {
-			vi.advanceTimersByTime(LOCK_RENEW_MS * 3);
-		});
+		await act(() => vi.advanceTimersByTimeAsync(LOCK_RENEW_MS * 3));
 		expect(mocks.acquire).toHaveBeenCalledOnce();
 		expect(mocks.refetch).toHaveBeenCalled();
 
 		rerender(false);
 		rerender(true);
+		await flushLockRequests();
 		expect(mocks.acquire).toHaveBeenCalledTimes(2);
 	});
 
@@ -118,22 +133,16 @@ describe('useStoryEditSession', () => {
 		expect(result.current.canEdit).toBe(false);
 	});
 
-	it('lets the lock lapse after a long idle spell, and takes it back on the next keystroke', () => {
+	it('lets the lock lapse after a long idle spell, and takes it back on the next keystroke', async () => {
 		renderHook(() => useStoryEditSession({ target: TARGET, isEditing: true }));
 
-		act(() => {
-			vi.advanceTimersByTime(10 * 60_000 + LOCK_RENEW_MS);
-		});
+		await act(() => vi.advanceTimersByTimeAsync(10 * 60_000 + LOCK_RENEW_MS));
 		const callsWhileIdle = mocks.acquire.mock.calls.length;
-		act(() => {
-			vi.advanceTimersByTime(LOCK_RENEW_MS);
-		});
+		await act(() => vi.advanceTimersByTimeAsync(LOCK_RENEW_MS));
 		expect(mocks.acquire).toHaveBeenCalledTimes(callsWhileIdle);
 
-		act(() => {
-			window.dispatchEvent(new KeyboardEvent('keydown'));
-			vi.advanceTimersByTime(LOCK_RENEW_MS);
-		});
+		window.dispatchEvent(new KeyboardEvent('keydown'));
+		await act(() => vi.advanceTimersByTimeAsync(LOCK_RENEW_MS));
 		expect(mocks.acquire).toHaveBeenCalledTimes(callsWhileIdle + 1);
 	});
 
@@ -198,6 +207,22 @@ describe('isStoryContentQueryKey', () => {
 		).toBe(false);
 	});
 });
+
+async function flushLockRequests(): Promise<void> {
+	await act(async () => {
+		for (let tick = 0; tick < 10; tick++) {
+			await Promise.resolve();
+		}
+	});
+}
+
+function deferred() {
+	let resolve!: () => void;
+	const promise = new Promise<void>((settle) => {
+		resolve = settle;
+	});
+	return { promise, resolve };
+}
 
 function lockConflict(): TRPCClientError<TrpcRouter> {
 	return lockRefusal('CONFLICT');

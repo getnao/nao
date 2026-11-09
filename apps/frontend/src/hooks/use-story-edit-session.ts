@@ -17,6 +17,8 @@ const LOCK_REFUSAL_CODES = new Set(['CONFLICT', 'FORBIDDEN']);
 /** Tells this browser tab apart from the other tabs of the same person. */
 const EDIT_SESSION_ID = crypto.randomUUID();
 
+let pendingLockRequest: Promise<void> | null = null;
+
 export interface StoryQueryTarget {
 	storyId: string;
 	chatId?: string;
@@ -88,10 +90,10 @@ function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: 
 		}),
 	);
 	const release = useMutation(trpc.story.releaseEditLock.mutationOptions());
-	const acquireRef = useRef(acquire.mutate);
-	const releaseRef = useRef(release.mutate);
-	acquireRef.current = acquire.mutate;
-	releaseRef.current = release.mutate;
+	const acquireRef = useRef(acquire.mutateAsync);
+	const releaseRef = useRef(release.mutateAsync);
+	acquireRef.current = acquire.mutateAsync;
+	releaseRef.current = release.mutateAsync;
 
 	useEffect(() => {
 		if (!isEditing) {
@@ -104,20 +106,33 @@ function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: 
 			return;
 		}
 		const lockInput = { storyId, sessionId: EDIT_SESSION_ID };
-		acquireRef.current(lockInput);
+		sendLockRequestInOrder(() => acquireRef.current(lockInput));
 		const renewal = window.setInterval(() => {
 			if (Date.now() - lastActivityRef.current < EDIT_IDLE_MS) {
-				acquireRef.current(lockInput);
+				sendLockRequestInOrder(() => acquireRef.current(lockInput));
 			}
 		}, LOCK_RENEW_MS);
 		return () => {
 			window.clearInterval(renewal);
-			releaseRef.current(lockInput);
+			sendLockRequestInOrder(() => releaseRef.current(lockInput));
 		};
 	}, [storyId, isEditing, isRefused, lastActivityRef]);
 
 	return storyId !== null && forbiddenStoryId === storyId;
 }
+
+function sendLockRequestInOrder(request: () => Promise<unknown>): void {
+	const send = () => Promise.resolve(request()).then(ignore, ignore);
+	const next = pendingLockRequest ? pendingLockRequest.then(send) : send();
+	pendingLockRequest = next;
+	void next.finally(() => {
+		if (pendingLockRequest === next) {
+			pendingLockRequest = null;
+		}
+	});
+}
+
+function ignore(): void {}
 
 function useLastUserActivity() {
 	const lastActivityRef = useRef(Date.now());
