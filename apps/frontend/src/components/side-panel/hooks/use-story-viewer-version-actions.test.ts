@@ -95,6 +95,8 @@ describe('useStoryViewerVersionActions', () => {
 					storySlug: props.storySlug,
 					storyTitle: props.storyTitle,
 					currentVersionCode: props.persistedCode,
+					currentVersionNumber: 1,
+					hasUnsavedChanges: false,
 					isViewingLatest: true,
 					goToLatestVersion: vi.fn(),
 					codeViewRef,
@@ -142,6 +144,7 @@ describe('useStoryViewerVersionActions', () => {
 			title: 'Story A',
 			code: '# Story A edit',
 			action: 'replace',
+			basedOnVersion: 1,
 		});
 		expect(mocks.invalidateQueries).not.toHaveBeenCalled();
 		expect(onStoryASaved).not.toHaveBeenCalled();
@@ -167,6 +170,7 @@ describe('useStoryViewerVersionActions', () => {
 			title: 'Story B',
 			code: '# Story B edit',
 			action: 'replace',
+			basedOnVersion: 1,
 		});
 		expect(onStoryBSaved).toHaveBeenCalledOnce();
 		expect(onStoryBSaved).toHaveBeenCalledWith('# Story B edit');
@@ -185,6 +189,8 @@ describe('useStoryViewerVersionActions', () => {
 					storySlug: props.storySlug,
 					storyTitle: props.storyTitle,
 					currentVersionCode: props.persistedCode,
+					currentVersionNumber: 1,
+					hasUnsavedChanges: false,
 					isViewingLatest: true,
 					goToLatestVersion: vi.fn(),
 					codeViewRef,
@@ -256,6 +262,33 @@ describe('useStoryViewerVersionActions', () => {
 		expect(result.current.saveError).toBeNull();
 	});
 
+	it('keeps the version being edited when a refetch brings a newer one under unsaved edits', async () => {
+		mocks.mutateAsync.mockResolvedValueOnce({ version: 7 });
+		const { result, rerender } = renderVersionedHook({ currentCode: '# My edit', hasUnsavedChanges: true });
+
+		rerender({
+			currentCode: '# My edit',
+			persistedCode: '# Someone else',
+			versionNumber: 6,
+			hasUnsavedChanges: true,
+		});
+		await act(async () => {
+			await result.current.saveCurrentVersion();
+		});
+
+		expect(mocks.mutateAsync.mock.calls.map(([input]) => input.basedOnVersion)).toEqual([5]);
+	});
+
+	it('does not save before the version being edited is known', async () => {
+		const { result } = renderVersionedHook({ currentCode: '# My edit', versionNumber: null });
+
+		await act(async () => {
+			expect(await result.current.saveCurrentVersion()).toBe('unavailable');
+		});
+
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+	});
+
 	it('tells the user when someone saved a newer version meanwhile, instead of overwriting it', async () => {
 		mocks.mutateAsync.mockRejectedValueOnce(
 			TRPCClientError.from<TrpcRouter>({
@@ -276,15 +309,23 @@ describe('useStoryViewerVersionActions', () => {
 	});
 });
 
-function renderVersionedHook(initialProps: { currentCode: string }) {
+interface VersionedHookProps {
+	currentCode: string;
+	persistedCode?: string;
+	versionNumber?: number | null;
+	hasUnsavedChanges?: boolean;
+}
+
+function renderVersionedHook(initialProps: VersionedHookProps) {
 	return renderHook(
-		(props: { currentCode: string }) =>
+		(props: VersionedHookProps) =>
 			useStoryViewerVersionActions({
 				chatId: 'chat-a',
 				storySlug: 'story-a',
 				storyTitle: 'Story A',
-				currentVersionCode: '# Story A',
-				currentVersionNumber: 5,
+				currentVersionCode: props.persistedCode ?? '# Story A',
+				currentVersionNumber: props.versionNumber === null ? undefined : (props.versionNumber ?? 5),
+				hasUnsavedChanges: props.hasUnsavedChanges ?? false,
 				isViewingLatest: true,
 				goToLatestVersion: vi.fn(),
 				codeViewRef,

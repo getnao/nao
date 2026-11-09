@@ -386,6 +386,7 @@ export async function createStandaloneVersion(data: {
 	action: 'create' | 'update' | 'replace';
 	source: 'assistant' | 'user';
 	origin: StoryVersionOrigin;
+	basedOnVersion?: number;
 }): Promise<DBStoryVersion & { title: string }> {
 	const story = await getOrCreateStandaloneStory({
 		userId: data.userId,
@@ -399,21 +400,30 @@ export async function createStandaloneVersion(data: {
 		.from(s.storyVersion)
 		.where(eq(s.storyVersion.storyId, story.id));
 
-	const [created] = await db
-		.insert(s.storyVersion)
-		.values({
-			storyId: story.id,
-			code: data.code,
-			action: data.action,
-			source: data.source,
-			origin: data.origin,
-			authorId: data.userId,
-			version: sql`(${nextVersion})`,
-		})
-		.returning()
-		.execute();
-
-	return { ...created, title: story.title };
+	if (data.basedOnVersion !== undefined) {
+		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, db);
+	}
+	try {
+		const [created] = await db
+			.insert(s.storyVersion)
+			.values({
+				storyId: story.id,
+				code: data.code,
+				action: data.action,
+				source: data.source,
+				origin: data.origin,
+				authorId: data.userId,
+				version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
+			})
+			.returning()
+			.execute();
+		return { ...created, title: story.title };
+	} catch (error) {
+		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
+			throw new StoryVersionConflictError();
+		}
+		throw error;
+	}
 }
 
 export async function createStandaloneStory(data: {

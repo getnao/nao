@@ -14,6 +14,10 @@ import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import {
+	assertWriterAddsNoMarkdownChatQueries,
+	CustomStoryQueryNotAllowedError,
+} from '../../services/custom-story-query-access';
+import {
 	isSemanticQueryToolEnabled,
 	isWarehouseSqlEnabled,
 	SemanticQueryCompileError,
@@ -423,6 +427,10 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
+			const queryRefusal = await markdownChatQueryRefusal(story, ctx.userId, newCode);
+			if (queryRefusal) {
+				return errorResult(queryRefusal);
+			}
 			const updated = await saveNewVersion(story, ctx, {
 				title: newTitle,
 				code: newCode,
@@ -605,12 +613,32 @@ async function saveNewVersion(
 		action: 'update',
 		source: 'user',
 		origin: 'mcp',
+		basedOnVersion,
 	});
 	const updated = await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, story.slug);
 	if (!updated) {
 		throw new Error(`Failed to retrieve updated story: ${ctx.userId}/${story.slug}`);
 	}
 	return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
+}
+
+async function markdownChatQueryRefusal(
+	story: { slug: string; chatId: string | null },
+	userId: string,
+	code: string,
+): Promise<string | null> {
+	if (!story.chatId) {
+		return null;
+	}
+	try {
+		await assertWriterAddsNoMarkdownChatQueries(story.chatId, story.slug, userId, code);
+		return null;
+	} catch (error) {
+		if (error instanceof CustomStoryQueryNotAllowedError) {
+			return error.message;
+		}
+		throw error;
+	}
 }
 
 function rethrowUnlessVersionConflict(error: unknown): null {

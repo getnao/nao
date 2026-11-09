@@ -339,7 +339,7 @@ export class AgentService {
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
 			await assertProjectCloudBillingAccess(chat.projectId);
 		}
-		this._disposeAgent(chat.id);
+		await this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		if (!options.isBudgetChecked) {
 			await assertModelBudget(chat.projectId, resolvedLlmSelectedModel, chat.userId);
@@ -384,7 +384,7 @@ export class AgentService {
 			profile,
 			modelConfig,
 			resolvedLlmSelectedModel,
-			() => this._forgetAgent(chat.id),
+			() => this._forgetAgent(chat.id, agent),
 			new AbortController(),
 			agentTools,
 			toolContext,
@@ -416,20 +416,23 @@ export class AgentService {
 		return buildToolContext(opts);
 	}
 
-	private _disposeAgent(chatId: string): void {
+	private async _disposeAgent(chatId: string): Promise<void> {
 		const agent = this._agents.get(chatId);
 		if (!agent) {
 			return;
 		}
 		agent.stop();
-		this._forgetAgent(chatId);
+		await this._forgetAgent(chatId, agent);
 	}
 
-	private _forgetAgent(chatId: string): void {
+	private async _forgetAgent(chatId: string, agent: AgentManager): Promise<void> {
+		if (this._agents.get(chatId) !== agent) {
+			return;
+		}
 		this._agents.delete(chatId);
 		clearInterval(this._storyLockRenewals.get(chatId));
 		this._storyLockRenewals.delete(chatId);
-		releaseAgentStoryEditLocks(chatId).catch((error) =>
+		await releaseAgentStoryEditLocks(chatId).catch((error) =>
 			logger.error(`Failed to release the story edit locks of an agent run: ${String(error)}`, {
 				source: 'agent',
 				context: { chatId },

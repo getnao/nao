@@ -30,6 +30,7 @@ import {
 	getEditorCustomStoryQueryData,
 	getEditorCustomStoryQuerySql,
 } from '../services/custom-story';
+import { assertWriterAddsNoMarkdownChatQueries } from '../services/custom-story-query-access';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
@@ -777,6 +778,11 @@ export const storyRoutes = {
 				}
 				await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'storyCreation');
 			}
+			await assertWriterAddsNoMarkdownChatQueries(input.chatId, input.storySlug, ctx.user.id, input.code).catch(
+				(error) => {
+					throw toCustomStoryTrpcError(error);
+				},
+			);
 			const version = await storyQueries
 				.createStoryVersion({
 					chatId: input.chatId,

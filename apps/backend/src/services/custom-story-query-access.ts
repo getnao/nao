@@ -1,3 +1,5 @@
+import { extractQueryIds } from '@nao/shared/story-segments';
+
 import type { DBStory } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -21,6 +23,22 @@ export async function assertWriterAddsNoChatQueries(
 	}
 }
 
+/** Same rule for markdown stories: a non-owner may only keep the queries the latest version already cites. */
+export async function assertWriterAddsNoMarkdownChatQueries(
+	chatId: string,
+	storySlug: string,
+	writerId: string,
+	code: string,
+): Promise<void> {
+	if ((await chatQueries.getChatOwnerId(chatId)) === writerId) {
+		return;
+	}
+	const latestVersion = await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug);
+	const knownIds = latestVersion ? extractQueryIds(latestVersion.code) : new Set<string>();
+	const addedIds = [...extractQueryIds(code)].filter((queryId) => !knownIds.has(queryId));
+	await assertNoneAreChatQueries(chatId, addedIds);
+}
+
 /** The queries the latest published version or the draft of the story reference. */
 export async function listCustomStoryQueryIds(chatId: string, storySlug: string): Promise<Set<string>> {
 	const [story, latestVersion] = await Promise.all([
@@ -37,9 +55,13 @@ export async function listCustomStoryQueryIds(chatId: string, storySlug: string)
 async function assertNoNewChatQueries(chatId: string, storySlug: string, files: { content: string }[]): Promise<void> {
 	const knownIds = await listCustomStoryQueryIds(chatId, storySlug);
 	const addedIds = [...extractCustomStoryQueryIds(files)].filter((queryId) => !knownIds.has(queryId));
-	const storedQueries = await Promise.all(addedIds.map((queryId) => storyQueries.getSqlQueryById(chatId, queryId)));
+	await assertNoneAreChatQueries(chatId, addedIds);
+}
+
+async function assertNoneAreChatQueries(chatId: string, queryIds: string[]): Promise<void> {
+	const storedQueries = await Promise.all(queryIds.map((queryId) => storyQueries.getSqlQueryById(chatId, queryId)));
 	const chatQueryIndex = storedQueries.findIndex((query) => query !== null);
 	if (chatQueryIndex !== -1) {
-		throw new CustomStoryQueryNotAllowedError(addedIds[chatQueryIndex]);
+		throw new CustomStoryQueryNotAllowedError(queryIds[chatQueryIndex]);
 	}
 }

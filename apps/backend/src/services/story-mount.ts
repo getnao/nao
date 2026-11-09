@@ -96,8 +96,8 @@ export async function writeStoryMountFile(
 		);
 	}
 	const story = await requireCustomStory(scope, target.storyId);
-	await acquireStoryEditLock(story.id, { userId: scope.userId, chatId: scope.chatId });
 	await assertWriterAddsNoChatQueries(story, scope.userId, [{ content }]);
+	await acquireStoryEditLock(story.id, { userId: scope.userId, chatId: scope.chatId });
 	const file = await storyFileQueries.writeDraftFile(story.id, {
 		path: target.filePath,
 		content: await formatStoryFile(target.filePath, content),

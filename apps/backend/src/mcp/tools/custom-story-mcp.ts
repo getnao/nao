@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { STORY_APP_MANIFEST_PATH } from '@nao/shared/story-app';
 import { z } from 'zod';
 
@@ -15,7 +17,13 @@ import {
 	assertWriterAddsNoChatQueries,
 	CustomStoryQueryNotAllowedError,
 } from '../../services/custom-story-query-access';
-import { assertStoryEditable, StoryEditLockedError } from '../../services/story-edit-lock.service';
+import {
+	acquireStoryEditLock,
+	assertStoryEditable,
+	getStoryEditLockState,
+	releaseStoryEditLock,
+	StoryEditLockedError,
+} from '../../services/story-edit-lock.service';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
 import {
 	backfillMissingQueryDataByIds,
@@ -130,22 +138,49 @@ export async function updateCustomStoryForMcp(
 	if (story.chatId && input.queryData) {
 		return errorResult(CHAT_QUERY_DATA_REFUSAL);
 	}
-	const lockError = await storyEditLockRefusal(story.id, ctx.userId);
+	return withMcpStoryEditLock(story.id, ctx.userId, async () => {
+		const queryRefusal = await chatQueryRefusal(story, ctx.userId, input.files);
+		if (queryRefusal) {
+			return errorResult(queryRefusal);
+		}
+		await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
+		if (input.title !== undefined && input.title !== story.title) {
+			await storyQueries.renameStory(story.id, input.title);
+		}
+		if (!story.chatId) {
+			await saveStandaloneQueryData(story.id, input.queryData, ctx);
+		}
+		return publishResult({ ...story, title: input.title ?? story.title }, ctx);
+	});
+}
+
+/** Holds the story for the whole MCP write, so no one else can start editing it halfway through. */
+export async function withMcpStoryEditLock(
+	storyId: string,
+	userId: string,
+	write: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+	const lockError = await storyEditLockRefusal(storyId, userId);
 	if (lockError) {
 		return errorResult(lockError);
 	}
-	const queryRefusal = await chatQueryRefusal(story, ctx.userId, input.files);
-	if (queryRefusal) {
-		return errorResult(queryRefusal);
+	if ((await getStoryEditLockState(storyId, { userId, chatId: null }))?.isYou) {
+		return write();
 	}
-	await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
-	if (input.title !== undefined && input.title !== story.title) {
-		await storyQueries.renameStory(story.id, input.title);
+	const holder = { userId, chatId: null, sessionId: `mcp:${randomUUID()}` };
+	try {
+		await acquireStoryEditLock(storyId, holder);
+	} catch (error) {
+		if (error instanceof StoryEditLockedError) {
+			return errorResult(error.message);
+		}
+		throw error;
 	}
-	if (!story.chatId) {
-		await saveStandaloneQueryData(story.id, input.queryData, ctx);
+	try {
+		return await write();
+	} finally {
+		await releaseStoryEditLock(storyId, holder);
 	}
-	return publishResult({ ...story, title: input.title ?? story.title }, ctx);
 }
 
 async function chatQueryRefusal(story: DBStory, userId: string, files: StoryFileInput[]): Promise<string | null> {

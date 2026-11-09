@@ -257,6 +257,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		storyTitle,
 		currentVersionCode: currentVersion?.code ?? storyCode,
 		currentVersionNumber: storedVersionNumber > 0 ? storedVersionNumber : undefined,
+		hasUnsavedChanges: storyBuffer.isDirty,
 		isViewingLatest,
 		goToLatestVersion,
 		codeViewRef,

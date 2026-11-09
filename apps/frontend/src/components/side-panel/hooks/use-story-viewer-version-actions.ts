@@ -13,6 +13,7 @@ interface UseStoryViewerVersionActionsParams {
 	storyTitle?: string;
 	currentVersionCode?: string;
 	currentVersionNumber?: number;
+	hasUnsavedChanges: boolean;
 	isViewingLatest: boolean;
 	goToLatestVersion: () => void;
 	codeViewRef: MutableRefObject<StoryCodeViewHandle | null>;
@@ -33,6 +34,7 @@ export const useStoryViewerVersionActions = ({
 	storyTitle,
 	currentVersionCode,
 	currentVersionNumber,
+	hasUnsavedChanges,
 	isViewingLatest,
 	goToLatestVersion,
 	codeViewRef,
@@ -93,14 +95,14 @@ export const useStoryViewerVersionActions = ({
 		const activeSave = savePromiseRef.current;
 		const hasActiveSaveForStory =
 			activeSave !== null && isSameStoryIdentity(activeSave.identity, { chatId, storySlug });
-		if (currentVersionCode !== undefined && !hasActiveSaveForStory) {
+		if (currentVersionCode !== undefined && !hasActiveSaveForStory && !hasUnsavedChanges) {
 			baselineRef.current = {
 				identity: { chatId, storySlug },
 				code: currentVersionCode,
 				version: currentVersionNumber,
 			};
 		}
-	}, [chatId, currentVersionCode, currentVersionNumber, storySlug]);
+	}, [chatId, currentVersionCode, currentVersionNumber, hasUnsavedChanges, storySlug]);
 
 	useEffect(() => {
 		setSaveError(null);
@@ -168,7 +170,10 @@ export const useStoryViewerVersionActions = ({
 				if (typeof snapshot === 'string') {
 					return snapshot;
 				}
-				if (!isSameStoryIdentity(baselineRef.current.identity, saveTarget.identity)) {
+				if (
+					!isSameStoryIdentity(baselineRef.current.identity, saveTarget.identity) ||
+					baselineRef.current.version === undefined
+				) {
 					return 'unavailable';
 				}
 
