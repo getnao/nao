@@ -25,6 +25,8 @@ vi.mock('@tanstack/react-query', () => ({
 					data: [{ id: 'old-member', name: 'Old member', email: 'old@example.com' }],
 					isFetching: mocks.isFetching,
 				};
+			case 'groups':
+				return { data: [{ id: 'old-group', name: 'Old group', memberCount: 2 }], isFetching: mocks.isFetching };
 			default:
 				return { data: undefined, isFetching: false };
 		}
@@ -92,4 +94,25 @@ it('hides previous project sharing data while the selected project refetches', (
 	expect(result.current.audience.canShareToProject).toBe(false);
 	expect(result.current.candidates.candidates).toEqual([]);
 	expect(result.current.candidates.isLoading).toBe(true);
+});
+
+it('hides the groups of the previous project while the selected project refetches them', () => {
+	mocks.activeProjectId = 'new-project';
+	mocks.isFetching = true;
+	mocks.project = { id: 'new-project' };
+
+	const { result } = renderHook(() =>
+		useShareCandidates({ chatId: 'chat-id', withGroups: true, excludedKeys: new Set(), enabled: true }),
+	);
+
+	expect(result.current.candidates).toEqual([]);
+	expect(result.current.isLoading).toBe(true);
+});
+
+it('does not ask for groups before a project is active', () => {
+	renderHook(() =>
+		useShareCandidates({ chatId: 'chat-id', withGroups: true, excludedKeys: new Set(), enabled: true }),
+	);
+
+	expect(mocks.queries.find((query) => query.queryKey[0] === 'groups')?.enabled).toBe(false);
 });

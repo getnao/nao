@@ -293,10 +293,7 @@ function StorySubHeader({
 		return (
 			<div className='flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2 md:px-6'>
 				{saveError ? (
-					<span role='alert' className='flex items-center gap-1.5 text-xs text-destructive'>
-						<CircleAlert className='size-3.5 shrink-0' />
-						{saveError}
-					</span>
+					<SaveErrorAlert message={saveError} />
 				) : (
 					<span className='text-xs text-muted-foreground'>
 						{viewMode === 'edit'
@@ -333,11 +330,16 @@ function StorySubHeader({
 	}
 
 	if (versionControls && !versionControls.isViewingLatest) {
+		const restoreError = classicControls?.saveError;
 		return (
 			<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2 md:px-6'>
-				<span className='text-xs text-muted-foreground'>
-					{describeViewedVersion(versionControls.versionDate, versionControls.currentVersion)}
-				</span>
+				{restoreError ? (
+					<SaveErrorAlert message={restoreError} />
+				) : (
+					<span className='text-xs text-muted-foreground'>
+						{describeViewedVersion(versionControls.versionDate, versionControls.currentVersion)}
+					</span>
+				)}
 				<Button
 					variant='outline'
 					size='sm'
@@ -353,6 +355,15 @@ function StorySubHeader({
 	}
 
 	return null;
+}
+
+function SaveErrorAlert({ message }: { message: string }) {
+	return (
+		<span role='alert' className='flex items-center gap-1.5 text-xs text-destructive'>
+			<CircleAlert className='size-3.5 shrink-0' />
+			{message}
+		</span>
+	);
 }
 
 function isCustomStoryViewModeControls(controls: ViewModeControls): controls is CustomStoryViewModeControls {

@@ -2,18 +2,20 @@ import { and, eq, gt, lte, or, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import { databaseNow, databaseTimeIn } from './database-time';
 
 /** A person editing by hand in one browser tab (`sessionId`), or their agent working in `chatId`. */
 export type StoryEditHolder = { userId: string; chatId: string | null; sessionId?: string | null };
 
 export type ActiveStoryEditLock = StoryEditHolder & { userName: string; acquiredAt: Date };
 
+/** Expiry is judged by the database clock, so hosts whose clocks drift apart agree on when a lock lapses. */
 export async function tryAcquireStoryEditLock(
 	storyId: string,
 	holder: StoryEditHolder,
-	expiresAt: Date,
-	now: Date,
+	ttlMs: number,
 ): Promise<boolean> {
+	const expiresAt = databaseTimeIn(ttlMs);
 	const rows = await db
 		.insert(s.storyEditLock)
 		.values({
@@ -22,7 +24,7 @@ export async function tryAcquireStoryEditLock(
 			chatId: holder.chatId,
 			sessionId: holder.sessionId ?? null,
 			expiresAt,
-			acquiredAt: now,
+			acquiredAt: databaseNow,
 		})
 		.onConflictDoUpdate({
 			target: s.storyEditLock.storyId,
@@ -33,14 +35,14 @@ export async function tryAcquireStoryEditLock(
 				expiresAt,
 				acquiredAt: sql`case when ${isHeldBy(holder)} then ${s.storyEditLock.acquiredAt} else excluded.acquired_at end`,
 			},
-			setWhere: or(lte(s.storyEditLock.expiresAt, now), isHeldBy(holder)),
+			setWhere: or(lte(s.storyEditLock.expiresAt, databaseNow), isHeldBy(holder)),
 		})
 		.returning({ storyId: s.storyEditLock.storyId })
 		.execute();
 	return rows.length > 0;
 }
 
-export async function getActiveStoryEditLock(storyId: string, now: Date): Promise<ActiveStoryEditLock | null> {
+export async function getActiveStoryEditLock(storyId: string): Promise<ActiveStoryEditLock | null> {
 	const [row] = await db
 		.select({
 			userId: s.storyEditLock.userId,
@@ -51,7 +53,7 @@ export async function getActiveStoryEditLock(storyId: string, now: Date): Promis
 		})
 		.from(s.storyEditLock)
 		.innerJoin(s.user, eq(s.user.id, s.storyEditLock.userId))
-		.where(and(eq(s.storyEditLock.storyId, storyId), gt(s.storyEditLock.expiresAt, now)))
+		.where(and(eq(s.storyEditLock.storyId, storyId), gt(s.storyEditLock.expiresAt, databaseNow)))
 		.execute();
 	return row ?? null;
 }
@@ -67,11 +69,11 @@ export async function releaseStoryEditLocksOfChat(chatId: string): Promise<void>
 	await db.delete(s.storyEditLock).where(eq(s.storyEditLock.chatId, chatId)).execute();
 }
 
-export async function renewStoryEditLocksOfChat(chatId: string, expiresAt: Date, now: Date): Promise<void> {
+export async function renewStoryEditLocksOfChat(chatId: string, ttlMs: number): Promise<void> {
 	await db
 		.update(s.storyEditLock)
-		.set({ expiresAt })
-		.where(and(eq(s.storyEditLock.chatId, chatId), gt(s.storyEditLock.expiresAt, now)))
+		.set({ expiresAt: databaseTimeIn(ttlMs) })
+		.where(and(eq(s.storyEditLock.chatId, chatId), gt(s.storyEditLock.expiresAt, databaseNow)))
 		.execute();
 }
 

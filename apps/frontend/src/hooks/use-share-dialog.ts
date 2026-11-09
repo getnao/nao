@@ -44,11 +44,12 @@ export function useShareCandidates({
 	});
 	const groupsQuery = useQuery({
 		...trpc.storyShare.listShareableGroups.queryOptions(),
-		enabled: enabled && withGroups,
+		enabled: enabled && withGroups && hasProject,
 	});
+	const showsGroups = withGroups && hasProject && !groupsQuery.isFetching;
 
 	const candidates = useMemo<ShareCandidate[]>(() => {
-		const groups = withGroups
+		const groups = showsGroups
 			? (groupsQuery.data ?? []).map((group) => ({
 					key: shareSubjectKey('group', group.id),
 					kind: 'group' as const,
@@ -66,9 +67,9 @@ export function useShareCandidates({
 			detail: member.email,
 		}));
 		return [...groups, ...people].filter((candidate) => !excludedKeys.has(candidate.key));
-	}, [withGroups, groupsQuery.data, hasProject, membersQuery.isFetching, membersQuery.data, excludedKeys]);
+	}, [showsGroups, groupsQuery.data, hasProject, membersQuery.isFetching, membersQuery.data, excludedKeys]);
 
-	return { candidates, isLoading: membersQuery.isFetching || (withGroups && groupsQuery.isLoading) };
+	return { candidates, isLoading: membersQuery.isFetching || (withGroups && groupsQuery.isFetching) };
 }
 
 /** Runs one sharing change at a time and keeps the last failed one so it can be retried. */

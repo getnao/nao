@@ -182,6 +182,35 @@ describe('StoryPageHeader actions', () => {
 	});
 });
 
+describe('StoryPageHeader on an older version', () => {
+	afterEach(cleanup);
+
+	it('tells the user when restoring the version failed', () => {
+		render(
+			<TooltipProvider>
+				<StoryPageHeader
+					title='Revenue'
+					viewModeControls={{
+						viewMode: 'preview',
+						onViewModeChange: vi.fn(),
+						saveError: 'Someone saved a newer version while you were editing.',
+					}}
+					versionControls={{
+						currentVersion: 2,
+						versions: [],
+						isViewingLatest: false,
+						onSelectVersion: vi.fn(),
+						onRestore: vi.fn(),
+					}}
+				/>
+			</TooltipProvider>,
+		);
+
+		expect(screen.getByRole('alert').textContent).toContain('Someone saved a newer version');
+		expect(screen.getByRole('button', { name: /restore/i })).toBeTruthy();
+	});
+});
+
 function renderHeader(canRefresh: boolean, onRefresh: () => void) {
 	return render(
 		<TooltipProvider>

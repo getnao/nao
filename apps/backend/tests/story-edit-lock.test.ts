@@ -74,14 +74,23 @@ describe('story edit lock', () => {
 	});
 
 	it('pushes the expiry back when the holder renews the lock', async () => {
-		vi.useFakeTimers({ toFake: ['Date'] });
 		await acquireStoryEditLock(STORY_ID, OWNER_BY_HAND);
 		const firstExpiry = await readLockExpiry();
 
-		vi.setSystemTime(Date.now() + STORY_EDIT_LOCK_TTL_MS / 2);
+		await ageLock(STORY_EDIT_LOCK_TTL_MS / 2);
 		await acquireStoryEditLock(STORY_ID, OWNER_BY_HAND);
 
-		expect((await readLockExpiry()) - firstExpiry).toBe(STORY_EDIT_LOCK_TTL_MS / 2);
+		expect(await readLockExpiry()).toBeGreaterThanOrEqual(firstExpiry);
+	});
+
+	it('judges expiry by the database clock, whatever the clock of the host asking', async () => {
+		await acquireStoryEditLock(STORY_ID, OWNER_BY_HAND);
+
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(Date.now() + STORY_EDIT_LOCK_TTL_MS * 2);
+
+		await expect(acquireStoryEditLock(STORY_ID, EDITOR_BY_HAND)).rejects.toBeInstanceOf(StoryEditLockedError);
+		expect(await getStoryEditLockState(STORY_ID, EDITOR_BY_HAND)).toMatchObject({ holderName: 'Owner' });
 	});
 
 	it('tells two tabs of the same person apart', async () => {
@@ -106,21 +115,19 @@ describe('story edit lock', () => {
 	});
 
 	it('keeps the story of a running agent locked while it thinks between two writes', async () => {
-		vi.useFakeTimers({ toFake: ['Date'] });
 		await acquireStoryEditLock(STORY_ID, EDITOR_AGENT);
 
-		vi.setSystemTime(Date.now() + STORY_EDIT_LOCK_TTL_MS - 1);
+		await ageLock(STORY_EDIT_LOCK_TTL_MS - 1_000);
 		await renewAgentStoryEditLocks(EDITOR_CHAT_ID);
-		vi.setSystemTime(Date.now() + STORY_EDIT_LOCK_TTL_MS - 1);
+		await ageLock(STORY_EDIT_LOCK_TTL_MS - 1_000);
 
 		await expect(acquireStoryEditLock(STORY_ID, OWNER_BY_HAND)).rejects.toBeInstanceOf(StoryEditLockedError);
 	});
 
 	it('does not bring back a lock that already expired', async () => {
-		vi.useFakeTimers({ toFake: ['Date'] });
 		await acquireStoryEditLock(STORY_ID, EDITOR_AGENT);
 
-		vi.setSystemTime(Date.now() + STORY_EDIT_LOCK_TTL_MS + 1);
+		await ageLock(STORY_EDIT_LOCK_TTL_MS + 1);
 		await renewAgentStoryEditLocks(EDITOR_CHAT_ID);
 
 		expect(await getStoryEditLockState(STORY_ID, OWNER_BY_HAND)).toBeNull();
@@ -151,16 +158,23 @@ describe('story edit lock', () => {
 	});
 
 	it('frees the story once a holder stops renewing the lock', async () => {
-		vi.useFakeTimers({ toFake: ['Date'] });
 		await acquireStoryEditLock(STORY_ID, OWNER_BY_HAND);
 
-		vi.setSystemTime(Date.now() + STORY_EDIT_LOCK_TTL_MS + 1);
+		await ageLock(STORY_EDIT_LOCK_TTL_MS + 1);
 
 		expect(await getStoryEditLockState(STORY_ID, EDITOR_BY_HAND)).toBeNull();
 		await expect(acquireStoryEditLock(STORY_ID, EDITOR_BY_HAND)).resolves.toBeUndefined();
 		expect(await getStoryEditLockState(STORY_ID, OWNER_BY_HAND)).toMatchObject({ holderName: 'Editor' });
 	});
 });
+
+/** Moves the lock's expiry back, as if that much time had passed on the database clock. */
+async function ageLock(elapsedMs: number): Promise<void> {
+	await db
+		.update(s.storyEditLock)
+		.set({ expiresAt: new Date((await readLockExpiry()) - elapsedMs) })
+		.where(eq(s.storyEditLock.storyId, STORY_ID));
+}
 
 async function readLockExpiry(): Promise<number> {
 	const [lock] = await db

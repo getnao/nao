@@ -235,10 +235,13 @@ export async function notifySharedItem(params: {
 		emailOverride: (recipient, unsubscribeUrl) =>
 			buildSharedItemEmail(
 				recipient,
-				params.sharerName,
-				params.itemLabel,
-				params.itemTitle,
-				itemUrl,
+				{
+					sharerName: params.sharerName,
+					itemLabel: params.itemLabel,
+					itemTitle: params.itemTitle,
+					itemUrl,
+					role: params.role,
+				},
 				unsubscribeUrl,
 			),
 	});

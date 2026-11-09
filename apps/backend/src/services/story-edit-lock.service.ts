@@ -16,12 +16,10 @@ export class StoryEditLockedError extends Error {
 
 export async function acquireStoryEditLock(storyId: string, holder: StoryEditHolder): Promise<void> {
 	for (let attempt = 0; attempt < 2; attempt++) {
-		const now = new Date();
-		const expiresAt = new Date(now.getTime() + STORY_EDIT_LOCK_TTL_MS);
-		if (await storyEditLockQueries.tryAcquireStoryEditLock(storyId, holder, expiresAt, now)) {
+		if (await storyEditLockQueries.tryAcquireStoryEditLock(storyId, holder, STORY_EDIT_LOCK_TTL_MS)) {
 			return;
 		}
-		const lock = await storyEditLockQueries.getActiveStoryEditLock(storyId, now);
+		const lock = await storyEditLockQueries.getActiveStoryEditLock(storyId);
 		if (lock) {
 			throw new StoryEditLockedError(lock.userName);
 		}
@@ -31,14 +29,14 @@ export async function acquireStoryEditLock(storyId: string, holder: StoryEditHol
 
 /** Lets a change through unless someone other than `holder` is editing the story, whatever tab they save from. */
 export async function assertStoryEditable(storyId: string, holder: StoryEditHolder): Promise<void> {
-	const lock = await storyEditLockQueries.getActiveStoryEditLock(storyId, new Date());
+	const lock = await storyEditLockQueries.getActiveStoryEditLock(storyId);
 	if (lock && !(lock.userId === holder.userId && lock.chatId === holder.chatId)) {
 		throw new StoryEditLockedError(lock.userName);
 	}
 }
 
 export async function getStoryEditLockState(storyId: string, viewer: StoryEditHolder): Promise<StoryEditLockState> {
-	const lock = await storyEditLockQueries.getActiveStoryEditLock(storyId, new Date());
+	const lock = await storyEditLockQueries.getActiveStoryEditLock(storyId);
 	if (!lock) {
 		return null;
 	}
@@ -59,8 +57,7 @@ export async function releaseStoryEditLock(storyId: string, holder: StoryEditHol
 
 /** Keeps the stories an agent run is editing locked while it thinks between two writes. */
 export async function renewAgentStoryEditLocks(chatId: string): Promise<void> {
-	const now = new Date();
-	await storyEditLockQueries.renewStoryEditLocksOfChat(chatId, new Date(now.getTime() + STORY_EDIT_LOCK_TTL_MS), now);
+	await storyEditLockQueries.renewStoryEditLocksOfChat(chatId, STORY_EDIT_LOCK_TTL_MS);
 }
 
 /** An agent run that ends frees every story it was editing. */

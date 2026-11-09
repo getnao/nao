@@ -2,14 +2,10 @@ import { and, eq, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import dbConfig, { Dialect } from '../db/dbConfig';
-
-const isPostgres = dbConfig.dialect === Dialect.Postgres;
-
-const databaseNow = isPostgres ? sql`now()` : sql`(cast(unixepoch('subsecond') * 1000 as integer))`;
+import { databaseNow, databaseTimeIn } from './database-time';
 
 export const tryAcquireLock = async (key: string, owner: string, leaseMs: number): Promise<boolean> => {
-	const expiresAt = leaseExpiry(leaseMs);
+	const expiresAt = databaseTimeIn(leaseMs);
 	const rows = await db
 		.insert(s.keyedLock)
 		.values({ key, owner, expiresAt })
@@ -26,7 +22,7 @@ export const tryAcquireLock = async (key: string, owner: string, leaseMs: number
 export const renewLock = async (key: string, owner: string, leaseMs: number): Promise<boolean> => {
 	const rows = await db
 		.update(s.keyedLock)
-		.set({ expiresAt: leaseExpiry(leaseMs) })
+		.set({ expiresAt: databaseTimeIn(leaseMs) })
 		.where(
 			and(eq(s.keyedLock.key, key), eq(s.keyedLock.owner, owner), sql`${s.keyedLock.expiresAt} > ${databaseNow}`),
 		)
@@ -48,10 +44,3 @@ export const deleteExpiredLocks = async (): Promise<void> => {
 		.where(sql`${s.keyedLock.expiresAt} < ${databaseNow}`)
 		.execute();
 };
-
-function leaseExpiry(leaseMs: number) {
-	if (isPostgres) {
-		return sql`${databaseNow} + make_interval(secs => ${leaseMs} / 1000.0)`;
-	}
-	return sql`${databaseNow} + ${leaseMs}`;
-}
