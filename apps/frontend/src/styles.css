@@ -611,10 +611,9 @@ code.dollar:before {
 	text-align: start;
 }
 
-.nao-input-resizable .prompt-input {
+.nao-input-grow .prompt-input {
 	min-height: var(--prompt-min-height);
-	max-height: none;
-	resize: vertical;
+	max-height: var(--prompt-max-height, none);
 }
 
 /* Mention pills: outlined chip, matching the "Share chat" button */

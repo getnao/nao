@@ -7,6 +7,10 @@ import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
+import {
+	triggerChatFeedbackAutomations,
+	triggerStoryFeedbackAutomations,
+} from '../services/automation-feedback-trigger.service';
 import { notifyUsers } from '../services/notification.service';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { logAnalyticsEvent } from '../utils/analytics-event';
@@ -60,6 +64,7 @@ export const feedbackRoutes = {
 						source: 'system',
 					}),
 			);
+			void triggerChatFeedbackAutomations(input);
 
 			return feedback;
 		}),
@@ -117,6 +122,13 @@ export const feedbackRoutes = {
 					source: 'system',
 				}),
 			);
+			void triggerStoryFeedbackAutomations({
+				projectId,
+				story,
+				submitterId: ctx.user.id,
+				vote: input.vote,
+				explanation,
+			});
 
 			return feedback;
 		}),

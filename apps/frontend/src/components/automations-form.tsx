@@ -4,13 +4,25 @@ import { useQuery } from '@tanstack/react-query';
 import { Calendar, Check, Copy, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
 import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
 import type { McpServerStatus } from '@nao/shared';
-import type { LlmProvider } from '@nao/shared/types';
+import type { AutomationEventTriggers, LlmProvider, NaoEventType } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
+import {
+	AutomationPromptResizeHandle,
+	getPromptHeightBounds,
+	useAutomationPromptHeight,
+} from '@/components/automation-prompt-resize-handle';
+import { McpServerIcon } from '@/components/mcp-server-icon';
+import {
+	addNaoEventTrigger,
+	canAddNaoEventTrigger,
+	NaoEventsSubmenu,
+	NaoEventTriggerRows,
+} from '@/components/nao-event-triggers';
 import { SlackChannelsInput } from '@/components/slack-channels-input';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,9 +40,11 @@ import { ErrorMessage } from '@/components/ui/error-message';
 import { Input } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { describeNaoEventTrigger, getEnabledNaoEvents, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
 import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -100,6 +114,7 @@ export type AutomationFormValue = {
 	mcpServers?: string[];
 	integrations: IntegrationConfig;
 	webhookEnabled: boolean;
+	eventTriggers: AutomationEventTriggers;
 };
 
 type AutomationFormProps = {
@@ -122,6 +137,7 @@ type AutomationDetails = {
 	scheduleDescription?: string | null;
 	cron?: string | null;
 	webhookEnabled?: boolean;
+	eventTriggers?: AutomationEventTriggers;
 	nextRunAt?: Date | string | null;
 	lastRunAt?: Date | string | null;
 };
@@ -160,6 +176,7 @@ const defaultValue: AutomationFormValue = {
 	mcpServers: undefined,
 	integrations: {},
 	webhookEnabled: false,
+	eventTriggers: {},
 };
 
 const schedulePresets: SchedulePreset[] = [
@@ -226,6 +243,10 @@ export function AutomationForm({
 					webhookUrl={webhookUrl}
 					onAddWebhook={form.handleAddWebhook}
 					onRemoveWebhook={form.handleRemoveWebhook}
+					eventTriggers={form.value.eventTriggers}
+					canUseChatFeedback={form.canUseChatFeedback}
+					onAddEventTrigger={form.handleAddEventTrigger}
+					onEventTriggersChange={form.handleEventTriggersChange}
 					hasError={form.triggerError}
 					disabled={form.controlsDisabled}
 				/>
@@ -322,8 +343,9 @@ function useAutomationFormController({
 	const promptRef = useRef<PromptHandle>(null);
 	const autoSaveInFlightRef = useRef(false);
 	const { data: session } = useSession();
+	const { canViewChatReplay: canUseChatFeedback } = usePermissions();
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
-	const mcpServersQuery = useQuery(trpc.mcp.getServers.queryOptions());
+	const mcpServersQuery = useQuery(trpc.mcp.getUsableServers.queryOptions());
 	const isDirty = !areAutomationValuesEqual(value, savedValue);
 	const userEmail = session?.user?.email;
 	const selectedModelValue =
@@ -449,7 +471,7 @@ function useAutomationFormController({
 			return false;
 		}
 
-		if (!nextValue.cron.trim() && !nextValue.webhookEnabled) {
+		if (!hasAnyTrigger(nextValue)) {
 			setTriggerError(true);
 			return false;
 		}
@@ -512,6 +534,16 @@ function useAutomationFormController({
 		handleControlValueChange({ ...value, webhookEnabled: false });
 	}
 
+	function handleAddEventTrigger(eventType: NaoEventType) {
+		setTriggerError(false);
+		const eventTriggers = addNaoEventTrigger(value.eventTriggers, eventType, { canUseChatFeedback });
+		handleControlValueChange({ ...value, eventTriggers });
+	}
+
+	function handleEventTriggersChange(eventTriggers: AutomationEventTriggers) {
+		handleControlValueChange({ ...value, eventTriggers });
+	}
+
 	function handleScheduleOptionChange(option: ScheduleOption) {
 		setTriggerError(false);
 		setScheduleOption(option);
@@ -542,14 +574,17 @@ function useAutomationFormController({
 
 	return {
 		availableModels: availableModels.data,
+		canUseChatFeedback,
 		clearEmailRecipientsError,
 		clearSlackChannelsError,
 		controlsDisabled,
 		emailRecipientsError,
 		formRef,
+		handleAddEventTrigger,
 		handleAddSchedule,
 		handleAddWebhook,
 		handleControlValueChange,
+		handleEventTriggersChange,
 		handleInsertPromptTrigger,
 		handleModelChange,
 		handlePromptChange,
@@ -609,6 +644,10 @@ function TriggersSection({
 	webhookUrl,
 	onAddWebhook,
 	onRemoveWebhook,
+	eventTriggers,
+	canUseChatFeedback,
+	onAddEventTrigger,
+	onEventTriggersChange,
 	hasError,
 	disabled,
 }: {
@@ -623,10 +662,14 @@ function TriggersSection({
 	webhookUrl: string | null;
 	onAddWebhook: () => void;
 	onRemoveWebhook: () => void;
+	eventTriggers: AutomationEventTriggers;
+	canUseChatFeedback: boolean;
+	onAddEventTrigger: (eventType: NaoEventType) => void;
+	onEventTriggersChange: (eventTriggers: AutomationEventTriggers) => void;
 	hasError: boolean;
 	disabled: boolean;
 }) {
-	const canAddTrigger = !hasSchedule || !webhookEnabled;
+	const canAddTrigger = !hasSchedule || !webhookEnabled || canAddNaoEventTrigger(eventTriggers);
 
 	return (
 		<section className='grid gap-1.5'>
@@ -650,12 +693,20 @@ function TriggersSection({
 				{webhookEnabled && (
 					<WebhookTriggerRow url={webhookUrl} onRemove={onRemoveWebhook} disabled={disabled} />
 				)}
+				<NaoEventTriggerRows
+					eventTriggers={eventTriggers}
+					context={{ canUseChatFeedback }}
+					onChange={onEventTriggersChange}
+					disabled={disabled}
+				/>
 				{canAddTrigger && (
 					<AddTriggerMenu
 						scheduleAdded={hasSchedule}
 						webhookAdded={webhookEnabled}
+						eventTriggers={eventTriggers}
 						onAddSchedule={onAddSchedule}
 						onAddWebhook={onAddWebhook}
+						onAddEventTrigger={onAddEventTrigger}
 						disabled={disabled}
 					/>
 				)}
@@ -830,14 +881,18 @@ function CopyableField({
 function AddTriggerMenu({
 	scheduleAdded,
 	webhookAdded,
+	eventTriggers,
 	onAddSchedule,
 	onAddWebhook,
+	onAddEventTrigger,
 	disabled,
 }: {
 	scheduleAdded: boolean;
 	webhookAdded: boolean;
+	eventTriggers: AutomationEventTriggers;
 	onAddSchedule: () => void;
 	onAddWebhook: () => void;
+	onAddEventTrigger: (eventType: NaoEventType) => void;
 	disabled: boolean;
 }) {
 	return (
@@ -863,6 +918,8 @@ function AddTriggerMenu({
 					<span>Via webhook</span>
 					{webhookAdded && <span className='ml-auto text-xs text-muted-foreground'>Added</span>}
 				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<NaoEventsSubmenu eventTriggers={eventTriggers} onAdd={onAddEventTrigger} />
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -942,6 +999,9 @@ function AutomationPromptInput({
 	footer?: ReactNode;
 }) {
 	const lastPromptValueRef = useRef(value);
+	const promptCardRef = useRef<HTMLDivElement>(null);
+	const promptHeight = useAutomationPromptHeight();
+	const { minHeight, maxHeight } = getPromptHeightBounds(promptHeight.height);
 
 	useEffect(() => {
 		const prompt = promptRef.current;
@@ -965,9 +1025,10 @@ function AutomationPromptInput({
 	return (
 		<>
 			<div
+				ref={promptCardRef}
 				aria-invalid={hasError}
 				className={cn(
-					'rounded-xl border bg-background/60',
+					'group/prompt relative rounded-xl border bg-background/60',
 					hasError && 'border-destructive ring-1 ring-destructive/20',
 				)}
 			>
@@ -975,17 +1036,26 @@ function AutomationPromptInput({
 					promptRef={promptRef}
 					initialValue={value}
 					placeholder='Type @ for tools, / for commands...'
-					minHeight='10rem'
-					resizable
+					minHeight={minHeight}
+					maxHeight={maxHeight}
+					growWithContent
 					submitOnEnter={false}
 					storyCreationEnabled={storyCreationEnabled}
 					onChange={handleChange}
 				/>
 				{footer && <div className='flex items-center justify-between gap-2 px-3 pb-2.5'>{footer}</div>}
+				<AutomationPromptResizeHandle
+					{...promptHeight}
+					measureEditorHeight={() => measurePromptEditorHeight(promptCardRef.current)}
+				/>
 			</div>
 			{hasError && <p className='text-sm text-destructive'>Prompt is required.</p>}
 		</>
 	);
+}
+
+function measurePromptEditorHeight(promptCard: HTMLDivElement | null): number {
+	return promptCard?.querySelector('.prompt-input')?.getBoundingClientRect().height ?? 0;
 }
 
 function AutomationModelSelect({
@@ -1254,7 +1324,7 @@ function ToolRow({
 	if (tool.kind === 'mcp') {
 		return (
 			<ToolRowShell
-				icon={<McpIcon className='size-4' />}
+				icon={<McpServerIcon server={tool.serverName} className='size-4' />}
 				title={tool.serverName}
 				onRemove={() => onRemoveMcpServer(tool.serverName)}
 				disabled={disabled}
@@ -1601,7 +1671,7 @@ function McpSubMenu({
 							onSelect={() => onAddMcpServer(server.name)}
 							disabled={isAdded}
 						>
-							<McpIcon className='size-4' />
+							<McpServerIcon server={server.name} className='size-4' />
 							<span className='truncate'>{server.name}</span>
 							<span className='ml-auto text-xs text-muted-foreground'>
 								{isAdded
@@ -1636,6 +1706,13 @@ function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
 				/>
 			)}
 			<DetailRow label='Webhook trigger' value={webhookTriggerLabel(details.webhookEnabled, isPaused)} />
+			{getEnabledNaoEvents(details.eventTriggers ?? {}).map((eventType) => (
+				<DetailRow
+					key={eventType}
+					label={`${NAO_EVENT_LABELS[eventType]} trigger`}
+					value={isPaused ? 'Paused' : describeNaoEventTrigger(eventType, details.eventTriggers ?? {})}
+				/>
+			))}
 			<DetailRow label='Last run (your time)' value={formatDateTime(details.lastRunAt)} />
 		</div>
 	);
@@ -1859,6 +1936,10 @@ function getSchedulePreset(value: Exclude<ScheduleOption, 'custom'>): SchedulePr
 	return schedulePresets.find((preset) => preset.value === value) ?? schedulePresets[0];
 }
 
+function hasAnyTrigger(value: AutomationFormValue): boolean {
+	return Boolean(value.cron.trim()) || value.webhookEnabled || getEnabledNaoEvents(value.eventTriggers).length > 0;
+}
+
 function areAutomationValuesEqual(left: AutomationFormValue, right: AutomationFormValue): boolean {
 	return serializeAutomationValue(left) === serializeAutomationValue(right);
 }
@@ -1876,6 +1957,7 @@ function normalizeAutomationValue(value: AutomationFormValue): AutomationFormVal
 		...value,
 		scheduleDescription: value.scheduleDescription ?? '',
 		mcpServers: value.mcpServers ? [...value.mcpServers].sort() : undefined,
+		eventTriggers: normalizeEventTriggers(value.eventTriggers),
 		integrations: {
 			email: value.integrations.email
 				? {
@@ -1897,6 +1979,19 @@ function normalizeAutomationValue(value: AutomationFormValue): AutomationFormVal
 						actions: normalizeGithubActions(value.integrations.github.actions),
 					}
 				: undefined,
+		},
+	};
+}
+
+function normalizeEventTriggers({ feedback }: AutomationEventTriggers): AutomationEventTriggers {
+	if (!feedback) {
+		return {};
+	}
+	return {
+		feedback: {
+			enabled: feedback.enabled,
+			votes: [...feedback.votes].sort(),
+			sources: [...feedback.sources].sort(),
 		},
 	};
 }

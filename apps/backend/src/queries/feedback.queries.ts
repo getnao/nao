@@ -1,9 +1,9 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, lt, sql } from 'drizzle-orm';
 
 import s, { MessageFeedback, NewMessageFeedback, NewStoryFeedback, StoryFeedback } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import type { FeedbackWithDetails } from '../types/message-feedback';
+import type { FeedbackWithDetails, RatedMessageContext } from '../types/message-feedback';
 
 export const upsertFeedback = async (feedback: NewMessageFeedback): Promise<MessageFeedback> => {
 	const [result] = await db
@@ -93,3 +93,58 @@ export const getUserStoryFeedback = async (storyId: string, userId: string): Pro
 		.execute();
 	return result ?? null;
 };
+
+/** Loads the rated assistant answer, its chat, and the user question that preceded it. */
+export const getRatedMessageContext = async (messageId: string): Promise<RatedMessageContext | null> => {
+	const [message] = await db
+		.select({
+			chatId: s.chat.id,
+			chatTitle: s.chat.title,
+			projectId: s.chat.projectId,
+			chatOwnerId: s.chat.userId,
+			createdAt: s.chatMessage.createdAt,
+		})
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+		.where(eq(s.chatMessage.id, messageId))
+		.execute();
+	if (!message) {
+		return null;
+	}
+
+	const [question] = await db
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.where(
+			and(
+				eq(s.chatMessage.chatId, message.chatId),
+				eq(s.chatMessage.role, 'user'),
+				isNull(s.chatMessage.supersededAt),
+				lt(s.chatMessage.createdAt, message.createdAt),
+			),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1)
+		.execute();
+
+	const { createdAt: _createdAt, ...chat } = message;
+	return {
+		...chat,
+		question: question ? await getMessageText(question.id) : null,
+		answer: await getMessageText(messageId),
+	};
+};
+
+async function getMessageText(messageId: string): Promise<string | null> {
+	const parts = await db
+		.select({ text: s.messagePart.text })
+		.from(s.messagePart)
+		.where(and(eq(s.messagePart.messageId, messageId), eq(s.messagePart.type, 'text')))
+		.orderBy(asc(s.messagePart.order))
+		.execute();
+	const text = parts
+		.map((part) => part.text ?? '')
+		.join('\n\n')
+		.trim();
+	return text || null;
+}

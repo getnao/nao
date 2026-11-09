@@ -166,12 +166,14 @@ function AutomationDetailPage() {
 							mcpServers: automation.mcpServers ?? undefined,
 							integrations: automation.integrations,
 							webhookEnabled: automation.webhookEnabled,
+							eventTriggers: automation.eventTriggers,
 						}}
 						details={{
 							enabled: automation.enabled,
 							scheduleDescription: automation.scheduleDescription,
 							cron: automation.cron,
 							webhookEnabled: automation.webhookEnabled,
+							eventTriggers: automation.eventTriggers,
 							nextRunAt: automation.scheduledJob?.runAt,
 							lastRunAt: runs[0]?.startedAt,
 						}}

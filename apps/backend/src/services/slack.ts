@@ -66,6 +66,7 @@ import { isStoriesPath } from '../utils/story-mount';
 import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { SlackSocketBridge } from './slack-socket-bridge';
@@ -519,6 +520,7 @@ export class ProjectSlackBot {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
+			void triggerChatFeedbackAutomations({ messageId, vote: 'up' });
 			await this._updateCompletionCardVote(threadId, 'up');
 		});
 
@@ -559,11 +561,9 @@ export class ProjectSlackBot {
 				throw new Error(`You are not authorized to provide feedback on this message.`);
 			}
 
-			await feedbackQueries.upsertFeedback({
-				messageId,
-				vote: 'down',
-				explanation: event.values['explanation'] || undefined,
-			});
+			const explanation = event.values['explanation'] || undefined;
+			await feedbackQueries.upsertFeedback({ messageId, vote: 'down', explanation });
+			void triggerChatFeedbackAutomations({ messageId, vote: 'down', explanation });
 			await this._updateCompletionCardVote(threadId, 'down');
 			return { action: 'close' };
 		});
