@@ -48,6 +48,8 @@ const SHARED_STORY_ID = 'locked-group-shared-story';
 const SHARED_CHAT_ID = 'locked-group-shared-chat';
 const OLDER_GROUP_IDS = ['locked-group-1', 'locked-group-2', 'locked-group-3'];
 const NEWEST_GROUP_ID = 'locked-group-4';
+const SMALL_PROJECT_ID = 'locked-group-small-project';
+const SMALL_PROJECT_GROUP_ID = 'locked-group-small';
 
 beforeAll(seed);
 
@@ -85,6 +87,15 @@ describe('a user group the free plan locks', () => {
 		expect(await canUserAccessSharedChat(SHARED_CHAT_ID, MEMBER_ID)).toBe(true);
 		expect(await getSharedStoryRecipientUserIds(SHARED_STORY_ID)).toEqual([MEMBER_ID]);
 	});
+
+	it('only checks the license of projects with more custom groups than the free plan keeps', async () => {
+		mocks.hasFeature.mockClear();
+
+		await canUserAccessSharedStory(SHARED_STORY_ID, MEMBER_ID);
+
+		expect(mocks.hasFeature).toHaveBeenCalledTimes(1);
+		expect(mocks.hasFeature).toHaveBeenCalledWith(expect.anything(), { projectId: PROJECT_ID });
+	});
 });
 
 async function seed() {
@@ -102,6 +113,9 @@ async function seed() {
 		})),
 	);
 	await db.insert(s.userGroupMember).values({ groupId: NEWEST_GROUP_ID, userId: MEMBER_ID });
+	await db.insert(s.project).values({ id: SMALL_PROJECT_ID, name: 'Small', type: 'local', path: '/tmp/small' });
+	await db.insert(s.userGroup).values({ id: SMALL_PROJECT_GROUP_ID, projectId: SMALL_PROJECT_ID, name: 'Small' });
+	await db.insert(s.userGroupMember).values({ groupId: SMALL_PROJECT_GROUP_ID, userId: MEMBER_ID });
 
 	await db
 		.insert(s.story)

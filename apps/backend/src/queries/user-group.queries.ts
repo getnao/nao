@@ -1003,12 +1003,26 @@ export async function listUserIdsInGroups(groupIds: string[]): Promise<string[]>
 	return rows.map((row) => row.userId);
 }
 
-export async function listCustomGroupProjectIdsOfMember(userId: string): Promise<string[]> {
-	const rows = await db
+export type CustomUserGroupSummary = { id: string; projectId: string; createdAt: Date };
+
+export async function listCustomUserGroupSummaries(projectId: string): Promise<CustomUserGroupSummary[]> {
+	return db
+		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId, createdAt: s.userGroup.createdAt })
+		.from(s.userGroup)
+		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+		.execute();
+}
+
+/** Every custom group of the projects where the user belongs to one, the only kind of group a plan can lock. */
+export async function listCustomUserGroupSummariesAroundMember(userId: string): Promise<CustomUserGroupSummary[]> {
+	const memberProjectIds = db
 		.selectDistinct({ projectId: s.userGroup.projectId })
 		.from(s.userGroupMember)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-		.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroup.isDefault, false)))
+		.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroup.isDefault, false)));
+	return db
+		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId, createdAt: s.userGroup.createdAt })
+		.from(s.userGroup)
+		.where(and(inArray(s.userGroup.projectId, memberProjectIds), eq(s.userGroup.isDefault, false)))
 		.execute();
-	return rows.map((row) => row.projectId);
 }
