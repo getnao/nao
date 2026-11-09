@@ -4,11 +4,11 @@ import { useNavigate } from '@tanstack/react-router';
 import { Calendar, Check, Copy, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
-import GithubIcon from '@/components/icons/github-icon.svg';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react';
 import type { LlmProvider } from '@nao/shared/types';
 import type { McpServerStatus } from '@nao/shared';
 import type { CompletionOptions } from '@/components/ui/completion-input';
+import GithubIcon from '@/components/icons/github-icon.svg';
 
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
