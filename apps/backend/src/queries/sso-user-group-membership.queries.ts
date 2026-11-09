@@ -100,6 +100,9 @@ export async function reconcileSsoUserGroupMemberships(
 						.onConflictDoNothing()
 						.run();
 				}
+				if (changes.stale.length > 0 || changes.added.length > 0) {
+					transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.userId, userId)).run();
+				}
 			},
 			{ behavior: 'immediate' },
 		);
@@ -149,6 +152,9 @@ export async function reconcileSsoUserGroupMemberships(
 				.values(changes.added.map((groupId) => ({ groupId, userId, provider })))
 				.onConflictDoNothing()
 				.execute();
+		}
+		if (changes.stale.length > 0 || changes.added.length > 0) {
+			await transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.userId, userId)).execute();
 		}
 	});
 }

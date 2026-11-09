@@ -16,6 +16,7 @@ export type SharedStoryWithLatest = DBSharedStory & {
 	title: string;
 	format: StoryFormat;
 	code: string;
+	storyVersionId: string;
 	version: number;
 	isLive: boolean;
 	certifiedAt: Date | null;
@@ -342,6 +343,7 @@ function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[
 			title: s.story.title,
 			format: s.story.format,
 			code: s.storyVersion.code,
+			storyVersionId: s.storyVersion.id,
 			version: s.storyVersion.version,
 			isLive: s.story.isLive,
 			certifiedAt: s.story.certifiedAt,

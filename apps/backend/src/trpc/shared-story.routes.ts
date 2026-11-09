@@ -90,10 +90,14 @@ export const sharedStoryRoutes = {
 			},
 		}));
 		const { tables } = await userGroupQueries.getProjectRowSecurity(input.projectId);
-		if (tables.length > 0) {
-			return items.map((story) => ({ ...story, kpiPreviewData: null }));
-		}
-		return withKpiPreviewData(items, (story) => story.storyId);
+		const hasRowSecurity = tables.length > 0;
+		const storiesWithPreview = hasRowSecurity
+			? items.map((story) => ({ ...story, kpiPreviewData: null }))
+			: await withKpiPreviewData(items, (story) => story.storyId);
+		return storiesWithPreview.map((story) => ({
+			...story,
+			canShowThumbnail: !hasRowSecurity || story.userId === ctx.user.id,
+		}));
 	}),
 
 	create: canSendProcedure
@@ -209,6 +213,7 @@ export const sharedStoryRoutes = {
 				: await getStoryQueryData(shared.chatId!, shared.slug, shared.code, isLive, cacheSchedule, {
 						deferRefresh: canRefresh && lastRefreshFailure !== null,
 						deferFirstRefresh: canRefresh,
+						storyVersionId: shared.storyVersionId,
 						viewerUserId: ctx.user.id,
 					});
 
@@ -370,7 +375,14 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const queryData = await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code);
+			const { queryData } = await getStoryQueryData(
+				shared.chatId,
+				shared.slug,
+				version.code,
+				version.isLive,
+				version.cacheSchedule,
+				{ storyVersionId: version.id, viewerUserId: ctx.user.id },
+			);
 			return { queryData };
 		}),
 
@@ -622,7 +634,7 @@ export const sharedStoryRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
-				{ viewerUserId: ctx.user.id },
+				{ storyVersionId: version.id, viewerUserId: ctx.user.id },
 			);
 
 			logAnalyticsEvent({

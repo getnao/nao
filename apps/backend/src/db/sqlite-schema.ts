@@ -1422,19 +1422,23 @@ export const storyViewerDataCache = sqliteTable(
 		storyId: text('story_id')
 			.notNull()
 			.references(() => story.id, { onDelete: 'cascade' }),
+		storyVersionId: text('story_version_id')
+			.notNull()
+			.references(() => storyVersion.id, { onDelete: 'cascade' }),
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		queryData: text('query_data', { mode: 'json' })
 			.$type<Record<string, { data: unknown[]; columns: string[] }>>()
 			.notNull(),
+		code: text('code'),
 		querySources: text('query_sources', { mode: 'json' }).$type<StoryQuerySources>(),
 		analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
 		cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.storyId, t.userId] })],
+	(t) => [primaryKey({ columns: [t.storyVersionId, t.userId] })],
 );
 
 export const storyAppState = sqliteTable(

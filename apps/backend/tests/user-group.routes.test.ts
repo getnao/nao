@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
 	getShareAudience: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
+	invalidateProjectViewerCaches: vi.fn(),
+	invalidateUserViewerCaches: vi.fn(),
 	listUserGroups: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
 	revokeUnauthorizedProjectWideShares: vi.fn(),
@@ -45,6 +47,10 @@ vi.mock('../src/agents/user-rules', () => ({
 vi.mock('../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project', path: '/project' })),
 	getUserRoleInProject: mocks.getUserRoleInProject,
+}));
+vi.mock('../src/queries/story.queries', () => ({
+	invalidateProjectViewerCaches: mocks.invalidateProjectViewerCaches,
+	invalidateUserViewerCaches: mocks.invalidateUserViewerCaches,
 }));
 vi.mock('../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
@@ -153,6 +159,7 @@ describe('user group routes', () => {
 			tables: [orders],
 		});
 		expect(mocks.updateProjectRowSecurity).toHaveBeenCalledWith('project-id', { version: 1, tables: [orders] });
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 	});
 
 	it('rejects unlicensed row-security table additions', async () => {
@@ -393,6 +400,7 @@ describe('user group routes', () => {
 		});
 
 		await createCaller().updateRowSecurity({ version: 1, tables: [orders] });
+		mocks.invalidateProjectViewerCaches.mockClear();
 		await createCaller().update({
 			groupId: 'group-id',
 			featureGrants: ['storyCreation'],
@@ -411,6 +419,7 @@ describe('user group routes', () => {
 				rowPoliciesRegistry: { version: 1, tables: [orders] },
 			}),
 		);
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 	});
 
 	it('rejects group row policies for tables outside the project registry', async () => {
@@ -1078,11 +1087,13 @@ describe('user group routes', () => {
 	it('unshares project-wide content no longer allowed after membership changes and group deletion', async () => {
 		await createCaller().setMembership({ groupId: 'group-id', userId: 'target-user-id', isMember: false });
 		expect(mocks.setUserGroupMembership).toHaveBeenCalled();
+		expect(mocks.invalidateUserViewerCaches).toHaveBeenCalledWith('project-id', 'target-user-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 
 		mocks.revokeUnauthorizedProjectWideShares.mockClear();
 		await createCaller().delete({ groupId: 'group-id' });
 		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 

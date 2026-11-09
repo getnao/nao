@@ -86,6 +86,8 @@ export interface RefreshResult {
 
 interface StoryRefreshOptions {
 	billingAccessVerifiedProjectId?: string;
+	generateViewerCode?: boolean;
+	storyVersionId?: string;
 	viewerUserId?: string;
 }
 
@@ -98,19 +100,36 @@ export async function refreshStoryData(
 	return { queryData, narratives };
 }
 
+export function refreshStoryDataForDelivery(
+	chatId: string,
+	slug: string,
+	options: StoryRefreshOptions = {},
+): Promise<RefreshResult & { code: string }> {
+	return refreshStoryDataWithContext(chatId, slug, undefined, options);
+}
+
 async function refreshStoryDataWithContext(
 	chatId: string,
 	slug: string,
 	existingExecutionContext?: StoryExecutionContext,
 	options: StoryRefreshOptions = {},
 ): Promise<RefreshResult & { code: string }> {
-	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
+	const version = options.storyVersionId
+		? await storyQueries.getVersionById(chatId, slug, options.storyVersionId)
+		: await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
 	if (!version) {
 		throw new Error('Story not found');
 	}
 
 	const sqlQueries = await getVersionSqlQueries(chatId, version);
+	const shouldGenerateViewerCode = options.viewerUserId !== undefined && options.generateViewerCode === true;
+	const shouldGenerateClassicCode =
+		version.format === 'classic' &&
+		((options.viewerUserId === undefined && version.isLiveTextDynamic) || shouldGenerateViewerCode);
 	if (Object.keys(sqlQueries).length === 0) {
+		if (shouldGenerateViewerCode && version.format === 'classic') {
+			throw new Error('Cannot generate viewer story text without query data');
+		}
 		return { queryData: {}, code: version.code, narratives: {} };
 	}
 
@@ -129,11 +148,16 @@ async function refreshStoryDataWithContext(
 	});
 
 	let refreshedCode = version.code;
-	const target = { projectId: chat.projectId, userId: chat.userId, chatId };
-	if (version.isLiveTextDynamic && version.format === 'classic' && !options.viewerUserId) {
+	const target = { projectId: chat.projectId, userId: options.viewerUserId ?? chat.userId, chatId };
+	if (shouldGenerateClassicCode) {
 		const newCode = await generateDynamicStoryCode(target, version.title, version.code, queryData);
-		if (newCode) {
+		if (!newCode && shouldGenerateViewerCode) {
+			throw new Error('Failed to generate viewer story text');
+		}
+		if (newCode && !options.viewerUserId) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
+		}
+		if (newCode) {
 			refreshedCode = newCode;
 		}
 	}
@@ -146,10 +170,12 @@ async function refreshStoryDataWithContext(
 	if (options.viewerUserId) {
 		await storyQueries.upsertStoryViewerDataCache(
 			version.storyId,
+			version.id,
 			options.viewerUserId,
 			queryData,
 			querySources,
 			narratives,
+			refreshedCode,
 		);
 	} else {
 		await storyQueries.upsertStoryDataCache(chatId, slug, queryData, querySources, narratives);
@@ -178,6 +204,7 @@ export interface StoryQueryDataResult {
 }
 
 interface StoryQueryDataOptions {
+	storyVersionId?: string;
 	viewerUserId?: string;
 	/** Return the stored data right away and leave the refresh to the caller, instead of refreshing inline. */
 	deferRefresh?: boolean;
@@ -193,6 +220,15 @@ export async function getStoryQueryData(
 	cacheSchedule: string | null,
 	options: StoryQueryDataOptions = {},
 ): Promise<StoryQueryDataResult> {
+	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	if (viewerUserId) {
+		const storyVersionId =
+			options.storyVersionId ?? (await storyQueries.getLatestVersionByChatAndSlug(chatId, slug))?.id;
+		if (!storyVersionId) {
+			throw new Error('Story not found');
+		}
+		return getViewerStoryQueryData(chatId, slug, storyVersionId, code, cacheSchedule, viewerUserId);
+	}
 	if (!isLive) {
 		return {
 			queryData: await getQueryDataFromCode(chatId, code),
@@ -200,10 +236,6 @@ export async function getStoryQueryData(
 			code,
 			allowsPersistedFallback: true,
 		};
-	}
-	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
-	if (viewerUserId) {
-		return getViewerStoryQueryData(chatId, slug, code, cacheSchedule, viewerUserId);
 	}
 	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 
@@ -231,30 +263,37 @@ export async function getStoryQueryData(
 async function getViewerStoryQueryData(
 	chatId: string,
 	slug: string,
+	storyVersionId: string,
 	code: string,
 	cacheSchedule: string | null,
 	viewerUserId: string,
 ): Promise<StoryQueryDataResult> {
-	const cache = await storyQueries.getStoryViewerDataCache(chatId, slug, viewerUserId);
-	const isCacheUsable =
+	const cache = await storyQueries.getStoryViewerDataCache(chatId, slug, storyVersionId, viewerUserId);
+	if (
 		cache !== null &&
+		cache.code !== null &&
 		!isCacheExpired(cache.cachedAt, cacheSchedule) &&
-		findMissingQueryIds(code, cache.queryData).length === 0;
-	if (isCacheUsable) {
-		return { queryData: cache.queryData, cachedAt: cache.cachedAt, code };
+		findMissingQueryIds(code, cache.queryData).length === 0
+	) {
+		return { queryData: cache.queryData, cachedAt: cache.cachedAt, code: cache.code };
 	}
 
 	try {
 		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug, undefined, {
+			storyVersionId,
 			viewerUserId,
+			generateViewerCode: true,
 		});
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
 			cachedAt: new Date(),
 			code: refreshedCode,
 		};
-	} catch {
-		return { queryData: cache?.queryData ?? null, cachedAt: cache?.cachedAt ?? null, code };
+	} catch (error) {
+		if (cache?.code !== null && cache?.code !== undefined) {
+			return { queryData: cache.queryData, cachedAt: cache.cachedAt, code: cache.code };
+		}
+		throw error;
 	}
 }
 

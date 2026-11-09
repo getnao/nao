@@ -3,9 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	getStoryByChatAndSlug: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
+	getVersionByNumber: vi.fn(),
 	getStoryDataCacheByStoryId: vi.fn(),
+	getStoryViewerDataCache: vi.fn(),
 	getLatestStoryRefreshFailure: vi.fn(),
 	getLatestSqlQueryDataByIds: vi.fn(),
+	hasRowSecurity: vi.fn(),
 	isCacheExpired: vi.fn(),
 	refreshStoryData: vi.fn(),
 	executeLiveQuery: vi.fn(),
@@ -15,7 +18,9 @@ vi.mock('../src/env', () => ({ env: { BETA_CUSTOM_STORIES_ENABLED: false } }));
 vi.mock('../src/queries/story.queries', () => ({
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
+	getVersionByNumber: mocks.getVersionByNumber,
 	getStoryDataCacheByStoryId: mocks.getStoryDataCacheByStoryId,
+	getStoryViewerDataCache: mocks.getStoryViewerDataCache,
 }));
 vi.mock('../src/queries/activity.queries', () => ({
 	getLatestStoryRefreshFailure: mocks.getLatestStoryRefreshFailure,
@@ -34,11 +39,16 @@ vi.mock('../src/utils/story-query-data', () => ({
 }));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: mocks.executeLiveQuery,
+	hasRowSecurity: mocks.hasRowSecurity,
 	isCacheExpired: mocks.isCacheExpired,
 	refreshStoryData: mocks.refreshStoryData,
 }));
 
-import { getCustomStoryQueryData, getCustomStoryVersion } from '../src/services/custom-story';
+import {
+	getCustomStoryQueryData,
+	getCustomStoryVersion,
+	getSharedCustomStoryQueryData,
+} from '../src/services/custom-story';
 
 const CACHED_ORDERS = { columns: ['id'], data: [{ id: 1 }] };
 const CHAT_ORDERS = { columns: ['id'], data: [{ id: 2 }] };
@@ -58,7 +68,57 @@ describe('custom story background refresh', () => {
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ id: 'version-1', version: 1, createdAt: new Date() });
 		mocks.getLatestStoryRefreshFailure.mockResolvedValue(null);
 		mocks.getLatestSqlQueryDataByIds.mockResolvedValue({ query_orders: CHAT_ORDERS });
+		mocks.hasRowSecurity.mockResolvedValue(false);
 		mocks.refreshStoryData.mockResolvedValue({ queryData: { query_orders: REFRESHED_ORDERS }, narratives: {} });
+	});
+
+	it('serves a non-live viewer snapshot when row security is configured', async () => {
+		mocks.getStoryByChatAndSlug.mockResolvedValue({
+			id: 'story-1',
+			slug: 'orders',
+			format: 'custom',
+			isLive: false,
+			isLiveTextDynamic: false,
+			cacheSchedule: null,
+		});
+		mocks.hasRowSecurity.mockResolvedValue(true);
+		mocks.getStoryViewerDataCache.mockResolvedValue({
+			queryData: { query_orders: CACHED_ORDERS },
+			cachedAt: new Date(0),
+		});
+		mocks.isCacheExpired.mockReturnValue(false);
+
+		await expect(
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { viewerUserId: 'viewer-1' }),
+		).resolves.toEqual(CACHED_ORDERS);
+
+		expect(mocks.getStoryViewerDataCache).toHaveBeenCalledWith('chat-1', 'orders', 'version-1', 'viewer-1');
+		expect(mocks.getLatestSqlQueryDataByIds).not.toHaveBeenCalled();
+		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
+	});
+
+	it('reads the viewer cache for the requested custom story version', async () => {
+		mocks.getStoryByChatAndSlug.mockResolvedValue({
+			id: 'story-1',
+			slug: 'orders',
+			format: 'custom',
+			isLive: false,
+			isLiveTextDynamic: false,
+			cacheSchedule: null,
+		});
+		mocks.getVersionByNumber.mockResolvedValue({ id: 'version-2' });
+		mocks.hasRowSecurity.mockResolvedValue(true);
+		mocks.getStoryViewerDataCache.mockResolvedValue({
+			queryData: { query_orders: CACHED_ORDERS },
+			cachedAt: new Date(0),
+		});
+		mocks.isCacheExpired.mockReturnValue(false);
+
+		await expect(getSharedCustomStoryQueryData('chat-1', 'orders', 'query_orders', 2, 'viewer-1')).resolves.toEqual(
+			CACHED_ORDERS,
+		);
+
+		expect(mocks.getStoryViewerDataCache).toHaveBeenCalledWith('chat-1', 'orders', 'version-2', 'viewer-1');
 	});
 
 	it.each([

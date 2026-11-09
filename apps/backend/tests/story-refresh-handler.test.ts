@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
 	startStoryRefreshActivity: vi.fn(),
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
+	deleteStoryViewerDataCache: vi.fn(),
+	deliverStoryOnRefresh: vi.fn(),
+	hasRowSecurity: vi.fn(),
 	refreshStoryData: vi.fn(),
 }));
 
@@ -14,6 +17,7 @@ vi.mock('../src/queries/story.queries', () => ({
 	getStoryById: mocks.getStoryById,
 	getStoryProjectId: mocks.getStoryProjectId,
 	getStoryOwnerId: mocks.getStoryOwnerId,
+	deleteStoryViewerDataCache: mocks.deleteStoryViewerDataCache,
 }));
 vi.mock('../src/queries/activity.queries', () => ({
 	startStoryRefreshActivity: mocks.startStoryRefreshActivity,
@@ -21,12 +25,13 @@ vi.mock('../src/queries/activity.queries', () => ({
 	failActivity: mocks.failActivity,
 }));
 vi.mock('../src/services/live-story', () => ({
-	hasRowSecurity: vi.fn(async () => false),
+	hasRowSecurity: mocks.hasRowSecurity,
 	refreshStoryData: mocks.refreshStoryData,
 }));
 vi.mock('../src/handlers/story-delivery.handler', () => ({
-	deliverStoryOnRefresh: vi.fn(async () => undefined),
+	deliverStoryOnRefresh: mocks.deliverStoryOnRefresh,
 	STORY_DELIVERY_JOB_NAME: 'story-delivery',
+	StoryRecipientDeliveryError: class extends Error {},
 }));
 vi.mock('../src/services/scheduler.service', () => ({
 	enqueueOnce: vi.fn(),
@@ -53,7 +58,9 @@ describe('scheduled Story refresh principal', () => {
 			userId: 'owner-1',
 		});
 		mocks.startStoryRefreshActivity.mockResolvedValue({ id: 'activity-1' });
+		mocks.hasRowSecurity.mockResolvedValue(false);
 		mocks.refreshStoryData.mockResolvedValue({ queryData: {} });
+		mocks.deliverStoryOnRefresh.mockResolvedValue(undefined);
 	});
 
 	it('executes warehouse queries as the Story owner', async () => {
@@ -62,6 +69,16 @@ describe('scheduled Story refresh principal', () => {
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
+	});
+
+	it('invalidates viewer caches and delivers recipient snapshots for row-security projects', async () => {
+		mocks.hasRowSecurity.mockResolvedValue(true);
+
+		await runScheduledStoryRefresh('story-1');
+
+		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
+		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1');
+		expect(mocks.deliverStoryOnRefresh).toHaveBeenCalledWith('story-1', undefined, {});
 	});
 
 	it('fails the scheduled refresh when the owner has lost project access', async () => {

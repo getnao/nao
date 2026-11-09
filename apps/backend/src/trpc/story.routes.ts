@@ -15,6 +15,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
+import * as userGroupQueries from '../queries/user-group.queries';
 import { agentService } from '../services/agent';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
@@ -1083,7 +1084,15 @@ export const storyRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
-		return withKpiPreviewData(items, (story) => story.storyId);
+		const { tables } = await userGroupQueries.getProjectRowSecurity(ctx.project.id);
+		const hasRowSecurity = tables.length > 0;
+		const storiesWithPreview = hasRowSecurity
+			? items.map((story) => ({ ...story, kpiPreviewData: null }))
+			: await withKpiPreviewData(items, (story) => story.storyId);
+		return storiesWithPreview.map((story) => ({
+			...story,
+			canShowThumbnail: !hasRowSecurity || story.userId === ctx.user.id,
+		}));
 	}),
 
 	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {

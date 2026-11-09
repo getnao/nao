@@ -1,4 +1,4 @@
-import type { StoryExportData, StoryQueryResult } from '@nao/shared/story-app';
+import type { StoryExportData, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { DEFAULT_STORY_THEME_PAIR, type StoryThemeMode } from '@nao/shared/story-theme';
 
@@ -18,14 +18,15 @@ export async function renderCustomStoryPdf(
 	chatId: string,
 	storySlug: string,
 	queryData: Record<string, StoryQueryResult>,
+	narratives?: StoryNarratives,
 ): Promise<{ filename: string; buffer: Buffer }> {
-	const [version, narratives, state, runtime] = await Promise.all([
+	const [version, resolvedNarratives, state, runtime] = await Promise.all([
 		getCustomStoryVersion(chatId, storySlug),
-		getCustomStoryNarratives(chatId, storySlug),
+		narratives ?? getCustomStoryNarratives(chatId, storySlug),
 		getUnattendedCustomStoryState(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
 	]);
-	const html = buildCustomStoryDocumentHtml(version, queryData, narratives, runtime, 'light', state);
+	const html = buildCustomStoryDocumentHtml(version, queryData, resolvedNarratives, runtime, 'light', state);
 	const buffer = await renderStoryPdf(html, themeFontStylesheets(version.theme));
 	return { filename: formatDownloadFilename(version.title, 'pdf'), buffer };
 }

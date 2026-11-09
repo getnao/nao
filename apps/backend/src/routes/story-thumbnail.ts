@@ -6,7 +6,7 @@ import { z } from 'zod/v4';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import * as storyQueries from '../queries/story.queries';
-import { getCustomStoryThumbnail } from '../services/custom-story-thumbnail';
+import { canShowStoredCustomStoryThumbnail, getCustomStoryThumbnail } from '../services/custom-story-thumbnail';
 import { HandlerError } from '../utils/error';
 
 const paramsSchema = z.object({
@@ -30,7 +30,8 @@ export const storyThumbnailRoutes = async (app: App) => {
 			if (
 				!story ||
 				story.format !== 'custom' ||
-				!(await storyQueries.canUserAccessStory(storyId, request.user.id))
+				!(await storyQueries.canUserAccessStory(storyId, request.user.id)) ||
+				!(await canShowStoredCustomStoryThumbnail(storyId, request.user.id))
 			) {
 				throw new HandlerError('NOT_FOUND', 'Story not found');
 			}

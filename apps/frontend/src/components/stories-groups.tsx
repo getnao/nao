@@ -196,7 +196,7 @@ export function StoryCard({
 					<div className={GRID_THUMBNAIL_CLASS}>
 						{item.format === 'custom' ? (
 							<CustomStoryThumbnail
-								storyId={item.storyId}
+								storyId={item.canShowThumbnail ? item.storyId : undefined}
 								version={item.version}
 								summary={item.summary}
 								theme={storyTheme}

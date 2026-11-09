@@ -1,0 +1,1 @@
+ALTER TABLE `story_viewer_data_cache` ADD `code` text;

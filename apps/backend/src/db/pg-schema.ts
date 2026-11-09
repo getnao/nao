@@ -1325,15 +1325,19 @@ export const storyViewerDataCache = pgTable(
 		storyId: text('story_id')
 			.notNull()
 			.references(() => story.id, { onDelete: 'cascade' }),
+		storyVersionId: text('story_version_id')
+			.notNull()
+			.references(() => storyVersion.id, { onDelete: 'cascade' }),
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
+		code: text('code'),
 		querySources: jsonb('query_sources').$type<StoryQuerySources>(),
 		analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 		cachedAt: timestamp('cached_at').defaultNow().notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.storyId, t.userId] })],
+	(t) => [primaryKey({ columns: [t.storyVersionId, t.userId] })],
 );
 
 export const storyAppState = pgTable(

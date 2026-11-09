@@ -27,6 +27,9 @@ import {
 	orgMember,
 	project,
 	projectMember,
+	story,
+	storyVersion,
+	storyViewerDataCache,
 	user,
 	userGroup,
 	userGroupMember,
@@ -1607,6 +1610,50 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('invalidates viewer caches only when SSO memberships change', async () => {
+		await createUserGroup(
+			PROJECT_ID,
+			'Cached SSO',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['cached-sso']),
+		);
+		await db.insert(story).values({
+			id: 'sso-cache-story',
+			projectId: PROJECT_ID,
+			userId: DIRECT_USER_ID,
+			slug: 'sso-cache-story',
+			title: 'SSO cache story',
+		});
+		await db.insert(storyVersion).values({
+			id: 'sso-cache-version',
+			storyId: 'sso-cache-story',
+			version: 1,
+			code: '<story />',
+			action: 'create',
+			source: 'user',
+		});
+		const cache = {
+			storyId: 'sso-cache-story',
+			storyVersionId: 'sso-cache-version',
+			userId: DIRECT_USER_ID,
+			queryData: {},
+		};
+		await db.insert(storyViewerDataCache).values(cache);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['cached-sso']);
+		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toEqual([]);
+
+		await db.insert(storyViewerDataCache).values(cache);
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['cached-sso']);
+		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toHaveLength(1);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', []);
+		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toEqual([]);
+	});
+
 	it('unions manual and OIDC memberships without duplicate effective grants or counts', async () => {
 		const group = await createUserGroup(
 			PROJECT_ID,
@@ -2202,6 +2249,10 @@ async function listSsoGroupIds(userId: string, provider?: SsoGroupProvider): Pro
 				: and(eq(userGroupMember.userId, userId), inArray(userGroupMember.provider, ['oidc', 'microsoft'])),
 		)
 		.then((memberships) => memberships.map((membership) => membership.groupId));
+}
+
+async function listViewerCaches(userId: string) {
+	return db.select().from(storyViewerDataCache).where(eq(storyViewerDataCache.userId, userId));
 }
 
 async function projectMembership(projectId: string, userId: string) {

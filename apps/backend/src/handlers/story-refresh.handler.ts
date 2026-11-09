@@ -11,7 +11,7 @@ import { enqueueOnce } from '../services/scheduler.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
-import { deliverStoryOnRefresh, STORY_DELIVERY_JOB_NAME } from './story-delivery.handler';
+import { deliverStoryOnRefresh, STORY_DELIVERY_JOB_NAME, StoryRecipientDeliveryError } from './story-delivery.handler';
 
 export const STORY_REFRESH_JOB_NAME = 'story.refresh';
 
@@ -63,9 +63,7 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	if (!story.isLive || story.archivedAt) {
 		return;
 	}
-	if (await hasRowSecurity(story.chatId)) {
-		return;
-	}
+	const rowSecurityEnabled = await hasRowSecurity(story.chatId);
 
 	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
 	const userId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id));
@@ -81,9 +79,16 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	});
 
 	try {
-		const { queryData } = await refreshStoryData(story.chatId, story.slug, {
-			billingAccessVerifiedProjectId: projectId,
-		});
+		let queryData = {};
+		if (rowSecurityEnabled) {
+			await storyQueries.deleteStoryViewerDataCache(story.id);
+		} else {
+			queryData = (
+				await refreshStoryData(story.chatId, story.slug, {
+					billingAccessVerifiedProjectId: projectId,
+				})
+			).queryData;
+		}
 		const queriesRefreshed = Object.keys(queryData).length;
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 		await notifyStoryRefreshed({
@@ -119,6 +124,9 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 				name: STORY_DELIVERY_JOB_NAME,
 				payload: {
 					storyId,
+					...(error instanceof StoryRecipientDeliveryError
+						? { recipientUserIds: error.failedRecipientUserIds }
+						: {}),
 					skipDeliveries: error instanceof NotificationChannelDeliveryError ? error.succeeded : [],
 				},
 				uniqueKey: `story-delivery-retry:${activity.id}`,

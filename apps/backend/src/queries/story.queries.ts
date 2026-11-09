@@ -581,6 +581,16 @@ export function getVersionByNumber(
 	);
 }
 
+export function getVersionById(
+	chatId: string,
+	slug: string,
+	storyVersionId: string,
+): Promise<StoryVersionWithStory | null> {
+	return getStoryVersion(
+		and(eq(s.story.chatId, chatId), eq(s.story.slug, slug), eq(s.storyVersion.id, storyVersionId))!,
+	);
+}
+
 export async function listStoryVersions(chatId: string, slug: string): Promise<DBStoryVersion[]> {
 	return db
 		.select({
@@ -872,37 +882,55 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 export async function getStoryViewerDataCache(
 	chatId: string,
 	slug: string,
+	storyVersionId: string,
 	userId: string,
 ): Promise<DBStoryViewerDataCache | null> {
 	const [row] = await db
 		.select({
 			storyId: s.storyViewerDataCache.storyId,
+			storyVersionId: s.storyViewerDataCache.storyVersionId,
 			userId: s.storyViewerDataCache.userId,
 			queryData: s.storyViewerDataCache.queryData,
+			code: s.storyViewerDataCache.code,
 			querySources: s.storyViewerDataCache.querySources,
 			analysisResults: s.storyViewerDataCache.analysisResults,
 			cachedAt: s.storyViewerDataCache.cachedAt,
 		})
 		.from(s.storyViewerDataCache)
 		.innerJoin(s.story, eq(s.storyViewerDataCache.storyId, s.story.id))
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug), eq(s.storyViewerDataCache.userId, userId)))
+		.where(
+			and(
+				eq(s.story.chatId, chatId),
+				eq(s.story.slug, slug),
+				eq(s.storyViewerDataCache.storyVersionId, storyVersionId),
+				eq(s.storyViewerDataCache.userId, userId),
+			),
+		)
 		.execute();
 	return row ?? null;
 }
 
 export async function upsertStoryViewerDataCache(
 	storyId: string,
+	storyVersionId: string,
 	userId: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 	querySources: StoryQuerySources,
 	analysisResults?: Record<string, string> | null,
+	code?: string | null,
 ): Promise<void> {
-	const values = { queryData, querySources, analysisResults: analysisResults ?? null, cachedAt: new Date() };
+	const values = {
+		queryData,
+		code: code ?? null,
+		querySources,
+		analysisResults: analysisResults ?? null,
+		cachedAt: new Date(),
+	};
 	await db
 		.insert(s.storyViewerDataCache)
-		.values({ storyId, userId, ...values })
+		.values({ storyId, storyVersionId, userId, ...values })
 		.onConflictDoUpdate({
-			target: [s.storyViewerDataCache.storyId, s.storyViewerDataCache.userId],
+			target: [s.storyViewerDataCache.storyVersionId, s.storyViewerDataCache.userId],
 			set: values,
 		})
 		.execute();
@@ -910,6 +938,40 @@ export async function upsertStoryViewerDataCache(
 
 export async function deleteStoryViewerDataCache(storyId: string): Promise<void> {
 	await db.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).execute();
+}
+
+export async function invalidateProjectViewerCaches(projectId: string, executor: DBExecutor = db): Promise<void> {
+	const storyIds = await getProjectStoryIds(projectId, executor);
+	if (storyIds.length === 0) {
+		return;
+	}
+	await executor.delete(s.storyViewerDataCache).where(inArray(s.storyViewerDataCache.storyId, storyIds)).execute();
+}
+
+export async function invalidateUserViewerCaches(
+	projectId: string,
+	userId: string,
+	executor: DBExecutor = db,
+): Promise<void> {
+	const storyIds = await getProjectStoryIds(projectId, executor);
+	if (storyIds.length === 0) {
+		return;
+	}
+	await executor
+		.delete(s.storyViewerDataCache)
+		.where(and(inArray(s.storyViewerDataCache.storyId, storyIds), eq(s.storyViewerDataCache.userId, userId)))
+		.execute();
+}
+
+async function getProjectStoryIds(projectId: string, executor: DBExecutor): Promise<string[]> {
+	const stories = await executor
+		.select({ id: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(or(eq(s.story.projectId, projectId), eq(s.chat.projectId, projectId)))
+		.execute();
+
+	return stories.map(({ id }) => id);
 }
 
 export async function getStorySharingInfo(storyIds: string[]): Promise<Map<string, StorySharingInfo>> {
