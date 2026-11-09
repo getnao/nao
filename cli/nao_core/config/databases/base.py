@@ -312,6 +312,9 @@ class DatabaseConfig(BaseModel, ABC):
         """Get the database name for this database type."""
         ...
 
+    def get_catalog_names(self) -> list[str]:
+        return [self.get_database_name()]
+
     def get_schemas(self, conn: BaseBackend) -> list[str]:
         """Return the list of schemas to sync. Override in subclasses for custom behavior."""
         # Prefer schemas (dataset-like) when available.

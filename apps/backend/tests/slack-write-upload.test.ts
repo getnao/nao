@@ -41,6 +41,7 @@ function createBot(): ProjectSlackBot {
 		appToken: '',
 		replyMode: 'thread',
 		dmScopeMissing: false,
+		dmThreadsEnabled: false,
 	});
 }
 

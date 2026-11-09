@@ -209,7 +209,7 @@ export interface TestModelStats extends LlmSelectedModel {
 /** The `test` block of nao_config.yaml. */
 export interface ConfiguredTestSettings {
 	/** Null when the project does not pin test models. */
-	models: LlmSelectedModel[] | null;
+	models: TestModelSelection[] | null;
 	attempts: number;
 	/** Null when the project does not set the threads, so the run picks them from its models. */
 	threads: number | null;

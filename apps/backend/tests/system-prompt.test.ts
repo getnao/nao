@@ -81,6 +81,28 @@ describe('SystemPrompt timezone rendering', () => {
 		expect(markdown).toContain('Tuesday, March 10, 2026 (UTC)');
 	});
 
+	it('marks the trusted stories the user can edit', () => {
+		const trustedStory = {
+			title: 'Revenue',
+			author: 'Owner',
+			format: 'classic' as const,
+			pinned: true,
+			certified: false,
+			updatedAt: '2026-01-03',
+		};
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				trustedStories: [
+					{ ...trustedStory, id: 'story-editable', editable: true },
+					{ ...trustedStory, id: 'story-read-only', editable: false },
+				],
+			}),
+		);
+
+		expect(markdown).toContain('"Revenue" (id: story-editable) — pinned, editable');
+		expect(markdown).toContain('"Revenue" (id: story-read-only) — pinned\n');
+	});
+
 	it('describes available custom charts and their web-only scope', () => {
 		const markdown = renderToMarkdown(
 			SystemPrompt({
@@ -97,6 +119,7 @@ describe('SystemPrompt timezone rendering', () => {
 
 		expect(markdown).toContain('**bubble**: Shows three numeric dimensions.');
 		expect(markdown).toContain('interactive web chats only');
+		expect(markdown).toContain('in a custom story as <Chart type="...">');
 	});
 
 	it('bounds the custom chart list and truncates long descriptions', () => {

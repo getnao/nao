@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Github, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import type { ImportedProject } from '@/components/settings/import-provider-card';
 import type { CSSProperties } from 'react';
+import GithubIcon from '@/components/icons/github-icon.svg';
 
 import {
 	AlertDialog,
@@ -113,7 +114,7 @@ export function GitHubRepoPicker({ open, onOpenChange, onImported, dialogStyle }
 				<DialogContent className='sm:max-w-lg' style={dialogStyle}>
 					<DialogHeader>
 						<DialogTitle className='flex items-center gap-2'>
-							<Github className='size-5' />
+							<GithubIcon className='size-5' />
 							Import from GitHub
 						</DialogTitle>
 						<DialogDescription>Select a repository to import as a nao project.</DialogDescription>

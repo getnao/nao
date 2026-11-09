@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d6706ce5-ac9d-4675-94a0-35fe4a5d187b",
+  "id": "c40c93f6-c494-4b60-8eb7-e776fbd71329",
   "prevId": "c20af784-7c1f-4ed3-949c-76aee97d67b2",
   "tables": {
     "account": {
@@ -6434,13 +6434,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "column_security": {
-          "name": "column_security",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "row_security": {
           "name": "row_security",
           "type": "text",
@@ -9443,6 +9436,27 @@
           "notNull": true,
           "autoincrement": false
         },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_chat_id": {
+          "name": "source_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -9481,6 +9495,32 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_version_author_id_user_id_fk": {
+          "name": "story_version_author_id_user_id_fk",
+          "tableFrom": "story_version",
+          "tableTo": "user",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "story_version_source_chat_id_chat_id_fk": {
+          "name": "story_version_source_chat_id_chat_id_fk",
+          "tableFrom": "story_version",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "source_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -10143,13 +10183,6 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "column_policies": {
-          "name": "column_policies",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

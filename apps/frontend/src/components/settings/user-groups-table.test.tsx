@@ -776,7 +776,7 @@ describe('UserGroupsTable', () => {
 
 		const userRow = screen.getByRole('row', { name: /Project User/ });
 		expect(userRow.className).toContain('cursor-pointer');
-		expect(userRow.className).toContain('hover:bg-primary/10');
+		expect(userRow.className).toContain('hover:bg-muted/50');
 		expect(screen.getByRole('link', { name: 'Project User' })).toBeTruthy();
 
 		fireEvent.click(userRow);
@@ -1070,6 +1070,43 @@ describe('UserGroupEditor', () => {
 			),
 		);
 		expect(screen.queryByText(/Unshare content shared with everyone/)).toBeNull();
+	});
+
+	it('lets a group share exclusively with other groups', async () => {
+		const finance = { ...analysts, id: 'finance', name: 'Finance' };
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [allUsers, analysts, finance] },
+		});
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: /Groups members can share with/ }), {
+			button: 0,
+			ctrlKey: false,
+		});
+		expect(screen.queryByRole('menuitemcheckbox', { name: 'All Users' })).toBeNull();
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Analysts (this group)' }));
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Finance' }));
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({
+					groupId: 'analysts',
+					shareTargets: { includeOwnGroup: false, groupIds: ['finance'] },
+				}),
+			),
+		);
+		expect(mocks.fetchQuery).not.toHaveBeenCalled();
+	});
+
+	it('does not offer share targets for All Users', () => {
+		renderEditor('features', vi.fn(), allUsers);
+
+		expect(screen.queryByRole('button', { name: /Groups members can share with/ })).toBeNull();
 	});
 
 	it('turns project sharing back on for All Users with a switch', async () => {

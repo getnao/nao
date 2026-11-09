@@ -33,8 +33,14 @@ import { buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { runQueryOnLocalFiles } from './local-query.service';
-import { compileSemanticQuery, type SemanticQuery } from './semantic-layer.service';
-import { executeWarehouseSql } from './warehouse-sql.service';
+import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
+import {
+	bindSemanticQuery,
+	type CatalogLoader,
+	semanticBindingsFromCode,
+	type SemanticStoryBindings,
+} from './semantic-story-bindings';
+import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
 
@@ -51,12 +57,19 @@ export type StorySqlQuery = {
 	semanticQuery?: SemanticQuery;
 };
 export type StorySqlQueries = Record<string, StorySqlQuery>;
-export type StoryQueryData = Record<string, { data: unknown[]; columns: string[] }>;
+export type StoryQueryData = Record<string, StoryQueryResult>;
+
+export interface StoryQueryResult {
+	data: unknown[];
+	columns: string[];
+	/** Story filters not applied to this semantic-layer query because its metrics lack their dimension. */
+	skippedFilterIds?: string[];
+}
 
 export async function executeLiveQuery(
 	chatId: string,
 	queryId: string,
-	options: StoryRefreshOptions = {},
+	options: LiveQueryOptions = {},
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
@@ -66,7 +79,11 @@ export async function executeLiveQuery(
 	const queryData = await executeStoryQueries(
 		chatId,
 		{ [queryId]: query },
-		{ renderSql: stripSqlFilterBlocks, billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId },
+		{
+			renderSql: stripSqlFilterBlocks,
+			semanticBindings: options.storyCode ? semanticBindingsFromCode(options.storyCode) : undefined,
+			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+		},
 	);
 	return queryData[queryId]!;
 }
@@ -78,6 +95,11 @@ export interface RefreshResult {
 
 interface StoryRefreshOptions {
 	billingAccessVerifiedProjectId?: string;
+}
+
+interface LiveQueryOptions extends StoryRefreshOptions {
+	/** The story displaying the query, so its parameter defaults apply to semantic-layer queries. */
+	storyCode?: string;
 }
 
 export async function refreshStoryData(
@@ -112,6 +134,7 @@ async function refreshStoryDataWithContext(
 
 	const queryData = await executeStoryQueries(chatId, sqlQueries, {
 		renderSql: stripSqlFilterBlocks,
+		semanticBindings: semanticBindingsFromCode(version.code),
 		executionContext: existingExecutionContext,
 		projectId: chat.projectId,
 		billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
@@ -262,8 +285,12 @@ export interface StoryExecutionContext {
 	enforceExcludedColumns: boolean;
 }
 
+type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'skippedFilterIds'>;
+
 interface StoryQueryExecutionOptions {
 	renderSql: (sqlQuery: string) => string;
+	/** Story parameters and dimension filters applied to semantic-layer queries. */
+	semanticBindings?: SemanticStoryBindings;
 	executionContext?: StoryExecutionContext;
 	projectId?: string;
 	billingAccessVerifiedProjectId?: string;
@@ -288,15 +315,16 @@ export async function executeStoryQueries(
 	const executionContext = Object.values(queries).some((query) => !query.adminMode)
 		? (options.executionContext ?? (await createStoryExecutionContext(chatId)))
 		: null;
-	const running = new Map<string, Promise<QueryResult>>();
+	const running = new Map<string, Promise<ExecutedQueryResult>>();
+	const loadCatalog = executionContext ? memoizeCatalog(executionContext) : async () => null;
 
-	const run = (queryId: string, ancestors: Set<string>): Promise<QueryResult> => {
+	const run = (queryId: string, ancestors: Set<string>): Promise<ExecutedQueryResult> => {
 		const pending = running.get(queryId) ?? execute(queryId, ancestors);
 		running.set(queryId, pending);
 		return pending;
 	};
 
-	const execute = async (queryId: string, ancestors: Set<string>): Promise<QueryResult> => {
+	const execute = async (queryId: string, ancestors: Set<string>): Promise<ExecutedQueryResult> => {
 		const query = queries[queryId]!;
 		const sql = options.renderSql(query.sqlQuery);
 		if (query.adminMode) {
@@ -306,7 +334,9 @@ export async function executeStoryQueries(
 			throw new Error('Live Story warehouse query has no execution context.');
 		}
 		if (query.semanticQuery) {
-			return compileAndExecuteSemanticQuery(query.semanticQuery, executionContext);
+			const bound = await bindSemanticQuery(query.semanticQuery, options.semanticBindings, loadCatalog);
+			const result = await compileAndExecuteSemanticQuery(bound.query, executionContext);
+			return bound.skippedFilterIds.length > 0 ? { ...result, skippedFilterIds: bound.skippedFilterIds } : result;
 		}
 		if (query.databaseId !== LOCAL_DATABASE_ID) {
 			return executeBillingValidatedRawSql(sql, { executionContext, databaseId: query.databaseId });
@@ -370,17 +400,45 @@ async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlEx
 		return executeLocalSql(sqlQuery, context);
 	}
 
-	const data = await executeWarehouseSql(sqlQuery, {
+	const data = await executeWarehouseSql(
+		sqlQuery,
+		buildWarehouseSqlOptions(options.executionContext, options.databaseId),
+	);
+	return { data: data.data, columns: data.columns };
+}
+
+/** The type of the database a raw query on `databaseId` runs against, as resolved by the warehouse executor. */
+export async function resolveRawSqlDatabaseType(
+	executionContext: StoryExecutionContext,
+	databaseId: string | undefined,
+): Promise<string> {
+	if (databaseId === LOCAL_DATABASE_ID) {
+		return 'duckdb';
+	}
+	const { dialect } = await validateWarehouseSql('SELECT 1', buildWarehouseSqlOptions(executionContext, databaseId));
+	return dialect.toLowerCase();
+}
+
+function buildWarehouseSqlOptions(executionContext: StoryExecutionContext, databaseId: string | undefined) {
+	const context = executionContext.toolContext;
+	return {
 		projectFolder: context.projectFolder,
-		databaseId: options.databaseId,
+		databaseId,
 		envVars: context.envVars,
 		azureAccessToken: context.azureAccessToken,
-		enforceExcludedColumns: options.executionContext.enforceExcludedColumns,
+		enforceExcludedColumns: executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		columnSecurity: context.warehouseColumnSecurity,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
-	});
-	return { data: data.data, columns: data.columns };
+	};
+}
+
+function memoizeCatalog(executionContext: StoryExecutionContext): CatalogLoader {
+	let catalog: ReturnType<CatalogLoader> | null = null;
+	return () => {
+		catalog ??= describeSemanticLayerCached(executionContext.toolContext).catch(() => null);
+		return catalog;
+	};
 }
 
 /** Compiled again on every run, so the story follows the semantic layer's current metric definitions. */

@@ -21,6 +21,6 @@ export type Output = z.infer<typeof OutputSchema>;
 function describeFilePath(customStories: boolean): string {
 	const storagePath = 'Path under /home, e.g. "/home/reports/q3-revenue.csv"';
 	return customStories
-		? `${storagePath}, or under /stories/<story>/ for a custom story file, e.g. "/stories/q3-review/src/App.tsx".`
+		? `${storagePath}, or under /stories/<story>/ for a custom story file, e.g. "/stories/<story id>/src/App.tsx".`
 		: `${storagePath}.`;
 }

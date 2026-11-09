@@ -51,6 +51,7 @@ const HOST_REPLY_TIMEOUT_MS = 120_000;
 
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
+const pendingChartPlugins = new Map<string, PendingRequest<string>>();
 const pendingNarratives = new Map<string, PendingRequest<StoryNarratives>>();
 const editingListeners = new Set<() => void>();
 const themeListeners = new Set<() => void>();
@@ -222,6 +223,14 @@ export function requestQuerySql(queryId: string): Promise<string> {
 	return awaitReply(pendingQuerySql, (requestId) => ({ type: 'nao-story:query-sql', requestId, queryId }));
 }
 
+/** The module source of a project chart plugin (`agent/charts/<type>.js`). */
+export function requestChartPlugin(chartType: string): Promise<string> {
+	if (exportData) {
+		return readExportedChartPlugin(exportData, chartType);
+	}
+	return awaitReply(pendingChartPlugins, (requestId) => ({ type: 'nao-story:chart-plugin', requestId, chartType }));
+}
+
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	const isConnect =
 		event.source === window.parent &&
@@ -285,6 +294,10 @@ function handleHostMessage(message: unknown): void {
 		settleQuerySql(message);
 		return;
 	}
+	if (message.type === 'nao-story:chart-plugin-result' || message.type === 'nao-story:chart-plugin-error') {
+		settleChartPlugin(message);
+		return;
+	}
 	const pending = pendingQueries.get(message.requestId);
 	if (!pending) {
 		return;
@@ -327,6 +340,18 @@ function settleQuerySql(
 	pendingQuerySql.delete(message.requestId);
 	if (message.type === 'nao-story:query-sql-result') {
 		pending?.resolve(message.sqlQuery);
+	} else {
+		pending?.reject(new Error(message.message));
+	}
+}
+
+function settleChartPlugin(
+	message: Extract<StoryHostMessage, { type: 'nao-story:chart-plugin-result' | 'nao-story:chart-plugin-error' }>,
+): void {
+	const pending = pendingChartPlugins.get(message.requestId);
+	pendingChartPlugins.delete(message.requestId);
+	if (message.type === 'nao-story:chart-plugin-result') {
+		pending?.resolve(message.source);
 	} else {
 		pending?.reject(new Error(message.message));
 	}
@@ -385,6 +410,13 @@ function send(message: StoryFrameMessage): void {
 function readExportedQuery(data: StoryExportData, queryId: string): Promise<StoryQueryResult> {
 	const result = data.queries[queryId];
 	return result ? Promise.resolve(result) : Promise.reject(new Error(`Query ${queryId} is not part of this export.`));
+}
+
+function readExportedChartPlugin(data: StoryExportData, chartType: string): Promise<string> {
+	const source = data.chartPlugins?.[chartType];
+	return source !== undefined
+		? Promise.resolve(source)
+		: Promise.reject(new Error(`Custom chart "${chartType}" is not available.`));
 }
 
 function toJsonSafe<T>(value: T): T {

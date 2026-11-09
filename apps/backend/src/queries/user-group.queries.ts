@@ -1,5 +1,6 @@
 import {
 	type DatabaseContextAccess,
+	DEFAULT_GROUP_SHARE_TARGETS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	type DocsContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
@@ -12,6 +13,7 @@ import {
 	type FilesContextAccess,
 	filterUserGroupColumnPoliciesByDatabaseContext,
 	filterUserGroupRowPoliciesByDatabaseContext,
+	type GroupShareTargets,
 	isSkillGranted,
 	type McpAccess,
 	parseStoredProjectColumnSecurity,
@@ -69,6 +71,7 @@ export interface UserGroup extends Omit<
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	projectSharing: ProjectSharingPermission;
+	shareTargets: GroupShareTargets;
 	showAllSettings: boolean;
 	preloadedSkills: string[];
 	databaseAccess: DatabaseContextAccess;
@@ -314,6 +317,7 @@ export const createUserGroup = async (
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	columnPolicies: UserGroupColumnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	rowPoliciesRegistry?: ProjectRowSecurity,
 	columnPoliciesRegistry?: ProjectColumnSecurity,
 ): Promise<UserGroup> => {
@@ -341,6 +345,7 @@ export const createUserGroup = async (
 		preloadedSkills,
 		skillsAccess,
 		columnPolicies,
+		shareTargets,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -391,6 +396,7 @@ export const createUserGroupWithinLimit = async (
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	columnPolicies: UserGroupColumnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	rowPoliciesRegistry?: ProjectRowSecurity,
 	columnPoliciesRegistry?: ProjectColumnSecurity,
 ): Promise<UserGroup> => {
@@ -418,6 +424,7 @@ export const createUserGroupWithinLimit = async (
 		preloadedSkills,
 		skillsAccess,
 		columnPolicies,
+		shareTargets,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -482,6 +489,7 @@ export const updateUserGroup = async (
 		rowPolicies?: UserGroupRowPolicies;
 		rowPoliciesRegistry?: ProjectRowSecurity;
 		projectSharing?: ProjectSharingPermission;
+		shareTargets?: GroupShareTargets;
 		preloadedSkills?: string[];
 	},
 ): Promise<UserGroup> => {
@@ -525,6 +533,7 @@ export const updateUserGroup = async (
 			data.projectSharing ?? currentConfig.projectSharing,
 			data.showAllSettings ?? currentConfig.showAllSettings,
 			data.preloadedSkills ?? currentConfig.preloadedSkills,
+			data.shareTargets ?? currentConfig.shareTargets,
 		),
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
@@ -580,6 +589,7 @@ export const updateUserGroup = async (
 								data.projectSharing ?? lockedConfig.projectSharing,
 								data.showAllSettings ?? lockedConfig.showAllSettings,
 								data.preloadedSkills ?? lockedConfig.preloadedSkills,
+								data.shareTargets ?? lockedConfig.shareTargets,
 							),
 							...(data.databaseAccess === undefined &&
 							data.docsAccess === undefined &&
@@ -863,6 +873,7 @@ function createUserGroupValues(
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
 	columnPolicies: UserGroupColumnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 ): NewUserGroup {
 	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	const filteredColumnPolicies = filterUserGroupColumnPoliciesByDatabaseContext(columnPolicies, databaseAccess);
@@ -875,6 +886,7 @@ function createUserGroupValues(
 			projectSharing,
 			showAllSettings,
 			preloadedSkills,
+			shareTargets,
 		),
 		contextGrants: serializeUserGroupContextAccess({
 			databaseAccess,
@@ -1061,6 +1073,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
 		projectSharing: config.projectSharing,
+		shareTargets: config.shareTargets,
 		showAllSettings: config.showAllSettings,
 		preloadedSkills: config.preloadedSkills,
 		databaseAccess: contextAccess.databaseAccess,

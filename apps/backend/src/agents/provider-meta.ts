@@ -935,8 +935,8 @@ export const PROVIDER_META: ProviderMetaMap = {
 			],
 		},
 		envVar: 'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
-		extractorModelId: 'gemini-2.5-flash',
-		summaryModelId: 'gemini-2.5-flash',
+		extractorModelId: 'gemini-3.8-flash',
+		summaryModelId: 'gemini-3.8-flash',
 		models: [
 			{
 				id: 'claude-sonnet-4-6',

@@ -1,8 +1,9 @@
 import json
 import os
 import sys
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, cast
@@ -15,12 +16,12 @@ from cyclopts import Parameter
 from nao_core import native
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import ModelCosts
-from nao_core.config.test import ComparisonConfig, TestConfig
+from nao_core.config.test import ComparisonConfig, TestConfig, TestModelConfig
 from nao_core.ui import UI
 
 from .assertions import combine_check_messages, evaluate_assertions
 from .case import TESTS_FOLDER, InvalidTestFileError, TestCase, discover_tests
-from .client import BACKEND_URL, AgentClientError, TestVerdict, VerificationResult, get_client
+from .client import BACKEND_URL, AgentClient, AgentClientError, TestVerdict, VerificationResult, get_client
 from .client import TestResult as AgentTestResult
 from .compare import normalize_dataframe_numbers
 from .summary import (
@@ -39,6 +40,7 @@ class ModelConfig:
 
     provider: str
     model_id: str
+    reasoning_effort: str | None = None
 
     @classmethod
     def parse(cls, model_str: str) -> "ModelConfig":
@@ -49,7 +51,39 @@ class ModelConfig:
         return cls(provider=provider, model_id=model_id)
 
     def __str__(self) -> str:
-        return f"{self.provider}:{self.model_id}"
+        name = f"{self.provider}:{self.model_id}"
+        return f"{name} · {self.reasoning_effort}" if self.reasoning_effort else name
+
+
+def resolve_model_configs(models: list[str | TestModelConfig], client: AgentClient) -> list[ModelConfig]:
+    """Expand the configured models into one model per reasoning effort each runs at."""
+    return [model for entry in models for model in expand_model_entry(entry, client)]
+
+
+def expand_model_entry(entry: str | TestModelConfig, client: AgentClient) -> list[ModelConfig]:
+    if isinstance(entry, str):
+        return [ModelConfig.parse(entry)]
+    model = ModelConfig.parse(entry.model)
+    if entry.reasoning_efforts is None:
+        return [model]
+    supported = client.get_reasoning_efforts(model.provider, model.model_id)
+    efforts = select_reasoning_efforts(str(model), entry.reasoning_efforts, supported)
+    return [replace(model, reasoning_effort=effort) for effort in efforts]
+
+
+def select_reasoning_efforts(model_name: str, requested: Sequence[str] | str, supported: list[str]) -> list[str]:
+    """The requested efforts in the order the model supports them, the same check the app makes on nao_config.yaml."""
+    if not supported:
+        raise ValueError(f"{model_name} has no reasoning efforts to pick in test.models.")
+    if requested == "all":
+        return supported
+    unsupported = [effort for effort in requested if effort not in supported]
+    if unsupported:
+        raise ValueError(
+            f"{model_name} does not support the reasoning efforts {', '.join(unsupported)}, "
+            f"expected some of {', '.join(supported)}."
+        )
+    return [effort for effort in supported if effort in requested]
 
 
 @dataclass
@@ -213,7 +247,12 @@ def run_test(
 
     try:
         result = client.run_test(
-            test_case, provider=model.provider, model_id=model.model_id, costs=costs, comparison=comparison
+            test_case,
+            provider=model.provider,
+            model_id=model.model_id,
+            costs=costs,
+            comparison=comparison,
+            reasoning_effort=model.reasoning_effort,
         )
 
         if result.text:
@@ -667,13 +706,14 @@ def test(
 
     if k_count < 1:
         UI.error(f"k must be >= 1, got {k_count}")
-        return
+        sys.exit(1)
 
+    client = get_client(email=email, password=pwd, api_key=key, project_name=config.project_name)
     try:
-        model_configs = [ModelConfig.parse(m) for m in models or test_config.models]
-    except ValueError as e:
+        model_configs = resolve_model_configs(list(models or test_config.models), client)
+    except (ValueError, AgentClientError) as e:
         UI.error(str(e))
-        return
+        sys.exit(1)
 
     project_path = Path.cwd()
     tests_dir = project_path / TESTS_FOLDER

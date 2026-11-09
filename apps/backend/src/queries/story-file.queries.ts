@@ -11,6 +11,7 @@ import s, {
 } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import { normalizeStoryFilePath } from '../utils/story-file-path';
+import type { VersionProvenance } from './story.queries';
 
 export interface StoryFileInput {
 	path: string;
@@ -142,12 +143,12 @@ export async function getVersionFile(
 	return row ?? null;
 }
 
-interface CutVersionInput {
+type CutVersionInput = {
 	storyId: string;
 	action: DBStoryVersion['action'];
 	source: DBStoryVersion['source'];
 	versionNumber?: number;
-}
+} & VersionProvenance;
 
 /** Runs inside the caller's transaction when given one, so a draft write and its version land together. */
 export async function cutVersionFromDraft(
@@ -183,6 +184,9 @@ async function cutVersion(
 			code: '',
 			action: data.action,
 			source: data.source,
+			origin: data.origin,
+			authorId: data.authorId,
+			sourceChatId: data.sourceChatId,
 			version: data.versionNumber ?? sql`(${nextVersion})`,
 		})
 		.returning()

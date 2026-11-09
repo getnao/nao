@@ -16,6 +16,7 @@ import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import { agentService } from '../services/agent';
+import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
 	getActiveThemeForProject,
@@ -43,6 +44,7 @@ import {
 import { nextCronTick } from '../services/scheduler.service';
 import { assertShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import {
+	appendCustomStoryBlock,
 	editCustomStoryBlock,
 	restoreCustomStoryVersion,
 	saveCustomStoryFiles,
@@ -53,14 +55,11 @@ import {
 	disableStoryDelivery,
 	syncStoryDeliveryJob,
 } from '../services/story-delivery.service';
-import {
-	assertStoryFiltersEnabled,
-	getFilteredStoryQueryData,
-	getStoryFilterOptions,
-	getStoryQuerySql,
-} from '../services/story-filters';
+import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
+import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { listMostViewedStories } from '../services/story-reference';
+import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -360,7 +359,7 @@ export const storyRoutes = {
 
 	listVersions: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				return {
@@ -376,7 +375,10 @@ export const storyRoutes = {
 				};
 			}
 
-			const versions = await storyQueries.listStoryVersions(input.chatId, input.storySlug);
+			const [versions, changes] = await Promise.all([
+				storyQueries.listStoryVersions(input.chatId, input.storySlug),
+				listStoryVersionChanges(story, ctx.user.id),
+			]);
 			return {
 				id: story.id as string | null,
 				title: story.title,
@@ -386,7 +388,7 @@ export const storyRoutes = {
 				cacheSchedule: story.cacheSchedule,
 				cacheScheduleDescription: story.cacheScheduleDescription,
 				archivedAt: story.archivedAt,
-				versions,
+				versions: versions.map((version) => ({ ...version, change: changes.get(version.version) ?? null })),
 			};
 		}),
 
@@ -473,6 +475,10 @@ export const storyRoutes = {
 			}
 		}),
 
+	getCustomStoryChartPlugins: chatStoryProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(({ input }) => readCustomStoryChartPluginSources(input.chatId, input.storySlug)),
+
 	getCustomStoryState: chatOwnerProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(async ({ input, ctx }) => {
@@ -547,7 +553,7 @@ export const storyRoutes = {
 				}),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
 			if (agentService.get(input.chatId)) {
 				throw new TRPCError({
 					code: 'CONFLICT',
@@ -555,7 +561,33 @@ export const storyRoutes = {
 				});
 			}
 			try {
-				return await editCustomStoryBlock(input);
+				return await editCustomStoryBlock({ ...input, authorId: ctx.user.id });
+			} catch (error) {
+				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
+					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+				}
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	appendCustomStoryBlock: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+				block: z.object({ component: storyKitBlockComponent, props: z.record(z.string(), z.unknown()) }),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			if (agentService.get(input.chatId)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The agent is working on this chat. Add to the story once it is done.',
+				});
+			}
+			try {
+				return await appendCustomStoryBlock({ ...input, authorId: ctx.user.id });
 			} catch (error) {
 				if (error instanceof StoryBlockEditError || error instanceof StoryKitJsxEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
@@ -589,7 +621,7 @@ export const storyRoutes = {
 			}
 			await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'customStoryCreation');
 			try {
-				return await saveCustomStoryFiles(input);
+				return await saveCustomStoryFiles({ ...input, authorId: ctx.user.id });
 			} catch (error) {
 				if (error instanceof StoryBlockEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
@@ -607,7 +639,7 @@ export const storyRoutes = {
 				restoreVersionNumber: z.number().int().positive(),
 			}),
 		)
-		.mutation(async ({ input }) => {
+		.mutation(async ({ input, ctx }) => {
 			if (agentService.get(input.chatId)) {
 				throw new TRPCError({
 					code: 'CONFLICT',
@@ -615,7 +647,7 @@ export const storyRoutes = {
 				});
 			}
 			try {
-				return await restoreCustomStoryVersion(input);
+				return await restoreCustomStoryVersion({ ...input, authorId: ctx.user.id });
 			} catch (error) {
 				if (error instanceof StoryBlockEditError) {
 					throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
@@ -666,6 +698,12 @@ export const storyRoutes = {
 		)
 		.mutation(async ({ input, ctx }) => {
 			const existingStory = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			if (existingStory?.format === 'custom') {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Custom stories are versioned from their files, not from markdown.',
+				});
+			}
 			if (!existingStory) {
 				const projectId = await chatQueries.getChatProjectId(input.chatId);
 				if (!projectId) {
@@ -680,6 +718,9 @@ export const storyRoutes = {
 				code: input.code,
 				action: input.action,
 				source: 'user',
+				origin: 'editor',
+				authorId: ctx.user.id,
+				sourceChatId: null,
 			});
 
 			if (!existingStory) {
@@ -977,18 +1018,30 @@ export const storyRoutes = {
 		}),
 
 	getLiveQueryData: cloudBillingChatStoryProcedure
-		.input(z.object({ chatId: z.string(), queryId: z.string() }))
+		.input(z.object({ chatId: z.string(), queryId: z.string(), storySlug: z.string().optional() }))
 		.query(async ({ input, ctx }) => {
+			const storyVersion = input.storySlug
+				? await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug)
+				: null;
 			return executeLiveQuery(input.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: ctx.projectId,
+				storyCode: storyVersion?.code,
 			});
 		}),
 
 	getFilterOptions: cloudBillingChatStoryProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string(), filterId: z.string() }))
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				filterId: z.string(),
+				...filterOptionsRequestSchema.shape,
+			}),
+		)
 		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
-			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId, {
+			const { chatId, storySlug, filterId, ...request } = input;
+			return getStoryFilterOptions(chatId, storySlug, filterId, request, {
 				billingAccessVerifiedProjectId: ctx.projectId,
 			});
 		}),

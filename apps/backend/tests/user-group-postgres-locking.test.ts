@@ -154,6 +154,7 @@ describe('PostgreSQL user group updates', () => {
 				undefined,
 				columnPolicies('cost'),
 				undefined,
+				undefined,
 				validatedRegistry,
 			),
 		).rejects.toMatchObject({

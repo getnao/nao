@@ -1,3 +1,4 @@
+import { resolveSemanticQueryParameters } from '@nao/shared/story-parameter-template';
 import type { executeSemanticQuery } from '@nao/shared/tools';
 import { DEFAULT_SEMANTIC_LAYER_MODE, type SemanticLayerMode } from '@nao/shared/types';
 
@@ -19,6 +20,9 @@ export type CompiledSemanticQuery = {
 };
 
 type SemanticLayerContext = Pick<ToolContext, 'projectFolder' | 'envVars'>;
+
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const catalogCache = new Map<string, { expiresAt: number; catalog: Promise<executeSemanticQuery.Catalog> }>();
 
 /**
  * The semantic layer routing mode in effect for a run, or null when the project
@@ -48,12 +52,16 @@ export function isWarehouseSqlEnabled(mode: SemanticLayerMode | null | undefined
 	return mode !== 'exclusive';
 }
 
-/** Compiles metrics and dimensions to SQL with the project's semantic layer; execution stays with execute_sql. */
+/**
+ * Compiles metrics and dimensions to SQL with the project's semantic layer; execution stays with execute_sql.
+ * `{{ params.<id> }}` placeholders are resolved from `parameterValues`, falling back to the query's own defaults.
+ */
 export async function compileSemanticQuery(
 	query: SemanticQuery,
 	context: SemanticLayerContext,
+	parameterValues: Record<string, string> = {},
 ): Promise<CompiledSemanticQuery> {
-	const response = await postToSemanticLayer('compile', query, context);
+	const response = await postToSemanticLayer('compile', resolveParameters(query, parameterValues), context);
 	if (!response.ok) {
 		const message = `Error compiling semantic query: ${await readErrorDetail(response)}`;
 		throw response.status === 422 ? new SemanticQueryCompileError(message) : new Error(message);
@@ -68,6 +76,29 @@ export async function describeSemanticLayer(context: SemanticLayerContext): Prom
 		throw new Error(`Error describing the semantic layer: ${await readErrorDetail(response)}`);
 	}
 	return (await response.json()) as executeSemanticQuery.Catalog;
+}
+
+function resolveParameters(query: SemanticQuery, parameterValues: Record<string, string>) {
+	try {
+		return resolveSemanticQueryParameters(query, parameterValues);
+	} catch (error) {
+		throw new SemanticQueryCompileError(error instanceof Error ? error.message : String(error));
+	}
+}
+
+/**
+ * `describeSemanticLayer` cached per project for a few minutes: story filters consult the catalog on every
+ * filtered request, and it only changes when the project's semantic models do.
+ */
+export function describeSemanticLayerCached(context: SemanticLayerContext): Promise<executeSemanticQuery.Catalog> {
+	const cached = catalogCache.get(context.projectFolder);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.catalog;
+	}
+	const catalog = describeSemanticLayer(context);
+	catalogCache.set(context.projectFolder, { expiresAt: Date.now() + CATALOG_CACHE_TTL_MS, catalog });
+	catalog.catch(() => catalogCache.delete(context.projectFolder));
+	return catalog;
 }
 
 function postToSemanticLayer(

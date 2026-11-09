@@ -1,12 +1,12 @@
 import { joinWithAnd } from '@nao/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { Github } from 'lucide-react';
 import { useState } from 'react';
 
 import type { QueryClient } from '@tanstack/react-query';
 import type { ComponentType, ReactNode } from 'react';
 
+import GithubIcon from '@/components/icons/github-icon.svg';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { DeploymentManagedGitSettings } from '@/components/settings/deployment-managed-git-settings';
 import { GithubRepoList } from '@/components/settings/github-repo-list';
@@ -68,7 +68,7 @@ interface ProviderSwitchRequest {
 const PROVIDER_CONFIGS: Record<GitProvider, ProviderConfig> = {
 	github: {
 		label: 'GitHub',
-		icon: Github,
+		icon: GithubIcon,
 		connectHref: '/api/github/connect?returnTo=/settings/git',
 		repositoryList: GithubRepoList,
 		clientIdEnvVar: 'GITHUB_CLIENT_ID',

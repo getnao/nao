@@ -6,6 +6,7 @@ import type { TrpcRouter } from '@nao/backend/trpc';
 import type { inferRouterInputs } from '@trpc/server';
 import type { DraftContext, TestRunSummary } from '@/components/settings/test-run-types';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
+import { getMainBranch } from '@/components/settings/test-run-labels';
 import { getContextChanges } from '@/components/settings/test-run-types';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
@@ -29,18 +30,12 @@ interface TestRunStartOptions {
 
 const CONTEXT_RUN_MODES: ContextRunMode[] = ['compare', 'changes', 'production'];
 
-const TEST_FILE_RUN_LABELS: Record<ContextRunMode, string> = {
-	compare: 'Compare this test with production',
-	changes: 'Run this test with your changes',
-	production: 'Run this test on production',
-};
-
 const contextRunModeStorage = createLocalStorage<ContextRunMode>('nao-test-context-run-mode', 'compare');
 const contextRunModeListeners = new Set<() => void>();
 
 /**
- * Starts a run of some tests on production, with the user's changes, or both side by side, as picked in the menu of
- * the compare button. Runs go to production alone while the context has no changes.
+ * Starts a run of some tests on the main branch, with the user's changes, or both side by side, as picked in the menu
+ * of the compare button. Runs go to the main branch alone while the context has no changes.
  */
 export function useTestRunStart({
 	target,
@@ -92,7 +87,9 @@ export function useTestFileRun({
 	});
 	return {
 		...testRun,
-		label: testRun.hasContextChanges ? TEST_FILE_RUN_LABELS[testRun.mode] : 'Run this test',
+		label: testRun.hasContextChanges
+			? describeTestFileRun(testRun.mode, getMainBranch(options.draft))
+			: 'Run this test',
 	};
 }
 
@@ -101,6 +98,17 @@ export function useContextRunMode() {
 	const storedMode = useSyncExternalStore(subscribeToContextRunMode, contextRunModeStorage.get);
 	const mode: ContextRunMode = CONTEXT_RUN_MODES.includes(storedMode) ? storedMode : 'compare';
 	return [mode, setContextRunMode] as const;
+}
+
+function describeTestFileRun(mode: ContextRunMode, mainBranch: string): string {
+	switch (mode) {
+		case 'compare':
+			return `Compare this test with ${mainBranch}`;
+		case 'changes':
+			return 'Run this test with your changes';
+		case 'production':
+			return `Run this test on ${mainBranch}`;
+	}
 }
 
 function getRunDisabledReason({

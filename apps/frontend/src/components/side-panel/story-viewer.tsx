@@ -175,8 +175,12 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 	const isChatAgentRunning = useChatActivity(chatId).running;
 
+	const { data: viewedStory } = useQuery({
+		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
+		enabled: !isReadonlyMode,
+	});
 	const { allStories, draftStory, latestStoryOutputVersion, isAgentRunning, isStoryUpdating, isStoryInterrupted } =
-		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning);
+		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning, viewedStory?.id ?? null);
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
 	const isStoryStreaming = Boolean(draftStory?.isStreaming);
 	const prevSlugRef = useRef(resolvedStorySlug);
@@ -349,7 +353,6 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		(versionNumber: number) => exitGuard.requestExit(() => goToVersion(versionNumber)),
 		[exitGuard, goToVersion],
 	);
-	const versionDates = useMemo(() => versions.map((version) => version.createdAt), [versions]);
 
 	useEffect(() => {
 		if (viewMode !== 'code') {
@@ -431,7 +434,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				viewMode={viewMode}
 				onViewModeChange={transitions.requestViewMode}
 				currentVersion={currentVersionNumber}
-				versionDates={versionDates}
+				versions={versions}
 				versionNumber={currentVersion?.version}
 				versionDate={currentVersion?.createdAt}
 				onSelectVersion={handleSelectVersion}

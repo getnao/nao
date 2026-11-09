@@ -399,6 +399,7 @@ export const projectRoutes = {
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
 					replyMode: config.replyMode,
 					dmScopeMissing: config.dmScopeMissing,
+					dmThreadsEnabled: config.dmThreadsEnabled,
 				}
 			: null;
 
@@ -475,6 +476,15 @@ export const projectRoutes = {
 			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
 			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
 			return { replyMode: input.replyMode };
+		}),
+
+	updateSlackDmThreads: adminProtectedProcedure
+		.input(z.object({ enabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await slackConfigQueries.updateProjectSlackDmThreads(ctx.project.id, input.enabled);
+			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
+			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
+			return { dmThreadsEnabled: input.enabled };
 		}),
 
 	updateSlackAutoCreateUsers: adminProtectedProcedure

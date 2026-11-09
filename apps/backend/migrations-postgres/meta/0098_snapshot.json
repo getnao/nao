@@ -1,5 +1,5 @@
 {
-  "id": "77cdb6f5-c1eb-460b-8b80-d3ea29dac1e4",
+  "id": "fbdf8345-533e-4a63-9335-4cb169a17044",
   "prevId": "b2b2ad4f-4f20-40be-9a40-8b2b63efd1a4",
   "version": "7",
   "dialect": "postgresql",
@@ -6986,12 +6986,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "column_security": {
-          "name": "column_security",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "row_security": {
           "name": "row_security",
           "type": "jsonb",
@@ -10210,6 +10204,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_chat_id": {
+          "name": "source_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -10247,6 +10259,32 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_version_author_id_user_id_fk": {
+          "name": "story_version_author_id_user_id_fk",
+          "tableFrom": "story_version",
+          "tableTo": "user",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "story_version_source_chat_id_chat_id_fk": {
+          "name": "story_version_source_chat_id_chat_id_fk",
+          "tableFrom": "story_version",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "source_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -10913,12 +10951,6 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "column_policies": {
-          "name": "column_policies",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
