@@ -3,6 +3,7 @@ import { SHARE_ROLES, type ShareRole, type StoryFormat } from '@nao/shared/types
 import {
 	aliasedTable,
 	and,
+	type AnyColumn,
 	count,
 	countDistinct,
 	desc,
@@ -10,6 +11,7 @@ import {
 	inArray,
 	isNull,
 	max,
+	notInArray,
 	or,
 	type SQL,
 	sql,
@@ -18,6 +20,7 @@ import {
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import * as executeSqlQueries from './execute-sql.queries';
+import { listLockedUserGroupIds, listLockedUserGroupIdsOfMember } from './locked-user-groups';
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
 
@@ -96,18 +99,19 @@ export async function getSharedStoryByStoryId(storyId: string): Promise<SharedSt
 }
 
 export async function canUserAccessSharedStory(sharedStoryId: string, userId: string): Promise<boolean> {
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const [row] = await db
 		.select({ id: s.sharedStory.id })
 		.from(s.sharedStory)
-		.where(and(eq(s.sharedStory.id, sharedStoryId), sharedStoryGrantsUser(userId)))
+		.where(and(eq(s.sharedStory.id, sharedStoryId), sharedStoryGrantsUser(userId, lockedGroupIds)))
 		.limit(1)
 		.execute();
 	return !!row;
 }
 
-/** Matches `shared_story` rows granted to the user directly or through one of their user groups. */
-export function sharedStoryGrantsUser(userId: string): SQL {
-	return sql`(${directlyGrantsUser(userId, SHARE_ROLES)} or ${groupGrantsUser(userId, SHARE_ROLES)})`;
+/** Matches `shared_story` rows granted to the user directly or through one of their active user groups. */
+export function sharedStoryGrantsUser(userId: string, lockedGroupIds: readonly string[]): SQL {
+	return sql`(${directlyGrantsUser(userId, SHARE_ROLES)} or ${groupGrantsUser(userId, SHARE_ROLES, lockedGroupIds)})`;
 }
 
 /**
@@ -115,22 +119,23 @@ export function sharedStoryGrantsUser(userId: string): SQL {
  * otherwise the highest of their groups' roles and the project-wide role applies.
  * Project viewers never edit, whatever role the share grants them.
  */
-export function sharedStoryGrantsEditor(userId: string): SQL {
+export function sharedStoryGrantsEditor(userId: string, lockedGroupIds: readonly string[]): SQL {
 	const isProjectEditor = and(eq(s.sharedStory.visibility, 'project'), eq(s.sharedStory.projectRole, 'editor'));
-	const grantsEditorRole = sql`(${directlyGrantsUser(userId, ['editor'])} or (not ${directlyGrantsUser(userId, SHARE_ROLES)} and (${groupGrantsUser(userId, ['editor'])} or ${isProjectEditor})))`;
+	const grantsEditorRole = sql`(${directlyGrantsUser(userId, ['editor'])} or (not ${directlyGrantsUser(userId, SHARE_ROLES)} and (${groupGrantsUser(userId, ['editor'], lockedGroupIds)} or ${isProjectEditor})))`;
 	return sql`(${grantsEditorRole} and ${canWriteInStoryProject(userId)})`;
 }
 
 export async function getStoryShareRole(storyId: string, userId: string): Promise<ShareRole | null> {
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const [row] = await db
 		.select({
-			isEditor: sql<unknown>`case when ${sharedStoryGrantsEditor(userId)} then 1 else 0 end`,
+			isEditor: sql<unknown>`case when ${sharedStoryGrantsEditor(userId, lockedGroupIds)} then 1 else 0 end`,
 		})
 		.from(s.sharedStory)
 		.where(
 			and(
 				eq(s.sharedStory.storyId, storyId),
-				or(eq(s.sharedStory.visibility, 'project'), sharedStoryGrantsUser(userId)),
+				or(eq(s.sharedStory.visibility, 'project'), sharedStoryGrantsUser(userId, lockedGroupIds)),
 			),
 		)
 		.limit(1)
@@ -142,6 +147,7 @@ export async function getStoryShareRole(storyId: string, userId: string): Promis
 }
 
 export async function listUserSharedStories(projectId: string, userId: string): Promise<SharedStoryWithLatest[]> {
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
 	return querySharedStories(
 		and(
 			eq(s.sharedStory.projectId, projectId),
@@ -149,7 +155,7 @@ export async function listUserSharedStories(projectId: string, userId: string): 
 			or(
 				eq(s.sharedStory.visibility, 'project'),
 				eq(s.sharedStory.userId, userId),
-				sharedStoryGrantsUser(userId),
+				sharedStoryGrantsUser(userId, lockedGroupIds),
 			),
 		)!,
 	);
@@ -266,15 +272,21 @@ export async function getSharedStoryAllowedGroupIds(sharedStoryId: string): Prom
 	return rows.map((r) => r.groupId);
 }
 
-/** Users granted directly plus the current members of every granted user group. */
+/** Users granted directly plus the current members of every granted user group the plan keeps active. */
 export async function getSharedStoryRecipientUserIds(sharedStoryId: string): Promise<string[]> {
+	const lockedGroupIds = await listLockedGroupIdsOfSharedStory(sharedStoryId);
 	const [directUserIds, groupMembers] = await Promise.all([
 		getSharedStoryAllowedUserIds(sharedStoryId),
 		db
 			.selectDistinct({ userId: s.userGroupMember.userId })
 			.from(s.sharedStoryGroupAccess)
 			.innerJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.sharedStoryGroupAccess.groupId))
-			.where(eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId))
+			.where(
+				and(
+					eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId),
+					excludeLockedGroups(s.sharedStoryGroupAccess.groupId, lockedGroupIds),
+				),
+			)
 			.execute(),
 	]);
 
@@ -536,14 +548,29 @@ function canWriteInStoryProject(userId: string): SQL {
 	return sql`(${isProjectWriter} or (not ${isProjectMember} and ${isOrganizationWriter}))`;
 }
 
-function groupGrantsUser(userId: string, roles: readonly ShareRole[]): SQL {
+function groupGrantsUser(userId: string, roles: readonly ShareRole[], lockedGroupIds: readonly string[]): SQL {
 	return sql`exists (
 		select 1 from ${s.sharedStoryGroupAccess}
 		inner join ${s.userGroupMember} on ${s.userGroupMember.groupId} = ${s.sharedStoryGroupAccess.groupId}
 		where ${s.sharedStoryGroupAccess.sharedStoryId} = ${s.sharedStory.id}
 		  and ${s.userGroupMember.userId} = ${userId}
 		  and ${inArray(s.sharedStoryGroupAccess.role, [...roles])}
+		  and ${excludeLockedGroups(s.sharedStoryGroupAccess.groupId, lockedGroupIds)}
 	)`;
+}
+
+/** Always-true when nothing is locked, so the common case adds no `not in` to the query. */
+export function excludeLockedGroups(groupIdColumn: AnyColumn, lockedGroupIds: readonly string[]): SQL {
+	return lockedGroupIds.length > 0 ? notInArray(groupIdColumn, [...lockedGroupIds]) : sql`1 = 1`;
+}
+
+async function listLockedGroupIdsOfSharedStory(sharedStoryId: string): Promise<string[]> {
+	const [share] = await db
+		.select({ projectId: s.sharedStory.projectId })
+		.from(s.sharedStory)
+		.where(eq(s.sharedStory.id, sharedStoryId))
+		.execute();
+	return share ? listLockedUserGroupIds(share.projectId) : [];
 }
 
 function querySharedStories(whereCondition: SQL): Promise<SharedStoryWithLatest[]> {

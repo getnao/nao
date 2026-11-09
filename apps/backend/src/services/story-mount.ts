@@ -20,7 +20,7 @@ import {
 import { entriesInVirtualDirectory } from '../utils/virtual-directory';
 import { assertWriterAddsNoChatQueries } from './custom-story-query-access';
 import { type EditableStoryScope, findEditableStory } from './editable-story';
-import { acquireStoryEditLock } from './story-edit-lock.service';
+import { acquireStoryEditLock, getStoryEditLockState, releaseStoryEditLock } from './story-edit-lock.service';
 
 /**
  * The chat whose custom stories are mounted, the story a quick question is about, if any, and the user whose
@@ -96,8 +96,7 @@ export async function writeStoryMountFile(
 		);
 	}
 	const story = await requireCustomStory(scope, target.storyId);
-	await assertWriterAddsNoChatQueries(story, scope.userId, [{ content }]);
-	await acquireStoryEditLock(story.id, { userId: scope.userId, chatId: scope.chatId });
+	await acquireLockForValidatedWrite(story, scope, content);
 	const file = await storyFileQueries.writeDraftFile(story.id, {
 		path: target.filePath,
 		content: await formatStoryFile(target.filePath, content),
@@ -230,6 +229,21 @@ async function loadSearchedStories(scope: StoryMountScope, targetedStoryId: stri
 async function loadMountedStory(scope: StoryMountScope, storyId: string): Promise<MountedStory> {
 	const story = await requireCustomStory(scope, storyId);
 	return { storyId, files: await storyFileQueries.listDraftFiles(story.id) };
+}
+
+/** Validates under the lock, so the check sees the draft the write lands on; a refused write gives back a lock it just took. */
+async function acquireLockForValidatedWrite(story: DBStory, scope: StoryMountScope, content: string): Promise<void> {
+	const holder = { userId: scope.userId, chatId: scope.chatId };
+	const wasHeld = (await getStoryEditLockState(story.id, holder))?.isMine ?? false;
+	await acquireStoryEditLock(story.id, holder);
+	try {
+		await assertWriterAddsNoChatQueries(story, scope.userId, [{ content }]);
+	} catch (error) {
+		if (!wasHeld) {
+			await releaseStoryEditLock(story.id, holder);
+		}
+		throw error;
+	}
 }
 
 async function requireCustomStory(scope: StoryMountScope, storyId: string): Promise<DBStory> {

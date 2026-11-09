@@ -4,6 +4,8 @@ import { and, asc, countDistinct, desc, eq, inArray, isNull, type SQL, sql, type
 import s, { type DBSharedChat } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import { type ForkMetadata } from '../types/chat';
+import { listLockedUserGroupIds, listLockedUserGroupIdsOfMember } from './locked-user-groups';
+import { excludeLockedGroups } from './shared-story.queries';
 
 export type SharedChatWithDetails = DBSharedChat & {
 	authorName: string;
@@ -14,7 +16,8 @@ export type SharedChatWithDetails = DBSharedChat & {
 	messageBubbles?: MessageBubble[];
 };
 
-export function sharedChatGrantsUser(userId: string): SQL {
+/** Matches `shared_chat` rows granted to the user directly or through one of their active user groups. */
+export function sharedChatGrantsUser(userId: string, lockedGroupIds: readonly string[]): SQL {
 	return sql`(exists (
 		select 1 from ${s.sharedChatAccess}
 		where ${s.sharedChatAccess.sharedChatId} = ${s.sharedChat.id}
@@ -24,6 +27,7 @@ export function sharedChatGrantsUser(userId: string): SQL {
 		inner join ${s.userGroupMember} on ${s.userGroupMember.groupId} = ${s.sharedChatGroupAccess.groupId}
 		where ${s.sharedChatGroupAccess.sharedChatId} = ${s.sharedChat.id}
 		  and ${s.userGroupMember.userId} = ${userId}
+		  and ${excludeLockedGroups(s.sharedChatGroupAccess.groupId, lockedGroupIds)}
 	) and ${canEnterSharedChatProject(userId)}))`;
 }
 
@@ -32,6 +36,7 @@ export async function listUserSharedChats(projectIds: string[], userId: string):
 		return [];
 	}
 
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const chats = await db
 		.select({
 			id: s.sharedChat.id,
@@ -49,7 +54,7 @@ export async function listUserSharedChats(projectIds: string[], userId: string):
 		.where(
 			and(
 				inArray(s.chat.projectId, projectIds),
-				sql`(${s.sharedChat.visibility} = 'project' OR ${s.chat.userId} = ${userId} OR ${sharedChatGrantsUser(userId)})`,
+				sql`(${s.sharedChat.visibility} = 'project' OR ${s.chat.userId} = ${userId} OR ${sharedChatGrantsUser(userId, lockedGroupIds)})`,
 			),
 		)
 		.orderBy(desc(s.sharedChat.createdAt))
@@ -111,10 +116,11 @@ export async function createSharedChat(
 }
 
 export async function canUserAccessSharedChat(shareId: string, userId: string): Promise<boolean> {
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const [row] = await db
 		.select({ id: s.sharedChat.id })
 		.from(s.sharedChat)
-		.where(and(eq(s.sharedChat.id, shareId), sharedChatGrantsUser(userId)))
+		.where(and(eq(s.sharedChat.id, shareId), sharedChatGrantsUser(userId, lockedGroupIds)))
 		.limit(1)
 		.execute();
 	return !!row;
@@ -314,8 +320,9 @@ export async function getShareAllowedGroupIds(shareId: string): Promise<string[]
 	return rows.map((row) => row.groupId);
 }
 
-/** Users granted directly plus the members of every granted user group who still belong to the project. */
+/** Users granted directly plus the members of every active granted user group who still belong to the project. */
 export async function getSharedChatRecipientUserIds(shareId: string): Promise<string[]> {
+	const lockedGroupIds = await listLockedGroupIdsOfSharedChat(shareId);
 	const [directUserIds, groupMembers] = await Promise.all([
 		getShareAllowedUserIds(shareId),
 		db
@@ -327,6 +334,7 @@ export async function getSharedChatRecipientUserIds(shareId: string): Promise<st
 				and(
 					eq(s.sharedChatGroupAccess.sharedChatId, shareId),
 					canEnterSharedChatProject(s.userGroupMember.userId),
+					excludeLockedGroups(s.sharedChatGroupAccess.groupId, lockedGroupIds),
 				),
 			)
 			.execute(),
@@ -381,4 +389,14 @@ function canEnterSharedChatProject(userId: string | SQLWrapper): SQL {
 			  and ${s.orgMember.userId} = ${userId}
 		  ))
 	)`;
+}
+
+async function listLockedGroupIdsOfSharedChat(shareId: string): Promise<string[]> {
+	const [share] = await db
+		.select({ projectId: s.chat.projectId })
+		.from(s.sharedChat)
+		.innerJoin(s.chat, eq(s.chat.id, s.sharedChat.chatId))
+		.where(eq(s.sharedChat.id, shareId))
+		.execute();
+	return share ? listLockedUserGroupIds(share.projectId) : [];
 }

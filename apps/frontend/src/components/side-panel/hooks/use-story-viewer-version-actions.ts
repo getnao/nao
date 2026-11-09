@@ -95,12 +95,16 @@ export const useStoryViewerVersionActions = ({
 		const activeSave = savePromiseRef.current;
 		const hasActiveSaveForStory =
 			activeSave !== null && isSameStoryIdentity(activeSave.identity, { chatId, storySlug });
-		if (currentVersionCode !== undefined && !hasActiveSaveForStory && !hasUnsavedChanges) {
-			baselineRef.current = {
-				identity: { chatId, storySlug },
-				code: currentVersionCode,
-				version: currentVersionNumber,
-			};
+		if (currentVersionCode === undefined || hasActiveSaveForStory) {
+			return;
+		}
+		const storyIdentity = { chatId, storySlug };
+		if (!hasUnsavedChanges) {
+			baselineRef.current = { identity: storyIdentity, code: currentVersionCode, version: currentVersionNumber };
+			return;
+		}
+		if (isLateVersionOfEditedCode(baselineRef.current, storyIdentity, currentVersionCode)) {
+			baselineRef.current = { ...baselineRef.current, version: currentVersionNumber };
 		}
 	}, [chatId, currentVersionCode, currentVersionNumber, hasUnsavedChanges, storySlug]);
 
@@ -302,6 +306,19 @@ export const useStoryViewerVersionActions = ({
 		saveError,
 	};
 };
+
+/** Edits may start before the version list loads; its number still applies when it describes the code being edited. */
+function isLateVersionOfEditedCode(
+	baseline: { identity: StoryIdentity; code: string | undefined; version: number | undefined },
+	identity: StoryIdentity,
+	currentVersionCode: string,
+): boolean {
+	return (
+		baseline.version === undefined &&
+		isSameStoryIdentity(baseline.identity, identity) &&
+		baseline.code === currentVersionCode
+	);
+}
 
 function isSameStoryIdentity(first: StoryIdentity, second: StoryIdentity): boolean {
 	return first.chatId === second.chatId && first.storySlug === second.storySlug;

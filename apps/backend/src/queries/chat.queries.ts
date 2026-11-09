@@ -30,6 +30,7 @@ import { applyChatFilters, buildChatGroups, type EnrichedChat, type SourcePlatfo
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
 import * as executeSqlQueries from './execute-sql.queries';
+import { listLockedUserGroupIdsOfMember } from './locked-user-groups';
 import { sharedChatGrantsUser } from './shared-chat.queries';
 
 const chatCreatedAtMs =
@@ -127,6 +128,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 }
 
 async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const rows = await db
 		.select({
 			id: s.sharedChat.chatId,
@@ -162,7 +164,7 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 							sql`exists(select 1 from ${s.orgMember} where ${s.orgMember.orgId} = ${s.project.orgId} and ${s.orgMember.userId} = ${userId})`,
 						),
 					),
-					and(eq(s.sharedChat.visibility, 'specific'), sharedChatGrantsUser(userId)),
+					and(eq(s.sharedChat.visibility, 'specific'), sharedChatGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)
@@ -1287,6 +1289,7 @@ export async function canUserAccessChat(chatId: string, userId: string): Promise
 		  and ${s.orgMember.userId} = ${userId}
 	)`;
 
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const [shared] = await db
 		.select({ id: s.sharedChat.id })
 		.from(s.sharedChat)
@@ -1297,7 +1300,7 @@ export async function canUserAccessChat(chatId: string, userId: string): Promise
 				eq(s.sharedChat.chatId, chatId),
 				or(
 					and(eq(s.sharedChat.visibility, 'project'), or(isProjectMember, isOrgMember)),
-					and(eq(s.sharedChat.visibility, 'specific'), sharedChatGrantsUser(userId)),
+					and(eq(s.sharedChat.visibility, 'specific'), sharedChatGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)

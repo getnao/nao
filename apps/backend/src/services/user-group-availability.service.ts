@@ -43,6 +43,17 @@ export async function listActiveUserGroups(projectId: string): Promise<userGroup
 	return groups.filter((group): group is userGroupQueries.UserGroup & { isLocked: false } => !group.isLocked);
 }
 
+/** Locked groups keep their saved shares, but grant nothing until the plan reactivates them. */
+export async function listLockedUserGroupIds(projectId: string): Promise<string[]> {
+	return (await listUserGroupsWithAvailability(projectId)).filter((group) => group.isLocked).map((group) => group.id);
+}
+
+export async function listLockedUserGroupIdsOfMember(userId: string): Promise<string[]> {
+	const projectIds = await userGroupQueries.listCustomGroupProjectIdsOfMember(userId);
+	const lockedGroupIds = await Promise.all(projectIds.map(listLockedUserGroupIds));
+	return lockedGroupIds.flat();
+}
+
 export async function resolveAvailableUserGroupAccess(
 	projectId: string,
 	userId: string,

@@ -1002,3 +1002,13 @@ export async function listUserIdsInGroups(groupIds: string[]): Promise<string[]>
 		.execute();
 	return rows.map((row) => row.userId);
 }
+
+export async function listCustomGroupProjectIdsOfMember(userId: string): Promise<string[]> {
+	const rows = await db
+		.selectDistinct({ projectId: s.userGroup.projectId })
+		.from(s.userGroupMember)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+		.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroup.isDefault, false)))
+		.execute();
+	return rows.map((row) => row.projectId);
+}

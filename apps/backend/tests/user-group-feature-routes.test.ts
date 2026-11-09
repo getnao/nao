@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	getChatProjectId: vi.fn(),
 	getLatestStoryRefreshFailure: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
+	listStoryVersions: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	getStoryQueryData: vi.fn(),
 	getStoryByChatAndSlug: vi.fn(),
@@ -104,6 +105,7 @@ vi.mock('../src/queries/story.queries', async (importOriginal) => ({
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getStoryById: mocks.getStoryByChatAndSlug,
 	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
+	listStoryVersions: mocks.listStoryVersions,
 	getStoryOwnerId: mocks.getStoryOwnerId,
 	getStoryProjectId: mocks.getStoryProjectId,
 	canUserAccessStory: vi.fn(async () => true),
@@ -171,6 +173,7 @@ describe('user group feature route enforcement', () => {
 		mocks.automationsEnabled = true;
 		mocks.role = 'user';
 		mocks.getChatOwnerId.mockResolvedValue('user-id');
+		mocks.listStoryVersions.mockResolvedValue([]);
 		mocks.getChatProjectId.mockResolvedValue('project-id');
 		mocks.getChatInfo.mockResolvedValue({ id: 'chat-id', projectId: 'project-id' });
 		mocks.getAutomation.mockResolvedValue(null);

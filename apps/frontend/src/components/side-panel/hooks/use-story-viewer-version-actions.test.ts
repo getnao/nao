@@ -279,6 +279,18 @@ describe('useStoryViewerVersionActions', () => {
 		expect(mocks.mutateAsync.mock.calls.map(([input]) => input.basedOnVersion)).toEqual([5]);
 	});
 
+	it('saves edits started before the version list loaded on top of the version that then arrived', async () => {
+		mocks.mutateAsync.mockResolvedValueOnce({ version: 6 });
+		const { result, rerender } = renderVersionedHook({ currentCode: '# Early edit', versionNumber: null });
+
+		rerender({ currentCode: '# Early edit', versionNumber: 5, hasUnsavedChanges: true });
+		await act(async () => {
+			expect(await result.current.saveCurrentVersion()).toBe('saved');
+		});
+
+		expect(mocks.mutateAsync.mock.calls.map(([input]) => input.basedOnVersion)).toEqual([5]);
+	});
+
 	it('does not save before the version being edited is known', async () => {
 		const { result } = renderVersionedHook({ currentCode: '# My edit', versionNumber: null });
 

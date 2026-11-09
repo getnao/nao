@@ -19,6 +19,7 @@ import {
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { isNotPageScopedChat } from './chat.queries';
+import { listLockedUserGroupIds } from './locked-user-groups';
 import { sharedStoryGrantsEditor, sharedStoryGrantsUser } from './shared-story.queries';
 
 export type ReferenceableStoryListing = {
@@ -71,9 +72,10 @@ export async function listReferenceableStories(
 	filters: ReferenceableStoryFilters = {},
 ): Promise<ReferenceableStory[]> {
 	const latestVersions = latestVersionsSubquery();
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
 	const rows = await db
 		.select({
-			...listingColumns(userId),
+			...listingColumns(userId, lockedGroupIds),
 			versionId: s.storyVersion.id,
 			version: s.storyVersion.version,
 			code: s.storyVersion.code,
@@ -87,7 +89,7 @@ export async function listReferenceableStories(
 			s.storyVersion,
 			and(eq(s.storyVersion.storyId, s.story.id), eq(s.storyVersion.version, latestVersions.maxVersion)),
 		)
-		.where(isReferenceable(userId, projectId, filters))
+		.where(isReferenceable(userId, projectId, lockedGroupIds, filters))
 		.orderBy(...trustedThenRecent())
 		.limit(Math.min(filters.limit ?? DEFAULT_LIMIT, MAX_REFERENCEABLE_STORIES_LIMIT))
 		.offset(filters.offset ?? 0)
@@ -101,13 +103,14 @@ export async function listAllReferenceableStoryListings(
 	userId: string,
 	projectId: string,
 ): Promise<ReferenceableStoryListing[]> {
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
 	const rows = await db
-		.select(listingColumns(userId))
+		.select(listingColumns(userId, lockedGroupIds))
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
 		.leftJoin(s.sharedStory, and(eq(s.sharedStory.storyId, s.story.id), eq(s.sharedStory.projectId, projectId)))
 		.leftJoin(storyOwner, eq(storyOwner.id, sql`coalesce(${s.chat.userId}, ${s.story.userId})`))
-		.where(and(isReferenceable(userId, projectId), exists(storyVersions())))
+		.where(and(isReferenceable(userId, projectId, lockedGroupIds), exists(storyVersions())))
 		.orderBy(...trustedThenRecent())
 		.execute();
 
@@ -148,7 +151,7 @@ export async function listMentioningChats(
 	return rows.map((row) => ({ ...row, isOrigin: row.chatId === originChatId }));
 }
 
-function listingColumns(userId: string) {
+function listingColumns(userId: string, lockedGroupIds: readonly string[]) {
 	return {
 		storyId: s.story.id,
 		chatId: s.story.chatId,
@@ -161,7 +164,7 @@ function listingColumns(userId: string) {
 		shareVisibility: s.sharedStory.visibility,
 		certifiedAt: s.story.certifiedAt,
 		updatedAt: s.story.updatedAt,
-		isShareEditor: sql<unknown>`case when ${isNotNull(s.sharedStory.id)} and ${sharedStoryGrantsEditor(userId)} then 1 else 0 end`,
+		isShareEditor: sql<unknown>`case when ${isNotNull(s.sharedStory.id)} and ${sharedStoryGrantsEditor(userId, lockedGroupIds)} then 1 else 0 end`,
 	};
 }
 
@@ -186,15 +189,20 @@ type ListingRow = {
 	isShareEditor: unknown;
 };
 
-function isReferenceable(userId: string, projectId: string, filters: ReferenceableStoryFilters = {}): SQL | undefined {
+function isReferenceable(
+	userId: string,
+	projectId: string,
+	lockedGroupIds: readonly string[],
+	filters: ReferenceableStoryFilters = {},
+): SQL | undefined {
 	return and(
 		sql`coalesce(${s.story.projectId}, ${s.chat.projectId}) = ${projectId}`,
 		isNull(s.story.archivedAt),
-		or(isOwnedBy(userId), isSharedWith(userId)),
+		or(isOwnedBy(userId), isSharedWith(userId, lockedGroupIds)),
 		filters.trustedOnly ? isTrusted() : undefined,
 		filters.storyIds ? inArray(s.story.id, filters.storyIds) : undefined,
 		filters.folderIds ? isInFolders(filters.folderIds) : undefined,
-		filters.sharedWithMeOnly ? isSharedSpecificallyWith(userId) : undefined,
+		filters.sharedWithMeOnly ? isSharedSpecificallyWith(userId, lockedGroupIds) : undefined,
 	);
 }
 
@@ -215,10 +223,14 @@ function isOwnedBy(userId: string): SQL {
 	return or(eq(s.chat.userId, userId), and(isNull(s.story.chatId), eq(s.story.userId, userId)))!;
 }
 
-function isSharedWith(userId: string): SQL {
+function isSharedWith(userId: string, lockedGroupIds: readonly string[]): SQL {
 	return and(
 		isNotNull(s.sharedStory.id),
-		or(eq(s.sharedStory.visibility, 'project'), eq(s.sharedStory.userId, userId), sharedStoryGrantsUser(userId)),
+		or(
+			eq(s.sharedStory.visibility, 'project'),
+			eq(s.sharedStory.userId, userId),
+			sharedStoryGrantsUser(userId, lockedGroupIds),
+		),
 	)!;
 }
 
@@ -236,8 +248,8 @@ function isInFolders(folderIds: string[]): SQL {
 	);
 }
 
-function isSharedSpecificallyWith(userId: string): SQL {
-	return and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId))!;
+function isSharedSpecificallyWith(userId: string, lockedGroupIds: readonly string[]): SQL {
+	return and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId, lockedGroupIds))!;
 }
 
 function mentioningMessageParts(storyId: string) {

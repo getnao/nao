@@ -8,6 +8,7 @@ import type { StoryQuerySources } from '../types/story-cache';
 import { getOpenProjectIds } from '../utils/open-projects';
 import { isQuickQuestionForkType } from './chat.queries';
 import * as executeSqlQueries from './execute-sql.queries';
+import { listLockedUserGroupIdsOfMember } from './locked-user-groups';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 
 export type UserStoryRow = Pick<
@@ -542,7 +543,7 @@ async function detachStoriesFromFolders(storyIds: string[]): Promise<void> {
 }
 
 /** Matches `story` rows the user owns or that are shared with them within the project. */
-export function storyVisibleToUser(userId: string, projectId: string): SQL {
+export function storyVisibleToUser(userId: string, projectId: string, lockedGroupIds: readonly string[]): SQL {
 	return sql`(
 		exists (
 			select 1 from ${s.chat}
@@ -556,7 +557,7 @@ export function storyVisibleToUser(userId: string, projectId: string): SQL {
 			  and (
 				${s.sharedStory.userId} = ${userId}
 				or ${s.sharedStory.visibility} = 'project'
-				or ${sharedStoryGrantsUser(userId)}
+				or ${sharedStoryGrantsUser(userId, lockedGroupIds)}
 			  )
 		)
 	)`;
@@ -592,6 +593,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 	)`;
 	const openProjectIds = getOpenProjectIds();
 	const isOpenProject = openProjectIds.length > 0 ? inArray(s.sharedStory.projectId, openProjectIds) : undefined;
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 
 	const [shared] = await db
 		.select({ id: s.sharedStory.id })
@@ -603,7 +605,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 				or(
 					eq(s.sharedStory.userId, userId),
 					and(eq(s.sharedStory.visibility, 'project'), or(isProjectMember, isOrgMember, isOpenProject)),
-					and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId)),
+					and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)

@@ -23,7 +23,7 @@ export async function assertWriterAddsNoChatQueries(
 	}
 }
 
-/** Same rule for markdown stories: a non-owner may only keep the queries the latest version already cites. */
+/** Same rule for markdown stories: a non-owner may only cite queries some version of the story already cited. */
 export async function assertWriterAddsNoMarkdownChatQueries(
 	chatId: string,
 	storySlug: string,
@@ -33,8 +33,8 @@ export async function assertWriterAddsNoMarkdownChatQueries(
 	if ((await chatQueries.getChatOwnerId(chatId)) === writerId) {
 		return;
 	}
-	const latestVersion = await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug);
-	const knownIds = latestVersion ? extractQueryIds(latestVersion.code) : new Set<string>();
+	const versions = await storyQueries.listStoryVersions(chatId, storySlug);
+	const knownIds = new Set(versions.flatMap((version) => [...extractQueryIds(version.code)]));
 	const addedIds = [...extractQueryIds(code)].filter((queryId) => !knownIds.has(queryId));
 	await assertNoneAreChatQueries(chatId, addedIds);
 }
