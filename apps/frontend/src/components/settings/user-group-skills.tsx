@@ -16,6 +16,7 @@ interface UserGroupSkillsProps {
 	isDefaultGroup: boolean;
 	isLicensed: boolean;
 	skillsAccess: SkillsAccess;
+	savedSkillsAccess: SkillsAccess;
 	preloadedSkills: string[];
 	allUsersSkillsAccess: SkillsAccess;
 	allUsersPreloadedSkills: string[];
@@ -45,6 +46,7 @@ export function UserGroupSkills({
 	isDefaultGroup,
 	isLicensed,
 	skillsAccess,
+	savedSkillsAccess,
 	preloadedSkills,
 	allUsersSkillsAccess,
 	allUsersPreloadedSkills,
@@ -88,12 +90,10 @@ export function UserGroupSkills({
 	};
 
 	const handleSpecificSelection = () => {
-		if (isLicensed && skillsAccess.mode === 'all') {
-			onChange({
-				skillsAccess: normalizeSkillsAccess({ mode: 'restricted', skills: preloadedSkills }),
-				preloadedSkills,
-			});
-		}
+		onChange({
+			skillsAccess: getSpecificSkillsAccess(skillsAccess, savedSkillsAccess, preloadedSkills, isLicensed),
+			preloadedSkills,
+		});
 	};
 
 	return (
@@ -331,6 +331,19 @@ function SkillLoadErrorRows({ loadErrors }: { loadErrors: SkillLoadError[] }) {
 
 function StatusRow({ children }: { children: ReactNode }) {
 	return <li className='p-3 text-sm text-muted-foreground'>{children}</li>;
+}
+
+/** Without a license only the saved access can be restored, since the server rejects any new restriction. */
+export function getSpecificSkillsAccess(
+	access: SkillsAccess,
+	savedAccess: SkillsAccess,
+	preloadedSkills: string[],
+	isLicensed: boolean,
+): SkillsAccess {
+	if (access.mode === 'restricted') {
+		return access;
+	}
+	return isLicensed ? normalizeSkillsAccess({ mode: 'restricted', skills: preloadedSkills }) : savedAccess;
 }
 
 export function toggleSkillGrant(access: SkillsAccess, skillName: string, granted: boolean): SkillsAccess {
