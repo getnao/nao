@@ -90,9 +90,10 @@ export function UserGroupSkills({
 	};
 
 	const handleSpecificSelection = () => {
+		const nextAccess = getSpecificSkillsAccess(skillsAccess, savedSkillsAccess, preloadedSkills, isLicensed);
 		onChange({
-			skillsAccess: getSpecificSkillsAccess(skillsAccess, savedSkillsAccess, preloadedSkills, isLicensed),
-			preloadedSkills,
+			skillsAccess: nextAccess,
+			preloadedSkills: filterGrantedPreloads(preloadedSkills, nextAccess, inheritedAccess),
 		});
 	};
 
@@ -344,6 +345,16 @@ export function getSpecificSkillsAccess(
 		return access;
 	}
 	return isLicensed ? normalizeSkillsAccess({ mode: 'restricted', skills: preloadedSkills }) : savedAccess;
+}
+
+export function filterGrantedPreloads(
+	preloadedSkills: string[],
+	access: SkillsAccess,
+	inheritedAccess: SkillsAccess,
+): string[] {
+	return preloadedSkills.filter(
+		(skillName) => isSkillGranted(access, skillName) || isSkillGranted(inheritedAccess, skillName),
+	);
 }
 
 export function toggleSkillGrant(access: SkillsAccess, skillName: string, granted: boolean): SkillsAccess {

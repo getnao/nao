@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { getMissingSkillGrants, getSpecificSkillsAccess, toggleSkillGrant } from './user-group-skills';
+import {
+	filterGrantedPreloads,
+	getMissingSkillGrants,
+	getSpecificSkillsAccess,
+	toggleSkillGrant,
+} from './user-group-skills';
 import type { SkillsAccess } from '@nao/shared';
 
 vi.mock('@/main', () => ({ trpc: {} }));
@@ -40,5 +45,13 @@ describe('user group skills specific selection', () => {
 	it('keeps an existing restricted selection', () => {
 		const access: SkillsAccess = { mode: 'restricted', skills: [] };
 		expect(getSpecificSkillsAccess(access, savedAccess, [], false)).toBe(access);
+	});
+
+	it('drops preloads that neither the restored selection nor All Users grants', () => {
+		const inheritedAccess: SkillsAccess = { mode: 'restricted', skills: ['churn'] };
+		expect(filterGrantedPreloads(['revenue', 'churn', 'pricing'], savedAccess, inheritedAccess)).toEqual([
+			'revenue',
+			'churn',
+		]);
 	});
 });
