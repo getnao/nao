@@ -14,8 +14,8 @@ import { readStoryChartPluginSources } from '../services/chart-plugin';
 import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
-	getCustomStoryNarratives,
 	getCustomStoryVersion,
+	getSharedCustomStoryNarratives,
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
 	getStandaloneCustomStoryNarratives,
@@ -100,9 +100,9 @@ export const sharedStoryRoutes = {
 		const storiesWithPreview = hasRowSecurity
 			? items.map((story) => ({ ...story, kpiPreviewData: null }))
 			: await withKpiPreviewData(items, (story) => story.storyId);
-		return storiesWithPreview.map((story) => ({
+		return storiesWithPreview.map(({ ownerUserId, ...story }) => ({
 			...story,
-			canShowThumbnail: !hasRowSecurity || story.userId === ctx.user.id,
+			canShowThumbnail: !hasRowSecurity || ownerUserId === ctx.user.id,
 		}));
 	}),
 
@@ -324,7 +324,7 @@ export const sharedStoryRoutes = {
 		const shared = ctx.resource;
 		try {
 			return shared.chatId
-				? await getCustomStoryNarratives(shared.chatId, shared.slug, { viewerUserId: ctx.user.id })
+				? await getSharedCustomStoryNarratives(shared.chatId, shared.slug, ctx.user.id)
 				: await getStandaloneCustomStoryNarratives(shared.storyId);
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);

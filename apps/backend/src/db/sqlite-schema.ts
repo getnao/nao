@@ -1552,6 +1552,7 @@ export const storyViewerDataCache = sqliteTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		permissionRevision: text('permission_revision').notNull(),
 		queryData: text('query_data', { mode: 'json' })
 			.$type<Record<string, { data: unknown[]; columns: string[] }>>()
 			.notNull(),
@@ -1562,7 +1563,11 @@ export const storyViewerDataCache = sqliteTable(
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.storyVersionId, t.userId] })],
+	(t) => [
+		index('story_viewer_data_cache_story_id_idx').on(t.storyId),
+		index('story_viewer_data_cache_user_id_idx').on(t.userId),
+		primaryKey({ columns: [t.storyVersionId, t.userId] }),
+	],
 );
 
 export const storyFilterOptionsCache = sqliteTable(

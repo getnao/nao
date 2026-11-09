@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b1fffc3a-2d9b-41cd-861e-bb78ad5f21bd",
+  "id": "cb1bb177-b3ee-45bc-9a87-0efe7381b0ca",
   "prevId": "e64f630c-0b12-401b-ac56-88d4cfcb2b9d",
   "tables": {
     "account": {
@@ -9620,6 +9620,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "permission_revision": {
+          "name": "permission_revision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "query_data": {
           "name": "query_data",
           "type": "text",
@@ -9657,7 +9664,22 @@
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "story_viewer_data_cache_story_id_idx": {
+          "name": "story_viewer_data_cache_story_id_idx",
+          "columns": [
+            "story_id"
+          ],
+          "isUnique": false
+        },
+        "story_viewer_data_cache_user_id_idx": {
+          "name": "story_viewer_data_cache_user_id_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "story_viewer_data_cache_story_id_story_id_fk": {
           "name": "story_viewer_data_cache_story_id_story_id_fk",

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	refreshStoryData: vi.fn(),
 	refreshStoryDataForDelivery: vi.fn(),
 	hasRowSecurity: vi.fn(),
+	getUserRoleInProject: vi.fn(),
 	resolveDeliveryRecipientUserIds: vi.fn(),
 	buildStoryEmailHtml: vi.fn(),
 	buildStoryPdfAttachment: vi.fn(),
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/queries/scheduled-job.queries', () => ({ updateJobPayload: mocks.updateJobPayload }));
+vi.mock('../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
 vi.mock('../src/queries/shared-story.queries', () => ({
 	getStoryShareAccess: vi.fn(async () => ({
 		allowedUserIds: [],
@@ -91,6 +93,7 @@ import { NotificationChannelDeliveryError } from '../src/services/notification.s
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.hasRowSecurity.mockResolvedValue(false);
+	mocks.getUserRoleInProject.mockResolvedValue('viewer');
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['recipient-user-id']);
 	mocks.refreshStoryData.mockResolvedValue({ queryData: {} });
 	mocks.buildStoryEmailHtml.mockResolvedValue(null);
@@ -163,6 +166,47 @@ it('renders and sends a separate snapshot with each recipient row-security conte
 		expect.objectContaining({ channels: ['email'] }),
 		{ skipDeliveries: [], throwOnChannelError: true },
 	);
+});
+
+it('skips a removed recipient before generating their row-security snapshot', async () => {
+	mocks.hasRowSecurity.mockResolvedValue(true);
+	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['removed-user', 'active-user']);
+	mocks.getUserRoleInProject.mockImplementation(async (_projectId: string, userId: string) =>
+		userId === 'removed-user' ? null : 'viewer',
+	);
+	mocks.refreshStoryDataForDelivery.mockResolvedValue({
+		queryData: {},
+		narratives: {},
+		code: 'recipient-code',
+	});
+
+	await runScheduledStoryDelivery('story-id');
+
+	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledOnce();
+	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledWith(
+		'chat-id',
+		'story-slug',
+		expect.objectContaining({ viewerUserId: 'active-user' }),
+	);
+	expect(mocks.notifyUsers).toHaveBeenCalledWith(['active-user'], expect.anything(), expect.anything());
+});
+
+it('skips a recipient removed after snapshot generation but before sending', async () => {
+	mocks.hasRowSecurity.mockResolvedValue(true);
+	mocks.getUserRoleInProject
+		.mockResolvedValueOnce('viewer')
+		.mockResolvedValueOnce('viewer')
+		.mockResolvedValueOnce(null);
+	mocks.refreshStoryDataForDelivery.mockResolvedValue({
+		queryData: {},
+		narratives: {},
+		code: 'recipient-code',
+	});
+
+	await runScheduledStoryDelivery('story-id');
+
+	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledOnce();
+	expect(mocks.notifyUsers).not.toHaveBeenCalled();
 });
 
 it('renders a custom story PDF with the recipient narratives', async () => {

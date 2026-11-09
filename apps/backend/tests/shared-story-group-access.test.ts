@@ -37,12 +37,13 @@ vi.mock('../src/db/db', async () => {
 const PROJECT_ID = 'group-share-project';
 const STORY_ID = 'group-share-story';
 const OWNER_ID = 'group-share-owner';
+const SHARER_ID = 'group-share-sharer';
 const GROUP_MEMBER_ID = 'group-share-member';
 const DIRECT_USER_ID = 'group-share-direct';
 const OUTSIDER_ID = 'group-share-outsider';
 const GROUP_ID = 'group-share-analysts';
 
-const USER_IDS = [OWNER_ID, GROUP_MEMBER_ID, DIRECT_USER_ID, OUTSIDER_ID];
+const USER_IDS = [OWNER_ID, SHARER_ID, GROUP_MEMBER_ID, DIRECT_USER_ID, OUTSIDER_ID];
 
 describe('sharing a story with user groups', () => {
 	beforeAll(async () => {
@@ -116,6 +117,17 @@ describe('sharing a story with user groups', () => {
 		expect(memberStories[0]).toMatchObject({ sharedWithCount: 1, sharedWithGroupCount: 1 });
 		expect(outsiderStories).toHaveLength(0);
 		expect(sharingInfo.get(STORY_ID)).toMatchObject({ sharedWithCount: 1, sharedWithGroupCount: 1 });
+	});
+
+	it('returns the story owner separately from the share initiator', async () => {
+		await createSharedStory(
+			{ storyId: STORY_ID, projectId: PROJECT_ID, userId: SHARER_ID, visibility: 'specific' },
+			{ groupIds: [GROUP_ID] },
+		);
+
+		const [story] = await listUserSharedStories(PROJECT_ID, GROUP_MEMBER_ID);
+
+		expect(story).toMatchObject({ userId: SHARER_ID, ownerUserId: OWNER_ID });
 	});
 
 	it('replaces group grants when access is updated or the share becomes project-wide', async () => {

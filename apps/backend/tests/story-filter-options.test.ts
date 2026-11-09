@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 	upsertFilterOptionsCache: vi.fn(),
 	deleteFilterOptionsCacheOlderThan: vi.fn(),
 	createStoryExecutionContext: vi.fn(),
-	executeLiveQuery: vi.fn(),
+	executeStoryQueries: vi.fn(),
 	executeRawSql: vi.fn(),
 	hasRowSecurity: vi.fn(),
 	compileSemanticQuery: vi.fn(),
@@ -33,7 +33,7 @@ vi.mock('../src/services/semantic-layer.service', () => ({
 }));
 vi.mock('../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
-	executeLiveQuery: mocks.executeLiveQuery,
+	executeStoryQueries: mocks.executeStoryQueries,
 	executeRawSql: mocks.executeRawSql,
 	hasRowSecurity: mocks.hasRowSecurity,
 	resolveRawSqlDatabaseType: mocks.resolveRawSqlDatabaseType,
@@ -187,10 +187,14 @@ describe('getStoryFilterOptions', () => {
 	it('executes an options query with viewer row security', async () => {
 		const code = '<filter id="customer" type="select" options_query_id="query_customer_options" />';
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code });
+		const query = { sqlQuery: 'SELECT customer AS value FROM customers', adminMode: false };
+		mocks.getSqlQueriesFromCode.mockResolvedValue({ query_customer_options: query });
 		mocks.hasRowSecurity.mockResolvedValue(true);
-		mocks.executeLiveQuery.mockResolvedValue({
-			columns: ['value'],
-			data: [{ value: 'Charlie' }, { value: null }, { value: 'Alice' }, { value: 'Charlie' }],
+		mocks.executeStoryQueries.mockResolvedValue({
+			query_customer_options: {
+				columns: ['value'],
+				data: [{ value: 'Charlie' }, { value: null }, { value: 'Alice' }, { value: 'Charlie' }],
+			},
 		});
 
 		const result = await getStoryFilterOptions(
@@ -202,23 +206,100 @@ describe('getStoryFilterOptions', () => {
 		);
 
 		expect(result).toEqual({ options: ['Alice', 'Charlie'], isComplete: true });
-		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'query_customer_options', {
-			viewerUserId: 'viewer-1',
-			billingAccessVerifiedProjectId: 'project-1',
-			storyCode: code,
-		});
+		expect(mocks.createStoryExecutionContext).toHaveBeenCalledWith('chat-1', 'viewer-1');
+		expect(mocks.executeStoryQueries).toHaveBeenCalledWith(
+			'chat-1',
+			{
+				query_customer_options: {
+					...query,
+					semanticQuery: undefined,
+					sqlQuery:
+						'SELECT DISTINCT value FROM (SELECT customer AS value FROM customers) AS nao_filter_options WHERE value IS NOT NULL ORDER BY value LIMIT 101',
+				},
+			},
+			expect.objectContaining({
+				executionContext: expect.anything(),
+				billingAccessVerifiedProjectId: 'project-1',
+			}),
+		);
 		expect(mocks.getFilterOptionsCache).not.toHaveBeenCalled();
 	});
 
-	it('rejects an options query without a value column', async () => {
-		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
-			code: '<filter id="customer" type="select" options_query_id="query_customer_options" />',
+	it('searches and limits options queries before execution', async () => {
+		const code = '<filter id="customer" type="select" options_query_id="query_customer_options" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_customer_options: {
+				sqlQuery: 'SELECT customer AS value FROM customers',
+				dialect: 'bigquery',
+				adminMode: false,
+			},
 		});
-		mocks.executeLiveQuery.mockResolvedValue({ columns: ['customer'], data: [{ customer: 'Alice' }] });
+		mocks.executeStoryQueries.mockResolvedValue({
+			query_customer_options: { columns: ['value'], data: [{ value: 'Alice' }] },
+		});
+
+		await getStoryFilterOptions('chat-1', 'story', 'customer', { search: 'ali' });
+
+		expect(mocks.executeStoryQueries.mock.calls[0][1].query_customer_options.sqlQuery).toBe(
+			"SELECT DISTINCT value FROM (SELECT customer AS value FROM customers) AS nao_filter_options WHERE value IS NOT NULL AND LOWER(CAST(value AS STRING)) LIKE '%ali%' ORDER BY value LIMIT 101",
+		);
+	});
+
+	it('applies the parent selection to a query-backed child filter', async () => {
+		const code = [
+			'<filter id="category" type="select" table="products" column="category" />',
+			'<filter id="subcategory" type="select" options_query_id="query_subcategories" depends_on="category" />',
+		].join('\n');
+		const sqlQuery =
+			'SELECT DISTINCT subcategory AS value FROM products WHERE 1 = 1 ' +
+			'{% filter category %} AND category IN ({{ filters.category.sql }}) {% endfilter %}';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_subcategories: { sqlQuery, adminMode: false },
+		});
+		mocks.executeStoryQueries.mockImplementation(async (_chatId, queries) => {
+			expect(queries.query_subcategories.sqlQuery).toBe(
+				"SELECT DISTINCT value FROM (SELECT DISTINCT subcategory AS value FROM products WHERE 1 = 1  AND category IN ('Kid''s')) AS nao_filter_options WHERE value IS NOT NULL ORDER BY value LIMIT 101",
+			);
+			return { query_subcategories: { columns: ['value'], data: [{ value: 'Toys' }] } };
+		});
+
+		await expect(
+			getStoryFilterOptions('chat-1', 'story', 'subcategory', { parentSelection: "Kid's" }),
+		).resolves.toEqual({ options: ['Toys'], isComplete: true });
+
+		expect(mocks.upsertFilterOptionsCache).toHaveBeenCalledWith('story-1', expect.any(String), ['Toys'], true);
+	});
+
+	it('rejects an options query without a value column', async () => {
+		const code = '<filter id="customer" type="select" options_query_id="query_customer_options" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_customer_options: { sqlQuery: 'SELECT customer FROM customers', adminMode: false },
+		});
+		mocks.executeStoryQueries.mockResolvedValue({
+			query_customer_options: { columns: ['customer'], data: [{ customer: 'Alice' }] },
+		});
 
 		await expect(getStoryFilterOptions('chat-1', 'story', 'customer')).rejects.toThrow(
 			'must return a column named "value"',
 		);
+	});
+
+	it('rejects admin-mode options queries for viewers', async () => {
+		const code = '<filter id="customer" type="select" options_query_id="query_customer_options" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_customer_options: { sqlQuery: 'SELECT name AS value FROM user', adminMode: true },
+		});
+		mocks.hasRowSecurity.mockResolvedValue(true);
+
+		await expect(
+			getStoryFilterOptions('chat-1', 'story', 'customer', {}, { viewerUserId: 'viewer-1' }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+		expect(mocks.executeStoryQueries).not.toHaveBeenCalled();
 	});
 
 	it('intersects configured options with values visible to an RLS viewer', async () => {

@@ -14,11 +14,7 @@ let narrativesRequest: Promise<StoryNarratives> | null = null;
 export function Narrative({ id, children }: NarrativeProps) {
 	const narratives = useNarratives();
 	if (narratives === null) {
-		return (
-			<span className='nao-narrative nao-narrative--loading' aria-busy='true'>
-				{children}
-			</span>
-		);
+		return <span className='nao-narrative nao-narrative--loading' aria-busy='true' />;
 	}
 	return <>{narratives[id] ?? children}</>;
 }

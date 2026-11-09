@@ -1056,12 +1056,14 @@ export async function getStoryViewerDataCache(
 	slug: string,
 	storyVersionId: string,
 	userId: string,
+	permissionRevision: string,
 ): Promise<DBStoryViewerDataCache | null> {
 	const [row] = await db
 		.select({
 			storyId: s.storyViewerDataCache.storyId,
 			storyVersionId: s.storyViewerDataCache.storyVersionId,
 			userId: s.storyViewerDataCache.userId,
+			permissionRevision: s.storyViewerDataCache.permissionRevision,
 			queryData: s.storyViewerDataCache.queryData,
 			code: s.storyViewerDataCache.code,
 			querySources: s.storyViewerDataCache.querySources,
@@ -1076,6 +1078,7 @@ export async function getStoryViewerDataCache(
 				eq(s.story.slug, slug),
 				eq(s.storyViewerDataCache.storyVersionId, storyVersionId),
 				eq(s.storyViewerDataCache.userId, userId),
+				eq(s.storyViewerDataCache.permissionRevision, permissionRevision),
 			),
 		)
 		.execute();
@@ -1086,12 +1089,14 @@ export async function upsertStoryViewerDataCache(
 	storyId: string,
 	storyVersionId: string,
 	userId: string,
+	permissionRevision: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 	querySources: StoryQuerySources,
 	analysisResults?: Record<string, string> | null,
 	code?: string | null,
 ): Promise<void> {
 	const values = {
+		permissionRevision,
 		queryData,
 		code: code ?? null,
 		querySources,

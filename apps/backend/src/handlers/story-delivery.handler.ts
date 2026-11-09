@@ -6,6 +6,7 @@ import {
 } from '@nao/shared/types';
 
 import type { DBScheduledJob, DBStory, DBStoryDelivery } from '../db/abstractSchema';
+import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -186,6 +187,9 @@ async function deliverRecipientSnapshots(
 	const failed: ChannelDeliveryAttempt[] = [];
 	const failedRecipientUserIds: string[] = [];
 	for (const recipientUserId of context.recipientUserIds) {
+		if (!(await projectQueries.getUserRoleInProject(context.projectId, recipientUserId))) {
+			continue;
+		}
 		const skippedChannels = new Set(
 			skipDeliveries.filter((attempt) => attempt.userId === recipientUserId).map((attempt) => attempt.channel),
 		);
@@ -258,7 +262,11 @@ async function deliver(
 	code?: string,
 	narratives?: StoryNarratives,
 ): Promise<void> {
-	const { delivery, story, projectId, recipientUserIds } = context;
+	const { delivery, story, projectId } = context;
+	const recipientUserIds = await filterCurrentProjectMembers(projectId, context.recipientUserIds);
+	if (recipientUserIds.length === 0) {
+		return;
+	}
 
 	const version = await storyQueries.getLatestVersionByChatAndSlug(story.chatId!, story.slug);
 	if (!version) {
@@ -286,8 +294,12 @@ async function deliver(
 		storyTitle: version.title,
 	};
 
+	const currentRecipientUserIds = await filterCurrentProjectMembers(projectId, recipientUserIds);
+	if (currentRecipientUserIds.length === 0) {
+		return;
+	}
 	await notifyUsers(
-		recipientUserIds,
+		currentRecipientUserIds,
 		{
 			category: 'story_refresh',
 			title: version.title,
@@ -305,11 +317,16 @@ async function deliver(
 		{ throwOnChannelError: true, skipDeliveries },
 	);
 
-	logger.info(`Delivered story ${story.id} to ${recipientUserIds.length} recipient(s).`, {
+	logger.info(`Delivered story ${story.id} to ${currentRecipientUserIds.length} recipient(s).`, {
 		source: 'system',
 		projectId,
 		context: { storyId: story.id },
 	});
+}
+
+async function filterCurrentProjectMembers(projectId: string, userIds: string[]): Promise<string[]> {
+	const roles = await Promise.all(userIds.map((userId) => projectQueries.getUserRoleInProject(projectId, userId)));
+	return userIds.filter((_userId, index) => roles[index] !== null);
 }
 
 async function buildCustomStoryPdfAttachment(

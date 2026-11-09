@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 
-import { quoteSqlString, renderFilterSqlValue, type StoryFilterSelection } from '@nao/shared/sql-template';
+import {
+	quoteSqlString,
+	renderFilterSqlValue,
+	renderSqlTemplate,
+	type StoryFilterSelection,
+	type StoryFilterSelections,
+	type StoryFilterSpecById,
+	stripSqlFilterBlocks,
+} from '@nao/shared/sql-template';
 import { resolveSemanticQueryParameters } from '@nao/shared/story-parameter-template';
 import { getStoryFiltersFromCode, type ParsedFilterBlock } from '@nao/shared/story-segments';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
@@ -8,6 +16,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import type { DBStory } from '../db/abstractSchema';
+import dbConfig from '../db/dbConfig';
 import type { StoredSqlQuery } from '../queries/execute-sql.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as filterOptionsCacheQueries from '../queries/story-filter-options-cache.queries';
@@ -15,15 +24,15 @@ import { logger } from '../utils/logger';
 import { toSafeSqlIdentifier } from '../utils/sql-identifiers';
 import {
 	createStoryExecutionContext,
-	executeLiveQuery,
 	executeRawSql,
+	executeStoryQueries,
 	hasRowSecurity,
 	isCacheExpired,
 	resolveRawSqlDatabaseType,
 	type StoryExecutionContext,
 } from './live-story';
 import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
-import { canFilterMetrics, dimensionExpression } from './semantic-story-bindings';
+import { canFilterMetrics, dimensionExpression, semanticBindingsFromCode } from './semantic-story-bindings';
 
 const FILTER_OPTIONS_LIMIT = 100;
 const FILTER_OPTIONS_MAX_AGE_MS = 60 * 60 * 1000;
@@ -71,6 +80,7 @@ type FilterOptionsSource = QueryOptionsSource | WarehouseOptionsSource | Semanti
 interface QueryOptionsSource {
 	kind: 'query';
 	queryId: string;
+	selections: StoryFilterSelections;
 }
 
 interface WarehouseOptionsSource {
@@ -222,7 +232,10 @@ async function queryFilterOptions(
 		...new Set(
 			rawValues.filter(
 				(value): value is string =>
-					value !== null && (!search || value.toLocaleLowerCase().includes(search.toLocaleLowerCase())),
+					value !== null &&
+					(!search ||
+						source.kind !== 'query' ||
+						value.toLocaleLowerCase().includes(search.toLocaleLowerCase())),
 			),
 		),
 	];
@@ -243,7 +256,7 @@ function fetchOptionValues(
 ): Promise<Array<string | null>> {
 	switch (source.kind) {
 		case 'query':
-			return fetchQueryOptionValues(context, source, executionOptions);
+			return fetchQueryOptionValues(context, source, executionContext, executionOptions, search);
 		case 'warehouse':
 			return fetchWarehouseOptionValues(source, executionContext, executionOptions, search);
 		case 'semantic':
@@ -254,13 +267,40 @@ function fetchOptionValues(
 async function fetchQueryOptionValues(
 	context: StoryFilterContext,
 	source: QueryOptionsSource,
+	executionContext: StoryExecutionContext,
 	executionOptions: FilterOptionsExecutionOptions,
+	search?: string,
 ): Promise<Array<string | null>> {
-	const result = await executeLiveQuery(context.chatId, source.queryId, {
-		viewerUserId: executionOptions.viewerUserId,
-		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
-		storyCode: context.code,
-	});
+	const query = context.sqlQueries[source.queryId];
+	if (!query) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `Options query "${source.queryId}" was not found.` });
+	}
+	if (executionOptions.viewerUserId && query.adminMode) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin-mode options queries are not available to viewers.' });
+	}
+	const renderedSql =
+		Object.keys(source.selections).length > 0
+			? renderSqlTemplate(query.sqlQuery, source.selections, filterSpecs(context.filters))
+			: stripSqlFilterBlocks(query.sqlQuery);
+	const databaseType =
+		query.dialect ??
+		(query.adminMode ? dbConfig.dialect : await resolveRawSqlDatabaseType(executionContext, query.databaseId));
+	const boundedQuery = {
+		...query,
+		sqlQuery: buildBoundedOptionsQuery(renderedSql, databaseType, search),
+		semanticQuery: undefined,
+	};
+	const queryData = await executeStoryQueries(
+		context.chatId,
+		{ [source.queryId]: boundedQuery },
+		{
+			executionContext,
+			renderSql: stripSqlFilterBlocks,
+			semanticBindings: semanticBindingsFromCode(context.code, source.selections),
+			billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		},
+	);
+	const result = queryData[source.queryId]!;
 	if (!result.columns.some((column) => column.toLowerCase() === 'value')) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
@@ -353,6 +393,24 @@ function listStorySemanticMetrics(sqlQueries: Record<string, StoredSqlQuery>): s
 	return [...new Set(metrics)];
 }
 
+function buildBoundedOptionsQuery(sqlQuery: string, databaseType: string, search?: string): string {
+	const sourceSql = sqlQuery.trim().replace(/;+\s*$/, '');
+	const normalizedDatabaseType = databaseType.toLowerCase();
+	const castType =
+		Object.entries(STRING_CAST_TYPE_BY_DATABASE_TYPE).find(([type]) =>
+			normalizedDatabaseType.includes(type),
+		)?.[1] ?? 'VARCHAR';
+	const conditions = ['value IS NOT NULL'];
+	if (search) {
+		conditions.push(`LOWER(CAST(value AS ${castType})) LIKE ${quoteSqlString(`%${search}%`)}`);
+	}
+	const from = `FROM (${sourceSql}) AS nao_filter_options WHERE ${conditions.join(' AND ')} ORDER BY value`;
+	const isTSql = ['mssql', 'fabric', 'tsql'].some((type) => normalizedDatabaseType.includes(type));
+	return isTSql
+		? `SELECT DISTINCT TOP (${FILTER_OPTIONS_LIMIT + 1}) value ${from}`
+		: `SELECT DISTINCT value ${from} LIMIT ${FILTER_OPTIONS_LIMIT + 1}`;
+}
+
 function buildOptionsSql(source: WarehouseOptionsSource, databaseType: string | undefined, search?: string): string {
 	const conditions = [`${source.column} IS NOT NULL`];
 	if (source.parentCondition) {
@@ -372,7 +430,11 @@ function buildOptionsSource(
 	parentSelection?: StoryFilterSelection,
 ): FilterOptionsSource {
 	if (filter.optionsQueryId) {
-		return { kind: 'query', queryId: filter.optionsQueryId };
+		return {
+			kind: 'query',
+			queryId: filter.optionsQueryId,
+			selections: buildParentSelections(filter, context.filters, parentSelection),
+		};
 	}
 	if (filter.table && filter.column) {
 		const databaseId = filter.databaseId ?? findDefaultDatabaseId(context.sqlQueries);
@@ -400,24 +462,48 @@ function buildOptionsSource(
 	});
 }
 
+function buildParentSelections(
+	filter: ParsedFilterBlock,
+	filters: ParsedFilterBlock[],
+	parentSelection: StoryFilterSelection | undefined,
+): StoryFilterSelections {
+	const resolved = resolveParentSelection(filter, filters, parentSelection);
+	return resolved ? { [resolved.parent.id]: resolved.selection } : {};
+}
+
 function buildParentCondition(
 	filter: ParsedFilterBlock,
 	filters: ParsedFilterBlock[],
 	parentSelection: StoryFilterSelection | undefined,
 	kind: FilterOptionsSource['kind'],
 ): string | null {
-	const parent = filters.find((candidate) => candidate.id === filter.dependsOn);
-	if (!parent || !PARENT_FILTER_TYPES.has(parent.filterType) || parentSelection === undefined) {
+	const resolved = resolveParentSelection(filter, filters, parentSelection);
+	if (!resolved) {
 		return null;
 	}
+	const { parent, selection } = resolved;
 	const target = parentTargetExpression(parent, kind);
 	if (!target) {
 		return null;
 	}
 
-	const stableSelection = Array.isArray(parentSelection) ? [...parentSelection].sort() : parentSelection;
-	const values = renderFilterSqlValue(parent.filterType, stableSelection, parent.valueType);
+	const values = renderFilterSqlValue(parent.filterType, selection, parent.valueType);
 	return values === null ? null : `${target} IN (${values})`;
+}
+
+function resolveParentSelection(
+	filter: ParsedFilterBlock,
+	filters: ParsedFilterBlock[],
+	parentSelection: StoryFilterSelection | undefined,
+): { parent: ParsedFilterBlock; selection: StoryFilterSelection } | null {
+	const parent = filters.find((candidate) => candidate.id === filter.dependsOn);
+	if (!parent || !PARENT_FILTER_TYPES.has(parent.filterType) || parentSelection === undefined) {
+		return null;
+	}
+	return {
+		parent,
+		selection: Array.isArray(parentSelection) ? [...parentSelection].sort() : parentSelection,
+	};
 }
 
 function parentTargetExpression(parent: ParsedFilterBlock, kind: FilterOptionsSource['kind']): string | null {
@@ -431,6 +517,12 @@ function parentTargetExpression(parent: ParsedFilterBlock, kind: FilterOptionsSo
 
 function hasRemoteOptions(filter: ParsedFilterBlock): boolean {
 	return Boolean(filter.optionsQueryId || (filter.table && filter.column) || filter.dimension);
+}
+
+function filterSpecs(filters: ParsedFilterBlock[]): StoryFilterSpecById {
+	return Object.fromEntries(
+		filters.map((filter) => [filter.id, { type: filter.filterType, valueType: filter.valueType }]),
+	);
 }
 
 async function loadStoryFilterContext(chatId: string, storySlug: string): Promise<StoryFilterContext> {

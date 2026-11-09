@@ -12,8 +12,8 @@ import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
-	getCustomStoryNarratives,
 	getCustomStoryVersion,
+	getSharedCustomStoryNarratives,
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
 } from '../services/custom-story';
@@ -82,6 +82,7 @@ export const customStoryViewerRoutes = {
 					input.storySlug,
 					input.queryId,
 					input.versionNumber,
+					ctx.user.id,
 				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
@@ -122,7 +123,7 @@ export const customStoryViewerRoutes = {
 
 	getNarratives: viewerProcedure.query(async ({ ctx, input }) => {
 		try {
-			return await getCustomStoryNarratives(ctx.viewer.chatId, input.storySlug);
+			return await getSharedCustomStoryNarratives(ctx.viewer.chatId, input.storySlug, ctx.user.id);
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}

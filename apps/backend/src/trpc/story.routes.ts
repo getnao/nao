@@ -1142,9 +1142,9 @@ export const storyRoutes = {
 		const storiesWithPreview = hasRowSecurity
 			? items.map((story) => ({ ...story, kpiPreviewData: null }))
 			: await withKpiPreviewData(items, (story) => story.storyId);
-		return storiesWithPreview.map((story) => ({
+		return storiesWithPreview.map(({ ownerUserId, ...story }) => ({
 			...story,
-			canShowThumbnail: !hasRowSecurity || story.userId === ctx.user.id,
+			canShowThumbnail: !hasRowSecurity || ownerUserId === ctx.user.id,
 		}));
 	}),
 

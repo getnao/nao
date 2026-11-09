@@ -157,12 +157,13 @@ async function refreshStoryDataWithContext(
 		throw new Error('Chat project not found');
 	}
 
+	const executionContext =
+		existingExecutionContext ??
+		(options.viewerUserId ? await createStoryExecutionContext(chatId, options.viewerUserId) : undefined);
 	const queryData = await executeStoryQueries(chatId, sqlQueries, {
 		renderSql: stripSqlFilterBlocks,
 		semanticBindings: semanticBindingsFromCode(version.code),
-		executionContext:
-			existingExecutionContext ??
-			(options.viewerUserId ? await createStoryExecutionContext(chatId, options.viewerUserId) : undefined),
+		executionContext,
 		projectId: chat.projectId,
 		billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 	});
@@ -170,7 +171,14 @@ async function refreshStoryDataWithContext(
 	let refreshedCode = version.code;
 	const target = { projectId: chat.projectId, userId: options.viewerUserId ?? chat.userId, chatId };
 	if (shouldGenerateClassicCode) {
-		const newCode = await generateDynamicStoryCode(target, version.title, version.code, queryData);
+		const generationSource = shouldGenerateViewerCode ? buildViewerSafeStorySource(version.code) : version.code;
+		const newCode = await generateDynamicStoryCode(
+			target,
+			shouldGenerateViewerCode ? 'Story' : version.title,
+			generationSource,
+			queryData,
+			shouldGenerateViewerCode,
+		);
 		if (!newCode && shouldGenerateViewerCode) {
 			throw new Error('Failed to generate viewer story text');
 		}
@@ -192,10 +200,19 @@ async function refreshStoryDataWithContext(
 			: {};
 	const querySources = buildQuerySources(sqlQueries);
 	if (options.viewerUserId) {
+		if (!executionContext) {
+			throw new Error('Viewer story refresh has no execution context');
+		}
+		const currentPermissionRevision = (await createStoryExecutionContext(chatId, options.viewerUserId))
+			.permissionRevision;
+		if (currentPermissionRevision !== executionContext.permissionRevision) {
+			throw new Error('Viewer permissions changed during story refresh');
+		}
 		await storyQueries.upsertStoryViewerDataCache(
 			version.storyId,
 			version.id,
 			options.viewerUserId,
+			executionContext.permissionRevision,
 			queryData,
 			querySources,
 			narratives,
@@ -292,7 +309,14 @@ async function getViewerStoryQueryData(
 	cacheSchedule: string | null,
 	viewerUserId: string,
 ): Promise<StoryQueryDataResult> {
-	const cache = await storyQueries.getStoryViewerDataCache(chatId, slug, storyVersionId, viewerUserId);
+	const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
+	const cache = await storyQueries.getStoryViewerDataCache(
+		chatId,
+		slug,
+		storyVersionId,
+		viewerUserId,
+		executionContext.permissionRevision,
+	);
 	if (
 		cache !== null &&
 		cache.code !== null &&
@@ -303,7 +327,7 @@ async function getViewerStoryQueryData(
 	}
 
 	try {
-		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug, undefined, {
+		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug, executionContext, {
 			storyVersionId,
 			viewerUserId,
 			generateViewerCode: true,
@@ -314,11 +338,22 @@ async function getViewerStoryQueryData(
 			code: refreshedCode,
 		};
 	} catch (error) {
-		if (cache?.code !== null && cache?.code !== undefined) {
+		const currentExecutionContext = await createStoryExecutionContext(chatId, viewerUserId);
+		const currentCache =
+			currentExecutionContext.permissionRevision === executionContext.permissionRevision
+				? cache
+				: await storyQueries.getStoryViewerDataCache(
+						chatId,
+						slug,
+						storyVersionId,
+						viewerUserId,
+						currentExecutionContext.permissionRevision,
+					);
+		if (currentCache?.code !== null && currentCache?.code !== undefined) {
 			return {
-				queryData: cache.queryData,
-				cachedAt: cache.cachedAt,
-				code: stripHardcodedFilterOptions(cache.code),
+				queryData: currentCache.queryData,
+				cachedAt: currentCache.cachedAt,
+				code: stripHardcodedFilterOptions(currentCache.code),
 			};
 		}
 		throw error;
@@ -391,6 +426,7 @@ function normalizeEffectiveSql(sql: string): string {
 export interface StoryExecutionContext {
 	toolContext: ToolContext;
 	enforceExcludedColumns: boolean;
+	permissionRevision: string;
 }
 
 type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'skippedFilterIds'>;
@@ -569,9 +605,19 @@ export async function createStoryExecutionContext(chatId: string, userId?: strin
 		throw new Error('Chat owner not found');
 	}
 	const toolContext = await buildToolContext({ projectId, userId: executionUserId, chatId });
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings);
 	return {
 		toolContext,
-		enforceExcludedColumns: await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings),
+		enforceExcludedColumns,
+		permissionRevision: createHash('sha256')
+			.update(
+				JSON.stringify([
+					toolContext.warehouseTableAccess,
+					toolContext.warehouseRowSecurity,
+					enforceExcludedColumns,
+				]),
+			)
+			.digest('hex'),
 	};
 }
 
@@ -607,6 +653,7 @@ async function generateDynamicStoryCode(
 	title: string,
 	originalCode: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	allowDisplayCopyChanges = false,
 ): Promise<string | null> {
 	const liveStoryModel = await resolveLiveStoryModel(target);
 	if (!liveStoryModel) {
@@ -615,7 +662,9 @@ async function generateDynamicStoryCode(
 
 	try {
 		const querySummaries = buildQueryDataSummary(queryData);
-		const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
+		const systemPrompt = renderToMarkdown(
+			LiveStoryRefreshPrompt({ title, originalCode, querySummaries, allowDisplayCopyChanges }),
+		);
 
 		const output = await generateLiveStoryOutput(
 			target,
@@ -626,7 +675,7 @@ async function generateDynamicStoryCode(
 		);
 
 		const candidate = stripCodeFence(output.code.trim());
-		if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
+		if (!candidate || !preservesStoryStructure(originalCode, candidate, allowDisplayCopyChanges)) {
 			return null;
 		}
 
@@ -809,20 +858,28 @@ function stripCodeFence(value: string): string {
 		.trim();
 }
 
-function preservesStoryStructure(originalCode: string, candidateCode: string): boolean {
+function preservesStoryStructure(
+	originalCode: string,
+	candidateCode: string,
+	allowDisplayCopyChanges = false,
+): boolean {
+	const normalizeStructureToken = allowDisplayCopyChanges ? stripViewerSensitiveTagCopy : (token: string) => token;
+	const originalStructure = extractStructureTokens(originalCode).map(normalizeStructureToken);
+	const candidateStructure = extractStructureTokens(candidateCode).map(normalizeStructureToken);
+	const originalHeadings = allowDisplayCopyChanges
+		? extractHeadingLevels(originalCode)
+		: extractHeadingTokens(originalCode);
+	const candidateHeadings = allowDisplayCopyChanges
+		? extractHeadingLevels(candidateCode)
+		: extractHeadingTokens(candidateCode);
 	return (
-		JSON.stringify(extractStructureTokens(originalCode)) ===
-			JSON.stringify(extractStructureTokens(candidateCode)) &&
-		JSON.stringify(extractHeadingTokens(originalCode)) === JSON.stringify(extractHeadingTokens(candidateCode))
+		JSON.stringify(originalStructure) === JSON.stringify(candidateStructure) &&
+		JSON.stringify(originalHeadings) === JSON.stringify(candidateHeadings)
 	);
 }
 
 function extractStructureTokens(code: string): string[] {
-	const tokenRegex = new RegExp(
-		String.raw`<grid\s+${TAG_ATTRS}>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>|<filter\s+${TAG_ATTRS}\/?>`,
-		'g',
-	);
-	return code.match(tokenRegex) ?? [];
+	return code.match(storyStructureTokenRegex()) ?? [];
 }
 
 function extractHeadingTokens(code: string): string[] {
@@ -830,6 +887,64 @@ function extractHeadingTokens(code: string): string[] {
 		.split('\n')
 		.map((line) => line.trim())
 		.filter((line) => /^#{1,6}\s+\S/.test(line));
+}
+
+function extractHeadingLevels(code: string): number[] {
+	return extractHeadingTokens(code).map((heading) => heading.match(/^#+/)![0].length);
+}
+
+function buildViewerSafeStorySource(code: string): string {
+	const tags: string[] = [];
+	const tokenized = code.replace(storyStructureTokenRegex(), (tag) => {
+		const index = tags.push(redactViewerStoryTag(tag)) - 1;
+		return `@@NAO_STORY_TAG_${index}@@`;
+	});
+	const redacted = tokenized
+		.split('\n')
+		.map((line) => {
+			const placeholders = line.match(/@@NAO_STORY_TAG_\d+@@/g) ?? [];
+			const heading = line.match(/^\s*(#{1,6})\s+/);
+			if (heading) {
+				return [`${heading[1]} Viewer-specific section`, ...placeholders].join(' ');
+			}
+			if (placeholders.length > 0) {
+				return placeholders.join(' ');
+			}
+			return line.trim() ? 'Viewer-specific narrative.' : '';
+		})
+		.join('\n');
+	return redacted.replace(/@@NAO_STORY_TAG_(\d+)@@/g, (_placeholder, index: string) => tags[Number(index)] ?? '');
+}
+
+function storyStructureTokenRegex(): RegExp {
+	return new RegExp(
+		String.raw`<grid(?:\s+${TAG_ATTRS})?>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>|<filter\s+${TAG_ATTRS}\/?>|<map\s+${TAG_ATTRS}\/?>|<parameter\s+${TAG_ATTRS}\/?>|<tab\s+${TAG_ATTRS}>|<\/tab>`,
+		'g',
+	);
+}
+
+function redactViewerStoryTag(tag: string): string {
+	const redacted = stripViewerSensitiveTagCopy(tag);
+	if (redacted.startsWith('<tab ') && !/\stitle\s*=/.test(redacted)) {
+		return redacted.replace(/>$/, ' title="Section">');
+	}
+	return redacted;
+}
+
+function stripViewerSensitiveTagCopy(tag: string): string {
+	const sensitiveAttributeRegex = new RegExp(
+		String.raw`\s+(?:title|label|x_axis_label|y_axis_label|y_axis_right_label)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
+		'g',
+	);
+	const withoutDisplayCopy = tag
+		.replace(sensitiveAttributeRegex, '')
+		.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
+	return withoutDisplayCopy.startsWith('<filter ')
+		? withoutDisplayCopy.replace(
+				new RegExp(String.raw`\s+options\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`, 'g'),
+				'',
+			)
+		: withoutDisplayCopy;
 }
 
 function stripHardcodedFilterOptions(code: string): string {

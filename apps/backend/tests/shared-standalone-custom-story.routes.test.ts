@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getSharedCustomStoryQueryData: vi.fn(),
 	getSharedCustomStoryQuerySql: vi.fn(),
 	getStandaloneCustomStoryQueryData: vi.fn(),
-	getCustomStoryNarratives: vi.fn(),
+	getSharedCustomStoryNarratives: vi.fn(),
 	getStandaloneCustomStoryNarratives: vi.fn(),
 	getCustomStoryState: vi.fn(),
 	getCustomStoryStateByStoryId: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('../src/services/custom-story', () => ({
 	getSharedCustomStoryQueryData: mocks.getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql: mocks.getSharedCustomStoryQuerySql,
 	getStandaloneCustomStoryQueryData: mocks.getStandaloneCustomStoryQueryData,
-	getCustomStoryNarratives: mocks.getCustomStoryNarratives,
+	getSharedCustomStoryNarratives: mocks.getSharedCustomStoryNarratives,
 	getStandaloneCustomStoryNarratives: mocks.getStandaloneCustomStoryNarratives,
 }));
 vi.mock('../src/services/custom-story-state', () => ({
@@ -128,10 +128,18 @@ describe('storyShare custom story readers', () => {
 		mockShare({ chatId: 'chat-1' });
 
 		await createCaller().storyShare.getCustomVersion(STORY_INPUT);
+		await createCaller().storyShare.getCustomStoryQueryData({ ...STORY_INPUT, queryId: 'q_revenue' });
 		await createCaller().storyShare.getCustomStoryNarratives(STORY_INPUT);
 
 		expect(mocks.getCustomStoryVersion).toHaveBeenCalledWith('chat-1', 'revenue', undefined);
-		expect(mocks.getCustomStoryNarratives).toHaveBeenCalledWith('chat-1', 'revenue');
+		expect(mocks.getSharedCustomStoryQueryData).toHaveBeenCalledWith(
+			'chat-1',
+			'revenue',
+			'q_revenue',
+			undefined,
+			'viewer-1',
+		);
+		expect(mocks.getSharedCustomStoryNarratives).toHaveBeenCalledWith('chat-1', 'revenue', 'viewer-1');
 		expect(mocks.getStandaloneCustomStoryVersion).not.toHaveBeenCalled();
 	});
 });

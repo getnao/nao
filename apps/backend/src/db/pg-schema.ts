@@ -1447,13 +1447,18 @@ export const storyViewerDataCache = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		permissionRevision: text('permission_revision').notNull(),
 		queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
 		code: text('code'),
 		querySources: jsonb('query_sources').$type<StoryQuerySources>(),
 		analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 		cachedAt: timestamp('cached_at').defaultNow().notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.storyVersionId, t.userId] })],
+	(t) => [
+		index('story_viewer_data_cache_story_id_idx').on(t.storyId),
+		index('story_viewer_data_cache_user_id_idx').on(t.userId),
+		primaryKey({ columns: [t.storyVersionId, t.userId] }),
+	],
 );
 
 export const storyFilterOptionsCache = pgTable(

@@ -9,6 +9,11 @@ export interface StoryNarrativeSource {
 	text: string;
 }
 
+interface StoryNarrativeElement {
+	id: string;
+	text: string | null;
+}
+
 interface NarrativeImport {
 	localName: string | null;
 	namespace: string | null;
@@ -20,8 +25,8 @@ const SCRIPT_FILE = /\.(jsx?|tsx?)$/i;
 export function extractStoryNarratives(files: { path: string; content: string }[]): StoryNarrativeSource[] {
 	const narratives = new Map<string, string>();
 	for (const file of files.filter((candidate) => SCRIPT_FILE.test(candidate.path))) {
-		for (const narrative of extractFileNarratives(file.path, file.content)) {
-			if (!narratives.has(narrative.id)) {
+		for (const narrative of extractFileNarrativeElements(file.path, file.content)) {
+			if (narrative.text !== null && !narratives.has(narrative.id)) {
 				narratives.set(narrative.id, narrative.text);
 			}
 		}
@@ -29,7 +34,17 @@ export function extractStoryNarratives(files: { path: string; content: string }[
 	return [...narratives].map(([id, text]) => ({ id, text }));
 }
 
-function extractFileNarratives(path: string, source: string): StoryNarrativeSource[] {
+export function extractStoryNarrativeIds(files: { path: string; content: string }[]): string[] {
+	const ids = new Set<string>();
+	for (const file of files.filter((candidate) => SCRIPT_FILE.test(candidate.path))) {
+		for (const { id } of extractFileNarrativeElements(file.path, file.content)) {
+			ids.add(id);
+		}
+	}
+	return [...ids];
+}
+
+function extractFileNarrativeElements(path: string, source: string): StoryNarrativeElement[] {
 	const program = parseScript(path, source);
 	if (!program) {
 		return [];
@@ -38,10 +53,10 @@ function extractFileNarratives(path: string, source: string): StoryNarrativeSour
 	if (!narrativeImport.localName && !narrativeImport.namespace) {
 		return [];
 	}
-	const narratives: StoryNarrativeSource[] = [];
+	const narratives: StoryNarrativeElement[] = [];
 	traverseFast(program, (node) => {
 		if (node.type === 'JSXElement' && isNarrativeElement(node, narrativeImport)) {
-			const narrative = toNarrativeSource(node);
+			const narrative = toNarrativeElement(node);
 			if (narrative) {
 				narratives.push(narrative);
 			}
@@ -90,7 +105,7 @@ function isNarrativeElement(node: JSXElement, narrativeImport: NarrativeImport):
 	);
 }
 
-function toNarrativeSource(node: JSXElement): StoryNarrativeSource | null {
+function toNarrativeElement(node: JSXElement): StoryNarrativeElement | null {
 	const idAttribute = node.openingElement.attributes.find(
 		(attribute): attribute is JSXAttribute =>
 			attribute.type === 'JSXAttribute' &&
@@ -98,8 +113,7 @@ function toNarrativeSource(node: JSXElement): StoryNarrativeSource | null {
 			attribute.name.name === 'id',
 	);
 	const id = idAttribute ? literalString(idAttribute.value) : null;
-	const text = literalChildrenText(node.children);
-	return id && text ? { id, text } : null;
+	return id ? { id, text: literalChildrenText(node.children) } : null;
 }
 
 function literalString(node: JSXAttribute['value'] | Node | null | undefined): string | null {
