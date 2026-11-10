@@ -135,6 +135,16 @@ export function UserGroupDataAccess({
 	const isSearching = isSearchEnabled && search.trim().length > 0;
 	const accessibleColumnSecurity = filterProjectColumnSecurityByDatabaseContext(columnSecurity, databaseAccess);
 	const accessibleRowSecurity = filterProjectRowSecurityByDatabaseContext(rowSecurity, databaseAccess);
+	const unavailableColumnPolicyTables =
+		catalog.isLoading || catalog.isError
+			? []
+			: accessibleColumnSecurity.tables.filter(
+					(table) =>
+						columnPolicies.policies.some(
+							(policy) => columnSecurityTableKey(policy) === columnSecurityTableKey(table),
+						) &&
+						!objects.some((object) => columnSecurityTableKey(object) === columnSecurityTableKey(table)),
+				);
 	const unavailableRowPolicyTables =
 		catalog.isLoading || catalog.isError
 			? []
@@ -294,6 +304,14 @@ export function UserGroupDataAccess({
 					grants={unavailableGrants}
 					databaseAccess={databaseAccess}
 					onChange={onDatabaseAccessChange}
+				/>
+			)}
+			{unavailableColumnPolicyTables.length > 0 && (
+				<UnavailableColumnPolicies
+					tables={unavailableColumnPolicyTables}
+					policies={columnPolicies}
+					isLicensed={isColumnSecurityLicensed}
+					onChange={onColumnPoliciesChange}
 				/>
 			)}
 			{unavailableRowPolicyTables.length > 0 && (
@@ -1013,6 +1031,49 @@ function TableRow({
 				</div>
 			)}
 		</li>
+	);
+}
+
+function UnavailableColumnPolicies({
+	tables,
+	policies,
+	isLicensed,
+	onChange,
+}: {
+	tables: SensitiveColumnDefinition[];
+	policies: UserGroupColumnPolicies;
+	isLicensed: boolean;
+	onChange: (policies: UserGroupColumnPolicies) => void;
+}) {
+	return (
+		<section className='flex flex-col gap-2'>
+			<div>
+				<h3 className='text-sm font-medium'>Sensitive field access</h3>
+				<p className='text-xs text-muted-foreground'>
+					These saved grants belong to tables that are not in the latest sync.
+				</p>
+			</div>
+			<div
+				className='flex flex-col divide-y rounded-lg border'
+				role='region'
+				aria-label='Unavailable column grants'
+			>
+				{tables.map((table) => (
+					<div key={columnSecurityTableKey(table)} className='py-2'>
+						<p className='break-all px-3 pb-1 text-sm font-medium'>
+							{table.database}/{table.schema}/{table.table}
+						</p>
+						<UserGroupColumnRows
+							table={table}
+							depth={0}
+							policies={policies}
+							isLicensed={isLicensed}
+							onChange={onChange}
+						/>
+					</div>
+				))}
+			</div>
+		</section>
 	);
 }
 

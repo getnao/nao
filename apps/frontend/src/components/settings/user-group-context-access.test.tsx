@@ -539,6 +539,33 @@ describe('user group context access selection', () => {
 		expect(screen.getByRole('combobox', { name: 'Record access for users' }).hasAttribute('disabled')).toBe(false);
 	});
 
+	it('keeps saved column grants editable when their table is missing from the catalog', () => {
+		setCatalogObjects([objects[1]]);
+		render(
+			<StatefulContextAccess
+				initialAccess={{ mode: 'all', strict: true }}
+				columnSecurity={columnSecurity}
+				initialColumnPolicies={{
+					version: 1,
+					policies: [
+						{
+							databaseType: 'postgres',
+							database: 'app',
+							schema: 'public',
+							table: 'users',
+							grantedColumns: ['email'],
+						},
+					],
+				}}
+			/>,
+		);
+
+		const email = screen.getByRole('checkbox', { name: 'Make email visible on users' });
+		expect(email.getAttribute('data-state')).toBe('checked');
+		fireEvent.click(email);
+		expect(screen.queryByRole('checkbox', { name: 'Make email visible on users' })).toBeNull();
+	});
+
 	it('finds restricted columns and expands their table while searching', () => {
 		render(
 			<StatefulContextAccess
@@ -742,15 +769,17 @@ function StatefulContextAccess({
 	initialAccess = empty,
 	columnSecurity: initialColumnSecurity,
 	rowSecurity: initialRowSecurity,
+	initialColumnPolicies = { version: 1, policies: [] },
 	initialRowPolicies = { version: 1, policies: [] },
 }: {
 	initialAccess?: DatabaseContextAccess;
 	columnSecurity?: ProjectColumnSecurity;
 	rowSecurity?: ProjectRowSecurity;
+	initialColumnPolicies?: UserGroupColumnPolicies;
 	initialRowPolicies?: UserGroupRowPolicies;
 }) {
 	const [access, setAccess] = useState(initialAccess);
-	const [columnPolicies, setColumnPolicies] = useState<UserGroupColumnPolicies>({ version: 1, policies: [] });
+	const [columnPolicies, setColumnPolicies] = useState<UserGroupColumnPolicies>(initialColumnPolicies);
 	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(initialRowPolicies);
 	return (
 		<UserGroupDataAccess
