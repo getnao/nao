@@ -285,7 +285,11 @@ const GEOJSON_GEOMETRY_TYPES = [
 export function validateGeoJson(value: unknown): GeoJsonValidationResult {
 	const geojson = normalizeToFeatureCollection(value);
 	const propertyKeys = new Set<string>();
-	for (const feature of geojson.features) {
+	for (const [index, feature] of geojson.features.entries()) {
+		const problem = describeInvalidFeature(feature);
+		if (problem) {
+			throw new Error(`Feature ${index + 1} is not valid GeoJSON: ${problem}.`);
+		}
 		for (const key of Object.keys(feature.properties ?? {})) {
 			propertyKeys.add(key);
 		}
@@ -314,6 +318,34 @@ function normalizeToFeatureCollection(value: unknown): MapFeatureCollection {
 		};
 	}
 	throw new Error('Not a valid GeoJSON FeatureCollection, Feature, or Geometry.');
+}
+
+/** Checks each feature's shape without walking its coordinates, so large files stay quick to validate. */
+function describeInvalidFeature(feature: unknown): string | null {
+	if (!isPlainObject(feature) || feature.type !== 'Feature') {
+		return 'it is not a Feature object';
+	}
+	if (feature.properties != null && !isPlainObject(feature.properties)) {
+		return 'its properties must be an object';
+	}
+	return feature.geometry === null ? null : describeInvalidGeometry(feature.geometry);
+}
+
+function describeInvalidGeometry(geometry: unknown): string | null {
+	if (!isPlainObject(geometry) || typeof geometry.type !== 'string') {
+		return 'its geometry has no type';
+	}
+	if (!GEOJSON_GEOMETRY_TYPES.includes(geometry.type)) {
+		return `"${geometry.type}" is not a geometry type`;
+	}
+	if (geometry.type === 'GeometryCollection') {
+		return Array.isArray(geometry.geometries) ? null : 'its GeometryCollection has no geometries list';
+	}
+	return Array.isArray(geometry.coordinates) ? null : 'its geometry has no coordinates list';
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 type BuiltinRegionBoundaries = 'world_countries' | 'france_regions';
