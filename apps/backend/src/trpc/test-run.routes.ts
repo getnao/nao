@@ -43,6 +43,7 @@ import {
 	MAX_TEST_RUN_THREADS,
 	type TestComparisonTolerances,
 } from '../types/test-run';
+import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { compareContextVariants } from '../utils/test-comparison';
 import { summarizeModels } from '../utils/test-model-summary';
@@ -102,15 +103,15 @@ export const testRunRoutes = {
 	startRun: cloudBillingContextAdminProcedure.input(startRunSchema).mutation(async ({ ctx, input }) => {
 		const { mode, target, ...settings } = input;
 		const runInput = { ...settings, ...parseRunTarget(target), projectId: ctx.project.id, userId: ctx.user.id };
-		const draft = mode === 'production' ? null : await requireUserDraft(ctx);
 		try {
+			const draft = mode === 'production' ? null : await requireUserDraft(ctx);
 			if (!draft) {
 				return await startTestRun(runInput);
 			}
 			const startDraftContextRun = mode === 'compare' ? startComparisonRun : startChangesRun;
 			return await startDraftContextRun({ ...runInput, draft });
 		} catch (error) {
-			throw toTestRunTrpcError(error);
+			throw toTestRunTrpcError(error, ctx.project.id);
 		}
 	}),
 
@@ -271,15 +272,16 @@ async function getProjectRun(projectId: string, runId: string) {
 	return run;
 }
 
-function toTestRunTrpcError(error: unknown): TRPCError {
+function toTestRunTrpcError(error: unknown, projectId: string): TRPCError {
+	if (error instanceof TRPCError) {
+		return error;
+	}
 	if (error instanceof TestRunConflictError) {
 		return new TRPCError({ code: 'CONFLICT', message: error.message });
 	}
 	if (error instanceof TestRunInputError) {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 	}
-	return new TRPCError({
-		code: 'INTERNAL_SERVER_ERROR',
-		message: error instanceof Error ? error.message : 'Failed to start the test run',
-	});
+	logger.error('Failed to start the test run', { source: 'agent', projectId, context: serializeError(error) });
+	return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to start the test run' });
 }

@@ -31,6 +31,7 @@ const US_NUMBER = /^\d{1,3}(,\d{3})+(\.\d+)?$/;
 const PLAIN_NUMBER = /^\d+(\.\d+)?$/;
 const EU_NUMBER = /^[\d.]+,\d+$/;
 const EU_THOUSANDS = /^\d{1,3}(\.\d{3})+$/;
+const LEADING_ZERO = /^0\d/;
 const UTC_TIMESTAMP = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2})(:\d{2})?(\.\d+)?)?\s*(?:Z|UTC|[+-]00:?00)?$/;
 const MIDNIGHT = '00:00:00';
 const MONTH = /^\d{4}-\d{2}$/;
@@ -208,7 +209,10 @@ function cellStatus(
 	return isNumeric && areNumbersClose(actual, expected, tolerances) ? 'close' : 'differ';
 }
 
-/** Parses locale-formatted number strings (`$1,234.50`, `1.234,5`) so they compare equal to raw numbers. */
+/**
+ * Parses locale-formatted number strings (`$1,234.50`, `1.234,5`) so they compare equal to raw numbers.
+ * Text with leading zeros (`00123`) is an identifier, not a number, and stays text.
+ */
 export function normalizeFormattedNumber(value: unknown): unknown {
 	if (typeof value !== 'string') {
 		return value;
@@ -226,6 +230,9 @@ function parseNumericString(value: string): number | null {
 	let unsigned = negative ? value.slice(1) : value;
 	if (unsigned.startsWith('+')) {
 		unsigned = unsigned.slice(1);
+	}
+	if (LEADING_ZERO.test(unsigned)) {
+		return null;
 	}
 
 	let parsed: number | null = null;
