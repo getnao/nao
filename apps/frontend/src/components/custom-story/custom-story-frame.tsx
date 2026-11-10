@@ -7,7 +7,6 @@ import {
 	STORY_FORWARDED_KEYS,
 	STORY_RUNTIME_PATH,
 } from '@nao/shared/story-app';
-import { CODE_CITATION_KIND } from '@nao/shared/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import {
@@ -23,7 +22,6 @@ import { useStoryStateRecorder } from './use-story-state-recorder';
 import type {
 	StoryApp,
 	StoryBlockEditPayload,
-	StoryElementAsk,
 	StoryElementCitation,
 	StoryFrameMessage,
 	StoryHostMessage,
@@ -35,7 +33,7 @@ import type { StoryTheme } from '@nao/shared/story-theme';
 import type { CustomStoryDataSource } from './story-data-options';
 import type { StoryRuntimeLocation } from './story-frame-document';
 import { useDateFormat } from '@/hooks/use-date-format';
-import { capCitationText } from '@/lib/citation-mention';
+import { readBlockAsk, readStoryElementAsk } from '@/lib/story-element-ask';
 import { getAppWideShortcuts, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
@@ -261,11 +259,13 @@ export function CustomStoryFrame({
 						});
 					}
 					break;
-				case 'nao-story:ask-block':
-					if (editable) {
-						onAsk?.({ block: message.block, text: message.block.title ?? '', intent: 'edit' });
+				case 'nao-story:ask-block': {
+					const ask = editable ? readBlockAsk(message.block) : null;
+					if (ask) {
+						onAsk?.({ ...ask, intent: 'edit' });
 					}
 					break;
+				}
 				case 'nao-story:ask': {
 					const ask = isUserGesture() ? readStoryElementAsk(message) : null;
 					if (ask) {
@@ -469,23 +469,6 @@ function storyRuntimeLocation(): StoryRuntimeLocation {
 	return import.meta.env.DEV
 		? { baseUrl: `${origin}/src/story-runtime/`, extension: '.ts' }
 		: { baseUrl: `${origin}${STORY_RUNTIME_PATH}/`, extension: '.js' };
-}
-
-function readStoryElementAsk({ block, text }: StoryElementAsk): StoryElementAsk | null {
-	const isInspectorBlock =
-		typeof block?.kind === 'string' &&
-		block.kind !== CODE_CITATION_KIND &&
-		isOptionalString(block.title) &&
-		isOptionalString(block.queryId);
-	if (!isInspectorBlock || typeof text !== 'string') {
-		return null;
-	}
-	const { text: cappedText } = capCitationText({ start: 0, end: 0, text });
-	return { block: { kind: block.kind, title: block.title, queryId: block.queryId }, text: cappedText };
-}
-
-function isOptionalString(value: unknown): boolean {
-	return value === undefined || typeof value === 'string';
 }
 
 function isUserGesture(): boolean {

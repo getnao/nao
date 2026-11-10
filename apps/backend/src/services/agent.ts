@@ -11,6 +11,8 @@ import {
 } from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
+import type { StoryBlockPart, StoryBlockPartKind } from '@nao/shared/story-parts';
+import { STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import { story } from '@nao/shared/tools';
 import type { CitationData, LlmProvider, LlmSelectedModel, StoryBlockReference } from '@nao/shared/types';
 import { CODE_CITATION_KIND } from '@nao/shared/types';
@@ -1337,13 +1339,65 @@ function describeCode({ title, lines }: StoryBlockReference): string {
 	return `${range} of ${source}`;
 }
 
-function describeStoryElement(block: StoryBlockReference): string {
+export function describeStoryElement(block: StoryBlockReference): string {
 	if (block.kind === 'text') {
 		return 'a passage of text';
 	}
-	const title = block.title ? ` "${block.title}"` : '';
-	const query = block.queryId ? `, reading ${block.queryId}` : '';
-	return `the ${block.kind} block${title}${query}`;
+	if (block.part?.kind === 'element') {
+		return describeSelectableElement(block.part, block.kind === STORY_ELEMENT_BLOCK_KIND ? undefined : block);
+	}
+	if (!block.part) {
+		return describeBlock(block);
+	}
+	return `${describePart(block.part)} ${PARTS_INSIDE_BLOCK.has(block.part.kind) ? 'in' : 'of'} ${describeBlock(block)}`;
+}
+
+function describeBlock({ kind, title, queryId }: StoryBlockReference): string {
+	const titled = title ? ` ${JSON.stringify(title)}` : '';
+	const query = queryId ? `, reading ${queryId}` : '';
+	return `the ${kind} block${titled}${query}`;
+}
+
+function describeSelectableElement({ label, value }: StoryBlockPart, block?: StoryBlockReference): string {
+	const detail = value ? ` (${JSON.stringify(value)})` : '';
+	const place = block ? ` in ${describeBlock(block)}` : '';
+	return `the element ${JSON.stringify(label ?? '')}${detail}${place}, marked with selectable() in the story's source`;
+}
+
+const PARTS_INSIDE_BLOCK: ReadonlySet<StoryBlockPartKind> = new Set(['data-point', 'cell']);
+
+const PART_NOUNS: Record<StoryBlockPartKind, string> = {
+	title: 'title',
+	description: 'description',
+	'x-axis': 'x-axis name',
+	'y-axis': 'y-axis name',
+	'axis-tick': 'axis tick',
+	'legend-item': 'legend entry',
+	'data-point': 'data point',
+	'reference-line': 'reference line',
+	'kpi-name': 'KPI name',
+	'kpi-value': 'KPI value',
+	'kpi-comparison': 'KPI comparison',
+	column: 'column',
+	cell: 'cell',
+	element: 'element',
+};
+
+function describePart({ kind, label, series, category, value }: StoryBlockPart): string {
+	const isCell = kind === 'cell';
+	const name = kind === 'data-point' ? (category ?? label) : isCell ? (series ?? label) : label;
+	const secondary = isCell ? { word: 'row', text: category } : { word: 'series', text: series };
+	const parts = [`the ${PART_NOUNS[kind]}`];
+	if (name) {
+		parts.push(JSON.stringify(name));
+	}
+	if (secondary.text && secondary.text !== name) {
+		parts.push(`of ${secondary.word} ${JSON.stringify(secondary.text)}`);
+	}
+	if (value) {
+		parts.push(`(value ${value})`);
+	}
+	return parts.join(' ');
 }
 
 /** Messaging and automation entry points may be the first to reach a project after a restart. */

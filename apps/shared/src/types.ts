@@ -1,5 +1,8 @@
 import type { DocumentExtension } from './attachments';
+import type { StoryBlockPart } from './story-parts';
 import type { ValueFormat } from './tools/display-chart';
+
+export type { StoryBlockPart, StoryBlockPartKind } from './story-parts';
 
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
@@ -520,7 +523,10 @@ export interface StoryBlockReference {
 	kind: string;
 	title?: string;
 	queryId?: string;
+	/** Position among the blocks sharing this kind, title and query, set only past the first. */
+	occurrence?: number;
 	lines?: StoryCodeLines;
+	part?: StoryBlockPart;
 }
 
 export interface StoryCodeLines {

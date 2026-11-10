@@ -19,6 +19,14 @@ describe('findCitedTabIndex', () => {
 		expect(findCitedTabIndex(TABS, { block, text: 'Sales' }, 0)).toBe(1);
 	});
 
+	it('skips a tab holding fewer of the same block than the cited one', () => {
+		const orders = '<table query_id="orders" title="Orders" />';
+		const tabs = [TABS[0], { title: 'Monthly', innerCode: `${orders}\n\n${orders}` }];
+		const block = { kind: 'data-table', title: 'Orders', queryId: 'orders', occurrence: 1 };
+
+		expect(findCitedTabIndex(tabs, { block, text: 'Orders' }, 0)).toBe(1);
+	});
+
 	it('finds the tab quoting a passage whose emphasis and links the quote lost', () => {
 		const block = { kind: 'text' };
 

@@ -27,6 +27,8 @@ export type { PointMapProps } from './story-kit/point-map';
 export { PointMap } from './story-kit/point-map';
 export type { NarrativeProps } from './story-kit/narrative';
 export { Narrative } from './story-kit/narrative';
+export type { SelectableElement } from '@nao/shared/story-parts';
+export { selectable } from '@nao/shared/story-parts';
 export type { SlideProps, SlidesProps } from './story-kit/slides';
 export { Slide, Slides } from './story-kit/slides';
 export type { BlockData, BlockDataSource, Row } from './story-kit/use-block-data';
