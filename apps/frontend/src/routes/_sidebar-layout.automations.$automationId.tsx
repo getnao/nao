@@ -1,11 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { ArrowLeft, Check, Loader2, Mail, Play, Trash, X } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
-import type { AutomationFormValue } from '@/components/automations-form';
+import type { AutomationFormHandle, AutomationFormValue } from '@/components/automations-form';
 import GithubIcon from '@/components/icons/github-icon.svg';
-import { MobileHeader } from '@/components/mobile-header';
+import {
+	AutomationChatPanel,
+	OpenAutomationChatButton,
+	useAutomationChatPanelOpen,
+} from '@/components/automation-chat-panel';
+import { AutomationEditorLayout } from '@/components/automation-editor-layout';
 import { AutomationForm } from '@/components/automations-form';
 import SlackIcon from '@/components/icons/slack.svg';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +34,8 @@ function AutomationDetailPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+	const [isChatOpen, setIsChatOpen] = useAutomationChatPanelOpen();
+	const formHandleRef = useRef<AutomationFormHandle>(null);
 	const detail = useQuery(
 		trpc.automation.get.queryOptions(
 			{ id: automationId },
@@ -90,107 +97,114 @@ function AutomationDetailPage() {
 	const saveShortcutLabel = getSaveShortcutLabel();
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-auto bg-panel'>
-			<MobileHeader />
-			<div className='mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8'>
-				<div className='mb-6 flex items-center justify-between gap-3 flex-wrap'>
-					<Button variant='ghost' size='sm' asChild>
-						<Link to='/feed'>
-							<ArrowLeft className='size-4' />
-							Automations
-						</Link>
-					</Button>
-					<div className='flex items-center gap-2'>
-						{automation && hasUnsavedChanges && (
-							<Button
-								type='submit'
-								form={automationFormId}
-								disabled={updateAutomation.isPending}
-								className='gap-1.5'
-							>
-								{updateAutomation.isPending ? (
-									'Saving...'
-								) : (
-									<>
-										<span>Save changes</span>
-										<kbd className='text-[10px] opacity-60 font-sans'>{saveShortcutLabel}</kbd>
-									</>
-								)}
-							</Button>
-						)}
-						{automation && automation.cron && (
-							<div className='flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-1.75'>
-								<Switch
-									checked={automation.enabled}
-									onCheckedChange={handleSetEnabled}
-									disabled={setAutomationEnabled.isPending}
-								/>
-								<button
-									type='button'
-									className='text-sm font-medium cursor-pointer disabled:cursor-not-allowed disabled:opacity-50'
-									onClick={() => handleSetEnabled(!automation.enabled)}
-									disabled={setAutomationEnabled.isPending}
-								>
-									{automation.enabled ? 'Enabled' : 'Paused'}
-								</button>
-							</div>
-						)}
-						<Button variant='secondary' onClick={handleRunNow} disabled={!automation || runNow.isPending}>
-							<Play className='size-4' />
-							{runNow.isPending ? 'Starting...' : 'Run now'}
-						</Button>
-						<Button variant='destructive' onClick={handleDelete} disabled={deleteAutomation.isPending}>
-							<Trash className='size-4' />
-							Delete
-						</Button>
-					</div>
-				</div>
-
-				{!detail.isLoading && !automation && (
-					<p className='text-sm text-muted-foreground'>Automation not found.</p>
-				)}
-
-				{automation && (
-					<AutomationForm
-						id={automationFormId}
+		<AutomationEditorLayout
+			chatPanel={
+				automation && (
+					<AutomationChatPanel
+						key={automationId}
 						automationId={automationId}
-						initialValue={{
-							title: automation.title,
-							prompt: automation.prompt,
-							cron: automation.cron,
-							scheduleDescription: automation.scheduleDescription ?? undefined,
-							modelProvider: automation.modelProvider ?? undefined,
-							modelId: automation.modelId ?? undefined,
-							enabled: automation.enabled,
-							mcpEnabled: automation.mcpEnabled,
-							mcpServers: automation.mcpServers ?? undefined,
-							integrations: automation.integrations,
-							webhookEnabled: automation.webhookEnabled,
-							eventTriggers: automation.eventTriggers,
-						}}
-						details={{
-							enabled: automation.enabled,
-							scheduleDescription: automation.scheduleDescription,
-							cron: automation.cron,
-							webhookEnabled: automation.webhookEnabled,
-							eventTriggers: automation.eventTriggers,
-							nextRunAt: automation.scheduledJob?.runAt,
-							lastRunAt: runs[0]?.startedAt,
-						}}
-						submitLabel='Save changes'
-						isPending={updateAutomation.isPending}
-						aside={
-							<PreviousRuns runs={runs} onCancelRun={handleCancelRun} cancellingRunId={cancellingRunId} />
-						}
-						showSubmitButton={false}
-						autoSaveControls
-						saveShortcut
-						onDirtyChange={setHasUnsavedChanges}
-						onSubmit={handleUpdate}
+						formHandleRef={formHandleRef}
+						isOpen={isChatOpen}
+						onOpenChange={setIsChatOpen}
 					/>
-				)}
+				)
+			}
+		>
+			<div className='mb-6 flex items-center justify-between gap-3 flex-wrap'>
+				<Button variant='ghost' size='sm' asChild>
+					<Link to='/feed'>
+						<ArrowLeft className='size-4' />
+						Automations
+					</Link>
+				</Button>
+				<div className='flex items-center gap-2'>
+					{automation && hasUnsavedChanges && (
+						<Button
+							type='submit'
+							form={automationFormId}
+							disabled={updateAutomation.isPending}
+							className='gap-1.5'
+						>
+							{updateAutomation.isPending ? (
+								'Saving...'
+							) : (
+								<>
+									<span>Save changes</span>
+									<kbd className='text-[10px] opacity-60 font-sans'>{saveShortcutLabel}</kbd>
+								</>
+							)}
+						</Button>
+					)}
+					{automation && automation.cron && (
+						<div className='flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-1.75'>
+							<Switch
+								checked={automation.enabled}
+								onCheckedChange={handleSetEnabled}
+								disabled={setAutomationEnabled.isPending}
+							/>
+							<button
+								type='button'
+								className='text-sm font-medium cursor-pointer disabled:cursor-not-allowed disabled:opacity-50'
+								onClick={() => handleSetEnabled(!automation.enabled)}
+								disabled={setAutomationEnabled.isPending}
+							>
+								{automation.enabled ? 'Enabled' : 'Paused'}
+							</button>
+						</div>
+					)}
+					{automation && <OpenAutomationChatButton isOpen={isChatOpen} onOpen={() => setIsChatOpen(true)} />}
+					<Button variant='secondary' onClick={handleRunNow} disabled={!automation || runNow.isPending}>
+						<Play className='size-4' />
+						{runNow.isPending ? 'Starting...' : 'Run now'}
+					</Button>
+					<Button variant='destructive' onClick={handleDelete} disabled={deleteAutomation.isPending}>
+						<Trash className='size-4' />
+						Delete
+					</Button>
+				</div>
 			</div>
-		</div>
+
+			{!detail.isLoading && !automation && <p className='text-sm text-muted-foreground'>Automation not found.</p>}
+
+			{automation && (
+				<AutomationForm
+					id={automationFormId}
+					handleRef={formHandleRef}
+					automationId={automationId}
+					initialValue={{
+						title: automation.title,
+						prompt: automation.prompt,
+						cron: automation.cron,
+						scheduleDescription: automation.scheduleDescription ?? undefined,
+						modelProvider: automation.modelProvider ?? undefined,
+						modelId: automation.modelId ?? undefined,
+						enabled: automation.enabled,
+						mcpEnabled: automation.mcpEnabled,
+						mcpServers: automation.mcpServers ?? undefined,
+						integrations: automation.integrations,
+						webhookEnabled: automation.webhookEnabled,
+						eventTriggers: automation.eventTriggers,
+					}}
+					details={{
+						enabled: automation.enabled,
+						scheduleDescription: automation.scheduleDescription,
+						cron: automation.cron,
+						webhookEnabled: automation.webhookEnabled,
+						eventTriggers: automation.eventTriggers,
+						nextRunAt: automation.scheduledJob?.runAt,
+						lastRunAt: runs[0]?.startedAt,
+					}}
+					submitLabel='Save changes'
+					isPending={updateAutomation.isPending}
+					aside={<PreviousRuns runs={runs} onCancelRun={handleCancelRun} cancellingRunId={cancellingRunId} />}
+					showSubmitButton={false}
+					autoSaveControls
+					saveShortcut
+					onDirtyChange={setHasUnsavedChanges}
+					onSubmit={handleUpdate}
+				/>
+			)}
+		</AutomationEditorLayout>
 	);
 }
 

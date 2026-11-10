@@ -8,9 +8,11 @@ import { env } from '../env';
 import { AUTOMATION_JOB_NAME, startAutomationRun } from '../handlers/automation.handler';
 import type { AutomationWithSchedule, ProjectAutomationSummary } from '../queries/automation.queries';
 import * as automationQueries from '../queries/automation.queries';
+import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { agentService } from '../services/agent';
+import { startAutomationEditChat } from '../services/automation-editor.service';
 import { canRoleReceiveChatFeedback } from '../services/automation-feedback-trigger.service';
 import { inferAutomationTitle } from '../services/automation-title';
 import { naturalLanguageToCron } from '../services/cron-nlp';
@@ -142,6 +144,8 @@ const writeAutomationSchema = z.object({
 
 const createAutomationSchema = writeAutomationSchema.extend({
 	title: z.string().trim().max(255).optional(),
+	/** The chat the automation was drafted in, which then follows the automation. */
+	editorChatId: z.string().optional(),
 });
 
 export const automationRoutes = {
@@ -167,7 +171,7 @@ export const automationRoutes = {
 	create: automationMutationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
 		await assertUserGroupFeatureForTrpc(ctx.project.id, ctx.user.id, 'automationCreation');
 		assertTriggers(input, ctx.userRole);
-		const { cron, enabled, title, ...promptInput } = input;
+		const { cron, enabled, title, editorChatId, ...promptInput } = input;
 		const modelSelection =
 			input.modelProvider && input.modelId
 				? { provider: input.modelProvider, modelId: input.modelId }
@@ -185,8 +189,27 @@ export const automationRoutes = {
 			modelId: input.modelId || null,
 			mcpServers: input.mcpServers,
 		});
+		if (editorChatId) {
+			await chatQueries.linkAutomationEditChat(editorChatId, ctx.user.id, automation);
+		}
 		return syncAutomationJob(automation, cron, enabled);
 	}),
+
+	startEditChat: automationProcedure
+		.input(z.object({ automationId: z.string().optional() }))
+		.mutation(async ({ ctx, input }) => {
+			return startAutomationEditChat({
+				userId: ctx.user.id,
+				projectId: ctx.project.id,
+				automationId: input.automationId,
+			});
+		}),
+
+	latestEditChat: automationProcedure
+		.input(z.object({ automationId: z.string() }))
+		.query(async ({ ctx, input }): Promise<{ chatId: string | null }> => {
+			return { chatId: await chatQueries.getLatestAutomationEditChatId(ctx.user.id, input.automationId) };
+		}),
 
 	update: automationProcedure
 		.input(writeAutomationSchema.extend({ id: z.string() }))

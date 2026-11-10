@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, Check, Copy, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
 import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
+import { applyAutomationDraftUpdate } from '@nao/shared/automation-draft';
+import type { AutomationDraft, AutomationDraftUpdate } from '@nao/shared/automation-draft';
 import type { McpServerStatus } from '@nao/shared';
 import type { AutomationEventTriggers, LlmProvider, NaoEventType } from '@nao/shared/types';
-import type { FormEvent, ReactNode, RefObject } from 'react';
+import type { FormEvent, ReactNode, Ref, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
@@ -117,8 +119,15 @@ export type AutomationFormValue = {
 	eventTriggers: AutomationEventTriggers;
 };
 
+/** Lets the editing chat beside the form read the automation and change it. */
+export type AutomationFormHandle = {
+	getDraft: () => AutomationDraft;
+	applyDraftUpdate: (update: AutomationDraftUpdate) => void;
+};
+
 type AutomationFormProps = {
 	id?: string;
+	handleRef?: Ref<AutomationFormHandle>;
 	automationId?: string;
 	initialValue?: Partial<AutomationFormValue>;
 	details?: AutomationDetails;
@@ -189,6 +198,7 @@ const schedulePresets: SchedulePreset[] = [
 
 export function AutomationForm({
 	id,
+	handleRef,
 	automationId,
 	initialValue,
 	details,
@@ -203,6 +213,7 @@ export function AutomationForm({
 }: AutomationFormProps) {
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
 	const form = useAutomationFormController({
+		handleRef,
 		initialValue,
 		isPending,
 		autoSaveControls,
@@ -215,107 +226,110 @@ export function AutomationForm({
 	const webhookUrl = buildWebhookUrl(automationId);
 
 	return (
-		<form
-			ref={form.formRef}
-			id={id}
-			onSubmit={form.handleSubmit}
-			className={cn(
-				'grid gap-6',
-				hasSidebar && 'xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]',
-			)}
-		>
-			<div className='grid content-start gap-6'>
-				<AutomationTitleField
-					value={form.value.title}
-					onChange={form.setTitle}
-					placeholder={form.titlePlaceholder}
-				/>
-
-				<TriggersSection
-					cron={form.value.cron}
-					hasSchedule={form.hasSchedule}
-					scheduleOption={form.scheduleOption}
-					onScheduleOptionChange={form.handleScheduleOptionChange}
-					onCustomCronChange={form.setCustomCron}
-					onAddSchedule={form.handleAddSchedule}
-					onRemoveSchedule={form.handleRemoveSchedule}
-					webhookEnabled={form.value.webhookEnabled}
-					webhookUrl={webhookUrl}
-					onAddWebhook={form.handleAddWebhook}
-					onRemoveWebhook={form.handleRemoveWebhook}
-					eventTriggers={form.value.eventTriggers}
-					canUseChatFeedback={form.canUseChatFeedback}
-					onAddEventTrigger={form.handleAddEventTrigger}
-					onEventTriggersChange={form.handleEventTriggersChange}
-					hasError={form.triggerError}
-					disabled={form.controlsDisabled}
-				/>
-
-				<AgentInstructionsSection
-					promptRef={form.promptRef}
-					promptValue={form.value.prompt}
-					promptHasError={form.promptError}
-					storyCreationEnabled={storyCreationEnabled}
-					onPromptChange={form.handlePromptChange}
-					modelValue={form.selectedModelValue}
-					modelName={form.selectedModelName}
-					modelProvider={form.value.modelProvider}
-					availableModels={form.availableModels}
-					onModelChange={form.handleModelChange}
-					modelDisabled={form.controlsDisabled}
-					email={form.userEmail}
-					onInsertPromptTrigger={form.handleInsertPromptTrigger}
-				/>
-
-				<ToolsSection
-					value={form.value}
-					mcpServers={form.mcpServers}
-					emailRecipientsError={form.emailRecipientsError}
-					onClearEmailRecipientsError={form.clearEmailRecipientsError}
-					slackChannelsError={form.slackChannelsError}
-					onClearSlackChannelsError={form.clearSlackChannelsError}
-					onChange={form.handleValueChange}
-					onAutoSaveChange={form.handleControlValueChange}
-					disabled={form.controlsDisabled}
-				/>
-
-				{!hasSidebar && form.submitError && <ErrorMessage message={form.submitError} />}
-				{!hasSidebar && showSubmitButton && (
-					<Button
-						type='submit'
-						variant='primary-gradient'
-						disabled={isPending}
-						className='justify-self-start'
-					>
-						{isPending ? 'Saving...' : submitLabel}
-					</Button>
+		<div className='@container'>
+			<form
+				ref={form.formRef}
+				id={id}
+				onSubmit={form.handleSubmit}
+				className={cn(
+					'grid gap-6',
+					hasSidebar && '@4xl:grid-cols-[minmax(0,1fr)_340px] @6xl:grid-cols-[minmax(0,1fr)_380px]',
 				)}
-			</div>
+			>
+				<div className='grid content-start gap-6'>
+					<AutomationTitleField
+						value={form.value.title}
+						onChange={form.setTitle}
+						placeholder={form.titlePlaceholder}
+					/>
 
-			{hasSidebar && (
-				<div className='grid content-start gap-4'>
-					{details && (
-						<AutomationSidebarSection title='Details'>
-							<AutomationDetailSummary details={details} />
-						</AutomationSidebarSection>
-					)}
+					<TriggersSection
+						cron={form.value.cron}
+						hasSchedule={form.hasSchedule}
+						scheduleOption={form.scheduleOption}
+						onScheduleOptionChange={form.handleScheduleOptionChange}
+						onCustomCronChange={form.setCustomCron}
+						onAddSchedule={form.handleAddSchedule}
+						onRemoveSchedule={form.handleRemoveSchedule}
+						webhookEnabled={form.value.webhookEnabled}
+						webhookUrl={webhookUrl}
+						onAddWebhook={form.handleAddWebhook}
+						onRemoveWebhook={form.handleRemoveWebhook}
+						eventTriggers={form.value.eventTriggers}
+						canUseChatFeedback={form.canUseChatFeedback}
+						onAddEventTrigger={form.handleAddEventTrigger}
+						onEventTriggersChange={form.handleEventTriggersChange}
+						hasError={form.triggerError}
+						disabled={form.controlsDisabled}
+					/>
 
-					{aside}
+					<AgentInstructionsSection
+						promptRef={form.promptRef}
+						promptValue={form.value.prompt}
+						promptHasError={form.promptError}
+						storyCreationEnabled={storyCreationEnabled}
+						onPromptChange={form.handlePromptChange}
+						modelValue={form.selectedModelValue}
+						modelName={form.selectedModelName}
+						modelProvider={form.value.modelProvider}
+						availableModels={form.availableModels}
+						onModelChange={form.handleModelChange}
+						modelDisabled={form.controlsDisabled}
+						email={form.userEmail}
+						onInsertPromptTrigger={form.handleInsertPromptTrigger}
+					/>
 
-					{form.submitError && <ErrorMessage message={form.submitError} />}
+					<ToolsSection
+						value={form.value}
+						mcpServers={form.mcpServers}
+						emailRecipientsError={form.emailRecipientsError}
+						onClearEmailRecipientsError={form.clearEmailRecipientsError}
+						slackChannelsError={form.slackChannelsError}
+						onClearSlackChannelsError={form.clearSlackChannelsError}
+						onChange={form.handleValueChange}
+						onAutoSaveChange={form.handleControlValueChange}
+						disabled={form.controlsDisabled}
+					/>
 
-					{showSubmitButton && (
-						<Button type='submit' variant='primary-gradient' disabled={isPending} className='w-full'>
+					{!hasSidebar && form.submitError && <ErrorMessage message={form.submitError} />}
+					{!hasSidebar && showSubmitButton && (
+						<Button
+							type='submit'
+							variant='primary-gradient'
+							disabled={isPending}
+							className='justify-self-start'
+						>
 							{isPending ? 'Saving...' : submitLabel}
 						</Button>
 					)}
 				</div>
-			)}
-		</form>
+
+				{hasSidebar && (
+					<div className='grid content-start gap-4'>
+						{details && (
+							<AutomationSidebarSection title='Details'>
+								<AutomationDetailSummary details={details} />
+							</AutomationSidebarSection>
+						)}
+
+						{aside}
+
+						{form.submitError && <ErrorMessage message={form.submitError} />}
+
+						{showSubmitButton && (
+							<Button type='submit' variant='primary-gradient' disabled={isPending} className='w-full'>
+								{isPending ? 'Saving...' : submitLabel}
+							</Button>
+						)}
+					</div>
+				)}
+			</form>
+		</div>
 	);
 }
 
 function useAutomationFormController({
+	handleRef,
 	initialValue,
 	isPending,
 	autoSaveControls,
@@ -324,7 +338,7 @@ function useAutomationFormController({
 	onSubmit,
 }: Pick<
 	AutomationFormProps,
-	'initialValue' | 'isPending' | 'autoSaveControls' | 'saveShortcut' | 'onDirtyChange' | 'onSubmit'
+	'handleRef' | 'initialValue' | 'isPending' | 'autoSaveControls' | 'saveShortcut' | 'onDirtyChange' | 'onSubmit'
 >) {
 	const initialValueSnapshot = serializeAutomationValue(mergeValue(initialValue));
 	const [savedValue, setSavedValue] = useState<AutomationFormValue>(() =>
@@ -373,6 +387,8 @@ function useAutomationFormController({
 	useEffect(() => {
 		onDirtyChange?.(isDirty);
 	}, [isDirty, onDirtyChange]);
+
+	useImperativeHandle(handleRef, () => ({ getDraft: () => value, applyDraftUpdate }));
 
 	useEffect(() => {
 		if (!saveShortcut) {
@@ -502,6 +518,21 @@ function useAutomationFormController({
 	function handleInsertPromptTrigger(trigger: string) {
 		promptRef.current?.insertText(trigger);
 		requestAnimationFrame(() => promptRef.current?.focus());
+	}
+
+	/** Changes from the editing chat are left unsaved, for the user to review in the form. */
+	function applyDraftUpdate(update: AutomationDraftUpdate) {
+		setSubmitError(null);
+		setPromptError(false);
+		setTriggerError(false);
+		setEmailRecipientsError(null);
+		setSlackChannelsError(null);
+		setValue((current) => applyAutomationDraftUpdate(current, update));
+		if (update.cron !== undefined) {
+			const hasNextSchedule = update.cron.trim().length > 0;
+			setHasSchedule(hasNextSchedule);
+			setScheduleOption(hasNextSchedule ? getScheduleOption(update.cron) : 'custom');
+		}
 	}
 
 	function handleAddSchedule() {
@@ -907,7 +938,7 @@ function AddTriggerMenu({
 					<span>Add Trigger</span>
 				</button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='min-w-56'>
+			<DropdownMenuContent align='start' className='w-auto min-w-44'>
 				<DropdownMenuItem onSelect={onAddSchedule} disabled={scheduleAdded}>
 					<Calendar className='size-4' />
 					<span>On schedule</span>
@@ -1556,7 +1587,7 @@ function AddToolMenu({
 					<span>Add Tool or MCP</span>
 				</button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='min-w-56'>
+			<DropdownMenuContent align='start' className='w-auto min-w-44'>
 				<DropdownMenuLabel>Messaging</DropdownMenuLabel>
 				<DropdownMenuItem onSelect={onAddEmail} disabled={emailEnabled}>
 					<Mail className='size-4' />
@@ -1611,7 +1642,7 @@ function GithubSubMenu({
 				<GithubIcon className='size-4' />
 				<span>GitHub</span>
 			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent className='min-w-64'>
+			<DropdownMenuSubContent sideOffset={6} alignOffset={-5} className='w-72'>
 				{GITHUB_MENU_ITEMS.map((item) => {
 					const isAdded = activeSet.has(item.key);
 					return (
@@ -1657,7 +1688,7 @@ function McpSubMenu({
 				<McpIcon className='size-4' />
 				<span>MCP server</span>
 			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent className='min-w-56'>
+			<DropdownMenuSubContent sideOffset={6} alignOffset={-5} className='w-auto min-w-36'>
 				{mcpServers.length === 0 && (
 					<DropdownMenuItem disabled>
 						<span className='text-xs text-muted-foreground'>No MCP servers configured</span>

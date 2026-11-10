@@ -45,6 +45,7 @@ import { Route as SidebarLayoutSettingsEnterpriseRouteImport } from './routes/_s
 import { Route as SidebarLayoutSettingsContextExplorerRouteImport } from './routes/_sidebar-layout.settings.context-explorer'
 import { Route as SidebarLayoutSettingsAppearanceRouteImport } from './routes/_sidebar-layout.settings.appearance'
 import { Route as SidebarLayoutSettingsAccountRouteImport } from './routes/_sidebar-layout.settings.account'
+import { Route as SidebarLayoutAutomationsNewRouteImport } from './routes/_sidebar-layout.automations.new'
 import { Route as SidebarLayoutAutomationsAutomationIdRouteImport } from './routes/_sidebar-layout.automations.$automationId'
 import { Route as SidebarLayoutChatLayoutChatIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId'
 import { Route as SidebarLayoutSettingsProjectIndexRouteImport } from './routes/_sidebar-layout.settings.project.index'
@@ -276,6 +277,12 @@ const SidebarLayoutSettingsAccountRoute =
     path: '/account',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
+const SidebarLayoutAutomationsNewRoute =
+  SidebarLayoutAutomationsNewRouteImport.update({
+    id: '/automations/new',
+    path: '/automations/new',
+    getParentRoute: () => SidebarLayoutRoute,
+  } as any)
 const SidebarLayoutAutomationsAutomationIdRoute =
   SidebarLayoutAutomationsAutomationIdRouteImport.update({
     id: '/automations/$automationId',
@@ -490,6 +497,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
+  '/automations/new': typeof SidebarLayoutAutomationsNewRoute
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
@@ -558,6 +566,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof SidebarLayoutOnboardingRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
+  '/automations/new': typeof SidebarLayoutAutomationsNewRoute
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
@@ -625,6 +634,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/_sidebar-layout/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
+  '/_sidebar-layout/automations/new': typeof SidebarLayoutAutomationsNewRoute
   '/_sidebar-layout/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/_sidebar-layout/settings/appearance': typeof SidebarLayoutSettingsAppearanceRoute
   '/_sidebar-layout/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
@@ -697,6 +707,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/$chatId'
     | '/automations/$automationId'
+    | '/automations/new'
     | '/settings/account'
     | '/settings/appearance'
     | '/settings/context-explorer'
@@ -765,6 +776,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$chatId'
     | '/automations/$automationId'
+    | '/automations/new'
     | '/settings/account'
     | '/settings/appearance'
     | '/settings/context-explorer'
@@ -831,6 +843,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings'
     | '/_sidebar-layout/_chat-layout/$chatId'
     | '/_sidebar-layout/automations/$automationId'
+    | '/_sidebar-layout/automations/new'
     | '/_sidebar-layout/settings/account'
     | '/_sidebar-layout/settings/appearance'
     | '/_sidebar-layout/settings/context-explorer'
@@ -1153,6 +1166,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/account'
       preLoaderRoute: typeof SidebarLayoutSettingsAccountRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/automations/new': {
+      id: '/_sidebar-layout/automations/new'
+      path: '/automations/new'
+      fullPath: '/automations/new'
+      preLoaderRoute: typeof SidebarLayoutAutomationsNewRouteImport
+      parentRoute: typeof SidebarLayoutRoute
     }
     '/_sidebar-layout/automations/$automationId': {
       id: '/_sidebar-layout/automations/$automationId'
@@ -1597,6 +1617,7 @@ interface SidebarLayoutRouteChildren {
   SidebarLayoutOnboardingRoute: typeof SidebarLayoutOnboardingRoute
   SidebarLayoutSettingsRoute: typeof SidebarLayoutSettingsRouteWithChildren
   SidebarLayoutAutomationsAutomationIdRoute: typeof SidebarLayoutAutomationsAutomationIdRoute
+  SidebarLayoutAutomationsNewRoute: typeof SidebarLayoutAutomationsNewRoute
   SidebarLayoutSharedChatShareIdRoute: typeof SidebarLayoutSharedChatShareIdRoute
   SidebarLayoutStoriesStoryIdRoute: typeof SidebarLayoutStoriesStoryIdRoute
   SidebarLayoutFeedIndexRoute: typeof SidebarLayoutFeedIndexRoute
@@ -1612,6 +1633,7 @@ const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
   SidebarLayoutSettingsRoute: SidebarLayoutSettingsRouteWithChildren,
   SidebarLayoutAutomationsAutomationIdRoute:
     SidebarLayoutAutomationsAutomationIdRoute,
+  SidebarLayoutAutomationsNewRoute: SidebarLayoutAutomationsNewRoute,
   SidebarLayoutSharedChatShareIdRoute: SidebarLayoutSharedChatShareIdRoute,
   SidebarLayoutStoriesStoryIdRoute: SidebarLayoutStoriesStoryIdRoute,
   SidebarLayoutFeedIndexRoute: SidebarLayoutFeedIndexRoute,

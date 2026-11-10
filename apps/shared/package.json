@@ -5,6 +5,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./attachments": "./src/attachments.ts",
+		"./automation-draft": "./src/automation-draft.ts",
 		"./billing": "./src/billing.ts",
 		"./class-names": "./src/class-names.ts",
 		"./chart-builder": "./src/chart-builder.tsx",

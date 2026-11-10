@@ -1,18 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { CheckCheck, Plus, Timer, X } from 'lucide-react';
+import { CheckCheck, Plus, Timer } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import type { AutomationEventTriggers } from '@nao/shared/types';
-import type { AutomationFormValue } from '@/components/automations-form';
 import type { AutomationFeedItem, NotificationFeedItem } from '@/components/automations-feed';
-import { AutomationForm } from '@/components/automations-form';
 import { AutomationsFeed } from '@/components/automations-feed';
 import { applyFeedFilters, FeedFilterBar, useFeedFilters } from '@/components/feed-filter-bar';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { SettingsCard } from '@/components/ui/settings-card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useTimeAgo } from '@/hooks/use-time-ago';
@@ -42,7 +39,6 @@ function FeedPage() {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const automationsEnabled = config.data?.betaAutomationsEnabled === true && !isViewer;
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const [isCreating, setIsCreating] = useState(false);
 	const { automationCreationEnabled } = useEffectiveUserGroupFeatures();
 	const canCreateAutomation = automationsEnabled && automationCreationEnabled;
 
@@ -58,7 +54,6 @@ function FeedPage() {
 	);
 	const notifications = useNotifications(true);
 	const { markRead, markAllRead } = useNotificationMutations();
-	const createAutomation = useMutation(trpc.automation.create.mutationOptions());
 	const cancelRun = useMutation(trpc.automation.cancelRun.mutationOptions());
 	const invalidateAutomationFeedCaches = () =>
 		Promise.all([
@@ -71,13 +66,6 @@ function FeedPage() {
 	const markAllRunsRead = useMutation(
 		trpc.automation.markAllRunsRead.mutationOptions({ onSuccess: invalidateAutomationFeedCaches }),
 	);
-
-	async function handleCreate(value: AutomationFormValue) {
-		const created = await createAutomation.mutateAsync(value);
-		await queryClient.invalidateQueries({ queryKey: trpc.automation.list.queryKey() });
-		setIsCreating(false);
-		navigate({ to: '/automations/$automationId', params: { automationId: created.id } });
-	}
 
 	async function handleCancelRun(runId: string) {
 		await cancelRun.mutateAsync({ runId });
@@ -157,24 +145,16 @@ function FeedPage() {
 						)}
 						{canCreateAutomation && (
 							<div className='flex justify-end lg:w-[19.5rem]'>
-								<Button variant='primary-gradient' onClick={() => setIsCreating((value) => !value)}>
-									{isCreating ? <X className='size-4' /> : <Plus className='size-4' />}
-									{isCreating ? 'Cancel' : 'New automation'}
+								<Button variant='primary-gradient' asChild>
+									<Link to='/automations/new'>
+										<Plus className='size-4' />
+										New automation
+									</Link>
 								</Button>
 							</div>
 						)}
 					</div>
 				</header>
-
-				{canCreateAutomation && isCreating && (
-					<SettingsCard title='New automation'>
-						<AutomationForm
-							submitLabel='Create automation'
-							isPending={createAutomation.isPending}
-							onSubmit={handleCreate}
-						/>
-					</SettingsCard>
-				)}
 
 				<div className={cn('grid gap-6', automationsEnabled && 'lg:grid-cols-[minmax(0,1fr)_18rem]')}>
 					<section className='mx-auto w-full'>

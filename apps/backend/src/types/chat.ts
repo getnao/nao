@@ -1,4 +1,5 @@
 import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
+import { automationDraftSchema } from '@nao/shared/automation-draft';
 import {
 	type CitationData,
 	type LlmProvider,
@@ -20,7 +21,14 @@ import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
 export interface ForkMetadata {
-	type: 'chat' | 'chat_selection' | 'chat_question' | 'story' | 'story_selection' | 'story_question';
+	type:
+		| 'chat'
+		| 'chat_selection'
+		| 'chat_question'
+		| 'story'
+		| 'story_selection'
+		| 'story_question'
+		| 'automation_edit';
 	id: string;
 	title: string;
 	authorName: string;
@@ -229,6 +237,8 @@ export const AgentRequestSchema = z.object({
 	/** When true, the message runs in admin mode: it queries nao's own usage database instead of the warehouse. */
 	adminMode: z.boolean().optional(),
 	mode: z.enum(['default', 'onboarding', 'example']).default('default'),
+	/** The automation open beside an automation editing chat, as it stands in its form. */
+	automationDraft: automationDraftSchema.optional(),
 });
 
 export interface StoryOriginTurn {

@@ -35,7 +35,7 @@ export function NaoEventsSubmenu({
 				<NaoEventsIcon />
 				<span>nao Events</span>
 			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent className='min-w-56'>
+			<DropdownMenuSubContent sideOffset={6} alignOffset={-5} className='w-auto min-w-36'>
 				{NAO_EVENT_TRIGGER_OPTIONS.map((option) => {
 					const isAdded = Boolean(eventTriggers[option.type]?.enabled);
 					return (
