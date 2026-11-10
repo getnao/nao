@@ -41,7 +41,7 @@ describe('public embedded Story routes', () => {
 			id: 'story-1',
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 		});
-		expect(mocks.loadEmbedStoryContent).toHaveBeenCalledWith('story-1', 'token');
+		expect(mocks.loadEmbedStoryContent).toHaveBeenCalledWith('story-1', 'token', undefined);
 	});
 
 	it('loads public downloads through the guarded utility', async () => {
@@ -50,7 +50,7 @@ describe('public embedded Story routes', () => {
 		await expect(caller.downloadStory({ storyId: 'story-1', token: 'token', format: 'pdf' })).resolves.toEqual({
 			filename: 'orders.pdf',
 		});
-		expect(mocks.loadEmbedStoryContent).toHaveBeenCalledWith('story-1', 'token');
+		expect(mocks.loadEmbedStoryContent).toHaveBeenCalledWith('story-1', 'token', undefined);
 		expect(mocks.buildDownloadResponse).toHaveBeenCalledWith(
 			'pdf',
 			'Orders',
@@ -59,5 +59,13 @@ describe('public embedded Story routes', () => {
 			null,
 			null,
 		);
+	});
+
+	it('passes the signed-in viewer to embed loading', async () => {
+		const caller = embedRoutes.createCaller({ session: { user: { id: 'viewer-1' } } } as never);
+
+		await caller.getStory({ storyId: 'story-1', token: 'token' });
+
+		expect(mocks.loadEmbedStoryContent).toHaveBeenCalledWith('story-1', 'token', 'viewer-1');
 	});
 });

@@ -7,9 +7,12 @@ const mocks = vi.hoisted(() => ({
 	getLatestVersionByStoryId: vi.fn(),
 	getStoryOwnerId: vi.fn(),
 	getDisplaySettings: vi.fn(),
+	getUserRoleInProject: vi.fn(),
+	getProjectRowSecurity: vi.fn(),
 	getStoryQueryData: vi.fn(),
 	backfillMissingQueryDataForSandbox: vi.fn(),
 	getActiveThemeForProject: vi.fn(),
+	hasEffectiveWarehouseRestrictions: vi.fn(),
 }));
 
 vi.mock('../src/utils/embed-token', () => ({
@@ -23,9 +26,16 @@ vi.mock('../src/queries/story.queries', () => ({
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	getDisplaySettings: mocks.getDisplaySettings,
+	getUserRoleInProject: mocks.getUserRoleInProject,
+}));
+vi.mock('../src/queries/user-group.queries', () => ({
+	getProjectRowSecurity: mocks.getProjectRowSecurity,
 }));
 vi.mock('../src/services/live-story', () => ({
 	getStoryQueryData: mocks.getStoryQueryData,
+}));
+vi.mock('../src/services/user-group-context-access.service', () => ({
+	hasEffectiveWarehouseRestrictions: mocks.hasEffectiveWarehouseRestrictions,
 }));
 vi.mock('../src/services/custom-story', () => ({
 	getActiveThemeForProject: mocks.getActiveThemeForProject,
@@ -46,9 +56,12 @@ describe('embedded Story query data', () => {
 		});
 		mocks.getStoryProjectId.mockResolvedValue('project-1');
 		mocks.getDisplaySettings.mockResolvedValue({ dateFormat: null });
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.getUserRoleInProject.mockResolvedValue(null);
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(false);
 	});
 
-	it('resolves static embeds as the Story owner', async () => {
+	it('allows anonymous static embeds when no row security is configured', async () => {
 		mocks.getLatestVersionByStoryId.mockResolvedValue({
 			storyId: 'story-1',
 			chatId: 'chat-1',
@@ -73,8 +86,77 @@ describe('embedded Story query data', () => {
 			'<table query_id="query_orders" />',
 			false,
 			undefined,
+			{ viewerUserId: undefined },
 		);
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
+	});
+
+	it('loads chat-backed data with a signed-in project viewer', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
+		mocks.getUserRoleInProject.mockResolvedValue('viewer');
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
+			cachedAt: null,
+			code: '<table query_id="query_orders" />',
+		});
+
+		await loadEmbedStoryContent('story-1', 'token', 'viewer-1');
+
+		expect(mocks.getStoryQueryData).toHaveBeenCalledWith(
+			'chat-1',
+			'orders',
+			'<table query_id="query_orders" />',
+			false,
+			undefined,
+			{ viewerUserId: 'viewer-1' },
+		);
+	});
+
+	it('keeps token-based access for a signed-in nonmember when no row security is configured', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
+			cachedAt: null,
+			code: '<table query_id="query_orders" />',
+		});
+
+		await loadEmbedStoryContent('story-1', 'token', 'outside-user');
+
+		expect(mocks.getStoryQueryData).toHaveBeenCalledWith(
+			'chat-1',
+			'orders',
+			'<table query_id="query_orders" />',
+			false,
+			undefined,
+			{ viewerUserId: undefined },
+		);
+	});
+
+	it('requires project membership when row security is configured', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
+
+		await expect(loadEmbedStoryContent('story-1', 'token', 'outside-user')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+		});
+
+		expect(mocks.getLatestVersionByStoryId).not.toHaveBeenCalled();
 	});
 
 	it('backfills static chat-linked embeds when persisted fallback is allowed', async () => {
@@ -128,6 +210,27 @@ describe('embedded Story query data', () => {
 		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
 	});
 
+	it('rejects restricted viewers for standalone stories', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('viewer');
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(true);
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: null,
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+
+		await expect(loadEmbedStoryContent('story-1', 'token', 'viewer-1')).rejects.toMatchObject({
+			codeMessage: 'FORBIDDEN',
+		});
+
+		expect(mocks.hasEffectiveWarehouseRestrictions).toHaveBeenCalledWith('project-1', 'viewer-1');
+		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
+	});
+
 	it('executes live embeds as the Story owner', async () => {
 		mocks.getLatestVersionByStoryId.mockResolvedValue({
 			storyId: 'story-1',
@@ -153,6 +256,7 @@ describe('embedded Story query data', () => {
 			'<table query_id="query_orders" />',
 			true,
 			'0 * * * *',
+			{ viewerUserId: undefined },
 		);
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});

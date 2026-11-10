@@ -26,7 +26,7 @@ export type EmbedStoryContent = {
 export async function loadEmbedStoryContent(
 	storyId: string,
 	token: string,
-	viewerId: string | undefined,
+	viewerId?: string,
 ): Promise<EmbedStoryContent> {
 	const payload = verifyEmbedToken(token);
 	if (!payload || payload.type !== 'story' || payload.resourceId !== storyId) {
@@ -40,9 +40,13 @@ export async function loadEmbedStoryContent(
 	if (projectId !== payload.projectId) {
 		throw new HandlerError('UNAUTHORIZED', 'Embed token does not match this story.');
 	}
-	if (!viewerId && (await userGroupQueries.getProjectRowSecurity(projectId))) {
-		throw new HandlerError('UNAUTHORIZED', 'Sign in to view this story.');
+
+	const hasRls = (await userGroupQueries.getProjectRowSecurity(projectId)).tables.length > 0;
+	const viewerRole = viewerId ? await projectQueries.getUserRoleInProject(projectId, viewerId) : null;
+	if (hasRls && !viewerRole) {
+		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
 	}
+	const scopedViewerId = viewerRole ? viewerId : undefined;
 
 	await assertProjectMcpEnabled(projectId);
 
@@ -56,11 +60,8 @@ export async function loadEmbedStoryContent(
 		throw new HandlerError('FORBIDDEN', 'Story has no execution owner.');
 	}
 
-	if (viewerId && !(await projectQueries.getUserRoleInProject(projectId, viewerId))) {
-		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
-	}
 	const [storyData, displaySettings, theme] = await Promise.all([
-		loadEmbedStoryData(version, projectId, ownerId, viewerId),
+		loadEmbedStoryData(version, projectId, ownerId, scopedViewerId),
 		projectQueries.getDisplaySettings(projectId),
 		getActiveThemeForProject(projectId),
 	]);
