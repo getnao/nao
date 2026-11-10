@@ -91,14 +91,23 @@ function buildAutomationRows(
 	automations: ProjectAutomationSummary[],
 	runs: AutomationRunRecord[],
 ): AutomationMonitoringRow[] {
+	const runsByAutomation = groupRunsByAutomation(runs);
 	return automations
-		.map((automation) =>
-			buildAutomationRow(
-				automation,
-				runs.filter((run) => run.automationId === automation.id),
-			),
-		)
+		.map((automation) => buildAutomationRow(automation, runsByAutomation.get(automation.id) ?? []))
 		.sort((left, right) => right.failedRuns - left.failedRuns || right.runs - left.runs);
+}
+
+function groupRunsByAutomation(runs: AutomationRunRecord[]): Map<string, AutomationRunRecord[]> {
+	const groups = new Map<string, AutomationRunRecord[]>();
+	for (const run of runs) {
+		const group = groups.get(run.automationId);
+		if (group) {
+			group.push(run);
+		} else {
+			groups.set(run.automationId, [run]);
+		}
+	}
+	return groups;
 }
 
 function buildAutomationRow(

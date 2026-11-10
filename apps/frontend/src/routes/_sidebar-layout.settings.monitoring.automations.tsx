@@ -26,7 +26,7 @@ function AutomationsMonitoringPage() {
 				<AutomationRunsCard query={monitoring} range={range} />
 				<AutomationTriggersCard query={monitoring} />
 			</MonitoringGrid>
-			<AutomationFailuresCard query={monitoring} />
+			<AutomationFailuresCard query={monitoring} range={range} />
 			<AutomationsTableCard query={monitoring} />
 		</MonitoringTabContent>
 	);

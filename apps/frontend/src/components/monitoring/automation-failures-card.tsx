@@ -1,12 +1,18 @@
 import { Link } from '@tanstack/react-router';
-import type { AutomationRunFailure, AutomationsMonitoring } from '@nao/backend/monitoring';
+import type { AutomationRunFailure, AutomationsMonitoring, MonitoringRange } from '@nao/backend/monitoring';
 import type { MonitoringQueryState } from '@/components/monitoring/monitoring-card';
 import { MonitoringCard } from '@/components/monitoring/monitoring-card';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { StatusIcon } from '@/components/monitoring/status-label';
 import { formatDateTime, TRIGGER_LABELS } from '@/lib/monitoring-format';
 
-export function AutomationFailuresCard({ query }: { query: MonitoringQueryState<AutomationsMonitoring> }) {
+export function AutomationFailuresCard({
+	query,
+	range,
+}: {
+	query: MonitoringQueryState<AutomationsMonitoring>;
+	range: MonitoringRange;
+}) {
 	return (
 		<MonitoringCard
 			title='Recent failures'
@@ -17,7 +23,7 @@ export function AutomationFailuresCard({ query }: { query: MonitoringQueryState<
 			{(monitoring) => (
 				<ul className='flex flex-col divide-y divide-border'>
 					{monitoring.recentFailures.map((failure) => (
-						<FailureRow key={failure.runId} failure={failure} />
+						<FailureRow key={failure.runId} failure={failure} range={range} />
 					))}
 				</ul>
 			)}
@@ -25,7 +31,7 @@ export function AutomationFailuresCard({ query }: { query: MonitoringQueryState<
 	);
 }
 
-function FailureRow({ failure }: { failure: AutomationRunFailure }) {
+function FailureRow({ failure, range }: { failure: AutomationRunFailure; range: MonitoringRange }) {
 	return (
 		<li className='grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-2 text-sm first:pt-0 last:pb-0'>
 			<StatusIcon tone='error' className='mt-0.5' />
@@ -43,7 +49,7 @@ function FailureRow({ failure }: { failure: AutomationRunFailure }) {
 					<Link
 						to='/settings/usage/replay/$chatId'
 						params={{ chatId: failure.chatId }}
-						search={{ ...DEFAULT_USAGE_SEARCH, tab: 'usage' }}
+						search={{ ...DEFAULT_USAGE_SEARCH, origin: 'monitoring', monitoringRange: range }}
 						className='font-medium text-primary hover:underline'
 					>
 						Open run
