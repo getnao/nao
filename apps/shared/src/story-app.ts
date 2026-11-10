@@ -131,7 +131,7 @@ export interface StoryMapBoundary {
 }
 
 /** Boundary keys a story's sources load, found by name so a downloaded story carries only the sets it uses. */
-const STORY_MAP_BOUNDARY_CALL_PATTERN = /\b(?:useMapBoundary|mapBoundary)\(\s*(['"`])([a-z0-9_]+)\1/g;
+const STORY_MAP_BOUNDARY_CALL_PATTERN = /\b(?:useMapBoundary|mapBoundary)\s*\(\s*(['"`])([a-z0-9_]+)\1/g;
 
 export const extractStoryMapBoundaryKeys = (sources: string[]): string[] => {
 	const keys = new Set<string>();
