@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	getStoryByChatAndSlug: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
+	getVersionByNumber: vi.fn(),
 	getSqlQueryById: vi.fn(),
 	listVersionFiles: vi.fn(),
 	listDraftFiles: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('../src/queries/story.queries', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/queries/story.queries')>()),
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
+	getVersionByNumber: mocks.getVersionByNumber,
 	getSqlQueryById: mocks.getSqlQueryById,
 }));
 vi.mock('../src/queries/story-file.queries', () => ({
@@ -54,6 +56,20 @@ describe('custom story queries read by an editor', () => {
 			CustomStoryQueryNotAllowedError,
 		);
 		expect(mocks.getSqlQueryById).not.toHaveBeenCalled();
+	});
+
+	it('serves a query only the older version being viewed still references', async () => {
+		mocks.getVersionByNumber.mockResolvedValue({ id: 'version-old' });
+		mocks.listVersionFiles.mockImplementation(async (versionId: string) =>
+			versionId === 'version-old'
+				? [{ content: 'useQuery("query_removed")' }]
+				: [{ content: 'useQuery("query_published")' }],
+		);
+
+		await expect(getEditorCustomStoryQuerySql('chat-1', 'story', 'query_removed', 1)).resolves.toBe('select 1');
+		await expect(getEditorCustomStoryQuerySql('chat-1', 'story', 'query_private', 1)).rejects.toBeInstanceOf(
+			CustomStoryQueryNotAllowedError,
+		);
 	});
 });
 

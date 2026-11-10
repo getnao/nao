@@ -312,18 +312,20 @@ export async function getEditorCustomStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	queryId: string,
-	options: CustomStoryDataOptions = {},
+	options: CustomStoryDataOptions & { versionNumber?: number } = {},
 ): Promise<StoryQueryResult> {
-	await assertQueryReferencedByStory(chatId, storySlug, queryId);
-	return getCustomStoryQueryData(chatId, storySlug, queryId, options);
+	const { versionNumber, ...dataOptions } = options;
+	await assertQueryReferencedByStory(chatId, storySlug, queryId, versionNumber);
+	return getCustomStoryQueryData(chatId, storySlug, queryId, dataOptions);
 }
 
 export async function getEditorCustomStoryQuerySql(
 	chatId: string,
 	storySlug: string,
 	queryId: string,
+	versionNumber?: number,
 ): Promise<string> {
-	await assertQueryReferencedByStory(chatId, storySlug, queryId);
+	await assertQueryReferencedByStory(chatId, storySlug, queryId, versionNumber);
 	return getCustomStoryQuerySql(chatId, storySlug, queryId);
 }
 
@@ -353,11 +355,21 @@ async function assertQueryReferencedByVersion(versionId: string, queryId: string
 	}
 }
 
-async function assertQueryReferencedByStory(chatId: string, storySlug: string, queryId: string): Promise<void> {
+async function assertQueryReferencedByStory(
+	chatId: string,
+	storySlug: string,
+	queryId: string,
+	versionNumber?: number,
+): Promise<void> {
 	await getCustomStory(chatId, storySlug);
-	if (!(await listCustomStoryQueryIds(chatId, storySlug)).has(queryId)) {
+	if ((await listCustomStoryQueryIds(chatId, storySlug)).has(queryId)) {
+		return;
+	}
+	if (versionNumber === undefined) {
 		throw new CustomStoryQueryNotAllowedError(queryId);
 	}
+	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
+	await assertQueryReferencedByVersion(version.id, queryId);
 }
 
 function usesStoryCache(story: DBStory): boolean {

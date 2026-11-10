@@ -505,22 +505,44 @@ export const storyRoutes = {
 		}),
 
 	getCustomStoryQueryData: storyEditorProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				queryId: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
 		.query(async ({ input, ctx }) => {
-			const readQueryData = ctx.isChatOwner ? getCustomStoryQueryData : getEditorCustomStoryQueryData;
+			const { chatId, storySlug, queryId, versionNumber } = input;
 			try {
-				return await readQueryData(input.chatId, input.storySlug, input.queryId, { deferRefresh: true });
+				return ctx.isChatOwner
+					? await getCustomStoryQueryData(chatId, storySlug, queryId, { deferRefresh: true })
+					: await getEditorCustomStoryQueryData(chatId, storySlug, queryId, {
+							deferRefresh: true,
+							versionNumber,
+						});
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
 
 	getCustomStoryQuerySql: storyEditorProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string(), queryId: z.string() }))
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				queryId: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
 		.query(async ({ input, ctx }) => {
-			const readQuerySql = ctx.isChatOwner ? getCustomStoryQuerySql : getEditorCustomStoryQuerySql;
+			const { chatId, storySlug, queryId, versionNumber } = input;
 			try {
-				return { sqlQuery: await readQuerySql(input.chatId, input.storySlug, input.queryId) };
+				const sqlQuery = ctx.isChatOwner
+					? await getCustomStoryQuerySql(chatId, storySlug, queryId)
+					: await getEditorCustomStoryQuerySql(chatId, storySlug, queryId, versionNumber);
+				return { sqlQuery };
 			} catch (error) {
 				throw toCustomStoryTrpcError(error);
 			}
