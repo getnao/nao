@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 	linkAutomationJob: vi.fn(),
 	listProjectAutomations: vi.fn(),
 	listUsersWithProjectAccess: vi.fn(),
-	setAutomationWebhookEnabled: vi.fn(),
+	setAutomationEventTriggers: vi.fn(),
 	transferAutomationOwnership: vi.fn(),
 	updateAutomation: vi.fn(),
 	upsertRecurringJob: vi.fn(),
@@ -31,7 +31,7 @@ vi.mock('../src/queries/automation.queries', () => ({
 	getProjectAutomation: mocks.getProjectAutomation,
 	linkAutomationJob: mocks.linkAutomationJob,
 	listProjectAutomations: mocks.listProjectAutomations,
-	setAutomationWebhookEnabled: mocks.setAutomationWebhookEnabled,
+	setAutomationEventTriggers: mocks.setAutomationEventTriggers,
 	transferAutomationOwnership: mocks.transferAutomationOwnership,
 	updateAutomation: mocks.updateAutomation,
 }));
@@ -71,6 +71,16 @@ const webhookAutomation = {
 	cron: '',
 	enabled: false,
 	webhookEnabled: true,
+	eventTriggers: {},
+};
+
+const feedbackAutomation = {
+	id: 'feedback-id',
+	userId: 'owner-id',
+	cron: '',
+	enabled: false,
+	webhookEnabled: false,
+	eventTriggers: { feedback: { enabled: true, votes: ['down'], sources: ['story'] } },
 };
 
 describe('automation admin routes', () => {
@@ -113,7 +123,7 @@ describe('automation admin routes', () => {
 
 		expect(mocks.getProjectAutomation).toHaveBeenCalledWith('project-id', 'scheduled-id');
 		expect(mocks.upsertRecurringJob).toHaveBeenCalledWith(expect.objectContaining({ status: 'paused' }));
-		expect(mocks.setAutomationWebhookEnabled).not.toHaveBeenCalled();
+		expect(mocks.setAutomationEventTriggers).not.toHaveBeenCalled();
 	});
 
 	it('turns off the webhook trigger of a webhook-only automation', async () => {
@@ -124,7 +134,10 @@ describe('automation admin routes', () => {
 			enabled: false,
 		});
 
-		expect(mocks.setAutomationWebhookEnabled).toHaveBeenCalledWith('webhook-id', false);
+		expect(mocks.setAutomationEventTriggers).toHaveBeenCalledWith('webhook-id', {
+			webhookEnabled: false,
+			eventTriggers: {},
+		});
 		expect(mocks.upsertRecurringJob).not.toHaveBeenCalled();
 		expect(result.webhookEnabled).toBe(false);
 	});
@@ -144,8 +157,33 @@ describe('automation admin routes', () => {
 		const result = await createCaller('admin-id').automation.setEnabledAsAdmin({ id: 'webhook-id', enabled: true });
 
 		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-id');
-		expect(mocks.setAutomationWebhookEnabled).toHaveBeenCalledWith('webhook-id', true);
+		expect(mocks.setAutomationEventTriggers).toHaveBeenCalledWith('webhook-id', {
+			webhookEnabled: true,
+			eventTriggers: {},
+		});
 		expect(result.webhookEnabled).toBe(true);
+	});
+
+	it('pauses and resumes the feedback trigger of a feedback-only automation', async () => {
+		mocks.getProjectAutomation.mockResolvedValue(feedbackAutomation);
+		const paused = await createCaller('admin-id').automation.setEnabledAsAdmin({
+			id: 'feedback-id',
+			enabled: false,
+		});
+
+		expect(mocks.setAutomationEventTriggers).toHaveBeenCalledWith('feedback-id', {
+			webhookEnabled: false,
+			eventTriggers: { feedback: { ...feedbackAutomation.eventTriggers.feedback, enabled: false } },
+		});
+
+		mocks.getProjectAutomation.mockResolvedValue(paused);
+		const resumed = await createCaller('admin-id').automation.setEnabledAsAdmin({
+			id: 'feedback-id',
+			enabled: true,
+		});
+
+		expect(resumed.webhookEnabled).toBe(false);
+		expect(resumed.eventTriggers).toEqual(feedbackAutomation.eventTriggers);
 	});
 
 	it('refuses to enable an automation without billing access', async () => {

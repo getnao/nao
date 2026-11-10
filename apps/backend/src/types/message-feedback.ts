@@ -6,3 +6,12 @@ export type FeedbackWithDetails = {
 	userName: string;
 	messageText: string | null;
 };
+
+export type RatedMessageContext = {
+	chatId: string;
+	chatTitle: string;
+	projectId: string;
+	chatOwnerId: string;
+	question: string | null;
+	answer: string | null;
+};

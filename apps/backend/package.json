@@ -17,7 +17,8 @@
 		"./shared-chat": "./src/queries/shared-chat.queries.ts",
 		"./db": "./src/db/db.ts",
 		"./schema": "./src/db/abstractSchema.ts",
-		"./license-types": "./src/types/license.ts"
+		"./license-types": "./src/types/license.ts",
+		"./monitoring": "./src/types/monitoring.ts"
 	},
 	"scripts": {
 		"dev": "PATH=\"$(cd ../../cli && pwd)/.venv/bin:$PATH\" bun --watch src/index.ts",

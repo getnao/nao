@@ -2,8 +2,14 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 const CHAT_INPUT_BORDER_STROKE = 1;
 
-/** Static, the border is shown at once in its focused colors instead of being drawn in. */
-export function ChatInputAnimatedBorder({ isStatic = false }: { isStatic?: boolean }) {
+/** Static, the border keeps its focused colors and is shown at once, unless it is still drawn in. */
+export function ChatInputAnimatedBorder({
+	isStatic = false,
+	isDrawnIn = !isStatic,
+}: {
+	isStatic?: boolean;
+	isDrawnIn?: boolean;
+}) {
 	const containerRef = useRef<HTMLSpanElement>(null);
 	const gradientId = useId();
 	const [{ width, height, radius }, setGeometry] = useState({ width: 0, height: 0, radius: 0 });
@@ -48,8 +54,7 @@ export function ChatInputAnimatedBorder({ isStatic = false }: { isStatic?: boole
 	}, []);
 
 	const hasSize = width > 0 && height > 0;
-	const inset = CHAT_INPUT_BORDER_STROKE / 2;
-	const strokeRadius = Math.max(Math.min(radius, width / 2, height / 2) - inset, 0);
+	const strokeRadius = Math.min(radius, width / 2, height / 2);
 	const isHighlighted = isStatic || isFocused;
 	const strokeColor = isHighlighted ? 'var(--primary)' : 'var(--muted-foreground)';
 
@@ -78,11 +83,9 @@ export function ChatInputAnimatedBorder({ isStatic = false }: { isStatic?: boole
 						</linearGradient>
 					</defs>
 					<rect
-						className={isStatic ? undefined : 'chat-input-border-path'}
-						x={inset}
-						y={inset}
-						width={width - CHAT_INPUT_BORDER_STROKE}
-						height={height - CHAT_INPUT_BORDER_STROKE}
+						className={isDrawnIn ? 'chat-input-border-path' : undefined}
+						width={width}
+						height={height}
 						rx={strokeRadius}
 						ry={strokeRadius}
 						pathLength={100}

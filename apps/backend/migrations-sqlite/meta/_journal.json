@@ -705,15 +705,29 @@
     {
       "idx": 100,
       "version": "6",
-      "when": 1794140166541,
-      "tag": "0100_two_factor_auth",
+      "when": 1794262120148,
+      "tag": "0100_automation_event_triggers",
       "breakpoints": true
     },
     {
       "idx": 101,
       "version": "6",
-      "when": 1794158196198,
-      "tag": "0101_two_factor_requirement",
+      "when": 1794297262123,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1794303455394,
+      "tag": "0102_two_factor_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "6",
+      "when": 1794303927835,
+      "tag": "0103_two_factor_requirement",
       "breakpoints": true
     }
   ]

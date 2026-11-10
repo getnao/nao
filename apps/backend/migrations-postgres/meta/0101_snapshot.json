@@ -1,6 +1,6 @@
 {
-  "id": "3bcadeb2-ae84-470d-967a-74d207d76e1f",
-  "prevId": "6909e685-846e-442e-8982-0cea55649f74",
+  "id": "bfd0da27-c446-4300-8996-b49b11a913d3",
+  "prevId": "644504db-b7a5-45c8-95dd-f422bed94bbb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -939,6 +939,13 @@
           "notNull": true,
           "default": false
         },
+        "event_triggers": {
+          "name": "event_triggers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -1076,6 +1083,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'running'"
+        },
+        "trigger": {
+          "name": "trigger",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "started_at": {
           "name": "started_at",
@@ -6574,12 +6587,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "two_factor_grace_restarted_at": {
-          "name": "two_factor_grace_restarted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -6693,26 +6700,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "two_factor_methods": {
-          "name": "two_factor_methods",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[\"totp\",\"email\"]'::jsonb"
-        },
-        "two_factor_required_at": {
-          "name": "two_factor_required_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "two_factor_grace_period_days": {
-          "name": "two_factor_grace_period_days",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 7
         },
         "created_at": {
           "name": "created_at",
@@ -10888,93 +10875,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.two_factor": {
-      "name": "two_factor",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "secret": {
-          "name": "secret",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "backup_codes": {
-          "name": "backup_codes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "verified": {
-          "name": "verified",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "failed_verification_count": {
-          "name": "failed_verification_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "locked_until": {
-          "name": "locked_until",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "two_factor_user_id_unique": {
-          "name": "two_factor_user_id_unique",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "two_factor_user_id_user_id_fk": {
-          "name": "two_factor_user_id_user_id_fk",
-          "tableFrom": "two_factor",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.user": {
       "name": "user",
       "schema": "",
@@ -11047,13 +10947,6 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
-        },
-        "two_factor_enabled": {
-          "name": "two_factor_enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "created_at": {
           "name": "created_at",

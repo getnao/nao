@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { getMissingSkillGrants, toggleSkillGrant } from './user-group-skills';
+import {
+	filterGrantedPreloads,
+	getMissingSkillGrants,
+	getSpecificSkillsAccess,
+	toggleSkillGrant,
+} from './user-group-skills';
 import type { SkillsAccess } from '@nao/shared';
 
 vi.mock('@/main', () => ({ trpc: {} }));
@@ -19,5 +24,34 @@ describe('user group skills toggles', () => {
 			getMissingSkillGrants({ mode: 'restricted', skills: ['removed', 'revenue'] }, [{ name: 'revenue' }]),
 		).toEqual(['removed']);
 		expect(getMissingSkillGrants({ mode: 'all' }, [])).toEqual([]);
+	});
+});
+
+describe('user group skills specific selection', () => {
+	const savedAccess: SkillsAccess = { mode: 'restricted', skills: ['revenue'] };
+
+	it('grants the preloaded skills when licensed', () => {
+		expect(getSpecificSkillsAccess({ mode: 'all' }, savedAccess, ['churn'], true)).toEqual({
+			mode: 'restricted',
+			skills: ['churn'],
+		});
+	});
+
+	it('restores the saved access when unlicensed so Everything can be undone', () => {
+		expect(getSpecificSkillsAccess({ mode: 'all' }, savedAccess, ['churn'], false)).toEqual(savedAccess);
+		expect(getSpecificSkillsAccess({ mode: 'all' }, { mode: 'all' }, [], false)).toEqual({ mode: 'all' });
+	});
+
+	it('keeps an existing restricted selection', () => {
+		const access: SkillsAccess = { mode: 'restricted', skills: [] };
+		expect(getSpecificSkillsAccess(access, savedAccess, [], false)).toBe(access);
+	});
+
+	it('drops preloads that neither the restored selection nor All Users grants', () => {
+		const inheritedAccess: SkillsAccess = { mode: 'restricted', skills: ['churn'] };
+		expect(filterGrantedPreloads(['revenue', 'churn', 'pricing'], savedAccess, inheritedAccess)).toEqual([
+			'revenue',
+			'churn',
+		]);
 	});
 });
