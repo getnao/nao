@@ -30,8 +30,9 @@ function resolveMapToken(token: string, mapEmbedId: string) {
 }
 
 export const embedRoutes = router({
-	getStory: publicProcedure.input(tokenInput.extend({ storyId: z.string() })).query(async ({ input }) => {
-		const story = await loadEmbedStoryContent(input.storyId, input.token);
+	getStory: publicProcedure.input(tokenInput.extend({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		const viewerId = ctx.session?.user?.id;
+		const story = await loadEmbedStoryContent(input.storyId, input.token, viewerId);
 		logAnalyticsEvent({
 			projectId: story.projectId,
 			type: 'page_view',
@@ -127,8 +128,9 @@ export const embedRoutes = router({
 
 	downloadStory: publicProcedure
 		.input(tokenInput.extend({ storyId: z.string(), format: z.enum(['pdf', 'html']) }))
-		.mutation(async ({ input }) => {
-			const story = await loadEmbedStoryContent(input.storyId, input.token);
+		.mutation(async ({ input, ctx }) => {
+			const viewerId = ctx.session?.user?.id;
+			const story = await loadEmbedStoryContent(input.storyId, input.token, viewerId);
 			logAnalyticsEvent({
 				projectId: story.projectId,
 				type: 'download',
