@@ -45,7 +45,6 @@ import {
 	PROVIDER_META,
 } from './provider-meta';
 import { TOOL_RESULT_CLEARING_EDIT } from './tool-result-clearing';
-import { withUnforcedToolUse } from './unforced-tool-use';
 import { withWellFormedPrompt } from './well-formed-prompt';
 
 export {
@@ -147,7 +146,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			const config = { project, location, baseURL: settings.baseURL, googleAuthOptions };
 
 			if (modelId.startsWith('claude-')) {
-				return withUnforcedToolUse(createVertexAnthropic(config)(modelId));
+				return createVertexAnthropic({ ...config, fetch: fetchWithUnforcedToolChoice })(modelId);
 			}
 			return createVertex(config)(modelId);
 		},
@@ -666,6 +665,18 @@ function mergeProviderOverrides(
 	}
 	return merged;
 }
+
+/**
+ * The newest Claude models reject a forced tool call, which the SDK sends for `toolChoice: 'required'` and, on
+ * Vertex, for every structured output. Every Claude model accepts the same request with `auto`.
+ */
+const fetchWithUnforcedToolChoice = ((input, init) => {
+	const body = JSON.parse(init?.body as string);
+	if (body.tool_choice?.type === 'any') {
+		body.tool_choice.type = 'auto';
+	}
+	return fetch(input, { ...init, body: JSON.stringify(body) });
+}) as typeof fetch;
 
 function getProviderModelConfig<P extends LlmProviderKind>(provider: P, modelId: string): ProviderConfigMap[P] {
 	const model = LLM_PROVIDERS[provider].models.find((m) => m.id === modelId);
