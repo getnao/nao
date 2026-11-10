@@ -1,7 +1,8 @@
 import { and, eq, inArray, isNotNull, like } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBTransaction, type Lockable } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import type { TwoFactorGracePeriod, TwoFactorMethod } from '../types/two-factor';
 
 const TRUST_DEVICE_IDENTIFIER_PREFIX = 'trust-device-';
@@ -12,9 +13,21 @@ export interface OrganizationTwoFactorRequirement {
 	gracePeriodDays: number;
 }
 
+export interface OrganizationTwoFactorSettings {
+	twoFactorMethods: TwoFactorMethod[];
+	twoFactorRequiredAt: Date | null;
+	twoFactorGracePeriodDays: number;
+}
+
 export interface MemberTwoFactorGracePeriod extends TwoFactorGracePeriod {
 	userId: string;
 }
+
+const settingsColumns = {
+	twoFactorMethods: s.organization.twoFactorMethods,
+	twoFactorRequiredAt: s.organization.twoFactorRequiredAt,
+	twoFactorGracePeriodDays: s.organization.twoFactorGracePeriodDays,
+};
 
 const gracePeriodColumns = {
 	requiredAt: s.organization.twoFactorRequiredAt,
@@ -84,8 +97,34 @@ export const getOrganizationTwoFactorMethods = async (orgId: string): Promise<Tw
 	return org?.methods ?? [];
 };
 
-export const updateOrganizationTwoFactorMethods = async (orgId: string, methods: TwoFactorMethod[]): Promise<void> => {
-	await db.update(s.organization).set({ twoFactorMethods: methods }).where(eq(s.organization.id, orgId)).execute();
+/**
+ * Reads and saves the organization's two-factor settings atomically, so that concurrent admin changes
+ * cannot each pass their checks against stale settings. `change` throws to reject the update.
+ * The SQLite body must stay synchronous, see `updateProjectSettings`.
+ */
+export const updateOrganizationTwoFactorSettings = async (
+	orgId: string,
+	change: (current: OrganizationTwoFactorSettings) => Partial<OrganizationTwoFactorSettings>,
+): Promise<void> => {
+	const selectSettings = (tx: DBTransaction) => {
+		return tx.select(settingsColumns).from(s.organization).where(eq(s.organization.id, orgId));
+	};
+	const updateSettings = (tx: DBTransaction, current?: OrganizationTwoFactorSettings) => {
+		if (!current) {
+			throw new Error(`Organization not found: ${orgId}`);
+		}
+		return tx.update(s.organization).set(change(current)).where(eq(s.organization.id, orgId));
+	};
+
+	await db.transaction((tx) => {
+		if (dbConfig.dialect === Dialect.Postgres) {
+			return (async () => {
+				const [current] = await lockForUpdate(selectSettings(tx)).execute();
+				await updateSettings(tx, current).execute();
+			})();
+		}
+		updateSettings(tx, selectSettings(tx).get()).run();
+	});
 };
 
 /** Grace periods of every organization of the user that requires two-factor authentication. */
@@ -141,23 +180,6 @@ export const getOrganizationTwoFactorRequirement = async (orgId: string): Promis
 	return { required: !!org?.requiredAt, gracePeriodDays: org?.gracePeriodDays ?? 0 };
 };
 
-/** Keeps the original date when the requirement was already on, so changing the grace period does not restart it. */
-export const updateOrganizationTwoFactorRequirement = async (
-	orgId: string,
-	{ required, gracePeriodDays }: OrganizationTwoFactorRequirement,
-): Promise<void> => {
-	const current = await getOrganizationTwoFactorRequirement(orgId);
-	const requiredAt = required ? (current.required ? undefined : new Date()) : null;
-	await db
-		.update(s.organization)
-		.set({
-			twoFactorGracePeriodDays: gracePeriodDays,
-			...(requiredAt !== undefined ? { twoFactorRequiredAt: requiredAt } : {}),
-		})
-		.where(eq(s.organization.id, orgId))
-		.execute();
-};
-
 export const restartMemberTwoFactorGracePeriod = async (orgId: string, userId: string): Promise<void> => {
 	await db
 		.update(s.orgMember)
@@ -182,3 +204,7 @@ export const resetUserTwoFactor = async (userId: string): Promise<void> => {
 			.execute();
 	});
 };
+
+function lockForUpdate<Query extends { execute(): unknown }>(query: Query): Query {
+	return (query as Query & Lockable<Query>).for('update');
+}

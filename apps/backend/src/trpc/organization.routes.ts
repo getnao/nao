@@ -116,19 +116,10 @@ export const organizationRoutes = {
 		.input(z.object({ methods: z.array(z.enum(TWO_FACTOR_METHODS)) }))
 		.mutation(async ({ input, ctx }) => {
 			const methods = TWO_FACTOR_METHODS.filter((method) => input.methods.includes(method));
-			const storedMethods = await twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id);
-			const isAddingEmail = methods.includes('email') && !storedMethods.includes('email');
-			if (isAddingEmail && !isTwoFactorEmailAvailable()) {
-				throw new TRPCError({
-					code: 'BAD_REQUEST',
-					message: 'Email codes require an email provider to be configured.',
-				});
-			}
-			const { required } = await twoFactorQueries.getOrganizationTwoFactorRequirement(ctx.org.id);
-			if (required) {
-				assertSomeMethodUsable(methods);
-			}
-			await twoFactorQueries.updateOrganizationTwoFactorMethods(ctx.org.id, methods);
+			await twoFactorQueries.updateOrganizationTwoFactorSettings(ctx.org.id, (current) => {
+				assertMethodsCanBeAllowed(methods, current);
+				return { twoFactorMethods: methods };
+			});
 			return { methods };
 		}),
 
@@ -140,10 +131,15 @@ export const organizationRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			if (input.required) {
-				assertSomeMethodUsable(await twoFactorQueries.getOrganizationTwoFactorMethods(ctx.org.id));
-			}
-			await twoFactorQueries.updateOrganizationTwoFactorRequirement(ctx.org.id, input);
+			await twoFactorQueries.updateOrganizationTwoFactorSettings(ctx.org.id, (current) => {
+				if (input.required) {
+					assertSomeMethodUsable(current.twoFactorMethods);
+				}
+				return {
+					twoFactorGracePeriodDays: input.gracePeriodDays,
+					twoFactorRequiredAt: resolveTwoFactorRequiredAt(input.required, current.twoFactorRequiredAt),
+				};
+			});
 			return input;
 		}),
 
@@ -307,6 +303,30 @@ async function assertDomainsClaimable(orgId: string, domains: string[]): Promise
 }
 
 /** Requiring two-factor authentication only makes sense while members can set up at least one method. */
+function assertMethodsCanBeAllowed(
+	methods: TwoFactorMethod[],
+	current: twoFactorQueries.OrganizationTwoFactorSettings,
+): void {
+	const isAddingEmail = methods.includes('email') && !current.twoFactorMethods.includes('email');
+	if (isAddingEmail && !isTwoFactorEmailAvailable()) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Email codes require an email provider to be configured.',
+		});
+	}
+	if (current.twoFactorRequiredAt) {
+		assertSomeMethodUsable(methods);
+	}
+}
+
+/** Keeps the original date while the requirement stays on, so changing the grace period does not restart it. */
+function resolveTwoFactorRequiredAt(required: boolean, currentRequiredAt: Date | null): Date | null {
+	if (!required) {
+		return null;
+	}
+	return currentRequiredAt ?? new Date();
+}
+
 function assertSomeMethodUsable(methods: TwoFactorMethod[]): void {
 	const usableMethods = methods.filter((method) => method !== 'email' || isTwoFactorEmailAvailable());
 	if (!usableMethods.length) {
