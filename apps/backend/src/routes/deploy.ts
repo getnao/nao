@@ -45,11 +45,9 @@ export const deployRoutes = async (app: App) => {
 			fs.mkdirSync(extractDir, { recursive: true });
 			execFileSync('tar', ['xzf', tarPath, '-C', extractDir], { timeout: 30_000 });
 
-			const unsupportedEntry = findUnsupportedEntry(extractDir);
-			if (unsupportedEntry) {
-				return reply.status(400).send({
-					error: `Archive entry "${unsupportedEntry}" is not a regular file or directory. Symlinks and special files are not allowed.`,
-				});
+			const rejection = findArchiveRejection(extractDir);
+			if (rejection) {
+				return reply.status(400).send({ error: rejection });
 			}
 
 			const configPath = path.join(extractDir, 'nao_config.yaml');
@@ -104,19 +102,41 @@ export const deployRoutes = async (app: App) => {
 	});
 };
 
-function findUnsupportedEntry(root: string, relativeDir = ''): string | null {
-	for (const entry of fs.readdirSync(path.join(root, relativeDir), { withFileTypes: true })) {
+/**
+ * Why the archive cannot become a project folder, if it cannot. Git metadata is refused because the
+ * server runs git in project folders, and a repository's own config and hooks can make git run commands.
+ */
+function findArchiveRejection(root: string, relativeDir = ''): string | null {
+	const entries = fs.readdirSync(path.join(root, relativeDir), { withFileTypes: true });
+	if (isGitDirectoryLayout(entries)) {
+		return `Archive folder "${relativeDir || '.'}" is laid out as a Git repository. Git metadata is not allowed.`;
+	}
+
+	for (const entry of entries) {
 		const relativePath = path.join(relativeDir, entry.name);
+		if (isGitMetadataName(entry.name)) {
+			return `Archive entry "${relativePath}" is Git metadata, which is not allowed. Deploy the project files without it.`;
+		}
 		if (entry.isDirectory()) {
-			const nested = findUnsupportedEntry(root, relativePath);
+			const nested = findArchiveRejection(root, relativePath);
 			if (nested) {
 				return nested;
 			}
 		} else if (!entry.isFile()) {
-			return relativePath;
+			return `Archive entry "${relativePath}" is not a regular file or directory. Symlinks and special files are not allowed.`;
 		}
 	}
 	return null;
+}
+
+function isGitMetadataName(name: string): boolean {
+	return name.toLowerCase() === '.git';
+}
+
+/** Git also treats a folder as a repository, whatever its name, when it holds what a `.git` folder holds. */
+function isGitDirectoryLayout(entries: fs.Dirent[]): boolean {
+	const names = new Set(entries.map((entry) => entry.name.toLowerCase()));
+	return names.has('head') && (names.has('commondir') || (names.has('objects') && names.has('refs')));
 }
 
 function copyDirectoryContents(src: string, dest: string): void {
