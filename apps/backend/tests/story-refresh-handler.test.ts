@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
 	failActivity: vi.fn(),
 	deleteStoryViewerDataCache: vi.fn(),
 	deliverStoryOnRefresh: vi.fn(),
-	hasRowSecurity: vi.fn(),
 	refreshStoryData: vi.fn(),
 	warmStoryFilterOptions: vi.fn(),
 }));
@@ -26,7 +25,6 @@ vi.mock('../src/queries/activity.queries', () => ({
 	failActivity: mocks.failActivity,
 }));
 vi.mock('../src/services/live-story', () => ({
-	hasRowSecurity: mocks.hasRowSecurity,
 	refreshStoryData: mocks.refreshStoryData,
 }));
 vi.mock('../src/services/story-filter-options', () => ({
@@ -62,7 +60,6 @@ describe('scheduled Story refresh principal', () => {
 			userId: 'owner-1',
 		});
 		mocks.startStoryRefreshActivity.mockResolvedValue({ id: 'activity-1' });
-		mocks.hasRowSecurity.mockResolvedValue(false);
 		mocks.refreshStoryData.mockResolvedValue({ queryData: {} });
 		mocks.deliverStoryOnRefresh.mockResolvedValue(undefined);
 		mocks.warmStoryFilterOptions.mockResolvedValue(undefined);
@@ -76,9 +73,7 @@ describe('scheduled Story refresh principal', () => {
 		});
 	});
 
-	it('invalidates viewer caches and delivers recipient snapshots for row-security projects', async () => {
-		mocks.hasRowSecurity.mockResolvedValue(true);
-
+	it('invalidates viewer caches and delivers recipient snapshots after every refresh', async () => {
 		await runScheduledStoryRefresh('story-1');
 
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {

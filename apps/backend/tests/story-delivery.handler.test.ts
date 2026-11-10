@@ -171,7 +171,12 @@ it('renders and sends a separate snapshot with each recipient row-security conte
 });
 
 it('skips a removed recipient before generating their row-security snapshot', async () => {
-	mocks.hasRowSecurity.mockResolvedValue(true);
+	mocks.hasRowSecurity.mockImplementation(async (_projectId: string, userId: string) => {
+		if (userId === 'removed-user') {
+			throw new Error('You do not have access to this project.');
+		}
+		return true;
+	});
 	mocks.resolveDeliveryRecipientUserIds.mockResolvedValue(['removed-user', 'active-user']);
 	mocks.getUserRoleInProject.mockImplementation(async (_projectId: string, userId: string) =>
 		userId === 'removed-user' ? null : 'viewer',
@@ -184,6 +189,8 @@ it('skips a removed recipient before generating their row-security snapshot', as
 
 	await runScheduledStoryDelivery('story-id');
 
+	expect(mocks.hasRowSecurity).toHaveBeenCalledWith('project-id', 'active-user');
+	expect(mocks.hasRowSecurity).not.toHaveBeenCalledWith('project-id', 'removed-user');
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledOnce();
 	expect(mocks.refreshStoryDataForDelivery).toHaveBeenCalledWith(
 		'chat-id',

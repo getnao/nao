@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryByChatAndSlug: vi.fn(),
 	getStoryById: vi.fn(),
 	getStoryOwnerId: vi.fn(),
+	deleteStoryViewerDataCache: vi.fn(),
 	startStoryRefreshActivity: vi.fn(),
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock('../src/queries/story.queries', () => ({
 	getStoryById: mocks.getStoryById,
 	getStoryOwnerId: mocks.getStoryOwnerId,
 	getStoryProjectId: vi.fn(async () => null),
+	deleteStoryViewerDataCache: mocks.deleteStoryViewerDataCache,
 }));
 vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
@@ -55,7 +57,6 @@ vi.mock('../src/services/cloud-billing-access.service', () => ({
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
 	getStoryQueryData: mocks.getStoryQueryData,
-	hasRowSecurity: vi.fn(async () => false),
 	refreshStoryData: mocks.refreshStoryData,
 }));
 vi.mock('../src/services/story-filters', () => ({
@@ -243,6 +244,7 @@ describe('shared Story manual refresh', () => {
 			trigger: 'manual',
 		});
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });
+		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1');
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'owner-1' }));
 	});
 

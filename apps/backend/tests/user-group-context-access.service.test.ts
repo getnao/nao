@@ -218,7 +218,7 @@ describe('warehouse Context access', () => {
 		});
 	});
 
-	it('keeps licensed row-security policy resolution unchanged', async () => {
+	it('keeps viewer-specific data when strict catalog access has full row access', async () => {
 		const orders = {
 			databaseType: 'postgres',
 			database: 'analytics',
@@ -245,7 +245,7 @@ describe('warehouse Context access', () => {
 				tables: [{ ...orders, constraintColumns: ['tenant_id'], access: 'full' }],
 			},
 		});
-		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(false);
+		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(true);
 	});
 
 	it('keeps viewer-specific data when table access is restricted despite full row access', async () => {

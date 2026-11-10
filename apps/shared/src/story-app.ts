@@ -98,6 +98,8 @@ export interface StoryQueryResult {
 export type StoryNarratives = Record<string, string>;
 
 export const STORY_NARRATIVES_REDACT_MISSING_KEY = '__nao_redact_missing_narratives__';
+export const STORY_VIEWER_RESTRICTED_CODE_MARKER =
+	'<!-- nao-internal:viewer-restricted-code:8f14e45f-ea4a-4c14-a947-16f95e8e7f65 -->';
 
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;

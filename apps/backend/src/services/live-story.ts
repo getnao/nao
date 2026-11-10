@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
-import { STORY_NARRATIVES_REDACT_MISSING_KEY, type StoryNarratives } from '@nao/shared/story-app';
+import {
+	STORY_NARRATIVES_REDACT_MISSING_KEY,
+	STORY_VIEWER_RESTRICTED_CODE_MARKER,
+	type StoryNarratives,
+} from '@nao/shared/story-app';
 import { extractQueryIds, TAG_ATTRS } from '@nao/shared/story-segments';
 import { formatColumnLabel } from '@nao/shared/story-table-utils';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
@@ -21,7 +25,6 @@ import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
-import * as userGroupQueries from '../queries/user-group.queries';
 import type { StoryQuerySources } from '../types/story-cache';
 import type { QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
@@ -183,16 +186,22 @@ async function refreshStoryDataWithContext(
 	const target = { projectId: chat.projectId, userId: options.viewerUserId ?? chat.userId, chatId };
 	if (shouldGenerateClassicCode) {
 		const generationSource = shouldGenerateViewerCode ? buildViewerSafeStorySource(version.code) : version.code;
-		const newCode =
-			Object.keys(queryData).length > 0
-				? await generateDynamicStoryCode(
-						target,
-						shouldGenerateViewerCode ? 'Story' : version.title,
-						generationSource,
-						queryData,
-						shouldGenerateViewerCode,
-					)
-				: null;
+		let newCode: string | null = null;
+		if (Object.keys(queryData).length > 0) {
+			try {
+				newCode = await generateDynamicStoryCode(
+					target,
+					shouldGenerateViewerCode ? 'Story' : version.title,
+					generationSource,
+					queryData,
+					shouldGenerateViewerCode,
+				);
+			} catch (error) {
+				if (!shouldGenerateViewerCode) {
+					throw error;
+				}
+			}
+		}
 		if (newCode && !options.viewerUserId) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
 		}
@@ -385,12 +394,6 @@ async function getViewerStoryQueryData(
 	}
 }
 
-export async function hasRowSecurity(chatId: string): Promise<boolean> {
-	const projectId = await requireChatProjectId(chatId);
-	const { tables } = await userGroupQueries.getProjectRowSecurity(projectId);
-	return tables.length > 0;
-}
-
 export async function requiresViewerStoryData(chatId: string, userId: string): Promise<boolean> {
 	return hasEffectiveWarehouseRestrictions(await requireChatProjectId(chatId), userId);
 }
@@ -459,6 +462,7 @@ function normalizeEffectiveSql(sql: string): string {
 export interface StoryExecutionContext {
 	toolContext: ToolContext;
 	enforceExcludedColumns: boolean;
+	isViewerScoped: boolean;
 	viewerCacheRevision: number;
 	permissionRevision: string;
 }
@@ -522,11 +526,11 @@ export async function executeStoryQueries(
 
 		const lineage = new Set([...ancestors, queryId]);
 		const upstreamIds = referencedQueryIds(sql).filter((id) => id in queries && !lineage.has(id));
-		await Promise.all(
-			upstreamIds.map(async (id) => {
-				executionContext.toolContext.queryResults.set(id, await run(id, lineage));
-			}),
-		);
+		const upstreamResults = await Promise.all(upstreamIds.map(async (id) => [id, await run(id, lineage)] as const));
+		if (upstreamResults.some(([, result]) => result.accessDenied)) {
+			return { data: [], columns: [], accessDenied: true };
+		}
+		upstreamResults.forEach(([id, result]) => executionContext.toolContext.queryResults.set(id, result));
 		return executeLocalSql(sql, executionContext.toolContext);
 	};
 
@@ -588,7 +592,7 @@ async function executeBillingValidatedRawSql(
 		);
 		return { data: data.data, columns: data.columns };
 	} catch (error) {
-		if (error instanceof WarehouseSqlError && error.status === 403) {
+		if (options.executionContext.isViewerScoped && error instanceof WarehouseSqlError && error.status === 403) {
 			return { data: [], columns: [], accessDenied: true };
 		}
 		throw error;
@@ -657,6 +661,7 @@ export async function createStoryExecutionContext(chatId: string, userId?: strin
 	return {
 		toolContext,
 		enforceExcludedColumns,
+		isViewerScoped: userId !== undefined,
 		viewerCacheRevision,
 		permissionRevision: createHash('sha256')
 			.update(
@@ -975,7 +980,10 @@ function buildViewerSafeStorySource(code: string): string {
 			return line.trim() ? 'Viewer-specific narrative.' : '';
 		})
 		.join('\n');
-	return redacted.replace(/@@NAO_STORY_TAG_(\d+)@@/g, (_placeholder, index: string) => tags[Number(index)] ?? '');
+	return `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${redacted.replace(
+		/@@NAO_STORY_TAG_(\d+)@@/g,
+		(_placeholder, index: string) => tags[Number(index)] ?? '',
+	)}`;
 }
 
 function storyStructureTokenRegex(): RegExp {

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { STORY_VIEWER_RESTRICTED_CODE_MARKER } from '@nao/shared/story-app';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -380,7 +381,7 @@ describe('live story SQL execution', () => {
 		);
 	});
 
-	it('keeps table-access denials local to the affected story query', async () => {
+	it('fails an owner refresh when the warehouse denies table access', async () => {
 		const code = '<table query_id="query_orders" />\n<table query_id="query_customers" />';
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
 			code,
@@ -409,27 +410,10 @@ describe('live story SQL execution', () => {
 			}),
 		);
 
-		await expect(getStoryQueryData('chat-1', 'orders', code, true, null)).resolves.toMatchObject({
-			queryData: {
-				query_orders: {
-					columns: ['order_count'],
-					data: [{ order_count: 99 }],
-				},
-			},
-		});
-		expect(mocks.upsertStoryDataCache).toHaveBeenCalledWith(
-			'chat-1',
-			'orders',
-			{
-				query_orders: {
-					columns: ['order_count'],
-					data: [{ order_count: 99 }],
-				},
-				query_customers: { columns: [], data: [], accessDenied: true },
-			},
-			expect.any(Object),
-			{},
+		await expect(refreshStoryData('chat-1', 'orders')).rejects.toThrow(
+			'Warehouse SQL request denied: Query blocked by Context table permissions.',
 		);
+		expect(mocks.upsertStoryDataCache).not.toHaveBeenCalled();
 	});
 
 	it('refreshes a local query in DuckDB after re-running the warehouse query it reads from', async () => {
@@ -486,6 +470,59 @@ describe('live story SQL execution', () => {
 			'SELECT region, sum(amount) AS total FROM query_upstream GROUP BY region',
 			expect.objectContaining({ chatId: 'chat-1' }),
 		);
+	});
+
+	it('propagates denied upstream access without running dependent local queries', async () => {
+		const code = '<chart query_id="query_local" />\n<chart query_id="query_allowed" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_local: {
+				sqlQuery: 'SELECT count(*) AS customer_count FROM query_customers',
+				databaseId: 'duckdb_local',
+				adminMode: false,
+			},
+			query_allowed: {
+				sqlQuery: 'SELECT count(*) AS order_count FROM orders',
+				databaseId: 'analytics',
+				adminMode: false,
+			},
+		});
+		mocks.getSqlQueriesByIds.mockResolvedValue({
+			query_customers: {
+				sqlQuery: 'SELECT * FROM customers',
+				databaseId: 'analytics',
+				adminMode: false,
+			},
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_url: string, init: { body: string }) => {
+				const { sql } = JSON.parse(init.body) as { sql: string };
+				return sql.includes('customers')
+					? Response.json({ detail: 'Query blocked by Context table permissions.' }, { status: 403 })
+					: Response.json({ columns: ['order_count'], data: [{ order_count: 99 }], row_count: 1 });
+			}),
+		);
+
+		await expect(refreshStoryData('chat-1', 'sales', { viewerUserId: 'viewer-1' })).resolves.toEqual({
+			queryData: {
+				query_allowed: {
+					columns: ['order_count'],
+					data: [{ order_count: 99 }],
+				},
+			},
+			narratives: {},
+		});
+
+		expect(mocks.runQueryOnLocalFiles).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]![6]).toEqual({
+			query_local: { columns: [], data: [], accessDenied: true },
+			query_allowed: {
+				columns: ['order_count'],
+				data: [{ order_count: 99 }],
+			},
+		});
+		expect(mocks.upsertStoryDataCache).not.toHaveBeenCalled();
 	});
 
 	it('compiles a semantic story query again so the current metric definitions apply', async () => {
@@ -650,7 +687,7 @@ describe('live story SQL execution', () => {
 
 	it('renders a safe story shell when every viewer query is access denied', async () => {
 		const ownerCode = 'Owner-only customer narrative.\n<table query_id="query_customers" />';
-		const safeCode = 'Viewer-specific narrative.\n<table query_id="query_customers" />';
+		const safeCode = `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\nViewer-specific narrative.\n<table query_id="query_customers" />`;
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
 		mocks.getVersionById.mockResolvedValue({
 			id: 'version-1',
@@ -1080,6 +1117,9 @@ describe('live story SQL execution', () => {
 			rows: [{ id: 1 }],
 			rowCount: 1,
 		});
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+		mocks.generateText.mockRejectedValue(new Error('Generation failed'));
 
 		await expect(
 			refreshStoryDataForDelivery('chat-1', 'orders', {
@@ -1087,11 +1127,12 @@ describe('live story SQL execution', () => {
 				generateViewerCode: true,
 			}),
 		).resolves.toMatchObject({
-			code: 'Viewer-specific narrative.\n<table query_id="query_admin" />',
+			code: `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\nViewer-specific narrative.\n<table query_id="query_admin" />`,
 		});
 
+		expect(mocks.generateText).toHaveBeenCalledOnce();
 		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]!.at(-1)).toBe(
-			'Viewer-specific narrative.\n<table query_id="query_admin" />',
+			`${STORY_VIEWER_RESTRICTED_CODE_MARKER}\nViewer-specific narrative.\n<table query_id="query_admin" />`,
 		);
 	});
 

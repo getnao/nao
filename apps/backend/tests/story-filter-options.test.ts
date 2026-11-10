@@ -226,6 +226,7 @@ describe('getStoryFilterOptions', () => {
 	});
 
 	it('returns no options when the options query is unavailable to the viewer', async () => {
+		mocks.hasRowSecurity.mockResolvedValue(true);
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
 			code: '<filter id="customer" type="select" options_query_id="query_customer_options" />',
 		});
@@ -236,10 +237,15 @@ describe('getStoryFilterOptions', () => {
 			query_customer_options: { columns: [], data: [], accessDenied: true },
 		});
 
-		await expect(getStoryFilterOptions('chat-1', 'story', 'customer')).resolves.toEqual({
+		await expect(
+			getStoryFilterOptions('chat-1', 'story', 'customer', {}, { viewerUserId: 'viewer-1' }),
+		).resolves.toEqual({
 			options: [],
 			isComplete: true,
 		});
+
+		expect(mocks.createStoryExecutionContext).toHaveBeenCalledWith('chat-1', 'viewer-1');
+		expect(mocks.getFilterOptionsCache).not.toHaveBeenCalled();
 	});
 
 	it('searches and limits options queries before execution', async () => {

@@ -108,7 +108,7 @@ export async function hasEffectiveWarehouseRestrictions(projectId: string, userI
 		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
 		getProjectRowSecurity(projectId),
 	]);
-	if (effectiveAccess.databaseAccess.mode !== 'all') {
+	if (effectiveAccess.databaseAccess.mode !== 'all' || effectiveAccess.databaseAccess.strict) {
 		return true;
 	}
 	const resolved = resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed);

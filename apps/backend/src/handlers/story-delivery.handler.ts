@@ -186,11 +186,12 @@ async function loadDeliveryContext(
 	const recipientUserIds = requested
 		? resolvedRecipientUserIds.filter((recipientUserId) => requested.has(recipientUserId))
 		: resolvedRecipientUserIds;
-	if (recipientUserIds.length === 0) {
+	const currentRecipientUserIds = await filterCurrentProjectMembers(projectId, recipientUserIds);
+	if (currentRecipientUserIds.length === 0) {
 		return null;
 	}
 
-	return { delivery, story, projectId, recipientUserIds };
+	return { delivery, story, projectId, recipientUserIds: currentRecipientUserIds };
 }
 
 async function deliverRecipientSnapshots(

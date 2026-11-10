@@ -125,6 +125,22 @@ describe('custom story background refresh', () => {
 		).rejects.toThrow('Query data is unavailable with your current access.');
 	});
 
+	it('reports stale viewer query denials as unavailable when refresh fails', async () => {
+		mocks.hasRowSecurity.mockResolvedValue(true);
+		mocks.getStoryViewerDataCache.mockResolvedValue({
+			queryData: { query_orders: { columns: [], data: [], accessDenied: true } },
+			cachedAt: new Date(0),
+		});
+		mocks.isCacheExpired.mockReturnValue(true);
+		mocks.refreshStoryData.mockRejectedValue(new Error('Warehouse unavailable'));
+
+		await expect(
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { viewerUserId: 'viewer-1' }),
+		).rejects.toThrow('Query data is unavailable with your current access.');
+
+		expect(mocks.executeLiveQuery).not.toHaveBeenCalled();
+	});
+
 	it('reads the viewer cache for the requested custom story version', async () => {
 		mocks.getStoryByChatAndSlug.mockResolvedValue({
 			id: 'story-1',

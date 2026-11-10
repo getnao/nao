@@ -2,7 +2,7 @@ import type { DBScheduledJob } from '../db/abstractSchema';
 import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
-import { hasRowSecurity, refreshStoryData } from '../services/live-story';
+import { refreshStoryData } from '../services/live-story';
 import {
 	NotificationChannelDeliveryError,
 	notifyStoryRefreshed,
@@ -65,8 +65,6 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	if (!story.isLive || story.archivedAt) {
 		return;
 	}
-	const rowSecurityEnabled = await hasRowSecurity(story.chatId);
-
 	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
 	const userId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id));
 	if (!projectId || !userId) {
@@ -84,9 +82,7 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 		const { queryData } = await refreshStoryData(story.chatId, story.slug, {
 			billingAccessVerifiedProjectId: projectId,
 		});
-		if (rowSecurityEnabled) {
-			await storyQueries.deleteStoryViewerDataCache(story.id);
-		}
+		await storyQueries.deleteStoryViewerDataCache(story.id);
 		const queriesRefreshed = Object.keys(queryData).length;
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 		await warmFilterOptionsAfterRefresh(story.chatId, story.slug, projectId, storyId);

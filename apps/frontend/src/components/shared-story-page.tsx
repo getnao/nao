@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef } from 'react';
+import { STORY_VIEWER_RESTRICTED_CODE_MARKER } from '@nao/shared/story-app';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
@@ -340,16 +341,18 @@ function SharedStoryContent({
 }
 
 export function prepareRestrictedStoryCode(code: string): { code: string; hasRestrictedContent: boolean } {
-	let hasRestrictedContent = false;
+	if (!code.split('\n').some((line) => line.trim() === STORY_VIEWER_RESTRICTED_CODE_MARKER)) {
+		return { code, hasRestrictedContent: false };
+	}
+
 	const lines = code.split('\n').flatMap((line) => {
+		if (line.trim() === STORY_VIEWER_RESTRICTED_CODE_MARKER) {
+			return [];
+		}
 		if (line.trim() === 'Viewer-specific narrative.') {
-			hasRestrictedContent = true;
 			return [];
 		}
 		const withoutPlaceholderHeading = line.replace(/^\s*#{1,6}\s+Viewer-specific section\s*/, '');
-		if (withoutPlaceholderHeading !== line) {
-			hasRestrictedContent = true;
-		}
 		return [withoutPlaceholderHeading];
 	});
 	return {
@@ -357,7 +360,7 @@ export function prepareRestrictedStoryCode(code: string): { code: string; hasRes
 			.join('\n')
 			.replace(/\n{3,}/g, '\n\n')
 			.trim(),
-		hasRestrictedContent,
+		hasRestrictedContent: true,
 	};
 }
 

@@ -28,7 +28,7 @@ import {
 	getCustomStoryVersion,
 } from '../services/custom-story';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
-import { executeLiveQuery, getStoryQueryData, hasRowSecurity, refreshStoryData } from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	notifyStoryRefreshed,
 	notifyStoryRefreshFailed,
@@ -966,9 +966,7 @@ export const storyRoutes = {
 					const { queryData } = await refreshStoryData(input.chatId, input.storySlug, {
 						billingAccessVerifiedProjectId: ctx.projectId,
 					});
-					if (await hasRowSecurity(input.chatId)) {
-						await storyQueries.deleteStoryViewerDataCache(story.id);
-					}
+					await storyQueries.deleteStoryViewerDataCache(story.id);
 					const queriesRefreshed = Object.keys(queryData).length;
 					await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 					await notifyStoryRefreshed({

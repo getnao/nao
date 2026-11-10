@@ -27,13 +27,7 @@ import {
 	setCustomStoryState,
 	setCustomStoryStateByStoryId,
 } from '../services/custom-story-state';
-import {
-	executeLiveQuery,
-	getStoryQueryData,
-	hasRowSecurity,
-	refreshStoryData,
-	requiresViewerStoryData,
-} from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData, requiresViewerStoryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import { assertCanShareToProject, assertCanShareWith, listShareableGroups } from '../services/project-sharing.service';
 import { assertShareableUserGroupIds, filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
@@ -521,9 +515,7 @@ export const sharedStoryRoutes = {
 				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, {
 					billingAccessVerifiedProjectId: shared.projectId,
 				});
-				if (await hasRowSecurity(shared.chatId!)) {
-					await storyQueries.deleteStoryViewerDataCache(story.id);
-				}
+				await storyQueries.deleteStoryViewerDataCache(story.id);
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});

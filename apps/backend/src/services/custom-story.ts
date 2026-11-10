@@ -274,7 +274,8 @@ async function getViewerCustomStoryQueryData(
 						)
 					)?.queryData;
 	}
-	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId, viewerUserId);
+	const result = queryData?.[queryId];
+	return result ? requireAccessibleStoryQuery(result) : runStoryQuery(chatId, queryId, viewerUserId);
 }
 
 function requireAccessibleStoryQuery(result: StoryQueryResult & { accessDenied?: true }): StoryQueryResult {
