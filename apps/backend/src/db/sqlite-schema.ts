@@ -323,6 +323,7 @@ export const project = sqliteTable(
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 		defaultModels: text('default_models', { mode: 'json' }).$type<DefaultModelSettings>(),
 		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
+		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

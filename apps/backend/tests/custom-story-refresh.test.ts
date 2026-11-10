@@ -1,3 +1,4 @@
+import { STORY_NARRATIVES_REDACT_MISSING_KEY } from '@nao/shared/story-app';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -121,7 +122,6 @@ describe('custom story background refresh', () => {
 			cacheSchedule: null,
 		});
 		mocks.getVersionByNumber.mockResolvedValue({ id: 'version-2' });
-		expect(mocks.getVersionByNumber).toHaveBeenCalledWith('chat-1', 'orders', 2);
 		mocks.hasRowSecurity.mockResolvedValue(true);
 		mocks.getStoryViewerDataCache.mockResolvedValue({
 			queryData: { query_orders: CACHED_ORDERS },
@@ -133,6 +133,7 @@ describe('custom story background refresh', () => {
 			CACHED_ORDERS,
 		);
 
+		expect(mocks.getVersionByNumber).toHaveBeenCalledWith('chat-1', 'orders', 2);
 		expect(mocks.getStoryViewerDataCache).toHaveBeenCalledWith(
 			'chat-1',
 			'orders',
@@ -165,6 +166,35 @@ describe('custom story background refresh', () => {
 			'viewer-1',
 			'permissions-b',
 		);
+	});
+
+	it('does not share an in-flight refresh across permission revisions', async () => {
+		mocks.hasRowSecurity.mockResolvedValue(true);
+		mocks.getStoryViewerDataCache.mockResolvedValue(null);
+		let resolveOldRefresh!: (result: {
+			queryData: { query_orders: typeof CACHED_ORDERS };
+			narratives: Record<string, string>;
+		}) => void;
+		mocks.refreshStoryData
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveOldRefresh = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({ queryData: { query_orders: REFRESHED_ORDERS }, narratives: {} });
+
+		const oldRequest = getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { viewerUserId: 'viewer-1' });
+		await vi.waitFor(() => expect(mocks.refreshStoryData).toHaveBeenCalledTimes(1));
+
+		mocks.createStoryExecutionContext.mockResolvedValue({ permissionRevision: 'permissions-b' });
+		await expect(
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { viewerUserId: 'viewer-1' }),
+		).resolves.toEqual(REFRESHED_ORDERS);
+		expect(mocks.refreshStoryData).toHaveBeenCalledTimes(2);
+
+		resolveOldRefresh({ queryData: { query_orders: CACHED_ORDERS }, narratives: {} });
+		await expect(oldRequest).resolves.toEqual(REFRESHED_ORDERS);
 	});
 
 	it.each([
@@ -263,6 +293,7 @@ describe('custom story narratives once the story is not live', () => {
 		});
 
 		await expect(getCustomStoryNarratives('chat-1', 'orders', { viewerUserId: 'viewer-1' })).resolves.toEqual({
+			[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
 			summary: '',
 		});
 		expect(mocks.getStoryDataCacheByStoryId).not.toHaveBeenCalled();
@@ -289,11 +320,12 @@ describe('custom story narratives once the story is not live', () => {
 			{
 				path: 'app.tsx',
 				content:
-					"import { Narrative } from '@nao/story-kit'; export default () => <><Narrative id='summary'>Owner summary</Narrative><Narrative id='detail'>Owner detail</Narrative><Narrative id='rich'><strong>Owner total: 100</strong></Narrative></>;",
+					"import { Narrative } from '@nao/story-kit'; const dynamicId = 'dynamic'; export default () => <><Narrative id='summary'>Owner summary</Narrative><Narrative id='detail'>Owner detail</Narrative><Narrative id='rich'><strong>Owner total: 100</strong></Narrative><Narrative id={dynamicId}>Owner dynamic</Narrative></>;",
 			},
 		]);
 
 		await expect(getCustomStoryNarratives('chat-1', 'orders', { viewerUserId: 'viewer-1' })).resolves.toEqual({
+			[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
 			summary: 'Viewer-safe summary',
 			detail: '',
 			rich: '',
@@ -322,7 +354,9 @@ describe('custom story narratives once the story is not live', () => {
 			.mockResolvedValueOnce({ permissionRevision: 'permissions-a' })
 			.mockResolvedValueOnce({ permissionRevision: 'permissions-b' });
 
-		await expect(getCustomStoryNarratives('chat-1', 'orders', { viewerUserId: 'viewer-1' })).resolves.toEqual({});
+		await expect(getCustomStoryNarratives('chat-1', 'orders', { viewerUserId: 'viewer-1' })).resolves.toEqual({
+			[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
+		});
 
 		expect(mocks.getStoryViewerDataCache).toHaveBeenLastCalledWith(
 			'chat-1',

@@ -97,6 +97,8 @@ export interface StoryQueryResult {
 /** Narrative id → text regenerated from the latest data */
 export type StoryNarratives = Record<string, string>;
 
+export const STORY_NARRATIVES_REDACT_MISSING_KEY = '__nao_redact_missing_narratives__';
+
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
 	narratives: StoryNarratives;

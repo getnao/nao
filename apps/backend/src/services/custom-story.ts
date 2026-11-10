@@ -1,5 +1,10 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
+import {
+	STORY_NARRATIVES_REDACT_MISSING_KEY,
+	type StoryApp,
+	type StoryNarratives,
+	type StoryQueryResult,
+} from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import type { DBStory, DBStoryDataCache, DBStoryVersion } from '../db/abstractSchema';
@@ -244,9 +249,13 @@ async function getViewerCustomStoryQueryData(
 
 	let queryData: Record<string, StoryQueryResult> | undefined;
 	try {
-		queryData = await refreshOnce(chatId, story.slug, viewerUserId, storyVersionId).then(
-			(result) => result.queryData,
-		);
+		queryData = await refreshOnce(
+			chatId,
+			story.slug,
+			viewerUserId,
+			storyVersionId,
+			executionContext.permissionRevision,
+		).then((result) => result.queryData);
 	} catch {
 		const currentExecutionContext = await createStoryExecutionContext(chatId, viewerUserId);
 		queryData =
@@ -337,9 +346,13 @@ async function getViewerCustomStoryNarratives(
 		return fillMissingViewerNarratives(storyVersionId, cachedNarratives);
 	}
 	try {
-		const narratives = await refreshOnce(chatId, story.slug, viewerUserId, storyVersionId).then(
-			(result) => result.narratives,
-		);
+		const narratives = await refreshOnce(
+			chatId,
+			story.slug,
+			viewerUserId,
+			storyVersionId,
+			executionContext.permissionRevision,
+		).then((result) => result.narratives);
 		return fillMissingViewerNarratives(storyVersionId, narratives);
 	} catch {
 		const currentExecutionContext = await createStoryExecutionContext(chatId, viewerUserId);
@@ -362,7 +375,10 @@ async function fillMissingViewerNarratives(
 	narratives: StoryNarratives | null | undefined = {},
 ): Promise<StoryNarratives> {
 	const ids = extractStoryNarrativeIds(await storyFileQueries.listVersionFiles(storyVersionId));
-	return Object.fromEntries(ids.map((id) => [id, narratives?.[id] ?? '']));
+	return {
+		[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
+		...Object.fromEntries(ids.map((id) => [id, narratives?.[id] ?? ''])),
+	};
 }
 
 /** The results already saved for the story (its data cache, else the chat's own), without running any query. */
@@ -536,16 +552,26 @@ function refreshOnce(
 	storySlug: string,
 	viewerUserId?: string,
 	storyVersionId?: string,
+	permissionRevision?: string,
 ): Promise<RefreshResult> {
-	const key = `${chatId}:${storySlug}:${storyVersionId ?? ''}:${viewerUserId ?? ''}`;
+	const key = `${chatId}:${storySlug}:${storyVersionId ?? ''}:${viewerUserId ?? ''}:${permissionRevision ?? ''}`;
 	const pending = pendingRefreshes.get(key);
 	if (pending) {
 		return pending;
 	}
+	const started = viewerUserId
+		? refreshStoryData(chatId, storySlug, { storyVersionId, viewerUserId })
+		: refreshStoryData(chatId, storySlug);
 	const refresh = (
-		viewerUserId
-			? refreshStoryData(chatId, storySlug, { storyVersionId, viewerUserId })
-			: refreshStoryData(chatId, storySlug)
+		viewerUserId && permissionRevision
+			? started.then(async (result) => {
+					const current = await createStoryExecutionContext(chatId, viewerUserId);
+					if (current.permissionRevision !== permissionRevision) {
+						throw new Error('Viewer permissions changed during story refresh');
+					}
+					return result;
+				})
+			: started
 	).finally(() => pendingRefreshes.delete(key));
 	pendingRefreshes.set(key, refresh);
 	return refresh;

@@ -13,7 +13,13 @@ import {
 	listUserSharedStories,
 	updateSharedStoryRecipients,
 } from '../src/queries/shared-story.queries';
-import { canUserAccessStory, getStorySharingInfo } from '../src/queries/story.queries';
+import {
+	canUserAccessStory,
+	getProjectViewerCacheRevision,
+	getStorySharingInfo,
+	invalidateUserViewerCaches,
+	upsertStoryViewerDataCache,
+} from '../src/queries/story.queries';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -36,6 +42,7 @@ vi.mock('../src/db/db', async () => {
 
 const PROJECT_ID = 'group-share-project';
 const STORY_ID = 'group-share-story';
+const STORY_VERSION_ID = 'group-share-story-version';
 const OWNER_ID = 'group-share-owner';
 const SHARER_ID = 'group-share-sharer';
 const GROUP_MEMBER_ID = 'group-share-member';
@@ -57,13 +64,20 @@ describe('sharing a story with user groups', () => {
 		await db
 			.insert(s.story)
 			.values({ id: STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID, slug: 'revenue', title: 'Revenue' });
-		await db
-			.insert(s.storyVersion)
-			.values({ storyId: STORY_ID, version: 1, code: '# Revenue', action: 'create', source: 'user' });
+		await db.insert(s.storyVersion).values({
+			id: STORY_VERSION_ID,
+			storyId: STORY_ID,
+			version: 1,
+			code: '# Revenue',
+			action: 'create',
+			source: 'user',
+		});
 	});
 
 	beforeEach(async () => {
 		await db.delete(s.sharedStory);
+		await db.delete(s.storyViewerDataCache);
+		await db.update(s.project).set({ viewerCacheRevision: 0 }).where(eq(s.project.id, PROJECT_ID));
 	});
 
 	afterAll(() => {
@@ -128,6 +142,40 @@ describe('sharing a story with user groups', () => {
 		const [story] = await listUserSharedStories(PROJECT_ID, GROUP_MEMBER_ID);
 
 		expect(story).toMatchObject({ userId: SHARER_ID, ownerUserId: OWNER_ID });
+	});
+
+	it('rejects cache writes from an outdated project revision', async () => {
+		await expect(getProjectViewerCacheRevision(PROJECT_ID)).resolves.toBe(0);
+		await expect(
+			upsertStoryViewerDataCache(
+				STORY_ID,
+				STORY_VERSION_ID,
+				GROUP_MEMBER_ID,
+				PROJECT_ID,
+				1,
+				'permissions-a',
+				{},
+				{},
+			),
+		).resolves.toBe(false);
+		await expect(db.select().from(s.storyViewerDataCache)).resolves.toEqual([]);
+
+		await expect(
+			upsertStoryViewerDataCache(
+				STORY_ID,
+				STORY_VERSION_ID,
+				GROUP_MEMBER_ID,
+				PROJECT_ID,
+				0,
+				'permissions-a',
+				{},
+				{},
+			),
+		).resolves.toBe(true);
+		await invalidateUserViewerCaches(PROJECT_ID, GROUP_MEMBER_ID);
+
+		await expect(getProjectViewerCacheRevision(PROJECT_ID)).resolves.toBe(1);
+		await expect(db.select().from(s.storyViewerDataCache)).resolves.toEqual([]);
 	});
 
 	it('replaces group grants when access is updated or the share becomes project-wide', async () => {

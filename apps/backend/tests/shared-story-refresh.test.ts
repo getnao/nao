@@ -86,6 +86,7 @@ describe('shared Story manual refresh', () => {
 			id: 'share-1',
 			projectId: 'project-1',
 			userId: 'sharer-1',
+			ownerUserId: 'owner-1',
 			visibility: 'project',
 			storyId: 'story-1',
 			chatId: 'chat-1',
@@ -124,6 +125,7 @@ describe('shared Story manual refresh', () => {
 		const story = await createCaller(userId).storyShare.get({ storyId: 'story-1' });
 
 		expect(story.canRefresh).toBe(expected);
+		expect(story).not.toHaveProperty('ownerUserId');
 		expect(mocks.getSharedStoryByStoryId).toHaveBeenCalledWith('story-1');
 		expect(mocks.getSharedStory).not.toHaveBeenCalled();
 	});

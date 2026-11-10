@@ -200,7 +200,7 @@ export const sharedStoryRoutes = {
 		.query(({ ctx }) => ({ storyId: ctx.resource.storyId })),
 
 	get: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
-		const { id: shareId, ...shared } = ctx.resource;
+		const { id: shareId, ownerUserId: _ownerUserId, ...shared } = ctx.resource;
 		const storyRow = await storyQueries.getStoryById(shared.storyId);
 		const isLive = storyRow?.isLive ?? false;
 		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;

@@ -519,6 +519,7 @@ export const userGroupRoutes = {
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMemberships(ctx.project.id, input.groupId, input.userIds, input.isMember),
 			);
+			await storyQueries.invalidateProjectViewerCaches(ctx.project.id);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 };

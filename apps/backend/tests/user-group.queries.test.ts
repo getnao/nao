@@ -1674,19 +1674,23 @@ describe('user group queries', () => {
 			storyId: 'sso-cache-story',
 			storyVersionId: 'sso-cache-version',
 			userId: DIRECT_USER_ID,
+			permissionRevision: 'permissions-a',
 			queryData: {},
 		};
 		await db.insert(storyViewerDataCache).values(cache);
 
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['cached-sso']);
 		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toEqual([]);
+		await expect(viewerCacheRevision(PROJECT_ID)).resolves.toBe(1);
 
 		await db.insert(storyViewerDataCache).values(cache);
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['cached-sso']);
 		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toHaveLength(1);
+		await expect(viewerCacheRevision(PROJECT_ID)).resolves.toBe(1);
 
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', []);
 		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toEqual([]);
+		await expect(viewerCacheRevision(PROJECT_ID)).resolves.toBe(2);
 	});
 
 	it('unions manual and OIDC memberships without duplicate effective grants or counts', async () => {
@@ -2288,6 +2292,14 @@ async function listSsoGroupIds(userId: string, provider?: SsoGroupProvider): Pro
 
 async function listViewerCaches(userId: string) {
 	return db.select().from(storyViewerDataCache).where(eq(storyViewerDataCache.userId, userId));
+}
+
+async function viewerCacheRevision(projectId: string) {
+	const [row] = await db
+		.select({ revision: project.viewerCacheRevision })
+		.from(project)
+		.where(eq(project.id, projectId));
+	return row?.revision;
 }
 
 async function projectMembership(projectId: string, userId: string) {

@@ -1277,6 +1277,7 @@ describe('user group routes', () => {
 			['first-user-id', 'second-user-id'],
 			true,
 		);
+		expect(mocks.invalidateProjectViewerCaches).toHaveBeenCalledWith('project-id');
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 

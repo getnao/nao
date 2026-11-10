@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import type { StoryNarratives } from '@nao/shared/story-app';
 import { extractQueryIds, TAG_ATTRS } from '@nao/shared/story-segments';
+import { formatColumnLabel } from '@nao/shared/story-table-utils';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { StoryFormat } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
@@ -208,16 +209,21 @@ async function refreshStoryDataWithContext(
 		if (currentPermissionRevision !== executionContext.permissionRevision) {
 			throw new Error('Viewer permissions changed during story refresh');
 		}
-		await storyQueries.upsertStoryViewerDataCache(
+		const saved = await storyQueries.upsertStoryViewerDataCache(
 			version.storyId,
 			version.id,
 			options.viewerUserId,
+			executionContext.toolContext.projectId,
+			executionContext.viewerCacheRevision,
 			executionContext.permissionRevision,
 			queryData,
 			querySources,
 			narratives,
 			refreshedCode,
 		);
+		if (!saved) {
+			throw new Error('Viewer permissions changed during story refresh');
+		}
 	} else {
 		await storyQueries.upsertStoryDataCache(chatId, slug, queryData, querySources, narratives);
 	}
@@ -426,6 +432,7 @@ function normalizeEffectiveSql(sql: string): string {
 export interface StoryExecutionContext {
 	toolContext: ToolContext;
 	enforceExcludedColumns: boolean;
+	viewerCacheRevision: number;
 	permissionRevision: string;
 }
 
@@ -604,17 +611,23 @@ export async function createStoryExecutionContext(chatId: string, userId?: strin
 	if (!executionUserId) {
 		throw new Error('Chat owner not found');
 	}
+	const viewerCacheRevision = await storyQueries.getProjectViewerCacheRevision(projectId);
 	const toolContext = await buildToolContext({ projectId, userId: executionUserId, chatId });
+	if ((await storyQueries.getProjectViewerCacheRevision(projectId)) !== viewerCacheRevision) {
+		throw new Error('Viewer permissions changed while building the execution context');
+	}
 	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings);
 	return {
 		toolContext,
 		enforceExcludedColumns,
+		viewerCacheRevision,
 		permissionRevision: createHash('sha256')
 			.update(
 				JSON.stringify([
 					toolContext.warehouseTableAccess,
 					toolContext.warehouseRowSecurity,
 					enforceExcludedColumns,
+					viewerCacheRevision,
 				]),
 			)
 			.digest('hex'),
@@ -936,15 +949,37 @@ function stripViewerSensitiveTagCopy(tag: string): string {
 		String.raw`\s+(?:title|label|x_axis_label|y_axis_label|y_axis_right_label)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
 		'g',
 	);
-	const withoutDisplayCopy = tag
-		.replace(sensitiveAttributeRegex, '')
-		.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
+	const withoutDisplayCopy = redactViewerSeriesLabels(tag.replace(sensitiveAttributeRegex, ''));
 	return withoutDisplayCopy.startsWith('<filter ')
 		? withoutDisplayCopy.replace(
 				new RegExp(String.raw`\s+options\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`, 'g'),
 				'',
 			)
 		: withoutDisplayCopy;
+}
+
+function redactViewerSeriesLabels(tag: string): string {
+	let foundSeries = false;
+	const redacted = tag.replace(/(\s+series\s*=\s*)'([^']*)'/g, (attribute, prefix: string, value: string) => {
+		foundSeries = true;
+		try {
+			const series = JSON.parse(value);
+			if (!Array.isArray(series)) {
+				return attribute.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
+			}
+			const safeSeries = series.map((item) => {
+				if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.label !== 'string') {
+					return item;
+				}
+				const dataKey = typeof item.data_key === 'string' && /^\w+$/.test(item.data_key) ? item.data_key : '';
+				return { ...item, label: dataKey ? formatColumnLabel(dataKey) : 'Series' };
+			});
+			return `${prefix}'${JSON.stringify(safeSeries)}'`;
+		} catch {
+			return attribute.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
+		}
+	});
+	return foundSeries ? redacted : redacted.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
 }
 
 function stripHardcodedFilterOptions(code: string): string {

@@ -708,6 +708,13 @@
       "when": 1794242287438,
       "tag": "0100_story_viewer_data_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794301655530,
+      "tag": "0101_viewer_cache_revision",
+      "breakpoints": true
     }
   ]
 }
