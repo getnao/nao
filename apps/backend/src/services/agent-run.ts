@@ -1,7 +1,8 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import type { LlmSelectedModel, UserRole } from '@nao/shared/types';
 
 import { adminAgent } from '../agents/profiles/admin';
 import { analyticsAgent } from '../agents/profiles/analytics';
+import { automationEditorAgent } from '../agents/profiles/automation-editor';
 import type { AgentProfile } from '../agents/profiles/types';
 import type { DBProject } from '../db/abstractSchema';
 import { noProjectMessage } from '../env';
@@ -10,6 +11,8 @@ import * as projectQueries from '../queries/project.queries';
 import type { AgentRequest } from '../types/chat';
 import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
+import { resolveEditedAutomationId } from './automation-editor.service';
+import { canRoleReceiveChatFeedback } from './automation-feedback-trigger.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './example-agent-run';
 
@@ -87,11 +90,26 @@ async function authorizeMemberAgentRun({ userId, body, projectId }: AuthorizedAg
 		throw new HandlerError('FORBIDDEN', 'Viewers cannot send messages');
 	}
 	await assertProjectCloudBillingAccess(projectId);
-	const canUseAdminAgent = userRole === 'admin' || userRole === 'context_admin';
 	return {
 		projectId,
-		profile: body.adminMode && canUseAdminAgent ? adminAgent : analyticsAgent,
+		profile: await resolveMemberAgentProfile({ userId, body, projectId }, userRole),
 		model: body.model,
 		unbilledManagedAiUsage: false,
 	};
+}
+
+async function resolveMemberAgentProfile(
+	{ userId, body, projectId }: Omit<AuthorizedAgentRunRequest, 'currentProject'>,
+	userRole: UserRole,
+): Promise<AgentProfile> {
+	if (body.automationDraft) {
+		const automationId = await resolveEditedAutomationId({ userId, projectId, chatId: body.chatId });
+		return automationEditorAgent({
+			draft: body.automationDraft,
+			automationId,
+			canUseChatFeedback: canRoleReceiveChatFeedback(userRole),
+		});
+	}
+	const canUseAdminAgent = userRole === 'admin' || userRole === 'context_admin';
+	return body.adminMode && canUseAdminAgent ? adminAgent : analyticsAgent;
 }

@@ -70,7 +70,7 @@ describe('StoryChatButton', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Edit story' }));
 
-		expect(mocks.requestAsk).toHaveBeenCalledWith();
+		expect(mocks.requestAsk).toHaveBeenCalledWith({ chatId: null, shouldHighlight: true });
 		expect(mocks.navigate).not.toHaveBeenCalled();
 	});
 
@@ -112,7 +112,7 @@ describe('StoryChatButton', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Ask story' }));
 
-		expect(mocks.requestAsk).toHaveBeenCalledWith();
+		expect(mocks.requestAsk).toHaveBeenCalledWith({ chatId: null, shouldHighlight: true });
 	});
 });
 

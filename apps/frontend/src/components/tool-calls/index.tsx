@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
+import { AutomationRunHistoryToolCall, GetAutomationToolCall, UpdateAutomationToolCall } from './automation-editor';
 import { ClarificationToolCall, RequestWarehouseSelectionToolCall } from './clarification';
 import { CodemodeToolCall } from './codemode';
 import { DefaultToolCall } from './default';
@@ -73,6 +74,9 @@ export const dynamicToolComponents = {
 	record_recommendation: RecordRecommendationToolCall,
 	mcp_call: McpToolCall,
 	mcp_connect: McpToolCall,
+	get_automation: GetAutomationToolCall,
+	update_automation: UpdateAutomationToolCall,
+	get_automation_run_history: AutomationRunHistoryToolCall,
 } satisfies Record<string, React.ComponentType<ToolCallComponentProps>>;
 
 export type DynamicToolName = keyof typeof dynamicToolComponents;

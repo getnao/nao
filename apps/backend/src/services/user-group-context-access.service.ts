@@ -113,6 +113,11 @@ export async function resolveMcpSettingsAccess(
 	return (await resolveAvailableUserGroupAccess(projectId, userId)).mcpAccess;
 }
 
+/** MCP servers the user's agents may call: groups narrow every role, admins included, like agent runs do. */
+export async function resolveMcpUsageAccess(projectId: string, userId: string): Promise<McpAccess> {
+	return (await resolveAvailableUserGroupAccess(projectId, userId)).mcpAccess;
+}
+
 export async function resolveUserSkillsAccess(projectId: string, userId: string): Promise<SkillsAccess> {
 	return (await resolveAvailableUserGroupAccess(projectId, userId)).skillsAccess;
 }

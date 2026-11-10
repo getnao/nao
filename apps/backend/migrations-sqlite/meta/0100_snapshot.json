@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bc649ff2-ffba-4e92-b4b7-9513b1acf11f",
+  "id": "35506ed7-ad55-48a2-979e-0849a5be5992",
   "prevId": "e64f630c-0b12-401b-ac56-88d4cfcb2b9d",
   "tables": {
     "account": {
@@ -820,6 +820,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "event_triggers": {
+          "name": "event_triggers",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
         },
         "created_at": {
           "name": "created_at",
@@ -6434,13 +6442,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "column_security": {
-          "name": "column_security",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "row_security": {
           "name": "row_security",
           "type": "text",
@@ -10258,13 +10259,6 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "column_policies": {
-          "name": "column_policies",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

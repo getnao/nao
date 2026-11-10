@@ -705,8 +705,22 @@
     {
       "idx": 100,
       "version": "6",
-      "when": 1794219116678,
-      "tag": "0100_column_security",
+      "when": 1794262120148,
+      "tag": "0100_automation_event_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "6",
+      "when": 1794297262123,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1794316972750,
+      "tag": "0102_column_security",
       "breakpoints": true
     }
   ]

@@ -38,6 +38,7 @@ import {
 	expandDatabaseAccess,
 	isDatabaseObjectAllowed,
 	resolveMcpSettingsAccess,
+	resolveMcpUsageAccess,
 	resolveProjectContextAccess,
 	resolveWarehouseTableAccess,
 } from '../src/services/user-group-context-access.service';
@@ -178,6 +179,14 @@ describe('warehouse Context access', () => {
 		});
 		await expect(resolveMcpSettingsAccess('project-1', 'admin-1', 'admin')).resolves.toEqual({ mode: 'all' });
 		expect(resolveUserGroupAccess).toHaveBeenCalledTimes(1);
+	});
+
+	it('scopes usable MCP servers to the group grants for admins too', async () => {
+		await expect(resolveMcpUsageAccess('project-1', 'admin-1')).resolves.toEqual({
+			mode: 'restricted',
+			grants: [{ kind: 'server', server: 'github' }],
+		});
+		expect(resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'admin-1');
 	});
 
 	it('blocks every protected table when the row-security license is inactive', async () => {

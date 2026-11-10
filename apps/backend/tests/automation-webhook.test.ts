@@ -109,6 +109,7 @@ describe('automation webhook route', () => {
 		expect(vi.mocked(startAutomationRun)).toHaveBeenCalledWith(AUTOMATION_ID, {
 			billingAccessVerifiedProjectId: 'project-1',
 			requireEnabled: false,
+			trigger: 'webhook',
 		});
 		expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
 			'Automation webhook triggered run',
@@ -130,6 +131,7 @@ describe('automation webhook route', () => {
 		expect(vi.mocked(startAutomationRun)).toHaveBeenCalledWith(AUTOMATION_ID, {
 			billingAccessVerifiedProjectId: 'project-1',
 			requireEnabled: false,
+			trigger: 'webhook',
 		});
 	});
 });
