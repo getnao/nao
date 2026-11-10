@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
+import { posthog, PostHogEvent } from '../services/posthog';
 import { llmSelectedModelSchema } from '../types/llm';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, router } from './trpc';
 
@@ -20,7 +21,15 @@ export const mcpEndpointRoutes = router({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return mcpEndpointQueries.updateMcpEndpointSettings(ctx.project.id, input);
+			const settings = await mcpEndpointQueries.updateMcpEndpointSettings(ctx.project.id, input);
+			posthog.capture(ctx.user.id, PostHogEvent.McpEndpointSettingsUpdated, {
+				project_id: ctx.project.id,
+				enabled: input.enabled,
+				sub_agent_mode_enabled: input.subAgentModeEnabled,
+				context_layer_mode_enabled: input.contextLayerModeEnabled,
+				sub_agent_model: input.subAgentModel,
+			});
+			return settings;
 		}),
 
 	getCallLogs: adminProtectedProcedure.query(async ({ ctx }) => {
