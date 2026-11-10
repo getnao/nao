@@ -7,9 +7,11 @@ import { AutomationsKpis } from '@/components/monitoring/automations-kpis';
 import { AutomationsTableCard } from '@/components/monitoring/automations-table-card';
 import { MonitoringGrid, MonitoringTabContent } from '@/components/monitoring/monitoring-tab-content';
 import { useMonitoringFilters } from '@/hooks/use-monitoring-filters';
+import { requireAutomationsEnabled } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/monitoring/automations')({
+	beforeLoad: requireAutomationsEnabled,
 	component: AutomationsMonitoringPage,
 });
 

@@ -82,7 +82,10 @@ export function formatDateTime(value: Date | string): string {
 	return dateTimeFormatter.format(new Date(value));
 }
 
-/** Labels a chart bucket: an hour (`YYYY-MM-DDTHH`, UTC) for the 24h range, a day (`YYYY-MM-DD`) otherwise. */
+/**
+ * Labels a chart bucket. Hour buckets (`YYYY-MM-DDTHH`, UTC) are instants, shown in the viewer's time like
+ * the other times of the page; day buckets (`YYYY-MM-DD`) are UTC days and keep their UTC date.
+ */
 export function formatBucketLabel(bucket: string, range: MonitoringRange): string {
 	if (range === '24h') {
 		const date = new Date(`${bucket}:00:00Z`);

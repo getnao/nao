@@ -54,7 +54,7 @@ const automationCostProcedure = cloudBillingProjectProcedure.use(({ next }) => {
 	return next();
 });
 
-const automationAdminProcedure = adminProtectedProcedure.use(({ next }) => {
+export const automationAdminProcedure = adminProtectedProcedure.use(({ next }) => {
 	assertAutomationsEnabled();
 	return next();
 });
