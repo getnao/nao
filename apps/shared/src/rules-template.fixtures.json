@@ -1,0 +1,107 @@
+[
+	{
+		"name": "keeps rules without directives and their line endings",
+		"source": "# Rules\r\n- Use net revenue.\r\n\r\nDone",
+		"expected": "# Rules\r\n- Use net revenue.\r\n\r\nDone"
+	},
+	{
+		"name": "removes a group block and its directive lines",
+		"source": "- Shared\n{% if group(\"finance\") %}\n- Finance only\n{% endif %}\n- Tail\n",
+		"expected": "- Shared\n- Tail\n"
+	},
+	{
+		"name": "removes nested blocks",
+		"source": "{% if group(\"a\") %}\nA\n{% if group(\"b\") %}\nB\n{% endif %}\nA2\n{% endif %}\nShared\n",
+		"expected": "Shared\n"
+	},
+	{
+		"name": "supports whitespace-control delimiters",
+		"source": "Shared\n{%- if group(\"a\") -%}\nRestricted\n{%- endif -%}\n",
+		"expected": "Shared\n"
+	},
+	{
+		"name": "reads directives inside blockquotes and list items",
+		"source": "Shared\n> {% if group(\"a\") %}\n> Quote\n- {% if group(\"b\") %}\n  Item\n- {% endif %}\n> {% endif %}\nTail\n",
+		"expected": "Shared\nTail\n"
+	},
+	{
+		"name": "keeps a fenced directive example outside any block verbatim",
+		"source": "Example:\n```md\n{% if group(\"x\") %}\n{% endif %}\n```\nDone\n",
+		"expected": "Example:\n```md\n{% if group(\"x\") %}\n{% endif %}\n```\nDone\n"
+	},
+	{
+		"name": "ignores a fenced endif inside a group block",
+		"source": "{% if group(\"a\") %}\n```\n{% endif %}\n```\nsecret\n```\n{% if group(\"b\") %}\n```\n{% endif %}\n",
+		"expected": ""
+	},
+	{
+		"name": "closes tilde fences only with a long enough marker",
+		"source": "{% if group(\"a\") %}\n~~~~\n~~~\n{% endif %}\n~~~~\nsecret\n{% endif %}\nShared\n",
+		"expected": "Shared\n"
+	},
+	{
+		"name": "tracks fences opened inside a blockquote",
+		"source": "{% if group(\"a\") %}\n> ```\n> {% endif %}\n> ```\nsecret\n{% endif %}\n",
+		"expected": ""
+	},
+	{
+		"name": "expands a tab after a list marker",
+		"source": "-\t{% if group(\"finance\") %}\n- finance secret\n-\t{% endif %}\nShared\n",
+		"expected": "Shared\n"
+	},
+	{
+		"name": "trims a byte order mark like JavaScript",
+		"source": "Shared\n﻿{% if group(\"a\") %}\nsecret\n﻿{% endif %}\n",
+		"expected": "Shared\n"
+	},
+	{
+		"name": "splits lines only on CR and LF",
+		"source": "{% if group(\"a\") %}\nx\u000b{% endif %}\u000bsecret\u000b{% if group(\"a\") %}\nx {% endif %} secret\n{% endif %}\nShared\n",
+		"expected": "Shared\n"
+	},
+	{
+		"name": "does not trim characters that JavaScript keeps",
+		"source": "{% if group(\"a\") %}\n{% endif %}\n\u001c{% endif %}\nsecret\n{% endif %}\nShared\n",
+		"expected": "Shared\n"
+	},
+	{
+		"name": "only reads ASCII digits as ordered list markers",
+		"source": "{% if group(\"a\") %}\n١. {% endif %}\nsecret\n{% endif %}\nShared\n",
+		"expected": "Shared\n"
+	},
+	{
+		"name": "rejects an unmatched endif",
+		"source": "Shared\n{% endif %}\n",
+		"expected": null
+	},
+	{
+		"name": "rejects an unclosed group block",
+		"source": "{% if group(\"a\") %}\nsecret\n",
+		"expected": null
+	},
+	{
+		"name": "rejects unsupported directives",
+		"source": "{% for rule in rules %}\n",
+		"expected": null
+	},
+	{
+		"name": "rejects single-quoted group names",
+		"source": "{% if group('a') %}\nsecret\n{% endif %}\n",
+		"expected": null
+	},
+	{
+		"name": "rejects empty group names",
+		"source": "{% if group(\"\") %}\nsecret\n{% endif %}\n",
+		"expected": null
+	},
+	{
+		"name": "rejects a trailing group name separator",
+		"source": "{% if group(\"a\", ) %}\nsecret\n{% endif %}\n",
+		"expected": null
+	},
+	{
+		"name": "rejects a malformed endif",
+		"source": "{% if group(\"a\") %}\nsecret\n{% endif x %}\n",
+		"expected": null
+	}
+]

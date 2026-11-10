@@ -220,6 +220,7 @@ Optional `ai_summary` generation:
 
 - Add `ai_summary` to a database connection `templates` list to render `ai_summary.md`.
 - AI summaries use profiling statistics for data-quality and distribution observations. The row preview is a tiny, non-representative shape sample.
+- When they exist, the project `RULES.md` (without its `{% if group(...) %}` blocks) and the table `annotations.md` are passed to the default prompt as `project_rules` and `table_annotations`, and the summary is told never to contradict them. `RULES.md` is left out, with a warning, when it has `{%` outside group directives and code fences. Each is capped (20,000 and 10,000 characters) with a warning when truncated. Summaries are not regenerated when these files change until their refresh policy is due.
 - Use `prompt("...")` inside Jinja templates to generate `ai_summary` content.
 - `prompt(...)` requires an `llm.providers` entry with an `api_key` (except for ollama), plus `llm.annotation_model`.
 - Configure `profiling` and `ai_summary` refreshes independently with `refresh_policy: always`, `once`, or `interval`. Interval policies also accept `interval_days` (default: `7`):

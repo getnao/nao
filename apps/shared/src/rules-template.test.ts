@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -297,4 +298,22 @@ describe('isRootRulesPath', () => {
 			expect(isRootRulesPath(filePath)).toBe(false);
 		},
 	);
+});
+
+type SharedRulesFixture = { name: string; source: string; expected: string | null };
+
+const sharedRulesFixtures: SharedRulesFixture[] = JSON.parse(
+	readFileSync(new URL('./rules-template.fixtures.json', import.meta.url), 'utf-8'),
+);
+
+describe('shared fixtures for a user in no group (mirrored by the CLI ai_summary)', () => {
+	it.each(sharedRulesFixtures)('$name', ({ source, expected }) => {
+		const render = () => renderConditionalGroupBlocks(source, licensed([]));
+
+		if (expected === null) {
+			expect(render).toThrow();
+		} else {
+			expect(render()).toBe(expected);
+		}
+	});
 });

@@ -50,7 +50,7 @@ def table_path(tmp_path):
     return tmp_path / "type=duckdb" / "database=analytics" / "schema=main" / "table=orders"
 
 
-def run_sync(config, engine, tmp_path):
+def run_sync(config, engine, tmp_path, project_path=None):
     progress = MagicMock()
     progress.add_task.return_value = "task"
     with (
@@ -60,7 +60,7 @@ def run_sync(config, engine, tmp_path):
         ),
         patch("nao_core.commands.sync.providers.databases.provider.UI._console"),
     ):
-        sync_database(config, tmp_path, progress)
+        sync_database(config, tmp_path, progress, project_path=project_path)
 
 
 def test_both_templates_due_compute_profiling_once(tmp_path):
@@ -75,6 +75,39 @@ def test_both_templates_due_compute_profiling_once(tmp_path):
     assert engine.render.call_count == 2
     for call in engine.render.call_args_list:
         assert call.kwargs["profiling"] is profiling_data
+
+
+def test_ai_summary_receives_project_rules_and_table_annotations(tmp_path):
+    config, _, engine, _ = create_sync_setup(
+        ProfilingRefreshPolicy.ALWAYS,
+        ProfilingRefreshPolicy.ALWAYS,
+    )
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    (project_path / "RULES.md").write_text("- Don't use legacy_flag.\n")
+    output_path = table_path(project_path / "databases")
+    output_path.mkdir(parents=True)
+    (output_path / "annotations.md").write_text("---\ntype: manual\n---\nstate is the current status.\n")
+
+    run_sync(config, engine, project_path / "databases", project_path=project_path)
+
+    renders = {call.args[0]: call.kwargs for call in engine.render.call_args_list}
+    assert renders["databases/ai_summary.md.j2"]["project_rules"] == "- Don't use legacy_flag."
+    assert renders["databases/ai_summary.md.j2"]["table_annotations"] == "state is the current status."
+    assert "project_rules" not in renders["databases/profiling.md.j2"]
+
+
+def test_ai_summary_receives_no_guidance_without_rules_or_annotations(tmp_path):
+    config, _, engine, _ = create_sync_setup(
+        ProfilingRefreshPolicy.ALWAYS,
+        ProfilingRefreshPolicy.ALWAYS,
+    )
+
+    run_sync(config, engine, tmp_path / "databases", project_path=tmp_path)
+
+    summary_render = next(call for call in engine.render.call_args_list if "ai_summary" in call.args[0])
+    assert summary_render.kwargs["project_rules"] is None
+    assert summary_render.kwargs["table_annotations"] is None
 
 
 def test_ai_summary_refresh_does_not_rewrite_frozen_profiling(tmp_path):
