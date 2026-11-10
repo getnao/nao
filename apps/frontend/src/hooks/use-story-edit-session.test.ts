@@ -11,7 +11,10 @@ type EditState = {
 	latestAuthorName: string | null;
 	lock: { holderName: string; isMine: boolean; isYou: boolean; byAgent: boolean } | null;
 };
-type MutationOptions = { onError?: (error: unknown, variables: { storyId: string }) => void };
+type MutationOptions = {
+	onSuccess?: (result: unknown, variables: { storyId: string }) => void;
+	onError?: (error: unknown, variables: { storyId: string }) => void;
+};
 
 const mocks = vi.hoisted(() => ({
 	editState: { latestVersion: 1, latestAuthorName: 'Ada', lock: null } as EditState,
@@ -45,6 +48,7 @@ vi.mock('@/main', () => ({
 vi.mock('@/lib/auth-client', () => ({ useSession: () => ({ data: { user: { name: 'Me' } } }) }));
 
 const TARGET = { storyId: 'story-1', chatId: 'chat-1', storySlug: 'revenue' };
+const ADA_EDITING = { holderName: 'Ada', isMine: false, isYou: false, byAgent: false };
 const LOCK_RENEW_MS = 20_000;
 
 describe('useStoryEditSession', () => {
@@ -97,6 +101,7 @@ describe('useStoryEditSession', () => {
 			initialProps: true,
 		});
 
+		mocks.editState = { ...mocks.editState, lock: ADA_EDITING };
 		act(() => {
 			mocks.acquireOptions.onError?.(lockConflict(), { storyId: 'story-1' });
 		});
@@ -108,6 +113,25 @@ describe('useStoryEditSession', () => {
 		rerender(true);
 		await flushLockRequests();
 		expect(mocks.acquire).toHaveBeenCalledTimes(2);
+	});
+
+	it('takes the lock back once the other editor lets go, and only then lets the person edit again', async () => {
+		const { result, rerender } = renderHook(() => useStoryEditSession({ target: TARGET, isEditing: true }));
+		mocks.editState = { ...mocks.editState, lock: ADA_EDITING };
+		act(() => {
+			mocks.acquireOptions.onError?.(lockConflict(), { storyId: 'story-1' });
+		});
+
+		mocks.editState = { ...mocks.editState, lock: null };
+		rerender();
+		await flushLockRequests();
+		expect(mocks.acquire).toHaveBeenCalledTimes(2);
+		expect(result.current.canEdit).toBe(false);
+
+		act(() => {
+			mocks.acquireOptions.onSuccess?.(undefined, { storyId: 'story-1' });
+		});
+		expect(result.current.canEdit).toBe(true);
 	});
 
 	it('stops letting the person edit once the server refuses them the right to, until the edit is closed', () => {

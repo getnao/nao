@@ -54,7 +54,8 @@ export function useStoryEditSession({
 		refetchIntervalInBackground: false,
 	});
 	const refetchEditState = editState.refetch;
-	const isEditForbidden = useHeldEditLock(storyId, isEditing, () => {
+	const isLockFree = editState.data !== undefined && editState.data.lock === null;
+	const heldLock = useHeldEditLock(storyId, isEditing, isLockFree, () => {
 		void refetchEditState();
 	});
 	const updatedByName = useReloadOnNewVersion(target, editState.data, isEditing);
@@ -65,19 +66,32 @@ export function useStoryEditSession({
 		otherEditorName: isLockedByOthers && !lock.isYou ? lock.holderName : null,
 		ownEditElsewhere: isLockedByOthers && lock.isYou ? (lock.byAgent ? 'chat' : 'tab') : null,
 		isLockedByOthers,
-		canEdit: !isLockedByOthers && !isEditForbidden,
+		canEdit: !isLockedByOthers && !heldLock.isRefused && !heldLock.isForbidden,
 		updatedByName,
 	};
 }
 
-/** Holds the lock while editing; returns whether the server refused this person the right to edit the story. */
-function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: () => void): boolean {
+/**
+ * Holds the lock while editing. A refused edit waits for the other holder to let go, then asks again:
+ * it stays refused until the lock is granted, so two people never edit at once.
+ */
+function useHeldEditLock(
+	storyId: string | null,
+	isEditing: boolean,
+	isLockFree: boolean,
+	onRefused: () => void,
+): { isRefused: boolean; isForbidden: boolean } {
 	const [refusedStoryId, setRefusedStoryId] = useState<string | null>(null);
 	const [forbiddenStoryId, setForbiddenStoryId] = useState<string | null>(null);
 	const isRefused = storyId !== null && refusedStoryId === storyId;
+	const isForbidden = storyId !== null && forbiddenStoryId === storyId;
+	const isWaitingForLock = isRefused && (isForbidden || !isLockFree);
 	const lastActivityRef = useLastUserActivity();
 	const acquire = useMutation(
 		trpc.story.acquireEditLock.mutationOptions({
+			onSuccess: (_result, variables) => {
+				setRefusedStoryId((refused) => (refused === variables.storyId ? null : refused));
+			},
 			onError: (error, variables) => {
 				if (isLockRefusal(error)) {
 					setRefusedStoryId(variables.storyId);
@@ -103,7 +117,7 @@ function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: 
 	}, [isEditing]);
 
 	useEffect(() => {
-		if (!storyId || !isEditing || isRefused) {
+		if (!storyId || !isEditing || isWaitingForLock) {
 			return;
 		}
 		const lockInput = { storyId, sessionId: EDIT_SESSION_ID };
@@ -117,9 +131,9 @@ function useHeldEditLock(storyId: string | null, isEditing: boolean, onRefused: 
 			window.clearInterval(renewal);
 			sendLockRequestInOrder(() => releaseRef.current(lockInput));
 		};
-	}, [storyId, isEditing, isRefused, lastActivityRef]);
+	}, [storyId, isEditing, isWaitingForLock, lastActivityRef]);
 
-	return storyId !== null && forbiddenStoryId === storyId;
+	return { isRefused, isForbidden };
 }
 
 function sendLockRequestInOrder(request: () => Promise<unknown>): void {
