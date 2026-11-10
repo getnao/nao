@@ -174,11 +174,13 @@ export const testRunRoutes = {
 				sql: z.string().trim().max(100_000).optional(),
 				databaseId: z.string().trim().min(1).optional(),
 				tags: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
+				/** Defaults to the user's email; an empty owner leaves the test without one. */
+				owner: z.string().trim().max(200).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
-			const content = serializeTestFile({ ...input, owner: ctx.user.email });
+			const content = serializeTestFile({ ...input, owner: input.owner ?? ctx.user.email });
 			return { path: await createFirstFreeTestFile(newTestFilePaths(input.name), content, access) };
 		}),
 

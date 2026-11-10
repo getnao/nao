@@ -19,7 +19,7 @@ import {
 } from '../services/automation-tools';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
-import type { AutomationIntegrationResult } from '../types/automation';
+import type { AutomationIntegrationResult, AutomationRunTrigger, AutomationTriggerEvent } from '../types/automation';
 import type { UIMessage, UIMessagePart } from '../types/chat';
 import { logger } from '../utils/logger';
 
@@ -37,8 +37,10 @@ type IntegrationToolOutput = {
 };
 
 type RunAutomationOptions = {
+	trigger: AutomationRunTrigger;
 	billingAccessVerifiedProjectId?: string;
 	requireEnabled?: boolean;
+	triggerEvent?: AutomationTriggerEvent;
 };
 
 export async function automationHandler(payload: AutomationJobPayload, _job?: DBScheduledJob): Promise<void> {
@@ -53,6 +55,7 @@ export async function automationHandler(payload: AutomationJobPayload, _job?: DB
 	await runAutomation(automationId, {
 		billingAccessVerifiedProjectId: automation.projectId,
 		requireEnabled: true,
+		trigger: 'schedule',
 	});
 }
 
@@ -70,24 +73,24 @@ export async function resolveAutomationProjectId(payload: AutomationJobPayload):
 
 export async function runAutomation(
 	automationId: string,
-	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false, trigger, triggerEvent }: RunAutomationOptions,
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, requireEnabled);
-	return finishAutomationRun(automation, run, billingAccessVerifiedProjectId);
+	const { automation, run } = await createAutomationRun(automationId, { requireEnabled, trigger });
+	return finishAutomationRun(automation, run, { billingAccessVerifiedProjectId, triggerEvent });
 }
 
 export async function startAutomationRun(
 	automationId: string,
-	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false, trigger, triggerEvent }: RunAutomationOptions,
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, requireEnabled);
-	void finishAutomationRun(automation, run, billingAccessVerifiedProjectId).catch(() => undefined);
+	const { automation, run } = await createAutomationRun(automationId, { requireEnabled, trigger });
+	void finishAutomationRun(automation, run, { billingAccessVerifiedProjectId, triggerEvent }).catch(() => undefined);
 	return run;
 }
 
 async function createAutomationRun(
 	automationId: string,
-	requireEnabled: boolean,
+	{ requireEnabled, trigger }: { requireEnabled: boolean; trigger: AutomationRunTrigger },
 ): Promise<{ automation: AutomationWithSchedule; run: DBAutomationRun }> {
 	const automation = await automationQueries.getAutomationById(automationId);
 	if (!automation) {
@@ -100,6 +103,7 @@ async function createAutomationRun(
 		automationId,
 		llmConfigId: automation.llmConfigId,
 		status: 'running',
+		trigger,
 		integrationResults: [],
 	});
 
@@ -109,7 +113,10 @@ async function createAutomationRun(
 async function finishAutomationRun(
 	automation: AutomationWithSchedule,
 	run: DBAutomationRun,
-	billingAccessVerifiedProjectId: string | undefined,
+	{
+		billingAccessVerifiedProjectId,
+		triggerEvent,
+	}: Pick<RunAutomationOptions, 'billingAccessVerifiedProjectId' | 'triggerEvent'>,
 ): Promise<DBAutomationRun> {
 	const automationId = automation.id;
 	try {
@@ -129,6 +136,7 @@ async function finishAutomationRun(
 					prompt: automation.prompt,
 					integrations: automation.integrations,
 					userEmail: automationUser.email,
+					triggerEvent,
 				}),
 				source: 'web',
 			},

@@ -40,7 +40,7 @@ import {
 	semanticBindingsFromCode,
 	type SemanticStoryBindings,
 } from './semantic-story-bindings';
-import { executeWarehouseSql } from './warehouse-sql.service';
+import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
 
@@ -400,16 +400,36 @@ async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlEx
 		return executeLocalSql(sqlQuery, context);
 	}
 
-	const data = await executeWarehouseSql(sqlQuery, {
+	const data = await executeWarehouseSql(
+		sqlQuery,
+		buildWarehouseSqlOptions(options.executionContext, options.databaseId),
+	);
+	return { data: data.data, columns: data.columns };
+}
+
+/** The type of the database a raw query on `databaseId` runs against, as resolved by the warehouse executor. */
+export async function resolveRawSqlDatabaseType(
+	executionContext: StoryExecutionContext,
+	databaseId: string | undefined,
+): Promise<string> {
+	if (databaseId === LOCAL_DATABASE_ID) {
+		return 'duckdb';
+	}
+	const { dialect } = await validateWarehouseSql('SELECT 1', buildWarehouseSqlOptions(executionContext, databaseId));
+	return dialect.toLowerCase();
+}
+
+function buildWarehouseSqlOptions(executionContext: StoryExecutionContext, databaseId: string | undefined) {
+	const context = executionContext.toolContext;
+	return {
 		projectFolder: context.projectFolder,
-		databaseId: options.databaseId,
+		databaseId,
 		envVars: context.envVars,
 		azureAccessToken: context.azureAccessToken,
-		enforceExcludedColumns: options.executionContext.enforceExcludedColumns,
+		enforceExcludedColumns: executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
-	});
-	return { data: data.data, columns: data.columns };
+	};
 }
 
 function memoizeCatalog(executionContext: StoryExecutionContext): CatalogLoader {

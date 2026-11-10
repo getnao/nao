@@ -5,6 +5,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./attachments": "./src/attachments.ts",
+		"./automation-draft": "./src/automation-draft.ts",
 		"./billing": "./src/billing.ts",
 		"./class-names": "./src/class-names.ts",
 		"./chart-builder": "./src/chart-builder.tsx",
@@ -30,6 +31,7 @@
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./table-display": "./src/table-display.tsx",
 		"./story-tabs": "./src/story-tabs.ts",
+		"./story-parts": "./src/story-parts.ts",
 		"./story-app": "./src/story-app.ts",
 		"./story-brand-mark": "./src/story-brand-mark.tsx",
 		"./story-document": "./src/story-document.ts",

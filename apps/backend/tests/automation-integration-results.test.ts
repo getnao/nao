@@ -106,7 +106,7 @@ describe('automation run integration results', () => {
 			},
 		]);
 
-		await runAutomation('automation-1');
+		await runAutomation('automation-1', { trigger: 'manual' });
 
 		expect(mocks.completeAutomationRun).toHaveBeenCalledWith('run-1', [
 			{

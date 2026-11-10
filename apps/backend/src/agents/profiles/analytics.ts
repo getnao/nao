@@ -9,14 +9,21 @@ export const analyticsAgent: AgentProfile = {
 	tools: analyticsToolsExcluding([]),
 };
 
-/** Analytics tool set minus the given built-ins, for surfaces that cannot render them. */
-export function analyticsToolsExcluding(excludeBuiltinTools: string[]): AgentToolsResolver {
+/** Analytics tool set minus the given built-ins, for surfaces that cannot render them, plus the surface's own tools. */
+export function analyticsToolsExcluding(
+	excludeBuiltinTools: string[],
+	surfaceTools: Record<string, unknown> = {},
+): AgentToolsResolver {
 	return ({ agentSettings, toolContext, webTools, customBoundaries }) =>
-		getTools(agentSettings, webTools ?? {}, {
-			excludeBuiltinTools,
-			customBoundaries,
-			mcpAccess: toolContext.mcpAccess,
-			semanticLayerMode: toolContext.semanticLayerMode,
-			customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
-		});
+		getTools(
+			agentSettings,
+			{ ...webTools, ...surfaceTools },
+			{
+				excludeBuiltinTools,
+				customBoundaries,
+				mcpAccess: toolContext.mcpAccess,
+				semanticLayerMode: toolContext.semanticLayerMode,
+				customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,
+			},
+		);
 }

@@ -13,7 +13,13 @@ import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarVersionNotice } from './sidebar-version-notice';
 import { Spinner } from './ui/spinner';
 import StoryIcon from './ui/story-icon';
-import type { ChatFilterType, ChatGroup, ChatGroupBy, GroupedChatItem } from '@nao/shared/types';
+import type {
+	AutomationEventTriggers,
+	ChatFilterType,
+	ChatGroup,
+	ChatGroupBy,
+	GroupedChatItem,
+} from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
 
 import NaoLogo from '@/components/icons/nao-logo.svg';
@@ -31,6 +37,7 @@ import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
+import { getEnabledNaoEvents, isAutomationActive, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { SIDE_PANEL_ANIMATION_DURATION, SIDE_PANEL_ANIMATION_EASING } from '@/lib/side-panel';
 import { invalidateStoriesCaches } from '@/lib/stories-cache';
@@ -558,6 +565,7 @@ function AutomationsSection({
 		enabled: boolean;
 		cron: string;
 		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
 		updatedAt: Date;
 	}>;
 }) {
@@ -604,19 +612,13 @@ function AutomationListItem({
 		enabled: boolean;
 		cron: string;
 		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
 		updatedAt: Date;
 	};
 }) {
 	const timeAgo = useTimeAgo(new Date(item.updatedAt).getTime());
-	const hasSchedule = Boolean(item.cron);
-	const isActive = hasSchedule ? item.enabled : item.webhookEnabled;
-	const statusLabel = hasSchedule
-		? item.enabled
-			? timeAgo.humanReadable
-			: 'paused'
-		: item.webhookEnabled
-			? 'webhook'
-			: 'paused';
+	const isActive = isAutomationActive(item);
+	const statusLabel = getAutomationStatusLabel(item, timeAgo.humanReadable);
 
 	return (
 		<Link
@@ -756,4 +758,23 @@ function SidebarSectionHeader({
 			</div>
 		</button>
 	);
+}
+
+function getAutomationStatusLabel(
+	item: {
+		cron: string;
+		enabled: boolean;
+		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
+	},
+	lastUpdatedLabel: string,
+): string {
+	if (item.cron) {
+		return item.enabled ? lastUpdatedLabel : 'paused';
+	}
+	if (item.webhookEnabled) {
+		return 'webhook';
+	}
+	const [firstEvent] = getEnabledNaoEvents(item.eventTriggers);
+	return firstEvent ? NAO_EVENT_LABELS[firstEvent].toLowerCase() : 'paused';
 }

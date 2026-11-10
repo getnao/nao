@@ -1,5 +1,8 @@
 import type { DocumentExtension } from './attachments';
+import type { StoryBlockPart } from './story-parts';
 import type { ValueFormat } from './tools/display-chart';
+
+export type { StoryBlockPart, StoryBlockPartKind } from './story-parts';
 
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
@@ -43,6 +46,27 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	story_refresh: 'Results of your story refreshes.',
 	shared: 'When someone shares a story or chat with you.',
 	subscription: "When you're added to a story's scheduled delivery.",
+};
+
+export const FEEDBACK_VOTES = ['up', 'down'] as const;
+export type FeedbackVote = (typeof FEEDBACK_VOTES)[number];
+
+export const FEEDBACK_SOURCES = ['chat', 'story'] as const;
+export type FeedbackSource = (typeof FEEDBACK_SOURCES)[number];
+
+/** Runs an automation whenever a matching thumbs up/down is left on a chat answer or a story. */
+export type AutomationFeedbackTrigger = {
+	enabled: boolean;
+	votes: FeedbackVote[];
+	sources: FeedbackSource[];
+};
+
+export const NAO_EVENT_TYPES = ['feedback'] as const;
+export type NaoEventType = (typeof NAO_EVENT_TYPES)[number];
+
+/** nao events an automation listens to, keyed by event type. */
+export type AutomationEventTriggers = {
+	feedback?: AutomationFeedbackTrigger;
 };
 
 export type SharedItemLabel = 'story' | 'chat';
@@ -514,7 +538,10 @@ export interface StoryBlockReference {
 	kind: string;
 	title?: string;
 	queryId?: string;
+	/** Position among the blocks sharing this kind, title and query, set only past the first. */
+	occurrence?: number;
 	lines?: StoryCodeLines;
+	part?: StoryBlockPart;
 }
 
 export interface StoryCodeLines {

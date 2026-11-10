@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	executeRawSql: vi.fn(),
 	compileSemanticQuery: vi.fn(),
 	describeSemanticLayer: vi.fn(),
+	resolveRawSqlDatabaseType: vi.fn(),
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -31,6 +32,7 @@ vi.mock('../src/services/semantic-layer.service', () => ({
 vi.mock('../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeRawSql: mocks.executeRawSql,
+	resolveRawSqlDatabaseType: mocks.resolveRawSqlDatabaseType,
 	isCacheExpired: () => false,
 }));
 
@@ -50,7 +52,8 @@ describe('getStoryFilterOptions', () => {
 		mocks.getSqlQueriesFromCode.mockResolvedValue({
 			q1: { sqlQuery: 'SELECT 1', databaseId: 'warehouse', dialect: 'bigquery', adminMode: false },
 		});
-		mocks.createStoryExecutionContext.mockResolvedValue({});
+		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
+		mocks.resolveRawSqlDatabaseType.mockResolvedValue('bigquery');
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Sports' }, { value: 'Home' }], columns: ['value'] });
 	});
 
@@ -103,9 +106,59 @@ describe('getStoryFilterOptions', () => {
 	it('searches truncated lists on the server without caching the result', async () => {
 		await getStoryFilterOptions('chat-1', 'story', 'category', { search: ' Sp%o_ ' });
 
-		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(category AS STRING)) LIKE '%spo%'");
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(category AS STRING)) LIKE '%sp%o_%'");
 		expect(mocks.getFilterOptionsCache).not.toHaveBeenCalled();
 		expect(mocks.upsertFilterOptionsCache).not.toHaveBeenCalled();
+	});
+
+	it('casts searches with the database type resolved by the warehouse executor', async () => {
+		mocks.resolveRawSqlDatabaseType.mockResolvedValue('mssql');
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '<filter id="company" type="multi_select" table="companies" column="name" database_id="warehouse" />',
+		});
+
+		await getStoryFilterOptions('chat-1', 'story', 'company', { search: 'fiver' });
+
+		expect(mocks.resolveRawSqlDatabaseType).toHaveBeenCalledWith(expect.anything(), 'warehouse');
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS NVARCHAR(MAX))) LIKE '%fiver%'");
+	});
+
+	it('casts to VARCHAR for database types without a dedicated string type', async () => {
+		mocks.resolveRawSqlDatabaseType.mockResolvedValue('duckdb');
+
+		await getStoryFilterOptions('chat-1', 'story', 'category', { search: 'sport' });
+
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(category AS VARCHAR)) LIKE '%sport%'");
+	});
+
+	it('searches a hyphenated BigQuery table narrowed by its parent filter', async () => {
+		mocks.getSqlQueriesFromCode.mockResolvedValue({});
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: [
+				'<filter id="deployment" type="multi_select" table="nao-production.prod_silver.kpis" column="deployment_type" database_id="nao-production" />',
+				'<filter id="company" type="multi_select" table="nao-production.prod_silver.kpis" column="company_name" depends_on="deployment" database_id="nao-production" />',
+			].join('\n'),
+		});
+
+		await getStoryFilterOptions('chat-1', 'story', 'company', { parentSelection: ['cloud'], search: 'my_co.io' });
+
+		expect(mocks.executeRawSql.mock.calls[0][0]).toBe(
+			"SELECT DISTINCT company_name AS value FROM `nao-production`.prod_silver.kpis WHERE company_name IS NOT NULL AND deployment_type IN ('cloud') AND LOWER(CAST(company_name AS STRING)) LIKE '%my_co.io%' ORDER BY company_name LIMIT 101",
+		);
+	});
+
+	it('turns quotes and backslashes in searches into single-character wildcards', async () => {
+		await getStoryFilterOptions('chat-1', 'story', 'category', { search: "Kid's \\toys" });
+
+		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LIKE '%kid_s _toys%'");
+	});
+
+	it('does not resolve the database type when listing options without a search', async () => {
+		mocks.getFilterOptionsCache.mockResolvedValue(null);
+
+		await getStoryFilterOptions('chat-1', 'story', 'category');
+
+		expect(mocks.resolveRawSqlDatabaseType).not.toHaveBeenCalled();
 	});
 
 	it('marks the list incomplete when the warehouse returns more than the limit', async () => {
@@ -133,7 +186,7 @@ describe('warmStoryFilterOptions', () => {
 		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', projectId: 'project-1', cacheSchedule: null });
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code: STORY_CODE });
 		mocks.getSqlQueriesFromCode.mockResolvedValue({});
-		mocks.createStoryExecutionContext.mockResolvedValue({});
+		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Home' }], columns: ['value'] });
 
 		await warmStoryFilterOptions('chat-1', 'story');

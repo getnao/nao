@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TestSuitePanel } from './test-suite-panel';
 import type { TestRunSummary } from './test-run-types';
+import type { TestFilters } from './test-suite-filter-menu';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({ getRun: vi.fn(), listTests: vi.fn() }));
@@ -28,6 +29,13 @@ vi.mock('@/main', () => ({
 
 describe('TestSuitePanel', () => {
 	beforeEach(() => {
+		vi.stubGlobal(
+			'ResizeObserver',
+			class {
+				observe() {}
+				disconnect() {}
+			},
+		);
 		mocks.listTests.mockResolvedValue({
 			tests: [],
 			invalidFiles: [],
@@ -36,7 +44,11 @@ describe('TestSuitePanel', () => {
 		});
 	});
 
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
 
 	it('shows the outcome of each test of a run first and filters the tests that passed or failed', async () => {
 		mocks.getRun.mockResolvedValue({
@@ -201,8 +213,13 @@ describe('TestSuitePanel', () => {
 			settings: { errors: [] },
 		});
 		const onSelectedPathsChange = vi.fn();
-		const onSelectedTagsChange = vi.fn();
-		renderPanel({ selectedRunId: null, selectedTags: ['finance'], onSelectedPathsChange, onSelectedTagsChange });
+		const onFiltersChange = vi.fn();
+		renderPanel({
+			selectedRunId: null,
+			filters: { tags: ['finance'], owners: [] },
+			onSelectedPathsChange,
+			onFiltersChange,
+		});
 
 		expect(await screen.findByText('revenue.yml')).toBeTruthy();
 		expect(screen.queryByText('churn.yml')).toBeNull();
@@ -210,8 +227,97 @@ describe('TestSuitePanel', () => {
 		fireEvent.click(screen.getByRole('checkbox', { name: 'Select the shown tests' }));
 		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set(['revenue.yml']));
 
-		fireEvent.click(screen.getByRole('button', { name: 'product' }));
-		expect(onSelectedTagsChange).toHaveBeenLastCalledWith(['finance', 'product']);
+		openFilterMenu();
+		fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'product' }));
+		expect(onFiltersChange).toHaveBeenLastCalledWith({ tags: ['finance', 'product'], owners: [] });
+		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set());
+	});
+
+	it('narrows the tests to an owner, shows the owner and tags of each test and removes a filter', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [
+				{ ...testDefinition('revenue.yml', ['finance']), owner: 'alice@acme.com' },
+				{ ...testDefinition('churn.yml', ['product']), owner: 'bob@acme.com' },
+				testDefinition('orders.yml', ['finance']),
+			],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		const onFiltersChange = vi.fn();
+		renderPanel({ selectedRunId: null, filters: { tags: [], owners: ['alice@acme.com'] }, onFiltersChange });
+
+		const revenueRow = (await screen.findByText('revenue.yml')).closest('li');
+		expect(revenueRow?.textContent).toContain('alice@acme.com');
+		expect(revenueRow?.textContent).toContain('finance');
+		expect(screen.queryByText('churn.yml')).toBeNull();
+		expect(screen.queryByText('orders.yml')).toBeNull();
+
+		openFilterMenu();
+		const owners = await screen.findAllByRole('menuitemcheckbox');
+		expect(owners.map((item) => item.textContent)).toEqual([
+			'finance',
+			'product',
+			'alice@acme.com',
+			'bob@acme.com',
+		]);
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'bob@acme.com' }));
+		expect(onFiltersChange).toHaveBeenLastCalledWith({ tags: [], owners: ['alice@acme.com', 'bob@acme.com'] });
+
+		cleanup();
+		renderPanel({ selectedRunId: null, filters: { tags: ['finance'], owners: [] }, onFiltersChange });
+		expect(await screen.findByText('orders.yml')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Remove finance filter' }));
+		expect(onFiltersChange).toHaveBeenLastCalledWith({ tags: [], owners: [] });
+	});
+
+	it('collapses the picked tags into a single chip that clears them when they do not fit', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [testDefinition('revenue.yml', ['finance', 'kpi', 'monthly'])],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		fitTwoChipsInTheHeader();
+		const onFiltersChange = vi.fn();
+		renderPanel({
+			selectedRunId: null,
+			filters: { tags: ['finance', 'kpi'], owners: [] },
+			onFiltersChange,
+		});
+		expect(await screen.findByRole('button', { name: 'Remove finance filter' })).toBeTruthy();
+
+		cleanup();
+		renderPanel({
+			selectedRunId: null,
+			filters: { tags: ['finance', 'kpi', 'monthly'], owners: [] },
+			onFiltersChange,
+		});
+
+		expect(await screen.findByText('3 tags')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Remove finance filter' })).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Remove 3 tags filter' }));
+		expect(onFiltersChange).toHaveBeenLastCalledWith({ tags: [], owners: [] });
+	});
+
+	it('finds the tests by owner or tag in the search', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [
+				{ ...testDefinition('revenue.yml', ['finance']), owner: 'alice@acme.com' },
+				testDefinition('churn.yml', ['product']),
+			],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		renderPanel({ selectedRunId: null, search: 'alice' });
+		expect(await screen.findByText('revenue.yml')).toBeTruthy();
+		expect(screen.queryByText('churn.yml')).toBeNull();
+
+		cleanup();
+		renderPanel({ selectedRunId: null, search: 'PRODUCT' });
+		expect(await screen.findByText('churn.yml')).toBeTruthy();
+		expect(screen.queryByText('revenue.yml')).toBeNull();
 	});
 
 	it('narrows the tests to the ones whose name or path holds the search', async () => {
@@ -340,6 +446,21 @@ function testDefinition(path: string, tags: string[]) {
 	};
 }
 
+/** Each chip takes 100px of a 250px wide line of chips. */
+function fitTwoChipsInTheHeader() {
+	const isChipLine = (element: HTMLElement) => element.getAttribute('aria-label') === 'Active filters';
+	vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+		return isChipLine(this) ? this.children.length * 100 : 0;
+	});
+	vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+		return isChipLine(this) ? 250 : 0;
+	});
+}
+
+function openFilterMenu() {
+	fireEvent.pointerDown(screen.getByRole('button', { name: 'Filter the tests' }), { button: 0, ctrlKey: false });
+}
+
 function filterLabels() {
 	const filters = screen.getByRole('radiogroup', { name: 'Filter the tests' });
 	return within(filters)
@@ -350,18 +471,18 @@ function filterLabels() {
 function renderPanel({
 	selectedRunId = 'run-1',
 	runs = [],
-	selectedTags = [],
+	filters = { tags: [], owners: [] },
 	search = '',
 	onSelectedPathsChange = vi.fn(),
-	onSelectedTagsChange = vi.fn(),
+	onFiltersChange = vi.fn(),
 	onSearchChange = vi.fn(),
 }: {
 	selectedRunId?: string | null;
 	runs?: TestRunSummary[];
-	selectedTags?: string[];
+	filters?: TestFilters;
 	search?: string;
 	onSelectedPathsChange?: (paths: Set<string>) => void;
-	onSelectedTagsChange?: (tags: string[]) => void;
+	onFiltersChange?: (filters: TestFilters) => void;
 	onSearchChange?: (search: string) => void;
 } = {}) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -375,8 +496,8 @@ function renderPanel({
 					selection={{
 						selectedPaths: new Set(),
 						onSelectedPathsChange,
-						selectedTags,
-						onSelectedTagsChange,
+						filters,
+						onFiltersChange,
 						search,
 						onSearchChange,
 					}}

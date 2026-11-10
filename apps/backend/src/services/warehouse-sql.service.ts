@@ -20,6 +20,11 @@ export interface WarehouseSqlResult {
 	dialect?: string;
 }
 
+export interface WarehouseSqlValidation {
+	valid: true;
+	dialect: string;
+}
+
 export class WarehouseSqlError extends Error {
 	constructor(
 		readonly status: number,
@@ -34,8 +39,8 @@ export async function executeWarehouseSql(sql: string, options: WarehouseSqlOpti
 	return requestWarehouseSql<WarehouseSqlResult>('/execute_sql', sql, options);
 }
 
-export async function validateWarehouseSql(sql: string, options: WarehouseSqlOptions): Promise<void> {
-	await requestWarehouseSql('/validate_sql', sql, options);
+export async function validateWarehouseSql(sql: string, options: WarehouseSqlOptions): Promise<WarehouseSqlValidation> {
+	return requestWarehouseSql<WarehouseSqlValidation>('/validate_sql', sql, options);
 }
 
 export async function validateWarehouseRowPredicate(

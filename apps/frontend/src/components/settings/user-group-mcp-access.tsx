@@ -14,6 +14,7 @@ import { trpc } from '@/main';
 
 interface UserGroupMcpAccessProps {
 	mcpAccess: McpAccess;
+	savedMcpAccess: McpAccess;
 	isLicensed: boolean;
 	onMcpAccessChange: (access: McpAccess) => void;
 }
@@ -23,7 +24,12 @@ const SELECTED_ROW_CLASS = 'bg-primary/10 text-primary hover:bg-primary/15';
 const PARTIAL_CHECKBOX_CLASS =
 	'data-[state=indeterminate]:bg-primary/15 data-[state=indeterminate]:text-primary/70 data-[state=indeterminate]:shadow-none';
 
-export function UserGroupMcpAccess({ mcpAccess, isLicensed, onMcpAccessChange }: UserGroupMcpAccessProps) {
+export function UserGroupMcpAccess({
+	mcpAccess,
+	savedMcpAccess,
+	isLicensed,
+	onMcpAccessChange,
+}: UserGroupMcpAccessProps) {
 	const servers = useQuery(trpc.mcp.getServers.queryOptions());
 	const configuredServers = servers.data ?? [];
 	const unconfiguredServers = getUnconfiguredMcpGrantServers(mcpAccess, configuredServers);
@@ -44,11 +50,7 @@ export function UserGroupMcpAccess({ mcpAccess, isLicensed, onMcpAccessChange }:
 				everythingDescription='All current and future MCP servers and tools.'
 				specificDescription={isLicensed ? 'Choose servers and tools.' : 'Requires an Enterprise license.'}
 				onEverything={() => onMcpAccessChange({ mode: 'all' })}
-				onSpecific={() => {
-					if (isLicensed && mcpAccess.mode === 'all') {
-						onMcpAccessChange({ mode: 'restricted', grants: [] });
-					}
-				}}
+				onSpecific={() => onMcpAccessChange(getSpecificMcpAccess(mcpAccess, savedMcpAccess, isLicensed))}
 			/>
 			<Badge variant='secondary' className='w-fit whitespace-nowrap'>
 				{mcpAccess.mode === 'all'
@@ -239,6 +241,14 @@ function StatusRow({ status, onRetry }: { status: string; onRetry?: () => void }
 			)}
 		</li>
 	);
+}
+
+/** Without a license only the saved access can be restored, since the server rejects any new restriction. */
+export function getSpecificMcpAccess(access: McpAccess, savedAccess: McpAccess, isLicensed: boolean): McpAccess {
+	if (access.mode === 'restricted') {
+		return access;
+	}
+	return isLicensed ? { mode: 'restricted', grants: [] } : savedAccess;
 }
 
 export function toggleMcpServerGrant(access: McpAccess, server: string, selected: boolean): McpAccess {

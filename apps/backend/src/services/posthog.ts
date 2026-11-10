@@ -42,6 +42,9 @@ export enum PostHogEvent {
 	MattermostConfigured = 'mattermost_configured',
 	DiscordConfigured = 'discord_configured',
 	WhatsappConfigured = 'whatsapp_configured',
+
+	McpToolCalled = 'mcp_tool_called',
+	McpEndpointSettingsUpdated = 'mcp_endpoint_settings_updated',
 }
 
 /**

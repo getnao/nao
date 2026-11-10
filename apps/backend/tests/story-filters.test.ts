@@ -1,7 +1,7 @@
 import { renderSqlTemplate, stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import { describe, expect, it } from 'vitest';
 
-import { assertSafeSqlIdentifier } from '../src/utils/sql-identifiers';
+import { toSafeSqlIdentifier } from '../src/utils/sql-identifiers';
 
 describe('story filter SQL templates', () => {
 	it('strips filter blocks for chat / live baseline execution', () => {
@@ -31,21 +31,38 @@ WHERE 1 = 1
 	});
 });
 
-describe('assertSafeSqlIdentifier', () => {
+describe('toSafeSqlIdentifier', () => {
 	it('accepts dotted and quoted identifiers', () => {
-		expect(assertSafeSqlIdentifier('orders', 'table')).toBe('orders');
-		expect(assertSafeSqlIdentifier('public.orders', 'table')).toBe('public.orders');
-		expect(assertSafeSqlIdentifier('"Order Status"', 'column')).toBe('"Order Status"');
-		expect(assertSafeSqlIdentifier('`nao-production`.`prod_silver`.`dim_products`', 'table')).toBe(
+		expect(toSafeSqlIdentifier('orders', 'table')).toBe('orders');
+		expect(toSafeSqlIdentifier('public.orders', 'table')).toBe('public.orders');
+		expect(toSafeSqlIdentifier('"Order Status"', 'column')).toBe('"Order Status"');
+		expect(toSafeSqlIdentifier('`nao-production`.`prod_silver`.`dim_products`', 'table')).toBe(
 			'`nao-production`.`prod_silver`.`dim_products`',
 		);
 	});
 
 	it('rejects unsafe identifiers', () => {
-		expect(() => assertSafeSqlIdentifier('orders; DROP TABLE x', 'table')).toThrow(/Invalid filter table/);
-		expect(() => assertSafeSqlIdentifier('col-name', 'column')).toThrow(/Invalid filter column/);
-		expect(() => assertSafeSqlIdentifier('nao-production.prod_silver.dim_products', 'table')).toThrow(
+		expect(() => toSafeSqlIdentifier('orders; DROP TABLE x', 'table')).toThrow(/Invalid filter table/);
+		expect(() => toSafeSqlIdentifier('col-name', 'column')).toThrow(/Invalid filter column/);
+		expect(() => toSafeSqlIdentifier('nao--production.prod_silver.dim_products', 'table')).toThrow(
 			/Invalid filter table/,
+		);
+		expect(() => toSafeSqlIdentifier('orders.', 'table')).toThrow(/Invalid filter table/);
+	});
+
+	it('accepts mixed quoting across parts', () => {
+		expect(toSafeSqlIdentifier('`nao-production`.prod_silver.dim_products', 'table')).toBe(
+			'`nao-production`.prod_silver.dim_products',
+		);
+		expect(toSafeSqlIdentifier('`nao-production.prod_silver.dim_products`', 'table')).toBe(
+			'`nao-production.prod_silver.dim_products`',
+		);
+		expect(toSafeSqlIdentifier('analytics."Order Lines"', 'table')).toBe('analytics."Order Lines"');
+	});
+
+	it('backtick-quotes unquoted hyphenated table parts', () => {
+		expect(toSafeSqlIdentifier('nao-production.prod_silver.dim_products', 'table')).toBe(
+			'`nao-production`.prod_silver.dim_products',
 		);
 	});
 });

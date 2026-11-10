@@ -1,4 +1,6 @@
 import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
+import { automationDraftSchema } from '@nao/shared/automation-draft';
+import { STORY_BLOCK_PART_KINDS } from '@nao/shared/story-parts';
 import {
 	type CitationData,
 	type LlmProvider,
@@ -20,7 +22,14 @@ import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
 export interface ForkMetadata {
-	type: 'chat' | 'chat_selection' | 'chat_question' | 'story' | 'story_selection' | 'story_question';
+	type:
+		| 'chat'
+		| 'chat_selection'
+		| 'chat_question'
+		| 'story'
+		| 'story_selection'
+		| 'story_question'
+		| 'automation_edit';
 	id: string;
 	title: string;
 	authorName: string;
@@ -193,7 +202,7 @@ export const AgentRequestImageSchema = z.object({
  */
 const AgentRequestDocumentPathSchema = z.string().min(1).max(1024);
 
-const CitationDataSchema = z.object({
+export const CitationDataSchema = z.object({
 	start: z.number(),
 	end: z.number(),
 	text: z.string().max(MAX_CITATION_TEXT_LENGTH),
@@ -204,7 +213,17 @@ const CitationDataSchema = z.object({
 			kind: z.string(),
 			title: z.string().optional(),
 			queryId: z.string().optional(),
+			occurrence: z.number().int().positive().optional(),
 			lines: z.object({ start: z.number().int(), end: z.number().int() }).optional(),
+			part: z
+				.object({
+					kind: z.enum(STORY_BLOCK_PART_KINDS),
+					label: z.string().max(200).optional(),
+					series: z.string().max(200).optional(),
+					category: z.string().max(200).optional(),
+					value: z.string().max(200).optional(),
+				})
+				.optional(),
 		})
 		.optional(),
 	intent: z.enum(['ask', 'edit']).optional(),
@@ -229,6 +248,8 @@ export const AgentRequestSchema = z.object({
 	/** When true, the message runs in admin mode: it queries nao's own usage database instead of the warehouse. */
 	adminMode: z.boolean().optional(),
 	mode: z.enum(['default', 'onboarding', 'example']).default('default'),
+	/** The automation open beside an automation editing chat, as it stands in its form. */
+	automationDraft: automationDraftSchema.optional(),
 });
 
 export interface StoryOriginTurn {

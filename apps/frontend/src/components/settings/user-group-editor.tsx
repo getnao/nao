@@ -718,6 +718,7 @@ export function UserGroupEditor({
 						{activeTab === 'mcp' && (
 							<UserGroupMcpAccess
 								mcpAccess={mcpAccess}
+								savedMcpAccess={existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS}
 								isLicensed={hasRowLevelSecurity}
 								onMcpAccessChange={setMcpAccess}
 							/>
@@ -727,6 +728,7 @@ export function UserGroupEditor({
 								isDefaultGroup={existingGroup?.isDefault === true}
 								isLicensed={hasRowLevelSecurity}
 								skillsAccess={skillsAccess}
+								savedSkillsAccess={existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
 								preloadedSkills={preloadedSkills}
 								allUsersSkillsAccess={allUsersGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
 								allUsersPreloadedSkills={allUsersGroup?.preloadedSkills ?? []}
