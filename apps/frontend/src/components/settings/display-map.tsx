@@ -287,7 +287,7 @@ function BoundaryEditPanel({
 		setPropertyKeys(result.propertyKeys);
 		setPreviewGeojson(result.geojson);
 		setFeatureCount(result.featureCount);
-		setJoinProperty((prev) => prev || (result.propertyKeys.length === 1 ? result.propertyKeys[0] : ''));
+		setJoinProperty((previous) => pickJoinProperty(previous, result.propertyKeys));
 	};
 
 	const clearPreview = () => {
@@ -603,6 +603,14 @@ function BoundaryEditPanel({
 
 function describeError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+/** A join property missing from the new GeoJSON would silently match no region, so it is only kept when still present. */
+function pickJoinProperty(previous: string, propertyKeys: string[]): string {
+	if (previous && propertyKeys.includes(previous)) {
+		return previous;
+	}
+	return propertyKeys.length === 1 ? propertyKeys[0] : '';
 }
 
 function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
