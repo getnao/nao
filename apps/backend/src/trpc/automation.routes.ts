@@ -54,7 +54,7 @@ const automationCostProcedure = cloudBillingProjectProcedure.use(({ next }) => {
 	return next();
 });
 
-const automationAdminProcedure = adminProtectedProcedure.use(({ next }) => {
+export const automationAdminProcedure = adminProtectedProcedure.use(({ next }) => {
 	assertAutomationsEnabled();
 	return next();
 });
@@ -259,6 +259,7 @@ export const automationRoutes = {
 		return startAutomationRun(input.id, {
 			billingAccessVerifiedProjectId: ctx.project.id,
 			requireEnabled: false,
+			trigger: 'manual',
 		});
 	}),
 

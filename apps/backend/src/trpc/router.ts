@@ -27,6 +27,7 @@ import { mcpEndpointRoutes } from './mcp-endpoint.routes';
 import { mcpOAuthClientsRoutes } from './mcp-oauth-clients.routes';
 import { memberBudgetRoutes } from './member-budget.routes';
 import { memoryRoutes } from './memory.routes';
+import { monitoringRoutes } from './monitoring.routes';
 import { notificationRoutes } from './notification.routes';
 import { onboardingRoutes } from './onboarding.routes';
 import { organizationRoutes } from './organization.routes';
@@ -67,6 +68,7 @@ export const trpcRouter = router({
 	customStoryViewer: customStoryViewerRoutes,
 	standaloneCustomStory: standaloneCustomStoryRoutes,
 	automation: automationRoutes,
+	monitoring: monitoringRoutes,
 	chatFork: chatForkRoutes,
 	citation: citationRoutes,
 	contextExplorer: contextExplorerRoutes,

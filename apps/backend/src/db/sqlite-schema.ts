@@ -59,7 +59,12 @@ import {
 } from 'drizzle-orm/sqlite-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
+import {
+	AUTOMATION_RUN_STATUSES,
+	AUTOMATION_RUN_TRIGGERS,
+	AutomationIntegrationConfig,
+	AutomationIntegrationResult,
+} from '../types/automation';
 import { BILLING_STATUSES } from '../types/billing';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import {
@@ -1053,6 +1058,7 @@ export const automationRun = sqliteTable(
 			.references(() => automation.id, { onDelete: 'cascade' }),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
 		status: text('status', { enum: AUTOMATION_RUN_STATUSES }).notNull().default('running'),
+		trigger: text('trigger', { enum: AUTOMATION_RUN_TRIGGERS }),
 		startedAt: integer('started_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
