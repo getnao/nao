@@ -98,4 +98,21 @@ Human annotations from /databases/table=orders/annotations.md (authoritative, pr
 Exclude test orders.`,
 		);
 	});
+
+	it('truncates long table annotations', () => {
+		const result = renderToMarkdown(
+			<ReadOutput
+				output={{
+					content: '# orders',
+					numberOfTotalLines: 1,
+					annotations: { path: '/databases/table=orders/annotations.md', content: 'a'.repeat(8_010) },
+				}}
+			/>,
+		);
+
+		expect(result).toContain(
+			`${'a'.repeat(8_000)}...(10 B left, read /databases/table=orders/annotations.md for the rest)`,
+		);
+		expect(result).not.toContain('a'.repeat(8_001));
+	});
 });

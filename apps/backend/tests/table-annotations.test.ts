@@ -38,14 +38,14 @@ describe('findTableAnnotations', () => {
 		).resolves.toBeUndefined();
 	});
 
-	it('accepts relative paths', async () => {
-		const annotations = await findTableAnnotations(
-			COLUMNS_PATH.slice(1),
-			readFrom({ [ANNOTATIONS_PATH.slice(1)]: 'notes' }),
-		);
+	it.each([COLUMNS_PATH.slice(1), `.${COLUMNS_PATH}`, `/docs/..${COLUMNS_PATH}`])(
+		'normalizes %s before matching',
+		async (columnsPath) => {
+			const annotations = await findTableAnnotations(columnsPath, readFrom({ [ANNOTATIONS_PATH]: 'notes' }));
 
-		expect(annotations).toEqual({ path: ANNOTATIONS_PATH.slice(1), content: 'notes' });
-	});
+			expect(annotations).toEqual({ path: ANNOTATIONS_PATH, content: 'notes' });
+		},
+	);
 });
 
 function readFrom(files: Record<string, string>) {
