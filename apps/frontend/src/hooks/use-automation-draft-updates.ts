@@ -13,39 +13,61 @@ interface SettledDraftUpdate {
 	update: AutomationDraftUpdate;
 }
 
+/** The changes already handed to the form, per conversation. */
+export type HandledDraftUpdates = Map<string, Set<string>>;
+
 /**
  * Hands each change the agent makes to the automation over to its form, once.
  * A resumed conversation's past changes were already handed over when they were made.
+ *
+ * `handledUpdates` must outlive this hook: the chat unmounts when its panel is collapsed, and a change
+ * handed over again on reopening would overwrite what the user edited in the form since.
  */
 export function useAutomationDraftUpdates({
 	isResumed,
+	handledUpdates,
 	onUpdate,
 }: {
 	isResumed: boolean;
+	handledUpdates: HandledDraftUpdates;
 	onUpdate: (update: AutomationDraftUpdate) => void;
 }) {
+	const chatId = useChatId();
 	const messages = useAgentMessages();
-	const savedMessages = useChatQuery({ chatId: useChatId() }).data?.messages;
-	const handledToolCallIds = useRef<Set<string> | null>(isResumed ? null : new Set());
+	const savedMessages = useChatQuery({ chatId }).data?.messages;
 	const onUpdateRef = useRef(onUpdate);
 	onUpdateRef.current = onUpdate;
 
 	useEffect(() => {
-		if (!handledToolCallIds.current) {
-			if (savedMessages) {
-				handledToolCallIds.current = new Set(listSettledDraftUpdates(savedMessages).map(toToolCallId));
+		if (!chatId) {
+			return;
+		}
+		const handledToolCallIds = handledUpdates.get(chatId);
+		if (!handledToolCallIds) {
+			if (!isResumed) {
+				handledUpdates.set(chatId, handUpdatesOver(messages, new Set(), onUpdateRef.current));
+			} else if (savedMessages) {
+				handledUpdates.set(chatId, new Set(listSettledDraftUpdates(savedMessages).map(toToolCallId)));
 			}
 			return;
 		}
+		handUpdatesOver(messages, handledToolCallIds, onUpdateRef.current);
+	}, [chatId, handledUpdates, isResumed, messages, savedMessages]);
+}
 
-		for (const { toolCallId, update } of listSettledDraftUpdates(messages)) {
-			if (handledToolCallIds.current.has(toolCallId)) {
-				continue;
-			}
-			handledToolCallIds.current.add(toolCallId);
-			onUpdateRef.current(update);
+function handUpdatesOver(
+	messages: UIMessage[],
+	handledToolCallIds: Set<string>,
+	onUpdate: (update: AutomationDraftUpdate) => void,
+): Set<string> {
+	for (const { toolCallId, update } of listSettledDraftUpdates(messages)) {
+		if (handledToolCallIds.has(toolCallId)) {
+			continue;
 		}
-	}, [messages, savedMessages]);
+		handledToolCallIds.add(toolCallId);
+		onUpdate(update);
+	}
+	return handledToolCallIds;
 }
 
 function toToolCallId({ toolCallId }: SettledDraftUpdate): string {
