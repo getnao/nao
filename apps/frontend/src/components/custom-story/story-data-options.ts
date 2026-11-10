@@ -186,7 +186,7 @@ export async function fetchMapBoundary(
 	dataSource: CustomStoryDataSource,
 	key: string,
 ): Promise<StoryMapBoundary> {
-	const boundary = await queryClient.fetchQuery(mapBoundaryOptions(dataSource, key));
+	const boundary = await queryClient.fetchQuery({ ...mapBoundaryOptions(dataSource, key), staleTime: 0 });
 	if (!boundary) {
 		throw new Error(`Map boundary "${key}" is not available.`);
 	}
