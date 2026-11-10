@@ -26,8 +26,8 @@ import {
 	createStoryExecutionContext,
 	executeRawSql,
 	executeStoryQueries,
-	hasRowSecurity,
 	isCacheExpired,
+	requiresViewerStoryData,
 	resolveRawSqlDatabaseType,
 	type StoryExecutionContext,
 } from './live-story';
@@ -113,7 +113,7 @@ export async function getStoryFilterOptions(
 	}
 
 	const viewerUserId =
-		executionOptions.viewerUserId && (await hasRowSecurity(chatId, executionOptions.viewerUserId))
+		executionOptions.viewerUserId && (await requiresViewerStoryData(chatId, executionOptions.viewerUserId))
 			? executionOptions.viewerUserId
 			: undefined;
 	if (filter.options?.length && !viewerUserId && !filter.optionsQueryId) {
@@ -303,6 +303,9 @@ async function fetchQueryOptionValues(
 		},
 	);
 	const result = queryData[source.queryId]!;
+	if (result.accessDenied) {
+		return [];
+	}
 	if (!result.columns.some((column) => column.toLowerCase() === 'value')) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
@@ -324,6 +327,9 @@ async function fetchWarehouseOptionValues(
 		databaseId: source.databaseId,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
 	});
+	if (result.accessDenied) {
+		return [];
+	}
 	return result.data.map((row) => readOptionValue(row, 'value'));
 }
 
@@ -347,6 +353,9 @@ async function fetchDimensionValues(
 		databaseId: compiled.database_id,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
 	});
+	if (result.accessDenied) {
+		return [];
+	}
 	return result.data.map((row) => readOptionValue(row, source.dimension));
 }
 

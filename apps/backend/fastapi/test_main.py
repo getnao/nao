@@ -664,7 +664,7 @@ def test_table_access_is_scoped_per_connection_sharing_database_name(shared_data
     denied = client.post("/execute_sql", json={**request, "database_id": "shop_b_ro"})
 
     assert allowed.status_code == 200, allowed.text
-    assert denied.status_code == 400
+    assert denied.status_code == 403
     assert "Denied table(s): main.orders" in denied.json()["detail"]
 
 
@@ -772,7 +772,7 @@ def test_table_access_is_filtered_to_active_database_folder(
     }
 
     denied = client.post("/execute_sql", json=request)
-    assert denied.status_code == 400
+    assert denied.status_code == 403
     assert "main.users" in denied.json()["detail"]
 
     request["table_access"]["tables"][0]["database"] = "test"
@@ -901,7 +901,7 @@ def test_motherduck_excluded_columns_apply_to_execute_and_validate(
         endpoint,
         json={**base_request, "sql": "SELECT * FROM users"},
     )
-    assert guarded.status_code == 400
+    assert guarded.status_code == (403 if endpoint == "/execute_sql" else 400)
     assert "main.users.email" in guarded.json()["detail"]
 
 
@@ -1009,7 +1009,7 @@ def test_execute_sql_blocks_star_with_excluded_columns(
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 403
     assert response.json()["detail"] == (
         "Query blocked because SELECT * would include excluded column(s): main.users.email. "
         "Use SELECT * EXCLUDE (email) to exclude them."
@@ -1031,7 +1031,7 @@ def test_execute_sql_blocks_explicit_excluded_column(
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 403
     assert "main.users.email" in response.json()["detail"]
 
 
@@ -1097,7 +1097,7 @@ def test_execute_sql_blocks_table_missing_from_synced_context(
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 403
     detail = response.json()["detail"]
     assert "allow_listed_only is enabled" in detail
     assert "Unlisted table(s): main.users" in detail

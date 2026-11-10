@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
-import type { StoryNarratives } from '@nao/shared/story-app';
+import { STORY_NARRATIVES_REDACT_MISSING_KEY, type StoryNarratives } from '@nao/shared/story-app';
 import { extractQueryIds, TAG_ATTRS } from '@nao/shared/story-segments';
 import { formatColumnLabel } from '@nao/shared/story-table-utils';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
@@ -42,8 +42,8 @@ import {
 	semanticBindingsFromCode,
 	type SemanticStoryBindings,
 } from './semantic-story-bindings';
-import { hasEffectiveRowSecurityRestrictions } from './user-group-context-access.service';
-import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
+import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
+import { executeWarehouseSql, validateWarehouseSql, WarehouseSqlError } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
 
@@ -67,6 +67,7 @@ export interface StoryQueryResult {
 	columns: string[];
 	/** Story filters not applied to this semantic-layer query because its metrics lack their dimension. */
 	skippedFilterIds?: string[];
+	accessDenied?: true;
 }
 
 export async function executeLiveQuery(
@@ -80,7 +81,9 @@ export async function executeLiveQuery(
 	}
 
 	const viewerUserId =
-		options.viewerUserId && (await hasRowSecurity(chatId, options.viewerUserId)) ? options.viewerUserId : undefined;
+		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
+			? options.viewerUserId
+			: undefined;
 	const executionContext = viewerUserId ? await createStoryExecutionContext(chatId, viewerUserId) : undefined;
 
 	const queryData = await executeStoryQueries(
@@ -93,7 +96,11 @@ export async function executeLiveQuery(
 			executionContext,
 		},
 	);
-	return queryData[queryId]!;
+	const result = queryData[queryId]!;
+	if (result.accessDenied) {
+		throw new Error('Query data is unavailable with your current access.');
+	}
+	return result;
 }
 
 export interface RefreshResult {
@@ -163,33 +170,36 @@ async function refreshStoryDataWithContext(
 	const executionContext =
 		existingExecutionContext ??
 		(options.viewerUserId ? await createStoryExecutionContext(chatId, options.viewerUserId) : undefined);
-	const queryData = await executeStoryQueries(chatId, sqlQueries, {
+	const executedQueryData = await executeStoryQueries(chatId, sqlQueries, {
 		renderSql: stripSqlFilterBlocks,
 		semanticBindings: semanticBindingsFromCode(version.code),
 		executionContext,
 		projectId: chat.projectId,
 		billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 	});
+	const queryData = availableStoryQueryData(executedQueryData);
 
 	let refreshedCode = version.code;
 	const target = { projectId: chat.projectId, userId: options.viewerUserId ?? chat.userId, chatId };
 	if (shouldGenerateClassicCode) {
 		const generationSource = shouldGenerateViewerCode ? buildViewerSafeStorySource(version.code) : version.code;
-		const newCode = await generateDynamicStoryCode(
-			target,
-			shouldGenerateViewerCode ? 'Story' : version.title,
-			generationSource,
-			queryData,
-			shouldGenerateViewerCode,
-		);
-		if (!newCode && shouldGenerateViewerCode) {
-			throw new Error('Failed to generate viewer story text');
-		}
+		const newCode =
+			Object.keys(queryData).length > 0
+				? await generateDynamicStoryCode(
+						target,
+						shouldGenerateViewerCode ? 'Story' : version.title,
+						generationSource,
+						queryData,
+						shouldGenerateViewerCode,
+					)
+				: null;
 		if (newCode && !options.viewerUserId) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
 		}
 		if (newCode) {
 			refreshedCode = newCode;
+		} else if (shouldGenerateViewerCode) {
+			refreshedCode = generationSource;
 		}
 	}
 
@@ -218,7 +228,7 @@ async function refreshStoryDataWithContext(
 			executionContext.toolContext.projectId,
 			executionContext.viewerCacheRevision,
 			executionContext.permissionRevision,
-			queryData,
+			executedQueryData,
 			querySources,
 			narratives,
 			refreshedCode,
@@ -227,7 +237,7 @@ async function refreshStoryDataWithContext(
 			throw new Error('Viewer permissions changed during story refresh');
 		}
 	} else {
-		await storyQueries.upsertStoryDataCache(chatId, slug, queryData, querySources, narratives);
+		await storyQueries.upsertStoryDataCache(chatId, slug, executedQueryData, querySources, narratives);
 	}
 
 	return { queryData, code: refreshedCode, narratives };
@@ -270,7 +280,9 @@ export async function getStoryQueryData(
 	options: StoryQueryDataOptions = {},
 ): Promise<StoryQueryDataResult> {
 	const viewerUserId =
-		options.viewerUserId && (await hasRowSecurity(chatId, options.viewerUserId)) ? options.viewerUserId : undefined;
+		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
+			? options.viewerUserId
+			: undefined;
 	if (viewerUserId) {
 		const storyVersionId =
 			options.storyVersionId ?? (await storyQueries.getLatestVersionByChatAndSlug(chatId, slug))?.id;
@@ -332,7 +344,11 @@ async function getViewerStoryQueryData(
 		!isCacheExpired(cache.cachedAt, cacheSchedule) &&
 		findMissingQueryIds(code, cache.queryData).length === 0
 	) {
-		return { queryData: cache.queryData, cachedAt: cache.cachedAt, code: stripHardcodedFilterOptions(cache.code) };
+		return {
+			queryData: availableStoryQueryData(cache.queryData),
+			cachedAt: cache.cachedAt,
+			code: stripHardcodedFilterOptions(cache.code),
+		};
 	}
 
 	try {
@@ -360,7 +376,7 @@ async function getViewerStoryQueryData(
 					);
 		if (currentCache?.code !== null && currentCache?.code !== undefined) {
 			return {
-				queryData: currentCache.queryData,
+				queryData: availableStoryQueryData(currentCache.queryData),
 				cachedAt: currentCache.cachedAt,
 				code: stripHardcodedFilterOptions(currentCache.code),
 			};
@@ -369,13 +385,14 @@ async function getViewerStoryQueryData(
 	}
 }
 
-export async function hasRowSecurity(chatId: string, userId?: string): Promise<boolean> {
+export async function hasRowSecurity(chatId: string): Promise<boolean> {
 	const projectId = await requireChatProjectId(chatId);
-	if (userId) {
-		return hasEffectiveRowSecurityRestrictions(projectId, userId);
-	}
 	const { tables } = await userGroupQueries.getProjectRowSecurity(projectId);
 	return tables.length > 0;
+}
+
+export async function requiresViewerStoryData(chatId: string, userId: string): Promise<boolean> {
+	return hasEffectiveWarehouseRestrictions(await requireChatProjectId(chatId), userId);
 }
 
 function shouldDeferRefresh(options: StoryQueryDataOptions, cache: DBStoryDataCache | null, code: string): boolean {
@@ -406,7 +423,7 @@ async function resolveLegacyCache(
 	const missing = findMissingQueryIds(code, cache.queryData);
 	const queryData =
 		missing.length > 0 ? await backfillMissingQueryData(code, cache.queryData, { chatId }) : cache.queryData;
-	return { queryData, cachedAt: cache.cachedAt, code };
+	return { queryData: queryData ? availableStoryQueryData(queryData) : null, cachedAt: cache.cachedAt, code };
 }
 
 function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
@@ -431,6 +448,10 @@ function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 	);
 }
 
+export function availableStoryQueryData(queryData: StoryQueryData): StoryQueryData {
+	return Object.fromEntries(Object.entries(queryData).filter(([, result]) => !result.accessDenied));
+}
+
 function normalizeEffectiveSql(sql: string): string {
 	return stripSqlFilterBlocks(sql).replaceAll('\r\n', '\n').trim();
 }
@@ -442,7 +463,7 @@ export interface StoryExecutionContext {
 	permissionRevision: string;
 }
 
-type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'skippedFilterIds'>;
+type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'accessDenied' | 'skippedFilterIds'>;
 
 interface StoryQueryExecutionOptions {
 	renderSql: (sqlQuery: string) => string;
@@ -551,17 +572,27 @@ export async function executeRawSql(sqlQuery: string, options: RawSqlExecutionOp
 	return executeBillingValidatedRawSql(sqlQuery, options);
 }
 
-async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlExecutionOptions): Promise<QueryResult> {
+async function executeBillingValidatedRawSql(
+	sqlQuery: string,
+	options: RawSqlExecutionOptions,
+): Promise<ExecutedQueryResult> {
 	const context = options.executionContext.toolContext;
 	if (options.databaseId === LOCAL_DATABASE_ID) {
 		return executeLocalSql(sqlQuery, context);
 	}
 
-	const data = await executeWarehouseSql(
-		sqlQuery,
-		buildWarehouseSqlOptions(options.executionContext, options.databaseId),
-	);
-	return { data: data.data, columns: data.columns };
+	try {
+		const data = await executeWarehouseSql(
+			sqlQuery,
+			buildWarehouseSqlOptions(options.executionContext, options.databaseId),
+		);
+		return { data: data.data, columns: data.columns };
+	} catch (error) {
+		if (error instanceof WarehouseSqlError && error.status === 403) {
+			return { data: [], columns: [], accessDenied: true };
+		}
+		throw error;
+	}
 }
 
 /** The type of the database a raw query on `databaseId` runs against, as resolved by the warehouse executor. */
@@ -715,9 +746,12 @@ async function regenerateCustomStoryNarratives(
 	if (sources.length === 0) {
 		return {};
 	}
+	if (viewerSafe && Object.keys(queryData).length === 0) {
+		return redactViewerNarratives(sources);
+	}
 	const liveStoryModel = await resolveLiveStoryModel(target);
 	if (!liveStoryModel) {
-		return {};
+		return viewerSafe ? redactViewerNarratives(sources) : {};
 	}
 
 	const systemPrompt = renderToMarkdown(
@@ -734,7 +768,15 @@ async function regenerateCustomStoryNarratives(
 		'Rewrite every narrative with the latest query results.',
 		z.object({ narratives: z.array(z.object({ id: z.string(), text: z.string() })) }),
 	);
-	return keepKnownNarratives(sources, output.narratives);
+	const narratives = keepKnownNarratives(sources, output.narratives);
+	return viewerSafe ? redactViewerNarratives(sources, narratives) : narratives;
+}
+
+function redactViewerNarratives(sources: StoryNarrativeSource[], narratives: StoryNarratives = {}): StoryNarratives {
+	return {
+		[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
+		...Object.fromEntries(sources.map(({ id }) => [id, narratives[id] ?? ''])),
+	};
 }
 
 function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNarrativeSource[]): StoryNarratives {

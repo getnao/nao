@@ -15,9 +15,10 @@ vi.mock('../src/queries/story.queries', () => ({
 }));
 
 vi.mock('../src/services/live-story', () => ({
+	availableStoryQueryData: (queryData: unknown) => queryData,
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeStoryQueries: mocks.executeStoryQueries,
-	hasRowSecurity: mocks.hasRowSecurity,
+	requiresViewerStoryData: mocks.hasRowSecurity,
 }));
 
 import { getFilteredStoryQueryData } from '../src/services/story-filters';

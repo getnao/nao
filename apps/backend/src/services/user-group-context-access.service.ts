@@ -99,7 +99,7 @@ export async function resolveWarehouseTableAccess(
 	return (await resolveProjectContextAccess(projectId, userId, projectFolder)).warehouseTableAccess;
 }
 
-export async function hasEffectiveRowSecurityRestrictions(projectId: string, userId: string): Promise<boolean> {
+export async function hasEffectiveWarehouseRestrictions(projectId: string, userId: string): Promise<boolean> {
 	if (!(await getUserRoleInProject(projectId, userId))) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
 	}
@@ -108,6 +108,9 @@ export async function hasEffectiveRowSecurityRestrictions(projectId: string, use
 		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
 		getProjectRowSecurity(projectId),
 	]);
+	if (effectiveAccess.databaseAccess.mode !== 'all') {
+		return true;
+	}
 	const resolved = resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed);
 	return resolved.enforced && resolved.tables.some(({ access }) => access !== 'full');
 }

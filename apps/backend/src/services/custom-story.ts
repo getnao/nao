@@ -22,9 +22,9 @@ import type { RefreshResult } from './live-story';
 import {
 	createStoryExecutionContext,
 	executeLiveQuery,
-	hasRowSecurity,
 	isCacheExpired,
 	refreshStoryData,
+	requiresViewerStoryData,
 } from './live-story';
 
 export interface CustomStoryVersionView {
@@ -193,7 +193,9 @@ export async function getCustomStoryQueryData(
 ): Promise<StoryQueryResult> {
 	const story = await getCustomStory(chatId, storySlug);
 	const viewerUserId =
-		options.viewerUserId && (await hasRowSecurity(chatId, options.viewerUserId)) ? options.viewerUserId : undefined;
+		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
+			? options.viewerUserId
+			: undefined;
 	if (viewerUserId) {
 		const storyVersionId =
 			options.storyVersionId ?? (await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug))?.id;
@@ -245,7 +247,7 @@ async function getViewerCustomStoryQueryData(
 	);
 	const cachedResult = cache?.queryData[queryId];
 	if (cache && isCacheFresh(story, cache) && cachedResult) {
-		return cachedResult;
+		return requireAccessibleStoryQuery(cachedResult);
 	}
 
 	let queryData: Record<string, StoryQueryResult> | undefined;
@@ -275,6 +277,13 @@ async function getViewerCustomStoryQueryData(
 	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId, viewerUserId);
 }
 
+function requireAccessibleStoryQuery(result: StoryQueryResult & { accessDenied?: true }): StoryQueryResult {
+	if (result.accessDenied) {
+		throw new CustomStoryQueryExecutionError('Query data is unavailable with your current access.');
+	}
+	return result;
+}
+
 async function getChatQueryData(chatId: string, queryId: string): Promise<StoryQueryResult | undefined> {
 	const stored = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, new Set([queryId]));
 	return stored[queryId];
@@ -295,7 +304,9 @@ export async function getCustomStoryNarratives(
 ): Promise<StoryNarratives> {
 	const story = await getCustomStory(chatId, storySlug);
 	const viewerUserId =
-		options.viewerUserId && (await hasRowSecurity(chatId, options.viewerUserId)) ? options.viewerUserId : undefined;
+		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
+			? options.viewerUserId
+			: undefined;
 	if (viewerUserId) {
 		const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug);
 		if (!version) {

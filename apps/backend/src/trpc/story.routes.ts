@@ -60,7 +60,7 @@ import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql 
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { listMostViewedStories } from '../services/story-reference';
 import { listStoryVersionChanges } from '../services/story-version-history';
-import { hasEffectiveRowSecurityRestrictions } from '../services/user-group-context-access.service';
+import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -1137,13 +1137,13 @@ export const storyRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
-		const hasRowSecurity = await hasEffectiveRowSecurityRestrictions(ctx.project.id, ctx.user.id);
-		const storiesWithPreview = hasRowSecurity
+		const hasViewerRestrictions = await hasEffectiveWarehouseRestrictions(ctx.project.id, ctx.user.id);
+		const storiesWithPreview = hasViewerRestrictions
 			? items.map((story) => ({ ...story, kpiPreviewData: null }))
 			: await withKpiPreviewData(items, (story) => story.storyId);
 		return storiesWithPreview.map(({ ownerUserId, ...story }) => ({
 			...story,
-			canShowThumbnail: !hasRowSecurity || ownerUserId === ctx.user.id,
+			canShowThumbnail: !hasViewerRestrictions || ownerUserId === ctx.user.id,
 		}));
 	}),
 

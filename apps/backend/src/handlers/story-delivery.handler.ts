@@ -13,9 +13,10 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as userQueries from '../queries/user.queries';
 import { renderCustomStoryPdf } from '../services/custom-story-export';
-import { hasRowSecurity, refreshStoryData, refreshStoryDataForDelivery } from '../services/live-story';
+import { refreshStoryData, refreshStoryDataForDelivery } from '../services/live-story';
 import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
+import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import type { EmailAttachment } from '../types/email';
 import type { ChannelDeliveryAttempt } from '../types/notification';
 import { withKeyedLock } from '../utils/keyed-lock';
@@ -111,7 +112,7 @@ export async function runScheduledStoryDelivery(
 		if (!context) {
 			return;
 		}
-		if (await hasRowSecurity(context.story.chatId!)) {
+		if (await requiresRecipientSnapshots(context)) {
 			await deliverRecipientSnapshots(context, skipDeliveries);
 			return;
 		}
@@ -138,12 +139,19 @@ export async function deliverStoryOnRefresh(
 
 	const context = await loadDeliveryContext(storyId);
 	if (context) {
-		if (await hasRowSecurity(context.story.chatId!)) {
+		if (await requiresRecipientSnapshots(context)) {
 			await deliverRecipientSnapshots(context);
 		} else {
 			await deliver(context, queryData);
 		}
 	}
+}
+
+async function requiresRecipientSnapshots(context: DeliveryContext): Promise<boolean> {
+	const restrictions = await Promise.all(
+		context.recipientUserIds.map((userId) => hasEffectiveWarehouseRestrictions(context.projectId, userId)),
+	);
+	return restrictions.some(Boolean);
 }
 
 async function loadDeliveryContext(

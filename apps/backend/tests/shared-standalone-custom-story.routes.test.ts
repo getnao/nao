@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
 	canUserAccessSharedStory: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
-	hasEffectiveRowSecurityRestrictions: vi.fn(),
+	hasEffectiveWarehouseRestrictions: vi.fn(),
 	getCustomStoryVersion: vi.fn(),
 	getStandaloneCustomStoryVersion: vi.fn(),
 	getSharedCustomStoryQueryData: vi.fn(),
@@ -53,7 +53,7 @@ vi.mock('../src/services/custom-story-state', () => ({
 	setCustomStoryStateByStoryId: mocks.setCustomStoryStateByStoryId,
 }));
 vi.mock('../src/services/user-group-context-access.service', () => ({
-	hasEffectiveRowSecurityRestrictions: mocks.hasEffectiveRowSecurityRestrictions,
+	hasEffectiveWarehouseRestrictions: mocks.hasEffectiveWarehouseRestrictions,
 }));
 vi.mock('../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));
 
@@ -70,7 +70,7 @@ describe('storyShare standalone classic story', () => {
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.canUserAccessSharedStory.mockResolvedValue(true);
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
-		mocks.hasEffectiveRowSecurityRestrictions.mockImplementation(
+		mocks.hasEffectiveWarehouseRestrictions.mockImplementation(
 			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
 		);
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
@@ -95,7 +95,7 @@ describe('storyShare custom story readers', () => {
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.canUserAccessSharedStory.mockResolvedValue(true);
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
-		mocks.hasEffectiveRowSecurityRestrictions.mockImplementation(
+		mocks.hasEffectiveWarehouseRestrictions.mockImplementation(
 			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
 		);
 	});
@@ -145,11 +145,11 @@ describe('storyShare custom story readers', () => {
 	});
 
 	it('allows stored standalone data to a viewer with full access to every RLS table', async () => {
-		mocks.hasEffectiveRowSecurityRestrictions.mockResolvedValue(false);
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(false);
 		mocks.getStandaloneCustomStoryVersion.mockResolvedValue({ version: 2 });
 
 		await expect(createCaller().storyShare.getCustomVersion(STORY_INPUT)).resolves.toEqual({ version: 2 });
-		expect(mocks.hasEffectiveRowSecurityRestrictions).toHaveBeenCalledWith('project-1', 'viewer-1');
+		expect(mocks.hasEffectiveWarehouseRestrictions).toHaveBeenCalledWith('project-1', 'viewer-1');
 	});
 
 	it('keeps the state of a standalone story by its id', async () => {

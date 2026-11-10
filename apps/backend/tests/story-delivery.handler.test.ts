@@ -52,7 +52,6 @@ vi.mock('../src/services/custom-story-export', () => ({
 	renderCustomStoryPdf: mocks.renderCustomStoryPdf,
 }));
 vi.mock('../src/services/live-story', () => ({
-	hasRowSecurity: mocks.hasRowSecurity,
 	refreshStoryData: mocks.refreshStoryData,
 	refreshStoryDataForDelivery: mocks.refreshStoryDataForDelivery,
 }));
@@ -69,6 +68,9 @@ vi.mock('../src/services/notification.service', () => ({
 }));
 vi.mock('../src/services/story-recipients', () => ({
 	resolveDeliveryRecipientUserIds: mocks.resolveDeliveryRecipientUserIds,
+}));
+vi.mock('../src/services/user-group-context-access.service', () => ({
+	hasEffectiveWarehouseRestrictions: mocks.hasRowSecurity,
 }));
 vi.mock('../src/utils/keyed-lock', () => ({
 	withKeyedLock: vi.fn(async (_key: string, callback: () => Promise<void>) => callback()),

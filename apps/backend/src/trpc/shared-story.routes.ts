@@ -27,14 +27,20 @@ import {
 	setCustomStoryState,
 	setCustomStoryStateByStoryId,
 } from '../services/custom-story-state';
-import { executeLiveQuery, getStoryQueryData, hasRowSecurity, refreshStoryData } from '../services/live-story';
+import {
+	executeLiveQuery,
+	getStoryQueryData,
+	hasRowSecurity,
+	refreshStoryData,
+	requiresViewerStoryData,
+} from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
 import { assertCanShareToProject, assertCanShareWith, listShareableGroups } from '../services/project-sharing.service';
 import { assertShareableUserGroupIds, filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import { unshareStory } from '../services/shared-story.service';
 import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
 import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
-import { hasEffectiveRowSecurityRestrictions } from '../services/user-group-context-access.service';
+import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
@@ -95,13 +101,13 @@ export const sharedStoryRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
-		const hasRowSecurity = await hasEffectiveRowSecurityRestrictions(input.projectId, ctx.user.id);
-		const storiesWithPreview = hasRowSecurity
+		const hasViewerRestrictions = await hasEffectiveWarehouseRestrictions(input.projectId, ctx.user.id);
+		const storiesWithPreview = hasViewerRestrictions
 			? items.map((story) => ({ ...story, kpiPreviewData: null }))
 			: await withKpiPreviewData(items, (story) => story.storyId);
 		return storiesWithPreview.map(({ ownerUserId, ...story }) => ({
 			...story,
-			canShowThumbnail: !hasRowSecurity || ownerUserId === ctx.user.id,
+			canShowThumbnail: !hasViewerRestrictions || ownerUserId === ctx.user.id,
 		}));
 	}),
 
@@ -398,7 +404,7 @@ export const sharedStoryRoutes = {
 			}
 
 			const queryData = shared.chatId
-				? (await hasRowSecurity(shared.chatId, ctx.user.id))
+				? (await requiresViewerStoryData(shared.chatId, ctx.user.id))
 					? (
 							await getStoryQueryData(
 								shared.chatId,
@@ -736,7 +742,7 @@ async function canUserAccessShare(
 	if (!canAccessShare || share.chatId || share.ownerUserId === userId) {
 		return canAccessShare;
 	}
-	return !(await hasEffectiveRowSecurityRestrictions(share.projectId, userId));
+	return !(await hasEffectiveWarehouseRestrictions(share.projectId, userId));
 }
 
 async function getStoryRefreshAccess(

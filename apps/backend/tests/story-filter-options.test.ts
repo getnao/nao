@@ -35,7 +35,7 @@ vi.mock('../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeStoryQueries: mocks.executeStoryQueries,
 	executeRawSql: mocks.executeRawSql,
-	hasRowSecurity: mocks.hasRowSecurity,
+	requiresViewerStoryData: mocks.hasRowSecurity,
 	resolveRawSqlDatabaseType: mocks.resolveRawSqlDatabaseType,
 	isCacheExpired: () => false,
 }));
@@ -223,6 +223,23 @@ describe('getStoryFilterOptions', () => {
 			}),
 		);
 		expect(mocks.getFilterOptionsCache).not.toHaveBeenCalled();
+	});
+
+	it('returns no options when the options query is unavailable to the viewer', async () => {
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '<filter id="customer" type="select" options_query_id="query_customer_options" />',
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_customer_options: { sqlQuery: 'SELECT customer AS value FROM customers', adminMode: false },
+		});
+		mocks.executeStoryQueries.mockResolvedValue({
+			query_customer_options: { columns: [], data: [], accessDenied: true },
+		});
+
+		await expect(getStoryFilterOptions('chat-1', 'story', 'customer')).resolves.toEqual({
+			options: [],
+			isComplete: true,
+		});
 	});
 
 	it('searches and limits options queries before execution', async () => {

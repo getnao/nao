@@ -43,9 +43,9 @@ vi.mock('../src/utils/story-query-data', () => ({
 vi.mock('../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeLiveQuery: mocks.executeLiveQuery,
-	hasRowSecurity: mocks.hasRowSecurity,
 	isCacheExpired: mocks.isCacheExpired,
 	refreshStoryData: mocks.refreshStoryData,
+	requiresViewerStoryData: mocks.hasRowSecurity,
 }));
 
 import {
@@ -110,6 +110,19 @@ describe('custom story background refresh', () => {
 		);
 		expect(mocks.getLatestSqlQueryDataByIds).not.toHaveBeenCalled();
 		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
+	});
+
+	it('reports cached viewer query denials as unavailable', async () => {
+		mocks.hasRowSecurity.mockResolvedValue(true);
+		mocks.getStoryViewerDataCache.mockResolvedValue({
+			queryData: { query_orders: { columns: [], data: [], accessDenied: true } },
+			cachedAt: new Date(),
+		});
+		mocks.isCacheExpired.mockReturnValue(false);
+
+		await expect(
+			getCustomStoryQueryData('chat-1', 'orders', 'query_orders', { viewerUserId: 'viewer-1' }),
+		).rejects.toThrow('Query data is unavailable with your current access.');
 	});
 
 	it('reads the viewer cache for the requested custom story version', async () => {

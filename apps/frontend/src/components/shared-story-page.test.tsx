@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SharedStoryPage } from './shared-story-page';
+import { prepareRestrictedStoryCode, SharedStoryPage } from './shared-story-page';
 
 const mocks = vi.hoisted(() => ({
 	queryResult: {
@@ -137,6 +137,29 @@ describe('shared Story chat controls', () => {
 		mocks.queryResult.data = createStory({ isArchived: true });
 		render(<SharedStoryPage storyId='story-1' />);
 		expect(screen.queryByText('Ask bar')).toBeNull();
+	});
+});
+
+describe('restricted shared story copy', () => {
+	it('replaces backend placeholders with a single frontend access state', () => {
+		expect(
+			prepareRestrictedStoryCode(
+				[
+					'Viewer-specific narrative.',
+					'## Viewer-specific section',
+					'<chart query_id="query_customers" />',
+					'### Viewer-specific section <table query_id="query_orders" />',
+				].join('\n'),
+			),
+		).toEqual({
+			code: '<chart query_id="query_customers" />\n<table query_id="query_orders" />',
+			hasRestrictedContent: true,
+		});
+	});
+
+	it('leaves normal story copy unchanged', () => {
+		const code = '## Customers\nCustomer revenue summary.\n<chart query_id="query_customers" />';
+		expect(prepareRestrictedStoryCode(code)).toEqual({ code, hasRestrictedContent: false });
 	});
 });
 
