@@ -58,7 +58,7 @@ describe('custom story queries read by an editor', () => {
 		expect(mocks.getSqlQueryById).not.toHaveBeenCalled();
 	});
 
-	it('serves a query only the older version being viewed still references', async () => {
+	it('serves only the queries of the older version being viewed', async () => {
 		mocks.getVersionByNumber.mockResolvedValue({ id: 'version-old' });
 		mocks.listVersionFiles.mockImplementation(async (versionId: string) =>
 			versionId === 'version-old'
@@ -67,7 +67,7 @@ describe('custom story queries read by an editor', () => {
 		);
 
 		await expect(getEditorCustomStoryQuerySql('chat-1', 'story', 'query_removed', 1)).resolves.toBe('select 1');
-		await expect(getEditorCustomStoryQuerySql('chat-1', 'story', 'query_private', 1)).rejects.toBeInstanceOf(
+		await expect(getEditorCustomStoryQuerySql('chat-1', 'story', 'query_published', 1)).rejects.toBeInstanceOf(
 			CustomStoryQueryNotAllowedError,
 		);
 	});
