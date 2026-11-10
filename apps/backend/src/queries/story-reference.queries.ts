@@ -18,7 +18,7 @@ import {
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import { isNotQuickQuestionChat } from './chat.queries';
+import { isNotPageScopedChat } from './chat.queries';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 
 export type ReferenceableStoryListing = {
@@ -32,6 +32,7 @@ export type ReferenceableStoryListing = {
 	isPinned: boolean;
 	isCertified: boolean;
 	isSharedWithMe: boolean;
+	canEdit: boolean;
 	updatedAt: Date;
 };
 
@@ -137,7 +138,7 @@ export async function listMentioningChats(
 				eq(s.chat.userId, userId),
 				eq(s.chat.projectId, projectId),
 				isNull(s.chat.deletedAt),
-				isNotQuickQuestionChat(),
+				isNotPageScopedChat(),
 				or(originChatId ? eq(s.chat.id, originChatId) : undefined, exists(mentioningMessageParts(storyId))),
 			),
 		)
@@ -172,6 +173,7 @@ function toReferenceableStory<Row extends ListingRow>(
 		isPinned: isPinned === true,
 		isCertified: certifiedAt !== null,
 		isSharedWithMe: shareVisibility === 'specific' && row.ownerId !== userId,
+		canEdit: row.ownerId === userId,
 	};
 }
 

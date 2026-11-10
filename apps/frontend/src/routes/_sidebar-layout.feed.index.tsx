@@ -1,23 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { CheckCheck, Plus, Timer, X } from 'lucide-react';
+import { CheckCheck, Plus, Timer } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
-import type { AutomationFormValue } from '@/components/automations-form';
+import type { AutomationEventTriggers } from '@nao/shared/types';
 import type { AutomationFeedItem, NotificationFeedItem } from '@/components/automations-feed';
-import { AutomationForm } from '@/components/automations-form';
 import { AutomationsFeed } from '@/components/automations-feed';
 import { applyFeedFilters, FeedFilterBar, useFeedFilters } from '@/components/feed-filter-bar';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { SettingsCard } from '@/components/ui/settings-card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { getActiveProjectId } from '@/lib/active-project';
+import { getAutomationTriggerLabel, getEnabledNaoEvents, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 import {
@@ -40,7 +39,6 @@ function FeedPage() {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const automationsEnabled = config.data?.betaAutomationsEnabled === true && !isViewer;
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const [isCreating, setIsCreating] = useState(false);
 	const { automationCreationEnabled } = useEffectiveUserGroupFeatures();
 	const canCreateAutomation = automationsEnabled && automationCreationEnabled;
 
@@ -56,7 +54,6 @@ function FeedPage() {
 	);
 	const notifications = useNotifications(true);
 	const { markRead, markAllRead } = useNotificationMutations();
-	const createAutomation = useMutation(trpc.automation.create.mutationOptions());
 	const cancelRun = useMutation(trpc.automation.cancelRun.mutationOptions());
 	const invalidateAutomationFeedCaches = () =>
 		Promise.all([
@@ -69,13 +66,6 @@ function FeedPage() {
 	const markAllRunsRead = useMutation(
 		trpc.automation.markAllRunsRead.mutationOptions({ onSuccess: invalidateAutomationFeedCaches }),
 	);
-
-	async function handleCreate(value: AutomationFormValue) {
-		const created = await createAutomation.mutateAsync(value);
-		await queryClient.invalidateQueries({ queryKey: trpc.automation.list.queryKey() });
-		setIsCreating(false);
-		navigate({ to: '/automations/$automationId', params: { automationId: created.id } });
-	}
 
 	async function handleCancelRun(runId: string) {
 		await cancelRun.mutateAsync({ runId });
@@ -155,24 +145,16 @@ function FeedPage() {
 						)}
 						{canCreateAutomation && (
 							<div className='flex justify-end lg:w-[19.5rem]'>
-								<Button variant='primary-gradient' onClick={() => setIsCreating((value) => !value)}>
-									{isCreating ? <X className='size-4' /> : <Plus className='size-4' />}
-									{isCreating ? 'Cancel' : 'New automation'}
+								<Button variant='primary-gradient' asChild>
+									<Link to='/automations/new'>
+										<Plus className='size-4' />
+										New automation
+									</Link>
 								</Button>
 							</div>
 						)}
 					</div>
 				</header>
-
-				{canCreateAutomation && isCreating && (
-					<SettingsCard title='New automation'>
-						<AutomationForm
-							submitLabel='Create automation'
-							isPending={createAutomation.isPending}
-							onSubmit={handleCreate}
-						/>
-					</SettingsCard>
-				)}
 
 				<div className={cn('grid gap-6', automationsEnabled && 'lg:grid-cols-[minmax(0,1fr)_18rem]')}>
 					<section className='mx-auto w-full'>
@@ -322,6 +304,7 @@ type AutomationSummary = {
 	scheduleDescription: string | null;
 	cron: string;
 	webhookEnabled: boolean;
+	eventTriggers: AutomationEventTriggers;
 	lastRunStartedAt: Date | string | null;
 };
 
@@ -359,8 +342,7 @@ function AutomationSidePanelRow({ item }: { item: AutomationSummary }) {
 	const lastRunMs = item.lastRunStartedAt ? new Date(item.lastRunStartedAt).getTime() : 0;
 	const lastRunAgo = useTimeAgo(lastRunMs);
 	const lastRunLabel = item.lastRunStartedAt ? lastRunAgo.humanReadable : 'Never run';
-	const hasSchedule = Boolean(item.cron);
-	const triggerLabel = buildTriggerLabel(item);
+	const triggerLabel = getAutomationTriggerLabel(item);
 
 	return (
 		<li>
@@ -371,11 +353,7 @@ function AutomationSidePanelRow({ item }: { item: AutomationSummary }) {
 			>
 				<div className='flex items-center justify-between gap-2'>
 					<span className='truncate text-sm font-medium'>{item.title}</span>
-					<AutomationStatusBadge
-						enabled={item.enabled}
-						hasSchedule={hasSchedule}
-						webhookEnabled={item.webhookEnabled}
-					/>
+					<AutomationStatusBadge item={item} />
 				</div>
 				<span className='truncate text-xs text-muted-foreground'>{triggerLabel}</span>
 				<span className={cn('text-[11px] text-muted-foreground/80', !item.lastRunStartedAt && 'italic')}>
@@ -386,43 +364,31 @@ function AutomationSidePanelRow({ item }: { item: AutomationSummary }) {
 	);
 }
 
-function AutomationStatusBadge({
-	enabled,
-	hasSchedule,
-	webhookEnabled,
-}: {
-	enabled: boolean;
-	hasSchedule: boolean;
-	webhookEnabled: boolean;
-}) {
-	if (!hasSchedule) {
-		if (!webhookEnabled) {
+function AutomationStatusBadge({ item }: { item: AutomationSummary }) {
+	if (!item.cron) {
+		const eventTriggerLabel = getEventTriggerBadgeLabel(item);
+		if (!eventTriggerLabel) {
 			return null;
 		}
 		return (
 			<Badge variant='secondary' className='shrink-0 px-1.5 py-0 text-[10px]'>
-				Webhook
+				{eventTriggerLabel}
 			</Badge>
 		);
 	}
 	return (
-		<Badge variant={enabled ? 'default' : 'secondary'} className='shrink-0 px-1.5 py-0 text-[10px]'>
-			{enabled ? 'On' : 'Paused'}
+		<Badge variant={item.enabled ? 'default' : 'secondary'} className='shrink-0 px-1.5 py-0 text-[10px]'>
+			{item.enabled ? 'On' : 'Paused'}
 		</Badge>
 	);
 }
 
-/**
- * Surfaces every active trigger so a paused schedule badge is not mistaken for
- * the automation having no webhook. A paused automation stops all triggers,
- * including the webhook.
- */
-function buildTriggerLabel(item: AutomationSummary): string {
-	if (item.cron) {
-		const scheduleText = item.scheduleDescription || item.cron;
-		return item.webhookEnabled ? `${scheduleText} · webhook` : scheduleText;
+function getEventTriggerBadgeLabel(item: AutomationSummary): string | null {
+	if (item.webhookEnabled) {
+		return 'Webhook';
 	}
-	return item.webhookEnabled ? 'Triggered by webhook' : 'Custom schedule';
+	const [firstEvent] = getEnabledNaoEvents(item.eventTriggers);
+	return firstEvent ? NAO_EVENT_LABELS[firstEvent] : null;
 }
 
 function SidePanelSkeleton() {

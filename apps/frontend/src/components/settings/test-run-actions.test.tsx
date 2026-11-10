@@ -81,7 +81,7 @@ describe('TestFileRunActions', () => {
 		expect(screen.getByRole('button', { name: 'Models to test' }).textContent).toBe('2 models · ×3');
 	});
 
-	it('compares the edited test with production when the context changed', async () => {
+	it('compares the edited test with the default branch when the context changed', async () => {
 		renderWithProviders(
 			<TestFileRunActions
 				settings={settings()}
@@ -93,7 +93,7 @@ describe('TestFileRunActions', () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole('button', { name: 'Compare with production' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Compare with release' }));
 
 		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
 		expect(mocks.startRun.mock.calls[0][0]).toEqual({
@@ -122,7 +122,7 @@ describe('TestFileRunActions', () => {
 		fireEvent.click(await screen.findByRole('menuitem', { name: 'Run with your changes only' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Models to test' }));
 
-		expect(await screen.findByText('6 attempts')).toBeTruthy();
+		expect(await screen.findByText('6 answers')).toBeTruthy();
 		expect(screen.queryByText(/2 contexts/)).toBeNull();
 	});
 
@@ -274,6 +274,7 @@ function draftWith(paths: string[]): DraftContext {
 		status: 'available',
 		storage: 'git',
 		branch: 'improve-revenue',
+		productionBranch: 'release',
 		changes: paths.map((path) => ({ path, kind: 'modified' as const })),
 		excludedChanges: [],
 		outdatedPaths: [],

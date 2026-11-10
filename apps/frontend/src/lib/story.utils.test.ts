@@ -28,6 +28,46 @@ describe('findStoryDraft', () => {
 		});
 	});
 
+	it('ignores a story of another chat under the same slug', () => {
+		const messages = [
+			createStoryMessage({
+				messageId: 'message-1',
+				state: 'output-available',
+				input: { id: 'sales', action: 'create', code: '# this chat' },
+				output: { success: true, id: 'sales', title: 'Sales', code: '# this chat', version: 1 },
+			}),
+			createStoryMessage({
+				messageId: 'message-2',
+				state: 'output-available',
+				input: { id: 'story-uuid', action: 'replace', code: '# another chat' },
+				output: {
+					success: true,
+					id: 'sales',
+					title: 'Other sales',
+					code: '# another chat',
+					version: 4,
+					story_chat_id: 'another-chat',
+					story_id: 'story-uuid',
+				},
+			}),
+		];
+
+		expect(findStoryDraft(messages, 'sales')?.code).toBe('# this chat');
+	});
+
+	it('finds a streaming edit of the viewed story from its id', () => {
+		const messages = [
+			createStoryMessage({
+				messageId: 'message-1',
+				state: 'input-streaming',
+				input: { id: 'story-uuid', action: 'replace', code: '# editing' },
+			}),
+		];
+
+		expect(findStoryDraft(messages, 'sales', 'story-uuid')).toMatchObject({ id: 'sales', code: '# editing' });
+		expect(findStoryDraft(messages, 'sales', 'other-uuid')).toBeNull();
+	});
+
 	it('returns no draft when the only story call failed', () => {
 		const messages = [
 			createStoryMessage({

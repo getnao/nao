@@ -1,4 +1,3 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
 import { z } from 'zod/v4';
 
@@ -49,7 +48,7 @@ export class TestAgentService extends AgentService {
 		projectId: string,
 		userId: string,
 		prompt: string,
-		modelSelection?: LlmSelectedModel,
+		model: TestModel,
 		costs?: ModelCosts,
 	): Promise<AgentRunResult> {
 		const userMessage = TestAgentService._buildUserMessage(prompt);
@@ -64,7 +63,11 @@ export class TestAgentService extends AgentService {
 			projectId,
 		};
 
-		const agent = await this.create(tempChat, modelSelection, testRunAgent, { attributeUsageToChat: false });
+		const { reasoningEffort, ...modelSelection } = model;
+		const agent = await this.create(tempChat, modelSelection, testRunAgent, {
+			attributeUsageToChat: false,
+			...(reasoningEffort && { inferenceOverrides: { reasoningEffort } }),
+		});
 		return agent.generate([userMessage], { costs });
 	}
 

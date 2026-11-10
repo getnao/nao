@@ -9,7 +9,7 @@ import { buildQueryPart } from '../utils/chat-message-story';
 
 type MessageLike = Omit<UIMessage, 'id'>;
 
-/** The story a quick question is about, editable from it by the story's owner only. */
+/** The story a quick question is about, editable from it by the users who can edit the story. */
 export async function resolveLinkedStory(chat: {
 	userId: string;
 	projectId: string;
@@ -24,11 +24,11 @@ export async function resolveLinkedStory(chat: {
 	}
 	return {
 		storyId: story.storyId,
-		chatId: story.chatId,
 		slug: story.slug,
+		chatId: story.chatId,
 		title: story.title,
 		format: story.format,
-		canEdit: story.ownerId === chat.userId,
+		canEdit: story.canEdit,
 	};
 }
 

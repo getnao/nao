@@ -43,7 +43,7 @@ export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: S
 					activeTab={tab}
 					onTabChange={setTab}
 					idBase={idBase}
-					label='Attempt details'
+					label='Answer details'
 					size='sm'
 					className='shrink-0 items-center'
 				/>
@@ -102,7 +102,7 @@ function AttemptChatLink({ result }: { result: TestRunResult }) {
 				to='/settings/usage/replay/$chatId'
 				params={{ chatId: result.chatId }}
 				search={{ ...DEFAULT_USAGE_SEARCH, origin: 'tests', testRunId: result.runId }}
-				aria-label='Open the chat of this attempt'
+				aria-label='Open the chat of this answer'
 			>
 				<MessageSquare className='size-3.5' />
 			</Link>
@@ -129,7 +129,7 @@ function AttemptMetrics({ shownAttempt }: { shownAttempt: ShownAttempt }) {
 function AttemptData({ result }: { result: TestRunResult }) {
 	const details = result.details;
 	if (result.errorMessage) {
-		return <p className='p-3 text-destructive'>The attempt failed before it could answer: {result.errorMessage}</p>;
+		return <p className='p-3 text-destructive'>The agent failed before it could answer: {result.errorMessage}</p>;
 	}
 	if (!details?.referenceSql) {
 		return (
@@ -214,7 +214,7 @@ function ComparedAnswers({
 					{side.result ? (
 						<AttemptAnswer result={side.result} />
 					) : (
-						<p className='p-3 text-muted-foreground'>No attempt recorded on this branch.</p>
+						<p className='p-3 text-muted-foreground'>No answer recorded on this branch.</p>
 					)}
 				</div>
 			))}
@@ -231,10 +231,10 @@ function listAttemptResults(shownAttempt: ShownAttempt): TestRunResult[] {
 
 function describeMissingData(result: TestRunResult | null): string {
 	if (!result) {
-		return 'no attempt recorded yet.';
+		return 'no answer recorded yet.';
 	}
 	if (result.errorMessage) {
-		return `the attempt failed before it could answer: ${result.errorMessage}`;
+		return `the agent failed before it could answer: ${result.errorMessage}`;
 	}
 	if (!result.details?.referenceSql) {
 		return 'this test has no reference SQL, so no data was kept.';

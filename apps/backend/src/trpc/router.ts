@@ -27,6 +27,7 @@ import { mcpEndpointRoutes } from './mcp-endpoint.routes';
 import { mcpOAuthClientsRoutes } from './mcp-oauth-clients.routes';
 import { memberBudgetRoutes } from './member-budget.routes';
 import { memoryRoutes } from './memory.routes';
+import { monitoringRoutes } from './monitoring.routes';
 import { notificationRoutes } from './notification.routes';
 import { onboardingRoutes } from './onboarding.routes';
 import { organizationRoutes } from './organization.routes';
@@ -37,6 +38,7 @@ import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
 import { skillRoutes } from './skill.routes';
 import { sqlRoutes } from './sql.routes';
+import { standaloneCustomStoryRoutes } from './standalone-custom-story.routes';
 import { storageRoutes } from './storage.routes';
 import { storyRoutes } from './story.routes';
 import { storyFolderRoutes } from './story-folder.routes';
@@ -64,7 +66,9 @@ export const trpcRouter = router({
 	sql: sqlRoutes,
 	sharedChat: sharedChatRoutes,
 	customStoryViewer: customStoryViewerRoutes,
+	standaloneCustomStory: standaloneCustomStoryRoutes,
 	automation: automationRoutes,
+	monitoring: monitoringRoutes,
 	chatFork: chatForkRoutes,
 	citation: citationRoutes,
 	contextExplorer: contextExplorerRoutes,

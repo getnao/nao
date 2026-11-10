@@ -129,6 +129,11 @@ const settingsNavGroups: NavGroup[] = [
 				leavesSettings: true,
 			},
 			{
+				label: 'Monitoring',
+				to: '/settings/monitoring',
+				visible: ({ isAdmin, isAutomationsEnabled }) => isAdmin && isAutomationsEnabled,
+			},
+			{
 				label: 'Usage & Costs',
 				to: '/settings/usage',
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,

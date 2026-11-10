@@ -4,7 +4,14 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StoryElementPicker } from './story-element-picker';
 import { chartBlockReference, StoryBlock } from './story-block';
+import { MarkdownTable } from './chat-messages/markdown-table';
 import type { ParsedChartBlock } from '@nao/shared/story-segments';
+
+vi.mock('@/main', () => ({ trpc: { analyticsEvent: { logChatDownload: { mutationOptions: () => ({}) } } } }));
+vi.mock('@tanstack/react-query', () => ({ useMutation: () => ({ mutate: vi.fn() }) }));
+vi.mock('@/components/export-data-menu', () => ({ ExportDataMenu: () => null }));
+vi.mock('@/hooks/use-date-format', () => ({ useDateFormat: () => ({}) }));
+vi.mock('@/hooks/use-chat-id', () => ({ useChatId: () => 'chat-1' }));
 
 describe('StoryElementPicker', () => {
 	const onPick = vi.fn();
@@ -62,3 +69,32 @@ describe('StoryElementPicker', () => {
 		);
 	}
 });
+
+describe('MarkdownTable', () => {
+	it('is a block identified by its column headers', () => {
+		const { container } = render(<MarkdownTable node={markdownTable(['Month', 'Orders'], [['January', '29']])} />);
+
+		const block = container.querySelector<HTMLElement>('[data-nao-block-kind]');
+
+		expect(block?.dataset).toMatchObject({ naoBlockKind: 'markdown-table', naoBlockTitle: 'Month, Orders' });
+	});
+
+	it('keeps its cells selectable as parts of that block', () => {
+		const { container } = render(<MarkdownTable node={markdownTable(['Month', 'Orders'], [['January', '29']])} />);
+
+		const cell = container.querySelector<HTMLElement>('[data-nao-block-kind] td[data-nao-part="cell"]');
+
+		expect(cell?.dataset).toMatchObject({ naoPartCategory: 'January' });
+	});
+});
+
+function markdownTable(columns: string[], rows: string[][]) {
+	return {
+		tagName: 'table',
+		children: [tableRow('th', columns), ...rows.map((cells) => tableRow('td', cells))],
+	};
+}
+
+function tableRow(tagName: string, cells: string[]) {
+	return { tagName: 'tr', children: cells.map((value) => ({ tagName, children: [{ type: 'text', value }] })) };
+}

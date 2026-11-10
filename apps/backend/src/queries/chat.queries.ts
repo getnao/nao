@@ -116,7 +116,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 				eq(s.chat.userId, userId),
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
-				isNotQuickQuestionChat(),
+				isNotPageScopedChat(),
 				isNotTestChat(),
 			),
 		)
@@ -932,7 +932,7 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
-				isNotQuickQuestionChat(),
+				isNotPageScopedChat(),
 				isNotTestChat(),
 				caseInsensitiveLike(s.chat.title, searchPattern),
 			),
@@ -961,7 +961,7 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
-				isNotQuickQuestionChat(),
+				isNotPageScopedChat(),
 				isNotTestChat(),
 				caseInsensitiveLike(s.messagePart.text, searchPattern),
 			),
@@ -1015,11 +1015,56 @@ export const QUICK_QUESTION_FORK_TYPES = [
 	'chat_selection',
 ] as const;
 
-export const isNotQuickQuestionChat = () => {
+export function isQuickQuestionForkType(type: string | undefined): boolean {
+	return QUICK_QUESTION_FORK_TYPES.some((quickQuestionType) => quickQuestionType === type);
+}
+
+/** Automation editing chats live beside the form of their automation, not in the chat history. */
+export const AUTOMATION_EDIT_FORK_TYPE = 'automation_edit';
+
+const PAGE_SCOPED_FORK_TYPES = [...QUICK_QUESTION_FORK_TYPES, AUTOMATION_EDIT_FORK_TYPE];
+
+/** Leaves out the chats that live on the page they were opened from: quick questions and automation editing. */
+export const isNotPageScopedChat = () => {
 	return sql`coalesce(${forkMetadataField('type')}, '') not in (${sql.join(
-		QUICK_QUESTION_FORK_TYPES.map((type) => sql`${type}`),
+		PAGE_SCOPED_FORK_TYPES.map((type) => sql`${type}`),
 		sql`, `,
 	)})`;
+};
+
+export const getLatestAutomationEditChatId = async (userId: string, automationId: string): Promise<string | null> => {
+	const [row] = await db
+		.select({ chatId: s.chat.id })
+		.from(s.chat)
+		.where(
+			and(
+				eq(s.chat.userId, userId),
+				isNull(s.chat.deletedAt),
+				eq(forkMetadataField('type'), AUTOMATION_EDIT_FORK_TYPE),
+				eq(forkMetadataField('id'), automationId),
+			),
+		)
+		.orderBy(desc(s.chat.updatedAt))
+		.limit(1)
+		.execute();
+	return row?.chatId ?? null;
+};
+
+/** Moves the editing chat of a new automation under the automation once it is created. */
+export const linkAutomationEditChat = async (
+	chatId: string,
+	userId: string,
+	automation: { id: string; title: string },
+): Promise<void> => {
+	const forkMetadata = await getForkMetadata(chatId);
+	if (forkMetadata?.type !== AUTOMATION_EDIT_FORK_TYPE || forkMetadata.id) {
+		return;
+	}
+	await db
+		.update(s.chat)
+		.set({ forkMetadata: { ...forkMetadata, id: automation.id, title: automation.title }, title: automation.title })
+		.where(and(eq(s.chat.id, chatId), eq(s.chat.userId, userId)))
+		.execute();
 };
 
 export const listQuickQuestionChats = async (

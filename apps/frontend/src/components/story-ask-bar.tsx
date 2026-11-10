@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CSSProperties } from 'react';
-import type { UIMessage } from '@nao/backend/chat';
 
 import { AskBar } from '@/components/ask-bar';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { hasStoryEdit, isOutdatedByEdit, readStoryEdit } from '@/lib/story-edit-refresh';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
-
-const STORY_QUERY_KEYS = [[['story']], [['storyShare']], [['customStoryViewer']]];
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
@@ -35,12 +33,24 @@ export function StoryAskBar({
 		forgetHandedOverQuestion(storyId);
 	}, [storyId]);
 
+	const [hasAttachedStoryChat, setHasAttachedStoryChat] = useState(false);
+	const refreshStoryPage = () =>
+		queryClient.invalidateQueries({ queryKey: trpc.story.resolve.queryKey({ storyId }) });
+
 	const askStory = async () => {
-		const { chatId, hasAttachedStoryChat } = await askMutation.mutateAsync({ storyId });
-		if (hasAttachedStoryChat) {
-			handOverQuestion(storyId, { chatId });
+		const response = await askMutation.mutateAsync({ storyId });
+		if (response.hasAttachedStoryChat) {
+			handOverQuestion(storyId, { chatId: response.chatId });
+			setHasAttachedStoryChat(true);
 		}
-		return chatId;
+		return response.chatId;
+	};
+
+	const endQuestion = () => {
+		forgetHandedOverQuestion(storyId);
+		if (hasAttachedStoryChat) {
+			void refreshStoryPage();
+		}
 	};
 
 	return (
@@ -51,9 +61,10 @@ export function StoryAskBar({
 			hasAskFailed={askMutation.isError}
 			resumedQuestion={handedOverQuestion}
 			onAsk={askStory}
-			onEnd={() => forgetHandedOverQuestion(storyId)}
+			onEnd={endQuestion}
 		>
 			<StoryRefreshAfterEdit />
+			{hasAttachedStoryChat && <StoryPageRefreshAfterAnswer onAnswered={refreshStoryPage} />}
 		</AskBar>
 	);
 }
@@ -72,17 +83,31 @@ function StoryRefreshAfterEdit() {
 			return;
 		}
 		handledMessageId.current = lastMessage.id;
-		for (const queryKey of STORY_QUERY_KEYS) {
-			queryClient.invalidateQueries({ queryKey });
-		}
+		const edit = readStoryEdit(messages);
+		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query, edit) });
 	}, [editedStory, messages, queryClient]);
 
 	return null;
 }
 
-function hasStoryEdit(message: UIMessage | undefined): boolean {
-	return (
-		message?.role === 'assistant' &&
-		message.parts.some((part) => part.type === 'tool-story' && part.state === 'output-available')
-	);
+/**
+ * Asking about a standalone story attaches a chat to it, which replaces its page by the owned one.
+ * The page waits for the answer to end, so the running answer keeps streaming in the panel.
+ */
+function StoryPageRefreshAfterAnswer({ onAnswered }: { onAnswered: () => void }) {
+	const { isRunning } = useAgentContext();
+	const wasRunning = useRef(false);
+
+	useEffect(() => {
+		if (isRunning) {
+			wasRunning.current = true;
+			return;
+		}
+		if (wasRunning.current) {
+			wasRunning.current = false;
+			onAnswered();
+		}
+	}, [isRunning, onAnswered]);
+
+	return null;
 }

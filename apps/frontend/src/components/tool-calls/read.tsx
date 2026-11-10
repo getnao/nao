@@ -73,11 +73,31 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 							{toMarkdown(output.content, filePath)}
 						</Streamdown>
 					</div>
+					{output.annotations && <AnnotationsSection annotations={output.annotations} />}
 				</div>
 			)}
 		</ToolCallWrapper>
 	);
 };
+
+const AnnotationsSection = ({ annotations }: { annotations: { path: string; content: string } }) => (
+	<div className='border-t'>
+		<div className='px-3 py-2 border-b text-[11px] text-muted-foreground'>
+			Annotations attached from <span className='font-mono'>{getFileName(annotations.path)}</span>
+		</div>
+		<div className='overflow-auto max-h-100 hide-code-header markdown-small'>
+			<Streamdown
+				linkSafety={markdownLinkSafety}
+				mode='static'
+				controls={false}
+				plugins={markdownPlugins}
+				className='py-6 px-24'
+			>
+				{annotations.content}
+			</Streamdown>
+		</div>
+	</div>
+);
 
 const McpReadTitle = ({ target, isSettled }: { target: McpTarget; isSettled: boolean }) => (
 	<McpTitle server={target.server}>

@@ -23,13 +23,19 @@ from nao_core.commands.test.client import (
 from nao_core.commands.test.client import (
     TestVerdict as AgentTestVerdict,
 )
-from nao_core.commands.test.runner import ModelConfig, check_dataframe, filter_test_cases, run_test
+from nao_core.commands.test.runner import (
+    ModelConfig,
+    check_dataframe,
+    filter_test_cases,
+    resolve_model_configs,
+    run_test,
+)
 from nao_core.commands.test.runner import (
     TestRunResult as NaoTestRunResult,
 )
 from nao_core.config.base import NaoConfig
 from nao_core.config.llm import ModelCosts
-from nao_core.config.test import ComparisonConfig, TestConfig
+from nao_core.config.test import ComparisonConfig, TestConfig, TestModelConfig
 
 test_runner_module = importlib.import_module("nao_core.commands.test.runner")
 
@@ -229,6 +235,114 @@ def test_client_omits_sql_when_the_test_case_is_assertion_only(monkeypatch):
     assert "sql" not in payload
 
 
+def test_client_sends_the_reasoning_effort_with_the_model(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"))
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    session.post.return_value = _successful_run_response()
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    client.run_test(test_case, provider="openai", model_id="gpt-5", reasoning_effort="high")
+
+    payload = session.post.call_args.kwargs["json"]
+    assert payload["model"] == {"provider": "openai", "modelId": "gpt-5", "reasoningEffort": "high"}
+
+
+def test_client_omits_the_reasoning_effort_without_one(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"))
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    session.post.return_value = _successful_run_response()
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    client.run_test(test_case)
+
+    assert session.post.call_args.kwargs["json"]["model"] == {"provider": "openai", "modelId": "gpt-4.1"}
+
+
+def test_client_lists_the_reasoning_efforts_of_a_model(monkeypatch):
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    session.get.return_value = Mock(status_code=200, json=Mock(return_value={"reasoningEfforts": ["low", "high"]}))
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    assert client.get_reasoning_efforts("openai", "gpt-5") == ["low", "high"]
+    session.get.assert_called_once_with(
+        "http://backend/api/test/reasoning-efforts", params={"provider": "openai", "modelId": "gpt-5"}
+    )
+
+
+def test_client_reports_servers_that_cannot_list_reasoning_efforts(monkeypatch):
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    session.get.return_value = Mock(status_code=404)
+    monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
+
+    with pytest.raises(AgentClientError, match="update it first"):
+        client.get_reasoning_efforts("openai", "gpt-5")
+
+
+def test_resolve_model_configs_runs_a_model_once_per_reasoning_effort():
+    client = Mock()
+    client.get_reasoning_efforts.return_value = ["low", "medium", "high"]
+
+    models = resolve_model_configs(
+        [
+            "openai:gpt-4.1",
+            TestModelConfig(model="openai:gpt-5", reasoning_efforts=["high", "low"]),
+            TestModelConfig(model="anthropic:claude-opus-4-5", reasoning_efforts="all"),
+            TestModelConfig(model="anthropic:claude-haiku-4-5"),
+        ],
+        client,
+    )
+
+    assert [str(model) for model in models] == [
+        "openai:gpt-4.1",
+        "openai:gpt-5 · low",
+        "openai:gpt-5 · high",
+        "anthropic:claude-opus-4-5 · low",
+        "anthropic:claude-opus-4-5 · medium",
+        "anthropic:claude-opus-4-5 · high",
+        "anthropic:claude-haiku-4-5",
+    ]
+    assert client.get_reasoning_efforts.call_count == 2
+
+
+def test_resolve_model_configs_rejects_efforts_the_model_does_not_support():
+    client = Mock()
+    client.get_reasoning_efforts.return_value = ["low", "high"]
+
+    with pytest.raises(ValueError, match="does not support the reasoning efforts max, expected some of low, high"):
+        resolve_model_configs([TestModelConfig(model="openai:gpt-5", reasoning_efforts=["low", "max"])], client)
+
+
+def test_resolve_model_configs_rejects_efforts_for_a_model_without_any():
+    client = Mock()
+    client.get_reasoning_efforts.return_value = []
+
+    with pytest.raises(ValueError, match="has no reasoning efforts"):
+        resolve_model_configs([TestModelConfig(model="openai:gpt-4.1", reasoning_efforts="all")], client)
+
+
+def test_run_test_sends_the_reasoning_effort_of_the_model(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"))
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="",
+        tool_calls=[],
+        usage=TokenUsage(totalTokens=0),
+        cost=TokenCost(totalCost=0),
+        finish_reason="stop",
+        duration_ms=1,
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, ModelConfig(provider="openai", model_id="gpt-5", reasoning_effort="low"))
+
+    assert result.model == "openai:gpt-5 · low"
+    assert client.run_test.call_args.kwargs["reasoning_effort"] == "low"
+
+
 def test_client_authenticates_with_the_api_key_without_logging_in(monkeypatch):
     client_module = importlib.import_module("nao_core.commands.test.client")
     get_auth_session = Mock()
@@ -392,7 +506,7 @@ def test_run_test_passes_configured_costs_to_client(monkeypatch):
 
     assert result.passed is True
     client.run_test.assert_called_once_with(
-        test_case, provider="openai", model_id="custom-model", costs=costs, comparison=None
+        test_case, provider="openai", model_id="custom-model", costs=costs, comparison=None, reasoning_effort=None
     )
 
 
@@ -729,6 +843,35 @@ def test_model_flag_overrides_the_test_block(tmp_path, monkeypatch):
     assert [str(run["model"]) for run in runs] == ["openai:gpt-4.1"]
 
 
+def test_run_expands_the_reasoning_efforts_of_the_test_block(tmp_path, monkeypatch):
+    client = Mock()
+    client.get_reasoning_efforts.return_value = ["low", "high"]
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+    config = NaoConfig(
+        project_name="test-project",
+        test=TestConfig(models=[TestModelConfig(model="openai:gpt-5", reasoning_efforts="all")]),
+    )
+
+    runs = run_test_command(monkeypatch, tmp_path, config, select="users")
+
+    assert [str(run["model"]) for run in runs] == ["openai:gpt-5 · low", "openai:gpt-5 · high"]
+
+
+def test_run_exits_with_an_error_when_the_reasoning_efforts_are_not_supported(tmp_path, monkeypatch):
+    client = Mock()
+    client.get_reasoning_efforts.return_value = ["low", "high"]
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+    config = NaoConfig(
+        project_name="test-project",
+        test=TestConfig(models=[TestModelConfig(model="openai:gpt-5", reasoning_efforts=["max"])]),
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        run_test_command(monkeypatch, tmp_path, config)
+
+    assert exit_info.value.code == 1
+
+
 def test_single_model_runs_keep_legacy_output_for_k1(tmp_path, monkeypatch):
     tables: list = []
 
@@ -920,9 +1063,10 @@ def test_invalid_k_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(test_runner_module.UI, "error", lambda msg: errors.append(msg))
     config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"]))
 
-    runs = run_test_command(monkeypatch, tmp_path, config, k=0)
+    with pytest.raises(SystemExit) as exit_info:
+        run_test_command(monkeypatch, tmp_path, config, k=0)
 
-    assert runs == []
+    assert exit_info.value.code == 1
     assert errors and "k must be >= 1" in errors[0]
 
 

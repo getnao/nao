@@ -687,6 +687,34 @@
       "when": 1793883302427,
       "tag": "0097_chat_message_citations",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1793956748335,
+      "tag": "0098_story_version_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1793965270432,
+      "tag": "0099_story_filter_options_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1794262121434,
+      "tag": "0100_automation_event_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794297263754,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
     }
   ]
 }

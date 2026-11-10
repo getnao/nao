@@ -50,7 +50,7 @@ import { summarizeModels } from '../utils/test-model-summary';
 import { draftOwnerOf, requireProjectPath } from './route-context';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
-const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with production.';
+const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with the default branch.';
 const NOT_A_TEST_FILE_MESSAGE = `Tests are YAML files in the ${TESTS_FOLDER}/ folder.`;
 
 interface TestRunRouteContext {
@@ -80,7 +80,12 @@ const startRunSchema = z.object({
 		.array(llmSelectedModelSchema.extend({ reasoningEfforts: z.array(activeEffortSchema).optional() }))
 		.max(MAX_TEST_RUN_MODELS)
 		.optional(),
-	attempts: z.number().int().min(1).max(MAX_TEST_RUN_ATTEMPTS).optional(),
+	attempts: z
+		.number()
+		.int()
+		.min(1)
+		.max(MAX_TEST_RUN_ATTEMPTS, { message: `Ask each test at most ${MAX_TEST_RUN_ATTEMPTS} times.` })
+		.optional(),
 	threads: z.number().int().min(1).max(MAX_TEST_RUN_THREADS).optional(),
 });
 
@@ -170,11 +175,13 @@ export const testRunRoutes = {
 				sql: z.string().trim().max(100_000).optional(),
 				databaseId: z.string().trim().min(1).optional(),
 				tags: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
+				/** Defaults to the user's email; an empty owner leaves the test without one. */
+				owner: z.string().trim().max(200).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
-			const content = serializeTestFile({ ...input, owner: ctx.user.email });
+			const content = serializeTestFile({ ...input, owner: input.owner ?? ctx.user.email });
 			return { path: await createFirstFreeTestFile(newTestFilePaths(input.name), content, access) };
 		}),
 

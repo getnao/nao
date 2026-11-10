@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, redirect, useMatches } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Github } from 'lucide-react';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
@@ -91,7 +91,7 @@ function NoProjectCloudState({ isAdmin }: { isAdmin: boolean }) {
 			{showGithubOption && (
 				<ImportProviderCard
 					providerLabel='GitHub'
-					icon={Github}
+					icon={GithubIcon}
 					connectHref='/api/github/connect'
 					resourceNounSingular='repository'
 					resourceNounPlural='repositories'
