@@ -120,6 +120,14 @@ def test_harness_flags_override_the_config():
     )
 
 
+def test_matching_harness_flag_preserves_configured_settings():
+    config = TestConfig.model_validate({"harness": {"name": "codex", "model": "configured", "timeout_seconds": 900}})
+
+    resolved = resolve_harness_config(config, "codex", None, None, None, None)
+
+    assert resolved == TestHarnessConfig(name="codex", model="configured", timeout_seconds=900)
+
+
 def test_nao_model_flag_is_rejected_with_a_harness():
     config = TestConfig.model_validate({"harness": "codex"})
 

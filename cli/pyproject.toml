@@ -78,6 +78,11 @@ mistral = ["mistralai>=1.11.1,<2.0.0"]
 gemini = ["google-genai>=1.61.0"]
 ollama = ["ollama>=0.4.0"]
 
+# Headless agent test harnesses
+harness-codex = ["openai-codex>=0.167.0"]
+harness-claude-code = ["claude-agent-sdk>=0.2.179"]
+harnesses = ["nao-core[harness-codex,harness-claude-code]"]
+
 # Integrations
 # Pinned below their next major: nao calls Views endpoints absent from notion-client and
 # depends on notion2md's marker for unconvertible databases. 3.1 is the floor because it

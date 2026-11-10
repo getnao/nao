@@ -62,6 +62,8 @@ Convenience groups are also available:
 ```bash
 pip install 'nao-core[all-databases]'  # all database backends
 pip install 'nao-core[all-llms]'       # all LLM providers
+pip install 'nao-core[harness-codex]'  # Codex test harness
+pip install 'nao-core[harness-claude-code]'  # Claude Code test harness
 ```
 
 ## Usage
@@ -289,10 +291,11 @@ nao test --harness claude-code --harness-model sonnet
 ```
 
 An external harness is useful when nao provides the context layer but another agent owns the conversation. The nao
-backend must have its MCP endpoint and context-layer mode enabled, and the selected CLI must already be installed and
-authenticated. Nao gives each run a short-lived, attempt-scoped MCP credential, captures its tool calls and query
-results, and applies the same assertions and reference-SQL comparison used for built-in agent tests. The harness runs in
-an empty temporary directory with repository instructions disabled, so only the nao context affects the answer.
+backend must have its MCP endpoint and context-layer mode enabled. Install the matching harness extra and authenticate
+its agent SDK before the run. Nao gives each run a short-lived, attempt-scoped MCP credential. It captures the tool calls
+and query results, then applies the assertions and reference-SQL comparison used for built-in agent tests. The SDK runs
+in an empty temporary directory, so repository instructions are not in its working directory. Provider-managed settings
+can still apply.
 
 Context-layer-only projects can select a harness without adding a nao LLM configuration. The same harness also writes
 the small DuckDB query that maps its captured query results to the expected columns; nao executes that query and

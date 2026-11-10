@@ -1,8 +1,11 @@
-"""Claude Code headless harness."""
+"""Claude Agent SDK headless harness."""
+
+from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, cast
 
 from .base import (
@@ -12,121 +15,93 @@ from .base import (
     HeadlessHarness,
     McpConnection,
     agent_prompt,
-    base_environment,
     empty_workspace,
+    load_harness_sdk,
     parse_json_object,
-    private_config_directory,
     verification_sql,
 )
 
 
 class ClaudeCodeHarness(HeadlessHarness):
-    """Run tests with `claude -p` and an attempt-scoped nao MCP server."""
-
-    executable = "claude"
+    """Run tests with the official Claude Agent SDK."""
 
     def run_agent(self, prompt: str, connection: McpConnection) -> HarnessRun:
-        with empty_workspace() as workspace, private_config_directory() as config_directory:
-            config_path = Path(config_directory) / "mcp.json"
-            config_path.write_text(
-                json.dumps(
-                    {
-                        "mcpServers": {
-                            "nao": {
-                                "type": "http",
-                                "url": connection.url,
-                                "headers": {"Authorization": f"Bearer {connection.access_token}"},
-                            }
-                        }
-                    }
-                )
-            )
-            os.chmod(config_path, 0o600)
-            args = self._base_args() + [
-                "--mcp-config",
-                str(config_path),
-                "--strict-mcp-config",
-                "--allowedTools",
-                "mcp__nao__*",
-                agent_prompt(prompt),
-            ]
-            stdout, _stderr, duration_ms = self._run(args, Path(workspace), base_environment())
-        text, usage, cost = parse_claude_stream(stdout)
-        return HarnessRun(text=text, usage=usage, cost=cost, duration_ms=duration_ms)
+        return self._run_async(lambda: self._run(prompt, connection=connection))
 
     def run_verifier(self, prompt: str) -> str | None:
-        with empty_workspace() as workspace, private_config_directory() as config_directory:
-            empty_config = Path(config_directory) / "mcp.json"
-            empty_config.write_text('{"mcpServers":{}}')
-            args = self._base_args() + [
-                "--mcp-config",
-                str(empty_config),
-                "--strict-mcp-config",
-                "--json-schema",
-                json.dumps(VERIFICATION_SCHEMA),
-                prompt,
-            ]
-            stdout, _stderr, _duration_ms = self._run(args, Path(workspace), base_environment())
-        text, _usage, _cost = parse_claude_stream(stdout)
-        return verification_sql(parse_json_object(text))
+        run = self._run_async(lambda: self._run(prompt, output_schema=VERIFICATION_SCHEMA))
+        return verification_sql(parse_json_object(run.text))
 
-    def _base_args(self) -> list[str]:
-        args = [
-            self._resolve_executable(),
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--no-session-persistence",
-            "--restricted",
-            "--permission-mode",
-            "dontAsk",
-            "--permission-prompts",
-            "none",
-        ]
-        if self.model:
-            args.extend(["--model", self.model])
-        if self.reasoning_effort:
-            args.extend(["--effort", self.reasoning_effort])
-        return args
-
-
-def parse_claude_stream(output: str) -> tuple[str, dict[str, int | None], dict[str, float | None]]:
-    """Extract the result, usage and reported cost from Claude Code stream JSON."""
-    result_event: dict[str, Any] | None = None
-    for line in output.splitlines():
-        if not line.strip():
-            continue
+    async def _run(
+        self,
+        prompt: str,
+        connection: McpConnection | None = None,
+        output_schema: dict[str, Any] | None = None,
+    ) -> HarnessRun:
+        sdk = load_harness_sdk("claude_agent_sdk", "harness-claude-code")
         try:
-            event = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise HarnessError(f"Claude Code returned invalid JSONL: {line[:500]}") from error
-        if isinstance(event, dict) and event.get("type") == "result":
-            result_event = event
-    if result_event is None:
-        raise HarnessError("Claude Code did not return a result event.")
-    if result_event.get("is_error"):
-        raise HarnessError(f"Claude Code failed: {result_event.get('result') or 'unknown error'}")
+            with empty_workspace() as workspace, TemporaryDirectory(prefix="nao-test-harness-config-") as config_dir:
+                mcp_config = self._write_mcp_config(Path(config_dir), connection) if connection else {}
+                options = sdk.ClaudeAgentOptions(
+                    tools=[],
+                    allowed_tools=["mcp__nao__*"] if connection else [],
+                    mcp_servers=mcp_config,
+                    strict_mcp_config=True,
+                    permission_mode="dontAsk",
+                    cwd=workspace,
+                    setting_sources=[],
+                    skills=[],
+                    model=self.model,
+                    effort=cast(Any, self.reasoning_effort),
+                    output_format={"type": "json_schema", "schema": output_schema} if output_schema else None,
+                    extra_args={"no-session-persistence": None},
+                )
+                result = None
+                async for message in sdk.query(
+                    prompt=agent_prompt(prompt) if connection else prompt,
+                    options=options,
+                ):
+                    if isinstance(message, sdk.ResultMessage):
+                        result = message
+        except HarnessError:
+            raise
+        except Exception as error:
+            raise HarnessError(f"Claude Agent SDK failed: {error}") from error
 
-    structured = result_event.get("structured_output")
-    if isinstance(structured, dict):
-        text = json.dumps(structured)
-    else:
-        raw_result = result_event.get("result")
-        if not isinstance(raw_result, str):
-            raise HarnessError("Claude Code result did not contain text.")
-        text = raw_result
+        if result is None:
+            raise HarnessError("Claude Agent SDK did not return a result.")
+        if result.is_error:
+            detail = result.result or "; ".join(result.errors or []) or "unknown error"
+            raise HarnessError(f"Claude Agent SDK failed: {detail}")
+        text = json.dumps(result.structured_output) if result.structured_output is not None else result.result
+        if not isinstance(text, str):
+            raise HarnessError("Claude Agent SDK did not return text.")
+        return HarnessRun(
+            text=text,
+            usage=normalize_claude_usage(result.usage),
+            cost=claude_cost(result.total_cost_usd),
+            finish_reason=result.stop_reason or "stop",
+            duration_ms=result.duration_ms,
+        )
 
-    usage = normalize_claude_usage(result_event.get("usage"))
-    total_cost = result_event.get("total_cost_usd")
-    cost = {
-        "inputNoCache": None,
-        "inputCacheRead": None,
-        "inputCacheWrite": None,
-        "output": None,
-        "totalCost": float(total_cost) if isinstance(total_cost, (int, float)) else None,
-    }
-    return text, usage, cost
+    @staticmethod
+    def _write_mcp_config(config_dir: Path, connection: McpConnection) -> Path:
+        path = config_dir / "mcp.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "nao": {
+                            "type": "http",
+                            "url": connection.url,
+                            "headers": {"Authorization": f"Bearer {connection.access_token}"},
+                        }
+                    }
+                }
+            )
+        )
+        os.chmod(path, 0o600)
+        return path
 
 
 def normalize_claude_usage(value: object) -> dict[str, int | None]:
@@ -145,6 +120,16 @@ def normalize_claude_usage(value: object) -> dict[str, int | None]:
         "outputTextTokens": None,
         "outputReasoningTokens": None,
         "totalTokens": total_input + output_tokens if output_tokens is not None else None,
+    }
+
+
+def claude_cost(total_cost: object) -> dict[str, float | None]:
+    return {
+        "inputNoCache": None,
+        "inputCacheRead": None,
+        "inputCacheWrite": None,
+        "output": None,
+        "totalCost": float(total_cost) if isinstance(total_cost, (int, float)) else None,
     }
 
 

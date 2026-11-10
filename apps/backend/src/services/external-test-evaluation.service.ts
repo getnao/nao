@@ -3,8 +3,7 @@ import type { TestAssertion, TestComparisonTolerances } from '../types/test-run'
 import type { QueryResult } from '../types/tools';
 import { evaluateTestVerdict } from '../utils/test-verdict';
 import { truncateMiddle } from '../utils/utils';
-import { runSqlOverQueryResults } from './duckdb.service';
-import { findSourceQueries, type ToolCallResult, type VerificationResult } from './test-agent.service';
+import { runVerificationSql, type ToolCallResult, type VerificationResult } from './test-agent.service';
 import { buildVerificationPrompt } from './test-agent-verification';
 import { runReferenceQuery, type TestAttemptEvaluation } from './test-evaluation.service';
 
@@ -143,10 +142,7 @@ async function runExternalVerification(
 	sql: string | null,
 	queryResults: Map<string, QueryResult>,
 	verificationPrompt: string,
-): Promise<
-	| { status: 'complete'; result: VerificationResult }
-	| { status: 'repair_required'; prompt: string }
-> {
+): Promise<{ status: 'complete'; result: VerificationResult } | { status: 'repair_required'; prompt: string }> {
 	const normalizedSql = sql?.trim() || null;
 	if (!normalizedSql) {
 		return {
@@ -161,16 +157,7 @@ async function runExternalVerification(
 	}
 
 	try {
-		const { data } = await runSqlOverQueryResults(queryResults, normalizedSql);
-		return {
-			status: 'complete',
-			result: {
-				data,
-				sql: normalizedSql,
-				sourceQueries: findSourceQueries(normalizedSql, queryResults),
-				error: null,
-			},
-		};
+		return { status: 'complete', result: await runVerificationSql(normalizedSql, queryResults) };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return {

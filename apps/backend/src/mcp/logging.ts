@@ -51,6 +51,8 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	delete_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 };
 
+const lastCallStartByContext = new WeakMap<McpContext, number>();
+
 export function withLogging<T>(toolName: string, ctx: McpContext, handler: LoggedToolHandler<T>): ToolHandler<T> {
 	return async (args: T, extra: ToolExtra) => {
 		const modeKeys = TOOL_MODE_MAP[toolName];
@@ -62,6 +64,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 		}
 
 		const callLogId = randomUUID();
+		const calledAt = nextCallStartedAt(ctx);
 		const start = Date.now();
 		let success = true;
 		let result: ToolResult | undefined;
@@ -88,6 +91,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 				success,
 				toolInput: args as unknown,
 				toolOutput: thrownError !== undefined ? formatThrownError(thrownError) : extractLoggableOutput(result),
+				calledAt,
 			});
 			if (ctx.testAttemptId) {
 				await saveCall;
@@ -96,6 +100,13 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 			}
 		}
 	};
+}
+
+/** Keep start timestamps ordered even when several calls begin in the same millisecond. */
+function nextCallStartedAt(ctx: McpContext): Date {
+	const timestamp = Math.max(Date.now(), (lastCallStartByContext.get(ctx) ?? 0) + 1);
+	lastCallStartByContext.set(ctx, timestamp);
+	return new Date(timestamp);
 }
 
 const MODE_TRACKING_NAMES: Partial<Record<keyof McpEndpointSettings, string>> = {

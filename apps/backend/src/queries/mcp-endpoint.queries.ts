@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gt } from 'drizzle-orm';
 
 import type { NewMcpCallLog } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -37,7 +37,7 @@ export async function updateMcpEndpointSettings(
 	return merged;
 }
 
-export async function insertMcpCallLog(entry: Omit<NewMcpCallLog, 'calledAt'>): Promise<void> {
+export async function insertMcpCallLog(entry: NewMcpCallLog): Promise<void> {
 	await db.insert(s.mcpCallLog).values(entry).execute();
 }
 
@@ -77,7 +77,10 @@ export async function getTestAttemptMcpCallLogs(projectId: string, userId: strin
 			queryData: s.mcpQueryData.data,
 		})
 		.from(s.mcpCallLog)
-		.leftJoin(s.mcpQueryData, eq(s.mcpQueryData.callLogId, s.mcpCallLog.id))
+		.leftJoin(
+			s.mcpQueryData,
+			and(eq(s.mcpQueryData.callLogId, s.mcpCallLog.id), gt(s.mcpQueryData.expiresAt, new Date())),
+		)
 		.where(
 			and(
 				eq(s.mcpCallLog.projectId, projectId),

@@ -149,8 +149,7 @@ export class TestAgentService extends AgentService {
 			}
 
 			try {
-				const { data } = await runSqlOverQueryResults(queryResults, sql);
-				return { data, sql, sourceQueries: findSourceQueries(sql, queryResults), error: null };
+				return await runVerificationSql(sql, queryResults);
 			} catch (err) {
 				error = err instanceof Error ? err.message : String(err);
 				messages.push(
@@ -212,6 +211,15 @@ Return a corrected DuckDB query, or set sql to null if the tables cannot answer 
 
 // Singleton instance of the test agent service
 export const testAgentService = new TestAgentService();
+
+/** Runs a verifier-authored DuckDB query over the rows captured from the agent. */
+export async function runVerificationSql(
+	sql: string,
+	queryResults: Map<string, QueryResult>,
+): Promise<VerificationResult> {
+	const { data } = await runSqlOverQueryResults(queryResults, sql);
+	return { data, sql, sourceQueries: findSourceQueries(sql, queryResults), error: null };
+}
 
 /** The queries of the chat whose result tables the verification SQL names, in the order they ran. */
 export function findSourceQueries(sql: string, queryResults: ReadonlyMap<string, QueryResult>): TestSourceQuery[] {

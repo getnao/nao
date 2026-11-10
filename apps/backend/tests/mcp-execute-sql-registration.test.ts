@@ -176,9 +176,16 @@ describe('MCP execute_sql database selection', () => {
 		expect(result.isError).not.toBe(true);
 		expect(testState.inputs).toEqual([{ sql_query: 'select * from query_test', database_id: 'duckdb_local' }]);
 	});
+
+	it('omits save_to in read-only mode', async () => {
+		const client = await connect([], true);
+		const executeSql = (await client.listTools()).tools.find((tool) => tool.name === 'execute_sql');
+
+		expect(executeSql?.inputSchema.properties).not.toHaveProperty('save_to');
+	});
 });
 
-async function connect(configuredDatabases: ConfiguredDatabase[]): Promise<Client> {
+async function connect(configuredDatabases: ConfiguredDatabase[], readOnly = false): Promise<Client> {
 	const server = new McpServer({ name: 'test', version: '0.0.0' });
 	registerContextLayerTools(
 		server,
@@ -193,6 +200,8 @@ async function connect(configuredDatabases: ConfiguredDatabase[]): Promise<Clien
 			chartDataMode: false,
 		},
 		configuredDatabases,
+		null,
+		readOnly,
 	);
 	const client = new Client({ name: 'test-client', version: '0.0.0' });
 	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

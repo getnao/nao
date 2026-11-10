@@ -293,10 +293,7 @@ describe('test routes', () => {
 	it('starts an external context-layer attempt with a scoped MCP credential', async () => {
 		const { handler, reply } = await registeredPost('/external/start');
 
-		await handler(
-			{ project: { id: 'project-id' }, user: { id: 'user-id' }, host: 'nao.example.com' },
-			reply,
-		);
+		await handler({ project: { id: 'project-id' }, user: { id: 'user-id' }, host: 'nao.example.com' }, reply);
 
 		expect(reply.send).toHaveBeenCalledWith({
 			attemptId: '00000000-0000-4000-8000-000000000001',
@@ -314,10 +311,7 @@ describe('test routes', () => {
 		});
 		const { handler, reply } = await registeredPost('/external/start');
 
-		await handler(
-			{ project: { id: 'project-id' }, user: { id: 'user-id' }, host: 'nao.example.com' },
-			reply,
-		);
+		await handler({ project: { id: 'project-id' }, user: { id: 'user-id' }, host: 'nao.example.com' }, reply);
 
 		expect(reply.status).toHaveBeenCalledWith(400);
 		expect(mocks.createExternalTestAttemptToken).not.toHaveBeenCalled();

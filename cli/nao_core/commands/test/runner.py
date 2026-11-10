@@ -705,7 +705,9 @@ def resolve_harness_config(
         raise ValueError("test.models and test.harness cannot both be configured.")
 
     values: dict[str, object] = (
-        configured.model_dump() if configured is not None and harness is None else {"name": harness}
+        configured.model_dump()
+        if configured is not None and (harness is None or harness == configured.name)
+        else {"name": harness}
     )
     if model is not None:
         values["model"] = model

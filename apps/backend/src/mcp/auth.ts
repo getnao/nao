@@ -24,11 +24,9 @@ export async function resolveMcpPrincipal(fastifyRequest: {
 	url: string;
 }): Promise<McpPrincipal | null> {
 	const headers = convertHeaders(fastifyRequest.headers);
-	const testAttempt = verifyTestAttemptBearer(headers.get('authorization'));
+	const testAttempt = await verifyTestAttemptBearer(headers.get('authorization'));
 	if (testAttempt) {
-		return (await isUserDeactivated(testAttempt.userId))
-			? null
-			: { userId: testAttempt.userId, testAttempt };
+		return (await isUserDeactivated(testAttempt.userId)) ? null : { userId: testAttempt.userId, testAttempt };
 	}
 
 	const session = await getSession(headers);
@@ -39,11 +37,11 @@ export async function resolveMcpPrincipal(fastifyRequest: {
 	return { userId, testAttempt: null };
 }
 
-function verifyTestAttemptBearer(authorization: string | null): ExternalTestAttemptTokenPayload | null {
+async function verifyTestAttemptBearer(authorization: string | null): Promise<ExternalTestAttemptTokenPayload | null> {
 	if (!authorization?.startsWith('Bearer ')) {
 		return null;
 	}
-	return verifyExternalTestAttemptToken(authorization.slice('Bearer '.length).trim());
+	return await verifyExternalTestAttemptToken(authorization.slice('Bearer '.length).trim());
 }
 
 async function verifyBearerToken(authorization: string | null): Promise<string | null> {

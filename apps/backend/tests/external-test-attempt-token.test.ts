@@ -15,11 +15,11 @@ describe('external test attempt tokens', () => {
 		vi.useRealTimers();
 	});
 
-	it('round-trips the attempt, project and user scope', () => {
-		const created = createExternalTestAttemptToken('project-1', 'user-1');
+	it('round-trips the attempt, project and user scope', async () => {
+		const created = await createExternalTestAttemptToken('project-1', 'user-1');
 
 		expect(created.token).toMatch(/^nao_test_/);
-		expect(verifyExternalTestAttemptToken(created.token)).toEqual({
+		await expect(verifyExternalTestAttemptToken(created.token)).resolves.toEqual({
 			id: created.id,
 			projectId: 'project-1',
 			userId: 'user-1',
@@ -27,17 +27,17 @@ describe('external test attempt tokens', () => {
 		});
 	});
 
-	it('rejects tampering', () => {
-		const { token } = createExternalTestAttemptToken('project-1', 'user-1');
+	it('rejects tampering', async () => {
+		const { token } = await createExternalTestAttemptToken('project-1', 'user-1');
 		const tampered = `${token.slice(0, -1)}${token.endsWith('a') ? 'b' : 'a'}`;
 
-		expect(verifyExternalTestAttemptToken(tampered)).toBeNull();
+		await expect(verifyExternalTestAttemptToken(tampered)).resolves.toBeNull();
 	});
 
-	it('rejects expired attempts', () => {
-		const { token, expiresAt } = createExternalTestAttemptToken('project-1', 'user-1');
+	it('rejects expired attempts', async () => {
+		const { token, expiresAt } = await createExternalTestAttemptToken('project-1', 'user-1');
 		vi.setSystemTime(expiresAt.getTime() + 1);
 
-		expect(verifyExternalTestAttemptToken(token)).toBeNull();
+		await expect(verifyExternalTestAttemptToken(token)).resolves.toBeNull();
 	});
 });

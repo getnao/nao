@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	getTestAttemptMcpCallLogs: vi.fn(),
 	runReferenceQuery: vi.fn(),
-	runSqlOverQueryResults: vi.fn(),
+	runVerificationSql: vi.fn(),
 }));
 
 vi.mock('../src/queries/mcp-endpoint.queries', () => ({
@@ -12,14 +12,8 @@ vi.mock('../src/queries/mcp-endpoint.queries', () => ({
 vi.mock('../src/services/test-evaluation.service', () => ({
 	runReferenceQuery: mocks.runReferenceQuery,
 }));
-vi.mock('../src/services/duckdb.service', () => ({
-	runSqlOverQueryResults: mocks.runSqlOverQueryResults,
-}));
 vi.mock('../src/services/test-agent.service', () => ({
-	findSourceQueries: (sql: string, queryResults: Map<string, { sqlQuery?: string }>) =>
-		[...queryResults.entries()]
-			.filter(([queryId, result]) => result.sqlQuery && sql.includes(queryId))
-			.map(([id, result]) => ({ id, sql: result.sqlQuery })),
+	runVerificationSql: mocks.runVerificationSql,
 }));
 
 import { evaluateExternalTestAttempt } from '../src/services/external-test-evaluation.service';
@@ -42,7 +36,12 @@ describe('external test evaluation', () => {
 		vi.clearAllMocks();
 		mocks.getTestAttemptMcpCallLogs.mockResolvedValue([CAPTURED_QUERY]);
 		mocks.runReferenceQuery.mockResolvedValue({ columns: ['total'], data: [{ total: 10 }] });
-		mocks.runSqlOverQueryResults.mockResolvedValue({ columns: ['total'], data: [{ total: 10 }] });
+		mocks.runVerificationSql.mockResolvedValue({
+			data: [{ total: 10 }],
+			sql: 'select total from query_1',
+			sourceQueries: [{ id: 'query_1', sql: 'select 10 as total' }],
+			error: null,
+		});
 	});
 
 	it('asks the harness to express its answer over the captured query tables', async () => {
@@ -76,10 +75,7 @@ describe('external test evaluation', () => {
 			verificationSql: 'select total from query_1',
 		});
 
-		expect(mocks.runSqlOverQueryResults).toHaveBeenCalledWith(
-			expect.any(Map),
-			'select total from query_1',
-		);
+		expect(mocks.runVerificationSql).toHaveBeenCalledWith('select total from query_1', expect.any(Map));
 		expect(evaluation).toEqual(
 			expect.objectContaining({
 				status: 'complete',
@@ -89,7 +85,7 @@ describe('external test evaluation', () => {
 	});
 
 	it('returns a repair prompt when the verification SQL fails', async () => {
-		mocks.runSqlOverQueryResults.mockRejectedValue(new Error('column missing does not exist'));
+		mocks.runVerificationSql.mockRejectedValue(new Error('column missing does not exist'));
 
 		const evaluation = await evaluateExternalTestAttempt({
 			projectId: 'project-1',

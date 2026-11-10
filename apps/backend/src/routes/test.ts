@@ -113,7 +113,7 @@ export const testRoutes = async (app: App) => {
 			});
 		}
 
-		const attempt = createExternalTestAttemptToken(access.projectId, request.user.id);
+		const attempt = await createExternalTestAttemptToken(access.projectId, request.user.id);
 		return reply.send({
 			attemptId: attempt.id,
 			mcpUrl: `${resolveMcpFacingOrigin(request.host)}/mcp/${access.projectId}`,
