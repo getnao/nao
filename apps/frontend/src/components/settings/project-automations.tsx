@@ -24,6 +24,7 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
+import { getAutomationTriggerLabel, isAutomationActive } from '@/lib/automation-triggers';
 import { trpc } from '@/main';
 
 type ProjectAutomation = inferRouterOutputs<TrpcRouter>['automation']['listAllForAdmin'][number];
@@ -121,7 +122,9 @@ function AutomationRow({ automation, actions }: { automation: ProjectAutomation;
 					<span className='truncate font-medium' title={automation.title}>
 						{automation.title}
 					</span>
-					<span className='truncate text-xs text-muted-foreground'>{getTriggerLabel(automation)}</span>
+					<span className='truncate text-xs text-muted-foreground'>
+						{getAutomationTriggerLabel(automation)}
+					</span>
 				</div>
 			</TableCell>
 			<TableCell className='min-w-0 overflow-hidden'>
@@ -371,16 +374,4 @@ function getTransferCandidates(users: ProjectUser[], automation: ProjectAutomati
 	return users
 		.filter((user) => user.role !== 'viewer' && user.id !== automation?.owner?.id)
 		.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function isAutomationActive(automation: ProjectAutomation): boolean {
-	return automation.cron ? automation.enabled : automation.webhookEnabled;
-}
-
-function getTriggerLabel(automation: ProjectAutomation): string {
-	if (automation.cron) {
-		const scheduleText = automation.scheduleDescription || automation.cron;
-		return automation.webhookEnabled ? `${scheduleText} · webhook` : scheduleText;
-	}
-	return 'Triggered by webhook';
 }

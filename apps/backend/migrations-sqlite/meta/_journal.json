@@ -705,15 +705,22 @@
     {
       "idx": 100,
       "version": "6",
-      "when": 1794242286468,
-      "tag": "0100_story_viewer_data_cache",
+      "when": 1794262120148,
+      "tag": "0100_automation_event_triggers",
       "breakpoints": true
     },
     {
       "idx": 101,
       "version": "6",
-      "when": 1794301643846,
-      "tag": "0101_viewer_cache_revision",
+      "when": 1794297262123,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1794306091066,
+      "tag": "0102_story_viewer_data_cache",
       "breakpoints": true
     }
   ]

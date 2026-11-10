@@ -45,6 +45,27 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	subscription: "When you're added to a story's scheduled delivery.",
 };
 
+export const FEEDBACK_VOTES = ['up', 'down'] as const;
+export type FeedbackVote = (typeof FEEDBACK_VOTES)[number];
+
+export const FEEDBACK_SOURCES = ['chat', 'story'] as const;
+export type FeedbackSource = (typeof FEEDBACK_SOURCES)[number];
+
+/** Runs an automation whenever a matching thumbs up/down is left on a chat answer or a story. */
+export type AutomationFeedbackTrigger = {
+	enabled: boolean;
+	votes: FeedbackVote[];
+	sources: FeedbackSource[];
+};
+
+export const NAO_EVENT_TYPES = ['feedback'] as const;
+export type NaoEventType = (typeof NAO_EVENT_TYPES)[number];
+
+/** nao events an automation listens to, keyed by event type. */
+export type AutomationEventTriggers = {
+	feedback?: AutomationFeedbackTrigger;
+};
+
 export type SharedItemLabel = 'story' | 'chat';
 
 export type ShareSource = { type: 'chat'; shareId: string } | { type: 'story'; storyId: string };

@@ -88,7 +88,7 @@ describe('automation owner project access', () => {
 	});
 
 	it('fails the run instead of changing principals after owner access is revoked', async () => {
-		await expect(runAutomation('automation-1')).rejects.toThrow('access to this project');
+		await expect(runAutomation('automation-1', { trigger: 'manual' })).rejects.toThrow('access to this project');
 		expect(mocks.createAgent).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 'removed-owner', projectId: 'project-1' }),
 			undefined,

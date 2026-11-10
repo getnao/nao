@@ -15,4 +15,5 @@ CREATE TABLE `story_viewer_data_cache` (
 );
 --> statement-breakpoint
 CREATE INDEX `story_viewer_data_cache_story_id_idx` ON `story_viewer_data_cache` (`story_id`);--> statement-breakpoint
-CREATE INDEX `story_viewer_data_cache_user_id_idx` ON `story_viewer_data_cache` (`user_id`);
+CREATE INDEX `story_viewer_data_cache_user_id_idx` ON `story_viewer_data_cache` (`user_id`);--> statement-breakpoint
+ALTER TABLE `project` ADD `viewer_cache_revision` integer DEFAULT 0 NOT NULL;

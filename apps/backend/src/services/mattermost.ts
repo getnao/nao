@@ -40,6 +40,7 @@ import {
 	resolveMattermostCallbackBaseUrl,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import {
@@ -968,6 +969,7 @@ class ProjectMattermostBot {
 		try {
 			if (feedback.action === 'upsert') {
 				await feedbackQueries.upsertFeedback({ messageId: metadata.assistantMessageId, vote: feedback.vote });
+				void triggerChatFeedbackAutomations({ messageId: metadata.assistantMessageId, vote: feedback.vote });
 			} else {
 				await feedbackQueries.deleteFeedbackVote(metadata.assistantMessageId, feedback.vote);
 			}
