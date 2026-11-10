@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, Star, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -48,7 +48,14 @@ export function GithubStarPrompt() {
 function useGithubStarPromptState() {
 	const [phase, setPhase] = useState<PromptPhase>('open');
 	const [hasStarred, setHasStarred] = useState(false);
-	const dismiss = useMutation(trpc.user.dismissGithubStarPrompt.mutationOptions());
+	const queryClient = useQueryClient();
+	const dismiss = useMutation(
+		trpc.user.dismissGithubStarPrompt.mutationOptions({
+			onMutate: () => {
+				queryClient.setQueryData(trpc.user.getGithubStarPrompt.queryKey(), { shouldShow: false });
+			},
+		}),
+	);
 
 	useEffect(() => {
 		if (phase === 'leaving') {
