@@ -6,6 +6,7 @@ import type { PromptHandle } from 'prompt-mentions';
 import type { AskMessage } from '@/components/ask-bar';
 import type { AutomationFormHandle } from '@/components/automations-form';
 
+import type { HandledDraftUpdates } from '@/hooks/use-automation-draft-updates';
 import { AskInput, PendingMessageSender } from '@/components/ask-bar';
 import {
 	AutomationChatPanelResizeHandle,
@@ -72,6 +73,7 @@ export function AutomationChatPanel({
 	onChatStarted?: (chatId: string) => void;
 }) {
 	const session = useAutomationChatSession(automationId);
+	const handledUpdatesRef = useRef<HandledDraftUpdates>(new Map());
 	const panelWidth = useAutomationChatPanelWidth();
 
 	const resizeHandle = (
@@ -103,6 +105,7 @@ export function AutomationChatPanel({
 					key={session.current.chatId}
 					session={session.current}
 					formHandleRef={formHandleRef}
+					handledUpdates={handledUpdatesRef.current}
 					onPendingMessageSent={session.clearPendingMessage}
 				/>
 			) : (
@@ -152,10 +155,12 @@ function useAutomationChatSession(automationId: string | undefined) {
 function SessionChat({
 	session,
 	formHandleRef,
+	handledUpdates,
 	onPendingMessageSent,
 }: {
 	session: ChatSession;
 	formHandleRef: RefObject<AutomationFormHandle | null>;
+	handledUpdates: HandledDraftUpdates;
 	onPendingMessageSent: () => void;
 }) {
 	const getRequestBody = useCallback(() => ({ automationDraft: formHandleRef.current?.getDraft() }), [formHandleRef]);
@@ -170,7 +175,11 @@ function SessionChat({
 						pendingMentions={session.pendingMessage?.mentions}
 						onSent={onPendingMessageSent}
 					/>
-					<FormUpdater isResumed={session.isResumed} formHandleRef={formHandleRef} />
+					<FormUpdater
+						isResumed={session.isResumed}
+						formHandleRef={formHandleRef}
+						handledUpdates={handledUpdates}
+					/>
 					<Conversation className='min-h-0 flex-1'>
 						<ConversationContent className='gap-0 px-4 py-3 md:px-4 md:py-3'>
 							<ChatMessagesContent />
@@ -187,12 +196,15 @@ function SessionChat({
 function FormUpdater({
 	isResumed,
 	formHandleRef,
+	handledUpdates,
 }: {
 	isResumed: boolean;
 	formHandleRef: RefObject<AutomationFormHandle | null>;
+	handledUpdates: HandledDraftUpdates;
 }) {
 	useAutomationDraftUpdates({
 		isResumed,
+		handledUpdates,
 		onUpdate: (update) => formHandleRef.current?.applyDraftUpdate(update),
 	});
 	return null;

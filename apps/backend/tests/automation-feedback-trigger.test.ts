@@ -61,7 +61,12 @@ describe('feedback automation trigger', () => {
 	it('starts matching automations with the chat feedback event', async () => {
 		mocks.listEventTriggeredAutomations.mockResolvedValue([buildAutomation('match')]);
 
-		await triggerChatFeedbackAutomations({ messageId: 'message-id', vote: 'down', explanation: '  wrong  ' });
+		await triggerChatFeedbackAutomations({
+			messageId: 'message-id',
+			submitterId: 'submitter-id',
+			vote: 'down',
+			explanation: '  wrong  ',
+		});
 
 		expect(mocks.listEventTriggeredAutomations).toHaveBeenCalledWith('project-id', 'feedback');
 		expect(mocks.startAutomationRun).toHaveBeenCalledWith('match', {
@@ -140,6 +145,26 @@ describe('feedback automation trigger', () => {
 					url: 'https://nao.test/stories/story-id',
 				}),
 			}),
+		);
+	});
+
+	it('leaves the submitter out when the caller did not identify the voter', async () => {
+		mocks.listEventTriggeredAutomations.mockResolvedValue([buildAutomation('match')]);
+
+		await triggerChatFeedbackAutomations({ messageId: 'message-id', vote: 'up' });
+
+		expect(mocks.startAutomationRun).not.toHaveBeenCalled();
+
+		mocks.listEventTriggeredAutomations.mockResolvedValue([
+			buildAutomation('match', {
+				eventTriggers: { feedback: { enabled: true, votes: ['up'], sources: ['chat'] } },
+			}),
+		]);
+		await triggerChatFeedbackAutomations({ messageId: 'message-id', vote: 'up' });
+
+		expect(mocks.startAutomationRun).toHaveBeenCalledWith(
+			'match',
+			expect.objectContaining({ triggerEvent: expect.objectContaining({ submitter: null }) }),
 		);
 	});
 

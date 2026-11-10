@@ -17,6 +17,8 @@ const CHAT_FEEDBACK_OWNER_ROLES: readonly UserRole[] = ['admin', 'context_admin'
 
 type ChatFeedbackInput = {
 	messageId: string;
+	/** The user who voted, when the caller has verified who it is. */
+	submitterId?: string;
 	vote: FeedbackVote;
 	explanation?: string | null;
 };
@@ -31,13 +33,9 @@ type StoryFeedbackInput = {
 
 /** Starts every automation of the chat's project whose feedback trigger matches this vote on a chat answer. */
 export async function triggerChatFeedbackAutomations(input: ChatFeedbackInput): Promise<void> {
-	await runSafely(async () => {
+	await runWhenAutomationsEnabled(async () => {
 		const context = await feedbackQueries.getRatedMessageContext(input.messageId);
 		if (!context) {
-			return;
-		}
-		const submitter = await userQueries.getUser({ id: context.chatOwnerId });
-		if (!submitter) {
 			return;
 		}
 		await triggerMatchingAutomations(
@@ -47,7 +45,7 @@ export async function triggerChatFeedbackAutomations(input: ChatFeedbackInput): 
 				source: 'chat',
 				vote: input.vote,
 				explanation: normalizeExplanation(input.explanation),
-				submitter: { name: submitter.name, email: submitter.email },
+				submitter: input.submitterId ? await getSubmitter(input.submitterId) : null,
 				url: toAbsoluteUrl(`/settings/usage/replay/${context.chatId}`),
 				chatTitle: context.chatTitle || null,
 				question: context.question,
@@ -60,11 +58,7 @@ export async function triggerChatFeedbackAutomations(input: ChatFeedbackInput): 
 
 /** Starts every automation of the story's project whose feedback trigger matches this vote on a story. */
 export async function triggerStoryFeedbackAutomations(input: StoryFeedbackInput): Promise<void> {
-	await runSafely(async () => {
-		const submitter = await userQueries.getUser({ id: input.submitterId });
-		if (!submitter) {
-			return;
-		}
+	await runWhenAutomationsEnabled(async () => {
 		await triggerMatchingAutomations(
 			input.projectId,
 			{
@@ -72,7 +66,7 @@ export async function triggerStoryFeedbackAutomations(input: StoryFeedbackInput)
 				source: 'story',
 				vote: input.vote,
 				explanation: normalizeExplanation(input.explanation),
-				submitter: { name: submitter.name, email: submitter.email },
+				submitter: await getSubmitter(input.submitterId),
 				url: toAbsoluteUrl(storyPath(input.story.id)),
 				storyTitle: input.story.title,
 			},
@@ -91,9 +85,6 @@ async function triggerMatchingAutomations(
 	event: FeedbackTriggerEvent,
 	canOwnerReceive: (automation: AutomationWithSchedule) => Promise<boolean>,
 ): Promise<void> {
-	if (!env.BETA_AUTOMATIONS_ENABLED) {
-		return;
-	}
 	const automations = await automationQueries.listEventTriggeredAutomations(projectId, 'feedback');
 	const candidates = automations.filter((automation) => matchesFeedbackTrigger(automation, event));
 	if (candidates.length === 0) {
@@ -141,7 +132,16 @@ async function canOwnerReceiveStoryFeedback(projectId: string, storyId: string, 
 	return storyQueries.canUserAccessStory(storyId, ownerId);
 }
 
-async function runSafely(trigger: () => Promise<void>): Promise<void> {
+async function getSubmitter(userId: string): Promise<FeedbackTriggerEvent['submitter']> {
+	const user = await userQueries.getUser({ id: userId });
+	return user ? { name: user.name, email: user.email } : null;
+}
+
+/** Feedback is saved whatever happens here: a failing trigger is logged, never thrown at the voter. */
+async function runWhenAutomationsEnabled(trigger: () => Promise<void>): Promise<void> {
+	if (!env.BETA_AUTOMATIONS_ENABLED) {
+		return;
+	}
 	try {
 		await trigger();
 	} catch (error) {

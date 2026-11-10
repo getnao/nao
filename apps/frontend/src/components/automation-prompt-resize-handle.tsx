@@ -9,6 +9,8 @@ const AUTO_MAX_HEIGHT = 384;
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 800;
 const KEYBOARD_STEP = 16;
+/** A press that moves less than this is a click, which must not pin the height. */
+const DRAG_THRESHOLD = 3;
 
 const promptHeightStorage = createLocalStorage<number>('nao-automation-prompt-height');
 
@@ -39,13 +41,13 @@ export function AutomationPromptResizeHandle({
 	setHeight,
 	measureEditorHeight,
 }: PromptHeight & { measureEditorHeight: () => number }) {
-	const dragRef = useRef<{ startY: number; startHeight: number; height: number } | null>(null);
+	const dragRef = useRef<{ startY: number; startHeight: number; height: number; hasMoved: boolean } | null>(null);
 
 	const startDrag = (event: PointerEvent<HTMLDivElement>) => {
 		event.preventDefault();
 		event.currentTarget.setPointerCapture(event.pointerId);
 		const startHeight = measureEditorHeight();
-		dragRef.current = { startY: event.clientY, startHeight, height: startHeight };
+		dragRef.current = { startY: event.clientY, startHeight, height: startHeight, hasMoved: false };
 	};
 
 	const drag = (event: PointerEvent<HTMLDivElement>) => {
@@ -53,15 +55,20 @@ export function AutomationPromptResizeHandle({
 		if (!current) {
 			return;
 		}
-		current.height = clampHeight(current.startHeight + event.clientY - current.startY);
+		const distance = event.clientY - current.startY;
+		if (!current.hasMoved && Math.abs(distance) < DRAG_THRESHOLD) {
+			return;
+		}
+		current.hasMoved = true;
+		current.height = clampHeight(current.startHeight + distance);
 		setHeight(current.height, { persist: false });
 	};
 
 	const endDrag = () => {
-		if (dragRef.current) {
+		if (dragRef.current?.hasMoved) {
 			setHeight(dragRef.current.height);
-			dragRef.current = null;
 		}
+		dragRef.current = null;
 	};
 
 	const resizeWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {

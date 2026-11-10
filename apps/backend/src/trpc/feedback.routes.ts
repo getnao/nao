@@ -64,7 +64,7 @@ export const feedbackRoutes = {
 						source: 'system',
 					}),
 			);
-			void triggerChatFeedbackAutomations(input);
+			void triggerChatFeedbackAutomations({ ...input, submitterId: ctx.user.id });
 
 			return feedback;
 		}),

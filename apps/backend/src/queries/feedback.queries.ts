@@ -94,7 +94,7 @@ export const getUserStoryFeedback = async (storyId: string, userId: string): Pro
 	return result ?? null;
 };
 
-/** Loads the rated assistant answer, its chat, and the user question that preceded it. */
+/** Loads the rated assistant answer, its chat, and the user question that preceded it; null for any other message or a deleted chat. */
 export const getRatedMessageContext = async (messageId: string): Promise<RatedMessageContext | null> => {
 	const [message] = await db
 		.select({
@@ -106,7 +106,7 @@ export const getRatedMessageContext = async (messageId: string): Promise<RatedMe
 		})
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
-		.where(eq(s.chatMessage.id, messageId))
+		.where(and(eq(s.chatMessage.id, messageId), eq(s.chatMessage.role, 'assistant'), isNull(s.chat.deletedAt)))
 		.execute();
 	if (!message) {
 		return null;

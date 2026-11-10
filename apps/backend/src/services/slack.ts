@@ -563,7 +563,7 @@ export class ProjectSlackBot {
 
 			const explanation = event.values['explanation'] || undefined;
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'down', explanation });
-			void triggerChatFeedbackAutomations({ messageId, vote: 'down', explanation });
+			void triggerChatFeedbackAutomations({ messageId, submitterId: user.id, vote: 'down', explanation });
 			await this._updateCompletionCardVote(threadId, 'down');
 			return { action: 'close' };
 		});

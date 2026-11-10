@@ -27,7 +27,10 @@ afterEach(() => {
 describe('useAutomationDraftUpdates', () => {
 	it('hands each new change over once it is settled', () => {
 		const onUpdate = vi.fn();
-		const { rerender } = renderHook(() => useAutomationDraftUpdates({ isResumed: false, onUpdate }));
+		const handledUpdates = new Map();
+		const { rerender } = renderHook(() =>
+			useAutomationDraftUpdates({ isResumed: false, handledUpdates, onUpdate }),
+		);
 
 		mocks.messages = [assistantMessage([updatePart('call-1', { title: 'Daily' }, 'input-available')])];
 		rerender();
@@ -46,7 +49,8 @@ describe('useAutomationDraftUpdates', () => {
 		const onUpdate = vi.fn();
 		const pastMessage = assistantMessage([updatePart('call-1', { title: 'Old' })]);
 		mocks.savedMessages = [pastMessage];
-		const { rerender } = renderHook(() => useAutomationDraftUpdates({ isResumed: true, onUpdate }));
+		const handledUpdates = new Map();
+		const { rerender } = renderHook(() => useAutomationDraftUpdates({ isResumed: true, handledUpdates, onUpdate }));
 
 		mocks.messages = [pastMessage];
 		rerender();
@@ -59,9 +63,25 @@ describe('useAutomationDraftUpdates', () => {
 		expect(onUpdate).toHaveBeenCalledWith({ webhookEnabled: true });
 	});
 
+	it('does not hand a change over again when the chat is reopened', () => {
+		const onUpdate = vi.fn();
+		const handledUpdates = new Map();
+		mocks.messages = [assistantMessage([updatePart('call-1', { title: 'Daily' })])];
+		const firstMount = renderHook(() => useAutomationDraftUpdates({ isResumed: false, handledUpdates, onUpdate }));
+		expect(onUpdate).toHaveBeenCalledOnce();
+
+		firstMount.unmount();
+		renderHook(() => useAutomationDraftUpdates({ isResumed: false, handledUpdates, onUpdate }));
+
+		expect(onUpdate).toHaveBeenCalledOnce();
+	});
+
 	it('ignores failed changes and other tools', () => {
 		const onUpdate = vi.fn();
-		const { rerender } = renderHook(() => useAutomationDraftUpdates({ isResumed: false, onUpdate }));
+		const handledUpdates = new Map();
+		const { rerender } = renderHook(() =>
+			useAutomationDraftUpdates({ isResumed: false, handledUpdates, onUpdate }),
+		);
 
 		mocks.messages = [
 			assistantMessage([

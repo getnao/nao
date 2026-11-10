@@ -38,7 +38,8 @@ type FeedbackTriggerEventBase = {
 	kind: 'feedback';
 	vote: FeedbackVote;
 	explanation: string | null;
-	submitter: { name: string; email: string };
+	/** Null when the vote came from a messaging integration that does not identify the voter. */
+	submitter: { name: string; email: string } | null;
 	url: string;
 };
 
