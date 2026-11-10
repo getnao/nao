@@ -144,6 +144,8 @@ class ConfluenceClient:
         of Cloud service accounts are refused by `content/{id}` through the API gateway, while the
         search returns the same content object to every kind of credential.
         """
+        if not BARE_PAGE_ID.match(page_id):
+            raise ValueError(f"'{page_id}' is not a Confluence page ID.")
         response = self._client.get(
             f"{self._base}/rest/api/content/search",
             params={"cql": f"id={page_id}", "expand": BODY_EXPANSION},
@@ -151,10 +153,10 @@ class ConfluenceClient:
         response.raise_for_status()
         payload = response.json()
 
-        results = payload.get("results") or []
-        if not results:
+        result = next((r for r in payload.get("results") or [] if str(r.get("id")) == page_id), None)
+        if result is None:
             raise LookupError(f"Confluence page {page_id} was not found, or the credentials cannot read it.")
-        return self._to_page(results[0], site_base=(payload.get("_links") or {}).get("base"))
+        return self._to_page(result, site_base=(payload.get("_links") or {}).get("base"))
 
     def search_refs(self, cql: str) -> Iterator[PageRef]:
         """Yield a reference and version for every item a CQL search selects.

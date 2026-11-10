@@ -165,6 +165,26 @@ def test_get_page_raises_a_clear_error_when_the_search_finds_nothing():
         client.get_page("42")
 
 
+def test_get_page_never_returns_a_different_page_than_the_one_asked_for():
+    with (
+        client_serving({"results": [search_result("7")]}, []) as client,
+        pytest.raises(LookupError, match="Confluence page 42 was not found"),
+    ):
+        client.get_page("42")
+
+
+def test_get_page_rejects_an_id_that_is_not_numeric_before_searching():
+    requests: list[httpx.Request] = []
+
+    with (
+        client_serving({"results": []}, requests) as client,
+        pytest.raises(ValueError, match="not a Confluence page ID"),
+    ):
+        client.get_page("42 or type=page")
+
+    assert requests == []
+
+
 def test_get_page_prefers_the_base_link_of_the_page_itself():
     result = search_result("42", links={"base": "https://other.atlassian.net/wiki", "webui": "/pages/42"})
 
