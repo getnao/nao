@@ -362,14 +362,14 @@ async function assertQueryReferencedByStory(
 	versionNumber?: number,
 ): Promise<void> {
 	await getCustomStory(chatId, storySlug);
-	if ((await listCustomStoryQueryIds(chatId, storySlug)).has(queryId)) {
+	if (versionNumber !== undefined) {
+		const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
+		await assertQueryReferencedByVersion(version.id, queryId);
 		return;
 	}
-	if (versionNumber === undefined) {
+	if (!(await listCustomStoryQueryIds(chatId, storySlug)).has(queryId)) {
 		throw new CustomStoryQueryNotAllowedError(queryId);
 	}
-	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
-	await assertQueryReferencedByVersion(version.id, queryId);
 }
 
 function usesStoryCache(story: DBStory): boolean {
