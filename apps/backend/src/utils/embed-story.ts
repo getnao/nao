@@ -43,6 +43,9 @@ export async function loadEmbedStoryContent(
 
 	const hasRls = (await userGroupQueries.getProjectRowSecurity(projectId)).tables.length > 0;
 	const viewerRole = viewerId ? await projectQueries.getUserRoleInProject(projectId, viewerId) : null;
+	if (hasRls && !viewerId) {
+		throw new HandlerError('UNAUTHORIZED', 'Sign in to view this story.');
+	}
 	if (hasRls && !viewerRole) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
 	}

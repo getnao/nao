@@ -159,6 +159,18 @@ describe('embedded Story query data', () => {
 		expect(mocks.getLatestVersionByStoryId).not.toHaveBeenCalled();
 	});
 
+	it('requires sign-in for anonymous viewers when row security is configured', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
+
+		await expect(loadEmbedStoryContent('story-1', 'token')).rejects.toMatchObject({
+			codeMessage: 'UNAUTHORIZED',
+			message: 'Sign in to view this story.',
+		});
+
+		expect(mocks.getUserRoleInProject).not.toHaveBeenCalled();
+		expect(mocks.getLatestVersionByStoryId).not.toHaveBeenCalled();
+	});
+
 	it('backfills static chat-linked embeds when persisted fallback is allowed', async () => {
 		mocks.getLatestVersionByStoryId.mockResolvedValue({
 			storyId: 'story-1',
