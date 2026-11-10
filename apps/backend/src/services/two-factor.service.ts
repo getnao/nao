@@ -23,10 +23,10 @@ export async function getAllowedTwoFactorMethods(userId: string): Promise<TwoFac
  * Members who cannot set up any allowed method are left out, as they are never blocked.
  */
 export async function getOrgMembersTwoFactorDeadlines(orgId: string): Promise<Map<string, Date>> {
-	const gracePeriods = await twoFactorQueries.listOrgMembersTwoFactorGracePeriods(orgId);
-	const policiesByUser = await twoFactorQueries.listUsersOrganizationsTwoFactorMethods(
-		gracePeriods.map((gracePeriod) => gracePeriod.userId),
-	);
+	const [gracePeriods, policiesByUser] = await Promise.all([
+		twoFactorQueries.listOrgMembersTwoFactorGracePeriods(orgId),
+		twoFactorQueries.listOrgMembersOrganizationsTwoFactorMethods(orgId),
+	]);
 	const deadlines = new Map<string, Date>();
 	for (const gracePeriod of gracePeriods) {
 		if (resolveAllowedMethods(policiesByUser.get(gracePeriod.userId) ?? []).length) {

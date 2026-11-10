@@ -51,18 +51,19 @@ export const listUserOrganizationsTwoFactorMethods = async (userId: string): Pro
 	return rows.map((row) => row.methods);
 };
 
-/** Allowed methods of every organization of each user, keyed by user. */
-export const listUsersOrganizationsTwoFactorMethods = async (
-	userIds: string[],
+/** Allowed methods of every organization of each member of the organization, keyed by user. */
+export const listOrgMembersOrganizationsTwoFactorMethods = async (
+	orgId: string,
 ): Promise<Map<string, TwoFactorMethod[][]>> => {
-	if (!userIds.length) {
-		return new Map();
-	}
+	const orgMemberIds = db
+		.select({ userId: s.orgMember.userId })
+		.from(s.orgMember)
+		.where(eq(s.orgMember.orgId, orgId));
 	const rows = await db
 		.select({ userId: s.orgMember.userId, methods: s.organization.twoFactorMethods })
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.organization.id, s.orgMember.orgId))
-		.where(inArray(s.orgMember.userId, userIds))
+		.where(inArray(s.orgMember.userId, orgMemberIds))
 		.execute();
 
 	const policiesByUser = new Map<string, TwoFactorMethod[][]>();

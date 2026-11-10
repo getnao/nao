@@ -35,7 +35,7 @@ vi.mock('../src/queries/two-factor.queries', () => ({
 	getOrganizationTwoFactorRequirement: vi.fn(async () => ({ required: mocks.required, gracePeriodDays: 7 })),
 	updateOrganizationTwoFactorRequirement: mocks.updateOrganizationTwoFactorRequirement,
 	restartMemberTwoFactorGracePeriod: mocks.restartMemberTwoFactorGracePeriod,
-	listUsersOrganizationsTwoFactorMethods: vi.fn(async () => new Map([['member-1', mocks.memberPolicies]])),
+	listOrgMembersOrganizationsTwoFactorMethods: vi.fn(async () => new Map([['member-1', mocks.memberPolicies]])),
 	listOrgMembersTwoFactorGracePeriods: vi.fn(async () => [
 		{
 			userId: 'member-1',

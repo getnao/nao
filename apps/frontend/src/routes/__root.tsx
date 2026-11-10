@@ -29,7 +29,8 @@ function RootComponent() {
 function AuthenticatedRoot() {
 	const session = useSessionOrNavigateToIndexPage();
 	const twoFactor = useTwoFactorRequirement();
-	const [isSavingBackupCodes, setIsSavingBackupCodes] = useState(false);
+	const [backupCodesUserId, setBackupCodesUserId] = useState<string | null>(null);
+	const isSavingBackupCodes = !!twoFactor.userId && backupCodesUserId === twoFactor.userId;
 	useDisposeInactiveAgents();
 	useIdentifyPostHog();
 
@@ -45,8 +46,8 @@ function AuthenticatedRoot() {
 		return (
 			<RequiredTwoFactorSetup
 				allowedMethods={twoFactor.status.allowedMethods}
-				onEnabled={() => setIsSavingBackupCodes(true)}
-				onFinished={() => setIsSavingBackupCodes(false)}
+				onEnabled={() => setBackupCodesUserId(twoFactor.userId ?? null)}
+				onFinished={() => setBackupCodesUserId(null)}
 			/>
 		);
 	}

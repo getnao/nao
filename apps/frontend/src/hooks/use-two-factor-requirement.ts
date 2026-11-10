@@ -24,7 +24,7 @@ export function useTwoFactorRequirement() {
 			refetchIntervalInBackground: true,
 		}),
 	);
-	return { status: status.data, requirement: status.data?.requirement ?? null };
+	return { userId, status: status.data, requirement: status.data?.requirement ?? null };
 }
 
 /** The next user signing in, for example after a session expired, must not see the previous user's status. */

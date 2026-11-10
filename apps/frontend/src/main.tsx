@@ -1,11 +1,11 @@
 import './styles.css';
 import 'katex/dist/katex.min.css';
 import { StrictMode } from 'react';
-import { createTRPCClient, httpBatchLink, loggerLink, TRPCClientError } from '@trpc/client';
+import { createTRPCClient, httpBatchLink, loggerLink } from '@trpc/client';
 import { createTRPCOptionsProxy } from '@trpc/tanstack-react-query';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import ReactDOM from 'react-dom/client';
-import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import superjson from 'superjson';
 import { PostHogProvider } from './contexts/posthog.provider';
 import { ThemeProvider } from './contexts/theme.provider';
@@ -13,6 +13,7 @@ import { McpProvider } from './contexts/mcp';
 import { TooltipProvider } from './components/ui/tooltip';
 import { getActiveOrganizationId } from './lib/active-organization';
 import { createActiveOrganizationRecovery } from './lib/active-organization-recovery';
+import { createForbiddenResponseLink } from './lib/forbidden-response-link';
 import {
 	getActiveProjectId,
 	getProjectRequestHeaders,
@@ -48,8 +49,6 @@ const router = createRouter({
 
 /** Query client for state management */
 export const queryClient = new QueryClient({
-	queryCache: new QueryCache({ onError: refreshTwoFactorStatusWhenForbidden }),
-	mutationCache: new MutationCache({ onError: refreshTwoFactorStatusWhenForbidden }),
 	defaultOptions: {
 		queries: {
 			retry: false,
@@ -68,11 +67,17 @@ const activeOrganizationRecovery = createActiveOrganizationRecovery({
 	invalidateRouter: () => void router.invalidate(),
 });
 
+/** Requests are forbidden once the grace period to set up two-factor authentication is over. */
+const forbiddenResponseLink = createForbiddenResponseLink(() => {
+	void queryClient.invalidateQueries({ queryKey: trpc.twoFactor.getStatus.queryKey() });
+});
+
 /** TRPC client for typed requests to the backend */
 export const trpcClient = createTRPCClient<TrpcRouter>({
 	links: [
 		loggerLink(),
 		activeOrganizationRecovery.link,
+		forbiddenResponseLink,
 		httpBatchLink({
 			url: '/api/trpc',
 			transformer: superjson,
@@ -98,13 +103,6 @@ export const trpc = createTRPCOptionsProxy<TrpcRouter>({
 	client: trpcClient,
 	queryClient,
 });
-
-/** Requests are forbidden once the grace period to set up two-factor authentication is over. */
-function refreshTwoFactorStatusWhenForbidden(error: Error) {
-	if (error instanceof TRPCClientError && error.data?.code === 'FORBIDDEN') {
-		void queryClient.invalidateQueries({ queryKey: trpc.twoFactor.getStatus.queryKey() });
-	}
-}
 
 // Render the app
 const rootElement = document.getElementById('app')!;
