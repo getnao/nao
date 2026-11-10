@@ -708,6 +708,13 @@
       "when": 1794262121434,
       "tag": "0100_automation_event_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794297263754,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
     }
   ]
 }

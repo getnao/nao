@@ -108,6 +108,7 @@ async function triggerMatchingAutomations(
 		const run = await startAutomationRun(automation.id, {
 			billingAccessVerifiedProjectId: projectId,
 			requireEnabled: false,
+			trigger: 'feedback',
 			triggerEvent: event,
 		});
 		logger.info('Feedback triggered automation run', {

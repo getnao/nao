@@ -67,6 +67,7 @@ describe('feedback automation trigger', () => {
 		expect(mocks.startAutomationRun).toHaveBeenCalledWith('match', {
 			billingAccessVerifiedProjectId: 'project-id',
 			requireEnabled: false,
+			trigger: 'feedback',
 			triggerEvent: {
 				kind: 'feedback',
 				source: 'chat',

@@ -4,6 +4,11 @@ export const AUTOMATION_RUN_STATUSES = ['running', 'completed', 'failed', 'cance
 
 export type AutomationRunStatus = (typeof AUTOMATION_RUN_STATUSES)[number];
 
+/** What started an automation run. Runs from before triggers were recorded have none. */
+export const AUTOMATION_RUN_TRIGGERS = ['schedule', 'manual', 'webhook', 'feedback'] as const;
+
+export type AutomationRunTrigger = (typeof AUTOMATION_RUN_TRIGGERS)[number];
+
 export type AutomationIntegrationConfig = {
 	email?: {
 		enabled: boolean;

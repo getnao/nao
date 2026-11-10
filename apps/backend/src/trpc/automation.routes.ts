@@ -259,6 +259,7 @@ export const automationRoutes = {
 		return startAutomationRun(input.id, {
 			billingAccessVerifiedProjectId: ctx.project.id,
 			requireEnabled: false,
+			trigger: 'manual',
 		});
 	}),
 
