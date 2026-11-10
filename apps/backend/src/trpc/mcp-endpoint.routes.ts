@@ -24,10 +24,10 @@ export const mcpEndpointRoutes = router({
 			const settings = await mcpEndpointQueries.updateMcpEndpointSettings(ctx.project.id, input);
 			posthog.capture(ctx.user.id, PostHogEvent.McpEndpointSettingsUpdated, {
 				project_id: ctx.project.id,
-				enabled: input.enabled,
-				sub_agent_mode_enabled: input.subAgentModeEnabled,
-				context_layer_mode_enabled: input.contextLayerModeEnabled,
-				sub_agent_model: input.subAgentModel,
+				enabled: settings.enabled,
+				sub_agent_mode_enabled: settings.subAgentModeEnabled,
+				context_layer_mode_enabled: settings.contextLayerModeEnabled,
+				sub_agent_model: settings.subAgentModel,
 			});
 			return settings;
 		}),
