@@ -7,6 +7,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
+import * as projectQueries from '../../src/queries/project.queries';
 import * as storyQueries from '../../src/queries/story.queries';
 import * as storyFileQueries from '../../src/queries/story-file.queries';
 import { getCustomStoryThumbnail, queueCustomStoryThumbnail } from '../../src/services/custom-story-thumbnail';
@@ -255,6 +256,32 @@ describe('custom story thumbnails', () => {
 			const thumbnail = await getCustomStoryThumbnail(story!);
 			return thumbnail?.isCurrent ? thumbnail : undefined;
 		});
+
+		expect(stale?.isCurrent).toBe(false);
+		expect(after.renderKey).not.toBe(before.renderKey);
+		expect(screenshots.calls).toBe(4);
+	});
+
+	it('renders again once a boundary set of its project changes', async () => {
+		const story = await storyQueries.getStoryById(STORY_ID);
+		const before = await vi.waitUntil(async () => {
+			const thumbnail = await getCustomStoryThumbnail(story!);
+			return thumbnail?.isCurrent ? thumbnail : undefined;
+		});
+
+		await projectQueries.addCustomBoundary('project-1', {
+			key: 'regions',
+			label: 'Regions',
+			url: 'https://example.com/regions.geojson',
+			joinProperty: 'code',
+			regionKeyHint: 'Region code',
+		});
+		const stale = await getCustomStoryThumbnail(story!);
+		const after = await vi.waitUntil(async () => {
+			const thumbnail = await getCustomStoryThumbnail(story!);
+			return thumbnail?.isCurrent ? thumbnail : undefined;
+		});
+		await projectQueries.deleteCustomBoundary('project-1', 'regions');
 
 		expect(stale?.isCurrent).toBe(false);
 		expect(after.renderKey).not.toBe(before.renderKey);
