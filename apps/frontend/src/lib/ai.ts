@@ -727,6 +727,16 @@ export const checkAssistantMessageHasContent = (message: UIMessage): boolean => 
 	);
 };
 
+export function findLastAssistantMessageWithContent(messages: UIMessage[]): UIMessage | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role === 'assistant' && checkAssistantMessageHasContent(message)) {
+			return message;
+		}
+	}
+	return undefined;
+}
+
 export function parseBudgetError(error: Error | undefined): string | null {
 	return parseCodedError(error, 'BUDGET_EXCEEDED');
 }

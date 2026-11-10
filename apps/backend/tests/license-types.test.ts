@@ -7,4 +7,8 @@ describe('license feature identifiers', () => {
 		expect(LICENSE_FEATURES.rowLevelSecurity).toBe('row-level-security');
 		expect(LICENSE_FEATURES.excludeColumns).toBe('exclude-columns');
 	});
+
+	it('exposes conversation feedback as a stable feature', () => {
+		expect(LICENSE_FEATURES.conversationFeedback).toBe('conversation-feedback');
+	});
 });

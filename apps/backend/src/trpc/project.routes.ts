@@ -1081,6 +1081,7 @@ export const projectRoutes = {
 					})
 					.optional(),
 				mapEnabled: z.boolean().optional(),
+				requireConversationFeedback: z.boolean().optional(),
 				transcribe: z
 					.object({
 						enabled: z.boolean().optional(),
@@ -1118,6 +1119,7 @@ export const projectRoutes = {
 			const merged: AgentSettings = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
 				mapEnabled: input.mapEnabled ?? existing.mapEnabled,
+				requireConversationFeedback: input.requireConversationFeedback ?? existing.requireConversationFeedback,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
@@ -1135,6 +1137,7 @@ export const projectRoutes = {
 				codemode_enabled: merged.experimental?.codemode,
 				map_enabled: merged.mapEnabled,
 				memory_enabled: merged.memoryEnabled,
+				require_conversation_feedback: merged.requireConversationFeedback,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
 				semantic_layer_mode: merged.semanticLayer?.mode,

@@ -14,6 +14,7 @@ import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsSandboxSecrets } from '@/components/settings/sandbox-secrets';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
+import { SettingsRequiredConversationFeedback } from '@/components/settings/required-conversation-feedback';
 import { SettingsSemanticLayer } from '@/components/settings/semantic-layer';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
 import { SubagentModelSection } from '@/components/settings/subagent-model-section';
@@ -128,6 +129,7 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 			<SettingsExperimental isAdmin={isAdmin} />
 			<SettingsSandboxSecrets />
 			<SettingsExcludeColumns isAdmin={isAdmin} />
+			<SettingsRequiredConversationFeedback isAdmin={isAdmin} />
 		</>
 	);
 }

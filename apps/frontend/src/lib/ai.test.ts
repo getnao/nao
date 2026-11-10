@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	areGroupedMessagePartsEqual,
 	checkAssistantMessageHasContent,
+	findLastAssistantMessageWithContent,
 	groupToolCalls,
 	hasManagedCreditsForRequest,
 	isOnboardingContextRequestMessage,
@@ -424,6 +425,23 @@ describe('progress updates', () => {
 
 		expect(checkAssistantMessageHasContent(withUpdate)).toBe(true);
 		expect(checkAssistantMessageHasContent(withoutUpdate)).toBe(false);
+	});
+});
+
+describe('findLastAssistantMessageWithContent', () => {
+	it('returns the latest assistant message with visible content', () => {
+		const firstAnswer = {
+			id: 'assistant-1',
+			role: 'assistant',
+			parts: [{ type: 'text', text: 'First answer' }],
+		} as UIMessage;
+		const messages = [
+			firstAnswer,
+			{ id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Follow-up' }] },
+			{ id: 'assistant-2', role: 'assistant', parts: [HIDDEN_REASONING, FOLLOW_UPS] },
+		] as UIMessage[];
+
+		expect(findLastAssistantMessageWithContent(messages)).toBe(firstAnswer);
 	});
 });
 
