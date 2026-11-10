@@ -45,6 +45,7 @@ import {
 	PROVIDER_META,
 } from './provider-meta';
 import { TOOL_RESULT_CLEARING_EDIT } from './tool-result-clearing';
+import { withUnforcedToolUse } from './unforced-tool-use';
 import { withWellFormedPrompt } from './well-formed-prompt';
 
 export {
@@ -146,7 +147,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			const config = { project, location, baseURL: settings.baseURL, googleAuthOptions };
 
 			if (modelId.startsWith('claude-')) {
-				return createVertexAnthropic(config)(modelId);
+				return withUnforcedToolUse(createVertexAnthropic(config)(modelId));
 			}
 			return createVertex(config)(modelId);
 		},
