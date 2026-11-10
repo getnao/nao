@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowUp, ChevronDown, ChevronUp, Loader2, Maximize2, MessageCircle, X } from 'lucide-react';
+import { ArrowUp, ChevronDown, ChevronUp, Loader2, Maximize2, MessageCircle, Square, X } from 'lucide-react';
 import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import type { MentionOption, PromptHandle } from 'prompt-mentions';
@@ -40,7 +40,7 @@ type AskSession = {
 	isPanelOpen: boolean;
 };
 
-interface AskMessage {
+export interface AskMessage {
 	text: string;
 	citations: CitationData[];
 	mentions: MentionOption[];
@@ -216,7 +216,7 @@ function FloatingBar({ isHidden, children }: { isHidden: boolean; children: Reac
 }
 
 /** Sends the first message once the new quick question is mounted. */
-function PendingMessageSender({
+export function PendingMessageSender({
 	pendingText,
 	pendingCitations,
 	pendingMentions,
@@ -443,7 +443,7 @@ function AskPanelHeader({ onCollapse, onClose }: { onCollapse?: () => void; onCl
 	);
 }
 
-function AskInput({
+export function AskInput({
 	promptRef,
 	placeholder,
 	citations,
@@ -453,6 +453,7 @@ function AskInput({
 	error,
 	onRemoveCitation,
 	onSubmit,
+	onStop,
 }: {
 	promptRef: RefObject<PromptHandle | null>;
 	placeholder: string;
@@ -466,6 +467,8 @@ function AskInput({
 	onRemoveCitation: (id: string) => void;
 	/** The input keeps the text when the submit fails, so the question can be sent again. */
 	onSubmit: (message: AskMessage) => void | Promise<void>;
+	/** Turns the send button into a stop button while the answer is being written. */
+	onStop?: () => void;
 }) {
 	const formRef = useRef<HTMLFormElement>(null);
 	const [value, setValue] = useState('');
@@ -531,15 +534,27 @@ function AskInput({
 					onEnter={() => submit()}
 					onMentionDeleted={citationPills.handleMentionDeleted}
 				/>
-				<Button
-					type='submit'
-					size='icon-sm'
-					className={cn('mb-0.75 shrink-0 rounded-full', !hasText && 'opacity-50')}
-					disabled={!hasText || isSending}
-					aria-label='Send'
-				>
-					{isSending ? <Loader2 className='animate-spin' /> : <ArrowUp />}
-				</Button>
+				{isSending && onStop ? (
+					<Button
+						type='button'
+						size='icon-sm'
+						className='mb-0.75 shrink-0 rounded-full'
+						onClick={onStop}
+						aria-label='Stop'
+					>
+						<Square className='fill-current' />
+					</Button>
+				) : (
+					<Button
+						type='submit'
+						size='icon-sm'
+						className={cn('mb-0.75 shrink-0 rounded-full', !hasText && 'opacity-50')}
+						disabled={!hasText || isSending}
+						aria-label='Send'
+					>
+						{isSending ? <Loader2 className='animate-spin' /> : <ArrowUp />}
+					</Button>
+				)}
 			</div>
 			{error && (
 				<p role='alert' className='px-2 text-xs text-destructive'>

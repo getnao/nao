@@ -5,12 +5,17 @@ import { z } from 'zod/v4';
 import { claimMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
 import { setMcpServerEnabled, setMcpToolEnabled, setMcpToolsEnabled } from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
-import { resolveMcpSettingsAccess } from '../services/user-group-context-access.service';
+import { resolveMcpSettingsAccess, resolveMcpUsageAccess } from '../services/user-group-context-access.service';
 import { adminProtectedProcedure, canSendProcedure, projectProtectedProcedure, router } from './trpc';
 
 export const mcpRoutes = router({
 	getServers: projectProtectedProcedure.query(async ({ ctx }) => {
 		const access = await resolveMcpSettingsAccess(ctx.project.id, ctx.user.id, ctx.userRole);
+		return mcpService.getServersStatus(ctx.project.id, ctx.user.id, access);
+	}),
+
+	getUsableServers: projectProtectedProcedure.query(async ({ ctx }) => {
+		const access = await resolveMcpUsageAccess(ctx.project.id, ctx.user.id);
 		return mcpService.getServersStatus(ctx.project.id, ctx.user.id, access);
 	}),
 

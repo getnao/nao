@@ -19,7 +19,7 @@ import {
 } from '../services/automation-tools';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
-import type { AutomationIntegrationResult } from '../types/automation';
+import type { AutomationIntegrationResult, AutomationTriggerEvent } from '../types/automation';
 import type { UIMessage, UIMessagePart } from '../types/chat';
 import { logger } from '../utils/logger';
 
@@ -39,6 +39,7 @@ type IntegrationToolOutput = {
 type RunAutomationOptions = {
 	billingAccessVerifiedProjectId?: string;
 	requireEnabled?: boolean;
+	triggerEvent?: AutomationTriggerEvent;
 };
 
 export async function automationHandler(payload: AutomationJobPayload, _job?: DBScheduledJob): Promise<void> {
@@ -70,18 +71,18 @@ export async function resolveAutomationProjectId(payload: AutomationJobPayload):
 
 export async function runAutomation(
 	automationId: string,
-	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false, triggerEvent }: RunAutomationOptions = {},
 ): Promise<DBAutomationRun> {
 	const { automation, run } = await createAutomationRun(automationId, requireEnabled);
-	return finishAutomationRun(automation, run, billingAccessVerifiedProjectId);
+	return finishAutomationRun(automation, run, { billingAccessVerifiedProjectId, triggerEvent });
 }
 
 export async function startAutomationRun(
 	automationId: string,
-	{ billingAccessVerifiedProjectId, requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false, triggerEvent }: RunAutomationOptions = {},
 ): Promise<DBAutomationRun> {
 	const { automation, run } = await createAutomationRun(automationId, requireEnabled);
-	void finishAutomationRun(automation, run, billingAccessVerifiedProjectId).catch(() => undefined);
+	void finishAutomationRun(automation, run, { billingAccessVerifiedProjectId, triggerEvent }).catch(() => undefined);
 	return run;
 }
 
@@ -108,7 +109,10 @@ async function createAutomationRun(
 async function finishAutomationRun(
 	automation: AutomationWithSchedule,
 	run: DBAutomationRun,
-	billingAccessVerifiedProjectId: string | undefined,
+	{
+		billingAccessVerifiedProjectId,
+		triggerEvent,
+	}: Pick<RunAutomationOptions, 'billingAccessVerifiedProjectId' | 'triggerEvent'>,
 ): Promise<DBAutomationRun> {
 	const automationId = automation.id;
 	try {
@@ -128,6 +132,7 @@ async function finishAutomationRun(
 					prompt: automation.prompt,
 					integrations: automation.integrations,
 					userEmail: automationUser.email,
+					triggerEvent,
 				}),
 				source: 'web',
 			},

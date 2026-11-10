@@ -61,8 +61,11 @@ type ChatPromptProps = {
 	placeholder: string;
 	initialValue?: string;
 	minHeight?: string;
+	/** Only applies with growWithContent: past it the editor scrolls. */
+	maxHeight?: string;
 	compact?: boolean;
-	resizable?: boolean;
+	/** Grows with its content up to maxHeight, instead of the usual chat input max height. */
+	growWithContent?: boolean;
 	submitOnEnter?: boolean;
 	storyCreationEnabled: boolean;
 	citationOptions?: MentionOption[];
@@ -112,8 +115,9 @@ export function ChatPrompt({
 	placeholder,
 	initialValue,
 	minHeight,
+	maxHeight,
 	compact = false,
-	resizable = false,
+	growWithContent = false,
 	submitOnEnter = true,
 	storyCreationEnabled,
 	citationOptions = [],
@@ -195,10 +199,11 @@ export function ChatPrompt({
 				onEnter={onEnter}
 				onMentionDeleted={onMentionDeleted}
 				submitOnEnter={submitOnEnter}
-				className={cn('w-full nao-input', resizable && 'nao-input-resizable')}
+				className={cn('w-full nao-input', growWithContent && 'nao-input-grow')}
 				style={
 					{
 						'--prompt-min-height': promptTheme.minHeight,
+						'--prompt-max-height': maxHeight,
 					} as React.CSSProperties
 				}
 				theme={promptTheme}
