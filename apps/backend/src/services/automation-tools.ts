@@ -15,6 +15,7 @@ import type { ToolContext } from '../types/tools';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse, type QueryDataMap } from '../utils/story-download';
 import { createTool } from '../utils/tools';
+import { getNonMemberAutomationEmailRecipients } from './automation-email-policy';
 import { getActiveThemeForProject } from './custom-story';
 import { emailService } from './email';
 import {
@@ -163,10 +164,12 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 				if (invalidRecipients.length > 0) {
 					throw new Error(`Invalid email recipient(s): ${invalidRecipients.join(', ')}`);
 				}
+				await assertAutomationEmailRecipientsAreProjectMembers(projectId, resolvedRecipients);
 				const attachments = await buildGeneratedArtifactAttachments(projectId, context);
 				const content = appendInlineImages(html ?? `<pre>${escapeHtml(text ?? '')}</pre>`, attachments);
 				const emailAttachments = attachments.map(toEmailAttachment);
 				const resolvedSubject = config.subject ?? subject ?? 'nao automation report';
+				await assertAutomationEmailRecipientsAreProjectMembers(projectId, resolvedRecipients);
 				await Promise.all(
 					resolvedRecipients.map((recipient) =>
 						emailService.sendEmail(
@@ -184,6 +187,18 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 			},
 		}),
 	};
+}
+
+async function assertAutomationEmailRecipientsAreProjectMembers(
+	projectId: string,
+	recipients: string[],
+): Promise<void> {
+	const nonMemberRecipients = await getNonMemberAutomationEmailRecipients(projectId, recipients);
+	if (nonMemberRecipients.length > 0) {
+		throw new Error(
+			`Email wasn't sent because these recipients aren't members of this project: ${nonMemberRecipients.join(', ')}. Please remove or replace them.`,
+		);
+	}
 }
 
 function createSlackTools(

@@ -1,10 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, EllipsisVertical } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import type { TrpcRouter } from '@nao/backend/trpc';
 import type { QueryClient } from '@tanstack/react-query';
 import type { inferRouterOutputs } from '@trpc/server';
-
-import type { TrpcRouter } from '@nao/backend/trpc';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
