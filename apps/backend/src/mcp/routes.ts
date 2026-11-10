@@ -7,7 +7,7 @@ import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { assertProjectCloudBillingAccess } from '../services/cloud-billing-access.service';
 import type { McpUserRole } from '../types/mcp-endpoint';
-import { resolveUserId } from './auth';
+import { resolveMcpPrincipal } from './auth';
 import { getMcpAppsBundle, MCP_APPS_SCRIPT_PATH } from './embed/mcp-apps-bundle';
 import { resolveMcpProjectId } from './project';
 import { createMcpServer } from './server';
@@ -18,6 +18,7 @@ declare module 'fastify' {
 		mcpUserId: string;
 		mcpProjectId: string;
 		mcpRole: McpUserRole;
+		mcpTestAttemptId: string | null;
 	}
 }
 
@@ -45,15 +46,22 @@ export const mcpServerRoutes = async (app: App) => {
 };
 
 async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-	const userId = await resolveUserId(request);
-	if (!userId) {
+	const principal = await resolveMcpPrincipal(request);
+	if (!principal) {
 		replyUnauthorized(request, reply);
 		return;
 	}
+	const { userId, testAttempt } = principal;
 	request.actorUserId = userId;
 
 	const { projectId: requestedProjectId } = request.params as { projectId?: string };
-	const resolution = await resolveMcpProjectId(userId, requestedProjectId, mcpBaseUrl(request));
+	if (testAttempt && requestedProjectId && requestedProjectId !== testAttempt.projectId) {
+		reply.status(403).send({ error: 'This test attempt belongs to a different project.' });
+		return;
+	}
+	const resolution = testAttempt
+		? { projectId: testAttempt.projectId }
+		: await resolveMcpProjectId(userId, requestedProjectId, mcpBaseUrl(request));
 	if ('error' in resolution) {
 		reply.status(400).send({ error: resolution.error });
 		return;
@@ -68,6 +76,7 @@ async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: Fasti
 	request.mcpUserId = userId;
 	request.mcpProjectId = resolution.projectId;
 	request.mcpRole = role;
+	request.mcpTestAttemptId = testAttempt?.id ?? null;
 }
 
 async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -77,13 +86,21 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 		reply.status(503).send({ error: 'MCP is disabled for this workspace.' });
 		return;
 	}
+	if (request.mcpTestAttemptId && !settings.contextLayerModeEnabled) {
+		reply.status(503).send({ error: 'Context-layer mode is disabled for this workspace.' });
+		return;
+	}
+	const effectiveSettings = request.mcpTestAttemptId
+		? { ...settings, subAgentModeEnabled: false, contextLayerModeEnabled: true }
+		: settings;
 
 	const server = await createMcpServer(
 		request.mcpUserId,
 		request.mcpProjectId,
 		request.mcpRole,
-		settings,
+		effectiveSettings,
 		isChartDataModeRequest(request),
+		request.mcpTestAttemptId,
 	);
 	const transport = withoutJsonSchemaDialect(new StreamableHTTPServerTransport({ sessionIdGenerator: undefined }));
 

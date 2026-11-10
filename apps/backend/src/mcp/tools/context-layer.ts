@@ -122,13 +122,16 @@ export function registerContextLayerTools(
 	ctx: McpContext,
 	configuredDatabases: ConfiguredDatabase[],
 	semanticLayerMode: SemanticLayerMode | null = null,
+	readOnly = false,
 ): void {
 	registerFileTools(server, ctx);
 	registerExecuteSql(server, ctx, configuredDatabases, isWarehouseSqlEnabled(semanticLayerMode));
 	if (isSemanticQueryToolEnabled(semanticLayerMode)) {
 		registerExecuteSemanticQuery(server, ctx);
 	}
-	registerContextStoryTools(server, ctx);
+	if (!readOnly) {
+		registerContextStoryTools(server, ctx);
+	}
 }
 
 function registerFileTools(server: McpServer, ctx: McpContext): void {

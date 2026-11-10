@@ -11,6 +11,7 @@ import { truncateMiddle } from '../utils/utils';
 export interface McpContext {
 	userId: string;
 	projectId: string;
+	testAttemptId: string | null;
 	role: McpUserRole;
 	settings: McpEndpointSettings;
 	/** When true, chart tools return config + data rows for the client agent to render itself instead of embed links/apps only. */
@@ -77,16 +78,22 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 			throw error;
 		} finally {
 			trackToolCall(toolName, ctx, Date.now() - start, success);
-			insertMcpCallLog({
+			const saveCall = insertMcpCallLog({
 				id: callLogId,
 				projectId: ctx.projectId,
 				userId: ctx.userId,
+				testAttemptId: ctx.testAttemptId,
 				toolName,
 				durationMs: Date.now() - start,
 				success,
 				toolInput: args as unknown,
 				toolOutput: thrownError !== undefined ? formatThrownError(thrownError) : extractLoggableOutput(result),
-			}).catch(() => {});
+			});
+			if (ctx.testAttemptId) {
+				await saveCall;
+			} else {
+				saveCall.catch(() => {});
+			}
 		}
 	};
 }

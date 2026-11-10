@@ -7,6 +7,8 @@ const testState = vi.hoisted(() => ({
 	projects: [] as Array<{ id: string; name: string }>,
 	roles: {} as Record<string, string | null>,
 	createdForProjects: [] as string[],
+	serverCalls: [] as Array<{ projectId: string; settings: Record<string, boolean>; testAttemptId: string | null }>,
+	testAttempt: null as null | { id: string; projectId: string; userId: string; exp: number },
 	assertProjectCloudBillingAccess: vi.fn(),
 }));
 
@@ -18,7 +20,8 @@ vi.mock('../src/utils/logger', () => ({
 }));
 
 vi.mock('../src/mcp/auth', () => ({
-	resolveUserId: async () => testState.userId,
+	resolveMcpPrincipal: async () =>
+		testState.userId ? { userId: testState.userId, testAttempt: testState.testAttempt } : null,
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
@@ -39,8 +42,16 @@ vi.mock('../src/services/cloud-billing-access.service', () => ({
 }));
 
 vi.mock('../src/mcp/server', () => ({
-	createMcpServer: async (_userId: string, projectId: string) => {
+	createMcpServer: async (
+		_userId: string,
+		projectId: string,
+		_role: string,
+		settings: Record<string, boolean>,
+		_chartDataMode: boolean,
+		testAttemptId: string | null,
+	) => {
 		testState.createdForProjects.push(projectId);
+		testState.serverCalls.push({ projectId, settings, testAttemptId });
 		return new McpServer({ name: 'test', version: '0.0.0' });
 	},
 }));
@@ -139,6 +150,8 @@ describe('MCP endpoint project scoping', () => {
 		];
 		testState.roles = { 'project-a': 'admin', 'project-b': 'user' };
 		testState.createdForProjects = [];
+		testState.serverCalls = [];
+		testState.testAttempt = null;
 		testState.assertProjectCloudBillingAccess.mockReset();
 		app = await createApp();
 	});
@@ -199,6 +212,44 @@ describe('MCP endpoint project scoping', () => {
 		const response = await postInitialize(app, '/mcp/project-b');
 
 		expect(response.statusCode).toBe(403);
+	});
+
+	it('locks a test attempt to its project and context-layer-only settings', async () => {
+		testState.testAttempt = {
+			id: 'attempt-1',
+			projectId: 'project-a',
+			userId: 'user-1',
+			exp: Date.now() + 60_000,
+		};
+
+		const response = await postInitialize(app, '/mcp/project-a');
+
+		expect(response.statusCode).toBe(200);
+		expect(testState.serverCalls).toEqual([
+			{
+				projectId: 'project-a',
+				settings: {
+					enabled: true,
+					subAgentModeEnabled: false,
+					contextLayerModeEnabled: true,
+				},
+				testAttemptId: 'attempt-1',
+			},
+		]);
+	});
+
+	it('rejects a test attempt used on a different project URL', async () => {
+		testState.testAttempt = {
+			id: 'attempt-1',
+			projectId: 'project-a',
+			userId: 'user-1',
+			exp: Date.now() + 60_000,
+		};
+
+		const response = await postInitialize(app, '/mcp/project-b');
+
+		expect(response.statusCode).toBe(403);
+		expect(testState.serverCalls).toEqual([]);
 	});
 
 	it('challenges unauthenticated requests on the scoped URL', async () => {

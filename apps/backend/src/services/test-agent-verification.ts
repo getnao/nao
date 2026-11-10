@@ -58,7 +58,7 @@ function renderToolOutput(part: ToolResultPart): string {
 	return output.type;
 }
 
-function buildVerificationPrompt(columns: string[], queryResults: Map<string, QueryResult>): string {
+export function buildVerificationPrompt(columns: string[], queryResults: Map<string, QueryResult>): string {
 	const tables = [...queryResults.entries()]
 		.map(([queryId, result]) => `- ${queryId} (${result.data.length} rows): ${result.columns.join(', ')}`)
 		.join('\n');

@@ -16,14 +16,23 @@ from cyclopts import Parameter
 from nao_core import native
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import ModelCosts
-from nao_core.config.test import ComparisonConfig, TestConfig, TestModelConfig
+from nao_core.config.test import ComparisonConfig, HarnessName, TestConfig, TestHarnessConfig, TestModelConfig
 from nao_core.ui import UI
 
 from .assertions import combine_check_messages, evaluate_assertions
 from .case import TESTS_FOLDER, InvalidTestFileError, TestCase, discover_tests
-from .client import BACKEND_URL, AgentClient, AgentClientError, TestVerdict, VerificationResult, get_client
+from .client import (
+    BACKEND_URL,
+    AgentClient,
+    AgentClientError,
+    ExternalVerificationRequest,
+    TestVerdict,
+    VerificationResult,
+    get_client,
+)
 from .client import TestResult as AgentTestResult
 from .compare import normalize_dataframe_numbers
+from .harnesses import HarnessError, McpConnection, create_harness
 from .summary import (
     ModelSummary,
     group_by_test_and_model,
@@ -53,6 +62,22 @@ class ModelConfig:
     def __str__(self) -> str:
         name = f"{self.provider}:{self.model_id}"
         return f"{name} · {self.reasoning_effort}" if self.reasoning_effort else name
+
+
+@dataclass(frozen=True)
+class HarnessTarget:
+    """A local headless harness selected as the test target."""
+
+    config: TestHarnessConfig
+
+    def __str__(self) -> str:
+        name = self.config.name
+        if self.config.model:
+            name = f"{name}:{self.config.model}"
+        return f"{name} · {self.config.reasoning_effort}" if self.config.reasoning_effort else name
+
+
+TestTarget = ModelConfig | HarnessTarget
 
 
 def resolve_model_configs(models: list[str | TestModelConfig], client: AgentClient) -> list[ModelConfig]:
@@ -231,7 +256,7 @@ def check_dataframe(
 
 def run_test(
     test_case: TestCase,
-    model: ModelConfig,
+    model: TestTarget,
     email: str | None = None,
     password: str | None = None,
     api_key: str | None = None,
@@ -246,14 +271,17 @@ def run_test(
     client = get_client(email=email, password=password, api_key=api_key, project_name=project_name)
 
     try:
-        result = client.run_test(
-            test_case,
-            provider=model.provider,
-            model_id=model.model_id,
-            costs=costs,
-            comparison=comparison,
-            reasoning_effort=model.reasoning_effort,
-        )
+        if isinstance(model, HarnessTarget):
+            result = run_external_harness_test(client, model.config, test_case, comparison)
+        else:
+            result = client.run_test(
+                test_case,
+                provider=model.provider,
+                model_id=model.model_id,
+                costs=costs,
+                comparison=comparison,
+                reasoning_effort=model.reasoning_effort,
+            )
 
         if result.text:
             UI.print(f"[dim]  Response: {result.text[:200]}...[/dim]")
@@ -263,8 +291,10 @@ def run_test(
             tools = [tc.get("toolName") for tc in result.tool_calls]
             UI.print(f"[dim]  Tool calls: {tool_call_count} {tools}[/dim]")
 
-        UI.print(f"[dim]  Tokens: {result.usage.totalTokens}[/dim]")
-        UI.print(f"[dim]  Cost: ${result.cost.totalCost}[/dim]")
+        tokens = result.usage.totalTokens if result.usage.totalTokens is not None else "n/a"
+        cost = f"${result.cost.totalCost}" if result.cost.totalCost is not None else "n/a"
+        UI.print(f"[dim]  Tokens: {tokens}[/dim]")
+        UI.print(f"[dim]  Cost: {cost}[/dim]")
         UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
 
         if result.verdict:
@@ -361,7 +391,7 @@ def run_test(
             ),
         )
 
-    except AgentClientError as e:
+    except (AgentClientError, HarnessError) as e:
         UI.error(str(e))
         return TestRunResult(
             name=test_case.name,
@@ -373,9 +403,38 @@ def run_test(
         )
 
 
+def run_external_harness_test(
+    client: AgentClient,
+    harness_config: TestHarnessConfig,
+    test_case: TestCase,
+    comparison: ComparisonConfig | None,
+) -> AgentTestResult:
+    """Run one test through a local agent CLI and let nao evaluate its captured MCP calls."""
+    harness = create_harness(harness_config)
+    attempt = client.start_external_test()
+    run = harness.run_agent(test_case.prompt, McpConnection(attempt.mcp_url, attempt.access_token))
+    evaluation = client.evaluate_external_test(attempt, test_case, run, comparison=comparison)
+
+    for _ in range(2):
+        if not isinstance(evaluation, ExternalVerificationRequest):
+            return evaluation
+        verification_sql = harness.run_verifier(evaluation.prompt)
+        evaluation = client.evaluate_external_test(
+            attempt,
+            test_case,
+            run,
+            comparison=comparison,
+            verification_sql=verification_sql,
+        )
+
+    if not isinstance(evaluation, ExternalVerificationRequest):
+        return evaluation
+    raise HarnessError("The verification query still failed after one repair attempt.")
+
+
 def server_verdict_result(
     test_case: TestCase,
-    model: ModelConfig,
+    model: TestTarget,
     result: AgentTestResult,
     verdict: TestVerdict,
     tool_call_count: int,
@@ -409,9 +468,9 @@ def server_verdict_result(
     )
 
 
-def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | None:
+def resolve_model_costs(config: NaoConfig, model: TestTarget) -> ModelCosts | None:
     """Look up the configured price of the model under test."""
-    if not config.llm:
+    if not config.llm or isinstance(model, HarnessTarget):
         return None
 
     return config.llm.costs(model.provider, model.model_id)
@@ -625,6 +684,38 @@ def ensure_verification_engine(test_cases: list[TestCase]) -> None:
     native.ensure_group(native.server_bin_dir(), "duckdb")
 
 
+def resolve_harness_config(
+    test_config: TestConfig,
+    harness: HarnessName | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    timeout_seconds: int | None,
+    cli_models: list[str] | None,
+) -> TestHarnessConfig | None:
+    """Merge headless harness flags with config and reject ambiguous built-in model selections."""
+    configured = test_config.harness
+    if harness is None and configured is None:
+        if model is not None or reasoning_effort is not None or timeout_seconds is not None:
+            raise ValueError("--harness-model, --harness-reasoning-effort and --harness-timeout require --harness.")
+        return None
+
+    if cli_models:
+        raise ValueError("--model cannot be combined with --harness; use --harness-model for the harness's model.")
+    if configured is not None and "models" in test_config.model_fields_set:
+        raise ValueError("test.models and test.harness cannot both be configured.")
+
+    values: dict[str, object] = (
+        configured.model_dump() if configured is not None and harness is None else {"name": harness}
+    )
+    if model is not None:
+        values["model"] = model
+    if reasoning_effort is not None:
+        values["reasoning_effort"] = reasoning_effort
+    if timeout_seconds is not None:
+        values["timeout_seconds"] = timeout_seconds
+    return TestHarnessConfig.model_validate(values)
+
+
 def test(
     models: Annotated[
         list[str] | None,
@@ -653,6 +744,28 @@ def test(
             name=["-s", "--select"],
             help="Run only selected tests by name, yaml stem, or subfolder. Comma-separated (e.g. 'contracts' or '12,13,14').",
         ),
+    ] = None,
+    harness: Annotated[
+        HarnessName | None,
+        Parameter(
+            name=["--harness"],
+            help="Headless agent CLI to run through context-layer MCP (codex or claude-code).",
+        ),
+    ] = None,
+    harness_model: Annotated[
+        str | None,
+        Parameter(name=["--harness-model"], help="Optional model override passed to the headless harness."),
+    ] = None,
+    harness_reasoning_effort: Annotated[
+        str | None,
+        Parameter(
+            name=["--harness-reasoning-effort"],
+            help="Optional reasoning-effort override passed to the headless harness.",
+        ),
+    ] = None,
+    harness_timeout: Annotated[
+        int | None,
+        Parameter(name=["--harness-timeout"], help="Maximum seconds for each headless harness invocation."),
     ] = None,
     username: Annotated[
         str | None,
@@ -686,6 +799,8 @@ def test(
         nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
         nao test --threads 4
         nao test --k 5
+        nao test --harness codex
+        nao test --harness claude-code --harness-model sonnet
         nao test -s test_name
         nao test -s 12,13,14
         nao test -u user@example.com --password secret
@@ -710,7 +825,19 @@ def test(
 
     client = get_client(email=email, password=pwd, api_key=key, project_name=config.project_name)
     try:
-        model_configs = resolve_model_configs(list(models or test_config.models), client)
+        harness_config = resolve_harness_config(
+            test_config,
+            harness,
+            harness_model,
+            harness_reasoning_effort,
+            harness_timeout,
+            models,
+        )
+        model_configs: Sequence[TestTarget] = (
+            [HarnessTarget(harness_config)]
+            if harness_config
+            else resolve_model_configs(list(models or test_config.models), client)
+        )
     except (ValueError, AgentClientError) as e:
         UI.error(str(e))
         sys.exit(1)
@@ -719,7 +846,7 @@ def test(
     tests_dir = project_path / TESTS_FOLDER
     UI.print(f"[dim]Project: {config.project_name}[/dim]")
     UI.print(f"[dim]Tests folder: {tests_dir}[/dim]")
-    UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]")
+    UI.print(f"[dim]{'Harness' if harness_config else 'Models'}: {', '.join(str(m) for m in model_configs)}[/dim]")
     if k_count > 1:
         UI.print(f"[dim] Attempts: {k_count}[/dim]")
     UI.print("")

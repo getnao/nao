@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	extractToolCalls: vi.fn(() => []),
 	getAgentSettings: vi.fn(),
 	getAzureAccessTokenForUser: vi.fn(),
+	getMcpEndpointSettings: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getProjectRuntimeEnvVars: vi.fn(),
 	hasFeature: vi.fn(),
@@ -13,6 +14,8 @@ const mocks = vi.hoisted(() => ({
 	retrieveProjectById: vi.fn(),
 	runTest: vi.fn(),
 	runVerification: vi.fn(),
+	evaluateExternalTestAttempt: vi.fn(),
+	createExternalTestAttemptToken: vi.fn(),
 }));
 
 vi.mock('../src/agents/tools/execute-sql', () => ({
@@ -25,6 +28,15 @@ vi.mock('../src/queries/project.queries', () => ({
 	getAgentSettings: mocks.getAgentSettings,
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	retrieveProjectById: mocks.retrieveProjectById,
+}));
+vi.mock('../src/queries/mcp-endpoint.queries', () => ({
+	getMcpEndpointSettings: mocks.getMcpEndpointSettings,
+}));
+vi.mock('../src/services/external-test-evaluation.service', () => ({
+	evaluateExternalTestAttempt: mocks.evaluateExternalTestAttempt,
+}));
+vi.mock('../src/services/external-test-attempt-token', () => ({
+	createExternalTestAttemptToken: mocks.createExternalTestAttemptToken,
 }));
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
@@ -85,6 +97,16 @@ describe('test routes', () => {
 			durationMs: 1,
 		});
 		mocks.runVerification.mockResolvedValue({ data: [], sql: null, error: null });
+		mocks.getMcpEndpointSettings.mockResolvedValue({
+			enabled: true,
+			subAgentModeEnabled: false,
+			contextLayerModeEnabled: true,
+		});
+		mocks.createExternalTestAttemptToken.mockReturnValue({
+			id: '00000000-0000-4000-8000-000000000001',
+			token: 'nao_test_token',
+			expiresAt: new Date('2026-01-01T01:00:00Z'),
+		});
 	});
 
 	it('returns the verdict computed from the assertions and the verified data', async () => {
@@ -267,6 +289,70 @@ describe('test routes', () => {
 		expect(reply.status).toHaveBeenCalledWith(403);
 		expect(mocks.runTest).not.toHaveBeenCalled();
 	});
+
+	it('starts an external context-layer attempt with a scoped MCP credential', async () => {
+		const { handler, reply } = await registeredPost('/external/start');
+
+		await handler(
+			{ project: { id: 'project-id' }, user: { id: 'user-id' }, host: 'nao.example.com' },
+			reply,
+		);
+
+		expect(reply.send).toHaveBeenCalledWith({
+			attemptId: '00000000-0000-4000-8000-000000000001',
+			mcpUrl: expect.stringMatching(/\/mcp\/project-id$/),
+			accessToken: 'nao_test_token',
+			expiresAt: '2026-01-01T01:00:00.000Z',
+		});
+	});
+
+	it('requires context-layer mode for an external attempt', async () => {
+		mocks.getMcpEndpointSettings.mockResolvedValue({
+			enabled: true,
+			subAgentModeEnabled: true,
+			contextLayerModeEnabled: false,
+		});
+		const { handler, reply } = await registeredPost('/external/start');
+
+		await handler(
+			{ project: { id: 'project-id' }, user: { id: 'user-id' }, host: 'nao.example.com' },
+			reply,
+		);
+
+		expect(reply.status).toHaveBeenCalledWith(400);
+		expect(mocks.createExternalTestAttemptToken).not.toHaveBeenCalled();
+	});
+
+	it('returns the captured external run after nao evaluates it', async () => {
+		mocks.evaluateExternalTestAttempt.mockResolvedValue({
+			status: 'complete',
+			toolCalls: [{ toolName: 'execute_sql', toolCallId: 'call-1', args: {} }],
+			verification: undefined,
+			verdict: { passed: true, message: 'tool_call: execute_sql', comparison: null },
+		});
+		const { handler, bodySchema, reply } = await registeredPost('/external/evaluate');
+		const body = bodySchema.parse({
+			attemptId: '00000000-0000-4000-8000-000000000001',
+			prompt: 'Revenue?',
+			answer: '10',
+			assertions: [{ type: 'tool_call', tool: 'execute_sql' }],
+			run: { usage: { totalTokens: 3 }, cost: { totalCost: null }, finishReason: 'stop', durationMs: 5 },
+		});
+
+		await handler({ project: { id: 'project-id' }, user: { id: 'user-id' }, body }, reply);
+
+		expect(reply.send).toHaveBeenCalledWith({
+			status: 'complete',
+			text: '10',
+			toolCalls: [{ toolName: 'execute_sql', toolCallId: 'call-1', args: {} }],
+			usage: { totalTokens: 3 },
+			cost: { totalCost: null },
+			finishReason: 'stop',
+			durationMs: 5,
+			verification: undefined,
+			verdict: { passed: true, message: 'tool_call: execute_sql', comparison: null },
+		});
+	});
 });
 
 async function runExpectedQuery(
@@ -277,9 +363,11 @@ async function runExpectedQuery(
 	const app = {
 		addHook: vi.fn(),
 		get: vi.fn(),
-		post: vi.fn((_path, options, routeHandler) => {
-			handler = routeHandler;
-			bodySchema = options.schema.body;
+		post: vi.fn((path, options, routeHandler) => {
+			if (path === '/run') {
+				handler = routeHandler;
+				bodySchema = options.schema.body;
+			}
 		}),
 	};
 	await testRoutes(app as never);
@@ -295,6 +383,15 @@ async function runExpectedQuery(
 	);
 
 	return reply;
+}
+
+async function registeredPost(path: string) {
+	const app = { addHook: vi.fn(), get: vi.fn(), post: vi.fn() };
+	await testRoutes(app as never);
+	const registration = app.post.mock.calls.find(([routePath]) => routePath === path)!;
+	const handler = registration.length === 2 ? registration[1] : registration[2];
+	const bodySchema = registration.length === 2 ? undefined : registration[1].schema.body;
+	return { handler, bodySchema, reply: createReply() };
 }
 
 function createReply() {

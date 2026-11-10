@@ -16,6 +16,12 @@ export async function runAgentTool<I, O>(
 	const toolContext = chatId
 		? await buildToolContext({ projectId: ctx.projectId, userId: ctx.userId, chatId })
 		: await buildMcpToolContext({ projectId: ctx.projectId, userId: ctx.userId });
+	if (ctx.testAttemptId) {
+		toolContext.agentSettings = {
+			...toolContext.agentSettings,
+			sql: { ...toolContext.agentSettings?.sql, dangerouslyWritePermEnabled: false },
+		};
+	}
 	return tool.execute(input, makeExecutionOptions(toolContext)) as Promise<O>;
 }
 
