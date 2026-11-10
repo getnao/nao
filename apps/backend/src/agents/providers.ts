@@ -45,6 +45,7 @@ import {
 	PROVIDER_META,
 } from './provider-meta';
 import { TOOL_RESULT_CLEARING_EDIT } from './tool-result-clearing';
+import { withUnforcedToolUse } from './unforced-tool-use';
 import { withWellFormedPrompt } from './well-formed-prompt';
 
 export {
@@ -146,7 +147,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			const config = { project, location, baseURL: settings.baseURL, googleAuthOptions };
 
 			if (modelId.startsWith('claude-')) {
-				return createVertexAnthropic(config)(modelId);
+				return withUnforcedToolUse(createVertexAnthropic(config)(modelId));
 			}
 			return createVertex(config)(modelId);
 		},
@@ -313,12 +314,7 @@ export function createProviderModel(
 	return {
 		model: createModel(provider, settings, modelId),
 		providerOptions: {
-			[optionKey]: {
-				...defaultOptions,
-				...resolveStructuredOutputOptions(provider, modelId),
-				...modelConfig,
-				...providerOverrides,
-			},
+			[optionKey]: { ...defaultOptions, ...modelConfig, ...providerOverrides },
 		} as ProviderOptionsMap,
 		contextWindow,
 		callSettings,
@@ -669,23 +665,6 @@ function mergeProviderOverrides(
 		merged.thinkingConfig = { ...a, ...b };
 	}
 	return merged;
-}
-
-/** Claude models released before native structured outputs (`output_config.format`). */
-const PRE_STRUCTURED_OUTPUT_CLAUDE = /^claude-(3|(opus|sonnet)-4(-0|-\d{8}|@|$))/;
-
-/**
- * For `Output.object`, the Anthropic SDK falls back to forcing a `json` tool call on Claude models it
- * doesn't know and always on Vertex, which newer models reject (`tool_choice` `any`/`tool` → 400).
- * Every Claude model since Opus 4.1 / Sonnet 4.5 accepts the native format, so request it directly.
- */
-function resolveStructuredOutputOptions(provider: LlmProvider, modelId: string): Record<string, unknown> {
-	const kind = providerKind(provider);
-	const usesAnthropicSdk = kind === 'anthropic' || (kind === 'vertex' && modelId.startsWith('claude-'));
-	if (!usesAnthropicSdk || PRE_STRUCTURED_OUTPUT_CLAUDE.test(modelId)) {
-		return {};
-	}
-	return { structuredOutputMode: 'outputFormat' };
 }
 
 function getProviderModelConfig<P extends LlmProviderKind>(provider: P, modelId: string): ProviderConfigMap[P] {
