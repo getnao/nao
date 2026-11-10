@@ -353,7 +353,7 @@ function useAutomationFormController({
 	const [slackChannelsError, setSlackChannelsError] = useState<string | null>(null);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [isAutoSaving, setIsAutoSaving] = useState(false);
-	const [hasUnreviewedChatChanges, setHasUnreviewedChatChanges] = useState(false);
+	const hasUnreviewedChatChangesRef = useRef(false);
 	const formRef = useRef<HTMLFormElement>(null);
 	const promptRef = useRef<PromptHandle>(null);
 	const autoSaveInFlightRef = useRef(false);
@@ -372,9 +372,23 @@ function useAutomationFormController({
 	const titlePlaceholder =
 		value.prompt.trim().length > 0 ? 'A title will be generated from your prompt' : 'Untitled automation';
 
+	/** Chat changes stop being unreviewed once the form matches the saved automation again: saved, or reverted. */
+	useEffect(() => {
+		if (!isDirty) {
+			hasUnreviewedChatChangesRef.current = false;
+		}
+	});
+
+	/**
+	 * Follows the saved automation when it changes. A draft holding unreviewed chat changes is kept, since a
+	 * refresh (e.g. after a control auto-saved) would otherwise drop them: it stays unsaved against the new value.
+	 */
 	useEffect(() => {
 		const nextValue = deserializeAutomationValue(initialValueSnapshot);
 		setSavedValue(nextValue);
+		if (hasUnreviewedChatChangesRef.current) {
+			return;
+		}
 		setValue(nextValue);
 		setScheduleOption(inferScheduleOption(nextValue));
 		setHasSchedule(nextValue.cron.trim().length > 0);
@@ -383,7 +397,6 @@ function useAutomationFormController({
 		setEmailRecipientsError(null);
 		setSlackChannelsError(null);
 		setSubmitError(null);
-		setHasUnreviewedChatChanges(false);
 	}, [initialValueSnapshot]);
 
 	useEffect(() => {
@@ -425,7 +438,6 @@ function useAutomationFormController({
 		try {
 			await onSubmit(value);
 			setSavedValue(value);
-			setHasUnreviewedChatChanges(false);
 		} catch (error) {
 			setSubmitError(getSubmitErrorMessage(error));
 		}
@@ -456,7 +468,7 @@ function useAutomationFormController({
 	/** Auto-saving sends the whole form, so it waits for an explicit save while it holds changes made by the chat. */
 	function handleControlValueChange(nextValue: AutomationFormValue) {
 		handleValueChange(nextValue);
-		if (autoSaveControls && !hasUnreviewedChatChanges) {
+		if (autoSaveControls && !hasUnreviewedChatChangesRef.current) {
 			void autoSaveValue(nextValue);
 		}
 	}
@@ -531,7 +543,7 @@ function useAutomationFormController({
 		setTriggerError(false);
 		setEmailRecipientsError(null);
 		setSlackChannelsError(null);
-		setHasUnreviewedChatChanges(true);
+		hasUnreviewedChatChangesRef.current = true;
 		setValue((current) => applyAutomationDraftUpdate(current, update));
 		if (update.cron !== undefined) {
 			const hasNextSchedule = update.cron.trim().length > 0;

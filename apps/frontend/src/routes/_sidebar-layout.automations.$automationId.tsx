@@ -168,6 +168,7 @@ function AutomationDetailPage() {
 
 			{automation && (
 				<AutomationForm
+					key={automationId}
 					id={automationFormId}
 					handleRef={formHandleRef}
 					automationId={automationId}
