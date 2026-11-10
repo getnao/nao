@@ -97,13 +97,20 @@ def extract_page_id(reference: str) -> str:
 class ConfluenceClient:
     """Reads pages and runs CQL searches against Confluence over its v1 REST API."""
 
-    def __init__(self, config: ConfluenceConfig, *, timeout: float = 30.0):
+    def __init__(
+        self,
+        config: ConfluenceConfig,
+        *,
+        timeout: float = 30.0,
+        transport: httpx.BaseTransport | None = None,
+    ):
         self._base = config.base_url.rstrip("/")
         self._client = httpx.Client(
             auth=self._auth(config),
             headers=self._headers(config),
             timeout=timeout,
             follow_redirects=True,
+            transport=transport,
         )
 
     def __enter__(self) -> "ConfluenceClient":
@@ -131,13 +138,23 @@ class ConfluenceClient:
         return headers
 
     def get_page(self, page_id: str) -> ConfluencePage:
-        """Fetch a single page with its rendered body, version and ancestors."""
+        """Fetch a single page with its rendered body, version and ancestors.
+
+        The page is read through a CQL search on its id rather than `content/{id}`: scoped tokens
+        of Cloud service accounts are refused by `content/{id}` through the API gateway, while the
+        search returns the same content object to every kind of credential.
+        """
         response = self._client.get(
-            f"{self._base}/rest/api/content/{page_id}",
-            params={"expand": BODY_EXPANSION},
+            f"{self._base}/rest/api/content/search",
+            params={"cql": f"id={page_id}", "expand": BODY_EXPANSION},
         )
         response.raise_for_status()
-        return self._to_page(response.json())
+        payload = response.json()
+
+        results = payload.get("results") or []
+        if not results:
+            raise LookupError(f"Confluence page {page_id} was not found, or the credentials cannot read it.")
+        return self._to_page(results[0], site_base=(payload.get("_links") or {}).get("base"))
 
     def search_refs(self, cql: str) -> Iterator[PageRef]:
         """Yield a reference and version for every item a CQL search selects.
@@ -170,7 +187,7 @@ class ConfluenceClient:
             "pages beyond the cap. Narrow the selector (e.g. scope a label to a space) and retry."
         )
 
-    def _to_page(self, payload: dict[str, Any]) -> ConfluencePage:
+    def _to_page(self, payload: dict[str, Any], *, site_base: str | None = None) -> ConfluencePage:
         space = payload.get("space") or {}
         version = payload.get("version") or {}
         body = (payload.get("body") or {}).get("export_view") or {}
@@ -185,13 +202,16 @@ class ConfluenceClient:
             space_key=space.get("key"),
             version=int(version.get("number", 0) or 0),
             html=body.get("value") or "",
-            url=self._page_url(payload),
+            url=self._page_url(payload, site_base),
             content_type=payload.get("type") or "page",
             ancestors=ancestors,
         )
 
-    def _page_url(self, payload: dict[str, Any]) -> str:
-        webui = (payload.get("_links") or {}).get("webui")
+    def _page_url(self, payload: dict[str, Any], site_base: str | None) -> str:
+        """Link a page on the site a reader browses, which differs from `base_url` behind the API gateway."""
+        links = payload.get("_links") or {}
+        base = (links.get("base") or site_base or self._base).rstrip("/")
+        webui = links.get("webui")
         if webui:
-            return f"{self._base}{webui}"
-        return f"{self._base}/pages/viewpage.action?pageId={payload.get('id', '')}"
+            return f"{base}{webui}"
+        return f"{base}/pages/viewpage.action?pageId={payload.get('id', '')}"
