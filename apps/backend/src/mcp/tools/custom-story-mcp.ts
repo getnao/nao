@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import { STORY_APP_MANIFEST_PATH } from '@nao/shared/story-app';
 import { z } from 'zod';
 
@@ -21,6 +19,7 @@ import {
 	acquireStoryEditLock,
 	assertStoryEditable,
 	getStoryEditLockState,
+	newMcpStoryEditHolder,
 	releaseStoryEditLock,
 	StoryEditLockedError,
 } from '../../services/story-edit-lock.service';
@@ -57,6 +56,9 @@ export const UPDATE_CUSTOM_STORY_DESCRIPTION =
 
 const CHAT_QUERY_DATA_REFUSAL =
 	'`query_data` only applies to a standalone custom story: one attached to a chat reads the queries run in it.';
+
+const CONCURRENT_MCP_WRITE_REFUSAL =
+	'Another `update_story` call is still writing this story. Wait for it to finish, then call `update_story` again.';
 
 const STORY_FILES_INPUT = z
 	.array(
@@ -164,10 +166,14 @@ export async function withMcpStoryEditLock(
 	if (lockError) {
 		return errorResult(lockError);
 	}
-	if ((await getStoryEditLockState(storyId, { userId, chatId: null }))?.isYou) {
+	const lock = await getStoryEditLockState(storyId, { userId, chatId: null });
+	if (lock?.byMcp) {
+		return errorResult(CONCURRENT_MCP_WRITE_REFUSAL);
+	}
+	if (lock?.isYou) {
 		return write();
 	}
-	const holder = { userId, chatId: null, sessionId: `mcp:${randomUUID()}` };
+	const holder = newMcpStoryEditHolder(userId);
 	try {
 		await acquireStoryEditLock(storyId, holder);
 	} catch (error) {

@@ -9,6 +9,7 @@ import {
 	acquireStoryEditLock,
 	assertStoryEditable,
 	getStoryEditLockState,
+	newMcpStoryEditHolder,
 	releaseAgentStoryEditLocks,
 	releaseStoryEditLock,
 	renewAgentStoryEditLocks,
@@ -69,8 +70,18 @@ describe('story edit lock', () => {
 			isMine: false,
 			isYou: false,
 			byAgent: false,
+			byMcp: false,
 		});
 		expect(await getStoryEditLockState(STORY_ID, OWNER_BY_HAND)).toMatchObject({ isMine: true });
+	});
+
+	it('keeps two MCP writes of the same person apart', async () => {
+		await acquireStoryEditLock(STORY_ID, newMcpStoryEditHolder(OWNER_ID));
+
+		await expect(acquireStoryEditLock(STORY_ID, newMcpStoryEditHolder(OWNER_ID))).rejects.toBeInstanceOf(
+			StoryEditLockedError,
+		);
+		expect(await getStoryEditLockState(STORY_ID, OWNER_BY_HAND)).toMatchObject({ isYou: true, byMcp: true });
 	});
 
 	it('pushes the expiry back when the holder renews the lock', async () => {

@@ -53,6 +53,7 @@ import {
 	resolveCustomStory,
 	updateCustomStoryForMcp,
 } from '../src/mcp/tools/custom-story-mcp';
+import { getStoryEditLockState } from '../src/services/story-edit-lock.service';
 
 const ctx = { userId: 'user-id', projectId: 'project-id' } as never;
 const APP_FILES = [{ path: 'app.jsx', content: 'useQueryData("query_mcp"); useQueryData("query_ask")' }];
@@ -151,6 +152,26 @@ describe('custom stories through MCP without a chat', () => {
 			query_mcp: { columns: ['value'], data: [{ value: 'mcp' }] },
 		});
 		expect(mocks.publishCustomStoryDraft).toHaveBeenCalled();
+	});
+
+	it('refuses an update while another MCP write of the same user still holds the story', async () => {
+		vi.mocked(getStoryEditLockState).mockResolvedValueOnce({
+			holderName: 'User',
+			isMine: false,
+			isYou: true,
+			byAgent: false,
+			byMcp: true,
+		});
+
+		const result = await updateCustomStoryForMcp(
+			STANDALONE_STORY as never,
+			{ title: undefined, files: APP_FILES, deletePaths: [], queryData: undefined },
+			ctx,
+		);
+
+		expect(result.isError).toBe(true);
+		expect(mocks.applyCustomStoryDraftChanges).not.toHaveBeenCalled();
+		expect(mocks.publishCustomStoryDraft).not.toHaveBeenCalled();
 	});
 
 	it('saves the rows given with a starter app so a later update can use them', async () => {

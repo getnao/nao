@@ -1,11 +1,21 @@
+import { randomUUID } from 'node:crypto';
+
 import type { StoryEditHolder } from '../queries/story-edit-lock.queries';
 import * as storyEditLockQueries from '../queries/story-edit-lock.queries';
 
 export const STORY_EDIT_LOCK_TTL_MS = 60_000;
 export const STORY_EDIT_LOCK_RENEW_MS = 20_000;
 
+const MCP_SESSION_PREFIX = 'mcp:';
+
 /** `isMine` is the exact holder asking; `isYou` also covers the same person in another tab or chat. */
-export type StoryEditLockState = { holderName: string; isMine: boolean; isYou: boolean; byAgent: boolean } | null;
+export type StoryEditLockState = {
+	holderName: string;
+	isMine: boolean;
+	isYou: boolean;
+	byAgent: boolean;
+	byMcp: boolean;
+} | null;
 
 export class StoryEditLockedError extends Error {
 	constructor(readonly holderName: string) {
@@ -48,7 +58,12 @@ export async function getStoryEditLockState(storyId: string, viewer: StoryEditHo
 			(lock.sessionId ?? null) === (viewer.sessionId ?? null),
 		isYou: lock.userId === viewer.userId,
 		byAgent: lock.chatId !== null,
+		byMcp: lock.sessionId?.startsWith(MCP_SESSION_PREFIX) ?? false,
 	};
+}
+
+export function newMcpStoryEditHolder(userId: string): StoryEditHolder {
+	return { userId, chatId: null, sessionId: `${MCP_SESSION_PREFIX}${randomUUID()}` };
 }
 
 export async function releaseStoryEditLock(storyId: string, holder: StoryEditHolder): Promise<void> {
