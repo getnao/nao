@@ -209,10 +209,6 @@ async function validateBoundarySource(url: string): Promise<number> {
 	}
 }
 
-async function findCustomBoundary(projectId: string, key: string): Promise<CustomBoundarySet | undefined> {
-	return (await projectQueries.getCustomBoundaries(projectId)).find((set) => set.key === key);
-}
-
 export const projectRoutes = {
 	listForCurrentUser: protectedProcedure.query(async ({ ctx }) => {
 		const projects = await projectQueries.listUserProjectsWithRoles(ctx.user.id);
@@ -1485,7 +1481,6 @@ export const projectRoutes = {
 			if (input.url && input.upload) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: BOUNDARY_SOURCE_MESSAGE });
 			}
-			const previous = await findCustomBoundary(ctx.project.id, input.key);
 			const patch: Partial<CustomBoundarySet> = {};
 			if (input.newKey) {
 				patch.key = input.newKey;
@@ -1508,11 +1503,15 @@ export const projectRoutes = {
 				);
 			}
 			try {
-				const next = await projectQueries.updateCustomBoundary(ctx.project.id, input.key, patch);
+				const { boundaries, previous } = await projectQueries.updateCustomBoundary(
+					ctx.project.id,
+					input.key,
+					patch,
+				);
 				if (changesSource) {
 					await deleteBoundaryFile(previous?.file);
 				}
-				return next;
+				return boundaries;
 			} catch (error) {
 				await deleteBoundaryFile(patch.file);
 				throw error;
@@ -1522,9 +1521,8 @@ export const projectRoutes = {
 	deleteMapBoundary: adminProtectedProcedure
 		.input(z.object({ key: z.string().trim().min(1) }))
 		.mutation(async ({ ctx, input }) => {
-			const previous = await findCustomBoundary(ctx.project.id, input.key);
-			const next = await projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
+			const { boundaries, previous } = await projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
 			await deleteBoundaryFile(previous?.file);
-			return next;
+			return boundaries;
 		}),
 };
