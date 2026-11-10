@@ -1,5 +1,5 @@
 import { PART_SELECTOR, STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
-import { BLOCK_SELECTOR, readElementPart } from './story-elements';
+import { findSameBlocks, readElementPart } from './story-elements';
 import type { StoryBlockPart } from '@nao/shared/story-parts';
 import type { StoryElementAsk } from '@nao/shared/story-app';
 import type { StoryBlockReference } from '@nao/shared/types';
@@ -162,14 +162,8 @@ function isSamePart(
 	);
 }
 
-function findBlock({ kind, title, queryId }: StoryBlockReference, root: ParentNode): HTMLElement | null {
-	const blocks = [...root.querySelectorAll<HTMLElement>(BLOCK_SELECTOR)];
-	return (
-		blocks.find(
-			({ dataset }) =>
-				dataset.naoBlockKind === kind && dataset.naoBlockTitle === title && dataset.naoBlockQuery === queryId,
-		) ?? null
-	);
+function findBlock(block: StoryBlockReference, root: ParentNode): HTMLElement | null {
+	return findSameBlocks(block, root)[block.occurrence ?? 0] ?? null;
 }
 
 /** The starts of a quote searched for it, longest first, as a passage may be cut by markup the quote lost. */

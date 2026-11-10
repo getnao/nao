@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { describeElement } from './story-elements';
 import { highlightStoryElement } from './story-highlight';
 
 describe('highlightStoryElement', () => {
@@ -198,6 +199,20 @@ describe('highlightStoryElement', () => {
 			});
 
 			expect(scrolled.map((element) => element.id)).toEqual(['second']);
+		});
+
+		it('tells apart tables sharing their headers', () => {
+			const table = (month: string) => `
+				<div data-nao-block-kind="markdown-table" data-nao-block-title="Product, Revenue">
+					<table><tr>
+						<td id="${month}" data-nao-part="cell" data-nao-part-series="Revenue" data-nao-part-category="Widget" data-nao-part-value="10">10</td>
+					</tr></table>
+				</div>`;
+			document.body.innerHTML = table('january') + table('february');
+
+			highlightStoryElement(describeElement(document.getElementById('february')!));
+
+			expect(scrolled.map((element) => element.id)).toEqual(['february']);
 		});
 	});
 });

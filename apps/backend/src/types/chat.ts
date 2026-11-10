@@ -213,6 +213,7 @@ export const CitationDataSchema = z.object({
 			kind: z.string(),
 			title: z.string().optional(),
 			queryId: z.string().optional(),
+			occurrence: z.number().int().positive().optional(),
 			lines: z.object({ start: z.number().int(), end: z.number().int() }).optional(),
 			part: z
 				.object({

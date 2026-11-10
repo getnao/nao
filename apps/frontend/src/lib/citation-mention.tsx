@@ -158,6 +158,7 @@ export function isSameCitation(left: CitationData, right: CitationData): boolean
 		left.block?.kind === right.block?.kind &&
 		left.block?.title === right.block?.title &&
 		left.block?.queryId === right.block?.queryId &&
+		left.block?.occurrence === right.block?.occurrence &&
 		left.block?.lines?.start === right.block?.lines?.start &&
 		left.block?.lines?.end === right.block?.lines?.end &&
 		isSamePart(left.block?.part, right.block?.part)

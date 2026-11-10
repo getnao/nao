@@ -523,6 +523,8 @@ export interface StoryBlockReference {
 	kind: string;
 	title?: string;
 	queryId?: string;
+	/** Position among the blocks sharing this kind, title and query, set only past the first. */
+	occurrence?: number;
 	lines?: StoryCodeLines;
 	part?: StoryBlockPart;
 }

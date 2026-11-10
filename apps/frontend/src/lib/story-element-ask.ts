@@ -20,7 +20,13 @@ export function readStoryElementAsk({ block, text }: StoryElementAsk): StoryElem
 	const { text: cappedText } = capCitationText({ start: 0, end: 0, text });
 	const part = readPart(block.part);
 	return {
-		block: { kind: block.kind, title: block.title, queryId: block.queryId, ...(part && { part }) },
+		block: {
+			kind: block.kind,
+			title: block.title,
+			queryId: block.queryId,
+			...(isOccurrence(block.occurrence) && { occurrence: block.occurrence }),
+			...(part && { part }),
+		},
 		text: cappedText,
 	};
 }
@@ -44,6 +50,10 @@ function readPart(part: unknown): StoryBlockPart | undefined {
 		return undefined;
 	}
 	return { kind, label, series, category, value } as StoryBlockPart;
+}
+
+function isOccurrence(value: unknown): value is number {
+	return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
 function isOptionalString(value: unknown): boolean {

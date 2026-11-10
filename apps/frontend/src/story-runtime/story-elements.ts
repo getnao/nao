@@ -30,27 +30,37 @@ function isWithinBlock(part: Element, block: Element | null): boolean {
 	return !block || block.contains(part);
 }
 
-export function describeElement(element: Element): StoryElementAsk {
+/** The root bounds the blocks a cited one is told apart from, so it must be the one its highlight searches. */
+export function describeElement(element: Element, root: ParentNode = element.ownerDocument): StoryElementAsk {
 	const part = readElementPart(element);
 	if (part) {
-		const block = readEnclosingBlockReference(element);
+		const block = readEnclosingBlockReference(element, root);
 		return { block: { ...block, part }, text: readPartQuote(part) ?? block.title ?? '' };
 	}
 	if (element.matches(BLOCK_SELECTOR)) {
-		const block = readBlockReference(element);
+		const block = readBlockReference(element, root);
 		return { block, text: block.title ?? '' };
 	}
 	return { block: TEXT_REFERENCE, text: toQuote(element.textContent ?? '') };
 }
 
-export function readBlockReference(element: Element): StoryBlockReference {
+export function readBlockReference(element: Element, root: ParentNode = element.ownerDocument): StoryBlockReference {
 	const { naoBlockKind, naoBlockTitle, naoBlockQuery } = (element as HTMLElement).dataset;
-	return { kind: naoBlockKind ?? 'block', title: naoBlockTitle, queryId: naoBlockQuery };
+	const block = { kind: naoBlockKind ?? 'block', title: naoBlockTitle, queryId: naoBlockQuery };
+	const occurrence = findSameBlocks(block, root).indexOf(element as HTMLElement);
+	return occurrence > 0 ? { ...block, occurrence } : block;
 }
 
-function readEnclosingBlockReference(element: Element): StoryBlockReference {
+export function findSameBlocks({ kind, title, queryId }: StoryBlockReference, root: ParentNode): HTMLElement[] {
+	return [...root.querySelectorAll<HTMLElement>(BLOCK_SELECTOR)].filter(
+		({ dataset }) =>
+			dataset.naoBlockKind === kind && dataset.naoBlockTitle === title && dataset.naoBlockQuery === queryId,
+	);
+}
+
+function readEnclosingBlockReference(element: Element, root: ParentNode): StoryBlockReference {
 	const block = element.closest(BLOCK_SELECTOR);
-	return block ? readBlockReference(block) : { kind: STORY_ELEMENT_BLOCK_KIND };
+	return block ? readBlockReference(block, root) : { kind: STORY_ELEMENT_BLOCK_KIND };
 }
 
 export function toQuote(text: string): string {
