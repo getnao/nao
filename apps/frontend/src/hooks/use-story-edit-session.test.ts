@@ -128,10 +128,15 @@ describe('useStoryEditSession', () => {
 		expect(mocks.acquire).toHaveBeenCalledTimes(2);
 		expect(result.current.canEdit).toBe(false);
 
+		const releasesBeforeRetryAnswered = mocks.release.mock.calls.length;
+		mocks.editState = { ...mocks.editState, lock: { ...ADA_EDITING, holderName: 'Me', isMine: true } };
+		rerender();
 		act(() => {
 			mocks.acquireOptions.onSuccess?.(undefined, { storyId: 'story-1' });
 		});
+		await flushLockRequests();
 		expect(result.current.canEdit).toBe(true);
+		expect(mocks.release).toHaveBeenCalledTimes(releasesBeforeRetryAnswered);
 	});
 
 	it('stops letting the person edit once the server refuses them the right to, until the edit is closed', () => {

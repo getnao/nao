@@ -54,8 +54,8 @@ export function useStoryEditSession({
 		refetchIntervalInBackground: false,
 	});
 	const refetchEditState = editState.refetch;
-	const isLockFree = editState.data !== undefined && editState.data.lock === null;
-	const heldLock = useHeldEditLock(storyId, isEditing, isLockFree, () => {
+	const isLockAvailable = editState.data !== undefined && (editState.data.lock?.isMine ?? true);
+	const heldLock = useHeldEditLock(storyId, isEditing, isLockAvailable, () => {
 		void refetchEditState();
 	});
 	const updatedByName = useReloadOnNewVersion(target, editState.data, isEditing);
@@ -78,14 +78,14 @@ export function useStoryEditSession({
 function useHeldEditLock(
 	storyId: string | null,
 	isEditing: boolean,
-	isLockFree: boolean,
+	isLockAvailable: boolean,
 	onRefused: () => void,
 ): { isRefused: boolean; isForbidden: boolean } {
 	const [refusedStoryId, setRefusedStoryId] = useState<string | null>(null);
 	const [forbiddenStoryId, setForbiddenStoryId] = useState<string | null>(null);
 	const isRefused = storyId !== null && refusedStoryId === storyId;
 	const isForbidden = storyId !== null && forbiddenStoryId === storyId;
-	const isWaitingForLock = isRefused && (isForbidden || !isLockFree);
+	const isWaitingForLock = isRefused && (isForbidden || !isLockAvailable);
 	const lastActivityRef = useLastUserActivity();
 	const acquire = useMutation(
 		trpc.story.acquireEditLock.mutationOptions({
