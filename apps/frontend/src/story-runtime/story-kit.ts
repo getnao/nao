@@ -15,8 +15,14 @@ export type { ColumnInput, DataTableProps } from './story-kit/data-table';
 export { DataTable } from './story-kit/data-table';
 export type { FormatOptions, ValueFormat } from './story-kit/format';
 export { formatNumber } from './story-kit/format';
-export type { QueryDataResult, QueryDataState, UseQueryDataOptions, UseSqlOptions } from './story-kit/hooks';
-export { useQueryData, useSql, useStoryTheme } from './story-kit/hooks';
+export type {
+	MapBoundaryState,
+	QueryDataResult,
+	QueryDataState,
+	UseQueryDataOptions,
+	UseSqlOptions,
+} from './story-kit/hooks';
+export { useMapBoundary, useQueryData, useSql, useStoryTheme } from './story-kit/hooks';
 export type { StoryQueryFilters, StoryQueryFilterValue, StoryQueryParams } from '@nao/shared/story-query-inputs';
 export type { StoryModel, StoryModelResult } from '@nao/shared/story-models';
 export type { KpiCardProps } from './story-kit/kpi-card';

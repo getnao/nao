@@ -29,6 +29,7 @@ import type {
 	StoryHostMessage,
 	StoryHtmlApi,
 	StoryHtmlStateApi,
+	StoryMapBoundary,
 	StoryNarratives,
 	StoryQueryRequestOptions,
 	StoryQueryResult,
@@ -59,6 +60,7 @@ const OFFLINE_QUERY_MESSAGE =
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
 const pendingChartPlugins = new Map<string, PendingRequest<string>>();
+const pendingMapBoundaries = new Map<string, PendingRequest<StoryMapBoundary>>();
 const pendingModels = new Map<string, PendingRequest<StoryModel[]>>();
 const pendingModelCalls = new Map<string, PendingRequest<StoryModelResult>>();
 const pendingNarratives = new Map<string, PendingRequest<StoryNarratives>>();
@@ -125,6 +127,7 @@ function exposeHtmlApi(): void {
 		model: requestModel,
 		querySql: requestQuerySql,
 		narratives: requestNarratives,
+		mapBoundary: requestMapBoundary,
 		theme: getStoryTheme,
 		onTheme: (listener) =>
 			subscribeToTheme(() => {
@@ -288,6 +291,13 @@ export function requestChartPlugin(chartType: string): Promise<string> {
 	return awaitReply(pendingChartPlugins, (requestId) => ({ type: 'nao-story:chart-plugin', requestId, chartType }));
 }
 
+export function requestMapBoundary(key: string): Promise<StoryMapBoundary> {
+	if (exportData) {
+		return readExportedMapBoundary(exportData, key);
+	}
+	return awaitReply(pendingMapBoundaries, (requestId) => ({ type: 'nao-story:map-boundary', requestId, key }));
+}
+
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	const isConnect =
 		event.source === window.parent &&
@@ -371,6 +381,10 @@ function handleHostMessage(message: unknown): void {
 		settleChartPlugin(message);
 		return;
 	}
+	if (message.type === 'nao-story:map-boundary-result' || message.type === 'nao-story:map-boundary-error') {
+		settleMapBoundary(message);
+		return;
+	}
 	const pending = pendingQueries.get(message.requestId);
 	if (!pending) {
 		return;
@@ -425,6 +439,18 @@ function settleChartPlugin(
 	pendingChartPlugins.delete(message.requestId);
 	if (message.type === 'nao-story:chart-plugin-result') {
 		pending?.resolve(message.source);
+	} else {
+		pending?.reject(new Error(message.message));
+	}
+}
+
+function settleMapBoundary(
+	message: Extract<StoryHostMessage, { type: 'nao-story:map-boundary-result' | 'nao-story:map-boundary-error' }>,
+): void {
+	const pending = pendingMapBoundaries.get(message.requestId);
+	pendingMapBoundaries.delete(message.requestId);
+	if (message.type === 'nao-story:map-boundary-result') {
+		pending?.resolve(message.boundary);
 	} else {
 		pending?.reject(new Error(message.message));
 	}
@@ -505,6 +531,13 @@ function readExportedChartPlugin(data: StoryExportData, chartType: string): Prom
 	return source !== undefined
 		? Promise.resolve(source)
 		: Promise.reject(new Error(`Custom chart "${chartType}" is not available.`));
+}
+
+function readExportedMapBoundary(data: StoryExportData, key: string): Promise<StoryMapBoundary> {
+	const boundary = data.mapBoundaries?.[key];
+	return boundary
+		? Promise.resolve(boundary)
+		: Promise.reject(new Error(`Map boundary "${key}" is not part of this export.`));
 }
 
 function toJsonSafe<T>(value: T): T {

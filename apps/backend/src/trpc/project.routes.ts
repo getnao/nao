@@ -33,6 +33,7 @@ import {
 } from '../services/default-models.service';
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject, DiscordConnectionError, validateDiscordConnection } from '../services/discord-helpers';
+import { deleteBoundaryFile, saveBoundaryFile } from '../services/map-boundary-files';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
 import { mcpService } from '../services/mcp';
@@ -172,6 +173,30 @@ async function getRoleInProjectOrThrow(projectId: string, userId: string) {
 	return role;
 }
 
+const boundaryUploadSchema = z.object({ fileName: z.string().trim().min(1).max(255), geojson: z.unknown() });
+
+const BOUNDARY_SOURCE_MESSAGE = 'Provide either a GeoJSON URL or an uploaded GeoJSON file.';
+
+type BoundarySource = Pick<CustomBoundarySet, 'url' | 'file' | 'featureCount'>;
+
+async function storeBoundarySource(
+	projectId: string,
+	input: { url?: string; upload?: z.infer<typeof boundaryUploadSchema> },
+): Promise<BoundarySource> {
+	if (input.upload) {
+		try {
+			return await saveBoundaryFile(projectId, input.upload);
+		} catch (error) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Could not save the GeoJSON file: ${error instanceof Error ? error.message : String(error)}`,
+			});
+		}
+	}
+	const url = input.url ?? '';
+	return { url, featureCount: await validateBoundarySource(url) };
+}
+
 async function validateBoundarySource(url: string): Promise<number> {
 	try {
 		const text = await safeFetch(url);
@@ -182,6 +207,10 @@ async function validateBoundarySource(url: string): Promise<number> {
 			message: `Could not load boundaries from URL: ${error instanceof Error ? error.message : String(error)}`,
 		});
 	}
+}
+
+async function findCustomBoundary(projectId: string, key: string): Promise<CustomBoundarySet | undefined> {
+	return (await projectQueries.getCustomBoundaries(projectId)).find((set) => set.key === key);
 }
 
 export const projectRoutes = {
@@ -1400,30 +1429,37 @@ export const projectRoutes = {
 
 	addMapBoundary: adminProtectedProcedure
 		.input(
-			z.object({
-				key: z
-					.string()
-					.trim()
-					.min(1)
-					.max(64)
-					.regex(/^[a-z0-9_]+$/, 'Key must be lowercase letters, digits, or underscores only.'),
-				label: z.string().trim().min(1).max(255),
-				url: z.url(),
-				joinProperty: z.string().trim().min(1).max(255),
-				regionKeyHint: z.string().trim().min(1).max(500),
-				featureCount: z.number().int().nonnegative().optional(),
-			}),
+			z
+				.object({
+					key: z
+						.string()
+						.trim()
+						.min(1)
+						.max(64)
+						.regex(/^[a-z0-9_]+$/, 'Key must be lowercase letters, digits, or underscores only.'),
+					label: z.string().trim().min(1).max(255),
+					url: z.url().optional(),
+					upload: boundaryUploadSchema.optional(),
+					joinProperty: z.string().trim().min(1).max(255),
+					regionKeyHint: z.string().trim().min(1).max(500),
+					featureCount: z.number().int().nonnegative().optional(),
+				})
+				.refine((input) => !input.url !== !input.upload, BOUNDARY_SOURCE_MESSAGE),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const featureCount = await validateBoundarySource(input.url);
-			return projectQueries.addCustomBoundary(ctx.project.id, {
-				key: input.key,
-				label: input.label,
-				url: input.url,
-				joinProperty: input.joinProperty,
-				regionKeyHint: input.regionKeyHint,
-				featureCount,
-			});
+			const source = await storeBoundarySource(ctx.project.id, input);
+			try {
+				return await projectQueries.addCustomBoundary(ctx.project.id, {
+					key: input.key,
+					label: input.label,
+					...source,
+					joinProperty: input.joinProperty,
+					regionKeyHint: input.regionKeyHint,
+				});
+			} catch (error) {
+				await deleteBoundaryFile(source.file);
+				throw error;
+			}
 		}),
 
 	updateMapBoundary: adminProtectedProcedure
@@ -1439,12 +1475,17 @@ export const projectRoutes = {
 					.optional(),
 				label: z.string().trim().min(1).max(255).optional(),
 				url: z.url().optional(),
+				upload: boundaryUploadSchema.optional(),
 				joinProperty: z.string().trim().min(1).max(255).optional(),
 				regionKeyHint: z.string().trim().min(1).max(500).optional(),
 				featureCount: z.number().int().nonnegative().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			if (input.url && input.upload) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: BOUNDARY_SOURCE_MESSAGE });
+			}
+			const previous = await findCustomBoundary(ctx.project.id, input.key);
 			const patch: Partial<CustomBoundarySet> = {};
 			if (input.newKey) {
 				patch.key = input.newKey;
@@ -1458,16 +1499,32 @@ export const projectRoutes = {
 			if (input.regionKeyHint !== undefined) {
 				patch.regionKeyHint = input.regionKeyHint;
 			}
-			if (input.url !== undefined) {
-				patch.url = input.url;
-				patch.featureCount = await validateBoundarySource(input.url);
+			const changesSource = input.url !== undefined || input.upload !== undefined;
+			if (changesSource) {
+				Object.assign(
+					patch,
+					{ url: undefined, file: undefined },
+					await storeBoundarySource(ctx.project.id, input),
+				);
 			}
-			return projectQueries.updateCustomBoundary(ctx.project.id, input.key, patch);
+			try {
+				const next = await projectQueries.updateCustomBoundary(ctx.project.id, input.key, patch);
+				if (changesSource) {
+					await deleteBoundaryFile(previous?.file);
+				}
+				return next;
+			} catch (error) {
+				await deleteBoundaryFile(patch.file);
+				throw error;
+			}
 		}),
 
 	deleteMapBoundary: adminProtectedProcedure
 		.input(z.object({ key: z.string().trim().min(1) }))
 		.mutation(async ({ ctx, input }) => {
-			return projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
+			const previous = await findCustomBoundary(ctx.project.id, input.key);
+			const next = await projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
+			await deleteBoundaryFile(previous?.file);
+			return next;
 		}),
 };

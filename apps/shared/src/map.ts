@@ -6,11 +6,23 @@ import type * as displayMap from './tools/display-map';
 export interface CustomBoundarySet {
 	key: string;
 	label: string;
-	url: string;
+	/** Public GeoJSON fetched on demand. Absent when the GeoJSON was uploaded instead. */
+	url?: string;
+	/** Uploaded GeoJSON kept in permanent storage. */
+	file?: UploadedBoundaryFile;
 	joinProperty: string;
 	regionKeyHint: string;
 	featureCount?: number;
 }
+
+export interface UploadedBoundaryFile {
+	name: string;
+	size: number;
+	storageKey: string;
+}
+
+/** Same cap as a GeoJSON fetched from a URL, and below the API body limit an upload travels in. */
+export const MAX_BOUNDARY_FILE_BYTES = 25 * 1024 * 1024;
 
 export interface MapSettings {
 	customBoundaries?: CustomBoundarySet[];
@@ -251,6 +263,57 @@ function isMapGeometry(value: unknown): value is MapGeometry {
 	return typeof record.type === 'string' && (record.coordinates !== undefined || record.geometries !== undefined);
 }
 
+export interface GeoJsonValidationResult {
+	geojson: MapFeatureCollection;
+	propertyKeys: string[];
+	featureCount: number;
+}
+
+const GEOJSON_GEOMETRY_TYPES = [
+	'Point',
+	'MultiPoint',
+	'LineString',
+	'MultiLineString',
+	'Polygon',
+	'MultiPolygon',
+	'GeometryCollection',
+];
+
+/** Wraps a parsed GeoJSON FeatureCollection, Feature or Geometry into a FeatureCollection and lists its feature properties. */
+export function validateGeoJson(value: unknown): GeoJsonValidationResult {
+	const geojson = normalizeToFeatureCollection(value);
+	const propertyKeys = new Set<string>();
+	for (const feature of geojson.features) {
+		for (const key of Object.keys(feature.properties ?? {})) {
+			propertyKeys.add(key);
+		}
+	}
+	return { geojson, propertyKeys: [...propertyKeys].sort(), featureCount: geojson.features.length };
+}
+
+function normalizeToFeatureCollection(value: unknown): MapFeatureCollection {
+	if (typeof value !== 'object' || value === null) {
+		throw new Error('GeoJSON must be an object.');
+	}
+	const record = value as Record<string, unknown>;
+	if (record.type === 'FeatureCollection') {
+		if (!Array.isArray(record.features)) {
+			throw new Error('FeatureCollection must have a features array.');
+		}
+		return value as MapFeatureCollection;
+	}
+	if (record.type === 'Feature') {
+		return { type: 'FeatureCollection', features: [value as MapFeatureCollection['features'][number]] };
+	}
+	if (typeof record.type === 'string' && GEOJSON_GEOMETRY_TYPES.includes(record.type)) {
+		return {
+			type: 'FeatureCollection',
+			features: [{ type: 'Feature', geometry: value as MapGeometry, properties: {} }],
+		};
+	}
+	throw new Error('Not a valid GeoJSON FeatureCollection, Feature, or Geometry.');
+}
+
 type BuiltinRegionBoundaries = 'world_countries' | 'france_regions';
 
 export const MAP_BOUNDARY_URLS: Record<BuiltinRegionBoundaries, string> = {
@@ -280,6 +343,12 @@ export const BOUNDARY_JOIN_PROPS: Record<BuiltinRegionBoundaries, string[]> = {
 export const BUILTIN_BOUNDARY_LABELS: Record<BuiltinRegionBoundaries, string> = {
 	world_countries: 'World countries',
 	france_regions: 'France regions',
+};
+
+/** What a region_key value must match for each built-in boundary set. */
+export const BUILTIN_BOUNDARY_REGION_KEY_HINTS: Record<BuiltinRegionBoundaries, string> = {
+	world_countries: 'an ISO 3166-1 alpha-3/alpha-2 code or country name',
+	france_regions: 'the region code or name',
 };
 
 export interface BoundarySource {
@@ -337,7 +406,7 @@ export function indexBoundaries(boundaries: MapFeatureCollection, joinProps?: st
 export function resolveBoundary(
 	key: string,
 	customSets?: CustomBoundarySet[],
-): { url: string; joinProps: string[] } | null {
+): { url?: string; joinProps: string[] } | null {
 	const custom = customSets?.find((s) => s.key === key);
 	if (custom) {
 		return { url: custom.url, joinProps: [custom.joinProperty] };
