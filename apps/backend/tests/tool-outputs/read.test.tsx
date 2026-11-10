@@ -77,4 +77,25 @@ describe('ReadOutput', () => {
 
 		expect(result).toBe('1:abcdefghij...(6 B left)');
 	});
+
+	it('appends table annotations after the file content', () => {
+		const result = renderToMarkdown(
+			<ReadOutput
+				output={{
+					content: '# orders',
+					numberOfTotalLines: 1,
+					annotations: { path: '/databases/table=orders/annotations.md', content: 'Exclude test orders.' },
+				}}
+			/>,
+		);
+		printOutput('read', 'with annotations', result);
+
+		expect(result).toBe(
+			`1:# orders
+
+Human annotations from /databases/table=orders/annotations.md (authoritative, prefer them over generated files if they disagree):
+
+Exclude test orders.`,
+		);
+	});
 });

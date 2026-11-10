@@ -8,6 +8,7 @@ export const OutputSchema = z.object({
 	_version: z.literal('1').optional(),
 	content: z.string(),
 	numberOfTotalLines: z.number(),
+	annotations: z.object({ path: z.string(), content: z.string() }).optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

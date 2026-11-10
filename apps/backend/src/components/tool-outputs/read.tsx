@@ -16,7 +16,21 @@ export function ReadOutput({ output, maxChars = MAX_CHARS }: { output: readFile.
 	const withLineNumbers = addLineNumbers(lines);
 	const bytesLeft = output.content.length - visibleContent.length;
 
-	return <Block>{withLineNumbers + (isTruncated ? `...(${formatSize(bytesLeft)} left)` : '')}</Block>;
+	return (
+		<Block>
+			{withLineNumbers + (isTruncated ? `...(${formatSize(bytesLeft)} left)` : '')}
+			{output.annotations && <AnnotationsOutput annotations={output.annotations} />}
+		</Block>
+	);
+}
+
+function AnnotationsOutput({ annotations }: { annotations: NonNullable<readFile.Output['annotations']> }) {
+	return (
+		<Block>
+			{`Human annotations from ${annotations.path} (authoritative, prefer them over generated files if they disagree):`}
+			{annotations.content}
+		</Block>
+	);
 }
 
 const addLineNumbers = (lines: string[]) => {
