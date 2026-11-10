@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	existingProviderProjectRows: [] as Array<{ projectId: string }>,
 	existingGroupRows: [] as Array<{ groupId: string }>,
 	lockedProjectIds: [] as string[],
+	projectRevisionUpdates: 0,
 	viewerCacheDeletes: 0,
 	beforeProjectLock: vi.fn<() => void | Promise<void>>(),
 }));
@@ -66,6 +67,7 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 		mocks.existingProviderProjectRows = [{ projectId: 'project-b' }];
 		mocks.existingGroupRows = [];
 		mocks.lockedProjectIds = [];
+		mocks.projectRevisionUpdates = 0;
 		mocks.viewerCacheDeletes = 0;
 		mocks.beforeProjectLock.mockReset();
 	});
@@ -83,6 +85,7 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 			'read-memberships',
 			'insert-membership',
 		]);
+		expect(mocks.projectRevisionUpdates).toBe(1);
 		expect(mocks.viewerCacheDeletes).toBe(1);
 	});
 
@@ -93,6 +96,7 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 
 		await reconcileSsoUserGroupMemberships('user-1', 'oidc', ['claim-a']);
 
+		expect(mocks.projectRevisionUpdates).toBe(0);
 		expect(mocks.viewerCacheDeletes).toBe(0);
 	});
 
@@ -187,6 +191,12 @@ function transaction() {
 					mocks.viewerCacheDeletes += 1;
 				}
 			}),
+		update: (table: unknown) =>
+			mutation(() => {
+				if (table === s.project) {
+					mocks.projectRevisionUpdates += 1;
+				}
+			}),
 		insert: () => mutation(() => mocks.events.push('insert-membership')),
 	};
 }
@@ -237,6 +247,7 @@ function query(rows: unknown[], beforeExecute?: () => void) {
 
 function mutation(beforeExecute?: () => void) {
 	const builder = {
+		set: () => builder,
 		values: () => builder,
 		where: () => builder,
 		onConflictDoNothing: () => builder,
