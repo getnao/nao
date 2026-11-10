@@ -313,7 +313,12 @@ export function createProviderModel(
 	return {
 		model: createModel(provider, settings, modelId),
 		providerOptions: {
-			[optionKey]: { ...defaultOptions, ...modelConfig, ...providerOverrides },
+			[optionKey]: {
+				...defaultOptions,
+				...resolveStructuredOutputOptions(provider, modelId),
+				...modelConfig,
+				...providerOverrides,
+			},
 		} as ProviderOptionsMap,
 		contextWindow,
 		callSettings,
@@ -664,6 +669,23 @@ function mergeProviderOverrides(
 		merged.thinkingConfig = { ...a, ...b };
 	}
 	return merged;
+}
+
+/** Claude models released before native structured outputs (`output_config.format`). */
+const PRE_STRUCTURED_OUTPUT_CLAUDE = /^claude-(3|(opus|sonnet)-4(-0|-\d{8}|@|$))/;
+
+/**
+ * For `Output.object`, the Anthropic SDK falls back to forcing a `json` tool call on Claude models it
+ * doesn't know and always on Vertex, which newer models reject (`tool_choice` `any`/`tool` → 400).
+ * Every Claude model since Opus 4.1 / Sonnet 4.5 accepts the native format, so request it directly.
+ */
+function resolveStructuredOutputOptions(provider: LlmProvider, modelId: string): Record<string, unknown> {
+	const kind = providerKind(provider);
+	const usesAnthropicSdk = kind === 'anthropic' || (kind === 'vertex' && modelId.startsWith('claude-'));
+	if (!usesAnthropicSdk || PRE_STRUCTURED_OUTPUT_CLAUDE.test(modelId)) {
+		return {};
+	}
+	return { structuredOutputMode: 'outputFormat' };
 }
 
 function getProviderModelConfig<P extends LlmProviderKind>(provider: P, modelId: string): ProviderConfigMap[P] {
