@@ -20,12 +20,18 @@ export async function createMcpServer(
 	role: McpUserRole,
 	settings: McpEndpointSettings,
 	chartDataMode = false,
+	testAttemptId: string | null = null,
 ): Promise<McpServer> {
+	const testMode = testAttemptId !== null;
 	const server = new McpServer(
 		{ name: 'nao', version: '0.1.0' },
 		{
 			capabilities: { tools: {}, resources: {} },
-			instructions: chartDataMode ? DATA_MODE_SERVER_INSTRUCTIONS : BASE_SERVER_INSTRUCTIONS,
+			instructions: testMode
+				? TEST_MODE_SERVER_INSTRUCTIONS
+				: chartDataMode
+					? DATA_MODE_SERVER_INSTRUCTIONS
+					: BASE_SERVER_INSTRUCTIONS,
 		},
 	);
 	const storyCreationEnabled = await hasUserGroupFeature(projectId, userId, 'storyCreation');
@@ -33,7 +39,16 @@ export async function createMcpServer(
 		storyCreationEnabled &&
 		isCustomStoriesEnabled() &&
 		(await hasUserGroupFeature(projectId, userId, 'customStoryCreation'));
-	const ctx = { userId, projectId, role, settings, chartDataMode, storyCreationEnabled, customStoryCreationEnabled };
+	const ctx = {
+		userId,
+		projectId,
+		role,
+		settings,
+		chartDataMode,
+		storyCreationEnabled,
+		customStoryCreationEnabled,
+		testAttemptId,
+	};
 
 	if (settings.subAgentModeEnabled) {
 		await registerSubAgentTools(server, ctx);
@@ -42,17 +57,19 @@ export async function createMcpServer(
 		const project = await getProjectById(projectId);
 		const configuredDatabases = project?.path ? extractConfiguredDatabases(project.path) : [];
 		const semanticLayerMode = project?.path ? resolveSemanticLayerMode(project.path, project.agentSettings) : null;
-		registerContextLayerTools(server, ctx, configuredDatabases, semanticLayerMode);
+		registerContextLayerTools(server, ctx, configuredDatabases, semanticLayerMode, testMode);
 	}
 
-	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
+	if (!testMode && (settings.subAgentModeEnabled || settings.contextLayerModeEnabled)) {
 		const customBoundaries = await getCustomBoundaries(projectId);
 		registerAssetTools(server, ctx, customBoundaries);
 	}
 
-	registerContextAdminTools(server, ctx);
-	await registerMemberBudgetTools(server, ctx);
-	registerNaoMcpApps(server);
+	if (!testMode) {
+		registerContextAdminTools(server, ctx);
+		await registerMemberBudgetTools(server, ctx);
+		registerNaoMcpApps(server);
+	}
 
 	return server;
 }
@@ -60,5 +77,9 @@ export async function createMcpServer(
 const BASE_SERVER_INSTRUCTIONS =
 	'nao answers analytics questions backed by SQL queries on the connected data sources. ' +
 	'Default to `ask_nao` for analytics questions; prefer showing results as charts over text tables when the data suits it.';
+
+const TEST_MODE_SERVER_INSTRUCTIONS =
+	'Answer the analytics question using the project context and read-only query tools. ' +
+	'Read RULES.md before querying, follow its business definitions, and run SQL for factual values.';
 
 const DATA_MODE_SERVER_INSTRUCTIONS = BASE_SERVER_INSTRUCTIONS + CHART_DATA_MODE_SERVER_INSTRUCTIONS;

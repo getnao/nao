@@ -7,21 +7,41 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { MCP_TOKEN_AUDIENCES } from '../env';
 import { isUserDeactivated } from '../queries/user.queries';
+import {
+	type ExternalTestAttemptTokenPayload,
+	verifyExternalTestAttemptToken,
+} from '../services/external-test-attempt-token';
 import { logger, serializeError } from '../utils/logger';
 import { convertHeaders } from '../utils/utils';
 
-export async function resolveUserId(fastifyRequest: {
+export interface McpPrincipal {
+	userId: string;
+	testAttempt: ExternalTestAttemptTokenPayload | null;
+}
+
+export async function resolveMcpPrincipal(fastifyRequest: {
 	headers: Record<string, string | string[] | undefined>;
 	url: string;
-}): Promise<string | null> {
+}): Promise<McpPrincipal | null> {
 	const headers = convertHeaders(fastifyRequest.headers);
+	const testAttempt = await verifyTestAttemptBearer(headers.get('authorization'));
+	if (testAttempt) {
+		return (await isUserDeactivated(testAttempt.userId)) ? null : { userId: testAttempt.userId, testAttempt };
+	}
 
 	const session = await getSession(headers);
 	const userId = session?.user.id ?? (await verifyBearerToken(headers.get('authorization')));
 	if (!userId || (await isUserDeactivated(userId))) {
 		return null;
 	}
-	return userId;
+	return { userId, testAttempt: null };
+}
+
+async function verifyTestAttemptBearer(authorization: string | null): Promise<ExternalTestAttemptTokenPayload | null> {
+	if (!authorization?.startsWith('Bearer ')) {
+		return null;
+	}
+	return await verifyExternalTestAttemptToken(authorization.slice('Bearer '.length).trim());
 }
 
 async function verifyBearerToken(authorization: string | null): Promise<string | null> {

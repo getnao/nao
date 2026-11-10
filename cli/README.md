@@ -62,6 +62,8 @@ Convenience groups are also available:
 ```bash
 pip install 'nao-core[all-databases]'  # all database backends
 pip install 'nao-core[all-llms]'       # all LLM providers
+pip install 'nao-core[harness-codex]'  # Codex test harness
+pip install 'nao-core[harness-claude-code]'  # Claude Code test harness
 ```
 
 ## Usage
@@ -268,6 +270,10 @@ assertions:
 Options:
 
 - `--model` / `-m`: Models to test against (default: `openai:gpt-4.1`). Can be specified multiple times.
+- `--harness`: Run a local headless agent through nao's context-layer MCP endpoint (`codex` or `claude-code`).
+- `--harness-model`: Model override passed to the selected headless agent.
+- `--harness-reasoning-effort`: Reasoning-effort override passed to the selected headless agent.
+- `--harness-timeout`: Maximum seconds for each headless agent invocation (default: `600`).
 - `--threads` / `-t`: Number of parallel threads (default: `1`)
 - `--k` / `-k`: Number of times to run each test case, used to compute pass@k and pass^k (default: `1`)
 - `--select` / `-s`: Run only selected tests by name, yaml stem, or subfolder. Comma-separated.
@@ -280,7 +286,20 @@ nao test -m openai:gpt-4.1
 nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
 nao test --threads 4
 nao test --k 5
+nao test --harness codex --harness-model gpt-5.3-codex
+nao test --harness claude-code --harness-model sonnet
 ```
+
+An external harness is useful when nao provides the context layer but another agent owns the conversation. The nao
+backend must have its MCP endpoint and context-layer mode enabled. Install the matching harness extra and authenticate
+its agent SDK before the run. Nao gives each run a short-lived, attempt-scoped MCP credential. It captures the tool calls
+and query results, then applies the assertions and reference-SQL comparison used for built-in agent tests. The SDK runs
+in an empty temporary directory, so repository instructions are not in its working directory. Provider-managed settings
+can still apply.
+
+Context-layer-only projects can select a harness without adding a nao LLM configuration. The same harness also writes
+the small DuckDB query that maps its captured query results to the expected columns; nao executes that query and
+performs the comparison.
 
 Defaults for every run live in the `test` block of `nao_config.yaml`, and the `--model` / `--threads` / `--k` flags override them:
 
@@ -291,6 +310,22 @@ test:
         - anthropic:claude-sonnet-4-5
     threads: 4
     # k: 5  # run each case 5 times to compute pass@k / pass^k
+    comparison:
+        rtol: 0.00001
+        atol: 0.00000001
+        decimals: 2
+```
+
+For a context-layer project, configure the headless harness instead of `test.models`:
+
+```yaml
+test:
+    harness:
+        name: codex # or claude-code
+        model: gpt-5.3-codex
+        reasoning_effort: high
+        timeout_seconds: 600
+    threads: 4
     comparison:
         rtol: 0.00001
         atol: 0.00000001

@@ -12,10 +12,12 @@ from nao_core.ui import UI
 
 from .assertions import Assertion
 from .case import TestCase
+from .harnesses import HarnessRun
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5005")
 
 DataclassT = TypeVar("DataclassT")
+_UNSET = object()
 
 
 @dataclass
@@ -77,10 +79,24 @@ class TestResult:
     verdict: TestVerdict | None = None
 
 
+@dataclass(frozen=True)
+class ExternalTestAttempt:
+    """A server-created MCP endpoint and credential scoped to one test attempt."""
+
+    attempt_id: str
+    mcp_url: str
+    access_token: str
+
+
+@dataclass(frozen=True)
+class ExternalVerificationRequest:
+    """A prompt the same external harness must answer before nao can compare results."""
+
+    prompt: str
+
+
 class AgentClientError(Exception):
     """Error from the agent client."""
-
-    pass
 
 
 class AgentClient:
@@ -209,19 +225,71 @@ class AgentClient:
         if response.status_code != 200:
             raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
 
+        return parse_test_result(response.json())
+
+    def start_external_test(self, retry_auth: bool = True) -> ExternalTestAttempt:
+        """Create an attempt-scoped credential for a context-layer MCP test."""
+        response = self._post_external("/api/test/external/start", {}, retry_auth)
         data = response.json()
-        return TestResult(
-            text=data["text"],
-            tool_calls=data["toolCalls"],
-            usage=TokenUsage(**data["usage"]),
-            cost=TokenCost(**data["cost"]),
-            finish_reason=data["finishReason"],
-            duration_ms=data.get("durationMs", 0),
-            verification=from_known_fields(VerificationResult, data["verification"])
-            if data.get("verification")
-            else None,
-            verdict=from_known_fields(TestVerdict, data["verdict"]) if data.get("verdict") else None,
+        return ExternalTestAttempt(
+            attempt_id=data["attemptId"],
+            mcp_url=data["mcpUrl"],
+            access_token=data["accessToken"],
         )
+
+    def evaluate_external_test(
+        self,
+        attempt: ExternalTestAttempt,
+        test_case: TestCase,
+        run: HarnessRun,
+        comparison: ComparisonConfig | None = None,
+        verification_sql: str | None | object = _UNSET,
+        retry_auth: bool = True,
+    ) -> TestResult | ExternalVerificationRequest:
+        """Evaluate calls captured from an external harness, requesting verification SQL when needed."""
+        payload: dict[str, Any] = {
+            "attemptId": attempt.attempt_id,
+            "prompt": test_case.prompt,
+            "answer": run.text,
+            "run": {
+                "usage": run.usage,
+                "cost": run.cost,
+                "finishReason": run.finish_reason,
+                "durationMs": run.duration_ms,
+            },
+        }
+        if test_case.sql:
+            payload["sql"] = test_case.sql
+        if test_case.database:
+            payload["databaseId"] = test_case.database
+        if test_case.assertions:
+            payload["assertions"] = [serialize_assertion(assertion) for assertion in test_case.assertions]
+        if comparison is not None:
+            payload["comparison"] = comparison.model_dump()
+        if verification_sql is not _UNSET:
+            payload["verificationSql"] = verification_sql
+
+        response = self._post_external("/api/test/external/evaluate", payload, retry_auth)
+        data = response.json()
+        if data.get("status") == "verification_required":
+            return ExternalVerificationRequest(prompt=data["prompt"])
+        if data.get("status") != "complete":
+            raise AgentClientError(f"Unexpected external evaluation response: {data}")
+        return parse_test_result(data)
+
+    def _post_external(self, path: str, payload: dict[str, Any], retry_auth: bool) -> requests.Response:
+        """POST an external-harness request with the same one-time auth retry as normal tests."""
+        session, auth_generation = self._get_session()
+        response = session.post(f"{self.backend_url}{path}", json=payload)
+        if response.status_code == 401:
+            if retry_auth and self._handle_auth_retry(auth_generation):
+                return self._post_external(path, payload, retry_auth=False)
+            raise AgentClientError(
+                "Invalid API key." if self._api_key else "Unauthorized. Please check your credentials."
+            )
+        if response.status_code != 200:
+            raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
+        return response
 
     def get_reasoning_efforts(self, provider: str, model_id: str, retry_auth: bool = True) -> list[str]:
         """List the reasoning efforts the backend can run a model at, from the lowest."""
@@ -296,3 +364,17 @@ def from_known_fields(cls: type[DataclassT], data: dict[str, Any]) -> DataclassT
     """Build a dataclass from an API payload, ignoring the fields newer servers add."""
     known_fields = {field.name for field in fields(cls)}
     return cls(**{key: value for key, value in data.items() if key in known_fields})
+
+
+def parse_test_result(data: dict[str, Any]) -> TestResult:
+    """Parse the response shared by nao's built-in and external test runners."""
+    return TestResult(
+        text=data["text"],
+        tool_calls=data["toolCalls"],
+        usage=from_known_fields(TokenUsage, data.get("usage", {})),
+        cost=from_known_fields(TokenCost, data.get("cost", {})),
+        finish_reason=data["finishReason"],
+        duration_ms=data.get("durationMs", 0),
+        verification=from_known_fields(VerificationResult, data["verification"]) if data.get("verification") else None,
+        verdict=from_known_fields(TestVerdict, data["verdict"]) if data.get("verdict") else None,
+    )

@@ -2076,6 +2076,7 @@ export const mcpCallLog = sqliteTable(
 		success: integer('success', { mode: 'boolean' }).notNull(),
 		toolInput: text('tool_input', { mode: 'json' }).$type<unknown>(),
 		toolOutput: text('tool_output', { mode: 'json' }).$type<unknown>(),
+		testAttemptId: text('test_attempt_id'),
 		calledAt: integer('called_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -2083,6 +2084,7 @@ export const mcpCallLog = sqliteTable(
 	(t) => [
 		index('mcp_call_log_projectId_idx').on(t.projectId),
 		index('mcp_call_log_userId_idx').on(t.userId),
+		index('mcp_call_log_testAttemptId_idx').on(t.testAttemptId),
 		index('mcp_call_log_calledAt_idx').on(t.calledAt),
 	],
 );

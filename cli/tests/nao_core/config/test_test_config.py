@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from nao_core.config.base import NaoConfig
-from nao_core.config.test import TestConfig, TestModelConfig
+from nao_core.config.test import TestConfig, TestHarnessConfig, TestModelConfig
 
 
 def test_test_block_is_loaded_from_config(tmp_path):
@@ -45,6 +45,42 @@ def test_defaults():
     assert test_config.comparison.rtol == 1e-5
     assert test_config.comparison.atol == 1e-8
     assert test_config.comparison.decimals == 2
+    assert test_config.harness is None
+
+
+def test_harness_accepts_a_concise_name(tmp_path):
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text("project_name: test-project\ntest:\n  harness: codex\n")
+
+    config = NaoConfig.load(tmp_path)
+
+    assert config.test is not None
+    assert config.test.harness == TestHarnessConfig(name="codex")
+
+
+def test_harness_accepts_headless_options(tmp_path):
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text(
+        "project_name: test-project\n"
+        "test:\n"
+        "  harness:\n"
+        "    name: claude-code\n"
+        "    model: sonnet\n"
+        "    reasoning_effort: high\n"
+        "    timeout_seconds: 900\n"
+    )
+
+    config = NaoConfig.load(tmp_path)
+
+    assert config.test is not None
+    assert config.test.harness == TestHarnessConfig(
+        name="claude-code", model="sonnet", reasoning_effort="high", timeout_seconds=900
+    )
+
+
+def test_harness_rejects_unknown_names():
+    with pytest.raises(ValidationError):
+        TestConfig.model_validate({"harness": {"name": "other"}})
 
 
 @pytest.mark.parametrize("model", ["gpt-4.1", "openai:", ":gpt-4.1"])

@@ -715,6 +715,13 @@
       "when": 1794297263754,
       "tag": "0101_automation_run_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794321986315,
+      "tag": "0102_external_test_attempts",
+      "breakpoints": true
     }
   ]
 }

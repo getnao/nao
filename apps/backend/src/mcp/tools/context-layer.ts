@@ -122,13 +122,16 @@ export function registerContextLayerTools(
 	ctx: McpContext,
 	configuredDatabases: ConfiguredDatabase[],
 	semanticLayerMode: SemanticLayerMode | null = null,
+	readOnly = false,
 ): void {
 	registerFileTools(server, ctx);
-	registerExecuteSql(server, ctx, configuredDatabases, isWarehouseSqlEnabled(semanticLayerMode));
+	registerExecuteSql(server, ctx, configuredDatabases, isWarehouseSqlEnabled(semanticLayerMode), readOnly);
 	if (isSemanticQueryToolEnabled(semanticLayerMode)) {
 		registerExecuteSemanticQuery(server, ctx);
 	}
-	registerContextStoryTools(server, ctx);
+	if (!readOnly) {
+		registerContextStoryTools(server, ctx);
+	}
 }
 
 function registerFileTools(server: McpServer, ctx: McpContext): void {
@@ -165,8 +168,12 @@ function registerExecuteSql(
 	ctx: McpContext,
 	configuredDatabases: ConfiguredDatabase[],
 	warehouseSqlEnabled: boolean,
+	readOnly: boolean,
 ): void {
 	const warehouseDatabaseIds = getWarehouseDatabaseIds(configuredDatabases);
+	const inputSchema = warehouseSqlEnabled
+		? buildExecuteSqlInputSchema(warehouseDatabaseIds)
+		: LOCAL_ONLY_EXECUTE_SQL_INPUT_SCHEMA;
 	registerAgentToolAsMcp<executeSql.Input, executeSql.Output, ExecuteSqlMcpInput>(server, ctx, {
 		name: 'execute_sql',
 		agentTool: warehouseSqlEnabled ? executeSqlTool : localOnlyExecuteSql,
@@ -174,9 +181,7 @@ function registerExecuteSql(
 		description: warehouseSqlEnabled
 			? buildExecuteSqlDescription(warehouseDatabaseIds)
 			: localOnlyExecuteSql.description,
-		inputSchema: warehouseSqlEnabled
-			? buildExecuteSqlInputSchema(warehouseDatabaseIds)
-			: LOCAL_ONLY_EXECUTE_SQL_INPUT_SCHEMA,
+		inputSchema: readOnly ? inputSchema.omit({ save_to: true }) : inputSchema,
 		outputSchema: executeSql.OutputSchema.extend({ query_id: QUERY_ID_OUTPUT_SCHEMA }).shape,
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,

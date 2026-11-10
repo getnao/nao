@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 DEFAULT_TEST_MODELS = ["openai:gpt-4.1"]
 
 ReasoningEffort = Literal["minimal", "low", "medium", "high", "max"]
+HarnessName = Literal["codex", "claude-code"]
 
 
 class ComparisonConfig(BaseModel):
@@ -35,6 +36,20 @@ class TestModelConfig(BaseModel):
         return validate_model_name(model)
 
 
+class TestHarnessConfig(BaseModel):
+    """A local headless agent CLI that runs each test through nao's context-layer MCP endpoint."""
+
+    __test__ = False
+    model_config = ConfigDict(extra="forbid")
+
+    name: HarnessName
+    model: str | None = Field(default=None, description="Optional model override passed to the harness")
+    reasoning_effort: str | None = Field(
+        default=None, description="Optional reasoning-effort override passed to the harness"
+    )
+    timeout_seconds: int = Field(default=600, ge=1, description="Maximum time for each harness invocation")
+
+
 class TestConfig(BaseModel):
     """Defaults for `nao test`, each one overridable by the matching command line flag."""
 
@@ -46,6 +61,10 @@ class TestConfig(BaseModel):
             "The models to run the tests against, in the format 'provider:model_id', "
             "or as {model, reasoning_efforts} to run a model at several reasoning efforts"
         ),
+    )
+    harness: TestHarnessConfig | None = Field(
+        default=None,
+        description="Headless agent CLI used in context-layer mode instead of nao's built-in agent",
     )
     threads: int = Field(default=1, ge=1, description="Number of test runs to execute in parallel")
     k: int = Field(
@@ -64,6 +83,12 @@ class TestConfig(BaseModel):
             if isinstance(model, str):
                 validate_model_name(model)
         return models
+
+    @field_validator("harness", mode="before")
+    @classmethod
+    def expand_harness_name(cls, harness: object) -> object:
+        """Allow the concise `harness: codex` form as well as the full mapping."""
+        return {"name": harness} if isinstance(harness, str) else harness
 
 
 def validate_model_name(model: str) -> str:

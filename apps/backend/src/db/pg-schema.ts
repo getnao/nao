@@ -1941,11 +1941,13 @@ export const mcpCallLog = pgTable(
 		success: boolean('success').notNull(),
 		toolInput: jsonb('tool_input').$type<unknown>(),
 		toolOutput: jsonb('tool_output').$type<unknown>(),
+		testAttemptId: text('test_attempt_id'),
 		calledAt: timestamp('called_at').defaultNow().notNull(),
 	},
 	(t) => [
 		index('mcp_call_log_projectId_idx').on(t.projectId),
 		index('mcp_call_log_userId_idx').on(t.userId),
+		index('mcp_call_log_testAttemptId_idx').on(t.testAttemptId),
 		index('mcp_call_log_calledAt_idx').on(t.calledAt),
 	],
 );

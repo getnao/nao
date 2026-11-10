@@ -13,10 +13,23 @@ export async function runAgentTool<I, O>(
 	if (!tool.execute) {
 		throw new Error(`Agent tool has no execute function`);
 	}
+	if (ctx.testAttemptId && hasSaveDestination(input)) {
+		throw new Error('save_to is unavailable during test attempts. Run the query without save_to.');
+	}
 	const toolContext = chatId
 		? await buildToolContext({ projectId: ctx.projectId, userId: ctx.userId, chatId })
 		: await buildMcpToolContext({ projectId: ctx.projectId, userId: ctx.userId });
+	if (ctx.testAttemptId) {
+		toolContext.agentSettings = {
+			...toolContext.agentSettings,
+			sql: { ...toolContext.agentSettings?.sql, dangerouslyWritePermEnabled: false },
+		};
+	}
 	return tool.execute(input, makeExecutionOptions(toolContext)) as Promise<O>;
+}
+
+function hasSaveDestination(input: unknown): boolean {
+	return typeof input === 'object' && input !== null && 'save_to' in input && input.save_to !== undefined;
 }
 
 function makeExecutionOptions(

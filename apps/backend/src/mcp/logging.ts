@@ -11,6 +11,7 @@ import { truncateMiddle } from '../utils/utils';
 export interface McpContext {
 	userId: string;
 	projectId: string;
+	testAttemptId: string | null;
 	role: McpUserRole;
 	settings: McpEndpointSettings;
 	/** When true, chart tools return config + data rows for the client agent to render itself instead of embed links/apps only. */
@@ -50,6 +51,8 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	delete_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 };
 
+const lastCallStartByContext = new WeakMap<McpContext, number>();
+
 export function withLogging<T>(toolName: string, ctx: McpContext, handler: LoggedToolHandler<T>): ToolHandler<T> {
 	return async (args: T, extra: ToolExtra) => {
 		const modeKeys = TOOL_MODE_MAP[toolName];
@@ -61,6 +64,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 		}
 
 		const callLogId = randomUUID();
+		const calledAt = nextCallStartedAt(ctx);
 		const start = Date.now();
 		let success = true;
 		let result: ToolResult | undefined;
@@ -77,18 +81,32 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 			throw error;
 		} finally {
 			trackToolCall(toolName, ctx, Date.now() - start, success);
-			insertMcpCallLog({
+			const saveCall = insertMcpCallLog({
 				id: callLogId,
 				projectId: ctx.projectId,
 				userId: ctx.userId,
+				testAttemptId: ctx.testAttemptId,
 				toolName,
 				durationMs: Date.now() - start,
 				success,
 				toolInput: args as unknown,
 				toolOutput: thrownError !== undefined ? formatThrownError(thrownError) : extractLoggableOutput(result),
-			}).catch(() => {});
+				calledAt,
+			});
+			if (ctx.testAttemptId) {
+				await saveCall;
+			} else {
+				saveCall.catch(() => {});
+			}
 		}
 	};
+}
+
+/** Keep start timestamps ordered even when several calls begin in the same millisecond. */
+function nextCallStartedAt(ctx: McpContext): Date {
+	const timestamp = Math.max(Date.now(), (lastCallStartByContext.get(ctx) ?? 0) + 1);
+	lastCallStartByContext.set(ctx, timestamp);
+	return new Date(timestamp);
 }
 
 const MODE_TRACKING_NAMES: Partial<Record<keyof McpEndpointSettings, string>> = {
