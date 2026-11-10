@@ -50,7 +50,10 @@ vi.mock('../src/utils/llm', () => ({
 	getProjectAvailableModels: mocks.getProjectAvailableModels,
 	resolveModelInferenceSettings: mocks.resolveModelInferenceSettings,
 }));
-vi.mock('../src/utils/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
+vi.mock('../src/utils/logger', () => ({
+	logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
+	serializeError: (error: unknown) => ({ error: String(error) }),
+}));
 vi.mock('../src/services/draft-context.service', () => ({
 	createDraftContextSnapshot: mocks.createDraftContextSnapshot,
 	removeContextSnapshot: mocks.removeContextSnapshot,
@@ -350,7 +353,7 @@ describe('startTestRun', () => {
 		mocks.markRunRunning.mockRejectedValueOnce(new Error('database unavailable'));
 
 		await startTestRun({ projectId: 'project-1', userId: 'user-1' });
-		await vi.waitFor(() => expect(mocks.failRun).toHaveBeenCalledWith('run-1', 'database unavailable'));
+		await vi.waitFor(() => expect(mocks.failRun).toHaveBeenCalledWith('run-1', 'Failed to start the test run'));
 
 		expect(mocks.runTestInChat).not.toHaveBeenCalled();
 	});

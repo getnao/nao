@@ -103,8 +103,8 @@ export const testRunRoutes = {
 	startRun: cloudBillingContextAdminProcedure.input(startRunSchema).mutation(async ({ ctx, input }) => {
 		const { mode, target, ...settings } = input;
 		const runInput = { ...settings, ...parseRunTarget(target), projectId: ctx.project.id, userId: ctx.user.id };
-		const draft = mode === 'production' ? null : await requireUserDraft(ctx);
 		try {
+			const draft = mode === 'production' ? null : await requireUserDraft(ctx);
 			if (!draft) {
 				return await startTestRun(runInput);
 			}
@@ -273,6 +273,9 @@ async function getProjectRun(projectId: string, runId: string) {
 }
 
 function toTestRunTrpcError(error: unknown, projectId: string): TRPCError {
+	if (error instanceof TRPCError) {
+		return error;
+	}
 	if (error instanceof TestRunConflictError) {
 		return new TRPCError({ code: 'CONFLICT', message: error.message });
 	}

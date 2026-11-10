@@ -24,7 +24,7 @@ import {
 	type TestSuite,
 } from '../types/test-run';
 import { getProjectAvailableModels, resolveDefaultChatModel, resolveModelInferenceSettings } from '../utils/llm';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
 import type { AgentRunResult } from './agent';
@@ -353,7 +353,12 @@ async function markRunRunningOrFail(run: DBTestRun, attemptCount: number): Promi
 	try {
 		return await testRunQueries.markRunRunning(run.id, attemptCount);
 	} catch (error) {
-		await testRunQueries.failRun(run.id, error instanceof Error ? error.message : String(error));
+		logger.error('Failed to mark the test run as running', {
+			source: 'agent',
+			projectId: run.projectId,
+			context: serializeError(error),
+		});
+		await testRunQueries.failRun(run.id, 'Failed to start the test run');
 		return false;
 	}
 }
