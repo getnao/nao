@@ -21,8 +21,10 @@ export interface UploadedBoundaryFile {
 	storageKey: string;
 }
 
-/** Same cap as a GeoJSON fetched from a URL, and below the API body limit an upload travels in. */
-export const MAX_BOUNDARY_FILE_BYTES = 25 * 1024 * 1024;
+/** Leaves room for the rest of a custom story in its download, which is capped at 24 MB as a whole. */
+export const MAX_BOUNDARY_FILE_BYTES = 10 * 1024 * 1024;
+
+export const BOUNDARY_FILE_SIMPLIFY_HINT = 'Simplify its shapes, for example with mapshaper.org, to make it smaller.';
 
 export interface MapSettings {
 	customBoundaries?: CustomBoundarySet[];

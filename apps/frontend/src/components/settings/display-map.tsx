@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, Plus, Trash2, Upload, X } from 'lucide-react';
 
-import { MAX_BOUNDARY_FILE_BYTES, validateGeoJson } from '@nao/shared';
+import { BOUNDARY_FILE_SIMPLIFY_HINT, MAX_BOUNDARY_FILE_BYTES, validateGeoJson } from '@nao/shared';
 import type { CustomBoundarySet, GeoJsonValidationResult, UploadedBoundaryFile } from '@nao/shared';
 import type { FeatureCollection } from 'geojson';
 
@@ -313,7 +313,9 @@ function BoundaryEditPanel({
 		clearPreview();
 		setPickedFile(null);
 		if (file.size > MAX_BOUNDARY_FILE_BYTES) {
-			setLoadError(`${file.name} is larger than the ${formatBytes(MAX_BOUNDARY_FILE_BYTES)} limit.`);
+			setLoadError(
+				`${file.name} is larger than the ${formatBytes(MAX_BOUNDARY_FILE_BYTES)} limit. ${BOUNDARY_FILE_SIMPLIFY_HINT}`,
+			);
 			return;
 		}
 		setIsReadingFile(true);

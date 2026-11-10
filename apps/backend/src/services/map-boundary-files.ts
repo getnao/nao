@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { MAX_BOUNDARY_FILE_BYTES, type UploadedBoundaryFile, validateGeoJson } from '@nao/shared';
+import {
+	BOUNDARY_FILE_SIMPLIFY_HINT,
+	MAX_BOUNDARY_FILE_BYTES,
+	type UploadedBoundaryFile,
+	validateGeoJson,
+} from '@nao/shared';
 
 import { logger } from '../utils/logger';
 import { getStorage, isStorageEnabled, STORAGE_DISABLED_MESSAGE } from './storage';
@@ -25,7 +30,9 @@ export const saveBoundaryFile = async (
 	const { geojson, featureCount } = validateGeoJson(upload.geojson);
 	const data = Buffer.from(JSON.stringify(geojson));
 	if (data.byteLength > MAX_BOUNDARY_FILE_BYTES) {
-		throw new Error(`GeoJSON files may not exceed ${MAX_BOUNDARY_FILE_BYTES / 1024 / 1024} MB.`);
+		throw new Error(
+			`GeoJSON files may not exceed ${MAX_BOUNDARY_FILE_BYTES / 1024 / 1024} MB. ${BOUNDARY_FILE_SIMPLIFY_HINT}`,
+		);
 	}
 	const storageKey = `${projectRoot(projectId)}/map-boundaries/${randomUUID()}.geojson`;
 	const stored = await getStorage().write(storageKey, data, { contentType: 'application/geo+json' });
