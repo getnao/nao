@@ -45,6 +45,9 @@ import { messageQueueStore } from '@/stores/chat-message-queue';
 
 export type AgentMode = 'default' | 'onboarding' | 'example';
 
+/** Extra fields of every request the agent sends, read when the message is sent. */
+export type AgentRequestBodyGetter = () => Record<string, unknown>;
+
 export interface AgentHelpers {
 	chatId: string | undefined;
 	mode: AgentMode;
@@ -99,15 +102,18 @@ interface AgentSendRefs {
 	modeRef: { current: AgentMode };
 	selectedModelRef: { current: LlmSelectedModel | null };
 	mentionsRef: { current: MentionOption[] };
+	requestBodyRef: { current: AgentRequestBodyGetter | undefined };
 }
 const agentSendRefsStore = new WeakMap<Agent<UIMessage>, AgentSendRefs>();
 
 export const useAgent = ({
 	disableNavigation = false,
 	mode = 'default',
+	getRequestBody,
 }: {
 	disableNavigation?: boolean;
 	mode?: AgentMode;
+	getRequestBody?: AgentRequestBodyGetter;
 } = {}): AgentState => {
 	const navigate = useNavigate();
 	const contextChatId = useChatId();
@@ -137,6 +143,8 @@ export const useAgent = ({
 	const modeRef = useRef(mode);
 	modeRef.current = mode;
 	const mentionsRef = useRef<MentionOption[]>([]);
+	const requestBodyRef = useRef(getRequestBody);
+	requestBodyRef.current = getRequestBody;
 	const [adminMode, setAdminModeState] = useState(false);
 	const adminModeRef = useRef(false);
 	/** Set to the server id of a chat that was just created, so the upcoming chatId change is treated as the same conversation continuing rather than opening a different chat. */
@@ -233,6 +241,7 @@ export const useAgent = ({
 					const activeModeRef = liveRefs?.modeRef ?? modeRef;
 					const activeSelectedModelRef = liveRefs?.selectedModelRef ?? selectedModelRef;
 					const activeAdminModeRef = liveRefs?.adminModeRef ?? adminModeRef;
+					const activeRequestBodyRef = liveRefs?.requestBodyRef ?? requestBodyRef;
 
 					const mentions = activeMentionsRef.current;
 					activeMentionsRef.current = [];
@@ -250,6 +259,7 @@ export const useAgent = ({
 						headers: getProjectRequestHeaders(),
 						body: {
 							...body,
+							...activeRequestBodyRef.current?.(),
 							mode: activeModeRef.current,
 							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
 							message: {
@@ -309,7 +319,7 @@ export const useAgent = ({
 		return agentService.registerAgent(agentId, newAgent);
 	}, [contextChatId, disableNavigation, navigate, setChat, queryClient]);
 
-	agentSendRefsStore.set(agentInstance, { adminModeRef, modeRef, selectedModelRef, mentionsRef });
+	agentSendRefsStore.set(agentInstance, { adminModeRef, modeRef, selectedModelRef, mentionsRef, requestBodyRef });
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
 		chat: agentInstance,

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d86b2aa1-ec85-46da-a298-aaf1b13aa733",
+  "id": "35506ed7-ad55-48a2-979e-0849a5be5992",
   "prevId": "e64f630c-0b12-401b-ac56-88d4cfcb2b9d",
   "tables": {
     "account": {
@@ -820,6 +820,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "event_triggers": {
+          "name": "event_triggers",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
         },
         "created_at": {
           "name": "created_at",
@@ -6104,14 +6112,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "two_factor_methods": {
-          "name": "two_factor_methods",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[\"totp\",\"email\"]'"
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -10089,89 +10089,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "two_factor": {
-      "name": "two_factor",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "secret": {
-          "name": "secret",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "backup_codes": {
-          "name": "backup_codes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "verified": {
-          "name": "verified",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "failed_verification_count": {
-          "name": "failed_verification_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "locked_until": {
-          "name": "locked_until",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "two_factor_user_id_unique": {
-          "name": "two_factor_user_id_unique",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "two_factor_user_id_user_id_fk": {
-          "name": "two_factor_user_id_user_id_fk",
-          "tableFrom": "two_factor",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "user": {
       "name": "user",
       "columns": {
@@ -10254,14 +10171,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "two_factor_enabled": {
-          "name": "two_factor_enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
         },
         "created_at": {
           "name": "created_at",

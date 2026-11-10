@@ -1188,6 +1188,19 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		betaAutomationsOnly: true,
 	},
 
+	// ── Monitoring ─────────────────────────────────────────────
+	{
+		page: '/settings/monitoring/automations',
+		pageLabel: 'Monitoring',
+		section: 'Automations',
+		title: 'Automation runs',
+		description:
+			'Runs, failures, success rate and durations of every automation in the project, and what started them.',
+		keywords: ['monitoring', 'observability', 'automation runs', 'failures', 'errors', 'triggers', 'dashboard'],
+		adminOnly: true,
+		betaAutomationsOnly: true,
+	},
+
 	// ── Usage & Costs ──────────────────────────────────────────
 	{
 		page: '/settings/usage',
