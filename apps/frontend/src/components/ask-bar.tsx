@@ -10,6 +10,7 @@ import type { CitationData } from '@nao/shared/types';
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { AskQuestion, AskSelection } from '@/stores/ask-bar';
 import type { PendingCitation } from '@/stores/chat-pending-citation';
+import type { SubmittedMessage } from '@/hooks/use-agent';
 import { ChatInputAnimatedBorder } from '@/components/chat-input-animated-border';
 import { ChatPrompt } from '@/components/chat-input-prompt';
 import { ChatMessagesContent } from '@/components/chat-messages/chat-messages';
@@ -34,9 +35,7 @@ type AskSession = {
 	chatId: string | null;
 	/** What the next message quotes: each Ask on the page or in the answers adds one, as a pill in the input. */
 	citations: PendingCitation[];
-	pendingText?: string;
-	pendingCitations?: CitationData[];
-	pendingMentions?: MentionOption[];
+	pendingMessage?: AskMessage;
 	isPanelOpen: boolean;
 };
 
@@ -116,9 +115,7 @@ export function AskBar({
 		setSession((current) => ({
 			...current,
 			chatId,
-			pendingText: message.text,
-			pendingCitations: message.citations,
-			pendingMentions: message.mentions,
+			pendingMessage: message,
 			citations: withoutCitations(current.citations, submittedCitations),
 			isPanelOpen: true,
 		}));
@@ -162,17 +159,8 @@ export function AskBar({
 			<SetChatInputCallbackProvider>
 				<AgentProvider disableNavigation>
 					<PendingMessageSender
-						pendingText={session.pendingText}
-						pendingCitations={session.pendingCitations}
-						pendingMentions={session.pendingMentions}
-						onSent={() =>
-							setSession((current) => ({
-								...current,
-								pendingText: undefined,
-								pendingCitations: undefined,
-								pendingMentions: undefined,
-							}))
-						}
+						message={session.pendingMessage}
+						onSent={() => setSession((current) => ({ ...current, pendingMessage: undefined }))}
 					/>
 					{children}
 					{session.isPanelOpen ? (
@@ -215,30 +203,20 @@ function FloatingBar({ isHidden, children }: { isHidden: boolean; children: Reac
 	);
 }
 
-/** Sends the first message once the new quick question is mounted. */
-export function PendingMessageSender({
-	pendingText,
-	pendingCitations,
-	pendingMentions,
-	onSent,
-}: {
-	pendingText?: string;
-	pendingCitations?: CitationData[];
-	pendingMentions?: MentionOption[];
-	onSent: () => void;
-}) {
+/** Sends the first message once the new conversation is mounted. */
+export function PendingMessageSender({ message, onSent }: { message?: SubmittedMessage; onSent: () => void }) {
 	const { queueOrSendMessage, setMentions } = useAgentContext();
-	const sentText = useRef<string | null>(null);
+	const sentMessage = useRef<SubmittedMessage | null>(null);
 
 	useEffect(() => {
-		if (!pendingText || sentText.current === pendingText) {
+		if (!message || sentMessage.current === message) {
 			return;
 		}
-		sentText.current = pendingText;
+		sentMessage.current = message;
 		onSent();
-		setMentions(pendingMentions ?? []);
-		void queueOrSendMessage({ text: pendingText, citations: nonEmpty(pendingCitations) });
-	}, [pendingText, pendingCitations, pendingMentions, onSent, queueOrSendMessage, setMentions]);
+		setMentions(message.mentions);
+		void queueOrSendMessage({ ...message, citations: nonEmpty(message.citations) });
+	}, [message, onSent, queueOrSendMessage, setMentions]);
 
 	return null;
 }

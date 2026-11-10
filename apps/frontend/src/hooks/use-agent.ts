@@ -88,6 +88,11 @@ export interface SendMessageArgs {
 	citations?: CitationData[];
 }
 
+/** A message as a chat input hands it over, with the context it mentions. */
+export interface SubmittedMessage extends SendMessageArgs {
+	mentions: MentionOption[];
+}
+
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
 
 export const getOnboardingChatIdStorage = (userId: string) =>

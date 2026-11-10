@@ -44,7 +44,7 @@ import {
 import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
 import type { CitationData } from '@nao/shared/types';
-import type { AgentHelpers } from '@/hooks/use-agent';
+import type { AgentHelpers, SubmittedMessage } from '@/hooks/use-agent';
 import type { ChatAllowanceExhaustedScope } from '@/lib/ai';
 import type { StoryReferences } from '@/lib/story-reference';
 import type { QueuedMessage } from '@/types/chat-message-queue';
@@ -105,6 +105,8 @@ const TRIAL_DOCUMENTS_DISABLED_REASON = 'Documents can be attached once your pro
 
 type ChatInputVariant = 'default' | 'onboarding';
 
+type SubmitChatMessage = (message: SubmittedMessage) => Promise<void>;
+
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
 	className?: string;
@@ -113,10 +115,11 @@ type ChatInputBaseProps = {
 	initialText?: string;
 	initialCitations?: CitationData[];
 	onCancel?: () => void;
-	onSubmitMessage: AgentHelpers['queueOrSendMessage'];
+	onSubmitMessage: SubmitChatMessage;
 	allowQueueing?: boolean;
 	fillsFromFollowUps?: boolean;
 	acceptsPendingStoryReferences?: boolean;
+	adminModeAvailable?: boolean;
 };
 
 type ChatInputInlineProps = {
@@ -129,10 +132,18 @@ type ChatInputInlineProps = {
 
 export function ChatInput({
 	variant = 'default',
+	placeholder,
 	acceptsPendingStoryReferences = false,
+	adminModeAvailable = true,
+	onSubmitMessage,
 }: {
 	variant?: ChatInputVariant;
+	placeholder?: string;
 	acceptsPendingStoryReferences?: boolean;
+	/** False for conversations with a dedicated agent, which admin mode would replace. */
+	adminModeAvailable?: boolean;
+	/** Takes the message in place of the agent, for a conversation that has to be created first. */
+	onSubmitMessage?: SubmitChatMessage;
 }) {
 	const promptRef = useRef<PromptHandle>(null);
 	const { queueOrSendMessage } = useAgentContext();
@@ -141,10 +152,12 @@ export function ChatInput({
 		<ChatInputBase
 			promptRef={promptRef}
 			variant={variant}
-			onSubmitMessage={queueOrSendMessage}
+			placeholder={placeholder}
+			onSubmitMessage={onSubmitMessage ?? queueOrSendMessage}
 			allowQueueing
 			fillsFromFollowUps
 			acceptsPendingStoryReferences={acceptsPendingStoryReferences}
+			adminModeAvailable={adminModeAvailable}
 		/>
 	);
 }
@@ -182,6 +195,7 @@ function ChatInputBase({
 	allowQueueing,
 	fillsFromFollowUps = false,
 	acceptsPendingStoryReferences = false,
+	adminModeAvailable = true,
 }: ChatInputBaseProps) {
 	const [inputText, setInputText] = useState('');
 	const [managedCreditDialogOpen, setManagedCreditDialogOpen] = useState(false);
@@ -546,14 +560,15 @@ function ChatInputBase({
 					citationStore.clear();
 				}
 
-				setMentions(toContextMentions(currentMentions));
+				const mentions = toContextMentions(currentMentions);
+				setMentions(mentions);
 				promptRef.current?.clear();
 				setInputText('');
 
 				const { images, documents } = attachmentUpload.getPayload();
 				attachmentUpload.clearAttachments();
 
-				return onSubmitMessage({ text: message.text, images, documents, citations });
+				return onSubmitMessage({ text: message.text, images, documents, citations, mentions });
 			});
 		},
 		[
@@ -775,7 +790,7 @@ function ChatInputBase({
 									hasStoryReferences={storyReferenceOptions.length > 0}
 									hasSkills={hasSkills}
 									storyMentions={storyMentionOptions}
-									canChatWithNaoData={canChatWithNaoData}
+									canChatWithNaoData={canChatWithNaoData && adminModeAvailable}
 									isAdminMode={isAdminMode}
 									adminModeLocked={adminModeLocked}
 									isTrial={isTrial}

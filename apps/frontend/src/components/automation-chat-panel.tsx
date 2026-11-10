@@ -1,33 +1,38 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { MessageCircle, PanelRightClose, PanelRightOpen, SquarePen } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
-import type { PromptHandle } from 'prompt-mentions';
-import type { AskMessage } from '@/components/ask-bar';
 import type { AutomationFormHandle } from '@/components/automations-form';
+import type { PromptSuggestion } from '@/components/prompt-suggestions';
 
+import type { SubmittedMessage } from '@/hooks/use-agent';
 import type { HandledDraftUpdates } from '@/hooks/use-automation-draft-updates';
-import { AskInput, PendingMessageSender } from '@/components/ask-bar';
+import type { ChatInputRestore } from '@/stores/chat-input-restore';
+import { PendingMessageSender } from '@/components/ask-bar';
 import {
 	AutomationChatPanelResizeHandle,
 	useAutomationChatPanelWidth,
 } from '@/components/automation-chat-panel-resize-handle';
+import { ChatInput } from '@/components/chat-input';
+import { PromptSuggestions } from '@/components/prompt-suggestions';
 import { Button } from '@/components/ui/button';
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ui/conversation';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { AgentProvider, useAgentContext } from '@/contexts/agent.provider';
+import { AgentProvider } from '@/contexts/agent.provider';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { ChatMessagesContent } from '@/components/chat-messages/chat-messages';
 import { useAutomationDraftUpdates } from '@/hooks/use-automation-draft-updates';
 import { ChatIdContext } from '@/hooks/use-chat-id';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { createLocalStorage } from '@/lib/local-storage';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { chatInputRestoreStore } from '@/stores/chat-input-restore';
 
 interface ChatSession {
 	chatId: string;
-	pendingMessage?: AskMessage;
+	pendingMessage?: SubmittedMessage;
 	/** A conversation from an earlier visit, whose changes the form already received. */
 	isResumed: boolean;
 }
@@ -35,17 +40,19 @@ interface ChatSession {
 const PLACEHOLDER = 'Ask to change the automation...';
 const START_ERROR_MESSAGE = "Couldn't start the conversation. Try again.";
 
-const NEW_AUTOMATION_SUGGESTIONS = [
+const SUGGESTIONS_TITLE = 'Suggested ideas';
+
+const NEW_AUTOMATION_SUGGESTIONS = toSuggestions([
 	'Every Monday at 9am, email me a summary of last week’s key metrics',
 	'Help me write the instructions for a daily report',
 	'Post a Slack alert when yesterday’s revenue drops more than 10%',
-];
+]);
 
-const EXISTING_AUTOMATION_SUGGESTIONS = [
+const EXISTING_AUTOMATION_SUGGESTIONS = toSuggestions([
 	'Why did the last runs fail?',
 	'Make the report shorter and easier to scan',
 	'Run it on weekdays at 8am instead',
-];
+]);
 
 const panelOpenStorage = createLocalStorage('nao-automation-chat-panel-open', true);
 
@@ -75,6 +82,11 @@ export function AutomationChatPanel({
 	const session = useAutomationChatSession(automationId);
 	const handledUpdatesRef = useRef<HandledDraftUpdates>(new Map());
 	const panelWidth = useAutomationChatPanelWidth();
+
+	const startConversation = async (message: SubmittedMessage) => {
+		const chatId = await session.start(message);
+		onChatStarted?.(chatId);
+	};
 
 	const resizeHandle = (
 		<AutomationChatPanelResizeHandle {...panelWidth} isOpen={isOpen} onOpenChange={onOpenChange} />
@@ -113,7 +125,7 @@ export function AutomationChatPanel({
 					suggestions={automationId ? EXISTING_AUTOMATION_SUGGESTIONS : NEW_AUTOMATION_SUGGESTIONS}
 					isStarting={session.isStarting}
 					hasStartFailed={session.hasStartFailed}
-					onStart={async (message) => onChatStarted?.(await session.start(message))}
+					onStart={startConversation}
 				/>
 			)}
 		</aside>
@@ -131,7 +143,7 @@ function useAutomationChatSession(automationId: string | undefined) {
 	const latestChatId = latestChat.data?.chatId;
 	const resumedSession = latestChatId ? { chatId: latestChatId, isResumed: true } : null;
 
-	const start = async (message: AskMessage) => {
+	const start = async (message: SubmittedMessage) => {
 		const { chatId } = await startChat.mutateAsync({ automationId });
 		setChosenSession({ chatId, pendingMessage: message, isResumed: false });
 		return chatId;
@@ -169,12 +181,7 @@ function SessionChat({
 		<ChatIdContext.Provider value={session.chatId}>
 			<SetChatInputCallbackProvider>
 				<AgentProvider disableNavigation getRequestBody={getRequestBody}>
-					<PendingMessageSender
-						pendingText={session.pendingMessage?.text}
-						pendingCitations={session.pendingMessage?.citations}
-						pendingMentions={session.pendingMessage?.mentions}
-						onSent={onPendingMessageSent}
-					/>
+					<PendingMessageSender message={session.pendingMessage} onSent={onPendingMessageSent} />
 					<FormUpdater
 						isResumed={session.isResumed}
 						formHandleRef={formHandleRef}
@@ -186,7 +193,7 @@ function SessionChat({
 						</ConversationContent>
 						<ConversationScrollButton />
 					</Conversation>
-					<SessionInput />
+					<ChatInput placeholder={PLACEHOLDER} adminModeAvailable={false} />
 				</AgentProvider>
 			</SetChatInputCallbackProvider>
 		</ChatIdContext.Provider>
@@ -210,84 +217,55 @@ function FormUpdater({
 	return null;
 }
 
-function SessionInput() {
-	const promptRef = useRef<PromptHandle>(null);
-	const { isRunning, queueOrSendMessage, setMentions, cancelAgent } = useAgentContext();
-
-	useEffect(() => {
-		promptRef.current?.focus();
-	}, []);
-
-	const send = ({ text, citations, mentions }: AskMessage) => {
-		setMentions(mentions);
-		void queueOrSendMessage({ text, citations: citations.length > 0 ? citations : undefined });
-	};
-
-	return (
-		<div className='border-t p-3'>
-			<AskInput
-				promptRef={promptRef}
-				placeholder={PLACEHOLDER}
-				citations={[]}
-				isSending={isRunning}
-				fillsFromFollowUps
-				onRemoveCitation={noop}
-				onSubmit={send}
-				onStop={() => void cancelAgent()}
-			/>
-		</div>
-	);
-}
-
+/** No conversation exists yet: the first message creates it, then is sent in it. */
 function EmptyConversation({
 	suggestions,
 	isStarting,
 	hasStartFailed,
 	onStart,
 }: {
-	suggestions: string[];
+	suggestions: PromptSuggestion[];
 	isStarting: boolean;
 	hasStartFailed: boolean;
-	onStart: (message: AskMessage) => Promise<void>;
+	onStart: (message: SubmittedMessage) => Promise<void>;
 }) {
-	const promptRef = useRef<PromptHandle>(null);
+	const startOrRestoreMessage = async (message: SubmittedMessage) => {
+		try {
+			await onStart(message);
+		} catch {
+			chatInputRestoreStore.set(toChatInputRestore(message));
+		}
+	};
 
 	return (
-		<>
-			<div className='flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-auto p-4'>
-				<div className='grid gap-1'>
-					<p className='text-sm font-medium'>Work on this automation with nao</p>
-					<p className='text-sm text-muted-foreground'>
-						Describe what you want to receive. nao explores your data, writes the instructions and sets up
-						the schedule and delivery in the form. You review and save the changes.
+		<SetChatInputCallbackProvider>
+			<AgentProvider disableNavigation>
+				<div className='flex min-h-0 flex-1 flex-col overflow-auto'>
+					<div className='mt-auto grid gap-4 py-4'>
+						<div className='grid gap-1 px-4'>
+							<p className='font-medium'>Work on this automation with nao</p>
+							<p className='text-sm text-muted-foreground'>
+								Describe what you want to receive. nao explores your data, writes the instructions and
+								sets up the schedule and delivery in the form. You review and save the changes.
+							</p>
+						</div>
+						<PromptSuggestions title={SUGGESTIONS_TITLE} suggestions={suggestions} />
+					</div>
+				</div>
+				{hasStartFailed && (
+					<p role='alert' className='px-4 pb-2 text-xs text-destructive'>
+						{START_ERROR_MESSAGE}
 					</p>
+				)}
+				<div inert={isStarting} className={cn('transition-opacity', isStarting && 'opacity-60')}>
+					<ChatInput
+						placeholder={PLACEHOLDER}
+						adminModeAvailable={false}
+						onSubmitMessage={startOrRestoreMessage}
+					/>
 				</div>
-				<div className='grid gap-1.5'>
-					{suggestions.map((suggestion) => (
-						<button
-							key={suggestion}
-							type='button'
-							disabled={isStarting}
-							onClick={() => onStart({ text: suggestion, citations: [], mentions: [] }).catch(noop)}
-							className='rounded-lg border bg-background px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:opacity-50'
-						>
-							{suggestion}
-						</button>
-					))}
-				</div>
-			</div>
-			<div className='border-t p-3'>
-				<AskInput
-					promptRef={promptRef}
-					placeholder={PLACEHOLDER}
-					citations={[]}
-					isSending={isStarting}
-					error={hasStartFailed ? START_ERROR_MESSAGE : undefined}
-					onRemoveCitation={noop}
-					onSubmit={onStart}
-				/>
-			</div>
-		</>
+			</AgentProvider>
+		</SetChatInputCallbackProvider>
 	);
 }
 
@@ -355,4 +333,16 @@ function PanelIconButton({ label, onClick, children }: { label: string; onClick:
 	);
 }
 
-function noop() {}
+function toSuggestions(prompts: string[]): PromptSuggestion[] {
+	return prompts.map((prompt) => ({ label: prompt, prompt }));
+}
+
+/** The input clears itself as it hands a message over, so a message that could not be sent is written back. */
+function toChatInputRestore({ text, images = [], documents = [], citations }: SubmittedMessage): ChatInputRestore {
+	return {
+		text,
+		images: images.map(({ mediaType, data }) => ({ mediaType, url: `data:${mediaType};base64,${data}` })),
+		documents,
+		citations,
+	};
+}
