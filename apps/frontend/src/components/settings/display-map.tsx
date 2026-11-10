@@ -334,7 +334,9 @@ function BoundaryEditPanel({
 		clearPreview();
 		setIsReadingFile(true);
 		try {
-			const response = await fetch(`/api/map-boundaries/${getActiveProjectId()}/${boundaryKey}`);
+			const response = await fetch(`/api/map-boundaries/${getActiveProjectId()}/${boundaryKey}`, {
+				cache: 'no-store',
+			});
 			if (!response.ok) {
 				throw new Error('The uploaded GeoJSON could not be loaded.');
 			}
