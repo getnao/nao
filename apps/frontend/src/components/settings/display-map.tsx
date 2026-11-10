@@ -482,7 +482,13 @@ function BoundaryEditPanel({
 						<span className='text-sm text-muted-foreground truncate min-w-0 flex-1'>{fileSummary}</span>
 					) : (
 						<>
-							{!hasUrl && <span className='text-xs text-muted-foreground shrink-0'>or</span>}
+							{!hasUrl && (
+								<span
+									className={cn('text-xs text-muted-foreground shrink-0', !canUpload && 'opacity-50')}
+								>
+									or
+								</span>
+							)}
 							<Input
 								value={url}
 								onChange={(e) => changeUrl(e.target.value)}
