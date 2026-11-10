@@ -143,6 +143,26 @@ export const extractStoryMapBoundaryKeys = (sources: string[]): string[] => {
 	return [...keys];
 };
 
+/** The boundary sets a downloaded story may carry in total, leaving room for the rest of a download capped at 24 MB. */
+export const MAX_STORY_EXPORT_BOUNDARY_BYTES = 12 * 1024 * 1024;
+
+/** Keeps sets in order while they fit the download budget, so a story using several large sets still downloads. */
+export const fitMapBoundariesInExport = (
+	boundaries: [string, StoryMapBoundary][],
+): Record<string, StoryMapBoundary> => {
+	const encoder = new TextEncoder();
+	const kept: Record<string, StoryMapBoundary> = {};
+	let remainingBytes = MAX_STORY_EXPORT_BOUNDARY_BYTES;
+	for (const [key, boundary] of boundaries) {
+		const bytes = encoder.encode(JSON.stringify(boundary)).byteLength;
+		if (bytes <= remainingBytes) {
+			kept[key] = boundary;
+			remainingBytes -= bytes;
+		}
+	}
+	return kept;
+};
+
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
 	/** Rows of the filtered queries and story SQL the viewer saw, by request key, so a download shows the same. */

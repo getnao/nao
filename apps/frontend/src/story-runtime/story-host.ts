@@ -537,7 +537,9 @@ function readExportedMapBoundary(data: StoryExportData, key: string): Promise<St
 	const boundary = data.mapBoundaries?.[key];
 	return boundary
 		? Promise.resolve(boundary)
-		: Promise.reject(new Error(`Map boundary "${key}" is not part of this export.`));
+		: Promise.reject(
+				new Error(`Map boundary "${key}" is not part of this download. It may be too large to include.`),
+			);
 }
 
 function toJsonSafe<T>(value: T): T {

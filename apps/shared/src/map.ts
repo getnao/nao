@@ -21,7 +21,7 @@ export interface UploadedBoundaryFile {
 	storageKey: string;
 }
 
-/** Leaves room for the rest of a custom story in its download, which is capped at 24 MB as a whole. */
+/** Per file, and below a story download's boundary budget, so one uploaded set always fits in a download. */
 export const MAX_BOUNDARY_FILE_BYTES = 10 * 1024 * 1024;
 
 export const BOUNDARY_FILE_SIMPLIFY_HINT = 'Simplify its shapes, for example with mapshaper.org, to make it smaller.';

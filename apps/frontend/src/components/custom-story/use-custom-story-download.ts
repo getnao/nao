@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
-import { STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '@nao/shared/story-app';
+import { fitMapBoundariesInExport, STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '@nao/shared/story-app';
 import { readRequestAnswers } from './story-request-answers';
 import type { QueryClient } from '@tanstack/react-query';
 import type { DownloadFormat } from '@nao/shared/types';
@@ -107,7 +107,7 @@ async function fetchExportData(
 	};
 }
 
-/** A set that fails to load is left out: its map then shows the same error offline as it would live. */
+/** A set that fails to load or does not fit the download is left out: its map then shows an error offline. */
 async function fetchMapBoundaries(
 	queryClient: QueryClient,
 	dataSource: CustomStoryDataSource,
@@ -121,7 +121,7 @@ async function fetchMapBoundaries(
 			),
 		),
 	);
-	return Object.fromEntries(entries.filter((entry) => entry !== null));
+	return fitMapBoundariesInExport(entries.filter((entry) => entry !== null));
 }
 
 function isUnknownQueryError(error: unknown): boolean {

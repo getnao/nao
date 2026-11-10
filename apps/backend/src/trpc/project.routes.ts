@@ -1508,8 +1508,11 @@ export const projectRoutes = {
 					input.key,
 					patch,
 				);
+				if (!previous) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: `No map boundary with key "${input.key}".` });
+				}
 				if (changesSource) {
-					await deleteBoundaryFile(previous?.file);
+					await deleteBoundaryFile(previous.file);
 				}
 				return boundaries;
 			} catch (error) {
