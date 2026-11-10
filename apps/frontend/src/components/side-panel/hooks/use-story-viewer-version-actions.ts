@@ -13,6 +13,7 @@ interface UseStoryViewerVersionActionsParams {
 	storyTitle?: string;
 	currentVersionCode?: string;
 	currentVersionNumber?: number;
+	latestVersionNumber?: number;
 	hasUnsavedChanges: boolean;
 	isViewingLatest: boolean;
 	goToLatestVersion: () => void;
@@ -34,6 +35,7 @@ export const useStoryViewerVersionActions = ({
 	storyTitle,
 	currentVersionCode,
 	currentVersionNumber,
+	latestVersionNumber,
 	hasUnsavedChanges,
 	isViewingLatest,
 	goToLatestVersion,
@@ -263,7 +265,8 @@ export const useStoryViewerVersionActions = ({
 	}, [saveCurrentVersion, setViewMode]);
 
 	const handleRestore = useCallback(() => {
-		const hasVersionData = storyTitle !== undefined && currentVersionCode !== undefined;
+		const hasVersionData =
+			storyTitle !== undefined && currentVersionCode !== undefined && latestVersionNumber !== undefined;
 		if (!hasVersionData || isViewingLatest || createVersionMutation.isPending) {
 			return;
 		}
@@ -275,6 +278,7 @@ export const useStoryViewerVersionActions = ({
 				title: storyTitle,
 				code: currentVersionCode,
 				action: 'replace',
+				basedOnVersion: latestVersionNumber,
 			},
 			{
 				onSuccess: async () => {
@@ -292,6 +296,7 @@ export const useStoryViewerVersionActions = ({
 		storySlug,
 		storyTitle,
 		currentVersionCode,
+		latestVersionNumber,
 		isViewingLatest,
 		createVersionMutation,
 		refreshQueries,

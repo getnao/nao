@@ -460,6 +460,7 @@ describe('user group feature route enforcement', () => {
 					title: 'Missing Story',
 					code: '# Missing',
 					action,
+					basedOnVersion: 1,
 				}),
 			).rejects.toMatchObject({
 				code: 'FORBIDDEN',
@@ -567,7 +568,12 @@ describe('user group feature route enforcement', () => {
 			await expect(saveEdit({ basedOnVersion: 1 })).rejects.toMatchObject({ code: 'CONFLICT' });
 		});
 
-		function saveEdit(change: { basedOnVersion: number }) {
+		it('refuses a replace that does not say which version it is based on', async () => {
+			await expect(saveEdit({})).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+			expect(mocks.createStoryVersion).not.toHaveBeenCalled();
+		});
+
+		function saveEdit(change: { basedOnVersion?: number }) {
 			return createCaller().story.createVersion({
 				chatId: 'chat-id',
 				storySlug: 'existing-story',

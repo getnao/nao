@@ -775,14 +775,19 @@ export const storyRoutes = {
 
 	createVersion: storyEditorProcedure
 		.input(
-			z.object({
-				chatId: z.string(),
-				storySlug: z.string(),
-				title: z.string().min(1),
-				code: z.string().min(1),
-				action: z.enum(['create', 'update', 'replace']),
-				basedOnVersion: z.number().int().positive().optional(),
-			}),
+			z
+				.object({
+					chatId: z.string(),
+					storySlug: z.string(),
+					title: z.string().min(1),
+					code: z.string().min(1),
+					action: z.enum(['create', 'update', 'replace']),
+					basedOnVersion: z.number().int().positive().optional(),
+				})
+				.refine((value) => value.action !== 'replace' || value.basedOnVersion !== undefined, {
+					message: 'Replacing a story requires the version it is based on.',
+					path: ['basedOnVersion'],
+				}),
 		)
 		.mutation(async ({ input, ctx }) => {
 			await assertNoOneElseEditing(input.chatId, input.storySlug, ctx.user.id);
