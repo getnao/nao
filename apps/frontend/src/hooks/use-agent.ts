@@ -194,6 +194,7 @@ export const useAgent = ({
 					}
 				}
 				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
+				queryClient.invalidateQueries({ queryKey: [['user', 'getGithubStarPrompt']] });
 				return;
 			}
 

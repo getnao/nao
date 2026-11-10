@@ -1256,6 +1256,24 @@ function extractQueryResultFromToolOutput(
 	};
 }
 
+/** Conversations the user started from the chat UI, including deleted ones. */
+export const countUserConversations = async (userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ total: count() })
+		.from(s.chat)
+		.where(
+			and(
+				eq(s.chat.userId, userId),
+				isNotAutomationRunChat(),
+				isNotPageScopedChat(),
+				isNotOnboardingChat(),
+				isNotTestChat(),
+			),
+		)
+		.execute();
+	return row?.total ?? 0;
+};
+
 export async function getChatInfo(
 	chatId: string,
 ): Promise<{ projectId: string; userId: string; title: string } | null> {

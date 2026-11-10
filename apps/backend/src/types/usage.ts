@@ -86,6 +86,7 @@ export interface UserProjectPreferences {
 export interface StoredUserPreferences extends UserPreferences {
 	projectPreferences?: Record<string, UserProjectPreferences>;
 	supportRequestSentAt?: number;
+	githubStarPromptDismissedAt?: number;
 }
 
 export function resolveUsagePeriod(
