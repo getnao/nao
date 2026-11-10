@@ -1881,6 +1881,38 @@ describe('user group queries', () => {
 		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[3].id);
 	});
 
+	it('bumps the project revision when an existing membership becomes locked by the free limit', async () => {
+		const groups = await Promise.all(
+			['One', 'Two', 'Three', 'Locked'].map((name) =>
+				createUserGroup(
+					FOREIGN_PROJECT_ID,
+					name,
+					[],
+					DEFAULT_DENSITY,
+					undefined,
+					undefined,
+					ssoMappings([name], 'user'),
+				),
+			),
+		);
+		for (const [index, group] of groups.entries()) {
+			await db
+				.update(userGroup)
+				.set({ createdAt: new Date(`2025-01-0${index + 1}T00:00:00Z`) })
+				.where(eq(userGroup.id, group.id));
+		}
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['Locked']);
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).toContain(groups[3].id);
+		const revisionBeforeLock = await viewerCacheRevision(FOREIGN_PROJECT_ID);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['Locked'], {
+			hasUnlimitedUserGroups: false,
+		});
+
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[3].id);
+		await expect(viewerCacheRevision(FOREIGN_PROJECT_ID)).resolves.toBe(revisionBeforeLock! + 1);
+	});
+
 	it('suppresses UI fallback when env mappings target locked excess groups', async () => {
 		const groups = await Promise.all(
 			['Active UI', 'Two', 'Three', 'Locked'].map((name, index) =>

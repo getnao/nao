@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
 	getSharedStoryByStoryId: vi.fn(),
 	canUserAccessSharedStory: vi.fn(),
 	getUserRoleInProject: vi.fn(),
+	getProjectRowSecurity: vi.fn(),
+	hasEffectiveRowSecurityRestrictions: vi.fn(),
 	getCustomStoryVersion: vi.fn(),
 	getStandaloneCustomStoryVersion: vi.fn(),
 	getSharedCustomStoryQueryData: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/queries/activity.queries', () => ({}));
 vi.mock('../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
+vi.mock('../src/queries/user-group.queries', () => ({ getProjectRowSecurity: mocks.getProjectRowSecurity }));
 vi.mock('../src/queries/shared-story.queries', () => ({
 	getSharedStory: vi.fn(),
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
@@ -49,6 +52,9 @@ vi.mock('../src/services/custom-story-state', () => ({
 	setCustomStoryState: mocks.setCustomStoryState,
 	setCustomStoryStateByStoryId: mocks.setCustomStoryStateByStoryId,
 }));
+vi.mock('../src/services/user-group-context-access.service', () => ({
+	hasEffectiveRowSecurityRestrictions: mocks.hasEffectiveRowSecurityRestrictions,
+}));
 vi.mock('../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));
 
 import { sharedStoryRoutes } from '../src/trpc/shared-story.routes';
@@ -63,6 +69,10 @@ describe('storyShare standalone classic story', () => {
 		mockShare({ chatId: null, format: 'classic' });
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.canUserAccessSharedStory.mockResolvedValue(true);
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.hasEffectiveRowSecurityRestrictions.mockImplementation(
+			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
+		);
 		mocks.getStoryDataCacheByStoryId.mockResolvedValue({
 			queryData: { q_shown: rows('shown'), q_hidden: rows('hidden') },
 		});
@@ -84,6 +94,10 @@ describe('storyShare custom story readers', () => {
 		mockShare({ chatId: null });
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.canUserAccessSharedStory.mockResolvedValue(true);
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.hasEffectiveRowSecurityRestrictions.mockImplementation(
+			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
+		);
 	});
 
 	it('reads the version of a standalone story by its id', async () => {
@@ -105,6 +119,37 @@ describe('storyShare custom story readers', () => {
 
 		expect(mocks.getStandaloneCustomStoryQueryData).toHaveBeenCalledWith('story-1', 'q_revenue', undefined);
 		expect(mocks.getStandaloneCustomStoryNarratives).toHaveBeenCalledWith('story-1');
+	});
+
+	it('denies standalone owner data to a shared viewer when row security exists', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ databaseType: 'duckdb', database: 'analytics', schema: 'main', table: 'customers' }],
+		});
+
+		await expect(createCaller().storyShare.getCustomVersion(STORY_INPUT)).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.getStandaloneCustomStoryVersion).not.toHaveBeenCalled();
+	});
+
+	it('allows the standalone story owner when row security exists', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [{ databaseType: 'duckdb', database: 'analytics', schema: 'main', table: 'customers' }],
+		});
+		mocks.getStandaloneCustomStoryVersion.mockResolvedValue({ version: 2 });
+
+		await expect(createCaller('owner-1').storyShare.getCustomVersion(STORY_INPUT)).resolves.toEqual({ version: 2 });
+		expect(mocks.getProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('allows stored standalone data to a viewer with full access to every RLS table', async () => {
+		mocks.hasEffectiveRowSecurityRestrictions.mockResolvedValue(false);
+		mocks.getStandaloneCustomStoryVersion.mockResolvedValue({ version: 2 });
+
+		await expect(createCaller().storyShare.getCustomVersion(STORY_INPUT)).resolves.toEqual({ version: 2 });
+		expect(mocks.hasEffectiveRowSecurityRestrictions).toHaveBeenCalledWith('project-1', 'viewer-1');
 	});
 
 	it('keeps the state of a standalone story by its id', async () => {
@@ -149,6 +194,7 @@ function mockShare({ chatId, format = 'custom' }: { chatId: string | null; forma
 		id: 'share-1',
 		projectId: 'project-1',
 		userId: 'owner-1',
+		ownerUserId: 'owner-1',
 		visibility: 'project',
 		storyId: 'story-1',
 		chatId,
@@ -162,9 +208,9 @@ function rows(value: string) {
 	return { columns: ['value'], data: [{ value }] };
 }
 
-function createCaller() {
+function createCaller(userId = 'viewer-1') {
 	return testRouter.createCaller({
-		session: { user: { id: 'viewer-1', name: 'Viewer', email: 'viewer-1@example.com' } },
+		session: { user: { id: userId, name: 'Viewer', email: `${userId}@example.com` } },
 		selectedProjectId: 'project-1',
 	} as never);
 }

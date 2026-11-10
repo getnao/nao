@@ -74,12 +74,13 @@ export async function reconcileSsoUserGroupMemberships(
 					options.entraMappings ?? [],
 				);
 				insertMissingProjectMembershipsSqlite(transaction, userId, desired.projectRoles);
-				const existingGroupIds = transaction
-					.select({ groupId: s.userGroupMember.groupId })
+				const existingMemberships = transaction
+					.select({ groupId: s.userGroupMember.groupId, projectId: s.userGroup.projectId })
 					.from(s.userGroupMember)
+					.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 					.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, provider)))
-					.all()
-					.map(({ groupId }) => groupId);
+					.all();
+				const existingGroupIds = existingMemberships.map(({ groupId }) => groupId);
 				const changes = diffMemberships(existingGroupIds, desired.groupIds);
 				if (changes.stale.length > 0) {
 					transaction
@@ -101,7 +102,7 @@ export async function reconcileSsoUserGroupMemberships(
 						.run();
 				}
 				if (changes.stale.length > 0 || changes.added.length > 0) {
-					const projectIds = changedMembershipProjectIds(mappings, changes);
+					const projectIds = changedMembershipProjectIds(mappings, existingMemberships, changes);
 					if (projectIds.length > 0) {
 						transaction
 							.update(s.project)
@@ -138,12 +139,13 @@ export async function reconcileSsoUserGroupMemberships(
 			options.entraMappings ?? [],
 		);
 		await insertMissingProjectMembershipsPostgres(transaction, userId, desired.projectRoles);
-		const existingGroupIds = await transaction
-			.select({ groupId: s.userGroupMember.groupId })
+		const existingMemberships = await transaction
+			.select({ groupId: s.userGroupMember.groupId, projectId: s.userGroup.projectId })
 			.from(s.userGroupMember)
+			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 			.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, provider)))
-			.execute()
-			.then((memberships) => memberships.map(({ groupId }) => groupId));
+			.execute();
+		const existingGroupIds = existingMemberships.map(({ groupId }) => groupId);
 		const changes = diffMemberships(existingGroupIds, desired.groupIds);
 		if (changes.stale.length > 0) {
 			await transaction
@@ -165,7 +167,7 @@ export async function reconcileSsoUserGroupMemberships(
 				.execute();
 		}
 		if (changes.stale.length > 0 || changes.added.length > 0) {
-			const projectIds = changedMembershipProjectIds(mappings, changes);
+			const projectIds = changedMembershipProjectIds(mappings, existingMemberships, changes);
 			if (projectIds.length > 0) {
 				await transaction
 					.update(s.project)
@@ -183,11 +185,17 @@ export async function reconcileSsoUserGroupMemberships(
 
 function changedMembershipProjectIds(
 	mappings: SsoUserGroupMapping[],
+	existingMemberships: Array<{ groupId: string; projectId: string }>,
 	changes: { stale: string[]; added: string[] },
 ): string[] {
 	const changedGroupIds = new Set([...changes.stale, ...changes.added]);
 	return [
-		...new Set(mappings.filter(({ groupId }) => changedGroupIds.has(groupId)).map(({ projectId }) => projectId)),
+		...new Set([
+			...mappings.filter(({ groupId }) => changedGroupIds.has(groupId)).map(({ projectId }) => projectId),
+			...existingMemberships
+				.filter(({ groupId }) => changedGroupIds.has(groupId))
+				.map(({ projectId }) => projectId),
+		]),
 	];
 }
 

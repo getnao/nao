@@ -60,10 +60,16 @@ export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, job
 		throw new Error('storyId is required.');
 	}
 	const storyId = payload.storyId;
-	const previousSkips = parseSkipDeliveries(payload.skipDeliveries);
+	const hasRetryState = payload.recipientUserIds !== undefined || payload.skipDeliveries !== undefined;
+	const startsNewScheduledDelivery = job?.cron !== null && job?.cron !== undefined && job.attempts === 1;
+	const previousSkips = startsNewScheduledDelivery ? [] : parseSkipDeliveries(payload.skipDeliveries);
+	const recipientUserIds = startsNewScheduledDelivery ? undefined : payload.recipientUserIds;
+	if (job && startsNewScheduledDelivery && hasRetryState) {
+		await scheduledJobQueries.updateJobPayload(job.id, { storyId });
+	}
 	try {
-		await runScheduledStoryDelivery(storyId, previousSkips, payload.recipientUserIds);
-		if (job && (payload.recipientUserIds !== undefined || payload.skipDeliveries !== undefined)) {
+		await runScheduledStoryDelivery(storyId, previousSkips, recipientUserIds);
+		if (job && !startsNewScheduledDelivery && hasRetryState) {
 			await scheduledJobQueries.updateJobPayload(job.id, { storyId });
 		}
 	} catch (error) {

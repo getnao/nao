@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 		orgMemberUserId: string | null;
 	}>,
 	existingProviderProjectRows: [] as Array<{ projectId: string }>,
-	existingGroupRows: [] as Array<{ groupId: string }>,
+	existingGroupRows: [] as Array<{ groupId: string; projectId: string }>,
 	lockedProjectIds: [] as string[],
 	projectRevisionUpdates: 0,
 	viewerCacheDeletes: 0,
@@ -92,7 +92,7 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 	it('preserves viewer caches when memberships do not change', async () => {
 		mocks.mappingRows = [mocks.mappingRows[0]!];
 		mocks.existingProviderProjectRows = [];
-		mocks.existingGroupRows = [{ groupId: 'group-a' }];
+		mocks.existingGroupRows = [{ groupId: 'group-a', projectId: 'project-a' }];
 
 		await reconcileSsoUserGroupMemberships('user-1', 'oidc', ['claim-a']);
 
@@ -168,11 +168,11 @@ function transaction() {
 			if ('projectMemberUserId' in selection) {
 				return query(mocks.mappingRows, () => mocks.events.push('read-mappings'));
 			}
-			if ('projectId' in selection) {
-				return query(mocks.existingProviderProjectRows, () => mocks.events.push('read-existing-projects'));
-			}
 			if ('groupId' in selection) {
 				return query(mocks.existingGroupRows, () => mocks.events.push('read-memberships'));
+			}
+			if ('projectId' in selection) {
+				return query(mocks.existingProviderProjectRows, () => mocks.events.push('read-existing-projects'));
 			}
 			lockSelectionCount += 1;
 			if (lockSelectionCount === 1) {

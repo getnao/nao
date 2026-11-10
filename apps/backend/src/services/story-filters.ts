@@ -32,7 +32,9 @@ export async function getFilteredStoryQueryData(
 	executionOptions: StoryFilterExecutionOptions = {},
 ): Promise<StoryQueryData> {
 	const executionUserId =
-		executionOptions.viewerUserId && (await hasRowSecurity(chatId)) ? executionOptions.viewerUserId : undefined;
+		executionOptions.viewerUserId && (await hasRowSecurity(chatId, executionOptions.viewerUserId))
+			? executionOptions.viewerUserId
+			: undefined;
 	const [{ code, sqlQueries }, executionContext] = await Promise.all([
 		loadStoryCodeAndQueries(chatId, storySlug),
 		createStoryExecutionContext(chatId, executionUserId),

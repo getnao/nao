@@ -35,6 +35,7 @@ import { skillService } from '../src/services/skill';
 import { resolveAvailableUserGroupAccess as resolveUserGroupAccess } from '../src/services/user-group-availability.service';
 import {
 	expandDatabaseAccess,
+	hasEffectiveRowSecurityRestrictions,
 	isDatabaseObjectAllowed,
 	resolveMcpSettingsAccess,
 	resolveMcpUsageAccess,
@@ -244,6 +245,7 @@ describe('warehouse Context access', () => {
 				tables: [{ ...orders, constraintColumns: ['tenant_id'], access: 'full' }],
 			},
 		});
+		await expect(hasEffectiveRowSecurityRestrictions('project-1', 'user-1')).resolves.toBe(false);
 	});
 
 	it('does not widen rows with policies excluded by same-group Context filtering', async () => {
@@ -291,6 +293,7 @@ describe('warehouse Context access', () => {
 				tables: [{ ...orders, access: 'predicate', predicate: '(tenant_id = 7)' }],
 			},
 		});
+		await expect(hasEffectiveRowSecurityRestrictions('project-1', 'user-1')).resolves.toBe(true);
 
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['Context group', 'Non-Context group'],

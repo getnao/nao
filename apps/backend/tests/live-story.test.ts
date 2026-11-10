@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
 	getSqlQueriesFromCode: vi.fn(),
 	getSqlQueriesByIds: vi.fn(),
 	getSqlQueryById: vi.fn(),
+	getLatestSqlQueriesByIds: vi.fn(),
+	listVersionFiles: vi.fn(),
 	getStoryDataCacheByChatAndSlug: vi.fn(),
 	getStoryViewerDataCache: vi.fn(),
 	getProjectViewerCacheRevision: vi.fn(),
@@ -19,12 +21,14 @@ const mocks = vi.hoisted(() => ({
 	queryAppDb: vi.fn(),
 	runQueryOnLocalFiles: vi.fn(),
 	buildToolContext: vi.fn(),
+	hasEffectiveRowSecurityRestrictions: vi.fn(),
 	resolveExcludedColumnEnforcement: vi.fn(),
 	upsertStoryDataCache: vi.fn(),
 	upsertStoryViewerDataCache: vi.fn(),
 	updateLatestVersionCode: vi.fn(),
 	findMissingQueryIds: vi.fn(),
 	backfillMissingQueryData: vi.fn(),
+	extractCustomStoryQueryIds: vi.fn(),
 	generateText: vi.fn(),
 	getProjectModelProvider: vi.fn(),
 	resolveDefaultModelSelection: vi.fn(),
@@ -68,6 +72,14 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	getQueryDataFromCode: mocks.getQueryDataFromCode,
 }));
 
+vi.mock('../src/queries/execute-sql.queries', () => ({
+	getLatestSqlQueriesByIds: mocks.getLatestSqlQueriesByIds,
+}));
+
+vi.mock('../src/queries/story-file.queries', () => ({
+	listVersionFiles: mocks.listVersionFiles,
+}));
+
 vi.mock('../src/queries/user-group.queries', () => ({
 	getProjectRowSecurity: mocks.getProjectRowSecurity,
 }));
@@ -89,6 +101,10 @@ vi.mock('../src/services/excluded-columns.service', () => ({
 	resolveExcludedColumnEnforcement: mocks.resolveExcludedColumnEnforcement,
 }));
 
+vi.mock('../src/services/user-group-context-access.service', () => ({
+	hasEffectiveRowSecurityRestrictions: mocks.hasEffectiveRowSecurityRestrictions,
+}));
+
 vi.mock('../src/utils/llm', () => ({
 	getDefaultModelId: vi.fn(),
 	resolveDefaultModelSelection: mocks.resolveDefaultModelSelection,
@@ -102,7 +118,7 @@ vi.mock('../src/utils/schedule-task', () => ({
 vi.mock('../src/utils/story-query-data', () => ({
 	backfillMissingQueryData: mocks.backfillMissingQueryData,
 	findMissingQueryIds: mocks.findMissingQueryIds,
-	extractCustomStoryQueryIds: () => new Set<string>(),
+	extractCustomStoryQueryIds: mocks.extractCustomStoryQueryIds,
 }));
 
 import { assertProjectCloudBillingAccess } from '../src/services/cloud-billing-access.service';
@@ -186,12 +202,17 @@ describe('live story SQL execution', () => {
 			format: 'classic',
 		});
 		mocks.getSqlQueriesByIds.mockResolvedValue({});
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set());
+		mocks.listVersionFiles.mockResolvedValue([]);
 		mocks.buildToolContext.mockImplementation(async () => toolContext());
 		mocks.resolveExcludedColumnEnforcement.mockResolvedValue(false);
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
 		mocks.getStoryViewerDataCache.mockResolvedValue(null);
 		mocks.getProjectViewerCacheRevision.mockResolvedValue(0);
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.hasEffectiveRowSecurityRestrictions.mockImplementation(
+			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
+		);
 		mocks.findMissingQueryIds.mockReturnValue([]);
 		mocks.upsertStoryDataCache.mockResolvedValue({});
 		mocks.upsertStoryViewerDataCache.mockResolvedValue(true);
@@ -554,6 +575,27 @@ describe('live story SQL execution', () => {
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
+	it('returns stored data to a viewer with full access to every RLS table', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		const queryData = {
+			query_warehouse: {
+				columns: ['region'],
+				data: [{ region: 'all-regions' }],
+			},
+		};
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [{ table: 'orders' }] });
+		mocks.hasEffectiveRowSecurityRestrictions.mockResolvedValue(false);
+		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
+
+		await expect(
+			getStoryQueryData('chat-1', 'orders', code, false, null, { viewerUserId: 'viewer-1' }),
+		).resolves.toMatchObject({ queryData, code });
+
+		expect(mocks.hasEffectiveRowSecurityRestrictions).toHaveBeenCalledWith('project-1', 'viewer-1');
+		expect(mocks.getStoryViewerDataCache).not.toHaveBeenCalled();
+		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith('chat-1', code);
+	});
+
 	it('strips hardcoded filter options from a cached non-live viewer snapshot', async () => {
 		const ownerCode = 'Owner narrative\n<table query_id="query_warehouse" />';
 		const viewerCode =
@@ -868,6 +910,63 @@ describe('live story SQL execution', () => {
 		expect(systemPrompt).toContain('Viewer-specific section');
 		expect(systemPrompt).toContain('"label":"Revenue"');
 		expect(systemPrompt).not.toContain('"label":"Series"');
+	});
+
+	it('regenerates viewer custom narratives without owner-authored text', async () => {
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			version: 1,
+			code: 'export default {}',
+			title: 'Acme has 100 customers',
+			isLiveTextDynamic: true,
+			format: 'custom',
+		});
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set(['query_admin']));
+		mocks.listVersionFiles.mockResolvedValue([
+			{
+				path: 'app.tsx',
+				content:
+					"import { Narrative } from '@nao/story-kit'; export default () => <Narrative id='summary'>Acme has 100 customers</Narrative>;",
+			},
+		]);
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: {
+				sqlQuery: 'SELECT customer_count FROM customer_summary',
+				adminMode: true,
+			},
+		});
+		mocks.queryAppDb.mockResolvedValue({
+			_version: '1',
+			columns: ['customer_count'],
+			rows: [{ customer_count: 1 }],
+			rowCount: 1,
+		});
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+		mocks.generateText.mockResolvedValue({
+			output: { narratives: [{ id: 'summary', text: 'One customer is available to you.' }] },
+			usage: {
+				inputTokens: 1,
+				inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+				outputTokens: 1,
+				outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+				totalTokens: 2,
+			},
+		});
+
+		await expect(
+			refreshStoryDataForDelivery('chat-1', 'customers', {
+				viewerUserId: 'viewer-1',
+			}),
+		).resolves.toMatchObject({
+			narratives: { summary: 'One customer is available to you.' },
+		});
+
+		const systemPrompt = mocks.generateText.mock.calls[0]![0].system;
+		expect(systemPrompt).not.toContain('Acme');
+		expect(systemPrompt).not.toContain('100 customers');
+		expect(systemPrompt).toContain('Viewer-specific narrative.');
 	});
 
 	it('does not fall back to owner text when viewer classic story generation fails', async () => {

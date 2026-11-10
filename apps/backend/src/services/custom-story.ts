@@ -192,7 +192,8 @@ export async function getCustomStoryQueryData(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryQueryResult> {
 	const story = await getCustomStory(chatId, storySlug);
-	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	const viewerUserId =
+		options.viewerUserId && (await hasRowSecurity(chatId, options.viewerUserId)) ? options.viewerUserId : undefined;
 	if (viewerUserId) {
 		const storyVersionId =
 			options.storyVersionId ?? (await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug))?.id;
@@ -293,7 +294,8 @@ export async function getCustomStoryNarratives(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryNarratives> {
 	const story = await getCustomStory(chatId, storySlug);
-	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	const viewerUserId =
+		options.viewerUserId && (await hasRowSecurity(chatId, options.viewerUserId)) ? options.viewerUserId : undefined;
 	if (viewerUserId) {
 		const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug);
 		if (!version) {

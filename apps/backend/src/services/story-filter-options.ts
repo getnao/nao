@@ -113,7 +113,9 @@ export async function getStoryFilterOptions(
 	}
 
 	const viewerUserId =
-		executionOptions.viewerUserId && (await hasRowSecurity(chatId)) ? executionOptions.viewerUserId : undefined;
+		executionOptions.viewerUserId && (await hasRowSecurity(chatId, executionOptions.viewerUserId))
+			? executionOptions.viewerUserId
+			: undefined;
 	if (filter.options?.length && !viewerUserId && !filter.optionsQueryId) {
 		return { options: [...new Set(filter.options)], isComplete: true };
 	}

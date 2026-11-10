@@ -8,7 +8,6 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
-import * as userGroupQueries from '../queries/user-group.queries';
 import { logActivity } from '../services/activity';
 import { readStoryChartPluginSources } from '../services/chart-plugin';
 import {
@@ -35,6 +34,7 @@ import { assertShareableUserGroupIds, filterShareableUserGroupIds } from '../ser
 import { unshareStory } from '../services/shared-story.service';
 import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
 import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
+import { hasEffectiveRowSecurityRestrictions } from '../services/user-group-context-access.service';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
@@ -95,8 +95,7 @@ export const sharedStoryRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
-		const { tables } = await userGroupQueries.getProjectRowSecurity(input.projectId);
-		const hasRowSecurity = tables.length > 0;
+		const hasRowSecurity = await hasEffectiveRowSecurityRestrictions(input.projectId, ctx.user.id);
 		const storiesWithPreview = hasRowSecurity
 			? items.map((story) => ({ ...story, kpiPreviewData: null }))
 			: await withKpiPreviewData(items, (story) => story.storyId);
@@ -399,7 +398,7 @@ export const sharedStoryRoutes = {
 			}
 
 			const queryData = shared.chatId
-				? (await hasRowSecurity(shared.chatId))
+				? (await hasRowSecurity(shared.chatId, ctx.user.id))
 					? (
 							await getStoryQueryData(
 								shared.chatId,
@@ -720,14 +719,24 @@ async function getStandaloneStoryQueryData(storyId: string, code: string) {
 }
 
 async function canUserAccessShare(
-	share: { id: string; visibility: string; userId: string },
+	share: {
+		id: string;
+		visibility: string;
+		userId: string;
+		ownerUserId?: string | null;
+		chatId?: string | null;
+		projectId: string;
+	},
 	userId: string,
 ): Promise<boolean> {
-	return (
+	const canAccessShare =
 		share.visibility !== 'specific' ||
 		share.userId === userId ||
-		sharedStoryQueries.canUserAccessSharedStory(share.id, userId)
-	);
+		(await sharedStoryQueries.canUserAccessSharedStory(share.id, userId));
+	if (!canAccessShare || share.chatId || share.ownerUserId === userId) {
+		return canAccessShare;
+	}
+	return !(await hasEffectiveRowSecurityRestrictions(share.projectId, userId));
 }
 
 async function getStoryRefreshAccess(

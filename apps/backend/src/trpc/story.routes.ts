@@ -15,7 +15,6 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
-import * as userGroupQueries from '../queries/user-group.queries';
 import { agentService } from '../services/agent';
 import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { naturalLanguageToCron } from '../services/cron-nlp';
@@ -61,6 +60,7 @@ import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql 
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { listMostViewedStories } from '../services/story-reference';
 import { listStoryVersionChanges } from '../services/story-version-history';
+import { hasEffectiveRowSecurityRestrictions } from '../services/user-group-context-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storySnapshotHtml,
@@ -1137,8 +1137,7 @@ export const storyRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
-		const { tables } = await userGroupQueries.getProjectRowSecurity(ctx.project.id);
-		const hasRowSecurity = tables.length > 0;
+		const hasRowSecurity = await hasEffectiveRowSecurityRestrictions(ctx.project.id, ctx.user.id);
 		const storiesWithPreview = hasRowSecurity
 			? items.map((story) => ({ ...story, kpiPreviewData: null }))
 			: await withKpiPreviewData(items, (story) => story.storyId);

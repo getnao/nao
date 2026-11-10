@@ -42,6 +42,7 @@ import {
 	semanticBindingsFromCode,
 	type SemanticStoryBindings,
 } from './semantic-story-bindings';
+import { hasEffectiveRowSecurityRestrictions } from './user-group-context-access.service';
 import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
@@ -78,7 +79,8 @@ export async function executeLiveQuery(
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
 
-	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	const viewerUserId =
+		options.viewerUserId && (await hasRowSecurity(chatId, options.viewerUserId)) ? options.viewerUserId : undefined;
 	const executionContext = viewerUserId ? await createStoryExecutionContext(chatId, viewerUserId) : undefined;
 
 	const queryData = await executeStoryQueries(
@@ -197,7 +199,7 @@ async function refreshStoryDataWithContext(
 
 	const narratives =
 		version.isLiveTextDynamic && version.format === 'custom'
-			? await regenerateCustomStoryNarratives(target, version, queryData)
+			? await regenerateCustomStoryNarratives(target, version, queryData, options.viewerUserId !== undefined)
 			: {};
 	const querySources = buildQuerySources(sqlQueries);
 	if (options.viewerUserId) {
@@ -267,7 +269,8 @@ export async function getStoryQueryData(
 	cacheSchedule: string | null,
 	options: StoryQueryDataOptions = {},
 ): Promise<StoryQueryDataResult> {
-	const viewerUserId = options.viewerUserId && (await hasRowSecurity(chatId)) ? options.viewerUserId : undefined;
+	const viewerUserId =
+		options.viewerUserId && (await hasRowSecurity(chatId, options.viewerUserId)) ? options.viewerUserId : undefined;
 	if (viewerUserId) {
 		const storyVersionId =
 			options.storyVersionId ?? (await storyQueries.getLatestVersionByChatAndSlug(chatId, slug))?.id;
@@ -366,8 +369,11 @@ async function getViewerStoryQueryData(
 	}
 }
 
-export async function hasRowSecurity(chatId: string): Promise<boolean> {
+export async function hasRowSecurity(chatId: string, userId?: string): Promise<boolean> {
 	const projectId = await requireChatProjectId(chatId);
+	if (userId) {
+		return hasEffectiveRowSecurityRestrictions(projectId, userId);
+	}
 	const { tables } = await userGroupQueries.getProjectRowSecurity(projectId);
 	return tables.length > 0;
 }
@@ -703,6 +709,7 @@ async function regenerateCustomStoryNarratives(
 	target: StoryRefreshTarget,
 	version: { id: string; title: string },
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	viewerSafe = false,
 ): Promise<StoryNarratives> {
 	const sources = extractStoryNarratives(await storyFileQueries.listVersionFiles(version.id));
 	if (sources.length === 0) {
@@ -715,8 +722,8 @@ async function regenerateCustomStoryNarratives(
 
 	const systemPrompt = renderToMarkdown(
 		LiveCustomStoryNarrativesPrompt({
-			title: version.title,
-			narratives: sources,
+			title: viewerSafe ? 'Story' : version.title,
+			narratives: viewerSafe ? sources.map(({ id }) => ({ id, text: 'Viewer-specific narrative.' })) : sources,
 			querySummaries: buildQueryDataSummary(queryData),
 		}),
 	);
