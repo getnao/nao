@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SlackConfig } from '../../src/queries/project-slack-config.queries';
 import { ProjectSlackBot } from '../../src/services/slack';
 import type { ConversationContext } from '../../src/types/messaging-provider';
+import { createSlackConfig } from '../helpers/slack-config';
 
 const slackHarness = vi.hoisted(() => ({
 	chatPostMessage: vi.fn(),
@@ -39,19 +39,7 @@ vi.mock('../../src/services/team-member', () => ({
 }));
 vi.mock('../../src/utils/keyed-lock', () => ({ claimOnce: vi.fn().mockResolvedValue(true) }));
 
-const config: SlackConfig = {
-	projectId: 'project-1',
-	botToken: 'xoxb-test',
-	signingSecret: 'secret',
-	redirectUrl: 'https://nao.example.com/',
-	autoCreateUsersEnabled: true,
-	autoCreateUsersDomains: ['example.com'],
-	transportMode: 'webhook',
-	appToken: '',
-	replyMode: 'thread',
-	dmScopeMissing: false,
-	dmThreadsEnabled: false,
-};
+const config = createSlackConfig({ autoCreateUsersEnabled: true, autoCreateUsersDomains: ['example.com'] });
 
 describe('ProjectSlackBot answering status', () => {
 	beforeEach(() => {

@@ -17,7 +17,7 @@ import {
 	releaseStoryEditLock,
 } from '../../src/services/story-edit-lock.service';
 import { listStoryVersionChanges } from '../../src/services/story-version-history';
-import type { ToolContext } from '../../src/types/tools';
+import { createToolContext, executeTool } from '../helpers/tool-context';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
@@ -126,20 +126,10 @@ async function editWithAgent(chatId: string, code: string) {
 
 function runAgentEdit(chatId: string, code: string) {
 	const tool = storyTool as Tool<{ action: 'replace'; id: string; code: string }, { success: boolean }>;
-	return tool.execute!(
+	return executeTool(
+		tool,
 		{ action: 'replace', id: STORY_ID, code },
-		{
-			toolCallId: 'story-call',
-			messages: [],
-			experimental_context: {
-				chatId,
-				userId: OWNER_ID,
-				projectId: PROJECT_ID,
-				userGroupFeatures: ['storyCreation'],
-				queryResults: new Map(),
-				generatedArtifacts: { charts: [], maps: [], stories: [] },
-			} as unknown as ToolContext,
-		},
+		createToolContext({ chatId, userId: OWNER_ID, projectId: PROJECT_ID, userGroupFeatures: ['storyCreation'] }),
 	);
 }
 

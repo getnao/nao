@@ -22,7 +22,7 @@ import {
 } from '../../src/services/story-mount';
 import { expandStoryReferences } from '../../src/services/story-reference';
 import type { UIMessage } from '../../src/types/chat';
-import type { ToolContext } from '../../src/types/tools';
+import { createToolContext, executeTool } from '../helpers/tool-context';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
@@ -302,17 +302,15 @@ async function runStoryTool(
 	context: { chatId: string; userId: string },
 ) {
 	const tool = storyTool as Tool<typeof input, Record<string, unknown>>;
-	return tool.execute!(input, {
-		toolCallId: 'story-call',
-		messages: [],
-		experimental_context: {
+	return executeTool(
+		tool,
+		input,
+		createToolContext({
 			...context,
 			projectId: PROJECT_ID,
 			userGroupFeatures: ['storyCreation', 'customStoryCreation'],
-			queryResults: new Map(),
-			generatedArtifacts: { charts: [], maps: [], stories: [] },
-		} as unknown as ToolContext,
-	});
+		}),
+	);
 }
 
 function userMessage(text: string): Omit<UIMessage, 'id'> {

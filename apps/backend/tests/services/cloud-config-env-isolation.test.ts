@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -67,13 +66,13 @@ vi.mock('../../src/services/mcp-oauth', async (importOriginal) => ({
 import { McpHeaderVariableError, McpService } from '../../src/services/mcp';
 import { readProjectConfigLlm } from '../../src/utils/nao-config-llm';
 import { getProcessEnvSourcedVarNames, replaceEnvVars } from '../../src/utils/utils';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const DEPLOYMENT_SECRET = 'postgres://nao:deployment-secret@db/nao';
-const dirs: string[] = [];
+const createTemporaryFolder = useTemporaryFolders();
 
 function createProject(files: Record<string, string>): string {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-cloud-env-'));
-	dirs.push(dir);
+	const dir = createTemporaryFolder('nao-cloud-env-');
 	for (const [relativePath, content] of Object.entries(files)) {
 		const filePath = path.join(dir, relativePath);
 		fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -102,9 +101,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllEnvs();
-	while (dirs.length > 0) {
-		fs.rmSync(dirs.pop() as string, { force: true, recursive: true });
-	}
 });
 
 describe('project config placeholders in cloud mode', () => {

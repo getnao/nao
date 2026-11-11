@@ -1,8 +1,7 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
 	process.env.MODE = 'test';
@@ -33,10 +32,13 @@ import {
 	readNaoDraft,
 	searchNaoDraftContents,
 } from '../../src/services/nao-draft.service';
+import { writeFiles } from '../helpers/context-git-fixture';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const OWNER = { projectId: 'draft-project', userId: 'draft-user' };
 const OTHER_OWNER = { projectId: 'draft-project', userId: 'other-user' };
 
+const createTemporaryFolder = useTemporaryFolders();
 let root: string;
 let live: string;
 let access: ContextExplorerFileAccess;
@@ -51,7 +53,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
 	await db.delete(s.contextDraftFile);
-	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nao-draft-')));
+	root = fs.realpathSync(createTemporaryFolder('nao-draft-'));
 	live = path.join(root, 'context');
 	writeFiles(live, {
 		'nao_config.yaml': 'project_name: live\n',
@@ -61,10 +63,6 @@ beforeEach(async () => {
 		'repos/source.md': 'synced\n',
 	});
 	access = naoDraftAccess(OWNER);
-});
-
-afterEach(() => {
-	fs.rmSync(root, { recursive: true, force: true });
 });
 
 afterAll(() => {
@@ -250,14 +248,6 @@ function naoDraftAccess(owner: typeof OWNER): ContextExplorerFileAccess {
 		git: { status: 'unavailable', reason: 'no-repo', message: 'No context repository is connected.', repo: null },
 		draftOwner: owner,
 	};
-}
-
-function writeFiles(folder: string, files: Record<string, string>): void {
-	for (const [relativePath, content] of Object.entries(files)) {
-		const filePath = path.join(folder, relativePath);
-		fs.mkdirSync(path.dirname(filePath), { recursive: true });
-		fs.writeFileSync(filePath, content);
-	}
 }
 
 function read(folder: string, relativePath: string): string {

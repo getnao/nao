@@ -15,6 +15,7 @@ import {
 import { McpArgsValidationError, mcpService } from '../../src/services/mcp';
 import { McpAuthRequiredError } from '../../src/services/mcp-oauth';
 import type { ToolContext } from '../../src/types/tools';
+import { createToolContext } from '../helpers/tool-context';
 
 const LIMITS: CodemodeLimits = {
 	timeoutMs: 5_000,
@@ -513,5 +514,5 @@ function mcpOptions(overrides: Partial<Parameters<typeof createMcpFunctions>[0]>
 }
 
 function toolContext(): ToolContext {
-	return { projectId: 'project-1', userId: 'user-1', mcpAccess: GROUP_ACCESS } as ToolContext;
+	return createToolContext({ mcpAccess: GROUP_ACCESS });
 }

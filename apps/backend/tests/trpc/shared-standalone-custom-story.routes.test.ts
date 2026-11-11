@@ -53,8 +53,12 @@ vi.mock('../../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }
 
 import { sharedStoryRoutes } from '../../src/trpc/shared-story.routes';
 import { router } from '../../src/trpc/trpc';
+import { createTestCaller } from '../helpers/trpc-caller';
 
-const testRouter = router({ storyShare: sharedStoryRoutes });
+const caller = createTestCaller(router({ storyShare: sharedStoryRoutes }), {
+	userId: 'viewer-1',
+	selectedProjectId: 'project-1',
+});
 const STORY_INPUT = { storyId: 'story-1' };
 
 describe('storyShare standalone classic story', () => {
@@ -71,9 +75,9 @@ describe('storyShare standalone classic story', () => {
 	it('serves an older version from the saved rows its code uses, never the others', async () => {
 		mocks.getVersionByStoryIdAndNumber.mockResolvedValue({ code: '<table query_id="q_shown" />' });
 
-		await expect(
-			createCaller().storyShare.getVersionQueryData({ ...STORY_INPUT, versionNumber: 1 }),
-		).resolves.toEqual({ queryData: { q_shown: rows('shown') } });
+		await expect(caller.storyShare.getVersionQueryData({ ...STORY_INPUT, versionNumber: 1 })).resolves.toEqual({
+			queryData: { q_shown: rows('shown') },
+		});
 		expect(mocks.getVersionByStoryIdAndNumber).toHaveBeenCalledWith('story-1', 1);
 	});
 });
@@ -89,9 +93,9 @@ describe('storyShare custom story readers', () => {
 	it('reads the version of a standalone story by its id', async () => {
 		mocks.getStandaloneCustomStoryVersion.mockResolvedValue({ version: 2 });
 
-		await expect(createCaller().storyShare.getCustomVersion({ ...STORY_INPUT, versionNumber: 2 })).resolves.toEqual(
-			{ version: 2 },
-		);
+		await expect(caller.storyShare.getCustomVersion({ ...STORY_INPUT, versionNumber: 2 })).resolves.toEqual({
+			version: 2,
+		});
 		expect(mocks.getStandaloneCustomStoryVersion).toHaveBeenCalledWith('story-1', 2);
 		expect(mocks.getCustomStoryVersion).not.toHaveBeenCalled();
 	});
@@ -100,8 +104,8 @@ describe('storyShare custom story readers', () => {
 		mocks.getStandaloneCustomStoryQueryData.mockResolvedValue({ data: [{ n: 1 }], columns: ['n'] });
 		mocks.getStandaloneCustomStoryNarratives.mockResolvedValue({ summary: 'Frozen' });
 
-		await createCaller().storyShare.getCustomStoryQueryData({ ...STORY_INPUT, queryId: 'q_revenue' });
-		await createCaller().storyShare.getCustomStoryNarratives(STORY_INPUT);
+		await caller.storyShare.getCustomStoryQueryData({ ...STORY_INPUT, queryId: 'q_revenue' });
+		await caller.storyShare.getCustomStoryNarratives(STORY_INPUT);
 
 		expect(mocks.getStandaloneCustomStoryQueryData).toHaveBeenCalledWith('story-1', 'q_revenue', undefined);
 		expect(mocks.getStandaloneCustomStoryNarratives).toHaveBeenCalledWith('story-1');
@@ -110,8 +114,8 @@ describe('storyShare custom story readers', () => {
 	it('keeps the state of a standalone story by its id', async () => {
 		const change = { key: 'region', value: 'EMEA', shared: false };
 
-		await createCaller().storyShare.getCustomStoryState(STORY_INPUT);
-		await createCaller().storyShare.setCustomStoryState({ ...STORY_INPUT, change });
+		await caller.storyShare.getCustomStoryState(STORY_INPUT);
+		await caller.storyShare.setCustomStoryState({ ...STORY_INPUT, change });
 
 		expect(mocks.getCustomStoryStateByStoryId).toHaveBeenCalledWith('story-1', 'viewer-1');
 		expect(mocks.setCustomStoryStateByStoryId).toHaveBeenCalledWith('story-1', 'viewer-1', change);
@@ -119,7 +123,7 @@ describe('storyShare custom story readers', () => {
 
 	it('has no SQL to show for a standalone story', async () => {
 		await expect(
-			createCaller().storyShare.getCustomStoryQuerySql({ ...STORY_INPUT, queryId: 'q_revenue' }),
+			caller.storyShare.getCustomStoryQuerySql({ ...STORY_INPUT, queryId: 'q_revenue' }),
 		).rejects.toMatchObject({ code: 'NOT_FOUND' });
 		expect(mocks.getSharedCustomStoryQuerySql).not.toHaveBeenCalled();
 	});
@@ -127,8 +131,8 @@ describe('storyShare custom story readers', () => {
 	it('still reads a chat story through its chat', async () => {
 		mockShare({ chatId: 'chat-1' });
 
-		await createCaller().storyShare.getCustomVersion(STORY_INPUT);
-		await createCaller().storyShare.getCustomStoryNarratives(STORY_INPUT);
+		await caller.storyShare.getCustomVersion(STORY_INPUT);
+		await caller.storyShare.getCustomStoryNarratives(STORY_INPUT);
 
 		expect(mocks.getCustomStoryVersion).toHaveBeenCalledWith('chat-1', 'revenue', undefined);
 		expect(mocks.getCustomStoryNarratives).toHaveBeenCalledWith('chat-1', 'revenue');
@@ -152,11 +156,4 @@ function mockShare({ chatId, format = 'custom' }: { chatId: string | null; forma
 
 function rows(value: string) {
 	return { columns: ['value'], data: [{ value }] };
-}
-
-function createCaller() {
-	return testRouter.createCaller({
-		session: { user: { id: 'viewer-1', name: 'Viewer', email: 'viewer-1@example.com' } },
-		selectedProjectId: 'project-1',
-	} as never);
 }

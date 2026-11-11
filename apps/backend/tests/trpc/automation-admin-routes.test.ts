@@ -52,6 +52,7 @@ vi.mock('../../src/services/cloud-billing-access.service', () => ({
 
 import { automationRoutes } from '../../src/trpc/automation.routes';
 import { router } from '../../src/trpc/trpc';
+import { createTestCaller } from '../helpers/trpc-caller';
 
 const testRouter = router({ automation: automationRoutes });
 
@@ -316,8 +317,5 @@ describe('automation Slack channel validation', () => {
 });
 
 function createCaller(userId: string) {
-	return testRouter.createCaller({
-		session: { user: { id: userId, name: 'Test User', email: `${userId}@example.com` } },
-		selectedProjectId: 'project-id',
-	} as never);
+	return createTestCaller(testRouter, { userId });
 }

@@ -1,9 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
@@ -12,13 +13,16 @@ const mocks = vi.hoisted(() => ({
 	regenerateMessagingProviderCode: vi.fn(),
 	isUserConfinedToOrganization: vi.fn(),
 	upsertProjectLlmConfig: vi.fn(),
+	getUserRoleInProject: vi.fn(),
+	renameProject: vi.fn(),
 }));
 
 vi.mock('../../src/queries/project.queries', () => ({
 	getProjectById: vi.fn(async () => project()),
 	getProjectByUserId: vi.fn(async () => project()),
-	getUserRoleInProject: vi.fn(async () => 'admin'),
+	getUserRoleInProject: mocks.getUserRoleInProject,
 	listProjectMembersWithRoles: mocks.listProjectMembersWithRoles,
+	renameProject: mocks.renameProject,
 }));
 vi.mock('../../src/queries/user.queries', () => ({
 	regenerateMessagingProviderCode: mocks.regenerateMessagingProviderCode,
@@ -50,7 +54,11 @@ import { router } from '../../src/trpc/trpc';
 const testRouter = router(projectRoutes);
 const CALLER_ID = 'admin-id';
 const caller = createTestCaller(testRouter, { userId: CALLER_ID });
-const configDirectories: string[] = [];
+const createTemporaryFolder = useTemporaryFolders();
+
+beforeEach(() => {
+	mocks.getUserRoleInProject.mockResolvedValue('admin');
+});
 
 describe('project.regenerateMessagingProviderCode', () => {
 	beforeEach(() => {
@@ -85,6 +93,10 @@ describe('project.regenerateMessagingProviderCode', () => {
 });
 
 describe('project LLM config overrides', () => {
+	restoreProcessEnvAfterEach({
+		unset: ['OPENAI_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
+	});
+
 	beforeEach(() => {
 		mocks.upsertProjectLlmConfig.mockReset();
 		mocks.upsertProjectLlmConfig.mockImplementation((config) => ({
@@ -95,16 +107,6 @@ describe('project LLM config overrides', () => {
 			createdAt: new Date(),
 			updatedAt: new Date(),
 		}));
-		delete process.env.OPENAI_API_KEY;
-		delete process.env.AWS_BEARER_TOKEN_BEDROCK;
-		delete process.env.AWS_ACCESS_KEY_ID;
-		delete process.env.AWS_SECRET_ACCESS_KEY;
-	});
-
-	afterAll(() => {
-		for (const directory of configDirectories) {
-			fs.rmSync(directory, { force: true, recursive: true });
-		}
 	});
 
 	it('preserves a required API key inherited from nao_config.yaml', async () => {
@@ -146,6 +148,50 @@ describe('project LLM config overrides', () => {
 	});
 });
 
+describe('project.rename', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.renameProject.mockResolvedValue(true);
+	});
+
+	it('renames the project with the trimmed name', async () => {
+		await caller.rename({ projectId: 'project-id', name: '  Revenue analytics  ' });
+
+		expect(mocks.renameProject).toHaveBeenCalledWith('project-id', 'org-id', 'Revenue analytics');
+	});
+
+	it('reports a conflict when the organization already has a project with that name', async () => {
+		mocks.renameProject.mockResolvedValue(false);
+
+		await expect(caller.rename({ projectId: 'project-id', name: 'Taken' })).rejects.toMatchObject({
+			code: 'CONFLICT',
+		});
+	});
+
+	it('refuses to rename when the edited project is no longer the selected one', async () => {
+		await expect(caller.rename({ projectId: 'other-project-id', name: 'New name' })).rejects.toMatchObject({
+			code: 'CONFLICT',
+		});
+		expect(mocks.renameProject).not.toHaveBeenCalled();
+	});
+
+	it('rejects a blank name', async () => {
+		await expect(caller.rename({ projectId: 'project-id', name: '   ' })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+		expect(mocks.renameProject).not.toHaveBeenCalled();
+	});
+
+	it('only lets project admins rename the project', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+
+		await expect(caller.rename({ projectId: 'project-id', name: 'New name' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.renameProject).not.toHaveBeenCalled();
+	});
+});
+
 function project() {
 	return {
 		id: 'project-id',
@@ -157,8 +203,7 @@ function project() {
 }
 
 function writeConfig(lines: string[]): void {
-	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-project-llm-override-'));
-	configDirectories.push(directory);
+	const directory = createTemporaryFolder('nao-project-llm-override-');
 	fs.writeFileSync(path.join(directory, 'nao_config.yaml'), lines.join('\n'));
 	mocks.projectPath = directory;
 }

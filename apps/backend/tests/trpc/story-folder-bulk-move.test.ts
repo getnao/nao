@@ -49,8 +49,9 @@ vi.mock('../../src/services/project-sharing.service', () => ({
 
 import { storyFolderRoutes } from '../../src/trpc/story-folder.routes';
 import { router } from '../../src/trpc/trpc';
+import { createTestCaller } from '../helpers/trpc-caller';
 
-const testRouter = router({ storyFolder: storyFolderRoutes });
+const caller = createTestCaller(router({ storyFolder: storyFolderRoutes }));
 
 describe('storyFolder.bulkMove', () => {
 	beforeEach(() => {
@@ -64,7 +65,7 @@ describe('storyFolder.bulkMove', () => {
 	});
 
 	it('moves every selected folder and story into the target folder in one batch', async () => {
-		await createCaller().storyFolder.bulkMove({
+		await caller.storyFolder.bulkMove({
 			storyIds: ['story-a', 'story-b'],
 			folderIds: ['folder-a'],
 			targetFolderId: 'target',
@@ -91,7 +92,7 @@ describe('storyFolder.bulkMove', () => {
 		);
 
 		await expect(
-			createCaller().storyFolder.bulkMove({
+			caller.storyFolder.bulkMove({
 				storyIds: ['story-a'],
 				folderIds: ['folder-a', 'folder-b'],
 				targetFolderId: 'target',
@@ -105,7 +106,7 @@ describe('storyFolder.bulkMove', () => {
 		mocks.getAgent.mockImplementation((chatId: string) => (chatId === 'chat-story-b' ? {} : undefined));
 
 		await expect(
-			createCaller().storyFolder.bulkMove({
+			caller.storyFolder.bulkMove({
 				storyIds: ['story-a', 'story-b'],
 				folderIds: ['folder-a'],
 				targetFolderId: 'target',
@@ -119,7 +120,7 @@ describe('storyFolder.bulkMove', () => {
 		mocks.moveItemsToFolder.mockRejectedValue(new SystemFolderError());
 
 		await expect(
-			createCaller().storyFolder.bulkMove({
+			caller.storyFolder.bulkMove({
 				storyIds: [],
 				folderIds: ['folder-a', 'private-root'],
 				targetFolderId: null,
@@ -129,18 +130,11 @@ describe('storyFolder.bulkMove', () => {
 
 	it('rejects an empty selection', async () => {
 		await expect(
-			createCaller().storyFolder.bulkMove({ storyIds: [], folderIds: [], targetFolderId: null }),
+			caller.storyFolder.bulkMove({ storyIds: [], folderIds: [], targetFolderId: null }),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 	});
 });
 
 function buildFolder(id: string) {
 	return { id, projectId: 'project-id', ownerId: 'user-id', visibility: 'public', systemType: null };
-}
-
-function createCaller() {
-	return testRouter.createCaller({
-		session: { user: { id: 'user-id', name: 'Test User', email: 'test@example.com' } },
-		selectedProjectId: 'project-id',
-	} as never);
 }

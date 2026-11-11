@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SlackConfig } from '../../src/queries/project-slack-config.queries';
 import { ProjectSlackBot } from '../../src/services/slack';
 import type { ConversationContext } from '../../src/types/messaging-provider';
+import { createSlackConfig } from '../helpers/slack-config';
 
 const slackHarness = vi.hoisted(() => ({
 	chatDelete: vi.fn(),
@@ -28,18 +28,7 @@ vi.mock('../../src/utils/logger', () => ({
 const ANSWERING_CARD_TS = '1700000000.000200';
 const PREVIOUS_COMPLETION_CARD_TS = '1700000000.000050';
 
-const baseConfig: SlackConfig = {
-	projectId: 'project-1',
-	botToken: 'xoxb-test',
-	signingSecret: 'secret',
-	redirectUrl: 'https://nao.example.com/',
-	autoCreateUsersEnabled: false,
-	autoCreateUsersDomains: [],
-	transportMode: 'webhook',
-	appToken: '',
-	replyMode: 'thread',
-	dmScopeMissing: false,
-};
+const baseConfig = createSlackConfig();
 
 describe('ProjectSlackBot empty answers', () => {
 	beforeEach(() => {

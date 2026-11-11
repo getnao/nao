@@ -1,4 +1,3 @@
-import { ALL_MCP_ACCESS } from '@nao/shared';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -25,6 +24,7 @@ import type {
 	ResolvedFilesContextAccess,
 	ResolvedSkillsAccess,
 } from '../../src/services/user-group-context-access.service';
+import { createToolContext, executeTool } from '../helpers/tool-context';
 
 const PROJECT_ID = 'load-skill-project';
 
@@ -113,22 +113,13 @@ describe('load_skill tool with project skills', () => {
 		name: string,
 		access: { skillsAccess: ResolvedSkillsAccess; filesContextAccess?: ResolvedFilesContextAccess },
 	) => {
-		const context = {
+		const context = createToolContext({
 			projectId: PROJECT_ID,
 			projectFolder: projectRoot,
-			warehouseTableAccess: { enforced: false },
-			docsContextAccess: { enforced: false },
 			filesContextAccess: access.filesContextAccess ?? { enforced: false },
-			mcpAccess: ALL_MCP_ACCESS,
 			skillsAccess: access.skillsAccess,
-		};
-		return (await loadSkillTool.execute!(
-			{ name },
-			{ experimental_context: context, toolCallId: 't', messages: [] },
-		)) as {
-			name: string;
-			body: string;
-		};
+		});
+		return (await executeTool(loadSkillTool, { name }, context)) as { name: string; body: string };
 	};
 });
 

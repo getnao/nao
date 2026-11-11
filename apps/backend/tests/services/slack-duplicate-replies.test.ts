@@ -2,8 +2,8 @@ import { createHmac } from 'node:crypto';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SlackConfig } from '../../src/queries/project-slack-config.queries';
 import { ProjectSlackBot } from '../../src/services/slack';
+import { createSlackConfig } from '../helpers/slack-config';
 
 const slackHarness = vi.hoisted(() => ({
 	authTest: vi.fn(),
@@ -40,19 +40,7 @@ const SIGNING_SECRET = 'secret';
 const BOT_USER_ID = 'U_BOT';
 const MESSAGE_TS = '1760942786.000100';
 
-const config: SlackConfig = {
-	projectId: 'project-1',
-	botToken: 'xoxb-test',
-	signingSecret: SIGNING_SECRET,
-	redirectUrl: 'https://nao.example.com/',
-	autoCreateUsersEnabled: false,
-	autoCreateUsersDomains: [],
-	transportMode: 'socket',
-	appToken: 'xapp-test',
-	replyMode: 'thread',
-	dmScopeMissing: false,
-	dmThreadsEnabled: false,
-};
+const config = createSlackConfig({ signingSecret: SIGNING_SECRET, transportMode: 'socket', appToken: 'xapp-test' });
 
 describe('Slack mention delivered as both `message` and `app_mention` events', () => {
 	beforeEach(() => {

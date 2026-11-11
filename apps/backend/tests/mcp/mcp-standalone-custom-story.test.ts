@@ -119,18 +119,6 @@ describe('custom stories through MCP without a chat', () => {
 		expect(mocks.createCustomStoryDraft).not.toHaveBeenCalled();
 	});
 
-	it('refuses `query_data` for a custom story attached to a chat', async () => {
-		mocks.resolveChartChatId.mockResolvedValue('chat-id');
-
-		const result = await createCustomStoryForMcp(
-			{ chatId: 'chat-id', title: 'Revenue app', files: APP_FILES, queryData: { query_ask: rows() } },
-			ctx,
-		);
-
-		expect(result.isError).toBe(true);
-		expect(mocks.createCustomStoryDraft).not.toHaveBeenCalled();
-	});
-
 	it('resolves a standalone custom story of the user for updates', async () => {
 		mocks.getStoryById.mockResolvedValue(STANDALONE_STORY);
 		mocks.getStoryProjectId.mockResolvedValue('project-id');

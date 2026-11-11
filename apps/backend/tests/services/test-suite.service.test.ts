@@ -1,8 +1,7 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
 	discoverTests,
@@ -12,15 +11,13 @@ import {
 	serializeTestFile,
 } from '../../src/services/test-suite.service';
 import { extractConfiguredTestSettings } from '../../src/utils/nao-config';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 
+const createTemporaryFolder = useTemporaryFolders();
 let projectFolder: string;
 
 beforeEach(() => {
-	projectFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-test-suite-'));
-});
-
-afterEach(() => {
-	fs.rmSync(projectFolder, { recursive: true, force: true });
+	projectFolder = createTemporaryFolder('nao-test-suite-');
 });
 
 describe('discoverTests', () => {

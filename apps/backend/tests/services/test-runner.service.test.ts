@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -71,15 +70,17 @@ import {
 	TestRunConflictError,
 	TestRunInputError,
 } from '../../src/services/test-runner.service';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const DEFAULT_MODEL = { provider: 'openai', modelId: 'gpt-4.1' };
 
+const createTemporaryFolder = useTemporaryFolders();
 let projectFolder: string;
 let chatCount: number;
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	projectFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-test-runner-'));
+	projectFolder = createTemporaryFolder('nao-test-runner-');
 	chatCount = 0;
 	mocks.getProjectById.mockResolvedValue({ id: 'project-1', path: projectFolder });
 	mocks.createRunUnlessActive.mockImplementation(async (input) => ({ id: 'run-1', status: 'queued', ...input }));
@@ -112,7 +113,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.useRealTimers();
-	fs.rmSync(projectFolder, { recursive: true, force: true });
 });
 
 describe('startTestRun', () => {
@@ -429,7 +429,7 @@ describe('startComparisonRun', () => {
 	let draftFolder: string;
 
 	beforeEach(() => {
-		draftFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-test-draft-'));
+		draftFolder = createTemporaryFolder('nao-test-draft-');
 		mocks.createDraftContextSnapshot.mockReturnValue({
 			folder: draftFolder,
 			branch: 'improve-revenue',
@@ -439,10 +439,6 @@ describe('startComparisonRun', () => {
 			excludedChanges: [],
 			outdatedPaths: [],
 		});
-	});
-
-	afterEach(() => {
-		fs.rmSync(draftFolder, { recursive: true, force: true });
 	});
 
 	it('runs each attempt of the draft tests against production and the draft, then removes the snapshot', async () => {

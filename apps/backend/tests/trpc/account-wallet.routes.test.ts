@@ -45,6 +45,7 @@ vi.mock('../../src/services/email', () => ({ emailService: { sendEmail: vi.fn() 
 
 import { accountRoutes } from '../../src/trpc/account.routes';
 import { router } from '../../src/trpc/trpc';
+import { createTestCaller } from '../helpers/trpc-caller';
 
 const testRouter = router({ account: accountRoutes });
 
@@ -138,12 +139,5 @@ describe('account wallet activity authorization', () => {
 });
 
 function caller(selectedProjectId: string | null = null, selectedOrganizationId: string | null = 'org-id') {
-	return testRouter.createCaller({
-		session: {
-			user: { id: 'user-id', name: 'Admin', email: 'admin@example.com' },
-			session: { token: 'session-token' },
-		},
-		selectedProjectId,
-		selectedOrganizationId,
-	} as never);
+	return createTestCaller(testRouter, { selectedProjectId, selectedOrganizationId });
 }

@@ -1,14 +1,16 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import listTool from '../../src/agents/tools/list';
 import readTool from '../../src/agents/tools/read';
 import type { ToolContext } from '../../src/types/tools';
 import { clearNaoignoreCache } from '../../src/utils/tools';
+import { createToolContext, executeTool } from '../helpers/tool-context';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 
+const createTemporaryFolder = useTemporaryFolders();
 let root: string;
 let projectFolder: string;
 let outside: string;
@@ -16,7 +18,7 @@ let outside: string;
 const TABLE_FOLDER = 'databases/type=bigquery/database=analytics/schema=warehouse/table=trips';
 
 beforeEach(async () => {
-	root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'nao-path-errors-')));
+	root = await fs.realpath(createTemporaryFolder('nao-path-errors-'));
 	projectFolder = path.join(root, 'project');
 	outside = path.join(root, 'outside');
 	await fs.mkdir(path.join(projectFolder, 'docs', 'notion'), { recursive: true });
@@ -26,10 +28,6 @@ beforeEach(async () => {
 	await fs.writeFile(path.join(projectFolder, TABLE_FOLDER, 'columns.md'), '# Columns');
 	await fs.writeFile(path.join(outside, 'secret.txt'), 'secret');
 	clearNaoignoreCache();
-});
-
-afterEach(async () => {
-	await fs.rm(root, { recursive: true, force: true });
 });
 
 describe('read tool missing paths', () => {
@@ -129,26 +127,18 @@ async function captureError(run: () => Promise<unknown>): Promise<Error> {
 	throw new Error('Expected the tool to fail');
 }
 
-function buildContext(overrides: Partial<ToolContext> = {}): ToolContext {
-	return {
-		projectFolder,
-		chatId: 'chat',
-		warehouseTableAccess: { enforced: false },
-		docsContextAccess: { enforced: false },
-		filesContextAccess: { enforced: false },
-		mcpAccess: { mode: 'all' },
-		...overrides,
-	} as unknown as ToolContext;
-}
-
 function runRead(filePath: string, overrides?: Partial<ToolContext>): Promise<unknown> {
-	return readTool.execute!({ file_path: filePath }, { experimental_context: buildContext(overrides) } as Parameters<
-		NonNullable<typeof readTool.execute>
-	>[1]) as Promise<unknown>;
+	return executeTool(
+		readTool,
+		{ file_path: filePath },
+		createToolContext({ projectFolder, chatId: 'chat', ...overrides }),
+	);
 }
 
 function runList(listPath: string, overrides?: Partial<ToolContext>): Promise<unknown> {
-	return listTool.execute!({ path: listPath }, { experimental_context: buildContext(overrides) } as Parameters<
-		NonNullable<typeof listTool.execute>
-	>[1]) as Promise<unknown>;
+	return executeTool(
+		listTool,
+		{ path: listPath },
+		createToolContext({ projectFolder, chatId: 'chat', ...overrides }),
+	);
 }

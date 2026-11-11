@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { SlackConfig } from '../../src/queries/project-slack-config.queries';
 import { ProjectSlackBot } from '../../src/services/slack';
+import { createSlackConfig } from '../helpers/slack-config';
 
 vi.mock('@slack/web-api', () => ({
 	WebClient: class {
@@ -22,19 +23,7 @@ const FIRST_MESSAGE_TS = '1700000000.000100';
 const SECOND_MESSAGE_TS = '1700000000.000200';
 const THREAD_REPLY_TS = '1700000000.000300';
 
-const baseConfig: SlackConfig = {
-	projectId: 'project-1',
-	botToken: 'xoxb-test',
-	signingSecret: SIGNING_SECRET,
-	redirectUrl: 'https://nao.example.com/',
-	autoCreateUsersEnabled: false,
-	autoCreateUsersDomains: [],
-	transportMode: 'webhook',
-	appToken: '',
-	replyMode: 'thread',
-	dmScopeMissing: false,
-	dmThreadsEnabled: false,
-};
+const baseConfig = createSlackConfig({ signingSecret: SIGNING_SECRET });
 
 describe('ProjectSlackBot direct message threads', () => {
 	it('keeps the whole direct message as one conversation by default', async () => {

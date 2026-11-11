@@ -17,6 +17,7 @@ import { addStoryQuestionReference, resolveLinkedStory } from '../../src/service
 import type { ForkMetadata, UIMessage } from '../../src/types/chat';
 import type { LinkedStory, ToolContext } from '../../src/types/tools';
 import { buildQueryDataMessages } from '../../src/utils/chat-message-story';
+import { createToolContext, executeTool } from '../helpers/tool-context';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
@@ -423,17 +424,16 @@ async function runStoryTool(
 	},
 ) {
 	const tool = storyTool as Tool<typeof input, { success: boolean }>;
-	return tool.execute!(input, {
-		toolCallId: 'story-call',
-		messages: [],
-		experimental_context: {
+	return executeTool(
+		tool,
+		input,
+		createToolContext({
 			...context,
 			projectId: PROJECT_ID,
 			userGroupFeatures: ['storyCreation'],
 			queryResults: context.queryResults ?? new Map(),
-			generatedArtifacts: { charts: [], maps: [], stories: [] },
-		} as unknown as ToolContext,
-	});
+		}),
+	);
 }
 
 async function seed() {

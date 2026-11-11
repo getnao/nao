@@ -1,9 +1,7 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
 	createDraftContextSnapshot,
@@ -13,13 +11,16 @@ import {
 	removeContextSnapshotsOlderThan,
 } from '../../src/services/draft-context.service';
 import type { ResolvedContextRepo } from '../../src/utils/context-repo';
+import { commitAll, initRepository, runGit, writeFiles } from '../helpers/context-git-fixture';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 
+const createTemporaryFolder = useTemporaryFolders();
 let root: string;
 let liveFolder: string;
 let worktreeRoot: string;
 
 beforeEach(() => {
-	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nao-draft-context-')));
+	root = fs.realpathSync(createTemporaryFolder('nao-draft-context-'));
 	liveFolder = path.join(root, 'context');
 	worktreeRoot = path.join(root, 'worktree');
 	writeFiles(liveFolder, {
@@ -29,19 +30,15 @@ beforeEach(() => {
 		'docs/legacy.md': 'Old definition.\n',
 		'.gitignore': 'databases/\n',
 	});
-	git(liveFolder, ['init', '--quiet', '--initial-branch=main']);
+	initRepository(liveFolder);
 	commitAll(liveFolder, 'initial');
 	writeFiles(liveFolder, { 'databases/orders/columns.md': '# orders\n' });
-	git(liveFolder, ['worktree', 'add', '--quiet', '--detach', worktreeRoot, 'HEAD']);
-});
-
-afterEach(() => {
-	fs.rmSync(root, { recursive: true, force: true });
+	runGit(liveFolder, ['worktree', 'add', '--quiet', '--detach', worktreeRoot, 'HEAD']);
 });
 
 describe('readDraftContext', () => {
 	it('lists committed, uncommitted and new files, and sets aside the production-only ones', () => {
-		git(worktreeRoot, ['switch', '--quiet', '-c', 'improve-revenue']);
+		runGit(worktreeRoot, ['switch', '--quiet', '-c', 'improve-revenue']);
 		writeFiles(worktreeRoot, { 'RULES.md': '# Rules\nUse net revenue.\n' });
 		commitAll(worktreeRoot, 'rules');
 		writeFiles(worktreeRoot, {
@@ -54,7 +51,7 @@ describe('readDraftContext', () => {
 		const draft = readDraftContext(resolvedRepo(), liveFolder);
 
 		expect(draft.branch).toBe('improve-revenue');
-		expect(draft.productionCommit).toBe(git(liveFolder, ['rev-parse', 'HEAD']).toString().trim());
+		expect(draft.productionCommit).toBe(runGit(liveFolder, ['rev-parse', 'HEAD']).toString().trim());
 		expect(draft.changes).toEqual([
 			{ path: 'docs/legacy.md', kind: 'deleted' },
 			{ path: 'docs/margin.md', kind: 'added' },
@@ -78,10 +75,10 @@ describe('readDraftContext', () => {
 	it('maps paths relative to the context folder when it is a subfolder of the repository', () => {
 		const subfolderRoot = path.join(root, 'mono');
 		writeFiles(subfolderRoot, { 'analytics/RULES.md': '# Rules\n', 'README.md': 'Repository readme\n' });
-		git(subfolderRoot, ['init', '--quiet', '--initial-branch=main']);
+		runGit(subfolderRoot, ['init', '--quiet', '--initial-branch=main']);
 		commitAll(subfolderRoot, 'initial');
 		const subfolderWorktree = path.join(root, 'mono-worktree');
-		git(subfolderRoot, ['worktree', 'add', '--quiet', '--detach', subfolderWorktree, 'HEAD']);
+		runGit(subfolderRoot, ['worktree', 'add', '--quiet', '--detach', subfolderWorktree, 'HEAD']);
 		writeFiles(subfolderWorktree, { 'analytics/RULES.md': '# Rules v2\n', 'README.md': 'Changed readme\n' });
 
 		const draft = readDraftContext(
@@ -205,23 +202,6 @@ function resolvedRepo(overrides: Partial<ResolvedContextRepo> = {}): ResolvedCon
 	};
 }
 
-function writeFiles(folder: string, files: Record<string, string>) {
-	for (const [relativePath, content] of Object.entries(files)) {
-		const filePath = path.join(folder, relativePath);
-		fs.mkdirSync(path.dirname(filePath), { recursive: true });
-		fs.writeFileSync(filePath, content);
-	}
-}
-
 function read(folder: string, relativePath: string): string {
 	return fs.readFileSync(path.join(folder, relativePath), 'utf-8');
-}
-
-function commitAll(folder: string, message: string) {
-	git(folder, ['add', '-A']);
-	git(folder, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--quiet', '-m', message]);
-}
-
-function git(cwd: string, args: string[]): Buffer {
-	return execFileSync('git', args, { cwd, stdio: 'pipe', timeout: 10_000 });
 }
