@@ -3,7 +3,7 @@ import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
-vi.mock('../src/utils/project-file', async () => {
+vi.mock('../../src/utils/project-file', async () => {
 	const fs = await import('fs');
 	const { join } = await import('path');
 	return {

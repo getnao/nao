@@ -1,7 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
+import { mkdirSync, symlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
 	process.env.MODE = 'test';
@@ -9,30 +8,32 @@ vi.hoisted(() => {
 	process.env.NAO_DEFAULT_PROJECT_PATH = '';
 });
 
-import { getTableColumnsContent, getUserRules, resetDatabaseContextCachesForTesting } from '../src/agents/user-rules';
-import { searchFileContents } from '../src/services/context-explorer.service';
+import {
+	getTableColumnsContent,
+	getUserRules,
+	resetDatabaseContextCachesForTesting,
+} from '../../src/agents/user-rules';
+import { searchFileContents } from '../../src/services/context-explorer.service';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const OUTSIDE_CONTENT = 'content of another tenant';
 const unrestrictedAccess = { enforced: false } as const;
 const TABLE_FOLDER = join('databases', 'type=duckdb', 'database=db', 'schema=main', 'table=orders');
 
 describe('project reads through symlinks', () => {
+	const createTemporaryFolder = useTemporaryFolders();
 	let root: string;
 	let projectFolder: string;
 	let outsideFolder: string;
 
 	beforeEach(() => {
-		root = mkdtempSync(join(tmpdir(), 'nao-project-symlinks-'));
+		root = createTemporaryFolder('nao-project-symlinks-');
 		projectFolder = join(root, 'project');
 		outsideFolder = join(root, 'outside');
 		mkdirSync(projectFolder);
 		mkdirSync(outsideFolder);
 		writeFileSync(join(outsideFolder, 'secret.md'), `${OUTSIDE_CONTENT}\n`);
 		resetDatabaseContextCachesForTesting();
-	});
-
-	afterEach(() => {
-		rmSync(root, { recursive: true, force: true });
 	});
 
 	it('ignores a RULES.md that links outside the project', () => {
