@@ -702,8 +702,9 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 			onSuccess: () => invalidateUserGroupQueries(queryClient),
 		}),
 	);
-	const setGroupMembership = (groupId: string, isMember: boolean) =>
+	const setGroupMembership = (groupId: string, isMember: boolean) => {
 		setMembership.mutate({ groupId, userId: user.id, isMember });
+	};
 	const tokens = groups
 		.filter((group) => group.isDefault || membershipKeys.has(`${group.id}:${user.id}`))
 		.map((group) => toGroupToken(group, ssoMembershipKeys.has(`${group.id}:${user.id}`), setGroupMembership));

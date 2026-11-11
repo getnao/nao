@@ -13,7 +13,7 @@ import {
 	EMPTY_SKILLS_ACCESS,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -862,7 +862,12 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Managed by SSO')).toBeTruthy();
 		fireEvent.click(managedMembership);
 		expect(mocks.mutate).not.toHaveBeenCalled();
-		expect(screen.queryByRole('button', { name: 'Remove group Analysts' })).toBeNull();
+		expect(
+			within(screen.getByRole('row', { name: /Organisation User/, hidden: true })).queryByRole('button', {
+				name: 'Remove group Analysts',
+				hidden: true,
+			}),
+		).toBeNull();
 	});
 
 	it('keeps the users table columns fixed while group tokens wrap inside their cell', () => {
