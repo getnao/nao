@@ -13,11 +13,11 @@ export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR
 
 export function StoryAskBar({
 	storyId,
-	isOwner,
+	canEdit,
 	isInputHidden = false,
 }: {
 	storyId: string;
-	isOwner: boolean;
+	canEdit: boolean;
 	isInputHidden?: boolean;
 }) {
 	const [handedOverQuestion] = useState(() => getHandedOverQuestion(storyId));
@@ -55,7 +55,7 @@ export function StoryAskBar({
 
 	return (
 		<AskBar
-			placeholder={isOwner ? 'Ask a question, edit story' : 'Ask a question about the story'}
+			placeholder={canEdit ? 'Ask a question, edit story' : 'Ask a question about the story'}
 			isInputHidden={isInputHidden}
 			isAsking={askMutation.isPending}
 			hasAskFailed={askMutation.isError}

@@ -29,6 +29,7 @@ import type {
 	NotificationCategory,
 	SharedItemLabel,
 	SharedNotificationPayload,
+	ShareRole,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
 } from '@nao/shared/types';
@@ -349,6 +350,8 @@ function getNotificationPresentation(
 						subjectLabel={payload.itemLabel}
 						actorName={payload.sharerName}
 						visibility={payload.visibility}
+						role={payload.role}
+						isRoleChange={payload.isRoleChange}
 					/>
 				),
 			};
@@ -592,17 +595,35 @@ function ShareSentence({
 	subjectLabel,
 	actorName,
 	visibility,
+	role,
+	isRoleChange = false,
 }: {
 	subjectLabel: 'story' | 'chat';
 	actorName: string | null;
 	visibility: ShareVisibility;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 }) {
-	const actor = actorName ?? 'Someone';
+	const actor = <span className='font-semibold'>{actorName ?? 'Someone'}</span>;
+	if (isRoleChange && role === 'viewer') {
+		return (
+			<p>
+				{actor} changed your access to this {subjectLabel} to <span className='font-semibold'>view only</span>.
+			</p>
+		);
+	}
+	if (isRoleChange) {
+		return (
+			<p>
+				{actor} gave you <span className='font-semibold'>edit rights</span> on this {subjectLabel}.
+			</p>
+		);
+	}
 	const target = visibility === 'project' ? 'the project' : 'you';
 	return (
 		<p>
-			<span className='font-semibold'>{actor}</span> shared this {subjectLabel} with{' '}
-			<span className='font-semibold'>{target}</span>.
+			{actor} shared this {subjectLabel} with <span className='font-semibold'>{target}</span>
+			{role === 'editor' && ', with edit rights'}.
 		</p>
 	);
 }

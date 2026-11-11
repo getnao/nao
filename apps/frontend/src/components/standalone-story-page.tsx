@@ -99,7 +99,7 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 						/>
 					</StoryElementPicker>
 
-					{!isArchived && <StoryAskBar storyId={storyId} isOwner />}
+					{!isArchived && <StoryAskBar storyId={storyId} canEdit />}
 				</SelectionProvider>
 			</div>
 

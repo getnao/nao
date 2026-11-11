@@ -715,6 +715,13 @@
       "when": 1794297262123,
       "tag": "0101_automation_run_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1794307822126,
+      "tag": "0102_story_multi_editors",
+      "breakpoints": true
     }
   ]
 }
