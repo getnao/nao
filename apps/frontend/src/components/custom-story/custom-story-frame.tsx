@@ -220,6 +220,7 @@ export function CustomStoryFrame({
 					queryKey: ['custom-story-model', dataSource, request],
 					queryFn: () => runStoryModel(dataSource, request),
 					staleTime: fresh ? 0 : Infinity,
+					gcTime: Infinity,
 				});
 				reply({ type: 'nao-story:model-result', requestId, result });
 			} catch (error) {

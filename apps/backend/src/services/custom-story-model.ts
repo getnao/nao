@@ -12,10 +12,12 @@ import { TRPCError } from '@trpc/server';
 import { storyModelAgent } from '../agents/profiles/story-model';
 import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as storyQueries from '../queries/story.queries';
 import * as storyReferenceQueries from '../queries/story-reference.queries';
 import type { ForkMetadata } from '../types/chat';
 import { getProjectAvailableModels, resolveDefaultChatModel } from '../utils/llm';
 import { agentService } from './agent';
+import { CustomStoryNotFoundError } from './custom-story';
 
 export interface CustomStoryModelTarget {
 	projectId: string;
@@ -67,6 +69,7 @@ async function runStoryLlm(target: CustomStoryModelTarget, request: StoryLlmRequ
 	if (!(await canCallModels(target.projectId, target.viewerId))) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot perform this action' });
 	}
+	await assertCustomStoryInProject(target.storyId, target.projectId);
 	const model = await agentService.resolveModelSelection(
 		target.projectId,
 		await findRequestedLlm(target.projectId, request.model),
@@ -106,6 +109,14 @@ async function createStoryModelChat(target: CustomStoryModelTarget, prompt: stri
 		throw new Error(`Failed to load story model chat ${created.id}`);
 	}
 	return { ...chat, projectId: target.projectId, userId: target.viewerId };
+}
+
+/** Every route funnels here, so a share link or id of a classic story or another project's story is refused alike. */
+async function assertCustomStoryInProject(storyId: string, projectId: string): Promise<void> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story || story.format !== 'custom' || story.projectId !== projectId) {
+		throw new CustomStoryNotFoundError();
+	}
 }
 
 async function canCallModels(projectId: string, userId: string): Promise<boolean> {

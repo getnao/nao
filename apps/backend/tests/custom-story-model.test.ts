@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	getChat: vi.fn(),
 	getProjectAvailableModels: vi.fn(),
 	getReferenceableStory: vi.fn(),
+	getStoryById: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	resolveDefaultChatModel: vi.fn(),
 	resolveModelSelection: vi.fn(),
@@ -25,6 +26,10 @@ vi.mock('../src/queries/chat.queries', () => ({
 	getChat: mocks.getChat,
 }));
 vi.mock('../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
+vi.mock('../src/queries/story.queries', () => ({ getStoryById: mocks.getStoryById }));
+vi.mock('../src/services/custom-story', () => ({
+	CustomStoryNotFoundError: class CustomStoryNotFoundError extends Error {},
+}));
 vi.mock('../src/agents/tools', () => ({ getTools: () => ({}) }));
 vi.mock('../src/queries/story-reference.queries', () => ({ getReferenceableStory: mocks.getReferenceableStory }));
 
@@ -73,6 +78,7 @@ describe('runCustomStoryModel', () => {
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.resolveModelSelection.mockImplementation(async (_projectId, model) => model ?? AVAILABLE[0]);
 		mocks.getReferenceableStory.mockResolvedValue({ title: 'Revenue story', authorName: 'Ada' });
+		mocks.getStoryById.mockResolvedValue({ id: 'story-1', format: 'custom', projectId: 'project-1' });
 		mocks.createChat.mockResolvedValue([{ id: 'chat-9' }]);
 		mocks.getChat.mockResolvedValue([{ id: 'chat-9', title: 'Revenue story', messages: [USER_MESSAGE] }]);
 		mocks.createAgent.mockResolvedValue({ streamToCompletion: mocks.streamToCompletion });
@@ -140,6 +146,18 @@ describe('runCustomStoryModel', () => {
 		await expect(
 			runCustomStoryModel(TARGET, { kind: 'llm', model: 'openai:not-enabled', prompt: 'Hi' }),
 		).rejects.toBeInstanceOf(CustomStoryModelError);
+		expect(mocks.createChat).not.toHaveBeenCalled();
+		expect(mocks.createAgent).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		['a classic story', { id: 'story-1', format: 'classic', projectId: 'project-1' }],
+		["another project's story", { id: 'story-1', format: 'custom', projectId: 'project-2' }],
+		['a missing story', null],
+	])('refuses %s before any chat or call', async (_label, story) => {
+		mocks.getStoryById.mockResolvedValue(story);
+
+		await expect(runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' })).rejects.toThrow();
 		expect(mocks.createChat).not.toHaveBeenCalled();
 		expect(mocks.createAgent).not.toHaveBeenCalled();
 	});

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type HostRequestState<T> =
 	| { status: 'loading'; data: null; error: null }
@@ -28,10 +28,11 @@ const answerCache = new Map<string, { answer: Promise<unknown>; expiresAt: numbe
 
 /** Asks the host once per distinct request, sharing answers between every component of the story that asks the same. */
 export function useHostRequest<T>(request: HostRequest<T>, enabled: boolean): HostRequestResult<T> {
-	const [refresh, setRefresh] = useState({ key: '', count: 0 });
+	const [refreshes, setRefreshes] = useState(0);
+	/** The request `refetch` was called for: the next fetch of it skips the cache, once. */
+	const refreshKeyRef = useRef<string | null>(null);
 	const [settled, setSettled] = useState<{ source: string; key: string; state: HostRequestState<T> } | null>(null);
-	const refreshCount = refresh.key === request.key ? refresh.count : 0;
-	const requestKey = `${refreshCount}:${request.key}`;
+	const requestKey = `${refreshes}:${request.key}`;
 
 	useEffect(() => {
 		if (!enabled) {
@@ -43,24 +44,21 @@ export function useHostRequest<T>(request: HostRequest<T>, enabled: boolean): Ho
 				setSettled({ source: request.source, key: requestKey, state });
 			}
 		};
-		fetchCached(request, refreshCount > 0).then(
+		const fresh = refreshKeyRef.current === request.key;
+		refreshKeyRef.current = null;
+		fetchCached(request, fresh).then(
 			(data) => settle({ status: 'success', data, error: null }),
 			(error: unknown) => settle({ status: 'error', data: null, error: describeError(error) }),
 		);
 		return () => {
 			cancelled = true;
 		};
-	}, [request, refreshCount, enabled, requestKey]);
+	}, [request, refreshes, enabled, requestKey]);
 
-	/** Only the request on screen is refreshed: asking for another one later reads the cache again. */
-	const refetch = useCallback(
-		() =>
-			setRefresh((current) => ({
-				key: request.key,
-				count: current.key === request.key ? current.count + 1 : 1,
-			})),
-		[request.key],
-	);
+	const refetch = useCallback(() => {
+		refreshKeyRef.current = request.key;
+		setRefreshes((count) => count + 1);
+	}, [request.key]);
 	if (!enabled) {
 		return { ...LOADING, isFetching: false, refetch };
 	}

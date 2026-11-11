@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useModel, useModels } from './models';
@@ -60,6 +60,29 @@ describe('useModel', () => {
 			expect(screen.getAllByTestId('answer').map((node) => node.textContent)).toEqual(['Once.', 'Once.']),
 		);
 		expect(host.requestModel).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('useModel refetch', () => {
+	it('pays again for the prompt on screen only, never for one answered earlier', async () => {
+		host.requestModel.mockResolvedValue({ kind: 'llm', model: 'openai:gpt', text: 'Answer.' });
+		let refetch: () => void = () => {};
+		function Prompt({ prompt }: { prompt: string }) {
+			const answer = useModel({ prompt });
+			refetch = answer.refetch;
+			return <span data-testid='prompt'>{answer.status}</span>;
+		}
+		const { rerender } = render(<Prompt prompt='Prompt A' />);
+		await waitFor(() => expect(host.requestModel).toHaveBeenCalledTimes(1));
+		rerender(<Prompt prompt='Prompt B' />);
+		await waitFor(() => expect(host.requestModel).toHaveBeenCalledTimes(2));
+		act(() => refetch());
+		await waitFor(() => expect(host.requestModel).toHaveBeenCalledTimes(3));
+
+		rerender(<Prompt prompt='Prompt A' />);
+		rerender(<Prompt prompt='Prompt B' />);
+		await waitFor(() => expect(screen.getByTestId('prompt').textContent).toBe('success'));
+		expect(host.requestModel).toHaveBeenCalledTimes(3);
 	});
 });
 
