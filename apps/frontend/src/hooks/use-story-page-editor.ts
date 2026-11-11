@@ -33,6 +33,7 @@ export function useStoryPageEditor({
 		currentVersion,
 		currentVersionNumber,
 		storedVersionNumber,
+		latestVersionNumber,
 		isViewingLatest,
 		goToVersion,
 		goToLatestVersion,
@@ -47,11 +48,14 @@ export function useStoryPageEditor({
 	const storyBuffer = useStoryEditBuffer(code);
 	const isCodeDirty = storyBuffer.isDirty;
 
-	const { handleSave, saveCurrentVersion, handleRestore, isSaving } = useStoryViewerVersionActions({
+	const { handleSave, saveCurrentVersion, handleRestore, isSaving, saveError } = useStoryViewerVersionActions({
 		chatId,
 		storySlug,
 		storyTitle,
 		currentVersionCode: code,
+		currentVersionNumber: storedVersionNumber > 0 ? storedVersionNumber : undefined,
+		latestVersionNumber,
+		hasUnsavedChanges: storyBuffer.isDirty,
 		isViewingLatest,
 		goToLatestVersion,
 		codeViewRef,
@@ -113,6 +117,7 @@ export function useStoryPageEditor({
 		handleSave,
 		handleRestore,
 		isSaving,
+		saveError,
 		exitDialog: exitGuard.dialogProps,
 		versionNav: {
 			currentVersion: currentVersionNumber,

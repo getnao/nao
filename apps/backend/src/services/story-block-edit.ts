@@ -14,6 +14,7 @@ import { formatStoryFile } from '../utils/story-file-format';
 import { isViewableStoryFile, normalizeStoryFilePath } from '../utils/story-file-path';
 import { appendKitBlock, applyKitBlockChange, matchesKitBlock, parseKitSource } from '../utils/story-kit-jsx';
 import { CustomStoryNotFoundError } from './custom-story';
+import { assertWriterAddsNoChatQueries } from './custom-story-query-access';
 import { queueCustomStoryThumbnail } from './custom-story-thumbnail';
 import { buildStoryApp, resolveStoryEntry } from './story-app-build';
 
@@ -73,6 +74,7 @@ export async function editCustomStoryBlock(input: StoryBlockEditInput): Promise<
 		applyKitBlockChange(target.file.content, target.kitSource, target.element, input.change),
 	);
 	const files = draft.map((file) => (file.path === target.file.path ? { path: file.path, content } : file));
+	await assertWriterAddsNoChatQueries(story, input.authorId, files);
 
 	const build = await buildStoryApp(files);
 	if (!build.ok) {
@@ -90,6 +92,7 @@ export async function appendCustomStoryBlock(input: StoryBlockAppendInput): Prom
 	const entry = findEntryFile(draft);
 	const content = await formatStoryFile(entry.path, appendKitBlock(entry.path, entry.content, input.block));
 	const files = draft.map((file) => (file.path === entry.path ? { path: file.path, content } : file));
+	await assertWriterAddsNoChatQueries(story, input.authorId, files);
 
 	const build = await buildStoryApp(files);
 	if (!build.ok) {
@@ -109,6 +112,7 @@ export async function saveCustomStoryFiles(input: StoryFilesSaveInput): Promise<
 		throw new StoryBlockEditError('Nothing changed.');
 	}
 	const files = draft.map((file) => ({ path: file.path, content: edits.get(file.path) ?? file.content }));
+	await assertWriterAddsNoChatQueries(story, input.authorId, files);
 
 	const build = await buildStoryApp(files);
 	if (!build.ok) {
@@ -217,18 +221,11 @@ async function commitEdit(
 		queueCustomStoryThumbnail(storyId, version.id);
 		return version;
 	} catch (error) {
-		if (isVersionConflict(error)) {
+		if (storyQueries.isStoryVersionUniqueViolation(error)) {
 			throw new StoryBlockEditError(NEWER_VERSION_MESSAGE);
 		}
 		throw error;
 	}
-}
-
-function isVersionConflict(error: unknown): boolean {
-	const { code, message } = error as { code?: unknown; message?: unknown };
-	return (
-		code === '23505' || (typeof message === 'string' && message.includes('UNIQUE constraint failed: story_version'))
-	);
 }
 
 async function loadDraftMatchingLatestVersion(storyId: string, input: LatestVersionInput): Promise<StoryFileInput[]> {

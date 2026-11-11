@@ -1,3 +1,5 @@
+import { TRPCClientError } from '@trpc/client';
+
 export type StorySaveResult = 'saved' | 'unchanged' | 'invalid' | 'unavailable' | 'failed';
 
 export async function saveStoryCodeIfChanged({
@@ -18,4 +20,8 @@ export async function saveStoryCodeIfChanged({
 	} catch {
 		return 'failed';
 	}
+}
+
+export function isStoryVersionConflict(error: unknown): boolean {
+	return error instanceof TRPCClientError && error.data?.code === 'CONFLICT';
 }

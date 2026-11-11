@@ -57,6 +57,7 @@ interface StoryChartEditProviderProps {
 	storySlug: string;
 	storyTitle: string;
 	storyCode: string;
+	storyVersion?: number;
 	children: React.ReactNode;
 }
 
@@ -65,9 +66,16 @@ export function StoryChartEditProvider({
 	storySlug,
 	storyTitle,
 	storyCode,
+	storyVersion,
 	children,
 }: StoryChartEditProviderProps) {
-	const { replaceBlock, isSaving } = useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode });
+	const { replaceBlock, isSaving } = useStoryBlockEdit({
+		chatId,
+		storySlug,
+		storyTitle,
+		storyCode,
+		storyVersion,
+	});
 
 	const saveChart = useCallback(
 		(rawTag: string, config: EditableChartInput) => replaceBlock(rawTag, buildStoryChartBlock(config)),

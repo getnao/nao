@@ -88,6 +88,15 @@ vi.mock('@/hooks/use-story-version-query-data', () => ({
 	useStoryVersionQueryData: () => ({ queryData: {}, isPending: false }),
 }));
 vi.mock('@/hooks/use-track-view-duration', () => ({ useTrackViewDuration: vi.fn() }));
+vi.mock('@/hooks/use-story-edit-session', () => ({
+	useStoryEditSession: () => ({
+		otherEditorName: null,
+		ownEditElsewhere: null,
+		isLockedByOthers: false,
+		canEdit: true,
+		updatedByName: null,
+	}),
+}));
 vi.mock('@/hooks/use-mentioned-stories', () => ({ useResolvedStory: () => ({ data: { isOwner: false } }) }));
 vi.mock('@/lib/auth-client', () => ({
 	useSession: () => ({ data: { user: { id: 'member-1' } } }),

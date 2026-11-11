@@ -1,14 +1,13 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
-import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type StoryFormat, type UserRole } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, SHARE_ROLES, SHARE_VISIBILITY, type StoryFormat, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import type { DBStory } from '../db/abstractSchema';
 import * as activityQueries from '../queries/activity.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import * as storyFolderQueries from '../queries/story-folder.queries';
-import { logActivity } from '../services/activity';
 import { readStoryChartPluginSources } from '../services/chart-plugin';
 import {
 	getActiveThemeForProject,
@@ -28,12 +27,17 @@ import {
 	setCustomStoryStateByStoryId,
 } from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
-import { notifySharedItem } from '../services/notification.service';
-import { assertCanShareToProject, assertCanShareWith, listShareableGroups } from '../services/project-sharing.service';
-import { assertShareableUserGroupIds, filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
+import { listShareableGroups } from '../services/project-sharing.service';
+import { filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import { unshareStory } from '../services/shared-story.service';
 import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
 import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
+import {
+	assertCanManageStoryShare,
+	getStoryShareSettings,
+	saveStoryShareSettings,
+	type ShareActor,
+} from '../services/story-share-settings.service';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
@@ -57,6 +61,8 @@ import {
 	protectedProcedure,
 	resourceProjectProcedure,
 } from './trpc';
+
+const shareGrantInput = z.object({ id: z.string(), role: z.enum(SHARE_ROLES) });
 
 const shareProcedure = resourceProjectProcedure('storyId', sharedStoryQueries.getSharedStoryByStoryId, 'Shared story');
 const shareAccessProcedure = resourceProjectProcedure(
@@ -96,95 +102,6 @@ export const sharedStoryRoutes = {
 		}));
 		return withKpiPreviewData(items, (story) => story.storyId);
 	}),
-
-	create: canSendProcedure
-		.input(
-			z.object({
-				chatId: z.string(),
-				storySlug: z.string(),
-				visibility: z.enum(SHARE_VISIBILITY).default('project'),
-				allowedUserIds: z.array(z.string()).optional(),
-				allowedGroupIds: z.array(z.string()).optional(),
-				pinAfterCreate: z.boolean().optional(),
-				notify: z.boolean().default(false),
-			}),
-		)
-		.mutation(async ({ input, ctx }) => {
-			if (input.pinAfterCreate && ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can pin stories.' });
-			}
-
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			if (!story) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-			}
-
-			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
-			if (storyProjectId !== ctx.project.id) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
-			}
-
-			const storyOwnerId = (await storyQueries.getStoryOwnerId(story.id)) ?? ctx.user.id;
-			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
-			}
-
-			await assertShareableUserGroupIds(ctx.project.id, input.allowedGroupIds ?? []);
-
-			if (input.visibility === 'project') {
-				await assertCanShareToProject(ctx.project.id, ctx.user.id);
-				await storyFolderQueries.moveStoryToFolder(story.id, null, {
-					storyOwnerId,
-					projectId: ctx.project.id,
-				});
-			} else {
-				await assertCanShareWith(ctx.project.id, ctx.user.id, {
-					userIds: input.allowedUserIds,
-					groupIds: input.allowedGroupIds,
-				});
-				await storyFolderQueries.ensureStoryPrivate(story.id, {
-					storyOwnerId,
-					projectId: ctx.project.id,
-				});
-			}
-
-			const created = await sharedStoryQueries.createSharedStory(
-				{
-					storyId: story.id,
-					projectId: ctx.project.id,
-					userId: ctx.user.id,
-					visibility: input.visibility,
-				},
-				{ userIds: input.allowedUserIds, groupIds: input.allowedGroupIds },
-				{ pinned: input.pinAfterCreate === true },
-			);
-
-			await logActivity({
-				projectId: ctx.project.id,
-				userId: ctx.user.id,
-				type: 'story.shared',
-				storyId: story.id,
-				sharedStoryId: created.id,
-			});
-
-			const recipientUserIds =
-				input.visibility === 'specific'
-					? await sharedStoryQueries.getSharedStoryRecipientUserIds(created.id)
-					: undefined;
-			notifySharedItem({
-				projectId: ctx.project.id,
-				sharerId: ctx.user.id,
-				sharerName: ctx.user.name,
-				itemId: story.id,
-				itemLabel: 'story',
-				itemTitle: story.title,
-				visibility: input.visibility,
-				allowedUserIds: recipientUserIds,
-				deliverExternally: input.notify,
-			}).catch((err) => console.error('Failed to notify shared story recipients', err));
-
-			return { storyId: story.id };
-		}),
 
 	getStoryIdByShareId: legacyShareAccessProcedure
 		.input(z.object({ shareId: z.string() }))
@@ -551,56 +468,46 @@ export const sharedStoryRoutes = {
 		return listShareableGroups(ctx.project.id, ctx.user.id);
 	}),
 
-	updateAccess: shareProcedure
+	getShareSettings: projectProtectedProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			const projectId = story && (story.projectId ?? (await storyQueries.getStoryProjectId(story.id)));
+			if (!story || projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			return getStoryShareSettings(story, toShareActor(ctx));
+		}),
+
+	saveShareSettings: canSendProcedure
 		.input(
 			z.object({
 				storyId: z.string(),
-				allowedUserIds: z.array(z.string()),
-				allowedGroupIds: z.array(z.string()).default([]),
+				visibility: z.enum(SHARE_VISIBILITY),
+				projectRole: z.enum(SHARE_ROLES).default('viewer'),
+				users: z.array(shareGrantInput).default([]),
+				groups: z.array(shareGrantInput).default([]),
+				notify: z.boolean().default(false),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			const shared = ctx.resource;
-
-			if (shared.userId !== ctx.user.id && ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
-			}
-			await assertShareableUserGroupIds(shared.projectId, input.allowedGroupIds);
-			const [previousUserIds, previousGroupIds] = await Promise.all([
-				sharedStoryQueries.getSharedStoryAllowedUserIds(shared.id),
-				sharedStoryQueries.getSharedStoryAllowedGroupIds(shared.id),
-			]);
-			await assertCanShareWith(shared.projectId, ctx.user.id, {
-				userIds: input.allowedUserIds.filter((id) => !previousUserIds.includes(id)),
-				groupIds: input.allowedGroupIds.filter((id) => !previousGroupIds.includes(id)),
-			});
-
-			const previousRecipientIds = new Set(await sharedStoryQueries.getSharedStoryRecipientUserIds(shared.id));
-			await sharedStoryQueries.updateSharedStoryRecipients(shared.id, {
-				userIds: input.allowedUserIds,
-				groupIds: input.allowedGroupIds,
-			});
-			const currentRecipientIds = await sharedStoryQueries.getSharedStoryRecipientUserIds(shared.id);
-
-			const newlyAddedUserIds = currentRecipientIds.filter((id) => !previousRecipientIds.has(id));
-			if (newlyAddedUserIds.length > 0) {
-				await notifySharedItem({
-					projectId: shared.projectId,
-					sharerId: shared.userId,
-					sharerName: shared.authorName,
-					itemId: shared.storyId,
-					itemLabel: 'story',
-					itemTitle: shared.title,
-					visibility: 'specific',
-					allowedUserIds: newlyAddedUserIds,
-				});
-			}
+			const { story, actor } = await loadManagedStory(input.storyId, ctx);
+			await saveStoryShareSettings(story, actor, input);
 		}),
 
 	togglePin: adminProtectedProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
 		const share = await sharedStoryQueries.getSharedStoryByStoryId(input.storyId);
 		if (!share) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
+			const { story, actor } = await loadManagedStory(input.storyId, ctx);
+			await saveStoryShareSettings(story, actor, {
+				visibility: 'project',
+				projectRole: 'viewer',
+				users: [],
+				groups: [],
+				notify: false,
+			});
+			await sharedStoryQueries.pinSharedStory(story.id);
+			return;
 		}
 		if (share.projectId !== ctx.project.id) {
 			throw new TRPCError({
@@ -725,4 +632,25 @@ async function getStoryForkAccess(
 		shared.format !== 'custom' || hasUserGroupFeature(shared.projectId, userId, 'customStoryCreation'),
 	]);
 	return canCreateStory && canCreateCustomStory;
+}
+
+function toShareActor(ctx: {
+	user: { id: string; name: string };
+	userRole: UserRole | null;
+	project: { id: string };
+}): ShareActor {
+	return { id: ctx.user.id, name: ctx.user.name, role: ctx.userRole, projectId: ctx.project.id };
+}
+
+async function loadManagedStory(
+	storyId: string,
+	ctx: Parameters<typeof toShareActor>[0],
+): Promise<{ story: DBStory; actor: ShareActor }> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	const actor = toShareActor(ctx);
+	await assertCanManageStoryShare(story, actor);
+	return { story, actor };
 }

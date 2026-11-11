@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
-import { ShareStoryDialog } from '../share-dialog.story';
+import { ShareDialog } from '../share-dialog';
 import { StoryUnsavedChangesDialog } from '../story-unsaved-changes-dialog';
 import { StoryEditor } from './story-editor';
 import { LiveStorySettingsDialog } from './live-story-settings-dialog';
@@ -29,6 +29,7 @@ import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import type { CodeSelection } from '@/stores/ask-bar';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { ActionErrorBanner } from '@/components/custom-story/custom-story-body';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
 import { MentionedStoriesProvider } from '@/contexts/mentioned-stories';
@@ -44,6 +45,8 @@ import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { selectStoryEditorCode, useStoryEditBuffer } from '@/hooks/use-story-edit-buffer';
 import { useStoryEditTransitions } from '@/hooks/use-story-edit-transitions';
 import { useStoryExitGuard } from '@/hooks/use-story-exit-guard';
+import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-edit-session';
+import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
@@ -55,6 +58,7 @@ import { useRegisterStoryBeforeAgentSend } from '@/contexts/story-before-agent-s
 import { StoryThemeProvider, useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { toAskCitation, toCodeAsk } from '@/stores/ask-bar';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 interface StoryViewerProps {
@@ -192,6 +196,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		currentVersion,
 		currentVersionNumber,
 		storedVersionNumber,
+		latestVersionNumber,
 		isViewingLatest,
 		goToVersion,
 		goToLatestVersion,
@@ -248,11 +253,14 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		versionNumber: storedVersionNumber > 0 ? storedVersionNumber : undefined,
 	});
 
-	const { handleSave, saveCurrentVersion, handleRestore, isSaving } = useStoryViewerVersionActions({
+	const { handleSave, saveCurrentVersion, handleRestore, isSaving, saveError } = useStoryViewerVersionActions({
 		chatId,
 		storySlug: resolvedStorySlug,
 		storyTitle,
 		currentVersionCode: currentVersion?.code ?? storyCode,
+		currentVersionNumber: storedVersionNumber > 0 ? storedVersionNumber : undefined,
+		latestVersionNumber,
+		hasUnsavedChanges: storyBuffer.isDirty,
 		isViewingLatest,
 		goToLatestVersion,
 		codeViewRef,
@@ -262,6 +270,15 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		onVersionSaved: storyBuffer.markSaved,
 	});
 	const isDirty = storyBuffer.isDirty;
+	const presence = useStoryEditSession({
+		target: !isReadonlyMode && storyId ? { storyId, chatId, storySlug: resolvedStorySlug } : null,
+		isEditing: viewMode !== 'preview' || isCodeDirty,
+	});
+	useCloseWhenUneditable(presence.canEdit || isDirty, () => {
+		if (viewMode !== 'preview') {
+			setViewMode('preview');
+		}
+	});
 	const exitGuard = useStoryExitGuard({
 		isDirty,
 		canSave: viewMode !== 'code' || isCodeValid,
@@ -447,6 +464,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
+				isEditLocked={!presence.canEdit}
 				isStoryUpdating={isStoryUpdating}
 				isSaving={isSaving}
 				isReadonlyMode={isReadonlyMode}
@@ -463,6 +481,8 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				lastRefreshFailure={lastRefreshFailure}
 			/>
 
+			<StoryEditPresenceBanner presence={presence} />
+			{saveError && <ActionErrorBanner message={saveError} />}
 			{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}
 
 			{viewMode === 'preview' && isTabbedStory && tabs && (
@@ -476,12 +496,18 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{renderWithEditProvider(
-					!isReadonlyMode && isViewingLatest && !archivedAt && !isAgentRunning && viewMode !== 'edit',
+					!isReadonlyMode &&
+						isViewingLatest &&
+						!archivedAt &&
+						!isAgentRunning &&
+						presence.canEdit &&
+						viewMode !== 'edit',
 					{
 						chatId,
 						storySlug: resolvedStorySlug,
 						storyTitle,
 						storyCode,
+						storyVersion: storedVersionNumber > 0 ? storedVersionNumber : undefined,
 					},
 					viewMode === 'preview' ? (
 						isContentLoading ? (
@@ -510,31 +536,33 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 								theme={storyTheme}
 								className='h-auto min-h-full bg-background text-foreground'
 							>
-								{isEditTabbedStory ? (
-									<StoryTabbedEditor
-										code={editCode}
-										editorRef={tiptapEditorRef}
-										onSave={handleSave}
-										onChange={storyBuffer.handleCodeChange}
-										getCodeRef={tabbedEditCodeRef}
-										barContentClassName='px-6'
-										contentClassName='p-6'
-									/>
-								) : (
-									<StoryEditor
-										code={editCode}
-										editorRef={tiptapEditorRef}
-										onSave={handleSave}
-										onChange={storyBuffer.handleCodeChange}
-									/>
-								)}
+								<div inert={!presence.canEdit} className={cn(!presence.canEdit && 'opacity-60')}>
+									{isEditTabbedStory ? (
+										<StoryTabbedEditor
+											code={editCode}
+											editorRef={tiptapEditorRef}
+											onSave={handleSave}
+											onChange={storyBuffer.handleCodeChange}
+											getCodeRef={tabbedEditCodeRef}
+											barContentClassName='px-6'
+											contentClassName='p-6'
+										/>
+									) : (
+										<StoryEditor
+											code={editCode}
+											editorRef={tiptapEditorRef}
+											onSave={handleSave}
+											onChange={storyBuffer.handleCodeChange}
+										/>
+									)}
+								</div>
 							</StoryThemeProvider>
 						</StoryEmbedDataProvider>
 					) : (
 						<StoryCodeView
 							code={codeDraft}
 							storySlug={resolvedStorySlug}
-							readOnly={isReadonlyMode}
+							readOnly={isReadonlyMode || !presence.canEdit}
 							codeRef={codeViewRef}
 							onCodeChange={storyBuffer.handleCodeChange}
 							onValidChange={setIsCodeValid}
@@ -545,11 +573,10 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				)}
 			</div>
 
-			<ShareStoryDialog
+			<ShareDialog
 				open={isShareDialogOpen}
 				onOpenChange={setIsShareDialogOpen}
-				chatId={chatId}
-				storySlug={resolvedStorySlug}
+				target={{ kind: 'story', chatId: chatId, storySlug: resolvedStorySlug }}
 			/>
 
 			<AssetAnalyticsDialog
@@ -586,7 +613,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 function renderWithEditProvider(
 	enabled: boolean,
-	params: { chatId: string; storySlug: string; storyTitle: string; storyCode: string },
+	params: { chatId: string; storySlug: string; storyTitle: string; storyCode: string; storyVersion?: number },
 	children: React.ReactNode,
 ) {
 	if (!enabled) {
@@ -598,18 +625,21 @@ function renderWithEditProvider(
 			storySlug={params.storySlug}
 			storyTitle={params.storyTitle}
 			storyCode={params.storyCode}
+			storyVersion={params.storyVersion}
 		>
 			<StoryTableEditProvider
 				chatId={params.chatId}
 				storySlug={params.storySlug}
 				storyTitle={params.storyTitle}
 				storyCode={params.storyCode}
+				storyVersion={params.storyVersion}
 			>
 				<StoryMapEditProvider
 					chatId={params.chatId}
 					storySlug={params.storySlug}
 					storyTitle={params.storyTitle}
 					storyCode={params.storyCode}
+					storyVersion={params.storyVersion}
 				>
 					{children}
 				</StoryMapEditProvider>
