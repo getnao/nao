@@ -93,14 +93,14 @@ export const standaloneCustomStoryRoutes = {
 			}
 		}),
 
-	listModels: standaloneOwnerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.story.projectId)),
+	listModels: standaloneOwnerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.story.projectId, ctx.user.id)),
 
 	runModel: standaloneOwnerProcedure
 		.input(z.object({ request: storyModelRequest }))
 		.mutation(async ({ ctx, input }) => {
 			try {
 				return await runCustomStoryModel(
-					{ projectId: ctx.story.projectId, chatId: null, viewerId: ctx.user.id },
+					{ projectId: ctx.story.projectId, storyId: ctx.story.id, viewerId: ctx.user.id },
 					input.request,
 				);
 			} catch (error) {

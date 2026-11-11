@@ -1,6 +1,4 @@
 import {
-	STORY_LLM_DEFAULT_OUTPUT_TOKENS,
-	STORY_LLM_MAX_OUTPUT_TOKENS,
 	type StoryLlmRequest,
 	type StoryLlmResult,
 	type StoryModel,
@@ -9,26 +7,34 @@ import {
 	toStoryModelId,
 } from '@nao/shared/story-models';
 import { isSameModel } from '@nao/shared/types';
-import { generateText, jsonSchema, Output } from 'ai';
+import { TRPCError } from '@trpc/server';
 
-import { llmTelemetry } from '../agents/telemetry';
-import { convertToTokenUsage } from '../utils/ai';
-import { getProjectAvailableModels, resolveDefaultChatModel, resolveProviderModel } from '../utils/llm';
-import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
+import { storyModelAgent } from '../agents/profiles/story-model';
+import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
+import * as storyReferenceQueries from '../queries/story-reference.queries';
+import type { ForkMetadata } from '../types/chat';
+import { getProjectAvailableModels, resolveDefaultChatModel } from '../utils/llm';
 import { agentService } from './agent';
 
 export interface CustomStoryModelTarget {
 	projectId: string;
-	chatId: string | null;
-	/** The user looking at the story: the call runs under their budget and is billed to them. */
+	storyId: string;
+	/** The user looking at the story: the call runs as them, under their budget and their user groups. */
 	viewerId: string;
+	billingAccessVerifiedProjectId?: string;
 }
 
-/** A model call that cannot run is the story's content, like a failing query: its reason reaches the frame. */
+/** A model that cannot answer is the story's content, like a failing query: its reason reaches the frame. */
 export class CustomStoryModelError extends Error {}
 
-/** The models a story can call in this project: the LLMs its chat offers, with the default chat model marked. */
-export async function listCustomStoryModels(projectId: string): Promise<StoryModel[]> {
+const MODEL_CALLER_ROLES = ['admin', 'user', 'context_admin'];
+
+/** The models a story can call for this viewer: the LLMs their chat offers, none for members who cannot chat. */
+export async function listCustomStoryModels(projectId: string, viewerId: string): Promise<StoryModel[]> {
+	if (!(await canCallModels(projectId, viewerId))) {
+		return [];
+	}
 	const [available, defaultModel] = await Promise.all([
 		getProjectAvailableModels(projectId),
 		resolveDefaultChatModel(projectId),
@@ -53,62 +59,58 @@ export async function runCustomStoryModel(
 	}
 }
 
+/**
+ * Runs through the agent like a chat message, as the viewer: the call is saved as a chat of its own (kept under the
+ * story, out of the chat history) with its cost, so budgets, billing, user groups and usage reports all see it.
+ */
 async function runStoryLlm(target: CustomStoryModelTarget, request: StoryLlmRequest): Promise<StoryLlmResult> {
-	const model = await findRequestedLlm(target.projectId, request.model);
+	if (!(await canCallModels(target.projectId, target.viewerId))) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot perform this action' });
+	}
+	const model = await agentService.resolveModelSelection(
+		target.projectId,
+		await findRequestedLlm(target.projectId, request.model),
+	);
+	const chat = await createStoryModelChat(target, request.prompt);
+	const agent = await agentService.create(chat, model, storyModelAgent(request), {
+		billingAccessVerifiedProjectId: target.billingAccessVerifiedProjectId,
+	});
+
 	try {
-		const selection = await agentService.assertRunAvailable(target.projectId, model, target.viewerId);
-		const providerModel = await resolveProviderModel(
-			target.projectId,
-			selection.provider,
-			selection.modelId,
-			true,
-			{
-				userId: target.viewerId,
-				projectId: target.projectId,
-				...(target.chatId && { chatId: target.chatId }),
-				category: 'story',
-			},
-		);
-		if (!providerModel) {
-			throw new CustomStoryModelError(`Model ${toStoryModelId(selection)} is not available.`);
-		}
-
-		const generated = await generateText({
-			...providerModel,
-			...(request.system && { system: request.system }),
-			messages: [{ role: 'user', content: request.prompt }],
-			maxOutputTokens: Math.min(
-				request.maxOutputTokens ?? STORY_LLM_DEFAULT_OUTPUT_TOKENS,
-				STORY_LLM_MAX_OUTPUT_TOKENS,
-			),
-			...(request.schema && { output: Output.object({ schema: jsonSchema(request.schema) }) }),
-			experimental_telemetry: llmTelemetry('nao-custom-story-model', {
-				projectId: target.projectId,
-				tags: [selection.provider],
-			}),
-		});
-
-		scheduleSaveLlmInferenceRecord({
-			type: 'custom_story_model',
-			projectId: target.projectId,
-			userId: target.viewerId,
-			chatId: target.chatId,
-			llmProvider: selection.provider,
-			llmModelId: selection.modelId,
-			...convertToTokenUsage(generated.usage),
-		});
-
+		const result = await agent.streamToCompletion(chat.messages);
 		return {
 			kind: 'llm',
-			model: toStoryModelId(selection),
-			text: generated.text,
-			...(request.schema && { object: generated.output }),
+			model: toStoryModelId(model),
+			text: result.text,
+			...(request.schema && { object: result.output }),
 		};
 	} catch (error) {
-		throw error instanceof CustomStoryModelError
-			? error
-			: new CustomStoryModelError(error instanceof Error ? error.message : String(error));
+		throw new CustomStoryModelError(error instanceof Error ? error.message : String(error));
 	}
+}
+
+async function createStoryModelChat(target: CustomStoryModelTarget, prompt: string) {
+	const story = await storyReferenceQueries.getReferenceableStory(target.viewerId, target.projectId, target.storyId);
+	const forkMetadata: ForkMetadata = {
+		type: chatQueries.STORY_MODEL_FORK_TYPE,
+		id: target.storyId,
+		title: story?.title ?? '',
+		authorName: story?.authorName ?? '',
+	};
+	const [created] = await chatQueries.createChat(
+		{ projectId: target.projectId, userId: target.viewerId, title: forkMetadata.title, forkMetadata },
+		{ text: prompt, source: 'storyModel' },
+	);
+	const [chat] = await chatQueries.getChat(created.id);
+	if (!chat) {
+		throw new Error(`Failed to load story model chat ${created.id}`);
+	}
+	return { ...chat, projectId: target.projectId, userId: target.viewerId };
+}
+
+async function canCallModels(projectId: string, userId: string): Promise<boolean> {
+	const role = await projectQueries.getUserRoleInProject(projectId, userId);
+	return role !== null && role !== undefined && MODEL_CALLER_ROLES.includes(role);
 }
 
 /** Only models the project offers can be called: a story cannot reach a provider or model the chat does not list. */

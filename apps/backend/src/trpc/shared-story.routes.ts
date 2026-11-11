@@ -241,7 +241,7 @@ export const sharedStoryRoutes = {
 
 	listCustomStoryModels: shareAccessProcedure
 		.input(z.object({ storyId: z.string() }))
-		.query(({ ctx }) => listCustomStoryModels(ctx.resource.projectId)),
+		.query(({ ctx }) => listCustomStoryModels(ctx.resource.projectId, ctx.user.id)),
 
 	runCustomStoryModel: cloudBillingShareAccessProcedure
 		.input(z.object({ storyId: z.string(), request: storyModelRequest }))
@@ -249,7 +249,12 @@ export const sharedStoryRoutes = {
 			const shared = ctx.resource;
 			try {
 				return await runCustomStoryModel(
-					{ projectId: shared.projectId, chatId: shared.chatId, viewerId: ctx.user.id },
+					{
+						projectId: shared.projectId,
+						storyId: shared.storyId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: shared.projectId,
+					},
 					input.request,
 				);
 			} catch (error) {

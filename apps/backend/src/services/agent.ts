@@ -24,6 +24,7 @@ import {
 	generateText,
 	InferUIMessageChunk,
 	ModelMessage,
+	type OutputInterface,
 	type PrepareStepResult,
 	pruneMessages,
 	readUIMessageStream,
@@ -156,6 +157,8 @@ export interface AgentRunResult {
 	}>;
 	/** All message parts (step-starts, tool calls, text) for persisting to the DB */
 	responseParts: UIMessagePart[];
+	/** The structured answer of a profile that asks for one (`AgentProfile.output`). */
+	output?: unknown;
 	/** Rows returned by every `execute_sql` call of the run, keyed by query id */
 	queryResults: Map<string, QueryResult>;
 }
@@ -497,13 +500,13 @@ export class AgentService {
 export const MAX_OUTPUT_TOKENS = 16_000;
 
 export class AgentManager {
-	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
+	private readonly _agent: ToolLoopAgent<never, AgentTools, OutputInterface>;
 	private readonly _finished: Promise<void>;
 	private _resolveFinished: (() => void) | undefined;
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 	private _systemPrompt = '';
 	private _runCompaction = new RunCompaction(compactionService);
-	private _streamResult?: StreamTextResult<AgentTools, never>;
+	private _streamResult?: StreamTextResult<AgentTools, OutputInterface>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -529,6 +532,7 @@ export class AgentManager {
 			providerOptions,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
+			...(this._profile.output && { output: this._profile.output }),
 			...(callSettings.temperature !== undefined && { temperature: callSettings.temperature }),
 			...(callSettings.topP !== undefined && { topP: callSettings.topP }),
 			...(callSettings.topK !== undefined && { topK: callSettings.topK }),
@@ -556,7 +560,8 @@ export class AgentManager {
 	}
 
 	private get _maxOutputTokens(): number {
-		return this._modelConfig.callSettings?.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
+		const modelLimit = this._modelConfig.callSettings?.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
+		return Math.min(modelLimit, this._profile.maxOutputTokens ?? modelLimit);
 	}
 
 	private get _stopConditions(): StopCondition<AgentTools>[] {
@@ -645,7 +650,7 @@ export class AgentManager {
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
-		let result: StreamTextResult<AgentTools, never> | undefined;
+		let result: StreamTextResult<AgentTools, OutputInterface> | undefined;
 		const assistantMessageId = crypto.randomUUID();
 		this._usageContext.messageId = assistantMessageId;
 		const handleError = (err: unknown): string => {
@@ -1038,12 +1043,13 @@ export class AgentManager {
 		if (!result) {
 			throw new Error('The agent run did not start.');
 		}
-		const [text, totalUsage, finishReason, steps, response] = await Promise.all([
+		const [text, totalUsage, finishReason, steps, response, output] = await Promise.all([
 			result.text,
 			result.totalUsage,
 			result.finishReason,
 			result.steps,
 			result.response,
+			this._profile.output ? result.output : undefined,
 		]);
 		const usage = convertToTokenUsage(totalUsage);
 
@@ -1057,6 +1063,7 @@ export class AgentManager {
 			steps: steps as AgentRunResult['steps'],
 			responseParts: [],
 			queryResults: this._toolContext.queryResults,
+			...(this._profile.output && { output }),
 		};
 	}
 

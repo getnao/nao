@@ -24,6 +24,7 @@ import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
+	getCustomStoryId,
 	getCustomStoryNarratives,
 	getCustomStoryQueryData,
 	getCustomStoryQuerySql,
@@ -557,15 +558,20 @@ export const storyRoutes = {
 
 	listCustomStoryModels: storyEditorProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(({ ctx }) => listCustomStoryModels(ctx.projectId)),
+		.query(({ ctx }) => listCustomStoryModels(ctx.projectId, ctx.user.id)),
 
 	runCustomStoryModel: cloudBillingStoryEditorProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), request: storyModelRequest }))
 		.mutation(async ({ input, ctx }) => {
 			try {
-				await assertCustomStoryExists(input.chatId, input.storySlug);
+				const storyId = await getCustomStoryId(input.chatId, input.storySlug);
 				return await runCustomStoryModel(
-					{ projectId: ctx.projectId, chatId: input.chatId, viewerId: ctx.user.id },
+					{
+						projectId: ctx.projectId,
+						storyId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: ctx.projectId,
+					},
 					input.request,
 				);
 			} catch (error) {

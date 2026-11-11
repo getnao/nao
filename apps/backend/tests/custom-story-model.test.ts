@@ -1,49 +1,52 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	assertRunAvailable: vi.fn(),
-	generateText: vi.fn(),
+	createAgent: vi.fn(),
+	createChat: vi.fn(),
+	getChat: vi.fn(),
 	getProjectAvailableModels: vi.fn(),
+	getReferenceableStory: vi.fn(),
+	getUserRoleInProject: vi.fn(),
 	resolveDefaultChatModel: vi.fn(),
-	resolveProviderModel: vi.fn(),
-	scheduleSaveLlmInferenceRecord: vi.fn(),
+	resolveModelSelection: vi.fn(),
+	streamToCompletion: vi.fn(),
 }));
 
-vi.mock('ai', async (importOriginal) => ({
-	...(await importOriginal<typeof import('ai')>()),
-	generateText: mocks.generateText,
+vi.mock('../src/services/agent', () => ({
+	agentService: { create: mocks.createAgent, resolveModelSelection: mocks.resolveModelSelection },
 }));
-vi.mock('../src/services/agent', () => ({ agentService: { assertRunAvailable: mocks.assertRunAvailable } }));
 vi.mock('../src/utils/llm', () => ({
 	getProjectAvailableModels: mocks.getProjectAvailableModels,
 	resolveDefaultChatModel: mocks.resolveDefaultChatModel,
-	resolveProviderModel: mocks.resolveProviderModel,
 }));
-vi.mock('../src/utils/schedule-task', () => ({
-	scheduleSaveLlmInferenceRecord: mocks.scheduleSaveLlmInferenceRecord,
+vi.mock('../src/queries/chat.queries', () => ({
+	STORY_MODEL_FORK_TYPE: 'story_model',
+	createChat: mocks.createChat,
+	getChat: mocks.getChat,
 }));
-vi.mock('../src/agents/telemetry', () => ({ llmTelemetry: () => undefined }));
-vi.mock('../src/utils/ai', () => ({ convertToTokenUsage: () => ({ totalTokens: 15 }) }));
+vi.mock('../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
+vi.mock('../src/agents/tools', () => ({ getTools: () => ({}) }));
+vi.mock('../src/queries/story-reference.queries', () => ({ getReferenceableStory: mocks.getReferenceableStory }));
 
 import { CustomStoryModelError, listCustomStoryModels, runCustomStoryModel } from '../src/services/custom-story-model';
 
-const TARGET = { projectId: 'project-1', chatId: 'chat-1', viewerId: 'viewer-1' };
+const TARGET = { projectId: 'project-1', storyId: 'story-1', viewerId: 'viewer-1' };
 const AVAILABLE = [
 	{ provider: 'anthropic', modelId: 'claude-sonnet', name: 'Claude Sonnet', baseUrl: null },
 	{ provider: 'openai', modelId: 'gpt-5', name: 'GPT-5', baseUrl: null },
 ];
-const USAGE = { totalTokens: 15 };
+const USER_MESSAGE = { id: 'message-1', role: 'user', parts: [{ type: 'text', text: 'Summarize revenue' }] };
 
 describe('listCustomStoryModels', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getProjectAvailableModels.mockResolvedValue(AVAILABLE);
+		mocks.resolveDefaultChatModel.mockResolvedValue({ provider: 'openai', modelId: 'gpt-5' });
+		mocks.getUserRoleInProject.mockResolvedValue('user');
 	});
 
 	it('lists the project models as llm models, flagging the default chat model', async () => {
-		mocks.resolveDefaultChatModel.mockResolvedValue({ provider: 'openai', modelId: 'gpt-5' });
-
-		expect(await listCustomStoryModels('project-1')).toEqual([
+		expect(await listCustomStoryModels('project-1', 'viewer-1')).toEqual([
 			{
 				kind: 'llm',
 				id: 'anthropic:claude-sonnet',
@@ -55,18 +58,28 @@ describe('listCustomStoryModels', () => {
 			{ kind: 'llm', id: 'openai:gpt-5', provider: 'openai', modelId: 'gpt-5', name: 'GPT-5', isDefault: true },
 		]);
 	});
+
+	it('lists nothing for members who cannot chat', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('viewer');
+
+		expect(await listCustomStoryModels('project-1', 'viewer-1')).toEqual([]);
+	});
 });
 
 describe('runCustomStoryModel', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getProjectAvailableModels.mockResolvedValue(AVAILABLE);
-		mocks.assertRunAvailable.mockImplementation(async (_projectId, model) => model ?? AVAILABLE[0]);
-		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'resolved' } });
-		mocks.generateText.mockResolvedValue({ text: 'Revenue grew.', usage: USAGE });
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.resolveModelSelection.mockImplementation(async (_projectId, model) => model ?? AVAILABLE[0]);
+		mocks.getReferenceableStory.mockResolvedValue({ title: 'Revenue story', authorName: 'Ada' });
+		mocks.createChat.mockResolvedValue([{ id: 'chat-9' }]);
+		mocks.getChat.mockResolvedValue([{ id: 'chat-9', title: 'Revenue story', messages: [USER_MESSAGE] }]);
+		mocks.createAgent.mockResolvedValue({ streamToCompletion: mocks.streamToCompletion });
+		mocks.streamToCompletion.mockResolvedValue({ text: 'Revenue grew.' });
 	});
 
-	it('calls the requested model as the viewer, under their budget, and records the usage to them', async () => {
+	it('runs through the agent as the viewer, in a chat kept under the story', async () => {
 		const result = await runCustomStoryModel(TARGET, {
 			kind: 'llm',
 			model: 'openai:gpt-5',
@@ -75,37 +88,37 @@ describe('runCustomStoryModel', () => {
 		});
 
 		expect(result).toEqual({ kind: 'llm', model: 'openai:gpt-5', text: 'Revenue grew.' });
-		expect(mocks.assertRunAvailable).toHaveBeenCalledWith(
-			'project-1',
-			{ provider: 'openai', modelId: 'gpt-5' },
-			'viewer-1',
+		expect(mocks.createChat).toHaveBeenCalledWith(
+			{
+				projectId: 'project-1',
+				userId: 'viewer-1',
+				title: 'Revenue story',
+				forkMetadata: { type: 'story_model', id: 'story-1', title: 'Revenue story', authorName: 'Ada' },
+			},
+			{ text: 'Summarize revenue', source: 'storyModel' },
 		);
-		expect(mocks.resolveProviderModel).toHaveBeenCalledWith('project-1', 'openai', 'gpt-5', true, {
-			userId: 'viewer-1',
-			projectId: 'project-1',
-			chatId: 'chat-1',
-			category: 'story',
+		const [chat, model, profile] = mocks.createAgent.mock.calls[0];
+		expect(chat).toMatchObject({ id: 'chat-9', projectId: 'project-1', userId: 'viewer-1' });
+		expect(model).toEqual({ provider: 'openai', modelId: 'gpt-5' });
+		expect(profile).toMatchObject({
+			source: 'storyModel',
+			usageCategory: 'story',
+			maxSteps: 1,
+			maxOutputTokens: 1_024,
 		});
-		expect(mocks.generateText).toHaveBeenCalledWith(
-			expect.objectContaining({
-				system: 'Be brief.',
-				messages: [{ role: 'user', content: 'Summarize revenue' }],
-				maxOutputTokens: 1_024,
-			}),
-		);
-		expect(mocks.scheduleSaveLlmInferenceRecord).toHaveBeenCalledWith(
-			expect.objectContaining({ type: 'custom_story_model', userId: 'viewer-1', llmModelId: 'gpt-5' }),
-		);
+		expect(await profile.systemPrompt()).toBe('Be brief.');
+		expect(mocks.streamToCompletion).toHaveBeenCalledWith([USER_MESSAGE]);
 	});
 
 	it('uses the project default model when the request names none', async () => {
 		await runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' });
 
-		expect(mocks.assertRunAvailable).toHaveBeenCalledWith('project-1', undefined, 'viewer-1');
+		expect(mocks.resolveModelSelection).toHaveBeenCalledWith('project-1', undefined);
+		expect(mocks.createAgent.mock.calls[0][1]).toEqual(AVAILABLE[0]);
 	});
 
-	it('answers with an object when a JSON schema is given', async () => {
-		mocks.generateText.mockResolvedValue({ text: '{"risk":"high"}', output: { risk: 'high' }, usage: USAGE });
+	it('asks the agent for a structured answer when a JSON schema is given', async () => {
+		mocks.streamToCompletion.mockResolvedValue({ text: '{"risk":"high"}', output: { risk: 'high' } });
 
 		const result = await runCustomStoryModel(TARGET, {
 			kind: 'llm',
@@ -114,29 +127,44 @@ describe('runCustomStoryModel', () => {
 		});
 
 		expect(result).toMatchObject({ object: { risk: 'high' } });
-		expect(mocks.generateText.mock.calls[0][0]).toHaveProperty('output');
-	});
-
-	it('refuses a model the project does not offer, before any call', async () => {
-		await expect(
-			runCustomStoryModel(TARGET, { kind: 'llm', model: 'openai:not-enabled', prompt: 'Hi' }),
-		).rejects.toBeInstanceOf(CustomStoryModelError);
-		expect(mocks.assertRunAvailable).not.toHaveBeenCalled();
-		expect(mocks.generateText).not.toHaveBeenCalled();
+		expect(mocks.createAgent.mock.calls[0][2].output).toBeDefined();
 	});
 
 	it('caps the output tokens a story can ask for', async () => {
 		await runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi', maxOutputTokens: 1_000_000 });
 
-		expect(mocks.generateText.mock.calls[0][0].maxOutputTokens).toBe(4_096);
+		expect(mocks.createAgent.mock.calls[0][2].maxOutputTokens).toBe(4_096);
 	});
 
-	it('surfaces an exhausted budget as a story error, without calling the model', async () => {
-		mocks.assertRunAvailable.mockRejectedValue(new Error('Your monthly budget is exhausted.'));
+	it('refuses a model the project does not offer, before any chat or call', async () => {
+		await expect(
+			runCustomStoryModel(TARGET, { kind: 'llm', model: 'openai:not-enabled', prompt: 'Hi' }),
+		).rejects.toBeInstanceOf(CustomStoryModelError);
+		expect(mocks.createChat).not.toHaveBeenCalled();
+		expect(mocks.createAgent).not.toHaveBeenCalled();
+	});
+
+	it('refuses members who cannot chat, like the chat does', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('viewer');
 
 		await expect(runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' })).rejects.toThrow(
-			new CustomStoryModelError('Your monthly budget is exhausted.'),
+			'Viewers cannot perform this action',
 		);
-		expect(mocks.generateText).not.toHaveBeenCalled();
+		expect(mocks.createAgent).not.toHaveBeenCalled();
+	});
+
+	it('lets budget and billing refusals from the agent keep their own error', async () => {
+		const budgetError = new Error('Your monthly budget is exhausted.');
+		mocks.createAgent.mockRejectedValue(budgetError);
+
+		await expect(runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' })).rejects.toBe(budgetError);
+	});
+
+	it('surfaces a failing model run as a story error', async () => {
+		mocks.streamToCompletion.mockRejectedValue(new Error('Provider overloaded.'));
+
+		await expect(runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' })).rejects.toThrow(
+			new CustomStoryModelError('Provider overloaded.'),
+		);
 	});
 });

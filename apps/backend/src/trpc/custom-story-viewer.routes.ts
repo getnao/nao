@@ -13,6 +13,7 @@ import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
+	getCustomStoryId,
 	getCustomStoryNarratives,
 	getCustomStoryVersion,
 	getSharedCustomStoryQueryData,
@@ -95,13 +96,13 @@ export const customStoryViewerRoutes = {
 			}
 		}),
 
-	listModels: viewerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.viewer.projectId)),
+	listModels: viewerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.viewer.projectId, ctx.user.id)),
 
 	runModel: viewerProcedure.input(z.object({ request: storyModelRequest })).mutation(async ({ ctx, input }) => {
 		try {
-			await assertCustomStoryExists(ctx.viewer.chatId, input.storySlug);
+			const storyId = await getCustomStoryId(ctx.viewer.chatId, input.storySlug);
 			return await runCustomStoryModel(
-				{ projectId: ctx.viewer.projectId, chatId: ctx.viewer.chatId, viewerId: ctx.user.id },
+				{ projectId: ctx.viewer.projectId, storyId, viewerId: ctx.user.id },
 				input.request,
 			);
 		} catch (error) {

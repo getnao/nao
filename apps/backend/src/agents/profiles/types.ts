@@ -1,4 +1,4 @@
-import type { StepResult, ToolChoice } from 'ai';
+import type { OutputInterface, StepResult, ToolChoice } from 'ai';
 
 import type { AgentChat, AgentToolsResolver } from '../../services/agent';
 import type { AgentTools, MessageSource } from '../../types/chat';
@@ -35,4 +35,8 @@ export interface AgentProfile {
 	/** Ends non-interactive runs after this many steps instead of when the agent suggests follow-ups. */
 	maxSteps?: number;
 	usageCategory?: ManagedAiUsageCategory;
+	/** Asks the model for a structured answer instead of text, returned as `output` by `streamToCompletion`. */
+	output?: OutputInterface;
+	/** Caps each answer below the model's own limit, for runs a caller pays per call. */
+	maxOutputTokens?: number;
 }
