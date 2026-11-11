@@ -3,6 +3,14 @@ import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
+vi.mock('../src/utils/project-file', async () => {
+	const fs = await import('fs');
+	const { join } = await import('path');
+	return {
+		readProjectFile: (projectFolder: string, relativePath: string) =>
+			fs.readFileSync(join(projectFolder, relativePath), 'utf-8'),
+	};
+});
 
 import {
 	getDatabaseContextCatalog,
