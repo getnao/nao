@@ -14,6 +14,8 @@ import {
 	project,
 	story,
 	storyFeedback,
+	testRun,
+	testRunResult,
 	user,
 } from '../src/db/sqlite-schema';
 
@@ -29,9 +31,12 @@ const PART_IDS = ['ro-part-a', 'ro-part-b'];
 const PART_A_TIME = new Date('2024-06-23T08:15:00Z');
 const REVIEWER_ID = 'ro-test-reviewer';
 const STORY_IDS = ['ro-story-a', 'ro-story-b'];
+const TEST_RUN_IDS = ['ro-run-a', 'ro-run-b'];
 
 async function cleanup() {
 	// Child -> parent so the cleanup works even without cascading FKs.
+	await db.delete(testRunResult).where(inArray(testRunResult.runId, TEST_RUN_IDS));
+	await db.delete(testRun).where(inArray(testRun.id, TEST_RUN_IDS));
 	await db.delete(storyFeedback).where(inArray(storyFeedback.storyId, STORY_IDS));
 	await db.delete(story).where(inArray(story.id, STORY_IDS));
 	await db.delete(user).where(eq(user.id, REVIEWER_ID));
@@ -122,6 +127,35 @@ describe('runScopedAppDbQuery', () => {
 			},
 		]);
 		expect(projectB.rows).toEqual([{ story_id: 'ro-story-b', vote: 'up' }]);
+	});
+
+	it('exposes test runs and their results scoped to the project', async () => {
+		const model = { provider: 'openai' as const, modelId: 'gpt-5' };
+		await db.insert(testRun).values([
+			{ id: 'ro-run-a', projectId: PROJECT_A, triggeredByUserId: USER_ID, status: 'completed', models: [model] },
+			{ id: 'ro-run-b', projectId: PROJECT_B, status: 'completed', models: [model] },
+		]);
+		const result = { testHash: 'hash', llmProvider: 'openai' as const, llmModelId: 'gpt-5', attempt: 1 };
+		await db.insert(testRunResult).values([
+			{ ...result, runId: 'ro-run-a', testPath: 'tests/a.yml', testName: 'A', passed: true, message: 'ok' },
+			{ ...result, runId: 'ro-run-b', testPath: 'tests/b.yml', testName: 'B', passed: false, message: 'ko' },
+		]);
+
+		const runs = await runScopedAppDbQuery(
+			PROJECT_A,
+			'SELECT id, trigger, status, triggered_by_user_name FROM v_test_runs',
+		);
+		const results = await runScopedAppDbQuery(
+			PROJECT_A,
+			'SELECT run_id, run_trigger, test_path, llm_model_id, passed FROM v_test_results',
+		);
+
+		expect(runs.rows).toEqual([
+			{ id: 'ro-run-a', trigger: 'manual', status: 'completed', triggered_by_user_name: 'RO' },
+		]);
+		expect(results.rows).toEqual([
+			{ run_id: 'ro-run-a', run_trigger: 'manual', test_path: 'tests/a.yml', llm_model_id: 'gpt-5', passed: 1 },
+		]);
 	});
 
 	it('blocks writes to the underlying tables', async () => {
