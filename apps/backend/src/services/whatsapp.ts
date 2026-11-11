@@ -30,6 +30,7 @@ import {
 	formatMessagingError,
 	renderMapImage,
 } from '../utils/messaging-provider';
+import { PerProjectInstances } from '../utils/per-project-instances';
 import { agentService } from './agent';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
@@ -49,7 +50,7 @@ const createState = (projectId: string) => {
 	});
 };
 
-class WhatsappService {
+export class WhatsappProjectBot {
 	private _bot: Chat | null = null;
 	private _projectId: string = '';
 	private _redirectUrl: string = '';
@@ -667,4 +668,9 @@ class WhatsappService {
 	}
 }
 
-export const whatsappService = new WhatsappService();
+const whatsappBots = new PerProjectInstances({ create: () => new WhatsappProjectBot() });
+
+/** Each project gets its own bot, so a webhook of one project never runs with another's state. */
+export const whatsappService = {
+	getWebhooks: (config: WhatsappConfig) => whatsappBots.get(config.projectId).getWebhooks(config),
+};

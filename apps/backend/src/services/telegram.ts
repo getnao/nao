@@ -29,13 +29,14 @@ import {
 	formatMessagingError,
 	renderMapImage,
 } from '../utils/messaging-provider';
+import { PerProjectInstances } from '../utils/per-project-instances';
 import { agentService } from './agent';
 import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 const UPDATE_INTERVAL_MS = 200;
 
-class TelegramService {
+export class TelegramProjectBot {
 	private _bot: Chat | null = null;
 	private _projectId: string = '';
 	private _redirectUrl: string = '';
@@ -557,4 +558,9 @@ class TelegramService {
 	}
 }
 
-export const telegramService = new TelegramService();
+const telegramBots = new PerProjectInstances({ create: () => new TelegramProjectBot() });
+
+/** Each project gets its own bot, so a webhook of one project never runs with another's state. */
+export const telegramService = {
+	getWebhooks: (config: TelegramConfig) => telegramBots.get(config.projectId).getWebhooks(config),
+};

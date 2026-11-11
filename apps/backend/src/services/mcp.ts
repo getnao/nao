@@ -32,6 +32,7 @@ import {
 	retrieveProjectById,
 } from '../queries/project.queries';
 import { logger } from '../utils/logger';
+import { PerProjectInstances } from '../utils/per-project-instances';
 import { replaceEnvVars } from '../utils/utils';
 import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError } from './mcp-oauth';
 import { buildMcpOpenApiDocument, extractToolsFromOpenApi, type McpToolDefinition } from './mcp-openapi';
@@ -188,6 +189,7 @@ export class McpService {
 	private _fileWatcher: ReturnType<typeof watch> | null = null;
 	private _debouncedReload: () => void;
 	private _initPromise: Promise<void> | null = null;
+	private _disposed = false;
 
 	constructor() {
 		this._debouncedReload = debounce(() => {
@@ -237,6 +239,14 @@ export class McpService {
 				projectId,
 			});
 		}
+	}
+
+	/** Stops watching the project's config. A disposed instance only finishes the requests already holding it. */
+	public dispose(): void {
+		this._disposed = true;
+		this._fileWatcher?.close();
+		this._fileWatcher = null;
+		this._resetRuntime();
 	}
 
 	/** Configured servers whose transport this deployment is allowed to run. */
@@ -678,6 +688,9 @@ export class McpService {
 	}
 
 	private async _reloadAndDiscover(): Promise<void> {
+		if (this._disposed) {
+			return;
+		}
 		try {
 			this._resetRuntime();
 			await this._loadConfig();
@@ -1144,7 +1157,7 @@ export class McpService {
 	}
 
 	private _setupFileWatcher(): void {
-		if (!this._mcpJsonFilePath || !existsSync(this._mcpJsonFilePath)) {
+		if (this._disposed || !this._mcpJsonFilePath || !existsSync(this._mcpJsonFilePath)) {
 			return;
 		}
 
@@ -1164,4 +1177,87 @@ export class McpService {
 	}
 }
 
-export const mcpService = new McpService();
+const MAX_PROJECT_MCP_SERVICES = 100;
+
+/**
+ * Each project gets its own `McpService` (config, runtime, discovered tools, file watcher), so a
+ * request of one project never lists, discovers or calls tools with another project's servers.
+ */
+class ProjectMcpServices {
+	private readonly _services = new PerProjectInstances({
+		create: () => new McpService(),
+		maxInstances: MAX_PROJECT_MCP_SERVICES,
+		onEvict: (service) => service.dispose(),
+	});
+
+	public initializeMcpState(projectId: string): Promise<void> {
+		return this._for(projectId).initializeMcpState(projectId);
+	}
+
+	public async refreshProjectConfig(projectId: string): Promise<void> {
+		await this._services.peek(projectId)?.refreshProjectConfig(projectId);
+	}
+
+	/** Servers of a project whose MCP state is initialized; none for any other project. */
+	public getConfiguredServerNames(projectId: string): string[] {
+		return this._services.peek(projectId)?.getConfiguredServerNames() ?? [];
+	}
+
+	public getConfigError(projectId: string): Promise<string | null> {
+		return this._for(projectId).getConfigError(projectId);
+	}
+
+	public getEnabledServers(projectId: string, access?: McpAccess): Promise<string[]> {
+		return this._for(projectId).getEnabledServers(projectId, access);
+	}
+
+	public getCallableTools(
+		projectId: string,
+		allowedServers: string[] | null,
+		access?: McpAccess,
+	): Promise<{ server: string; tools: string[] }[]> {
+		return this._for(projectId).getCallableTools(projectId, allowedServers, access);
+	}
+
+	public getServerUrl(projectId: string, server: string): Promise<string | null> {
+		return this._for(projectId).getServerUrl(projectId, server);
+	}
+
+	public getServerOAuthClient(projectId: string, server: string): Promise<McpOAuthClientConfig | undefined> {
+		return this._for(projectId).getServerOAuthClient(projectId, server);
+	}
+
+	public getServersStatus(projectId: string, userId?: string, access?: McpAccess): Promise<McpServerStatus[]> {
+		return this._for(projectId).getServersStatus(projectId, userId, access);
+	}
+
+	public hasDiscoveredTools(projectId: string, server: string): Promise<boolean> {
+		return this._for(projectId).hasDiscoveredTools(projectId, server);
+	}
+
+	public discover(projectId: string): Promise<void> {
+		return this._for(projectId).discover(projectId);
+	}
+
+	public discoverServer(projectId: string, server: string): Promise<void> {
+		return this._for(projectId).discoverServer(projectId, server);
+	}
+
+	public applyEnablement(projectId: string, serverName?: string): Promise<void> {
+		return this._for(projectId).applyEnablement(projectId, serverName);
+	}
+
+	public connectForUser(opts: Parameters<McpService['connectForUser']>[0]): Promise<string[]> {
+		return this._for(opts.projectId).connectForUser(opts);
+	}
+
+	public callTool(opts: Parameters<McpService['callTool']>[0]): Promise<unknown> {
+		return this._for(opts.projectId).callTool(opts);
+	}
+
+	private _for(projectId: string): McpService {
+		return this._services.get(projectId);
+	}
+}
+
+export const mcpService = new ProjectMcpServices();

@@ -128,6 +128,7 @@ function agentToolNames(
 	vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue(mcpServers);
 	const agentSettings = variant.mapDisabled ? { mapEnabled: false } : null;
 	const tools = getTools(agentSettings, undefined, {
+		projectId: 'project-1',
 		excludeFollowUps: variant.excludeFollowUps,
 		customStoryAuthoring: true,
 	});

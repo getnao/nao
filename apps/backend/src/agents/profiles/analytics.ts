@@ -21,6 +21,7 @@ export function analyticsToolsExcluding(
 			{
 				excludeBuiltinTools,
 				customBoundaries,
+				projectId: toolContext.projectId,
 				mcpAccess: toolContext.mcpAccess,
 				semanticLayerMode: toolContext.semanticLayerMode,
 				customStoryAuthoring: customStoryAuthoringError(toolContext.userGroupFeatures) === null,

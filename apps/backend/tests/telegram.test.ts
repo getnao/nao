@@ -56,7 +56,9 @@ vi.mock('../src/services/posthog', () => ({
 	PostHogEvent: { MessageSent: 'message_sent' },
 }));
 
-import { telegramService } from '../src/services/telegram';
+import { TelegramProjectBot } from '../src/services/telegram';
+
+const telegramService = new TelegramProjectBot();
 
 describe('Telegram user validation', () => {
 	beforeEach(() => {

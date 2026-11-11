@@ -33,7 +33,9 @@ vi.mock('../src/utils/messaging-provider', () => ({
 	formatMessagingError: vi.fn(() => 'billing blocked'),
 }));
 
-import { whatsappService } from '../src/services/whatsapp';
+import { WhatsappProjectBot } from '../src/services/whatsapp';
+
+const whatsappService = new WhatsappProjectBot();
 
 describe('WhatsApp billing access', () => {
 	beforeEach(() => {

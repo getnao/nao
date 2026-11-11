@@ -280,10 +280,11 @@ describe('MCP tool registration', () => {
 	it('omits the MCP tools when the requested allowlist is empty or unavailable', () => {
 		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue(['configured']);
 
-		expect(getTools(null, undefined, { mcpServers: [] })).not.toHaveProperty('mcp_call');
-		expect(getTools(null, undefined, { mcpServers: ['missing'] })).not.toHaveProperty('mcp_call');
-		expect(getTools(null, undefined, { mcpServers: ['configured'] })).toHaveProperty('mcp_call');
-		expect(getTools(null, undefined, { mcpServers: ['configured'] })).toHaveProperty('mcp_connect');
-		expect(getTools(null, undefined, {})).toHaveProperty('mcp_call');
+		const projectId = 'project-1';
+		expect(getTools(null, undefined, { projectId, mcpServers: [] })).not.toHaveProperty('mcp_call');
+		expect(getTools(null, undefined, { projectId, mcpServers: ['missing'] })).not.toHaveProperty('mcp_call');
+		expect(getTools(null, undefined, { projectId, mcpServers: ['configured'] })).toHaveProperty('mcp_call');
+		expect(getTools(null, undefined, { projectId, mcpServers: ['configured'] })).toHaveProperty('mcp_connect');
+		expect(getTools(null, undefined, { projectId })).toHaveProperty('mcp_call');
 	});
 });
