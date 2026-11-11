@@ -1,4 +1,4 @@
-import { type Dirent, existsSync, readdirSync, readFileSync, type Stats, statSync } from 'fs';
+import { type Dirent, existsSync, readdirSync, readFileSync, realpathSync, type Stats, statSync } from 'fs';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,12 +16,14 @@ const mockExistsSync = vi.mocked(existsSync);
 const mockReaddirSync = vi.mocked(readdirSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockStatSync = vi.mocked(statSync);
+const mockRealpathSync = vi.mocked(realpathSync);
 const unrestrictedAccess = { enforced: false } as const;
 
 beforeEach(() => {
 	vi.resetAllMocks();
 	resetDatabaseContextCachesForTesting();
 	mockStatSync.mockReturnValue({ ino: 1, mtimeMs: 1, ctimeMs: 1, size: 1 } as Stats);
+	mockRealpathSync.mockImplementation((path) => path as string);
 });
 
 afterEach(() => {

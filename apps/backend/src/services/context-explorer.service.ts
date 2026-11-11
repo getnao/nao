@@ -22,6 +22,7 @@ import type { DraftOwner } from '../queries/context-draft.queries';
 import * as contextDraftQueries from '../queries/context-draft.queries';
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
 import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
+import { isInsideProject } from '../utils/project-file';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
@@ -394,7 +395,7 @@ function assertEditability(editability: FileEditability): void {
  */
 export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {
 	const exemptFolders = (EXPLORER_NAOIGNORE_OPTIONS.naoignoreExemptFolders ?? []).filter((folder) =>
-		fsSync.existsSync(path.join(projectFolder, folder)),
+		isInsideProject(projectFolder, folder),
 	);
 	const [contextSearch, ...exemptFolderSearches] = await Promise.all([
 		runContentSearch(
