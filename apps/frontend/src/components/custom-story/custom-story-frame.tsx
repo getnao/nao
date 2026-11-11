@@ -76,11 +76,11 @@ export interface StoryStateControls {
 }
 
 /**
- * Story SQL runs as the viewer, so its rows may hold data other viewers cannot read: once a story has run some,
- * it can no longer write the state every viewer reads.
+ * Story SQL and filtered reruns read rows with the viewer's own access, which other viewers may not have: once a
+ * story has read some, it can no longer write the state every viewer reads.
  */
-const SHARED_STATE_AFTER_SQL_MESSAGE =
-	'This story ran its own SQL as you, so it cannot change the state other viewers see until it is reloaded.';
+const SHARED_STATE_AFTER_VIEWER_ROWS_MESSAGE =
+	'This story read data with your own access, so it cannot change the state other viewers see until it is reloaded.';
 
 const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame and was stopped.';
 
@@ -104,7 +104,7 @@ export function CustomStoryFrame({
 	const loadCountRef = useRef(0);
 	const isFrameReadyRef = useRef(false);
 	const portRef = useRef<MessagePort | null>(null);
-	const hasRunStorySqlRef = useRef(false);
+	const hasReadViewerRowsRef = useRef(false);
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
 	const viewerId = useSession().data?.user.id ?? '';
@@ -163,6 +163,9 @@ export function CustomStoryFrame({
 	const answerQuery = useCallback(
 		async (requestId: string, queryId: string, fresh: boolean, inputs?: StoryQueryInputs) => {
 			try {
+				if (hasStoryQueryInputs(inputs)) {
+					hasReadViewerRowsRef.current = true;
+				}
 				const options = queryDataOptions(dataSource, queryId, inputs);
 				const result = await queryClient.fetchQuery(fresh ? { ...options, staleTime: 0 } : options);
 				if (hasStoryQueryInputs(inputs)) {
@@ -178,7 +181,7 @@ export function CustomStoryFrame({
 
 	const answerSql = useCallback(
 		async (requestId: string, request: StorySqlRequest, fresh: boolean) => {
-			hasRunStorySqlRef.current = true;
+			hasReadViewerRowsRef.current = true;
 			try {
 				const result = await queryClient.fetchQuery({
 					queryKey: ['custom-story-sql', dataSource, request],
@@ -323,8 +326,8 @@ export function CustomStoryFrame({
 					void answerChartPlugin(message.requestId, message.chartType);
 					break;
 				case 'nao-story:set-state':
-					if (message.shared === true && hasRunStorySqlRef.current) {
-						onError?.({ message: SHARED_STATE_AFTER_SQL_MESSAGE });
+					if (message.shared === true && hasReadViewerRowsRef.current) {
+						onError?.({ message: SHARED_STATE_AFTER_VIEWER_ROWS_MESSAGE });
 						break;
 					}
 					recordStateChange({ key: message.key, value: message.value, shared: message.shared === true });
@@ -394,7 +397,7 @@ export function CustomStoryFrame({
 	useEffect(() => {
 		if (srcDoc !== null) {
 			closePort();
-			hasRunStorySqlRef.current = false;
+			hasReadViewerRowsRef.current = false;
 			loadCountRef.current = 0;
 			isFrameReadyRef.current = false;
 			setNavigatedAway(false);

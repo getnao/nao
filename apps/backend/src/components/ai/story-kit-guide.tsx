@@ -165,7 +165,10 @@ export function storyKitGuideItems(): ReactElement[] {
 			in <Bold>filters</Bold> so they are quoted on the server. It returns the same state as useQueryData and runs
 			as the person viewing the story, with their own nao permissions: read-only SELECT on the warehouse only
 			(databaseId as in execute_sql), and it fails for viewers who cannot read those tables. Prefer saved queries
-			with filters for what every viewer needs to see, and never put secrets in it.
+			with filters for what every viewer needs to see, and never put secrets in it. Once a story has re-run a
+			query with filters or params or run its own SQL, it can no longer write shared state until it reloads (those
+			rows may hold data other viewers cannot read): keep shared state for what viewers type or pick themselves,
+			saved before such reads.
 		</ListItem>,
 		<ListItem key='maps'>
 			Maps: <Bold>{'<PointMap queryId="..." />'}</Bold> plots rows with latitude and longitude columns
