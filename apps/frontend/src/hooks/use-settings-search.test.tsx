@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 		cloudBillingEnabled: false,
 	},
 	isCloud: false,
+	twoFactorStatus: { hasPassword: false },
 	permissions: {
 		canViewUsage: false,
 		isAdmin: false,
@@ -21,7 +22,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: () => ({ data: mocks.config }),
+	useQuery: (options: { queryKey?: string[] }) => {
+		return { data: options.queryKey?.[0] === 'twoFactor' ? mocks.twoFactorStatus : mocks.config };
+	},
 }));
 
 vi.mock('@/hooks/use-license', () => ({
@@ -47,6 +50,11 @@ vi.mock('@/main', () => ({
 				queryOptions: () => ({}),
 			},
 		},
+		twoFactor: {
+			getStatus: {
+				queryOptions: () => ({ queryKey: ['twoFactor'] }),
+			},
+		},
 	},
 }));
 
@@ -54,6 +62,7 @@ describe('useSettingsSearch', () => {
 	beforeEach(() => {
 		mocks.config.cloudBillingEnabled = false;
 		mocks.isCloud = false;
+		mocks.twoFactorStatus.hasPassword = false;
 		Object.assign(mocks.permissions, {
 			canViewUsage: false,
 			isAdmin: false,
@@ -101,5 +110,16 @@ describe('useSettingsSearch', () => {
 		if (searchTitle === 'nao AI usage') {
 			expect(billingEntry?.search).toEqual({ creditsTab: 'usage' });
 		}
+	});
+
+	it('only returns two-factor authentication to accounts with a password', () => {
+		const { result, rerender } = renderHook(() => useSettingsSearch('Two-factor authentication'));
+
+		expect(result.current.some((entry) => entry.page === '/settings/account')).toBe(false);
+
+		mocks.twoFactorStatus.hasPassword = true;
+		rerender();
+
+		expect(result.current.some((entry) => entry.page === '/settings/account')).toBe(true);
 	});
 });

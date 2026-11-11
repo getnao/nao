@@ -54,6 +54,7 @@ import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc }
 import { enqueueOnce } from './services/scheduler.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
+import { twoFactorPlugins } from './services/two-factor-auth.service';
 import { CLOUD_WELCOME_EMAIL_JOB_NAME } from './types/email';
 import { buildAccountExistsEmail, buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
@@ -262,6 +263,7 @@ async function createAuthInstance(baseURL: string) {
 				allowUnauthenticatedClientRegistration: env.ALLOW_UNAUTHENTICATED_DCR,
 				validAudiences: MCP_VALID_AUDIENCES,
 			}),
+			...twoFactorPlugins(),
 			...ssoPlugins,
 		],
 		trustedOrigins: baseURL ? [baseURL, ...(env.MODE === 'dev' ? ['http://localhost:3000'] : [])] : undefined,

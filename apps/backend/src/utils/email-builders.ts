@@ -9,6 +9,7 @@ import { NotificationEmail } from '../components/email/notification-email';
 import { ResetPassword } from '../components/email/reset-password';
 import { SharedItemEmail } from '../components/email/shared-item-email';
 import { TrialStarted } from '../components/email/trial-started';
+import { TwoFactorCode } from '../components/email/two-factor-code';
 import { UserAddedToProject } from '../components/email/user-added-to-project';
 import { VerifyEmail } from '../components/email/verify-email';
 import { Welcome } from '../components/email/welcome';
@@ -114,6 +115,19 @@ export async function buildVerifyEmail(user: { name: string }, verificationUrl: 
 	return createEmail(
 		`Verify your email on ${branding.appName}`,
 		VerifyEmail({ userName: user.name, verificationUrl, branding }),
+		branding,
+	);
+}
+
+export async function buildTwoFactorCodeEmail(
+	user: { name: string },
+	code: string,
+	expiresInMinutes: number,
+): Promise<CreatedEmail> {
+	const branding = await resolveEmailBranding();
+	return createEmail(
+		`Your ${branding.appName} verification code`,
+		TwoFactorCode({ userName: user.name, code, expiresInMinutes, branding }),
 		branding,
 	);
 }

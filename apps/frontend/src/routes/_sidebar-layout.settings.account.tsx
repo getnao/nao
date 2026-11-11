@@ -18,6 +18,7 @@ import { ThemeSelector } from '@/components/settings/theme-selector';
 import { ToolCallDensitySetting } from '@/components/settings/tool-call-density-setting';
 import { DangerZone } from '@/components/settings/danger-zone';
 import { SettingsMemories } from '@/components/settings/memories';
+import { TwoFactorSettings } from '@/components/settings/two-factor-settings';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
 import { trpc } from '@/main';
@@ -121,6 +122,8 @@ function GeneralPage() {
 							control={<NewsletterSubscribeInlineForm initialEmail={user?.email} />}
 						/>
 					</SettingsCard>
+
+					<TwoFactorSettings />
 
 					<SettingsMemories isAdmin={isAdmin} />
 

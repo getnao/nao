@@ -68,6 +68,7 @@
 		"posthog-js": "^1.336.4",
 		"prompt-mentions": "^0.0.37",
 		"proxy-from-env": "^1.1.0",
+		"qrcode.react": "^4.2.0",
 		"radix-ui": "^1.4.3",
 		"react": "^19.2.0",
 		"react-datepicker": "^9.1.0",

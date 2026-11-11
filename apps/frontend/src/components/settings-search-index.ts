@@ -21,6 +21,8 @@ export interface SettingsSearchEntry {
 	cloudBillingOnly?: boolean;
 	betaSubagentsOnly?: boolean;
 	betaAutomationsOnly?: boolean;
+	/** Hidden for accounts that only sign in through SSO. */
+	requiresPassword?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -92,6 +94,23 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Your memory',
 		description: 'What nao remembers about you. Only you can see and manage these.',
 		keywords: ['remember', 'learn', 'personalization', 'preferences', 'remembered facts', 'memory list'],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
+		title: 'Two-factor authentication',
+		description: 'Require a code from an authenticator app or your email after your password.',
+		requiresPassword: true,
+		keywords: [
+			'2fa',
+			'mfa',
+			'otp',
+			'totp',
+			'google authenticator',
+			'authenticator app',
+			'backup codes',
+			'security',
+		],
 	},
 	{
 		page: '/settings/account',
@@ -257,6 +276,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['google', 'bigquery', 'service account', 'gcp', 'sso', 'client id', 'auth domain'],
 		orgAdminOnly: true,
 		cloudHidden: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Two-factor authentication',
+		title: 'Two-factor authentication methods',
+		description: 'Choose which two-factor methods members can use: authenticator app, email code, or both.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'google authenticator', 'email code', 'security'],
+		orgAdminOnly: true,
 	},
 
 	// ── Project Settings ─────────────────────────────────────

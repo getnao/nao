@@ -116,6 +116,7 @@ import {
 	TestRunModels,
 	TestRunResultDetails,
 } from '../types/test-run';
+import { DEFAULT_TWO_FACTOR_METHODS, type TwoFactorMethod } from '../types/two-factor';
 import type { StoredUserPreferences } from '../types/usage';
 import {
 	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
@@ -138,6 +139,7 @@ export const user = sqliteTable('user', {
 	githubAccessToken: text('github_access_token'),
 	gitlabAccessToken: text('gitlab_access_token'),
 	deactivatedAt: integer('deactivated_at', { mode: 'timestamp_ms' }),
+	twoFactorEnabled: integer('two_factor_enabled', { mode: 'boolean' }).default(false).notNull(),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),
@@ -230,6 +232,24 @@ export const verification = sqliteTable(
 	(table) => [index('verification_identifier_idx').on(table.identifier)],
 );
 
+export const twoFactor = sqliteTable(
+	'two_factor',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		secret: text('secret').notNull(),
+		backupCodes: text('backup_codes').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		verified: integer('verified', { mode: 'boolean' }).default(true).notNull(),
+		failedVerificationCount: integer('failed_verification_count').default(0).notNull(),
+		lockedUntil: integer('locked_until', { mode: 'timestamp_ms' }),
+	},
+	(table) => [uniqueIndex('two_factor_user_id_unique').on(table.userId)],
+);
+
 export const organization = sqliteTable('organization', {
 	id: text('id')
 		.$defaultFn(() => crypto.randomUUID())
@@ -242,6 +262,10 @@ export const organization = sqliteTable('organization', {
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
 	bypassBilling: integer('bypass_billing', { mode: 'boolean' }).default(false).notNull(),
 	license: text('license'),
+	twoFactorMethods: text('two_factor_methods', { mode: 'json' })
+		.$type<TwoFactorMethod[]>()
+		.notNull()
+		.default(DEFAULT_TWO_FACTOR_METHODS),
 
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
