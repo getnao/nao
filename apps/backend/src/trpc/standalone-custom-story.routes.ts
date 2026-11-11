@@ -12,10 +12,12 @@ import {
 	getStandaloneCustomStoryQueryData,
 	getStandaloneCustomStoryVersion,
 } from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { getCustomStoryStateByStoryId, setCustomStoryStateByStoryId } from '../services/custom-story-state';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	STANDALONE_QUERY_SQL_UNAVAILABLE,
+	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
 	storyStateChange,
@@ -85,6 +87,21 @@ export const standaloneCustomStoryRoutes = {
 					input.queryId,
 					input.versionNumber,
 					input.inputs,
+				);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	listModels: standaloneOwnerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.story.projectId)),
+
+	runModel: standaloneOwnerProcedure
+		.input(z.object({ request: storyModelRequest }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				return await runCustomStoryModel(
+					{ projectId: ctx.story.projectId, chatId: null, viewerId: ctx.user.id },
+					input.request,
 				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);

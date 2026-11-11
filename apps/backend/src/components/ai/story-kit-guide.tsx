@@ -170,6 +170,18 @@ export function storyKitGuideItems(): ReactElement[] {
 			rows may hold data other viewers cannot read): keep shared state for what viewers type or pick themselves,
 			saved before such reads.
 		</ListItem>,
+		<ListItem key='models'>
+			<Bold>Models:</Bold> <Bold>useModels()</Bold> lists the models the viewer can call (each{' '}
+			<Bold>{'{ kind: "llm", id, name, provider, isDefault }'}</Bold>) and{' '}
+			<Bold>{'useModel({ prompt, system?, model?, schema? }, { enabled })'}</Bold> calls one, returning the same
+			state as useQueryData with <Bold>{'data: { text }'}</Bold>, or <Bold>{'data: { object }'}</Bold> when{' '}
+			<Bold>schema</Bold> is a JSON Schema. <Bold>model</Bold> takes an <Bold>id</Bold> from useModels and
+			defaults to the project's default model. Put the rows the model should read in the prompt (summarized or
+			capped, not whole tables). Every call runs as the viewer and is billed to them: start it from a viewer's
+			action (keep <Bold>enabled</Bold> false until they click) rather than on load, and never in a loop. In an
+			HTML story, use <Bold>{`${STORY_HTML_API_GLOBAL}.models()`}</Bold> and{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.model({ kind: "llm", prompt })`}</Bold>.
+		</ListItem>,
 		<ListItem key='maps'>
 			Maps: <Bold>{'<PointMap queryId="..." />'}</Bold> plots rows with latitude and longitude columns
 			(auto-detected; optional <Bold>latitudeKey</Bold>, <Bold>longitudeKey</Bold>, <Bold>sizeKey</Bold> for

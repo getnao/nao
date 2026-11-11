@@ -18,10 +18,12 @@ import {
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
 } from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
 	storySqlRequest,
@@ -92,6 +94,20 @@ export const customStoryViewerRoutes = {
 				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
+
+	listModels: viewerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.viewer.projectId)),
+
+	runModel: viewerProcedure.input(z.object({ request: storyModelRequest })).mutation(async ({ ctx, input }) => {
+		try {
+			await assertCustomStoryExists(ctx.viewer.chatId, input.storySlug);
+			return await runCustomStoryModel(
+				{ projectId: ctx.viewer.projectId, chatId: ctx.viewer.chatId, viewerId: ctx.user.id },
+				input.request,
+			);
+		} catch (error) {
+			throw toCustomStoryQueryTrpcError(error);
+		}
+	}),
 
 	runSql: viewerProcedure.input(z.object({ request: storySqlRequest })).mutation(async ({ ctx, input }) => {
 		try {

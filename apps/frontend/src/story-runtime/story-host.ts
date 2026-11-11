@@ -14,6 +14,7 @@ import { resolveBlockColors } from './story-colors';
 import { highlightStoryElement } from './story-highlight';
 import { configureStoryInspector } from './story-inspector';
 import { initStoryState, readStoryState, writeStoryState } from './story-state';
+import type { StoryModel, StoryModelRequest, StoryModelResult } from '@nao/shared/story-models';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { Shortcut } from '@nao/shared/keyboard-shortcut';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -51,12 +52,15 @@ interface PendingRequest<T> {
 }
 
 const HOST_REPLY_TIMEOUT_MS = 120_000;
+const OFFLINE_MODEL_MESSAGE = 'This copy of the story cannot call models: open it in nao to ask them.';
 const OFFLINE_QUERY_MESSAGE =
 	'This copy of the story only holds the rows it was saved with: open it in nao to filter or query them.';
 
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
 const pendingChartPlugins = new Map<string, PendingRequest<string>>();
+const pendingModels = new Map<string, PendingRequest<StoryModel[]>>();
+const pendingModelCalls = new Map<string, PendingRequest<StoryModelResult>>();
 const pendingNarratives = new Map<string, PendingRequest<StoryNarratives>>();
 const editingListeners = new Set<() => void>();
 const themeListeners = new Set<() => void>();
@@ -117,6 +121,8 @@ function exposeHtmlApi(): void {
 	const api: StoryHtmlApi = {
 		query: requestQueryData,
 		sql: requestSql,
+		models: requestModels,
+		model: requestModel,
 		querySql: requestQuerySql,
 		narratives: requestNarratives,
 		theme: getStoryTheme,
@@ -169,6 +175,24 @@ export function requestSql(
 		filters,
 		fresh,
 	}));
+}
+
+/** A downloaded story lists no model: it has nobody to call one as. */
+export function requestModels(): Promise<StoryModel[]> {
+	if (exportData) {
+		return Promise.resolve([]);
+	}
+	return awaitReply(pendingModels, (requestId) => ({ type: 'nao-story:models', requestId }));
+}
+
+export function requestModel(
+	request: StoryModelRequest,
+	{ fresh = false }: { fresh?: boolean } = {},
+): Promise<StoryModelResult> {
+	if (exportData) {
+		return Promise.reject(new Error(OFFLINE_MODEL_MESSAGE));
+	}
+	return awaitReply(pendingModelCalls, (requestId) => ({ type: 'nao-story:model', requestId, request, fresh }));
 }
 
 export function requestNarratives(): Promise<StoryNarratives> {
@@ -327,6 +351,22 @@ function handleHostMessage(message: unknown): void {
 		settleQuerySql(message);
 		return;
 	}
+	if (message.type === 'nao-story:models-result') {
+		resolvePending(pendingModels, message.requestId, message.models);
+		return;
+	}
+	if (message.type === 'nao-story:model-result') {
+		resolvePending(pendingModelCalls, message.requestId, message.result);
+		return;
+	}
+	if (message.type === 'nao-story:models-error') {
+		rejectPending(pendingModels, message.requestId, message.message);
+		return;
+	}
+	if (message.type === 'nao-story:model-error') {
+		rejectPending(pendingModelCalls, message.requestId, message.message);
+		return;
+	}
 	if (message.type === 'nao-story:chart-plugin-result' || message.type === 'nao-story:chart-plugin-error') {
 		settleChartPlugin(message);
 		return;
@@ -388,6 +428,16 @@ function settleChartPlugin(
 	} else {
 		pending?.reject(new Error(message.message));
 	}
+}
+
+function resolvePending<T>(pending: Map<string, PendingRequest<T>>, requestId: string, answer: T): void {
+	pending.get(requestId)?.resolve(answer);
+	pending.delete(requestId);
+}
+
+function rejectPending<T>(pending: Map<string, PendingRequest<T>>, requestId: string, message: string): void {
+	pending.get(requestId)?.reject(new Error(message));
+	pending.delete(requestId);
 }
 
 /** A reply that never comes (host navigated away, message dropped) fails the request instead of loading forever. */
