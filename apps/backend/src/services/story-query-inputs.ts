@@ -8,23 +8,26 @@ import {
 import type { ParsedFilterBlock } from '@nao/shared/story-segments';
 
 import * as storyQueries from '../queries/story.queries';
-import { executeStoryQueries, type StoryQueryResult } from './live-story';
+import { createStoryExecutionContext, executeStoryQueries, type StoryQueryResult } from './live-story';
 import type { SemanticStoryBindings } from './semantic-story-bindings';
 
 interface StoryQueryInputsExecutionOptions {
+	/** Who asked: the rerun runs with their own access, so a filter or a parameter never reaches past it. */
+	viewerId: string;
 	billingAccessVerifiedProjectId?: string;
 }
 
 /**
  * Re-runs a saved query of the chat with the filters and parameters a custom story sent: filters render the
  * query's `{% filter %}` blocks (and filter semantic queries by the dimension of the same name), parameters fill
- * the `{{ params.<id> }}` placeholders of semantic queries. The query keeps the permissions it was saved with.
+ * the `{{ params.<id> }}` placeholders of semantic queries. It runs as the viewer, like story SQL: a parameter can
+ * switch a semantic query to another metric, which the saved rows never showed.
  */
 export async function executeStoryQueryWithInputs(
 	chatId: string,
 	queryId: string,
 	inputs: StoryQueryInputs,
-	options: StoryQueryInputsExecutionOptions = {},
+	options: StoryQueryInputsExecutionOptions,
 ): Promise<StoryQueryResult> {
 	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
@@ -32,6 +35,7 @@ export async function executeStoryQueryWithInputs(
 	}
 
 	const filterBindings = toStoryFilterBindings(inputs.filters);
+	const executionContext = await createStoryExecutionContext(chatId, options.viewerId);
 	const queryData = await executeStoryQueries(
 		chatId,
 		{ [queryId]: query },
@@ -43,6 +47,7 @@ export async function executeStoryQueryWithInputs(
 					withInactiveFilterSpecs(sqlQuery, filterBindings.specs),
 				),
 			semanticBindings: toSemanticBindings(filterBindings, inputs),
+			executionContext,
 			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 		},
 	);

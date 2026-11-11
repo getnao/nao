@@ -42,8 +42,13 @@ export interface CustomStoryVersionView {
 interface CustomStoryDataOptions {
 	/** Serve the stored data of a story awaiting its background refresh, instead of refreshing inline. */
 	deferRefresh?: boolean;
-	/** Filters and parameters the story chose: the query re-runs with them instead of reading stored rows. */
+	rerun?: StoryQueryRerun;
+}
+
+/** Filters and parameters a viewer chose: the query re-runs with them, as that viewer, instead of reading stored rows. */
+export interface StoryQueryRerun {
 	inputs?: StoryQueryInputs;
+	viewerId: string;
 }
 
 export interface CustomStoryFileSummary {
@@ -185,9 +190,9 @@ export async function getCustomStoryQueryData(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryQueryResult> {
 	const story = await getCustomStory(chatId, storySlug);
-	if (hasStoryQueryInputs(options.inputs)) {
+	if (options.rerun && hasStoryQueryInputs(options.rerun.inputs)) {
 		assertStoryFiltersEnabled();
-		return runStoryQueryWithInputs(chatId, queryId, options.inputs);
+		return runStoryQueryWithInputs(chatId, queryId, options.rerun.inputs, options.rerun.viewerId);
 	}
 	if (!story.isLive) {
 		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
@@ -229,9 +234,10 @@ async function runStoryQueryWithInputs(
 	chatId: string,
 	queryId: string,
 	inputs: StoryQueryInputs,
+	viewerId: string,
 ): Promise<StoryQueryResult> {
 	try {
-		const { data, columns } = await executeStoryQueryWithInputs(chatId, queryId, inputs);
+		const { data, columns } = await executeStoryQueryWithInputs(chatId, queryId, inputs, { viewerId });
 		return { data, columns };
 	} catch (error) {
 		throw toQueryExecutionError(error);
@@ -314,11 +320,11 @@ export async function getSharedCustomStoryQueryData(
 	storySlug: string,
 	queryId: string,
 	versionNumber?: number,
-	inputs?: StoryQueryInputs,
+	rerun?: StoryQueryRerun,
 ): Promise<StoryQueryResult> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
 	await assertQueryReferencedByVersion(version.id, queryId);
-	return getCustomStoryQueryData(chatId, storySlug, queryId, { inputs });
+	return getCustomStoryQueryData(chatId, storySlug, queryId, { rerun });
 }
 
 export async function getCustomStoryQuerySql(chatId: string, storySlug: string, queryId: string): Promise<string> {

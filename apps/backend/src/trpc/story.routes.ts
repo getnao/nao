@@ -520,13 +520,14 @@ export const storyRoutes = {
 		)
 		.query(async ({ input, ctx }) => {
 			const { chatId, storySlug, queryId, versionNumber, inputs } = input;
+			const rerun = { inputs, viewerId: ctx.user.id };
 			try {
 				return ctx.isChatOwner
-					? await getCustomStoryQueryData(chatId, storySlug, queryId, { deferRefresh: true, inputs })
+					? await getCustomStoryQueryData(chatId, storySlug, queryId, { deferRefresh: true, rerun })
 					: await getEditorCustomStoryQueryData(chatId, storySlug, queryId, {
 							deferRefresh: true,
 							versionNumber,
-							inputs,
+							rerun,
 						});
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);

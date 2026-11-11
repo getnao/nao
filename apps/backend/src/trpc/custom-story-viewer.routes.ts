@@ -86,7 +86,7 @@ export const customStoryViewerRoutes = {
 					input.storySlug,
 					input.queryId,
 					input.versionNumber,
-					input.inputs,
+					{ inputs: input.inputs, viewerId: ctx.user.id },
 				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);

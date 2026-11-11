@@ -223,7 +223,7 @@ export const sharedStoryRoutes = {
 							shared.slug,
 							input.queryId,
 							input.versionNumber,
-							input.inputs,
+							{ inputs: input.inputs, viewerId: ctx.user.id },
 						)
 					: await getStandaloneCustomStoryQueryData(
 							shared.storyId,
