@@ -33,6 +33,12 @@ def test_resolve_env_extra_env_takes_precedence():
         assert secrets.resolve_env("FOO", extra_env={"FOO": "from_extra"}) == "from_extra"
 
 
+def test_resolve_env_ignores_the_process_environment_when_asked():
+    with patch.dict(os.environ, {"FOO": "from_env"}):
+        assert secrets.resolve_env("FOO", process_env=False) is None
+        assert secrets.resolve_env("FOO", extra_env={"FOO": "from_extra"}, process_env=False) == "from_extra"
+
+
 # ---------------------------------------------------------------------------
 # process_secrets dispatch
 # ---------------------------------------------------------------------------
@@ -50,6 +56,30 @@ def test_process_secrets_tracks_missing_env():
         rendered, missing = secrets.process_secrets("host: {{ env('MISSING') }}")
     assert rendered == "host: "
     assert missing == {"MISSING": None}
+
+
+def test_process_secrets_without_process_env_resolves_from_extra_env_only():
+    with patch.dict(os.environ, {"DB_URI": "server-secret", "DB_HOST": "server-host"}):
+        rendered, missing = secrets.process_secrets(
+            "uri: {{ env('DB_URI') }}\nhost: {{ env('DB_HOST') }}",
+            extra_env={"DB_HOST": "project-host"},
+            process_env=False,
+        )
+    assert rendered == "uri: \nhost: project-host"
+    assert missing == {"DB_URI": None}
+
+
+@pytest.mark.parametrize("protocol", ["aws", "k8s"])
+def test_process_secrets_refuses_process_identity_on_nao_cloud(monkeypatch, protocol):
+    monkeypatch.setenv("NAO_MODE", "cloud")
+    with (
+        patch.object(secrets, "resolve_aws") as mock_aws,
+        patch.object(secrets, "resolve_k8s") as mock_k8s,
+        pytest.raises(ValueError, match="not available on nao Cloud"),
+    ):
+        secrets.process_secrets(f"password: {{{{ {protocol}('kube-system/db/password') }}}}")
+    mock_aws.assert_not_called()
+    mock_k8s.assert_not_called()
 
 
 def test_process_secrets_dispatches_to_aws_resolver():

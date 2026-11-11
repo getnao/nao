@@ -31,6 +31,16 @@ describe('compareTestData', () => {
 		expect(verdict.comparison).toBe('row 0, total: actual=52000000, expected=52123123');
 	});
 
+	it('keeps ID-like text with leading zeros apart from the number it looks like', () => {
+		const verdict = compareTestData({
+			actual: [{ code: '00123' }],
+			expected: [{ code: 123 }],
+			expectedColumns: ['code'],
+		});
+
+		expect(verdict.passed).toBe(false);
+	});
+
 	it('rounds floats to two decimals by default', () => {
 		const verdict = compareTestData({
 			actual: [{ value: 1.234, label: 'a' }],
@@ -221,6 +231,13 @@ describe('normalizeFormattedNumber', () => {
 		['-$1,234.50', -1234.5],
 		['12,5', 12.5],
 		['1,23', 1.23],
+		['0.5', 0.5],
+		['0,5', 0.5],
+		['0', 0],
+		['00123', '00123'],
+		['-007', '-007'],
+		['01.5', '01.5'],
+		['$1.5', 1.5],
 		[52123123, 52123123],
 		['not a number', 'not a number'],
 		['', ''],

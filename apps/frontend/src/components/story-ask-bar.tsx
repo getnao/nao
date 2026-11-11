@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { CSSProperties } from 'react';
-import type { UIMessage } from '@nao/backend/chat';
 
 import { AskBar } from '@/components/ask-bar';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { hasStoryEdit, isOutdatedByEdit, readStoryEdit } from '@/lib/story-edit-refresh';
 import { trpc } from '@/main';
 import { forgetHandedOverQuestion, getHandedOverQuestion, handOverQuestion } from '@/stores/ask-bar';
-
-const STORY_QUERY_KEYS = [[['story']], [['storyShare']], [['customStoryViewer']]];
 
 export const STORY_ASK_BAR_INSET = '6rem';
 export const STORY_ASK_BAR_INSET_STYLE = { '--story-bottom-inset': STORY_ASK_BAR_INSET } as CSSProperties;
@@ -85,9 +83,8 @@ function StoryRefreshAfterEdit() {
 			return;
 		}
 		handledMessageId.current = lastMessage.id;
-		for (const queryKey of STORY_QUERY_KEYS) {
-			queryClient.invalidateQueries({ queryKey });
-		}
+		const edit = readStoryEdit(messages);
+		queryClient.invalidateQueries({ predicate: (query) => isOutdatedByEdit(query, edit) });
 	}, [editedStory, messages, queryClient]);
 
 	return null;
@@ -113,11 +110,4 @@ function StoryPageRefreshAfterAnswer({ onAnswered }: { onAnswered: () => void })
 	}, [isRunning, onAnswered]);
 
 	return null;
-}
-
-function hasStoryEdit(message: UIMessage | undefined): boolean {
-	return (
-		message?.role === 'assistant' &&
-		message.parts.some((part) => part.type === 'tool-story' && part.state === 'output-available')
-	);
 }

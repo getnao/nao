@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 
 import { CloudBillingAccessBanner } from '@/components/cloud-billing-access-banner';
 import { CommandMenu } from '@/components/command-menu';
+import { GithubStarPrompt } from '@/components/github-star-prompt';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { Sidebar } from '@/components/sidebar';
 import { TrialStartedDialogController } from '@/components/trial-started-dialog';
@@ -37,6 +38,7 @@ function SidebarLayoutContent() {
 			<CommandMenu onOpenKeyboardShortcuts={() => setKeyboardShortcutsOpen(true)} />
 			<KeyboardShortcutsDialog open={keyboardShortcutsOpen} onOpenChange={setKeyboardShortcutsOpen} />
 			<TrialStartedDialogController />
+			<GithubStarPrompt />
 			<div className='flex min-h-0 min-w-0 flex-1 flex-col'>
 				<CloudBillingAccessBanner />
 				<TwoFactorRequirementBanner />

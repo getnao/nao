@@ -1,8 +1,10 @@
 import { ChartColumn, ChartLine, ChartPie, Code, Gauge, LayoutPanelTop, MapPin, Quote, Table } from 'lucide-react';
 import { CITATION_MENTION_TRIGGER } from '@nao/shared';
+import { STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import { CODE_CITATION_KIND, MAX_CITATION_TEXT_LENGTH } from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
 import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
+import type { StoryBlockPart } from '@nao/shared/story-parts';
 import type { CitationData, StoryBlockReference } from '@nao/shared/types';
 
 export { CITATION_MENTION_TRIGGER };
@@ -36,7 +38,11 @@ export function describeCitationSource({ start, end, block }: CitationData): str
 	if (block.kind === CODE_CITATION_KIND) {
 		return `@code · ${describeCodeSource(block)}`;
 	}
-	return block.title ? `@${block.kind} block · ${block.title}` : `@${block.kind} block`;
+	if (block.kind === STORY_ELEMENT_BLOCK_KIND && block.part) {
+		return `@element · ${partName(block.part)}`;
+	}
+	const source = block.title ? `@${block.kind} block · ${block.title}` : `@${block.kind} block`;
+	return withPartName(source, block);
 }
 
 export function isCodeCitation({ block }: CitationData): boolean {
@@ -51,7 +57,7 @@ export function toSentCitationOptions(citations: CitationData[], text: string): 
 }
 
 /** Skills, tables and stories the agent loads as context: citations travel with the message instead. */
-export function toContextMentions(mentions: SelectedMention[]): MentionOption[] {
+export function toContextMentions(mentions: SelectedMention[]): SelectedMention[] {
 	return mentions
 		.filter((mention) => mention.trigger !== CITATION_MENTION_TRIGGER)
 		.map(({ id, label, trigger }) => ({ id, label, trigger }));
@@ -100,16 +106,22 @@ export function toCopiedText(fragment: DocumentFragment, findCitation: CitationF
 	return readCopiedNodes(fragment.childNodes, findCitation).replace(/\u200b/g, '');
 }
 
-export function writeCitedText(prompt: PromptHandle, text: string, citations: (CitationData & { id: string })[]): void {
+/** Writes a sent message into a prompt: the tokens of its citations and of the context it mentions become pills. */
+export function writeCitedText(
+	prompt: PromptHandle,
+	text: string,
+	citations: (CitationData & { id: string })[],
+	mentions: SelectedMention[] = [],
+): void {
 	let writtenUpTo = 0;
 	let isAfterPill = false;
-	for (const match of text.matchAll(CITATION_TOKEN)) {
-		const citation = citations[Number(match[1]) - 1];
+	for (const match of text.matchAll(pillTokenPattern(mentions))) {
+		const pill = findPill(match, citations, mentions);
 		insertNonEmptyText(prompt, text.slice(writtenUpTo, match.index), isAfterPill);
-		if (citation) {
-			prompt.appendMention(toCitationMentionOption(citation, citation.id), CITATION_MENTION_TRIGGER);
+		if (pill) {
+			prompt.appendMention(pill.option, pill.trigger);
 		}
-		isAfterPill = citation !== undefined;
+		isAfterPill = pill !== undefined;
 		writtenUpTo = match.index + match[0].length;
 	}
 	insertNonEmptyText(prompt, text.slice(writtenUpTo), isAfterPill);
@@ -152,8 +164,20 @@ export function isSameCitation(left: CitationData, right: CitationData): boolean
 		left.block?.kind === right.block?.kind &&
 		left.block?.title === right.block?.title &&
 		left.block?.queryId === right.block?.queryId &&
+		left.block?.occurrence === right.block?.occurrence &&
 		left.block?.lines?.start === right.block?.lines?.start &&
-		left.block?.lines?.end === right.block?.lines?.end
+		left.block?.lines?.end === right.block?.lines?.end &&
+		isSamePart(left.block?.part, right.block?.part)
+	);
+}
+
+function isSamePart(left: StoryBlockPart | undefined, right: StoryBlockPart | undefined): boolean {
+	return (
+		left?.kind === right?.kind &&
+		left?.label === right?.label &&
+		left?.series === right?.series &&
+		left?.category === right?.category &&
+		left?.value === right?.value
 	);
 }
 
@@ -162,11 +186,46 @@ function describeCitationPill({ block, text }: CitationData): string {
 	if (block?.kind === CODE_CITATION_KIND) {
 		return describeCodeSource({ ...block, title: block.title?.split('/').pop() });
 	}
-	if (block && block.kind !== 'text') {
-		return toSingleLine(block.title ?? '') || block.kind.replaceAll('-', ' ');
+	if (block?.kind === STORY_ELEMENT_BLOCK_KIND && block.part) {
+		return truncateForPill(toSingleLine(partName(block.part)));
 	}
-	const quote = toSingleLine(text);
-	return quote.length > MAX_PILL_QUOTE_LENGTH ? `${quote.slice(0, MAX_PILL_QUOTE_LENGTH).trimEnd()}…` : quote;
+	if (block && block.kind !== 'text') {
+		const label = toSingleLine(block.title ?? '') || block.kind.replaceAll('-', ' ');
+		return withPartName(label, block, truncateForPill);
+	}
+	return truncateForPill(toSingleLine(text));
+}
+
+function withPartName(
+	blockLabel: string,
+	{ part }: StoryBlockReference,
+	shorten: (name: string) => string = (name) => name,
+): string {
+	if (!part) {
+		return blockLabel;
+	}
+	return `${blockLabel} · ${shorten(toSingleLine(partName(part)))}`;
+}
+
+function truncateForPill(text: string): string {
+	return text.length > MAX_PILL_QUOTE_LENGTH ? `${text.slice(0, MAX_PILL_QUOTE_LENGTH).trimEnd()}…` : text;
+}
+
+function partName({ kind, label, category, value }: StoryBlockPart): string {
+	const fallback = kind.replaceAll('-', ' ');
+	switch (kind) {
+		case 'kpi-value':
+		case 'kpi-comparison':
+			return value ?? label ?? fallback;
+		case 'cell':
+			return [label, category].filter(Boolean).join(' · ') || fallback;
+		case 'data-point':
+			return category ?? label ?? fallback;
+		case 'element':
+			return [label, value].filter(Boolean).join(' · ') || fallback;
+		default:
+			return label ?? fallback;
+	}
 }
 
 function toSingleLine(text: string): string {
@@ -212,6 +271,35 @@ function replaceCitationTokens(text: string, replace: (id: string) => string | n
 		}
 		return before && after ? ' ' : '';
 	});
+}
+
+/** Mention ids are free text, so only the tokens of the given mentions are matched, next to any citation token. */
+function pillTokenPattern(mentions: SelectedMention[]): RegExp {
+	const mentionTokens = mentions.map((mention) => escapeRegExp(toMentionToken(mention)));
+	return new RegExp([CITATION_TOKEN.source, ...mentionTokens].join('|'), 'g');
+}
+
+function findPill(
+	[token, citationPosition]: RegExpExecArray,
+	citations: (CitationData & { id: string })[],
+	mentions: SelectedMention[],
+): { option: MentionOption; trigger: string } | undefined {
+	if (citationPosition) {
+		const citation = citations[Number(citationPosition) - 1];
+		return (
+			citation && { option: toCitationMentionOption(citation, citation.id), trigger: CITATION_MENTION_TRIGGER }
+		);
+	}
+	const mention = mentions.find((candidate) => toMentionToken(candidate) === token);
+	return mention && { option: { id: mention.id, label: mention.label }, trigger: mention.trigger };
+}
+
+function toMentionToken({ id, trigger }: SelectedMention): string {
+	return `${trigger}[${id}]`;
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
 
 function insertNonEmptyText(prompt: PromptHandle, text: string, isAfterPill: boolean): void {

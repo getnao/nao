@@ -203,6 +203,23 @@ describe('File Explorer without a context repository', () => {
 		expect((await searchNaoDraftContents(OWNER, live, 'net of refunds')).results).toEqual([]);
 		expect(otherUserResponse.results.map((result) => result.path)).toEqual(['/docs/revenue.md']);
 	});
+
+	it('caps the draft search like the live search, cutting long lines and flagging dropped files', async () => {
+		await db.insert(s.contextDraftFile).values(
+			Array.from({ length: 201 }, (_, index) => ({
+				...OWNER,
+				path: `docs/draft-${String(index).padStart(3, '0')}.md`,
+				content: `gross ${'x'.repeat(2_000)}\n`,
+				baseHash: null,
+			})),
+		);
+
+		const response = await searchNaoDraftContents(OWNER, live, 'gross');
+
+		expect(response.results).toHaveLength(200);
+		expect(response.truncated).toBe(true);
+		expect(response.results[0].text).toHaveLength(500);
+	});
 });
 
 describe('readNaoDraft', () => {
