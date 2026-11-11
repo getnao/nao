@@ -17,6 +17,7 @@ import {
 	queryDataOptions,
 	stateOptions,
 } from '@/components/custom-story/story-data-options';
+import { useSession } from '@/lib/auth-client';
 import { isForbiddenError, isNotFoundError } from '@/lib/trpc-error';
 
 type RenderExport = (format: DownloadFormat, html: string) => Promise<StoryDownloadFile>;
@@ -30,6 +31,7 @@ export function useCustomStoryDownload(
 	render: RenderExport,
 ) {
 	const queryClient = useQueryClient();
+	const viewerId = useSession().data?.user.id ?? '';
 	const theme = useActiveStoryTheme(content?.theme);
 	return useCallback(
 		async (format: DownloadFormat) => {
@@ -38,7 +40,7 @@ export function useCustomStoryDownload(
 			}
 			const [runtime, data] = await Promise.all([
 				loadStandaloneRuntime(),
-				fetchExportData(queryClient, dataSource, content.queryIds),
+				fetchExportData(queryClient, dataSource, content.queryIds, viewerId),
 			]);
 			const html = buildStoryExportDocument({
 				title: content.title,
@@ -50,7 +52,7 @@ export function useCustomStoryDownload(
 			});
 			return render(format, html);
 		},
-		[content, dataSource, queryClient, render, theme],
+		[content, dataSource, queryClient, render, theme, viewerId],
 	);
 }
 
@@ -72,6 +74,7 @@ async function fetchExportData(
 	queryClient: QueryClient,
 	dataSource: CustomStoryDataSource,
 	queryIds: string[],
+	viewerId: string,
 ): Promise<StoryExportData> {
 	const [results, narratives, state, chartPlugins] = await Promise.all([
 		Promise.all(
@@ -93,7 +96,7 @@ async function fetchExportData(
 	]);
 	return {
 		queries: Object.fromEntries(results.filter((entry) => entry !== null)),
-		requests: readRequestAnswers(dataSource),
+		requests: readRequestAnswers(viewerId, dataSource),
 		narratives,
 		state,
 		chartPlugins,

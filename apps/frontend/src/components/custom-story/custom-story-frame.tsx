@@ -38,6 +38,7 @@ import type { StoryTheme } from '@nao/shared/story-theme';
 import type { CustomStoryDataSource } from './story-data-options';
 import type { StoryRuntimeLocation } from './story-frame-document';
 import { useDateFormat } from '@/hooks/use-date-format';
+import { useSession } from '@/lib/auth-client';
 import { readBlockAsk, readStoryElementAsk } from '@/lib/story-element-ask';
 import { getAppWideShortcuts, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
@@ -106,6 +107,7 @@ export function CustomStoryFrame({
 	const hasRunStorySqlRef = useRef(false);
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
+	const viewerId = useSession().data?.user.id ?? '';
 	const dateFormat = useDateFormat();
 	const usesState = stateControls?.usesState ?? false;
 	const isAskable = onAsk !== undefined;
@@ -164,14 +166,14 @@ export function CustomStoryFrame({
 				const options = queryDataOptions(dataSource, queryId, inputs);
 				const result = await queryClient.fetchQuery(fresh ? { ...options, staleTime: 0 } : options);
 				if (hasStoryQueryInputs(inputs)) {
-					rememberRequestAnswer(dataSource, storyQueryRequestKey(queryId, inputs), result);
+					rememberRequestAnswer(viewerId, dataSource, storyQueryRequestKey(queryId, inputs), result);
 				}
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
 			}
 		},
-		[dataSource, queryClient, reply],
+		[dataSource, queryClient, reply, viewerId],
 	);
 
 	const answerSql = useCallback(
@@ -183,13 +185,13 @@ export function CustomStoryFrame({
 					queryFn: () => runStorySql(dataSource, request),
 					...(fresh && { staleTime: 0 }),
 				});
-				rememberRequestAnswer(dataSource, storySqlRequestKey(request), result);
+				rememberRequestAnswer(viewerId, dataSource, storySqlRequestKey(request), result);
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
 			}
 		},
-		[dataSource, queryClient, reply],
+		[dataSource, queryClient, reply, viewerId],
 	);
 
 	const answerQuerySql = useCallback(

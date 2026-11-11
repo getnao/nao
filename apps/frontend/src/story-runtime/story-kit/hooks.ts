@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { serializeStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import { normalizeBrandHeader, showsBrandIdentity } from '@nao/shared/story-theme';
 import {
@@ -97,10 +97,11 @@ export function useStoryEditing(): boolean {
 }
 
 function useHostRequest(request: HostRequest, enabled: boolean): QueryDataResult {
-	const [refresh, setRefresh] = useState({ key: '', count: 0 });
+	const [refreshes, setRefreshes] = useState(0);
+	/** The request `refetch` was called for: the next fetch of it skips the cache, once. */
+	const refreshKeyRef = useRef<string | null>(null);
 	const [settled, setSettled] = useState<{ source: string; key: string; state: QueryDataState } | null>(null);
-	const refreshCount = refresh.key === request.key ? refresh.count : 0;
-	const requestKey = `${refreshCount}:${request.key}`;
+	const requestKey = `${refreshes}:${request.key}`;
 
 	useEffect(() => {
 		if (!enabled) {
@@ -112,24 +113,21 @@ function useHostRequest(request: HostRequest, enabled: boolean): QueryDataResult
 				setSettled({ source: request.source, key: requestKey, state });
 			}
 		};
-		fetchCached(request, refreshCount > 0).then(
+		const fresh = refreshKeyRef.current === request.key;
+		refreshKeyRef.current = null;
+		fetchCached(request, fresh).then(
 			(result) => settle({ status: 'success', data: result.data, columns: result.columns, error: null }),
 			(error: unknown) => settle({ status: 'error', data: null, columns: null, error: describeError(error) }),
 		);
 		return () => {
 			cancelled = true;
 		};
-	}, [request, refreshCount, enabled, requestKey]);
+	}, [request, refreshes, enabled, requestKey]);
 
-	/** Only the request on screen is refreshed: asking for another one later reads the cache again. */
-	const refetch = useCallback(
-		() =>
-			setRefresh((current) => ({
-				key: request.key,
-				count: current.key === request.key ? current.count + 1 : 1,
-			})),
-		[request.key],
-	);
+	const refetch = useCallback(() => {
+		refreshKeyRef.current = request.key;
+		setRefreshes((count) => count + 1);
+	}, [request.key]);
 	if (!enabled) {
 		return { ...LOADING, isFetching: false, refetch };
 	}

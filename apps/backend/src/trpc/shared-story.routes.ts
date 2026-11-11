@@ -10,6 +10,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { readStoryChartPluginSources } from '../services/chart-plugin';
 import {
+	assertCustomStoryExists,
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryNarratives,
@@ -244,6 +245,7 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: STANDALONE_SQL_UNAVAILABLE });
 			}
 			try {
+				await assertCustomStoryExists(shared.chatId, shared.slug);
 				return await runCustomStorySql(
 					{
 						projectId: shared.projectId,

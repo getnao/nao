@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe('useQueryData', () => {
-	it('refreshes only the request on screen: going back to an earlier one reads the cache again', async () => {
+	it('refreshes the request on screen once: going back to any earlier one reads the cache again', async () => {
 		host.requestQueryData.mockResolvedValue({ columns: ['n'], data: [{ n: 1 }] });
 		const { rerender } = render(<RegionRows queryId='query_refresh' region='EU' />);
 		await waitFor(() => expect(screen.getByTestId('rows').textContent).toBe('1'));
@@ -41,6 +41,8 @@ describe('useQueryData', () => {
 		await waitFor(() => expect(host.requestQueryData).toHaveBeenCalledTimes(3));
 
 		rerender(<RegionRows queryId='query_refresh' region='EU' />);
+		await waitFor(() => expect(screen.getByTestId('rows').textContent).toBe('1'));
+		rerender(<RegionRows queryId='query_refresh' region='US' />);
 		await waitFor(() => expect(screen.getByTestId('rows').textContent).toBe('1'));
 		expect(host.requestQueryData).toHaveBeenCalledTimes(3);
 		expect(host.requestQueryData.mock.calls.map(([, options]) => options.fresh)).toEqual([false, false, true]);
