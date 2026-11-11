@@ -14,10 +14,10 @@ from nao_core.config.databases.snowflake import SnowflakeDatabaseContext
 from nao_core.config.databases.trino import TrinoDatabaseContext
 
 
-def make_context(cls, schema="my_schema", table="my_table", partition_cols=None):
+def make_context(cls, schema="my_schema", table="my_table", partition_cols=None, **bigquery_options):
     conn = MagicMock()
     if cls.__name__ == "BigQueryDatabaseContext":
-        ctx = cls(conn, schema, table, project_id="test-project")
+        ctx = cls(conn, schema, table, project_id="test-project", **bigquery_options)
     else:
         ctx = cls(conn, schema, table)
     ctx.partition_columns = MagicMock(return_value=partition_cols or [])
@@ -589,17 +589,15 @@ COLUMN_STATS = {
 
 def make_scoped_context(cls, partition_cols=None, clustering_cols=None):
     """Context whose connection answers the scoped COUNT(*) and per-column profiling queries."""
+    bigquery_options = {}
     if cls is BigQueryDatabaseContext:
-        metadata = TablePartitionMetadata(
+        bigquery_options["partition_metadata"] = TablePartitionMetadata(
             partition_column=(partition_cols or [None])[0],
             partition_column_type="TIMESTAMP",
             last_partition_id=None,
             total_rows=TABLE_ROW_COUNT,
         )
-        ctx = cls(MagicMock(), "my_schema", "trips", project_id="test-project", partition_metadata=metadata)
-    else:
-        ctx = cls(MagicMock(), "my_schema", "trips")
-    ctx.partition_columns = MagicMock(return_value=partition_cols or [])
+    ctx = make_context(cls, table="trips", partition_cols=partition_cols, **bigquery_options)
     ctx.columns = MagicMock(return_value=TRIP_COLUMNS)
     ctx.clustering_columns = MagicMock(return_value=clustering_cols or [])
     ctx.row_count = MagicMock(return_value=TABLE_ROW_COUNT)
