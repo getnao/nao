@@ -52,6 +52,7 @@ interface StoryMapEditProviderProps {
 	storySlug: string;
 	storyTitle: string;
 	storyCode: string;
+	storyVersion?: number;
 	children: React.ReactNode;
 }
 
@@ -60,9 +61,16 @@ export function StoryMapEditProvider({
 	storySlug,
 	storyTitle,
 	storyCode,
+	storyVersion,
 	children,
 }: StoryMapEditProviderProps) {
-	const { replaceBlock, isSaving } = useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode });
+	const { replaceBlock, isSaving } = useStoryBlockEdit({
+		chatId,
+		storySlug,
+		storyTitle,
+		storyCode,
+		storyVersion,
+	});
 
 	const saveMap = useCallback(
 		(rawTag: string, config: displayMap.Input) => replaceBlock(rawTag, buildStoryMapBlock(config)),

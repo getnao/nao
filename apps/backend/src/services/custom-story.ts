@@ -12,6 +12,7 @@ import * as storyThemeQueries from '../queries/story-theme.queries';
 import { isViewableStoryFile } from '../utils/story-file-path';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
+import { CustomStoryQueryNotAllowedError, listCustomStoryQueryIds } from './custom-story-query-access';
 import type { RefreshResult } from './live-story';
 import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
 
@@ -60,12 +61,6 @@ export class CustomStoryFileNotFoundError extends Error {
 export class CustomStoryQueryNotFoundError extends Error {
 	constructor(queryId: string) {
 		super(`Query ${queryId} was not found.`);
-	}
-}
-
-export class CustomStoryQueryNotAllowedError extends Error {
-	constructor(queryId: string) {
-		super(`Query ${queryId} is not part of this story.`);
 	}
 }
 
@@ -312,6 +307,28 @@ export async function getSharedCustomStoryQuerySql(
 	return getCustomStoryQuerySql(chatId, storySlug, queryId);
 }
 
+/** An editor who does not own the chat only reads the queries the story itself references, never the rest of the chat. */
+export async function getEditorCustomStoryQueryData(
+	chatId: string,
+	storySlug: string,
+	queryId: string,
+	options: CustomStoryDataOptions & { versionNumber?: number } = {},
+): Promise<StoryQueryResult> {
+	const { versionNumber, ...dataOptions } = options;
+	await assertQueryReferencedByStory(chatId, storySlug, queryId, versionNumber);
+	return getCustomStoryQueryData(chatId, storySlug, queryId, dataOptions);
+}
+
+export async function getEditorCustomStoryQuerySql(
+	chatId: string,
+	storySlug: string,
+	queryId: string,
+	versionNumber?: number,
+): Promise<string> {
+	await assertQueryReferencedByStory(chatId, storySlug, queryId, versionNumber);
+	return getCustomStoryQuerySql(chatId, storySlug, queryId);
+}
+
 export async function getCustomStoryFile(
 	chatId: string,
 	storySlug: string,
@@ -334,6 +351,23 @@ async function readVersionFile(versionId: string, path: string): Promise<CustomS
 async function assertQueryReferencedByVersion(versionId: string, queryId: string): Promise<void> {
 	const referencedIds = extractCustomStoryQueryIds(await storyFileQueries.listVersionFiles(versionId));
 	if (!referencedIds.has(queryId)) {
+		throw new CustomStoryQueryNotAllowedError(queryId);
+	}
+}
+
+async function assertQueryReferencedByStory(
+	chatId: string,
+	storySlug: string,
+	queryId: string,
+	versionNumber?: number,
+): Promise<void> {
+	await getCustomStory(chatId, storySlug);
+	if (versionNumber !== undefined) {
+		const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
+		await assertQueryReferencedByVersion(version.id, queryId);
+		return;
+	}
+	if (!(await listCustomStoryQueryIds(chatId, storySlug)).has(queryId)) {
 		throw new CustomStoryQueryNotAllowedError(queryId);
 	}
 }

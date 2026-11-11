@@ -1,7 +1,7 @@
 import { isHtmlStoryEntry, STORY_APP_ENTRY_CANDIDATES } from '@nao/shared/story-app';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, File, Lock, Save } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
 import type { CustomStoryFileSummary } from '@/components/custom-story/custom-story-body';
@@ -31,6 +31,7 @@ interface CustomStoryFilesProps {
 	files: CustomStoryFileSummary[];
 	editable?: boolean;
 	onAskAboutCode?: (filePath: string, selection: CodeSelection) => void;
+	onHasChangesChange?: (hasChanges: boolean) => void;
 }
 
 const MIN_CONTENT_SEARCH_LENGTH = 2;
@@ -42,9 +43,14 @@ export function CustomStoryFiles({
 	files,
 	editable = false,
 	onAskAboutCode,
+	onHasChangesChange,
 }: CustomStoryFilesProps) {
 	const [selectedPath, setSelectedPath] = useState<string | null>(() => defaultFilePath(files));
 	const edits = useStoryFileEdits(source, versionNumber);
+	useEffect(() => {
+		onHasChangesChange?.(edits.hasChanges);
+	}, [edits.hasChanges, onHasChangesChange]);
+	useEffect(() => () => onHasChangesChange?.(false), [onHasChangesChange]);
 	useCodeRevealFollower(source.storySlug, ({ filePath }) => {
 		if (filePath && (isStoryKitPath(filePath) || files.some((file) => file.path === filePath))) {
 			setSelectedPath(filePath);

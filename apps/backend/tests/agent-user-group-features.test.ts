@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/services/story-edit-lock.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/story-edit-lock.service')>()),
+	acquireStoryEditLock: vi.fn(async () => undefined),
+}));
 vi.mock('../src/queries/story.queries', () => ({
 	getStoryById: mocks.getStoryById,
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,

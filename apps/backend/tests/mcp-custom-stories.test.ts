@@ -8,6 +8,7 @@ import type { ToolResult } from '../src/mcp/logging';
 import { registerAssetTools } from '../src/mcp/tools/asset-tools';
 import { registerContextLayerTools } from '../src/mcp/tools/context-layer';
 import * as storyFileQueries from '../src/queries/story-file.queries';
+import { acquireStoryEditLock } from '../src/services/story-edit-lock.service';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -257,6 +258,19 @@ describe('MCP custom stories through create_story and update_story', () => {
 
 		expect(result.isError).toBeUndefined();
 		expect(result.structuredContent).toMatchObject({ id: storyId, version: 2 });
+	});
+
+	it('leaves a classic story alone while someone else edits it', async () => {
+		const created = await call('create_story', { chat_id: 'chat-1', title: 'Classic', content: '# First' });
+		expect(created.isError).toBeUndefined();
+		const storyId = created.structuredContent?.id as string;
+		await acquireStoryEditLock(storyId, { userId: 'user-2', chatId: null });
+
+		const result = await call('update_story', { story_id: storyId, title: 'Renamed', content: '# Second' });
+
+		expect(result.isError).toBe(true);
+		expect(await db.select({ code: s.storyVersion.code }).from(s.storyVersion)).toEqual([{ code: '# First' }]);
+		expect(await db.select({ title: s.story.title }).from(s.story)).toEqual([{ title: 'Classic' }]);
 	});
 
 	it('refuses `query_data` for a custom story attached to a chat', async () => {

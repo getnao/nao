@@ -107,6 +107,13 @@ describe('StoryChatButton', () => {
 		mocks.resolvedStory.chatId = 'origin-chat';
 	});
 
+	it('offers to edit the story to someone it is shared with as an editor', () => {
+		render(<StoryChatButton storyId='story-1' isOwner={false} canEdit canChat />);
+
+		expect(screen.getByRole('button', { name: 'Edit story' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Ask story' })).toBeNull();
+	});
+
 	it('asks about the story by default for anyone else', () => {
 		render(<StoryChatButton storyId='story-1' isOwner={false} canChat />);
 
