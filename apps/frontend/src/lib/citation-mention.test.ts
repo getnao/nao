@@ -178,6 +178,26 @@ describe('citation mentions', () => {
 
 		expect(written).toEqual(['compare ', '[a]', 'with ', '[b]', 'please']);
 	});
+
+	it('puts the context a restored message mentions back as pills', () => {
+		const written: string[] = [];
+		const prompt = {
+			insertText: (text: string) => written.push(text),
+			appendMention: ({ label }: { label: string }, trigger: string) => written.push(`<${trigger}${label}>`),
+		} as unknown as PromptHandle;
+
+		writeCitedText(
+			prompt,
+			'/[weekly report] on @[schema:main.orders] and @[unknown], like ❝[1]',
+			[{ id: 'a', start: 0, end: 0, text: 'Revenue' }],
+			[
+				{ id: 'weekly report', label: 'weekly report', trigger: '/' },
+				{ id: 'schema:main.orders', label: 'orders', trigger: '@' },
+			],
+		);
+
+		expect(written).toEqual(['</weekly report>', 'on ', '<@orders>', 'and @[unknown], like ', '<❝Revenue>']);
+	});
 });
 
 describe('readStoryElementAsk', () => {
