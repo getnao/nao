@@ -4,12 +4,14 @@ import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/proto
 import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import { insertMcpCallLog } from '../queries/mcp-endpoint.queries';
-import type { McpEndpointSettings } from '../types/mcp-endpoint';
+import { posthog, PostHogEvent } from '../services/posthog';
+import type { McpEndpointSettings, McpUserRole } from '../types/mcp-endpoint';
 import { truncateMiddle } from '../utils/utils';
 
 export interface McpContext {
 	userId: string;
 	projectId: string;
+	role: McpUserRole;
 	settings: McpEndpointSettings;
 	/** When true, chart tools return config + data rows for the client agent to render itself instead of embed links/apps only. */
 	chartDataMode: boolean;
@@ -35,8 +37,9 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	get_nao_answer: ['subAgentModeEnabled'],
 	execute_sql: ['contextLayerModeEnabled'],
 	execute_semantic_query: ['contextLayerModeEnabled'],
-	grep: ['contextLayerModeEnabled'],
-	ls: ['contextLayerModeEnabled'],
+	grep_nao_context: ['contextLayerModeEnabled'],
+	ls_nao_context: ['contextLayerModeEnabled'],
+	read_nao_context: ['contextLayerModeEnabled'],
 	create_story: ['contextLayerModeEnabled'],
 	update_story: ['contextLayerModeEnabled'],
 	display_chart: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
@@ -73,6 +76,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 			thrownError = error;
 			throw error;
 		} finally {
+			trackToolCall(toolName, ctx, Date.now() - start, success);
 			insertMcpCallLog({
 				id: callLogId,
 				projectId: ctx.projectId,
@@ -85,6 +89,31 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 			}).catch(() => {});
 		}
 	};
+}
+
+const MODE_TRACKING_NAMES: Partial<Record<keyof McpEndpointSettings, string>> = {
+	subAgentModeEnabled: 'sub_agent',
+	contextLayerModeEnabled: 'context_layer',
+};
+
+function trackToolCall(toolName: string, ctx: McpContext, durationMs: number, success: boolean): void {
+	posthog.capture(ctx.userId, PostHogEvent.McpToolCalled, {
+		project_id: ctx.projectId,
+		tool_name: toolName,
+		tool_modes: getToolModes(toolName),
+		success,
+		duration_ms: durationMs,
+		user_role: ctx.role,
+		sub_agent_mode_enabled: ctx.settings.subAgentModeEnabled,
+		context_layer_mode_enabled: ctx.settings.contextLayerModeEnabled,
+		chart_data_mode: ctx.chartDataMode,
+	});
+}
+
+/** The MCP modes a tool belongs to; empty for tools available regardless of the mode. */
+function getToolModes(toolName: string): string[] {
+	const modeKeys = TOOL_MODE_MAP[toolName] ?? [];
+	return modeKeys.flatMap((key) => MODE_TRACKING_NAMES[key] ?? []);
 }
 
 const MAX_LOGGED_OUTPUT_CHARS = 10_000;

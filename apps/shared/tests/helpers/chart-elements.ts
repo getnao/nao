@@ -15,6 +15,7 @@ export interface ChartElementProps {
 	radius?: number[];
 	shape?: (props: unknown) => ReactElement<{ radius?: number[]; stroke?: string; strokeWidth?: number }>;
 	stackId?: string;
+	tick?: (props: unknown) => ReactElement;
 	tickFormatter?: (value: string | number) => string;
 	width?: number;
 	yAxisId?: string;

@@ -42,6 +42,7 @@ import {
 	listUserGroupSsoMemberships,
 	resolveUserGroupAccess,
 	setUserGroupMembership,
+	setUserGroupMemberships,
 	updateProjectRowSecurity,
 	updateUserGroup,
 	validateAssignableUserGroupIds,
@@ -114,11 +115,12 @@ describe('user group queries', () => {
 				},
 			},
 			contextGrants: {
-				version: 6,
+				version: 7,
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 				filesAccess: ALL_FILES_CONTEXT_ACCESS,
 				mcpAccess: { mode: 'all' },
+				skillsAccess: { mode: 'all' },
 			},
 		});
 
@@ -727,10 +729,12 @@ describe('user group queries', () => {
 				canChange: false,
 			},
 			projectSharing: 'blocked',
+			shareTargets: { includeOwnGroup: true, groupIds: [] },
 			showAllSettings: false,
+			preloadedSkills: [],
 		});
 		expect(storedUpdated.contextGrants).toEqual({
-			version: 6,
+			version: 7,
 			databaseAccess: {
 				mode: 'restricted',
 				strict: false,
@@ -748,6 +752,7 @@ describe('user group queries', () => {
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 			mcpAccess: { mode: 'restricted', grants: [] },
+			skillsAccess: { mode: 'restricted', skills: [] },
 		});
 
 		await updateUserGroup(PROJECT_ID, group.id, {
@@ -966,6 +971,36 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('unions skill grants and only preloads the skills the user can access', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: [],
+			skillsAccess: { mode: 'restricted', skills: ['revenue'] },
+			preloadedSkills: ['revenue'],
+		});
+		const finance = await createUserGroup(PROJECT_ID, 'Finance', []);
+		await updateUserGroup(PROJECT_ID, finance.id, {
+			featureGrants: [],
+			skillsAccess: { mode: 'restricted', skills: ['forecast'] },
+			preloadedSkills: ['forecast', 'churn'],
+		});
+
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			skillsAccess: { mode: 'restricted', skills: ['revenue'] },
+			preloadedSkills: ['revenue'],
+		});
+
+		await setUserGroupMembership(PROJECT_ID, finance.id, DIRECT_USER_ID, true);
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			skillsAccess: { mode: 'restricted', skills: ['forecast', 'revenue'] },
+			preloadedSkills: ['revenue', 'forecast'],
+		});
+		expect(
+			(await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.id === finance.id)?.preloadedSkills,
+		).toEqual(['forecast', 'churn']);
+	});
+
 	it('excludes suspended groups from every effective access field without changing stored data', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
 		const defaultGroup = overview.groups[0];
@@ -1008,12 +1043,14 @@ describe('user group queries', () => {
 			docsAccess: { mode: 'restricted', grants: [] },
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: { mode: 'restricted', grants: [] },
+			skillsAccess: { mode: 'all' },
 			rowPolicies: [
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
 				{ version: 1, policies: [] },
 			],
+			preloadedSkills: [],
 		});
 
 		expect(await listUserGroupMemberships(PROJECT_ID)).toContainEqual({
@@ -1085,6 +1122,29 @@ describe('user group queries', () => {
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
 		});
+	});
+
+	it('preloads the All Users skills first, then the skills of the groups the user belongs to', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: defaultGroup.featureGrants,
+			preloadedSkills: ['glossary'],
+		});
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			preloadedSkills: ['revenue', 'glossary'],
+		});
+		const finance = await createUserGroup(PROJECT_ID, 'Finance');
+		await updateUserGroup(PROJECT_ID, finance.id, { featureGrants: [], preloadedSkills: ['revenue-recognition'] });
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+
+		const access = await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
+
+		expect(access.preloadedSkills).toEqual(['glossary', 'revenue']);
+		const financeGroup = (await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.id === finance.id);
+		expect(financeGroup?.preloadedSkills).toEqual(['revenue-recognition']);
 	});
 
 	it('uses null defaults and fails malformed stored access closed', async () => {
@@ -1228,6 +1288,39 @@ describe('user group queries', () => {
 
 		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, false);
 		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).showAllSettings).toBe(false);
+	});
+
+	it('adds and removes several users at once while keeping SSO memberships', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		const defaultGroup = (await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.isDefault)!;
+		const analystMemberships = async () =>
+			(await db.select().from(userGroupMember).where(eq(userGroupMember.groupId, analysts.id)))
+				.map((membership) => `${membership.userId}:${membership.provider}`)
+				.sort();
+
+		await setUserGroupMemberships(
+			PROJECT_ID,
+			analysts.id,
+			[DIRECT_USER_ID, INHERITED_USER_ID, DIRECT_USER_ID],
+			true,
+		);
+		await setUserGroupMemberships(PROJECT_ID, analysts.id, [DIRECT_USER_ID, BOTH_USER_ID], true);
+		expect(await analystMemberships()).toEqual(
+			[`${BOTH_USER_ID}:manual`, `${DIRECT_USER_ID}:manual`, `${INHERITED_USER_ID}:manual`].sort(),
+		);
+
+		await db.insert(userGroupMember).values({ groupId: analysts.id, userId: BOTH_USER_ID, provider: 'oidc' });
+		await setUserGroupMemberships(PROJECT_ID, analysts.id, [DIRECT_USER_ID, BOTH_USER_ID], false);
+		const remainingMemberships = [`${BOTH_USER_ID}:oidc`, `${INHERITED_USER_ID}:manual`].sort();
+		expect(await analystMemberships()).toEqual(remainingMemberships);
+
+		await expect(
+			setUserGroupMemberships(PROJECT_ID, analysts.id, [INHERITED_USER_ID, OUTSIDER_USER_ID], false),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(await analystMemberships()).toEqual(remainingMemberships);
+		await expect(
+			setUserGroupMemberships(PROJECT_ID, defaultGroup.id, [DIRECT_USER_ID], true),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 	});
 
 	it('resolves effective names from All Users, manual, and SSO memberships within the project', async () => {

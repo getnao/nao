@@ -1,8 +1,9 @@
 import json
 import os
 import sys
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, cast
@@ -15,12 +16,13 @@ from cyclopts import Parameter
 from nao_core import native
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import ModelCosts
-from nao_core.config.test import ComparisonConfig, TestConfig
+from nao_core.config.test import ComparisonConfig, TestConfig, TestModelConfig
 from nao_core.ui import UI
 
 from .assertions import combine_check_messages, evaluate_assertions
 from .case import TESTS_FOLDER, InvalidTestFileError, TestCase, discover_tests
-from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
+from .client import BACKEND_URL, AgentClient, AgentClientError, TestVerdict, VerificationResult, get_client
+from .client import TestResult as AgentTestResult
 from .compare import normalize_dataframe_numbers
 from .summary import (
     ModelSummary,
@@ -38,6 +40,7 @@ class ModelConfig:
 
     provider: str
     model_id: str
+    reasoning_effort: str | None = None
 
     @classmethod
     def parse(cls, model_str: str) -> "ModelConfig":
@@ -48,7 +51,39 @@ class ModelConfig:
         return cls(provider=provider, model_id=model_id)
 
     def __str__(self) -> str:
-        return f"{self.provider}:{self.model_id}"
+        name = f"{self.provider}:{self.model_id}"
+        return f"{name} · {self.reasoning_effort}" if self.reasoning_effort else name
+
+
+def resolve_model_configs(models: list[str | TestModelConfig], client: AgentClient) -> list[ModelConfig]:
+    """Expand the configured models into one model per reasoning effort each runs at."""
+    return [model for entry in models for model in expand_model_entry(entry, client)]
+
+
+def expand_model_entry(entry: str | TestModelConfig, client: AgentClient) -> list[ModelConfig]:
+    if isinstance(entry, str):
+        return [ModelConfig.parse(entry)]
+    model = ModelConfig.parse(entry.model)
+    if entry.reasoning_efforts is None:
+        return [model]
+    supported = client.get_reasoning_efforts(model.provider, model.model_id)
+    efforts = select_reasoning_efforts(str(model), entry.reasoning_efforts, supported)
+    return [replace(model, reasoning_effort=effort) for effort in efforts]
+
+
+def select_reasoning_efforts(model_name: str, requested: Sequence[str] | str, supported: list[str]) -> list[str]:
+    """The requested efforts in the order the model supports them, the same check the app makes on nao_config.yaml."""
+    if not supported:
+        raise ValueError(f"{model_name} has no reasoning efforts to pick in test.models.")
+    if requested == "all":
+        return supported
+    unsupported = [effort for effort in requested if effort not in supported]
+    if unsupported:
+        raise ValueError(
+            f"{model_name} does not support the reasoning efforts {', '.join(unsupported)}, "
+            f"expected some of {', '.join(supported)}."
+        )
+    return [effort for effort in supported if effort in requested]
 
 
 @dataclass
@@ -199,6 +234,8 @@ def run_test(
     model: ModelConfig,
     email: str | None = None,
     password: str | None = None,
+    api_key: str | None = None,
+    project_name: str | None = None,
     costs: ModelCosts | None = None,
     comparison: ComparisonConfig | None = None,
 ) -> TestRunResult:
@@ -206,10 +243,17 @@ def run_test(
     UI.print(f"[bold]Running:[/bold] {test_case.name} [dim]({model})[/dim]")
     UI.print(f"[dim]  Prompt: {test_case.prompt}[/dim]")
 
-    client = get_client(email=email, password=password)
+    client = get_client(email=email, password=password, api_key=api_key, project_name=project_name)
 
     try:
-        result = client.run_test(test_case, provider=model.provider, model_id=model.model_id, costs=costs)
+        result = client.run_test(
+            test_case,
+            provider=model.provider,
+            model_id=model.model_id,
+            costs=costs,
+            comparison=comparison,
+            reasoning_effort=model.reasoning_effort,
+        )
 
         if result.text:
             UI.print(f"[dim]  Response: {result.text[:200]}...[/dim]")
@@ -222,6 +266,9 @@ def run_test(
         UI.print(f"[dim]  Tokens: {result.usage.totalTokens}[/dim]")
         UI.print(f"[dim]  Cost: ${result.cost.totalCost}[/dim]")
         UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
+
+        if result.verdict:
+            return server_verdict_result(test_case, model, result, result.verdict, tool_call_count)
 
         assertions_passed, assertions_msg = evaluate_assertions(test_case.assertions, result.tool_calls)
 
@@ -324,6 +371,42 @@ def run_test(
             error=str(e),
             details=TestRunDetails(reference_sql=test_case.sql),
         )
+
+
+def server_verdict_result(
+    test_case: TestCase,
+    model: ModelConfig,
+    result: AgentTestResult,
+    verdict: TestVerdict,
+    tool_call_count: int,
+) -> TestRunResult:
+    """Build the run result from the pass/fail decision the backend computed."""
+    verification = result.verification
+    if verification and verification.sql:
+        UI.print(f"[dim]  Verification SQL: {verification.sql}[/dim]")
+    if verdict.comparison:
+        UI.print(f"[dim]{verdict.comparison}[/dim]")
+    UI.print(f"  {status_icon(verdict.passed)} {verdict.message}")
+
+    return TestRunResult(
+        name=test_case.name,
+        model=str(model),
+        passed=verdict.passed,
+        message=verdict.message,
+        tokens=result.usage.totalTokens,
+        cost=result.cost.totalCost,
+        duration_ms=result.duration_ms,
+        tool_call_count=tool_call_count,
+        details=TestRunDetails(
+            response_text=result.text,
+            actual_data=verification.data if verification else None,
+            expected_data=verification.expectedData if verification else None,
+            comparison=verdict.comparison,
+            tool_calls=result.tool_calls,
+            reference_sql=test_case.sql,
+            verification_sql=verification.sql if verification else None,
+        ),
+    )
 
 
 def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | None:
@@ -585,6 +668,13 @@ def test(
             help="Password for authentication. Falls back to NAO_PASSWORD env var.",
         ),
     ] = None,
+    api_key: Annotated[
+        str | None,
+        Parameter(
+            name=["--api-key"],
+            help="Organization API key for authentication, replaces the login. Falls back to NAO_API_KEY env var.",
+        ),
+    ] = None,
 ):
     """Run tests from the tests/ folder.
 
@@ -599,9 +689,11 @@ def test(
         nao test -s test_name
         nao test -s 12,13,14
         nao test -u user@example.com --password secret
+        nao test --api-key nao_xxx
     """
     email = username or os.environ.get("NAO_USERNAME")
     pwd = password or os.environ.get("NAO_PASSWORD")
+    key = api_key or os.environ.get("NAO_API_KEY")
 
     UI.info("\n🧪 Running nao tests...\n")
 
@@ -614,13 +706,14 @@ def test(
 
     if k_count < 1:
         UI.error(f"k must be >= 1, got {k_count}")
-        return
+        sys.exit(1)
 
+    client = get_client(email=email, password=pwd, api_key=key, project_name=config.project_name)
     try:
-        model_configs = [ModelConfig.parse(m) for m in models or test_config.models]
-    except ValueError as e:
+        model_configs = resolve_model_configs(list(models or test_config.models), client)
+    except (ValueError, AgentClientError) as e:
         UI.error(str(e))
-        return
+        sys.exit(1)
 
     project_path = Path.cwd()
     tests_dir = project_path / TESTS_FOLDER
@@ -675,6 +768,8 @@ def test(
                 model,
                 email=email,
                 password=pwd,
+                api_key=key,
+                project_name=config.project_name,
                 costs=resolve_model_costs(config, model),
                 comparison=test_config.comparison,
             )
@@ -692,6 +787,8 @@ def test(
                     m,
                     email=email,
                     password=pwd,
+                    api_key=key,
+                    project_name=config.project_name,
                     costs=resolve_model_costs(config, m),
                     comparison=test_config.comparison,
                 ): (index, attempt)

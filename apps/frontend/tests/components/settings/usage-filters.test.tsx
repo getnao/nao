@@ -51,8 +51,11 @@ describe('UsageFilters', () => {
 		expect(onSplitByUserChange).toHaveBeenCalledWith(true);
 	});
 
-	it('hides the split per user toggle when usage controls are hidden', () => {
-		renderUsageFilters({ showUsageControls: false, splitByUser: true, onSplitByUserChange: vi.fn() });
+	it.each([
+		['usage', { showUsageControls: false }],
+		['user', { showUserControls: false }],
+	] as const)('hides the split per user toggle when %s controls are hidden', (_controls, visibility) => {
+		renderUsageFilters({ ...visibility, splitByUser: true, onSplitByUserChange: vi.fn() });
 
 		expect(screen.queryByRole('button', { name: 'Split per user' })).toBeNull();
 	});

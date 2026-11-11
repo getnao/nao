@@ -1,16 +1,19 @@
-import { ChevronDown, Layers, Table2 } from 'lucide-react';
+import { AtSign, ChevronDown, Layers, Table2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import type { ChatArtifacts, FileArtifact, QueryArtifact } from '@/lib/chat-artifacts';
 import type { StorySummary } from '@/lib/story.utils';
+import type { ResolvedStory } from '@/hooks/use-mentioned-stories';
 
 import { AttachmentFileIcon } from '@/components/attachment-file-icon';
 import { AttachmentViewer } from '@/components/side-panel/attachment-viewer';
+import { useOpenStoryInSidePanel } from '@/components/side-panel/open-story-in-side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { Button } from '@/components/ui/button';
 import StoryIcon from '@/components/ui/story-icon';
 import { useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useOpenMentionedStory, useMentionedStories } from '@/hooks/use-mentioned-stories';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { areChatArtifactsEqual, collectChatArtifacts, countChatArtifacts } from '@/lib/chat-artifacts';
 import { cn } from '@/lib/utils';
@@ -41,11 +44,13 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 	const { open: openSidePanel } = useSidePanel();
 	const artifacts = useAgentMessagesSelector(collectChatArtifacts, areChatArtifactsEqual);
 	const showQueries = density !== 'compact';
-	const count = countChatArtifacts(artifacts, showQueries);
+	const mentionedStories = useMentionedStories(chatId, artifacts.mentionedStories);
+	const openMentionedStory = useOpenMentionedStory(useOpenStoryInSidePanel());
+	const count = countChatArtifacts(artifacts, showQueries) + mentionedStories.length;
 	const hasRoom = useHasRoomBesideChat(chatColumnRef);
 	const [isExpanded, setIsExpanded] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
-	const isDocked = hasRoom && artifacts.stories.length > 0;
+	const isDocked = hasRoom && artifacts.stories.length + mentionedStories.length > 0;
 	const isOpen = isDocked || isExpanded;
 
 	const collapse = useCallback(() => setIsExpanded(false), []);
@@ -64,6 +69,10 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 	};
 	const openStory = (story: StorySummary) => {
 		openSidePanel(<StoryViewer chatId={chatId} storySlug={story.id} />, story.id);
+		setIsExpanded(false);
+	};
+	const openMentioned = (story: ResolvedStory) => {
+		openMentionedStory(story);
 		setIsExpanded(false);
 	};
 	const openFile = (file: FileArtifact) => {
@@ -102,8 +111,10 @@ export function ChatArtifactsMenu({ chatId, chatColumnRef, panelClassName }: Cha
 					{isDocked && <ArtifactsPanelHeading count={count} />}
 					<ChatArtifactsList
 						artifacts={artifacts}
+						mentionedStories={mentionedStories}
 						showQueries={showQueries}
 						onOpenStory={openStory}
+						onOpenMentionedStory={openMentioned}
 						onOpenFile={openFile}
 						onRevealQuery={revealQuery}
 					/>
@@ -125,29 +136,44 @@ function ArtifactsPanelHeading({ count }: { count: number }) {
 
 interface ChatArtifactsListProps {
 	artifacts: ChatArtifacts;
+	mentionedStories: ResolvedStory[];
 	showQueries: boolean;
 	onOpenStory: (story: StorySummary) => void;
+	onOpenMentionedStory: (story: ResolvedStory) => void;
 	onOpenFile: (file: FileArtifact) => void;
 	onRevealQuery: (query: QueryArtifact) => void;
 }
 
 export function ChatArtifactsList({
 	artifacts,
+	mentionedStories,
 	showQueries,
 	onOpenStory,
+	onOpenMentionedStory,
 	onOpenFile,
 	onRevealQuery,
 }: ChatArtifactsListProps) {
+	const storyCount = artifacts.stories.length + mentionedStories.length;
+
 	return (
 		<div className='flex max-h-96 flex-col gap-3 overflow-y-auto'>
-			{artifacts.stories.length > 0 && (
-				<ArtifactSection title='Stories' count={artifacts.stories.length}>
+			{storyCount > 0 && (
+				<ArtifactSection title='Stories' count={storyCount}>
 					{artifacts.stories.map((story) => (
 						<ArtifactItem
 							key={story.id}
 							icon={<StoryIcon className='size-3.5 text-foreground' strokeWidth={2.25} />}
 							label={story.title || story.id}
 							onClick={() => onOpenStory(story)}
+						/>
+					))}
+					{mentionedStories.map((story) => (
+						<ArtifactItem
+							key={story.storyId}
+							icon={<MentionedStoryIcon />}
+							label={story.title}
+							title='Mentioned in this chat'
+							onClick={() => onOpenMentionedStory(story)}
 						/>
 					))}
 				</ArtifactSection>
@@ -224,12 +250,23 @@ function ArtifactItem({ icon, label, detail, title, onClick }: ArtifactItemProps
 			type='button'
 			onClick={onClick}
 			title={title}
-			className='flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent'
+			className='group flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent'
 		>
 			<span className='shrink-0'>{icon}</span>
 			<span className='min-w-0 flex-1 truncate'>{label}</span>
 			{detail && <span className='shrink-0 text-xs text-muted-foreground'>{detail}</span>}
 		</button>
+	);
+}
+
+function MentionedStoryIcon() {
+	return (
+		<span className='relative flex'>
+			<StoryIcon className='size-3.5 text-foreground' strokeWidth={2.25} />
+			<span className='absolute -top-1 -right-1 flex size-2.5 items-center justify-center rounded-full text-foreground bg-background group-hover:bg-accent'>
+				<AtSign className='size-2' strokeWidth={3} />
+			</span>
+		</span>
 	);
 }
 

@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -5,7 +9,7 @@ import type * as EnvModule from '../../src/env';
 
 vi.mock('../../src/env', async (importOriginal) => {
 	const actual = await importOriginal<typeof EnvModule>();
-	return { ...actual, env: { ...actual.env, DB_URI: 'sqlite::memory:' } };
+	return { ...actual, env: { ...actual.env, DB_URI: 'sqlite::memory:' }, isCloud: true };
 });
 
 vi.mock('../../src/db/db', async () => {
@@ -15,17 +19,27 @@ vi.mock('../../src/db/db', async () => {
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
+import { __reloadEnvForTesting } from '../../src/env';
 import {
 	attachStripeCustomer,
 	claimBillingSync,
 	getOrganizationBilling,
+	listOrganizationTrialsPendingStripeProvisioning,
 	type SubscriptionProjection,
 	updateSubscriptionProjection,
 } from '../../src/queries/billing.queries';
+import { getCreditGrant } from '../../src/queries/credit-wallet.queries';
 import { claimDueJobs, enqueueOnceJob } from '../../src/queries/scheduled-job.queries';
+import { createProject, updateProjectEnvVars } from '../../src/services/project.service';
+
+const tempDirectories: string[] = [];
 
 describe('billing consistency queries', () => {
 	beforeAll(async () => {
+		await db.insert(s.creditGrantPolicy).values([
+			{ grantType: 'organization_setup', amountMicroUsd: 20_000_000, maxGrantsPerOrg: 1 },
+			{ grantType: 'user_join', amountMicroUsd: 5_000_000, maxGrantsPerOrg: 100 },
+		]);
 		await db.insert(s.organization).values({
 			id: 'billing-sync-org',
 			name: 'Billing Sync',
@@ -45,6 +59,9 @@ describe('billing consistency queries', () => {
 
 	afterAll(() => {
 		db.$client.close();
+		for (const directory of tempDirectories) {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it('creates the billing projection only when Stripe is attached', async () => {
@@ -59,6 +76,222 @@ describe('billing consistency queries', () => {
 			orgId: 'uninitialized-billing-org',
 			stripeCustomerId: 'cus_new',
 		});
+	});
+
+	it('attaches Stripe to an existing local trial without replacing its dates', async () => {
+		const trialStartedAt = new Date('2026-10-01T00:00:00.000Z');
+		const trialEndsAt = new Date('2026-10-15T00:00:00.000Z');
+		await db.insert(s.organization).values({
+			id: 'local-trial-billing-org',
+			name: 'Local Trial Billing',
+			slug: 'local-trial-billing',
+		});
+		await db.insert(s.organizationBilling).values({
+			orgId: 'local-trial-billing-org',
+			billingStatus: 'trialing',
+			trialStartedAt,
+			trialEndsAt,
+			billingAccessEndsAt: trialEndsAt,
+		});
+
+		await expect(attachStripeCustomer('local-trial-billing-org', 'cus_local_trial')).resolves.toMatchObject({
+			billingStatus: 'trialing',
+			stripeCustomerId: 'cus_local_trial',
+			trialStartedAt,
+			trialEndsAt,
+		});
+	});
+
+	it('lists only active local trials that still need a Stripe subscription', async () => {
+		const now = new Date('2026-10-19T12:00:00.000Z');
+		await db.insert(s.organization).values([
+			{ id: 'pending-trial-org', name: 'Pending Trial', slug: 'pending-trial' },
+			{ id: 'expired-trial-org', name: 'Expired Trial', slug: 'expired-trial' },
+			{ id: 'provisioned-trial-org', name: 'Provisioned Trial', slug: 'provisioned-trial' },
+		]);
+		await db.insert(s.organizationBilling).values([
+			{
+				orgId: 'pending-trial-org',
+				billingStatus: 'trialing',
+				trialEndsAt: new Date('2026-10-20T12:00:00.000Z'),
+			},
+			{
+				orgId: 'expired-trial-org',
+				billingStatus: 'trialing',
+				trialEndsAt: new Date('2026-10-18T12:00:00.000Z'),
+			},
+			{
+				orgId: 'provisioned-trial-org',
+				billingStatus: 'trialing',
+				trialEndsAt: new Date('2026-10-20T12:00:00.000Z'),
+				stripeSubscriptionId: 'sub_trial',
+			},
+		]);
+
+		await expect(listOrganizationTrialsPendingStripeProvisioning(now)).resolves.toMatchObject([
+			{ orgId: 'pending-trial-org' },
+		]);
+	});
+
+	it('starts one local trial when organization setup credits become eligible', async () => {
+		const originalEnv = enableCloudBillingForTest();
+		await db.insert(s.organization).values({
+			id: 'automatic-trial-org',
+			name: 'Automatic Trial',
+			slug: 'automatic-trial',
+		});
+		const firstProjectPath = createProjectDirectory('automatic-trial-1');
+
+		try {
+			await createProject({
+				id: 'automatic-trial-project-1',
+				orgId: 'automatic-trial-org',
+				name: 'First',
+				type: 'local',
+				path: firstProjectPath,
+			});
+			await expect(getOrganizationBilling('automatic-trial-org')).resolves.toBeNull();
+			await expect(getCreditGrant('organization_setup', 'automatic-trial-org')).resolves.toBeNull();
+			expect(await listTrialProvisioningJobs('automatic-trial-org')).toHaveLength(0);
+			expect(await listTrialWelcomeEmailJobs('automatic-trial-org')).toHaveLength(0);
+
+			await updateProjectEnvVars('automatic-trial-project-1', {
+				DATABASE_URL: 'postgres://warehouse',
+			});
+			const firstBilling = await getOrganizationBilling('automatic-trial-org');
+
+			expect(firstBilling).toMatchObject({
+				billingStatus: 'trialing',
+				stripeCustomerId: null,
+				stripeSubscriptionId: null,
+			});
+			expect(firstBilling?.trialStartedAt).toBeInstanceOf(Date);
+			expect(firstBilling?.trialEndsAt?.getTime()).toBe(
+				firstBilling!.trialStartedAt!.getTime() + 14 * 24 * 60 * 60 * 1000,
+			);
+			expect(firstBilling?.billingAccessEndsAt).toEqual(firstBilling?.trialEndsAt);
+			await expect(getCreditGrant('organization_setup', 'automatic-trial-org')).resolves.toEqual({
+				orgId: 'automatic-trial-org',
+			});
+			const [provisioningJob] = await listTrialProvisioningJobs('automatic-trial-org');
+			expect(provisioningJob).toMatchObject({
+				name: 'billing.cloud.provision-trial',
+				payload: { organizationId: 'automatic-trial-org' },
+				status: 'pending',
+			});
+			expect(await listTrialWelcomeEmailJobs('automatic-trial-org')).toMatchObject([
+				{
+					name: 'email.cloud.welcome',
+					payload: { kind: 'trial', organizationId: 'automatic-trial-org' },
+					status: 'pending',
+				},
+			]);
+
+			await createProject({
+				id: 'automatic-trial-project-2',
+				orgId: 'automatic-trial-org',
+				name: 'Second',
+				type: 'local',
+				path: createProjectDirectory('automatic-trial-2'),
+				envVars: { DATABASE_URL: 'postgres://warehouse' },
+			});
+			expect(await getOrganizationBilling('automatic-trial-org')).toEqual(firstBilling);
+			expect(await listTrialProvisioningJobs('automatic-trial-org')).toHaveLength(1);
+			expect(await listTrialWelcomeEmailJobs('automatic-trial-org')).toHaveLength(1);
+
+			await db.insert(s.organization).values({
+				id: 'customer-first-trial-org',
+				name: 'Customer First Trial',
+				slug: 'customer-first-trial',
+			});
+			await attachStripeCustomer('customer-first-trial-org', 'cus_before_project');
+			await createProject({
+				id: 'customer-first-trial-project',
+				orgId: 'customer-first-trial-org',
+				name: 'First',
+				type: 'local',
+				path: createProjectDirectory('customer-first-trial'),
+				envVars: { DATABASE_URL: 'postgres://warehouse' },
+			});
+			const customerFirstBilling = await getOrganizationBilling('customer-first-trial-org');
+			expect(customerFirstBilling).toMatchObject({
+				billingStatus: 'trialing',
+				stripeCustomerId: 'cus_before_project',
+				stripeSubscriptionId: null,
+			});
+			expect(customerFirstBilling?.trialStartedAt).toBeInstanceOf(Date);
+			expect(customerFirstBilling?.trialEndsAt).toBeInstanceOf(Date);
+			expect(await listTrialProvisioningJobs('customer-first-trial-org')).toHaveLength(1);
+			expect(await listTrialWelcomeEmailJobs('customer-first-trial-org')).toHaveLength(1);
+		} finally {
+			restoreEnv(originalEnv);
+		}
+	});
+
+	it('does not consume a trial for a bypass-billing organization', async () => {
+		const originalEnv = enableCloudBillingForTest();
+		await db.insert(s.organization).values({
+			id: 'bypass-trial-org',
+			name: 'Bypass Trial',
+			slug: 'bypass-trial',
+			bypassBilling: true,
+		});
+
+		try {
+			await createProject({
+				id: 'bypass-trial-project',
+				orgId: 'bypass-trial-org',
+				name: 'Bypass',
+				type: 'local',
+				path: createProjectDirectory('bypass-trial'),
+				envVars: { DATABASE_URL: 'postgres://warehouse' },
+			});
+			await expect(getOrganizationBilling('bypass-trial-org')).resolves.toBeNull();
+			await expect(getCreditGrant('organization_setup', 'bypass-trial-org')).resolves.toEqual({
+				orgId: 'bypass-trial-org',
+			});
+			expect(await listTrialProvisioningJobs('bypass-trial-org')).toHaveLength(0);
+			expect(await listTrialWelcomeEmailJobs('bypass-trial-org')).toHaveLength(0);
+		} finally {
+			restoreEnv(originalEnv);
+		}
+	});
+
+	it('starts the trial when the organization setup credit policy is disabled', async () => {
+		const originalEnv = enableCloudBillingForTest();
+		await db
+			.update(s.creditGrantPolicy)
+			.set({ enabled: false })
+			.where(eq(s.creditGrantPolicy.grantType, 'organization_setup'));
+		await db.insert(s.organization).values({
+			id: 'disabled-setup-grant-org',
+			name: 'Disabled Setup Grant',
+			slug: 'disabled-setup-grant',
+		});
+
+		try {
+			await createProject({
+				id: 'disabled-setup-grant-project',
+				orgId: 'disabled-setup-grant-org',
+				name: 'Ready',
+				type: 'local',
+				path: createProjectDirectory('disabled-setup-grant'),
+				envVars: { DATABASE_URL: 'postgres://warehouse' },
+			});
+
+			await expect(getCreditGrant('organization_setup', 'disabled-setup-grant-org')).resolves.toBeNull();
+			await expect(getOrganizationBilling('disabled-setup-grant-org')).resolves.toMatchObject({
+				billingStatus: 'trialing',
+			});
+			expect(await listTrialProvisioningJobs('disabled-setup-grant-org')).toHaveLength(1);
+			expect(await listTrialWelcomeEmailJobs('disabled-setup-grant-org')).toHaveLength(0);
+		} finally {
+			await db
+				.update(s.creditGrantPolicy)
+				.set({ enabled: true })
+				.where(eq(s.creditGrantPolicy.grantType, 'organization_setup'));
+			restoreEnv(originalEnv);
+		}
 	});
 
 	it('rejects a superseded projection', async () => {
@@ -179,6 +412,61 @@ describe('billing consistency queries', () => {
 		expect(renamed).toMatchObject({ name: 'unregistered.job', status: 'pending', attempts: 0 });
 	});
 });
+
+function createProjectDirectory(name: string): string {
+	const directory = fs.mkdtempSync(path.join(os.tmpdir(), `nao-billing-${name}-`));
+	tempDirectories.push(directory);
+	fs.writeFileSync(
+		path.join(directory, 'nao_config.yaml'),
+		'project_name: Test\ndatabases:\n  - name: warehouse\n    connection: "{{ env(\'DATABASE_URL\') }}"\n',
+	);
+	return directory;
+}
+
+async function listTrialProvisioningJobs(organizationId: string) {
+	return db
+		.select()
+		.from(s.scheduledJob)
+		.where(eq(s.scheduledJob.uniqueKey, `billing-cloud-provision-trial:${organizationId}`));
+}
+
+async function listTrialWelcomeEmailJobs(organizationId: string) {
+	return db
+		.select()
+		.from(s.scheduledJob)
+		.where(eq(s.scheduledJob.uniqueKey, `email-cloud-welcome-trial:${organizationId}`));
+}
+
+function enableCloudBillingForTest(): NodeJS.ProcessEnv {
+	const originalEnv = { ...process.env };
+	Object.assign(process.env, {
+		NAO_MODE: 'cloud',
+		CLOUD_BILLING_ENABLED: 'true',
+		CLOUD_GITHUB_PROJECT_APP_ID: '123',
+		CLOUD_GITHUB_PROJECT_INSTALLATION_ID: '456',
+		CLOUD_GITHUB_PROJECT_ORG: 'test-org',
+		CLOUD_GITHUB_PROJECT_PRIVATE_KEY: 'test-private-key',
+		SMTP_HOST: 'smtp.example.com',
+		SMTP_MAIL_FROM: 'hello@example.com',
+		SMTP_PASSWORD: 'secret',
+		STRIPE_CLOUD_PRODUCT_ID: 'prod_cloud',
+		STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: 'monthly_sub',
+		STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: 'trial_sub',
+		STRIPE_CLOUD_TRIAL_PRODUCT_ID: 'prod_cloud_trial',
+		STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: 'yearly_sub',
+		STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: 'prod_platform_fee',
+		STRIPE_CREDIT_PRODUCT_ID: 'prod_credits',
+		STRIPE_SECRET_KEY: 'sk_test_example',
+		STRIPE_WEBHOOK_SECRET: 'whsec_example',
+	});
+	__reloadEnvForTesting();
+	return originalEnv;
+}
+
+function restoreEnv(originalEnv: NodeJS.ProcessEnv): void {
+	process.env = originalEnv;
+	__reloadEnvForTesting();
+}
 
 function activeProjection(): SubscriptionProjection {
 	return {

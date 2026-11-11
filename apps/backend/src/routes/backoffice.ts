@@ -13,10 +13,17 @@ import * as backofficeQueries from '../queries/backoffice.queries';
 import * as eventQueries from '../queries/backoffice-events.queries';
 import * as statsQueries from '../queries/backoffice-stats.queries';
 import * as userQueries from '../queries/backoffice-user.queries';
+import { checkDatabaseConnection } from '../queries/health.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
+import * as creditsService from '../services/backoffice-credits.service';
+import * as onboardingService from '../services/backoffice-onboarding.service';
+import { INSTANCE_LOG_SORT_KEYS, instanceLogFilterSchema } from '../types/backoffice';
 import { ORG_ROLES } from '../types/organization';
 import { HandlerError } from '../utils/error';
+
+const MAX_BACKOFFICE_TOP_UP_CENTS = 1_000_000;
+const MAX_INSTANCE_LOG_FILTERS = 20;
 
 const paginationSchema = z.object({
 	limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -28,6 +35,19 @@ const projectParamsSchema = z.object({ projectId: z.string().min(1) });
 const userParamsSchema = z.object({ userId: z.string().min(1) });
 const orgMemberParamsSchema = idParamsSchema.extend({ userId: z.string().min(1) });
 const projectMemberParamsSchema = projectParamsSchema.extend({ userId: z.string().min(1) });
+const creditTopUpSchema = z
+	.object({
+		amountCents: z.number().int().min(1).max(MAX_BACKOFFICE_TOP_UP_CENTS),
+		reason: z.string().trim().min(1).max(500),
+		grantedBy: z.string().trim().toLowerCase().pipe(z.email()),
+		requestId: z.uuid(),
+	})
+	.strict();
+const instanceLogsQuerySchema = paginationSchema.extend({
+	sort: z.enum(INSTANCE_LOG_SORT_KEYS).default('createdAt'),
+	direction: z.enum(['asc', 'desc']).default('desc'),
+	filters: jsonQueryParam(z.array(instanceLogFilterSchema).max(MAX_INSTANCE_LOG_FILTERS), '[]'),
+});
 
 export const backofficeRoutes = async (app: App) => {
 	app.addHook('onRequest', async (request, reply) => {
@@ -37,7 +57,7 @@ export const backofficeRoutes = async (app: App) => {
 	});
 
 	app.get('/health', async () => {
-		const connected = await backofficeQueries.checkDatabaseConnection();
+		const connected = await checkDatabaseConnection();
 		return {
 			status: connected ? 'ok' : 'degraded',
 			version: env.APP_VERSION,
@@ -76,6 +96,23 @@ export const backofficeRoutes = async (app: App) => {
 		return runService(reply, () => billingService.getOrganizationBillingDetail(params.orgId));
 	});
 
+	app.get('/organizations/:orgId/credits', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		return runService(reply, () => creditsService.getOrganizationCredits(params.orgId));
+	});
+
+	app.post('/organizations/:orgId/credits', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		const body = parse(creditTopUpSchema, request.body, reply);
+		if (!params || !body) {
+			return;
+		}
+		return runService(reply, () => creditsService.topUpOrganizationCredits(params.orgId, body));
+	});
+
 	app.patch('/organizations/:orgId', async (request, reply) => {
 		const params = parse(idParamsSchema, request.params, reply);
 		const body = parse(
@@ -83,6 +120,7 @@ export const backofficeRoutes = async (app: App) => {
 				.object({
 					name: z.string().trim().min(1).max(100).optional(),
 					bypassBilling: z.boolean().optional(),
+					license: z.string().trim().min(1).nullable().optional(),
 				})
 				.strict(),
 			request.body,
@@ -168,6 +206,14 @@ export const backofficeRoutes = async (app: App) => {
 		return eventQueries.listProjectLogs(params.projectId, query);
 	});
 
+	app.get('/logs', async (request, reply) => {
+		const query = parse(instanceLogsQuerySchema, request.query, reply);
+		if (!query) {
+			return;
+		}
+		return eventQueries.listInstanceLogs(query);
+	});
+
 	app.get('/users', async (request, reply) => {
 		const query = parse(searchPaginationSchema, request.query, reply);
 		if (!query) {
@@ -184,6 +230,24 @@ export const backofficeRoutes = async (app: App) => {
 		return runService(reply, () => backofficeService.getUserDetail(params.userId));
 	});
 
+	app.get('/onboarding', async () => onboardingService.listOnboardingSummaries());
+
+	app.get('/onboarding/setup-failures', async (request, reply) => {
+		const query = parse(paginationSchema.pick({ limit: true }), request.query, reply);
+		if (!query) {
+			return;
+		}
+		return onboardingService.listRecentSetupFailures(query.limit);
+	});
+
+	app.get('/users/:userId/onboarding', async (request, reply) => {
+		const params = parse(userParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		return runService(reply, () => onboardingService.getUserOnboarding(params.userId));
+	});
+
 	app.patch('/users/:userId', async (request, reply) => {
 		const params = parse(userParamsSchema, request.params, reply);
 		const body = parse(
@@ -191,6 +255,7 @@ export const backofficeRoutes = async (app: App) => {
 				.object({
 					name: z.string().trim().min(1).max(100).optional(),
 					email: z.string().trim().toLowerCase().pipe(z.email()).optional(),
+					deactivated: z.boolean().optional(),
 				})
 				.strict(),
 			request.body,
@@ -245,6 +310,21 @@ async function ensureProject(projectId: string, reply: FastifyReply): Promise<bo
 	}
 	reply.status(404).send({ error: 'Project not found' });
 	return false;
+}
+
+function jsonQueryParam<T>(schema: z.ZodType<T>, defaultValue: string) {
+	return z
+		.string()
+		.default(defaultValue)
+		.transform((value, context) => {
+			try {
+				return JSON.parse(value) as unknown;
+			} catch {
+				context.addIssue({ code: 'custom', message: 'Expected a JSON value' });
+				return z.NEVER;
+			}
+		})
+		.pipe(schema);
 }
 
 function parse<T>(schema: z.ZodType<T>, value: unknown, reply: FastifyReply): T | null {

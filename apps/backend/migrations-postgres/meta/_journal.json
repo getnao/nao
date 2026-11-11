@@ -582,6 +582,146 @@
       "when": 1792482052113,
       "tag": "0082_add_story_bundle_thumbnail",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792583257419,
+      "tag": "0083_organization_license",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792588144855,
+      "tag": "0084_story_theme_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1792596154812,
+      "tag": "0085_story_feedback",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792696735762,
+      "tag": "0086_story_view_counts_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792939237860,
+      "tag": "0087_user_deactivated_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793008947122,
+      "tag": "0088_managed_ai_usage_wallet",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1793009163470,
+      "tag": "0089_example_chat_allowance",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1793020748918,
+      "tag": "0090_managed_ai_credit_ledger_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1793197360141,
+      "tag": "0091_onboarding_funnel",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793275903231,
+      "tag": "0092_onboarding_setup_tracing",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1793281513485,
+      "tag": "0093_log_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793727408407,
+      "tag": "0094_test_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1793802715843,
+      "tag": "0095_test_run_reasoning_effort",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1793808043313,
+      "tag": "0096_project_deployed_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1793883302427,
+      "tag": "0097_chat_message_citations",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1793956748335,
+      "tag": "0098_story_version_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1793965270432,
+      "tag": "0099_story_filter_options_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1794262121434,
+      "tag": "0100_automation_event_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794297263754,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794307823056,
+      "tag": "0102_story_multi_editors",
+      "breakpoints": true
     }
   ]
 }

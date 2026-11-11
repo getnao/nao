@@ -14,6 +14,8 @@ class DatabaseConfigLike(Protocol):
 
     def get_database_name(self) -> str: ...
 
+    def get_catalog_names(self) -> list[str]: ...
+
     def get_schemas(self, conn: Any) -> list[str]: ...
 
 
@@ -24,6 +26,7 @@ SQLGLOT_DIALECTS = {
     "bigquery": "bigquery",
     "clickhouse": "clickhouse",
     "duckdb": "duckdb",
+    "ducklake": "duckdb",
     "databricks": "databricks",
     "fabric": "tsql",
     "snowflake": "snowflake",
@@ -96,21 +99,26 @@ def resolve_table(
     if requested_catalog is not None and not isinstance(requested_catalog, exp.Identifier):
         raise blocked("a dynamic catalog reference could not be resolved")
     if requested_catalog:
-        database_name = db_config.get_database_name()
-        if not _catalog_matches_connection(
-            requested_catalog,
-            database_name,
-            schemas,
-            dialect,
-            case_insensitive=case_insensitive,
+        catalog_names = db_config.get_catalog_names()
+        if not any(
+            _catalog_matches_connection(requested_catalog, name, schemas, dialect, case_insensitive=case_insensitive)
+            for name in catalog_names
         ):
-            raise blocked(f"catalog '{requested_catalog.name}' does not match the connected database '{database_name}'")
+            raise blocked(
+                f"catalog '{requested_catalog.name}' does not match the connected database '{', '.join(catalog_names)}'"
+            )
 
     requested_schema = table_expression.args.get("db")
     if requested_schema is not None and not isinstance(requested_schema, exp.Identifier):
         raise blocked("a dynamic schema reference could not be resolved")
     if requested_schema:
-        if requested_catalog:
+        if requested_catalog and _catalog_matches_connection(
+            requested_catalog,
+            db_config.get_database_name(),
+            schemas,
+            dialect,
+            case_insensitive=case_insensitive,
+        ):
             combined_schema = _join_identifiers(requested_catalog, requested_schema, dialect)
             schema = match_sql_identifier(
                 combined_schema,
@@ -244,8 +252,7 @@ def _catalog_matches_connection(
     *,
     case_insensitive: bool = False,
 ) -> bool:
-    database_parts = database_name.split(".")
-    database_candidates = [".".join(database_parts[:index]) for index in range(1, len(database_parts) + 1)]
+    database_candidates = _connection_catalog_candidates(requested_catalog, database_name, dialect)
     schema_catalogs = [schema.rsplit(".", 1)[0] for schema in schemas if "." in schema]
     return (
         match_sql_identifier(
@@ -263,6 +270,36 @@ def _catalog_matches_connection(
         )
         is not None
     )
+
+
+def _connection_catalog_candidates(
+    requested_catalog: exp.Identifier,
+    database_name: str,
+    dialect: str,
+) -> list[str]:
+    """Cumulative prefixes of the configured database name, folded for unquoted requests.
+
+    The connected database name is configuration rather than metadata: users write it in
+    whatever case their client accepts (`database: prod` for a Snowflake database named
+    `PROD`) and every engine that folds unquoted identifiers resolves it that way. The
+    guard folded the request but compared it against the raw configured name, which
+    rejected every instance-qualified query whenever the configured case differed from the
+    dialect's fold. Unquoted requests therefore compare against the folded name; quoted
+    requests keep matching the configured spelling exactly, as they do for metadata names.
+    """
+    parts = database_name.split(".")
+    candidates = [".".join(parts[:index]) for index in range(1, len(parts) + 1)]
+    strategy = Dialect.get_or_raise(dialect).NORMALIZATION_STRATEGY
+    folds_unquoted_identifiers = strategy in {
+        NormalizationStrategy.UPPERCASE,
+        NormalizationStrategy.LOWERCASE,
+        NormalizationStrategy.CASE_INSENSITIVE,
+        NormalizationStrategy.CASE_INSENSITIVE_UPPERCASE,
+    }
+    if not folds_unquoted_identifiers or requested_catalog.args.get("quoted"):
+        return candidates
+
+    return [_normalized_identifier(exp.to_identifier(candidate), dialect) for candidate in candidates]
 
 
 def _identifier_matches_metadata(

@@ -1,11 +1,24 @@
 import { useState } from 'react';
-import { ThumbsUp, ThumbsDown, Copy, Check, Ellipsis, ClipboardCopy, FileText, FileDown, Loader2 } from 'lucide-react';
+import {
+	ThumbsUp,
+	ThumbsDown,
+	Copy,
+	Check,
+	Ellipsis,
+	ClipboardCopy,
+	FileText,
+	FileDown,
+	FlaskConical,
+	Loader2,
+} from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import type { UIMessage } from '@nao/backend/chat';
 import type { FormEvent, KeyboardEvent } from 'react';
 import type { Chat } from '@/queries/use-chat-query';
+import type { TestDraft } from '@/lib/test-draft';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { Button } from '@/components/ui/button';
+import { ConfettiBurst } from '@/components/confetti-burst';
 import { trpc, trpcClient } from '@/main';
 import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -15,6 +28,9 @@ import { downloadBase64File, downloadTextFile, toFileSlug } from '@/lib/export-c
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { SaveAsTestDialog } from '@/components/chat-messages/save-as-test-dialog';
+import { usePermissions } from '@/hooks/use-permissions';
+import { canSaveAsTest, getTestDraft } from '@/lib/test-draft';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -34,18 +50,23 @@ export function AssistantMessageActions({
 }) {
 	const [feedbackDialogVote, setFeedbackDialogVote] = useState<FeedbackVote>('down');
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+	const [feedbackCelebration, setFeedbackCelebration] = useState<FeedbackCelebration | null>(null);
 	const [includeErrors, setIncludeErrors] = useState(false);
 	const [includeSql, setIncludeSql] = useState(true);
-	const [includePython, setIncludePython] = useState(true);
+	const [includeCode, setIncludeCode] = useState(true);
 	const [isExportingPdf, setIsExportingPdf] = useState(false);
 	const [exportError, setExportError] = useState<string | null>(null);
+	const [isSaveAsTestOpen, setIsSaveAsTestOpen] = useState(false);
+	const [testDraft, setTestDraft] = useState<TestDraft | null>(null);
 	const { isCopied, copy } = useCopyToClipboard();
 	const getAgentMessages = useAgentMessagesGetter();
+	const { canManageTests } = usePermissions();
+	const isSaveAsTestAvailable = canManageTests && canSaveAsTest(message);
 	const { data: chat } = useChatQuery({ chatId, select: selectChatExportMetadata });
 
 	const chatTitle = chat?.title ?? 'nao chat';
 	const chatMetadata = { title: chatTitle, createdAt: chat?.createdAt, updatedAt: chat?.updatedAt };
-	const exportOptions = { includeErrors, includeSql, includePython };
+	const exportOptions = { includeErrors, includeSql, includeCode };
 
 	const buildChatMarkdown = () => {
 		const agentMessages = getAgentMessages();
@@ -54,6 +75,11 @@ export function AssistantMessageActions({
 	};
 
 	const handleCopyChat = () => copy(buildChatMarkdown());
+
+	const handleSaveAsTest = () => {
+		setTestDraft(getTestDraft(getAgentMessages(), message));
+		setIsSaveAsTestOpen(true);
+	};
 
 	const handleExportMarkdown = () => {
 		downloadTextFile(`${toFileSlug(chatTitle)}.md`, buildChatMarkdown(), 'text/markdown');
@@ -75,7 +101,8 @@ export function AssistantMessageActions({
 
 	const submitFeedback = useMutation(
 		trpc.feedback.submit.mutationOptions({
-			onSuccess: (data, _, __, ctx) => {
+			onSuccess: (data, variables, __, ctx) => {
+				setFeedbackCelebration((prev) => ({ vote: variables.vote, key: (prev?.key ?? 0) + 1 }));
 				ctx.client.setQueryData(trpc.chat.get.queryKey({ chatId }), (prev) =>
 					prev
 						? {
@@ -119,33 +146,21 @@ export function AssistantMessageActions({
 	return (
 		<>
 			<div className={cn('flex items-center gap-1', className)}>
-				<Button
-					variant='ghost'
-					size='icon-sm'
+				<FeedbackButton
+					vote='up'
+					isSelected={message.feedback?.vote === 'up'}
+					celebrationKey={feedbackCelebration?.vote === 'up' ? feedbackCelebration.key : undefined}
+					disabled={submitFeedback.isPending}
 					onClick={handlePositiveFeedbackClick}
-					disabled={submitFeedback.isPending}
-					className={cn(
-						'hover:rounded-full',
-						message.feedback?.vote === 'up' ? 'text-primary' : 'opacity-50 hover:opacity-100',
-					)}
-					aria-label='Good response'
-				>
-					<ThumbsUp className='size-4' />
-				</Button>
+				/>
 
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					onClick={handleNegativeFeedbackClick}
+				<FeedbackButton
+					vote='down'
+					isSelected={message.feedback?.vote === 'down'}
+					celebrationKey={feedbackCelebration?.vote === 'down' ? feedbackCelebration.key : undefined}
 					disabled={submitFeedback.isPending}
-					className={cn(
-						'hover:rounded-full',
-						message.feedback?.vote === 'down' ? 'text-primary' : 'opacity-50 hover:opacity-100',
-					)}
-					aria-label='Bad response'
-				>
-					<ThumbsDown className='size-4' />
-				</Button>
+					onClick={handleNegativeFeedbackClick}
+				/>
 
 				<Button
 					variant='ghost'
@@ -187,8 +202,8 @@ export function AssistantMessageActions({
 							className='flex items-center justify-between gap-4 px-2 py-1.5 text-xs font-medium cursor-pointer select-none'
 							onClick={(e) => e.stopPropagation()}
 						>
-							<span>Include Python</span>
-							<Switch checked={includePython} onCheckedChange={setIncludePython} />
+							<span>Include scripts</span>
+							<Switch checked={includeCode} onCheckedChange={setIncludeCode} />
 						</label>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem onSelect={handleCopyChat}>
@@ -209,6 +224,15 @@ export function AssistantMessageActions({
 							{isExportingPdf ? <Loader2 className='animate-spin' /> : <FileDown />}
 							<span>{isExportingPdf ? 'Generating PDF…' : 'Export chat to PDF'}</span>
 						</DropdownMenuItem>
+						{isSaveAsTestAvailable && (
+							<>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onSelect={handleSaveAsTest}>
+									<FlaskConical />
+									<span>Save as test</span>
+								</DropdownMenuItem>
+							</>
+						)}
 					</DropdownMenuContent>
 				</DropdownMenu>
 
@@ -226,8 +250,81 @@ export function AssistantMessageActions({
 				isPending={submitFeedback.isPending}
 				vote={feedbackDialogVote}
 			/>
+
+			{testDraft && (
+				<SaveAsTestDialog draft={testDraft} open={isSaveAsTestOpen} onOpenChange={setIsSaveAsTestOpen} />
+			)}
 		</>
 	);
+}
+
+function FeedbackButton({
+	vote,
+	isSelected,
+	celebrationKey,
+	disabled,
+	onClick,
+}: {
+	vote: FeedbackVote;
+	isSelected: boolean;
+	celebrationKey?: number;
+	disabled: boolean;
+	onClick: () => void;
+}) {
+	const { Icon, label, selectedClassName, iconAnimationClassName, confettiColors } = FEEDBACK_BUTTON_CONFIG[vote];
+	const isCelebrating = celebrationKey !== undefined;
+
+	return (
+		<Button
+			variant='ghost'
+			size='icon-sm'
+			onClick={onClick}
+			disabled={disabled}
+			className={cn(
+				'relative hover:rounded-full',
+				isSelected ? cn(selectedClassName, 'rounded-full transition-colors') : 'opacity-50 hover:opacity-100',
+			)}
+			aria-label={label}
+		>
+			<Icon key={`icon-${celebrationKey}`} className={cn('size-4', isCelebrating && iconAnimationClassName)} />
+			{isCelebrating && (
+				<ConfettiBurst
+					key={`confetti-${celebrationKey}`}
+					count={10}
+					distancePx={16}
+					distanceStepPx={5}
+					colors={confettiColors}
+					pieceClassName='-ml-0.5 -mt-0.5 size-1'
+				/>
+			)}
+		</Button>
+	);
+}
+
+const FEEDBACK_BUTTON_CONFIG = {
+	up: {
+		Icon: ThumbsUp,
+		label: 'Good response',
+		selectedClassName: 'text-green-500/80 hover:text-green-500 bg-green-500/10 hover:bg-green-500/20',
+		iconAnimationClassName: 'thumb-up-pop',
+		confettiColors: buildConfettiShades('var(--color-green-500)'),
+	},
+	down: {
+		Icon: ThumbsDown,
+		label: 'Bad response',
+		selectedClassName: 'text-red-500/80 hover:text-red-500 bg-red-500/10 hover:bg-red-500/20',
+		iconAnimationClassName: 'thumb-down-pop',
+		confettiColors: buildConfettiShades('var(--color-red-500)'),
+	},
+} satisfies Record<FeedbackVote, unknown>;
+
+function buildConfettiShades(baseColor: string) {
+	return [
+		baseColor,
+		`color-mix(in oklab, ${baseColor} 60%, white)`,
+		`color-mix(in oklab, ${baseColor} 80%, black)`,
+		'var(--chart-1)',
+	];
 }
 
 function selectChatExportMetadata(chat: Chat) {
@@ -236,15 +333,28 @@ function selectChatExportMetadata(chat: Chat) {
 
 export type FeedbackVote = 'up' | 'down';
 
+interface FeedbackCelebration {
+	vote: FeedbackVote;
+	key: number;
+}
+
 interface FeedbackDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (explanation?: string) => void;
 	isPending: boolean;
 	vote: FeedbackVote;
+	subject?: string;
 }
 
-export function FeedbackDialog({ open, onOpenChange, onSubmit, isPending, vote }: FeedbackDialogProps) {
+export function FeedbackDialog({
+	open,
+	onOpenChange,
+	onSubmit,
+	isPending,
+	vote,
+	subject = 'response',
+}: FeedbackDialogProps) {
 	const [explanation, setExplanation] = useState('');
 	const isPositive = vote === 'up';
 
@@ -275,8 +385,8 @@ export function FeedbackDialog({ open, onOpenChange, onSubmit, isPending, vote }
 					<DialogTitle>{isPositive ? 'What went well?' : 'What went wrong?'}</DialogTitle>
 					<DialogDescription className='text-sm text-muted-foreground font-medium'>
 						{isPositive
-							? 'Help us improve by explaining what worked well with this response.'
-							: 'Help us improve by explaining what was wrong with this response.'}
+							? `Help us improve by explaining what worked well with this ${subject}.`
+							: `Help us improve by explaining what was wrong with this ${subject}.`}
 					</DialogDescription>
 				</DialogHeader>
 

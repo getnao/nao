@@ -106,6 +106,7 @@ export async function fileAccess(context: ContextExplorerGitContext): Promise<Co
 	return {
 		projectFolder: context.projectFolder,
 		git: await resolveContextExplorerGit(context),
+		draftOwner: { projectId: context.projectId, userId: context.userId },
 	};
 }
 

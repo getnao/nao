@@ -626,7 +626,7 @@ function feedbackInactivityDelay(dismissCount: number): number {
 	return FEEDBACK_INACTIVITY_LADDER_MS[index];
 }
 
-function SuggestionCard({
+export function SuggestionCard({
 	icon,
 	message,
 	description,

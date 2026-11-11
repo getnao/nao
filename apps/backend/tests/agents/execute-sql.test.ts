@@ -48,7 +48,7 @@ describe('execute_sql excluded-column enforcement', () => {
 
 			await executeQuery({ sql_query: 'SELECT 1' }, createLicenseContext(storedSetting));
 
-			expect(hasFeature).toHaveBeenCalledWith(LICENSE_FEATURES.excludeColumns);
+			expect(hasFeature).toHaveBeenCalledWith(LICENSE_FEATURES.excludeColumns, { projectId: 'project-1' });
 			expect(sentBody(fetch)).toMatchObject({ enforce_excluded_columns: expected });
 		},
 	);
@@ -123,14 +123,18 @@ describe('execute_sql in-place edit of a query created in the current turn', () 
 
 		expect(getExecuteSqlPartByQueryIdInChat).toHaveBeenCalledWith('chat-1', created.id);
 		expect(edited.id).toBe(created.id);
-		expect(context.queryResults.get(created.id)).toEqual({ columns: ['n'], data: [{ n: 1 }] });
+		expect(context.queryResults.get(created.id)).toEqual({
+			columns: ['n'],
+			data: [{ n: 1 }],
+			sqlQuery: 'SELECT 2 AS n',
+		});
 		expect(updateExecuteSqlPart).not.toHaveBeenCalled();
 	});
 
 	it('refuses to edit a same-turn semantic query as SQL', async () => {
 		const context = createToolContext();
 		const created = await executeQuery({ sql_query: 'SELECT 1 AS n' }, context, {
-			compiledBySemanticLayer: true,
+			semanticQuery: { metrics: ['orders'] },
 		});
 
 		await expect(

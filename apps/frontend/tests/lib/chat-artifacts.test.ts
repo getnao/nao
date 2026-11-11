@@ -31,6 +31,21 @@ function message(id: string, role: 'user' | 'assistant', ...parts: UIMessagePart
 }
 
 describe('collectChatArtifacts', () => {
+	it('gathers the existing stories the agent handed over or the user mentioned, once, in order', () => {
+		const artifacts = collectChatArtifacts([
+			message('u1', 'user', { type: 'text', text: 'Compare @[story:s2] with @[warehouse.public.orders]' }),
+			message('a1', 'assistant', {
+				type: 'text',
+				text: 'Already built:\n<story-reference id="s1">Revenue</story-reference>\n<story-reference id="s2">Churn</story-reference>',
+			}),
+		]);
+
+		expect(artifacts.mentionedStories).toEqual([
+			{ storyId: 's2', title: 'Churn' },
+			{ storyId: 's1', title: 'Revenue' },
+		]);
+	});
+
 	it('gathers stories, user files and the latest run of every query', () => {
 		const messages = [
 			message(
@@ -69,7 +84,7 @@ describe('collectChatArtifacts', () => {
 			message('a1', 'assistant', filePart('/home/exports/out.csv', 'out.csv'), pending as UIMessagePart),
 		];
 
-		expect(collectChatArtifacts(messages)).toEqual({ stories: [], files: [], queries: [] });
+		expect(collectChatArtifacts(messages)).toEqual({ stories: [], mentionedStories: [], files: [], queries: [] });
 	});
 
 	it('counts queries only when asked to', () => {

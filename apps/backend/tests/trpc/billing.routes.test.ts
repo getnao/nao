@@ -21,6 +21,9 @@ const stripeMocks = vi.hoisted(() => ({
 	reconcileCustomer: vi.fn(),
 	resumeSubscription: vi.fn(),
 }));
+const creditWalletMocks = vi.hoisted(() => ({
+	getPurchaseByCheckoutSession: vi.fn(),
+}));
 
 vi.mock('../../src/auth', () => ({
 	getSession: vi.fn(async () => null),
@@ -47,6 +50,10 @@ vi.mock('../../src/queries/billing.queries', () => ({
 			? { ...testState.membership.organization, billing: testState.billing }
 			: null,
 	),
+}));
+
+vi.mock('../../src/queries/credit-wallet.queries', () => ({
+	getCreditPurchaseByCheckoutSession: creditWalletMocks.getPurchaseByCheckoutSession,
 }));
 
 vi.mock('../../src/services/billing-reconciliation.service', () => ({
@@ -122,6 +129,7 @@ describe('billing.getAccess', () => {
 	it('returns the effective end of scheduled active access', async () => {
 		const accessEndsAt = new Date('2099-11-05T00:00:00.000Z');
 		testState.membership = membership({
+			billingPlan: 'cloud_monthly_v2',
 			billingStatus: 'active',
 			stripeSubscriptionId: 'sub_active',
 			currentPeriodEndsAt: accessEndsAt,
@@ -173,10 +181,11 @@ describe('billing.getStatus', () => {
 	});
 
 	it('returns the organization billing projection and matching plan', async () => {
-		const trialEndsAt = new Date('2026-10-05T00:00:00.000Z');
+		const trialEndsAt = new Date('2099-10-05T00:00:00.000Z');
 		testState.membership = membership({
 			billingPlan: 'cloud_monthly_v2',
 			billingStatus: 'trialing',
+			billingAccessEndsAt: trialEndsAt,
 			hasDefaultPaymentMethod: true,
 			trialEndsAt,
 		});
@@ -193,8 +202,49 @@ describe('billing.getStatus', () => {
 			hasDefaultPaymentMethod: true,
 			canManageBilling: true,
 			hasStripeSubscription: false,
-			resubscribeAvailable: true,
+			resubscribeAvailable: false,
 			trialAvailable: false,
+		});
+	});
+
+	it('keeps paid plan selection open for a Stripe-backed placeholder trial', async () => {
+		const trialEndsAt = new Date('2099-10-05T00:00:00.000Z');
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			billingAccessEndsAt: trialEndsAt,
+			stripeCustomerId: 'cus_cloud',
+			stripePriceId: 'price_cloud_trial',
+			stripeSubscriptionId: 'sub_cloud_trial',
+			trialEndsAt,
+		});
+
+		await expect(caller().billing.getStatus()).resolves.toMatchObject({
+			hasStripeSubscription: true,
+			needsPaidPlanSelection: true,
+			paidPlanSelected: false,
+			paymentMethodManagementAvailable: false,
+			plan: null,
+			resubscribeAvailable: false,
+		});
+		expect(stripeMocks.getBillingPlans).toHaveBeenCalledWith(null, 'usd', null);
+		expect(stripeMocks.getSubscriptionCurrency).not.toHaveBeenCalled();
+	});
+
+	it('allows resubscription while an expired placeholder is still projected as trialing', async () => {
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			billingPlan: null,
+			billingAccessEndsAt: new Date('2020-10-05T00:00:00.000Z'),
+			stripeCustomerId: 'cus_cloud',
+			stripeSubscriptionId: 'sub_cloud_trial',
+			trialEndsAt: new Date('2020-10-05T00:00:00.000Z'),
+		});
+
+		await expect(caller().billing.getStatus()).resolves.toMatchObject({
+			needsPaidPlanSelection: false,
+			paidPlanSelected: false,
+			resubscribeAvailable: true,
+			status: 'trialing',
 		});
 	});
 
@@ -319,7 +369,7 @@ describe('billing.createTrialCheckoutSession', () => {
 		stripeMocks.createCheckout.mockResolvedValue('https://checkout.stripe.com/trial');
 	});
 
-	it('opens a Stripe trial Checkout in the selected currency without granting local access first', async () => {
+	it('allows an admin to subscribe before the trial starts', async () => {
 		await expect(
 			caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly', currency: 'eur' }),
 		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
@@ -328,8 +378,52 @@ describe('billing.createTrialCheckoutSession', () => {
 			currency: 'eur',
 			organizationId: 'org-id',
 			stripeCustomerId: 'cus_cloud',
-			trialDays: 14,
 		});
+	});
+
+	it('uses the remaining local trial when an admin chooses a plan', async () => {
+		const trialEndsAt = new Date('2099-10-08T00:00:00.000Z');
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			billingAccessEndsAt: trialEndsAt,
+			trialStartedAt: new Date('2099-09-24T00:00:00.000Z'),
+			trialEndsAt,
+		});
+
+		await expect(
+			caller().billing.createTrialCheckoutSession({ billingInterval: 'yearly', currency: 'usd' }),
+		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
+		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
+			billingInterval: 'yearly',
+			currency: 'usd',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			trialEnd: trialEndsAt,
+		});
+	});
+
+	it('uses the remaining Stripe-backed placeholder trial when an admin chooses a plan', async () => {
+		const trialEndsAt = new Date('2099-10-08T00:00:00.000Z');
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			billingAccessEndsAt: trialEndsAt,
+			stripeCustomerId: 'cus_cloud',
+			stripePriceId: 'price_cloud_trial',
+			stripeSubscriptionId: 'sub_cloud_trial',
+			trialEndsAt,
+		});
+
+		await expect(
+			caller().billing.createTrialCheckoutSession({ billingInterval: 'monthly', currency: 'eur' }),
+		).resolves.toEqual({ url: 'https://checkout.stripe.com/trial' });
+		expect(stripeMocks.createCheckout).toHaveBeenCalledWith({
+			billingInterval: 'monthly',
+			currency: 'eur',
+			organizationId: 'org-id',
+			stripeCustomerId: 'cus_cloud',
+			trialEnd: trialEndsAt,
+		});
+		expect(stripeMocks.createCustomer).not.toHaveBeenCalled();
 	});
 
 	it('rejects an unsupported billing interval before creating Stripe objects', async () => {
@@ -367,6 +461,13 @@ describe('billing.createTrialCheckoutSession', () => {
 	});
 
 	it('maps unavailable Stripe trial Checkout to a conflict', async () => {
+		const trialEndsAt = new Date('2099-10-08T00:00:00.000Z');
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			billingAccessEndsAt: trialEndsAt,
+			trialStartedAt: new Date('2099-09-24T00:00:00.000Z'),
+			trialEndsAt,
+		});
 		stripeMocks.createCheckout.mockRejectedValueOnce(
 			new stripeService.CloudInitialCheckoutUnavailableError('Trial Checkout is unavailable'),
 		);
@@ -380,9 +481,29 @@ describe('billing.createTrialCheckoutSession', () => {
 	});
 });
 
+describe('billing.confirmCreditTopUp', () => {
+	beforeEach(() => {
+		testState.billingEnabled = true;
+		testState.membership = membership({});
+		vi.clearAllMocks();
+	});
+
+	it('hides purchase lookup errors from the client', async () => {
+		creditWalletMocks.getPurchaseByCheckoutSession.mockRejectedValueOnce(
+			new Error('relation "credit_purchase" does not exist'),
+		);
+
+		await expect(caller().billing.confirmCreditTopUp({ checkoutSessionId: 'cs_credit' })).rejects.toMatchObject({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: 'Unable to confirm credit Checkout',
+		});
+	});
+});
+
 describe('billing management mutations', () => {
 	beforeEach(() => {
 		testState.membership = membership({
+			billingPlan: 'cloud_monthly_v2',
 			stripeCustomerId: 'cus_cloud',
 			stripeSubscriptionId: 'sub_cloud',
 		});
@@ -478,6 +599,19 @@ describe('billing management mutations', () => {
 			stripeCustomerId: 'cus_cloud',
 			requestId: REQUEST_ID,
 		});
+	});
+
+	it('rejects payment-method management without a paid plan', async () => {
+		testState.membership = membership({
+			billingStatus: 'trialing',
+			stripeCustomerId: 'cus_cloud',
+			stripeSubscriptionId: 'sub_cloud_trial',
+		});
+
+		await expect(
+			caller().billing.createPaymentMethodSession({ requestId: 'c7cc1630-972f-4e2a-a412-9ef6c0e59ef9' }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(stripeService.createCloudPaymentMethodSession).not.toHaveBeenCalled();
 	});
 
 	it('starts a paid subscription Checkout only after a terminal subscription', async () => {
@@ -638,7 +772,6 @@ function cloudPlan(amount: number, billingInterval: 'monthly' | 'yearly' = 'mont
 		currency: 'usd',
 		interval: billingInterval === 'monthly' ? 'month' : 'year',
 		intervalCount: 1,
-		trialDays: 14,
 		userLimit: null,
 	};
 }

@@ -81,6 +81,11 @@ body {
 	@apply m-0 h-full overflow-hidden;
 }
 
+/* Safari clips icon strokes that touch the viewBox edge when the icon lands on a fractional pixel. */
+svg.lucide {
+	overflow: visible;
+}
+
 html.nao-embed {
 	color-scheme: light;
 	background-color: var(--panel);
@@ -137,6 +142,11 @@ body {
 		sans-serif;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
+}
+
+/* Recharts sizes axis ticks with this span; an inherited body line-height makes labels look taller and get skipped. */
+#recharts_measurement_span {
+	line-height: normal;
 }
 
 code {
@@ -457,6 +467,10 @@ code.dollar:before {
 	background-color: rgb(250 204 21 / 20%);
 }
 
+.cited-code-lines {
+	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
 ::highlight(nao-file-preview-search-match) {
 	background-color: rgb(245 158 11 / 18%);
 }
@@ -591,10 +605,15 @@ code.dollar:before {
 	overscroll-behavior: contain;
 }
 
-.nao-input-resizable .prompt-input {
+.prompt-input,
+.message-content {
+	unicode-bidi: plaintext;
+	text-align: start;
+}
+
+.nao-input-grow .prompt-input {
 	min-height: var(--prompt-min-height);
-	max-height: none;
-	resize: vertical;
+	max-height: var(--prompt-max-height, none);
 }
 
 /* Mention pills: outlined chip, matching the "Share chat" button */
@@ -609,6 +628,13 @@ code.dollar:before {
 	box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
+/* The library fades a hovered pill, which promotes it to its own layer and makes the input border redraw */
+.prompt-container .mention-pill:hover,
+.message-container .mention-pill:hover {
+	opacity: 1;
+	background: var(--accent);
+}
+
 .prompt-container .mention-pill-with-icon,
 .message-container .mention-pill-with-icon {
 	padding-left: 1.75rem;
@@ -619,6 +645,21 @@ code.dollar:before {
 	left: 0.5rem;
 	width: 0.75rem;
 	height: 0.75rem;
+}
+
+/* The icon and the delete cross swap in place on hover, so both take the exact box of the icon */
+.prompt-container .mention-pill-icon-original,
+.message-container .mention-pill-icon-original,
+.prompt-container .mention-pill .mention-pill-icon svg,
+.message-container .mention-pill .mention-pill-icon svg {
+	width: 0.75rem;
+	height: 0.75rem;
+}
+
+/* Fading the icons promotes them to their own layer, which rounds them to other pixels and makes them jump */
+.prompt-container .mention-pill-icon-original,
+.prompt-container .mention-pill-icon-delete {
+	transition: none;
 }
 
 .dark .mention-pill {
@@ -645,6 +686,15 @@ code.dollar:before {
 	align-items: center;
 	column-gap: calc(var(--spacing) * 1.5);
 	row-gap: calc(var(--spacing) * 0.25);
+}
+
+.mention-menu .mention-menu-item-has-children {
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-areas: 'icon label chevron';
+}
+
+.mention-menu .mention-menu-chevron {
+	grid-area: chevron;
 }
 
 .mention-menu .mention-menu-item-icon {
@@ -934,6 +984,27 @@ code.dollar:before {
 	padding: 0;
 }
 
+/* Right-to-left messages (Hebrew, Arabic…): mirror Streamdown's physical spacing, keep code left-to-right. */
+[dir='rtl'] [data-streamdown='blockquote'] {
+	border-left-width: 0;
+	border-right-width: 4px;
+	padding-left: 0;
+	padding-right: calc(var(--spacing) * 4);
+}
+
+[dir='rtl'] [data-streamdown='list-item'] :is([data-streamdown='ordered-list'], [data-streamdown='unordered-list']) {
+	padding-left: 0;
+	padding-right: calc(var(--spacing) * 6);
+}
+
+[dir='rtl'] [data-streamdown='table-header-cell'] {
+	text-align: right;
+}
+
+[dir='rtl'] :is([data-streamdown='code-block'], [data-streamdown='mermaid-block'], .katex-display) {
+	direction: ltr;
+}
+
 /*
  * Custom story theme. Most slots land through the existing tokens that
  * StoryThemeProvider overrides on its wrapper; these rules cover the slots
@@ -945,30 +1016,9 @@ code.dollar:before {
 	color: var(--foreground);
 }
 
-[data-story-themed='true'] :is(h1, h2, h3, h4) {
-	font-family: var(--font-heading);
-	letter-spacing: var(--story-heading-tracking, -0.02em);
-}
-
-[data-story-themed='true'] h1 {
-	font-size: calc(1.875rem * var(--story-heading-scale, 1));
-}
-
-[data-story-themed='true'] h2 {
-	font-size: calc(1.5rem * var(--story-heading-scale, 1));
-}
-
-[data-story-themed='true'] h3 {
-	font-size: calc(1.25rem * var(--story-heading-scale, 1));
-}
-
-[data-story-themed='true'] h4 {
-	font-size: calc(1.125rem * var(--story-heading-scale, 1));
-}
-
+/* Type voice per role (faces, weights, case, sizes) comes from the brand styles StoryThemeProvider injects. */
 [data-story-themed='true'] :is(p, li) {
 	color: var(--story-body-color, var(--foreground));
-	font-size: var(--story-body-size, 1rem);
 	line-height: var(--story-line-height, 1.6);
 }
 

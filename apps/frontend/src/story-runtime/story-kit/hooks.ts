@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { normalizeBrandHeader, showsBrandIdentity } from '@nao/shared/story-theme';
 import { getStoryTheme, isEditingEnabled, requestQueryData, subscribeToEditing, subscribeToTheme } from '../story-host';
 import type { StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -49,6 +50,13 @@ export function useQueryData(
 
 export function useStoryTheme(): StoryTheme | null {
 	return useSyncExternalStore(subscribeToTheme, getStoryTheme);
+}
+
+/** The brand to show, normalized first so a theme saved before the header rules still renders its identity. */
+export function useStoryBrand(): StoryTheme['brand'] | null {
+	const brand = useStoryTheme()?.brand;
+	const normalized = brand ? normalizeBrandHeader(brand) : null;
+	return normalized && showsBrandIdentity(normalized) ? normalized : null;
 }
 
 export function useStoryEditing(): boolean {

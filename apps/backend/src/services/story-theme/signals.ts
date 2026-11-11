@@ -7,8 +7,8 @@ import { hexToOklch, isDarkSurface } from '@nao/shared/story-theme-contrast';
  * signals only report what was found and how load-bearing it looked.
  */
 
-/** A source the admin gave us cannot be read; the message is shown as-is. */
 export class DesignSourceError extends Error {}
+export class SourceRefusedError extends DesignSourceError {}
 
 export type SignalSource = 'url' | 'zip' | 'image' | 'combined';
 export type ExtractionMode = 'rendered' | 'static' | 'zip' | 'pixels' | 'combined';
@@ -33,6 +33,7 @@ export interface RoleStyle {
 	fontSize: number | null;
 	fontWeight: string | null;
 	letterSpacing: number | null;
+	textTransform: string | null;
 	borderRadius: number | null;
 	borderColor: string | null;
 	hasBorder: boolean;

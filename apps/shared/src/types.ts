@@ -1,5 +1,8 @@
 import type { DocumentExtension } from './attachments';
+import type { StoryBlockPart } from './story-parts';
 import type { ValueFormat } from './tools/display-chart';
+
+export type { StoryBlockPart, StoryBlockPartKind } from './story-parts';
 
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
@@ -45,6 +48,27 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	subscription: "When you're added to a story's scheduled delivery.",
 };
 
+export const FEEDBACK_VOTES = ['up', 'down'] as const;
+export type FeedbackVote = (typeof FEEDBACK_VOTES)[number];
+
+export const FEEDBACK_SOURCES = ['chat', 'story'] as const;
+export type FeedbackSource = (typeof FEEDBACK_SOURCES)[number];
+
+/** Runs an automation whenever a matching thumbs up/down is left on a chat answer or a story. */
+export type AutomationFeedbackTrigger = {
+	enabled: boolean;
+	votes: FeedbackVote[];
+	sources: FeedbackSource[];
+};
+
+export const NAO_EVENT_TYPES = ['feedback'] as const;
+export type NaoEventType = (typeof NAO_EVENT_TYPES)[number];
+
+/** nao events an automation listens to, keyed by event type. */
+export type AutomationEventTriggers = {
+	feedback?: AutomationFeedbackTrigger;
+};
+
 export type SharedItemLabel = 'story' | 'chat';
 
 export type ShareSource = { type: 'chat'; shareId: string } | { type: 'story'; storyId: string };
@@ -54,6 +78,7 @@ export type FeedbackNotificationPayload = {
 	vote: 'up' | 'down';
 	submitterName: string;
 	chatTitle: string | null;
+	storyTitle?: string;
 	explanation: string | null;
 };
 
@@ -63,6 +88,8 @@ export type SharedNotificationPayload = {
 	itemLabel: SharedItemLabel;
 	itemTitle: string;
 	visibility: Visibility;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 };
 
 export type StoryRefreshNotificationPayload = {
@@ -82,9 +109,7 @@ export type StorySubscriptionNotificationPayload = {
 	ownerName: string;
 };
 
-export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
-export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
-export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
+export const MAX_PRELOADED_SKILLS = 50;
 
 /** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
 export const SANDBOX_SECRET_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
@@ -146,6 +171,7 @@ export type ChatReplayFeedbackState = (typeof CHAT_REPLAY_FEEDBACK_STATES)[numbe
 export const NO_CACHE_SCHEDULE = 'no-cache';
 
 export const LLM_PROVIDERS = [
+	'nao',
 	'openai',
 	'anthropic',
 	'google',
@@ -164,6 +190,7 @@ export const LLM_PROVIDERS = [
 ] as const;
 
 export const providerLabels: Record<LlmProviderKind, string> = {
+	nao: 'nao',
 	openai: 'OpenAI',
 	anthropic: 'Anthropic',
 	google: 'Google',
@@ -244,6 +271,15 @@ export type LlmSelectedModel = {
 	modelId: string;
 };
 
+export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
+	return model.provider === other.provider && model.modelId === other.modelId;
+}
+
+/** The model a stored result names in its own columns, under the shape of a selected model. */
+export function resultModel(result: { llmProvider: LlmProvider; llmModelId: string }): LlmSelectedModel {
+	return { provider: result.llmProvider, modelId: result.llmModelId };
+}
+
 export type SummarySegment =
 	| { type: 'text'; content: string }
 	| {
@@ -290,7 +326,8 @@ export type FileEditabilityReason =
 	| 'generated'
 	| 'rendered-template'
 	| 'synced-source'
-	| 'not-tracked';
+	| 'not-tracked'
+	| 'production-only';
 
 export type FileEditabilityGuidance =
 	| {
@@ -369,6 +406,11 @@ export type CalendarPeriod = BudgetPeriod | MemberBudgetPeriod;
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
 
+export const SHARE_ROLES = ['viewer', 'editor'] as const;
+export type ShareRole = (typeof SHARE_ROLES)[number];
+
+export type StoryAccessRole = 'owner' | ShareRole;
+
 export type StorySharingInfo = {
 	visibility: Visibility;
 	sharedWithCount: number;
@@ -387,6 +429,17 @@ export type StoryAction = (typeof STORY_ACTIONS)[number];
 
 export const STORY_SOURCES = ['assistant', 'user'] as const;
 export type StorySource = (typeof STORY_SOURCES)[number];
+
+export const STORY_VERSION_ORIGINS = ['agent', 'editor', 'mcp', 'copy'] as const;
+export type StoryVersionOrigin = (typeof STORY_VERSION_ORIGINS)[number];
+
+export type StoryVersionVia = 'original_chat' | 'quick_question' | 'chat' | 'agent' | 'editor' | 'mcp' | 'copy';
+
+export interface StoryVersionChange {
+	author: { id: string; name: string } | null;
+	via: StoryVersionVia;
+	chat: { id: string; title: string } | null;
+}
 
 export const STORY_FORMATS = ['classic', 'custom'] as const;
 export type StoryFormat = (typeof STORY_FORMATS)[number];
@@ -431,7 +484,15 @@ export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const sa
 /** A file taken out of permanent storage is recorded under its own extension. */
 export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
 
-export const ANALYTICS_EVENT_TYPES = ['page_view', 'download', 'fork', 'favorite', 'refresh', 'view_duration'] as const;
+export const ANALYTICS_EVENT_TYPES = [
+	'page_view',
+	'download',
+	'fork',
+	'favorite',
+	'feedback',
+	'refresh',
+	'view_duration',
+] as const;
 export const ANALYTICS_ASSET_TYPES = ['chat', 'story'] as const;
 
 export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number];
@@ -442,21 +503,42 @@ export type AnalyticsEventMetadata =
 	| { type: 'download'; format: AnalyticsDownloadFormat; queryId?: string; versionNumber?: number; title?: string }
 	| { type: 'fork'; resultId: string; scope: 'full' | 'selection'; versionNumber?: number }
 	| { type: 'favorite'; favorited: boolean }
+	| { type: 'feedback'; vote: 'up' | 'down'; explanation?: string }
 	| { type: 'refresh'; trigger: 'manual' | 'scheduled'; queriesRefreshed?: number }
 	| { type: 'view_duration'; durationMs: number; startedAt: number; versionNumber?: number };
+
+export const MAX_CITATIONS_PER_MESSAGE = 100;
+export const MAX_CITATION_TEXT_LENGTH = 10_000;
 
 export interface CitationData {
 	start: number;
 	end: number;
 	text: string;
 	storySlug?: string;
+	/** The chat the cited story belongs to, which can differ from the chat that quotes it. */
+	storyChatId?: string;
 	block?: StoryBlockReference;
+	intent?: StoryCitationIntent;
 }
+
+export type StoryCitationIntent = 'ask' | 'edit';
+
+/** Code cited from a story's source or a file of a custom story, whose path is the reference's title. */
+export const CODE_CITATION_KIND = 'code';
 
 export interface StoryBlockReference {
 	kind: string;
 	title?: string;
 	queryId?: string;
+	/** Position among the blocks sharing this kind, title and query, set only past the first. */
+	occurrence?: number;
+	lines?: StoryCodeLines;
+	part?: StoryBlockPart;
+}
+
+export interface StoryCodeLines {
+	start: number;
+	end: number;
 }
 
 export type MessageBubble = { role: 'user' | 'assistant'; charCount: number };

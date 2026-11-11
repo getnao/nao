@@ -124,6 +124,8 @@ projectsPersistence:
 | `config.enableUserSignup` | `false` | Allow self sign-up |
 | `config.defaultUserRole` | `"user"` | Role for new users: `admin` \| `user` \| `viewer` |
 | `config.githubSso` | `false` | Enable "Sign in with GitHub" |
+| `config.githubBaseUrl` | `""` | GitHub Enterprise Server instance URL |
+| `config.githubApiUrl` | `""` | GitHub REST API URL override (defaults to `<githubBaseUrl>/api/v3` on Enterprise) |
 | `config.gitlabSso` | `false` | Enable "Sign in with GitLab" |
 | `config.gitlabBaseUrl` | `""` | Self-hosted GitLab instance URL |
 | `config.betaAutomationsEnabled` | `true` | Recurring prompt automations |

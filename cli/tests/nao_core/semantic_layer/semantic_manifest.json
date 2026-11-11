@@ -78,7 +78,25 @@
         "join_to_timespine": false,
         "is_private": false
       },
-      "label": "Revenue"
+      "label": "Revenue",
+      "config": {
+        "meta": {
+          "context": {
+            "owner": "Finance Analytics",
+            "purpose": "Total revenue from completed orders,\n  net of refunds"
+          },
+          "expectations": {
+            "healthy_range": [0.94, 0.99],
+            "seasonality": "Peaks in late November"
+          },
+          "decisions": {
+            "when_this_drops": [
+              {"threshold": 0.92, "action": "Page finance-oncall"},
+              {"threshold": 0.89, "action": "Escalate to VP Finance"}
+            ]
+          }
+        }
+      }
     },
     {
       "name": "orders",

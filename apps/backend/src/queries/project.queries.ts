@@ -3,6 +3,7 @@ import {
 	ALL_DOCS_CONTEXT_ACCESS,
 	ALL_FILES_CONTEXT_ACCESS,
 	ALL_MCP_ACCESS,
+	ALL_SKILLS_ACCESS,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_NAME,
@@ -15,15 +16,16 @@ import {
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, isNotNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, notExists, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db, type DBExecutor, type DBTransaction } from '../db/db';
+import { db, type DBExecutor, type DBTransaction, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
+import { isOpenProject } from '../utils/open-projects';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 import { userMemberStatus } from './user.queries';
 
@@ -57,8 +59,32 @@ export const getProjectByOrgAndName = async (orgId: string, name: string): Promi
 	return project ?? null;
 };
 
+export const organizationHasProjects = async (orgId: string): Promise<boolean> => {
+	const [project] = await db
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.limit(1)
+		.execute();
+	return Boolean(project);
+};
+
+/**
+ * Renames the project unless another project of its organization already uses the name.
+ * On Postgres the organization row lock serializes concurrent renames; on SQLite the
+ * conditional update is atomic on its own.
+ */
+export const renameProject = async (projectId: string, orgId: string | null, name: string): Promise<boolean> =>
+	dbConfig.dialect === Dialect.Postgres
+		? db.transaction((tx) => renameProjectIfNameAvailable(tx, projectId, orgId, name))
+		: renameProjectIfNameAvailable(db, projectId, orgId, name);
+
 export const touchProjectUpdatedAt = async (projectId: string): Promise<void> => {
 	await db.update(s.project).set({ updatedAt: new Date() }).where(eq(s.project.id, projectId)).execute();
+};
+
+export const recordProjectDeployment = async (projectId: string, deployedAt: Date): Promise<void> => {
+	await db.update(s.project).set({ deployedAt }).where(eq(s.project.id, projectId)).execute();
 };
 
 export const getProjectMemoryEnabled = async (projectId: string): Promise<boolean> => {
@@ -163,6 +189,10 @@ export const getUserRoleInProject = async (projectId: string, userId: string): P
 	const member = await getProjectMember(projectId, userId);
 	if (member) {
 		return member.role;
+	}
+
+	if (isOpenProject(projectId)) {
+		return 'viewer';
 	}
 
 	const project = await getProjectById(projectId);
@@ -297,10 +327,6 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 		webSearch: {
 			...current.webSearch,
 			...settings.webSearch,
-		},
-		pythonExecution: {
-			...current.pythonExecution,
-			...settings.pythonExecution,
 		},
 		subagent: {
 			...current.subagent,
@@ -441,19 +467,46 @@ const mutateCustomBoundaries = async (
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
 	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
 
-type Lockable<Query> = { for(strength: 'update'): Query };
+const renameProjectIfNameAvailable = async (
+	executor: DBExecutor,
+	projectId: string,
+	orgId: string | null,
+	name: string,
+): Promise<boolean> => {
+	let nameAvailable: SQL | undefined;
+	if (orgId) {
+		await lockForUpdate(
+			executor.select({ id: s.organization.id }).from(s.organization).where(eq(s.organization.id, orgId)),
+		).execute();
+		nameAvailable = notExists(
+			executor
+				.select({ id: s.project.id })
+				.from(s.project)
+				.where(and(eq(s.project.orgId, orgId), eq(s.project.name, name), ne(s.project.id, projectId))),
+		);
+	}
+	const renamed = await executor
+		.update(s.project)
+		.set({ name })
+		.where(and(eq(s.project.id, projectId), nameAvailable))
+		.returning({ id: s.project.id })
+		.execute();
+	return renamed.length > 0;
+};
 
 const createProjectWithDefaultGroup = (
 	project: NewProject,
 	transaction: DBTransaction,
-): DBProject | Promise<DBProject> => {
-	if (dbConfig.dialect === Dialect.Postgres) {
-		return createPostgresProjectWithDefaultGroup(project, transaction);
-	}
+): DBProject | Promise<DBProject> =>
+	dbConfig.dialect === Dialect.Postgres
+		? createPostgresProjectWithDefaultGroup(project, transaction)
+		: createSqliteProjectWithDefaultGroup(project, transaction);
+
+function createSqliteProjectWithDefaultGroup(project: NewProject, transaction: DBTransaction): DBProject {
 	const [created] = transaction.insert(s.project).values(project).returning().all();
 	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
 	return created;
-};
+}
 
 const createPostgresProjectWithDefaultGroup = async (
 	project: NewProject,
@@ -474,6 +527,7 @@ const defaultUserGroupValues = (projectId: string) => ({
 		docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 		filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		mcpAccess: ALL_MCP_ACCESS,
+		skillsAccess: ALL_SKILLS_ACCESS,
 	}),
 });
 
@@ -538,6 +592,8 @@ export const listProjectChats = async (
 		page?: number;
 		pageSize?: number;
 		search?: string;
+		author?: string;
+		messageCount?: { min?: number; max?: number };
 		filters?: { id: ProjectChatsFacetKey; values: string[] }[];
 		updatedAtFilter?: UpdatedAtFilter;
 		sorting?: { id: string; desc?: boolean }[];
@@ -546,6 +602,8 @@ export const listProjectChats = async (
 	const page = Math.max(0, opts?.page ?? 0);
 	const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 30));
 	const search = opts?.search?.trim() ?? '';
+	const author = opts?.author?.trim() ?? '';
+	const messageCount = opts?.messageCount;
 	const filters = (opts?.filters ?? []).filter((f) => f.values?.length);
 	const updatedAtFilter = opts?.updatedAtFilter;
 	const sorting = opts?.sorting ?? [];
@@ -578,15 +636,25 @@ export const listProjectChats = async (
 	`;
 
 	const costLookup = await createCostLookup(projectId);
-	const totalCostExpr = sql<number>`
+	const estimatedByokCostExpr = sql<number>`
 		(
 			select coalesce(sum(${TOTAL_COST_EXPR}), 0)
 			from ${s.chatMessage}
 			left join ${costLookup.table} on ${costLookup.joinCondition}
 			where ${s.chatMessage.chatId} = ${s.chat.id}
 				and ${s.chatMessage.supersededAt} is null
+				and ${s.chatMessage.llmProvider} <> ${'nao'}
 		)
 	`;
+	const managedCreditsCostExpr = sql<number>`
+		(
+			select coalesce(sum(${s.managedAiUsage.customerChargeMicroUsd}), 0) / 1000000.0
+			from ${s.managedAiUsage}
+			where ${s.managedAiUsage.chatId} = ${s.chat.id}
+				and ${eq(s.managedAiUsage.isManaged, true)}
+		)
+	`;
+	const totalCostExpr = sql<number>`${estimatedByokCostExpr} + ${managedCreditsCostExpr}`;
 
 	const downvotesExpr = feedbackExpr('down', sql<number>`count(*)`);
 	const upvotesExpr = feedbackExpr('up', sql<number>`count(*)`);
@@ -609,7 +677,7 @@ export const listProjectChats = async (
 		limit 1
 	)`;
 
-	const baseWhereClauses = [eq(s.chat.projectId, projectId)];
+	const baseWhereClauses = [eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt)];
 
 	if (updatedAtFilter) {
 		if (updatedAtFilter.mode === 'single') {
@@ -622,31 +690,42 @@ export const listProjectChats = async (
 	}
 
 	if (search) {
-		const escaped = search.toLowerCase().replace(/[%_\\]/g, '\\$&');
-		const like = `%${escaped}%`;
+		const like = toContainsLikePattern(search);
 		baseWhereClauses.push(sql`
 			(
-				lower(${s.chat.title}) like ${like}
-				or lower(${s.user.name}) like ${like}
-				or lower(coalesce(${s.projectMember.role}, 'Former member')) like ${like}
-				or CAST(${numberOfMessagesExpr} AS TEXT) like ${like}
-				or CAST(${totalTokensExpr} AS TEXT) like ${like}
-				or CAST(${downvotesExpr} AS TEXT) like ${like}
-				or CAST(${upvotesExpr} AS TEXT) like ${like}
-				or CAST(${toolErrorCountExpr} AS TEXT) like ${like}
-				or CAST(${toolAvailableCountExpr} AS TEXT) like ${like}
+				lower(${s.chat.title}) like ${like} escape '\\'
+				or lower(${s.user.name}) like ${like} escape '\\'
+				or lower(coalesce(${s.projectMember.role}, 'Former member')) like ${like} escape '\\'
+				or CAST(${numberOfMessagesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${totalTokensExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${downvotesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${upvotesExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${toolErrorCountExpr} AS TEXT) like ${like} escape '\\'
+				or CAST(${toolAvailableCountExpr} AS TEXT) like ${like} escape '\\'
 				or exists (
 					select 1
 					from ${s.chatMessage}
 					inner join ${s.messagePart} on ${s.messagePart.messageId} = ${s.chatMessage.id}
 					where ${s.chatMessage.chatId} = ${s.chat.id}
 						and ${s.chatMessage.supersededAt} is null
-						and lower(${s.messagePart.text}) like ${like}
+						and lower(${s.messagePart.text}) like ${like} escape '\\'
 				)
 			)
 		`);
 	}
 	const filterWhereClauses: SQL<unknown>[] = [];
+	if (author) {
+		const like = toContainsLikePattern(author);
+		filterWhereClauses.push(
+			sql`(lower(${s.user.name}) like ${like} escape '\\' or lower(${s.user.email}) like ${like} escape '\\')`,
+		);
+	}
+	if (messageCount?.min !== undefined) {
+		filterWhereClauses.push(gte(numberOfMessagesExpr, messageCount.min));
+	}
+	if (messageCount?.max !== undefined) {
+		filterWhereClauses.push(lte(numberOfMessagesExpr, messageCount.max));
+	}
 	for (const filter of filters) {
 		if (filter.values.length === 0) {
 			continue;
@@ -796,6 +875,11 @@ export const listProjectChats = async (
 		facets,
 	};
 };
+
+function toContainsLikePattern(term: string): string {
+	const escaped = term.toLowerCase().replace(/[%_\\]/g, '\\$&');
+	return `%${escaped}%`;
+}
 
 function buildTieredSort(
 	dir: typeof asc | typeof desc,

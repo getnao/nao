@@ -4,6 +4,7 @@ import { buildStoryChartBlock, buildStoryFilterBlock, buildStoryMapBlock } from 
 import {
 	getGridTemplateColumns,
 	getStoryFiltersFromCode,
+	getStoryParametersFromCode,
 	groupBlocksIntoGrid,
 	insertGridColumn,
 	mapBlockToInput,
@@ -15,6 +16,7 @@ import {
 	reorderGridColumns,
 	resizeGridColumns,
 	resolveGridWidths,
+	resolveStoryParameters,
 	setGridColumnsMarkup,
 	splitCodeIntoSegments,
 	splitGridColumnsRaw,
@@ -594,6 +596,45 @@ describe('splitCodeIntoSegments chart total visibility', () => {
 	});
 });
 
+describe('splitCodeIntoSegments chart legend visibility', () => {
+	const chartWithLegend = (attr: string) =>
+		`<chart query_id="q1" chart_type="bar" x_axis_key="month" series='[{"data_key":"rev"}]'${attr} />`;
+
+	it('parses an explicit show_legend and leaves it unset when omitted', () => {
+		expect(chartOf(chartWithLegend(' show_legend="false"'))?.showLegend).toBe(false);
+		expect(chartOf(chartWithLegend(' show_legend="true"'))?.showLegend).toBe(true);
+		expect(chartOf(chartWithLegend(''))?.showLegend).toBeUndefined();
+	});
+
+	it.each([true, false])('round-trips show_legend=%s through buildStoryChartBlock', (showLegend) => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'bar',
+			x_axis_key: 'month',
+			x_axis_type: null,
+			series: [{ data_key: 'rev' }],
+			title: 'Revenue',
+			show_legend: showLegend,
+		});
+
+		expect(code).toContain(`show_legend="${showLegend}"`);
+		expect(chartOf(code)?.showLegend).toBe(showLegend);
+	});
+
+	it('omits show_legend from the block when unset', () => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'bar',
+			x_axis_key: 'month',
+			x_axis_type: null,
+			series: [{ data_key: 'rev' }],
+			title: 'Revenue',
+		});
+
+		expect(code).not.toContain('show_legend=');
+	});
+});
+
 describe('splitCodeIntoSegments slash-in-attribute handling', () => {
 	it('parses a chart whose title contains a slash', () => {
 		const code =
@@ -719,6 +760,34 @@ describe('story filter tags', () => {
 			},
 		]);
 	});
+
+	it('parses exact text filters and dependent selects', () => {
+		const code = [
+			buildStoryFilterBlock({ id: 'user', label: 'User ID', type: 'text', value_type: 'number' }),
+			buildStoryFilterBlock({
+				id: 'subcategory',
+				column: 'subcategory',
+				type: 'multi_select',
+				table: 'products',
+				depends_on: 'category',
+				allow_custom: true,
+			}),
+		].join('\n');
+
+		expect(getStoryFiltersFromCode(code)).toEqual([
+			{ id: 'user', label: 'User ID', filterType: 'text', valueType: 'number', rawTag: expect.any(String) },
+			{
+				id: 'subcategory',
+				column: 'subcategory',
+				label: 'subcategory',
+				filterType: 'multi_select',
+				table: 'products',
+				dependsOn: 'category',
+				allowCustom: true,
+				rawTag: expect.any(String),
+			},
+		]);
+	});
 });
 
 describe('buildStoryMapBlock', () => {
@@ -766,6 +835,39 @@ describe('buildStoryMapBlock', () => {
 		expect(parsed?.boundariesUrl).toBe('https://cdn.example.com/world.geojson');
 		expect(parsed?.boundariesJoinProperty).toBe('ISO_A3');
 	});
+
+	it('round-trips the color scale of a choropleth', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q4',
+			map_type: 'choropleth',
+			value_key: 'trips',
+			geometry_key: 'cell',
+			color_scale: 'quantile',
+			title: 'Trip density',
+		});
+		expect(tag).toContain('color_scale="quantile"');
+		const parsed = parseMapBlock(tag.slice('<map '.length, -3));
+		expect(mapBlockToInput(parsed!).color_scale).toBe('quantile');
+	});
+
+	it('omits the color scale when unset and reads it back as the linear default', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q4',
+			map_type: 'choropleth',
+			value_key: 'trips',
+			geometry_key: 'cell',
+			title: 'Trip density',
+		});
+		expect(tag).not.toContain('color_scale');
+		expect(mapBlockToInput(parseMapBlock(tag.slice('<map '.length, -3))!).color_scale).toBeUndefined();
+	});
+
+	it('ignores an unknown color scale', () => {
+		const parsed = parseMapBlock(
+			'query_id="q1" map_type="choropleth" value_key="v" geometry_key="g" color_scale="sqrt"',
+		);
+		expect(parsed?.colorScale).toBeUndefined();
+	});
 });
 
 describe('mapBlockToInput', () => {
@@ -796,5 +898,64 @@ describe('mapBlockToInput', () => {
 	it('defaults the map type to points', () => {
 		const map = parseMapBlock('query_id="q1" latitude_key="lat" longitude_key="lng" title="Points"');
 		expect(mapBlockToInput(map!).map_type).toBe('points');
+	});
+});
+
+describe('story parameters', () => {
+	const code = [
+		`<parameter id="metric" label="Metric" type="metric" options='[{"value":"revenue","label":"Revenue"},{"value":"unique_sales","label":"Unique sales"}]' default="revenue" />`,
+		'## {{ params.metric.label }} by week',
+		`<chart query_id="query_1" chart_type="line" x_axis_key="metric_time__week" series='[{"data_key":"{{ params.metric }}","label":"{{ params.metric.label }}"}]' />`,
+	].join('\n');
+
+	it('parses parameter tags with labelled options', () => {
+		expect(getStoryParametersFromCode(code)).toEqual([
+			{
+				id: 'metric',
+				label: 'Metric',
+				parameterType: 'metric',
+				options: [
+					{ value: 'revenue', label: 'Revenue' },
+					{ value: 'unique_sales', label: 'Unique sales' },
+				],
+				defaultValue: 'revenue',
+				rawTag: expect.any(String),
+			},
+		]);
+	});
+
+	it('substitutes defaults in markdown and tags while keeping the raw tag', () => {
+		const segments = splitCodeIntoSegments(code);
+		expect(segments.map((segment) => segment.type)).toEqual(['markdown', 'chart']);
+		expect(segments[0]).toEqual({ type: 'markdown', content: '## Revenue by week' });
+		const chart = segments[1].type === 'chart' ? segments[1].chart : null;
+		expect(chart?.series[0]).toMatchObject({ data_key: 'revenue', label: 'Revenue' });
+		expect(chart?.rawTag).toContain('{{ params.metric }}');
+	});
+
+	it('substitutes the selected option', () => {
+		const parameters = resolveStoryParameters(getStoryParametersFromCode(code), { metric: 'unique_sales' });
+		const segments = splitCodeIntoSegments(code, parameters);
+		expect(segments[0]).toEqual({ type: 'markdown', content: '## Unique sales by week' });
+	});
+
+	it('escapes inserted labels for plain and JSON attributes', () => {
+		const quotedCode = [
+			`<parameter id="metric" options='[{"value":"net_revenue","label":"Revenue \\u0022net\\u0022 & co\\u0027s"}]' />`,
+			`<chart query_id="query_1" chart_type="line" x_axis_key="month" title="{{ params.metric.label }}" series='[{"data_key":"{{ params.metric }}","label":"{{ params.metric.label }}"}]' />`,
+		].join('\n');
+		const chart = splitCodeIntoSegments(quotedCode).find((segment) => segment.type === 'chart');
+
+		expect(chart?.type === 'chart' && chart.chart.title).toBe(`Revenue "net" & co's`);
+		expect(chart?.type === 'chart' && chart.chart.series[0]).toMatchObject({
+			data_key: 'net_revenue',
+			label: `Revenue "net" & co's`,
+		});
+	});
+
+	it('falls back to the default for unknown selections', () => {
+		expect(resolveStoryParameters(getStoryParametersFromCode(code), { metric: 'orders' })).toEqual({
+			metric: { value: 'revenue', label: 'Revenue' },
+		});
 	});
 });

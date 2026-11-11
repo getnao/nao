@@ -114,6 +114,7 @@ function useAccessSummaryRows(showAllSettings: boolean): AccessSummaryRow[] {
 	const userRoleNavGroups = getVisibleSettingsNavGroups({
 		canSeeAdvancedSettings: true,
 		isAdmin: false,
+		isAutomationsEnabled: false,
 		isCloudBillingEnabled: false,
 		isContextAdmin: false,
 		isCloud,

@@ -9,7 +9,13 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { trpc } from '@/main';
 
-export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
+interface EnvVarsSectionProps {
+	isAdmin: boolean;
+	unstyled?: boolean;
+	onSaved?: (envVars: Record<string, string>) => void;
+}
+
+export function EnvVarsSection({ isAdmin, unstyled = false, onSaved }: EnvVarsSectionProps) {
 	const queryClient = useQueryClient();
 	const envVarsQuery = useQuery(trpc.project.getEnvVars.queryOptions());
 	const [localValues, setLocalValues] = useState<Record<string, string>>({});
@@ -25,10 +31,13 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 
 	const updateMutation = useMutation({
 		...trpc.project.updateEnvVars.mutationOptions(),
-		onSuccess: () => {
+		onSuccess: (_data, variables) => {
 			initializedRef.current = false;
 			queryClient.invalidateQueries({ queryKey: trpc.project.getEnvVars.queryKey() });
+			queryClient.invalidateQueries({ queryKey: trpc.project.getMissingEnvVars.queryKey() });
+			queryClient.invalidateQueries({ queryKey: trpc.project.isCurrentSetupComplete.queryKey() });
 			setHasChanges(false);
+			onSaved?.(variables.envVars);
 		},
 	});
 
@@ -45,6 +54,7 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 	}
 
 	const required = envVarsQuery.data?.required ?? [];
+	const setFromProcessEnv = new Set(envVarsQuery.data?.setFromProcessEnv ?? []);
 	if (required.length === 0) {
 		return null;
 	}
@@ -69,6 +79,7 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 		<SettingsCard
 			title='Environment Variables'
 			description='Variables referenced in nao_config.yaml via {{ env("...") }} or in agent/mcps/mcp.json via ${...}.'
+			unstyled={unstyled}
 			action={
 				isAdmin && hasChanges ? (
 					<Button size='sm' onClick={handleSave} disabled={updateMutation.isPending}>
@@ -85,7 +96,9 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 			<div className='grid gap-4'>
 				{required.map((key) => {
 					const value = localValues[key] ?? '';
-					const isSet = !!value;
+					const isFromProcessEnv = setFromProcessEnv.has(key);
+					const isSet = isFromProcessEnv || !!value;
+					const isEditable = isAdmin && !isFromProcessEnv;
 					const inputId = `env-var-${key}`;
 
 					return (
@@ -94,13 +107,13 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 								<label htmlFor={inputId} className='text-sm font-medium text-foreground'>
 									{key}
 								</label>
-								{!isAdmin && (
+								{!isEditable && (
 									<span className='text-xs text-muted-foreground'>
-										{isSet ? '(configured)' : '(not set)'}
+										{getStatusLabel(isFromProcessEnv, isSet)}
 									</span>
 								)}
 							</div>
-							{isAdmin ? (
+							{isEditable ? (
 								<Input
 									id={inputId}
 									type='password'
@@ -126,4 +139,11 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 			{updateMutation.error && <ErrorMessage message={updateMutation.error.message} />}
 		</SettingsCard>
 	);
+}
+
+function getStatusLabel(isFromProcessEnv: boolean, isSet: boolean): string {
+	if (isFromProcessEnv) {
+		return '(set from environment)';
+	}
+	return isSet ? '(configured)' : '(not set)';
 }

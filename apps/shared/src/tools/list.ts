@@ -10,6 +10,7 @@ export const EntrySchema = z.object({
 	type: z.enum(['file', 'directory', 'symbolic_link']).optional(),
 	size: z.string().optional(),
 	itemCount: z.number().optional(),
+	description: z.string().optional(),
 });
 
 export const OutputSchema = z.object({

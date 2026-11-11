@@ -1,4 +1,10 @@
-import { EMPTY_FILES_CONTEXT_ACCESS, EMPTY_MCP_ACCESS } from '@nao/shared';
+import {
+	DEFAULT_GROUP_SHARE_TARGETS,
+	EMPTY_FILES_CONTEXT_ACCESS,
+	EMPTY_MCP_ACCESS,
+	EMPTY_SKILLS_ACCESS,
+	MAX_PRELOADED_SKILLS,
+} from '@nao/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestCaller } from '../helpers/trpc-caller';
@@ -19,13 +25,15 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	listUserGroups: vi.fn(),
+	listActiveUserGroups: vi.fn(),
 	previewProjectWideShareRevocation: vi.fn(),
 	revokeUnauthorizedProjectWideShares: vi.fn(),
-	env: {} as Record<string, string | undefined>,
+	env: { BETTER_AUTH_URL: 'http://localhost:5005/' } as Record<string, string | undefined>,
 	resolveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setGroupBudget: vi.fn(),
 	setUserGroupMembership: vi.fn(),
+	setUserGroupMemberships: vi.fn(),
 	updateUserGroup: vi.fn(),
 	updateProjectRowSecurity: vi.fn(),
 	validateWarehouseRowPredicate: vi.fn(),
@@ -58,6 +66,7 @@ vi.mock('../../src/queries/user-group.queries', () => ({
 	listUserGroups: mocks.listUserGroups,
 	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
+	setUserGroupMemberships: mocks.setUserGroupMemberships,
 	updateUserGroup: mocks.updateUserGroup,
 	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
 }));
@@ -83,6 +92,7 @@ vi.mock('../../src/services/sso-user-group-mapping.service', () => ({
 vi.mock('../../src/services/user-group-availability.service', () => ({
 	assertUserGroupManageable: mocks.assertUserGroupManageable,
 	getAvailableUserGroupOverview: mocks.getUserGroupOverview,
+	listActiveUserGroups: mocks.listActiveUserGroups,
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
 vi.mock('../../src/services/file-tree-catalog.service', () => ({
@@ -271,6 +281,41 @@ describe('user group routes', () => {
 			expect.objectContaining({ mcpAccess: { mode: 'all' } }),
 		);
 		expect(mocks.createUserGroupWithinLimit).toHaveBeenCalledTimes(1);
+	});
+
+	it('rejects unlicensed skill restrictions but lets admins keep or lift them', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		const revenueOnly = { mode: 'restricted' as const, skills: ['revenue'] };
+		mocks.listUserGroups.mockResolvedValue([{ id: 'group-id', skillsAccess: revenueOnly }]);
+		const update = (skillsAccess: typeof revenueOnly | { mode: 'all' }) =>
+			caller.update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+				skillsAccess,
+			});
+
+		await expect(caller.create({ name: 'Analysts', skillsAccess: revenueOnly })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(update({ mode: 'restricted', skills: [] })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+
+		await update(revenueOnly);
+		await update({ mode: 'all' });
+		expect(mocks.updateUserGroup).toHaveBeenNthCalledWith(
+			1,
+			'project-id',
+			'group-id',
+			expect.objectContaining({ skillsAccess: revenueOnly }),
+		);
+		expect(mocks.updateUserGroup).toHaveBeenNthCalledWith(
+			2,
+			'project-id',
+			'group-id',
+			expect.objectContaining({ skillsAccess: { mode: 'all' } }),
+		);
 	});
 
 	it('allows group edits after a registry update prunes removed-table policies', async () => {
@@ -559,7 +604,7 @@ describe('user group routes', () => {
 			toolCallDensityPolicy: COMPACT_DENSITY_POLICY,
 		});
 
-		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups');
+		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups', { projectId: 'project-id' });
 		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
 		expect(mocks.createUserGroup).toHaveBeenCalledWith(
 			'project-id',
@@ -574,6 +619,9 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
+			EMPTY_SKILLS_ACCESS,
+			DEFAULT_GROUP_SHARE_TARGETS,
 		);
 	});
 
@@ -598,6 +646,9 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
+			EMPTY_SKILLS_ACCESS,
+			DEFAULT_GROUP_SHARE_TARGETS,
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -652,6 +703,9 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
+			EMPTY_SKILLS_ACCESS,
+			DEFAULT_GROUP_SHARE_TARGETS,
 		);
 	});
 
@@ -703,6 +757,9 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
+			EMPTY_SKILLS_ACCESS,
+			DEFAULT_GROUP_SHARE_TARGETS,
 		);
 	});
 
@@ -730,6 +787,9 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
+			EMPTY_SKILLS_ACCESS,
+			DEFAULT_GROUP_SHARE_TARGETS,
 		);
 	});
 
@@ -813,6 +873,9 @@ describe('user group routes', () => {
 			'inherit',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
+			EMPTY_SKILLS_ACCESS,
+			DEFAULT_GROUP_SHARE_TARGETS,
 		);
 	});
 
@@ -857,6 +920,27 @@ describe('user group routes', () => {
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
+	it('saves share targets without the group itself or groups that are not active custom groups', async () => {
+		mocks.listActiveUserGroups.mockResolvedValue([
+			{ id: 'all-users', isDefault: true },
+			{ id: 'group-id', isDefault: false },
+			{ id: 'client-b', isDefault: false },
+		]);
+
+		await caller.update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+			shareTargets: { includeOwnGroup: false, groupIds: ['client-b', 'group-id', 'all-users', 'unknown'] },
+		});
+
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({ shareTargets: { includeOwnGroup: false, groupIds: ['client-b'] } }),
+		);
+	});
+
 	it('saves the project sharing permission and unshares project-wide content no longer allowed', async () => {
 		await caller.update({
 			groupId: 'group-id',
@@ -884,6 +968,30 @@ describe('user group routes', () => {
 		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 
+	it('creates and updates groups with their trimmed preloaded skills', async () => {
+		await caller.create({ name: 'Finance', preloadedSkills: [' revenue-recognition '] });
+		await caller.update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+			preloadedSkills: [' churn '],
+		});
+
+		expect(mocks.createUserGroup.mock.calls[0][12]).toEqual(['revenue-recognition']);
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({ preloadedSkills: ['churn'] }),
+		);
+	});
+
+	it('rejects more preloaded skills than the limit', async () => {
+		const preloadedSkills = Array.from({ length: MAX_PRELOADED_SKILLS + 1 }, (_, index) => `skill-${index}`);
+
+		await expect(caller.create({ name: 'Finance', preloadedSkills })).rejects.toThrow();
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
+	});
+
 	it('creates groups with their project sharing permission', async () => {
 		await caller.create({ name: 'Client A', projectSharing: 'blocked' });
 
@@ -900,6 +1008,9 @@ describe('user group routes', () => {
 			'blocked',
 			EMPTY_MCP_ACCESS,
 			false,
+			[],
+			EMPTY_SKILLS_ACCESS,
+			DEFAULT_GROUP_SHARE_TARGETS,
 		);
 	});
 
@@ -960,6 +1071,15 @@ describe('user group routes', () => {
 					isMember: true,
 				}),
 		],
+		[
+			'setMemberships',
+			() =>
+				caller.setMemberships({
+					groupId: 'locked-id',
+					userIds: ['target-user-id'],
+					isMember: true,
+				}),
+		],
 	])('rejects %s for a suspended group', async (_operation, call) => {
 		mocks.assertUserGroupManageable.mockRejectedValueOnce(
 			new mocks.UserGroupQueryError('FORBIDDEN', 'Upgrade to Enterprise to reactivate this saved group.'),
@@ -972,6 +1092,35 @@ describe('user group routes', () => {
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 		expect(mocks.deleteUserGroup).not.toHaveBeenCalled();
 		expect(mocks.setUserGroupMembership).not.toHaveBeenCalled();
+		expect(mocks.setUserGroupMemberships).not.toHaveBeenCalled();
+	});
+
+	it('changes memberships for several users at once and unshares content no longer allowed', async () => {
+		await caller.setMemberships({
+			groupId: 'group-id',
+			userIds: ['first-user-id', 'second-user-id'],
+			isMember: true,
+		});
+
+		expect(mocks.setUserGroupMemberships).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			['first-user-id', 'second-user-id'],
+			true,
+		);
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
+	});
+
+	it('rejects bulk membership changes for non-admins or without users', async () => {
+		await expect(caller.setMemberships({ groupId: 'group-id', userIds: [], isMember: true })).rejects.toMatchObject(
+			{ code: 'BAD_REQUEST' },
+		);
+
+		mocks.role = 'user';
+		await expect(
+			caller.setMemberships({ groupId: 'group-id', userIds: ['first-user-id'], isMember: true }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.setUserGroupMemberships).not.toHaveBeenCalled();
 	});
 
 	it('preserves database access when update omits it', async () => {

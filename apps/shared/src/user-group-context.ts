@@ -1,4 +1,11 @@
 import { ALL_MCP_ACCESS, EMPTY_MCP_ACCESS, type McpAccess, normalizeMcpAccess, parseMcpAccess } from './user-group-mcp';
+import {
+	ALL_SKILLS_ACCESS,
+	EMPTY_SKILLS_ACCESS,
+	normalizeSkillsAccess,
+	parseSkillsAccess,
+	type SkillsAccess,
+} from './user-group-skills';
 
 export type DatabaseContextGrant = DatabaseSchemaGrant | DatabaseTableGrant;
 
@@ -69,7 +76,7 @@ export interface StoredLegacyUserGroupContextAccessV5 {
 	filesAccess: FilesContextAccess;
 }
 
-export interface StoredUserGroupContextAccess {
+export interface StoredLegacyUserGroupContextAccessV6 {
 	version: 6;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
@@ -77,11 +84,21 @@ export interface StoredUserGroupContextAccess {
 	mcpAccess: McpAccess;
 }
 
+export interface StoredUserGroupContextAccess {
+	version: 7;
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
+	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
+}
+
 export interface UserGroupContextAccessGrants {
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
 	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
 }
 
 export const ALL_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = { mode: 'all', strict: false };
@@ -103,6 +120,13 @@ export const ALL_DOCS_CONTEXT_ACCESS: DocsContextAccess = ALL_FILE_TREE_ACCESS;
 export const EMPTY_DOCS_CONTEXT_ACCESS: DocsContextAccess = EMPTY_FILE_TREE_ACCESS;
 export const ALL_FILES_CONTEXT_ACCESS: FilesContextAccess = ALL_FILE_TREE_ACCESS;
 export const EMPTY_FILES_CONTEXT_ACCESS: FilesContextAccess = EMPTY_FILE_TREE_ACCESS;
+const FAIL_CLOSED_USER_GROUP_CONTEXT_ACCESS: UserGroupContextAccessGrants = {
+	databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
+	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+	filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+	mcpAccess: EMPTY_MCP_ACCESS,
+	skillsAccess: EMPTY_SKILLS_ACCESS,
+};
 
 export function normalizeDatabaseContextAccess(access: DatabaseContextAccess): DatabaseContextAccess {
 	if (access.mode === 'all') {
@@ -163,11 +187,15 @@ export function serializeDatabaseContextAccess(access: DatabaseContextAccess): S
 	};
 }
 
-/** Before MCP grants existed every user reached every MCP server, which the All Users group keeps granting. */
+/**
+ * Before MCP and skill grants existed every user reached every MCP server and project skill,
+ * which the All Users group keeps granting.
+ */
 export function parseStoredUserGroupContextAccess(value: unknown, isDefault: boolean): UserGroupContextAccessGrants {
 	const legacyDatabaseAccess = isDefault ? ALL_DATABASE_CONTEXT_ACCESS : EMPTY_DATABASE_CONTEXT_ACCESS;
 	const legacyDocsAccess = isDefault ? ALL_DOCS_CONTEXT_ACCESS : EMPTY_DOCS_CONTEXT_ACCESS;
 	const legacyMcpAccess = isDefault ? ALL_MCP_ACCESS : EMPTY_MCP_ACCESS;
+	const legacySkillsAccess = isDefault ? ALL_SKILLS_ACCESS : EMPTY_SKILLS_ACCESS;
 
 	if (value === null || value === undefined) {
 		return {
@@ -175,15 +203,11 @@ export function parseStoredUserGroupContextAccess(value: unknown, isDefault: boo
 			docsAccess: legacyDocsAccess,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: legacyMcpAccess,
+			skillsAccess: legacySkillsAccess,
 		};
 	}
 	if (!isRecord(value)) {
-		return {
-			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
-			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
-			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
-			mcpAccess: EMPTY_MCP_ACCESS,
-		};
+		return FAIL_CLOSED_USER_GROUP_CONTEXT_ACCESS;
 	}
 	if (value.version === 1 || value.version === 2 || value.version === 3) {
 		return {
@@ -191,6 +215,7 @@ export function parseStoredUserGroupContextAccess(value: unknown, isDefault: boo
 			docsAccess: legacyDocsAccess,
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: legacyMcpAccess,
+			skillsAccess: legacySkillsAccess,
 		};
 	}
 	if (value.version === 4) {
@@ -199,6 +224,7 @@ export function parseStoredUserGroupContextAccess(value: unknown, isDefault: boo
 			docsAccess: parseFileTreeAccess(value.docsAccess),
 			filesAccess: ALL_FILES_CONTEXT_ACCESS,
 			mcpAccess: legacyMcpAccess,
+			skillsAccess: legacySkillsAccess,
 		};
 	}
 	if (value.version === 5) {
@@ -207,31 +233,38 @@ export function parseStoredUserGroupContextAccess(value: unknown, isDefault: boo
 			docsAccess: parseFileTreeAccess(value.docsAccess),
 			filesAccess: parseFileTreeAccess(value.filesAccess),
 			mcpAccess: legacyMcpAccess,
+			skillsAccess: legacySkillsAccess,
 		};
 	}
-	if (value.version !== 6) {
+	if (value.version === 6) {
 		return {
-			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
-			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
-			filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
-			mcpAccess: EMPTY_MCP_ACCESS,
+			databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
+			docsAccess: parseFileTreeAccess(value.docsAccess),
+			filesAccess: parseFileTreeAccess(value.filesAccess),
+			mcpAccess: parseMcpAccess(value.mcpAccess),
+			skillsAccess: legacySkillsAccess,
 		};
+	}
+	if (value.version !== 7) {
+		return FAIL_CLOSED_USER_GROUP_CONTEXT_ACCESS;
 	}
 	return {
 		databaseAccess: parseDatabaseContextAccess(value.databaseAccess),
 		docsAccess: parseFileTreeAccess(value.docsAccess),
 		filesAccess: parseFileTreeAccess(value.filesAccess),
 		mcpAccess: parseMcpAccess(value.mcpAccess),
+		skillsAccess: parseSkillsAccess(value.skillsAccess),
 	};
 }
 
 export function serializeUserGroupContextAccess(grants: UserGroupContextAccessGrants): StoredUserGroupContextAccess {
 	return {
-		version: 6,
+		version: 7,
 		databaseAccess: normalizeDatabaseContextAccess(grants.databaseAccess),
 		docsAccess: normalizeFileTreeAccess(grants.docsAccess),
 		filesAccess: normalizeFileTreeAccess(grants.filesAccess),
 		mcpAccess: normalizeMcpAccess(grants.mcpAccess),
+		skillsAccess: normalizeSkillsAccess(grants.skillsAccess),
 	};
 }
 

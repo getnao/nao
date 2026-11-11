@@ -222,6 +222,53 @@ describe('display_map execute — choropleth with boundaries_url', () => {
 		expect(output).toMatchObject({ success: false });
 		expect(output.error).toContain('missing_key');
 	});
+
+	describe('color_scale', () => {
+		const skewedResults = () =>
+			queryResultsOf(
+				['country', 'value'],
+				[
+					{ country: 'FR', value: 0 },
+					{ country: 'DE', value: 5000 },
+				],
+			);
+
+		it('warns without failing when a log scale meets values ≤ 0', async () => {
+			serveBoundaries();
+			const output = await executeChoropleth({ color_scale: 'log' }, skewedResults());
+			expect(output).toMatchObject({ success: true, region_count: 2 });
+			expect(output.warning).toContain('1 row(s) have a value ≤ 0');
+			expect(output.warning).toContain('"quantile"');
+		});
+
+		it('says the log scale fell back to linear when no value is positive', async () => {
+			serveBoundaries();
+			const queryResults = queryResultsOf(
+				['country', 'value'],
+				[
+					{ country: 'FR', value: 0 },
+					{ country: 'DE', value: -3 },
+				],
+			);
+			const output = await executeChoropleth({ color_scale: 'log' }, queryResults);
+			expect(output).toMatchObject({ success: true });
+			expect(output.warning).toContain('fell back to a linear scale');
+		});
+
+		it('stays linear by default and does not warn about values ≤ 0', async () => {
+			serveBoundaries();
+			const output = await executeChoropleth({}, skewedResults());
+			expect(output).toMatchObject({ success: true });
+			expect(output.warning).toBeUndefined();
+		});
+
+		it('rejects an unknown color scale', () => {
+			const schema = createDisplayMapTool().inputSchema as {
+				safeParse: (value: unknown) => { success: boolean };
+			};
+			expect(schema.safeParse({ ...choroplethInput, color_scale: 'sqrt' }).success).toBe(false);
+		});
+	});
 });
 
 async function executeDisplayMap(mapInput: object, queryResults: Map<string, QueryResult>): Promise<MapOutput> {

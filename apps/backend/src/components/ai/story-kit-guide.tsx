@@ -27,21 +27,41 @@ export function storyKitGuideItems(): ReactElement[] {
 		<ListItem key='blocks'>
 			Build with <Bold>@nao/story-kit</Bold> blocks — <Bold>KpiCard</Bold>, <Bold>BarChart</Bold>,{' '}
 			<Bold>LineChart</Bold>, <Bold>{'<Chart type="...">'}</Bold> for every other display_chart type (mixed, pie,
-			donut, scatter, radar), <Bold>DataTable</Bold>, <Bold>PointMap</Bold> — which match display_chart and
-			display_map and handle loading and errors themselves. Blocks draw their own card, so place them directly in
-			the layout rather than inside a panel of your own. Every block takes <Bold>queryId</Bold> (or{' '}
-			<Bold>data</Bold>) and <Bold>title</Bold>; KpiCard and charts also take <Bold>format</Bold> ("number" |
-			"compact" | "percent" with fractions | "currency"), <Bold>currency</Bold>, <Bold>decimals</Bold>. Charts:{' '}
-			<Bold>xKey</Bold>, <Bold>series</Bold> (names or {'{ key, label?, type?, axis? }'}), <Bold>height</Bold>,{' '}
-			<Bold>stacked</Bold>, <Bold>percent</Bold>, <Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line),{' '}
-			<Bold>showDataLabels</Bold>. KpiCard: <Bold>valueKey</Bold>, <Bold>comparison</Bold> against the previous
-			row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold>, <Bold>conditionalFormats</Bold> (column → the
-			same rule display_chart's conditional_formats takes) to colour cells.
+			donut, scatter, radar) and the project's custom chart types, <Bold>DataTable</Bold>, <Bold>PointMap</Bold> —
+			which match display_chart and display_map and handle loading and errors themselves. Blocks draw their own
+			card, so place them directly in the layout rather than inside a panel of your own. Every block takes{' '}
+			<Bold>queryId</Bold> (or <Bold>data</Bold>) and <Bold>title</Bold>; KpiCard and charts also take{' '}
+			<Bold>format</Bold> ("number" | "compact" | "percent" with fractions | "currency"), <Bold>currency</Bold>,{' '}
+			<Bold>decimals</Bold>. Charts: <Bold>xKey</Bold>, <Bold>series</Bold> (names or{' '}
+			{'{ key, label?, type?, axis? }'}), <Bold>height</Bold>, <Bold>stacked</Bold>, <Bold>percent</Bold>,{' '}
+			<Bold>horizontal</Bold> (bar), <Bold>area</Bold> (line), <Bold>showDataLabels</Bold>,{' '}
+			<Bold>showLegend</Bold> (defaults to shown for pies and multi-series charts). KpiCard: <Bold>valueKey</Bold>
+			, <Bold>comparison</Bold> against the previous row. DataTable: <Bold>columns</Bold>, <Bold>maxRows</Bold>{' '}
+			(caps the rows shown; tables already paginate, starting at 10 rows per page and showing more when their grid
+			row leaves room, with a rows-per-page picker), <Bold>conditionalFormats</Bold> (column → the same rule
+			display_chart's conditional_formats takes) to colour cells.
+		</ListItem>,
+		<ListItem key='title'>
+			Title a story with your own <Bold>{'<h1>'}</Bold> and, if useful, a short lead <Bold>{'<p>'}</Bold>: they
+			already take the brand's title and body voice.
+		</ListItem>,
+		<ListItem key='brand'>
+			When the story should carry the brand identity, such as an app or a dashboard, put{' '}
+			<Bold>{'<BrandHeader />'}</Bold> at the top, above your title: it shows the logo or wordmark in the theme's
+			header style (bare, above a rule, or in a coloured band) and renders nothing when the theme has no brand.
+			Its children sit on the logo row: a period, a status or filter chips. Never put it in a deck.
+		</ListItem>,
+		<ListItem key='controls'>
+			Style filters and toggles as <Bold>{'className="nao-chip"'}</Bold> with <Bold>aria-pressed</Bold> on the
+			active one (group them in <Bold>nao-chips</Bold>) and actions as <Bold>nao-button</Bold> (or{' '}
+			<Bold>nao-button nao-button--outline</Bold>): they take the brand's button shape and colours. Give small
+			labels <Bold>nao-label</Bold> to follow the brand's casing.
 		</ListItem>,
 		<ListItem key='slides'>
 			For slides, a deck or a presentation, wrap the content in <Bold>{'<Slides>'}</Bold> with one{' '}
 			<Bold>{'<Slide>'}</Bold> per slide (16:9): it provides the navigation and prints one slide per PDF page.
-			Both take <Bold>eyebrow</Bold> and <Bold>title</Bold> props; a Slide is already padded.
+			Both take <Bold>eyebrow</Bold> and <Bold>title</Bold> props; a Slide is already padded, and the deck shows
+			the brand logo in its top bar.
 		</ListItem>,
 		<ListItem key='canvas'>
 			Only when the user asks for a fixed size or fixed proportions (given dimensions, a poster, a wall display),
@@ -56,12 +76,24 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>height: 100vh</Bold> and scrolls inside its own panels.
 		</ListItem>,
 		<ListItem key='tabs'>
-			For tabs, put the tab buttons in a <Bold>{'<nav>'}</Bold> (or give them <Bold>role="tab"</Bold>): PDF
-			downloads open each tab in turn and print them one after the other.
+			For tabs, put the tab buttons in a <Bold>{'<nav role="tablist">'}</Bold> and give each{' '}
+			<Bold>role="tab"</Bold> with <Bold>aria-selected</Bold> on the active one: they take the brand's tab look
+			with no CSS of your own, and PDF downloads open each tab in turn and print them one after the other.
 		</ListItem>,
 		<ListItem key='block-editing'>
 			Users edit KpiCard, chart and DataTable blocks through a pencil that rewrites their props in your source:
 			pass literal props and give each block a distinct title.
+		</ListItem>,
+		<ListItem key='selectable'>
+			<Bold>Make every element of your own markup selectable</Bold>, small or large (a card, a pile, a button, a
+			cell, a label, a section): spread <Bold>{'{...selectable({ name: "Discard pile" })}'}</Bold> from
+			@nao/story-kit on it. Users click it in selection mode to ask about or edit that element alone, and its name
+			is how they and you refer to it: keep each name short and distinct, and in lists pass a <Bold>detail</Bold>{' '}
+			telling the items apart ({'{...selectable({ name: "Card", detail: "7 of hearts" })}'}). Kit blocks are
+			already selectable. Give it to every element of a story you write; when you edit a story, give it only to
+			the elements the request changes and leave the others untouched. In an HTML story, write{' '}
+			<Bold>{'data-nao-part="element" data-nao-part-label="<name>" data-nao-part-value="<detail>"'}</Bold> on the
+			element instead, replacing the placeholders with its own name and optional detail.
 		</ListItem>,
 		<ListItem key='narrative'>
 			Wrap prose that states numbers or trends in <Bold>{'<Narrative id="...">text</Narrative>'}</Bold> inside
@@ -85,10 +117,10 @@ export function storyKitGuideItems(): ReactElement[] {
 		<ListItem key='state-rules'>
 			Saved state works like localStorage: every change is saved as it happens, so when viewers should explore
 			before keeping something, hold the draft in useState and save it on their own action. Keep transient UI
-			(hover, an open menu) in useState and never save query rows or secrets. Use stable literal keys and small
-			JSON values (up to {MAX_STORY_STATE_VALUE_BYTES / 1024} KB; {MAX_STORY_STATE_KEYS} personal keys per viewer
-			and {MAX_STORY_STATE_KEYS} shared keys); a saved value may predate your latest version, so check its shape
-			and fall back to the initial value. In an HTML story, use{' '}
+			(hover, an open menu) and growing logs such as undo history in useState and never save query rows or
+			secrets. Use stable literal keys and small JSON values (up to {MAX_STORY_STATE_VALUE_BYTES / 1024} KB;{' '}
+			{MAX_STORY_STATE_KEYS} personal keys per viewer and {MAX_STORY_STATE_KEYS} shared keys); a saved value may
+			predate your latest version, so check its shape and fall back to the initial value. In an HTML story, use{' '}
 			<Bold>{`${STORY_HTML_API_GLOBAL}.state.get(key)`}</Bold> and{' '}
 			<Bold>{`${STORY_HTML_API_GLOBAL}.state.set(key, value)`}</Bold> for personal state, and the same methods on{' '}
 			<Bold>{`${STORY_HTML_API_GLOBAL}.sharedState`}</Bold> for shared state.
@@ -116,7 +148,13 @@ export function storyKitGuideItems(): ReactElement[] {
 			<Bold>var(--background)</Bold>, <Bold>var(--card)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
 			<Bold>var(--muted-foreground)</Bold>, <Bold>var(--primary)</Bold>, <Bold>var(--border)</Bold>,{' '}
 			<Bold>var(--radius)</Bold>, <Bold>var(--font-sans)</Bold>, <Bold>var(--font-heading)</Bold>,{' '}
-			<Bold>var(--chart-1…11)</Bold>. They follow theme changes live, so a re-theme needs no republish.
+			<Bold>var(--chart-1…11)</Bold>, <Bold>var(--story-control-radius)</Bold>. Use var(--primary) for fills (with
+			var(--primary-foreground) on them) and <Bold>var(--story-accent-text)</Bold> when the accent is the text
+			colour itself: a bright brand accent can be unreadable as text. Headings, paragraphs, kit blocks, nao-chip,
+			nao-button and nao-label already speak in the brand's type voice; for your own text elements, take a role's{' '}
+			<Bold>var(--story-type-ROLE-font)</Bold>, <Bold>-weight</Bold>, <Bold>-case</Bold>, <Bold>-style</Bold> and{' '}
+			<Bold>-tracking</Bold> (ROLE: display, heading, subheading, body, label, button, figure) instead of setting
+			fonts or casing yourself. They follow theme changes live, so a re-theme needs no republish.
 		</ListItem>,
 		<ListItem key='html-entry'>
 			<Bold>HTML stories are the exception:</Bold> use one only when the user hands you an HTML page to host as-is

@@ -1,0 +1,22 @@
+name: new_vs_returning_revenue
+prompt: >-
+  Split each month's revenue between new customers (the order is the customer's
+  first ever order) and returning customers (any later order). Show per month the
+  number of orders and revenue for each group, ordered chronologically.
+sql: |
+  WITH ranked_orders AS (
+    SELECT
+      DATE_TRUNC('month', order_date) AS order_month,
+      amount,
+      ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, order_id) AS customer_order_rank
+    FROM orders
+  )
+  SELECT
+    order_month,
+    COUNT(*) FILTER (WHERE customer_order_rank = 1) AS new_customer_orders,
+    SUM(amount) FILTER (WHERE customer_order_rank = 1) AS new_customer_revenue,
+    COUNT(*) FILTER (WHERE customer_order_rank > 1) AS returning_customer_orders,
+    SUM(amount) FILTER (WHERE customer_order_rank > 1) AS returning_customer_revenue
+  FROM ranked_orders
+  GROUP BY order_month
+  ORDER BY order_month

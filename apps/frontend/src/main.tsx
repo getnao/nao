@@ -13,10 +13,17 @@ import { McpProvider } from './contexts/mcp';
 import { TooltipProvider } from './components/ui/tooltip';
 import { getActiveOrganizationId } from './lib/active-organization';
 import { createActiveOrganizationRecovery } from './lib/active-organization-recovery';
-import { getActiveProjectId, getProjectRequestHeaders } from './lib/active-project';
+import {
+	getActiveProjectId,
+	getProjectRequestHeaders,
+	subscribeToExternalActiveProjectChanges,
+} from './lib/active-project';
+import { reloadOnStaleChunkError } from './lib/stale-chunk-reload';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from '@nao/backend/trpc';
+
+reloadOnStaleChunkError();
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {
@@ -47,6 +54,11 @@ export const queryClient = new QueryClient({
 			staleTime: 5 * 60 * 1000, // 5 minutes
 		},
 	},
+});
+
+subscribeToExternalActiveProjectChanges(() => {
+	void queryClient.invalidateQueries();
+	void router.invalidate();
 });
 
 const activeOrganizationRecovery = createActiveOrganizationRecovery({

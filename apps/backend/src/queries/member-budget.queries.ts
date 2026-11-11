@@ -1,14 +1,15 @@
 /* @license Enterprise */
 
+import { getCurrentPeriodStart } from '@nao/shared/date';
 import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
-import { LLM_PROVIDERS, type MemberBudgetPeriod } from '@nao/shared/types';
+import type { MemberBudgetPeriod } from '@nao/shared/types';
 import { and, eq } from 'drizzle-orm';
 
 import s, { DBProjectGroupBudget, DBProjectMemberBudget, DBProjectMemberBudgetSettings } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { SetMemberBudgetsInput } from '../types/member-budget';
-import { queryProviderPeriodCosts, roundCost } from './budget.queries';
+import { queryAllProvidersCostsSince, roundCost } from './budget.queries';
 
 type SQLiteRunnable = { run(): unknown };
 type Executable = { execute(): Promise<unknown> };
@@ -194,11 +195,7 @@ function writeGroupBudget(executor: DBExecutor, projectId: string, groupId: stri
 		});
 }
 
-/** Member budgets span every provider, so every provider shares the member budget's period. */
+/** Member budgets span every provider, named instances included, over the member budget's period. */
 function queryAllProviderCosts(projectId: string, period: MemberBudgetPeriod, userId?: string) {
-	return queryProviderPeriodCosts(
-		projectId,
-		LLM_PROVIDERS.map((provider) => ({ provider, period })),
-		{ userId },
-	);
+	return queryAllProvidersCostsSince(projectId, getCurrentPeriodStart(period), { userId });
 }

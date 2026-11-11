@@ -1,5 +1,6 @@
 """Template engine for rendering Jinja2 templates with user overrides."""
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,12 @@ from nao_core.config.llm import (
     ProviderConfig,
 )
 
+logger = logging.getLogger(__name__)
+
 # Path to the default templates shipped with nao
 DEFAULT_TEMPLATES_DIR = Path(__file__).parent / "defaults"
+
+ANTHROPIC_MAX_OUTPUT_TOKENS = 4096
 
 
 class TemplateEngine:
@@ -178,6 +183,8 @@ class TemplateEngine:
             model=model,
             messages=[{"role": "user", "content": prompt_text}],
         )
+        if response.choices and response.choices[0].finish_reason == "length":
+            _warn_truncated_output(model)
         content = response.choices[0].message.content if response.choices else None
         if not content:
             raise RuntimeError("Empty response from model.")
@@ -203,9 +210,11 @@ class TemplateEngine:
         """Invoke an Anthropic-compatible client (direct or Vertex) and return the text."""
         response = client.messages.create(
             model=model,
-            max_tokens=1024,
+            max_tokens=ANTHROPIC_MAX_OUTPUT_TOKENS,
             messages=[{"role": "user", "content": prompt_text}],
         )
+        if response.stop_reason == "max_tokens":
+            _warn_truncated_output(model)
 
         parts: list[str] = []
         for block in response.content:
@@ -236,6 +245,8 @@ class TemplateEngine:
             temperature=0,
             messages=messages,
         )
+        if response.choices and response.choices[0].finish_reason in ("length", "model_length"):
+            _warn_truncated_output(model)
         content = response.choices[0].message.content if response.choices else None
         if not content:
             raise RuntimeError("Empty response from model.")
@@ -270,6 +281,8 @@ class TemplateEngine:
             contents=prompt_text,
             config=types.GenerateContentConfig(temperature=0),
         )
+        if response.candidates and response.candidates[0].finish_reason == types.FinishReason.MAX_TOKENS:
+            _warn_truncated_output(model)
 
         content = getattr(response, "text", None)
         if not content:
@@ -483,6 +496,10 @@ class TemplateEngine:
 # Global template engine instance (lazily initialized)
 _engine: TemplateEngine | None = None
 _engine_signature: tuple[str | None, ...] | None = None
+
+
+def _warn_truncated_output(model: str) -> None:
+    logger.warning("Output from model '%s' was truncated at its max output token limit; the text is incomplete.", model)
 
 
 def _resolve_annotation(

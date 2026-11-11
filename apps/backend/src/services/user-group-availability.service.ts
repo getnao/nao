@@ -27,7 +27,7 @@ export interface AvailableUserGroupOverview {
 
 export async function getAvailableUserGroupOverview(projectId: string): Promise<AvailableUserGroupOverview> {
 	const overview = await userGroupQueries.getUserGroupOverview(projectId);
-	const groups = await applyCurrentUserGroupAvailability(overview.groups);
+	const groups = await applyCurrentUserGroupAvailability(projectId, overview.groups);
 	const activeGroupIds = getActiveUserGroupIds(groups);
 
 	return {
@@ -41,6 +41,21 @@ export async function getAvailableUserGroupOverview(projectId: string): Promise<
 export async function listActiveUserGroups(projectId: string): Promise<userGroupQueries.UserGroup[]> {
 	const groups = await listUserGroupsWithAvailability(projectId);
 	return groups.filter((group): group is userGroupQueries.UserGroup & { isLocked: false } => !group.isLocked);
+}
+
+/** Locked groups keep their saved shares, but grant nothing until the plan reactivates them. */
+export async function listLockedUserGroupIds(projectId: string): Promise<string[]> {
+	return lockedCustomGroupIds(projectId, await userGroupQueries.listCustomUserGroupSummaries(projectId));
+}
+
+/** One query for every project of the user; the license is only checked where groups exceed the free limit. */
+export async function listLockedUserGroupIdsOfMember(userId: string): Promise<string[]> {
+	const groups = await userGroupQueries.listCustomUserGroupSummariesAroundMember(userId);
+	const groupsByProject = groupByProject(groups);
+	const lockedGroupIds = await Promise.all(
+		[...groupsByProject].map(([projectId, projectGroups]) => lockedCustomGroupIds(projectId, projectGroups)),
+	);
+	return lockedGroupIds.flat();
 }
 
 export async function resolveAvailableUserGroupAccess(
@@ -69,19 +84,15 @@ export async function validateAssignableUserGroupIds(projectId: string, groupIds
 }
 
 export async function applyCurrentUserGroupAvailability(
+	projectId: string,
 	groups: userGroupQueries.UserGroup[],
 ): Promise<AvailableUserGroup[]> {
-	if (await hasFeature(LICENSE_FEATURES.userGroups)) {
+	if (await hasFeature(LICENSE_FEATURES.userGroups, { projectId })) {
 		return groups.map((group) => ({ ...group, isLocked: false }));
 	}
 
 	const activeCustomGroupIds = new Set(
-		groups
-			.filter((group) => !group.isDefault)
-			.sort(
-				(left, right) =>
-					left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id),
-			)
+		sortOldestFirst(groups.filter((group) => !group.isDefault))
 			.slice(0, FREE_CUSTOM_USER_GROUP_LIMIT)
 			.map((group) => group.id),
 	);
@@ -101,8 +112,40 @@ export async function applyCurrentUserGroupAvailability(
 	);
 }
 
+async function lockedCustomGroupIds(
+	projectId: string,
+	customGroups: userGroupQueries.CustomUserGroupSummary[],
+): Promise<string[]> {
+	if (customGroups.length <= FREE_CUSTOM_USER_GROUP_LIMIT) {
+		return [];
+	}
+	if (await hasFeature(LICENSE_FEATURES.userGroups, { projectId })) {
+		return [];
+	}
+	return sortOldestFirst(customGroups)
+		.slice(FREE_CUSTOM_USER_GROUP_LIMIT)
+		.map((group) => group.id);
+}
+
+function groupByProject(
+	groups: userGroupQueries.CustomUserGroupSummary[],
+): Map<string, userGroupQueries.CustomUserGroupSummary[]> {
+	const groupsByProject = new Map<string, userGroupQueries.CustomUserGroupSummary[]>();
+	for (const group of groups) {
+		groupsByProject.set(group.projectId, [...(groupsByProject.get(group.projectId) ?? []), group]);
+	}
+	return groupsByProject;
+}
+
+/** The free plan keeps the oldest custom groups active, so this order decides which ones it locks. */
+function sortOldestFirst<Group extends { id: string; createdAt: Date }>(groups: Group[]): Group[] {
+	return [...groups].sort(
+		(left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id),
+	);
+}
+
 async function listUserGroupsWithAvailability(projectId: string): Promise<AvailableUserGroup[]> {
-	return applyCurrentUserGroupAvailability(await userGroupQueries.listUserGroups(projectId));
+	return applyCurrentUserGroupAvailability(projectId, await userGroupQueries.listUserGroups(projectId));
 }
 
 function getActiveUserGroupIds(groups: AvailableUserGroup[]): Set<string> {

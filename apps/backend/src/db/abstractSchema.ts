@@ -36,6 +36,9 @@ export type NewProjectWarehouseCredentials = typeof sqliteSchema.projectWarehous
 export type DBWarehouseProvisioningJob = typeof sqliteSchema.warehouseProvisioningJob.$inferSelect;
 export type NewWarehouseProvisioningJob = typeof sqliteSchema.warehouseProvisioningJob.$inferInsert;
 
+export type DBWarehouseConnectionCheck = typeof sqliteSchema.warehouseConnectionCheck.$inferSelect;
+export type NewWarehouseConnectionCheck = typeof sqliteSchema.warehouseConnectionCheck.$inferInsert;
+
 export type DBProjectMember = typeof sqliteSchema.projectMember.$inferSelect;
 export type NewProjectMember = typeof sqliteSchema.projectMember.$inferInsert;
 
@@ -110,12 +113,14 @@ export type NewStoryFile = typeof sqliteSchema.storyFile.$inferInsert;
 
 export type DBStoryDraftFile = typeof sqliteSchema.storyDraftFile.$inferSelect;
 export type NewStoryDraftFile = typeof sqliteSchema.storyDraftFile.$inferInsert;
+export type DBStoryEditLock = typeof sqliteSchema.storyEditLock.$inferSelect;
 
 export type DBStoryBundle = typeof sqliteSchema.storyBundle.$inferSelect;
 export type NewStoryBundle = typeof sqliteSchema.storyBundle.$inferInsert;
 
 export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
+export type DBStoryFilterOptionsCache = typeof sqliteSchema.storyFilterOptionsCache.$inferSelect;
 
 export type DBStoryAppState = typeof sqliteSchema.storyAppState.$inferSelect;
 export type NewStoryAppState = typeof sqliteSchema.storyAppState.$inferInsert;
@@ -156,6 +161,21 @@ export type NewBudgetNotification = typeof sqliteSchema.budgetNotification.$infe
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;
 
+export type DBCreditWallet = typeof sqliteSchema.creditWallet.$inferSelect;
+export type NewCreditWallet = typeof sqliteSchema.creditWallet.$inferInsert;
+
+export type DBCreditGrantPolicy = typeof sqliteSchema.creditGrantPolicy.$inferSelect;
+export type NewCreditGrantPolicy = typeof sqliteSchema.creditGrantPolicy.$inferInsert;
+
+export type DBCreditGrantCandidate = typeof sqliteSchema.creditGrantCandidate.$inferSelect;
+export type NewCreditGrantCandidate = typeof sqliteSchema.creditGrantCandidate.$inferInsert;
+
+export type DBCreditLedger = typeof sqliteSchema.creditLedger.$inferSelect;
+export type NewCreditLedger = typeof sqliteSchema.creditLedger.$inferInsert;
+
+export type DBManagedAiUsage = typeof sqliteSchema.managedAiUsage.$inferSelect;
+export type NewManagedAiUsage = typeof sqliteSchema.managedAiUsage.$inferInsert;
+
 export type DBContextRecommendationRun = typeof sqliteSchema.contextRecommendationRun.$inferSelect;
 export type NewContextRecommendationRun = typeof sqliteSchema.contextRecommendationRun.$inferInsert;
 
@@ -172,6 +192,14 @@ export type DBContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferSelect;
 export type NewContextRecommendationLinkedFeedback =
 	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferInsert;
+
+export type DBTestRun = typeof sqliteSchema.testRun.$inferSelect;
+export type NewTestRun = typeof sqliteSchema.testRun.$inferInsert;
+
+export type DBTestRunResult = typeof sqliteSchema.testRunResult.$inferSelect;
+export type NewTestRunResult = typeof sqliteSchema.testRunResult.$inferInsert;
+
+export type DBContextDraftFile = typeof sqliteSchema.contextDraftFile.$inferSelect;
 
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;
@@ -218,6 +246,9 @@ export type NewStoryFolder = typeof sqliteSchema.storyFolder.$inferInsert;
 
 export type DBStoryFolderItem = typeof sqliteSchema.storyFolderItem.$inferSelect;
 export type NewStoryFolderItem = typeof sqliteSchema.storyFolderItem.$inferInsert;
+
+export type StoryFeedback = typeof sqliteSchema.storyFeedback.$inferSelect;
+export type NewStoryFeedback = typeof sqliteSchema.storyFeedback.$inferInsert;
 
 export type DBMcpOAuthClient = typeof sqliteSchema.mcpOAuthClient.$inferSelect;
 export type NewMcpOAuthClient = typeof sqliteSchema.mcpOAuthClient.$inferInsert;

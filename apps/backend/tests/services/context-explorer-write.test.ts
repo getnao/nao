@@ -12,14 +12,15 @@ vi.hoisted(() => {
 
 import type { ContextExplorerFileAccess } from '../../src/services/context-explorer.service';
 import {
+	createDraftFile,
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
 	searchFileContents,
 	writeFileContent,
 } from '../../src/services/context-explorer.service';
+import { isIgnoredByNaoignore } from '../../src/utils/tools';
 import {
-	baseContext,
 	type ContextGitFixture,
 	createContextGitFixture,
 	expectLiveUnchanged,
@@ -83,21 +84,43 @@ describe('context explorer worktree writes', () => {
 		expectLiveUnchanged(fixture.live, liveSnapshot);
 	});
 
-	it('browses the live project read-only when no repository is connected', async () => {
-		const readOnlyAccess = await fileAccess(baseContext(fixture.live, null));
-		const tree = await getFileTree(fixture.live);
-		const file = await readFileContent('/context.md', readOnlyAccess);
+	it('creates new files as editable worktree drafts without touching the live project', async () => {
+		const created = await createDraftFile('/tests/new/revenue.yml', 'name: revenue\n', access);
+		const draft = await readFileContent('/tests/new/revenue.yml', access);
+		const updated = await writeFileContent('/tests/new/revenue.yml', 'name: updated\n', draft.hash, access);
 
-		expect(tree.map((entry) => entry.name)).toContain('context.md');
-		expect(file).toMatchObject({
-			content: 'live content\n',
-			isEditable: false,
-			reason: 'no-repo',
+		expect(draft).toMatchObject({ content: 'name: revenue\n', isEditable: true, hash: created.hash });
+		expect((await readFileContent('/tests/new/revenue.yml', access)).hash).toBe(updated.hash);
+		await expect(createDraftFile('/tests/new/revenue.yml', 'again\n', access)).rejects.toMatchObject({
+			code: 'CONFLICT',
 		});
-		await expect(writeFileContent('/context.md', 'changed\n', file.hash, readOnlyAccess)).rejects.toMatchObject({
+		await expect(createDraftFile('/untracked.md', 'shadow\n', access)).rejects.toMatchObject({
+			code: 'CONFLICT',
+		});
+		await expect(createDraftFile('/.env.test', 'secret\n', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(createDraftFile('../outside.yml', 'outside\n', access)).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
 		expectLiveUnchanged(fixture.live, liveSnapshot);
+	});
+
+	it('shows the tests folder despite .naoignore while keeping it hidden from the agent', async () => {
+		writeFiles(fixture.live, {
+			'.naoignore': 'tests/\nprivate/\n',
+			'tests/revenue.yml': 'prompt: What is the revenue?\n',
+			'private/notes.md': 'What is the revenue?\n',
+		});
+
+		const tree = await getFileTree(fixture.live);
+		const test = await readFileContent('/tests/revenue.yml', access);
+		const search = await searchFileContents('revenue', fixture.live);
+
+		expect(tree.map((entry) => entry.name)).toContain('tests');
+		expect(tree.map((entry) => entry.name)).not.toContain('private');
+		expect(test.content).toBe('prompt: What is the revenue?\n');
+		await expect(readFileContent('/private/notes.md', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(search.results.map((result) => result.path)).toEqual(['/tests/revenue.yml']);
+		expect(isIgnoredByNaoignore('tests/revenue.yml', fixture.live)).toBe(true);
 	});
 
 	it('returns every editability reason with actionable guidance in precedence order', async () => {

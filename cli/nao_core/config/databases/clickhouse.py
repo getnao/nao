@@ -736,7 +736,7 @@ class ClickHouseDatabaseContext(DatabaseContext):
         try:
             cursor = self._conn.raw_sql(sql)  # type: ignore[union-attr]
             rows = _raw_sql_to_rows(cursor)
-            return [self._filter_excluded_row(_normalize_row(r)) for r in rows]
+            return [self._prepare_preview_row(_normalize_row(r)) for r in rows]
         except Exception as e:
             logger.debug(
                 "ClickHouse preview query failed for %s.%s: %s; returning empty list",

@@ -15,7 +15,7 @@ export function FolderBreadcrumb({ path, rootIcon }: { path: BreadcrumbNode[]; r
 		<nav aria-label='Folder navigation' className='flex items-center gap-0.5 min-w-0'>
 			<span className='shrink-0 flex items-center gap-0.5'>
 				<DroppableCrumb node={root} isLast={rootIsLast} rootIcon={rootIcon} />
-				{!rootIsLast && <ChevronRight className='size-4 text-muted-foreground/50 shrink-0' />}
+				{!rootIsLast && <ChevronRight className='size-3.5 text-muted-foreground/50 shrink-0' />}
 			</span>
 
 			{rest.length > 0 && (
@@ -24,7 +24,7 @@ export function FolderBreadcrumb({ path, rootIcon }: { path: BreadcrumbNode[]; r
 						const isLast = index === rest.length - 1;
 						return (
 							<span key={node.id} className='flex items-center gap-0.5 min-w-0'>
-								{index > 0 && <ChevronRight className='size-4 text-muted-foreground/50 shrink-0' />}
+								{index > 0 && <ChevronRight className='size-3.5 text-muted-foreground/50 shrink-0' />}
 								<span className={cn(!isLast && 'truncate')}>
 									<DroppableCrumb node={node} isLast={isLast} rootIcon={rootIcon} />
 								</span>
@@ -59,11 +59,11 @@ function DroppableCrumb({
 				'flex items-center gap-1 rounded transition-colors',
 				isOver && 'bg-primary/10 text-primary',
 				isLast ? 'text-foreground' : 'text-muted-foreground hover:text-foreground cursor-pointer',
-				node.id === null ? 'px-1 py-1' : '',
+				node.id === null ? 'p-0.5' : '',
 			)}
 		>
-			{node.id === null ? <RootIcon className='size-6' /> : node.name}
-			{node.isPrivate && <Lock className='size-2.5 shrink-0 text-muted-foreground mt-2' />}
+			{node.id === null ? <RootIcon className='size-4' /> : node.name}
+			{node.isPrivate && <Lock className='size-2.5 shrink-0 text-muted-foreground' />}
 		</span>
 	);
 

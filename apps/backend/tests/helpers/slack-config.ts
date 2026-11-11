@@ -12,6 +12,7 @@ export function createSlackConfig(overrides: Partial<SlackConfig> = {}): SlackCo
 		appToken: '',
 		replyMode: 'thread',
 		dmScopeMissing: false,
+		dmThreadsEnabled: false,
 		...overrides,
 	};
 }

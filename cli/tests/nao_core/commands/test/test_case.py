@@ -31,6 +31,22 @@ def test_from_yaml_database(tmp_path, database_line, expected_database):
     assert case.database == expected_database
 
 
+def test_from_yaml_keeps_unquoted_dates_of_assertion_args_as_strings(tmp_path):
+    test_file = tmp_path / "revenue.yml"
+    test_file.write_text(
+        "prompt: revenue since january\n"
+        "assertions:\n"
+        "  - type: tool_call\n"
+        "    tool: query_metrics\n"
+        "    args:\n"
+        "      start_date: 2025-01-01\n"
+    )
+
+    case = NaoTestCase.from_yaml(test_file)
+
+    assert case.assertions == [ToolCallAssertion(tool="query_metrics", args={"start_date": "2025-01-01"})]
+
+
 def test_discover_tests_ignores_outputs_dir(tmp_path):
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "real.yml").write_text("prompt: real\n")

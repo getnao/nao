@@ -1,8 +1,5 @@
 /* @license Enterprise */
 
-import fs from 'node:fs';
-import path from 'node:path';
-
 import type { UserRole } from '@nao/shared/types';
 
 import * as backofficeQueries from '../queries/backoffice.queries';
@@ -13,18 +10,23 @@ import * as orgQueries from '../queries/organization.queries';
 import type { SearchPaginationInput } from '../types/backoffice';
 import type { OrgRole } from '../types/organization';
 import { HandlerError } from '../utils/error';
-import { extractConfiguredDatabases, extractRequiredEnvVars } from '../utils/nao-config';
+import { extractConfiguredDatabases } from '../utils/nao-config';
 import { toBillingSummary } from './backoffice-billing.service';
+import { isLicenseExpired, verifyOrganizationLicense } from './license.service';
 import * as membershipService from './membership.service';
+import { assessProjectReadiness } from './project-readiness.service';
 
 export async function listOrganizations(input: SearchPaginationInput) {
 	const page = await backofficeQueries.listOrganizations(input);
 	return {
 		...page,
-		items: page.items.map(({ billing, ...organization }) => ({
-			...organization,
-			billing: toBillingSummary(organization.bypassBilling, billing),
-		})),
+		items: await Promise.all(
+			page.items.map(async ({ billing, license, ...organization }) => ({
+				...organization,
+				license: await toOrganizationLicenseSummary(organization.id, license),
+				billing: toBillingSummary(organization.bypassBilling, billing),
+			})),
+		),
 	};
 }
 
@@ -36,16 +38,25 @@ export async function getOrganizationDetail(orgId: string) {
 		backofficeQueries.getOrganizationApiKeys(orgId),
 		statsQueries.getOrganizationStats(orgId),
 	]);
-	return { organization: toOrganizationSummary(organization), members, projects, apiKeys, stats };
+	return { organization: await toOrganizationSummary(organization), members, projects, apiKeys, stats };
 }
 
-export async function updateOrganization(orgId: string, values: { name?: string; bypassBilling?: boolean }) {
+export async function updateOrganization(
+	orgId: string,
+	values: { name?: string; bypassBilling?: boolean; license?: string | null },
+) {
 	await requireOrganization(orgId);
+	if (values.license) {
+		await assertActiveOrganizationLicense(orgId, values.license);
+	}
 	if (values.name !== undefined) {
 		await orgQueries.updateOrganizationName(orgId, values.name);
 	}
 	if (values.bypassBilling !== undefined) {
 		await orgQueries.updateOrganizationBypassBilling(orgId, values.bypassBilling);
+	}
+	if (values.license !== undefined) {
+		await orgQueries.updateOrganizationLicense(orgId, values.license);
 	}
 	return toOrganizationSummary(await requireOrganization(orgId));
 }
@@ -124,7 +135,10 @@ export async function getUserDetail(userId: string) {
 	return { user: toUserSummary(user), organizations, projects, ...usage };
 }
 
-export async function updateUser(userId: string, values: { name?: string; email?: string }) {
+export async function updateUser(
+	userId: string,
+	{ deactivated, ...values }: { name?: string; email?: string; deactivated?: boolean },
+) {
 	const user = await requireUser(userId);
 	if (values.email !== undefined) {
 		const owner = await userQueries.getUserByEmail(values.email);
@@ -132,10 +146,11 @@ export async function updateUser(userId: string, values: { name?: string; email?
 			throw new HandlerError('CONFLICT', 'Email is already in use');
 		}
 	}
-	if (Object.keys(values).length === 0) {
-		return toUserSummary(user);
+	const changes = { ...values, ...resolveDeactivationChange(user.deactivatedAt, deactivated) };
+	const updated = Object.keys(changes).length ? await userQueries.updateUserForBackoffice(userId, changes) : user;
+	if (deactivated) {
+		await userQueries.revokeUserCredentials(userId);
 	}
-	const updated = await userQueries.updateUserForBackoffice(userId, values);
 	return toUserSummary(updated!);
 }
 
@@ -164,34 +179,56 @@ async function requireUser(userId: string) {
 }
 
 function inspectProject(project: Awaited<ReturnType<typeof requireProject>>) {
-	const hasPath = isSet(project.path);
-	const directoryExists = hasPath && isDirectory(project.path!);
-	const naoConfigExists = directoryExists && fs.existsSync(path.join(project.path!, 'nao_config.yaml'));
-	const requiredEnvVars = directoryExists ? extractRequiredEnvVars(project.path!) : [];
-	const setEnvVarNames = Object.keys(project.envVars).sort();
-	const missingEnvVars = requiredEnvVars.filter((name) => !isSet(project.envVars[name]));
-	const configuredDatabases = directoryExists ? extractConfiguredDatabases(project.path!) : [];
+	const readiness = assessProjectReadiness(project);
+	const configuredDatabases = readiness.directoryExists ? extractConfiguredDatabases(project.path!) : [];
 	return {
-		context: { hasPath, directoryExists, naoConfigExists, requiredEnvVars, setEnvVarNames, missingEnvVars },
+		context: {
+			hasPath: readiness.hasPath,
+			directoryExists: readiness.directoryExists,
+			naoConfigExists: readiness.naoConfigExists,
+			requiredEnvVars: readiness.requiredEnvVars,
+			setEnvVarNames: readiness.setEnvVarNames,
+			missingEnvVars: readiness.missingEnvVars,
+		},
 		databases: configuredDatabases.map((database) => ({
 			id: database.id,
 			type: database.type ?? '',
-			requiredEnvVars,
-			missingEnvVars,
-			configured: missingEnvVars.length === 0,
+			requiredEnvVars: readiness.requiredEnvVars,
+			missingEnvVars: readiness.missingEnvVars,
+			configured: readiness.missingEnvVars.length === 0,
 		})),
 	};
 }
 
-function isDirectory(directoryPath: string): boolean {
-	try {
-		return fs.statSync(directoryPath).isDirectory();
-	} catch {
-		return false;
+async function assertActiveOrganizationLicense(orgId: string, token: string): Promise<void> {
+	const license = await verifyOrganizationLicense(orgId, token);
+	if (!license) {
+		throw new HandlerError('BAD_REQUEST', 'This license is invalid or was issued for another organization.');
+	}
+	if (isLicenseExpired(license)) {
+		throw new HandlerError('BAD_REQUEST', 'This license has expired.');
 	}
 }
 
-function toOrganizationSummary(organization: Awaited<ReturnType<typeof requireOrganization>>) {
+/** Describes the stored license without ever returning the token, which would let anyone replay it. */
+async function toOrganizationLicenseSummary(orgId: string, token: string | null) {
+	if (!token) {
+		return null;
+	}
+	const license = await verifyOrganizationLicense(orgId, token);
+	if (!license) {
+		return { status: 'invalid' as const };
+	}
+	return {
+		status: isLicenseExpired(license) ? ('expired' as const) : ('active' as const),
+		companyName: license.companyName,
+		subscriptionId: license.subscriptionId,
+		expiresAt: license.expiresAt,
+		features: license.features,
+	};
+}
+
+async function toOrganizationSummary(organization: Awaited<ReturnType<typeof requireOrganization>>) {
 	return {
 		id: organization.id,
 		name: organization.name,
@@ -202,6 +239,7 @@ function toOrganizationSummary(organization: Awaited<ReturnType<typeof requireOr
 			.filter(Boolean),
 		hasGoogleSso: isSet(organization.googleClientId) && isSet(organization.googleClientSecret),
 		bypassBilling: organization.bypassBilling,
+		license: await toOrganizationLicenseSummary(organization.id, organization.license),
 		billing: toBillingSummary(organization.bypassBilling, organization.billing),
 		createdAt: organization.createdAt,
 		updatedAt: organization.updatedAt,
@@ -219,9 +257,21 @@ function toUserSummary(user: NonNullable<Awaited<ReturnType<typeof userQueries.g
 		memoryEnabled: user.memoryEnabled,
 		hasGithubToken: isSet(user.githubAccessToken),
 		hasGitlabToken: isSet(user.gitlabAccessToken),
+		deactivatedAt: user.deactivatedAt,
 		createdAt: user.createdAt,
 		updatedAt: user.updatedAt,
 	};
+}
+
+/** Keeps the original deactivation date when an already deactivated user is deactivated again. */
+function resolveDeactivationChange(
+	currentDeactivatedAt: Date | null,
+	deactivated: boolean | undefined,
+): { deactivatedAt?: Date | null } {
+	if (deactivated === undefined || deactivated === (currentDeactivatedAt !== null)) {
+		return {};
+	}
+	return { deactivatedAt: deactivated ? new Date() : null };
 }
 
 function formatBudgetPeriod(period: 'day' | 'week' | 'month'): 'daily' | 'weekly' | 'monthly' {

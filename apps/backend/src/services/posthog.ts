@@ -17,6 +17,7 @@ export enum PostHogEvent {
 
 	MessageSent = 'message_sent',
 	MessageFeedbackSubmitted = 'message_feedback_submitted',
+	StoryFeedbackSubmitted = 'story_feedback_submitted',
 
 	ChatRenamed = 'chat_renamed',
 	ChatDeleted = 'chat_deleted',
@@ -41,6 +42,9 @@ export enum PostHogEvent {
 	MattermostConfigured = 'mattermost_configured',
 	DiscordConfigured = 'discord_configured',
 	WhatsappConfigured = 'whatsapp_configured',
+
+	McpToolCalled = 'mcp_tool_called',
+	McpEndpointSettingsUpdated = 'mcp_endpoint_settings_updated',
 }
 
 /**

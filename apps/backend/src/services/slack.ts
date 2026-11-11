@@ -16,6 +16,7 @@ import {
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent, Thread, ThreadImpl } from 'chat';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import type { User } from '../db/abstractSchema';
 import * as chartImageQueries from '../queries/chart-image';
@@ -64,7 +65,8 @@ import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { isStoriesPath } from '../utils/story-mount';
 import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
-import { agentService, defaultAgentToolsExcluding } from './agent';
+import { agentService } from './agent';
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { SlackSocketBridge } from './slack-socket-bridge';
@@ -80,8 +82,6 @@ const SLACK_USER_MENTION_REGEX = /(^|[^\w<])@([a-zA-Z0-9._-]+)/g;
 const CODE_SPAN_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/;
 const RESERVED_SLACK_MENTIONS = new Set(['channel', 'everyone', 'here']);
 /** Every file written to storage is posted to the thread, so edits go through a full `write` that re-sends the new version. */
-const SLACK_EXCLUDED_TOOLS = ['str_replace'];
-
 type SlackReplyMessage = NonNullable<Awaited<ReturnType<WebClient['conversations']['replies']>>['messages']>[number];
 type SlackUser = NonNullable<Awaited<ReturnType<WebClient['users']['list']>>['members']>[number];
 
@@ -171,6 +171,7 @@ export class ProjectSlackBot {
 				slack: createSlackAdapter({
 					botToken: config.botToken,
 					signingSecret: this._adapterSigningSecret,
+					agentView: config.dmThreadsEnabled,
 				}),
 			},
 			state: createMemoryState(),
@@ -519,6 +520,7 @@ export class ProjectSlackBot {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
+			void triggerChatFeedbackAutomations({ messageId, vote: 'up' });
 			await this._updateCompletionCardVote(threadId, 'up');
 		});
 
@@ -559,11 +561,9 @@ export class ProjectSlackBot {
 				throw new Error(`You are not authorized to provide feedback on this message.`);
 			}
 
-			await feedbackQueries.upsertFeedback({
-				messageId,
-				vote: 'down',
-				explanation: event.values['explanation'] || undefined,
-			});
+			const explanation = event.values['explanation'] || undefined;
+			await feedbackQueries.upsertFeedback({ messageId, vote: 'down', explanation });
+			void triggerChatFeedbackAutomations({ messageId, submitterId: user.id, vote: 'down', explanation });
 			await this._updateCompletionCardVote(threadId, 'down');
 			return { action: 'close' };
 		});
@@ -1206,14 +1206,11 @@ export class ProjectSlackBot {
 			agent.stop();
 		}
 		await this._readStreamAndUpdateSlackMessage(stream, ctx, activeStream);
-
-		const previousCompletion = this._lastCompletionCard.get(ctx.thread.id);
-		if (previousCompletion) {
-			await this._slackClient.chat.delete({
-				channel: previousCompletion.channelId,
-				ts: previousCompletion.messageTs,
-			});
+		await this._deletePreviousCompletionCard(ctx.thread.id);
+		if (!this._getSlackStreamMessageTs(ctx)) {
+			return;
 		}
+
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const { channelId } = this._getSlackMessageDestination(ctx);
 		const hiddenTables = countHiddenTableNotices(this._getSlackStreamState(ctx).lastDeliveredChildren);
@@ -1223,6 +1220,19 @@ export class ProjectSlackBot {
 			createCompletionCard(chatUrl, { hiddenTables, appName }).children,
 		);
 		this._lastCompletionCard.set(ctx.thread.id, { channelId, messageTs, chatUrl, hiddenTables });
+	}
+
+	/** Feedback buttons always rate the latest assistant message, so only the newest answer may carry them. */
+	private async _deletePreviousCompletionCard(threadId: string): Promise<void> {
+		const previousCompletion = this._lastCompletionCard.get(threadId);
+		if (!previousCompletion) {
+			return;
+		}
+		this._lastCompletionCard.delete(threadId);
+		await this._slackClient.chat.delete({
+			channel: previousCompletion.channelId,
+			ts: previousCompletion.messageTs,
+		});
 	}
 
 	private async _createAgentStream(
@@ -1235,19 +1245,15 @@ export class ProjectSlackBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this.projectId },
 			this._modelSelection,
-			{
-				billingAccessVerifiedProjectId: this.projectId,
-				supportsCustomCharts: false,
-				tools: defaultAgentToolsExcluding(SLACK_EXCLUDED_TOOLS),
-			},
+			messagingAgent('slack'),
+			{ billingAccessVerifiedProjectId: this.projectId },
 		);
 		ctx.modelId = agent.getModelId();
 		return {
 			agent,
 			stream: agent.stream(chat.messages, {
-				provider: 'slack',
 				timezone: ctx.timezone,
-				tracking: { source: 'slack', isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
+				tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
 			}),
 		};
 	}
@@ -1606,11 +1612,35 @@ export class ProjectSlackBot {
 				}
 			}
 		}
-		const finalBlocks =
-			ctx.blocks.length > 0
-				? ctx.blocks
-				: [createTextBlock(activeStream.stopRequested ? '_Generation stopped._' : '_No response._')];
-		await this._editConversationCard(ctx, finalBlocks, true);
+		if (ctx.blocks.length > 0) {
+			await this._editConversationCard(ctx, ctx.blocks, true);
+		} else if (activeStream.stopRequested) {
+			await this._editConversationCard(ctx, [createTextBlock('_Generation stopped._')], true);
+		} else {
+			await this._deleteConversationCard(ctx);
+		}
+	}
+
+	/**
+	 * An empty answer is a deliberate silence (e.g. a rule telling the agent not to reply), so leave no trace.
+	 * If Slack refuses the delete, settle the card instead so it never stays stuck on "answering".
+	 */
+	private async _deleteConversationCard(ctx: ConversationContext): Promise<void> {
+		const streamState = this._getSlackStreamState(ctx);
+		if (!streamState.messageTs) {
+			return;
+		}
+		const { channelId } = this._getSlackMessageDestination(ctx);
+		try {
+			await this._slackClient.chat.delete({ channel: channelId, ts: streamState.messageTs });
+		} catch (error) {
+			logger.warn(`Failed to delete Slack answering card after an empty answer: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, threadId: ctx.thread.id, messageTs: streamState.messageTs },
+			});
+			await this._editConversationCard(ctx, [createTextBlock('_No response._')], true);
+		}
+		streamState.messageTs = null;
 	}
 
 	private _updateTextBlock(
@@ -1816,6 +1846,7 @@ class SlackService {
 			previous.transportMode !== next.transportMode ||
 			previous.appToken !== next.appToken ||
 			previous.replyMode !== next.replyMode ||
+			previous.dmThreadsEnabled !== next.dmThreadsEnabled ||
 			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
 			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
 			previous.modelSelection?.provider !== next.modelSelection?.provider ||

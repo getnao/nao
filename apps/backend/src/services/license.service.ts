@@ -4,12 +4,23 @@ import { existsSync, readFileSync } from 'node:fs';
 
 import { errors as joseErrors, importSPKI, jwtVerify, type KeyObject } from 'jose';
 
-import { env } from '../env';
-import { LICENSE_ALL_FEATURES, LICENSE_FEATURES, type LicenseFeature, type NaoLicense } from '../types/license';
+import { env, isCloud } from '../env';
+import {
+	getOrganizationLicenseToken,
+	getProjectOrganizationLicenseToken,
+	type OrganizationLicenseToken,
+} from '../queries/organization.queries';
+import {
+	LICENSE_ALL_FEATURES,
+	LICENSE_FEATURES,
+	type LicenseFeature,
+	type LicenseScope,
+	type NaoLicense,
+} from '../types/license';
 import { LICENSES_BASE_URL } from './license-endpoints';
 import { getBundledPublicKey } from './license-public-key';
 
-export type { LicenseFeature, LicenseStatus, NaoLicense } from '../types/license';
+export type { LicenseFeature, LicenseScope, LicenseStatus, NaoLicense } from '../types/license';
 export { LICENSE_ALL_FEATURES, LICENSE_FEATURES, LICENSE_STATUSES } from '../types/license';
 
 const LICENSE_ISSUER = 'getnao';
@@ -30,6 +41,7 @@ const POST_EXPIRY_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 type OnlineVerdict = 'active' | 'inactive';
 
 let licensePromise: Promise<NaoLicense | null> | null = null;
+const organizationLicenseVerifications = new Map<string, Promise<NaoLicense | null>>();
 let publicKeyPromise: Promise<KeyObject | CryptoKey> | null = null;
 let publicKeyPem: string | null = null;
 let onlineVerdict: OnlineVerdict | null = null;
@@ -42,18 +54,37 @@ export function getLicense(): Promise<NaoLicense | null> {
 	return licensePromise;
 }
 
-export async function hasFeature(feature: LicenseFeature): Promise<boolean> {
-	const license = await getLicense();
-	if (!license) {
-		return false;
+/**
+ * Single entry point for Enterprise feature checks. Unscoped checks only consult the instance
+ * license, which suits features configured server-wide (SSO, white label). Scoped checks also
+ * honour the signed license a cloud organization stores, bound to it by its `orgId` claim.
+ */
+export async function hasFeature(feature: LicenseFeature, scope?: LicenseScope): Promise<boolean> {
+	return isFeatureLicensed(feature, await findActiveOrganizationLicense(scope));
+}
+
+export async function getFeatureAvailability(scope?: LicenseScope): Promise<Record<LicenseFeature, boolean>> {
+	const organizationLicense = await findActiveOrganizationLicense(scope);
+	const features = Object.values(LICENSE_FEATURES);
+	const entries = await Promise.all(
+		features.map(async (feature) => [feature, await isFeatureLicensed(feature, organizationLicense)]),
+	);
+	return Object.fromEntries(entries) as Record<LicenseFeature, boolean>;
+}
+
+/** Verified license for an organization, or null when the token is forged, malformed or bound to another one. */
+export async function verifyOrganizationLicense(orgId: string, token: string): Promise<NaoLicense | null> {
+	let verification = organizationLicenseVerifications.get(token);
+	if (!verification) {
+		verification = verifyLicenseToken(token, 'Organization license');
+		organizationLicenseVerifications.set(token, verification);
 	}
-	if (isLicenseExpiredForFeatureChecks(license)) {
-		return false;
-	}
-	if (onlineVerdict === 'inactive') {
-		return false;
-	}
-	return license.features.includes(feature);
+	const license = await verification;
+	return license?.orgId === orgId ? license : null;
+}
+
+export function isLicenseExpired(license: NaoLicense): boolean {
+	return license.expiresAt.getTime() <= Date.now();
 }
 
 /**
@@ -88,6 +119,7 @@ export function stopLicenseHeartbeat(): void {
 export function resetLicenseCache(): void {
 	licensePromise = null;
 	onlineVerdict = null;
+	organizationLicenseVerifications.clear();
 }
 
 /**
@@ -206,24 +238,69 @@ function pickLatestExpiry(current: Date, renewed: Date | undefined): Date {
 	return renewed;
 }
 
+async function hasInstanceFeature(feature: LicenseFeature): Promise<boolean> {
+	const license = await getLicense();
+	if (!license) {
+		return false;
+	}
+	if (isLicenseExpiredForFeatureChecks(license)) {
+		return false;
+	}
+	if (onlineVerdict === 'inactive') {
+		return false;
+	}
+	return license.features.includes(feature);
+}
+
+async function isFeatureLicensed(feature: LicenseFeature, organizationLicense: NaoLicense | null): Promise<boolean> {
+	return (await hasInstanceFeature(feature)) || (organizationLicense?.features.includes(feature) ?? false);
+}
+
+/** Organization licenses have no online check yet, so their expiry is a hard cutoff without grace. */
+async function findActiveOrganizationLicense(scope: LicenseScope | undefined): Promise<NaoLicense | null> {
+	if (scope === undefined || !isCloud) {
+		return null;
+	}
+	const organization = await findOrganizationLicenseToken(scope);
+	if (!organization?.license) {
+		return null;
+	}
+	const license = await verifyOrganizationLicense(organization.orgId, organization.license);
+	return license && !isLicenseExpired(license) ? license : null;
+}
+
+function findOrganizationLicenseToken(scope: LicenseScope): Promise<OrganizationLicenseToken | null> {
+	if ('orgId' in scope) {
+		return getOrganizationLicenseToken(scope.orgId);
+	}
+	return getProjectOrganizationLicenseToken(scope.projectId);
+}
+
 async function loadAndVerifyLicense(): Promise<NaoLicense | null> {
 	const token = readLicenseToken();
 	if (!token) {
 		return null;
 	}
 
-	try {
-		const payload = await verifySignedToken(token);
+	const license = await verifyLicenseToken(token, 'NAO_LICENSE');
+	if (license?.orgId) {
+		console.error('[license] NAO_LICENSE is bound to an organization and cannot license the whole instance.');
+		return null;
+	}
+	return license;
+}
 
-		return parseLicensePayload(payload);
+async function verifyLicenseToken(token: string, label: string): Promise<NaoLicense | null> {
+	try {
+		return parseLicensePayload(await verifySignedToken(token), label);
 	} catch (err) {
-		logLicenseError(err);
+		logLicenseError(err, label);
 		// jose validates the JWS signature before checking claims, so on JWTExpired
 		// the payload is already trusted. Surface it so callers can distinguish an
 		// expired license (signature OK, exp passed) from a truly invalid one
 		// (bad signature, tampered, missing claims, key mismatch).
 		if (err instanceof joseErrors.JWTExpired) {
-			return parseLicensePayload(err.payload);
+			return parseLicensePayload(err.payload, label);
 		}
 		return null;
 	}
@@ -269,20 +346,21 @@ async function verifySignedToken(token: string): Promise<Record<string, unknown>
 	return payload;
 }
 
-function parseLicensePayload(payload: Record<string, unknown>): NaoLicense | null {
+function parseLicensePayload(payload: Record<string, unknown>, label: string): NaoLicense | null {
 	const subscriptionId = typeof payload.subscriptionId === 'string' ? payload.subscriptionId : null;
 	const companyName = typeof payload.companyName === 'string' ? payload.companyName : null;
 	const exp = typeof payload.exp === 'number' ? payload.exp : null;
 	const iat = typeof payload.iat === 'number' ? payload.iat : null;
 
 	if (!subscriptionId || !companyName || exp === null || iat === null) {
-		console.error('[license] NAO_LICENSE is missing required claims');
+		console.error(`[license] ${label} is missing required claims`);
 		return null;
 	}
 
 	return {
 		subscriptionId,
 		companyName,
+		orgId: typeof payload.orgId === 'string' && payload.orgId.length > 0 ? payload.orgId : null,
 		isOffline: Boolean(payload.isOffline),
 		expiresAt: new Date(exp * 1000),
 		issuedAt: new Date(iat * 1000),
@@ -322,19 +400,19 @@ function parseOptionalFeatures(value: unknown): LicenseFeature[] | undefined {
 	return parseFeatures(value);
 }
 
-function logLicenseError(err: unknown): void {
+function logLicenseError(err: unknown, label: string): void {
 	if (err instanceof joseErrors.JWTExpired) {
-		console.error('[license] NAO_LICENSE has expired.');
+		console.error(`[license] ${label} has expired.`);
 		return;
 	}
 	if (err instanceof joseErrors.JWSSignatureVerificationFailed) {
-		console.error('[license] NAO_LICENSE signature verification failed — the file has been altered.');
+		console.error(`[license] ${label} signature verification failed — the token has been altered.`);
 		return;
 	}
 	if (err instanceof joseErrors.JWTClaimValidationFailed) {
-		console.error(`[license] NAO_LICENSE claim invalid: ${err.message}`);
+		console.error(`[license] ${label} claim invalid: ${err.message}`);
 		return;
 	}
 	const message = err instanceof Error ? err.message : String(err);
-	console.error(`[license] Failed to verify NAO_LICENSE: ${message}`);
+	console.error(`[license] Failed to verify ${label}: ${message}`);
 }

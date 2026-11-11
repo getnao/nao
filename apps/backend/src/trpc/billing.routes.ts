@@ -4,17 +4,25 @@ import { z } from 'zod/v4';
 import { isCloudBillingEnabled } from '../env';
 import { getOrganizationBilling } from '../queries/billing.queries';
 import {
+	confirmCreditTopUpForAdmin,
 	createCloudPaymentMethodPortalForAdmin,
 	createCloudPortalForAdmin,
 	createCloudResubscribeForAdmin,
 	createCloudTrialCheckoutForAdmin,
+	createCreditTopUpCheckoutForAdmin,
 	getCloudBillingOrganizationForAdmin,
 	getCloudUpcomingInvoiceForAdmin,
 	listCloudInvoicesForAdmin,
 	resumeCloudSubscriptionForAdmin,
 	syncCloudBillingForAdmin,
 } from '../services/billing-management.service';
-import { getCloudBillingAccessEndsAt, hasCloudBillingAccess } from '../services/cloud-billing-access.service';
+import {
+	getCloudBillingAccessEndsAt,
+	hasCloudBillingAccess,
+	isActiveLocalTrial,
+	isActiveTrialWithoutPaidPlan,
+	isExpiredTrialWithoutPaidPlan,
+} from '../services/cloud-billing-access.service';
 import {
 	CloudInitialCheckoutUnavailableError,
 	CloudSubscriptionResumeError,
@@ -22,7 +30,13 @@ import {
 	getCloudBillingPlans,
 	getCloudSubscriptionCurrency,
 } from '../services/stripe.service';
-import { CLOUD_BILLING_CURRENCIES, isTerminalBillingStatus, isTrialAvailable } from '../types/billing';
+import {
+	CLOUD_BILLING_CURRENCIES,
+	CREDIT_TOP_UP_MAX_CENTS,
+	CREDIT_TOP_UP_MIN_CENTS,
+	isTerminalBillingStatus,
+	isTrialAvailable,
+} from '../types/billing';
 import type { HandlerErrorCode } from '../utils/error';
 import { logger } from '../utils/logger';
 import { publicProcedure, resolveOrganizationMembership } from './trpc';
@@ -82,6 +96,10 @@ const checkoutInput = z.object({
 	billingInterval: z.enum(['monthly', 'yearly']),
 	currency: currencyInput.default('usd'),
 });
+const creditTopUpInput = z.object({
+	creditAmountCents: z.number().int().min(CREDIT_TOP_UP_MIN_CENTS).max(CREDIT_TOP_UP_MAX_CENTS),
+	requestId: z.uuid(),
+});
 
 export const billingRoutes = {
 	getAccess: cloudBillingAccessProcedure.query(async ({ ctx }) => {
@@ -106,11 +124,20 @@ export const billingRoutes = {
 		});
 		const billing = organization.billing;
 		const trialAvailable = isTrialAvailable(billing);
+		const localTrialActive = isActiveLocalTrial(billing);
+		const needsPaidPlanSelection = isActiveTrialWithoutPaidPlan(billing);
+		const expiredTrialWithoutPaidPlan = isExpiredTrialWithoutPaidPlan(billing);
+		const paidPlanSelected = Boolean(billing?.stripeSubscriptionId && billing.billingPlan);
 		const { availablePlans, subscriptionPlan } = await (async () => {
-			const subscriptionCurrency = billing?.stripeSubscriptionId
-				? await getCloudSubscriptionCurrency(billing.stripeSubscriptionId)
-				: null;
-			return getCloudBillingPlans(billing?.stripePriceId ?? null, input?.currency ?? 'usd', subscriptionCurrency);
+			const subscriptionCurrency =
+				paidPlanSelected && billing?.stripeSubscriptionId
+					? await getCloudSubscriptionCurrency(billing.stripeSubscriptionId)
+					: null;
+			return getCloudBillingPlans(
+				paidPlanSelected ? (billing?.stripePriceId ?? null) : null,
+				input?.currency ?? 'usd',
+				subscriptionCurrency,
+			);
 		})().catch((error: unknown) => throwBillingFailure('plan lookup', 'Unable to load billing plans', error));
 		const projectedPlan =
 			subscriptionPlan ?? Object.values(availablePlans).find((plan) => plan.key === billing?.billingPlan) ?? null;
@@ -127,11 +154,14 @@ export const billingRoutes = {
 			billingAccessEndsAt: billing?.billingAccessEndsAt ?? null,
 			canManageBilling: true,
 			trialAvailable,
-			portalAvailable: Boolean(billing?.stripeCustomerId && billing.stripeSubscriptionId),
+			needsPaidPlanSelection,
+			paidPlanSelected,
+			portalAvailable: Boolean(billing?.stripeCustomerId && paidPlanSelected),
 			invoiceHistoryAvailable: Boolean(billing?.stripeCustomerId),
-			paymentMethodManagementAvailable: Boolean(billing?.stripeCustomerId),
+			paymentMethodManagementAvailable: Boolean(billing?.stripeCustomerId && paidPlanSelected),
 			resubscribeAvailable:
-				(!billing?.stripeSubscriptionId && !trialAvailable) ||
+				expiredTrialWithoutPaidPlan ||
+				(!billing?.stripeSubscriptionId && !trialAvailable && !localTrialActive) ||
 				(Boolean(billing?.stripeCustomerId && billing.stripeSubscriptionId) &&
 					isTerminalBillingStatus(billing?.billingStatus)),
 			hasStripeSubscription: Boolean(billing?.stripeSubscriptionId),
@@ -151,9 +181,39 @@ export const billingRoutes = {
 			if (error instanceof CloudInitialCheckoutUnavailableError) {
 				throw new TRPCError({ code: 'CONFLICT', message: error.message });
 			}
-			throwBillingFailure('trial activation', 'Unable to start the free trial', error);
+			throwBillingFailure('plan Checkout', 'Unable to open Stripe Checkout', error);
 		}
 	}),
+
+	createCreditTopUpCheckoutSession: cloudBillingAdminProcedure
+		.input(creditTopUpInput)
+		.mutation(async ({ ctx, input }) => {
+			try {
+				const url = await createCreditTopUpCheckoutForAdmin({
+					...input,
+					userId: ctx.user.id,
+					organizationId: ctx.organization.id,
+				});
+				return { url };
+			} catch (error) {
+				throwBillingFailure('credit top-up Checkout', 'Unable to start credit Checkout', error);
+			}
+		}),
+
+	confirmCreditTopUp: cloudBillingAdminProcedure
+		.input(z.object({ checkoutSessionId: z.string().min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				const credited = await confirmCreditTopUpForAdmin({
+					userId: ctx.user.id,
+					organizationId: ctx.organization.id,
+					checkoutSessionId: input.checkoutSessionId,
+				});
+				return { credited };
+			} catch (error) {
+				throwBillingFailure('credit top-up confirmation', 'Unable to confirm credit Checkout', error);
+			}
+		}),
 
 	getInvoices: cloudBillingAdminProcedure.query(async ({ ctx }) => {
 		try {

@@ -1,17 +1,21 @@
 import os
 import threading
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, fields
+from typing import Any, TypeVar
 
 import requests
 
 from nao_core.auth import clear_stored_auth, get_auth_session, interactive_login, login
 from nao_core.config.llm import ModelCosts
+from nao_core.config.test import ComparisonConfig
 from nao_core.ui import UI
 
+from .assertions import Assertion
 from .case import TestCase
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5005")
+
+DataclassT = TypeVar("DataclassT")
 
 
 @dataclass
@@ -51,6 +55,15 @@ class VerificationResult:
 
 
 @dataclass
+class TestVerdict:
+    """Pass/fail decision computed by the backend, absent on servers that predate it."""
+
+    passed: bool
+    message: str
+    comparison: str | None = None
+
+
+@dataclass
 class TestResult:
     """Result from running a test prompt."""
 
@@ -61,6 +74,7 @@ class TestResult:
     finish_reason: str
     duration_ms: int
     verification: VerificationResult | None = None
+    verdict: TestVerdict | None = None
 
 
 class AgentClientError(Exception):
@@ -77,10 +91,14 @@ class AgentClient:
         backend_url: str = BACKEND_URL,
         email: str | None = None,
         password: str | None = None,
+        api_key: str | None = None,
+        project_name: str | None = None,
     ):
         self.backend_url = backend_url
         self._email = email
         self._password = password
+        self._api_key = api_key
+        self._project_name = project_name
         self._session: requests.Session | None = None
         self._auth_lock = threading.Lock()
         self._auth_generation = 0
@@ -90,15 +108,24 @@ class AgentClient:
         """Get or create an authenticated session, with its auth generation."""
         with self._auth_lock:
             if self._session is None:
-                self._session = get_auth_session(
-                    self.backend_url,
-                    email=self._email,
-                    password=self._password,
-                )
+                self._session = self._create_session()
             return self._session, self._auth_generation
+
+    def _create_session(self) -> requests.Session:
+        if not self._api_key:
+            return get_auth_session(self.backend_url, email=self._email, password=self._password)
+
+        session = requests.Session()
+        session.headers["Authorization"] = f"Bearer {self._api_key}"
+        if self._project_name:
+            session.headers["x-nao-project-name"] = self._project_name
+        return session
 
     def _handle_auth_retry(self, generation: int) -> bool:
         """Handle 401 by re-authenticating. Only one thread re-authenticates at a time."""
+        if self._api_key:
+            return False
+
         with self._auth_lock:
             if self._auth_generation != generation:
                 return True
@@ -126,7 +153,9 @@ class AgentClient:
         provider: str = "openai",
         model_id: str = "gpt-4.1",
         costs: ModelCosts | None = None,
+        comparison: ComparisonConfig | None = None,
         retry_auth: bool = True,
+        reasoning_effort: str | None = None,
     ) -> TestResult:
         """Run a test prompt and return the result."""
         session, auth_generation = self._get_session()
@@ -138,11 +167,20 @@ class AgentClient:
             "prompt": test_case.prompt,
         }
 
+        if reasoning_effort:
+            payload["model"]["reasoningEffort"] = reasoning_effort
+
         if test_case.sql:
             payload["sql"] = test_case.sql
 
         if test_case.database:
             payload["databaseId"] = test_case.database
+
+        if test_case.assertions:
+            payload["assertions"] = [serialize_assertion(assertion) for assertion in test_case.assertions]
+
+        if comparison is not None:
+            payload["comparison"] = comparison.model_dump()
 
         cost_payload = serialize_model_costs(costs)
         if cost_payload is not None:
@@ -155,8 +193,18 @@ class AgentClient:
 
         if response.status_code == 401:
             if retry_auth and self._handle_auth_retry(auth_generation):
-                return self.run_test(test_case, provider, model_id, costs=costs, retry_auth=False)
-            raise AgentClientError("Unauthorized. Please check your credentials.")
+                return self.run_test(
+                    test_case,
+                    provider,
+                    model_id,
+                    costs=costs,
+                    comparison=comparison,
+                    reasoning_effort=reasoning_effort,
+                    retry_auth=False,
+                )
+            raise AgentClientError(
+                "Invalid API key." if self._api_key else "Unauthorized. Please check your credentials."
+            )
 
         if response.status_code != 200:
             raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
@@ -169,18 +217,55 @@ class AgentClient:
             cost=TokenCost(**data["cost"]),
             finish_reason=data["finishReason"],
             duration_ms=data.get("durationMs", 0),
-            verification=VerificationResult(**data["verification"]) if data.get("verification") else None,
+            verification=from_known_fields(VerificationResult, data["verification"])
+            if data.get("verification")
+            else None,
+            verdict=from_known_fields(TestVerdict, data["verdict"]) if data.get("verdict") else None,
         )
+
+    def get_reasoning_efforts(self, provider: str, model_id: str, retry_auth: bool = True) -> list[str]:
+        """List the reasoning efforts the backend can run a model at, from the lowest."""
+        session, auth_generation = self._get_session()
+        response = session.get(
+            f"{self.backend_url}/api/test/reasoning-efforts",
+            params={"provider": provider, "modelId": model_id},
+        )
+
+        if response.status_code == 401:
+            if retry_auth and self._handle_auth_retry(auth_generation):
+                return self.get_reasoning_efforts(provider, model_id, retry_auth=False)
+            raise AgentClientError(
+                "Invalid API key." if self._api_key else "Unauthorized. Please check your credentials."
+            )
+
+        if response.status_code == 404:
+            raise AgentClientError("This nao server cannot run models at reasoning efforts, update it first.")
+
+        if response.status_code != 200:
+            raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
+
+        return response.json()["reasoningEfforts"]
 
 
 _client: AgentClient | None = None
 
 
-def get_client(email: str | None = None, password: str | None = None) -> AgentClient:
+def get_client(
+    email: str | None = None,
+    password: str | None = None,
+    api_key: str | None = None,
+    project_name: str | None = None,
+) -> AgentClient:
     """Get or create the module-level agent client."""
     global _client
     if _client is None:
-        _client = AgentClient(BACKEND_URL, email=email, password=password)
+        _client = AgentClient(
+            BACKEND_URL,
+            email=email,
+            password=password,
+            api_key=api_key,
+            project_name=project_name,
+        )
     return _client
 
 
@@ -197,3 +282,17 @@ def serialize_model_costs(costs: ModelCosts | None) -> dict[str, float] | None:
     }
     serialized = {key: value for key, value in priced.items() if value is not None}
     return serialized or None
+
+
+def serialize_assertion(assertion: Assertion) -> dict[str, Any]:
+    """Convert an assertion to the backend API shape."""
+    serialized: dict[str, Any] = {"type": "tool_call", "tool": assertion.tool, "min_count": assertion.min_count}
+    if assertion.args is not None:
+        serialized["args"] = assertion.args
+    return serialized
+
+
+def from_known_fields(cls: type[DataclassT], data: dict[str, Any]) -> DataclassT:
+    """Build a dataclass from an API payload, ignoring the fields newer servers add."""
+    known_fields = {field.name for field in fields(cls)}
+    return cls(**{key: value for key, value in data.items() if key in known_fields})

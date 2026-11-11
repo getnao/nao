@@ -15,6 +15,26 @@
 		<meta property="og:type" content="website" />
 		<link rel="apple-touch-icon" href="/appicon.png" />
 		<title>nao — Chat with your data</title>
+		<style>
+			html.dark {
+				color-scheme: dark;
+				background-color: oklch(0.145 0.005 270);
+			}
+		</style>
+		<script>
+			(function () {
+				try {
+					var theme = localStorage.getItem('theme') || 'system';
+					var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+					if (theme === 'dark' || (theme === 'system' && systemDark)) {
+						document.documentElement.classList.add('dark');
+						document
+							.querySelector('meta[name="theme-color"]')
+							.setAttribute('content', 'oklch(0.145 0.005 270)');
+					}
+				} catch (error) {}
+			})();
+		</script>
 	</head>
 	<body>
 		<div id="app"></div>

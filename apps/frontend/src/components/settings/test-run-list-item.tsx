@@ -1,0 +1,368 @@
+import { isTestFileName } from '@nao/shared/test-paths';
+import { GitBranch, History } from 'lucide-react';
+import type { TestModel } from '@nao/backend/test-run';
+
+import type { TestRunSummary } from '@/components/settings/test-run-types';
+import type { Tone } from '@/components/settings/test-run-verdict';
+import { CHANGES_FALLBACK, TONE_LABELS, ToneIcon } from '@/components/settings/test-run-labels';
+import {
+	countDistinctModels,
+	formatTestModel,
+	getSingleRunVariant,
+	describeReasoningEfforts,
+	isActiveRun,
+} from '@/components/settings/test-run-types';
+import { SimpleTooltip } from '@/components/ui/tooltip';
+import { getTimeAgo } from '@/lib/time-ago';
+import { cn } from '@/lib/utils';
+
+/** A run of the suite, or of one test in its history, which then counts only that test and may not name its author. */
+export type RunListSource = Pick<
+	TestRunSummary,
+	| 'status'
+	| 'trigger'
+	| 'selection'
+	| 'models'
+	| 'attempts'
+	| 'completedAttempts'
+	| 'totalAttempts'
+	| 'contextRef'
+	| 'errorMessage'
+	| 'createdAt'
+	| 'testTotals'
+	| 'triggeredByName'
+>;
+
+type VariantTotals = TestRunSummary['testTotals'][number];
+type TestTotals = Omit<VariantTotals, 'contextVariant' | 'models'>;
+
+interface RunListChip {
+	label: string;
+	isBranch: boolean;
+	/** Set on the branch a comparison ran against, read "vs main". */
+	isComparedBranch?: boolean;
+}
+
+interface RunListItemView {
+	tone: Tone;
+	scope: string;
+	result: { label: string; tooltip: string } | null;
+	/** Share of the run done, while it runs. */
+	progress: number | null;
+	chips: RunListChip[];
+	statusTooltip: { status: string; startedBy: string };
+}
+
+export interface RunListContext {
+	/** The branch production comes from, `main` when the context has no git repository. */
+	mainBranch: string;
+	/** The tests of the suite, to tell a run of all of them apart from a partial one. */
+	suiteTestPaths?: string[];
+	/** Names every run after this test, in the history of one test where each run counts only that test. */
+	testPath?: string;
+}
+
+export function RunListItem({
+	view,
+	isSelected,
+	isOutdated = false,
+	isOption = false,
+	onSelect,
+}: {
+	view: RunListItemView;
+	isSelected: boolean;
+	/** The run tested an older version of the test shown. */
+	isOutdated?: boolean;
+	/** Rendered as an option of a listbox rather than as a link-like button. */
+	isOption?: boolean;
+	onSelect: () => void;
+}) {
+	return (
+		<button
+			type='button'
+			role={isOption ? 'option' : undefined}
+			aria-selected={isOption ? isSelected : undefined}
+			aria-current={!isOption && isSelected ? 'true' : undefined}
+			onClick={onSelect}
+			className={cn(
+				'flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/50',
+				isSelected && 'bg-accent',
+			)}
+		>
+			<SimpleTooltip
+				side='right'
+				content={
+					<span className='flex flex-col'>
+						<span>{view.statusTooltip.status}</span>
+						<span className='opacity-70'>{view.statusTooltip.startedBy}</span>
+					</span>
+				}
+			>
+				<span className='mt-px flex shrink-0'>
+					<ToneIcon tone={view.tone} isLabelled />
+				</span>
+			</SimpleTooltip>
+			<span className='flex min-w-0 flex-1 flex-col gap-1'>
+				<span className='flex min-w-0 items-center gap-2'>
+					<span className='truncate font-medium text-foreground'>{view.scope}</span>
+					{view.result && (
+						<SimpleTooltip content={view.result.tooltip}>
+							<span
+								className={cn(
+									'ml-auto shrink-0 tabular-nums',
+									view.tone === 'pending' ? 'text-muted-foreground' : 'text-foreground',
+								)}
+							>
+								{view.result.label}
+							</span>
+						</SimpleTooltip>
+					)}
+				</span>
+				<span className='flex min-w-0 gap-1 overflow-hidden'>
+					{view.chips.map((chip) => (
+						<RunChip key={chip.label} chip={chip} />
+					))}
+					{isOutdated && (
+						<SimpleTooltip content='This run tested an older version of the test'>
+							<span className='inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10.5px] leading-4 text-muted-foreground'>
+								<History className='size-2.5' />
+								older version
+							</span>
+						</SimpleTooltip>
+					)}
+				</span>
+				{view.progress !== null && (
+					<span className='h-0.5 overflow-hidden rounded-full bg-foreground/10'>
+						<span
+							className='block h-full bg-foreground/50 transition-[width]'
+							style={{ width: `${Math.round(view.progress * 100)}%` }}
+						/>
+					</span>
+				)}
+			</span>
+		</button>
+	);
+}
+
+/** How the Recent runs list shows a run, judged on the user's changes for a comparison and on its best model. */
+export function describeRunListItem(run: RunListSource, context: RunListContext): RunListItemView {
+	const tone = getRunListTone(run);
+	return {
+		tone,
+		scope: context.testPath
+			? describeTestPath(context.testPath)
+			: describeRunTests(run.selection ?? [], context.suiteTestPaths),
+		result: describeRunResult(run, tone, context.mainBranch),
+		progress: tone === 'pending' ? run.completedAttempts / Math.max(run.totalAttempts, 1) : null,
+		chips: listRunChips(run, context.mainBranch),
+		statusTooltip: {
+			status: run.status === 'failed' && run.errorMessage ? `Error: ${run.errorMessage}` : TONE_LABELS[tone],
+			startedBy: [run.triggeredByName, getTimeAgo(new Date(run.createdAt).getTime()).humanReadable]
+				.filter(Boolean)
+				.join(' · '),
+		},
+	};
+}
+
+/** Whether a run is still going, stopped, or passed when every test it judges passed on each of their attempts. */
+export function getRunListTone(run: RunListSource): Tone {
+	if (isActiveRun(run)) {
+		return 'pending';
+	}
+	if (run.status === 'cancelled') {
+		return 'cancelled';
+	}
+	if (run.status !== 'completed') {
+		return 'error';
+	}
+	const judged = getJudgedTotals(run);
+	if (!judged || judged.testCount === 0) {
+		return 'neutral';
+	}
+	if (judged.passedTests === judged.testCount) {
+		return 'pass';
+	}
+	return isFlakyTest(run, judged) ? 'mixed' : 'fail';
+}
+
+function RunChip({ chip }: { chip: RunListChip }) {
+	return (
+		<span className='inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10.5px] leading-4 text-muted-foreground'>
+			{chip.isComparedBranch && 'vs'}
+			{chip.isBranch && <GitBranch className='size-2.5' />}
+			<span className={cn(chip.isBranch && 'font-mono text-[10px] text-foreground')}>{chip.label}</span>
+		</span>
+	);
+}
+
+function describeRunResult(run: RunListSource, tone: Tone, mainBranch: string): RunListItemView['result'] {
+	if (tone === 'pending') {
+		return {
+			label: `${Math.round((run.completedAttempts / Math.max(run.totalAttempts, 1)) * 100)}%`,
+			tooltip: `${run.completedAttempts} of ${run.totalAttempts} answers checked`,
+		};
+	}
+	if (tone === 'cancelled' || tone === 'error') {
+		return null;
+	}
+	if (tone === 'neutral') {
+		return { label: '—', tooltip: 'The run recorded no result' };
+	}
+	if (run.trigger === 'comparison') {
+		return describeComparisonResult(run, mainBranch);
+	}
+	return run.models.length > 1 ? describeBenchmarkResult(run) : describeSingleModelResult(run, tone);
+}
+
+function describeComparisonResult(run: RunListSource, mainBranch: string): RunListItemView['result'] {
+	const before = findVariant(run, 'production');
+	const after = findVariant(run, 'draft');
+	if (!before || !after) {
+		return null;
+	}
+	if (after.testCount === 1) {
+		return describeSingleTestChange(before.passedTests === 1, after.passedTests === 1, mainBranch);
+	}
+	return {
+		label: `${before.passedTests} → ${after.passedTests}`,
+		tooltip: `${before.passedTests} of ${after.testCount} tests pass on ${mainBranch}, ${after.passedTests} with your changes`,
+	};
+}
+
+function describeSingleTestChange(
+	passedBefore: boolean,
+	passesAfter: boolean,
+	mainBranch: string,
+): RunListItemView['result'] {
+	if (passedBefore && !passesAfter) {
+		return { label: 'regressed', tooltip: `Passed on ${mainBranch}, fails with your changes` };
+	}
+	if (!passedBefore && passesAfter) {
+		return { label: 'fixed', tooltip: `Failed on ${mainBranch}, passes with your changes` };
+	}
+	return {
+		label: 'no change',
+		tooltip: `${passesAfter ? 'Passes' : 'Fails'} on ${mainBranch} and with your changes`,
+	};
+}
+
+function describeBenchmarkResult(run: RunListSource): RunListItemView['result'] {
+	const models = findVariant(run, getSingleRunVariant(run))?.models ?? [];
+	const best = pickBestModel(models);
+	if (!best) {
+		return null;
+	}
+	if (best.testCount === 1) {
+		const passingModels = models.filter((model) => model.passedTests === 1).length;
+		const noun = countDistinctModels(models) === models.length ? 'models' : 'efforts';
+		return {
+			label: `${passingModels}/${models.length} ${noun}`,
+			tooltip: `Passes on ${passingModels} of ${models.length} ${noun}`,
+		};
+	}
+	return {
+		label: `best ${best.passedTests}/${best.testCount}`,
+		tooltip: `Best of ${describeModelCount(models)}: ${formatTestModel(best)} passed ${best.passedTests} of ${best.testCount} tests`,
+	};
+}
+
+/** How many models a benchmark tried, counting the efforts of one model as one model. */
+function describeModelCount(models: TestModel[]): string {
+	const distinctModels = countDistinctModels(models);
+	if (distinctModels === models.length) {
+		return `${distinctModels} models`;
+	}
+	return distinctModels === 1 ? `${models.length} efforts` : `${distinctModels} models at ${models.length} efforts`;
+}
+
+function describeSingleModelResult(run: RunListSource, tone: Tone): RunListItemView['result'] {
+	const totals = findVariant(run, getSingleRunVariant(run));
+	if (!totals) {
+		return null;
+	}
+	if (tone === 'mixed') {
+		return { label: 'flaky', tooltip: `Passed ${totals.passedAttempts} of ${totals.totalAttempts} times` };
+	}
+	if (totals.testCount === 1) {
+		return null;
+	}
+	return {
+		label: `${totals.passedTests}/${totals.testCount}`,
+		tooltip: `${totals.passedTests} of ${totals.testCount} tests passed`,
+	};
+}
+
+function listRunChips(run: RunListSource, mainBranch: string): RunListChip[] {
+	const chips: RunListChip[] = [describeBranchChip(run, mainBranch)];
+	const distinctModels = countDistinctModels(run.models);
+	if (distinctModels > 1) {
+		chips.push({ label: `${distinctModels} models`, isBranch: false });
+	}
+	const efforts = describeReasoningEfforts(run.models);
+	if (efforts) {
+		chips.push({ label: efforts, isBranch: false });
+	}
+	if (run.attempts > 1) {
+		chips.push({ label: `${run.attempts}×`, isBranch: false });
+	}
+	return chips;
+}
+
+function describeBranchChip(run: RunListSource, mainBranch: string): RunListChip {
+	switch (run.trigger) {
+		case 'comparison':
+			return { label: mainBranch, isBranch: true, isComparedBranch: true };
+		case 'changes':
+			return { label: run.contextRef ?? CHANGES_FALLBACK, isBranch: true };
+		default:
+			return { label: mainBranch, isBranch: true };
+	}
+}
+
+/** "All tests" when the run covered every test of the current suite, so a full run reads apart from a partial one. */
+function describeRunTests(selection: string[], suiteTestPaths: string[] | undefined): string {
+	const runTestPaths = new Set(selection);
+	if (suiteTestPaths && suiteTestPaths.length > 1 && suiteTestPaths.every((path) => runTestPaths.has(path))) {
+		return 'All tests';
+	}
+	if (selection.length === 1) {
+		return describeTestPath(selection[0]);
+	}
+	return `${selection.length} tests`;
+}
+
+function describeTestPath(testPath: string): string {
+	return isTestFileName(testPath) ? testPath.slice(0, testPath.lastIndexOf('.')) : testPath;
+}
+
+/** The user's changes for a comparison, the best model when several ran, else the tests over all their attempts. */
+function getJudgedTotals(run: RunListSource): TestTotals | null {
+	if (run.trigger === 'comparison') {
+		return findVariant(run, 'draft') ?? null;
+	}
+	const totals = findVariant(run, getSingleRunVariant(run));
+	if (!totals) {
+		return null;
+	}
+	return run.models.length > 1 ? pickBestModel(totals.models) : totals;
+}
+
+function isFlakyTest(run: RunListSource, totals: TestTotals): boolean {
+	return run.trigger !== 'comparison' && run.models.length === 1 && totals.testCount === 1 && totals.flakyTests === 1;
+}
+
+function findVariant(run: RunListSource, contextVariant: VariantTotals['contextVariant']): VariantTotals | undefined {
+	return run.testTotals.find((totals) => totals.contextVariant === contextVariant);
+}
+
+function pickBestModel<Model extends TestTotals>(models: Model[]): Model | null {
+	return models.reduce<Model | null>(
+		(best, model) =>
+			!best ||
+			model.passedTests > best.passedTests ||
+			(model.passedTests === best.passedTests && model.passedAttempts > best.passedAttempts)
+				? model
+				: best,
+		null,
+	);
+}

@@ -1,5 +1,8 @@
 import { IncomingHttpHeaders } from 'node:http';
 
+import { getDeploymentEnvVar } from './deployment-env';
+import { ManagedCreditsExhaustedError } from './error';
+
 /** Convert fastify headers to basic `Headers` for better-auth. */
 export const convertHeaders = (headers: IncomingHttpHeaders) => {
 	const convertedHeaders = new Headers();
@@ -26,6 +29,13 @@ export const getErrorMessage = (error: unknown): string | null => {
 };
 
 export const formatErrorMessageForUI = (error: unknown): string => {
+	if (error instanceof ManagedCreditsExhaustedError) {
+		return JSON.stringify({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
+	}
 	if (isTypeValidationError(error)) {
 		const payload = error.value;
 		if (isProviderErrorPayload(payload)) {
@@ -174,16 +184,21 @@ export function resolveProviderId(ctx?: { params?: Record<string, string | undef
 	return ctx?.params?.id ?? ctx?.params?.providerId;
 }
 
-export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;
+export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[^A-Za-z0-9\s]).{8,}$/;
 
 export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, string> = {}) => {
 	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
 		if (Object.hasOwn(extraEnv, varName)) {
 			return extraEnv[varName];
 		}
-		return process.env[varName] || match;
+		return getDeploymentEnvVar(varName) || match;
 	});
 	return replaced;
+};
+
+/** Names whose effective value comes from the process environment because the project does not override them. */
+export const getProcessEnvSourcedVarNames = (names: string[], projectEnv: Record<string, string>): string[] => {
+	return names.filter((name) => !Object.hasOwn(projectEnv, name) && !!getDeploymentEnvVar(name));
 };
 
 /** Truncate a string to a maximum length and add an ellipsis in the middle. */
@@ -192,15 +207,43 @@ export const truncateMiddle = (str: string, maxLength: number, ellipsis: string 
 		return str;
 	}
 	if (maxLength <= ellipsis.length) {
-		return str.slice(0, maxLength);
+		return sliceHead(str, maxLength);
 	}
 	const half = Math.floor((maxLength - ellipsis.length) / 2);
-	return str.slice(0, half) + ellipsis + str.slice(-half);
+	return sliceHead(str, half) + ellipsis + sliceTail(str, half);
 };
+
+/**
+ * Keeps the first `length` UTF-16 units, one fewer when the cut would split a surrogate pair (emoji):
+ * a lone surrogate makes the whole LLM request body invalid JSON for strict parsers.
+ */
+export const sliceHead = (str: string, length: number): string => {
+	const end = isHighSurrogate(str.charCodeAt(length - 1)) ? length - 1 : length;
+	return str.slice(0, end);
+};
+
+/** Keeps the last `length` UTF-16 units, one fewer when the cut would split a surrogate pair. */
+const sliceTail = (str: string, length: number): string => {
+	if (length <= 0) {
+		return '';
+	}
+	const start = Math.max(str.length - length, 0);
+	return str.slice(isLowSurrogate(str.charCodeAt(start)) ? start + 1 : start);
+};
+
+const isHighSurrogate = (charCode: number): boolean => charCode >= 0xd800 && charCode <= 0xdbff;
+
+const isLowSurrogate = (charCode: number): boolean => charCode >= 0xdc00 && charCode <= 0xdfff;
 
 export const removeNewLine = (str: string): string => {
 	return str.replace(/[\r\n]/g, '');
 };
+
+export function chunk<T>(items: T[], size: number): T[][] {
+	return Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+		items.slice(index * size, (index + 1) * size),
+	);
+}
 
 export function groupBy<T, K extends string>(
 	items: T[],
@@ -246,3 +289,7 @@ export const formatSize = (bytes: number) => {
 	}
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
+
+export function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

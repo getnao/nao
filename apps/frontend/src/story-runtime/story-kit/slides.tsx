@@ -1,16 +1,20 @@
 import { joinClassNames } from '@nao/shared/class-names';
 import { STORY_PRINT_SLIDES_ATTRIBUTE, STORY_SLIDE_SIZE } from '@nao/shared/story-app';
+import { StoryBrandMark } from '@nao/shared/story-brand-mark';
 import { ChevronLeftIcon, ChevronRightIcon, MaximizeIcon, MinimizeIcon } from 'lucide-react';
-import { Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Activity, Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal, flushSync } from 'react-dom';
+import { STORY_REVEAL_EVENT } from '../story-highlight';
 import { isPrintMode } from '../story-host';
 import { useFrameRelativeStoryStyles } from './frame-styles';
+import { useStoryBrand } from './hooks';
 import { fitScale, useStageSize } from './stage-fit';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 
 const SLIDE_FRAME_BORDER_PX = 1;
 const CONTROLS_IDLE_DELAY_MS = 2000;
 const IDLE_ATTRIBUTE = 'data-idle';
+const SLIDE_SLOT_SELECTOR = '[data-nao-slide-index]';
 
 export interface SlidesProps {
 	children: ReactNode;
@@ -71,6 +75,18 @@ export function Slide({ children, title, eyebrow, className, style }: SlideProps
 	);
 }
 
+function DeckBrandMark() {
+	const brand = useStoryBrand();
+	if (!brand) {
+		return null;
+	}
+	return (
+		<div className='nao-slides__brand'>
+			<StoryBrandMark brand={brand} />
+		</div>
+	);
+}
+
 function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 	const [index, setIndex] = useState(0);
 	const lastIndex = Math.max(slides.length - 1, 0);
@@ -78,6 +94,7 @@ function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 	const goTo = useCallback((next: number) => setIndex(Math.min(Math.max(next, 0), lastIndex)), [lastIndex]);
 	const { rootRef, fullscreen } = useFullscreen();
 	useKeyboardShortcuts(current, goTo, fullscreen);
+	useRevealCitedSlide(rootRef, goTo);
 	const { stageRef, scale } = useSlideFit();
 	useIdleControls(rootRef, fullscreen.active);
 
@@ -87,6 +104,7 @@ function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 			className={joinClassNames('nao-slides', fullscreen.active && 'nao-slides--fullscreen', className)}
 		>
 			<div className='nao-slides__top'>
+				<DeckBrandMark />
 				{(title || eyebrow) && (
 					<header className='nao-slides__header'>
 						{eyebrow && <div className='nao-slides__eyebrow'>{eyebrow}</div>}
@@ -106,7 +124,13 @@ function SlideDeck({ slides, title, eyebrow, className }: SlideDeckProps) {
 						} as CSSProperties
 					}
 				>
-					{slides[current]}
+					{slides.map((slide, slideIndex) => (
+						<Activity key={slideIndex} mode={slideIndex === current ? 'visible' : 'hidden'}>
+							<div className='nao-slides__slot' data-nao-slide-index={slideIndex}>
+								{slide}
+							</div>
+						</Activity>
+					))}
 				</div>
 			</div>
 		</div>
@@ -252,6 +276,26 @@ function useIdleControls(rootRef: RefObject<HTMLDivElement | null>, enabled: boo
 			root.removeAttribute(IDLE_ATTRIBUTE);
 		};
 	}, [rootRef, enabled]);
+}
+
+function useRevealCitedSlide(rootRef: RefObject<HTMLDivElement | null>, goTo: (index: number) => void) {
+	useEffect(() => {
+		const root = rootRef.current;
+		if (!root) {
+			return;
+		}
+		const reveal = (event: Event) => {
+			const slot =
+				event.target instanceof Element ? event.target.closest<HTMLElement>(SLIDE_SLOT_SELECTOR) : null;
+			if (!slot || !root.contains(slot)) {
+				return;
+			}
+			event.preventDefault();
+			flushSync(() => goTo(Number(slot.dataset.naoSlideIndex)));
+		};
+		root.addEventListener(STORY_REVEAL_EVENT, reveal);
+		return () => root.removeEventListener(STORY_REVEAL_EVENT, reveal);
+	}, [rootRef, goTo]);
 }
 
 function useKeyboardShortcuts(current: number, goTo: (index: number) => void, fullscreen: Fullscreen) {

@@ -1,13 +1,15 @@
 import { useSyncExternalStore } from 'react';
 import { SelectorStore } from './abstract-store';
 import type { CitationData } from '@nao/shared/types';
+import type { SelectedMention } from 'prompt-mentions';
 import type { DocumentAttachment } from '@/lib/attachments';
 
 export type ChatInputRestore = {
 	text: string;
 	images: { url: string; mediaType: string }[];
 	documents: DocumentAttachment[];
-	citation?: CitationData;
+	citations?: CitationData[];
+	mentions?: SelectedMention[];
 };
 
 const RESTORE_KEY = 'restore';

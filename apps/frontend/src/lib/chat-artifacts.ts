@@ -1,3 +1,4 @@
+import { extractStoryReferenceIds, extractStoryReferenceTags } from '@nao/shared';
 import { isQueryResultPart } from '@nao/shared/execute-sql-parts';
 import { getMessageDocuments } from './ai';
 import { findStories } from './story.utils';
@@ -18,8 +19,15 @@ export interface QueryArtifact {
 	toolCallId: string;
 }
 
+/** An existing story of another conversation, handed over by the agent or mentioned by the user. */
+export interface MentionedStoryArtifact {
+	storyId: string;
+	title?: string;
+}
+
 export interface ChatArtifacts {
 	stories: StorySummary[];
+	mentionedStories: MentionedStoryArtifact[];
 	files: FileArtifact[];
 	queries: QueryArtifact[];
 }
@@ -38,6 +46,7 @@ export function collectChatArtifacts(messages: UIMessage[]): ChatArtifacts {
 	const visibleMessages = messages.filter((message) => !message.isForked);
 	const artifacts: ChatArtifacts = {
 		stories: findStories(visibleMessages),
+		mentionedStories: collectMentionedStories(visibleMessages),
 		files: collectFileArtifacts(visibleMessages),
 		queries: collectQueryArtifacts(visibleMessages),
 	};
@@ -53,9 +62,37 @@ export function areChatArtifactsEqual(left: ChatArtifacts, right: ChatArtifacts)
 	return (
 		left === right ||
 		(areListsEqual(left.stories, right.stories, (a, b) => a.id === b.id && a.title === b.title) &&
+			areListsEqual(
+				left.mentionedStories,
+				right.mentionedStories,
+				(a, b) => a.storyId === b.storyId && a.title === b.title,
+			) &&
 			areListsEqual(left.files, right.files, (a, b) => a.path === b.path && a.filename === b.filename) &&
 			areListsEqual(left.queries, right.queries, areQueryArtifactsEqual))
 	);
+}
+
+/** In order of first reference; the agent's title wins over a mention, which has none. */
+function collectMentionedStories(messages: UIMessage[]): MentionedStoryArtifact[] {
+	const byStoryId = new Map<string, MentionedStoryArtifact>();
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (part.type !== 'text') {
+				continue;
+			}
+			const references =
+				message.role === 'user'
+					? extractStoryReferenceIds(part.text).map((storyId) => ({ storyId, title: undefined }))
+					: extractStoryReferenceTags(part.text);
+			for (const reference of references) {
+				byStoryId.set(reference.storyId, {
+					...reference,
+					title: reference.title ?? byStoryId.get(reference.storyId)?.title,
+				});
+			}
+		}
+	}
+	return [...byStoryId.values()];
 }
 
 function collectFileArtifacts(messages: UIMessage[]): FileArtifact[] {

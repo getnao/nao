@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
@@ -16,34 +16,32 @@ import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
-import { findWarehouseJobId, isOnboardingComplete, useOnboardingProgress } from '@/components/onboarding-progress';
 import { SidePanel } from '@/components/side-panel/side-panel';
-import { StoryBlockEditPanel } from '@/components/custom-story/story-block-edit-panel';
-import { useWarehouseProvisioningJob } from '@/components/tool-calls/request-warehouse-credentials';
 import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
+import { useOnboardingCompletion } from '@/hooks/use-onboarding-completion';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { useHeight } from '@/hooks/use-height';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
-import { ShareChatDialog } from '@/components/share-dialog.chat';
-import { useIsDarkMode } from '@/contexts/theme.provider';
+import { ShareDialog } from '@/components/share-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
-import { storyBlockEditStore } from '@/stores/story-block-edit';
-import { STORY_BLOCK_EDIT_PANEL_MIN_WIDTH } from '@/lib/side-panel';
-import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
 import { findStories } from '@/lib/story.utils';
 import { isForbiddenError, shouldShowChatAccessError } from '@/lib/trpc-error';
+
+const SELECTION_FORK_TYPES: ForkMetadata['type'][] = ['chat_selection', 'chat_question', 'story_selection'];
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
@@ -93,29 +91,23 @@ function ChatPage() {
 		}
 	}, [shouldRedirectToReplay, chatId, router]);
 
+	const isOnboardingChat = chat.data?.isOnboarding === true;
 	const shareQuery = useQuery({
-		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
-		enabled: !!chat.data && !shouldShowChatError,
+		...trpc.sharedChat.getShareSettings.queryOptions({ chatId }),
+		enabled: !!chat.data && !shouldShowChatError && !isOnboardingChat,
 	});
 	const isShared = !!shareQuery.data?.shareId;
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
-	const onboardingProgress = useOnboardingProgress();
-	const onboardingWarehouseJobId = useAgentMessagesSelector(findWarehouseJobId);
-	const onboardingWarehouseJob = useWarehouseProvisioningJob(onboardingWarehouseJobId);
+	const { complete: onboardingComplete } = useOnboardingCompletion(chatId, isOnboardingChat);
+	const { limbo } = useCloudSetupState();
+	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
 	const showTrialOnboardingBanner =
 		config.data?.naoMode === 'cloud' &&
-		currentProject.isSuccess &&
-		currentProject.data === null &&
-		!chat.data?.isOnboarding;
-	const isExampleChat = chat.data?.projectId === SYSTEM_EXAMPLE_PROJECT_ID;
+		!chat.data?.isOnboarding &&
+		((currentProject.isSuccess && currentProject.data === null) || (limbo && isExampleChat));
 	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const chatProject = isInMultipleProjects ? projects.data?.find((p) => p.id === chat.data?.projectId) : undefined;
-	const onboardingComplete = isOnboardingComplete(
-		currentProject.data != null,
-		onboardingProgress,
-		onboardingWarehouseJob.data?.status === 'ready',
-	);
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const chatColumnRef = useRef<HTMLDivElement>(null);
@@ -124,12 +116,9 @@ function ChatPage() {
 	const inputAreaHeight = useHeight(inputAreaRef);
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
-	const isEditingStoryBlock =
-		useSyncExternalStore(storyBlockEditStore.subscribe, storyBlockEditStore.getSnapshot) !== null;
 	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
-	const chatInputCallback = useSetChatInputCallback();
 
 	useTrackViewDuration({ assetType: 'chat', chatId });
 
@@ -137,14 +126,12 @@ function ChatPage() {
 		(data: SelectionData) => {
 			const { range, ...selection } = data;
 			const storyMeta = resolveStoryCitationMeta(sidePanel.currentStorySlug, range);
-			chatPendingCitationStore.set({ chatId, ...selection, ...storyMeta });
-			chatInputCallback.fire('');
+			chatPendingCitationStore.add(chatId, { ...selection, ...storyMeta });
 		},
-		[chatId, chatInputCallback, sidePanel.currentStorySlug],
+		[chatId, sidePanel.currentStorySlug],
 	);
 
-	const isSelectionFork =
-		chat.data?.forkMetadata?.type === 'chat_selection' || chat.data?.forkMetadata?.type === 'story_selection';
+	const isSelectionFork = SELECTION_FORK_TYPES.includes(chat.data?.forkMetadata?.type ?? 'chat');
 	const headerCitation = buildHeaderCitation(isSelectionFork ? chat.data?.forkMetadata : undefined);
 	const automationId = chat.data?.automationRun?.automationId;
 	const isAutomationRunning = chat.data?.automationRun?.status === 'running';
@@ -305,7 +292,6 @@ function ChatPage() {
 								<ChatMessages />
 							</>
 						)}
-						<StoryBlockEditPanel chatId={chatId} />
 						<div className='pointer-events-none absolute inset-x-0 bottom-0 z-10 pt-8'>
 							<div
 								ref={inputAreaRef}
@@ -347,14 +333,17 @@ function ChatPage() {
 							isAnimating={sidePanel.isAnimating}
 							sidePanelRef={sidePanelRef}
 							resizeHandleRef={sidePanel.resizeHandleRef}
-							chatPanelMinWidth={isEditingStoryBlock ? STORY_BLOCK_EDIT_PANEL_MIN_WIDTH : undefined}
 						>
 							{sidePanel.content}
 						</SidePanel>
 					)}
 				</div>
 			</SelectionProvider>
-			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chatId} />
+			<ShareDialog
+				open={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				target={{ kind: 'chat', chatId }}
+			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
 				onOpenChange={setIsAnalyticsOpen}
@@ -362,38 +351,6 @@ function ChatPage() {
 				chatId={chatId}
 			/>
 		</SidePanelProvider>
-	);
-}
-
-function TrialOnboardingBanner() {
-	const logoSrc = useIsDarkMode() ? '/dark-card-logo.svg' : '/light-card-logo.svg';
-
-	return (
-		<div className='mx-auto w-full max-w-3xl px-3'>
-			<div className='relative mb-2 flex flex-col items-stretch gap-3 overflow-hidden rounded-xl border border-violet/20 bg-background px-4 py-3 shadow-xs sm:flex-row sm:items-center'>
-				<img
-					src={logoSrc}
-					alt=''
-					aria-hidden
-					className='pointer-events-none absolute left-1/2 top-1/2 w-full -translate-x-1/2 -translate-y-1/2 scale-150 select-none'
-				/>
-				<div className='relative z-10 min-w-0 flex-1'>
-					<span className='block text-[10px] font-semibold uppercase tracking-[0.16em] text-primary'>
-						Guided setup
-					</span>
-					<p className='mt-0.5 text-sm font-semibold text-foreground'>Ready to use your own data?</p>
-					<p className='mt-0.5 text-xs text-muted-foreground'>
-						Set up your project with the help of our onboarding agent
-					</p>
-				</div>
-				<Button asChild size='sm' className='relative z-10 shrink-0 self-start rounded-full sm:self-center'>
-					<Link to='/onboarding'>
-						Start setup
-						<ArrowRight className='size-3.5' />
-					</Link>
-				</Button>
-			</div>
-		</div>
 	);
 }
 
@@ -414,12 +371,12 @@ function findLatestStorySlug(messages: UIMessage[]): string | undefined {
 function resolveStoryCitationMeta(
 	currentStorySlug: string | null,
 	range: Range,
-): { storySlug: string; start: number; end: number } | null {
+): { storySlug: string; storyChatId?: string; start: number; end: number } | null {
 	if (!currentStorySlug) {
 		return null;
 	}
 
-	const storyContainer = document.querySelector('[data-story-content]');
+	const storyContainer = document.querySelector<HTMLElement>('[data-story-content]');
 	if (!storyContainer || !storyContainer.contains(range.commonAncestorContainer)) {
 		return null;
 	}
@@ -430,7 +387,7 @@ function resolveStoryCitationMeta(
 		return null;
 	}
 
-	return { storySlug: currentStorySlug, start, end };
+	return { storySlug: currentStorySlug, storyChatId: storyContainer.dataset.storyChatId, start, end };
 }
 
 function buildHeaderCitation(meta: ForkMetadata | undefined): { citation: string; text: string } | null {

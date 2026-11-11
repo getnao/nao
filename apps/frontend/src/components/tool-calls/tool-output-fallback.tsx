@@ -18,7 +18,7 @@ interface Props {
  * Rendering the in-flight placeholder for both is what makes a dropped stream read as a hung
  * page: the tab has already set `isRunning=false`, so nothing is going to update it.
  *
- * `read.tsx`, `grep.tsx` and `read-query-result.tsx` already gate their placeholder on
+ * `read.tsx`, `grep.tsx` and `page-query-result.tsx` already gate their placeholder on
  * `isSettled`; this centralizes the same rule for the tool bodies that did not.
  */
 export const ToolOutputFallback = ({ runningLabel }: Props) => {

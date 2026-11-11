@@ -75,6 +75,7 @@ vi.mock('../../src/services/git-repo', async (importOriginal) => ({
 vi.mock('../../src/services/github', () => ({
 	NAO_CO_AUTHOR: { email: 'bot@nao.dev', name: 'nao' },
 	...mocks.github,
+	githubBaseUrl: () => 'https://github.com',
 	pushBranch: vi.fn(),
 }));
 

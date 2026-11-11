@@ -3,9 +3,8 @@ import { DEFAULT_STORY_THEME_PAIR } from '@nao/shared/story-theme';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
+import type { StoryBlockEditPayload, StoryTableFormatEditRequest, StoryElementCitation } from '@nao/shared/story-app';
 import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
-import type { StoryBlockReference } from '@nao/shared/types';
 
 import type { CustomStoryRuntimeError } from '@/components/custom-story/custom-story-frame';
 import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
@@ -26,8 +25,11 @@ interface CustomStoryBodyProps {
 	editable?: boolean;
 	onEditBlock?: (payload: StoryBlockEditPayload) => void;
 	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
-	onAskBlock?: (block: StoryBlockReference) => void;
+	onAsk?: (citation: StoryElementCitation) => void;
+	isSelectingElements?: boolean;
 	onRememberState?: () => void;
+	/** Room left under the story for an overlay such as the ask bar, filled with the story's own background. */
+	bottomInset?: string;
 }
 
 const MAX_RUNTIME_ERRORS = 5;
@@ -55,11 +57,19 @@ export function CustomStoryBody({
 	editable = false,
 	onEditBlock,
 	onEditTableFormat,
-	onAskBlock,
+	onAsk,
+	isSelectingElements,
 	onRememberState,
+	bottomInset,
 }: CustomStoryBodyProps) {
 	const { runtimeErrors, runtimeErrorCount, handleRuntimeError } = useRuntimeErrors(content?.version.id);
-	const styles = useMemo(() => content?.styles.map((style) => style.content) ?? [], [content?.styles]);
+	const styles = useMemo(
+		() => [
+			...(content?.styles.map((style) => style.content) ?? []),
+			...(bottomInset ? [`body{padding-bottom:${bottomInset}}`] : []),
+		],
+		[content?.styles, bottomInset],
+	);
 	const theme = useActiveStoryTheme(content?.theme);
 
 	return (
@@ -80,7 +90,8 @@ export function CustomStoryBody({
 						editable={editable}
 						onEditBlock={onEditBlock}
 						onEditTableFormat={onEditTableFormat}
-						onAskBlock={onAskBlock}
+						onAsk={onAsk}
+						isSelectingElements={isSelectingElements}
 						onRememberState={onRememberState}
 						onError={handleRuntimeError}
 						stateControls={{

@@ -4,15 +4,29 @@ import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	claimStandaloneStoryChat: vi.fn(),
+	createCustomStory: vi.fn(),
 	createForkedChat: vi.fn(),
+	deleteChat: vi.fn(),
 	createStoryVersion: vi.fn(),
+	duplicateStory: vi.fn(),
+	StoryDuplicateError: class StoryDuplicateError extends Error {},
 	getChatMessages: vi.fn(),
+	getLatestSqlQueryDataByIds: vi.fn(),
+	getLatestSqlQueriesByIds: vi.fn(),
+	getLatestVersionByStoryId: vi.fn(),
+	getReferenceableStory: vi.fn(),
 	getStoryByIdForUser: vi.fn(),
+	getStoryDataCacheByStoryId: vi.fn(),
+	getStoryProjectId: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	getSharedChatInfo: vi.fn(),
 	getSharedStoryByStoryId: vi.fn(),
+	listVersionFiles: vi.fn(),
+	publishCustomStoryDraft: vi.fn(),
 	resolveUserGroupAccess: vi.fn(),
 	saveStoryInPrivateRoot: vi.fn(),
+	seedDraftFiles: vi.fn(),
 	upsertMessage: vi.fn(),
 }));
 
@@ -20,6 +34,7 @@ vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../../src/db/db', () => ({ db: {} }));
 vi.mock('../../src/queries/chat.queries', () => ({
 	createForkedChat: mocks.createForkedChat,
+	deleteChat: mocks.deleteChat,
 	getChatMessages: mocks.getChatMessages,
 	upsertMessage: mocks.upsertMessage,
 }));
@@ -37,11 +52,38 @@ vi.mock('../../src/queries/shared-story.queries', () => ({
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
 }));
 vi.mock('../../src/queries/story.queries', () => ({
+	claimStandaloneStoryChat: mocks.claimStandaloneStoryChat,
+	createCustomStory: mocks.createCustomStory,
 	createStoryVersion: mocks.createStoryVersion,
+	getLatestVersionByStoryId: mocks.getLatestVersionByStoryId,
 	getStoryByIdForUser: mocks.getStoryByIdForUser,
+	getStoryDataCacheByStoryId: mocks.getStoryDataCacheByStoryId,
+	getStoryProjectId: mocks.getStoryProjectId,
 }));
 vi.mock('../../src/queries/story-folder.queries', () => ({
 	saveStoryInPrivateRoot: mocks.saveStoryInPrivateRoot,
+}));
+vi.mock('../../src/queries/story-reference.queries', () => ({
+	getReferenceableStory: mocks.getReferenceableStory,
+}));
+vi.mock('../../src/queries/story-file.queries', () => ({
+	listVersionFiles: mocks.listVersionFiles,
+	seedDraftFiles: mocks.seedDraftFiles,
+}));
+vi.mock('../../src/queries/execute-sql.queries', () => ({
+	getLatestSqlQueryDataByIds: mocks.getLatestSqlQueryDataByIds,
+	getLatestSqlQueriesByIds: mocks.getLatestSqlQueriesByIds,
+}));
+vi.mock('../../src/services/custom-story-authoring', () => ({
+	publishCustomStoryDraft: mocks.publishCustomStoryDraft,
+}));
+vi.mock('../../src/services/story-mount', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/services/story-mount')>()),
+	isCustomStoriesEnabled: () => true,
+}));
+vi.mock('../../src/services/story-duplicate', () => ({
+	duplicateStory: mocks.duplicateStory,
+	StoryDuplicateError: mocks.StoryDuplicateError,
 }));
 vi.mock('../../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
@@ -184,7 +226,7 @@ describe('chat fork Story creation permission', () => {
 					},
 					{
 						type: 'dynamic-tool',
-						toolName: 'read_query_result',
+						toolName: 'page_query_result',
 						toolCallId: 'owner-query-page',
 						state: 'output-available',
 						input: { query_id: 'query_owner' },
@@ -245,6 +287,23 @@ describe('chat fork Story creation permission', () => {
 		expect(mocks.getChatMessages).toHaveBeenCalledWith('source-chat-id');
 	});
 
+	it('asks a quick question about a shared chat as a fork tied to the share', async () => {
+		await expect(
+			caller.chatFork.askSharedChat({
+				shareId: 'chat-share-id',
+				selection: { start: 4, end: 18, text: 'Revenue dipped' },
+			}),
+		).resolves.toEqual({ chatId: 'fork-chat-id' });
+
+		const [{ forkMetadata }, seededMessages] = mocks.createForkedChat.mock.calls[0];
+		expect(forkMetadata).toMatchObject({
+			type: 'chat_question',
+			id: 'chat-share-id',
+			selectionText: 'Revenue dipped',
+		});
+		expect(JSON.stringify(seededMessages)).toContain('Revenue dipped');
+	});
+
 	it('opens an existing standalone Story without the creation grant', async () => {
 		await expect(caller.chatFork.openStandalone({ storyId: 'story-id' })).resolves.toEqual({
 			chatId: 'existing-chat-id',
@@ -252,6 +311,184 @@ describe('chat fork Story creation permission', () => {
 		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 });
+
+describe('fork of any accessible Story', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockUserGroupFeatures([]);
+		mocks.createForkedChat.mockResolvedValue({ id: 'fork-chat-id' });
+		mocks.createStoryVersion.mockResolvedValue({ storyId: 'fork-story-id', version: 1 });
+		mocks.getLatestSqlQueryDataByIds.mockResolvedValue({});
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({});
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({}));
+		mocks.getStoryProjectId.mockResolvedValue('project-id');
+	});
+
+	it('opens a quick question on a Story as an empty chat, without the story creation grant', async () => {
+		await expect(
+			caller.chatFork.askStory({ storyId: 'story-id', selectionText: 'Revenue dipped in May' }),
+		).resolves.toEqual({ chatId: 'fork-chat-id', hasAttachedStoryChat: false });
+
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.createForkedChat).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectId: 'project-id',
+				userId: 'user-id',
+				forkMetadata: {
+					type: 'story_question',
+					id: 'story-id',
+					title: 'Story',
+					authorName: 'Owner',
+					selectionText: 'Revenue dipped in May',
+				},
+			}),
+			[],
+		);
+		expect(mocks.createStoryVersion).not.toHaveBeenCalled();
+	});
+
+	it('gives a standalone Story of the user a chat first, so the quick question can edit it', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ chatId: null, ownerId: 'user-id' }));
+		mocks.claimStandaloneStoryChat.mockResolvedValue(true);
+		mocks.createForkedChat
+			.mockResolvedValueOnce({ id: 'story-chat-id' })
+			.mockResolvedValueOnce({ id: 'question-id' });
+
+		await expect(caller.chatFork.askStory({ storyId: 'story-id' })).resolves.toEqual({
+			chatId: 'question-id',
+			hasAttachedStoryChat: true,
+		});
+
+		expect(mocks.claimStandaloneStoryChat).toHaveBeenCalledWith('story-id', 'story-chat-id');
+		expect(mocks.createForkedChat).toHaveBeenLastCalledWith(
+			expect.objectContaining({ forkMetadata: expect.objectContaining({ type: 'story_question' }) }),
+			[],
+		);
+	});
+
+	it('leaves the standalone Story of someone else without a chat', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ chatId: null }));
+
+		await expect(caller.chatFork.askStory({ storyId: 'story-id' })).resolves.toEqual({
+			chatId: 'fork-chat-id',
+			hasAttachedStoryChat: false,
+		});
+		expect(mocks.claimStandaloneStoryChat).not.toHaveBeenCalled();
+	});
+});
+
+describe('duplicate of any accessible Story', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockUserGroupFeatures([]);
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({}));
+		mocks.getStoryProjectId.mockResolvedValue('project-id');
+		mocks.duplicateStory.mockResolvedValue({ storyId: 'copy-id', title: 'Copy of Story' });
+	});
+
+	it('duplicates the Story in its own project, whatever project is active', async () => {
+		mocks.getStoryProjectId.mockResolvedValue('other-project-id');
+
+		await ownerCaller.chatFork.duplicateStory({ storyId: 'story-id' });
+
+		expect(mocks.getReferenceableStory).toHaveBeenCalledWith('owner-id', 'other-project-id', 'story-id');
+		expect(mocks.duplicateStory).toHaveBeenCalledWith(
+			{ storyId: 'story-id', versionNumber: 3 },
+			{ userId: 'owner-id', projectId: 'other-project-id' },
+		);
+	});
+
+	it('duplicates a Story of the user without checking the creation grant, and no chat is created', async () => {
+		await expect(ownerCaller.chatFork.duplicateStory({ storyId: 'story-id' })).resolves.toEqual({
+			storyId: 'copy-id',
+			title: 'Copy of Story',
+		});
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+	});
+
+	it('copies the version the owner is viewing', async () => {
+		await ownerCaller.chatFork.duplicateStory({ storyId: 'story-id', versionNumber: 2 });
+
+		expect(mocks.duplicateStory).toHaveBeenCalledWith({ storyId: 'story-id', versionNumber: 2 }, expect.anything());
+	});
+
+	it("copies the latest version of someone else's Story, whatever version is asked", async () => {
+		mockUserGroupFeatures(['storyCreation']);
+
+		await caller.chatFork.duplicateStory({ storyId: 'story-id', versionNumber: 1 });
+
+		expect(mocks.duplicateStory).toHaveBeenCalledWith(
+			{ storyId: 'story-id', versionNumber: 3 },
+			{ userId: 'user-id', projectId: 'project-id' },
+		);
+	});
+
+	it("denies a duplicate of someone else's Story without the creation grant", async () => {
+		await expect(caller.chatFork.duplicateStory({ storyId: 'story-id' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'Story creation is not enabled for your user group.',
+		});
+		expect(mocks.duplicateStory).not.toHaveBeenCalled();
+	});
+
+	it('denies a duplicate of a custom Story without the custom story grant, even to its owner', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
+
+		await expect(ownerCaller.chatFork.duplicateStory({ storyId: 'story-id' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.duplicateStory).not.toHaveBeenCalled();
+	});
+
+	it('duplicates a custom Story with the custom story grant', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(createReferenceableStory({ format: 'custom', code: '' }));
+		mockUserGroupFeatures(['customStoryCreation']);
+
+		await expect(ownerCaller.chatFork.duplicateStory({ storyId: 'story-id' })).resolves.toEqual({
+			storyId: 'copy-id',
+			title: 'Copy of Story',
+		});
+	});
+
+	it('rejects a Story the user cannot see', async () => {
+		mocks.getReferenceableStory.mockResolvedValue(null);
+
+		await expect(ownerCaller.chatFork.duplicateStory({ storyId: 'story-id' })).rejects.toMatchObject({
+			code: 'NOT_FOUND',
+		});
+		expect(mocks.duplicateStory).not.toHaveBeenCalled();
+	});
+
+	it('reports a copy that cannot be made as a bad request', async () => {
+		mocks.duplicateStory.mockRejectedValue(new mocks.StoryDuplicateError('This version no longer builds.'));
+
+		await expect(ownerCaller.chatFork.duplicateStory({ storyId: 'story-id' })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'This version no longer builds.',
+		});
+	});
+});
+
+function createReferenceableStory(overrides: Record<string, unknown>) {
+	return {
+		storyId: 'story-id',
+		chatId: 'source-chat-id',
+		slug: 'story',
+		title: 'Story',
+		format: 'classic',
+		authorName: 'Owner',
+		ownerId: 'owner-id',
+		isPinned: false,
+		isCertified: false,
+		isSharedWithMe: false,
+		updatedAt: new Date(),
+		versionId: 'version-id',
+		version: 3,
+		code: '# Story\n<table query_id="query_a" />',
+		...overrides,
+	};
+}
 
 function mockUserGroupFeatures(features: string[]): void {
 	mocks.resolveUserGroupAccess.mockResolvedValue({

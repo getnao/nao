@@ -5,6 +5,7 @@ import type { StoryTheme } from '@nao/shared/story-theme';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { useStoryPageEditor } from '@/hooks/use-story-page-editor';
+import type { CodeSelection } from '@/stores/ask-bar';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { StoryCodeView } from '@/components/side-panel/story-code-view';
 import { StoryEditor } from '@/components/side-panel/story-editor';
@@ -12,15 +13,25 @@ import { StoryTabbedEditor } from '@/components/side-panel/story-tabbed-editor';
 import { StoryUnsavedChangesDialog } from '@/components/story-unsaved-changes-dialog';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
+import { cn } from '@/lib/utils';
 
 interface StoryPageBodyProps {
 	editor: ReturnType<typeof useStoryPageEditor>;
 	preview: ReactNode;
 	queryData?: QueryDataMap | null;
 	theme?: StoryTheme | null;
+	onAskAboutCode?: (selection: CodeSelection) => void;
+	isReadOnly?: boolean;
 }
 
-export function StoryPageBody({ editor, preview, queryData, theme }: StoryPageBodyProps) {
+export function StoryPageBody({
+	editor,
+	preview,
+	queryData,
+	theme,
+	onAskAboutCode,
+	isReadOnly = false,
+}: StoryPageBodyProps) {
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	useDragAutoScroll(scrollContainerRef);
 	const unsavedChangesDialog = <StoryUnsavedChangesDialog {...editor.exitDialog} />;
@@ -36,7 +47,11 @@ export function StoryPageBody({ editor, preview, queryData, theme }: StoryPageBo
 						theme={theme ?? null}
 						className='flex flex-1 min-h-0 flex-col bg-background text-foreground'
 					>
-						<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
+						<div
+							ref={scrollContainerRef}
+							inert={isReadOnly}
+							className={cn('flex-1 min-h-0 overflow-auto', isReadOnly && 'opacity-60')}
+						>
 							{isTabbed ? (
 								<StoryTabbedEditor
 									code={editCode}
@@ -69,13 +84,15 @@ export function StoryPageBody({ editor, preview, queryData, theme }: StoryPageBo
 		const codeDraft = editor.codeDraft;
 		return (
 			<>
-				<div className='flex-1 min-h-0'>
+				<div className='flex-1 min-h-0 pb-[var(--story-bottom-inset,0px)]'>
 					<StoryCodeView
 						code={codeDraft}
 						codeRef={editor.codeViewRef}
 						onCodeChange={editor.onCodeChange}
 						onValidChange={editor.setIsCodeValid}
 						onSave={editor.handleSave}
+						onAskAboutCode={onAskAboutCode}
+						readOnly={isReadOnly}
 					/>
 				</div>
 				{unsavedChangesDialog}

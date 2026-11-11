@@ -1,3 +1,4 @@
+import { resolveSemanticQueryParameters } from '@nao/shared/story-parameter-template';
 import type { executeSemanticQuery } from '@nao/shared/tools';
 import { DEFAULT_SEMANTIC_LAYER_MODE, type SemanticLayerMode } from '@nao/shared/types';
 
@@ -7,7 +8,7 @@ import type { ToolContext } from '../types/tools';
 import { extractConfiguredSemanticLayer } from '../utils/nao-config';
 
 /** A metric query in semantic terms, mirroring the `/semantic_layer/compile` request body. */
-export type SemanticQuery = Omit<executeSemanticQuery.Input, 'name'>;
+export type SemanticQuery = executeSemanticQuery.SemanticQuery;
 
 /** The semantic layer rejected the query (for example an unknown metric or dimension); its message is safe to show to the caller. */
 export class SemanticQueryCompileError extends Error {}
@@ -17,6 +18,11 @@ export type CompiledSemanticQuery = {
 	database_id: string;
 	dialect: string;
 };
+
+type SemanticLayerContext = Pick<ToolContext, 'projectFolder' | 'envVars'>;
+
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const catalogCache = new Map<string, { expiresAt: number; catalog: Promise<executeSemanticQuery.Catalog> }>();
 
 /**
  * The semantic layer routing mode in effect for a run, or null when the project
@@ -46,27 +52,75 @@ export function isWarehouseSqlEnabled(mode: SemanticLayerMode | null | undefined
 	return mode !== 'exclusive';
 }
 
-/** Compiles metrics and dimensions to SQL with the project's semantic layer; execution stays with execute_sql. */
-export async function compileSemanticQuery(query: SemanticQuery, context: ToolContext): Promise<CompiledSemanticQuery> {
-	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/semantic_layer/compile`, {
+/**
+ * Compiles metrics and dimensions to SQL with the project's semantic layer; execution stays with execute_sql.
+ * `{{ params.<id> }}` placeholders are resolved from `parameterValues`, falling back to the query's own defaults.
+ */
+export async function compileSemanticQuery(
+	query: SemanticQuery,
+	context: SemanticLayerContext,
+	parameterValues: Record<string, string> = {},
+): Promise<CompiledSemanticQuery> {
+	const response = await postToSemanticLayer('compile', resolveParameters(query, parameterValues), context);
+	if (!response.ok) {
+		const message = `Error compiling semantic query: ${await readErrorDetail(response)}`;
+		throw response.status === 422 ? new SemanticQueryCompileError(message) : new Error(message);
+	}
+	return (await response.json()) as CompiledSemanticQuery;
+}
+
+/** Lists the metrics and dimensions the project's semantic layer exposes. */
+export async function describeSemanticLayer(context: SemanticLayerContext): Promise<executeSemanticQuery.Catalog> {
+	const response = await postToSemanticLayer('catalog', {}, context);
+	if (!response.ok) {
+		throw new Error(`Error describing the semantic layer: ${await readErrorDetail(response)}`);
+	}
+	return (await response.json()) as executeSemanticQuery.Catalog;
+}
+
+function resolveParameters(query: SemanticQuery, parameterValues: Record<string, string>) {
+	try {
+		return resolveSemanticQueryParameters(query, parameterValues);
+	} catch (error) {
+		throw new SemanticQueryCompileError(error instanceof Error ? error.message : String(error));
+	}
+}
+
+/**
+ * `describeSemanticLayer` cached per project for a few minutes: story filters consult the catalog on every
+ * filtered request, and it only changes when the project's semantic models do.
+ */
+export function describeSemanticLayerCached(context: SemanticLayerContext): Promise<executeSemanticQuery.Catalog> {
+	const cached = catalogCache.get(context.projectFolder);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.catalog;
+	}
+	const catalog = describeSemanticLayer(context);
+	catalogCache.set(context.projectFolder, { expiresAt: Date.now() + CATALOG_CACHE_TTL_MS, catalog });
+	catalog.catch(() => catalogCache.delete(context.projectFolder));
+	return catalog;
+}
+
+function postToSemanticLayer(
+	endpoint: 'compile' | 'catalog',
+	body: object,
+	context: SemanticLayerContext,
+): Promise<Response> {
+	return fetch(`http://localhost:${env.FASTAPI_PORT}/semantic_layer/${endpoint}`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
 			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
 		},
 		body: JSON.stringify({
-			...query,
+			...body,
 			nao_project_folder: context.projectFolder,
 			...(Object.keys(context.envVars).length > 0 && { env_vars: context.envVars }),
 		}),
 	});
+}
 
-	if (!response.ok) {
-		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-		const detail = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
-		const message = `Error compiling semantic query: ${detail}`;
-		throw response.status === 422 ? new SemanticQueryCompileError(message) : new Error(message);
-	}
-
-	return (await response.json()) as CompiledSemanticQuery;
+async function readErrorDetail(response: Response): Promise<string> {
+	const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+	return typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
 }

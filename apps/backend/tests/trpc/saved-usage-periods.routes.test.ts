@@ -4,6 +4,14 @@ import { createTestCaller } from '../helpers/trpc-caller';
 
 const state = vi.hoisted(() => ({
 	preferences: {} as Record<string, unknown>,
+	role: 'admin',
+}));
+
+const usageMocks = vi.hoisted(() => ({
+	getMessagesUsage: vi.fn(),
+	getMessagesUsageByUser: vi.fn(),
+	getTotalUsage: vi.fn(),
+	getUsedProviders: vi.fn(),
 }));
 
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
@@ -15,13 +23,14 @@ vi.mock('../../src/queries/project.queries', () => ({
 		path: '/tmp/nao-project',
 		envVars: {},
 	})),
-	getUserRoleInProject: vi.fn(async () => 'admin'),
+	getUserRoleInProject: vi.fn(async () => state.role),
 }));
 
 vi.mock('../../src/queries/usage.queries', () => ({
-	getMessagesUsage: vi.fn(),
-	getTotalUsage: vi.fn(),
-	getUsedProviders: vi.fn(),
+	getMessagesUsage: usageMocks.getMessagesUsage,
+	getMessagesUsageByUser: usageMocks.getMessagesUsageByUser,
+	getTotalUsage: usageMocks.getTotalUsage,
+	getUsedProviders: usageMocks.getUsedProviders,
 }));
 
 vi.mock('../../src/queries/user-preference.queries', () => ({
@@ -59,6 +68,19 @@ const caller = createTestCaller(testRouter);
 describe('saved usage period routes', () => {
 	beforeEach(() => {
 		state.preferences = {};
+		state.role = 'admin';
+		vi.clearAllMocks();
+	});
+
+	it('scopes regular users while leaving project admins organization-wide', async () => {
+		const input = { period: { value: 15, unit: 'day' as const } };
+		state.role = 'user';
+		await caller.getMessagesUsage(input);
+		expect(usageMocks.getMessagesUsage).toHaveBeenLastCalledWith('project-id', input, 'user-id');
+
+		state.role = 'admin';
+		await caller.getMessagesUsage(input);
+		expect(usageMocks.getMessagesUsage).toHaveBeenLastCalledWith('project-id', input, undefined);
 	});
 
 	it('creates, updates, selects, and deletes saved periods', async () => {

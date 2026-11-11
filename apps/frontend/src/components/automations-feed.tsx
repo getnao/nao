@@ -6,7 +6,6 @@ import {
 	BellPlus,
 	ChevronLeft,
 	ChevronRight,
-	Github,
 	Loader2,
 	Mail,
 	MessageSquare,
@@ -30,12 +29,14 @@ import type {
 	NotificationCategory,
 	SharedItemLabel,
 	SharedNotificationPayload,
+	ShareRole,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
 } from '@nao/shared/types';
 import type { ComponentType, ReactNode } from 'react';
 
 import type { QueryDataMap } from '@/components/story-embeds';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
@@ -46,6 +47,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export type AutomationFeedRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -284,7 +286,7 @@ function getNotificationPresentation(
 			const isPositive = payload.vote === 'up';
 			return {
 				Icon: isPositive ? ThumbsUp : ThumbsDown,
-				title: payload.chatTitle ?? notification.title,
+				title: payload.storyTitle ?? payload.chatTitle ?? notification.title,
 				description: (
 					<p>
 						<span className='font-semibold'>{payload.submitterName}</span> left{' '}
@@ -348,6 +350,8 @@ function getNotificationPresentation(
 						subjectLabel={payload.itemLabel}
 						actorName={payload.sharerName}
 						visibility={payload.visibility}
+						role={payload.role}
+						isRoleChange={payload.isRoleChange}
 					/>
 				),
 			};
@@ -591,17 +595,35 @@ function ShareSentence({
 	subjectLabel,
 	actorName,
 	visibility,
+	role,
+	isRoleChange = false,
 }: {
 	subjectLabel: 'story' | 'chat';
 	actorName: string | null;
 	visibility: ShareVisibility;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 }) {
-	const actor = actorName ?? 'Someone';
+	const actor = <span className='font-semibold'>{actorName ?? 'Someone'}</span>;
+	if (isRoleChange && role === 'viewer') {
+		return (
+			<p>
+				{actor} changed your access to this {subjectLabel} to <span className='font-semibold'>view only</span>.
+			</p>
+		);
+	}
+	if (isRoleChange) {
+		return (
+			<p>
+				{actor} gave you <span className='font-semibold'>edit rights</span> on this {subjectLabel}.
+			</p>
+		);
+	}
 	const target = visibility === 'project' ? 'the project' : 'you';
 	return (
 		<p>
-			<span className='font-semibold'>{actor}</span> shared this {subjectLabel} with{' '}
-			<span className='font-semibold'>{target}</span>.
+			{actor} shared this {subjectLabel} with <span className='font-semibold'>{target}</span>
+			{role === 'editor' && ', with edit rights'}.
 		</p>
 	);
 }
@@ -723,7 +745,7 @@ function ExpandableText({ text }: { text: string }) {
 						: undefined
 				}
 			>
-				<Streamdown>{stripAssistantTags(text)}</Streamdown>
+				<Streamdown linkSafety={markdownLinkSafety}>{stripAssistantTags(text)}</Streamdown>
 			</div>
 			{(isClamped || isExpanded) && (
 				<button
@@ -806,6 +828,7 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				yAxisRightMin={chart.config.y_axis_right_min}
 				yAxisRightMax={chart.config.y_axis_right_max}
 				yAxisRightLabel={chart.config.y_axis_right_label}
+				showLegend={chart.config.show_legend}
 			/>
 		</div>
 	);
@@ -905,7 +928,7 @@ function getIntegrationIconConfig(type: string): { label: string; icon: ReactNod
 	if (type === 'github') {
 		return {
 			label: 'GitHub',
-			icon: <Github className='size-3.5' />,
+			icon: <GithubIcon className='size-3.5' />,
 			successClassName: 'border-transparent bg-foreground text-background',
 		};
 	}

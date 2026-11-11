@@ -30,19 +30,20 @@ export async function requireNonCloud() {
 	}
 }
 
-export async function requireCloudBilling() {
-	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+export async function requireOrganizationAdminCloudBilling() {
+	const config = await requireCloud();
 	if (!config.cloudBillingEnabled) {
 		throw redirect({ to: '/settings/account' });
 	}
+	await requireOrganizationAdmin();
 }
 
-export async function requireOrganizationAdminCloudBilling() {
-	await requireCloudBilling();
-	const organization = await queryClient.ensureQueryData(trpc.organization.get.queryOptions());
-	if (organization.role !== 'admin') {
+export async function requireCloud() {
+	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+	if (config.naoMode !== 'cloud') {
 		throw redirect({ to: '/settings/account' });
 	}
+	return config;
 }
 
 export async function requireAdminNonCloud() {
@@ -73,5 +74,12 @@ export async function requireAutomationsEnabled() {
 	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
 	if (!config.betaAutomationsEnabled) {
 		throw redirect({ to: '/' });
+	}
+}
+
+async function requireOrganizationAdmin() {
+	const organization = await queryClient.ensureQueryData(trpc.organization.get.queryOptions());
+	if (organization.role !== 'admin') {
+		throw redirect({ to: '/settings/account' });
 	}
 }

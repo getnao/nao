@@ -3,15 +3,17 @@
 import {
 	ALL_DOCS_CONTEXT_ACCESS,
 	ALL_MCP_ACCESS,
+	ALL_SKILLS_ACCESS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_FILES_CONTEXT_ACCESS,
 	EMPTY_MCP_ACCESS,
 	EMPTY_PROJECT_ROW_SECURITY,
+	EMPTY_SKILLS_ACCESS,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,7 +22,7 @@ import { openDropdownMenu } from '../../helpers/dropdown-menu';
 import type { Mock } from 'vitest';
 import type { UserGroupEditorGroup, UserGroupEditorTab } from '@/components/settings/user-group-editor';
 import type { UserGroupUserDetailTab } from '@/components/settings/user-group-user-detail';
-import type { ProjectRowSecurity } from '@nao/shared';
+import type { McpServerStatus, ProjectRowSecurity } from '@nao/shared';
 import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 import {
 	ConditionalRulesHelp,
@@ -102,6 +104,12 @@ vi.mock('@/main', () => ({
 			addUserToProject: { mutationOptions: vi.fn() },
 			modify: { mutationOptions: vi.fn() },
 		},
+		mcp: {
+			getServers: { queryOptions: vi.fn(() => ({ queryKey: ['mcp-servers'] })) },
+		},
+		skill: {
+			catalog: { queryOptions: vi.fn(() => ({ queryKey: ['skill-catalog'] })) },
+		},
 		memberBudget: {
 			getSettings: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-settings'] })) },
 			getOverview: { queryOptions: vi.fn(() => ({ queryKey: ['member-budget-overview'] })) },
@@ -132,6 +140,7 @@ vi.mock('@/main', () => ({
 				queryKey: vi.fn(() => ['effective-microsoft-env-mappings']),
 			},
 			setMembership: { mutationOptions: vi.fn() },
+			setMemberships: { mutationKey: () => ['set-memberships'] },
 			create: { mutationOptions: vi.fn() },
 			update: { mutationOptions: vi.fn() },
 			delete: { mutationOptions: vi.fn() },
@@ -265,10 +274,12 @@ const allUsers = {
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	projectSharing: 'inherit' as const,
 	showAllSettings: true,
+	preloadedSkills: [] as string[],
 	databaseAccess: { mode: 'all' as const, strict: false },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 	filesAccess: { mode: 'all' as const },
 	mcpAccess: ALL_MCP_ACCESS,
+	skillsAccess: ALL_SKILLS_ACCESS,
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 };
 const analysts = {
@@ -281,6 +292,7 @@ const analysts = {
 	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 	filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
 	mcpAccess: EMPTY_MCP_ACCESS,
+	skillsAccess: EMPTY_SKILLS_ACCESS,
 };
 const rowSecurityIdentity = {
 	databaseType: 'duckdb',
@@ -575,6 +587,27 @@ describe('UserGroupsTable', () => {
 		expect(groups.map((group) => group.id)).toEqual(['aardvark', 'zulu', 'all-users', 'beta', 'analysts']);
 	});
 
+	it('filters groups by name and shows an empty state when nothing matches', () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [allUsers, analysts, { ...analysts, id: 'finance', name: 'Finance' }] },
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+		const search = screen.getByRole('searchbox', { name: 'Search groups' });
+
+		fireEvent.change(search, { target: { value: '  fin ' } });
+		expect(screen.getByRole('row', { name: /Finance/ })).toBeTruthy();
+		expect(screen.queryByRole('row', { name: /Analysts/ })).toBeNull();
+		expect(screen.queryByRole('row', { name: /All Users/ })).toBeNull();
+
+		fireEvent.change(search, { target: { value: 'marketing' } });
+		expect(screen.getByText('No groups match your search.')).toBeTruthy();
+
+		fireEvent.change(search, { target: { value: '' } });
+		expect(screen.getAllByRole('row')).toHaveLength(4);
+	});
+
 	it('navigates from a group row and the create action', () => {
 		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
 
@@ -665,7 +698,7 @@ describe('UserGroupsTable', () => {
 
 		const userRow = screen.getByRole('row', { name: /Project User/ });
 		expect(userRow.className).toContain('cursor-pointer');
-		expect(userRow.className).toContain('hover:bg-primary/10');
+		expect(userRow.className).toContain('hover:bg-muted/50');
 		expect(screen.getByRole('link', { name: 'Project User' })).toBeTruthy();
 
 		fireEvent.click(userRow);
@@ -693,6 +726,30 @@ describe('UserGroupsTable', () => {
 		});
 		expect(mocks.navigate).not.toHaveBeenCalled();
 		expect(screen.getByRole('menuitemcheckbox', { name: 'Analysts' })).toBeTruthy();
+	});
+
+	it('removes a membership from its group token without opening the user', () => {
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		expect(screen.queryByRole('button', { name: 'Remove group All Users' })).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Remove group Analysts' }));
+
+		expect(mocks.mutate).toHaveBeenCalledWith({
+			groupId: 'analysts',
+			userId: 'project-user',
+			isMember: false,
+		});
+		expect(mocks.navigate).not.toHaveBeenCalled();
+	});
+
+	it('blocks group token removal while a membership update is pending', () => {
+		mocks.useMutation.mockReturnValue({ mutate: mocks.mutate, mutateAsync: mocks.mutateAsync, isPending: true });
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		const removeButton = screen.getByRole('button', { name: 'Remove group Analysts' }) as HTMLButtonElement;
+		expect(removeButton.disabled).toBe(true);
+		fireEvent.click(removeButton);
+		expect(mocks.mutate).not.toHaveBeenCalled();
 	});
 
 	it('omits locked groups from user chips and assignment menus', () => {
@@ -723,9 +780,15 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Managed by SSO')).toBeTruthy();
 		fireEvent.click(managedMembership);
 		expect(mocks.mutate).not.toHaveBeenCalled();
+		expect(
+			within(screen.getByRole('row', { name: /Organisation User/, hidden: true })).queryByRole('button', {
+				name: 'Remove group Analysts',
+				hidden: true,
+			}),
+		).toBeNull();
 	});
 
-	it('keeps the users table columns fixed while group chips overflow inside their cell', () => {
+	it('keeps the users table columns fixed while group tokens wrap inside their cell', () => {
 		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
 
 		const table = screen.getByRole('table');
@@ -735,12 +798,13 @@ describe('UserGroupsTable', () => {
 
 		expect(table.classList.contains('table-fixed')).toBe(true);
 		expect(table.classList.contains('min-w-3xl')).toBe(true);
-		expect(headers[0]?.classList.contains('w-[36%]')).toBe(true);
-		expect(headers[1]?.classList.contains('w-1/5')).toBe(true);
-		expect(headers[2]?.classList.contains('w-[38%]')).toBe(true);
-		expect(projectUserCells[2]?.classList.contains('overflow-hidden')).toBe(true);
-		expect(groupsButton.classList.contains('w-full')).toBe(true);
-		expect(groupsButton.classList.contains('min-w-0')).toBe(true);
+		expect(headers[0]?.classList.contains('w-10')).toBe(true);
+		expect(headers[1]?.classList.contains('w-[32%]')).toBe(true);
+		expect(headers[2]?.classList.contains('w-1/5')).toBe(true);
+		expect(headers[3]?.classList.contains('w-[38%]')).toBe(true);
+		expect(projectUserCells[3]?.classList.contains('overflow-hidden')).toBe(true);
+		expect(groupsButton.parentElement?.classList.contains('w-full')).toBe(true);
+		expect(groupsButton.parentElement?.classList.contains('flex-wrap')).toBe(true);
 	});
 
 	it('reports tab changes to the route', () => {
@@ -862,6 +926,7 @@ describe('UserGroupEditor', () => {
 			'Features',
 			'Context',
 			'MCP',
+			'Skills',
 			'Security',
 			'Budget',
 			'Advanced settings',
@@ -926,6 +991,43 @@ describe('UserGroupEditor', () => {
 			),
 		);
 		expect(screen.queryByText(/Unshare content shared with everyone/)).toBeNull();
+	});
+
+	it('lets a group share exclusively with other groups', async () => {
+		const finance = { ...analysts, id: 'finance', name: 'Finance' };
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [allUsers, analysts, finance] },
+		});
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: /Groups members can share with/ }), {
+			button: 0,
+			ctrlKey: false,
+		});
+		expect(screen.queryByRole('menuitemcheckbox', { name: 'All Users' })).toBeNull();
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Analysts (this group)' }));
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Finance' }));
+		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({
+					groupId: 'analysts',
+					shareTargets: { includeOwnGroup: false, groupIds: ['finance'] },
+				}),
+			),
+		);
+		expect(mocks.fetchQuery).not.toHaveBeenCalled();
+	});
+
+	it('does not offer share targets for All Users', () => {
+		renderEditor('features', vi.fn(), allUsers);
+
+		expect(screen.queryByRole('button', { name: /Groups members can share with/ })).toBeNull();
 	});
 
 	it('turns project sharing back on for All Users with a switch', async () => {
@@ -1634,6 +1736,15 @@ describe('UserGroupEditor', () => {
 				databaseAccess: group.databaseAccess,
 			}),
 		).toBe(true);
+		expect(
+			hasUserGroupEditorChanges(group, {
+				name: group.name,
+				featureGrants: group.featureGrants,
+				toolCallDensityPolicy: group.toolCallDensityPolicy,
+				databaseAccess: group.databaseAccess,
+				preloadedSkills: ['revenue'],
+			}),
+		).toBe(true);
 	});
 });
 
@@ -1645,6 +1756,8 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
 			'Features',
 			'Context',
+			'MCP',
+			'Skills',
 			'Security',
 			'Budget',
 		]);
@@ -1677,6 +1790,68 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.queryByText('Density slider')).toBeNull();
 	});
 
+	it('shows only the MCP servers and tools granted to the user', () => {
+		mockQueries({
+			'mcp-servers': [
+				createMcpServer('github', ['search', 'create_issue']),
+				createMcpServer('linear', ['list_issues']),
+				createMcpServer('slack', ['post_message']),
+			],
+		});
+		renderUserDetail({
+			activeTab: 'mcp',
+			effectiveAccess: {
+				...createEffectiveAccess([]),
+				mcpAccess: {
+					mode: 'restricted',
+					grants: [
+						{ kind: 'server', server: 'linear' },
+						{ kind: 'tool', server: 'github', tool: 'search' },
+					],
+				},
+			},
+		});
+
+		expect(screen.getByText('Specific selection')).toBeTruthy();
+		expect(screen.getByText('2 of 3 servers')).toBeTruthy();
+		expect(screen.queryByText('slack')).toBeNull();
+		expect(screen.getByText('Full server')).toBeTruthy();
+		expect(screen.getByText('Partial')).toBeTruthy();
+		expect(screen.getByText('1/2 tools')).toBeTruthy();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand github tools' }));
+
+		expect(screen.getByText('search')).toBeTruthy();
+		expect(screen.queryByText('create_issue')).toBeNull();
+	});
+
+	it('shows granted skills and marks the preloaded ones', () => {
+		mockQueries({
+			'skill-catalog': [
+				{ name: 'revenue', description: 'Revenue analysis', location: '/agent/skills/revenue/SKILL.md' },
+				{ name: 'churn', description: 'Churn analysis', location: '/agent/skills/churn/SKILL.md' },
+				{ name: 'secret', description: 'Hidden skill', location: '/agent/skills/secret/SKILL.md' },
+			],
+		});
+		renderUserDetail({
+			activeTab: 'skills',
+			effectiveAccess: {
+				...createEffectiveAccess([]),
+				skillsAccess: { mode: 'restricted', skills: ['churn', 'revenue'] },
+				preloadedSkills: ['revenue'],
+			},
+		});
+
+		expect(screen.getByText('Specific selection')).toBeTruthy();
+		expect(screen.getByText(/2 of 3 skills · 1 of 50 preloaded/)).toBeTruthy();
+		expect(screen.getByText('churn')).toBeTruthy();
+		expect(screen.queryByText('secret')).toBeNull();
+		const revenueRow = screen.getByText('revenue').closest('li');
+		const churnRow = screen.getByText('churn').closest('li');
+		expect(revenueRow?.textContent).toContain('Preloaded');
+		expect(churnRow?.textContent).not.toContain('Preloaded');
+	});
+
 	it('counts current effective access without overlap, including Everything mode', () => {
 		const contextObjects = [
 			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
@@ -1698,6 +1873,9 @@ describe('UserGroupUserDetail', () => {
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 				filesAccess: { mode: 'all' },
+				mcpAccess: ALL_MCP_ACCESS,
+				skillsAccess: ALL_SKILLS_ACCESS,
+				preloadedSkills: [],
 				rowPolicies: [],
 			},
 		});
@@ -1751,6 +1929,9 @@ describe('UserGroupUserDetail', () => {
 				},
 				docsAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'finance/kpis.md' }] },
 				filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+				mcpAccess: ALL_MCP_ACCESS,
+				skillsAccess: ALL_SKILLS_ACCESS,
+				preloadedSkills: [],
 				rowPolicies: [],
 			},
 		});
@@ -1789,6 +1970,9 @@ describe('UserGroupUserDetail', () => {
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 				filesAccess: { mode: 'all' },
+				mcpAccess: ALL_MCP_ACCESS,
+				skillsAccess: ALL_SKILLS_ACCESS,
+				preloadedSkills: [],
 				rowPolicies: [],
 			},
 		});
@@ -2127,6 +2311,31 @@ function createUserDetail(
 	);
 }
 
+function mockQueries(dataByQueryKey: Record<string, unknown>) {
+	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+		isLoading: false,
+		isError: false,
+		isSuccess: true,
+		data: dataByQueryKey[options?.queryKey?.[0] ?? ''] ?? overview,
+	}));
+}
+
+function createMcpServer(name: string, toolNames: string[]): McpServerStatus {
+	return {
+		name,
+		transport: 'http',
+		enabled: true,
+		discovered: true,
+		connectionOk: true,
+		oauth: false,
+		oauthConnected: false,
+		toolCount: toolNames.length,
+		enabledToolCount: toolNames.length,
+		tools: toolNames.map((toolName) => ({ name: toolName, description: '', enabled: true })),
+		specPath: `agent/mcps/${name}`,
+	};
+}
+
 function createEffectiveAccess(
 	rowPolicies: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess']['rowPolicies'],
 ): ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'] {
@@ -2136,6 +2345,9 @@ function createEffectiveAccess(
 		databaseAccess: { mode: 'all', strict: true },
 		docsAccess: { mode: 'restricted', grants: [] },
 		filesAccess: EMPTY_FILES_CONTEXT_ACCESS,
+		mcpAccess: ALL_MCP_ACCESS,
+		skillsAccess: ALL_SKILLS_ACCESS,
+		preloadedSkills: [],
 		rowPolicies,
 	};
 }

@@ -49,19 +49,20 @@ export function hasChatArtifacts(artifacts: ChatArtifacts): boolean {
 
 /**
  * Story tool outputs in the history shrink to a one-line placeholder: the artifacts carry the
- * current content of every live story, so repeating each version is waste. A story missing from
- * the artifacts has been archived, and its placeholder says so.
+ * current content of every live story, so repeating each version is waste.
  */
 export function collapseStoryToolOutputs<T extends MessageLike>(messages: T[], artifacts: ChatArtifacts): T[] {
-	const liveStoryIds = new Set(artifacts.stories.map((story) => story.id));
+	const liveStorySlugs = new Set(artifacts.stories.map((story) => story.slug));
 	return messages.map((message) => ({
 		...message,
 		parts: message.parts.map((part): UIMessagePart => {
 			if (!isStoryToolPart(part)) {
 				return part;
 			}
-			const isArchived = !liveStoryIds.has(part.output.id);
-			return { ...part, output: { ...part.output, _stale: true, _archived: isArchived, code: '' } };
+			return {
+				...part,
+				output: { ...part.output, _stale: true, _inArtifacts: liveStorySlugs.has(part.output.id), code: '' },
+			};
 		}),
 	}));
 }
@@ -107,7 +108,7 @@ async function loadStoryArtifacts(chatId: string, messages: UIMessage[]): Promis
 	const storedStories = await storyQueries.listLatestVersionsInChat(chatId);
 	const storedSlugs = new Set(storedStories.map((story) => story.slug));
 	const liveStories = storedStories.filter((story) => story.archivedAt === null);
-	const pinnedStories = collectPinnedStoryArtifacts(messages).filter((story) => !storedSlugs.has(story.id));
+	const pinnedStories = collectPinnedStoryArtifacts(messages).filter((story) => !storedSlugs.has(story.slug));
 	return [...(await toStoredStoryArtifacts(chatId, liveStories)), ...pinnedStories];
 }
 
@@ -117,7 +118,8 @@ function toStoredStoryArtifacts(
 ): Promise<StoryArtifact[]> {
 	return Promise.all(
 		stories.map(async (story) => ({
-			id: story.slug,
+			id: story.storyId,
+			slug: story.slug,
 			title: story.title,
 			version: story.version ?? 0,
 			format: story.format,
@@ -138,9 +140,10 @@ async function listDraftFilePaths(storyId: string): Promise<string[]> {
 function collectPinnedStoryArtifacts(messages: UIMessage[]): StoryArtifact[] {
 	const latestBySlug = new Map<string, StoryArtifact>();
 	for (const part of allParts(messages)) {
-		if (isStoryToolPart(part) && part.output.success && part.output.code) {
+		if (isStoryToolPart(part) && part.output.success && part.output.code && !part.output.story_chat_id) {
 			latestBySlug.set(part.output.id, {
-				id: part.output.id,
+				id: part.output.story_id ?? part.output.id,
+				slug: part.output.id,
 				title: part.output.title,
 				version: part.output.version,
 				format: part.output.format ?? 'classic',

@@ -14,9 +14,20 @@ export interface StoryDraft {
 
 const storiesByMessages = new WeakMap<UIMessage[], StorySummary[]>();
 
+export interface ViewedStory {
+	slug: string;
+	id: string | null;
+}
+
 /** The slug a story tool call acts on, from its output when available and from the (possibly partial) input otherwise. */
-export function getStoryToolPartSlug(part: UIToolPart<'story'>): string | undefined {
-	return part.output?.id ?? part.input?.id;
+export function getStoryToolPartSlug(part: UIToolPart<'story'>, viewedStory?: ViewedStory): string | undefined {
+	if (part.output?.id) {
+		return part.output.id;
+	}
+	if (part.input?.action === 'create') {
+		return part.input.id;
+	}
+	return viewedStory && part.input?.id === viewedStory.id ? viewedStory.slug : undefined;
 }
 
 const isStoryIdMatch = (expectedId: string, candidateId: string) => {
@@ -46,7 +57,7 @@ export function findStories(messages: UIMessage[]): StorySummary[] {
 			}
 
 			const output = part.output;
-			if (output?.success && output.id) {
+			if (output?.success && output.id && !output.story_chat_id) {
 				seen.set(output.id, output.title);
 			}
 		}
@@ -66,7 +77,11 @@ export function findStoryIds(messages: UIMessage[]): string[] {
  * Prefers currently-streaming tool input, then falls back to latest code-bearing input/output.
  * A failed call never produced a version, so its input is not a draft to show.
  */
-export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDraft | null {
+export function findStoryDraft(
+	messages: UIMessage[],
+	storyId: string,
+	viewedStoryId?: string | null,
+): StoryDraft | null {
 	let prefixMatchedDraft: StoryDraft | null = null;
 
 	for (let m = messages.length - 1; m >= 0; m--) {
@@ -74,13 +89,13 @@ export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDra
 
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p];
-			if (part.type !== 'tool-story' || part.state === 'output-error') {
+			if (part.type !== 'tool-story' || part.state === 'output-error' || part.output?.story_chat_id) {
 				continue;
 			}
 
 			const input = part.input;
 			const output = part.output;
-			const id = getStoryToolPartSlug(part);
+			const id = getStoryToolPartSlug(part, { slug: storyId, id: viewedStoryId ?? null });
 			if (!id) {
 				continue;
 			}

@@ -2,9 +2,15 @@ import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-r
 import { useForm } from '@tanstack/react-form';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { signIn } from '@/lib/auth-client';
+import { sendVerificationEmail, signIn } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
+import { EmailVerificationPending } from '@/components/email-verification-pending';
 import { useIsCloud } from '@/hooks/use-nao-mode';
+import {
+	buildEmailVerificationCallbackUrl,
+	getSignInErrorMessage,
+	isEmailNotVerifiedError,
+} from '@/lib/email-verification';
 import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { trpc } from '@/main';
@@ -25,11 +31,12 @@ function buildOAuthAuthorizeUrl() {
 	return `/api/auth/oauth2/authorize${window.location.search}`;
 }
 
-function Login() {
+export function Login() {
 	const navigate = useNavigate();
 	const router = useRouter();
 	const { error: oauthError, redirect } = Route.useSearch();
-	const [serverError, setServerError] = useState<string | undefined>(oauthError);
+	const [serverError, setServerError] = useState<string | undefined>(getSignInErrorMessage(oauthError));
+	const [pendingEmail, setPendingEmail] = useState<string>();
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isCloud = useIsCloud();
@@ -38,6 +45,7 @@ function Login() {
 
 	const oauthAuthorizeUrl = buildOAuthAuthorizeUrl();
 	const safeRedirect = getSafeRedirectPath(redirect);
+	const verificationCallbackURL = buildEmailVerificationCallbackUrl(oauthAuthorizeUrl ?? safeRedirect);
 
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
@@ -46,34 +54,65 @@ function Login() {
 				return;
 			}
 			setServerError(undefined);
-			await signIn.email(value, {
-				onSuccess: () => {
-					rememberSignInMethod('email');
-					if (oauthAuthorizeUrl) {
-						window.location.href = oauthAuthorizeUrl;
-					} else if (safeRedirect) {
-						router.history.push(safeRedirect);
-					} else {
-						navigate({ to: '/' });
+			const { error } = await signIn.email(value);
+			if (error) {
+				if (isEmailNotVerifiedError(error)) {
+					try {
+						const { error: verificationError } = await sendVerificationEmail({
+							email: value.email,
+							callbackURL: verificationCallbackURL,
+						});
+						if (verificationError) {
+							setServerError(
+								verificationError.status === 429
+									? 'Too many requests. Wait a minute before trying again.'
+									: 'We could not send a verification email. Please try again.',
+							);
+							return;
+						}
+					} catch {
+						setServerError('We could not send a verification email. Please try again.');
+						return;
 					}
-				},
-				onError: (err) => setServerError(err.error.message),
-			});
+					setPendingEmail(value.email);
+					return;
+				}
+				setServerError(error.message);
+				return;
+			}
+
+			rememberSignInMethod('email');
+			if (oauthAuthorizeUrl) {
+				window.location.href = oauthAuthorizeUrl;
+			} else if (safeRedirect) {
+				router.history.push(safeRedirect);
+			} else {
+				navigate({ to: '/' });
+			}
 		},
 	});
 
 	return (
 		<AuthForm
 			form={form}
-			title='Log in'
+			title={pendingEmail ? 'Check your inbox' : 'Log in'}
 			submitText='Log in'
 			serverError={serverError}
-			displaySocialProviders={true}
+			displaySocialProviders={!pendingEmail}
 			socialCallbackUrl={oauthAuthorizeUrl ?? safeRedirect ?? undefined}
 			displayEmailPasswordForm={isUserLoginEnabled}
 			emailPasswordDisabledMessage='Email and password login is disabled. Use a configured sign-in provider to continue.'
+			content={
+				pendingEmail ? (
+					<EmailVerificationPending
+						email={pendingEmail}
+						callbackURL={verificationCallbackURL}
+						onChangeEmail={() => setPendingEmail(undefined)}
+					/>
+				) : undefined
+			}
 			footer={
-				isCloud && isUserSignupEnabled ? (
+				!pendingEmail && isCloud && isUserSignupEnabled ? (
 					<>
 						Don&apos;t have an account?{' '}
 						<Link

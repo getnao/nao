@@ -85,6 +85,9 @@ export interface UserProjectPreferences {
 
 export interface StoredUserPreferences extends UserPreferences {
 	projectPreferences?: Record<string, UserProjectPreferences>;
+	supportRequestSentAt?: number;
+	githubStarPromptDismissedAt?: number;
+	webConversationsStarted?: number;
 }
 
 export function resolveUsagePeriod(
@@ -209,6 +212,7 @@ export interface UsageRecord {
 	adminMessageCount: number;
 	mcpMessageCount: number;
 	contextRecommendationsMessageCount: number;
+	testMessageCount: number;
 	inputNoCacheTokens: number;
 	inputCacheReadTokens: number;
 	inputCacheWriteTokens: number;

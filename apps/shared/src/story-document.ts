@@ -191,6 +191,7 @@ html,body{margin:0;min-height:100%}
 body{background:var(--background);color:var(--story-body-color);font-family:var(--font-sans);font-size:var(--story-body-size);line-height:var(--story-line-height);-webkit-font-smoothing:antialiased}
 h1,h2,h3,h4,h5,h6{font-family:var(--font-heading);color:var(--foreground);letter-spacing:var(--story-heading-tracking);margin:0}
 #root{min-height:100vh}
+#recharts_measurement_span{line-height:normal}
 .nao-story-crash{margin:16px;padding:12px 16px;border-radius:8px;background:#fef2f2;color:#991b1b;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap}
 `;
 

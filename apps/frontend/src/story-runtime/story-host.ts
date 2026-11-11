@@ -10,6 +10,8 @@ import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { resolveBlockColors } from './story-colors';
+import { highlightStoryElement } from './story-highlight';
+import { configureStoryInspector } from './story-inspector';
 import { initStoryState, readStoryState, writeStoryState } from './story-state';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { Shortcut } from '@nao/shared/keyboard-shortcut';
@@ -18,6 +20,7 @@ import type { StoryBlockReference } from '@nao/shared/types';
 import type {
 	StoryAppKind,
 	StoryBlockEditRequest,
+	StoryElementAsk,
 	StoryTableFormatEditRequest,
 	StoryExportData,
 	StoryFrameMessage,
@@ -48,6 +51,7 @@ const HOST_REPLY_TIMEOUT_MS = 120_000;
 
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
+const pendingChartPlugins = new Map<string, PendingRequest<string>>();
 const pendingNarratives = new Map<string, PendingRequest<StoryNarratives>>();
 const editingListeners = new Set<() => void>();
 const themeListeners = new Set<() => void>();
@@ -57,6 +61,7 @@ let exportData: StoryExportData | null = null;
 let frameChannel: string | undefined;
 let hostPort: MessagePort | null = null;
 let hostShortcuts: Shortcut[] = [];
+let stopPendingHighlight: () => void = () => {};
 
 export async function bootStory({
 	kind = 'react',
@@ -210,8 +215,20 @@ export function requestBlockAsk(block: StoryBlockReference): void {
 	send({ type: 'nao-story:ask-block', block });
 }
 
+function requestElementAsk({ block, text }: StoryElementAsk): void {
+	send({ type: 'nao-story:ask', block: toJsonSafe(block), text });
+}
+
 export function requestQuerySql(queryId: string): Promise<string> {
 	return awaitReply(pendingQuerySql, (requestId) => ({ type: 'nao-story:query-sql', requestId, queryId }));
+}
+
+/** The module source of a project chart plugin (`agent/charts/<type>.js`). */
+export function requestChartPlugin(chartType: string): Promise<string> {
+	if (exportData) {
+		return readExportedChartPlugin(exportData, chartType);
+	}
+	return awaitReply(pendingChartPlugins, (requestId) => ({ type: 'nao-story:chart-plugin', requestId, chartType }));
 }
 
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
@@ -244,6 +261,18 @@ function handleHostMessage(message: unknown): void {
 		editingListeners.forEach((listener) => listener());
 		return;
 	}
+	if (message.type === 'nao-story:inspector') {
+		configureStoryInspector({
+			onAsk: message.enabled ? requestElementAsk : null,
+			selectsElements: message.selectsElements,
+		});
+		return;
+	}
+	if (message.type === 'nao-story:highlight') {
+		stopPendingHighlight();
+		stopPendingHighlight = highlightStoryElement({ block: message.block, text: message.text });
+		return;
+	}
 	if (message.type === 'nao-story:theme') {
 		applyTheme(message.theme);
 		return;
@@ -263,6 +292,10 @@ function handleHostMessage(message: unknown): void {
 	}
 	if (message.type === 'nao-story:query-sql-result' || message.type === 'nao-story:query-sql-error') {
 		settleQuerySql(message);
+		return;
+	}
+	if (message.type === 'nao-story:chart-plugin-result' || message.type === 'nao-story:chart-plugin-error') {
+		settleChartPlugin(message);
 		return;
 	}
 	const pending = pendingQueries.get(message.requestId);
@@ -307,6 +340,18 @@ function settleQuerySql(
 	pendingQuerySql.delete(message.requestId);
 	if (message.type === 'nao-story:query-sql-result') {
 		pending?.resolve(message.sqlQuery);
+	} else {
+		pending?.reject(new Error(message.message));
+	}
+}
+
+function settleChartPlugin(
+	message: Extract<StoryHostMessage, { type: 'nao-story:chart-plugin-result' | 'nao-story:chart-plugin-error' }>,
+): void {
+	const pending = pendingChartPlugins.get(message.requestId);
+	pendingChartPlugins.delete(message.requestId);
+	if (message.type === 'nao-story:chart-plugin-result') {
+		pending?.resolve(message.source);
 	} else {
 		pending?.reject(new Error(message.message));
 	}
@@ -367,6 +412,13 @@ function readExportedQuery(data: StoryExportData, queryId: string): Promise<Stor
 	return result ? Promise.resolve(result) : Promise.reject(new Error(`Query ${queryId} is not part of this export.`));
 }
 
+function readExportedChartPlugin(data: StoryExportData, chartType: string): Promise<string> {
+	const source = data.chartPlugins?.[chartType];
+	return source !== undefined
+		? Promise.resolve(source)
+		: Promise.reject(new Error(`Custom chart "${chartType}" is not available.`));
+}
+
 function toJsonSafe<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -389,7 +441,15 @@ async function importStoryModule(source: string): Promise<{ default?: unknown }>
 	}
 }
 
+/**
+ * React hands event-handler errors to `window.reportError`; the sandboxed frame's opaque origin would mute them
+ * to "Script error." on the way to the `error` event, so they are reported before that happens.
+ */
 function installGlobalErrorReporting(): void {
+	window.reportError = (error: unknown) => {
+		console.error(error);
+		reportError(error);
+	};
 	window.addEventListener('error', (event) => reportError(event.error ?? event.message));
 	window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
 }

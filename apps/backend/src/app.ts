@@ -9,9 +9,14 @@ import fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 
-import { env, isCloud, isCloudBillingEnabled } from './env';
+import { env, isCloud, isCloudBillingEnabled, isCloudWelcomeEmailEnabled } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler, resolveAutomationProjectId } from './handlers/automation.handler';
 import { BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler } from './handlers/billing-lifecycle.handler';
+import {
+	CLOUD_TRIAL_PROVISIONING_JOB_NAME,
+	cloudTrialProvisioningHandler,
+} from './handlers/cloud-trial-provisioning.handler';
+import { CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler } from './handlers/cloud-welcome-email.handler';
 import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
@@ -28,6 +33,10 @@ import {
 	runInvitationCleanup,
 } from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
+import {
+	MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+	managedCreditLifecycleHandler,
+} from './handlers/managed-credit-lifecycle.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_BLOB_CLEANUP_JOB_NAME, storyBlobCleanupHandler } from './handlers/story-blob-cleanup.handler';
 import {
@@ -43,6 +52,7 @@ import {
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
+import { checkDatabaseConnection } from './queries/health.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
@@ -72,10 +82,13 @@ import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
+import { reconcileOrganizationSetupGrants } from './services/credit-grant.service';
+import { validateCreditTopUpConfiguration } from './services/credit-top-up.service';
 import { discordService } from './services/discord';
 import { ensureSystemExampleProject } from './services/example-project';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { reportManagedGithubConfiguration } from './services/managed-github-repository';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
@@ -86,14 +99,22 @@ import { validateCloudBillingConfiguration } from './services/stripe.service';
 import { startWarehouseProvisioningReconciler } from './services/warehouse-provisioning';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
-import { BudgetExceededError, HandlerError } from './utils/error';
+import {
+	BudgetExceededError,
+	ExampleChatAllowanceExhaustedError,
+	HandlerError,
+	ManagedCreditsExhaustedError,
+	OnboardingChatAllowanceExhaustedError,
+} from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
-import { logger } from './utils/logger';
+import { describeError, logger } from './utils/logger';
 import { drainInFlightRequests, isDraining, trackInFlightRequests } from './utils/request-drain';
 import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
+const HEALTH_DATABASE_TIMEOUT_MS = 2_000;
+const BACKOFFICE_LOGS_PATH = '/api/backoffice/logs';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
 const isCompiled = typeof Bun !== 'undefined' && /(\$bunfs|~BUN)/.test(Bun.main);
@@ -126,17 +147,30 @@ trackInFlightRequests(app);
 
 // Map HandlerError to HTTP status code
 app.setErrorHandler((error, request, reply) => {
-	const message = error instanceof Error ? error.message : String(error);
 	const statusCode =
 		typeof (error as Record<string, unknown>).statusCode === 'number'
 			? (error as Record<string, unknown>).statusCode
 			: undefined;
-	logger.error(message, {
+	logger.error(describeError(error), {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode },
 	});
 	if (error instanceof BudgetExceededError) {
 		return reply.status(error.code).send({ error: error.message, code: 'BUDGET_EXCEEDED' });
+	}
+	if (error instanceof ManagedCreditsExhaustedError) {
+		return reply.status(error.code).send({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
+	}
+	if (error instanceof ExampleChatAllowanceExhaustedError) {
+		return reply.status(error.code).send({ error: error.message, code: 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED' });
+	}
+	if (error instanceof OnboardingChatAllowanceExhaustedError) {
+		return reply.status(error.code).send({ error: error.message, code: 'ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED' });
 	}
 	if (error instanceof HandlerError) {
 		return reply.status(error.code).send({ error: error.message });
@@ -146,7 +180,11 @@ app.setErrorHandler((error, request, reply) => {
 
 // Log HTTP requests to the database (skip log-polling to avoid self-referential noise)
 app.addHook('onResponse', (request, reply, done) => {
-	if (request.url.includes('log.listLogs') || request.url === HEALTH_PATH) {
+	if (
+		request.url.includes('log.listLogs') ||
+		request.url.startsWith(BACKOFFICE_LOGS_PATH) ||
+		request.url === HEALTH_PATH
+	) {
 		done();
 		return;
 	}
@@ -156,6 +194,7 @@ app.addHook('onResponse', (request, reply, done) => {
 	}
 	logger.info(`${request.method} ${request.url} ${reply.statusCode}`, {
 		source: 'http',
+		userId: request.actorUserId,
 		context: { method: request.method, url: request.url, statusCode: reply.statusCode, elapsed: reply.elapsedTime },
 	});
 	done();
@@ -180,9 +219,10 @@ app.register(fastifyTRPCPlugin, {
 	trpcOptions: {
 		router: trpcRouter,
 		createContext,
-		onError({ path, error }) {
-			logger.error(`tRPC error on ${path}: ${error.message}`, {
+		onError({ path, error, req }) {
+			logger.error(`tRPC error on ${path}: ${describeError(error)}`, {
 				source: 'http',
+				userId: req.actorUserId,
 				context: { path, code: error.code },
 			});
 		},
@@ -312,10 +352,12 @@ app.register(mcpServerRoutes, {
 
 async function sendProtectedResourceMetadata(request: { host: string }, reply: FastifyReply) {
 	const { buildProtectedResourceMetadata } = await import('./auth');
-	const { resolveMcpFacingOrigin } = await import('./env');
-	const metadata = await buildProtectedResourceMetadata({
-		resource: `${resolveMcpFacingOrigin(request.host)}/mcp`,
-	});
+	const { isMcpPublicHost, resolveMcpFacingOrigin } = await import('./env');
+	const origin = resolveMcpFacingOrigin(request.host);
+	const metadata = await buildProtectedResourceMetadata(
+		{ resource: `${origin}/mcp` },
+		isMcpPublicHost(request.host) ? origin : undefined,
+	);
 	reply
 		.status(200)
 		.header('Content-Type', 'application/json')
@@ -330,27 +372,59 @@ app.get('/.well-known/oauth-protected-resource/mcp/:projectId', sendProtectedRes
 
 async function relayWebResponse(
 	handler: (req: Request) => Promise<Response>,
-	request: { url: string; headers: Record<string, string | string[] | undefined> },
+	request: { url: string; host: string; headers: Record<string, string | string[] | undefined> },
 	reply: FastifyReply,
+	transform?: (body: string) => string,
 ) {
 	const url = new URL(request.url, env.BETTER_AUTH_URL);
 	const { convertHeaders } = await import('./utils/utils');
 	const response = await handler(new Request(url, { method: 'GET', headers: convertHeaders(request.headers) }));
 	reply.status(response.status);
-	response.headers.forEach((value, key) => reply.header(key, value));
-	reply.send(await response.text());
+	response.headers.forEach((value, key) => {
+		// A transformed body has a different length; let Fastify compute it.
+		if (!(transform && key.toLowerCase() === 'content-length')) {
+			reply.header(key, value);
+		}
+	});
+	const body = await response.text();
+	reply.send(transform ? transform(body) : body);
+}
+
+/**
+ * On the public MCP host, rebase the discovery document onto that host (see
+ * `rewriteAuthServerMetadataForPublicHost`). Other hosts get it unchanged.
+ */
+async function publicHostMetadataTransform(requestHost: string): Promise<((body: string) => string) | undefined> {
+	const { isMcpPublicHost, resolveMcpFacingOrigin } = await import('./env');
+	if (!isMcpPublicHost(requestHost)) {
+		return undefined;
+	}
+	const { rewriteAuthServerMetadataForPublicHost } = await import('./mcp/public-auth-metadata');
+	const publicOrigin = resolveMcpFacingOrigin(requestHost);
+	return (body) => {
+		try {
+			const metadata = JSON.parse(body) as Record<string, unknown>;
+			const rewritten = rewriteAuthServerMetadataForPublicHost(metadata, {
+				uiOrigin: env.BETTER_AUTH_URL,
+				publicOrigin,
+			});
+			return JSON.stringify(rewritten);
+		} catch {
+			return body;
+		}
+	};
 }
 
 async function relayAuthServerMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
 	const { getAuthServerMetadataHandler } = await import('./auth');
 	const handler = await getAuthServerMetadataHandler();
-	await relayWebResponse(handler, request, reply);
+	await relayWebResponse(handler, request, reply, await publicHostMetadataTransform(request.host));
 }
 
 async function relayOpenIdConfigMetadata(request: Parameters<typeof relayWebResponse>[1], reply: FastifyReply) {
 	const { getOpenIdConfigMetadataHandler } = await import('./auth');
 	const handler = await getOpenIdConfigMetadataHandler();
-	await relayWebResponse(handler, request, reply);
+	await relayWebResponse(handler, request, reply, await publicHostMetadataTransform(request.host));
 }
 
 app.get('/.well-known/oauth-authorization-server/api/auth', relayAuthServerMetadata);
@@ -369,6 +443,9 @@ app.get('/api', async () => {
 app.get(HEALTH_PATH, { logLevel: 'silent' }, async (_request, reply) => {
 	if (isDraining()) {
 		return reply.status(503).send({ status: 'draining' });
+	}
+	if (!(await checkDatabaseConnection(HEALTH_DATABASE_TIMEOUT_MS))) {
+		return reply.status(503).send({ status: 'database_unavailable' });
 	}
 	return { status: 'ok' };
 });
@@ -389,6 +466,9 @@ const isReservedBackendPath = (url: string) => {
 		pathname.startsWith('/.well-known/')
 	);
 };
+
+/** Hashed build chunks must 404 when missing (e.g. after a deploy) rather than fall back to index.html. */
+const isBuiltAssetPath = (url: string) => url.startsWith('/assets/');
 
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
@@ -417,7 +497,7 @@ if (staticRoot) {
 // SPA fallback: serve index.html for all non-API routes.
 // In dev mode without a built frontend, redirect to the Vite dev server.
 app.setNotFoundHandler((request, reply) => {
-	if (isReservedBackendPath(request.url)) {
+	if (isReservedBackendPath(request.url) || isBuiltAssetPath(request.url)) {
 		reply.status(404).send({ error: 'Not found' });
 	} else if (staticRoot) {
 		reply.sendFile('index.html');
@@ -431,7 +511,7 @@ app.setNotFoundHandler((request, reply) => {
 export const startServer = async (opts: { port: number; host: string }) => {
 	if (isCloud) {
 		if (isCloudBillingEnabled()) {
-			await validateCloudBillingConfiguration();
+			await Promise.all([validateCloudBillingConfiguration(), validateCreditTopUpConfiguration()]);
 		}
 		try {
 			await ensureSystemExampleProject();
@@ -447,6 +527,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		await ensureOrganizationSetup();
 	}
 	await logLicenseStatus();
+	await reconcileOrganizationSetupGrants();
 
 	void runLogCleanup().catch((err) => {
 		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });
@@ -470,15 +551,27 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	registerJob(AUTOMATION_JOB_NAME, automationHandler, { resolveProjectId: resolveAutomationProjectId });
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler, { resolveProjectId: resolveStoryRefreshProjectId });
 	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler, { resolveProjectId: resolveStoryDeliveryProjectId });
+	if (isCloud) {
+		registerJob(MANAGED_CREDIT_LIFECYCLE_JOB_NAME, managedCreditLifecycleHandler);
+		await ensureRecurring({
+			name: MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+			cron: '15 * * * *',
+			uniqueKey: MANAGED_CREDIT_LIFECYCLE_JOB_NAME,
+		});
+	}
 	if (isCloudBillingEnabled()) {
 		// Process accepted webhooks in the background so Stripe receives an immediate response.
 		registerJob(STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler);
 		registerJob(BILLING_LIFECYCLE_JOB_NAME, billingLifecycleHandler);
+		registerJob(CLOUD_TRIAL_PROVISIONING_JOB_NAME, cloudTrialProvisioningHandler);
 		await ensureRecurring({
 			name: BILLING_LIFECYCLE_JOB_NAME,
 			cron: '0 * * * *',
 			uniqueKey: BILLING_LIFECYCLE_JOB_NAME,
 		});
+	}
+	if (isCloudWelcomeEmailEnabled()) {
+		registerJob(CLOUD_WELCOME_EMAIL_JOB_NAME, cloudWelcomeEmailHandler);
 	}
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
@@ -522,6 +615,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	const address = await app.listen({ host: opts.host, port: opts.port });
 	app.log.info(`Server is running on ${address}`);
 	startWarehouseProvisioningReconciler();
+	void reportManagedGithubConfiguration();
 
 	void pingLicensesServer();
 	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());

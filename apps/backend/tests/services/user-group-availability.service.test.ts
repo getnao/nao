@@ -66,7 +66,7 @@ describe('user group availability service', () => {
 	});
 
 	it('keeps All Users and the deterministic three oldest custom groups active', async () => {
-		const available = await applyCurrentUserGroupAvailability([...groups]);
+		const available = await applyCurrentUserGroupAvailability('project-1', [...groups]);
 
 		expect(available.filter((group) => !group.isLocked).map((group) => group.id)).toEqual([
 			'default',

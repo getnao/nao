@@ -55,6 +55,8 @@ function storyPart(id: string, title: string, version: number, code: string): UI
 	} as unknown as UIMessagePart;
 }
 
+type StoryToolPart = UIMessagePart & { output: StoryModelOutput };
+
 function withStoryId(artifacts: ChatArtifacts, id: string): ChatArtifacts {
 	return { ...artifacts, stories: artifacts.stories.map((story) => ({ ...story, id })) };
 }
@@ -135,7 +137,8 @@ describe('getChatArtifacts', () => {
 		expect(mocks.getStoryTemplateWarnings).toHaveBeenCalledWith('chat-1', STORY_CODE);
 		expect(artifacts.stories).toEqual([
 			{
-				id: 'revenue',
+				id: 'story-1',
+				slug: 'revenue',
 				title: 'Revenue (edited)',
 				version: 3,
 				format: 'classic',
@@ -168,7 +171,8 @@ describe('getChatArtifacts', () => {
 		expect(mocks.getStoryTemplateWarnings).not.toHaveBeenCalled();
 		expect(artifacts.stories).toEqual([
 			{
-				id: 'churn-app',
+				id: 'story-2',
+				slug: 'churn-app',
 				title: 'Churn app',
 				version: 0,
 				format: 'custom',
@@ -200,9 +204,18 @@ describe('getChatArtifacts', () => {
 		]);
 
 		expect(artifacts.stories.map((story) => [story.id, story.version, story.code])).toEqual([
-			['revenue', 2, STORY_CODE],
+			['story-1', 2, STORY_CODE],
 			['source-story', 4, '# From another chat'],
 		]);
+	});
+
+	it('leaves out a story of another chat edited from this one', async () => {
+		const part = storyPart('revenue', 'Revenue', 2, '# Edited') as StoryToolPart;
+		const anotherChatPart = { ...part, output: { ...part.output, story_id: 'story-1', story_chat_id: 'chat-2' } };
+
+		const artifacts = await getChatArtifacts('chat-1', [assistant('a1', anotherChatPart as UIMessagePart)]);
+
+		expect(artifacts.stories).toEqual([]);
 	});
 
 	it('leaves an archived story out, even when its tool output is still in the history', async () => {
@@ -240,7 +253,8 @@ describe('collapseStoryToolOutputs', () => {
 		queries: [],
 		stories: [
 			{
-				id: 'revenue',
+				id: 'story-1',
+				slug: 'revenue',
 				title: 'Revenue',
 				version: 2,
 				format: 'classic',
@@ -259,21 +273,35 @@ describe('collapseStoryToolOutputs', () => {
 		);
 		const output = (message.parts[0] as { output: StoryModelOutput }).output;
 
-		expect(output).toMatchObject({ _stale: true, _archived: false, code: '' });
+		expect(output).toMatchObject({ _stale: true, _inArtifacts: true, code: '' });
 		expect(renderToMarkdown(StoryOutput({ output }))).toContain('<conversation-artifacts> block');
 	});
 
-	it('marks the output of a story missing from the artifacts as archived', () => {
+	it('says a story missing from the artifacts is no longer part of the conversation', () => {
 		const [message] = collapseStoryToolOutputs([assistant('a1', storyPart('revenue', 'Revenue', 1, '# v1'))], {
 			queries: [],
 			stories: [],
 		});
 		const output = (message.parts[0] as { output: StoryModelOutput }).output;
 
-		expect(output).toMatchObject({ _stale: true, _archived: true, code: '' });
+		expect(output).toMatchObject({ _stale: true, _inArtifacts: false, code: '' });
 		const rendered = renderToMarkdown(StoryOutput({ output }));
-		expect(rendered).toContain('has since been archived');
+		expect(rendered).toContain('no longer part of this conversation');
 		expect(rendered).not.toContain('<conversation-artifacts>');
+	});
+
+	it('says a story of another chat belongs to another conversation', () => {
+		const part = storyPart('revenue', 'Revenue', 1, '# v1') as StoryToolPart;
+		const anotherChatPart = { ...part, output: { ...part.output, story_id: 'story-1', story_chat_id: 'chat-2' } };
+		const [message] = collapseStoryToolOutputs([assistant('a1', anotherChatPart as UIMessagePart)], {
+			queries: [],
+			stories: [],
+		});
+		const output = (message.parts[0] as { output: StoryModelOutput }).output;
+
+		const rendered = renderToMarkdown(StoryOutput({ output }));
+		expect(rendered).toContain('belongs to another conversation');
+		expect(rendered).not.toContain('no longer part of this conversation');
 	});
 });
 
@@ -308,7 +336,8 @@ describe('ChatArtifactsPrompt', () => {
 		],
 		stories: [
 			{
-				id: 'revenue',
+				id: 'story-1',
+				slug: 'revenue',
 				title: 'Revenue "2025"',
 				version: 3,
 				format: 'classic',
@@ -327,7 +356,7 @@ describe('ChatArtifactsPrompt', () => {
 		expect(rendered.trimEnd().endsWith('</conversation-artifacts>')).toBe(true);
 		expect(rendered).toContain('- query_aaaa1111 — Monthly revenue — 12 rows — columns: ["month","revenue"]');
 		expect(rendered).toContain('- query_bbbb2222 — 1 row — columns: ["total"]');
-		expect(rendered).toContain('<story id="revenue" title="Revenue \\"2025\\"" version="3" format="classic">');
+		expect(rendered).toContain('<story id="story-1" title="Revenue \\"2025\\"" version="3" format="classic">');
 		expect(renderToMarkdown(ChatArtifactsPrompt({ artifacts: withStoryId(artifacts, 'x" evil="y') }))).toContain(
 			'<story id="x\\" evil=\\"y" title=',
 		);

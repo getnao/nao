@@ -46,8 +46,12 @@ def create_sync_setup(profiling_policy, summary_policy):
     return config, context, engine, profiling_data
 
 
+def table_path(tmp_path):
+    return tmp_path / "type=duckdb" / "database=analytics" / "schema=main" / "table=orders"
+
+
 def write_table_docs(tmp_path, docs):
-    output_path = tmp_path / "type=duckdb" / "database=analytics" / "schema=main" / "table=orders"
+    output_path = table_path(tmp_path)
     output_path.mkdir(parents=True)
     for name, content in docs.items():
         (output_path / name).write_text(content)
@@ -109,3 +113,57 @@ def test_neither_template_due_skips_profiling_compute(tmp_path):
 
     context.profiling.assert_not_called()
     engine.render.assert_not_called()
+
+
+def test_failed_render_keeps_previous_file(tmp_path):
+    config, _, engine, _ = create_sync_setup(
+        ProfilingRefreshPolicy.ALWAYS,
+        ProfilingRefreshPolicy.ALWAYS,
+    )
+    output_path = write_table_docs(tmp_path, {"ai_summary.md": "previous summary"})
+    summary_file = output_path / "ai_summary.md"
+    engine.render.side_effect = _fail_ai_summary
+
+    run_sync(config, engine, tmp_path)
+
+    assert summary_file.read_text() == "previous summary"
+    assert any("ai_summary" in call.args[0] for call in engine.render.call_args_list)
+    assert (output_path / "profiling.md").read_text() == with_generated_marker("rendered profiling.md")
+
+
+def test_failed_render_writes_placeholder_without_error_dump(tmp_path):
+    config, _, engine, _ = create_sync_setup(
+        ProfilingRefreshPolicy.ALWAYS,
+        ProfilingRefreshPolicy.ALWAYS,
+    )
+    engine.render.side_effect = _fail_ai_summary
+
+    run_sync(config, engine, tmp_path)
+
+    content = (table_path(tmp_path) / "ai_summary.md").read_text()
+    assert "ai_summary not generated: prompt is too long" in content
+    assert "Error generating content" not in content
+    assert "stack trace details" not in content
+
+
+def test_once_policy_retries_after_failed_render_placeholder(tmp_path):
+    config, _, engine, _ = create_sync_setup(
+        ProfilingRefreshPolicy.ONCE,
+        ProfilingRefreshPolicy.ONCE,
+    )
+    engine.render.side_effect = _fail_ai_summary
+    run_sync(config, engine, tmp_path)
+    summary_file = table_path(tmp_path) / "ai_summary.md"
+    assert "ai_summary not generated:" in summary_file.read_text()
+
+    engine.render.side_effect = lambda template_name, **_kwargs: f"rendered {Path(template_name).stem}"
+    run_sync(config, engine, tmp_path)
+
+    summary = summary_file.read_text()
+    assert summary == with_generated_marker("rendered ai_summary.md")
+
+
+def _fail_ai_summary(template_name, **_kwargs):
+    if "ai_summary" in template_name:
+        raise RuntimeError("prompt is too long: 1109582 tokens > 1000000 maximum\nstack trace details")
+    return f"rendered {Path(template_name).stem}"

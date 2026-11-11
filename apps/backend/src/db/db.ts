@@ -30,3 +30,5 @@ export const db = createDb() as BunSQLiteDatabase<typeof sqliteSchema> & {
 export type DBTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type DBExecutor = typeof db | DBTransaction;
+
+export type Lockable<Query> = { for(strength: 'update'): Query };

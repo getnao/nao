@@ -43,6 +43,9 @@ class FakeDatabaseConfig:
     def get_database_name(self) -> str:
         return "local"
 
+    def get_catalog_names(self) -> list[str]:
+        return [self.get_database_name()]
+
     def get_schemas(self, conn: FakeConnection) -> list[str]:
         return list(conn.schemas)
 

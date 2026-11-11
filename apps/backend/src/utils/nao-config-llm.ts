@@ -22,6 +22,7 @@ import {
 	modelInferenceSettingsSchema,
 	type ModelSettingsMap,
 } from '../types/llm';
+import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 
 export type ConfigProviderBudget = {
@@ -303,7 +304,7 @@ function resolveSecrets(value: unknown, extraEnv: Record<string, string>): strin
 			resolvable = false;
 			return '';
 		}
-		return extraEnv[identifier] || process.env[identifier] || '';
+		return extraEnv[identifier] || getDeploymentEnvVar(identifier) || '';
 	});
 
 	return resolvable && resolved.trim() ? resolved : null;

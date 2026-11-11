@@ -1,101 +1,105 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import type { ShareCandidate } from '@/lib/share-access';
+import { useActiveProjectId } from '@/lib/active-project';
+import { formatMemberCount, shareSubjectKey } from '@/lib/share-access';
 import { trpc } from '@/main';
 
 export function useShareAudience() {
-	const access = useQuery(trpc.userGroup.projectSharingAccess.queryOptions());
-	const canShareToProject = access.data?.canShareToProject === true;
+	const activeProjectId = useActiveProjectId();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projectId = project.data?.id;
+	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
+	const access = useQuery({
+		...trpc.userGroup.projectSharingAccess.queryOptions(),
+		enabled: hasProject,
+	});
+	const canShareToProject = hasProject && !access.isFetching && access.data?.canShareToProject === true;
 	return {
 		canShareToProject,
+		isLoading: project.isLoading || access.isLoading,
 		emptyMessage: canShareToProject ? undefined : 'No other members in your groups',
 	};
 }
 
-export function useMemberPicker(currentUserId: string | undefined, initialIds: string[] | undefined, chatId: string) {
-	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set(initialIds));
-	const [search, setSearch] = useState('');
+export function useShareCandidates({
+	chatId,
+	withGroups,
+	excludedKeys,
+	enabled,
+}: {
+	chatId: string;
+	withGroups: boolean;
+	excludedKeys: Set<string>;
+	enabled: boolean;
+}) {
+	const activeProjectId = useActiveProjectId();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projectId = project.data?.id;
+	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
+	const membersQuery = useQuery({
+		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId }),
+		enabled: enabled && hasProject,
+	});
+	const groupsQuery = useQuery({
+		...trpc.storyShare.listShareableGroups.queryOptions(),
+		enabled: enabled && withGroups && hasProject,
+	});
+	const showsGroups = withGroups && hasProject && !groupsQuery.isFetching;
 
-	const membersQuery = useQuery(trpc.project.getProjectMembersByChatId.queryOptions({ chatId }));
+	const candidates = useMemo<ShareCandidate[]>(() => {
+		const groups = showsGroups
+			? (groupsQuery.data ?? []).map((group) => ({
+					key: shareSubjectKey('group', group.id),
+					kind: 'group' as const,
+					id: group.id,
+					name: group.name,
+					detail: formatMemberCount(group.memberCount),
+				}))
+			: [];
+		const members = hasProject && !membersQuery.isFetching ? (membersQuery.data ?? []) : [];
+		const people = members.map((member) => ({
+			key: shareSubjectKey('user', member.id),
+			kind: 'user' as const,
+			id: member.id,
+			name: member.name,
+			detail: member.email,
+		}));
+		return [...groups, ...people].filter((candidate) => !excludedKeys.has(candidate.key));
+	}, [showsGroups, groupsQuery.data, hasProject, membersQuery.isFetching, membersQuery.data, excludedKeys]);
 
-	const otherMembers = useMemo(() => {
-		return (membersQuery.data ?? []).filter((m) => m.id !== currentUserId);
-	}, [membersQuery.data, currentUserId]);
-
-	const filteredMembers = useMemo(() => {
-		if (!search.trim()) {
-			return otherMembers;
-		}
-		const q = search.toLowerCase();
-		return otherMembers.filter((m) => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
-	}, [otherMembers, search]);
-
-	const toggleUser = useCallback((userId: string) => {
-		setSelectedUserIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(userId)) {
-				next.delete(userId);
-			} else {
-				next.add(userId);
-			}
-			return next;
-		});
-	}, []);
-
-	const reset = useCallback((ids?: string[]) => {
-		setSelectedUserIds(new Set(ids));
-		setSearch('');
-	}, []);
-
-	return {
-		selectedUserIds,
-		setSelectedUserIds,
-		search,
-		setSearch,
-		otherMembers,
-		filteredMembers,
-		toggleUser,
-		membersQuery,
-		reset,
-	};
+	return { candidates, isLoading: membersQuery.isFetching || (withGroups && groupsQuery.isFetching) };
 }
 
-export function useGroupPicker(search: string, initialIds: string[] | undefined) {
-	const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(() => new Set(initialIds));
+/** Runs one sharing change at a time and keeps the last failed one so it can be retried. */
+export function useShareActionRunner(onSettled: () => Promise<unknown>) {
+	const [isPending, setIsPending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 
-	const groupsQuery = useQuery(trpc.storyShare.listShareableGroups.queryOptions());
-
-	const filteredGroups = useMemo(() => {
-		const groups = groupsQuery.data ?? [];
-		if (!search.trim()) {
-			return groups;
-		}
-		const q = search.toLowerCase();
-		return groups.filter((group) => group.name.toLowerCase().includes(q));
-	}, [groupsQuery.data, search]);
-
-	const toggleGroup = useCallback((groupId: string) => {
-		setSelectedGroupIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(groupId)) {
-				next.delete(groupId);
-			} else {
-				next.add(groupId);
+	const run = useCallback(
+		async (action: () => Promise<unknown>): Promise<boolean> => {
+			setIsPending(true);
+			setError(null);
+			try {
+				await action();
+				return true;
+			} catch (caught) {
+				setError(caught instanceof Error ? caught.message : 'Something went wrong.');
+				return false;
+			} finally {
+				await onSettled();
+				setIsPending(false);
 			}
-			return next;
-		});
+		},
+		[onSettled],
+	);
+
+	const dismissError = useCallback(() => {
+		setError(null);
 	}, []);
 
-	const reset = useCallback((ids?: string[]) => {
-		setSelectedGroupIds(new Set(ids));
-	}, []);
-
-	return {
-		selectedGroupIds,
-		filteredGroups,
-		toggleGroup,
-		groupsQuery,
-		reset,
-	};
+	return { run, dismissError, isPending, error };
 }
 
 export function useCopyWithFeedback(delay = 1500) {

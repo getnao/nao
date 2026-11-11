@@ -1,26 +1,36 @@
-import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Settings, TriangleAlert } from 'lucide-react';
+import { LockKeyhole, Settings, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { providerLabel, providerName } from '@nao/shared/types';
+import { isSameModel, providerLabel, providerName } from '@nao/shared/types';
 
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { KeyboardEvent } from 'react';
 
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
+import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
-import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
-import { trpc } from '@/main';
+import { getShortcut, getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { matchesShortcut } from '@/lib/platform';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
 /** Follows the default chat model set by the admin instead of pinning a model. */
 const NAO_DEFAULT_VALUE = 'nao-default';
 const NAO_DEFAULT_LABEL = 'Auto';
+const EXAMPLE_MODEL_VALUE = 'example-model';
+const PROJECT_SETUP_VALUE = 'project-setup';
+const EXAMPLE_MODEL_NAME = 'GPT 6 Sol';
+const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
-export function ChatInputModelSelect() {
+export function ChatInputModelSelect({
+	isExample = false,
+	managedCreditsExhausted = false,
+}: {
+	isExample?: boolean;
+	managedCreditsExhausted?: boolean;
+}) {
 	const navigate = useNavigate();
 	const { isAdmin } = usePermissions();
 	const {
@@ -31,17 +41,17 @@ export function ChatInputModelSelect() {
 		setSelectedModel,
 		isPending,
 		canCycleModels,
+		cycleModel,
+		hasProject,
 	} = useModelSelection();
 	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
-
-	const project = useQuery(trpc.project.getCurrent.queryOptions());
 
 	// Fall back to the nao default when the pinned model is no longer available
 	useEffect(() => {
 		if (usesDefaultModel || !availableModels || availableModels.length === 0) {
 			return;
 		}
-		if (!availableModels.some((model) => isSameModel(model, selectedModel))) {
+		if (!selectedModel || !availableModels.some((model) => isSameModel(model, selectedModel))) {
 			setSelectedModel(null);
 		}
 	}, [usesDefaultModel, availableModels, selectedModel, setSelectedModel]);
@@ -63,6 +73,23 @@ export function ChatInputModelSelect() {
 		},
 		[availableModels, navigate, setSelectedModel],
 	);
+	const handleCycleModelShortcut = useCallback(
+		(event: KeyboardEvent<HTMLButtonElement>) => {
+			if (!matchesShortcut(event.nativeEvent, cycleModelShortcut)) {
+				return;
+			}
+			event.preventDefault();
+			if (managedCreditsExhausted) {
+				const nextConfiguredModel = availableModels?.find((model) => model.provider !== 'nao');
+				if (nextConfiguredModel) {
+					setSelectedModel(nextConfiguredModel);
+				}
+				return;
+			}
+			cycleModel();
+		},
+		[availableModels, cycleModel, managedCreditsExhausted, setSelectedModel],
+	);
 
 	const selectedAvailableModel = selectedModel
 		? availableModels?.find((model) => isSameModel(model, selectedModel))
@@ -70,15 +97,23 @@ export function ChatInputModelSelect() {
 	const defaultAvailableModel = defaultModel
 		? availableModels?.find((model) => isSameModel(model, defaultModel))
 		: undefined;
+	const isDefaultManagedModel = defaultModel?.provider === 'nao';
 	const resolvedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId;
 	const selectedModelName = usesDefaultModel ? NAO_DEFAULT_LABEL : (resolvedModelName ?? 'Select model');
 	const selectValue = usesDefaultModel ? NAO_DEFAULT_VALUE : selectedModel ? modelValue(selectedModel) : undefined;
 
-	if (isPending || project.isPending) {
+	if (isExample) {
+		return <ExampleModel />;
+	}
+
+	if (isPending) {
 		return null;
 	}
 
 	if (!availableModels?.length) {
+		if (!hasProject) {
+			return <ExampleModel />;
+		}
 		return (
 			<Link
 				to='/settings/project/models'
@@ -125,7 +160,12 @@ export function ChatInputModelSelect() {
 		<Select value={selectValue} onValueChange={handleModelValueChange} onOpenChange={onSelectOpenChange}>
 			<Tooltip open={isTooltipOpen} onOpenChange={onTooltipOpenChange}>
 				<TooltipTrigger asChild>
-					<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm'>
+					<SelectTrigger
+						variant='ghost'
+						className='p-0 gap-1 text-sm'
+						size='sm'
+						onKeyDown={handleCycleModelShortcut}
+					>
 						<SelectValue>
 							<div className='flex items-center gap-2'>
 								{selectedModel && (
@@ -149,7 +189,7 @@ export function ChatInputModelSelect() {
 			</Tooltip>
 
 			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
-				<SelectItem value={NAO_DEFAULT_VALUE}>
+				<SelectItem value={NAO_DEFAULT_VALUE} disabled={managedCreditsExhausted && isDefaultManagedModel}>
 					{defaultModel && (
 						<LlmProviderIcon
 							provider={defaultModel.provider}
@@ -161,11 +201,16 @@ export function ChatInputModelSelect() {
 					{defaultAvailableModel && (
 						<span className='text-muted-foreground'>{defaultAvailableModel.name}</span>
 					)}
+					{managedCreditsExhausted && isDefaultManagedModel && <ManagedCreditsLock />}
 				</SelectItem>
 				<SelectSeparator />
 
 				{availableModels?.map((model) => (
-					<SelectItem key={`${model.provider}-${model.modelId}`} value={modelValue(model)}>
+					<SelectItem
+						key={`${model.provider}-${model.modelId}`}
+						value={modelValue(model)}
+						disabled={managedCreditsExhausted && model.provider === 'nao'}
+					>
 						<LlmProviderIcon
 							provider={model.provider}
 							baseUrl={model.baseUrl}
@@ -173,6 +218,7 @@ export function ChatInputModelSelect() {
 						/>
 						{model.name}
 						<NamedProviderHint provider={model.provider} />
+						{managedCreditsExhausted && model.provider === 'nao' && <ManagedCreditsLock />}
 					</SelectItem>
 				))}
 
@@ -185,6 +231,32 @@ export function ChatInputModelSelect() {
 						</SelectItem>
 					</>
 				)}
+			</SelectContent>
+		</Select>
+	);
+}
+
+function ExampleModel() {
+	return (
+		<Select value={EXAMPLE_MODEL_VALUE}>
+			<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm' aria-label='Model'>
+				<SelectValue>
+					<div className='flex items-center gap-2'>
+						<LlmProviderIcon provider='nao' className='size-4' />
+						<span className='leading-none'>{EXAMPLE_MODEL_NAME}</span>
+					</div>
+				</SelectValue>
+			</SelectTrigger>
+			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
+				<SelectItem value={EXAMPLE_MODEL_VALUE}>
+					<LlmProviderIcon provider='nao' className='size-4 opacity-100' />
+					{EXAMPLE_MODEL_NAME}
+				</SelectItem>
+				<SelectSeparator />
+				<SelectItem value={PROJECT_SETUP_VALUE} disabled className='text-muted-foreground'>
+					<Settings className='size-4' />
+					Set up a project to switch models
+				</SelectItem>
 			</SelectContent>
 		</Select>
 	);
@@ -224,4 +296,8 @@ function NamedProviderHint({ provider }: { provider: LlmProvider }) {
 		return null;
 	}
 	return <span className='text-muted-foreground'>{providerLabel(provider)}</span>;
+}
+
+function ManagedCreditsLock() {
+	return <LockKeyhole className='size-3.5' aria-label='Unavailable: nao credits exhausted' />;
 }

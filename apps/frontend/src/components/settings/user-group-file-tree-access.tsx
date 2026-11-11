@@ -352,7 +352,7 @@ function FileTreeFileRow({
 				aria-label={`${node.name} file access`}
 				onCheckedChange={(checked) => onChange(toggleFileTreeGrant(access, grant, checked === true))}
 			/>
-			<FileExplorerIcon name={node.name} type='file' />
+			<FileExplorerIcon name={node.name} type='file' path={node.path} />
 			<span className='min-w-0 flex-1 truncate' title={node.path}>
 				{node.name}
 			</span>
@@ -396,6 +396,7 @@ export function UnavailableFileTreeGrants({
 						<FileExplorerIcon
 							name={grant.path.split('/').at(-1) ?? grant.path}
 							type={grant.kind === 'folder' ? 'directory' : 'file'}
+							path={grant.path}
 						/>
 						<span className='min-w-0 break-all text-sm'>{grant.path}</span>
 					</li>

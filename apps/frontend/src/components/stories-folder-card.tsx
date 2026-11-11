@@ -15,7 +15,7 @@ import {
 	Star,
 	Trash2,
 } from 'lucide-react';
-import type { MouseEvent } from 'react';
+import type { DragEvent, MouseEvent } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { FolderItem } from '@/lib/stories-page';
 import { isSystemFolder } from '@/lib/stories-page';
@@ -32,7 +32,9 @@ import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
+import { hasAnyStoryReference, setStoryDragData } from '@/lib/story-reference';
 import { formatRelativeDate } from '@/lib/time-ago';
+import { selectedStoryReferencesStore } from '@/stores/story-references';
 import { cn } from '@/lib/utils';
 
 export type FolderDisplayMode = StoryPanelDisplayMode | 'grid-large';
@@ -64,6 +66,7 @@ export function FolderCard({
 }) {
 	const { isViewer, isAdmin } = usePermissions();
 	const { data: session } = useSession();
+	const isFolderFavorited = useToggleFavorite('folder').isFavorited(folder.id);
 	const storyTheme = useActiveStoryTheme();
 	const canManage = isAdmin || folder.ownerId === session?.user?.id;
 	const isVirtual = folder.id === '__shared_with_me__';
@@ -83,7 +86,7 @@ export function FolderCard({
 		isDragging,
 	} = useDraggable({
 		id: draggableId,
-		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage || selectionActive,
+		disabled: isVirtual || isSystemFolder(folder) || isViewer || !canManage || (selectionActive && !selected),
 	});
 	const { setNodeRef: setDropRef, isOver } = useDroppable({
 		id: droppableId,
@@ -106,6 +109,18 @@ export function FolderCard({
 		}
 	}
 
+	function handleNativeDragStart(e: DragEvent<HTMLDivElement>) {
+		if (folder.archivedAt) {
+			e.preventDefault();
+			return;
+		}
+		const selection = selectedStoryReferencesStore.getSnapshot();
+		setStoryDragData(
+			e,
+			selected && hasAnyStoryReference(selection) ? selection : { storyIds: [], folderIds: [folder.id] },
+		);
+	}
+
 	function handleLinkClick(e: MouseEvent<HTMLElement>) {
 		if (selectionActive && canSelect) {
 			handleToggleSelect(e);
@@ -121,6 +136,7 @@ export function FolderCard({
 				style={style}
 				{...attributes}
 				{...listeners}
+				onDragStart={handleNativeDragStart}
 				className={cn(
 					LINES_CARD_CLASS,
 					'relative',
@@ -149,10 +165,12 @@ export function FolderCard({
 						<div className='flex items-center gap-2 flex-1 min-w-0 pl-1.5'>
 							<FolderIcon folder={folder} />
 							<span className='text-sm font-medium truncate'>{folder.name}</span>
+							<FolderStoryCount count={folder.storyCount} />
 						</div>
 						<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{currentUserName}
 						</div>
+						<div className='hidden lg:block w-16 shrink-0' />
 						<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{formatRelativeDate(folder.updatedAt)}
 						</div>
@@ -199,6 +217,7 @@ export function FolderCard({
 				style={style}
 				{...attributes}
 				{...listeners}
+				onDragStart={handleNativeDragStart}
 				className={cn(
 					GRID_CARD_CLASS,
 					isOver && 'ring-2 ring-primary/50',
@@ -270,7 +289,10 @@ export function FolderCard({
 	}
 
 	const contentLeftPadding = !canSelect ? 'pl-3' : selected || selectionActive ? 'pl-9' : 'pl-3 group-hover:pl-9';
-	const contentRightPadding = selectionActive ? 'pr-3' : 'pr-8 group-hover:pr-14 group-has-data-[state=open]:pr-14';
+	const contentRightPadding =
+		selectionActive || isSystemFolder(folder)
+			? 'pr-3'
+			: cn(isFolderFavorited ? 'pr-7.5' : 'pr-3', 'group-hover:pr-12.5 group-has-data-[state=open]:pr-12.5');
 
 	return (
 		<div
@@ -278,6 +300,7 @@ export function FolderCard({
 			style={style}
 			{...attributes}
 			{...listeners}
+			onDragStart={handleNativeDragStart}
 			className={cn(
 				'group relative h-10 rounded-md border bg-background overflow-hidden',
 				isOver && 'ring-2 ring-primary/50',
@@ -294,8 +317,7 @@ export function FolderCard({
 						contentRightPadding,
 					)}
 				>
-					<FolderIcon folder={folder} />
-					<span className='text-sm font-medium truncate flex-1 min-w-0'>{folder.name}</span>
+					<FolderCardLabel folder={folder} />
 				</div>
 			) : (
 				<Link
@@ -308,8 +330,7 @@ export function FolderCard({
 					)}
 					onClick={handleLinkClick}
 				>
-					<FolderIcon folder={folder} />
-					<span className='text-sm font-medium truncate flex-1 min-w-0'>{folder.name}</span>
+					<FolderCardLabel folder={folder} />
 				</Link>
 			)}
 			{!isSystemFolder(folder) && (
@@ -415,6 +436,25 @@ function FolderFavoriteButton({ folder }: { folder: FolderItem }) {
 				<Star className='size-3' />
 			</button>
 		</SimpleTooltip>
+	);
+}
+
+function FolderCardLabel({ folder }: { folder: FolderItem }) {
+	return (
+		<>
+			<FolderIcon folder={folder} />
+			<span className='text-sm font-medium truncate flex-1 min-w-0'>{folder.name}</span>
+			<FolderStoryCount count={folder.storyCount} />
+		</>
+	);
+}
+
+function FolderStoryCount({ count }: { count: number }) {
+	return (
+		<span className='text-xs text-muted-foreground tabular-nums shrink-0'>
+			<span aria-hidden='true'>{count}</span>
+			<span className='sr-only'>{`${count} ${count === 1 ? 'story' : 'stories'}`}</span>
+		</span>
 	);
 }
 

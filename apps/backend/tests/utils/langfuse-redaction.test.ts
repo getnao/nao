@@ -14,7 +14,7 @@ const DISTINCTIVE_ROW_VALUE = 'private-customer@example.com';
 describe('redactDataToolAttributes', () => {
 	it.each([
 		{ toolName: 'execute_sql', toolCallId: 'tool-call-1', args: { query: DISTINCTIVE_SQL } },
-		{ toolName: 'read_query_result', toolCallId: 'tool-call-2', args: { queryId: 'query-123' } },
+		{ toolName: 'page_query_result', toolCallId: 'tool-call-2', args: { queryId: 'query-123' } },
 	])('redacts $toolName arguments and results while preserving tool identity', ({ toolName, toolCallId, args }) => {
 		const attributes: Attributes = {
 			'ai.toolCall.name': toolName,
@@ -129,7 +129,7 @@ describe('redactDataToolAttributes', () => {
 						content: [
 							{
 								type: 'tool-call',
-								toolName: 'read_query_result',
+								toolName: 'page_query_result',
 								args: { queryId: 'query-123' },
 							},
 						],
@@ -139,7 +139,7 @@ describe('redactDataToolAttributes', () => {
 						content: [
 							{
 								type: 'tool-result',
-								toolName: 'read_query_result',
+								toolName: 'page_query_result',
 								result: [{ customer_email: DISTINCTIVE_ROW_VALUE }],
 							},
 						],

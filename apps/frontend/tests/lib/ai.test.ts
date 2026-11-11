@@ -6,8 +6,12 @@ import {
 	areGroupedMessagePartsEqual,
 	checkAssistantMessageHasContent,
 	groupToolCalls,
+	hasManagedCreditsForRequest,
 	isOnboardingContextRequestMessage,
 	ONBOARDING_CONTEXT_REQUEST_PREFIX,
+	parseChatAllowanceExhaustedError,
+	parseManagedCreditsError,
+	usesChatAllowance,
 } from '@/lib/ai';
 
 const PROGRESS_UPDATE = {
@@ -202,6 +206,30 @@ describe('story actions', () => {
 		expect(groupToolCalls([revenue, churn])).toEqual([revenue, churn]);
 	});
 
+	it('keeps one card per story when stories of other chats share a slug', () => {
+		const ownStory = createStoryPart('call-1', {
+			input: { action: 'update', id: 'own-story-id' },
+			output: { success: true, id: 'revenue', version: 2, story_id: 'own-story-id' },
+		});
+		const otherChatStory = createStoryPart('call-2', {
+			input: { action: 'update', id: 'other-story-id' },
+			output: { success: true, id: 'revenue', version: 4, story_id: 'other-story-id' },
+		});
+
+		expect(groupToolCalls([ownStory, otherChatStory])).toEqual([ownStory, otherChatStory]);
+	});
+
+	it('demotes a failed create once the story it retried exists', () => {
+		const failed = createStoryPart('call-1', {
+			output: { success: false, id: 'revenue', version: 0, error: '"code" and "title" are required' },
+		});
+		const created = createStoryPart('call-2', {
+			output: { success: true, id: 'revenue', version: 1, story_id: 'story-id' },
+		});
+
+		expect(groupToolCalls([failed, created])).toEqual([{ type: 'story-status', part: failed }, created]);
+	});
+
 	it('demotes a failed attempt once a later action on the story exists', () => {
 		const failed = createStoryPart('call-1', {
 			input: { action: 'update', id: 'revenue' },
@@ -212,15 +240,15 @@ describe('story actions', () => {
 		expect(groupToolCalls([failed, retried])).toEqual([{ type: 'story-status', part: failed }, retried]);
 	});
 
-	it('follows the story id from a streaming input before any output exists', () => {
+	it('keeps a story card until the streaming edit that follows names its slug in its output', () => {
 		const created = createStoryPart('call-1');
 		const streaming = createStoryPart('call-2', {
 			state: 'input-streaming',
-			input: { action: 'update', id: 'revenue' },
+			input: { action: 'update', id: 'story-id' },
 			output: undefined,
 		});
 
-		expect(groupToolCalls([created, streaming])).toEqual([{ type: 'story-status', part: created }, streaming]);
+		expect(groupToolCalls([created, streaming])).toEqual([created, streaming]);
 	});
 
 	it('leaves a story action whose id is not known yet as a card', () => {
@@ -408,5 +436,64 @@ describe('isOnboardingContextRequestMessage', () => {
 
 		expect(isOnboardingContextRequestMessage(message)).toBe(true);
 		expect(isOnboardingContextRequestMessage({ ...message, role: 'assistant' })).toBe(false);
+	});
+});
+
+describe('parseChatAllowanceExhaustedError', () => {
+	it.each([
+		['EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED', 'example'],
+		['ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED', 'onboarding'],
+	] as const)('maps %s to %s', (code, scope) => {
+		const error = new Error(JSON.stringify({ error: 'Allowance exhausted', code }));
+
+		expect(parseChatAllowanceExhaustedError(error)).toBe(scope);
+	});
+});
+
+describe('usesChatAllowance', () => {
+	it.each([
+		[false, 'default', true],
+		[true, 'default', false],
+		[true, 'example', true],
+		[true, 'onboarding', true],
+	] as const)('hasProject=%s mode=%s uses the allowance: %s', (hasProject, mode, expected) => {
+		expect(usesChatAllowance(hasProject, mode)).toBe(expected);
+	});
+});
+
+describe('parseManagedCreditsError', () => {
+	it('returns the exact balance required by the rejected request', () => {
+		const error = new Error(
+			JSON.stringify({
+				error: 'Managed credits exhausted',
+				code: 'MANAGED_CREDITS_EXHAUSTED',
+				requiredBalanceMicroUsd: 42_000,
+			}),
+		);
+
+		expect(parseManagedCreditsError(error)).toEqual({
+			message: 'Managed credits exhausted',
+			requiredBalanceMicroUsd: 42_000,
+		});
+	});
+
+	it('rejects a managed-credit payload without a positive integer requirement', () => {
+		const error = new Error(
+			JSON.stringify({
+				error: 'Managed credits exhausted',
+				code: 'MANAGED_CREDITS_EXHAUSTED',
+				requiredBalanceMicroUsd: 0,
+			}),
+		);
+
+		expect(parseManagedCreditsError(error)).toBeNull();
+	});
+});
+
+describe('hasManagedCreditsForRequest', () => {
+	it('requires the balance to reach the rejected request requirement', () => {
+		expect(hasManagedCreditsForRequest(1, 42_000)).toBe(false);
+		expect(hasManagedCreditsForRequest(41_999, 42_000)).toBe(false);
+		expect(hasManagedCreditsForRequest(42_000, 42_000)).toBe(true);
 	});
 });

@@ -9,6 +9,7 @@ import { cn, hideIf } from '@/lib/utils';
 export interface NavContext {
 	canSeeAdvancedSettings: boolean;
 	isAdmin: boolean;
+	isAutomationsEnabled: boolean;
 	isCloudBillingEnabled: boolean;
 	isContextAdmin: boolean;
 	isCloud: boolean;
@@ -60,6 +61,7 @@ const settingsNavGroups: NavGroup[] = [
 				label: 'Budget',
 				to: '/settings/project/budgets',
 				visible: ({ isViewer }) => !isViewer,
+				requiresProject: true,
 			},
 			{
 				label: 'Users & Groups',
@@ -77,6 +79,12 @@ const settingsNavGroups: NavGroup[] = [
 				label: 'Integrations & MCP',
 				to: '/settings/project/integrations',
 				visible: ({ isViewer }) => !isViewer,
+				requiresProject: true,
+			},
+			{
+				label: 'Automations',
+				to: '/settings/project/automations',
+				visible: ({ isAdmin, isAutomationsEnabled }) => isAdmin && isAutomationsEnabled,
 				requiresProject: true,
 			},
 			{
@@ -121,14 +129,14 @@ const settingsNavGroups: NavGroup[] = [
 				leavesSettings: true,
 			},
 			{
-				label: 'Usage, costs & replay',
-				to: '/settings/usage',
-				visible: ({ isAdmin }) => isAdmin,
+				label: 'Monitoring',
+				to: '/settings/monitoring',
+				visible: ({ isAdmin, isAutomationsEnabled }) => isAdmin && isAutomationsEnabled,
 			},
 			{
-				label: 'Chats replay',
+				label: 'Usage & Costs',
 				to: '/settings/usage',
-				visible: ({ isAdmin, isContextAdmin }) => !isAdmin && isContextAdmin,
+				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 			},
 			{
 				label: 'Server logs',
@@ -154,7 +162,7 @@ const settingsNavGroups: NavGroup[] = [
 				exact: true,
 			},
 			{
-				label: 'Plan & Billing',
+				label: 'Billing & Credits',
 				to: '/settings/organization/billing',
 				visible: ({ isCloudBillingEnabled, isOrgAdmin }) => isCloudBillingEnabled && isOrgAdmin,
 				exact: true,
@@ -180,6 +188,7 @@ interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
 	canSeeAdvancedSettings: boolean;
 	isAdmin: boolean;
+	isAutomationsEnabled: boolean;
 	isContextAdmin: boolean;
 	isViewer: boolean;
 	isCloud: boolean;
@@ -192,6 +201,7 @@ export function SidebarSettingsNav({
 	isCollapsed,
 	canSeeAdvancedSettings,
 	isAdmin,
+	isAutomationsEnabled,
 	isContextAdmin,
 	isViewer,
 	isCloud,
@@ -207,6 +217,7 @@ export function SidebarSettingsNav({
 	const navContext: NavContext = {
 		canSeeAdvancedSettings,
 		isAdmin,
+		isAutomationsEnabled,
 		isCloudBillingEnabled,
 		isContextAdmin,
 		isCloud,

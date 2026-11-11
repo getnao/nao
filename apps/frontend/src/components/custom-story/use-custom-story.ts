@@ -19,13 +19,9 @@ export function useCustomStory(chatId: string, storySlug: string) {
 	);
 	const latestVersion = versionNumbers.at(-1) ?? null;
 	const viewedVersion = selectedVersion ?? latestVersion;
-	const versionDates = useMemo(
-		() =>
-			[...(versionsQuery.data?.versions ?? [])]
-				.sort((a, b) => a.version - b.version)
-				.map((version) => version.createdAt),
-		[versionsQuery.data?.versions],
-	);
+	const versions = useMemo(() => {
+		return [...(versionsQuery.data?.versions ?? [])].sort((a, b) => a.version - b.version);
+	}, [versionsQuery.data?.versions]);
 	const viewedVersionDate = versionsQuery.data?.versions.find(
 		(version) => version.version === viewedVersion,
 	)?.createdAt;
@@ -35,9 +31,10 @@ export function useCustomStory(chatId: string, storySlug: string) {
 		...trpc.story.getCustomVersion.queryOptions({ chatId, storySlug, versionNumber: viewedVersion ?? undefined }),
 		enabled: viewedVersion !== null,
 	});
+	const olderVersionNumber = isViewingLatest ? undefined : (viewedVersion ?? undefined);
 	const dataSource = useMemo<CustomStoryFileSource>(
-		() => ({ kind: 'owner', chatId, storySlug }),
-		[chatId, storySlug],
+		() => ({ kind: 'owner', chatId, storySlug, versionNumber: olderVersionNumber }),
+		[chatId, storySlug, olderVersionNumber],
 	);
 
 	const goToVersion = useCallback(
@@ -89,13 +86,14 @@ export function useCustomStory(chatId: string, storySlug: string) {
 		content: contentQuery.data,
 		dataSource,
 		isAgentRunning,
+		isArchived: Boolean(versionsQuery.data?.archivedAt),
 		versionNumbers,
 		latestVersion,
 		viewedVersion,
 		viewedVersionDate,
 		isViewingLatest,
 		currentVersionIndex: viewedVersion === null ? 0 : versionNumbers.indexOf(viewedVersion) + 1,
-		versionDates,
+		versions,
 		goToVersion,
 		goToLatest,
 		restore,

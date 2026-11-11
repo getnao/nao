@@ -46,6 +46,19 @@ describe('getLatestRelevantStoryAgentState', () => {
 		expect(getLatestRelevantStoryAgentState(messages, 'test-long', isRunning)).toEqual(expected);
 	});
 
+	it('recognizes a streaming edit of the viewed story from its id', () => {
+		const messages = [
+			{
+				id: 'message-1',
+				role: 'assistant',
+				parts: [{ type: 'tool-story', state: 'input-streaming', input: { action: 'replace', id: 'story-id' } }],
+			} as unknown as UIMessage,
+		];
+
+		expect(getLatestRelevantStoryAgentState(messages, 'test-long', true, 'story-id').isStoryStreaming).toBe(true);
+		expect(getLatestRelevantStoryAgentState(messages, 'test-long', true, 'other-id').isStoryStreaming).toBe(false);
+	});
+
 	it('uses the newest matching story part', () => {
 		const messages = [
 			createStoryMessage({ stopReason: 'interrupted' }),
@@ -80,7 +93,7 @@ function createStoryMessage({
 			{
 				type: 'tool-story',
 				state,
-				input: { id: storySlug },
+				input: { action: 'create', id: storySlug },
 			},
 		],
 	} as unknown as UIMessage;

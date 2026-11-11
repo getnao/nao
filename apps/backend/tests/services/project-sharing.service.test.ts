@@ -1,6 +1,12 @@
 import '../../src/env';
 
-import { DEFAULT_TOOL_CALL_DENSITY_POLICY, type ProjectSharingPermission, serializeUserGroupConfig } from '@nao/shared';
+import {
+	DEFAULT_GROUP_SHARE_TARGETS,
+	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	type GroupShareTargets,
+	type ProjectSharingPermission,
+	serializeUserGroupConfig,
+} from '@nao/shared';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -145,6 +151,46 @@ describe('project sharing permission', () => {
 		});
 	});
 
+	it('lets members of a restricted group share with the other groups it targets', async () => {
+		await setProjectSharing(CLIENT_A_ID, 'blocked', { includeOwnGroup: true, groupIds: [CLIENT_B_ID] });
+
+		expect(await getShareAudience(PROJECT_ID, ALICE_ID)).toEqual({
+			canShareToProject: false,
+			memberIds: new Set([ALICE_ID, BOB_ID, CAROL_ID]),
+			groupIds: new Set([CLIENT_A_ID, CLIENT_B_ID]),
+		});
+	});
+
+	it('lets members of a restricted group share exclusively with other groups', async () => {
+		await setProjectSharing(CLIENT_A_ID, 'blocked', { includeOwnGroup: false, groupIds: [CLIENT_B_ID] });
+
+		expect(await getShareAudience(PROJECT_ID, ALICE_ID)).toEqual({
+			canShareToProject: false,
+			memberIds: new Set([ALICE_ID, CAROL_ID]),
+			groupIds: new Set([CLIENT_B_ID]),
+		});
+		await expect(assertCanShareWith(PROJECT_ID, ALICE_ID, { groupIds: [CLIENT_A_ID] })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(assertCanShareWith(PROJECT_ID, ALICE_ID, { userIds: [BOB_ID] })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(assertCanShareWith(PROJECT_ID, ALICE_ID, { groupIds: [CLIENT_B_ID] })).resolves.toBeUndefined();
+	});
+
+	it('ignores share targets that are not custom groups of the project', async () => {
+		await setProjectSharing(CLIENT_A_ID, 'blocked', {
+			includeOwnGroup: false,
+			groupIds: [ALL_USERS_ID, 'deleted-group'],
+		});
+
+		expect(await getShareAudience(PROJECT_ID, ALICE_ID)).toEqual({
+			canShareToProject: false,
+			memberIds: new Set([ALICE_ID]),
+			groupIds: new Set(),
+		});
+	});
+
 	it('always lets admins share with the entire project', async () => {
 		await setProjectSharing(ALL_USERS_ID, 'blocked');
 
@@ -194,10 +240,23 @@ describe('project sharing permission', () => {
 	});
 });
 
-async function setProjectSharing(groupId: string, projectSharing: ProjectSharingPermission) {
+async function setProjectSharing(
+	groupId: string,
+	projectSharing: ProjectSharingPermission,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+) {
 	await db
 		.update(s.userGroup)
-		.set({ featureGrants: serializeUserGroupConfig([], DEFAULT_TOOL_CALL_DENSITY_POLICY, projectSharing) })
+		.set({
+			featureGrants: serializeUserGroupConfig(
+				[],
+				DEFAULT_TOOL_CALL_DENSITY_POLICY,
+				projectSharing,
+				false,
+				[],
+				shareTargets,
+			),
+		})
 		.where(eq(s.userGroup.id, groupId));
 }
 

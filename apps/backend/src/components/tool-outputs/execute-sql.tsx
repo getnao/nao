@@ -24,7 +24,7 @@ export const ExecuteSqlOutput = ({
 		return (
 			<Block>
 				Stale result: query {output.id} was re-run later in this conversation. Refer to the latest execute_sql
-				result with this query id (or call read_query_result) for the current SQL and rows.
+				result with this query id (or call page_query_result) for the current SQL and rows.
 			</Block>
 		);
 	}
@@ -32,14 +32,10 @@ export const ExecuteSqlOutput = ({
 	if (output.data.length === 0) {
 		return (
 			<Block>
-				The query was successfully executed and returned no rows.
+				<Span>Query ID: {output.id}</Span>
+				<Span>The query was successfully executed and returned no rows.</Span>
 				{output.saved_file && <SavedFile file={output.saved_file} />}
-				{templateWarnings.length > 0 && (
-					<>
-						<Span>Query ID: {output.id}</Span>
-						<TemplateWarnings warnings={templateWarnings} />
-					</>
-				)}
+				{templateWarnings.length > 0 && <TemplateWarnings warnings={templateWarnings} />}
 			</Block>
 		);
 	}
@@ -82,7 +78,7 @@ export const ExecuteSqlOutput = ({
 
 			{remainingRows > 0 && (
 				<Span>
-					...({remainingRows} more — call read_query_result with query_id "{output.id}" and offset {maxRows}{' '}
+					...({remainingRows} more — call page_query_result with query_id "{output.id}" and offset {maxRows}{' '}
 					to see more)
 				</Span>
 			)}

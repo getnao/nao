@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from nao_core.config.databases.athena import AthenaConfig
 from nao_core.config.databases.column_access import ColumnAccessError, validate_column_access
 from nao_core.config.databases.column_catalog import column_catalog_path, write_column_catalog
 
@@ -28,6 +29,9 @@ class FakeDatabaseConfig:
 
     def get_database_name(self) -> str:
         return self.database_name
+
+    def get_catalog_names(self) -> list[str]:
+        return [self.get_database_name()]
 
     def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
         name = f"{schema}.{table}.{column}"
@@ -156,6 +160,25 @@ def test_motherduck_uses_duckdb_excluded_column_rules(
     config = cataloged_config(tmp_path, schemas, ["*.email"], "motherduck")
 
     assert validate_column_access("SELECT 1", config, tmp_path) == "SELECT 1"
+    assert (
+        validate_column_access(
+            "SELECT * EXCLUDE (email) FROM users",
+            config,
+            tmp_path,
+        )
+        == "SELECT * EXCLUDE (email) FROM users"
+    )
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access("SELECT * FROM users", config, tmp_path)
+
+
+def test_ducklake_uses_duckdb_excluded_column_rules(
+    tmp_path: Path,
+    schemas: dict[str, dict[str, list[str]]],
+):
+    config = FakeDatabaseConfig(["*.email"], database_type="ducklake")
+    write_catalog(tmp_path, config, schemas)
+
     assert (
         validate_column_access(
             "SELECT * EXCLUDE (email) FROM users",
@@ -448,6 +471,26 @@ def test_unqualified_join_column_checks_every_missing_catalog_table(tmp_path: Pa
             config,
             tmp_path,
         )
+
+
+class FakeAthenaConfig(FakeDatabaseConfig):
+    def get_catalog_names(self) -> list[str]:
+        return AthenaConfig(name="athena", s3_staging_dir="s3://results", region_name="us-east-1").get_catalog_names()
+
+
+def test_athena_default_catalog_is_accepted(tmp_path: Path):
+    config = FakeAthenaConfig(["analytics.events.email"], database_name="default", database_type="athena")
+    write_catalog(tmp_path, config, {"analytics": {"events": ["id", "email"]}})
+    sql = 'SELECT id FROM "awsdatacatalog"."analytics"."events"'
+
+    assert validate_column_access(sql, config, tmp_path) == sql
+
+
+def test_athena_default_catalog_keeps_excluded_columns_blocked_without_column_catalog(tmp_path: Path):
+    config = FakeAthenaConfig(["analytics.events.email"], database_name="default", database_type="athena")
+
+    with pytest.raises(ColumnAccessError, match=r"analytics\.events\.email"):
+        validate_column_access("SELECT email FROM awsdatacatalog.analytics.events", config, tmp_path)
 
 
 def cataloged_config(

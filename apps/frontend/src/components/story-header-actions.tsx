@@ -1,10 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
-import { Globe, ShieldCheck, Star, Upload } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { CopyPlus, Globe, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
+import { useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import type { FeedbackVote } from '@/components/chat-messages/assistant-message-actions';
 
+import { FeedbackDialog } from '@/components/chat-messages/assistant-message-actions';
 import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useDuplicateStory } from '@/hooks/use-duplicate-story';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
 import { cn } from '@/lib/utils';
@@ -37,6 +42,19 @@ export function ShareButton({ isShared, onShare, disabled = false }: ShareButton
 			</TooltipTrigger>
 			<TooltipContent>Share</TooltipContent>
 		</Tooltip>
+	);
+}
+
+/** Copies the viewed version when given, the latest one otherwise. */
+export function StoryDuplicateMenuItem({ storyId, versionNumber }: { storyId: string; versionNumber?: number }) {
+	const { data: resolvedStory } = useQuery(trpc.story.resolve.queryOptions({ storyId }));
+	const { duplicate, isPending } = useDuplicateStory(resolvedStory?.projectId);
+
+	return (
+		<DropdownMenuItem onSelect={() => duplicate(storyId, versionNumber)} disabled={!resolvedStory || isPending}>
+			<CopyPlus strokeWidth={2.25} />
+			<span>Duplicate</span>
+		</DropdownMenuItem>
 	);
 }
 
@@ -101,6 +119,91 @@ export function StoryFavoritedButton({ storyId }: { storyId: string }) {
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent>Unfavorite</TooltipContent>
+		</Tooltip>
+	);
+}
+
+export function StoryFeedbackButtons({ storyId }: { storyId: string }) {
+	const [dialogVote, setDialogVote] = useState<FeedbackVote>('down');
+	const [isDialogOpen, setIsDialogOpen] = useState(false);
+	const { data: feedback } = useQuery(trpc.feedback.getStoryFeedback.queryOptions({ storyId }));
+	const submitFeedback = useMutation(
+		trpc.feedback.submitStoryFeedback.mutationOptions({
+			onSuccess: (data, _, __, ctx) => {
+				ctx.client.setQueryData(trpc.feedback.getStoryFeedback.queryKey({ storyId }), data);
+			},
+		}),
+	);
+
+	const openDialog = (vote: FeedbackVote) => {
+		setDialogVote(vote);
+		setIsDialogOpen(true);
+	};
+
+	const handleSubmit = (explanation?: string) => {
+		submitFeedback.mutate({ storyId, vote: dialogVote, explanation });
+		setIsDialogOpen(false);
+	};
+
+	return (
+		<>
+			<div className='flex items-center'>
+				<StoryFeedbackButton
+					Icon={ThumbsUp}
+					label='Good story'
+					isActive={feedback?.vote === 'up'}
+					activeClassName='text-primary'
+					disabled={submitFeedback.isPending}
+					onClick={() => openDialog('up')}
+				/>
+				<StoryFeedbackButton
+					Icon={ThumbsDown}
+					label='Bad story'
+					isActive={feedback?.vote === 'down'}
+					activeClassName='text-destructive'
+					disabled={submitFeedback.isPending}
+					onClick={() => openDialog('down')}
+				/>
+			</div>
+
+			<FeedbackDialog
+				open={isDialogOpen}
+				onOpenChange={setIsDialogOpen}
+				onSubmit={handleSubmit}
+				isPending={submitFeedback.isPending}
+				vote={dialogVote}
+				subject='story'
+			/>
+		</>
+	);
+}
+
+interface StoryFeedbackButtonProps {
+	Icon: LucideIcon;
+	label: string;
+	isActive: boolean;
+	activeClassName: string;
+	disabled: boolean;
+	onClick: () => void;
+}
+
+function StoryFeedbackButton({ Icon, label, isActive, activeClassName, disabled, onClick }: StoryFeedbackButtonProps) {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					className={cn('hover:rounded-full', isActive && activeClassName)}
+					onClick={onClick}
+					disabled={disabled}
+					aria-label={label}
+					aria-pressed={isActive}
+				>
+					<Icon className='size-4' strokeWidth={1.75} />
+				</Button>
+			</TooltipTrigger>
+			<TooltipContent>{label}</TooltipContent>
 		</Tooltip>
 	);
 }

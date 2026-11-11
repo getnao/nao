@@ -11,14 +11,28 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 type ClassicStoryHeaderProps = Extract<StoryHeaderProps, { viewMode: StoryViewMode }>;
 
-const { favoritesQuery } = vi.hoisted(() => ({
+const { favoritesQuery, mentionedStories } = vi.hoisted(() => ({
 	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
+	mentionedStories: {
+		value: {
+			conversationChatId: null as string | null,
+			conversationStories: [] as { id: string; title: string }[],
+			stories: [] as { storyId: string; chatId: string; slug: string; title: string }[],
+			open: () => {},
+			openConversationStory: (() => {}) as (storySlug: string) => void,
+		},
+	},
+}));
+
+vi.mock('@/contexts/mentioned-stories', () => ({
+	useMentionedStoriesContext: () => mentionedStories.value,
 }));
 
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: (options: { queryKey?: string[] }) => {
 		return options.queryKey?.[0] === 'favorites' ? favoritesQuery : { data: undefined };
 	},
+	useMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/components/editable-story-title', () => ({
@@ -33,6 +47,14 @@ vi.mock('@/components/story-download', () => ({
 vi.mock('@/components/story-page-header', () => ({
 	LiveStoryTimestamp: () => null,
 	StoryRefreshFailureBanner: () => null,
+}));
+
+vi.mock('@/hooks/use-duplicate-story', () => ({
+	useDuplicateStory: () => ({ duplicate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('@/hooks/use-effective-user-group-features', () => ({
+	useEffectiveUserGroupFeatures: () => ({ customStoryCreationEnabled: true }),
 }));
 
 vi.mock('@/hooks/use-is-mobile', () => ({
@@ -51,8 +73,19 @@ vi.mock('@/main', () => ({
 			},
 		},
 		story: {
+			resolve: {
+				queryOptions: () => ({ queryKey: ['resolveStory'] }),
+			},
 			listStories: {
 				queryOptions: () => ({ queryKey: ['stories'] }),
+			},
+		},
+		feedback: {
+			getStoryFeedback: {
+				queryOptions: () => ({ queryKey: ['storyFeedback'] }),
+			},
+			submitStoryFeedback: {
+				mutationOptions: () => ({}),
 			},
 		},
 	},
@@ -93,7 +126,7 @@ describe('StoryHeader actions', () => {
 		expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
 	});
 
-	it('lists download, favorite, analytics and expand in the actions menu', () => {
+	it('lists download, favorite, analytics, expand and duplicate in the actions menu', () => {
 		renderHeader({ storyId: 'story-1' });
 
 		openDropdownMenu('More actions');
@@ -102,6 +135,7 @@ describe('StoryHeader actions', () => {
 		expect(screen.getByRole('menuitem', { name: 'Favorite' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Analytics' })).toBeDefined();
 		expect(screen.getByRole('menuitem', { name: 'Expand' })).toBeDefined();
+		expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeDefined();
 	});
 
 	it('only shows the header star once the story is favorited', () => {
@@ -145,6 +179,30 @@ describe('StoryHeader editing subheader', () => {
 	});
 });
 
+describe('StoryHeader story switcher', () => {
+	afterEach(cleanup);
+
+	it('lists the conversation stories when viewing a mentioned story from another chat', () => {
+		const openConversationStory = vi.fn();
+		mentionedStories.value = {
+			conversationChatId: 'chat-1',
+			conversationStories: [{ id: 'churn', title: 'Churn' }],
+			stories: [{ storyId: 'story-2', chatId: 'chat-2', slug: 'revenue', title: 'Revenue' }],
+			open: vi.fn(),
+			openConversationStory,
+		};
+		renderHeader({ chatId: 'chat-2' });
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: 'Switch story' }), { button: 0, ctrlKey: false });
+
+		expect(screen.queryByRole('menuitem', { name: 'Revenue' })).toBeNull();
+
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Churn' }));
+
+		expect(openConversationStory).toHaveBeenCalledWith('churn');
+	});
+});
+
 function renderHeader(overrides: Partial<ClassicStoryHeaderProps>) {
 	const props: ClassicStoryHeaderProps = {
 		title: 'Revenue',
@@ -155,7 +213,7 @@ function renderHeader(overrides: Partial<ClassicStoryHeaderProps>) {
 		viewMode: 'preview',
 		onViewModeChange: vi.fn(),
 		currentVersion: 1,
-		versionDates: [],
+		versions: [],
 		onSelectVersion: vi.fn(),
 		isViewingLatest: true,
 		onRestore: vi.fn(),

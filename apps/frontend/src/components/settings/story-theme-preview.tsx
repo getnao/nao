@@ -1,18 +1,27 @@
+import { StoryBrandMark } from '@nao/shared/story-brand-mark';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import { DEFAULT_STORY_THEME_PAIR, sameThemePair } from '@nao/shared/story-theme';
+import { DEFAULT_STORY_THEME_PAIR, sameThemePair, showsBrandIdentity } from '@nao/shared/story-theme';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, RotateCcw, X } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { RotateCcw, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { describeStoryThemeSources } from '@nao/shared/story-theme-generation';
+import type { StoryFilterSelection } from '@nao/shared/sql-template';
+import type { ParsedFilterBlock } from '@nao/shared/story-segments';
 import type { StoryTheme, StoryThemePair } from '@nao/shared/story-theme';
+import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import {
+	generationToSave,
 	STORY_THEME_MODE_OPTIONS,
 	useInvalidateStoryTheme,
 	useStoryThemeEditor,
 } from '@/components/settings/story-theme-editor-context';
+import { StoryThemeVersionMenu } from '@/components/settings/story-theme-version-menu';
+import { StoryTabsBar } from '@/components/side-panel/story-tabs-bar';
 import { StoryBlock, StoryTableFrame } from '@/components/story-block';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryFilterBar } from '@/components/story-filter-bar';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { Button } from '@/components/ui/button';
@@ -80,11 +89,28 @@ const seriesAttribute = (series: { key: string; label: string }[]) =>
 const kpiTag = (key: string, label: string) =>
 	`<chart query_id="kpi_metrics" chart_type="kpi_card" x_axis_key="month" series='${seriesAttribute([{ key, label }])}' />`;
 
+const PREVIEW_TITLE = 'Revenue overview';
+const PREVIEW_DESCRIPTION =
+	'The same header, headings, prose, KPI tiles, filters, charts and tables a story is built from, rendered in this theme.';
+const PREVIEW_TABS = ['Overview', 'Regions', 'Products'].map((title) => ({ title }));
+const PREVIEW_FILTERS: ParsedFilterBlock[] = [
+	{
+		id: 'region',
+		label: 'Region',
+		filterType: 'multi_select',
+		options: REGIONS.map((region) => region.label),
+	},
+	{ id: 'channel', label: 'Channel', filterType: 'select', options: ['Online', 'Retail', 'Partners'] },
+	{ id: 'period', label: 'Period', filterType: 'date_range' },
+];
+const PREVIEW_FILTER_SELECTIONS: Record<string, StoryFilterSelection> = {
+	region: ['Europe'],
+	channel: '',
+	period: [],
+};
+const CLEARED_FILTER_SELECTIONS: Record<string, StoryFilterSelection> = { region: [], channel: '', period: [] };
+
 const PREVIEW_CODE = [
-	'# Revenue overview',
-	'',
-	'The same headings, prose, KPI tiles, charts and tables a custom story is built from, rendered in this theme.',
-	'',
 	'<grid cols="3">',
 	'',
 	kpiTag('total_revenue', 'Total revenue'),
@@ -113,7 +139,13 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	return (
 		<StoryThemeProvider theme={theme}>
 			<div className='min-h-full bg-background text-foreground'>
+				<PreviewBrandHeader brand={theme.brand} />
 				<div className='mx-auto flex max-w-5xl flex-col gap-4 p-4 md:p-8'>
+					<div className='flex flex-col gap-2'>
+						<h1>{PREVIEW_TITLE}</h1>
+						<p className='max-w-[720px] opacity-80'>{PREVIEW_DESCRIPTION}</p>
+					</div>
+					<PreviewFilterBar />
 					<SegmentList
 						segments={segments}
 						renderChart={(chart) => (
@@ -134,8 +166,56 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	);
 }
 
+function PreviewBrandHeader({ brand }: { brand: StoryTheme['brand'] }) {
+	const [activeTab, setActiveTab] = useState(0);
+	const isBand = brand.header === 'band';
+	return (
+		<header className='flex flex-col'>
+			<div
+				className={isBand ? undefined : 'bg-card'}
+				style={{ background: isBand ? 'var(--story-header-bg)' : undefined, color: 'var(--story-header-fg)' }}
+			>
+				<div className='nao-brand-header__bar mx-auto w-full max-w-5xl px-4 py-3 md:px-8'>
+					{showsBrandIdentity(brand) ? <StoryBrandMark brand={brand} /> : <span />}
+				</div>
+			</div>
+			<StoryTabsBar
+				tabs={PREVIEW_TABS}
+				activeIndex={activeTab}
+				onSelect={setActiveTab}
+				showAddTab
+				containerClassName='bg-card'
+				contentClassName='mx-auto w-full max-w-5xl px-4 md:px-8'
+			/>
+		</header>
+	);
+}
+
+function PreviewFilterBar() {
+	const [selections, setSelections] = useState(PREVIEW_FILTER_SELECTIONS);
+	return (
+		<StoryFilterBar
+			filters={PREVIEW_FILTERS}
+			selections={selections}
+			onSelectionChange={(filterId, selection) =>
+				setSelections((current) => ({ ...current, [filterId]: selection }))
+			}
+			onClear={() => setSelections(CLEARED_FILTER_SELECTIONS)}
+		/>
+	);
+}
+
 export function StoryThemePreviewPanel() {
-	const { theme, setTheme, mode, setMode, viewingVersionIndex, setViewingVersionIndex } = useStoryThemeEditor();
+	const {
+		theme,
+		setTheme,
+		mode,
+		setMode,
+		viewingVersionIndex,
+		setViewingVersionIndex,
+		pendingGeneration,
+		setPendingGeneration,
+	} = useStoryThemeEditor();
 	const { close } = useSidePanel();
 	const { isAdmin } = usePermissions();
 	const invalidateStoryTheme = useInvalidateStoryTheme();
@@ -149,6 +229,9 @@ export function StoryThemePreviewPanel() {
 	const isViewingLatest = currentIndex === latestIndex;
 	const previewTheme = theme ? current.theme[mode] : null;
 	const currentVersion = currentIndex + 1;
+	const pendingRecord = theme ? generationToSave(pendingGeneration, theme) : null;
+	const currentGeneration = current.kind === 'pending' ? pendingRecord : current.generation;
+	const currentSources = currentGeneration ? describeStoryThemeSources(currentGeneration.sources) : null;
 
 	useEffect(() => {
 		if (viewingVersionIndex !== null && viewingVersionIndex >= latestIndex) {
@@ -160,20 +243,18 @@ export function StoryThemePreviewPanel() {
 		...trpc.storyTheme.restoreVersion.mutationOptions(),
 		onSuccess: async (result) => {
 			setTheme(result.theme);
+			setPendingGeneration(null);
 			await invalidateStoryTheme();
 		},
 	});
 
-	const goToPreviousVersion = () => {
-		if (currentIndex > 0) {
-			setViewingVersionIndex(currentIndex - 1);
-		}
-	};
+	const versionEntries = slots.map((slot, index) => ({
+		label: slotLabel(slot, index + 1),
+		date: slotDate(slot, pendingRecord),
+		generation: slot.kind === 'pending' ? pendingRecord : slot.generation,
+	}));
 
-	const goToNextVersion = () => {
-		const next = currentIndex + 1;
-		setViewingVersionIndex(next >= latestIndex ? null : next);
-	};
+	const selectVersion = (index: number) => setViewingVersionIndex(index >= latestIndex ? null : index);
 
 	const restoreCurrent = () => {
 		if (current.kind === 'saved') {
@@ -181,6 +262,7 @@ export function StoryThemePreviewPanel() {
 			return;
 		}
 		setTheme(current.theme);
+		setPendingGeneration(null);
 	};
 
 	return (
@@ -195,8 +277,13 @@ export function StoryThemePreviewPanel() {
 				>
 					<X className='size-3.5' strokeWidth={2.25} />
 				</Button>
-				<div className='min-w-0 flex-1'>
+				<div className='flex min-w-0 flex-1 flex-col'>
 					<span className='truncate text-sm font-medium'>{slotLabel(current, currentVersion)}</span>
+					{currentSources && (
+						<span className='truncate text-xs text-muted-foreground' title={currentSources}>
+							From {currentSources}
+						</span>
+					)}
 				</div>
 				<IconSegmentedToggle
 					options={STORY_THEME_MODE_OPTIONS}
@@ -204,29 +291,7 @@ export function StoryThemePreviewPanel() {
 					onValueChange={setMode}
 					className='shrink-0'
 				/>
-				<div className='flex shrink-0 items-center gap-1'>
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						className='hover:rounded-full'
-						onClick={goToPreviousVersion}
-						disabled={currentIndex <= 0}
-					>
-						<ChevronLeft className='size-3' strokeWidth={2.25} />
-					</Button>
-					<span className='min-w-6 text-center text-xs tabular-nums text-muted-foreground'>
-						{currentVersion}/{totalVersions}
-					</span>
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						className='hover:rounded-full'
-						onClick={goToNextVersion}
-						disabled={isViewingLatest}
-					>
-						<ChevronRight className='size-3' strokeWidth={2.25} />
-					</Button>
-				</div>
+				<StoryThemeVersionMenu entries={versionEntries} currentIndex={currentIndex} onSelect={selectVersion} />
 			</div>
 			{!isViewingLatest && (
 				<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2'>
@@ -261,23 +326,42 @@ export function StoryThemePreviewPanel() {
 }
 
 type PreviewSlot =
-	| { kind: 'default'; theme: StoryThemePair }
-	| { kind: 'saved'; theme: StoryThemePair; version: number }
-	| { kind: 'pending'; theme: StoryThemePair };
+	| { kind: 'default'; theme: StoryThemePair; generation: null }
+	| {
+			kind: 'saved';
+			theme: StoryThemePair;
+			version: number;
+			generation: StoryThemeGeneration | null;
+			createdAt: Date;
+	  }
+	| { kind: 'pending'; theme: StoryThemePair; generation: null };
 
 function buildPreviewSlots(
-	versions: { version: number; theme: StoryThemePair }[],
+	versions: { version: number; theme: StoryThemePair; generation: StoryThemeGeneration | null; createdAt: Date }[],
 	draft: StoryThemePair | null,
 ): PreviewSlot[] {
 	const saved: PreviewSlot[] =
 		versions.length > 0
-			? versions.map((entry) => ({ kind: 'saved', theme: entry.theme, version: entry.version }))
-			: [{ kind: 'default', theme: DEFAULT_STORY_THEME_PAIR }];
+			? versions.map((entry) => ({
+					kind: 'saved',
+					theme: entry.theme,
+					version: entry.version,
+					generation: entry.generation,
+					createdAt: new Date(entry.createdAt),
+				}))
+			: [{ kind: 'default', theme: DEFAULT_STORY_THEME_PAIR, generation: null }];
 	const baseline = saved[saved.length - 1].theme;
 	if (draft && !sameThemePair(draft, baseline)) {
-		return [...saved, { kind: 'pending', theme: draft }];
+		return [...saved, { kind: 'pending', theme: draft, generation: null }];
 	}
 	return saved;
+}
+
+function slotDate(slot: PreviewSlot, pending: StoryThemeGeneration | null): Date | null {
+	if (slot.kind === 'saved') {
+		return slot.createdAt;
+	}
+	return slot.kind === 'pending' && pending ? new Date(pending.generatedAt) : null;
 }
 
 function slotLabel(slot: PreviewSlot, position: number): string {

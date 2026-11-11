@@ -3,12 +3,6 @@ export interface SelectionGeometry {
 	containerLeft: number;
 }
 
-export interface AnchorPosition {
-	top: number;
-	height: number;
-	containerLeft: number;
-}
-
 /**
  * Creates a DOM Range spanning the given character offsets within a container element.
  * Returns null if the offsets are out of range or the range cannot be created.
@@ -130,13 +124,15 @@ export function getSelectionBoundingRect(range: Range): DOMRect | null {
 }
 
 /** Returns true when the range lives inside `[data-selection-ignore]` (e.g. chat suggestion popups, side-panel story headers). */
-export function isRangeInIgnoredRegion(range: Range): boolean {
-	return isNodeInIgnoredRegion(range.startContainer) || isNodeInIgnoredRegion(range.endContainer);
+/** A region ignored by a selection scope is one inside it: a scope nested in an ignored region still selects. */
+export function isRangeInIgnoredRegion(range: Range, scope?: Element): boolean {
+	return isNodeInIgnoredRegion(range.startContainer, scope) || isNodeInIgnoredRegion(range.endContainer, scope);
 }
 
-function isNodeInIgnoredRegion(node: Node): boolean {
+function isNodeInIgnoredRegion(node: Node, scope?: Element): boolean {
 	const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node instanceof Element ? node : null;
-	return Boolean(el?.closest('[data-selection-ignore]'));
+	const ignoredRegion = el?.closest('[data-selection-ignore]');
+	return Boolean(ignoredRegion && (!scope || scope.contains(ignoredRegion)));
 }
 
 /** Returns the left edge of the nearest `[data-selection-container]` ancestor of the range. */
@@ -150,35 +146,71 @@ export function getContainerLeft(range: Range): number {
 	return el?.getBoundingClientRect().left ?? 0;
 }
 
-/** Measures the screen position of the range for a given start/end offset pair within a container. */
-export function measureRangePosition(container: Element, start: number, end: number): AnchorPosition | null {
-	const range = createRangeFromOffsets(container, start, end);
-	if (!range) {
+export function findQuotedRange(container: Element, start: number, end: number, quote: string): Range | null {
+	const wanted = toQuotedCharacters(quote);
+	if (!wanted.characters) {
 		return null;
 	}
-	const rect = getSelectionBoundingRect(range) ?? range.getBoundingClientRect();
-	const containerLeft = getContainerLeft(range);
-	return { top: rect.top, height: rect.height, containerLeft };
+	const atOffsets = createRangeFromOffsets(container, start, end);
+	if (atOffsets && holdsQuote(atOffsets.toString(), wanted)) {
+		return atOffsets;
+	}
+	const passage = findNearestPassage(collectText(container), wanted.characters, start);
+	return passage && createRangeFromOffsets(container, passage.start, passage.end);
 }
 
-export function findTextRange(container: Element, searchText: string): Range | null {
-	if (!searchText) {
+interface QuotedCharacters {
+	characters: string;
+	isCut: boolean;
+}
+
+function toQuotedCharacters(quote: string): QuotedCharacters {
+	const trimmed = quote.trim();
+	const isCut = trimmed.endsWith('…');
+	return { characters: withoutWhitespace(isCut ? trimmed.slice(0, -1) : trimmed), isCut };
+}
+
+function holdsQuote(text: string, { characters, isCut }: QuotedCharacters): boolean {
+	const compact = withoutWhitespace(text);
+	return isCut ? compact.startsWith(characters) : compact === characters;
+}
+
+function findNearestPassage(
+	fullText: string,
+	characters: string,
+	start: number,
+): { start: number; end: number } | null {
+	const textOffsets: number[] = [];
+	let compact = '';
+	for (let offset = 0; offset < fullText.length; offset++) {
+		if (!/\s/.test(fullText[offset])) {
+			compact += fullText[offset];
+			textOffsets.push(offset);
+		}
+	}
+	let nearest = -1;
+	for (let index = compact.indexOf(characters); index !== -1; index = compact.indexOf(characters, index + 1)) {
+		if (nearest === -1 || Math.abs(textOffsets[index] - start) < Math.abs(textOffsets[nearest] - start)) {
+			nearest = index;
+		}
+	}
+	if (nearest === -1) {
 		return null;
 	}
+	return { start: textOffsets[nearest], end: textOffsets[nearest + characters.length - 1] + 1 };
+}
 
+function withoutWhitespace(text: string): string {
+	return text.replace(/\s+/g, '');
+}
+
+function collectText(container: Element): string {
 	const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
 	let fullText = '';
-	let node: Node | null;
-	while ((node = walker.nextNode())) {
-		fullText += node.textContent ?? '';
+	while (walker.nextNode()) {
+		fullText += walker.currentNode.textContent ?? '';
 	}
-
-	const matchIndex = fullText.indexOf(searchText);
-	if (matchIndex === -1) {
-		return null;
-	}
-
-	return createRangeFromOffsets(container, matchIndex, matchIndex + searchText.length);
+	return fullText;
 }
 
 /** Returns the geometry (rect + containerLeft) for the current window selection. */

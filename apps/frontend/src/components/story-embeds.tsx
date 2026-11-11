@@ -151,6 +151,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 					yAxisRightMax={chart.yAxisRightMax}
 					yAxisRightLabel={chart.yAxisRightLabel}
 					showDataLabels={chart.showDataLabels}
+					showLegend={chart.showLegend}
 					comparisonMode={chart.comparisonMode}
 					animate
 					normalSize

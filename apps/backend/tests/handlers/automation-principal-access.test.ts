@@ -88,10 +88,11 @@ describe('automation owner project access', () => {
 	});
 
 	it('fails the run instead of changing principals after owner access is revoked', async () => {
-		await expect(runAutomation('automation-1')).rejects.toThrow('access to this project');
+		await expect(runAutomation('automation-1', { trigger: 'manual' })).rejects.toThrow('access to this project');
 		expect(mocks.createAgent).toHaveBeenCalledWith(
 			expect.objectContaining({ userId: 'removed-owner', projectId: 'project-1' }),
 			undefined,
+			expect.objectContaining({ usageCategory: 'automation' }),
 			expect.any(Object),
 		);
 		expect(mocks.failAutomationRun).toHaveBeenCalledWith('run-1', 'You do not have access to this project.');
@@ -102,10 +103,8 @@ describe('automation owner project access', () => {
 			'You do not have access to this project.',
 		);
 
-		expect(mocks.createAgent).toHaveBeenCalledWith(
-			expect.any(Object),
-			undefined,
-			expect.objectContaining({ billingAccessVerifiedProjectId: 'project-1' }),
-		);
+		expect(mocks.createAgent).toHaveBeenCalledWith(expect.any(Object), undefined, expect.any(Object), {
+			billingAccessVerifiedProjectId: 'project-1',
+		});
 	});
 });

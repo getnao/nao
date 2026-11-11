@@ -5,9 +5,9 @@ import {
 	CustomStoryFileNotFoundError,
 	CustomStoryNotFoundError,
 	CustomStoryQueryExecutionError,
-	CustomStoryQueryNotAllowedError,
 	CustomStoryQueryNotFoundError,
 } from '../services/custom-story';
+import { CustomStoryQueryNotAllowedError } from '../services/custom-story-query-access';
 import { InvalidStoryStateError } from '../services/custom-story-state';
 import { InvalidStoryFilePathError } from './story-file-path';
 import { MAX_STORY_SNAPSHOT_BYTES } from './story-snapshot';
@@ -18,6 +18,9 @@ export const storySnapshotHtml = z
 	.refine((html) => Buffer.byteLength(html, 'utf8') <= MAX_STORY_SNAPSHOT_BYTES, {
 		message: `The story snapshot exceeds ${MAX_STORY_SNAPSHOT_BYTES / 1024 / 1024} MB.`,
 	});
+
+export const STANDALONE_QUERY_SQL_UNAVAILABLE =
+	'This story keeps the rows of its queries but not their SQL. Edit it in a chat to work on its queries.';
 
 export const storyStateChange = z.object({
 	key: z.string(),

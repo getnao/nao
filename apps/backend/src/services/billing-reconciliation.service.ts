@@ -4,7 +4,14 @@ import * as billingQueries from '../queries/billing.queries';
 import * as organizationQueries from '../queries/organization.queries';
 import { isTerminalBillingStatus } from '../types/billing';
 import { logger } from '../utils/logger';
-import { cloudSubscriptionProjection, hasCloudDefaultPaymentMethod, listCloudSubscriptions } from './stripe.service';
+import {
+	cancelCloudTrialPlaceholderSubscription,
+	type ClassifiedCloudSubscription,
+	cloudSubscriptionProjection,
+	hasCloudDefaultPaymentMethod,
+	listCloudSubscriptions,
+	updateCloudPaidSubscriptionTrialEnd,
+} from './stripe.service';
 
 const CURRENT_STATUS_PRIORITY = ['active', 'trialing', 'past_due', 'paused', 'unpaid', 'incomplete'];
 
@@ -22,11 +29,11 @@ export async function reconcileCloudBillingCustomer(input: {
 		return { applied: false, ignored: true };
 	}
 	const claim = await billingQueries.claimBillingSync(billing.orgId, input.stripeCustomerId);
-	const subscriptions = await listCloudSubscriptions(input.stripeCustomerId);
-	const subscription = selectCloudSubscription(subscriptions, claim.billing.stripeSubscriptionId);
-	logDuplicateCurrentSubscriptions(input.stripeCustomerId, subscriptions, subscription);
+	const classified = await listCloudSubscriptions(input.stripeCustomerId);
+	let selected = selectCloudSubscription(classified, claim.billing.stripeSubscriptionId);
+	logDuplicateCurrentSubscriptions(input.stripeCustomerId, classified, selected);
 
-	if (!subscription) {
+	if (!selected) {
 		return {
 			applied: await billingQueries.updatePaymentMethodProjection(
 				billing.orgId,
@@ -38,16 +45,18 @@ export async function reconcileCloudBillingCustomer(input: {
 		};
 	}
 
-	assertSubscriptionOwnership(subscription, input.stripeCustomerId, billing.orgId);
-	const projection = await cloudSubscriptionProjection(subscription);
-	return {
-		applied: await billingQueries.updateSubscriptionProjection(billing.orgId, claim.token, {
-			...projection,
-			trialStartedAt: projection.trialStartedAt ?? claim.billing.trialStartedAt,
-			trialEndsAt: projection.trialEndsAt ?? claim.billing.trialEndsAt,
-		}),
-		ignored: false,
-	};
+	assertSubscriptionOwnership(selected.subscription, input.stripeCustomerId, billing.orgId);
+	selected = await carryForwardLatestTrialEnd(selected, classified, billing.orgId);
+	const projection = await cloudSubscriptionProjection(selected.subscription);
+	const applied = await billingQueries.updateSubscriptionProjection(billing.orgId, claim.token, {
+		...projection,
+		trialStartedAt: claim.billing.trialStartedAt ?? projection.trialStartedAt,
+		trialEndsAt: projection.trialEndsAt ?? claim.billing.trialEndsAt,
+	});
+	if (applied && selected.kind === 'paid-cloud') {
+		await cancelCurrentTrialPlaceholders(classified, billing.orgId);
+	}
+	return { applied, ignored: false };
 }
 
 async function resolveOrganizationBilling(stripeCustomerId: string, organizationIdHint?: string) {
@@ -56,8 +65,8 @@ async function resolveOrganizationBilling(stripeCustomerId: string, organization
 		return attached;
 	}
 
-	const subscriptions = await listCloudSubscriptions(stripeCustomerId);
-	const liveOrganizationId = selectCloudSubscription(subscriptions)?.metadata.nao_org_id;
+	const classified = await listCloudSubscriptions(stripeCustomerId);
+	const liveOrganizationId = selectCloudSubscription(classified)?.subscription.metadata.nao_org_id;
 	const organizationId = liveOrganizationId ?? organizationIdHint;
 	if (!organizationId) {
 		return null;
@@ -70,28 +79,74 @@ async function resolveOrganizationBilling(stripeCustomerId: string, organization
 	return billingQueries.attachStripeCustomer(organization.id, stripeCustomerId);
 }
 
+async function carryForwardLatestTrialEnd(
+	selected: ClassifiedCloudSubscription,
+	classified: ClassifiedCloudSubscription[],
+	organizationId: string,
+): Promise<ClassifiedCloudSubscription> {
+	if (selected.kind !== 'paid-cloud' || selected.subscription.status !== 'trialing') {
+		return selected;
+	}
+	const latestPlaceholderTrialEnd = classified
+		.filter(
+			(entry) =>
+				entry.kind === 'trial-placeholder' &&
+				!isTerminalBillingStatus(entry.subscription.status) &&
+				entry.subscription.trial_end !== null,
+		)
+		.reduce((latest, entry) => Math.max(latest, entry.subscription.trial_end ?? 0), 0);
+	if (latestPlaceholderTrialEnd === 0 || latestPlaceholderTrialEnd <= (selected.subscription.trial_end ?? 0)) {
+		return selected;
+	}
+	const subscription = await updateCloudPaidSubscriptionTrialEnd(
+		selected.subscription,
+		organizationId,
+		new Date(latestPlaceholderTrialEnd * 1000),
+	);
+	return { kind: selected.kind, subscription };
+}
+
+async function cancelCurrentTrialPlaceholders(
+	classified: ClassifiedCloudSubscription[],
+	organizationId: string,
+): Promise<void> {
+	await Promise.all(
+		classified
+			.filter(
+				(entry) => entry.kind === 'trial-placeholder' && !isTerminalBillingStatus(entry.subscription.status),
+			)
+			.map(({ subscription }) => cancelCloudTrialPlaceholderSubscription(subscription, organizationId)),
+	);
+}
+
 function selectCloudSubscription(
-	subscriptions: Stripe.Subscription[],
+	classified: ClassifiedCloudSubscription[],
 	preferredSubscriptionId?: string | null,
-): Stripe.Subscription | null {
-	const current = subscriptions.filter((subscription) => !isTerminalBillingStatus(subscription.status));
+): ClassifiedCloudSubscription | null {
+	const paid = classified.filter(({ kind }) => kind === 'paid-cloud');
+	const candidates = paid.length > 0 ? paid : classified;
+	const current = candidates.filter(({ subscription }) => !isTerminalBillingStatus(subscription.status));
 	if (current.length > 0) {
 		return [...current].sort((left, right) => {
-			const statusDifference = currentStatusPriority(left.status) - currentStatusPriority(right.status);
+			const statusDifference =
+				currentStatusPriority(left.subscription.status) - currentStatusPriority(right.subscription.status);
 			if (statusDifference !== 0) {
 				return statusDifference;
 			}
-			if (left.id === preferredSubscriptionId) {
+			if (left.subscription.id === preferredSubscriptionId) {
 				return -1;
 			}
-			if (right.id === preferredSubscriptionId) {
+			if (right.subscription.id === preferredSubscriptionId) {
 				return 1;
 			}
-			return left.created - right.created || left.id.localeCompare(right.id);
+			return (
+				left.subscription.created - right.subscription.created ||
+				left.subscription.id.localeCompare(right.subscription.id)
+			);
 		})[0];
 	}
 
-	return [...subscriptions].sort((left, right) => right.created - left.created)[0] ?? null;
+	return [...candidates].sort((left, right) => right.subscription.created - left.subscription.created)[0] ?? null;
 }
 
 function currentStatusPriority(status: string): number {
@@ -101,18 +156,22 @@ function currentStatusPriority(status: string): number {
 
 function logDuplicateCurrentSubscriptions(
 	stripeCustomerId: string,
-	subscriptions: Stripe.Subscription[],
-	selectedSubscription: Stripe.Subscription | null,
+	classified: ClassifiedCloudSubscription[],
+	selected: ClassifiedCloudSubscription | null,
 ): void {
-	const currentIds = subscriptions
-		.filter((subscription) => !isTerminalBillingStatus(subscription.status))
-		.map((subscription) => subscription.id);
-	if (currentIds.length < 2 || !selectedSubscription) {
+	const current = classified.filter(({ subscription }) => !isTerminalBillingStatus(subscription.status));
+	const hasDuplicates = current.some(
+		({ kind }, index) => current.findIndex((candidate) => candidate.kind === kind) !== index,
+	);
+	if (!hasDuplicates || !selected) {
 		return;
 	}
 	logger.error(`Stripe Customer "${stripeCustomerId}" has multiple current cloud subscriptions`, {
 		source: 'system',
-		context: { currentSubscriptionIds: currentIds, selectedSubscriptionId: selectedSubscription.id },
+		context: {
+			currentSubscriptionIds: current.map(({ subscription }) => subscription.id),
+			selectedSubscriptionId: selected.subscription.id,
+		},
 	});
 }
 

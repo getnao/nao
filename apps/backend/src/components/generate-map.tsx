@@ -2,11 +2,15 @@ import {
 	BUBBLE_MAX_RADIUS,
 	bubbleLegendValues,
 	buildChoroplethEntries,
+	buildChoroplethLegend,
+	buildChoroplethScale,
 	buildMapPoints,
 	CHART_FONT_STACK,
 	CHOROPLETH_MIN_OPACITY,
+	type ChoroplethLegendClass,
+	type ChoroplethLegendModel,
+	type ChoroplethLegendTick,
 	choroplethOpacity,
-	choroplethValueDomain,
 	type CustomBoundarySet,
 	DEFAULT_MARKER_COLOR,
 	DEFAULT_MARKER_RADIUS,
@@ -75,7 +79,7 @@ async function renderChoroplethSvg(
 	customBoundaries: CustomBoundarySet[],
 ): Promise<string | null> {
 	const entries = buildChoroplethEntries(rows, config);
-	const domain = choroplethValueDomain(entries);
+	const scale = buildChoroplethScale(entries, config.color_scale);
 	const color = config.color?.trim() || DEFAULT_MARKER_COLOR;
 
 	const boundary = await resolveChoroplethBoundary(config, customBoundaries);
@@ -90,7 +94,7 @@ async function renderChoroplethSvg(
 		if (!geometry) {
 			continue;
 		}
-		regions.push({ geometry, fill: withOpacity(color, choroplethOpacity(entry.value, domain)) });
+		regions.push({ geometry, fill: withOpacity(color, choroplethOpacity(entry.value, scale)) });
 	}
 	if (regions.length === 0) {
 		return null;
@@ -109,7 +113,7 @@ async function renderChoroplethSvg(
 		basemap,
 		backdrop: svg.backdrop,
 		title: config.title,
-		legend: domain ? <ChoroplethLegend color={color} domain={domain} /> : null,
+		legend: scale ? <ChoroplethLegend color={color} legend={buildChoroplethLegend(scale)} /> : null,
 		children: svg.regions.map((region, index) => (
 			<path
 				key={index}
@@ -255,13 +259,30 @@ function TitleHeader({ title, bandHeight }: { title: string; bandHeight: number 
 	);
 }
 
-function ChoroplethLegend({ color, domain }: { color: string; domain: NumericDomain }) {
+const LEGEND_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+const LEGEND_CHAR_WIDTH = 6.1;
+
+function ChoroplethLegend({ color, legend }: { color: string; legend: ChoroplethLegendModel }) {
+	if (legend.kind === 'classes') {
+		return <ChoroplethClassesLegend color={color} classes={legend.classes} />;
+	}
+	return <ChoroplethGradientLegend color={color} ticks={legend.ticks} />;
+}
+
+const SVG_TEXT_ANCHOR: Record<ChoroplethLegendTick['align'], 'start' | 'middle' | 'end'> = {
+	start: 'start',
+	center: 'middle',
+	end: 'end',
+};
+
+function ChoroplethGradientLegend({ color, ticks }: { color: string; ticks: ChoroplethLegendTick[] }) {
+	const barWidth = 96;
 	const boxWidth = 112;
 	const boxHeight = 34;
 	const boxX = 12;
 	const boxY = VIEW_HEIGHT - 12 - boxHeight;
 	return (
-		<g fontFamily='ui-monospace, SFMono-Regular, Menlo, monospace'>
+		<g fontFamily={LEGEND_FONT_FAMILY}>
 			<defs>
 				<linearGradient id='nao-choropleth-legend' x1='0' y1='0' x2='1' y2='0'>
 					<stop offset='0' stopColor={withOpacity(color, CHOROPLETH_MIN_OPACITY)} />
@@ -277,13 +298,68 @@ function ChoroplethLegend({ color, domain }: { color: string; domain: NumericDom
 				fill='rgba(255,255,255,0.9)'
 				stroke='rgba(0,0,0,0.08)'
 			/>
-			<rect x={boxX + 8} y={boxY + 8} width={96} height={8} rx={4} fill='url(#nao-choropleth-legend)' />
-			<text x={boxX + 8} y={boxY + 28} fontSize={10} fill='#6b7280' textAnchor='start'>
-				{formatCompactNumber(domain.min)}
-			</text>
-			<text x={boxX + 104} y={boxY + 28} fontSize={10} fill='#6b7280' textAnchor='end'>
-				{formatCompactNumber(domain.max)}
-			</text>
+			<rect x={boxX + 8} y={boxY + 8} width={barWidth} height={8} rx={4} fill='url(#nao-choropleth-legend)' />
+			{ticks.map((tick) => (
+				<text
+					key={tick.position}
+					x={boxX + 8 + tick.position * barWidth}
+					y={boxY + 28}
+					fontSize={10}
+					fill='#6b7280'
+					textAnchor={SVG_TEXT_ANCHOR[tick.align]}
+				>
+					{tick.label}
+				</text>
+			))}
+		</g>
+	);
+}
+
+function ChoroplethClassesLegend({ color, classes }: { color: string; classes: ChoroplethLegendClass[] }) {
+	const padding = 8;
+	const swatchSize = 10;
+	const swatchGap = 6;
+	const rowHeight = 14;
+	const longestLabel = Math.max(...classes.map((item) => item.label.length));
+	const boxWidth = padding * 2 + swatchSize + swatchGap + longestLabel * LEGEND_CHAR_WIDTH;
+	const boxHeight = padding * 2 + classes.length * rowHeight - (rowHeight - swatchSize);
+	const boxX = 12;
+	const boxY = VIEW_HEIGHT - 12 - boxHeight;
+	return (
+		<g fontFamily={LEGEND_FONT_FAMILY}>
+			<rect
+				x={boxX}
+				y={boxY}
+				width={boxWidth}
+				height={boxHeight}
+				rx={6}
+				fill='rgba(255,255,255,0.9)'
+				stroke='rgba(0,0,0,0.08)'
+			/>
+			{classes.map((item, index) => {
+				const rowY = boxY + padding + index * rowHeight;
+				return (
+					<g key={item.label}>
+						<rect
+							x={boxX + padding}
+							y={rowY}
+							width={swatchSize}
+							height={swatchSize}
+							rx={2}
+							fill={withOpacity(color, item.opacity)}
+						/>
+						<text
+							x={boxX + padding + swatchSize + swatchGap}
+							y={rowY + swatchSize / 2}
+							fontSize={10}
+							fill='#6b7280'
+							dominantBaseline='central'
+						>
+							{item.label}
+						</text>
+					</g>
+				);
+			})}
 		</g>
 	);
 }

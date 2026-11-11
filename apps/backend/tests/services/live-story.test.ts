@@ -103,6 +103,18 @@ import {
 
 const WAREHOUSE_STORY_CODE = '<table query_id="query_warehouse" />';
 
+function stubSemanticLayerFetch(compiledSql: string, result: { columns: string[]; data: unknown[] }) {
+	const fetchMock = vi.fn(async (url: string, _init: { body: string }) =>
+		Response.json(
+			url.endsWith('/semantic_layer/compile')
+				? { sql: compiledSql, database_id: 'warehouse', dialect: 'duckdb' }
+				: result,
+		),
+	);
+	vi.stubGlobal('fetch', fetchMock);
+	return fetchMock;
+}
+
 describe('live story SQL execution', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
@@ -313,6 +325,105 @@ describe('live story SQL execution', () => {
 			'SELECT region, sum(amount) AS total FROM query_upstream GROUP BY region',
 			expect.objectContaining({ chatId: 'chat-1' }),
 		);
+	});
+
+	it('compiles a semantic story query again so the current metric definitions apply', async () => {
+		const code = '<chart query_id="query_revenue" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_revenue: {
+				sqlQuery: 'SELECT sum(amount) AS revenue FROM orders',
+				databaseId: 'analytics',
+				adminMode: false,
+				semanticQuery: { metrics: ['revenue'], group_by: ['metric_time__month'] },
+			},
+		});
+		const fetchMock = stubSemanticLayerFetch('SELECT sum(amount - refunds) AS revenue FROM orders', {
+			columns: ['revenue'],
+			data: [{ revenue: 90 }],
+		});
+
+		await expect(refreshStoryData('chat-1', 'revenue')).resolves.toEqual({
+			queryData: { query_revenue: { columns: ['revenue'], data: [{ revenue: 90 }] } },
+			narratives: {},
+		});
+
+		const [compileCall, executeCall] = fetchMock.mock.calls;
+		expect(compileCall[0]).toContain('/semantic_layer/compile');
+		expect(JSON.parse(compileCall[1].body)).toMatchObject({
+			metrics: ['revenue'],
+			group_by: ['metric_time__month'],
+			nao_project_folder: '/project',
+			env_vars: { TOKEN: 'secret' },
+		});
+		expect(JSON.parse(executeCall[1].body)).toMatchObject({
+			sql: 'SELECT sum(amount - refunds) AS revenue FROM orders',
+			database_id: 'warehouse',
+		});
+	});
+
+	it('refreshes a parameterized semantic story query with the story parameter default', async () => {
+		const code = [
+			`<parameter id="metric" type="metric" options='["revenue","orders"]' default="orders" />`,
+			'<chart query_id="query_metric" />',
+		].join('\n');
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code, isLiveTextDynamic: false, format: 'classic' });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_metric: {
+				sqlQuery: 'SELECT 1',
+				databaseId: 'analytics',
+				adminMode: false,
+				semanticQuery: {
+					metrics: ['{{ params.metric }}'],
+					group_by: ['metric_time__{{ params.grain }}'],
+					params: { metric: 'revenue', grain: 'week' },
+				},
+			},
+		});
+		const fetchMock = stubSemanticLayerFetch('SELECT 2', { columns: ['orders'], data: [{ orders: 3 }] });
+
+		await refreshStoryData('chat-1', 'metric');
+
+		const compileBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+		expect(compileBody).toMatchObject({ metrics: ['orders'], group_by: ['metric_time__week'] });
+		expect(compileBody).not.toHaveProperty('params');
+	});
+
+	it('compiles a semantic live query again before running it', async () => {
+		mocks.getSqlQueryById.mockResolvedValue({
+			sqlQuery: 'SELECT count(*) AS orders FROM orders',
+			databaseId: 'analytics',
+			adminMode: false,
+			semanticQuery: { metrics: ['orders'] },
+		});
+		const fetchMock = stubSemanticLayerFetch('SELECT count(DISTINCT order_id) AS orders FROM orders', {
+			columns: ['orders'],
+			data: [{ orders: 3 }],
+		});
+
+		await expect(executeLiveQuery('chat-1', 'query_orders')).resolves.toEqual({
+			columns: ['orders'],
+			data: [{ orders: 3 }],
+		});
+		expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+			sql: 'SELECT count(DISTINCT order_id) AS orders FROM orders',
+		});
+	});
+
+	it('runs a no-cache live query with the story parameter default', async () => {
+		mocks.getSqlQueryById.mockResolvedValue({
+			sqlQuery: 'SELECT 1',
+			databaseId: 'analytics',
+			adminMode: false,
+			semanticQuery: { metrics: ['{{ params.metric }}'], params: { metric: 'revenue' } },
+		});
+		const fetchMock = stubSemanticLayerFetch('SELECT 2', { columns: ['orders'], data: [{ orders: 3 }] });
+
+		await executeLiveQuery('chat-1', 'query_metric', {
+			storyCode: `<parameter id="metric" options='["revenue","orders"]' default="orders" />`,
+		});
+
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ metrics: ['orders'] });
 	});
 
 	it('never sends a local live query to the warehouse', async () => {

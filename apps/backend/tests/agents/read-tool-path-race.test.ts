@@ -70,6 +70,24 @@ describe('read project file path safety', () => {
 		await expect(runRead('/context/notes.md')).rejects.toThrow('changed while being read');
 	});
 
+	it('attaches table annotations when reading columns.md', async () => {
+		const tableFolder = path.join(projectFolder, 'databases', 'schema=main', 'table=orders');
+		await actualFs.mkdir(tableFolder, { recursive: true });
+		await actualFs.writeFile(path.join(tableFolder, 'columns.md'), '# orders');
+		await actualFs.writeFile(
+			path.join(tableFolder, 'annotations.md'),
+			'---\ntype: manual\n---\nExclude test orders.',
+		);
+
+		await expect(runRead('/databases/schema=main/table=orders/columns.md')).resolves.toMatchObject({
+			content: '# orders',
+			annotations: {
+				path: '/databases/schema=main/table=orders/annotations.md',
+				content: 'Exclude test orders.',
+			},
+		});
+	});
+
 	it('reads an existing file whose name ends with the Linux deletion marker', async () => {
 		await actualFs.writeFile(path.join(projectFolder, 'report (deleted)'), 'still here');
 

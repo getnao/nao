@@ -23,8 +23,8 @@ class EmailService {
 		try {
 			this.transporter = nodemailer.createTransport({
 				host: SMTP_HOST,
-				port: Number(SMTP_PORT) || 587,
-				secure: SMTP_SSL === 'true',
+				port: SMTP_PORT,
+				secure: SMTP_SSL,
 				auth: {
 					user: SMTP_USER || SMTP_MAIL_FROM,
 					pass: SMTP_PASSWORD,
@@ -51,6 +51,7 @@ class EmailService {
 			await this.transporter.sendMail({
 				from: env.SMTP_MAIL_FROM,
 				to,
+				replyTo: email.replyTo,
 				subject: email.subject,
 				html: email.html,
 				attachments: email.attachments,

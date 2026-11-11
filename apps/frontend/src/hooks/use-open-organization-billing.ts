@@ -14,7 +14,7 @@ export function useOpenOrganizationBilling() {
 			await queryClient.invalidateQueries();
 			await navigate({
 				to: '/settings/organization/billing',
-				search: { checkout: undefined, portal: undefined },
+				search: { checkout: undefined, portal: undefined, creditCheckout: undefined },
 			});
 		},
 		[navigate, queryClient],

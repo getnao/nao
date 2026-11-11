@@ -27,6 +27,8 @@ class _DatabaseConfigLike(Protocol):
 
     def get_database_name(self) -> str: ...
 
+    def get_catalog_names(self) -> list[str]: ...
+
     def column_matches_pattern(self, schema: str, table: str, column: str) -> bool: ...
 
 
@@ -40,6 +42,7 @@ _SQLGLOT_DIALECTS = {
     "snowflake": "snowflake",
     "mssql": "tsql",
     "motherduck": "duckdb",
+    "ducklake": "duckdb",
     "mysql": "mysql",
     "postgres": "postgres",
     "redshift": "redshift",
@@ -52,6 +55,7 @@ _STAR_EXCLUSION_KEYWORDS = {
     "clickhouse": "EXCEPT",
     "databricks": "EXCEPT",
     "duckdb": "EXCLUDE",
+    "ducklake": "EXCLUDE",
     "motherduck": "EXCLUDE",
     "redshift": "EXCLUDE",
     "snowflake": "EXCLUDE",
@@ -156,14 +160,16 @@ def _resolve_table(
 
     requested_catalog = table_expression.catalog
     if requested_catalog:
-        database_name = db_config.get_database_name()
-        if not _catalog_matches_database(requested_catalog, database_name):
-            raise _blocked(f"catalog '{requested_catalog}' does not match the configured database '{database_name}'")
+        catalog_names = db_config.get_catalog_names()
+        if not any(_catalog_matches_database(requested_catalog, name) for name in catalog_names):
+            raise _blocked(
+                f"catalog '{requested_catalog}' does not match the configured database '{', '.join(catalog_names)}'"
+            )
 
     requested_schema = table_expression.db
     if requested_schema:
         schema_candidates = [requested_schema]
-        if requested_catalog:
+        if requested_catalog and _catalog_matches_database(requested_catalog, db_config.get_database_name()):
             schema_candidates.insert(0, f"{requested_catalog}.{requested_schema}")
         schema = next(
             (

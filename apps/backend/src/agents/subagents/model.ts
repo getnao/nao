@@ -1,4 +1,4 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import { isSameModel, type LlmSelectedModel } from '@nao/shared/types';
 
 import type { ToolContext } from '../../types/tools';
 import { assertBudgetNotExceeded } from '../../utils/budget';
@@ -19,7 +19,14 @@ type AvailableModel = Awaited<ReturnType<typeof getProjectAvailableModels>>[numb
 export async function resolveSubagentModel(context: ToolContext, requestedModelId?: string): Promise<SubagentModel> {
 	const selection = await resolveSelection(context, requestedModelId);
 	await assertBudgetNotExceeded(context.projectId, selection.provider, context.userId);
-	const config = await resolveProviderModel(context.projectId, selection.provider, selection.modelId);
+	const config = await resolveProviderModel(context.projectId, selection.provider, selection.modelId, true, {
+		userId: context.userId,
+		projectId: context.projectId,
+		chatId: context.chatId ?? undefined,
+		runId: context.usageRunId,
+		category: 'subagent',
+		billingMode: context.managedAiBillingMode,
+	});
 	if (!config) {
 		throw new Error(`The model ${selection.modelId} (${selection.provider}) could not be resolved.`);
 	}
@@ -61,8 +68,4 @@ function findRequestedModel(available: AvailableModel[], requestedModelId: strin
 		);
 	}
 	return { provider: match.provider, modelId: match.modelId };
-}
-
-function isSameModel(left: LlmSelectedModel, right: LlmSelectedModel): boolean {
-	return left.provider === right.provider && left.modelId === right.modelId;
 }

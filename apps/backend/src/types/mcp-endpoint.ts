@@ -1,4 +1,7 @@
-import type { LlmSelectedModel } from '@nao/shared/types';
+import type { LlmSelectedModel, UserRole } from '@nao/shared/types';
+
+/** Viewers are rejected before an MCP server is built, so every MCP caller has one of these roles. */
+export type McpUserRole = Exclude<UserRole, 'viewer'>;
 
 export interface McpEndpointSettings {
 	enabled: boolean;

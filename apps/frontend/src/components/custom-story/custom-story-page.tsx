@@ -1,61 +1,88 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
-import type { DownloadFormat, StoryBlockReference } from '@nao/shared/types';
-import type { StoryBlockEditPayload, StoryTableFormatEditRequest } from '@nao/shared/story-app';
-import type { StoryBlockEditTarget, StoryTableFormatEditTarget } from '@/stores/story-block-edit';
+import type { DownloadFormat } from '@nao/shared/types';
+import type { StoryBlockEditPayload, StoryTableFormatEditRequest, StoryElementCitation } from '@nao/shared/story-app';
+import type {
+	StoryBlockEditTarget,
+	StoryTableFormatEditTarget,
+} from '@/components/custom-story/custom-story-block-edit';
+import type { CodeSelection } from '@/stores/ask-bar';
 
-import type { CustomStoryDataSource } from '@/components/custom-story/story-data-options';
+import type { CustomStoryDataSource, CustomStoryFileSource } from '@/components/custom-story/story-data-options';
 import type { CustomStoryViewMode } from '@/components/custom-story/custom-story-view-mode';
+import type { StoryPageHeaderProps } from '@/components/story-page-header';
+import { STORY_ASK_BAR_INSET, StoryAskBar } from '@/components/story-ask-bar';
 import {
 	CustomStoryBlockEditDialog,
 	CustomStoryTableFormatDialog,
 } from '@/components/custom-story/custom-story-block-edit';
-import { ActionErrorBanner, CustomStoryBody } from '@/components/custom-story/custom-story-body';
+import { ActionErrorBanner, CustomStoryBody, useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
 import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-view-mode';
 import { useCustomStory } from '@/components/custom-story/use-custom-story';
 import { useCustomStoryDownload } from '@/components/custom-story/use-custom-story-download';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
-import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { ShareDialog } from '@/components/share-dialog';
+import { SharedStoryHeader } from '@/components/shared-story-header';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { useStoryViewerSharing } from '@/components/side-panel/hooks/use-story-viewer-sharing';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { ArchivedBanner } from '@/components/side-panel/story-archived-banner';
+import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
 import { StoryPageHeader } from '@/components/story-page-header';
+import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
+import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { useOnAskRequest } from '@/hooks/use-on-ask-request';
+import { useOpenStandaloneStoryInChat } from '@/hooks/use-open-standalone-story-in-chat';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
+import { useResolvedStory } from '@/hooks/use-mentioned-stories';
 import { trpc, trpcClient } from '@/main';
-import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
+import { requestAsk, requestAskAboutCode } from '@/stores/ask-bar';
 
 interface CustomStoryPreviewPageProps {
 	chatId: string;
 	storySlug: string;
 	authorName?: string;
+	isOwner: boolean;
 }
 
-/** Full-page view of a custom story for its owner, with the same header as a classic story's page. */
-export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: CustomStoryPreviewPageProps) {
-	const navigate = useNavigate();
+/** Full-page editable view of a custom story for its owner and its editors, with the same header as a classic story's page. */
+export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner }: CustomStoryPreviewPageProps) {
 	const story = useCustomStory(chatId, storySlug);
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
+	const theme = useActiveStoryTheme(content?.theme);
 	const storyId = story.versionsQuery.data?.id ?? content?.storyId ?? null;
 	const sharing = useStoryViewerSharing({ chatId, storySlug });
 	const live = useStoryViewerLiveSettings({ chatId, storySlug });
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
-		needsRefresh: content?.needsRefresh ?? false,
+		needsRefresh: isOwner && (content?.needsRefresh ?? false),
 		isRefreshing: live.isRefreshing,
 		refresh: live.handleRefreshData,
 	});
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	useCodeRevealFollower(storySlug, () => setViewMode('files'));
+	useCitedElementFollower(storySlug, () => setViewMode('app'));
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [editTarget, setEditTarget] = useState<StoryBlockEditTarget | null>(null);
 	const [tableFormatTarget, setTableFormatTarget] = useState<StoryTableFormatEditTarget | null>(null);
-	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning;
+	const [hasFileChanges, setHasFileChanges] = useState(false);
+	const presence = useStoryEditSession({
+		target: storyId ? { storyId, chatId, storySlug } : null,
+		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
+	});
+	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && presence.canEdit;
+	useCloseWhenUneditable(canEditBlocks, () => {
+		setEditTarget(null);
+		setTableFormatTarget(null);
+	});
 
 	const handleEditBlock = useCallback(
 		(payload: StoryBlockEditPayload) => {
@@ -73,114 +100,239 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName }: Custom
 		},
 		[chatId, content, storySlug],
 	);
-	const handleOpenChat = useCallback(() => {
-		navigate({ to: '/$chatId', params: { chatId }, state: { openStorySlug: storySlug } });
-	}, [chatId, navigate, storySlug]);
-	const handleAskBlock = useCallback(
-		(block: StoryBlockReference) => {
-			chatPendingCitationStore.setBlock(chatId, storySlug, block);
-			handleOpenChat();
+	const handleAsk = useCallback(
+		({ text, block, intent }: StoryElementCitation) => {
+			requestAsk({ chatId: null, selection: { text, block, intent, storySlug } });
 		},
-		[chatId, handleOpenChat, storySlug],
+		[storySlug],
+	);
+	const handleAskAboutCode = useCallback(
+		(filePath: string, selection: CodeSelection) => requestAskAboutCode(selection, { storySlug, filePath }),
+		[storySlug],
 	);
 
 	useTrackViewDuration({ assetType: 'story', chatId, storyId, versionNumber: story.viewedVersion ?? undefined });
+	const showAskBar = Boolean(storyId) && !story.isArchived;
 
 	return (
-		<div className='flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
+		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
 			<StoryPageHeader
 				title={content?.title ?? story.versionsQuery.data?.title ?? storySlug}
 				authorName={authorName}
-				onOpenChat={handleOpenChat}
+				storyChat={{ storyId, isOwner, canEdit: true, canChat: !story.isArchived }}
+				canDuplicate={!story.isArchived && customStoryCreationEnabled}
+				viewedVersionNumber={story.viewedVersion ?? undefined}
 				live={{
 					isLive: live.isLive,
 					cachedAt: content?.cachedAt,
 					lastRefreshFailure: content?.lastRefreshFailure,
 					isRefreshing: live.isRefreshing,
 					isUpdating: live.isUpdating,
-					onRefresh: live.handleRefreshData,
-					onOpenSettings: () => setIsLiveSettingsOpen(true),
+					onRefresh: isOwner ? live.handleRefreshData : undefined,
+					onOpenSettings: isOwner ? () => setIsLiveSettingsOpen(true) : undefined,
 				}}
 				download={{ chatId, storySlug, isOwner: true, onDownload: story.download }}
 				storyId={storyId}
-				canRename
+				canRename={isOwner && presence.canEdit}
 				isShared={sharing.isShared}
-				onShare={() => sharing.setIsShareDialogOpen(true)}
-				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+				onShare={isOwner ? () => sharing.setIsShareDialogOpen(true) : undefined}
+				onOpenAnalytics={isOwner ? () => setIsAnalyticsOpen(true) : undefined}
 				viewModeControls={{ viewMode, onViewModeChange: setViewMode }}
+				elementSelection={
+					showAskBar && viewMode === 'app'
+						? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+						: undefined
+				}
 				versionControls={{
 					currentVersion: story.currentVersionIndex,
-					versionDates: story.versionDates,
+					versions: story.versions,
 					versionDate: story.viewedVersionDate,
 					isViewingLatest: story.isViewingLatest,
 					onSelectVersion: story.goToVersion,
 					onRestore: story.restore,
+					isRestoreDisabled: story.isRestoring || !presence.canEdit,
 				}}
 			/>
 
-			{Boolean(content?.archivedAt) && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
+			<StoryEditPresenceBanner presence={presence} />
+			{story.isArchived && isOwner && <ArchivedBanner chatId={chatId} storySlug={storySlug} />}
 			{story.restoreError && <ActionErrorBanner message={story.restoreError.message} />}
 
-			<CustomStoryViewLayers
-				viewMode={viewMode}
-				app={
-					<CustomStoryBody
-						dataSource={story.dataSource}
-						content={content}
-						isLoading={story.isLoading}
-						error={story.error}
-						hasPublishedVersion={story.hasPublishedVersion}
-						editable={canEditBlocks && viewMode === 'app'}
-						onEditBlock={handleEditBlock}
-						onEditTableFormat={handleEditTableFormat}
-						onAskBlock={handleAskBlock}
-					/>
-				}
-				files={
-					content && (
-						<CustomStoryFiles
-							key={content.version.id}
-							source={story.dataSource}
-							versionNumber={content.version.number}
-							files={content.files}
-							editable={canEditBlocks && customStoryCreationEnabled}
+			<div className='relative flex min-h-0 flex-1 flex-col'>
+				<CustomStoryViewLayers
+					viewMode={viewMode}
+					app={
+						<CustomStoryBody
+							bottomInset={showAskBar ? STORY_ASK_BAR_INSET : undefined}
+							dataSource={story.dataSource}
+							content={content}
+							isLoading={story.isLoading}
+							error={story.error}
+							hasPublishedVersion={story.hasPublishedVersion}
+							editable={canEditBlocks && viewMode === 'app'}
+							onEditBlock={handleEditBlock}
+							onEditTableFormat={handleEditTableFormat}
+							onAsk={showAskBar ? handleAsk : undefined}
+							isSelectingElements={isSelectingElements && viewMode === 'app'}
 						/>
-					)
-				}
-			/>
+					}
+					files={
+						content && (
+							<div
+								className='h-full'
+								style={showAskBar ? { paddingBottom: STORY_ASK_BAR_INSET } : undefined}
+							>
+								<CustomStoryFiles
+									key={content.version.id}
+									source={story.dataSource}
+									versionNumber={content.version.number}
+									files={content.files}
+									editable={canEditBlocks && customStoryCreationEnabled}
+									onAskAboutCode={showAskBar ? handleAskAboutCode : undefined}
+									onHasChangesChange={setHasFileChanges}
+								/>
+							</div>
+						)
+					}
+				/>
+				{showAskBar && storyId && <StoryAskBar storyId={storyId} canEdit />}
+			</div>
 
 			<CustomStoryBlockEditDialog
 				target={canEditBlocks ? editTarget : null}
+				theme={theme}
 				onClose={() => setEditTarget(null)}
 			/>
 			<CustomStoryTableFormatDialog
 				target={canEditBlocks ? tableFormatTarget : null}
 				onClose={() => setTableFormatTarget(null)}
 			/>
-			<ShareStoryDialog
-				open={sharing.isShareDialogOpen}
-				onOpenChange={sharing.setIsShareDialogOpen}
-				chatId={chatId}
-				storySlug={storySlug}
+			{isOwner && (
+				<>
+					<ShareDialog
+						open={sharing.isShareDialogOpen}
+						onOpenChange={sharing.setIsShareDialogOpen}
+						target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
+					/>
+					<AssetAnalyticsDialog
+						open={isAnalyticsOpen}
+						onOpenChange={setIsAnalyticsOpen}
+						assetType='story'
+						storyId={storyId ?? undefined}
+						chatId={chatId}
+					/>
+					<LiveStorySettingsDialog
+						open={isLiveSettingsOpen}
+						onOpenChange={setIsLiveSettingsOpen}
+						chatId={chatId}
+						storySlug={storySlug}
+						isLive={live.isLive}
+						isLiveTextDynamic={live.isLiveTextDynamic}
+						cacheSchedule={live.cacheSchedule}
+						cacheScheduleDescription={live.cacheScheduleDescription}
+						isUpdating={live.isUpdating}
+						onSaveSettings={live.handleSaveSettings}
+					/>
+				</>
+			)}
+		</div>
+	);
+}
+
+/** A custom story of the user outside any chat: it renders from the rows saved with it and is edited in a new chat. */
+export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
+	const storyQuery = useQuery(trpc.standaloneCustomStory.listVersions.queryOptions({ storyId }));
+	const contentQuery = useQuery(trpc.standaloneCustomStory.getVersion.queryOptions({ storyId }));
+	const story = storyQuery.data;
+	const content = contentQuery.data;
+	const versionNumber = content?.version.number;
+	const storySlug = story?.slug ?? '';
+	const dataSource = useMemo<CustomStoryFileSource>(
+		() => ({ kind: 'standalone', storyId, storySlug, versionNumber }),
+		[storyId, storySlug, versionNumber],
+	);
+	const openInChat = useOpenStandaloneStoryInChat(storyId, story?.slug);
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
+	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const renderExport = useCallback(
+		(format: DownloadFormat, html: string) =>
+			trpcClient.standaloneCustomStory.download.mutate({ storyId, format, html, versionNumber }),
+		[storyId, versionNumber],
+	);
+	const download = useCustomStoryDownload(content, dataSource, renderExport);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
+	const handleAsk = useCallback(
+		({ text, block, intent }: StoryElementCitation) => {
+			requestAsk({ chatId: null, selection: { text, block, intent, storySlug } });
+		},
+		[storySlug],
+	);
+
+	useTrackViewDuration({ assetType: 'story', storyId, versionNumber });
+	const isArchived = Boolean(story?.archivedAt);
+	const isAskInputHidden = viewMode !== 'app';
+	const canAsk = !isArchived && !isAskInputHidden;
+	useOnAskRequest(() => {
+		setViewMode('app');
+	});
+
+	return (
+		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
+			<StoryPageHeader
+				title={content?.title ?? story?.title ?? ''}
+				storyChat={{
+					storyId,
+					isOwner: true,
+					canChat: !isArchived,
+					onOpenInChat: openInChat.open,
+					isOpeningInChat: openInChat.isOpening,
+				}}
+				canDuplicate={!isArchived && customStoryCreationEnabled}
+				download={{ storyId, isOwner: true, onDownload: download }}
+				storyId={storyId}
+				canRename
+				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
+				viewModeControls={{ viewMode, onViewModeChange: setViewMode }}
+				elementSelection={
+					canAsk ? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements } : undefined
+				}
 			/>
+
+			<div className='relative flex min-h-0 flex-1 flex-col'>
+				<CustomStoryViewLayers
+					viewMode={viewMode}
+					app={
+						<CustomStoryBody
+							bottomInset={canAsk ? STORY_ASK_BAR_INSET : undefined}
+							dataSource={dataSource}
+							content={content}
+							isLoading={contentQuery.isLoading}
+							error={contentQuery.error}
+							hasPublishedVersion
+							onAsk={canAsk ? handleAsk : undefined}
+							isSelectingElements={canAsk && isSelectingElements}
+						/>
+					}
+					files={
+						content && (
+							<CustomStoryFiles
+								key={content.version.id}
+								source={dataSource}
+								versionNumber={content.version.number}
+								files={content.files}
+							/>
+						)
+					}
+				/>
+				{!isArchived && <StoryAskBar storyId={storyId} canEdit isInputHidden={isAskInputHidden} />}
+			</div>
+
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
 				onOpenChange={setIsAnalyticsOpen}
 				assetType='story'
-				storyId={storyId ?? undefined}
-				chatId={chatId}
-			/>
-			<LiveStorySettingsDialog
-				open={isLiveSettingsOpen}
-				onOpenChange={setIsLiveSettingsOpen}
-				chatId={chatId}
-				storySlug={storySlug}
-				isLive={live.isLive}
-				isLiveTextDynamic={live.isLiveTextDynamic}
-				cacheSchedule={live.cacheSchedule}
-				cacheScheduleDescription={live.cacheScheduleDescription}
-				isUpdating={live.isUpdating}
-				onSaveSettings={live.handleSaveSettings}
+				storyId={storyId}
 			/>
 		</div>
 	);
@@ -190,10 +342,10 @@ interface SharedCustomStoryPageProps {
 	storyId: string;
 	title: string;
 	authorName: string;
+	isSignedIn: boolean;
 	isLive: boolean;
 	canRefresh: boolean;
-	onOpenChat?: () => void;
-	isOpeningChat?: boolean;
+	storyChatHeader?: Pick<StoryPageHeaderProps, 'storyChat' | 'canDuplicate'>;
 }
 
 /** A custom story opened from a share link: data comes through the share, limited to the queries the story uses. */
@@ -201,12 +353,13 @@ export function SharedCustomStoryPage({
 	storyId,
 	title,
 	authorName,
+	isSignedIn,
 	isLive,
 	canRefresh,
-	onOpenChat,
-	isOpeningChat,
+	storyChatHeader,
 }: SharedCustomStoryPageProps) {
 	const queryClient = useQueryClient();
+	const canEdit = useResolvedStory(storyId).data?.canEdit === true;
 	const contentQuery = useQuery(trpc.storyShare.getCustomVersion.queryOptions({ storyId }));
 	const content = contentQuery.data;
 	const versionNumber = content?.version.number;
@@ -236,36 +389,47 @@ export function SharedCustomStoryPage({
 		[storyId],
 	);
 	const download = useCustomStoryDownload(content, dataSource, renderExport);
+	const canAsk = Boolean(storyChatHeader?.storyChat?.canChat);
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
+	const presence = useStoryEditSession({ target: isSignedIn ? { storyId } : null, isEditing: false });
 
 	return (
-		<div className='flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
-			<StoryPageHeader
+		<div className='relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background'>
+			<SharedStoryHeader
 				title={content?.title ?? title}
 				authorName={authorName}
-				openChatLabel='Discuss story'
-				onOpenChat={onOpenChat}
-				isOpeningChat={isOpeningChat}
-				live={
-					isLive
-						? {
-								isLive: true,
-								cachedAt: content?.cachedAt,
-								lastRefreshFailure: content?.lastRefreshFailure,
-								isRefreshing: refreshMutation.isPending,
-								canRefresh,
-								onRefresh: () => refreshMutation.mutate({ storyId }),
-							}
-						: undefined
-				}
+				storyChatHeader={storyChatHeader}
+				isLive={isLive}
+				cachedAt={content?.cachedAt}
+				lastRefreshFailure={content?.lastRefreshFailure}
+				isRefreshing={refreshMutation.isPending}
+				canRefresh={canRefresh}
+				onRefresh={() => refreshMutation.mutate({ storyId })}
+				storyId={isSignedIn ? storyId : null}
 				download={{ shareSource: { type: 'story', storyId }, isOwner: false, onDownload: download }}
+				elementSelection={
+					canAsk ? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements } : undefined
+				}
 			/>
-			<CustomStoryBody
-				dataSource={dataSource}
-				content={content}
-				isLoading={contentQuery.isLoading}
-				error={contentQuery.error}
-				hasPublishedVersion
-			/>
+			<StoryEditPresenceBanner presence={presence} />
+			<div className='relative flex min-h-0 flex-1 flex-col'>
+				<CustomStoryBody
+					bottomInset={canAsk ? STORY_ASK_BAR_INSET : undefined}
+					dataSource={dataSource}
+					content={content}
+					isLoading={contentQuery.isLoading}
+					error={contentQuery.error}
+					hasPublishedVersion
+					onAsk={canAsk ? askAboutSharedStoryElement : undefined}
+					isSelectingElements={canAsk && isSelectingElements}
+				/>
+				{storyChatHeader?.storyChat?.canChat && <StoryAskBar storyId={storyId} canEdit={canEdit} />}
+			</div>
 		</div>
 	);
+}
+
+/** A reader of a shared story asks about it in a quick question: the story has no chat of theirs to quote it in. */
+function askAboutSharedStoryElement({ text, block, intent }: StoryElementCitation) {
+	requestAsk({ chatId: null, selection: { text, block, intent } });
 }

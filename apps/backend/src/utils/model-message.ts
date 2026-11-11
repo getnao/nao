@@ -3,29 +3,36 @@ import { createHash } from 'node:crypto';
 import { type LlmProvider, providerKind } from '@nao/shared/types';
 import type { ModelMessage } from 'ai';
 
+const PROVIDER_SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const IDENTIFIER_HASH_LENGTH = 8;
 const TOOL_CALL_ID_MAX_LENGTH = 64;
-const TOOL_CALL_ID_SAFE_PATTERN = /^[a-zA-Z0-9_-]+$/;
-const TOOL_CALL_ID_HASH_LENGTH = 8;
+const TOOL_NAME_MAX_LENGTH = 64;
 const THOUGHT_SIGNATURE_SEPARATOR = '__thought__';
 
 /**
- * Rewrites tool call ids so they satisfy the strictest provider constraints (Anthropic's `^[a-zA-Z0-9_-]+$`,
- * OpenAI's 64-char limit). Stored ids can violate them when a chat was started on a provider with request-scoped
- * ids like `functions.execute_sql:0` and later namespaced with the message id to keep them unique.
+ * Rewrites tool call ids and names so they satisfy the strictest provider constraints (Anthropic's
+ * `^[a-zA-Z0-9_-]+$`, OpenAI's 64-char limit). Stored values can violate them when replaying chats
+ * created by another provider or the legacy direct MCP integration.
  *
  * LiteLLM carries Gemini thought signatures inside the id (`call_x__thought__<base64>`) and decodes them back on
  * the next request, so the signature is kept verbatim for OpenAI-compatible providers and dropped for the others.
  */
-export function sanitizeToolCallIds(messages: ModelMessage[], provider: LlmProvider): ModelMessage[] {
+export function sanitizeToolCalls(messages: ModelMessage[], provider: LlmProvider): ModelMessage[] {
 	return messages.map((message) => {
 		if (!Array.isArray(message.content)) {
 			return message;
 		}
 		const content = message.content.map((part) => {
-			if (!('toolCallId' in part) || typeof part.toolCallId !== 'string') {
+			const hasToolCallId = 'toolCallId' in part && typeof part.toolCallId === 'string';
+			const hasToolName = 'toolName' in part && typeof part.toolName === 'string';
+			if (!hasToolCallId && !hasToolName) {
 				return part;
 			}
-			return { ...part, toolCallId: toProviderSafeToolCallId(part.toolCallId, provider) };
+			return {
+				...part,
+				...(hasToolCallId && { toolCallId: toProviderSafeToolCallId(part.toolCallId, provider) }),
+				...(hasToolName && { toolName: toSafeIdentifier(part.toolName, TOOL_NAME_MAX_LENGTH) }),
+			};
 		});
 		return { ...message, content } as ModelMessage;
 	});
@@ -53,13 +60,15 @@ function keepsThoughtSignature(provider: LlmProvider): boolean {
 }
 
 function toSafeToolCallId(toolCallId: string): string {
-	if (TOOL_CALL_ID_SAFE_PATTERN.test(toolCallId) && toolCallId.length <= TOOL_CALL_ID_MAX_LENGTH) {
-		return toolCallId;
+	return toSafeIdentifier(toolCallId, TOOL_CALL_ID_MAX_LENGTH);
+}
+
+function toSafeIdentifier(value: string, maxLength: number): string {
+	if (PROVIDER_SAFE_IDENTIFIER_PATTERN.test(value) && value.length <= maxLength) {
+		return value;
 	}
-	const hash = createHash('sha1').update(toolCallId).digest('hex').slice(0, TOOL_CALL_ID_HASH_LENGTH);
-	const cleaned = toolCallId
-		.replace(/[^a-zA-Z0-9_-]/g, '_')
-		.slice(0, TOOL_CALL_ID_MAX_LENGTH - TOOL_CALL_ID_HASH_LENGTH - 1);
+	const hash = createHash('sha1').update(value).digest('hex').slice(0, IDENTIFIER_HASH_LENGTH);
+	const cleaned = value.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, maxLength - IDENTIFIER_HASH_LENGTH - 1);
 	return `${cleaned}_${hash}`;
 }
 

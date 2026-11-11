@@ -1,5 +1,7 @@
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
+import { MONITORING_RANGES } from '@nao/backend/monitoring';
 import { USAGE_PERIOD_PRESET_NAMES, USAGE_SOURCES } from '@nao/backend/usage';
+import type { MonitoringRange } from '@nao/backend/monitoring';
 import type { UsagePeriodPreset, UsagePeriodSelection, UsageSource } from '@nao/backend/usage';
 import type { ChatReplayFeedbackState, ChatReplayToolState, LlmProvider } from '@nao/shared/types';
 import type { RecommendationTab } from '@/components/settings/recommendations-route-search';
@@ -8,11 +10,14 @@ import { getActiveProjectId } from '@/lib/active-project';
 
 export type TokenChartDisplayMode = 'tokens' | 'dollars';
 
+export type UsageTab = 'usage';
+
 export type ReplayHighlight = 'tool-error' | 'feedback';
 
-export type ReplayOrigin = 'recommendations';
+export type ReplayOrigin = 'recommendations' | 'tests' | 'monitoring';
 
 export type UsageRouteSearch = {
+	tab: UsageTab | undefined;
 	provider: LlmProvider | 'all';
 	periodMode: UsagePeriodPreset | undefined;
 	savedPeriodId: string | undefined;
@@ -29,9 +34,12 @@ export type UsageRouteSearch = {
 	origin: ReplayOrigin | undefined;
 	recoId: string | undefined;
 	recoTab: RecommendationTab | undefined;
+	testRunId: string | undefined;
+	monitoringRange: MonitoringRange | undefined;
 };
 
 export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
+	tab: undefined,
 	provider: 'all',
 	periodMode: undefined,
 	savedPeriodId: undefined,
@@ -48,9 +56,12 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	origin: undefined,
 	recoId: undefined,
 	recoTab: undefined,
+	testRunId: undefined,
+	monitoringRange: undefined,
 };
 
 const tokenViews = ['tokens', 'dollars'] as const satisfies readonly TokenChartDisplayMode[];
+const usageTabs = ['usage'] as const satisfies readonly UsageTab[];
 const filterSearchKeys = ['provider', 'users', 'feedback', 'tools', 'sources', 'splitByUser'] as const;
 const periodSearchKeys = [
 	'periodMode',
@@ -117,13 +128,14 @@ export function clearStoredUsagePeriodSelection(projectId: string): void {
 }
 
 const replayHighlights = ['tool-error', 'feedback'] as const satisfies readonly ReplayHighlight[];
-const replayOrigins = ['recommendations'] as const satisfies readonly ReplayOrigin[];
+const replayOrigins = ['recommendations', 'tests', 'monitoring'] as const satisfies readonly ReplayOrigin[];
 
 export function validateUsageSearch(search: Record<string, unknown>): UsageRouteSearch {
 	const period = parsePeriodSearch(search);
 	const savedPeriodId = parseSavedPeriodId(search.savedPeriodId) ?? parseSavedPeriodId(search.periodEntryId);
 
 	return {
+		tab: parseOneOf(search.tab, usageTabs),
 		provider: parseProvider(search.provider),
 		periodMode: period.mode,
 		savedPeriodId,
@@ -140,6 +152,8 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 		origin: parseOneOf(search.origin, replayOrigins),
 		recoId: typeof search.recoId === 'string' && search.recoId.length > 0 ? search.recoId : undefined,
 		recoTab: parseOneOf(search.recoTab, RECOMMENDATION_TABS),
+		testRunId: typeof search.testRunId === 'string' && search.testRunId.length > 0 ? search.testRunId : undefined,
+		monitoringRange: parseOneOf(search.monitoringRange, MONITORING_RANGES),
 	};
 }
 

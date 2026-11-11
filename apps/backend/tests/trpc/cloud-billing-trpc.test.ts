@@ -5,14 +5,32 @@ import { z } from 'zod/v4';
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	getOrganizationBilling: vi.fn(),
+	getUserOrgMembership: vi.fn(),
+	organizationHasProjects: vi.fn(),
 }));
 
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
+vi.mock('../../src/queries/billing.queries', () => ({
+	getOrganizationBilling: mocks.getOrganizationBilling,
+}));
+vi.mock('../../src/queries/organization.queries', () => ({
+	getUserOrgMembership: mocks.getUserOrgMembership,
+}));
+vi.mock('../../src/queries/project.queries', () => ({
+	organizationHasProjects: mocks.organizationHasProjects,
+}));
 
-import { cloudBillingMiddleware, publicProcedure, router } from '../../src/trpc/trpc';
+import {
+	cloudBillingMiddleware,
+	cloudBillingProjectImportProcedure,
+	publicProcedure,
+	router,
+} from '../../src/trpc/trpc';
+import { createTestCaller } from '../helpers/trpc-caller';
 
 const scopeInput = z.object({
 	organizationId: z.string().nullable().optional(),
@@ -29,16 +47,26 @@ const testRouter = router({
 			),
 		)
 		.query(() => 'ok'),
+	importProject: cloudBillingProjectImportProcedure.query(() => 'ok'),
 });
 const caller = testRouter.createCaller({
 	session: null,
 	selectedProjectId: null,
 	selectedOrganizationId: null,
 } as never);
+const authenticatedCaller = createTestCaller(testRouter, {
+	userId: 'user-1',
+	selectedProjectId: null,
+	selectedOrganizationId: 'organization-1',
+});
 
 describe('cloud billing tRPC middleware', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.getUserOrgMembership.mockResolvedValue({
+			organization: { id: 'organization-1' },
+			role: 'admin',
+		});
 	});
 
 	it('checks organization access once when an organization is resolved', async () => {
@@ -71,5 +99,34 @@ describe('cloud billing tRPC middleware', () => {
 
 		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
 		expect(mocks.assertProjectCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it('allows the first project import to start organization billing', async () => {
+		mocks.organizationHasProjects.mockResolvedValue(false);
+
+		await expect(authenticatedCaller.importProject()).resolves.toBe('ok');
+		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it('allows an unfinished project to be replaced before the trial starts', async () => {
+		mocks.organizationHasProjects.mockResolvedValue(true);
+		mocks.getOrganizationBilling.mockResolvedValue(null);
+
+		await expect(authenticatedCaller.importProject()).resolves.toBe('ok');
+		expect(mocks.assertOrganizationCloudBillingAccess).not.toHaveBeenCalled();
+	});
+
+	it('requires organization billing access for later project imports', async () => {
+		mocks.organizationHasProjects.mockResolvedValue(true);
+		mocks.getOrganizationBilling.mockResolvedValue({
+			billingStatus: 'canceled',
+			trialStartedAt: new Date(),
+			trialEndsAt: new Date(),
+			stripeSubscriptionId: null,
+		});
+		mocks.assertOrganizationCloudBillingAccess.mockRejectedValue(new Error('Cloud billing access is restricted'));
+
+		await expect(authenticatedCaller.importProject()).rejects.toThrow('Cloud billing access is restricted');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('organization-1');
 	});
 });

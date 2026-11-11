@@ -15,11 +15,19 @@ import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ReactNode } from 'react';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
-import { StoryBlock, StoryMapFrame, StoryTableFrame } from '@/components/story-block';
+import {
+	chartBlockReference,
+	mapBlockReference,
+	StoryBlock,
+	StoryMapFrame,
+	StoryTableFrame,
+	tableBlockReference,
+} from '@/components/story-block';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 import { markdownPlugins } from '@/lib/markdown';
 import { cn } from '@/lib/utils';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 const markdownComponents = { table: ({ node, className }: any) => <MarkdownTable node={node} className={className} /> };
 
@@ -38,14 +46,19 @@ function renderColumnContent(
 	switch (segment.type) {
 		case 'markdown':
 			return (
-				<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+				<Streamdown
+					linkSafety={markdownLinkSafety}
+					mode='static'
+					plugins={markdownPlugins}
+					components={markdownComponents}
+				>
 					{segment.content}
 				</Streamdown>
 			);
 		case 'chart':
 			return (
 				<EditorStoryChartEditProvider onReplaceTag={onReplaceTag}>
-					<StoryBlock>
+					<StoryBlock block={chartBlockReference(segment.chart)}>
 						<StoryChartEmbed
 							chart={segment.chart}
 							dragHandle={dragHandle}
@@ -57,7 +70,7 @@ function renderColumnContent(
 			);
 		case 'table':
 			return (
-				<StoryTableFrame>
+				<StoryTableFrame block={tableBlockReference(segment.table)}>
 					<StoryTableEmbed
 						table={segment.table}
 						dragHandle={dragHandle}
@@ -68,7 +81,7 @@ function renderColumnContent(
 		case 'map':
 			return (
 				<EditorStoryMapEditProvider onReplaceTag={onReplaceTag}>
-					<StoryMapFrame>
+					<StoryMapFrame block={mapBlockReference(segment.map)}>
 						<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
 					</StoryMapFrame>
 				</EditorStoryMapEditProvider>

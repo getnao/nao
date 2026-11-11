@@ -2,6 +2,7 @@ import * as React from 'react';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { CheckIcon, ChevronRightIcon, CircleIcon } from 'lucide-react';
 
+import { usePortalContainer } from '@/contexts/portal-container';
 import { cn } from '@/lib/utils';
 
 function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
@@ -9,7 +10,9 @@ function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrim
 }
 
 function DropdownMenuPortal({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
-	return <DropdownMenuPrimitive.Portal data-slot='dropdown-menu-portal' {...props} />;
+	return (
+		<DropdownMenuPrimitive.Portal data-slot='dropdown-menu-portal' container={usePortalContainer()} {...props} />
+	);
 }
 
 function DropdownMenuTrigger({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
@@ -22,7 +25,7 @@ function DropdownMenuContent({
 	...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
 	return (
-		<DropdownMenuPrimitive.Portal>
+		<DropdownMenuPrimitive.Portal container={usePortalContainer()}>
 			<DropdownMenuPrimitive.Content
 				data-slot='dropdown-menu-content'
 				sideOffset={sideOffset}
@@ -133,7 +136,7 @@ function DropdownMenuLabel({
 		<DropdownMenuPrimitive.Label
 			data-slot='dropdown-menu-label'
 			data-inset={inset}
-			className={cn('px-2 py-1 text-xs text-muted-foreground/70 font-bold data-inset:pl-8', className)}
+			className={cn('px-2 py-1 text-xs text-muted-foreground/70 font-medium data-inset:pl-8', className)}
 			{...props}
 		/>
 	);

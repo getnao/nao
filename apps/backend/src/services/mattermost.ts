@@ -6,6 +6,7 @@ import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Chat, deriveChannelId, type Logger as ChatLogger, Message, Thread, ThreadImpl } from 'chat';
 import { createMattermostAdapter, type MattermostAdapter } from 'chat-adapter-mattermost';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import type { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
@@ -39,6 +40,7 @@ import {
 	resolveMattermostCallbackBaseUrl,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import {
@@ -463,17 +465,13 @@ class ProjectMattermostBot {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._config.projectId },
 			this._config.modelSelection,
-			{ billingAccessVerifiedProjectId: this._config.projectId, supportsCustomCharts: false },
+			messagingAgent('mattermost'),
+			{ billingAccessVerifiedProjectId: this._config.projectId },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, {
-			provider: 'mattermost',
 			timezone: ctx.timezone,
-			tracking: {
-				source: 'mattermost',
-				isNewChat: ctx.isNewChat,
-				domainHost: new URL(this._config.redirectUrl).host,
-			},
+			tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(this._config.redirectUrl).host },
 		});
 	}
 
@@ -971,6 +969,7 @@ class ProjectMattermostBot {
 		try {
 			if (feedback.action === 'upsert') {
 				await feedbackQueries.upsertFeedback({ messageId: metadata.assistantMessageId, vote: feedback.vote });
+				void triggerChatFeedbackAutomations({ messageId: metadata.assistantMessageId, vote: feedback.vote });
 			} else {
 				await feedbackQueries.deleteFeedbackVote(metadata.assistantMessageId, feedback.vote);
 			}

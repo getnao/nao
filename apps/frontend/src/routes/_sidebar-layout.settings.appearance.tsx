@@ -17,11 +17,11 @@ import { useSidePanel } from '@/hooks/use-side-panel';
 import { requireNonViewer } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
-type AppearanceTab = 'general' | 'custom-stories';
+type AppearanceTab = 'general' | 'stories';
 
 const tabs: TabBarItem<AppearanceTab>[] = [
 	{ id: 'general', label: 'General' },
-	{ id: 'custom-stories', label: 'Custom stories' },
+	{ id: 'stories', label: 'Stories' },
 ];
 
 const tabIdBase = 'appearance';
@@ -78,7 +78,7 @@ function AppearancePage() {
 							/>
 							<TabPanel idBase={tabIdBase} tabId={tab} className='flex min-w-0 flex-col gap-12'>
 								{tab === 'general' && <GeneralSettings isAdmin={isAdmin} />}
-								{tab === 'custom-stories' && <StoryThemeSettings isAdmin={isAdmin} />}
+								{tab === 'stories' && <StoryThemeSettings isAdmin={isAdmin} />}
 							</TabPanel>
 						</div>
 					</SettingsPageWrapper>
@@ -115,5 +115,5 @@ function GeneralSettings({ isAdmin }: { isAdmin: boolean }) {
 }
 
 function isAppearanceTab(value: unknown): value is AppearanceTab {
-	return value === 'general' || value === 'custom-stories';
+	return value === 'general' || value === 'stories';
 }

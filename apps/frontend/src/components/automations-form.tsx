@@ -1,14 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Check, Copy, Github, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
+import { Calendar, Check, Copy, Mail, Plus, Trash2, Webhook, X } from 'lucide-react';
+import { formatSlackChannels, getSlackChannelsSaveError, parseSlackChannels } from '@nao/shared/slack-channels';
+import { applyAutomationDraftUpdate } from '@nao/shared/automation-draft';
+import type { AutomationDraft, AutomationDraftUpdate } from '@nao/shared/automation-draft';
 import type { McpServerStatus } from '@nao/shared';
-import type { LlmProvider } from '@nao/shared/types';
-import type { FormEvent, ReactNode, RefObject } from 'react';
+import type { AutomationEventTriggers, LlmProvider, NaoEventType } from '@nao/shared/types';
+import type { FormEvent, ReactNode, Ref, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
+import GithubIcon from '@/components/icons/github-icon.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
+import {
+	AutomationPromptResizeHandle,
+	getPromptHeightBounds,
+	useAutomationPromptHeight,
+} from '@/components/automation-prompt-resize-handle';
+import { McpServerIcon } from '@/components/mcp-server-icon';
+import {
+	addNaoEventTrigger,
+	canAddNaoEventTrigger,
+	NaoEventsSubmenu,
+	NaoEventTriggerRows,
+} from '@/components/nao-event-triggers';
+import { SlackChannelsInput } from '@/components/slack-channels-input';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -25,9 +42,11 @@ import { ErrorMessage } from '@/components/ui/error-message';
 import { Input } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { describeNaoEventTrigger, getEnabledNaoEvents, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
 import { cn } from '@/lib/utils';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -97,10 +116,18 @@ export type AutomationFormValue = {
 	mcpServers?: string[];
 	integrations: IntegrationConfig;
 	webhookEnabled: boolean;
+	eventTriggers: AutomationEventTriggers;
+};
+
+/** Lets the editing chat beside the form read the automation and change it. */
+export type AutomationFormHandle = {
+	getDraft: () => AutomationDraft;
+	applyDraftUpdate: (update: AutomationDraftUpdate) => void;
 };
 
 type AutomationFormProps = {
 	id?: string;
+	handleRef?: Ref<AutomationFormHandle>;
 	automationId?: string;
 	initialValue?: Partial<AutomationFormValue>;
 	details?: AutomationDetails;
@@ -119,6 +146,7 @@ type AutomationDetails = {
 	scheduleDescription?: string | null;
 	cron?: string | null;
 	webhookEnabled?: boolean;
+	eventTriggers?: AutomationEventTriggers;
 	nextRunAt?: Date | string | null;
 	lastRunAt?: Date | string | null;
 };
@@ -157,6 +185,7 @@ const defaultValue: AutomationFormValue = {
 	mcpServers: undefined,
 	integrations: {},
 	webhookEnabled: false,
+	eventTriggers: {},
 };
 
 const schedulePresets: SchedulePreset[] = [
@@ -169,6 +198,7 @@ const schedulePresets: SchedulePreset[] = [
 
 export function AutomationForm({
 	id,
+	handleRef,
 	automationId,
 	initialValue,
 	details,
@@ -183,6 +213,7 @@ export function AutomationForm({
 }: AutomationFormProps) {
 	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
 	const form = useAutomationFormController({
+		handleRef,
 		initialValue,
 		isPending,
 		autoSaveControls,
@@ -195,101 +226,110 @@ export function AutomationForm({
 	const webhookUrl = buildWebhookUrl(automationId);
 
 	return (
-		<form
-			ref={form.formRef}
-			id={id}
-			onSubmit={form.handleSubmit}
-			className={cn(
-				'grid gap-6',
-				hasSidebar && 'xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]',
-			)}
-		>
-			<div className='grid content-start gap-6'>
-				<AutomationTitleField
-					value={form.value.title}
-					onChange={form.setTitle}
-					placeholder={form.titlePlaceholder}
-				/>
-
-				<TriggersSection
-					cron={form.value.cron}
-					hasSchedule={form.hasSchedule}
-					scheduleOption={form.scheduleOption}
-					onScheduleOptionChange={form.handleScheduleOptionChange}
-					onCustomCronChange={form.setCustomCron}
-					onAddSchedule={form.handleAddSchedule}
-					onRemoveSchedule={form.handleRemoveSchedule}
-					webhookEnabled={form.value.webhookEnabled}
-					webhookUrl={webhookUrl}
-					onAddWebhook={form.handleAddWebhook}
-					onRemoveWebhook={form.handleRemoveWebhook}
-					hasError={form.triggerError}
-					disabled={form.controlsDisabled}
-				/>
-
-				<AgentInstructionsSection
-					promptRef={form.promptRef}
-					promptValue={form.value.prompt}
-					promptHasError={form.promptError}
-					storyCreationEnabled={storyCreationEnabled}
-					onPromptChange={form.handlePromptChange}
-					modelValue={form.selectedModelValue}
-					modelName={form.selectedModelName}
-					modelProvider={form.value.modelProvider}
-					availableModels={form.availableModels}
-					onModelChange={form.handleModelChange}
-					modelDisabled={form.controlsDisabled}
-					email={form.userEmail}
-					onInsertPromptTrigger={form.handleInsertPromptTrigger}
-				/>
-
-				<ToolsSection
-					value={form.value}
-					mcpServers={form.mcpServers}
-					emailRecipientsError={form.emailRecipientsError}
-					onClearEmailRecipientsError={form.clearEmailRecipientsError}
-					onChange={form.handleValueChange}
-					onAutoSaveChange={form.handleControlValueChange}
-					disabled={form.controlsDisabled}
-				/>
-
-				{!hasSidebar && form.submitError && <ErrorMessage message={form.submitError} />}
-				{!hasSidebar && showSubmitButton && (
-					<Button
-						type='submit'
-						variant='primary-gradient'
-						disabled={isPending}
-						className='justify-self-start'
-					>
-						{isPending ? 'Saving...' : submitLabel}
-					</Button>
+		<div className='@container'>
+			<form
+				ref={form.formRef}
+				id={id}
+				onSubmit={form.handleSubmit}
+				className={cn(
+					'grid gap-6',
+					hasSidebar && '@4xl:grid-cols-[minmax(0,1fr)_340px] @6xl:grid-cols-[minmax(0,1fr)_380px]',
 				)}
-			</div>
+			>
+				<div className='grid content-start gap-6'>
+					<AutomationTitleField
+						value={form.value.title}
+						onChange={form.setTitle}
+						placeholder={form.titlePlaceholder}
+					/>
 
-			{hasSidebar && (
-				<div className='grid content-start gap-4'>
-					{details && (
-						<AutomationSidebarSection title='Details'>
-							<AutomationDetailSummary details={details} />
-						</AutomationSidebarSection>
-					)}
+					<TriggersSection
+						cron={form.value.cron}
+						hasSchedule={form.hasSchedule}
+						scheduleOption={form.scheduleOption}
+						onScheduleOptionChange={form.handleScheduleOptionChange}
+						onCustomCronChange={form.setCustomCron}
+						onAddSchedule={form.handleAddSchedule}
+						onRemoveSchedule={form.handleRemoveSchedule}
+						webhookEnabled={form.value.webhookEnabled}
+						webhookUrl={webhookUrl}
+						onAddWebhook={form.handleAddWebhook}
+						onRemoveWebhook={form.handleRemoveWebhook}
+						eventTriggers={form.value.eventTriggers}
+						canUseChatFeedback={form.canUseChatFeedback}
+						onAddEventTrigger={form.handleAddEventTrigger}
+						onEventTriggersChange={form.handleEventTriggersChange}
+						hasError={form.triggerError}
+						disabled={form.controlsDisabled}
+					/>
 
-					{aside}
+					<AgentInstructionsSection
+						promptRef={form.promptRef}
+						promptValue={form.value.prompt}
+						promptHasError={form.promptError}
+						storyCreationEnabled={storyCreationEnabled}
+						onPromptChange={form.handlePromptChange}
+						modelValue={form.selectedModelValue}
+						modelName={form.selectedModelName}
+						modelProvider={form.value.modelProvider}
+						availableModels={form.availableModels}
+						onModelChange={form.handleModelChange}
+						modelDisabled={form.controlsDisabled}
+						email={form.userEmail}
+						onInsertPromptTrigger={form.handleInsertPromptTrigger}
+					/>
 
-					{form.submitError && <ErrorMessage message={form.submitError} />}
+					<ToolsSection
+						value={form.value}
+						mcpServers={form.mcpServers}
+						emailRecipientsError={form.emailRecipientsError}
+						onClearEmailRecipientsError={form.clearEmailRecipientsError}
+						slackChannelsError={form.slackChannelsError}
+						onClearSlackChannelsError={form.clearSlackChannelsError}
+						onChange={form.handleValueChange}
+						onAutoSaveChange={form.handleControlValueChange}
+						disabled={form.controlsDisabled}
+					/>
 
-					{showSubmitButton && (
-						<Button type='submit' variant='primary-gradient' disabled={isPending} className='w-full'>
+					{!hasSidebar && form.submitError && <ErrorMessage message={form.submitError} />}
+					{!hasSidebar && showSubmitButton && (
+						<Button
+							type='submit'
+							variant='primary-gradient'
+							disabled={isPending}
+							className='justify-self-start'
+						>
 							{isPending ? 'Saving...' : submitLabel}
 						</Button>
 					)}
 				</div>
-			)}
-		</form>
+
+				{hasSidebar && (
+					<div className='grid content-start gap-4'>
+						{details && (
+							<AutomationSidebarSection title='Details'>
+								<AutomationDetailSummary details={details} />
+							</AutomationSidebarSection>
+						)}
+
+						{aside}
+
+						{form.submitError && <ErrorMessage message={form.submitError} />}
+
+						{showSubmitButton && (
+							<Button type='submit' variant='primary-gradient' disabled={isPending} className='w-full'>
+								{isPending ? 'Saving...' : submitLabel}
+							</Button>
+						)}
+					</div>
+				)}
+			</form>
+		</div>
 	);
 }
 
 function useAutomationFormController({
+	handleRef,
 	initialValue,
 	isPending,
 	autoSaveControls,
@@ -298,7 +338,7 @@ function useAutomationFormController({
 	onSubmit,
 }: Pick<
 	AutomationFormProps,
-	'initialValue' | 'isPending' | 'autoSaveControls' | 'saveShortcut' | 'onDirtyChange' | 'onSubmit'
+	'handleRef' | 'initialValue' | 'isPending' | 'autoSaveControls' | 'saveShortcut' | 'onDirtyChange' | 'onSubmit'
 >) {
 	const initialValueSnapshot = serializeAutomationValue(mergeValue(initialValue));
 	const [savedValue, setSavedValue] = useState<AutomationFormValue>(() =>
@@ -310,14 +350,17 @@ function useAutomationFormController({
 	const [promptError, setPromptError] = useState(false);
 	const [triggerError, setTriggerError] = useState(false);
 	const [emailRecipientsError, setEmailRecipientsError] = useState<string | null>(null);
+	const [slackChannelsError, setSlackChannelsError] = useState<string | null>(null);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [isAutoSaving, setIsAutoSaving] = useState(false);
+	const hasUnreviewedChatChangesRef = useRef(false);
 	const formRef = useRef<HTMLFormElement>(null);
 	const promptRef = useRef<PromptHandle>(null);
 	const autoSaveInFlightRef = useRef(false);
 	const { data: session } = useSession();
+	const { canViewChatReplay: canUseChatFeedback } = usePermissions();
 	const availableModels = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
-	const mcpServersQuery = useQuery(trpc.mcp.getServers.queryOptions());
+	const mcpServersQuery = useQuery(trpc.mcp.getUsableServers.queryOptions());
 	const isDirty = !areAutomationValuesEqual(value, savedValue);
 	const userEmail = session?.user?.email;
 	const selectedModelValue =
@@ -329,21 +372,38 @@ function useAutomationFormController({
 	const titlePlaceholder =
 		value.prompt.trim().length > 0 ? 'A title will be generated from your prompt' : 'Untitled automation';
 
+	/** Chat changes stop being unreviewed once the form matches the saved automation again: saved, or reverted. */
+	useEffect(() => {
+		if (!isDirty) {
+			hasUnreviewedChatChangesRef.current = false;
+		}
+	});
+
+	/**
+	 * Follows the saved automation when it changes. A draft holding unreviewed chat changes is kept, since a
+	 * refresh (e.g. after a control auto-saved) would otherwise drop them: it stays unsaved against the new value.
+	 */
 	useEffect(() => {
 		const nextValue = deserializeAutomationValue(initialValueSnapshot);
 		setSavedValue(nextValue);
+		if (hasUnreviewedChatChangesRef.current) {
+			return;
+		}
 		setValue(nextValue);
 		setScheduleOption(inferScheduleOption(nextValue));
 		setHasSchedule(nextValue.cron.trim().length > 0);
 		setPromptError(false);
 		setTriggerError(false);
 		setEmailRecipientsError(null);
+		setSlackChannelsError(null);
 		setSubmitError(null);
 	}, [initialValueSnapshot]);
 
 	useEffect(() => {
 		onDirtyChange?.(isDirty);
 	}, [isDirty, onDirtyChange]);
+
+	useImperativeHandle(handleRef, () => ({ getDraft: () => value, applyDraftUpdate }));
 
 	useEffect(() => {
 		if (!saveShortcut) {
@@ -405,9 +465,10 @@ function useAutomationFormController({
 		handleValueChange({ ...value, prompt });
 	}
 
+	/** Auto-saving sends the whole form, so it waits for an explicit save while it holds changes made by the chat. */
 	function handleControlValueChange(nextValue: AutomationFormValue) {
 		handleValueChange(nextValue);
-		if (autoSaveControls) {
+		if (autoSaveControls && !hasUnreviewedChatChangesRef.current) {
 			void autoSaveValue(nextValue);
 		}
 	}
@@ -442,7 +503,7 @@ function useAutomationFormController({
 			return false;
 		}
 
-		if (!nextValue.cron.trim() && !nextValue.webhookEnabled) {
+		if (!hasAnyTrigger(nextValue)) {
 			setTriggerError(true);
 			return false;
 		}
@@ -453,6 +514,12 @@ function useAutomationFormController({
 			return false;
 		}
 
+		const nextSlackChannelsError = getSlackIntegrationError(nextValue.integrations.slack);
+		if (nextSlackChannelsError) {
+			setSlackChannelsError(nextSlackChannelsError);
+			return false;
+		}
+
 		return true;
 	}
 
@@ -460,9 +527,29 @@ function useAutomationFormController({
 		setEmailRecipientsError(null);
 	}
 
+	function clearSlackChannelsError() {
+		setSlackChannelsError(null);
+	}
+
 	function handleInsertPromptTrigger(trigger: string) {
 		promptRef.current?.insertText(trigger);
 		requestAnimationFrame(() => promptRef.current?.focus());
+	}
+
+	/** Changes from the editing chat are left unsaved, for the user to review in the form. */
+	function applyDraftUpdate(update: AutomationDraftUpdate) {
+		setSubmitError(null);
+		setPromptError(false);
+		setTriggerError(false);
+		setEmailRecipientsError(null);
+		setSlackChannelsError(null);
+		hasUnreviewedChatChangesRef.current = true;
+		setValue((current) => applyAutomationDraftUpdate(current, update));
+		if (update.cron !== undefined) {
+			const hasNextSchedule = update.cron.trim().length > 0;
+			setHasSchedule(hasNextSchedule);
+			setScheduleOption(hasNextSchedule ? getScheduleOption(update.cron) : 'custom');
+		}
 	}
 
 	function handleAddSchedule() {
@@ -495,6 +582,16 @@ function useAutomationFormController({
 		handleControlValueChange({ ...value, webhookEnabled: false });
 	}
 
+	function handleAddEventTrigger(eventType: NaoEventType) {
+		setTriggerError(false);
+		const eventTriggers = addNaoEventTrigger(value.eventTriggers, eventType, { canUseChatFeedback });
+		handleControlValueChange({ ...value, eventTriggers });
+	}
+
+	function handleEventTriggersChange(eventTriggers: AutomationEventTriggers) {
+		handleControlValueChange({ ...value, eventTriggers });
+	}
+
 	function handleScheduleOptionChange(option: ScheduleOption) {
 		setTriggerError(false);
 		setScheduleOption(option);
@@ -525,13 +622,17 @@ function useAutomationFormController({
 
 	return {
 		availableModels: availableModels.data,
+		canUseChatFeedback,
 		clearEmailRecipientsError,
+		clearSlackChannelsError,
 		controlsDisabled,
 		emailRecipientsError,
 		formRef,
+		handleAddEventTrigger,
 		handleAddSchedule,
 		handleAddWebhook,
 		handleControlValueChange,
+		handleEventTriggersChange,
 		handleInsertPromptTrigger,
 		handleModelChange,
 		handlePromptChange,
@@ -549,6 +650,7 @@ function useAutomationFormController({
 		selectedModelValue,
 		setCustomCron,
 		setTitle,
+		slackChannelsError,
 		submitError,
 		titlePlaceholder,
 		triggerError,
@@ -590,6 +692,10 @@ function TriggersSection({
 	webhookUrl,
 	onAddWebhook,
 	onRemoveWebhook,
+	eventTriggers,
+	canUseChatFeedback,
+	onAddEventTrigger,
+	onEventTriggersChange,
 	hasError,
 	disabled,
 }: {
@@ -604,10 +710,14 @@ function TriggersSection({
 	webhookUrl: string | null;
 	onAddWebhook: () => void;
 	onRemoveWebhook: () => void;
+	eventTriggers: AutomationEventTriggers;
+	canUseChatFeedback: boolean;
+	onAddEventTrigger: (eventType: NaoEventType) => void;
+	onEventTriggersChange: (eventTriggers: AutomationEventTriggers) => void;
 	hasError: boolean;
 	disabled: boolean;
 }) {
-	const canAddTrigger = !hasSchedule || !webhookEnabled;
+	const canAddTrigger = !hasSchedule || !webhookEnabled || canAddNaoEventTrigger(eventTriggers);
 
 	return (
 		<section className='grid gap-1.5'>
@@ -631,12 +741,20 @@ function TriggersSection({
 				{webhookEnabled && (
 					<WebhookTriggerRow url={webhookUrl} onRemove={onRemoveWebhook} disabled={disabled} />
 				)}
+				<NaoEventTriggerRows
+					eventTriggers={eventTriggers}
+					context={{ canUseChatFeedback }}
+					onChange={onEventTriggersChange}
+					disabled={disabled}
+				/>
 				{canAddTrigger && (
 					<AddTriggerMenu
 						scheduleAdded={hasSchedule}
 						webhookAdded={webhookEnabled}
+						eventTriggers={eventTriggers}
 						onAddSchedule={onAddSchedule}
 						onAddWebhook={onAddWebhook}
+						onAddEventTrigger={onAddEventTrigger}
 						disabled={disabled}
 					/>
 				)}
@@ -811,14 +929,18 @@ function CopyableField({
 function AddTriggerMenu({
 	scheduleAdded,
 	webhookAdded,
+	eventTriggers,
 	onAddSchedule,
 	onAddWebhook,
+	onAddEventTrigger,
 	disabled,
 }: {
 	scheduleAdded: boolean;
 	webhookAdded: boolean;
+	eventTriggers: AutomationEventTriggers;
 	onAddSchedule: () => void;
 	onAddWebhook: () => void;
+	onAddEventTrigger: (eventType: NaoEventType) => void;
 	disabled: boolean;
 }) {
 	return (
@@ -833,7 +955,7 @@ function AddTriggerMenu({
 					<span>Add Trigger</span>
 				</button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='min-w-56'>
+			<DropdownMenuContent align='start' className='w-auto min-w-44'>
 				<DropdownMenuItem onSelect={onAddSchedule} disabled={scheduleAdded}>
 					<Calendar className='size-4' />
 					<span>On schedule</span>
@@ -844,6 +966,8 @@ function AddTriggerMenu({
 					<span>Via webhook</span>
 					{webhookAdded && <span className='ml-auto text-xs text-muted-foreground'>Added</span>}
 				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<NaoEventsSubmenu eventTriggers={eventTriggers} onAdd={onAddEventTrigger} />
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -923,6 +1047,9 @@ function AutomationPromptInput({
 	footer?: ReactNode;
 }) {
 	const lastPromptValueRef = useRef(value);
+	const promptCardRef = useRef<HTMLDivElement>(null);
+	const promptHeight = useAutomationPromptHeight();
+	const { minHeight, maxHeight } = getPromptHeightBounds(promptHeight.height);
 
 	useEffect(() => {
 		const prompt = promptRef.current;
@@ -946,9 +1073,10 @@ function AutomationPromptInput({
 	return (
 		<>
 			<div
+				ref={promptCardRef}
 				aria-invalid={hasError}
 				className={cn(
-					'rounded-xl border bg-background/60',
+					'group/prompt relative rounded-xl border bg-background/60',
 					hasError && 'border-destructive ring-1 ring-destructive/20',
 				)}
 			>
@@ -956,17 +1084,26 @@ function AutomationPromptInput({
 					promptRef={promptRef}
 					initialValue={value}
 					placeholder='Type @ for tools, / for commands...'
-					minHeight='10rem'
-					resizable
+					minHeight={minHeight}
+					maxHeight={maxHeight}
+					growWithContent
 					submitOnEnter={false}
 					storyCreationEnabled={storyCreationEnabled}
 					onChange={handleChange}
 				/>
 				{footer && <div className='flex items-center justify-between gap-2 px-3 pb-2.5'>{footer}</div>}
+				<AutomationPromptResizeHandle
+					{...promptHeight}
+					measureEditorHeight={() => measurePromptEditorHeight(promptCardRef.current)}
+				/>
 			</div>
 			{hasError && <p className='text-sm text-destructive'>Prompt is required.</p>}
 		</>
 	);
+}
+
+function measurePromptEditorHeight(promptCard: HTMLDivElement | null): number {
+	return promptCard?.querySelector('.prompt-input')?.getBoundingClientRect().height ?? 0;
 }
 
 function AutomationModelSelect({
@@ -1081,6 +1218,8 @@ function ToolsSection({
 	mcpServers,
 	emailRecipientsError,
 	onClearEmailRecipientsError,
+	slackChannelsError,
+	onClearSlackChannelsError,
 	onChange,
 	onAutoSaveChange,
 	disabled,
@@ -1089,6 +1228,8 @@ function ToolsSection({
 	mcpServers: McpServerStatus[] | undefined;
 	emailRecipientsError: string | null;
 	onClearEmailRecipientsError: () => void;
+	slackChannelsError: string | null;
+	onClearSlackChannelsError: () => void;
 	onChange: (value: AutomationFormValue) => void;
 	onAutoSaveChange: (value: AutomationFormValue) => void;
 	disabled: boolean;
@@ -1128,6 +1269,7 @@ function ToolsSection({
 	}
 
 	function setSlackEnabled(enabled: boolean) {
+		onClearSlackChannelsError();
 		onAutoSaveChange({
 			...value,
 			integrations: { ...value.integrations, slack: { ...slack, enabled } },
@@ -1159,6 +1301,8 @@ function ToolsSection({
 						value={value}
 						emailRecipientsError={emailRecipientsError}
 						onClearEmailRecipientsError={onClearEmailRecipientsError}
+						slackChannelsError={slackChannelsError}
+						onClearSlackChannelsError={onClearSlackChannelsError}
 						onChange={onChange}
 						onRemoveEmail={() => setEmailEnabled(false)}
 						onRemoveSlack={() => setSlackEnabled(false)}
@@ -1197,6 +1341,8 @@ function ToolRow({
 	value,
 	emailRecipientsError,
 	onClearEmailRecipientsError,
+	slackChannelsError,
+	onClearSlackChannelsError,
 	onChange,
 	onRemoveEmail,
 	onRemoveSlack,
@@ -1211,6 +1357,8 @@ function ToolRow({
 	value: AutomationFormValue;
 	emailRecipientsError: string | null;
 	onClearEmailRecipientsError: () => void;
+	slackChannelsError: string | null;
+	onClearSlackChannelsError: () => void;
 	onChange: (value: AutomationFormValue) => void;
 	onRemoveEmail: () => void;
 	onRemoveSlack: () => void;
@@ -1224,7 +1372,7 @@ function ToolRow({
 	if (tool.kind === 'mcp') {
 		return (
 			<ToolRowShell
-				icon={<McpIcon className='size-4' />}
+				icon={<McpServerIcon server={tool.serverName} className='size-4' />}
 				title={tool.serverName}
 				onRemove={() => onRemoveMcpServer(tool.serverName)}
 				disabled={disabled}
@@ -1290,19 +1438,20 @@ function ToolRow({
 				onRemove={onRemoveSlack}
 				disabled={disabled}
 			>
-				<Input
-					className='h-8'
-					placeholder='Slack channel ID, for example C0123456789'
-					value={slack.channelId}
-					onChange={(event) =>
+				<SlackChannelsInput
+					channels={parseSlackChannels(slack.channelId)}
+					saveError={slackChannelsError}
+					disabled={disabled}
+					onChange={(channels) => {
+						onClearSlackChannelsError();
 						onChange({
 							...value,
 							integrations: {
 								...value.integrations,
-								slack: { ...slack, channelId: event.target.value },
+								slack: { ...slack, channelId: formatSlackChannels(channels) },
 							},
-						})
-					}
+						});
+					}}
 				/>
 			</ToolRowShell>
 		);
@@ -1312,7 +1461,7 @@ function ToolRow({
 
 	return (
 		<ToolRowShell
-			icon={<Github className='size-4 text-muted-foreground' />}
+			icon={<GithubIcon className='size-4 text-muted-foreground' />}
 			title='GitHub'
 			description={githubDescription}
 			onRemove={onRemoveGithub}
@@ -1455,7 +1604,7 @@ function AddToolMenu({
 					<span>Add Tool or MCP</span>
 				</button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='min-w-56'>
+			<DropdownMenuContent align='start' className='w-auto min-w-44'>
 				<DropdownMenuLabel>Messaging</DropdownMenuLabel>
 				<DropdownMenuItem onSelect={onAddEmail} disabled={emailEnabled}>
 					<Mail className='size-4' />
@@ -1496,7 +1645,7 @@ function GithubSubMenu({
 	if (state !== 'ready') {
 		return (
 			<DropdownMenuItem onSelect={() => onAddItem('read')} disabled={state !== 'needs-connect'}>
-				<Github className='size-4' />
+				<GithubIcon className='size-4' />
 				<span>GitHub</span>
 				<GithubMenuItemBadge state={state} />
 			</DropdownMenuItem>
@@ -1507,10 +1656,10 @@ function GithubSubMenu({
 	return (
 		<DropdownMenuSub>
 			<DropdownMenuSubTrigger>
-				<Github className='size-4' />
+				<GithubIcon className='size-4' />
 				<span>GitHub</span>
 			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent className='min-w-64'>
+			<DropdownMenuSubContent sideOffset={6} alignOffset={-5} className='w-72'>
 				{GITHUB_MENU_ITEMS.map((item) => {
 					const isAdded = activeSet.has(item.key);
 					return (
@@ -1556,7 +1705,7 @@ function McpSubMenu({
 				<McpIcon className='size-4' />
 				<span>MCP server</span>
 			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent className='min-w-56'>
+			<DropdownMenuSubContent sideOffset={6} alignOffset={-5} className='w-auto min-w-36'>
 				{mcpServers.length === 0 && (
 					<DropdownMenuItem disabled>
 						<span className='text-xs text-muted-foreground'>No MCP servers configured</span>
@@ -1570,7 +1719,7 @@ function McpSubMenu({
 							onSelect={() => onAddMcpServer(server.name)}
 							disabled={isAdded}
 						>
-							<McpIcon className='size-4' />
+							<McpServerIcon server={server.name} className='size-4' />
 							<span className='truncate'>{server.name}</span>
 							<span className='ml-auto text-xs text-muted-foreground'>
 								{isAdded
@@ -1605,6 +1754,13 @@ function AutomationDetailSummary({ details }: { details: AutomationDetails }) {
 				/>
 			)}
 			<DetailRow label='Webhook trigger' value={webhookTriggerLabel(details.webhookEnabled, isPaused)} />
+			{getEnabledNaoEvents(details.eventTriggers ?? {}).map((eventType) => (
+				<DetailRow
+					key={eventType}
+					label={`${NAO_EVENT_LABELS[eventType]} trigger`}
+					value={isPaused ? 'Paused' : describeNaoEventTrigger(eventType, details.eventTriggers ?? {})}
+				/>
+			))}
 			<DetailRow label='Last run (your time)' value={formatDateTime(details.lastRunAt)} />
 		</div>
 	);
@@ -1828,6 +1984,10 @@ function getSchedulePreset(value: Exclude<ScheduleOption, 'custom'>): SchedulePr
 	return schedulePresets.find((preset) => preset.value === value) ?? schedulePresets[0];
 }
 
+function hasAnyTrigger(value: AutomationFormValue): boolean {
+	return Boolean(value.cron.trim()) || value.webhookEnabled || getEnabledNaoEvents(value.eventTriggers).length > 0;
+}
+
 function areAutomationValuesEqual(left: AutomationFormValue, right: AutomationFormValue): boolean {
 	return serializeAutomationValue(left) === serializeAutomationValue(right);
 }
@@ -1845,6 +2005,7 @@ function normalizeAutomationValue(value: AutomationFormValue): AutomationFormVal
 		...value,
 		scheduleDescription: value.scheduleDescription ?? '',
 		mcpServers: value.mcpServers ? [...value.mcpServers].sort() : undefined,
+		eventTriggers: normalizeEventTriggers(value.eventTriggers),
 		integrations: {
 			email: value.integrations.email
 				? {
@@ -1866,6 +2027,19 @@ function normalizeAutomationValue(value: AutomationFormValue): AutomationFormVal
 						actions: normalizeGithubActions(value.integrations.github.actions),
 					}
 				: undefined,
+		},
+	};
+}
+
+function normalizeEventTriggers({ feedback }: AutomationEventTriggers): AutomationEventTriggers {
+	if (!feedback) {
+		return {};
+	}
+	return {
+		feedback: {
+			enabled: feedback.enabled,
+			votes: [...feedback.votes].sort(),
+			sources: [...feedback.sources].sort(),
 		},
 	};
 }
@@ -1894,6 +2068,13 @@ function getEmailRecipientsError(email: IntegrationConfig['email']): string | nu
 		return null;
 	}
 	return `Enter valid email recipients: ${invalidRecipients.join(', ')}.`;
+}
+
+function getSlackIntegrationError(slack: IntegrationConfig['slack']): string | null {
+	if (!slack?.enabled) {
+		return null;
+	}
+	return getSlackChannelsSaveError(parseSlackChannels(slack.channelId));
 }
 
 function isValidEmailAddress(value: string): boolean {

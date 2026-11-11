@@ -217,6 +217,7 @@ function renderPanel({ onRepositoryChanged = vi.fn() }: { onRepositoryChanged?: 
 				onDiscarded={vi.fn()}
 				onDiscardAll={vi.fn()}
 				onRepositoryChanged={onRepositoryChanged}
+				onOpenTests={vi.fn()}
 			/>
 		</QueryClientProvider>,
 	);

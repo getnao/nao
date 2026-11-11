@@ -79,26 +79,43 @@ def _dtype(rendered: str, nullable: bool = True) -> MagicMock:
     return MagicMock(__str__=lambda _self, text=rendered: text, nullable=nullable)
 
 
-def _metadata_conn(column_rows, partition_rows, required_filter_table_names, clustering_rows=None) -> MagicMock:
-    """Mock connection answering the column, partition, table-options and clustering queries in order."""
+def _column_row(
+    table: str,
+    name: str = "event_date",
+    data_type: str = "DATE",
+    nullable: str = "YES",
+    description: str | None = None,
+    partitioning: str = "YES",
+    clustering_position: int | None = None,
+    hidden: str = "NO",
+    table_description: str | None = None,
+    require_partition_filter: bool = False,
+):
+    return (
+        table,
+        name,
+        data_type,
+        nullable,
+        description,
+        partitioning,
+        clustering_position,
+        hidden,
+        table_description,
+        require_partition_filter,
+    )
+
+
+def _metadata_conn(column_rows, partition_rows) -> MagicMock:
+    """Mock connection answering the column and partition queries in order."""
     mock_conn = MagicMock()
-    mock_conn.raw_sql.side_effect = [
-        column_rows,
-        partition_rows,
-        [(name,) for name in required_filter_table_names],
-        clustering_rows or [],
-    ]
+    mock_conn.raw_sql.side_effect = [column_rows, partition_rows]
     return mock_conn
 
 
-def _events_metadata_conn(
-    partition_ids=("20260310",), required_filter_table_names=(), clustering_rows=None
-) -> MagicMock:
+def _events_metadata_conn(partition_ids=("20260310",), require_partition_filter=False) -> MagicMock:
     return _metadata_conn(
-        column_rows=[("events_v1", "event_date", "DATE")],
+        column_rows=[_column_row("events_v1", require_partition_filter=require_partition_filter)],
         partition_rows=[("events_v1", list(partition_ids), 5000)],
-        required_filter_table_names=required_filter_table_names,
-        clustering_rows=clustering_rows,
     )
 
 
@@ -265,6 +282,20 @@ class TestPreviewGracefulDegradation:
 
 
 class TestRowCount:
+    def test_prefetched_row_count_avoids_table_query(self):
+        meta = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=42,
+            columns=[],
+        )
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+
+        assert ctx.row_count() == 42
+        ctx.table.count.assert_not_called()
+        mock_conn.raw_sql.assert_not_called()
+
     def test_no_metadata_delegates_to_super(self):
         ctx, _ = _make_context(partition_metadata=None)
         ctx.table.count.return_value.execute.return_value = 42
@@ -348,6 +379,21 @@ class TestRowCount:
 
 
 class TestMetadataBatchCaching:
+    def test_prepare_sync_metadata_fetches_selected_tables_once_per_schema(self):
+        config = BigQueryConfig(name="test", project_id="my-project")
+        mock_conn = MagicMock()
+        metadata = {"events": _date_meta()}
+
+        with patch(
+            "nao_core.config.databases.bigquery._fetch_schema_partition_metadata",
+            return_value=metadata,
+        ) as mock_fetch:
+            config.prepare_sync_metadata(mock_conn, {"analytics": ["events", "users"]})
+            context = config.create_context(mock_conn, "analytics", "events")
+
+        mock_fetch.assert_called_once_with(mock_conn, "my-project", "analytics", ["events", "users"])
+        assert context._partition_metadata is metadata["events"]
+
     def test_fetch_schema_metadata_called_once_across_multiple_create_context_calls(self):
         config = BigQueryConfig(name="test", project_id="my-project", dataset_id="my_dataset")
         mock_conn = MagicMock()
@@ -532,7 +578,7 @@ class TestBuildPartitionFilter:
 
 class TestFetchSchemaPartitionMetadata:
     def test_require_partition_filter_set_true_for_matching_table(self):
-        conn = _events_metadata_conn(required_filter_table_names=["events_v1"])
+        conn = _events_metadata_conn(require_partition_filter=True)
 
         result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema")
 
@@ -547,21 +593,19 @@ class TestFetchSchemaPartitionMetadata:
 
     def test_require_partition_filter_uses_table_options_query(self):
         """The query for require_partition_filter must target TABLE_OPTIONS."""
-        conn = _events_metadata_conn(required_filter_table_names=["events_v1"])
+        conn = _events_metadata_conn(require_partition_filter=True)
 
         _fetch_schema_partition_metadata(conn, "my-project", "my_schema")
 
-        third_call_sql = conn.raw_sql.call_args_list[2][0][0]
-        assert "INFORMATION_SCHEMA.TABLE_OPTIONS" in third_call_sql
-        assert "option_name" in third_call_sql
-        assert "require_partition_filter" in third_call_sql
-        assert "INFORMATION_SCHEMA.TABLES" not in third_call_sql
+        column_query = conn.raw_sql.call_args_list[0][0][0]
+        assert "INFORMATION_SCHEMA.TABLE_OPTIONS" in column_query
+        assert "option_name" in column_query
+        assert "require_partition_filter" in column_query
+        assert "INFORMATION_SCHEMA.TABLES" not in column_query
 
-    def test_require_partition_filter_query_failure_does_not_crash(self):
+    def test_column_query_failure_does_not_crash(self):
         mock_conn = MagicMock()
         mock_conn.raw_sql.side_effect = [
-            [],
-            [],
             Exception("permission denied"),
             [],
         ]
@@ -585,6 +629,140 @@ class TestFetchSchemaPartitionMetadata:
         result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema")
 
         assert result["events_v1"].last_partition_id == "20260310"
+
+    def test_bulk_metadata_includes_columns_description_and_row_count(self):
+        conn = _metadata_conn(
+            column_rows=[
+                _column_row(
+                    "events_v1",
+                    name="id",
+                    data_type="INT64",
+                    nullable="NO",
+                    description="Primary key",
+                    partitioning="NO",
+                    table_description='"Event rows"',
+                )
+            ],
+            partition_rows=[("events_v1", [], 123)],
+        )
+
+        result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema", ["events_v1"])
+        metadata = result["events_v1"]
+
+        assert metadata.columns == [
+            {"name": "id", "type": "INT64 NOT NULL", "nullable": False, "description": "Primary key"}
+        ]
+        assert metadata.description == "Event rows"
+        assert metadata.total_rows == 123
+
+    def test_bulk_metadata_matches_ibis_array_nullability(self):
+        conn = _metadata_conn(
+            column_rows=[
+                _column_row(
+                    "events_v1",
+                    name="tags",
+                    data_type="ARRAY<STRING>",
+                    nullable="NO",
+                    partitioning="NO",
+                )
+            ],
+            partition_rows=[("events_v1", [], 123)],
+        )
+
+        result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema", ["events_v1"])
+
+        assert result["events_v1"].columns == [
+            {"name": "tags", "type": "ARRAY<STRING>", "nullable": True, "description": None}
+        ]
+
+    def test_selected_unpartitioned_table_is_known_without_fallback_queries(self):
+        conn = _metadata_conn(
+            column_rows=[_column_row("plain_table", name="id", data_type="INT64", partitioning="NO")],
+            partition_rows=[],
+        )
+
+        result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema", ["plain_table"])
+        ctx, context_conn = _make_context(partition_metadata=result["plain_table"])
+
+        assert ctx.active_partition_filter() is None
+        context_conn.raw_sql.assert_not_called()
+
+    def test_failed_bulk_column_query_preserves_partition_fallback(self):
+        conn = MagicMock()
+        conn.raw_sql.side_effect = Exception("permission denied")
+
+        result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema", ["events"])
+        ctx, context_conn = _make_context(partition_metadata=result.get("events"))
+        context_conn.raw_sql.side_effect = [
+            [(["20260312", "20260311"],)],
+            [("server_received_at", "TIMESTAMP")],
+        ]
+
+        assert ctx.active_partition_filter() == "DATE(`server_received_at`) = DATE('2026-03-11')"
+
+    def test_selected_tables_limit_all_bulk_queries(self):
+        conn = _metadata_conn(column_rows=[], partition_rows=[])
+
+        _fetch_schema_partition_metadata(conn, "my-project", "my_schema", ["events", "users"])
+
+        for call in conn.raw_sql.call_args_list:
+            sql = call.args[0]
+            assert "'events'" in sql
+            assert "'users'" in sql
+
+    def test_partition_query_splits_more_than_one_thousand_selected_tables(self):
+        conn = MagicMock()
+        conn.raw_sql.side_effect = [[], [], []]
+        tables = [f"table_{index:04d}" for index in range(1001)]
+
+        _fetch_schema_partition_metadata(conn, "my-project", "my_schema", tables)
+
+        first_partition_sql = conn.raw_sql.call_args_list[1].args[0]
+        second_partition_sql = conn.raw_sql.call_args_list[2].args[0]
+        assert "INFORMATION_SCHEMA.PARTITIONS" in first_partition_sql
+        assert "INFORMATION_SCHEMA.PARTITIONS" in second_partition_sql
+        assert "'table_0000'" in first_partition_sql
+        assert "'table_1000'" not in first_partition_sql
+        assert "'table_0000'" not in second_partition_sql
+        assert "'table_1000'" in second_partition_sql
+
+    def test_hidden_ingestion_partition_is_not_a_displayed_column(self):
+        conn = _metadata_conn(
+            column_rows=[
+                _column_row("events", name="id", data_type="INT64", partitioning="NO"),
+                _column_row(
+                    "events",
+                    name="_PARTITIONTIME",
+                    data_type="TIMESTAMP",
+                    hidden="YES",
+                    require_partition_filter=True,
+                ),
+            ],
+            partition_rows=[("events", ["20260310"], 10)],
+        )
+
+        metadata = _fetch_schema_partition_metadata(conn, "my-project", "my_schema")["events"]
+        ctx, _ = _make_context(partition_metadata=metadata)
+
+        assert [column["name"] for column in metadata.columns or []] == ["id"]
+        assert metadata.partition_column == "_PARTITIONTIME"
+        assert ctx.active_partition_filter() == "DATE(`_PARTITIONTIME`) = DATE('2026-03-10')"
+
+    def test_partial_column_result_is_discarded(self):
+        def partial_rows():
+            yield _column_row("events", name="id", data_type="INT64")
+            raise RuntimeError("page failed")
+
+        conn = _metadata_conn(column_rows=partial_rows(), partition_rows=[])
+
+        result = _fetch_schema_partition_metadata(
+            conn,
+            "my-project",
+            "my_schema",
+            ["events"],
+        )
+
+        assert result == {}
 
 
 class TestActivePartitionFilter:
@@ -668,7 +846,16 @@ class TestTablePartitionMetadata:
 
 class TestClusteringColumns:
     def test_clustering_columns_fetched_in_batch(self):
-        mock_conn = _events_metadata_conn(clustering_rows=[("events_v1", "user_id"), ("events_v1", "event_type")])
+        mock_conn = _metadata_conn(
+            column_rows=[
+                _column_row("events_v1"),
+                _column_row(
+                    "events_v1", name="event_type", data_type="STRING", partitioning="NO", clustering_position=2
+                ),
+                _column_row("events_v1", name="user_id", data_type="STRING", partitioning="NO", clustering_position=1),
+            ],
+            partition_rows=[("events_v1", ["20260310"], 5000)],
+        )
 
         result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
 
@@ -681,20 +868,21 @@ class TestClusteringColumns:
 
         assert result["events_v1"].clustering_columns == []
 
-    def test_clustering_query_failure_does_not_crash(self):
-        mock_conn = _events_metadata_conn(clustering_rows=Exception("permission denied"))
+    def test_column_query_failure_does_not_crash(self):
+        mock_conn = MagicMock()
+        mock_conn.raw_sql.side_effect = Exception("permission denied")
 
         result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
 
-        assert result["events_v1"].partition_column == "event_date"
-        assert result["events_v1"].clustering_columns == []
+        assert result == {}
 
     def test_table_with_only_clustering_no_partition(self):
         mock_conn = _metadata_conn(
-            column_rows=[],
+            column_rows=[
+                _column_row("logs", name="timestamp", data_type="TIMESTAMP", partitioning="NO", clustering_position=2),
+                _column_row("logs", name="user_id", data_type="STRING", partitioning="NO", clustering_position=1),
+            ],
             partition_rows=[],
-            required_filter_table_names=[],
-            clustering_rows=[("logs", "user_id"), ("logs", "timestamp")],
         )
 
         result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
@@ -736,6 +924,41 @@ class TestColumnsNativeTypes:
 
         assert cols["created_at"]["type"] == "DATETIME"
         assert cols["server_received_at"]["type"] == "TIMESTAMP"
+
+    def test_prefetched_columns_avoid_ibis_and_information_schema(self):
+        metadata = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=10,
+            columns=[
+                {
+                    "name": "created_at",
+                    "type": "DATETIME NOT NULL",
+                    "nullable": False,
+                    "description": "Creation time",
+                }
+            ],
+        )
+        ctx, mock_conn = _make_context(partition_metadata=metadata)
+
+        assert ctx.columns() == metadata.columns
+        mock_conn.table.assert_not_called()
+        mock_conn.raw_sql.assert_not_called()
+
+    def test_prefetched_empty_description_avoids_table_options_query(self):
+        metadata = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=10,
+            description=None,
+            columns=[],
+        )
+        ctx, mock_conn = _make_context(partition_metadata=metadata)
+
+        assert ctx.description() is None
+        mock_conn.raw_sql.assert_not_called()
 
     def test_not_null_suffix_is_preserved(self):
         ctx, mock_conn = _make_context(schema_items=[("id", _dtype("!int64", nullable=False))])

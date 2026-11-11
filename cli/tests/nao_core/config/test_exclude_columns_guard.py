@@ -2,6 +2,7 @@ import fnmatch
 
 import pytest
 
+from nao_core.config.databases.athena import AthenaConfig
 from nao_core.config.databases.exclude_columns_guard import (
     ExcludeColumnsGuardError,
     enforce_exclude_columns,
@@ -69,6 +70,9 @@ class FakeDatabaseConfig:
 
     def get_database_name(self) -> str:
         return self.database_name
+
+    def get_catalog_names(self) -> list[str]:
+        return [self.get_database_name()]
 
     def get_schemas(self, conn: FakeConnection) -> list[str]:
         self.get_schemas_count += 1
@@ -295,3 +299,25 @@ def test_ambiguous_unqualified_table_is_blocked():
 
     with pytest.raises(ExcludeColumnsGuardError, match="ambiguous"):
         enforce_exclude_columns("SELECT * FROM users", config)
+
+
+class FakeAthenaConfig(FakeDatabaseConfig):
+    type = "athena"
+
+    def get_catalog_names(self) -> list[str]:
+        return AthenaConfig(name="athena", s3_staging_dir="s3://results", region_name="us-east-1").get_catalog_names()
+
+    def get_schemas(self, conn: FakeConnection) -> list[str]:
+        return ["analytics"]
+
+
+def test_athena_catalog_resolves_schema_outside_configured_one_to_bare_schema():
+    users = {"users": ["id", "email"]}
+    config = FakeAthenaConfig(
+        ["crm.users.email"],
+        schemas={"analytics": {"events": ["id"]}, "crm": users, "awsdatacatalog.crm": users},
+        database_name="analytics",
+    )
+
+    with pytest.raises(ExcludeColumnsGuardError, match=r"crm\.users\.email"):
+        enforce_exclude_columns("SELECT email FROM awsdatacatalog.crm.users", config)

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { StoredUserPreferences } from '../types/usage';
 
@@ -72,6 +72,5 @@ export async function mutateUserPreferences(
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
 	(query as Query & Lockable<Query>).for('update');
 
-type Lockable<Query> = { for(strength: 'update'): Query };
 type SQLiteRunnable = { run(): unknown };
 type SQLiteSelectable<Row> = { all(): Row[] };

@@ -29,6 +29,7 @@ vi.mock('../../src/services/slack', () => ({
 	},
 }));
 
+import { generateChartImage } from '../../src/components/generate-chart';
 import { createAutomationTools } from '../../src/services/automation-tools';
 import { slackService } from '../../src/services/slack';
 import { createToolContext, executeTool } from '../helpers/tool-context';
@@ -37,7 +38,7 @@ type ChartArtifact = ToolContext['generatedArtifacts']['charts'][number];
 type SlackMessageInput = { text: string; thread_id?: string };
 type SlackMessageOutput = { ok: boolean; threadId?: string; attachments?: string[]; attachmentError?: string };
 
-const CHANNEL_ID = 'C123';
+const CHANNEL_ID = 'C0123456789';
 const ROOT_THREAD_ID = `slack:${CHANNEL_ID}:111.222`;
 
 describe('renderAutomationRunPrompt slack threading guidance', () => {
@@ -88,7 +89,7 @@ describe('send_automation_slack_message threading', () => {
 			'project-1',
 			CHANNEL_ID,
 			'Full report body',
-			{ chatId: 'chat-1', threadId: ROOT_THREAD_ID },
+			{ chatId: undefined, threadId: ROOT_THREAD_ID },
 		]);
 	});
 
@@ -158,16 +159,146 @@ describe('send_automation_slack_message threading', () => {
 	});
 });
 
-function slackIntegrations(): AutomationIntegrationConfig {
-	return { slack: { enabled: true, channelId: CHANNEL_ID } };
+describe('send_automation_slack_message with several channels', () => {
+	const SECOND_CHANNEL = '#data-alerts';
+	const SECOND_THREAD_ID = 'slack:C9876543210:555.666';
+	const BOTH_CHANNELS = `${CHANNEL_ID}, ${SECOND_CHANNEL}`;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(slackService.uploadFiles).mockResolvedValue(undefined);
+	});
+
+	function mockPostMessageByChannel(threadIds: Record<string, string>) {
+		vi.mocked(slackService.postMessage).mockImplementation(async (_projectId, channel) => {
+			const threadId = threadIds[channel];
+			if (!threadId) {
+				throw new Error('channel_not_found');
+			}
+			return { channel, ts: threadId.split(':')[2], threadId };
+		});
+	}
+
+	it('posts the headline to every channel and links the chat to the first thread only', async () => {
+		mockPostMessageByChannel({ [CHANNEL_ID]: ROOT_THREAD_ID, [SECOND_CHANNEL]: SECOND_THREAD_ID });
+		const sendSlackMessage = createSendSlackMessage(createToolContext(), BOTH_CHANNELS);
+
+		const headline = await sendSlackMessage({ text: 'Weekly Report' });
+
+		expect(headline).toMatchObject({
+			ok: true,
+			threadId: ROOT_THREAD_ID,
+			deliveries: [
+				{ channel: CHANNEL_ID, ok: true, threadId: ROOT_THREAD_ID },
+				{ channel: SECOND_CHANNEL, ok: true, threadId: SECOND_THREAD_ID },
+			],
+		});
+		expect(vi.mocked(slackService.postMessage).mock.calls).toEqual([
+			['project-1', CHANNEL_ID, 'Weekly Report', { chatId: 'chat-1', threadId: undefined }],
+			['project-1', SECOND_CHANNEL, 'Weekly Report', { chatId: undefined, threadId: undefined }],
+		]);
+	});
+
+	it('replies into the matching thread of each channel and uploads charts to each thread', async () => {
+		mockPostMessageByChannel({ [CHANNEL_ID]: ROOT_THREAD_ID, [SECOND_CHANNEL]: SECOND_THREAD_ID });
+		const sendSlackMessage = createSendSlackMessage(contextWithCharts([chart('Revenue', 'q1')]), BOTH_CHANNELS);
+
+		const headline = await sendSlackMessage({ text: 'Weekly Report' });
+		vi.mocked(slackService.postMessage).mockClear();
+		await sendSlackMessage({ text: 'Full report', thread_id: headline.threadId });
+
+		expect(vi.mocked(slackService.postMessage).mock.calls).toEqual([
+			['project-1', CHANNEL_ID, 'Full report', { chatId: undefined, threadId: ROOT_THREAD_ID }],
+			['project-1', SECOND_CHANNEL, 'Full report', { chatId: undefined, threadId: SECOND_THREAD_ID }],
+		]);
+		expect(vi.mocked(slackService.uploadFiles).mock.calls.map((call) => call[1])).toEqual([
+			ROOT_THREAD_ID,
+			SECOND_THREAD_ID,
+		]);
+	});
+
+	it('keeps delivering to valid channels and reports failed and malformed ones', async () => {
+		mockPostMessageByChannel({ [SECOND_CHANNEL]: SECOND_THREAD_ID });
+		const sendSlackMessage = createSendSlackMessage(
+			createToolContext(),
+			`#archived, ${SECOND_CHANNEL}, sales team`,
+		);
+
+		const headline = await sendSlackMessage({ text: 'Weekly Report' });
+
+		expect(headline).toMatchObject({
+			ok: true,
+			threadId: SECOND_THREAD_ID,
+			deliveries: [
+				{ channel: '#archived', ok: false, error: 'channel_not_found' },
+				{ channel: SECOND_CHANNEL, ok: true },
+				{ channel: 'sales team', ok: false, error: 'Channel names cannot contain spaces.' },
+			],
+		});
+		expect(vi.mocked(slackService.postMessage).mock.calls.map((call) => call[1])).toEqual([
+			'#archived',
+			SECOND_CHANNEL,
+		]);
+		expect(vi.mocked(slackService.postMessage).mock.calls[1][3]).toEqual({ chatId: 'chat-1', threadId: undefined });
+	});
+
+	it('reports every channel when no channel receives the message', async () => {
+		mockPostMessageByChannel({});
+		const sendSlackMessage = createSendSlackMessage(createToolContext(), '#archived, general');
+
+		await expect(sendSlackMessage({ text: 'Weekly Report' })).resolves.toEqual({
+			ok: false,
+			error: 'Slack message was not delivered to any channel. #archived: channel_not_found general: Add # before channel names, like #general.',
+			deliveries: [
+				{ channel: '#archived', ok: false, error: 'channel_not_found' },
+				{ channel: 'general', ok: false, error: 'Add # before channel names, like #general.' },
+			],
+		});
+	});
+
+	it('still delivers the text when attachments cannot be generated', async () => {
+		mockPostMessageByChannel({ [CHANNEL_ID]: ROOT_THREAD_ID, [SECOND_CHANNEL]: SECOND_THREAD_ID });
+		vi.mocked(generateChartImage).mockImplementationOnce(() => {
+			throw new Error('canvas_failed');
+		});
+		const sendSlackMessage = createSendSlackMessage(contextWithCharts([chart('Revenue', 'q1')]), BOTH_CHANNELS);
+
+		const headline = await sendSlackMessage({ text: 'Weekly Report' });
+
+		expect(headline).toMatchObject({
+			ok: true,
+			threadId: ROOT_THREAD_ID,
+			attachments: [],
+			attachmentError: 'Files could not be generated: canvas_failed',
+			deliveries: [
+				{ channel: CHANNEL_ID, ok: true, attachmentError: 'Files could not be generated: canvas_failed' },
+				{ channel: SECOND_CHANNEL, ok: true, attachmentError: 'Files could not be generated: canvas_failed' },
+			],
+		});
+		expect(slackService.postMessage).toHaveBeenCalledTimes(2);
+		expect(slackService.uploadFiles).not.toHaveBeenCalled();
+	});
+
+	it('rejects a thread_id that was not returned by a previous call', async () => {
+		const sendSlackMessage = createSendSlackMessage(createToolContext(), BOTH_CHANNELS);
+
+		await expect(sendSlackMessage({ text: 'Full report', thread_id: 'slack:C0123456789:999.999' })).rejects.toThrow(
+			'Unknown thread_id',
+		);
+		expect(slackService.postMessage).not.toHaveBeenCalled();
+	});
+});
+
+function slackIntegrations(channelId = CHANNEL_ID): AutomationIntegrationConfig {
+	return { slack: { enabled: true, channelId } };
 }
 
-function createSendSlackMessage(context: ToolContext) {
+function createSendSlackMessage(context: ToolContext, channelId = CHANNEL_ID) {
 	const tool = createAutomationTools({
 		projectId: 'project-1',
 		chatId: 'chat-1',
 		githubToken: null,
-		integrations: slackIntegrations(),
+		integrations: slackIntegrations(channelId),
 	}).send_automation_slack_message as Tool<SlackMessageInput, SlackMessageOutput>;
 	return (input: SlackMessageInput) => executeTool(tool, input, context);
 }

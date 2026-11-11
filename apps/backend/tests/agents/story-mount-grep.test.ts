@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import grepTool from '../../src/agents/tools/grep';
 import { __reloadEnvForTesting } from '../../src/env';
+import { storyLibraryFileBatchesToGrep } from '../../src/services/story-library';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 import { createToolContext, executeTool } from '../helpers/tool-context';
 
@@ -14,6 +15,16 @@ vi.mock('../../src/services/story-mount', async (importOriginal) => ({
 		{ virtualPath: '/stories/revenue/app.jsx', content: 'const title = "Revenue";\nexport default App;' },
 		{ virtualPath: '/stories/revenue/lib/format.js', content: 'export const a = 1;\n' + 'a'.repeat(5_000) + '!' },
 	],
+}));
+vi.mock('../../src/services/story-library', () => ({
+	storyLibraryFileBatchesToGrep: vi.fn(async function* () {
+		yield [
+			{
+				virtualPath: '/story-library/story-1/queries.sql',
+				content: '-- query_id: q1\nselect sum(revenue) from orders',
+			},
+		];
+	}),
 }));
 
 let projectFolder: string;
@@ -47,7 +58,35 @@ describe('grep over custom story drafts', () => {
 	});
 });
 
-function run(input: { pattern: string; path?: string }) {
+describe('grep over the story library', () => {
+	it('searches the library when the path targets it', async () => {
+		const output = await run({ pattern: 'revenue', path: '/story-library', glob: '*.sql' });
+
+		expect(storyLibraryFileBatchesToGrep).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: 'project-1', userId: 'user-1' }),
+			'/story-library',
+			'*.sql',
+		);
+		expect(output.matches).toEqual([
+			{
+				path: '/story-library/story-1/queries.sql',
+				line_number: 2,
+				line_content: 'select sum(revenue) from orders',
+			},
+		]);
+	});
+
+	it('leaves the library out of a pathless search', async () => {
+		vi.mocked(storyLibraryFileBatchesToGrep).mockClear();
+
+		const output = await run({ pattern: 'revenue' });
+
+		expect(storyLibraryFileBatchesToGrep).not.toHaveBeenCalled();
+		expect(output.matches.map((match) => match.path)).not.toContain('/story-library/story-1/queries.sql');
+	});
+});
+
+function run(input: { pattern: string; path?: string; glob?: string }) {
 	const tool = grepTool as Tool<
 		typeof input,
 		{ matches: { path: string; line_number: number; line_content: string }[] }

@@ -6,6 +6,7 @@ import { getSession, verifyOAuthAccessToken } from '../auth';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { MCP_TOKEN_AUDIENCES } from '../env';
+import { isUserDeactivated } from '../queries/user.queries';
 import { logger, serializeError } from '../utils/logger';
 import { convertHeaders } from '../utils/utils';
 
@@ -16,11 +17,11 @@ export async function resolveUserId(fastifyRequest: {
 	const headers = convertHeaders(fastifyRequest.headers);
 
 	const session = await getSession(headers);
-	if (session?.user) {
-		return session.user.id;
+	const userId = session?.user.id ?? (await verifyBearerToken(headers.get('authorization')));
+	if (!userId || (await isUserDeactivated(userId))) {
+		return null;
 	}
-
-	return verifyBearerToken(headers.get('authorization'));
+	return userId;
 }
 
 async function verifyBearerToken(authorization: string | null): Promise<string | null> {

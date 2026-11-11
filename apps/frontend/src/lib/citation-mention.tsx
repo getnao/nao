@@ -1,0 +1,342 @@
+import { ChartColumn, ChartLine, ChartPie, Code, Gauge, LayoutPanelTop, MapPin, Quote, Table } from 'lucide-react';
+import { CITATION_MENTION_TRIGGER } from '@nao/shared';
+import { STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
+import { CODE_CITATION_KIND, MAX_CITATION_TEXT_LENGTH } from '@nao/shared/types';
+import type { LucideIcon } from 'lucide-react';
+import type { MentionOption, PromptHandle, SelectedMention } from 'prompt-mentions';
+import type { StoryBlockPart } from '@nao/shared/story-parts';
+import type { CitationData, StoryBlockReference } from '@nao/shared/types';
+
+export { CITATION_MENTION_TRIGGER };
+
+export const CITATION_PILL_SELECTOR = `[data-mention-trigger="${CITATION_MENTION_TRIGGER}"]`;
+type CitationFinder = (id: string) => CitationData | undefined;
+
+const CITATION_TOKEN = new RegExp(`${CITATION_MENTION_TRIGGER}\\[([^\\]\\s]+)\\]`, 'g');
+const CITATION_TOKEN_WITH_BLANKS = new RegExp(`( ?)${CITATION_TOKEN.source}( ?)`, 'g');
+const MAX_PILL_QUOTE_LENGTH = 32;
+
+const BLOCK_ICONS: Record<string, LucideIcon> = {
+	kpi: Gauge,
+	'data-table': Table,
+	'point-map': MapPin,
+	[CODE_CITATION_KIND]: Code,
+};
+
+export function toCitationMentionOption(citation: CitationData, id: string): MentionOption {
+	const Icon = citationIcon(citation);
+	return { id, label: describeCitationPill(citation), icon: <Icon className='size-3.5' strokeWidth={2.25} /> };
+}
+
+export function describeCitationSource({ start, end, block }: CitationData): string {
+	if (!block) {
+		return end > start ? `@chars ${start}–${end}` : '@text';
+	}
+	if (block.kind === 'text') {
+		return '@text';
+	}
+	if (block.kind === CODE_CITATION_KIND) {
+		return `@code · ${describeCodeSource(block)}`;
+	}
+	if (block.kind === STORY_ELEMENT_BLOCK_KIND && block.part) {
+		return `@element · ${partName(block.part)}`;
+	}
+	const source = block.title ? `@${block.kind} block · ${block.title}` : `@${block.kind} block`;
+	return withPartName(source, block);
+}
+
+export function isCodeCitation({ block }: CitationData): boolean {
+	return block?.kind === CODE_CITATION_KIND;
+}
+
+export function toSentCitationOptions(citations: CitationData[], text: string): MentionOption[] {
+	return extractCitationIds(text).map((id) => {
+		const citation = citations[Number(id) - 1];
+		return citation ? toCitationMentionOption(citation, id) : toMissingCitationOption(id);
+	});
+}
+
+/** Skills, tables and stories the agent loads as context: citations travel with the message instead. */
+export function toContextMentions(mentions: SelectedMention[]): SelectedMention[] {
+	return mentions
+		.filter((mention) => mention.trigger !== CITATION_MENTION_TRIGGER)
+		.map(({ id, label, trigger }) => ({ id, label, trigger }));
+}
+
+export function extractCitationIds(text: string): string[] {
+	return [...new Set([...text.matchAll(CITATION_TOKEN)].map((match) => match[1]))];
+}
+
+export function numberCitationTokens(text: string, orderedIds: string[]): string {
+	return replaceCitationTokens(text, (id) => {
+		const position = orderedIds.indexOf(id);
+		return position < 0 ? null : `${CITATION_MENTION_TRIGGER}[${position + 1}]`;
+	});
+}
+
+export function placeCitationsInline(text: string, citationCount: number): string {
+	if (citationCount === 0 || extractCitationIds(text).length > 0) {
+		return text;
+	}
+	const pills = Array.from({ length: citationCount }, (_, index) => `${CITATION_MENTION_TRIGGER}[${index + 1}]`);
+	return [...pills, text].join(' ').trim();
+}
+
+/**
+ * Takes the citation pills out of a prompt, the way deleting them would, and lets the prompt read its new value.
+ * Each pill leaves with the space the prompt put after it, so pills put back later do not pile up blanks.
+ */
+export function removeCitationPills(container: HTMLElement): void {
+	const input = container.querySelector<HTMLElement>('.prompt-input');
+	const pills = input?.querySelectorAll(CITATION_PILL_SELECTOR) ?? [];
+	if (!input || pills.length === 0) {
+		return;
+	}
+	pills.forEach((pill) => {
+		removeLeadingBlank(pill.nextSibling);
+		pill.remove();
+	});
+	if (!input.textContent?.trim() && !input.querySelector('[data-mention]')) {
+		input.replaceChildren();
+	}
+	input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+export function toCopiedText(fragment: DocumentFragment, findCitation: CitationFinder): string {
+	return readCopiedNodes(fragment.childNodes, findCitation).replace(/\u200b/g, '');
+}
+
+/** Writes a sent message into a prompt: the tokens of its citations and of the context it mentions become pills. */
+export function writeCitedText(
+	prompt: PromptHandle,
+	text: string,
+	citations: (CitationData & { id: string })[],
+	mentions: SelectedMention[] = [],
+): void {
+	let writtenUpTo = 0;
+	let isAfterPill = false;
+	for (const match of text.matchAll(pillTokenPattern(mentions))) {
+		const pill = findPill(match, citations, mentions);
+		insertNonEmptyText(prompt, text.slice(writtenUpTo, match.index), isAfterPill);
+		if (pill) {
+			prompt.appendMention(pill.option, pill.trigger);
+		}
+		isAfterPill = pill !== undefined;
+		writtenUpTo = match.index + match[0].length;
+	}
+	insertNonEmptyText(prompt, text.slice(writtenUpTo), isAfterPill);
+}
+
+/** Clearing a prompt drops its citation pills without reporting them gone, so they are put back before the new text. */
+export function replacePromptText(prompt: PromptHandle, text: string, citationOptions: MentionOption[]): void {
+	prompt.clear();
+	citationOptions.forEach((option) => prompt.appendMention(option, CITATION_MENTION_TRIGGER));
+	if (text) {
+		prompt.insertText(text);
+	}
+}
+
+/** A text written outside the prompt, such as a dictated message, led by the citation pills the prompt holds. */
+export function withCitationPillsOf(promptValue: string, text: string): string {
+	const pills = extractCitationIds(promptValue).map((id) => `${CITATION_MENTION_TRIGGER}[${id}]`);
+	return [...pills, text].join(' ').trim();
+}
+
+export function removeCitationTokens(text: string): string {
+	return replaceCitationTokens(text, () => null);
+}
+
+export function capCitationText<T extends CitationData>(citation: T): T {
+	if (citation.text.length <= MAX_CITATION_TEXT_LENGTH) {
+		return citation;
+	}
+	return { ...citation, text: `${citation.text.slice(0, MAX_CITATION_TEXT_LENGTH - 1)}…` };
+}
+
+export function isSameCitation(left: CitationData, right: CitationData): boolean {
+	return (
+		left.storySlug === right.storySlug &&
+		left.storyChatId === right.storyChatId &&
+		left.text === right.text &&
+		left.start === right.start &&
+		left.end === right.end &&
+		left.intent === right.intent &&
+		left.block?.kind === right.block?.kind &&
+		left.block?.title === right.block?.title &&
+		left.block?.queryId === right.block?.queryId &&
+		left.block?.occurrence === right.block?.occurrence &&
+		left.block?.lines?.start === right.block?.lines?.start &&
+		left.block?.lines?.end === right.block?.lines?.end &&
+		isSamePart(left.block?.part, right.block?.part)
+	);
+}
+
+function isSamePart(left: StoryBlockPart | undefined, right: StoryBlockPart | undefined): boolean {
+	return (
+		left?.kind === right?.kind &&
+		left?.label === right?.label &&
+		left?.series === right?.series &&
+		left?.category === right?.category &&
+		left?.value === right?.value
+	);
+}
+
+/** A pill reads on one line: the quoted text keeps its words, not its line breaks. */
+function describeCitationPill({ block, text }: CitationData): string {
+	if (block?.kind === CODE_CITATION_KIND) {
+		return describeCodeSource({ ...block, title: block.title?.split('/').pop() });
+	}
+	if (block?.kind === STORY_ELEMENT_BLOCK_KIND && block.part) {
+		return truncateForPill(toSingleLine(partName(block.part)));
+	}
+	if (block && block.kind !== 'text') {
+		const label = toSingleLine(block.title ?? '') || block.kind.replaceAll('-', ' ');
+		return withPartName(label, block, truncateForPill);
+	}
+	return truncateForPill(toSingleLine(text));
+}
+
+function withPartName(
+	blockLabel: string,
+	{ part }: StoryBlockReference,
+	shorten: (name: string) => string = (name) => name,
+): string {
+	if (!part) {
+		return blockLabel;
+	}
+	return `${blockLabel} · ${shorten(toSingleLine(partName(part)))}`;
+}
+
+function truncateForPill(text: string): string {
+	return text.length > MAX_PILL_QUOTE_LENGTH ? `${text.slice(0, MAX_PILL_QUOTE_LENGTH).trimEnd()}…` : text;
+}
+
+function partName({ kind, label, category, value }: StoryBlockPart): string {
+	const fallback = kind.replaceAll('-', ' ');
+	switch (kind) {
+		case 'kpi-value':
+		case 'kpi-comparison':
+			return value ?? label ?? fallback;
+		case 'cell':
+			return [label, category].filter(Boolean).join(' · ') || fallback;
+		case 'data-point':
+			return category ?? label ?? fallback;
+		case 'element':
+			return [label, value].filter(Boolean).join(' · ') || fallback;
+		default:
+			return label ?? fallback;
+	}
+}
+
+function toSingleLine(text: string): string {
+	return text.replace(/\s+/g, ' ').trim();
+}
+
+/** `index.tsx · L12–20`; code of a markdown story comes from its source, which has no file name. */
+function describeCodeSource({ title, lines }: StoryBlockReference): string {
+	const source = title || 'Source';
+	if (!lines) {
+		return source;
+	}
+	const range = lines.start === lines.end ? `L${lines.start}` : `L${lines.start}–${lines.end}`;
+	return `${source} · ${range}`;
+}
+
+function citationIcon({ block }: CitationData): LucideIcon {
+	const kind = block?.kind ?? 'text';
+	if (kind === 'text') {
+		return Quote;
+	}
+	if (kind === 'line-chart' || kind === 'area-chart') {
+		return ChartLine;
+	}
+	if (kind === 'pie-chart') {
+		return ChartPie;
+	}
+	if (kind.endsWith('-chart')) {
+		return ChartColumn;
+	}
+	return BLOCK_ICONS[kind] ?? LayoutPanelTop;
+}
+
+function toMissingCitationOption(id: string): MentionOption {
+	return { id, label: 'Citation', icon: <Quote className='size-3.5' strokeWidth={2.25} /> };
+}
+
+function replaceCitationTokens(text: string, replace: (id: string) => string | null): string {
+	return text.replace(CITATION_TOKEN_WITH_BLANKS, (_token, before: string, id: string, after: string) => {
+		const replacement = replace(id);
+		if (replacement !== null) {
+			return `${before}${replacement}${after}`;
+		}
+		return before && after ? ' ' : '';
+	});
+}
+
+/** Mention ids are free text, so only the tokens of the given mentions are matched, next to any citation token. */
+function pillTokenPattern(mentions: SelectedMention[]): RegExp {
+	const mentionTokens = mentions.map((mention) => escapeRegExp(toMentionToken(mention)));
+	return new RegExp([CITATION_TOKEN.source, ...mentionTokens].join('|'), 'g');
+}
+
+function findPill(
+	[token, citationPosition]: RegExpExecArray,
+	citations: (CitationData & { id: string })[],
+	mentions: SelectedMention[],
+): { option: MentionOption; trigger: string } | undefined {
+	if (citationPosition) {
+		const citation = citations[Number(citationPosition) - 1];
+		return (
+			citation && { option: toCitationMentionOption(citation, citation.id), trigger: CITATION_MENTION_TRIGGER }
+		);
+	}
+	const mention = mentions.find((candidate) => toMentionToken(candidate) === token);
+	return mention && { option: { id: mention.id, label: mention.label }, trigger: mention.trigger };
+}
+
+function toMentionToken({ id, trigger }: SelectedMention): string {
+	return `${trigger}[${id}]`;
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+function insertNonEmptyText(prompt: PromptHandle, text: string, isAfterPill: boolean): void {
+	const written = isAfterPill ? text.replace(/^ /, '') : text;
+	if (written) {
+		prompt.insertText(written);
+	}
+}
+
+function removeLeadingBlank(node: ChildNode | null): void {
+	if (node?.nodeType === Node.TEXT_NODE && node.textContent) {
+		node.textContent = node.textContent.replace(/^[\s\u00a0\u200b]/, '');
+	}
+}
+
+function describeCopiedMention(mention: HTMLElement, findCitation: CitationFinder): string {
+	const { mentionTrigger, mentionId = '', mention: label = '' } = mention.dataset;
+	if (mentionTrigger !== CITATION_MENTION_TRIGGER) {
+		return `${mentionTrigger}[${mentionId}]`;
+	}
+	const citation = findCitation(mentionId);
+	return citation ? `“${toSingleLine(citation.text)}”` : label;
+}
+
+function readCopiedNodes(nodes: NodeListOf<ChildNode>, findCitation: CitationFinder): string {
+	return [...nodes]
+		.map((node) => {
+			if (node instanceof HTMLElement && node.dataset.mentionTrigger) {
+				return describeCopiedMention(node, findCitation);
+			}
+			if (node.nodeName === 'BR') {
+				return '\n';
+			}
+			if (node.nodeType === Node.TEXT_NODE) {
+				return node.textContent ?? '';
+			}
+			return readCopiedNodes(node.childNodes, findCitation);
+		})
+		.join('');
+}

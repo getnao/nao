@@ -1,10 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, Github, Loader2, Mail, Play, Trash, X } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowLeft, Check, Loader2, Mail, Play, Trash, X } from 'lucide-react';
+import { useRef, useState } from 'react';
 
-import type { AutomationFormValue } from '@/components/automations-form';
-import { MobileHeader } from '@/components/mobile-header';
+import type { AutomationFormHandle, AutomationFormValue } from '@/components/automations-form';
+import GithubIcon from '@/components/icons/github-icon.svg';
+import {
+	AutomationChatPanel,
+	OpenAutomationChatButton,
+	useAutomationChatPanelOpen,
+} from '@/components/automation-chat-panel';
+import { AutomationEditorLayout } from '@/components/automation-editor-layout';
 import { AutomationForm } from '@/components/automations-form';
 import SlackIcon from '@/components/icons/slack.svg';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +34,8 @@ function AutomationDetailPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+	const [isChatOpen, setIsChatOpen] = useAutomationChatPanelOpen();
+	const formHandleRef = useRef<AutomationFormHandle>(null);
 	const detail = useQuery(
 		trpc.automation.get.queryOptions(
 			{ id: automationId },
@@ -89,105 +97,115 @@ function AutomationDetailPage() {
 	const saveShortcutLabel = getSaveShortcutLabel();
 
 	return (
-		<div className='flex flex-col flex-1 h-full overflow-auto bg-panel'>
-			<MobileHeader />
-			<div className='mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8'>
-				<div className='mb-6 flex items-center justify-between gap-3 flex-wrap'>
-					<Button variant='ghost' size='sm' asChild>
-						<Link to='/feed'>
-							<ArrowLeft className='size-4' />
-							Automations
-						</Link>
-					</Button>
-					<div className='flex items-center gap-2'>
-						{automation && hasUnsavedChanges && (
-							<Button
-								type='submit'
-								form={automationFormId}
-								disabled={updateAutomation.isPending}
-								className='gap-1.5'
-							>
-								{updateAutomation.isPending ? (
-									'Saving...'
-								) : (
-									<>
-										<span>Save changes</span>
-										<kbd className='text-[10px] opacity-60 font-sans'>{saveShortcutLabel}</kbd>
-									</>
-								)}
-							</Button>
-						)}
-						{automation && automation.cron && (
-							<div className='flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-1.75'>
-								<Switch
-									checked={automation.enabled}
-									onCheckedChange={handleSetEnabled}
-									disabled={setAutomationEnabled.isPending}
-								/>
-								<button
-									type='button'
-									className='text-sm font-medium cursor-pointer disabled:cursor-not-allowed disabled:opacity-50'
-									onClick={() => handleSetEnabled(!automation.enabled)}
-									disabled={setAutomationEnabled.isPending}
-								>
-									{automation.enabled ? 'Enabled' : 'Paused'}
-								</button>
-							</div>
-						)}
-						<Button variant='secondary' onClick={handleRunNow} disabled={!automation || runNow.isPending}>
-							<Play className='size-4' />
-							{runNow.isPending ? 'Starting...' : 'Run now'}
-						</Button>
-						<Button variant='destructive' onClick={handleDelete} disabled={deleteAutomation.isPending}>
-							<Trash className='size-4' />
-							Delete
-						</Button>
-					</div>
-				</div>
-
-				{!detail.isLoading && !automation && (
-					<p className='text-sm text-muted-foreground'>Automation not found.</p>
-				)}
-
-				{automation && (
-					<AutomationForm
-						id={automationFormId}
+		<AutomationEditorLayout
+			chatPanel={
+				automation && (
+					<AutomationChatPanel
+						key={automationId}
 						automationId={automationId}
-						initialValue={{
-							title: automation.title,
-							prompt: automation.prompt,
-							cron: automation.cron,
-							scheduleDescription: automation.scheduleDescription ?? undefined,
-							modelProvider: automation.modelProvider ?? undefined,
-							modelId: automation.modelId ?? undefined,
-							enabled: automation.enabled,
-							mcpEnabled: automation.mcpEnabled,
-							mcpServers: automation.mcpServers ?? undefined,
-							integrations: automation.integrations,
-							webhookEnabled: automation.webhookEnabled,
-						}}
-						details={{
-							enabled: automation.enabled,
-							scheduleDescription: automation.scheduleDescription,
-							cron: automation.cron,
-							webhookEnabled: automation.webhookEnabled,
-							nextRunAt: automation.scheduledJob?.runAt,
-							lastRunAt: runs[0]?.startedAt,
-						}}
-						submitLabel='Save changes'
-						isPending={updateAutomation.isPending}
-						aside={
-							<PreviousRuns runs={runs} onCancelRun={handleCancelRun} cancellingRunId={cancellingRunId} />
-						}
-						showSubmitButton={false}
-						autoSaveControls
-						saveShortcut
-						onDirtyChange={setHasUnsavedChanges}
-						onSubmit={handleUpdate}
+						formHandleRef={formHandleRef}
+						isOpen={isChatOpen}
+						onOpenChange={setIsChatOpen}
 					/>
-				)}
+				)
+			}
+		>
+			<div className='mb-6 flex items-center justify-between gap-3 flex-wrap'>
+				<Button variant='ghost' size='sm' asChild>
+					<Link to='/feed'>
+						<ArrowLeft className='size-4' />
+						Automations
+					</Link>
+				</Button>
+				<div className='flex items-center gap-2'>
+					{automation && hasUnsavedChanges && (
+						<Button
+							type='submit'
+							form={automationFormId}
+							disabled={updateAutomation.isPending}
+							className='gap-1.5'
+						>
+							{updateAutomation.isPending ? (
+								'Saving...'
+							) : (
+								<>
+									<span>Save changes</span>
+									<kbd className='text-[10px] opacity-60 font-sans'>{saveShortcutLabel}</kbd>
+								</>
+							)}
+						</Button>
+					)}
+					{automation && automation.cron && (
+						<div className='flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-1.75'>
+							<Switch
+								checked={automation.enabled}
+								onCheckedChange={handleSetEnabled}
+								disabled={setAutomationEnabled.isPending}
+							/>
+							<button
+								type='button'
+								className='text-sm font-medium cursor-pointer disabled:cursor-not-allowed disabled:opacity-50'
+								onClick={() => handleSetEnabled(!automation.enabled)}
+								disabled={setAutomationEnabled.isPending}
+							>
+								{automation.enabled ? 'Enabled' : 'Paused'}
+							</button>
+						</div>
+					)}
+					{automation && <OpenAutomationChatButton isOpen={isChatOpen} onOpen={() => setIsChatOpen(true)} />}
+					<Button variant='secondary' onClick={handleRunNow} disabled={!automation || runNow.isPending}>
+						<Play className='size-4' />
+						{runNow.isPending ? 'Starting...' : 'Run now'}
+					</Button>
+					<Button variant='destructive' onClick={handleDelete} disabled={deleteAutomation.isPending}>
+						<Trash className='size-4' />
+						Delete
+					</Button>
+				</div>
 			</div>
-		</div>
+
+			{!detail.isLoading && !automation && <p className='text-sm text-muted-foreground'>Automation not found.</p>}
+
+			{automation && (
+				<AutomationForm
+					key={automationId}
+					id={automationFormId}
+					handleRef={formHandleRef}
+					automationId={automationId}
+					initialValue={{
+						title: automation.title,
+						prompt: automation.prompt,
+						cron: automation.cron,
+						scheduleDescription: automation.scheduleDescription ?? undefined,
+						modelProvider: automation.modelProvider ?? undefined,
+						modelId: automation.modelId ?? undefined,
+						enabled: automation.enabled,
+						mcpEnabled: automation.mcpEnabled,
+						mcpServers: automation.mcpServers ?? undefined,
+						integrations: automation.integrations,
+						webhookEnabled: automation.webhookEnabled,
+						eventTriggers: automation.eventTriggers,
+					}}
+					details={{
+						enabled: automation.enabled,
+						scheduleDescription: automation.scheduleDescription,
+						cron: automation.cron,
+						webhookEnabled: automation.webhookEnabled,
+						eventTriggers: automation.eventTriggers,
+						nextRunAt: automation.scheduledJob?.runAt,
+						lastRunAt: runs[0]?.startedAt,
+					}}
+					submitLabel='Save changes'
+					isPending={updateAutomation.isPending}
+					aside={<PreviousRuns runs={runs} onCancelRun={handleCancelRun} cancellingRunId={cancellingRunId} />}
+					showSubmitButton={false}
+					autoSaveControls
+					saveShortcut
+					onDirtyChange={setHasUnsavedChanges}
+					onSubmit={handleUpdate}
+				/>
+			)}
+		</AutomationEditorLayout>
 	);
 }
 
@@ -201,13 +219,21 @@ type AutomationRun = {
 	status: string;
 	errorMessage?: string | null;
 	chatId?: string | null;
-	integrationResults: {
-		type: string;
-		label: string;
-		ok: boolean;
-		message?: string | null;
-		url?: string | null;
-	}[];
+	integrationResults: IntegrationResult[];
+};
+
+type IntegrationResult = {
+	type: string;
+	label: string;
+	ok: boolean;
+	message?: string | null;
+	url?: string | null;
+	destination?: string | null;
+};
+
+type IntegrationResultGroup = {
+	type: string;
+	destinations: IntegrationResult[];
 };
 
 function PreviousRuns({
@@ -329,19 +355,93 @@ function getRunStatusBadgeVariant(status: string): 'default' | 'secondary' | 'de
 	return 'secondary';
 }
 
-function IntegrationResultIcons({ runId, results }: { runId: string; results: AutomationRun['integrationResults'] }) {
-	const distinctResults = getDistinctIntegrationResults(results);
+function IntegrationResultIcons({ runId, results }: { runId: string; results: IntegrationResult[] }) {
+	const groups = groupIntegrationResults(results);
 
 	return (
 		<div className='mt-2 flex flex-wrap gap-1.5'>
-			{distinctResults.map((result) => (
-				<IntegrationResultIcon key={`${runId}-${result.type}`} result={result} />
-			))}
+			{groups.map((group) =>
+				group.destinations.length === 1 ? (
+					<IntegrationResultIcon key={`${runId}-${group.type}`} result={group.destinations[0]} />
+				) : (
+					<MultiDestinationResultIcon key={`${runId}-${group.type}`} group={group} />
+				),
+			)}
 		</div>
 	);
 }
 
-function IntegrationResultIcon({ result }: { result: AutomationRun['integrationResults'][number] }) {
+function MultiDestinationResultIcon({ group }: { group: IntegrationResultGroup }) {
+	const config = getIntegrationIconConfig(group.type);
+	const deliveredCount = group.destinations.filter((result) => result.ok).length;
+	const totalCount = group.destinations.length;
+	const summary = `${config.label}: ${deliveredCount} of ${totalCount} delivered`;
+
+	return (
+		<Tooltip delayDuration={150}>
+			<TooltipTrigger asChild>
+				<span
+					className={cn(
+						'flex h-6 items-center gap-1 rounded-full border bg-background pl-1.5 pr-2 text-[10px] font-medium shadow-xs transition-colors',
+						getDeliveryClassName(deliveredCount, totalCount, config.successClassName),
+					)}
+					aria-label={summary}
+				>
+					{config.icon}
+					<span>
+						{deliveredCount}/{totalCount}
+					</span>
+				</span>
+			</TooltipTrigger>
+			<TooltipContent className='max-w-[300px]'>
+				<DestinationResultsBreakdown summary={summary} destinations={group.destinations} />
+			</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function DestinationResultsBreakdown({
+	summary,
+	destinations,
+}: {
+	summary: string;
+	destinations: IntegrationResult[];
+}) {
+	return (
+		<div className='grid gap-1 py-0.5'>
+			<p className='font-medium'>{summary}</p>
+			<ul className='grid gap-0.5'>
+				{destinations.map((result) => (
+					<li key={result.destination ?? result.label} className='flex items-start gap-1.5'>
+						{result.ok ? (
+							<Check className='mt-0.5 size-3 shrink-0 text-green-600' />
+						) : (
+							<X className='mt-0.5 size-3 shrink-0 text-destructive' />
+						)}
+						<span className='min-w-0'>
+							<span className='font-mono'>{result.destination ?? result.label}</span>
+							{!result.ok && result.message && (
+								<span className='text-muted-foreground'>: {result.message}</span>
+							)}
+						</span>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+function getDeliveryClassName(deliveredCount: number, totalCount: number, successClassName: string): string {
+	if (deliveredCount === totalCount) {
+		return successClassName;
+	}
+	if (deliveredCount === 0) {
+		return 'border-muted text-muted-foreground opacity-60 grayscale';
+	}
+	return 'border-amber-300 bg-amber-50 text-amber-700';
+}
+
+function IntegrationResultIcon({ result }: { result: IntegrationResult }) {
 	const config = getIntegrationIconConfig(result.type);
 	const content = (
 		<span
@@ -380,31 +480,28 @@ function IntegrationResultIcon({ result }: { result: AutomationRun['integrationR
 	);
 }
 
-function getDistinctIntegrationResults(results: AutomationRun['integrationResults']) {
-	const resultsByType = new Map<string, AutomationRun['integrationResults'][number]>();
+/** Several tool calls can target one destination (e.g. a Slack headline and its thread replies); they count once. */
+function groupIntegrationResults(results: IntegrationResult[]): IntegrationResultGroup[] {
+	const destinationsByType = new Map<string, Map<string, IntegrationResult>>();
 
 	for (const result of results) {
-		const current = resultsByType.get(result.type);
-		if (!current) {
-			resultsByType.set(result.type, result);
-			continue;
-		}
-
-		resultsByType.set(result.type, mergeIntegrationResults(current, result));
+		const destinations = destinationsByType.get(result.type) ?? new Map<string, IntegrationResult>();
+		const destinationKey = result.destination ?? result.label;
+		const current = destinations.get(destinationKey);
+		destinations.set(destinationKey, current ? mergeIntegrationResults(current, result) : result);
+		destinationsByType.set(result.type, destinations);
 	}
 
-	return [...resultsByType.values()];
+	return [...destinationsByType].map(([type, destinations]) => ({ type, destinations: [...destinations.values()] }));
 }
 
-function mergeIntegrationResults(
-	current: AutomationRun['integrationResults'][number],
-	next: AutomationRun['integrationResults'][number],
-): AutomationRun['integrationResults'][number] {
+function mergeIntegrationResults(current: IntegrationResult, next: IntegrationResult): IntegrationResult {
 	const failedResult = !current.ok ? current : !next.ok ? next : null;
 
 	return {
 		type: current.type,
 		label: current.label,
+		destination: current.destination,
 		ok: current.ok && next.ok,
 		message: failedResult?.message ?? current.message ?? next.message,
 		url: current.url ?? next.url,
@@ -422,7 +519,7 @@ function getIntegrationIconConfig(type: string) {
 	if (type === 'github') {
 		return {
 			label: 'GitHub',
-			icon: <Github className='size-3.5' />,
+			icon: <GithubIcon className='size-3.5' />,
 			successClassName: 'border-transparent bg-foreground text-background',
 		};
 	}
@@ -440,6 +537,6 @@ function getIntegrationIconConfig(type: string) {
 	};
 }
 
-function getIntegrationResultLabel(result: AutomationRun['integrationResults'][number], label: string) {
+function getIntegrationResultLabel(result: IntegrationResult, label: string) {
 	return result.ok ? `${label} sent successfully` : `${label} has failed`;
 }

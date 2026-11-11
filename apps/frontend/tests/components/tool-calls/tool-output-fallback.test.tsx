@@ -2,7 +2,7 @@
 
 /**
  * A tool call with no output must not look the same when it is running and when its output is
- * never going to arrive. Every SQL/Python/app-db body rendered the in-flight placeholder for
+ * never going to arrive. Every SQL/script/app-db body rendered the in-flight placeholder for
  * both, so a dropped stream showed "Executing query..." forever and the only way out was a
  * manual reload — see the header comment in `tool-output-fallback.tsx`.
  *
@@ -18,7 +18,7 @@ import type { ToolCallComponentProps } from '@/components/tool-calls';
 import { ToolOutputFallback } from '@/components/tool-calls/tool-output-fallback';
 import { ExecuteSqlToolCall } from '@/components/tool-calls/execute-sql';
 import { QueryAppDbToolCall } from '@/components/tool-calls/query-app-db';
-import { ExecutePythonToolCall } from '@/components/tool-calls/execute-python';
+import { CodemodeToolCall } from '@/components/tool-calls/codemode';
 import { ToolCallProvider } from '@/contexts/tool-call';
 
 vi.mock('@/contexts/side-panel', () => ({
@@ -100,10 +100,10 @@ const cases = [
 		toolPart: partWithoutOutput('tool-query_app_db', {}),
 	},
 	{
-		name: 'ExecutePythonToolCall',
-		runningLabel: 'Executing Python...',
-		render: (toolPart: AnyToolPart) => <ExecutePythonToolCall toolPart={toolPart as never} />,
-		toolPart: partWithoutOutput('tool-execute_python', {}),
+		name: 'CodemodeToolCall',
+		runningLabel: 'Running script...',
+		render: (toolPart: AnyToolPart) => <CodemodeToolCall toolPart={toolPart as never} />,
+		toolPart: partWithoutOutput('tool-codemode', {}),
 	},
 ];
 

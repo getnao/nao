@@ -2,6 +2,7 @@ import type { ModelMessage } from 'ai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CompactionLLM } from '../../src/agents/compaction/compaction-llm';
+import { createProviderModel } from '../../src/agents/providers';
 import { COMPACTION_SYSTEM_PROMPT } from '../../src/components/ai/compaction-system-prompt';
 import type { ITokenCounter } from '../../src/services/token-counter';
 import { selectMessagesInBudget } from '../../src/utils/ai';
@@ -182,5 +183,17 @@ describe('CompactionLLM', () => {
 		const body = sent.slice(0, -1);
 		expect(body).toHaveLength(1);
 		expect(body[0]).toEqual(messages[2]);
+	});
+
+	it('never lets Anthropic clear the tool results it is summarizing', async () => {
+		const anthropicModel = createProviderModel('anthropic', { apiKey: 'test' }, 'claude-opus-5-5');
+		const compactionLlm = new CompactionLLM(anthropicModel, fakeTokenCounter);
+
+		await compactionLlm.compact([{ role: 'user', content: 'Question' }]);
+
+		const { providerOptions } = mocks.generateText.mock.calls[0][0];
+		expect(anthropicModel.providerOptions.anthropic?.contextManagement).toBeDefined();
+		expect(providerOptions.anthropic).not.toHaveProperty('contextManagement');
+		expect(providerOptions.anthropic.disableParallelToolUse).toBe(false);
 	});
 });

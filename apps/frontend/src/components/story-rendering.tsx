@@ -7,6 +7,7 @@ import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { StoryTableFrame } from '@/components/story-block';
 import { StoryGridProvider } from '@/contexts/story-grid';
 import { markdownPlugins } from '@/lib/markdown';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 const markdownComponents = {
 	table: ({ node, className }: any) => (
@@ -68,7 +69,12 @@ export const SegmentList = memo(function SegmentList({
 
 const MarkdownSegment = memo(function MarkdownSegment({ content }: { content: string }) {
 	return (
-		<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+		<Streamdown
+			linkSafety={markdownLinkSafety}
+			mode='static'
+			plugins={markdownPlugins}
+			components={markdownComponents}
+		>
 			{content}
 		</Streamdown>
 	);

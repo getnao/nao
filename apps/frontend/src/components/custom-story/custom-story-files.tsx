@@ -1,11 +1,12 @@
 import { isHtmlStoryEntry, STORY_APP_ENTRY_CANDIDATES } from '@nao/shared/story-app';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, File, Lock, Save } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
 import type { CustomStoryFileSummary } from '@/components/custom-story/custom-story-body';
 import type { CustomStoryFileSource } from '@/components/custom-story/story-data-options';
+import type { CodeSelection } from '@/stores/ask-bar';
 import { fileOptions } from '@/components/custom-story/story-data-options';
 import { buildStoryFileTree, findContentMatches } from '@/components/custom-story/story-file-tree';
 import {
@@ -20,6 +21,7 @@ import { FileTree } from '@/components/settings/file-tree';
 import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
+import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { trpc } from '@/main';
 
@@ -28,14 +30,32 @@ interface CustomStoryFilesProps {
 	versionNumber: number;
 	files: CustomStoryFileSummary[];
 	editable?: boolean;
+	onAskAboutCode?: (filePath: string, selection: CodeSelection) => void;
+	onHasChangesChange?: (hasChanges: boolean) => void;
 }
 
 const MIN_CONTENT_SEARCH_LENGTH = 2;
 
 /** Explorer over the files of the viewed version; editable by the owner on the latest version. */
-export function CustomStoryFiles({ source, versionNumber, files, editable = false }: CustomStoryFilesProps) {
+export function CustomStoryFiles({
+	source,
+	versionNumber,
+	files,
+	editable = false,
+	onAskAboutCode,
+	onHasChangesChange,
+}: CustomStoryFilesProps) {
 	const [selectedPath, setSelectedPath] = useState<string | null>(() => defaultFilePath(files));
 	const edits = useStoryFileEdits(source, versionNumber);
+	useEffect(() => {
+		onHasChangesChange?.(edits.hasChanges);
+	}, [edits.hasChanges, onHasChangesChange]);
+	useEffect(() => () => onHasChangesChange?.(false), [onHasChangesChange]);
+	useCodeRevealFollower(source.storySlug, ({ filePath }) => {
+		if (filePath && (isStoryKitPath(filePath) || files.some((file) => file.path === filePath))) {
+			setSelectedPath(filePath);
+		}
+	});
 	const [search, setSearch] = useState('');
 	const [isContentSearchEnabled, setIsContentSearchEnabled] = useState(false);
 	const debouncedSearch = useDebouncedValue(search.trim(), 250);
@@ -110,6 +130,7 @@ export function CustomStoryFiles({ source, versionNumber, files, editable = fals
 					<div className='h-full bg-background'>
 						<StoryFileContent
 							path={selectedPath}
+							storySlug={source.storySlug}
 							file={selectedFile.data}
 							isLoading={selectedFile.isLoading}
 							error={selectedFile.error}
@@ -117,6 +138,7 @@ export function CustomStoryFiles({ source, versionNumber, files, editable = fals
 							editable={editable && !isKitFileSelected && !edits.isSaving}
 							draft={selectedPath ? edits.drafts[selectedPath] : undefined}
 							onChange={edits.setDraft}
+							onAskAboutCode={onAskAboutCode}
 						/>
 					</div>
 				</ResizablePanel>
@@ -127,6 +149,7 @@ export function CustomStoryFiles({ source, versionNumber, files, editable = fals
 
 interface StoryFileContentProps {
 	path: string | null;
+	storySlug: string;
 	file: (CustomStoryFileSummary & { content: string }) | undefined;
 	isLoading: boolean;
 	error: { message: string } | null;
@@ -134,10 +157,12 @@ interface StoryFileContentProps {
 	editable: boolean;
 	draft: string | undefined;
 	onChange: (path: string, content: string, original: string) => void;
+	onAskAboutCode?: (filePath: string, selection: CodeSelection) => void;
 }
 
 function StoryFileContent({
 	path,
+	storySlug,
 	file,
 	isLoading,
 	error,
@@ -145,6 +170,7 @@ function StoryFileContent({
 	editable,
 	draft,
 	onChange,
+	onAskAboutCode,
 }: StoryFileContentProps) {
 	if (!path) {
 		return (
@@ -196,10 +222,12 @@ function StoryFileContent({
 				<FileSourceEditor
 					key={file.path}
 					filePath={file.path}
+					storySlug={storySlug}
 					value={draft ?? file.content}
 					searchQuery={searchQuery}
 					readOnly={!editable}
 					onChange={(content) => onChange(file.path, content, file.content)}
+					onAskAboutCode={onAskAboutCode && ((selection) => onAskAboutCode(file.path, selection))}
 				/>
 			</div>
 		</div>

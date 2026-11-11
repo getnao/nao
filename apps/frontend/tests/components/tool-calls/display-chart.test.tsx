@@ -18,7 +18,11 @@ vi.mock('@/main', () => ({
 }));
 
 describe('ChartDisplay', () => {
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
 
 	it('renders a left-aligned title for KPI cards', () => {
 		render(
@@ -39,5 +43,33 @@ describe('ChartDisplay', () => {
 		expect(screen.getByText('Messages')).toBeDefined();
 		expect(screen.getByText('Total messages')).toBeDefined();
 		expect(screen.getByText('Unique users')).toBeDefined();
+	});
+
+	it('marks the left-aligned chart title as a citable title part', () => {
+		vi.stubGlobal(
+			'ResizeObserver',
+			class {
+				observe() {}
+				unobserve() {}
+				disconnect() {}
+			},
+		);
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		render(
+			<ChartDisplay
+				title='Revenue by month'
+				titleStyle='left'
+				data={[
+					{ month: '2018-01', revenue: 10 },
+					{ month: '2018-02', revenue: 26 },
+				]}
+				chartType='bar'
+				xAxisKey='month'
+				xAxisType='category'
+				series={[{ data_key: 'revenue' }]}
+			/>,
+		);
+
+		expect(screen.getByText('Revenue by month').getAttribute('data-nao-part')).toBe('title');
 	});
 });

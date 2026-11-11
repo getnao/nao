@@ -4,8 +4,10 @@ import { useParams } from '@tanstack/react-router';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSidebar } from '@/contexts/sidebar';
 import {
+	CHAT_PANEL_MIN_WIDTH,
 	SIDEBAR_DELTA,
 	SIDE_PANEL_ANIMATION_DURATION,
+	SIDE_PANEL_ANIMATION_EASING,
 	SIDE_PANEL_MIN_WIDTH,
 	loadPersistedWidthRatio,
 } from '@/lib/side-panel';
@@ -44,7 +46,11 @@ export const useSidePanel = ({
 	});
 
 	const animateSidePanel = useCallback(
-		({ onComplete, ...style }: { onComplete?: () => void } & React.CSSProperties) => {
+		({
+			onComplete,
+			contentWidth,
+			...style
+		}: { onComplete?: () => void; contentWidth: number } & React.CSSProperties) => {
 			const sidePanel = sidePanelRef.current;
 			if (!sidePanel) {
 				return;
@@ -55,9 +61,10 @@ export const useSidePanel = ({
 
 			setIsAnimating(true);
 
+			freezeContentWidth(sidePanel, contentWidth);
 			sidePanel.style.minWidth = '0px';
 			sidePanel.style.transitionProperty = 'width, opacity';
-			sidePanel.style.transitionTimingFunction = 'cubic-bezier(0.5, 0.5, 0, 1)';
+			sidePanel.style.transitionTimingFunction = SIDE_PANEL_ANIMATION_EASING;
 			sidePanel.style.transitionDuration = `${SIDE_PANEL_ANIMATION_DURATION}ms`;
 
 			const handleTransitionEnd = (e: TransitionEvent) => {
@@ -65,6 +72,7 @@ export const useSidePanel = ({
 					return;
 				}
 				setIsAnimating(false);
+				releaseContentWidth(sidePanel);
 				onComplete?.();
 				removeTransitionEndEventListener.current?.();
 			};
@@ -103,12 +111,13 @@ export const useSidePanel = ({
 
 		const sidebarDelta = shouldCollapseSidebar && didCollapseSidebarRef.current ? SIDEBAR_DELTA : 0;
 		const containerWidth = container.getBoundingClientRect().width + sidebarDelta;
-		const ratio = defaultWidthRatio !== undefined ? defaultWidthRatio : loadPersistedWidthRatio();
+		const ratio = resolveWidthRatio(defaultWidthRatio);
 		const targetWidth = Math.floor(ratio * containerWidth);
 
 		animateSidePanel({
 			width: `${targetWidth}px`,
 			opacity: '1',
+			contentWidth: targetWidth,
 			onComplete: () => {
 				sidePanel.style.minWidth = `${SIDE_PANEL_MIN_WIDTH}px`;
 			},
@@ -122,12 +131,14 @@ export const useSidePanel = ({
 			setContent(createElement(Fragment, { key: contentEpochRef.current }, newContent));
 			setCurrentStorySlug(storySlug ?? null);
 			setCurrentStoryTabIndex(0);
-			if (!isMobile && shouldCollapseSidebar) {
-				didCollapseSidebarRef.current = !isSidebarCollapsed;
+			const widthRatio = resolveWidthRatio(defaultWidthRatio);
+			const isTooNarrow = !hasRoomForSidePanel(containerRef.current, widthRatio);
+			if (!isMobile && shouldCollapseSidebar && !isSidebarCollapsed && isTooNarrow) {
+				didCollapseSidebarRef.current = true;
 				collapseSidebar({ persist: false });
 			}
 		},
-		[isMobile, shouldCollapseSidebar, collapseSidebar, isSidebarCollapsed],
+		[isMobile, shouldCollapseSidebar, collapseSidebar, isSidebarCollapsed, containerRef, defaultWidthRatio],
 	);
 
 	const expandSidebarIfWasCollapsed = useCallback(() => {
@@ -148,10 +159,11 @@ export const useSidePanel = ({
 			animateSidePanel({
 				width: '0px',
 				opacity: '0',
+				contentWidth: getContentWidth(sidePanelRef.current),
 				onComplete: () => setContent(null),
 			});
 		}
-	}, [isMobile, expandSidebarIfWasCollapsed, animateSidePanel]);
+	}, [isMobile, expandSidebarIfWasCollapsed, animateSidePanel, sidePanelRef]);
 
 	useEffect(() => {
 		expandSidebarIfWasCollapsed();
@@ -174,3 +186,40 @@ export const useSidePanel = ({
 		close,
 	};
 };
+
+function resolveWidthRatio(defaultWidthRatio: number | undefined): number {
+	return defaultWidthRatio ?? loadPersistedWidthRatio();
+}
+
+/** Whether the side panel and the chat both fit at their minimum widths beside the expanded sidebar. */
+function hasRoomForSidePanel(container: HTMLElement | null, widthRatio: number): boolean {
+	if (!container) {
+		return true;
+	}
+	const containerWidth = container.getBoundingClientRect().width;
+	const sidePanelWidth = Math.max(SIDE_PANEL_MIN_WIDTH, Math.floor(widthRatio * containerWidth));
+	return containerWidth - sidePanelWidth >= CHAT_PANEL_MIN_WIDTH;
+}
+
+/** Keeps the panel content at a fixed width while the panel animates, so it slides instead of reflowing every frame. */
+function freezeContentWidth(sidePanel: HTMLDivElement, width: number) {
+	const content = sidePanel.firstElementChild;
+	if (!(content instanceof HTMLElement)) {
+		return;
+	}
+	sidePanel.style.overflow = 'hidden';
+	content.style.width = `${width}px`;
+}
+
+function releaseContentWidth(sidePanel: HTMLDivElement) {
+	const content = sidePanel.firstElementChild;
+	if (!(content instanceof HTMLElement)) {
+		return;
+	}
+	sidePanel.style.overflow = '';
+	content.style.width = '';
+}
+
+function getContentWidth(sidePanel: HTMLDivElement | null): number {
+	return sidePanel?.firstElementChild?.getBoundingClientRect().width ?? 0;
+}

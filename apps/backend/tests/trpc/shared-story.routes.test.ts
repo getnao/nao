@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	canUserAccessSharedStory: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getStoryByChatAndSlug: vi.fn(),
+	getStoryById: vi.fn(),
 	getStoryOwnerId: vi.fn(),
 	startStoryRefreshActivity: vi.fn(),
 	completeActivity: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock('../../src/queries/shared-story.queries', () => ({
 }));
 vi.mock('../../src/queries/story.queries', () => ({
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
+	getStoryById: mocks.getStoryById,
 	getStoryOwnerId: mocks.getStoryOwnerId,
 	getStoryProjectId: vi.fn(async () => null),
 }));
@@ -158,6 +160,7 @@ describe('storyShare.getLiveQueryData', () => {
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'q_customers', {
 			billingAccessVerifiedProjectId: 'project-1',
+			storyCode: expect.any(String),
 		});
 	});
 
@@ -189,11 +192,9 @@ describe('shared Story manual refresh', () => {
 
 	beforeEach(() => {
 		mocks.getSharedStoryByStoryId.mockResolvedValue(SHARED_ORDERS_STORY);
-		mocks.getStoryByChatAndSlug.mockResolvedValue({
-			id: 'story-1',
-			chatId: 'chat-1',
-			isLive: true,
-		});
+		const story = { id: 'story-1', chatId: 'chat-1', isLive: true };
+		mocks.getStoryByChatAndSlug.mockResolvedValue(story);
+		mocks.getStoryById.mockResolvedValue(story);
 		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
 		mocks.startStoryRefreshActivity.mockResolvedValue({ id: 'activity-1' });
 		mocks.getLatestStoryRefreshFailure.mockResolvedValue(null);

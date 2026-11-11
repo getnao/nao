@@ -44,6 +44,7 @@ interface StartupAdditionalInfo {
 	userCount: number | null;
 	messageCount: number | null;
 	storyCount: number | null;
+	mcpCallCount: number | null;
 	tokenCounts: TokenCounts | null;
 	betaAutomationsEnabled: boolean;
 	betaContextRecommendationsEnabled: boolean;
@@ -68,19 +69,22 @@ interface TokenCounts {
 }
 
 async function startupAdditionalInfo(): Promise<StartupAdditionalInfo> {
-	const [userCount, messageCount, storyCount, tokenCounts, googleConfigured, databaseTypes] = await Promise.all([
-		getUserCount(),
-		getMessageCount(),
-		getStoryCount(),
-		getTokenCounts(),
-		isGoogleConfigured(),
-		getDatabaseTypes(),
-	]);
+	const [userCount, messageCount, storyCount, mcpCallCount, tokenCounts, googleConfigured, databaseTypes] =
+		await Promise.all([
+			getUserCount(),
+			getMessageCount(),
+			getStoryCount(),
+			getMcpCallCount(),
+			getTokenCounts(),
+			isGoogleConfigured(),
+			getDatabaseTypes(),
+		]);
 
 	return {
 		userCount,
 		messageCount,
 		storyCount,
+		mcpCallCount,
 		tokenCounts,
 		betaAutomationsEnabled: env.BETA_AUTOMATIONS_ENABLED,
 		betaContextRecommendationsEnabled: env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED,
@@ -123,6 +127,10 @@ function getUserCount(): Promise<number | null> {
 
 function getStoryCount(): Promise<number | null> {
 	return countRows((s) => s.story);
+}
+
+function getMcpCallCount(): Promise<number | null> {
+	return countRows((s) => s.mcpCallLog);
 }
 
 function getMessageCount(): Promise<number | null> {

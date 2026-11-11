@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	isLlmProvider,
+	isSameModel,
 	providerKind,
 	providerLabel,
 	providerName,
+	resultModel,
 	toNamedProvider,
 	toProviderName,
 } from '../src/types';
@@ -29,11 +31,27 @@ describe('provider ids', () => {
 	});
 
 	it('accepts only kinds and named instances of the kind that allows them', () => {
+		expect(isLlmProvider('nao')).toBe(true);
 		expect(isLlmProvider('openai')).toBe(true);
 		expect(isLlmProvider('openaiCompatible/my-vllm')).toBe(true);
 		expect(isLlmProvider('openaiCompatible/My vLLM')).toBe(false);
 		expect(isLlmProvider('openaiCompatible/a/b')).toBe(false);
 		expect(isLlmProvider('openai/my-proxy')).toBe(false);
 		expect(isLlmProvider('not-a-provider')).toBe(false);
+	});
+});
+
+describe('selected models', () => {
+	it('matches models on both their provider and their id', () => {
+		const model = { provider: 'anthropic' as const, modelId: 'claude-sonnet-4-5' };
+		expect(isSameModel(model, { ...model })).toBe(true);
+		expect(isSameModel(model, { provider: 'openai', modelId: 'claude-sonnet-4-5' })).toBe(false);
+	});
+
+	it('reads the model of a stored result', () => {
+		expect(resultModel({ llmProvider: 'openai', llmModelId: 'gpt-4.1' })).toEqual({
+			provider: 'openai',
+			modelId: 'gpt-4.1',
+		});
 	});
 });

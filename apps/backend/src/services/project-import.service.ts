@@ -1,0 +1,160 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { TRPCError } from '@trpc/server';
+import yaml from 'js-yaml';
+
+import type { DBProject } from '../db/abstractSchema';
+import { env } from '../env';
+import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
+import * as projectQueries from '../queries/project.queries';
+import { extractConfiguredDatabases } from '../utils/nao-config';
+import { createProject, getMissingProjectEnvVars, touchProjectUpdatedAt } from './project.service';
+
+export function createTempProjectDir(prefix: string): string {
+	const dir = path.resolve(env.NAO_PROJECTS_DIR, `.${prefix}-${crypto.randomUUID()}`);
+	fs.mkdirSync(dir, { recursive: true });
+	return dir;
+}
+
+export function replaceProjectDirectory(src: string, dest: string): void {
+	const parentDir = path.dirname(dest);
+	const backupDir = path.join(parentDir, `.project-import-backup-${crypto.randomUUID()}`);
+	let hasBackup = false;
+
+	fs.mkdirSync(parentDir, { recursive: true });
+	if (fs.existsSync(dest)) {
+		fs.renameSync(dest, backupDir);
+		hasBackup = true;
+	}
+
+	try {
+		fs.cpSync(src, dest, { recursive: true });
+		if (hasBackup) {
+			fs.rmSync(backupDir, { recursive: true, force: true });
+		}
+	} catch (err) {
+		fs.rmSync(dest, { recursive: true, force: true });
+		if (hasBackup) {
+			fs.renameSync(backupDir, dest);
+		}
+		throw err;
+	}
+}
+
+export function readProjectNameFromConfig(projectDir: string): string | null {
+	const configPath = path.join(projectDir, 'nao_config.yaml');
+	if (!fs.existsSync(configPath)) {
+		return null;
+	}
+
+	try {
+		const config = yaml.load(fs.readFileSync(configPath, 'utf-8')) as { project_name?: unknown } | null;
+		return typeof config?.project_name === 'string' && config.project_name.trim()
+			? config.project_name.trim()
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+export function getProjectNameFromPath(fullPath: string): string {
+	return fullPath.split('/').pop()!;
+}
+
+export async function createNewProject({
+	sourceDir,
+	projectName,
+	orgId,
+	userId,
+	projectId = crypto.randomUUID(),
+}: {
+	sourceDir: string;
+	projectName: string;
+	orgId: string;
+	userId: string;
+	projectId?: string;
+}) {
+	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
+
+	try {
+		replaceProjectDirectory(sourceDir, projectDir);
+	} catch (err) {
+		fs.rmSync(projectDir, { recursive: true, force: true });
+		throw new TRPCError({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: err instanceof Error ? err.message : 'Failed to import repository',
+		});
+	}
+
+	let project: DBProject;
+	try {
+		project = await createProject({
+			id: projectId,
+			name: projectName,
+			type: 'local',
+			path: projectDir,
+			orgId,
+		});
+	} catch (err) {
+		fs.rmSync(projectDir, { recursive: true, force: true });
+		throw err;
+	}
+
+	await ensureContextRecommendationsScheduleForNewProject(project.id);
+	const role = await projectQueries.getUserRoleInProject(project.id, userId);
+	return {
+		projectId: project.id,
+		projectName,
+		status: 'created' as const,
+		...(await getSetupGaps(project, role === 'admin')),
+	};
+}
+
+export async function replaceExistingProject({
+	sourceDir,
+	project,
+	projectName,
+	userId,
+}: {
+	sourceDir: string;
+	project: DBProject;
+	projectName: string;
+	userId: string;
+}) {
+	const role = await projectQueries.getUserRoleInProject(project.id, userId);
+	if (role !== 'admin' && role !== 'context_admin') {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: `Only admins or context admins of "${projectName}" can replace it.`,
+		});
+	}
+	if (!project.path) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
+	}
+
+	try {
+		replaceProjectDirectory(sourceDir, project.path);
+	} catch (err) {
+		throw new TRPCError({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: err instanceof Error ? err.message : 'Failed to replace project from repository',
+		});
+	}
+
+	await touchProjectUpdatedAt(project.id);
+	return {
+		projectId: project.id,
+		projectName,
+		status: 'updated' as const,
+		...(await getSetupGaps(project, role === 'admin')),
+	};
+}
+
+async function getSetupGaps(project: DBProject, canEditEnvVars: boolean) {
+	return {
+		missingEnvVars: await getMissingProjectEnvVars(project),
+		missingDatabase: !project.path || extractConfiguredDatabases(project.path).length === 0,
+		canEditEnvVars,
+	};
+}

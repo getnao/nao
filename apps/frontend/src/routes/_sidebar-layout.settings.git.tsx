@@ -1,11 +1,12 @@
+import { joinWithAnd } from '@nao/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { Github } from 'lucide-react';
 import { useState } from 'react';
 
 import type { QueryClient } from '@tanstack/react-query';
 import type { ComponentType, ReactNode } from 'react';
 
+import GithubIcon from '@/components/icons/github-icon.svg';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { DeploymentManagedGitSettings } from '@/components/settings/deployment-managed-git-settings';
 import { GithubRepoList } from '@/components/settings/github-repo-list';
@@ -67,7 +68,7 @@ interface ProviderSwitchRequest {
 const PROVIDER_CONFIGS: Record<GitProvider, ProviderConfig> = {
 	github: {
 		label: 'GitHub',
-		icon: Github,
+		icon: GithubIcon,
 		connectHref: '/api/github/connect?returnTo=/settings/git',
 		repositoryList: GithubRepoList,
 		clientIdEnvVar: 'GITHUB_CLIENT_ID',
@@ -814,14 +815,8 @@ function getProviderSwitchDescription(request: ProviderSwitchRequest): string {
 		request.repositoryName ? `the context repository "${request.repositoryName}"` : null,
 		request.disconnectAccount ? `the connected ${sourceProviderLabel} account` : null,
 	].filter((item): item is string => item !== null);
-	return `Switching to ${targetProviderLabel} will disconnect ${joinWithAnd(disconnectedItems)}.`;
-}
-
-function joinWithAnd(items: string[]): string {
-	if (items.length < 2) {
-		return items[0] ?? 'the current Git setup';
-	}
-	return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+	const disconnected = disconnectedItems.length > 0 ? joinWithAnd(disconnectedItems) : 'the current Git setup';
+	return `Switching to ${targetProviderLabel} will disconnect ${disconnected}.`;
 }
 
 async function invalidateRepositoryQueries(queryClient: QueryClient): Promise<void> {

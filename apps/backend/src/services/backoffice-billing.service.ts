@@ -7,6 +7,7 @@ import * as billingQueries from '../queries/billing.queries';
 import { type BillingStatus, CLOUD_BILLING_PLANS, type CloudBillingInterval } from '../types/billing';
 import { HandlerError } from '../utils/error';
 import { logger } from '../utils/logger';
+import { getCreditsOverview } from './backoffice-credits.service';
 import { getCloudBillingAccessEndsAt, hasCloudBillingAccess } from './cloud-billing-access.service';
 import type { CloudSubscriptionRevenue, StripeAccountInvoice } from './stripe.service';
 import * as stripeService from './stripe.service';
@@ -71,19 +72,22 @@ export async function getOrganizationBillingDetail(orgId: string) {
 }
 
 export async function getBillingOverview() {
-	const [organizations, events] = await Promise.all([
+	const [organizations, events, credits] = await Promise.all([
 		backofficeBillingQueries.listOrganizationsWithBilling(),
 		backofficeBillingQueries.listRecentStripeWebhookEvents(RECENT_EVENT_LIMIT),
+		getCreditsOverview(),
 	]);
 	const billingEnabled = isCloudBillingEnabled();
 	return {
 		billingEnabled,
 		stripeMode: billingEnabled ? (stripeService.isStripeLiveMode() ? 'live' : 'test') : null,
-		organizations: organizations.map(({ billing, ...organization }) => ({
+		organizations: organizations.map(({ billing, creditBalanceMicroUsd, ...organization }) => ({
 			...organization,
+			creditBalanceMicroUsd: Number(creditBalanceMicroUsd ?? 0),
 			billing: toBillingSummary(organization.bypassBilling, billing),
 		})),
 		events,
+		credits,
 		...(billingEnabled ? await loadRevenue(organizations) : { revenue: null, stripeError: null }),
 	};
 }
@@ -127,7 +131,7 @@ async function loadOrganizationStripeDetail(billing: DBOrganizationBilling, stri
 }
 
 async function loadSubscriptionPlan(billing: DBOrganizationBilling) {
-	if (!billing.stripePriceId || !billing.stripeSubscriptionId) {
+	if (!billing.billingPlan || !billing.stripePriceId || !billing.stripeSubscriptionId) {
 		return null;
 	}
 	const currency = await stripeService.getCloudSubscriptionCurrency(billing.stripeSubscriptionId);

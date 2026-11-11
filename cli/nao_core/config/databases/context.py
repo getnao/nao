@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ibis import BaseBackend
+
+DEFAULT_PREVIEW_MAX_VALUE_LENGTH = 1000
+MIN_PREVIEW_MAX_VALUE_LENGTH = 100
+
+
+def truncate_middle_with_length(text: str, max_length: int) -> str:
+    """Keep the head and tail of ``text`` and note the original length in the middle."""
+    marker = f"…[truncated, {len(text)} chars]…"
+    keep = max(max_length - len(marker), 0)
+    head = (keep + 1) // 2
+    tail = keep // 2
+    return text[:head] + marker + (text[-tail:] if tail else "")
 
 
 class DatabaseContext:
@@ -26,11 +39,13 @@ class DatabaseContext:
         schema: str,
         table_name: str,
         exclude_columns: list[str] | None = None,
+        preview_max_value_length: int = DEFAULT_PREVIEW_MAX_VALUE_LENGTH,
     ):
         self._conn = conn
         self._schema = schema
         self._table_name = table_name
         self._exclude_columns = list(exclude_columns) if exclude_columns else []
+        self._preview_max_value_length = preview_max_value_length
         self._table_ref = None
         self._columns_cache: list[dict[str, Any]] | None = None
         self._columns_load_failed = False
@@ -45,6 +60,10 @@ class DatabaseContext:
         context implementation without changing per-database constructors.
         """
         self._exclude_columns = list(patterns) if patterns else []
+
+    def set_preview_max_value_length(self, max_length: int) -> None:
+        """Set the per-value length cap applied to preview rows (0 disables it)."""
+        self._preview_max_value_length = max_length
 
     def _is_column_excluded(self, column_name: str) -> bool:
         """Return True when the column should be hidden based on ``exclude_columns``.
@@ -118,8 +137,23 @@ class DatabaseContext:
             for key, val in row_dict.items():
                 if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
                     row_dict[key] = str(val)
-            rows.append(self._filter_excluded_row(row_dict))
+            rows.append(self._prepare_preview_row(row_dict))
         return rows
+
+    def _prepare_preview_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Apply ``exclude_columns`` and the per-value length cap to a raw preview row."""
+        filtered = self._filter_excluded_row(row)
+        return {key: self._cap_preview_value(val) for key, val in filtered.items()}
+
+    def _cap_preview_value(self, value: Any) -> Any:
+        """Truncate oversized string or JSON values so one blob column cannot bloat the docs."""
+        max_length = self._preview_max_value_length
+        if max_length <= 0 or not isinstance(value, (str, list, dict)):
+            return value
+        text = value if isinstance(value, str) else json.dumps(value, default=str, ensure_ascii=False)
+        if len(text) <= max_length:
+            return value
+        return truncate_middle_with_length(text, max_length)
 
     def _filter_excluded_row(self, row: dict[str, Any]) -> dict[str, Any]:
         """Drop keys from a preview row that match an ``exclude_columns`` pattern."""
@@ -158,12 +192,18 @@ class DatabaseContext:
         return None
 
     def profiling(self) -> dict[str, Any] | None:
-        """Return profiling data for the table."""
+        """Return profiling data for the table.
+
+        Column stats and their ``total_count`` share one scope: the rows matching
+        ``_partition_filter()`` when one applies, the full table otherwise. A
+        ``scope`` entry is added only when the stats cover a filtered subset.
+        """
         try:
             cols = self.columns()
             if not cols:
                 return None
-            total_count = self.row_count()
+            partition_filter = self._partition_filter()
+            total_count = self._profiled_row_count(partition_filter)
         except Exception:
             return None
 
@@ -185,10 +225,32 @@ class DatabaseContext:
         except Exception:
             pass
 
-        return {
+        result: dict[str, Any] = {
             "computed_at": datetime.now(timezone.utc).isoformat(),
             "clustering_columns": clustering_columns,
             "columns": profiles,
+        }
+        if partition_filter:
+            result["scope"] = self._profiling_scope(partition_filter, total_count)
+        return result
+
+    def _profiled_row_count(self, partition_filter: str) -> int:
+        """Count the rows the column stats are computed over."""
+        if not partition_filter:
+            return self.row_count()
+        query = f"SELECT COUNT(*) FROM {self._qualified_table_sql()} WHERE {partition_filter}"
+        row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
+        return int(row[0] or 0) if row else 0
+
+    def _profiling_scope(self, partition_filter: str, profiled_row_count: int) -> dict[str, Any]:
+        try:
+            table_row_count: int | None = self.row_count()
+        except Exception:
+            table_row_count = None
+        return {
+            "partition_filter": partition_filter,
+            "profiled_row_count": profiled_row_count,
+            "table_row_count": table_row_count,
         }
 
     def _profile_standard_column(self, col: dict, total_count: int) -> dict[str, Any] | None:

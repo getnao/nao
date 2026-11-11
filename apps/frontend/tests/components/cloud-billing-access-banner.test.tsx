@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 	cloudBillingEnabled: true,
 	invalidateQueries: vi.fn(async () => undefined),
 	navigate: vi.fn(async () => undefined),
+	pathname: '/',
 	refetchInterval: undefined as RefetchInterval | undefined,
 }));
 
@@ -45,6 +46,8 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('@tanstack/react-router', () => ({
 	useNavigate: () => mocks.navigate,
+	useRouterState: ({ select }: { select: (state: { location: { pathname: string } }) => unknown }) =>
+		select({ location: { pathname: mocks.pathname } }),
 }));
 
 vi.mock('@/main', () => ({
@@ -57,6 +60,7 @@ vi.mock('@/main', () => ({
 beforeEach(() => {
 	mocks.access = restrictedTrialAccess;
 	mocks.cloudBillingEnabled = true;
+	mocks.pathname = '/';
 	mocks.refetchInterval = undefined;
 	stubLocalStorage();
 });
@@ -74,6 +78,31 @@ it('stays hidden when cloud billing is disabled', () => {
 	render(<CloudBillingAccessBanner />);
 
 	expect(screen.queryByText('A subscription is needed to keep using nao Cloud.')).toBeNull();
+});
+
+it('stays hidden on the plan and billing page', () => {
+	mocks.pathname = '/settings/organization/billing';
+
+	render(<CloudBillingAccessBanner />);
+
+	expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('hides the active trial banner throughout settings without hiding access notices', () => {
+	mocks.pathname = '/settings/account';
+	const view = render(<CloudBillingAccessBanner />);
+
+	expect(screen.getByRole('status').textContent).toContain('A subscription is needed');
+
+	mocks.access = {
+		...restrictedTrialAccess,
+		hasAccess: true,
+		trialEndsAt: new Date(Date.now() + 14 * DAY_MS),
+	};
+
+	view.rerender(<CloudBillingAccessBanner />);
+
+	expect(screen.queryByRole('status')).toBeNull();
 });
 
 it('explains the subscription requirement without presenting it as an alert', () => {
@@ -108,32 +137,101 @@ it('warns about a failed payment while access is kept', () => {
 	expect(screen.queryByRole('alert')).toBeNull();
 });
 
-it('rounds up the trial countdown within the three-day warning window', () => {
-	startTrialEndingIn(DAY_MS + 1);
+it('shows admins that their trial has started and rounds up the remaining days', () => {
+	startTrialEndingIn(13 * DAY_MS + 1);
 
 	render(<CloudBillingAccessBanner />);
 
-	expect(screen.getByRole('status').textContent).toContain('2 days left in your free trial.');
+	expect(screen.getByRole('status').textContent).toContain(
+		'Your free trial has started. 14 days left. Only admins can see this banner.',
+	);
 });
 
-it('stays hidden before the three-day trial warning window', () => {
-	startTrialEndingIn(3 * DAY_MS + 1);
+it('lets admins dismiss the trial-start banner', () => {
+	const trialEndsAt = startTrialEndingIn(14 * DAY_MS);
 
 	render(<CloudBillingAccessBanner />);
+	fireEvent.click(screen.getByRole('button', { name: 'Dismiss trial banner' }));
 
 	expect(screen.queryByRole('status')).toBeNull();
+	expect(localStorage.getItem('nao-dismissed-trial-banner')).toBe(
+		JSON.stringify([`project-organization:${trialEndsAt.toISOString()}`]),
+	);
 });
 
-it('offers an available trial to non-managers without a billing action', () => {
+it('keeps trial-start dismissals for multiple organizations', () => {
+	const trialEndsAt = startTrialEndingIn(14 * DAY_MS);
+
+	const view = render(<CloudBillingAccessBanner />);
+	fireEvent.click(screen.getByRole('button', { name: 'Dismiss trial banner' }));
+
+	mocks.access = { ...mocks.access, organizationId: 'other-organization' };
+	view.rerender(<CloudBillingAccessBanner />);
+	fireEvent.click(screen.getByRole('button', { name: 'Dismiss trial banner' }));
+
+	mocks.access = { ...mocks.access, organizationId: 'project-organization' };
+	view.rerender(<CloudBillingAccessBanner />);
+
+	expect(screen.queryByRole('status')).toBeNull();
+	expect(localStorage.getItem('nao-dismissed-trial-banner')).toBe(
+		JSON.stringify([
+			`project-organization:${trialEndsAt.toISOString()}`,
+			`other-organization:${trialEndsAt.toISOString()}`,
+		]),
+	);
+});
+
+it('shows the final three-day warning even when the trial-start banner was dismissed', () => {
+	const trialEndsAt = startTrialEndingIn(2 * DAY_MS);
+	localStorage.setItem(
+		'nao-dismissed-trial-banner',
+		JSON.stringify(`project-organization:${trialEndsAt.toISOString()}`),
+	);
+
+	render(<CloudBillingAccessBanner />);
+
+	expect(screen.getByRole('status').textContent).toContain('Your free trial ends soon. 2 days left.');
+	expect(screen.queryByRole('button', { name: 'Dismiss trial banner' })).toBeNull();
+});
+
+it('hides the trial-start notice from non-admins but shows the final three-day warning', () => {
+	const now = new Date('2026-10-05T12:00:00.000Z');
+	vi.useFakeTimers();
+	vi.setSystemTime(now);
+	mocks.access = {
+		...restrictedTrialAccess,
+		canManageBilling: false,
+		hasAccess: true,
+		trialEndsAt: new Date(now.getTime() + 14 * DAY_MS),
+	};
+
+	const view = render(<CloudBillingAccessBanner />);
+
+	expect(screen.queryByRole('status')).toBeNull();
+
+	mocks.access = { ...mocks.access, trialEndsAt: new Date(now.getTime() + 2 * DAY_MS) };
+	view.rerender(<CloudBillingAccessBanner />);
+
+	expect(screen.getByRole('status').textContent).toContain(
+		'Your free trial ends soon. 2 days left. An organization admin must manage billing to keep access.',
+	);
+	expect(screen.getByText('Ask an organization admin to manage billing.')).toBeTruthy();
+});
+
+it('offers an available trial to non-managers and lets them dismiss it', () => {
 	mocks.access = { ...restrictedTrialAccess, canManageBilling: false, trialAvailable: true };
 
 	render(<CloudBillingAccessBanner />);
 
 	expect(screen.getByRole('status').textContent).toContain(
-		'An organization admin can activate 14 days of nao Cloud.',
+		'An organization admin can finish setting up the first project.',
 	);
 	expect(screen.getByText('Ask an organization admin to manage billing.')).toBeTruthy();
 	expect(screen.queryByRole('button', { name: 'Manage billing' })).toBeNull();
+	fireEvent.click(screen.getByRole('button', { name: 'Dismiss trial banner' }));
+
+	expect(screen.queryByRole('status')).toBeNull();
+	expect(localStorage.getItem('nao-dismissed-trial-banner')).toBe(JSON.stringify(['project-organization:available']));
 });
 
 it('stops polling after active billing access is confirmed', () => {
@@ -160,13 +258,15 @@ it('selects the project organization before opening billing management', async (
 	});
 });
 
-function startTrialEndingIn(remainingMs: number) {
+function startTrialEndingIn(remainingMs: number): Date {
 	const now = new Date('2026-10-05T12:00:00.000Z');
+	const trialEndsAt = new Date(now.getTime() + remainingMs);
 	vi.useFakeTimers();
 	vi.setSystemTime(now);
 	mocks.access = {
 		...restrictedTrialAccess,
 		hasAccess: true,
-		trialEndsAt: new Date(now.getTime() + remainingMs),
+		trialEndsAt,
 	};
+	return trialEndsAt;
 }

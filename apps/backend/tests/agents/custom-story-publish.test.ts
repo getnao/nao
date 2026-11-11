@@ -43,6 +43,7 @@ describe('publishing a custom story', () => {
 	beforeEach(async () => {
 		onBuild.current = async () => {};
 		await db.delete(s.storyVersion);
+		await db.delete(s.storyDataCache);
 		await db.delete(s.storyDraftFile);
 		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: 'export default () => null;' });
 	});
@@ -65,13 +66,64 @@ describe('publishing a custom story', () => {
 		expect(output).toMatchObject({ success: false, error: expect.stringContaining('draft changed') });
 		expect(await db.select().from(s.storyVersion)).toEqual([]);
 	});
+
+	it('drops only the frozen narratives whose text was revised, so their new prose shows', async () => {
+		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('Old trend') });
+		await expectPublished();
+		await db.insert(s.storyDataCache).values({
+			storyId: STORY_ID,
+			queryData: {},
+			querySources: null,
+			analysisResults: { summary: 'Frozen summary', trend: 'Frozen trend' },
+			cachedAt: new Date(),
+		});
+		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('New trend') });
+
+		await expectPublished();
+
+		const [cache] = await db.select().from(s.storyDataCache);
+		expect(cache.analysisResults).toEqual({ summary: 'Frozen summary' });
+	});
+
+	it('keeps the frozen narratives when the same files are published again', async () => {
+		await storyFileQueries.writeDraftFile(STORY_ID, { path: 'app.jsx', content: narrativesApp('Old trend') });
+		await expectPublished();
+		await db.insert(s.storyDataCache).values({
+			storyId: STORY_ID,
+			queryData: {},
+			querySources: null,
+			analysisResults: { summary: 'Frozen summary', trend: 'Frozen trend' },
+			cachedAt: new Date(),
+		});
+
+		await expectPublished();
+
+		const [cache] = await db.select().from(s.storyDataCache);
+		expect(cache.analysisResults).toEqual({ summary: 'Frozen summary', trend: 'Frozen trend' });
+	});
 });
 
 function publish() {
 	const tool = storyTool as Tool<{ action: 'publish'; id: string }, { success: boolean }>;
 	return executeTool(
 		tool,
-		{ action: 'publish', id: 'revenue' },
+		{ action: 'publish', id: STORY_ID },
 		createToolContext({ userGroupFeatures: ['storyCreation', 'customStoryCreation'] }),
 	);
+}
+
+async function expectPublished() {
+	expect(await publish()).toMatchObject({ success: true });
+}
+
+function narrativesApp(trendText: string) {
+	return [
+		"import { Narrative } from '@nao/story-kit';",
+		'export default () => (',
+		'\t<>',
+		'\t\t<Narrative id="summary">Revenue grew</Narrative>',
+		`\t\t<Narrative id="trend">${trendText}</Narrative>`,
+		'\t</>',
+		');',
+	].join('\n');
 }

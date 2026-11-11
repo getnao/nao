@@ -24,13 +24,19 @@ import { ChartEditorDataPanel, ChartEditorDataRail } from './chart-editor-data-p
 import { ChartEditorPreview } from './chart-editor-preview';
 import { ChartEditorQueryPane } from './chart-editor-query-pane';
 import { ChartTypePicker, chartTypeLabel } from './chart-type-picker';
+import type { ChartEditorQuerySource } from './chart-editor-data-panel';
 import type { ColumnValueKind } from '@/lib/chart-selection-summary';
 import type { SourceQuery } from '@/lib/execute-sql-messages';
 import type { LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { executeSql } from '@nao/shared/tools';
 import type { ChartType } from '@nao/shared/chart-types';
+import type { StoryTheme } from '@nao/shared/story-theme';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { acceptNumericKind, useColumnDropTarget, useDraggedColumnKind } from '@/hooks/use-column-drag';
+import { describeSemanticQueryFreshness, useSemanticQueryFreshness } from '@/hooks/use-semantic-query-freshness';
+import { isSemanticSourceQuery } from '@/lib/execute-sql-messages';
 import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
 import { resolveCssVariableColorHex } from '@/lib/css-color';
@@ -111,13 +117,15 @@ function remapOpenIndexesAfterRemoval(openIndexes: Set<number>, removedIndex: nu
 
 interface ChartConfigEditDialogProps extends Omit<
 	ChartConfigEditFormProps,
-	'id' | 'onCancel' | 'onSaved' | 'onDraftChange' | 'className' | 'showActions'
+	'id' | 'onSaved' | 'onDraftChange' | 'className'
 > {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	isSaving?: boolean;
 	description?: string;
 	sourceQuery?: SourceQuery | null;
 	initialView?: ChartEditorView;
+	previewTheme?: StoryTheme;
 }
 
 export type ChartEditorView = 'chart' | 'query';
@@ -135,6 +143,7 @@ const FORM_PANEL_MIN_WIDTH = 320;
 const FORM_PANEL_MAX_WIDTH = 720;
 const CHART_PANEL_MIN_WIDTH = 320;
 const PANEL_OVERFLOW_HIDDEN = { overflow: 'hidden' } as const;
+const PANEL_SCROLL_Y = { overflowY: 'auto' } as const;
 
 /**
  * Chart editor dialog: the query result columns on the left, the configuration form in the
@@ -144,9 +153,11 @@ const PANEL_OVERFLOW_HIDDEN = { overflow: 'hidden' } as const;
 export function ChartConfigEditDialog({
 	open,
 	onOpenChange,
+	isSaving = false,
 	description = 'Tweak the chart parameters.',
 	sourceQuery,
 	initialView = 'chart',
+	previewTheme,
 	...form
 }: ChartConfigEditDialogProps) {
 	const formId = useId();
@@ -164,6 +175,7 @@ export function ChartConfigEditDialog({
 	const unsupportedNumberFormat = findUnsupportedNumberFormat(draft.series, form.enforceExportSafeFormats ?? true);
 	const editableQuery = sourceQuery && isEditableSourceQuery(sourceQuery) ? sourceQuery : null;
 	const canEditQuery = Boolean(editableQuery && !agent?.isReadonly && !agent?.isRunning);
+	const querySource = useChartEditorQuerySource(open && canEditQuery ? editableQuery : null);
 	const dataPanelRef = usePanelRef();
 	const [isDataPanelCollapsed, setIsDataPanelCollapsed] = useState(false);
 	const openQueryEditor = canEditQuery ? () => setQueryEditorState('open') : undefined;
@@ -205,7 +217,7 @@ export function ChartConfigEditDialog({
 								onExpand={() => dataPanelRef.current?.expand()}
 								onEditQuery={openQueryEditor}
 								isEditingQuery={isEditingQuery}
-								dialect={editableQuery?.output.dialect}
+								querySource={querySource}
 							/>
 						) : (
 							<ChartEditorDataPanel
@@ -216,7 +228,7 @@ export function ChartConfigEditDialog({
 								onCollapse={() => dataPanelRef.current?.collapse()}
 								onEditQuery={openQueryEditor}
 								isEditingQuery={isEditingQuery}
-								dialect={editableQuery?.output.dialect}
+								querySource={querySource}
 							/>
 						)}
 					</ResizablePanel>
@@ -225,9 +237,7 @@ export function ChartConfigEditDialog({
 						{canEditQuery && editableQuery && queryEditorState !== 'unopened' && (
 							<ChartEditorQueryPane
 								className={cn(queryEditorState === 'hidden' && 'hidden')}
-								input={editableQuery.input}
-								output={editableQuery.output}
-								toolCallId={editableQuery.toolCallId}
+								sourceQuery={editableQuery}
 								onOutputChange={setEditedOutput}
 								onClose={() => setQueryEditorState('hidden')}
 							/>
@@ -240,6 +250,7 @@ export function ChartConfigEditDialog({
 									minSize={FORM_PANEL_MIN_WIDTH}
 									maxSize={FORM_PANEL_MAX_WIDTH}
 									className='select-none'
+									style={PANEL_SCROLL_Y}
 								>
 									<ChartConfigEditForm
 										{...form}
@@ -247,9 +258,7 @@ export function ChartConfigEditDialog({
 										data={data}
 										id={formId}
 										className='p-6'
-										showActions={false}
 										onDraftChange={setDraft}
-										onCancel={() => onOpenChange(false)}
 										onSaved={() => onOpenChange(false)}
 									/>
 								</ResizablePanel>
@@ -260,7 +269,15 @@ export function ChartConfigEditDialog({
 									className='flex flex-col'
 									style={PANEL_OVERFLOW_HIDDEN}
 								>
-									<ChartEditorPreview draft={draft} data={data} columns={columns} summary={summary} />
+									<ThemedPreview theme={previewTheme}>
+										<ChartEditorPreview
+											draft={draft}
+											data={data}
+											columns={columns}
+											summary={summary}
+											palette={form.palette}
+										/>
+									</ThemedPreview>
 								</ResizablePanel>
 							</ResizablePanelGroup>
 						</div>
@@ -269,7 +286,7 @@ export function ChartConfigEditDialog({
 				<ChartConfigEditActions
 					formId={formId}
 					className='shrink-0 border-t px-6 py-3'
-					isSaving={form.isSaving ?? false}
+					isSaving={isSaving}
 					canSave={!unsupportedNumberFormat}
 					onCancel={() => onOpenChange(false)}
 				/>
@@ -278,37 +295,43 @@ export function ChartConfigEditDialog({
 	);
 }
 
+/** Only wraps when a theme is given, so a chart already inside a themed story keeps the style it inherits. */
+function ThemedPreview({ theme, children }: { theme?: StoryTheme; children: ReactNode }) {
+	if (!theme) {
+		return children;
+	}
+	return (
+		<StoryThemeProvider theme={theme} className='flex flex-col'>
+			{children}
+		</StoryThemeProvider>
+	);
+}
+
 interface ChartConfigEditFormProps {
 	config: EditableChartInput;
 	availableColumns: string[];
 	onSave: (next: EditableChartInput) => Promise<void>;
-	onCancel: () => void;
 	onSaved: () => void;
 	onDraftChange?: (draft: EditableChartInput) => void;
-	isSaving?: boolean;
 	data?: Record<string, unknown>[];
 	palette?: string[];
 	enforceExportSafeFormats?: boolean;
 	id?: string;
 	className?: string;
-	showActions?: boolean;
 }
 
-/** The chart editing fields and their validation, for a dialog or any other container. */
-export function ChartConfigEditForm({
+/** The chart editing fields and their validation, submitted by the dialog's footer. */
+function ChartConfigEditForm({
 	config,
 	availableColumns,
 	onSave,
-	onCancel,
 	onSaved,
 	onDraftChange,
-	isSaving = false,
 	data,
 	palette,
 	enforceExportSafeFormats = true,
 	id,
 	className,
-	showActions = true,
 }: ChartConfigEditFormProps) {
 	const [draft, setDraft] = useState<EditableChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
@@ -444,14 +467,16 @@ export function ChartConfigEditForm({
 		setOpenValueFormatIndexes((previous) => remapOpenIndexesAfterRemoval(previous, index));
 	};
 
+	const usedSeriesKeys = new Set(draft.series.map((s) => s.data_key));
+	const nextUnusedSeriesColumn = getSelectableColumns(availableColumns).find(
+		(column) => column !== draft.x_axis_key && !usedSeriesKeys.has(column),
+	);
+
 	const addSeries = (column?: string) => {
-		const used = new Set(draft.series.map((s) => s.data_key));
-		if (column && (column === draft.x_axis_key || used.has(column))) {
+		if (column && (column === draft.x_axis_key || usedSeriesKeys.has(column))) {
 			return;
 		}
-		const selectableColumns = getSelectableColumns(availableColumns);
-		const nextColumn =
-			column ?? selectableColumns.find((c) => c !== draft.x_axis_key && !used.has(c)) ?? selectableColumns[0];
+		const nextColumn = column ?? nextUnusedSeriesColumn;
 		if (!nextColumn) {
 			setError('No columns are available to add as a series.');
 			return;
@@ -618,6 +643,8 @@ export function ChartConfigEditForm({
 						variant='outline'
 						className='rounded-full text-xs'
 						onClick={() => addSeries()}
+						disabled={!nextUnusedSeriesColumn}
+						title={nextUnusedSeriesColumn ? undefined : 'All columns are already used'}
 					>
 						<Plus className='size-3.5' /> Add series
 					</Button>
@@ -847,14 +874,22 @@ export function ChartConfigEditForm({
 						onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
 					/>
 				</div>
+				{draft.chart_type !== 'kpi_card' && (
+					<div className='flex h-8 items-center justify-between'>
+						<label htmlFor='show-legend' className='text-sm text-foreground'>
+							Show legend
+						</label>
+						<Switch
+							id='show-legend'
+							checked={draft.show_legend ?? true}
+							onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_legend: v }))}
+						/>
+					</div>
+				)}
 			</div>
 
 			{(error || unsupportedNumberFormat) && (
 				<p className='text-xs text-destructive'>{error ?? UNSUPPORTED_NUMBER_FORMAT_MESSAGE}</p>
-			)}
-
-			{showActions && (
-				<ChartConfigEditActions isSaving={isSaving} canSave={!unsupportedNumberFormat} onCancel={onCancel} />
 			)}
 		</form>
 	);
@@ -1331,9 +1366,27 @@ const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~?s$
 
 type EditableSourceQuery = SourceQuery & { input: executeSql.Input };
 
-/** Semantic queries are read as their compiled SQL, which the backend refuses to edit. */
+/** A semantic query is edited through its metric query, never through the SQL the layer compiled. */
 function isEditableSourceQuery(sourceQuery: SourceQuery): sourceQuery is EditableSourceQuery {
-	return Boolean(sourceQuery.input && sourceQuery.output.id) && !('compiled_sql' in sourceQuery.output);
+	if (!sourceQuery.input || !sourceQuery.output.id) {
+		return false;
+	}
+	return isSemanticSourceQuery(sourceQuery) || !('compiled_sql' in sourceQuery.output);
+}
+
+function useChartEditorQuerySource(editableQuery: EditableSourceQuery | null): ChartEditorQuerySource {
+	const semanticQuery = editableQuery && isSemanticSourceQuery(editableQuery) ? editableQuery : null;
+	const freshness = useSemanticQueryFreshness(
+		semanticQuery && {
+			queryId: semanticQuery.output.id,
+			semanticQuery: semanticQuery.semanticQuery,
+			compiledSql: semanticQuery.input.sql_query,
+		},
+	);
+	if (semanticQuery) {
+		return { kind: 'semantic', warning: describeSemanticQueryFreshness(freshness) };
+	}
+	return { kind: 'sql', dialect: editableQuery?.output.dialect };
 }
 
 function findUnsupportedNumberFormat(

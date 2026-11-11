@@ -18,6 +18,23 @@ export const getOrganizationBySlug = async (slug: string): Promise<DBOrganizatio
 	return org ?? null;
 };
 
+export const getEarliestOrganizationAdmin = async (
+	orgId: string,
+): Promise<{ id: string; email: string; name: string } | null> => {
+	const [admin] = await db
+		.select({ id: s.user.id, email: s.user.email, name: s.user.name })
+		.from(s.orgMember)
+		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.role, 'admin')))
+		.orderBy(asc(s.orgMember.createdAt), asc(s.orgMember.userId))
+		.limit(1)
+		.execute();
+	if (!admin?.email.trim()) {
+		return null;
+	}
+	return { ...admin, email: admin.email.trim() };
+};
+
 export const getFirstOrganization = async (): Promise<DBOrganization | null> => {
 	const [org] = await db.select().from(s.organization).limit(1).execute();
 	return org ?? null;
@@ -175,6 +192,33 @@ export const updateOrganizationName = async (orgId: string, name: string): Promi
 
 export const updateOrganizationBypassBilling = async (orgId: string, bypassBilling: boolean): Promise<void> => {
 	await db.update(s.organization).set({ bypassBilling }).where(eq(s.organization.id, orgId)).execute();
+};
+
+export const updateOrganizationLicense = async (orgId: string, license: string | null): Promise<void> => {
+	await db.update(s.organization).set({ license }).where(eq(s.organization.id, orgId)).execute();
+};
+
+export type OrganizationLicenseToken = { orgId: string; license: string | null };
+
+export const getOrganizationLicenseToken = async (orgId: string): Promise<OrganizationLicenseToken | null> => {
+	const [row] = await db
+		.select({ orgId: s.organization.id, license: s.organization.license })
+		.from(s.organization)
+		.where(eq(s.organization.id, orgId))
+		.execute();
+	return row ?? null;
+};
+
+export const getProjectOrganizationLicenseToken = async (
+	projectId: string,
+): Promise<OrganizationLicenseToken | null> => {
+	const [row] = await db
+		.select({ orgId: s.organization.id, license: s.organization.license })
+		.from(s.project)
+		.innerJoin(s.organization, eq(s.organization.id, s.project.orgId))
+		.where(eq(s.project.id, projectId))
+		.execute();
+	return row ?? null;
 };
 
 export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {

@@ -7,7 +7,9 @@ import { createTestCaller } from '../helpers/trpc-caller';
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	getFirstProjectAdminUserId: vi.fn(),
 	getLatestRun: vi.fn(),
+	getProjectAvailableModels: vi.fn(),
 	getProjectByUserId: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	runContextRecommendations: vi.fn(),
@@ -22,6 +24,7 @@ vi.mock('../../src/handlers/context-recommendations.handler', () => ({
 	ensureContextRecommendationsSchedule: vi.fn(),
 }));
 vi.mock('../../src/queries/context-recommendation.queries', () => ({
+	getFirstProjectAdminUserId: mocks.getFirstProjectAdminUserId,
 	getLatestRun: mocks.getLatestRun,
 }));
 vi.mock('../../src/queries/organization.queries', () => ({}));
@@ -52,7 +55,7 @@ vi.mock('../../src/services/gitlab', () => ({}));
 vi.mock('../../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(),
 }));
-vi.mock('../../src/utils/llm', () => ({ getProjectAvailableModels: vi.fn() }));
+vi.mock('../../src/utils/llm', () => ({ getProjectAvailableModels: mocks.getProjectAvailableModels }));
 vi.mock('../../src/utils/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn() } }));
 vi.mock('../../src/utils/nao-config', () => ({ extractConfiguredRepos: vi.fn() }));
 
@@ -65,7 +68,9 @@ const caller = createTestCaller(testRouter);
 describe('context recommendation routes', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.getFirstProjectAdminUserId.mockResolvedValue('execution-user-id');
 		mocks.getLatestRun.mockResolvedValue(null);
+		mocks.getProjectAvailableModels.mockResolvedValue([]);
 		mocks.getProjectByUserId.mockResolvedValue({ id: 'project-id', orgId: 'org-id' });
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
 	});
@@ -80,6 +85,12 @@ describe('context recommendation routes', () => {
 		});
 
 		expect(mocks.runContextRecommendations).not.toHaveBeenCalled();
+	});
+
+	it('lists models for the project', async () => {
+		await caller.contextRecommendation.listAvailableModels();
+
+		expect(mocks.getProjectAvailableModels).toHaveBeenCalledWith('project-id');
 	});
 
 	it('attributes manual runs to the user who triggered them', async () => {

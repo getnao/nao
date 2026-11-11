@@ -22,6 +22,7 @@ import { createOllama } from 'ai-sdk-ollama';
 
 import type {
 	ActiveEffort,
+	ExtraParamKey,
 	LlmProvidersType,
 	ModelCapabilities,
 	ModelInferenceSettings,
@@ -43,12 +44,15 @@ import {
 	OPENAI_COMPATIBLE_BASE_URLS,
 	PROVIDER_META,
 } from './provider-meta';
+import { TOOL_RESULT_CLEARING_EDIT } from './tool-result-clearing';
+import { withWellFormedPrompt } from './well-formed-prompt';
 
 export {
 	getDefaultModelId,
 	getProviderApiKeyRequirement,
 	getProviderAuth,
 	getProviderMeta,
+	isManagedProvider,
 	KNOWN_MODELS,
 	PROVIDER_META,
 } from './provider-meta';
@@ -60,35 +64,17 @@ export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
 export const CACHE_5M = { type: 'ephemeral' } as const;
 
 export const LLM_PROVIDERS: LlmProvidersType = {
+	nao: {
+		...PROVIDER_META.nao,
+		create: (settings, modelId) => createOpenAI(settings).responses(modelId),
+		defaultOptions: { store: false, truncation: 'auto', reasoningSummary: 'auto' },
+	},
 	anthropic: {
 		...PROVIDER_META.anthropic,
 		create: (settings, modelId) => withProgressUpdates(createAnthropic(settings).chat(modelId)),
 		defaultOptions: {
 			disableParallelToolUse: false,
-			contextManagement: {
-				edits: [
-					{
-						type: 'clear_tool_uses_20250919',
-						trigger: {
-							type: 'input_tokens',
-							value: 180_000,
-						},
-						clearToolInputs: false,
-						excludeTools: [
-							'display_chart',
-							'execute_python',
-							'execute_semantic_query',
-							'execute_sql',
-							'execute_sandboxed_code',
-							'grep',
-							'list',
-							'read',
-							'search',
-							'story',
-						],
-					},
-				],
-			},
+			contextManagement: { edits: [TOOL_RESULT_CLEARING_EDIT] },
 		} satisfies AnthropicProviderOptions,
 	},
 	openai: {
@@ -160,7 +146,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			const config = { project, location, baseURL: settings.baseURL, googleAuthOptions };
 
 			if (modelId.startsWith('claude-')) {
-				return createVertexAnthropic(config)(modelId);
+				return createVertexAnthropic({ ...config, fetch: fetchWithUnforcedToolChoice })(modelId);
 			}
 			return createVertex(config)(modelId);
 		},
@@ -234,9 +220,10 @@ function createCompatibleModel(provider: LlmProvider, settings: ProviderSettings
 
 /** Named instances all speak the OpenAI-compatible API, so they skip their kind's own factory. */
 function createModel(provider: LlmProvider, settings: ProviderSettings, modelId: string): LanguageModelV3 {
-	return providerName(provider)
+	const model = providerName(provider)
 		? createCompatibleModel(provider, settings, modelId)
 		: LLM_PROVIDERS[providerKind(provider)].create(settings, modelId);
+	return withWellFormedPrompt(model);
 }
 
 export type ModelCallSettings = {
@@ -259,7 +246,11 @@ export type ProviderModelResult = {
 
 export function disableModelReasoning(provider: LlmProvider, modelResult: ProviderModelResult): ProviderModelResult {
 	const optionKey =
-		providerKind(provider) === 'vertex' && modelResult.model.modelId.startsWith('claude-') ? 'anthropic' : provider;
+		providerKind(provider) === 'vertex' && modelResult.model.modelId.startsWith('claude-')
+			? 'anthropic'
+			: providerKind(provider) === 'nao'
+				? 'openai'
+				: provider;
 	const options = { ...(modelResult.providerOptions[optionKey] ?? {}) } as Record<string, unknown>;
 
 	delete options.thinking;
@@ -273,6 +264,7 @@ export function disableModelReasoning(provider: LlmProvider, modelResult: Provid
 	delete options.sendReasoning;
 
 	switch (providerKind(provider)) {
+		case 'nao':
 		case 'openai':
 		case 'azure':
 		case 'requesty':
@@ -315,7 +307,8 @@ export function createProviderModel(
 	const { callSettings, providerOverrides } = resolveInferenceOptions(provider, modelId, inferenceSettings);
 
 	// Claude-on-Vertex keys provider options under `anthropic`, not `vertex`.
-	const optionKey: LlmProvider = kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
+	const optionKey: LlmProvider =
+		kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : kind === 'nao' ? 'openai' : provider;
 
 	return {
 		model: createModel(provider, settings, modelId),
@@ -441,7 +434,7 @@ type ThinkingResult = { providerOverrides?: Record<string, unknown>; thinkingAct
 const THINKING_INACTIVE: ThinkingResult = { thinkingActive: false };
 
 /** Snap a stored effort to the nearest option the model declares, so a stale setting can't error. */
-function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
+export function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
 	if (!options || options.includes(effort)) {
 		return effort;
 	}
@@ -485,6 +478,7 @@ function resolveThinking(
 	}
 
 	switch (kind) {
+		case 'nao':
 		case 'openai':
 			return resolveEffortThinking(effort, (e) => ({
 				reasoningEffort: (capabilities?.effortMap ?? EFFORT_TO_OPENAI)[e],
@@ -618,6 +612,11 @@ function resolveEffortThinking(
 	return { providerOverrides: toOverrides(effort), thinkingActive: true };
 }
 
+/** Sent when the admin leaves the param unset: Gemini bills its thinking but only returns it when asked. */
+const EXTRA_PARAM_DEFAULTS: Partial<Pick<ModelInferenceSettings, ExtraParamKey>> = {
+	includeThoughts: true,
+};
+
 function resolveExtraOptions(
 	provider: LlmProvider,
 	modelId: string,
@@ -631,7 +630,7 @@ function resolveExtraOptions(
 
 	const overrides: Record<string, unknown> = {};
 	for (const key of extraParams) {
-		const value = settings[key];
+		const value = settings[key] ?? EXTRA_PARAM_DEFAULTS[key];
 		if (value === undefined || key === 'thinkingDisplay') {
 			continue;
 		}
@@ -666,6 +665,18 @@ function mergeProviderOverrides(
 	}
 	return merged;
 }
+
+/**
+ * The newest Claude models reject a forced tool call, which the SDK sends for `toolChoice: 'required'` and, on
+ * Vertex, for every structured output. Every Claude model accepts the same request with `auto`.
+ */
+const fetchWithUnforcedToolChoice = ((input, init) => {
+	const body = JSON.parse(init?.body as string);
+	if (body.tool_choice?.type === 'any') {
+		body.tool_choice.type = 'auto';
+	}
+	return fetch(input, { ...init, body: JSON.stringify(body) });
+}) as typeof fetch;
 
 function getProviderModelConfig<P extends LlmProviderKind>(provider: P, modelId: string): ProviderConfigMap[P] {
 	const model = LLM_PROVIDERS[provider].models.find((m) => m.id === modelId);

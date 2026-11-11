@@ -17,16 +17,27 @@ vi.mock('../../src/queries/user-group.queries', () => ({
 vi.mock('../../src/agents/user-rules', () => ({
 	getDatabaseContextCatalog: vi.fn(),
 }));
+vi.mock('../../src/services/skill', () => ({
+	skillService: {
+		initializeSkills: vi.fn(async () => undefined),
+		getSkills: vi.fn(() => [
+			{ name: 'revenue', description: '', location: '/agent/skills/revenue-playbook.md' },
+			{ name: 'churn', description: '', location: '/agent/skills/churn.md' },
+		]),
+	},
+}));
 
 import { getDatabaseContextCatalog } from '../../src/agents/user-rules';
 import { getUserRoleInProject } from '../../src/queries/project.queries';
 import { getProjectRowSecurity } from '../../src/queries/user-group.queries';
 import { hasFeature } from '../../src/services/license.service';
+import { skillService } from '../../src/services/skill';
 import { resolveAvailableUserGroupAccess as resolveUserGroupAccess } from '../../src/services/user-group-availability.service';
 import {
 	expandDatabaseAccess,
 	isDatabaseObjectAllowed,
 	resolveMcpSettingsAccess,
+	resolveMcpUsageAccess,
 	resolveProjectContextAccess,
 	resolveWarehouseTableAccess,
 } from '../../src/services/user-group-context-access.service';
@@ -93,7 +104,7 @@ describe('warehouse Context access', () => {
 		});
 		expect(resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
-		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
+		expect(hasFeature).toHaveBeenCalledWith('row-level-security', { projectId: 'project-1' });
 	});
 
 	it('rejects revoked principals before resolving group access', async () => {
@@ -104,20 +115,6 @@ describe('warehouse Context access', () => {
 		});
 		expect(hasFeature).not.toHaveBeenCalled();
 		expect(resolveUserGroupAccess).not.toHaveBeenCalled();
-	});
-
-	it('resolves context after a system project request was already authorized', async () => {
-		vi.mocked(getUserRoleInProject).mockResolvedValue(null);
-
-		await expect(
-			resolveProjectContextAccess('system-example-project', 'user-1', '/project', {
-				projectAccessAlreadyAuthorized: true,
-			}),
-		).resolves.toMatchObject({
-			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
-		});
-		expect(getUserRoleInProject).not.toHaveBeenCalled();
-		expect(resolveUserGroupAccess).toHaveBeenCalledWith('system-example-project', 'user-1');
 	});
 
 	it('enforces docs, features, and RULES groups without unlimited entitlement', async () => {
@@ -131,10 +128,37 @@ describe('warehouse Context access', () => {
 			},
 			filesContextAccess: { enforced: true, access: ALL_FILES_CONTEXT_ACCESS },
 			mcpAccess: { mode: 'restricted', grants: [{ kind: 'server', server: 'github' }] },
+			skillsAccess: { mode: 'all' },
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});
-		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
+		expect(hasFeature).toHaveBeenCalledWith('row-level-security', { projectId: 'project-1' });
+	});
+
+	it('resolves the files of the granted skills when skills are restricted', async () => {
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
+			userGroupAccess({ groupNames: ['All Users'], skillsAccess: { mode: 'restricted', skills: ['revenue'] } }),
+		);
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			skillsAccess: {
+				mode: 'restricted',
+				skills: ['revenue'],
+				grantedFiles: ['agent/skills/revenue-playbook.md'],
+			},
+		});
+		expect(skillService.initializeSkills).toHaveBeenCalledWith('project-1');
+	});
+
+	it('grants no skill files when skills fail to load for a restricted group', async () => {
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
+			userGroupAccess({ groupNames: ['All Users'], skillsAccess: { mode: 'restricted', skills: ['revenue'] } }),
+		);
+		vi.mocked(skillService.initializeSkills).mockRejectedValueOnce(new Error('disk error'));
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			skillsAccess: { mode: 'restricted', skills: ['revenue'], grantedFiles: [] },
+		});
 	});
 
 	it('scopes MCP settings to the group grants except for admins', async () => {
@@ -144,6 +168,14 @@ describe('warehouse Context access', () => {
 		});
 		await expect(resolveMcpSettingsAccess('project-1', 'admin-1', 'admin')).resolves.toEqual({ mode: 'all' });
 		expect(resolveUserGroupAccess).toHaveBeenCalledTimes(1);
+	});
+
+	it('scopes usable MCP servers to the group grants for admins too', async () => {
+		await expect(resolveMcpUsageAccess('project-1', 'admin-1')).resolves.toEqual({
+			mode: 'restricted',
+			grants: [{ kind: 'server', server: 'github' }],
+		});
+		expect(resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'admin-1');
 	});
 
 	it('blocks every protected table when the row-security license is inactive', async () => {
@@ -447,6 +479,7 @@ function userGroupAccess(overrides: Partial<UserGroupAccess>): UserGroupAccess {
 		features: [],
 		toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 		showAllSettings: false,
+		skillsAccess: { mode: 'all' },
 		databaseAccess: { mode: 'all', strict: true },
 		docsAccess: { mode: 'all' },
 		filesAccess: ALL_FILES_CONTEXT_ACCESS,

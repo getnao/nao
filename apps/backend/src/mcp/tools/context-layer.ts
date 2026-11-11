@@ -14,12 +14,17 @@ import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import {
+	assertWriterAddsNoMarkdownChatQueries,
+	CustomStoryQueryNotAllowedError,
+} from '../../services/custom-story-query-access';
+import {
 	isSemanticQueryToolEnabled,
 	isWarehouseSqlEnabled,
 	SemanticQueryCompileError,
 } from '../../services/semantic-layer.service';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import type { ConfiguredDatabase } from '../../utils/nao-config';
+import { generateStorySlug } from '../../utils/story-mount';
 import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
 import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
@@ -30,17 +35,12 @@ import {
 	CREATE_CUSTOM_STORY_INPUT,
 	createCustomStoryForMcp,
 	resolveCustomStory,
+	storyEditLockRefusal,
 	UPDATE_CUSTOM_STORY_DESCRIPTION,
 	UPDATE_CUSTOM_STORY_INPUT,
 	updateCustomStoryForMcp,
 } from './custom-story-mcp';
-import {
-	buildStoryMcpResultWithSandbox,
-	fetchLatestStoryVersion,
-	generateStorySlug,
-	resolveChartChatId,
-	resolveStory,
-} from './helpers';
+import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 
 const EXECUTE_SQL_BASE_DESCRIPTION =
@@ -326,10 +326,10 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			_meta: uiToolMeta(STORY_APP_URI),
 			handler: async ({ title, content, query_data, chat_id, format, files }) => {
 				if (format === 'custom') {
-					if (content !== undefined || query_data !== undefined) {
-						return errorResult('A custom story takes `files`, not `content` or `query_data`.');
+					if (content !== undefined) {
+						return errorResult('A custom story takes `files`, not `content`.');
 					}
-					return createCustomStoryForMcp({ chatId: chat_id, title, files }, ctx);
+					return createCustomStoryForMcp({ chatId: chat_id, title, files, queryData: query_data }, ctx);
 				}
 				if (files !== undefined) {
 					return errorResult('`files` only applies to `format: "custom"`.');
@@ -404,12 +404,12 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 		handler: async ({ story_id, title, content, query_data, chat_id, files, delete_paths }) => {
 			const customStory = ctx.customStoryCreationEnabled ? await resolveCustomStory(story_id, ctx) : null;
 			if (customStory) {
-				if (content !== undefined || query_data !== undefined) {
+				if (content !== undefined) {
 					return errorResult('A custom story is edited with `files` and `delete_paths`, not `content`.');
 				}
 				return updateCustomStoryForMcp(
 					customStory,
-					{ title, files: files ?? [], deletePaths: delete_paths ?? [] },
+					{ title, files: files ?? [], deletePaths: delete_paths ?? [], queryData: query_data },
 					ctx,
 				);
 			}
@@ -420,13 +420,28 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			if (files !== undefined || delete_paths !== undefined) {
 				return errorResult('`files` and `delete_paths` only apply to custom stories.');
 			}
+			const lockRefusal = await storyEditLockRefusal(story.id, ctx.userId);
+			if (lockRefusal) {
+				return errorResult(lockRefusal);
+			}
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
+			const queryRefusal = await markdownChatQueryRefusal(story, ctx.userId, newCode);
+			if (queryRefusal) {
+				return errorResult(queryRefusal);
+			}
+			const updated = await saveNewVersion(story, ctx, {
+				title: newTitle,
+				code: newCode,
+				basedOnVersion: latestVersion?.version,
+			}).catch(rethrowUnlessVersionConflict);
+			if (!updated) {
+				return errorResult(new storyQueries.StoryVersionConflictError().message);
+			}
 			if (title !== undefined && title !== story.title) {
 				await storyQueries.renameStory(story.id, title);
 			}
-			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
@@ -497,6 +512,7 @@ async function createStandaloneStory(args: {
 		title: args.title,
 		code: args.code,
 		source: 'user',
+		origin: 'mcp',
 	});
 
 	if (!story) {
@@ -539,6 +555,7 @@ async function createChatLinkedStory(args: {
 		code: args.code,
 		action: 'create',
 		source: 'assistant',
+		...mcpProvenance(args.ctx),
 	});
 	const created = await storyQueries.getStoryByChatAndSlug(args.chatId, args.slug);
 	if (!created) {
@@ -567,8 +584,7 @@ async function createChatLinkedStory(args: {
 async function saveNewVersion(
 	story: { id: string; slug: string; chatId: string | null },
 	ctx: McpContext,
-	title: string,
-	code: string,
+	{ title, code, basedOnVersion }: { title: string; code: string; basedOnVersion: number | undefined },
 ): Promise<{ id: string; title: string; updatedAt: Date }> {
 	if (story.chatId) {
 		await storyQueries.createStoryVersion({
@@ -576,8 +592,10 @@ async function saveNewVersion(
 			slug: story.slug,
 			title,
 			code,
+			basedOnVersion,
 			action: 'update',
 			source: 'user',
+			...mcpProvenance(ctx),
 		});
 		const updated = await storyQueries.getStoryByChatAndSlug(story.chatId, story.slug);
 		if (!updated) {
@@ -594,10 +612,42 @@ async function saveNewVersion(
 		code,
 		action: 'update',
 		source: 'user',
+		origin: 'mcp',
+		basedOnVersion,
 	});
 	const updated = await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, story.slug);
 	if (!updated) {
 		throw new Error(`Failed to retrieve updated story: ${ctx.userId}/${story.slug}`);
 	}
 	return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
+}
+
+async function markdownChatQueryRefusal(
+	story: { slug: string; chatId: string | null },
+	userId: string,
+	code: string,
+): Promise<string | null> {
+	if (!story.chatId) {
+		return null;
+	}
+	try {
+		await assertWriterAddsNoMarkdownChatQueries(story.chatId, story.slug, userId, code);
+		return null;
+	} catch (error) {
+		if (error instanceof CustomStoryQueryNotAllowedError) {
+			return error.message;
+		}
+		throw error;
+	}
+}
+
+function rethrowUnlessVersionConflict(error: unknown): null {
+	if (error instanceof storyQueries.StoryVersionConflictError) {
+		return null;
+	}
+	throw error;
+}
+
+function mcpProvenance(ctx: McpContext): storyQueries.VersionProvenance {
+	return { origin: 'mcp', authorId: ctx.userId, sourceChatId: null };
 }

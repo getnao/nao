@@ -26,6 +26,10 @@ export default defineConfig({
 		maxWorkers: 3,
 		globalSetup: ['./tests/setup/sqlite-schema.ts'],
 		setupFiles: ['./tests/setup/shared-worker.ts'],
+		env: {
+			MODE: 'test',
+			NAO_MODE: 'self-hosted',
+		},
 		server: {
 			deps: {
 				inline: [/drizzle-orm\/bun-sqlite/],

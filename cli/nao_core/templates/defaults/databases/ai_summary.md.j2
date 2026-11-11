@@ -39,6 +39,10 @@ Preview (a tiny, non-representative sample of up to 10 rows — do NOT infer dat
 {% if has_profiling %}
 Profiling statistics (JSON):
 Use these statistics for data-quality and distribution observations, including nulls, distinct counts, min/max, and top values.
+{% if profiling.scope %}
+{% set scope = profiling.scope %}
+Profiling scope: these statistics cover only the {{ scope.profiled_row_count }} rows matching the partition filter `` {{ scope.partition_filter }} ``, not the full table{% if scope.table_row_count is not none %} ({{ scope.table_row_count }} rows){% endif %}. Every column's total_count, null_percentage, distinct_count, min/max, mean and top values describe that subset only. Say so in the data-quality notes, and never compare these statistics against the full-table row count (for example to infer uniqueness or fan-out).
+{% endif %}
 {{ profiling | to_json(indent=2) }}
 {% endif %}
 {%- endset %}

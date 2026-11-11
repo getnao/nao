@@ -35,6 +35,7 @@ import { isMac } from '@/lib/platform';
 import { isForbiddenError } from '@/lib/trpc-error';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export { isRootRulesPath } from '@nao/shared/rules-template';
 
@@ -63,6 +64,8 @@ interface FileViewerProps {
 	searchQuery: string;
 	sourceAutoOpenRequestId: number | null;
 	onDirtyChange: (isDirty: boolean) => void;
+	/** Follows the content in the editor, saved or not. */
+	onDraftChange?: (path: string, content: string) => void;
 	onOpenGuidancePath: (path: string, kind: 'file' | 'route') => void;
 	onReload: () => Promise<FileContents | undefined>;
 	rulesPreviewGroups: RulesPreviewGroupsState;
@@ -86,6 +89,7 @@ export function FileViewer({
 	searchQuery,
 	sourceAutoOpenRequestId,
 	onDirtyChange,
+	onDraftChange,
 	onOpenGuidancePath,
 	onReload,
 	rulesPreviewGroups,
@@ -126,6 +130,7 @@ export function FileViewer({
 			searchQuery={searchQuery}
 			sourceAutoOpenRequestId={sourceAutoOpenRequestId}
 			onDirtyChange={onDirtyChange}
+			onDraftChange={onDraftChange}
 			onOpenGuidancePath={onOpenGuidancePath}
 			onReload={onReload}
 			rulesPreviewGroups={rulesPreviewGroups}
@@ -142,6 +147,7 @@ function EditableFileViewer({
 	searchQuery,
 	sourceAutoOpenRequestId,
 	onDirtyChange,
+	onDraftChange,
 	onOpenGuidancePath,
 	onReload,
 	rulesPreviewGroups,
@@ -155,6 +161,7 @@ function EditableFileViewer({
 	| 'searchQuery'
 	| 'sourceAutoOpenRequestId'
 	| 'onDirtyChange'
+	| 'onDraftChange'
 	| 'onOpenGuidancePath'
 	| 'onReload'
 	| 'rulesPreviewGroups'
@@ -223,6 +230,10 @@ function EditableFileViewer({
 			setIsSourceAutoOpened(false);
 		}
 	}, [searchQuery]);
+
+	useEffect(() => {
+		onDraftChange?.(filePath, draft);
+	}, [filePath, draft, onDraftChange]);
 
 	useEffect(() => {
 		onDirtyChange(isDirty);
@@ -324,7 +335,7 @@ function EditableFileViewer({
 		<div className='flex flex-col h-full'>
 			<div className='flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4 py-1.5 text-sm text-muted-foreground'>
 				<div className='flex min-w-0 flex-1 items-start gap-2 overflow-hidden'>
-					<FileExplorerIcon name={fileName} type='file' className='mt-px' />
+					<FileExplorerIcon name={fileName} type='file' path={filePath} className='mt-px' />
 					<div className='min-w-0 flex-1'>
 						<div className='flex min-w-0 items-center gap-2'>
 							<span className='min-w-0 truncate font-mono leading-4'>{fileName}</span>
@@ -524,7 +535,12 @@ function MarkdownPreview({
 					) : error ? (
 						<ErrorMessage message={error} />
 					) : (
-						<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
+						<Streamdown
+							linkSafety={markdownLinkSafety}
+							mode='static'
+							controls={false}
+							plugins={markdownPlugins}
+						>
 							{parsedMarkdown.body}
 						</Streamdown>
 					)}

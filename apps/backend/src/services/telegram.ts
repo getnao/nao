@@ -7,6 +7,7 @@ import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, CardElement, Chat, Message, SentMessage, Thread } from 'chat';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
@@ -29,6 +30,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 const UPDATE_INTERVAL_MS = 200;
@@ -107,6 +109,7 @@ class TelegramService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
+			void triggerChatFeedbackAutomations({ messageId, vote: 'up' });
 			await this._updateCompletionCardVote(event.thread?.id || '', 'up');
 		});
 
@@ -116,6 +119,7 @@ class TelegramService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'down' });
+			void triggerChatFeedbackAutomations({ messageId, vote: 'down' });
 			await this._updateCompletionCardVote(event.thread?.id || '', 'down');
 		});
 	}
@@ -284,13 +288,13 @@ class TelegramService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
-			{ billingAccessVerifiedProjectId: this._projectId, supportsCustomCharts: false },
+			messagingAgent('telegram'),
+			{ billingAccessVerifiedProjectId: this._projectId },
 		);
 		ctx.modelId = agent.getModelId();
 		return agent.stream(chat.messages, {
-			provider: 'telegram',
 			timezone: ctx.timezone,
-			tracking: { source: 'telegram', isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
+			tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(this._redirectUrl).host },
 		});
 	}
 

@@ -123,12 +123,16 @@ const INFERENCE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`(
 	limit 1
 )`;
 
-export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
+export const getMessagesUsage = async (
+	projectId: string,
+	filter: UsageFilter,
+	userId?: string,
+): Promise<UsageRecord[]> => {
 	const { period } = filter;
 	const granularity = filter.granularity ?? resolveUsageChartGranularity(period);
 	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
-	const { messageWhereConditions, inferenceWhereConditions } = buildUsageWhereConditions(projectId, filter);
+	const { messageWhereConditions, inferenceWhereConditions } = buildUsageWhereConditions(projectId, filter, userId);
 
 	const costLookup = await createCostLookup(projectId);
 	const messageUsage = db.$with('message_usage').as(
@@ -179,6 +183,10 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'contextRecommendations' then ${s.chatMessage.id} end)`.as(
 						'context_recommendations_message_count',
 					),
+				testMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'test' then ${s.chatMessage.id} end)`.as(
+						'test_message_count',
+					),
 				inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens).as('input_no_cache_tokens'),
 				inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens).as('input_cache_read_tokens'),
 				inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens).as('input_cache_write_tokens'),
@@ -211,6 +219,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 				adminMessageCount: sql<number>`0`.as('admin_message_count'),
 				mcpMessageCount: sql<number>`0`.as('mcp_message_count'),
 				contextRecommendationsMessageCount: sql<number>`0`.as('context_recommendations_message_count'),
+				testMessageCount: sql<number>`0`.as('test_message_count'),
 				inputNoCacheTokens: sum(s.llmInference.inputNoCacheTokens).as('input_no_cache_tokens'),
 				inputCacheReadTokens: sum(s.llmInference.inputCacheReadTokens).as('input_cache_read_tokens'),
 				inputCacheWriteTokens: sum(s.llmInference.inputCacheWriteTokens).as('input_cache_write_tokens'),
@@ -250,6 +259,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			adminMessageCount: sum(combinedUsage.adminMessageCount),
 			mcpMessageCount: sum(combinedUsage.mcpMessageCount),
 			contextRecommendationsMessageCount: sum(combinedUsage.contextRecommendationsMessageCount),
+			testMessageCount: sum(combinedUsage.testMessageCount),
 			inputNoCacheTokens: sum(combinedUsage.inputNoCacheTokens),
 			inputCacheReadTokens: sum(combinedUsage.inputCacheReadTokens),
 			inputCacheWriteTokens: sum(combinedUsage.inputCacheWriteTokens),
@@ -266,12 +276,16 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 	return fillMissingDates(rows.map(normalizeMessageUsageRow), period, granularity);
 };
 
-export const getMessagesUsageByUser = async (projectId: string, filter: UsageFilter): Promise<UsageByUserRecord[]> => {
+export const getMessagesUsageByUser = async (
+	projectId: string,
+	filter: UsageFilter,
+	userId?: string,
+): Promise<UsageByUserRecord[]> => {
 	const { period } = filter;
 	const granularity = filter.granularity ?? resolveUsageChartGranularity(period);
 	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
-	const { messageWhereConditions, inferenceWhereConditions } = buildUsageWhereConditions(projectId, filter);
+	const { messageWhereConditions, inferenceWhereConditions } = buildUsageWhereConditions(projectId, filter, userId);
 
 	const costLookup = await createCostLookup(projectId);
 	const messageUsage = db.$with('message_usage_by_user').as(
@@ -329,7 +343,11 @@ export const getMessagesUsageByUser = async (projectId: string, filter: UsageFil
 	return groupUsageByDate(rows.map(normalizeUserUsageRow), period, granularity);
 };
 
-export const getTotalUsage = async (projectId: string, filter: UsageFilter): Promise<TotalUsageRecord> => {
+export const getTotalUsage = async (
+	projectId: string,
+	filter: UsageFilter,
+	userId?: string,
+): Promise<TotalUsageRecord> => {
 	const { period, provider } = filter;
 	const lookbackTs = getLookbackTimestamp(period);
 	const lookbackFilter =
@@ -341,7 +359,11 @@ export const getTotalUsage = async (projectId: string, filter: UsageFilter): Pro
 	if (provider) {
 		whereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
 	}
-	addUserNameFilter(whereConditions, filter.userNames);
+	if (userId) {
+		whereConditions.push(eq(MESSAGE_SENDER_EXPR, userId));
+	} else {
+		addUserNameFilter(whereConditions, filter.userNames);
+	}
 	addSourceFilter(whereConditions, filter.sources);
 
 	const rows = await db
@@ -381,18 +403,24 @@ export const getOrgActiveUserCount = async (orgId: string, period: UsagePeriodRa
 	return Number(rows[0]?.activeUsers ?? 0);
 };
 
-export const getUsedProviders = async (projectId: string): Promise<LlmProvider[]> => {
+export const getUsedProviders = async (projectId: string, userId?: string): Promise<LlmProvider[]> => {
 	const [messageRows, inferenceRows] = await Promise.all([
 		db
 			.selectDistinct({ provider: s.chatMessage.llmProvider })
 			.from(s.chatMessage)
 			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-			.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmProvider)))
+			.where(
+				and(
+					eq(s.chat.projectId, projectId),
+					isNotNull(s.chatMessage.llmProvider),
+					userId ? eq(MESSAGE_SENDER_EXPR, userId) : undefined,
+				),
+			)
 			.execute(),
 		db
 			.selectDistinct({ provider: s.llmInference.llmProvider })
 			.from(s.llmInference)
-			.where(eq(s.llmInference.projectId, projectId))
+			.where(and(eq(s.llmInference.projectId, projectId), userId ? eq(s.llmInference.userId, userId) : undefined))
 			.execute(),
 	]);
 
@@ -418,6 +446,7 @@ function normalizeMessageUsageRow(row: {
 	adminMessageCount: unknown;
 	mcpMessageCount: unknown;
 	contextRecommendationsMessageCount: unknown;
+	testMessageCount: unknown;
 	inputNoCacheTokens: unknown;
 	inputCacheReadTokens: unknown;
 	inputCacheWriteTokens: unknown;
@@ -446,6 +475,7 @@ function normalizeMessageUsageRow(row: {
 		adminMessageCount: Number(row.adminMessageCount ?? 0),
 		mcpMessageCount: Number(row.mcpMessageCount ?? 0),
 		contextRecommendationsMessageCount: Number(row.contextRecommendationsMessageCount ?? 0),
+		testMessageCount: Number(row.testMessageCount ?? 0),
 		inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
 		inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
 		inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
@@ -490,7 +520,7 @@ function groupUsageByDate(
 	return generateDateSeries(period, granularity).map((date) => ({ date, users: usersByDate.get(date) ?? [] }));
 }
 
-function buildUsageWhereConditions(projectId: string, filter: UsageFilter) {
+function buildUsageWhereConditions(projectId: string, filter: UsageFilter, userId?: string) {
 	const { period, provider } = filter;
 	const lookbackTs = getLookbackTimestamp(period);
 	const messageLookbackFilter =
@@ -508,8 +538,13 @@ function buildUsageWhereConditions(projectId: string, filter: UsageFilter) {
 		messageWhereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
 		inferenceWhereConditions.push(eq(s.llmInference.llmProvider, provider));
 	}
-	addUserNameFilter(messageWhereConditions, filter.userNames);
-	addUserNameFilter(inferenceWhereConditions, filter.userNames);
+	if (userId) {
+		messageWhereConditions.push(eq(MESSAGE_SENDER_EXPR, userId));
+		inferenceWhereConditions.push(eq(s.llmInference.userId, userId));
+	} else {
+		addUserNameFilter(messageWhereConditions, filter.userNames);
+		addUserNameFilter(inferenceWhereConditions, filter.userNames);
+	}
 	addSourceFilter(messageWhereConditions, filter.sources);
 	addInferenceSourceFilter(inferenceWhereConditions, filter.sources);
 

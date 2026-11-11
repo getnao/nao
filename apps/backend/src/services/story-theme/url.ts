@@ -3,7 +3,14 @@ import * as cheerio from 'cheerio';
 
 import { assertSafeHost, safeFetch, safeFetchWithUrl } from '../../utils/safe-fetch';
 import { ProbeRefusedError, type ProbeResult, probeWithBrowser } from './probe';
-import { type DesignSignals, DesignSourceError, emptySignals, rankBrandCandidates, signalsFromCss } from './signals';
+import {
+	type DesignSignals,
+	DesignSourceError,
+	emptySignals,
+	rankBrandCandidates,
+	signalsFromCss,
+	SourceRefusedError,
+} from './signals';
 
 const MAX_HTML_BYTES = 2_000_000;
 const MAX_CSS_BYTES = 1_500_000;
@@ -14,10 +21,13 @@ const FETCH_HEADERS = {
 };
 
 const SUBSET_FONT_ID = /^[A-Z0-9]{4,10}$/;
+const MIN_PAGE_TEXT_LENGTH = 40;
 
 export interface UrlSignals {
 	signals: DesignSignals;
 	screenshot: { data: Uint8Array; mediaType: 'image/jpeg' } | null;
+	redirectedTo?: string;
+	renderFailure?: string;
 }
 
 /** Renders the page when Chromium is available, otherwise reads its stylesheets as text. */
@@ -25,26 +35,69 @@ export async function extractSignalsFromUrl(rawUrl: string): Promise<UrlSignals>
 	const url = await assertPublicHttpUrl(rawUrl);
 
 	let renderFailure: string;
+	let refused = false;
 	try {
 		const probe = await probeWithBrowser(url.toString(), [...FONT_STYLESHEET_HOSTS]);
-		return { signals: signalsFromProbe(probe, url.toString()), screenshot: probe.screenshot };
+		assertPageHasContent(probe, url);
+		return {
+			signals: signalsFromProbe(probe, url.toString()),
+			screenshot: probe.screenshot,
+			redirectedTo: otherSite(url, probe.finalUrl),
+		};
 	} catch (error) {
-		if (error instanceof ProbeRefusedError) {
-			throw new DesignSourceError(error.message);
+		if (error instanceof DesignSourceError) {
+			throw error;
 		}
+		refused = error instanceof ProbeRefusedError;
 		renderFailure = error instanceof Error ? error.message : String(error);
 	}
 
 	try {
 		const fallback = await staticSignals(url);
-		fallback.warnings.unshift(
+		fallback.signals.warnings.unshift(
 			`The page could not be rendered (${renderFailure}), so only its stylesheets were read. Design systems defined at runtime are missed.`,
 		);
-		return { signals: fallback, screenshot: null };
+		return {
+			signals: fallback.signals,
+			screenshot: null,
+			redirectedTo: otherSite(url, fallback.finalUrl),
+			renderFailure,
+		};
 	} catch (staticError) {
+		if (refused) {
+			throw new SourceRefusedError(renderFailure);
+		}
 		const staticReason = staticError instanceof Error ? staticError.message : String(staticError);
 		throw new DesignSourceError(`Could not read ${url.hostname}: ${renderFailure} (${staticReason}).`);
 	}
+}
+
+function assertPageHasContent(probe: ProbeResult, url: URL) {
+	const hasStructure = probe.roles.heading || probe.roles.primaryButton || probe.roles.card;
+	if (probe.textLength < MIN_PAGE_TEXT_LENGTH && !hasStructure) {
+		throw new DesignSourceError(
+			`${url.hostname} shows almost nothing, like a parked or placeholder domain. Check the address, or add a screenshot of the brand's site.`,
+		);
+	}
+}
+
+/** `brand.com` landing on `www.brand.com/fr` is the same site; landing on another domain is not. */
+function otherSite(requested: URL, finalUrl: string): string | undefined {
+	try {
+		const requestedHost = bareHost(requested.hostname);
+		const finalHost = bareHost(new URL(finalUrl).hostname);
+		const sameSite =
+			finalHost === requestedHost ||
+			finalHost.endsWith(`.${requestedHost}`) ||
+			requestedHost.endsWith(`.${finalHost}`);
+		return sameSite ? undefined : finalHost;
+	} catch {
+		return undefined;
+	}
+}
+
+export function bareHost(hostname: string): string {
+	return hostname.toLowerCase().replace(/^www\./, '');
 }
 
 export async function assertPublicHttpUrl(raw: string): Promise<URL> {
@@ -116,7 +169,7 @@ export function signalsFromProbe(probe: ProbeResult, url: string): DesignSignals
 	};
 }
 
-async function staticSignals(url: URL): Promise<DesignSignals> {
+async function staticSignals(url: URL): Promise<{ signals: DesignSignals; finalUrl: string }> {
 	const page = await safeFetchWithUrl(url.toString(), {
 		allowHttp: true,
 		maxBytes: MAX_HTML_BYTES,
@@ -155,7 +208,7 @@ async function staticSignals(url: URL): Promise<DesignSignals> {
 	if (signals.fontFamilies.length === 0) {
 		warnings.push('No font families are declared in CSS; typography keeps the nao defaults.');
 	}
-	return { ...signals, warnings };
+	return { signals: { ...signals, warnings }, finalUrl: page.url };
 }
 
 function fetchText(href: string, maxBytes: number): Promise<string> {
