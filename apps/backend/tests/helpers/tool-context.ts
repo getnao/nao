@@ -2,7 +2,6 @@ import type { Tool, ToolCallOptions } from 'ai';
 
 import type { ToolContext } from '../../src/types/tools';
 
-/** An unrestricted agent run: no access policy is enforced and nothing is generated yet. */
 export function createToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
 	return {
 		projectFolder: '/tmp/project',
@@ -17,6 +16,7 @@ export function createToolContext(overrides: Partial<ToolContext> = {}): ToolCon
 		docsContextAccess: { enforced: false },
 		filesContextAccess: { enforced: false },
 		mcpAccess: { mode: 'all' },
+		skillsAccess: { mode: 'all' },
 		userGroupFeatures: [],
 		userRulesGroupAccess: { enforced: false },
 		azureAccessToken: null,

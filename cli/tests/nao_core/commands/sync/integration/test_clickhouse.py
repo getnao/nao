@@ -44,9 +44,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def clickhouse_dml_statements() -> list[str]:
-    """Statements of the ClickHouse DML script.
-
-    The script uses multi-line SQL with occasional trailing spaces after ';'.
+    """The script uses multi-line SQL with occasional trailing spaces after ';'.
     Splitting on `";\\n"` misses those statements, so use a whitespace-tolerant splitter.
     """
     parts = re.split(r";\s*(?:\n|$)", (DML_DIR / "clickhouse.sql").read_text())

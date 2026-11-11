@@ -20,7 +20,6 @@ export const mcpOAuthQueriesMock = {
 	hasMcpUserToken: async () => false,
 };
 
-/** Returns a factory of project folders declaring `mcpServers`, all of them removed after each test. */
 export function useMcpProject(): (mcpServers: Record<string, unknown>) => Promise<void> {
 	const createTemporaryFolder = useTemporaryFolders();
 

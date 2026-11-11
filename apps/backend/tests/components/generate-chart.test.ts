@@ -58,6 +58,7 @@ describe('renderChartToSvg (combo)', () => {
 				{ data_key: 'orders', series_type: 'line', y_axis: 'right' },
 			],
 			{ y_axis_label: 'Revenue', y_axis_right_label: 'Orders' },
+			{ includeLegend: false },
 		);
 		expect(svg).toContain('Revenue');
 		expect(svg).toContain('Orders');
@@ -116,8 +117,12 @@ function render(
 	});
 }
 
-function renderCombo(series: displayChart.SeriesConfig[], config: Partial<ChartConfig> = {}): string {
-	return render({ chart_type: 'mixed', title: 'Test', series, ...config });
+function renderCombo(
+	series: displayChart.SeriesConfig[],
+	config: Partial<ChartConfig> = {},
+	options: { includeLegend?: boolean } = {},
+): string {
+	return render({ chart_type: 'mixed', title: 'Test', series, ...config }, options);
 }
 
 function renderHorizontalBar(data: Record<string, unknown>[]): string {

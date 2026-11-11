@@ -269,7 +269,6 @@ def test_file_catalog_lock_across_processes(tmp_path) -> None:
 
 
 def _seeded_file_lake(tmp_path) -> DuckLakeConfig:
-    """A DuckLake on a file-based catalog under `tmp_path`, holding one table."""
     data_path = tmp_path / "data"
     data_path.mkdir()
 

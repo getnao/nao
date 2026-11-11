@@ -131,12 +131,11 @@ def with_column_types(rows: list[dict], column_types: dict[str, str]) -> list[di
 
 
 def with_integer_active(rows: list[dict], active_type: str) -> list[dict]:
-    """Profiles for engines that store the `active` flag as a 0/1 integer."""
     return [{**INTEGER_ACTIVE_PROFILE, "type": active_type} if row["column"] == "active" else row for row in rows]
 
 
 def dml_statements(filename: str, **placeholders: object) -> list[str]:
-    """Statements of a DML script; only formatted when placeholders are given, as scripts may contain braces."""
+    """Only formatted when placeholders are given, as scripts may contain braces."""
     sql = (DML_DIR / filename).read_text()
     if placeholders:
         sql = sql.format(**placeholders)

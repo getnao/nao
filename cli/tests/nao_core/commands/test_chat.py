@@ -28,7 +28,6 @@ NGROK_URL = "https://abc123.ngrok-free.app"
 
 @pytest.fixture
 def chat_mocks(mock_chat_dependencies):
-    """Patch everything `chat()` spawns or prints, with servers that start and exit immediately."""
     _, bin_dir = mock_chat_dependencies
     process = MagicMock()
     process.stdout = iter([])

@@ -8,10 +8,7 @@ import { inject } from 'vitest';
 
 import * as sqliteSchema from '../../src/db/sqlite-schema';
 
-/**
- * Fresh SQLite database with the full app schema, meant to replace `src/db/db` through `vi.mock`.
- * Every test file gets its own instance because the module registry is reset per file.
- */
+/** Every test file gets its own instance because the module registry is reset per file. */
 export const createInMemoryDb = () => openDatabase(':memory:');
 
 /** better-sqlite3 transactions cannot await, so async transaction callbacks run directly on the database. */

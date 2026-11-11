@@ -700,7 +700,6 @@ def _patched_client(client_path: str, models: list):
 
 
 def _run_debug() -> list[str]:
-    """Run `debug()` and return every console print call as a string."""
     with patch("nao_core.commands.debug.console") as mock_console:
         debug()
     return [str(call) for call in mock_console.print.call_args_list]

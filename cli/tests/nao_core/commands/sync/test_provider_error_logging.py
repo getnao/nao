@@ -61,7 +61,6 @@ def run_sync_with_mocks(db_config, engine, tmp_path, progress):
 
 
 def _single_error_line(mock_console) -> str:
-    """The one `✗` line printed among the connection, schema, progress and summary lines."""
     all_output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
     error_lines = [line for line in all_output if "[bold red]✗[/bold red]" in line]
     assert len(error_lines) == 1, f"Expected exactly 1 error line, got {len(error_lines)}"

@@ -15,7 +15,6 @@ const testUser = {
 	email: 'john@example.com',
 } satisfies NewUser;
 
-/** Registers dialect-agnostic CRUD tests against the user table exposed by `operations`. */
 export function registerUserTableCrudTests(operations: UserTableOperations) {
 	afterEach(async () => {
 		await operations.deleteUsersByEmail(testUser.email);

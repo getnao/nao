@@ -56,8 +56,11 @@ describe('runScopedAppDbQuery', () => {
 	afterAll(removeTemporaryFileDb);
 
 	it('returns only the scoped project rows', async () => {
-		const { rows } = await runScopedAppDbQuery(PROJECT_A, 'SELECT chat_id, title FROM v_messages');
-		expect(rows.map((r) => r.chat_id)).toEqual(['ro-chat-a']);
+		const projectA = await runScopedAppDbQuery(PROJECT_A, 'SELECT chat_id, title FROM v_messages');
+		const projectB = await runScopedAppDbQuery(PROJECT_B, 'SELECT chat_id FROM v_messages');
+
+		expect(projectA.rows.map((r) => r.chat_id)).toEqual(['ro-chat-a']);
+		expect(projectB.rows.map((r) => r.chat_id)).toEqual(['ro-chat-b']);
 	});
 
 	it('exposes timestamps as datetimes the date functions accept', async () => {

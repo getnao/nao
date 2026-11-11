@@ -832,7 +832,6 @@ databases:
 
 
 def _new_project(init_mocks, tmp_path: Path, name: str, existing=None, created: bool = True) -> Path:
-    """Make `setup_project_name` hand back a `name` project folder under `tmp_path`."""
     project_path = tmp_path / name
     project_path.mkdir()
     init_mocks.setup_project_name.return_value = (name, project_path, existing, created)

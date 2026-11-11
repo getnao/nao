@@ -142,8 +142,6 @@ def _tableau_config(**overrides: str) -> TableauConfig:
 
 
 def _signed_in_transport(respond_to_api: Callable[[httpx.Request], httpx.Response]) -> httpx.MockTransport:
-    """Answer the signin/signout handshake and delegate every other request to `respond_to_api`."""
-
     def respond(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/auth/signin"):
             assert request.headers["Accept"] == "application/json"

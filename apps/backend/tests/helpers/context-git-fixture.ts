@@ -19,10 +19,7 @@ export interface ContextGitFixture {
 	context: ContextExplorerGitContext;
 }
 
-/**
- * Seeds a bare `remote.git` with `files` and creates a separate, non-Git `live` project folder,
- * so worktree operations can be checked against a live folder they must never touch.
- */
+/** `live` is not a Git repository, so worktree operations can be checked against a folder they must never touch. */
 export function createContextGitFixture(
 	root: string,
 	files: Record<string, string> = {
@@ -72,7 +69,6 @@ export function baseContext(
 	};
 }
 
-/** Clones from and pushes to the local `bare` repository instead of a hosted Git provider. */
 export function localProvider(
 	bare: string,
 	publicUrl = 'https://github.com/nao/context.git',

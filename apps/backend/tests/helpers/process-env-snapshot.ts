@@ -1,9 +1,5 @@
 import { afterEach, beforeEach } from 'vitest';
 
-/**
- * Snapshots `process.env` before each test, unsetting `unset`, and restores it after each test before
- * calling `afterRestore` (typically `__reloadEnvForTesting`, so the parsed env matches again).
- */
 export function restoreProcessEnvAfterEach({
 	unset = [],
 	afterRestore,

@@ -4,7 +4,6 @@ import path from 'node:path';
 
 import { afterEach } from 'vitest';
 
-/** Returns a factory of temporary folders, all of them removed after each test. */
 export function useTemporaryFolders(): (prefix: string) => string {
 	const folders: string[] = [];
 

@@ -28,6 +28,7 @@ export function createMcpContext(overrides: Partial<McpContext> = {}): McpContex
 	return {
 		userId: 'user-1',
 		projectId: 'project-1',
+		role: 'user',
 		settings: { enabled: true, subAgentModeEnabled: true, contextLayerModeEnabled: true },
 		chartDataMode: false,
 		storyCreationEnabled: false,

@@ -11,7 +11,6 @@ import { restoreProcessEnvAfterEach } from './process-env-snapshot';
 export const userScope = { projectId: 'proj-1', userId: 'user-1' };
 export const otherUserScope = { projectId: 'proj-1', userId: 'user-2' };
 
-/** Gives every test a fresh local storage root and restores `process.env` afterwards. Returns the current root. */
 export function useTemporaryLocalStorage(): () => string {
 	let root = '';
 
@@ -29,7 +28,6 @@ export function useTemporaryLocalStorage(): () => string {
 	return () => root;
 }
 
-/** Restores `process.env`, the parsed env and the storage singleton after each test. */
 export function restoreStorageEnvAfterEach(): void {
 	restoreProcessEnvAfterEach({ afterRestore: reloadStorageEnv });
 }

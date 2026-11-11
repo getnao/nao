@@ -987,7 +987,6 @@ def _stub_client(monkeypatch, result: AgentTestResult | None = None) -> Mock:
 
 
 def _client_payload(monkeypatch, test_case: NaoTestCase, **run_options) -> dict:
-    """The JSON body `AgentClient.run_test` posts to the backend for `test_case`."""
     client, session = _client_answering(monkeypatch)
 
     client.run_test(test_case, **run_options)
@@ -996,7 +995,6 @@ def _client_payload(monkeypatch, test_case: NaoTestCase, **run_options) -> dict:
 
 
 def _client_answering(monkeypatch, **response_fields) -> tuple[AgentClient, Mock]:
-    """An `AgentClient` whose backend answers every run with a successful response plus `response_fields`."""
     response = Mock()
     response.status_code = 200
     response.json.return_value = {

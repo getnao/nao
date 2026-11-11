@@ -106,7 +106,6 @@ def _column_row(
 
 
 def _metadata_conn(column_rows, partition_rows) -> MagicMock:
-    """Mock connection answering the column and partition queries in order."""
     mock_conn = MagicMock()
     mock_conn.raw_sql.side_effect = [column_rows, partition_rows]
     return mock_conn

@@ -233,6 +233,15 @@ describe('project cloud billing access', () => {
 		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(true);
 		expect(mocks.getOrganizationBilling).toHaveBeenCalledWith('organization-1');
 	});
+
+	it('grants access without checking Stripe when the organization bypasses billing', async () => {
+		mocks.getProjectById.mockResolvedValue({ orgId: 'organization-1' });
+		mocks.getOrganizationById.mockResolvedValue({ bypassBilling: true });
+		mocks.getOrganizationBilling.mockResolvedValue(null);
+
+		await expect(hasProjectCloudBillingAccess('project-1')).resolves.toBe(true);
+		expect(mocks.getOrganizationBilling).not.toHaveBeenCalled();
+	});
 });
 
 describe('cloud billing access assertions', () => {
