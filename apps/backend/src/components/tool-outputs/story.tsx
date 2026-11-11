@@ -57,8 +57,8 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 			{templateWarnings.length > 0 && (
 				<Block>
 					<Span>
-						Story filter template warnings — fix the referenced SQL with execute_sql (prefer query_id)
-						and/or the story filter tags before considering this story complete:
+						Story template warnings — fix the referenced SQL with execute_sql (prefer query_id) and/or the
+						story tags before considering this story complete:
 					</Span>
 					<List>
 						{templateWarnings.map((warning) => (

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { memo, useMemo } from 'react';
+import { incompleteMapMessage } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { ChartType } from '@nao/shared/chart-types';
 
@@ -185,6 +186,11 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	const resolved = resolvedData.data;
 	const displayData = resolved?.data ?? [];
 	const showRefreshing = isRefreshing || resolvedData.isFetching;
+
+	// Outside the shell: the map edit dialog has no column fields, so it cannot add the missing ones.
+	if (map.missingAttributes) {
+		return <EmbedPlaceholder>{incompleteMapMessage(map)}</EmbedPlaceholder>;
+	}
 
 	if (resolvedData.isLoading) {
 		return <EmbedLoading />;

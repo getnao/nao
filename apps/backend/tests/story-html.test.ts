@@ -2,12 +2,34 @@ import { DEFAULT_COLORS } from '@nao/shared';
 import { DEFAULT_DARK_STORY_THEME, DEFAULT_STORY_THEME, type StoryThemePair } from '@nao/shared/story-theme';
 import { describe, expect, it } from 'vitest';
 
-import { generateStoryEmailHtml, generateStoryHtml } from '../src/utils/story-html';
+import { generateStoryEmailHtml, generateStoryHtml, MAPLIBRE_CSS_URL } from '../src/utils/story-html';
 
 const CHART_ONE =
 	'<chart query_id="q1" chart_type="line" x_axis_key="month" series=\'[{"data_key":"revenue"}]\' title="Revenue" />';
 const CHART_TWO =
 	'<chart query_id="q2" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"orders"}]\' title="Orders" />';
+
+describe('generateStoryHtml incomplete maps', () => {
+	it('renders a placeholder naming the missing coordinate columns', async () => {
+		const html = await generateStoryHtml(
+			{ title: 'Story', code: '<map query_id="q1" map_type="scatter_bubble" title="Stores" />' },
+			null,
+		);
+
+		expect(html).toContain('Stores');
+		expect(html).toContain('missing latitude_key, longitude_key (query: q1)');
+		expect(html).not.toContain('Data unavailable');
+	});
+
+	it('loads no map library when every map is a placeholder', async () => {
+		const html = await generateStoryHtml(
+			{ title: 'Story', code: '<map query_id="q1" map_type="points" title="Stores" />' },
+			null,
+		);
+
+		expect(html).not.toContain(MAPLIBRE_CSS_URL);
+	});
+});
 
 describe('generateStoryHtml grid flattening', () => {
 	it('flattens grids with widths', async () => {
