@@ -357,6 +357,17 @@ describe('billing.getStatus', () => {
 		await expect(anonymousCaller().billing.getStatus()).rejects.toMatchObject({ code: 'NOT_FOUND' });
 		expect(orgQueries.getUserOrgMembership).not.toHaveBeenCalled();
 	});
+
+	it('rejects users who are overdue to set up two-factor authentication', async () => {
+		const overdueCaller = testRouter.createCaller({
+			session: { user: { id: 'user-id' }, session: { token: 'session-token' } },
+			selectedProjectId: null,
+			isTwoFactorSetupOverdue: async () => true,
+		} as never);
+
+		await expect(overdueCaller.billing.getStatus()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(orgQueries.getUserOrgMembership).not.toHaveBeenCalled();
+	});
 });
 
 describe('billing.createTrialCheckoutSession', () => {

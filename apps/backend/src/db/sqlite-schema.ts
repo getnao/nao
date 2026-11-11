@@ -116,7 +116,11 @@ import {
 	TestRunModels,
 	TestRunResultDetails,
 } from '../types/test-run';
-import { DEFAULT_TWO_FACTOR_METHODS, type TwoFactorMethod } from '../types/two-factor';
+import {
+	DEFAULT_TWO_FACTOR_GRACE_PERIOD_DAYS,
+	DEFAULT_TWO_FACTOR_METHODS,
+	type TwoFactorMethod,
+} from '../types/two-factor';
 import type { StoredUserPreferences } from '../types/usage';
 import {
 	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
@@ -266,6 +270,10 @@ export const organization = sqliteTable('organization', {
 		.$type<TwoFactorMethod[]>()
 		.notNull()
 		.default(DEFAULT_TWO_FACTOR_METHODS),
+	twoFactorRequiredAt: integer('two_factor_required_at', { mode: 'timestamp_ms' }),
+	twoFactorGracePeriodDays: integer('two_factor_grace_period_days')
+		.notNull()
+		.default(DEFAULT_TWO_FACTOR_GRACE_PERIOD_DAYS),
 
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -321,6 +329,7 @@ export const orgMember = sqliteTable(
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
+		twoFactorGraceRestartedAt: integer('two_factor_grace_restarted_at', { mode: 'timestamp_ms' }),
 	},
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('org_member_userId_idx').on(t.userId)],
 );

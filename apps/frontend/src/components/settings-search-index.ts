@@ -23,6 +23,8 @@ export interface SettingsSearchEntry {
 	betaAutomationsOnly?: boolean;
 	/** Hidden for accounts that only sign in through SSO. */
 	requiresPassword?: boolean;
+	/** Hidden when email and password login is disabled. */
+	requiresUserLogin?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -285,6 +287,17 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Choose which two-factor methods members can use: authenticator app, email code, or both.',
 		keywords: ['2fa', 'mfa', 'otp', 'totp', 'google authenticator', 'email code', 'security'],
 		orgAdminOnly: true,
+		requiresUserLogin: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Two-factor authentication',
+		title: 'Require two-factor authentication',
+		description: 'Make every email and password member set up two-factor authentication within a grace period.',
+		keywords: ['2fa', 'mfa', 'enforce', 'mandatory', 'require', 'grace period', 'deadline', 'security'],
+		orgAdminOnly: true,
+		requiresUserLogin: true,
 	},
 
 	// ── Project Settings ─────────────────────────────────────

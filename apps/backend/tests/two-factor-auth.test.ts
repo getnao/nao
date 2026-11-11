@@ -10,6 +10,7 @@ type MemoryRecord = Record<string, unknown>;
 const state = vi.hoisted(() => ({
 	db: {} as Record<string, MemoryRecord[]>,
 	policies: [] as TwoFactorMethod[][],
+	required: false,
 	emailEnabled: true,
 	sentCodes: [] as string[],
 }));
@@ -24,6 +25,11 @@ vi.mock('../src/queries/two-factor.queries', () => ({
 		return { enabled: Boolean(user.twoFactorEnabled), totpVerified: secret ? Boolean(secret.verified) : null };
 	}),
 	listUserOrganizationsTwoFactorMethods: vi.fn(async () => state.policies),
+	listUserTwoFactorGracePeriods: vi.fn(async () =>
+		state.required
+			? [{ requiredAt: new Date(), memberSince: new Date(), graceRestartedAt: null, gracePeriodDays: 7 }]
+			: [],
+	),
 }));
 
 vi.mock('../src/queries/account.queries', () => ({
@@ -57,6 +63,7 @@ describe('two-factor authentication policy', () => {
 	beforeEach(() => {
 		state.db = { user: [], session: [], account: [], verification: [], twoFactor: [] };
 		state.policies = [['totp', 'email']];
+		state.required = false;
 		state.emailEnabled = true;
 		state.sentCodes = [];
 		auth = createAuth();
@@ -99,6 +106,23 @@ describe('two-factor authentication policy', () => {
 		await signIn.json('/two-factor/send-otp', {});
 		expect((await signIn.post('/two-factor/verify-otp', { code: state.sentCodes.at(-1) })).status).toBe(200);
 		expect((await signIn.json('/get-session')).user.email).toBe('email@example.com');
+	});
+
+	it('refuses to disable a second factor the organization requires', async () => {
+		const browser = await enrollAuthenticatorApp(auth, 'required@example.com');
+		state.required = true;
+
+		expect((await browser.post('/two-factor/disable', { password: PASSWORD })).status).toBe(403);
+		expect(state.db.user[0].twoFactorEnabled).toBe(true);
+	});
+
+	it('lets a required second factor be disabled to switch away from a method no longer allowed', async () => {
+		const browser = await enrollAuthenticatorApp(auth, 'switch@example.com');
+		state.required = true;
+		state.policies = [['email']];
+
+		expect((await browser.post('/two-factor/disable', { password: PASSWORD })).status).toBe(200);
+		expect(state.db.user[0].twoFactorEnabled).toBe(false);
 	});
 
 	it('rejects enrolling an authenticator app the organization does not allow', async () => {
@@ -173,6 +197,14 @@ function createAuth() {
 		emailAndPassword: { enabled: true },
 		plugins: twoFactorPlugins(),
 	});
+}
+
+async function enrollAuthenticatorApp(auth: ReturnType<typeof createAuth>, userEmail: string): Promise<Browser> {
+	const browser = new Browser(auth);
+	await browser.signUp(userEmail);
+	await browser.json('/two-factor/enable', { password: PASSWORD });
+	await browser.post('/two-factor/verify-totp', { code: await totpCode(auth, userEmail) });
+	return browser;
 }
 
 async function totpCode(auth: ReturnType<typeof createAuth>, userEmail: string): Promise<string> {

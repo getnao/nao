@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectByUserId: vi.fn(),
 	getUser: vi.fn(),
 	validateApiKey: vi.fn(),
+	isTwoFactorSetupOverdue: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({
@@ -23,6 +24,11 @@ vi.mock('../src/services/api-key.service', () => ({
 	validateApiKey: mocks.validateApiKey,
 }));
 
+vi.mock('../src/services/two-factor.service', () => ({
+	isTwoFactorSetupOverdue: mocks.isTwoFactorSetupOverdue,
+	TWO_FACTOR_SETUP_REQUIRED_MESSAGE: 'Set up two-factor authentication',
+}));
+
 import { sessionOrApiKeyAuthMiddleware } from '../src/middleware/auth';
 
 const KEY_CREATOR = { id: 'creator-id', deactivatedAt: null };
@@ -35,6 +41,7 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		mocks.getUser.mockResolvedValue(KEY_CREATOR);
 		mocks.getProjectByOrgAndName.mockResolvedValue(ORG_PROJECT);
 		mocks.getProjectByUserId.mockResolvedValue(null);
+		mocks.isTwoFactorSetupOverdue.mockResolvedValue(false);
 	});
 
 	it('authenticates as the key creator on the named project of the key organization', async () => {
@@ -123,6 +130,27 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		expect(request.user).toBe(sessionUser);
 		expect(request.project).toBe(ORG_PROJECT);
 		expect(reply.status).not.toHaveBeenCalled();
+	});
+
+	it('blocks sessions of users who are overdue to set up two-factor authentication', async () => {
+		mocks.getSession.mockResolvedValue({ user: { id: 'session-user-id' }, session: { id: 'session-id' } });
+		mocks.isTwoFactorSetupOverdue.mockResolvedValue(true);
+
+		const { request, reply } = await authenticate({ authorization: 'Bearer cli-session-token' });
+
+		expect(mocks.isTwoFactorSetupOverdue).toHaveBeenCalledWith('session-user-id');
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(request.user).toBeUndefined();
+	});
+
+	it('blocks API keys of creators who are overdue to set up two-factor authentication', async () => {
+		mocks.isTwoFactorSetupOverdue.mockResolvedValue(true);
+
+		const { request, reply } = await authenticate({ authorization: 'Bearer nao_valid' });
+
+		expect(mocks.isTwoFactorSetupOverdue).toHaveBeenCalledWith(KEY_CREATOR.id);
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(request.user).toBeUndefined();
 	});
 
 	it('rejects requests with neither an API key nor a session', async () => {

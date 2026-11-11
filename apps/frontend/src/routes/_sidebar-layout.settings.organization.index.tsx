@@ -1,18 +1,18 @@
+import { USER_ROLE_LABELS } from '@nao/shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import { USER_ROLE_LABELS } from '@nao/shared/types';
 
 import GithubIcon from '@/components/icons/github-icon.svg';
+import GitlabIcon from '@/components/icons/gitlab-icon.svg';
+import { EditableOrganizationName } from '@/components/settings/editable-organization-name';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
-import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { GoogleConfigSection } from '@/components/settings/google-credentials-section';
-import { EditableOrganizationName } from '@/components/settings/editable-organization-name';
-import { OrganizationHeading } from '@/components/settings/organization-heading';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
-import { OrgTwoFactorMethods } from '@/components/settings/org-two-factor-methods';
+import { OrgTwoFactorSettings } from '@/components/settings/org-two-factor-settings';
+import { OrganizationHeading } from '@/components/settings/organization-heading';
 import { SsoSettingsSection } from '@/components/settings/sso-settings-section';
 import { SsoTokenInspector } from '@/components/settings/sso-token-inspector';
 import { Badge } from '@/components/ui/badge';
@@ -143,7 +143,7 @@ function OrganizationSettingsPage() {
 							<GoogleConfigSection isAdmin={isOrgAdmin} />
 						</SettingsCard>
 					)}
-					<OrgTwoFactorMethods isAdmin={isOrgAdmin} />
+					<OrgTwoFactorSettings isAdmin={isOrgAdmin} />
 					<OrgApiKeys isAdmin={isOrgAdmin} />
 				</div>
 			</div>

@@ -97,6 +97,7 @@ const findUserOrgMembership = async (userId: string, organizationId?: string): P
 			userId: s.orgMember.userId,
 			role: s.orgMember.role,
 			createdAt: s.orgMember.createdAt,
+			twoFactorGraceRestartedAt: s.orgMember.twoFactorGraceRestartedAt,
 			organization: s.organization,
 		})
 		.from(s.orgMember)
@@ -122,6 +123,7 @@ export const getUserOrgMembershipByProject = async (
 			userId: s.orgMember.userId,
 			role: s.orgMember.role,
 			createdAt: s.orgMember.createdAt,
+			twoFactorGraceRestartedAt: s.orgMember.twoFactorGraceRestartedAt,
 			organization: s.organization,
 		})
 		.from(s.orgMember)

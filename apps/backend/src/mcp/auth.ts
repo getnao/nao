@@ -7,6 +7,7 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { MCP_TOKEN_AUDIENCES } from '../env';
 import { isUserDeactivated } from '../queries/user.queries';
+import { isTwoFactorSetupOverdue } from '../services/two-factor.service';
 import { logger, serializeError } from '../utils/logger';
 import { convertHeaders } from '../utils/utils';
 
@@ -18,7 +19,7 @@ export async function resolveUserId(fastifyRequest: {
 
 	const session = await getSession(headers);
 	const userId = session?.user.id ?? (await verifyBearerToken(headers.get('authorization')));
-	if (!userId || (await isUserDeactivated(userId))) {
+	if (!userId || (await isUserDeactivated(userId)) || (await isTwoFactorSetupOverdue(userId))) {
 		return null;
 	}
 	return userId;

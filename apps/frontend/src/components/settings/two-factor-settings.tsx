@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { TWO_FACTOR_METHOD_LABELS } from './two-factor-types';
 import { TwoFactorBackupCodes } from './two-factor-backup-codes';
 import { TwoFactorSetupDialog } from './two-factor-setup-dialog';
+import { formatTwoFactorDeadline, TWO_FACTOR_METHOD_LABELS } from './two-factor-types';
 import type { TwoFactorStatus } from './two-factor-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,9 +45,11 @@ export function TwoFactorSettings() {
 							<Button variant='outline' size='sm' onClick={() => setPasswordAction('regenerate')}>
 								New backup codes
 							</Button>
-							<Button variant='outline' size='sm' onClick={() => setPasswordAction('disable')}>
-								Disable
-							</Button>
+							{canDisable(status) && (
+								<Button variant='outline' size='sm' onClick={() => setPasswordAction('disable')}>
+									Disable
+								</Button>
+							)}
 						</div>
 					) : (
 						<Button
@@ -182,12 +184,26 @@ function PasswordActionDialog({ action, onClose, onDisabled }: PasswordActionDia
 	);
 }
 
+/** A required second factor can only be turned off to switch away from a method the organization no longer allows. */
+function canDisable(status: TwoFactorStatus): boolean {
+	return !status.required || !isMethodAllowed(status);
+}
+
+function isMethodAllowed(status: TwoFactorStatus): boolean {
+	return !status.method || status.allowedMethods.includes(status.method);
+}
+
 function describeStatus(status: TwoFactorStatus): string {
-	if (status.enabled && status.method && !status.allowedMethods.includes(status.method)) {
+	if (status.enabled && !isMethodAllowed(status)) {
 		return 'Your organization no longer allows this method. Disable it and set up an allowed one.';
 	}
 	if (status.enabled) {
-		return 'A code is required after your password each time you log in.';
+		return status.required
+			? 'Your organization requires a code after your password each time you log in.'
+			: 'A code is required after your password each time you log in.';
+	}
+	if (status.requirement) {
+		return `Your organization requires two-factor authentication. Set it up before ${formatTwoFactorDeadline(status.requirement.deadline)}.`;
 	}
 	if (!status.allowedMethods.length) {
 		return 'Your organization does not allow two-factor authentication.';

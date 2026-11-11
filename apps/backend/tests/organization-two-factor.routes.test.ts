@@ -4,9 +4,12 @@ const mocks = vi.hoisted(() => ({
 	role: 'admin' as 'admin' | 'user',
 	emailEnabled: true,
 	storedMethods: ['totp', 'email'] as string[],
+	memberPolicies: [['totp', 'email']] as string[][],
+	requiredAt: null as Date | null,
+	savedSettings: null as Record<string, unknown> | null,
+	restartMemberTwoFactorGracePeriod: vi.fn(),
 	getUserRoleInOrg: vi.fn(),
 	isUserConfinedToOrganization: vi.fn(),
-	updateOrganizationTwoFactorMethods: vi.fn(),
 	resetUserTwoFactor: vi.fn(),
 }));
 
@@ -26,8 +29,28 @@ vi.mock('../src/queries/user.queries', () => ({
 }));
 vi.mock('../src/queries/two-factor.queries', () => ({
 	getOrganizationTwoFactorMethods: vi.fn(async () => mocks.storedMethods),
-	updateOrganizationTwoFactorMethods: mocks.updateOrganizationTwoFactorMethods,
+	updateOrganizationTwoFactorSettings: vi.fn(
+		async (_orgId: string, change: (current: Record<string, unknown>) => Record<string, unknown>) => {
+			mocks.savedSettings = change({
+				twoFactorMethods: mocks.storedMethods,
+				twoFactorRequiredAt: mocks.requiredAt,
+				twoFactorGracePeriodDays: 7,
+			});
+		},
+	),
 	resetUserTwoFactor: mocks.resetUserTwoFactor,
+	getOrganizationTwoFactorRequirement: vi.fn(async () => ({ required: !!mocks.requiredAt, gracePeriodDays: 7 })),
+	restartMemberTwoFactorGracePeriod: mocks.restartMemberTwoFactorGracePeriod,
+	listOrgMembersOrganizationsTwoFactorMethods: vi.fn(async () => new Map([['member-1', mocks.memberPolicies]])),
+	listOrgMembersTwoFactorGracePeriods: vi.fn(async () => [
+		{
+			userId: 'member-1',
+			requiredAt: new Date('2026-01-01T00:00:00Z'),
+			memberSince: new Date('2025-06-01T00:00:00Z'),
+			graceRestartedAt: null,
+			gracePeriodDays: 7,
+		},
+	]),
 }));
 vi.mock('../src/services/email', () => ({ emailService: { isEnabled: () => mocks.emailEnabled } }));
 vi.mock('../src/services/membership.service', () => ({}));
@@ -45,6 +68,9 @@ describe('organization two-factor settings', () => {
 		mocks.role = 'admin';
 		mocks.emailEnabled = true;
 		mocks.storedMethods = ['totp', 'email'];
+		mocks.requiredAt = null;
+		mocks.savedSettings = null;
+		mocks.memberPolicies = [['totp', 'email']];
 		mocks.getUserRoleInOrg.mockResolvedValue('user');
 		mocks.isUserConfinedToOrganization.mockResolvedValue(true);
 	});
@@ -55,7 +81,7 @@ describe('organization two-factor settings', () => {
 		});
 
 		expect(result.methods).toEqual(['totp', 'email']);
-		expect(mocks.updateOrganizationTwoFactorMethods).toHaveBeenCalledWith('org-1', ['totp', 'email']);
+		expect(mocks.savedSettings).toEqual({ twoFactorMethods: ['totp', 'email'] });
 	});
 
 	it('rejects email codes when no email provider is configured', async () => {
@@ -65,7 +91,7 @@ describe('organization two-factor settings', () => {
 		await expect(createCaller().organization.updateTwoFactorMethods({ methods: ['email'] })).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
 		});
-		expect(mocks.updateOrganizationTwoFactorMethods).not.toHaveBeenCalled();
+		expect(mocks.savedSettings).toBeNull();
 	});
 
 	it('keeps already allowed email codes while no email provider is configured', async () => {
@@ -74,7 +100,7 @@ describe('organization two-factor settings', () => {
 		const result = await createCaller().organization.updateTwoFactorMethods({ methods: ['email'] });
 
 		expect(result.methods).toEqual(['email']);
-		expect(mocks.updateOrganizationTwoFactorMethods).toHaveBeenCalledWith('org-1', ['email']);
+		expect(mocks.savedSettings).toEqual({ twoFactorMethods: ['email'] });
 	});
 
 	it('only shows the two-factor status of members to admins', async () => {
@@ -83,7 +109,81 @@ describe('organization two-factor settings', () => {
 		const [memberView] = await createCaller().organization.getMembers();
 
 		expect(adminView.twoFactorEnabled).toBe(true);
+		expect(adminView.twoFactorDeadline).toEqual(new Date('2026-01-08T00:00:00Z'));
 		expect(memberView.twoFactorEnabled).toBeUndefined();
+		expect(memberView.twoFactorDeadline).toBeUndefined();
+	});
+
+	it('shows no deadline for members who cannot set up any allowed method', async () => {
+		mocks.memberPolicies = [['totp'], ['email']];
+
+		const [member] = await createCaller().organization.getMembers();
+
+		expect(member.twoFactorDeadline).toBeNull();
+	});
+
+	it('requires two-factor authentication with a grace period', async () => {
+		await createCaller().organization.updateTwoFactorRequirement({ required: true, gracePeriodDays: 14 });
+
+		expect(mocks.savedSettings).toEqual({ twoFactorGracePeriodDays: 14, twoFactorRequiredAt: expect.any(Date) });
+	});
+
+	it('keeps the requirement date when changing the grace period', async () => {
+		mocks.requiredAt = new Date('2026-01-01T00:00:00Z');
+
+		await createCaller().organization.updateTwoFactorRequirement({ required: true, gracePeriodDays: 3 });
+
+		expect(mocks.savedSettings).toEqual({ twoFactorGracePeriodDays: 3, twoFactorRequiredAt: mocks.requiredAt });
+	});
+
+	it('stops requiring two-factor authentication', async () => {
+		mocks.requiredAt = new Date('2026-01-01T00:00:00Z');
+
+		await createCaller().organization.updateTwoFactorRequirement({ required: false, gracePeriodDays: 7 });
+
+		expect(mocks.savedSettings).toEqual({ twoFactorGracePeriodDays: 7, twoFactorRequiredAt: null });
+	});
+
+	it('refuses to require two-factor authentication when members cannot set up any method', async () => {
+		mocks.emailEnabled = false;
+		mocks.storedMethods = ['email'];
+
+		await expect(
+			createCaller().organization.updateTwoFactorRequirement({ required: true, gracePeriodDays: 7 }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.savedSettings).toBeNull();
+	});
+
+	it('refuses to remove every method while two-factor authentication is required', async () => {
+		mocks.requiredAt = new Date('2026-01-01T00:00:00Z');
+
+		await expect(createCaller().organization.updateTwoFactorMethods({ methods: [] })).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+		expect(mocks.savedSettings).toBeNull();
+	});
+
+	it('only lets admins require two-factor authentication', async () => {
+		mocks.role = 'user';
+
+		await expect(
+			createCaller().organization.updateTwoFactorRequirement({ required: true, gracePeriodDays: 7 }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+	});
+
+	it('restarts the grace period of a member', async () => {
+		await createCaller().organization.restartMemberTwoFactorGracePeriod({ userId: 'member-1' });
+
+		expect(mocks.restartMemberTwoFactorGracePeriod).toHaveBeenCalledWith('org-1', 'member-1');
+	});
+
+	it('refuses to restart the grace period of a user outside the organization', async () => {
+		mocks.getUserRoleInOrg.mockResolvedValue(null);
+
+		await expect(
+			createCaller().organization.restartMemberTwoFactorGracePeriod({ userId: 'stranger-1' }),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.restartMemberTwoFactorGracePeriod).not.toHaveBeenCalled();
 	});
 
 	it('only lets admins change the allowed methods', async () => {

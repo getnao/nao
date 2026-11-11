@@ -1,10 +1,40 @@
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, like } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
-import { db } from '../db/db';
-import type { TwoFactorMethod } from '../types/two-factor';
+import { db, type DBTransaction, type Lockable } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
+import type { TwoFactorGracePeriod, TwoFactorMethod } from '../types/two-factor';
 
 const TRUST_DEVICE_IDENTIFIER_PREFIX = 'trust-device-';
+const CREDENTIAL_PROVIDER_ID = 'credential';
+
+export interface OrganizationTwoFactorRequirement {
+	required: boolean;
+	gracePeriodDays: number;
+}
+
+export interface OrganizationTwoFactorSettings {
+	twoFactorMethods: TwoFactorMethod[];
+	twoFactorRequiredAt: Date | null;
+	twoFactorGracePeriodDays: number;
+}
+
+export interface MemberTwoFactorGracePeriod extends TwoFactorGracePeriod {
+	userId: string;
+}
+
+const settingsColumns = {
+	twoFactorMethods: s.organization.twoFactorMethods,
+	twoFactorRequiredAt: s.organization.twoFactorRequiredAt,
+	twoFactorGracePeriodDays: s.organization.twoFactorGracePeriodDays,
+};
+
+const gracePeriodColumns = {
+	requiredAt: s.organization.twoFactorRequiredAt,
+	memberSince: s.orgMember.createdAt,
+	graceRestartedAt: s.orgMember.twoFactorGraceRestartedAt,
+	gracePeriodDays: s.organization.twoFactorGracePeriodDays,
+};
 
 export interface TwoFactorEnrollment {
 	enabled: boolean;
@@ -34,6 +64,28 @@ export const listUserOrganizationsTwoFactorMethods = async (userId: string): Pro
 	return rows.map((row) => row.methods);
 };
 
+/** Allowed methods of every organization of each member of the organization, keyed by user. */
+export const listOrgMembersOrganizationsTwoFactorMethods = async (
+	orgId: string,
+): Promise<Map<string, TwoFactorMethod[][]>> => {
+	const orgMemberIds = db
+		.select({ userId: s.orgMember.userId })
+		.from(s.orgMember)
+		.where(eq(s.orgMember.orgId, orgId));
+	const rows = await db
+		.select({ userId: s.orgMember.userId, methods: s.organization.twoFactorMethods })
+		.from(s.orgMember)
+		.innerJoin(s.organization, eq(s.organization.id, s.orgMember.orgId))
+		.where(inArray(s.orgMember.userId, orgMemberIds))
+		.execute();
+
+	const policiesByUser = new Map<string, TwoFactorMethod[][]>();
+	for (const row of rows) {
+		policiesByUser.set(row.userId, [...(policiesByUser.get(row.userId) ?? []), row.methods]);
+	}
+	return policiesByUser;
+};
+
 export const getOrganizationTwoFactorMethods = async (orgId: string): Promise<TwoFactorMethod[]> => {
 	const [org] = await db
 		.select({ methods: s.organization.twoFactorMethods })
@@ -45,8 +97,95 @@ export const getOrganizationTwoFactorMethods = async (orgId: string): Promise<Tw
 	return org?.methods ?? [];
 };
 
-export const updateOrganizationTwoFactorMethods = async (orgId: string, methods: TwoFactorMethod[]): Promise<void> => {
-	await db.update(s.organization).set({ twoFactorMethods: methods }).where(eq(s.organization.id, orgId)).execute();
+/**
+ * Reads and saves the organization's two-factor settings atomically, so that concurrent admin changes
+ * cannot each pass their checks against stale settings. `change` throws to reject the update.
+ * The SQLite body must stay synchronous, see `updateProjectSettings`.
+ */
+export const updateOrganizationTwoFactorSettings = async (
+	orgId: string,
+	change: (current: OrganizationTwoFactorSettings) => Partial<OrganizationTwoFactorSettings>,
+): Promise<void> => {
+	const selectSettings = (tx: DBTransaction) => {
+		return tx.select(settingsColumns).from(s.organization).where(eq(s.organization.id, orgId));
+	};
+	const updateSettings = (tx: DBTransaction, current?: OrganizationTwoFactorSettings) => {
+		if (!current) {
+			throw new Error(`Organization not found: ${orgId}`);
+		}
+		return tx.update(s.organization).set(change(current)).where(eq(s.organization.id, orgId));
+	};
+
+	await db.transaction((tx) => {
+		if (dbConfig.dialect === Dialect.Postgres) {
+			return (async () => {
+				const [current] = await lockForUpdate(selectSettings(tx)).execute();
+				await updateSettings(tx, current).execute();
+			})();
+		}
+		updateSettings(tx, selectSettings(tx).get()).run();
+	});
+};
+
+/** Grace periods of every organization of the user that requires two-factor authentication. */
+export const listUserTwoFactorGracePeriods = async (userId: string): Promise<TwoFactorGracePeriod[]> => {
+	const rows = await db
+		.select(gracePeriodColumns)
+		.from(s.orgMember)
+		.innerJoin(s.organization, eq(s.organization.id, s.orgMember.orgId))
+		.where(and(eq(s.orgMember.userId, userId), isNotNull(s.organization.twoFactorRequiredAt)))
+		.execute();
+
+	return rows.flatMap(({ requiredAt, ...row }) => (requiredAt ? [{ ...row, requiredAt }] : []));
+};
+
+/** Grace periods of the organization's password members who have not set up two-factor authentication. */
+export const listOrgMembersTwoFactorGracePeriods = async (orgId: string): Promise<MemberTwoFactorGracePeriod[]> => {
+	const rows = await db
+		.select({ userId: s.orgMember.userId, ...gracePeriodColumns })
+		.from(s.orgMember)
+		.innerJoin(s.organization, eq(s.organization.id, s.orgMember.orgId))
+		.innerJoin(s.user, eq(s.user.id, s.orgMember.userId))
+		.innerJoin(
+			s.account,
+			and(
+				eq(s.account.userId, s.orgMember.userId),
+				eq(s.account.providerId, CREDENTIAL_PROVIDER_ID),
+				isNotNull(s.account.password),
+			),
+		)
+		.where(
+			and(
+				eq(s.orgMember.orgId, orgId),
+				eq(s.user.twoFactorEnabled, false),
+				isNotNull(s.organization.twoFactorRequiredAt),
+			),
+		)
+		.execute();
+
+	return rows.flatMap(({ requiredAt, ...row }) => (requiredAt ? [{ ...row, requiredAt }] : []));
+};
+
+export const getOrganizationTwoFactorRequirement = async (orgId: string): Promise<OrganizationTwoFactorRequirement> => {
+	const [org] = await db
+		.select({
+			requiredAt: s.organization.twoFactorRequiredAt,
+			gracePeriodDays: s.organization.twoFactorGracePeriodDays,
+		})
+		.from(s.organization)
+		.where(eq(s.organization.id, orgId))
+		.limit(1)
+		.execute();
+
+	return { required: !!org?.requiredAt, gracePeriodDays: org?.gracePeriodDays ?? 0 };
+};
+
+export const restartMemberTwoFactorGracePeriod = async (orgId: string, userId: string): Promise<void> => {
+	await db
+		.update(s.orgMember)
+		.set({ twoFactorGraceRestartedAt: new Date() })
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.userId, userId)))
+		.execute();
 };
 
 /** Removes the user's second factor and every device they trusted to skip it. */
@@ -65,3 +204,7 @@ export const resetUserTwoFactor = async (userId: string): Promise<void> => {
 			.execute();
 	});
 };
+
+function lockForUpdate<Query extends { execute(): unknown }>(query: Query): Query {
+	return (query as Query & Lockable<Query>).for('update');
+}

@@ -13,6 +13,7 @@ import { McpProvider } from './contexts/mcp';
 import { TooltipProvider } from './components/ui/tooltip';
 import { getActiveOrganizationId } from './lib/active-organization';
 import { createActiveOrganizationRecovery } from './lib/active-organization-recovery';
+import { createForbiddenResponseLink } from './lib/forbidden-response-link';
 import {
 	getActiveProjectId,
 	getProjectRequestHeaders,
@@ -66,11 +67,17 @@ const activeOrganizationRecovery = createActiveOrganizationRecovery({
 	invalidateRouter: () => void router.invalidate(),
 });
 
+/** Requests are forbidden once the grace period to set up two-factor authentication is over. */
+const forbiddenResponseLink = createForbiddenResponseLink(() => {
+	void queryClient.invalidateQueries({ queryKey: trpc.twoFactor.getStatus.queryKey() });
+});
+
 /** TRPC client for typed requests to the backend */
 export const trpcClient = createTRPCClient<TrpcRouter>({
 	links: [
 		loggerLink(),
 		activeOrganizationRecovery.link,
+		forbiddenResponseLink,
 		httpBatchLink({
 			url: '/api/trpc',
 			transformer: superjson,

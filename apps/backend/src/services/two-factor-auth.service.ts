@@ -5,20 +5,20 @@ import { twoFactor } from 'better-auth/plugins/two-factor';
 
 import * as twoFactorQueries from '../queries/two-factor.queries';
 import type { TwoFactorMethod } from '../types/two-factor';
+import { buildTwoFactorCodeEmail } from '../utils/email-builders';
 import { DEFAULT_APP_NAME } from './branding.service';
-import {
-	getAllowedTwoFactorMethods,
-	isTwoFactorEmailAvailable,
-	sendTwoFactorCodeEmail,
-	TWO_FACTOR_EMAIL_CODE_TTL_MINUTES,
-} from './two-factor.service';
+import { emailService } from './email';
+import { getAllowedTwoFactorMethods, isTwoFactorEmailAvailable, resolveEnrolledMethod } from './two-factor.service';
+import { getTwoFactorDeadline } from './two-factor-requirement.service';
 
 const TWO_FACTOR_COOKIE_NAME = 'two_factor';
+const TWO_FACTOR_EMAIL_CODE_TTL_MINUTES = 5;
 const ENABLE_PATH = '/two-factor/enable';
+const DISABLE_PATH = '/two-factor/disable';
 const VERIFY_TOTP_PATH = '/two-factor/verify-totp';
 const SEND_OTP_PATH = '/two-factor/send-otp';
 const EMAIL_CODE_PATHS = new Set([SEND_OTP_PATH, '/two-factor/verify-otp']);
-const POLICY_PATHS = new Set([ENABLE_PATH, VERIFY_TOTP_PATH, ...EMAIL_CODE_PATHS]);
+const POLICY_PATHS = new Set([ENABLE_PATH, DISABLE_PATH, VERIFY_TOTP_PATH, ...EMAIL_CODE_PATHS]);
 
 type AuthMiddlewareContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
 
@@ -87,6 +87,11 @@ async function assertSetupAllowed(path: string, userId: string): Promise<void> {
 		return;
 	}
 
+	if (path === DISABLE_PATH) {
+		await assertDisableAllowed(userId, enrollment);
+		return;
+	}
+
 	if (path === VERIFY_TOTP_PATH) {
 		if (enrollment?.totpVerified === false) {
 			await assertMethodAllowed(userId, 'totp');
@@ -97,6 +102,22 @@ async function assertSetupAllowed(path: string, userId: string): Promise<void> {
 	assertUsesEmailCodes(enrollment);
 	if (!enrollment?.enabled) {
 		await assertMethodAllowed(userId, 'email');
+	}
+}
+
+/** A required second factor can only be turned off to switch away from a method the organization no longer allows. */
+async function assertDisableAllowed(
+	userId: string,
+	enrollment: twoFactorQueries.TwoFactorEnrollment | null,
+): Promise<void> {
+	if (!enrollment?.enabled || !(await getTwoFactorDeadline(userId))) {
+		return;
+	}
+	const allowedMethods = await getAllowedTwoFactorMethods(userId);
+	if (allowedMethods.includes(resolveEnrolledMethod(enrollment))) {
+		throw new APIError('FORBIDDEN', {
+			message: 'Your organization requires two-factor authentication, so it cannot be disabled.',
+		});
 	}
 }
 
@@ -131,6 +152,11 @@ async function assertMethodAllowed(userId: string, method: TwoFactorMethod): Pro
 			message: 'Your organization does not allow this two-factor authentication method.',
 		});
 	}
+}
+
+async function sendTwoFactorCodeEmail(user: { email: string; name: string }, code: string): Promise<void> {
+	const email = await buildTwoFactorCodeEmail(user, code, TWO_FACTOR_EMAIL_CODE_TTL_MINUTES);
+	await emailService.sendEmail(user.email, email, { throwOnError: true });
 }
 
 async function findPendingSignInUserId(ctx: AuthMiddlewareContext): Promise<string | null> {

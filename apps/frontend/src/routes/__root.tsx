@@ -1,12 +1,16 @@
 import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router';
+import { useState } from 'react';
+
 import { BrandColor } from '../components/brand-color';
 import { BrandingHead } from '../components/branding-head';
 import { ModifyPassword } from '../components/modify-password';
+import { RequiredTwoFactorSetup } from '../components/required-two-factor-setup';
 import { Spinner } from '@/components/ui/spinner';
 import { useDisposeInactiveAgents } from '@/hooks/use-agent';
-import { useSessionOrNavigateToIndexPage } from '@/hooks/use-session-or-navigate-to-index-page';
-import { useNavigateToResetPasswordPageIfNeeded } from '@/hooks/useNavigateToResetPasswordPageIfNeeded';
 import { useIdentifyPostHog } from '@/hooks/use-identify-posthog';
+import { useSessionOrNavigateToIndexPage } from '@/hooks/use-session-or-navigate-to-index-page';
+import { useTwoFactorRequirement } from '@/hooks/use-two-factor-requirement';
+import { useNavigateToResetPasswordPageIfNeeded } from '@/hooks/useNavigateToResetPasswordPageIfNeeded';
 
 export const Route = createRootRoute({
 	component: RootComponent,
@@ -24,6 +28,9 @@ function RootComponent() {
 
 function AuthenticatedRoot() {
 	const session = useSessionOrNavigateToIndexPage();
+	const twoFactor = useTwoFactorRequirement();
+	const [backupCodesUserId, setBackupCodesUserId] = useState<string | null>(null);
+	const isSavingBackupCodes = !!twoFactor.userId && backupCodesUserId === twoFactor.userId;
 	useDisposeInactiveAgents();
 	useIdentifyPostHog();
 
@@ -33,6 +40,16 @@ function AuthenticatedRoot() {
 
 	if (session.isPending) {
 		return <RootLoadingState />;
+	}
+
+	if (twoFactor.status && (twoFactor.requirement?.isOverdue || isSavingBackupCodes)) {
+		return (
+			<RequiredTwoFactorSetup
+				allowedMethods={twoFactor.status.allowedMethods}
+				onEnabled={() => setBackupCodesUserId(twoFactor.userId ?? null)}
+				onFinished={() => setBackupCodesUserId(null)}
+			/>
+		);
 	}
 
 	return (

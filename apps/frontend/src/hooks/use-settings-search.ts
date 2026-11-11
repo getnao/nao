@@ -59,6 +59,7 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 	const betaSubagentsEnabled = config.data?.betaSubagentsEnabled === true;
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const cloudBillingEnabled = config.data?.cloudBillingEnabled;
+	const userLoginEnabled = config.data?.enableUserLogin !== false;
 	const licenseFeatures = useLicenseFeatures();
 	const enabledLicenseFeatures = licenseFeatures.data as Record<string, boolean> | undefined;
 	const twoFactorStatus = useQuery(trpc.twoFactor.getStatus.queryOptions());
@@ -80,7 +81,8 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.cloudBillingOnly || cloudBillingEnabled === true) &&
 						(!entry.betaSubagentsOnly || betaSubagentsEnabled) &&
 						(!entry.betaAutomationsOnly || betaAutomationsEnabled) &&
-						(!entry.requiresPassword || hasPassword),
+						(!entry.requiresPassword || hasPassword) &&
+						(!entry.requiresUserLogin || userLoginEnabled),
 				)
 				.filter((entry) => canSeeAdvancedSettings || viewerVisiblePages.includes(entry.page)),
 		[
@@ -95,6 +97,7 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 			isCloud,
 			isContextAdmin,
 			isOrgAdmin,
+			userLoginEnabled,
 		],
 	);
 }

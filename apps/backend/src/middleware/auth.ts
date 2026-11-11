@@ -6,6 +6,7 @@ import { DBProject } from '../db/abstractSchema';
 import * as projectQueries from '../queries/project.queries';
 import { getUser } from '../queries/user.queries';
 import { isApiKey, validateApiKey } from '../services/api-key.service';
+import { isTwoFactorSetupOverdue, TWO_FACTOR_SETUP_REQUIRED_MESSAGE } from '../services/two-factor.service';
 import { convertHeaders } from '../utils/utils';
 
 declare module 'fastify' {
@@ -21,6 +22,9 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 	const session = await getSession(headers);
 	if (!session?.user) {
 		return reply.status(401).send({ error: 'Unauthorized' });
+	}
+	if (await isTwoFactorSetupOverdue(session.user.id)) {
+		return reply.status(403).send({ error: TWO_FACTOR_SETUP_REQUIRED_MESSAGE });
 	}
 
 	request.user = session.user;
@@ -43,6 +47,9 @@ export async function sessionOrApiKeyAuthMiddleware(request: FastifyRequest, rep
 	const user = apiKey ? await getUser({ id: apiKey.createdBy }) : null;
 	if (!apiKey || !user || user.deactivatedAt) {
 		return reply.status(401).send({ error: 'Invalid API key' });
+	}
+	if (await isTwoFactorSetupOverdue(user.id)) {
+		return reply.status(403).send({ error: TWO_FACTOR_SETUP_REQUIRED_MESSAGE });
 	}
 
 	const headers = convertHeaders(request.headers);
