@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { MessageCircle, PanelRightClose, PanelRightOpen, SquarePen } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
@@ -229,11 +229,15 @@ function EmptyConversation({
 	hasStartFailed: boolean;
 	onStart: (message: SubmittedMessage) => Promise<void>;
 }) {
+	const isMountedRef = useIsMountedRef();
+
 	const startOrRestoreMessage = async (message: SubmittedMessage) => {
 		try {
 			await onStart(message);
 		} catch {
-			chatInputRestoreStore.set(toChatInputRestore(message));
+			if (isMountedRef.current) {
+				chatInputRestoreStore.set(toChatInputRestore(message));
+			}
 		}
 	};
 
@@ -337,12 +341,33 @@ function toSuggestions(prompts: string[]): PromptSuggestion[] {
 	return prompts.map((prompt) => ({ label: prompt, prompt }));
 }
 
+/** The restore store is read by any chat input, so a start failing after the panel is gone must not write to it. */
+function useIsMountedRef() {
+	const isMountedRef = useRef(false);
+
+	useEffect(() => {
+		isMountedRef.current = true;
+		return () => {
+			isMountedRef.current = false;
+		};
+	}, []);
+
+	return isMountedRef;
+}
+
 /** The input clears itself as it hands a message over, so a message that could not be sent is written back. */
-function toChatInputRestore({ text, images = [], documents = [], citations }: SubmittedMessage): ChatInputRestore {
+function toChatInputRestore({
+	text,
+	images = [],
+	documents = [],
+	citations,
+	mentions,
+}: SubmittedMessage): ChatInputRestore {
 	return {
 		text,
 		images: images.map(({ mediaType, data }) => ({ mediaType, url: `data:${mediaType};base64,${data}` })),
 		documents,
 		citations,
+		mentions,
 	};
 }

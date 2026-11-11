@@ -343,13 +343,13 @@ function ChatInputBase({
 
 	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
 
-	/** Writes a sent message back into the prompt, its numbered `❝[1]` tokens turned back into citation pills. */
+	/** Writes a sent message back into the prompt, its `❝[1]` and `@[id]` tokens turned back into pills. */
 	const fillPrompt = useCallback(
-		(text: string, citations: CitationData[] = []): string => {
+		(text: string, citations: CitationData[] = [], mentions: SelectedMention[] = []): string => {
 			promptRef.current?.clear();
 			const restoredCitations = citationStore.restore(citationScope, citations);
 			if (promptRef.current) {
-				writeCitedText(promptRef.current, text, restoredCitations);
+				writeCitedText(promptRef.current, text, restoredCitations, mentions);
 			}
 			return promptRef.current?.getValue() ?? removeCitationTokens(text);
 		},
@@ -424,7 +424,7 @@ function ChatInputBase({
 		}
 
 		chatInputRestoreStore.clear();
-		setInputText(fillPrompt(chatInputRestore.text, chatInputRestore.citations));
+		setInputText(fillPrompt(chatInputRestore.text, chatInputRestore.citations, chatInputRestore.mentions));
 		attachmentUpload.clearAttachments();
 		attachmentUpload.restoreDocuments(chatInputRestore.documents);
 

@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AutomationChatPanel } from './automation-chat-panel';
 import type { ReactNode } from 'react';
 
 import type { SubmittedMessage } from '@/hooks/use-agent';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { chatInputRestoreStore } from '@/stores/chat-input-restore';
 
-const FIRST_MESSAGE = 'Run it on weekdays at 8am instead';
+const FIRST_MESSAGE = 'Run it on weekdays at 8am instead, from @[orders]';
+const ORDERS_MENTION = { id: 'orders', label: 'orders', trigger: '@' };
+const SUGGESTION = 'Why did the last runs fail?';
 
 const { startEditChat } = vi.hoisted(() => ({
 	startEditChat: vi.fn(async (_input: { automationId?: string }) => ({ chatId: 'chat-1' })),
@@ -28,13 +31,29 @@ vi.mock('@/main', () => ({
 		},
 	},
 }));
-vi.mock('@/components/chat-input', () => ({
-	ChatInput: ({ onSubmitMessage }: { onSubmitMessage?: (message: SubmittedMessage) => Promise<void> }) => (
-		<button type='button' onClick={() => void onSubmitMessage?.({ text: FIRST_MESSAGE, mentions: [] })}>
-			Send
-		</button>
-	),
-}));
+vi.mock('@/components/chat-input', async () => {
+	const { useState } = await import('react');
+	const { FollowUpFiller } = await import('@/contexts/set-chat-input-callback');
+
+	function ChatInput({ onSubmitMessage }: { onSubmitMessage?: (message: SubmittedMessage) => Promise<void> }) {
+		const [text, setText] = useState('');
+		const submit = () => {
+			void onSubmitMessage?.({ text: FIRST_MESSAGE, mentions: [ORDERS_MENTION] });
+		};
+
+		return (
+			<>
+				<FollowUpFiller onFill={setText} />
+				<output aria-label='Message'>{text}</output>
+				<button type='button' onClick={submit}>
+					Send
+				</button>
+			</>
+		);
+	}
+
+	return { ChatInput };
+});
 vi.mock('@/components/ask-bar', () => ({
 	PendingMessageSender: ({ message }: { message?: SubmittedMessage }) => (
 		<p>{message ? `Sending: ${message.text}` : 'Nothing to send'}</p>
@@ -55,6 +74,7 @@ describe('AutomationChatPanel', () => {
 	afterEach(() => {
 		cleanup();
 		startEditChat.mockClear();
+		chatInputRestoreStore.clear();
 	});
 
 	it('starts the conversation of a saved automation with its first message', async () => {
@@ -76,12 +96,59 @@ describe('AutomationChatPanel', () => {
 		expect(onChatStarted).toHaveBeenCalledWith('chat-1');
 	});
 
-	it('suggests what to ask until the conversation starts', async () => {
+	it('writes a picked suggestion in the input, without sending it', async () => {
 		renderPanel({ automationId: 'automation-1' });
 
-		expect(await screen.findByText('Why did the last runs fail?')).toBeDefined();
+		fireEvent.click(await screen.findByRole('button', { name: SUGGESTION }));
+
+		expect(screen.getByRole('status', { name: 'Message' }).textContent).toBe(SUGGESTION);
+		expect(startEditChat).not.toHaveBeenCalled();
+	});
+
+	it('gives the message back to the input when the conversation fails to start', async () => {
+		startEditChat.mockRejectedValueOnce(new Error('offline'));
+		renderPanel({ automationId: 'automation-1' });
+
+		fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+
+		expect(await screen.findByRole('alert')).toBeDefined();
+		expect(chatInputRestoreStore.getSnapshot()).toEqual({
+			text: FIRST_MESSAGE,
+			images: [],
+			documents: [],
+			mentions: [ORDERS_MENTION],
+		});
+	});
+
+	it('leaves other chat inputs alone when the start fails after the panel is gone', async () => {
+		const start = deferStart();
+		const { unmount } = renderPanel({ automationId: 'automation-1' });
+		fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+		await waitFor(() => expect(startEditChat).toHaveBeenCalled());
+
+		unmount();
+		await start.fail();
+
+		expect(chatInputRestoreStore.getSnapshot()).toBeUndefined();
 	});
 });
+
+/** Holds the next start pending until the test fails it, then waits for the failure to be handled. */
+function deferStart() {
+	let reject = (_error: Error) => {};
+	startEditChat.mockImplementationOnce(() => {
+		return new Promise((_resolve, rejectStart) => {
+			reject = rejectStart;
+		});
+	});
+
+	return {
+		fail: async () => {
+			reject(new Error('offline'));
+			await new Promise((resolve) => setTimeout(resolve));
+		},
+	};
+}
 
 function renderPanel(props: { automationId?: string; onChatStarted?: (chatId: string) => void }) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

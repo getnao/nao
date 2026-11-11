@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { ArrowUp, ChevronDown, ChevronUp, Loader2, Maximize2, MessageCircle, Square, X } from 'lucide-react';
 import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
-import type { MentionOption, PromptHandle } from 'prompt-mentions';
+import type { PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { UIMessage } from '@nao/backend/chat';
 
 import type { CitationData } from '@nao/shared/types';
@@ -42,7 +42,7 @@ type AskSession = {
 export interface AskMessage {
 	text: string;
 	citations: CitationData[];
-	mentions: MentionOption[];
+	mentions: SelectedMention[];
 }
 
 const NO_SESSION: AskSession = { chatId: null, citations: [], isPanelOpen: false };

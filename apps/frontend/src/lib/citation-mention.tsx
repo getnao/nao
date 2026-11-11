@@ -57,7 +57,7 @@ export function toSentCitationOptions(citations: CitationData[], text: string): 
 }
 
 /** Skills, tables and stories the agent loads as context: citations travel with the message instead. */
-export function toContextMentions(mentions: SelectedMention[]): MentionOption[] {
+export function toContextMentions(mentions: SelectedMention[]): SelectedMention[] {
 	return mentions
 		.filter((mention) => mention.trigger !== CITATION_MENTION_TRIGGER)
 		.map(({ id, label, trigger }) => ({ id, label, trigger }));
@@ -106,16 +106,22 @@ export function toCopiedText(fragment: DocumentFragment, findCitation: CitationF
 	return readCopiedNodes(fragment.childNodes, findCitation).replace(/\u200b/g, '');
 }
 
-export function writeCitedText(prompt: PromptHandle, text: string, citations: (CitationData & { id: string })[]): void {
+/** Writes a sent message into a prompt: the tokens of its citations and of the context it mentions become pills. */
+export function writeCitedText(
+	prompt: PromptHandle,
+	text: string,
+	citations: (CitationData & { id: string })[],
+	mentions: SelectedMention[] = [],
+): void {
 	let writtenUpTo = 0;
 	let isAfterPill = false;
-	for (const match of text.matchAll(CITATION_TOKEN)) {
-		const citation = citations[Number(match[1]) - 1];
+	for (const match of text.matchAll(pillTokenPattern(mentions))) {
+		const pill = findPill(match, citations, mentions);
 		insertNonEmptyText(prompt, text.slice(writtenUpTo, match.index), isAfterPill);
-		if (citation) {
-			prompt.appendMention(toCitationMentionOption(citation, citation.id), CITATION_MENTION_TRIGGER);
+		if (pill) {
+			prompt.appendMention(pill.option, pill.trigger);
 		}
-		isAfterPill = citation !== undefined;
+		isAfterPill = pill !== undefined;
 		writtenUpTo = match.index + match[0].length;
 	}
 	insertNonEmptyText(prompt, text.slice(writtenUpTo), isAfterPill);
@@ -265,6 +271,35 @@ function replaceCitationTokens(text: string, replace: (id: string) => string | n
 		}
 		return before && after ? ' ' : '';
 	});
+}
+
+/** Mention ids are free text, so only the tokens of the given mentions are matched, next to any citation token. */
+function pillTokenPattern(mentions: SelectedMention[]): RegExp {
+	const mentionTokens = mentions.map((mention) => escapeRegExp(toMentionToken(mention)));
+	return new RegExp([CITATION_TOKEN.source, ...mentionTokens].join('|'), 'g');
+}
+
+function findPill(
+	[token, citationPosition]: RegExpExecArray,
+	citations: (CitationData & { id: string })[],
+	mentions: SelectedMention[],
+): { option: MentionOption; trigger: string } | undefined {
+	if (citationPosition) {
+		const citation = citations[Number(citationPosition) - 1];
+		return (
+			citation && { option: toCitationMentionOption(citation, citation.id), trigger: CITATION_MENTION_TRIGGER }
+		);
+	}
+	const mention = mentions.find((candidate) => toMentionToken(candidate) === token);
+	return mention && { option: { id: mention.id, label: mention.label }, trigger: mention.trigger };
+}
+
+function toMentionToken({ id, trigger }: SelectedMention): string {
+	return `${trigger}[${id}]`;
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
 
 function insertNonEmptyText(prompt: PromptHandle, text: string, isAfterPill: boolean): void {

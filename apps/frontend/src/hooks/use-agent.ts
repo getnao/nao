@@ -13,7 +13,7 @@ import type { ImageUploadData } from '@nao/shared/attachments';
 import type { CitationData, LlmSelectedModel } from '@nao/shared/types';
 import type { DocumentAttachment } from '@/lib/attachments';
 import type { FileUIPart, InferUIMessageChunk } from 'ai';
-import type { MentionOption } from 'prompt-mentions';
+import type { MentionOption, SelectedMention } from 'prompt-mentions';
 
 import { getProjectRequestHeaders } from '@/lib/active-project';
 import {
@@ -90,7 +90,7 @@ export interface SendMessageArgs {
 
 /** A message as a chat input hands it over, with the context it mentions. */
 export interface SubmittedMessage extends SendMessageArgs {
-	mentions: MentionOption[];
+	mentions: SelectedMention[];
 }
 
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
