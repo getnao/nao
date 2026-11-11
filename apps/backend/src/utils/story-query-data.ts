@@ -1,3 +1,4 @@
+import { type Node, traverseFast } from '@babel/types';
 import { extractQueryIds } from '@nao/shared/story-segments';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
 
@@ -5,12 +6,22 @@ import { getLatestSqlQueryDataByChats, getLatestSqlQueryDataByIds } from '../que
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import { parseScript } from './story-kit-jsx';
 
 export type StoryQueryDataMap = Record<string, { data: unknown[]; columns: string[] }>;
 
 export type StoryQueryDataSource = { chatId: string } | { projectId: string; userId?: string };
 
 const CUSTOM_STORY_QUERY_ID_PATTERN = /\bquery_[A-Za-z0-9_-]+/g;
+const STORY_KIT_QUERY_COMPONENTS = new Set([
+	'BarChart',
+	'LineChart',
+	'Chart',
+	'KpiCard',
+	'DataTable',
+	'PointMap',
+	'Block',
+]);
 
 export function extractCustomStoryQueryIds(files: { content: string }[]): Set<string> {
 	const ids = new Set<string>();
@@ -20,6 +31,110 @@ export function extractCustomStoryQueryIds(files: { content: string }[]): Set<st
 		}
 	}
 	return ids;
+}
+
+/** Query IDs used by literal Story Kit props and data calls, excluding comments and unrelated identifiers. */
+export function extractStaticCustomStoryQueryRefs(files: { path: string; content: string }[]): Set<string> {
+	const ids = new Set<string>();
+	for (const file of files) {
+		const sources = /\.html?$/i.test(file.path)
+			? [...file.content.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(
+					(match) => ({
+						path: 'story.js',
+						content: match[1],
+					}),
+				)
+			: /\.[cm]?[jt]sx?$/i.test(file.path)
+				? [file]
+				: [];
+		for (const source of sources) {
+			const program = parseScript(source.path, source.content);
+			if (!program) {
+				continue;
+			}
+			const kitComponents = new Set<string>();
+			let kitNamespace: string | null = null;
+			traverseFast(program, (node) => {
+				if (node.type === 'ImportDeclaration' && node.source.value === '@nao/story-kit') {
+					for (const specifier of node.specifiers) {
+						if (specifier.type === 'ImportNamespaceSpecifier') {
+							kitNamespace = specifier.local.name;
+						}
+						if (specifier.type === 'ImportSpecifier') {
+							const imported =
+								specifier.imported.type === 'Identifier'
+									? specifier.imported.name
+									: specifier.imported.value;
+							if (STORY_KIT_QUERY_COMPONENTS.has(imported)) {
+								kitComponents.add(specifier.local.name);
+							}
+						}
+					}
+				}
+			});
+			traverseFast(program, (node) => {
+				if (node.type === 'JSXOpeningElement' && isQueryKitElement(node.name, kitComponents, kitNamespace)) {
+					for (const attribute of node.attributes) {
+						if (
+							attribute.type === 'JSXAttribute' &&
+							attribute.name.type === 'JSXIdentifier' &&
+							attribute.name.name === 'queryId'
+						) {
+							const value =
+								attribute.value?.type === 'JSXExpressionContainer'
+									? attribute.value.expression
+									: attribute.value;
+							addQueryId(ids, value);
+						}
+					}
+				}
+				if (node.type === 'CallExpression' && isQueryDataCall(node.callee)) {
+					addQueryId(ids, node.arguments[0]);
+				}
+			});
+		}
+	}
+	return ids;
+}
+
+function isQueryKitElement(name: Node, localNames: Set<string>, namespace: string | null): boolean {
+	return (
+		(name.type === 'JSXIdentifier' && localNames.has(name.name)) ||
+		(name.type === 'JSXMemberExpression' &&
+			name.object.type === 'JSXIdentifier' &&
+			name.object.name === namespace &&
+			STORY_KIT_QUERY_COMPONENTS.has(name.property.name))
+	);
+}
+
+function isQueryDataCall(callee: Node): boolean {
+	return (
+		(callee.type === 'Identifier' && callee.name === 'useQueryData') ||
+		(callee.type === 'MemberExpression' &&
+			callee.computed === false &&
+			callee.property?.type === 'Identifier' &&
+			(callee.property.name === 'useQueryData' ||
+				((callee.property.name === 'query' || callee.property.name === 'querySql') &&
+					callee.object.type === 'Identifier' &&
+					callee.object.name === 'nao')))
+	);
+}
+
+function addQueryId(ids: Set<string>, node: Node | null | undefined): void {
+	const value = queryIdLiteral(node);
+	if (value) {
+		ids.add(value);
+	}
+}
+
+function queryIdLiteral(node: Node | null | undefined): string | undefined {
+	const value =
+		node?.type === 'StringLiteral'
+			? node.value
+			: node?.type === 'TemplateLiteral' && node.expressions.length === 0
+				? node.quasis[0]?.value.cooked
+				: undefined;
+	return typeof value === 'string' && /^query_[A-Za-z0-9_-]+$/.test(value) ? value : undefined;
 }
 
 export async function backfillMissingQueryDataForSandbox(

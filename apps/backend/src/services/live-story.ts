@@ -73,7 +73,9 @@ export async function executeLiveQuery(
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
-		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
+		throw new Error(
+			`Query ${queryId} has no stored SQL in chat ${chatId}. MCP execute_sql results are snapshots, even when chat_id is set. Run the query through ask_nao in this chat for live refresh, or use a standalone story to save the snapshot.`,
+		);
 	}
 
 	const queryData = await executeStoryQueries(

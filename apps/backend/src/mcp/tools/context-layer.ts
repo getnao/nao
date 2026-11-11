@@ -99,8 +99,8 @@ const CHAT_ID_INPUT_SCHEMA = zodV3
 	.string()
 	.optional()
 	.describe(
-		'Chat UUID to associate this query with (e.g. `chatId` from `ask_nao`). ' +
-			"Sets the 'Open in nao' button on any chart later rendered from this `query_id`.",
+		"Chat UUID (e.g. `chatId` from `ask_nao`) for the chart's `Open in nao` button. " +
+			'This does not save the query SQL in that chat or make the result live-refreshable in a chat-linked story.',
 	);
 
 const QUERY_ID_OUTPUT_SCHEMA = zodV3

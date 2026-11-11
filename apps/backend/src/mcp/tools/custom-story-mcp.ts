@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { renderStoryKitGuide } from '../../components/ai/story-kit-guide';
 import type { DBStory } from '../../db/abstractSchema';
+import * as executeSqlQueries from '../../queries/execute-sql.queries';
 import * as storyQueries from '../../queries/story.queries';
 import type { StoryFileInput } from '../../queries/story-file.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
@@ -11,10 +12,12 @@ import {
 	createCustomStoryDraft,
 	publishCustomStoryDraft,
 } from '../../services/custom-story-authoring';
+import { normalizeStoryFilePath } from '../../utils/story-file-path';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
 import {
 	backfillMissingQueryDataByIds,
 	extractCustomStoryQueryIds,
+	extractStaticCustomStoryQueryRefs,
 	type StoryQueryDataMap,
 } from '../../utils/story-query-data';
 import { buildCustomStoryToolResult } from '../embed/embed-tool-result';
@@ -24,8 +27,9 @@ import { fetchLatestStoryVersion, resolveChartChatId } from './helpers';
 
 const CUSTOM_STORY_DATA_RULES =
 	'Its blocks read rows by `queryId`. Attached to a chat (`chat_id` from `ask_nao`), it resolves the queries ' +
-	'run in that chat: use the ids from its `queries`. Without `chat_id` it is a standalone story that reads the ' +
-	'rows saved with it: use `query_id`s from `execute_sql`, or pass the rows of other queries in `query_data`.';
+	'run in that chat: use the ids from its `queries`. MCP `execute_sql` results are not live chat queries, even ' +
+	'when its `chat_id` is set. Without `chat_id` it is a standalone, non-live story that reads the rows ' +
+	'saved with it: use `query_id`s from `execute_sql`, or pass the rows of other queries in `query_data`.';
 
 export const CREATE_CUSTOM_STORY_DESCRIPTION =
 	'\n\nCUSTOM STORIES: pass `format: "custom"` to create an interactive React app built with @nao/story-kit ' +
@@ -83,6 +87,12 @@ export async function createCustomStoryForMcp(
 	if (chatId && input.queryData) {
 		return errorResult(CHAT_QUERY_DATA_REFUSAL);
 	}
+	if (chatId && input.files?.length) {
+		const queryError = await chatQueryRefusal(chatId, input.files);
+		if (queryError) {
+			return queryError;
+		}
+	}
 	const slug = generateStorySlug(input.title);
 	if (!isValidStorySlug(slug)) {
 		return errorResult(`"${input.title}" does not make a valid story id: ${STORY_SLUG_RULE}. Pick another title.`);
@@ -124,6 +134,21 @@ export async function updateCustomStoryForMcp(
 ): Promise<ToolResult> {
 	if (story.chatId && input.queryData) {
 		return errorResult(CHAT_QUERY_DATA_REFUSAL);
+	}
+	if (story.chatId) {
+		const files = new Map<string, StoryFileInput>(
+			(await storyFileQueries.listDraftFiles(story.id)).map(({ path, content }) => [path, { path, content }]),
+		);
+		for (const path of input.deletePaths) {
+			files.delete(normalizeStoryFilePath(path));
+		}
+		for (const file of input.files) {
+			files.set(normalizeStoryFilePath(file.path), file);
+		}
+		const queryError = await chatQueryRefusal(story.chatId, [...files.values()]);
+		if (queryError) {
+			return queryError;
+		}
 	}
 	await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
 	if (input.title !== undefined && input.title !== story.title) {
@@ -212,6 +237,22 @@ async function saveStandaloneQueryData(
 	if (resolved) {
 		await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolved);
 	}
+}
+
+/** MCP query rows are snapshots; a chat-linked story needs stored SQL from that chat to refresh. */
+async function chatQueryRefusal(chatId: string, files: StoryFileInput[]): Promise<ToolResult | null> {
+	const queryIds = extractStaticCustomStoryQueryRefs(files);
+	if (queryIds.size === 0) {
+		return null;
+	}
+	const queries = await executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
+	const missing = [...queryIds].filter((id) => !queries[id]);
+	return missing.length > 0
+		? errorResult(
+				`Query ${missing.join(', ')} was not run in this chat and cannot refresh a chat-linked custom story. ` +
+					'Use a query from `ask_nao` in this chat, or omit `chat_id` to save MCP `execute_sql` rows in a standalone snapshot.',
+			)
+		: null;
 }
 
 function storyLinks(story: DBStory) {

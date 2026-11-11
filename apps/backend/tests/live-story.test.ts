@@ -192,6 +192,14 @@ describe('live story SQL execution', () => {
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
+	it('explains when a live story references a query without SQL saved in its chat', async () => {
+		mocks.getSqlQueryById.mockResolvedValue(null);
+
+		await expect(executeLiveQuery('chat-1', 'query_mcp')).rejects.toThrow(
+			'MCP execute_sql results are snapshots, even when chat_id is set',
+		);
+	});
+
 	it('refreshes admin-mode story queries from the app database', async () => {
 		mocks.getSqlQueriesFromCode.mockResolvedValue({
 			query_admin: {

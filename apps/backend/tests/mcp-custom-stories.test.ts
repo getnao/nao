@@ -7,7 +7,11 @@ import { db } from '../src/db/db';
 import type { ToolResult } from '../src/mcp/logging';
 import { registerAssetTools } from '../src/mcp/tools/asset-tools';
 import { registerContextLayerTools } from '../src/mcp/tools/context-layer';
+import * as chatQueries from '../src/queries/chat.queries';
+import { upsertMcpQueryData } from '../src/queries/mcp-query-data.queries';
 import * as storyFileQueries from '../src/queries/story-file.queries';
+import { executeLiveQuery } from '../src/services/live-story';
+import { buildQueryPart } from '../src/utils/chat-message-story';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -93,6 +97,16 @@ describe('MCP custom stories through create_story and update_story', () => {
 			{ id: 'chat-1', projectId: 'project-1', userId: 'user-1', title: 'Chat' },
 			{ id: 'chat-2', projectId: 'project-1', userId: 'user-2', title: 'Other chat' },
 		]);
+		await db.insert(s.mcpCallLog).values({
+			id: 'mcp-query-call',
+			projectId: 'project-1',
+			userId: 'user-1',
+			toolName: 'execute_sql',
+			success: true,
+		});
+		await upsertMcpQueryData('query_mcp', 'mcp-query-call', 'project-1', ['value'], [{ value: 1 }], {
+			sourceChatId: 'chat-1',
+		});
 	});
 
 	beforeEach(async () => {
@@ -270,5 +284,327 @@ describe('MCP custom stories through create_story and update_story', () => {
 
 		expect(result.isError).toBe(true);
 		expect(await db.select().from(s.story)).toHaveLength(0);
+	});
+
+	it('rejects an MCP query in a chat-linked app before creating a story', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'MCP query in chat',
+			files: [...APP_FILES, { path: 'data.js', content: 'useQueryData("query_mcp")' }],
+		});
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0]).toMatchObject({ text: expect.stringContaining('cannot refresh') });
+		expect(result.content[0]).toMatchObject({ text: expect.stringContaining('omit `chat_id`') });
+		expect(await db.select().from(s.story)).toHaveLength(0);
+	});
+
+	it('allows unrelated query-like identifiers and comments on create and update', async () => {
+		const created = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'Unrelated query text',
+			files: [
+				APP_FILES[0],
+				{
+					path: 'app.jsx',
+					content:
+						'export default function App() { const query_status = "ready"; /* query_old */ return query_status; }',
+				},
+			],
+		});
+		const storyId = created.structuredContent?.id as string;
+
+		expect(created.isError).toBeUndefined();
+		const updated = await call('update_story', {
+			story_id: storyId,
+			files: [
+				{
+					path: 'app.jsx',
+					content: 'export default function App() { // query_mcp is not used\n return null; }',
+				},
+			],
+		});
+		expect(updated.isError).toBeUndefined();
+		expect(updated.structuredContent).toMatchObject({ id: storyId, version: 2 });
+	});
+
+	it('rejects an MCP query used as a JSX block prop', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'MCP block query',
+			files: [
+				APP_FILES[0],
+				{
+					path: 'app.jsx',
+					content:
+						'import { KpiCard } from "@nao/story-kit"; export default function App() { return <KpiCard queryId="query_mcp" />; }',
+				},
+			],
+		});
+
+		expect(result.isError).toBe(true);
+		expect(await db.select().from(s.story)).toHaveLength(0);
+	});
+
+	it('allows an unrelated component with a queryId prop', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'Unrelated query prop',
+			files: [
+				APP_FILES[0],
+				{
+					path: 'app.jsx',
+					content:
+						'function Widget({ queryId }) { return <span>{queryId}</span>; } export default function App() { return <Widget queryId="query_mcp" />; }',
+				},
+			],
+		});
+
+		expect(result.isError).toBeUndefined();
+	});
+
+	it('explains an MCP query passed to useQueryData through a constant at runtime', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'MCP constant query',
+			files: [
+				APP_FILES[0],
+				{
+					path: 'app.jsx',
+					content:
+						'const dataId = "query_mcp"; export default function App() { return useQueryData(dataId); }',
+				},
+			],
+		});
+
+		expect(result.isError).toBeUndefined();
+		await expect(executeLiveQuery('chat-1', 'query_mcp')).rejects.toThrow(
+			'MCP execute_sql results are snapshots, even when chat_id is set',
+		);
+	});
+
+	it('allows a valid query constant shadowed by a helper local on create and update', async () => {
+		await chatQueries.upsertMessage({
+			chatId: 'chat-1',
+			role: 'assistant',
+			parts: [
+				buildQueryPart(
+					'query_chat_scoped',
+					{ sqlQuery: 'SELECT 4 AS value' },
+					{ columns: ['value'], data: [{ value: 4 }] },
+				),
+			],
+		});
+		const app =
+			'import { KpiCard } from "@nao/story-kit"; const id = "query_chat_scoped"; export default function App() { return <KpiCard queryId={id} />; } function helper() { const id = "query_old"; return id; }';
+		const created = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'Scoped query ID',
+			files: [APP_FILES[0], { path: 'app.jsx', content: app }],
+		});
+
+		expect(created.isError).toBeUndefined();
+		const storyId = created.structuredContent?.id as string;
+		const updated = await call('update_story', {
+			story_id: storyId,
+			files: [{ path: 'app.jsx', content: app }],
+		});
+		expect(updated.isError).toBeUndefined();
+		expect(updated.structuredContent).toMatchObject({ id: storyId, version: 2 });
+	});
+
+	it('ignores a query call inside an HTML comment', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'HTML comment',
+			files: [
+				{ path: 'nao.json', content: '{ "entry": "index.html" }' },
+				{ path: 'index.html', content: '<!-- <script>nao.query("query_mcp")</script> --><main>Ready</main>' },
+			],
+		});
+
+		expect(result.isError).toBeUndefined();
+	});
+
+	it('rejects an MCP query used by an HTML story script', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'HTML query',
+			files: [
+				{ path: 'nao.json', content: '{ "entry": "index.html" }' },
+				{ path: 'index.html', content: '<script>nao.query("query_mcp")</script>' },
+			],
+		});
+
+		expect(result.isError).toBe(true);
+		expect(await db.select().from(s.story)).toHaveLength(0);
+	});
+
+	it('rejects an MCP query used by the HTML querySql API', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'HTML SQL query',
+			files: [
+				{ path: 'nao.json', content: '{ "entry": "index.html" }' },
+				{ path: 'index.html', content: '<script>nao.querySql("query_mcp")</script>' },
+			],
+		});
+
+		expect(result.isError).toBe(true);
+		expect(await db.select().from(s.story)).toHaveLength(0);
+	});
+
+	it('keeps an invalid MCP query out of an existing chat-linked draft', async () => {
+		const created = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'Valid before edit',
+			files: APP_FILES,
+		});
+		const storyId = created.structuredContent?.id as string;
+
+		const result = await call('update_story', {
+			story_id: storyId,
+			files: [{ path: 'data.js', content: 'useQueryData("query_mcp")' }],
+		});
+
+		expect(result.isError).toBe(true);
+		expect((await storyFileQueries.listDraftFiles(storyId)).map((file) => file.path)).toEqual([
+			'app.jsx',
+			'nao.json',
+		]);
+		const [story] = await db.select().from(s.story);
+		expect(story).toMatchObject({ id: storyId });
+	});
+
+	it('accepts a query whose SQL was executed in the same chat', async () => {
+		await chatQueries.upsertMessage({
+			chatId: 'chat-1',
+			role: 'assistant',
+			parts: [
+				buildQueryPart(
+					'query_chat',
+					{ sqlQuery: 'SELECT 1 AS value' },
+					{ columns: ['value'], data: [{ value: 1 }] },
+				),
+			],
+		});
+
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'Chat query app',
+			files: [...APP_FILES, { path: 'data.js', content: 'useQueryData("query_chat")' }],
+		});
+
+		expect(result.isError).toBeUndefined();
+		expect(result.structuredContent).toMatchObject({ title: 'Chat query app', version: 1 });
+	});
+
+	it('updates a published chat-linked story with a query executed in that chat', async () => {
+		const created = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'Chat query update',
+			files: APP_FILES,
+		});
+		const storyId = created.structuredContent?.id as string;
+		await chatQueries.upsertMessage({
+			chatId: 'chat-1',
+			role: 'assistant',
+			parts: [
+				buildQueryPart(
+					'query_chat_update',
+					{ sqlQuery: 'SELECT 2 AS value' },
+					{ columns: ['value'], data: [{ value: 2 }] },
+				),
+			],
+		});
+
+		const updated = await call('update_story', {
+			story_id: storyId,
+			files: [{ path: 'data.js', content: 'useQueryData("query_chat_update")' }],
+		});
+
+		expect(updated.isError).toBeUndefined();
+		expect(updated.structuredContent).toMatchObject({ id: storyId, version: 2 });
+	});
+
+	it('keeps imported query ID constants usable when the query exists in the chat', async () => {
+		await chatQueries.upsertMessage({
+			chatId: 'chat-1',
+			role: 'assistant',
+			parts: [
+				buildQueryPart(
+					'query_chat_import',
+					{ sqlQuery: 'SELECT 3 AS value' },
+					{ columns: ['value'], data: [{ value: 3 }] },
+				),
+			],
+		});
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'Imported query ID',
+			files: [
+				APP_FILES[0],
+				{ path: 'data.js', content: 'export const revenueId = "query_chat_import";' },
+				{
+					path: 'app.jsx',
+					content:
+						'import { KpiCard } from "@nao/story-kit"; import { revenueId } from "./data.js"; export default function App() { return <KpiCard queryId={revenueId} />; }',
+				},
+			],
+		});
+
+		expect(result.isError).toBeUndefined();
+		expect(result.structuredContent).toMatchObject({ version: 1 });
+	});
+
+	it('gives an actionable runtime error for an imported MCP snapshot ID', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			chat_id: 'chat-1',
+			title: 'Imported MCP snapshot',
+			files: [
+				APP_FILES[0],
+				{ path: 'data.js', content: 'export const revenueId = "query_mcp";' },
+				{
+					path: 'app.jsx',
+					content:
+						'import { KpiCard } from "@nao/story-kit"; import { revenueId } from "./data.js"; export default function App() { return <KpiCard queryId={revenueId} />; }',
+				},
+			],
+		});
+
+		expect(result.isError).toBeUndefined();
+		await expect(executeLiveQuery('chat-1', 'query_mcp')).rejects.toThrow(
+			'MCP execute_sql results are snapshots, even when chat_id is set',
+		);
+	});
+
+	it('continues to save MCP query rows in a standalone snapshot', async () => {
+		const result = await call('create_story', {
+			format: 'custom',
+			title: 'MCP snapshot',
+			files: [...APP_FILES, { path: 'data.js', content: 'useQueryData("query_mcp")' }],
+		});
+
+		expect(result.isError).toBeUndefined();
+		const [story] = await db.select().from(s.story);
+		const [cache] = await db.select().from(s.storyDataCache);
+		expect(cache).toMatchObject({
+			storyId: story.id,
+			queryData: { query_mcp: { columns: ['value'], data: [{ value: 1 }] } },
+		});
 	});
 });
