@@ -16,7 +16,6 @@ describe('formatYAxisTick', () => {
 		it('rounds 1000 to 1K', () => expect(formatYAxisTick(1000)).toBe('1K'));
 		it('keeps 1020 distinct as 1.02K', () => expect(formatYAxisTick(1020)).toBe('1.02K'));
 		it('keeps 1200 as 1.2K', () => expect(formatYAxisTick(1200)).toBe('1.2K'));
-		it('keeps -1500000 as -1.5M', () => expect(formatYAxisTick(-1_500_000)).toBe('-1.5M'));
 	});
 
 	describe('negative abbreviation (by absolute value, sign preserved)', () => {

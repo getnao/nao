@@ -22,8 +22,13 @@ on:
 
 jobs:
     test:
-        name: Vitest
+        name: Vitest (${{ matrix.workspace }})
         runs-on: ubuntu-latest
+
+        strategy:
+            fail-fast: false
+            matrix:
+                workspace: [backend, frontend, shared]
 
         steps:
             - uses: actions/checkout@v4
@@ -45,14 +50,16 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Test shared
-              run: npm run -w @nao/shared test
+            - name: Restore test durations
+              uses: actions/cache@v4
+              with:
+                  path: apps/${{ matrix.workspace }}/node_modules/.vite/vitest
+                  key: vitest-results-${{ matrix.workspace }}-${{ github.sha }}
+                  restore-keys: vitest-results-${{ matrix.workspace }}-
 
-            - name: Prepare SQLite test database
+            - name: Apply SQLite migrations
+              if: matrix.workspace == 'backend'
               run: npm run -w @nao/backend db:migrate
 
-            - name: Test backend
-              run: npm run -w @nao/backend test
-
-            - name: Test frontend
-              run: npm run -w @nao/frontend test
+            - name: Test ${{ matrix.workspace }}
+              run: npm run -w @nao/${{ matrix.workspace }} test
