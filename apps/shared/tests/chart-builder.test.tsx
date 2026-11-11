@@ -116,7 +116,7 @@ describe('buildChart', () => {
 		});
 
 		expect(getGradient(chart)).toBeUndefined();
-		expect(getArea(chart)?.props.fill).toBe('none');
+		expect(findChartElement(chart, 'Area')?.props.fill).toBe('none');
 	});
 
 	it('shows and angles every compact category label with a custom tick font size', () => {
