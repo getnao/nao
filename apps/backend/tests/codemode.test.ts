@@ -476,9 +476,9 @@ describe('codemode tool', () => {
 	it('points mcp_call to codemode only when codemode is available', () => {
 		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue(['linear']);
 
-		const withCodemode = getTools(null);
-		const withoutCodemode = getTools({ experimental: { codemode: false } });
-		const excluded = getTools(null, undefined, { excludeBuiltinTools: ['codemode'] });
+		const withCodemode = getTools(null, undefined, { projectId: 'project-1' });
+		const withoutCodemode = getTools({ experimental: { codemode: false } }, undefined, { projectId: 'project-1' });
+		const excluded = getTools(null, undefined, { projectId: 'project-1', excludeBuiltinTools: ['codemode'] });
 
 		expect(withCodemode.mcp_call.description).toContain('write one `codemode` script instead');
 		expect(withoutCodemode.mcp_call.description).not.toContain('codemode');

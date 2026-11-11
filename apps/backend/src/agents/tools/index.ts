@@ -114,12 +114,16 @@ export const getTools = (
 		 * `/stories` when they can; omit to follow the instance flag alone.
 		 */
 		customStoryAuthoring?: boolean;
+		/** Project of the run, whose configured MCP servers are offered; none without it. */
+		projectId?: string;
 	} = {},
 ) => {
 	const customStoryAuthoring = options.customStoryAuthoring ?? isCustomStoriesEnabled();
 	const mcpAccess = options.mcpAccess ?? ALL_MCP_ACCESS;
 	const grantedServers = new Set(
-		mcpService.getConfiguredServerNames().filter((server) => isMcpServerGranted(mcpAccess, server)),
+		(options.projectId ? mcpService.getConfiguredServerNames(options.projectId) : []).filter((server) =>
+			isMcpServerGranted(mcpAccess, server),
+		),
 	);
 	const includeMcp =
 		options.mcpEnabled !== false &&

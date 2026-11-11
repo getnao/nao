@@ -19,6 +19,7 @@ export function automationAgent(
 				{
 					mcpEnabled: automation.mcpEnabled,
 					mcpServers: automation.mcpServers,
+					projectId: toolContext.projectId,
 					mcpAccess: toolContext.mcpAccess,
 					excludeFollowUps: true,
 					semanticLayerMode: toolContext.semanticLayerMode,

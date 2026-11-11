@@ -30,7 +30,7 @@ export async function getChatContextUsage(opts: {
 		projectQueries.getAgentSettings(projectId),
 	]);
 	const semanticLayerMode = project?.path ? resolveSemanticLayerMode(project.path, agentSettings) : null;
-	const tools = getTools(agentSettings, undefined, { semanticLayerMode });
+	const tools = getTools(agentSettings, undefined, { projectId, semanticLayerMode });
 	const messages = await getChatAsModelMessages({ ...opts, projectId, tools });
 	const messageTokens = tokenCounter.estimateMessages(messages);
 	const toolTokens = await tokenCounter.estimateTools(tools);
