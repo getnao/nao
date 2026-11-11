@@ -212,12 +212,12 @@ export function CustomStoryFrame({
 		[dataSource, queryClient, reply],
 	);
 
-	/** Model answers are kept for the visit: a story rebuilt or re-themed asks again without paying again. */
+	/** Model answers are kept for the visit: a story rebuilt, re-themed or republished asks again without paying again. */
 	const answerModel = useCallback(
 		async (requestId: string, request: StoryModelRequest, fresh: boolean) => {
 			try {
 				const result = await queryClient.fetchQuery({
-					queryKey: ['custom-story-model', dataSource, request],
+					queryKey: ['custom-story-model', withoutVersion(dataSource), request],
 					queryFn: () => runStoryModel(dataSource, request),
 					staleTime: fresh ? 0 : Infinity,
 					gcTime: Infinity,
@@ -551,6 +551,14 @@ function useForwardHostKeydown(reply: (message: StoryHostMessage) => void) {
 		document.addEventListener('keydown', handleKeyDown);
 		return () => document.removeEventListener('keydown', handleKeyDown);
 	}, [reply]);
+}
+
+/** A model's answer depends on the request, not on which version of the story asked. */
+function withoutVersion(dataSource: CustomStoryDataSource): Omit<CustomStoryDataSource, 'versionNumber'> {
+	const { versionNumber: _versionNumber, ...identity } = dataSource as CustomStoryDataSource & {
+		versionNumber?: number;
+	};
+	return identity;
 }
 
 function storySlugOf(dataSource: CustomStoryDataSource): string | undefined {
