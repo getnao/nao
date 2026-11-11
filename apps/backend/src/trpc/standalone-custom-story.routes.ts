@@ -16,6 +16,7 @@ import { getCustomStoryStateByStoryId, setCustomStoryStateByStoryId } from '../s
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	STANDALONE_QUERY_SQL_UNAVAILABLE,
+	storyQueryInputs,
 	storySnapshotHtml,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
@@ -76,10 +77,15 @@ export const standaloneCustomStoryRoutes = {
 		}),
 
 	getQueryData: standaloneOwnerProcedure
-		.input(z.object({ queryId: z.string(), versionNumber }))
+		.input(z.object({ queryId: z.string(), versionNumber, inputs: storyQueryInputs }))
 		.query(async ({ ctx, input }) => {
 			try {
-				return await getStandaloneCustomStoryQueryData(ctx.story.id, input.queryId, input.versionNumber);
+				return await getStandaloneCustomStoryQueryData(
+					ctx.story.id,
+					input.queryId,
+					input.versionNumber,
+					input.inputs,
+				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}

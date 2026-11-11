@@ -14,17 +14,20 @@ import {
 	narrativesOptions,
 	queryDataOptions,
 	querySqlOptions,
+	runStorySql,
 	stateOptions,
 } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
 import { RememberStateHeader } from './remember-state-header';
 import { useStoryStateRecorder } from './use-story-state-recorder';
+import type { StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type {
 	StoryApp,
 	StoryBlockEditPayload,
 	StoryElementCitation,
 	StoryFrameMessage,
 	StoryHostMessage,
+	StorySqlRequest,
 	StoryStateSnapshot,
 	StoryTableFormatEditRequest,
 } from '@nao/shared/story-app';
@@ -146,10 +149,26 @@ export function CustomStoryFrame({
 	}, []);
 
 	const answerQuery = useCallback(
-		async (requestId: string, queryId: string, fresh: boolean) => {
+		async (requestId: string, queryId: string, fresh: boolean, inputs?: StoryQueryInputs) => {
 			try {
-				const options = queryDataOptions(dataSource, queryId);
+				const options = queryDataOptions(dataSource, queryId, inputs);
 				const result = await queryClient.fetchQuery(fresh ? { ...options, staleTime: 0 } : options);
+				reply({ type: 'nao-story:query-result', requestId, result });
+			} catch (error) {
+				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
+	const answerSql = useCallback(
+		async (requestId: string, request: StorySqlRequest, fresh: boolean) => {
+			try {
+				const result = await queryClient.fetchQuery({
+					queryKey: ['custom-story-sql', dataSource, request],
+					queryFn: () => runStorySql(dataSource, request),
+					...(fresh && { staleTime: 0 }),
+				});
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
@@ -220,7 +239,14 @@ export function CustomStoryFrame({
 					onReady?.();
 					break;
 				case 'nao-story:query':
-					void answerQuery(message.requestId, message.queryId, message.fresh === true);
+					void answerQuery(message.requestId, message.queryId, message.fresh === true, message.inputs);
+					break;
+				case 'nao-story:sql':
+					void answerSql(
+						message.requestId,
+						{ sql: message.sql, databaseId: message.databaseId, filters: message.filters },
+						message.fresh === true,
+					);
 					break;
 				case 'nao-story:narratives':
 					void answerNarratives(message.requestId);
@@ -297,6 +323,7 @@ export function CustomStoryFrame({
 		answerNarratives,
 		answerQuery,
 		answerQuerySql,
+		answerSql,
 		channel,
 		connectPort,
 		dateFormat,

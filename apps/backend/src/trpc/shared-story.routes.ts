@@ -20,6 +20,7 @@ import {
 	getStandaloneCustomStoryQueryData,
 	getStandaloneCustomStoryVersion,
 } from '../services/custom-story';
+import { runCustomStorySql } from '../services/custom-story-sql';
 import {
 	getCustomStoryState,
 	getCustomStoryStateByStoryId,
@@ -42,7 +43,10 @@ import { hasUserGroupFeature } from '../services/user-group-feature-access.servi
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	STANDALONE_QUERY_SQL_UNAVAILABLE,
+	STANDALONE_SQL_UNAVAILABLE,
+	storyQueryInputs,
 	storySnapshotHtml,
+	storySqlRequest,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
@@ -207,6 +211,7 @@ export const sharedStoryRoutes = {
 				storyId: z.string(),
 				queryId: z.string(),
 				versionNumber: z.number().int().positive().optional(),
+				inputs: storyQueryInputs,
 			}),
 		)
 		.query(async ({ input, ctx }) => {
@@ -218,8 +223,36 @@ export const sharedStoryRoutes = {
 							shared.slug,
 							input.queryId,
 							input.versionNumber,
+							input.inputs,
 						)
-					: await getStandaloneCustomStoryQueryData(shared.storyId, input.queryId, input.versionNumber);
+					: await getStandaloneCustomStoryQueryData(
+							shared.storyId,
+							input.queryId,
+							input.versionNumber,
+							input.inputs,
+						);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	runCustomStorySql: cloudBillingShareAccessProcedure
+		.input(z.object({ storyId: z.string(), request: storySqlRequest }))
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			if (!shared.chatId) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: STANDALONE_SQL_UNAVAILABLE });
+			}
+			try {
+				return await runCustomStorySql(
+					{
+						projectId: shared.projectId,
+						chatId: shared.chatId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: shared.projectId,
+					},
+					input.request,
+				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}

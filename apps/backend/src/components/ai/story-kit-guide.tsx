@@ -134,6 +134,39 @@ export function storyKitGuideItems(): ReactElement[] {
 			returns <Bold>data: null</Bold> until <Bold>status</Bold> is "success", then the array of rows — guard
 			before reading it.
 		</ListItem>,
+		<ListItem key='filters'>
+			<Bold>Filters: pick where they apply.</Bold> Filter rows already loaded in the browser (useMemo over{' '}
+			<Bold>data</Bold>) when the query returns every row the filter can narrow down and the result stays small.
+			Re-run the query on the server when filtering must happen before aggregation or a LIMIT, or the unfiltered
+			result is too large: write{' '}
+			<Bold>{'{% filter <id> %} AND col = {{ filters.<id>.sql }} {% endfilter %}'}</Bold> blocks in the
+			execute_sql query (the chat runs it with the blocks left out) and pass the chosen values with{' '}
+			<Bold>{'useQueryData(queryId, { filters: { <id>: value } })'}</Bold>, or the same <Bold>filters</Bold> prop
+			on any block (give a block its <Bold>queryId</Bold> and <Bold>filters</Bold> rather than rows loaded
+			elsewhere, so it shows its own loading and errors). The value's shape picks how it renders: a string is a
+			quoted exact value (=), a number a numeric literal, a string array a quoted list (IN (…)),{' '}
+			<Bold>{'{ from, to }'}</Bold> a date range (BETWEEN) and <Bold>{'{ contains }'}</Bold> a '%value%' pattern
+			(LIKE/ILIKE); null, '' or [] leaves the block out. Values are quoted for you: never build them into SQL
+			yourself. On a semantic-layer query, a filter whose id is a dimension (e.g. customer__region, metric_time
+			for a date range) filters by that dimension. Both kinds can live in one story; while new rows load, blocks
+			keep showing the previous ones.
+		</ListItem>,
+		<ListItem key='params'>
+			<Bold>Parameters</Bold> switch a semantic-layer query's metric or grain: run execute_semantic_query with{' '}
+			<Bold>{'{{ params.<id> }}'}</Bold> placeholders and defaults in <Bold>params</Bold>, then pass{' '}
+			<Bold>{'useQueryData(queryId, { params: { <id>: "value" } })'}</Bold> (or the <Bold>params</Bold> prop of a
+			block). Values are plain tokens (letters, digits, _ . : -). Result columns are named after the selected
+			values, so read keys from the same state.
+		</ListItem>,
+		<ListItem key='sql'>
+			<Bold>{'useSql(sql, { databaseId, filters })'}</Bold> (or the <Bold>sql</Bold>, <Bold>databaseId</Bold> and{' '}
+			<Bold>filters</Bold> props of a block) runs SQL the story writes itself, for drill-downs or lookups no saved
+			query covers. Write the viewer's choices as the same <Bold>{'{% filter <id> %}'}</Bold> blocks and pass them
+			in <Bold>filters</Bold> so they are quoted on the server. It returns the same state as useQueryData and runs
+			as the person viewing the story, with their own nao permissions: read-only SELECT on the warehouse only
+			(databaseId as in execute_sql), and it fails for viewers who cannot read those tables. Prefer saved queries
+			with filters for what every viewer needs to see, and never put secrets in it.
+		</ListItem>,
 		<ListItem key='maps'>
 			Maps: <Bold>{'<PointMap queryId="..." />'}</Bold> plots rows with latitude and longitude columns
 			(auto-detected; optional <Bold>latitudeKey</Bold>, <Bold>longitudeKey</Bold>, <Bold>sizeKey</Bold> for
@@ -167,8 +200,10 @@ export function storyKitGuideItems(): ReactElement[] {
 			be story files (inline or <Bold>src="./file.js"</Bold>, never a CDN) and run as ES modules after the page is
 			parsed: share code with imports (story files or the allowed packages), not globals; never wait for
 			DOMContentLoaded; attach listeners with addEventListener, never <Bold>onclick=""</Bold>. Read data with{' '}
-			<Bold>{`await ${STORY_HTML_API_GLOBAL}.query("query_id")`}</Bold> → {'{ columns, data }'} and redraw on
-			theme change with <Bold>{`${STORY_HTML_API_GLOBAL}.onTheme(fn)`}</Bold>.
+			<Bold>{`await ${STORY_HTML_API_GLOBAL}.query("query_id")`}</Bold> → {'{ columns, data }'} (pass{' '}
+			<Bold>{'{ filters, params }'}</Bold> as a second argument to re-run it, and{' '}
+			<Bold>{`${STORY_HTML_API_GLOBAL}.sql(sql, { databaseId })`}</Bold> for SQL of your own) and redraw on theme
+			change with <Bold>{`${STORY_HTML_API_GLOBAL}.onTheme(fn)`}</Bold>.
 		</ListItem>,
 	];
 }

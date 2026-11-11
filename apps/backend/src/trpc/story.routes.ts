@@ -20,6 +20,7 @@ import { agentService } from '../services/agent';
 import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
+	assertCustomStoryExists,
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
@@ -31,6 +32,7 @@ import {
 	getEditorCustomStoryQuerySql,
 } from '../services/custom-story';
 import { assertWriterAddsNoMarkdownChatQueries } from '../services/custom-story-query-access';
+import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
@@ -73,7 +75,9 @@ import { listMostViewedStories } from '../services/story-reference';
 import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	storyQueryInputs,
 	storySnapshotHtml,
+	storySqlRequest,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
@@ -511,17 +515,38 @@ export const storyRoutes = {
 				storySlug: z.string(),
 				queryId: z.string(),
 				versionNumber: z.number().int().positive().optional(),
+				inputs: storyQueryInputs,
 			}),
 		)
 		.query(async ({ input, ctx }) => {
-			const { chatId, storySlug, queryId, versionNumber } = input;
+			const { chatId, storySlug, queryId, versionNumber, inputs } = input;
 			try {
 				return ctx.isChatOwner
-					? await getCustomStoryQueryData(chatId, storySlug, queryId, { deferRefresh: true })
+					? await getCustomStoryQueryData(chatId, storySlug, queryId, { deferRefresh: true, inputs })
 					: await getEditorCustomStoryQueryData(chatId, storySlug, queryId, {
 							deferRefresh: true,
 							versionNumber,
+							inputs,
 						});
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	runCustomStorySql: cloudBillingStoryEditorProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), request: storySqlRequest }))
+		.mutation(async ({ input, ctx }) => {
+			try {
+				await assertCustomStoryExists(input.chatId, input.storySlug);
+				return await runCustomStorySql(
+					{
+						projectId: ctx.projectId,
+						chatId: input.chatId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: ctx.projectId,
+					},
+					input.request,
+				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}

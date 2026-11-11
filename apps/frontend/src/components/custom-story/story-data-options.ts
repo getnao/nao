@@ -1,5 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { CustomStoryViewerAccess, StoryStateChange } from '@nao/shared/story-app';
+import type {
+	CustomStoryViewerAccess,
+	StoryQueryResult,
+	StorySqlRequest,
+	StoryStateChange,
+} from '@nao/shared/story-app';
+import type { StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import { trpc, trpcClient } from '@/main';
 import { chatActivityStore } from '@/stores/chat-activity';
 
@@ -39,29 +45,46 @@ export function fileOptions(source: CustomStoryFileSource, path: string, version
 	});
 }
 
-export function queryDataOptions(dataSource: CustomStoryDataSource, queryId: string) {
+export function queryDataOptions(dataSource: CustomStoryDataSource, queryId: string, inputs?: StoryQueryInputs) {
 	if (dataSource.kind === 'viewer') {
 		const { access, storySlug, versionNumber } = dataSource;
-		return trpc.customStoryViewer.getQueryData.queryOptions({ access, storySlug, queryId, versionNumber });
+		return trpc.customStoryViewer.getQueryData.queryOptions({ access, storySlug, queryId, versionNumber, inputs });
 	}
 	if (dataSource.kind === 'share') {
 		return trpc.storyShare.getCustomStoryQueryData.queryOptions({
 			storyId: dataSource.storyId,
 			queryId,
 			versionNumber: dataSource.versionNumber,
+			inputs,
 		});
 	}
 	if (dataSource.kind === 'standalone') {
 		const { storyId, versionNumber } = dataSource;
-		return trpc.standaloneCustomStory.getQueryData.queryOptions({ storyId, queryId, versionNumber });
+		return trpc.standaloneCustomStory.getQueryData.queryOptions({ storyId, queryId, versionNumber, inputs });
 	}
 	const { chatId, storySlug, versionNumber } = dataSource;
 	return {
-		...trpc.story.getCustomStoryQueryData.queryOptions({ chatId, storySlug, queryId, versionNumber }),
+		...trpc.story.getCustomStoryQueryData.queryOptions({ chatId, storySlug, queryId, versionNumber, inputs }),
 		retry: (failureCount: number) =>
 			failureCount < MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING && chatActivityStore.getActivity(chatId).running,
 		retryDelay: QUERY_RETRY_DELAY_MS,
 	};
+}
+
+/** SQL the story writes itself runs as the person viewing it, wherever the story is opened from. */
+export function runStorySql(dataSource: CustomStoryDataSource, request: StorySqlRequest): Promise<StoryQueryResult> {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		return trpcClient.customStoryViewer.runSql.mutate({ access, storySlug, request });
+	}
+	if (dataSource.kind === 'share') {
+		return trpcClient.storyShare.runCustomStorySql.mutate({ storyId: dataSource.storyId, request });
+	}
+	if (dataSource.kind === 'standalone') {
+		return Promise.reject(new Error('Only stories built in a chat can run their own SQL.'));
+	}
+	const { chatId, storySlug } = dataSource;
+	return trpcClient.story.runCustomStorySql.mutate({ chatId, storySlug, request });
 }
 
 export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: string) {

@@ -1,5 +1,6 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
+import { hasStoryQueryInputs, type StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import type { DBStory, DBStoryDataCache, DBStoryVersion } from '../db/abstractSchema';
@@ -15,6 +16,7 @@ import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
 import { CustomStoryQueryNotAllowedError, listCustomStoryQueryIds } from './custom-story-query-access';
 import type { RefreshResult } from './live-story';
 import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
+import { executeStoryQueryWithInputs } from './story-query-inputs';
 
 export interface CustomStoryVersionView {
 	storyId: string;
@@ -39,6 +41,8 @@ export interface CustomStoryVersionView {
 interface CustomStoryDataOptions {
 	/** Serve the stored data of a story awaiting its background refresh, instead of refreshing inline. */
 	deferRefresh?: boolean;
+	/** Filters and parameters the story chose: the query re-runs with them instead of reading stored rows. */
+	inputs?: StoryQueryInputs;
 }
 
 export interface CustomStoryFileSummary {
@@ -66,6 +70,9 @@ export class CustomStoryQueryNotFoundError extends Error {
 
 /** The query itself failing is story content its viewer should read; any other failure stays an internal error. */
 export class CustomStoryQueryExecutionError extends Error {}
+
+const STANDALONE_INPUTS_UNAVAILABLE =
+	'This story keeps the rows of its queries but not their SQL, so it cannot re-run them with filters or parameters.';
 
 const pendingRefreshes = new Map<string, Promise<RefreshResult>>();
 
@@ -111,8 +118,12 @@ export async function getStandaloneCustomStoryQueryData(
 	storyId: string,
 	queryId: string,
 	versionNumber?: number,
+	inputs?: StoryQueryInputs,
 ): Promise<StoryQueryResult> {
 	await getStandaloneCustomStory(storyId);
+	if (hasStoryQueryInputs(inputs)) {
+		throw new CustomStoryQueryExecutionError(STANDALONE_INPUTS_UNAVAILABLE);
+	}
 	const version = await getStandaloneVersionRow(storyId, versionNumber);
 	await assertQueryReferencedByVersion(version.id, queryId);
 	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
@@ -173,6 +184,9 @@ export async function getCustomStoryQueryData(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryQueryResult> {
 	const story = await getCustomStory(chatId, storySlug);
+	if (hasStoryQueryInputs(options.inputs)) {
+		return runStoryQueryWithInputs(chatId, queryId, options.inputs);
+	}
 	if (!story.isLive) {
 		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
 	}
@@ -204,8 +218,26 @@ async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQuer
 	try {
 		return await executeLiveQuery(chatId, queryId);
 	} catch (error) {
-		throw new CustomStoryQueryExecutionError(error instanceof Error ? error.message : String(error));
+		throw toQueryExecutionError(error);
 	}
+}
+
+/** Filtered rows are the viewer's own exploration: they are never written to the story's data cache. */
+async function runStoryQueryWithInputs(
+	chatId: string,
+	queryId: string,
+	inputs: StoryQueryInputs,
+): Promise<StoryQueryResult> {
+	try {
+		const { data, columns } = await executeStoryQueryWithInputs(chatId, queryId, inputs);
+		return { data, columns };
+	} catch (error) {
+		throw toQueryExecutionError(error);
+	}
+}
+
+function toQueryExecutionError(error: unknown): CustomStoryQueryExecutionError {
+	return new CustomStoryQueryExecutionError(error instanceof Error ? error.message : String(error));
 }
 
 export async function getCustomStoryNarratives(
@@ -280,10 +312,11 @@ export async function getSharedCustomStoryQueryData(
 	storySlug: string,
 	queryId: string,
 	versionNumber?: number,
+	inputs?: StoryQueryInputs,
 ): Promise<StoryQueryResult> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
 	await assertQueryReferencedByVersion(version.id, queryId);
-	return getCustomStoryQueryData(chatId, storySlug, queryId);
+	return getCustomStoryQueryData(chatId, storySlug, queryId, { inputs });
 }
 
 export async function getCustomStoryQuerySql(chatId: string, storySlug: string, queryId: string): Promise<string> {
@@ -383,6 +416,10 @@ function isCacheFresh(story: DBStory, cache: DBStoryDataCache | null): boolean {
 /** Mirrors `needsRefresh`: a stale story waits on its viewer's refresh when it was never cached or its last refresh failed. */
 async function isAwaitingBackgroundRefresh(storyId: string, cache: DBStoryDataCache | null): Promise<boolean> {
 	return cache === null || (await activityQueries.getLatestStoryRefreshFailure(storyId)) !== null;
+}
+
+export async function assertCustomStoryExists(chatId: string, storySlug: string): Promise<void> {
+	await getCustomStory(chatId, storySlug);
 }
 
 async function getCustomStory(chatId: string, storySlug: string): Promise<DBStory> {
