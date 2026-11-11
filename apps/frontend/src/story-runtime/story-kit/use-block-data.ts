@@ -34,7 +34,7 @@ export function useBlockData({
 	params,
 }: BlockDataSource): BlockData & { refetch: () => void } {
 	const hasData = data !== undefined && data !== null;
-	const usesSql = !hasData && sql !== undefined;
+	const usesSql = !hasData && sql !== undefined && sql.trim() !== '';
 	const usesQuery = !hasData && !usesSql && queryId !== undefined;
 	const sqlResult = useSql(sql ?? '', { databaseId, filters, enabled: usesSql });
 	const queryResult = useQueryData(queryId ?? '', { enabled: usesQuery, filters, params });

@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { STORY_RUNTIME_PATH, STORY_STANDALONE_RUNTIME_FILE } from '@nao/shared/story-app';
+import { readRequestAnswers } from './story-request-answers';
 import type { QueryClient } from '@tanstack/react-query';
 import type { DownloadFormat } from '@nao/shared/types';
 import type { StoryExportData, StoryQueryResult } from '@nao/shared/story-app';
@@ -92,6 +93,7 @@ async function fetchExportData(
 	]);
 	return {
 		queries: Object.fromEntries(results.filter((entry) => entry !== null)),
+		requests: readRequestAnswers(dataSource),
 		narratives,
 		state,
 		chartPlugins,

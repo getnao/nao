@@ -1,5 +1,6 @@
 import {
 	extractSqlFilterIds,
+	isFilterSelectionActive,
 	type StoryFilterSelection,
 	type StoryFilterSelections,
 	type StoryFilterSpec,
@@ -36,15 +37,16 @@ export interface StoryQueryFilterBindings {
 	specs: StoryFilterSpecById;
 }
 
+/** Only filters that narrow the query count: `{ region: null }` asks for the same rows as no filter at all. */
 export function hasStoryQueryInputs(inputs: StoryQueryInputs | undefined): inputs is StoryQueryInputs {
-	return Object.keys(inputs?.filters ?? {}).length > 0 || Object.keys(inputs?.params ?? {}).length > 0;
+	return Object.keys(activeFilters(inputs?.filters)).length > 0 || Object.keys(inputs?.params ?? {}).length > 0;
 }
 
 export function toStoryFilterBindings(filters: StoryQueryFilters = {}): StoryQueryFilterBindings {
 	const selections: StoryFilterSelections = {};
 	const specs: StoryFilterSpecById = {};
 	for (const [filterId, value] of Object.entries(filters)) {
-		const binding = toFilterBinding(value);
+		const binding = toActiveFilterBinding(value);
 		if (binding) {
 			selections[filterId] = binding.selection;
 			specs[filterId] = binding.spec;
@@ -64,10 +66,32 @@ export function serializeStoryQueryInputs(inputs: StoryQueryInputs | undefined):
 	if (!hasStoryQueryInputs(inputs)) {
 		return '';
 	}
-	return JSON.stringify({ filters: sortKeys(inputs.filters), params: sortKeys(inputs.params) });
+	return JSON.stringify({ filters: sortKeys(activeFilters(inputs.filters)), params: sortKeys(inputs.params) });
+}
+
+/** Names a saved-query request the same way in the story frame and in the rows a download carries. */
+export function storyQueryRequestKey(queryId: string, inputs?: StoryQueryInputs): string {
+	return `query:${queryId}:${serializeStoryQueryInputs(inputs)}`;
+}
+
+export function storySqlRequestKey(request: { sql: string; databaseId?: string; filters?: StoryQueryFilters }): string {
+	return `sql:${request.databaseId ?? ''}:${serializeStoryQueryInputs({ filters: request.filters })}:${request.sql}`;
 }
 
 const INACTIVE_SPEC: StoryFilterSpec = { type: 'select' };
+
+function activeFilters(filters: StoryQueryFilters = {}): StoryQueryFilters {
+	return Object.fromEntries(Object.entries(filters).filter(([, value]) => toActiveFilterBinding(value) !== null));
+}
+
+function toActiveFilterBinding(
+	value: StoryQueryFilterValue,
+): { selection: StoryFilterSelection; spec: StoryFilterSpec } | null {
+	const binding = toFilterBinding(value);
+	return binding && isFilterSelectionActive(binding.spec.type, binding.selection, binding.spec.valueType)
+		? binding
+		: null;
+}
 
 function toFilterBinding(
 	value: StoryQueryFilterValue,
@@ -80,7 +104,7 @@ function toFilterBinding(
 	}
 	if (typeof value === 'number') {
 		return Number.isFinite(value)
-			? { selection: String(value), spec: { type: 'text', valueType: 'number' } }
+			? { selection: formatPlainNumber(value), spec: { type: 'text', valueType: 'number' } }
 			: null;
 	}
 	if (Array.isArray(value)) {
@@ -90,6 +114,11 @@ function toFilterBinding(
 		return { selection: value.contains, spec: { type: 'search' } };
 	}
 	return { selection: [value.from, value.to], spec: { type: 'date_range' } };
+}
+
+/** `String(1e-7)` is `"1e-7"`, which the numeric filter check rejects: write every number out in full. */
+function formatPlainNumber(value: number): string {
+	return value.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 20 });
 }
 
 function sortKeys<T>(record: Record<string, T> | undefined): Record<string, T> | undefined {

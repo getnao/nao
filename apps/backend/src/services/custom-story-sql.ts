@@ -5,9 +5,11 @@ import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 
 import { containsBlockedPassthroughCall, isReadOnlySqlQuery } from '../utils/sql-filter';
 import { buildToolContext } from './agent';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { executeRawSql } from './live-story';
 import { isWarehouseSqlEnabled } from './semantic-layer.service';
+import { WarehouseSqlError } from './warehouse-sql.service';
 
 export const MAX_CUSTOM_STORY_SQL_LENGTH = 100_000;
 
@@ -43,21 +45,23 @@ export async function runCustomStorySql(
 		);
 	}
 
+	if (target.billingAccessVerifiedProjectId !== target.projectId) {
+		await assertProjectCloudBillingAccess(target.projectId);
+	}
+	const executionContext = {
+		toolContext,
+		enforceExcludedColumns: await resolveExcludedColumnEnforcement(target.projectId, toolContext.agentSettings),
+	};
+
 	try {
 		const result = await executeRawSql(sql, {
-			executionContext: {
-				toolContext,
-				enforceExcludedColumns: await resolveExcludedColumnEnforcement(
-					target.projectId,
-					toolContext.agentSettings,
-				),
-			},
+			executionContext,
 			databaseId,
-			billingAccessVerifiedProjectId: target.billingAccessVerifiedProjectId,
+			billingAccessVerifiedProjectId: target.projectId,
 		});
 		return { columns: result.columns, data: result.data };
 	} catch (error) {
-		throw new CustomStorySqlError(error instanceof Error ? error.message : String(error));
+		throw error instanceof WarehouseSqlError ? new CustomStorySqlError(error.message) : error;
 	}
 }
 

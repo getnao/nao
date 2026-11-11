@@ -16,6 +16,7 @@ import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
 import { CustomStoryQueryNotAllowedError, listCustomStoryQueryIds } from './custom-story-query-access';
 import type { RefreshResult } from './live-story';
 import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
+import { assertStoryFiltersEnabled } from './story-filters';
 import { executeStoryQueryWithInputs } from './story-query-inputs';
 
 export interface CustomStoryVersionView {
@@ -185,6 +186,7 @@ export async function getCustomStoryQueryData(
 ): Promise<StoryQueryResult> {
 	const story = await getCustomStory(chatId, storySlug);
 	if (hasStoryQueryInputs(options.inputs)) {
+		assertStoryFiltersEnabled();
 		return runStoryQueryWithInputs(chatId, queryId, options.inputs);
 	}
 	if (!story.isLive) {

@@ -5,6 +5,7 @@ import {
 	hasStoryQueryInputs,
 	serializeStoryQueryInputs,
 	type StoryQueryFilters,
+	storyQueryRequestKey,
 	toStoryFilterBindings,
 	withInactiveFilterSpecs,
 } from '../src/story-query-inputs';
@@ -57,6 +58,13 @@ describe('toStoryFilterBindings', () => {
 		expect(sql).toContain("AND region = 'x'' OR ''1'' = ''1'");
 	});
 
+	it('writes small and large numbers out in full instead of exponent notation', () => {
+		expect(toStoryFilterBindings({ a: 1e-7, b: 1e21 }).selections).toEqual({
+			a: '0.0000001',
+			b: '1000000000000000000000',
+		});
+	});
+
 	it('ignores numbers that are not finite', () => {
 		expect(toStoryFilterBindings({ min_amount: Number.NaN })).toEqual({ selections: {}, specs: {} });
 	});
@@ -72,5 +80,15 @@ describe('serializeStoryQueryInputs', () => {
 	it('is empty when nothing was chosen', () => {
 		expect(serializeStoryQueryInputs({ filters: {}, params: {} })).toBe('');
 		expect(hasStoryQueryInputs({ filters: {}, params: {} })).toBe(false);
+	});
+
+	it('treats filters that narrow nothing as no filter, so they share the unfiltered rows', () => {
+		const empty = { filters: { region: null, status: '', countries: [], period: { from: '', to: '' } } };
+
+		expect(hasStoryQueryInputs(empty)).toBe(false);
+		expect(storyQueryRequestKey('query_1', empty)).toBe(storyQueryRequestKey('query_1'));
+		expect(storyQueryRequestKey('query_1', { filters: { region: 'EU', status: '' } })).toBe(
+			storyQueryRequestKey('query_1', { filters: { region: 'EU' } }),
+		);
 	});
 });

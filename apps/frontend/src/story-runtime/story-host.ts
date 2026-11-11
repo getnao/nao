@@ -6,7 +6,7 @@ import {
 	STORY_PRINT_FLAG,
 } from '@nao/shared/story-app';
 import { STORY_THEME_STYLE_ID, storyThemeStyles } from '@nao/shared/story-document';
-import { hasStoryQueryInputs } from '@nao/shared/story-query-inputs';
+import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -51,7 +51,8 @@ interface PendingRequest<T> {
 }
 
 const HOST_REPLY_TIMEOUT_MS = 120_000;
-const OFFLINE_QUERY_MESSAGE = 'A downloaded story only holds its saved rows: open it in nao to filter or query them.';
+const OFFLINE_QUERY_MESSAGE =
+	'This copy of the story only holds the rows it was saved with: open it in nao to filter or query them.';
 
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
@@ -140,7 +141,7 @@ export function requestQueryData(
 	const inputs = { filters, params };
 	if (exportData) {
 		return hasStoryQueryInputs(inputs)
-			? Promise.reject(new Error(OFFLINE_QUERY_MESSAGE))
+			? readExportedRequest(exportData, storyQueryRequestKey(queryId, inputs))
 			: readExportedQuery(exportData, queryId);
 	}
 	return awaitReply(pendingQueries, (requestId) => ({
@@ -158,7 +159,7 @@ export function requestSql(
 	{ databaseId, filters, fresh = false }: StorySqlRequestOptions = {},
 ): Promise<StoryQueryResult> {
 	if (exportData) {
-		return Promise.reject(new Error(OFFLINE_QUERY_MESSAGE));
+		return readExportedRequest(exportData, storySqlRequestKey({ sql, databaseId, filters }));
 	}
 	return awaitReply(pendingQueries, (requestId) => ({
 		type: 'nao-story:sql',
@@ -442,6 +443,11 @@ function send(message: StoryFrameMessage): void {
 function readExportedQuery(data: StoryExportData, queryId: string): Promise<StoryQueryResult> {
 	const result = data.queries[queryId];
 	return result ? Promise.resolve(result) : Promise.reject(new Error(`Query ${queryId} is not part of this export.`));
+}
+
+function readExportedRequest(data: StoryExportData, requestKey: string): Promise<StoryQueryResult> {
+	const result = data.requests?.[requestKey];
+	return result ? Promise.resolve(result) : Promise.reject(new Error(OFFLINE_QUERY_MESSAGE));
 }
 
 function readExportedChartPlugin(data: StoryExportData, chartType: string): Promise<string> {

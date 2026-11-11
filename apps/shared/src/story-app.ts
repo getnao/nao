@@ -121,6 +121,8 @@ export type StoryNarratives = Record<string, string>;
 
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
+	/** Rows of the filtered queries and story SQL the viewer saw, by request key, so a download shows the same. */
+	requests?: Record<string, StoryQueryResult>;
 	narratives: StoryNarratives;
 	state?: StoryStateSnapshot;
 	chartPlugins?: Record<string, string>;

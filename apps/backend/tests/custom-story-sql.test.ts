@@ -5,15 +5,20 @@ const mocks = vi.hoisted(() => ({
 	buildToolContext: vi.fn(),
 	executeRawSql: vi.fn(),
 	resolveExcludedColumnEnforcement: vi.fn(),
+	assertProjectCloudBillingAccess: vi.fn(),
 }));
 
 vi.mock('../src/services/agent', () => ({ buildToolContext: mocks.buildToolContext }));
 vi.mock('../src/services/live-story', () => ({ executeRawSql: mocks.executeRawSql }));
+vi.mock('../src/services/cloud-billing-access.service', () => ({
+	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+}));
 vi.mock('../src/services/excluded-columns.service', () => ({
 	resolveExcludedColumnEnforcement: mocks.resolveExcludedColumnEnforcement,
 }));
 
 import { CustomStorySqlError, runCustomStorySql } from '../src/services/custom-story-sql';
+import { WarehouseSqlError } from '../src/services/warehouse-sql.service';
 
 const TARGET = { projectId: 'project-1', chatId: 'chat-1', viewerId: 'viewer-1' };
 const VIEWER_CONTEXT = {
@@ -44,8 +49,9 @@ describe('runCustomStorySql', () => {
 		expect(mocks.executeRawSql).toHaveBeenCalledWith('SELECT 1 AS n', {
 			executionContext: { toolContext: VIEWER_CONTEXT, enforceExcludedColumns: true },
 			databaseId: 'warehouse',
-			billingAccessVerifiedProjectId: undefined,
+			billingAccessVerifiedProjectId: 'project-1',
 		});
+		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 	});
 
 	it('renders the filter blocks of the SQL with the quoted values the story sent', async () => {
@@ -83,10 +89,23 @@ describe('runCustomStorySql', () => {
 	});
 
 	it('surfaces warehouse denials as story errors', async () => {
-		mocks.executeRawSql.mockRejectedValue(new Error('Access to table hr.salaries is not allowed.'));
+		mocks.executeRawSql.mockRejectedValue(
+			new WarehouseSqlError(403, 'Access to table hr.salaries is not allowed.'),
+		);
 
 		await expect(runCustomStorySql(TARGET, { sql: 'SELECT * FROM hr.salaries' })).rejects.toThrow(
 			new CustomStorySqlError('Access to table hr.salaries is not allowed.'),
 		);
+	});
+
+	it('keeps billing and infrastructure failures out of the story, with their own error', async () => {
+		const billingError = new Error('Your subscription has ended.');
+		mocks.assertProjectCloudBillingAccess.mockRejectedValueOnce(billingError);
+		await expect(runCustomStorySql(TARGET, { sql: 'SELECT 1' })).rejects.toBe(billingError);
+		expect(mocks.executeRawSql).not.toHaveBeenCalled();
+
+		const outage = new TypeError('fetch failed');
+		mocks.executeRawSql.mockRejectedValueOnce(outage);
+		await expect(runCustomStorySql(TARGET, { sql: 'SELECT 1' })).rejects.toBe(outage);
 	});
 });

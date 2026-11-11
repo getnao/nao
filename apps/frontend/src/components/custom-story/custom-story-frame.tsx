@@ -9,6 +9,7 @@ import {
 } from '@nao/shared/story-app';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import {
 	fetchChartPluginSource,
 	narrativesOptions,
@@ -18,6 +19,7 @@ import {
 	stateOptions,
 } from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
+import { rememberRequestAnswer } from './story-request-answers';
 import { RememberStateHeader } from './remember-state-header';
 import { useStoryStateRecorder } from './use-story-state-recorder';
 import type { StoryQueryInputs } from '@nao/shared/story-query-inputs';
@@ -72,6 +74,13 @@ export interface StoryStateControls {
 	hasLocalState: boolean;
 }
 
+/**
+ * Story SQL runs as the viewer, so its rows may hold data other viewers cannot read: once a story has run some,
+ * it can no longer write the state every viewer reads.
+ */
+const SHARED_STATE_AFTER_SQL_MESSAGE =
+	'This story ran its own SQL as you, so it cannot change the state other viewers see until it is reloaded.';
+
 const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame and was stopped.';
 
 export function CustomStoryFrame({
@@ -94,6 +103,7 @@ export function CustomStoryFrame({
 	const loadCountRef = useRef(0);
 	const isFrameReadyRef = useRef(false);
 	const portRef = useRef<MessagePort | null>(null);
+	const hasRunStorySqlRef = useRef(false);
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
 	const dateFormat = useDateFormat();
@@ -153,6 +163,9 @@ export function CustomStoryFrame({
 			try {
 				const options = queryDataOptions(dataSource, queryId, inputs);
 				const result = await queryClient.fetchQuery(fresh ? { ...options, staleTime: 0 } : options);
+				if (hasStoryQueryInputs(inputs)) {
+					rememberRequestAnswer(dataSource, storyQueryRequestKey(queryId, inputs), result);
+				}
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
@@ -163,12 +176,14 @@ export function CustomStoryFrame({
 
 	const answerSql = useCallback(
 		async (requestId: string, request: StorySqlRequest, fresh: boolean) => {
+			hasRunStorySqlRef.current = true;
 			try {
 				const result = await queryClient.fetchQuery({
 					queryKey: ['custom-story-sql', dataSource, request],
 					queryFn: () => runStorySql(dataSource, request),
 					...(fresh && { staleTime: 0 }),
 				});
+				rememberRequestAnswer(dataSource, storySqlRequestKey(request), result);
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
@@ -306,6 +321,10 @@ export function CustomStoryFrame({
 					void answerChartPlugin(message.requestId, message.chartType);
 					break;
 				case 'nao-story:set-state':
+					if (message.shared === true && hasRunStorySqlRef.current) {
+						onError?.({ message: SHARED_STATE_AFTER_SQL_MESSAGE });
+						break;
+					}
 					recordStateChange({ key: message.key, value: message.value, shared: message.shared === true });
 					break;
 				case 'nao-story:keydown':
@@ -373,6 +392,7 @@ export function CustomStoryFrame({
 	useEffect(() => {
 		if (srcDoc !== null) {
 			closePort();
+			hasRunStorySqlRef.current = false;
 			loadCountRef.current = 0;
 			isFrameReadyRef.current = false;
 			setNavigatedAway(false);
