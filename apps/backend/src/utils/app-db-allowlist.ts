@@ -9,6 +9,8 @@ export const ALLOWED_APP_DB_VIEWS = [
 	'v_project',
 	'v_analytics_event',
 	'v_story_feedback',
+	'v_test_runs',
+	'v_test_results',
 ] as const;
 
 /**

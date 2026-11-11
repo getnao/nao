@@ -51,6 +51,30 @@ describe('AddMemberDialog groups', () => {
 		);
 	});
 
+	it('removes a selected group from its token without submitting', async () => {
+		const onSubmit = vi.fn().mockResolvedValue({});
+		render(<AddMemberDialog open onOpenChange={vi.fn()} groupOptions={groupOptions} onSubmit={onSubmit} />);
+
+		openGroupPicker();
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Analysts' }));
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Finance' }));
+		closeGroupPicker();
+		expect(screen.queryByRole('button', { name: 'Remove group All Users' })).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Remove group Analysts' }));
+		expect(onSubmit).not.toHaveBeenCalled();
+
+		fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'person@example.com' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
+
+		await waitFor(() =>
+			expect(onSubmit).toHaveBeenCalledWith({
+				email: 'person@example.com',
+				name: undefined,
+				groupIds: ['finance'],
+			}),
+		);
+	});
+
 	it('keeps selected groups through the missing-name retry', async () => {
 		const onSubmit = vi.fn().mockResolvedValueOnce({ needsName: true }).mockResolvedValueOnce({});
 		render(<AddMemberDialog open onOpenChange={vi.fn()} groupOptions={groupOptions} onSubmit={onSubmit} />);

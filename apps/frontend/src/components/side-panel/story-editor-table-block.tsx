@@ -8,7 +8,7 @@ import { StoryBlockDragGrip, StoryBlockDropZones, useStoryBlockDrag } from './st
 import { decodeFromAttr } from './story-editor-utils';
 import { StoryEditorParametersContext } from './story-editor-parameters-context';
 import type { ReactNodeViewProps } from '@tiptap/react';
-import { StoryTableFrame } from '@/components/story-block';
+import { StoryTableFrame, tableBlockReference } from '@/components/story-block';
 
 function TableBlockView({ node, editor, getPos }: ReactNodeViewProps) {
 	const rawTag = node.attrs.rawTag as string;
@@ -41,7 +41,7 @@ function TableBlockView({ node, editor, getPos }: ReactNodeViewProps) {
 				<div contentEditable={false} className='absolute -left-10 top-2 z-20'>
 					<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />
 				</div>
-				<StoryTableFrame>
+				<StoryTableFrame block={tableBlockReference(table)}>
 					<StoryTableEmbed table={table} />
 				</StoryTableFrame>
 			</div>

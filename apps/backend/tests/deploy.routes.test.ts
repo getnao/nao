@@ -38,6 +38,8 @@ vi.mock('../src/services/cloud-billing-access.service', () => ({
 import { env } from '../src/env';
 import { deployRoutes } from '../src/routes/deploy';
 
+const GIT_HEAD = 'ref: refs/heads/main\n';
+
 describe('deploy route cloud billing access', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
@@ -130,6 +132,80 @@ describe('deploy route archive validation', () => {
 			error: 'Archive entry "docs/etc" is not a regular file or directory. Symlinks and special files are not allowed.',
 		});
 	});
+
+	it.each([
+		[
+			'a .git folder',
+			{ '.git/config': '[core]\n\tfsmonitor = ./run\n', '.git/hooks/post-checkout': '#!/bin/sh\n' },
+			'.git',
+		],
+		['a nested .git folder', { 'repos/dbt/.git/config': '[core]\n' }, 'repos/dbt/.git'],
+		['a .git file pointing at another repository', { '.git': 'gitdir: /app/projects/other/.git\n' }, '.git'],
+		['a .git folder in another letter case', { '.GIT/config': '[core]\n' }, '.GIT'],
+	])('rejects an archive containing %s', async (_label, files, rejectedEntry) => {
+		const { status, send } = await deployArchive(files);
+
+		expect(status).toHaveBeenCalledWith(400);
+		expect(send).toHaveBeenCalledWith({
+			error: `Archive entry "${rejectedEntry}" is Git metadata, which is not allowed. Deploy the project files without it.`,
+		});
+		expect(mocks.getProjectByOrgAndName).not.toHaveBeenCalled();
+		expect(mocks.createProject).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[
+			'at its root',
+			{ HEAD: GIT_HEAD, 'objects/keep': '', 'refs/keep': '', config: '[core]\n\tbare = false\n' },
+			'.',
+		],
+		['in a folder', { 'docs/HEAD': GIT_HEAD, 'docs/objects/keep': '', 'docs/refs/keep': '' }, 'docs'],
+		['through a common folder', { 'docs/HEAD': GIT_HEAD, 'docs/commondir': '../shared\n' }, 'docs'],
+	])('rejects an archive laid out as a Git repository %s', async (_label, files, rejectedFolder) => {
+		const { status, send } = await deployArchive(files);
+
+		expect(status).toHaveBeenCalledWith(400);
+		expect(send).toHaveBeenCalledWith({
+			error: `Archive folder "${rejectedFolder}" is laid out as a Git repository. Git metadata is not allowed.`,
+		});
+		expect(mocks.createProject).not.toHaveBeenCalled();
+	});
+
+	it('accepts files that only share a name with Git metadata', async () => {
+		mocks.getProjectByOrgAndName.mockResolvedValue({ id: 'existing-project', path: createTempDir() });
+
+		const { status, send } = await deployArchive({ HEAD: 'notes', 'docs/objects/list.md': '', '.gitignore': '' });
+
+		expect(status).not.toHaveBeenCalled();
+		expect(send).toHaveBeenCalledWith({ projectId: 'existing-project', projectName: 'demo', status: 'updated' });
+	});
+
+	function createTempDir(): string {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-deploy-test-'));
+		tempDirs.push(dir);
+		return dir;
+	}
+
+	async function deployArchive(files: Record<string, string>) {
+		const sourceDir = createTempDir();
+		for (const [relativePath, content] of Object.entries({ 'nao_config.yaml': 'project_name: demo\n', ...files })) {
+			const filePath = path.join(sourceDir, relativePath);
+			fs.mkdirSync(path.dirname(filePath), { recursive: true });
+			fs.writeFileSync(filePath, content);
+		}
+		const send = vi.fn();
+		const status = vi.fn(() => ({ send }));
+
+		await handler()(
+			{
+				headers: { authorization: 'Bearer nao_valid' },
+				file: vi.fn().mockResolvedValue({ file: toAsyncIterable(createArchive(sourceDir)) }),
+			},
+			{ status, send },
+		);
+
+		return { status, send };
+	}
 });
 
 describe('deploy route deployment record', () => {

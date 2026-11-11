@@ -1256,6 +1256,26 @@ function extractQueryResultFromToolOutput(
 	};
 }
 
+/** Chats of the user, soft-deleted included, that they started from the web chat. */
+export const countUserWebConversations = async (userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ total: count() })
+		.from(s.chat)
+		.where(and(eq(s.chat.userId, userId), isNotAutomationRunChat(), isNotPageScopedChat(), hasWebUserMessage()))
+		.execute();
+	return row?.total ?? 0;
+};
+
+/** Integration, MCP, context recommendation, onboarding and test chats record another source on their messages. */
+const hasWebUserMessage = () => {
+	return sql`exists (
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.role} = 'user'
+		and ${s.chatMessage.source} = 'web'
+	)`;
+};
+
 export async function getChatInfo(
 	chatId: string,
 ): Promise<{ projectId: string; userId: string; title: string } | null> {
