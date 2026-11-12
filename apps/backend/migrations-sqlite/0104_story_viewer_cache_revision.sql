@@ -1,0 +1,1 @@
+ALTER TABLE `story` ADD `viewer_cache_revision` integer DEFAULT 0 NOT NULL;

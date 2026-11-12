@@ -1380,6 +1380,7 @@ export const story = sqliteTable(
 		isLiveTextDynamic: integer('is_live_text_dynamic', { mode: 'boolean' }).default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
+		viewerCacheRevision: integer('viewer_cache_revision').default(0).notNull(),
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		certifiedAt: integer('certified_at', { mode: 'timestamp_ms' }),

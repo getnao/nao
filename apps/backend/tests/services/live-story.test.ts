@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { STORY_VIEWER_RESTRICTED_CODE_MARKER } from '@nao/shared/story-app';
+import { STORY_NARRATIVES_REDACT_MISSING_KEY, STORY_VIEWER_RESTRICTED_CODE_MARKER } from '@nao/shared/story-app';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryDataCacheByChatAndSlug: vi.fn(),
 	getStoryViewerDataCache: vi.fn(),
 	getProjectViewerCacheRevision: vi.fn(),
+	getStoryViewerCacheRevision: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
 	queryAppDb: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryDataCacheByChatAndSlug: mocks.getStoryDataCacheByChatAndSlug,
 	getStoryViewerDataCache: mocks.getStoryViewerDataCache,
 	getProjectViewerCacheRevision: mocks.getProjectViewerCacheRevision,
+	getStoryViewerCacheRevision: mocks.getStoryViewerCacheRevision,
 	upsertStoryDataCache: mocks.upsertStoryDataCache,
 	upsertStoryViewerDataCache: mocks.upsertStoryViewerDataCache,
 	updateLatestVersionCode: mocks.updateLatestVersionCode,
@@ -197,6 +199,7 @@ describe('live story SQL execution', () => {
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
 		mocks.getStoryViewerDataCache.mockResolvedValue(null);
 		mocks.getProjectViewerCacheRevision.mockResolvedValue(0);
+		mocks.getStoryViewerCacheRevision.mockResolvedValue(0);
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
 		mocks.hasEffectiveWarehouseRestrictions.mockImplementation(
 			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
@@ -484,7 +487,7 @@ describe('live story SQL execution', () => {
 		});
 
 		expect(mocks.runQueryOnLocalFiles).not.toHaveBeenCalled();
-		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]![6]).toEqual({
+		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]![7]).toEqual({
 			query_local: { columns: [], data: [], accessDenied: true },
 			query_allowed: {
 				columns: ['order_count'],
@@ -865,6 +868,7 @@ describe('live story SQL execution', () => {
 			'viewer-1',
 			'project-1',
 			0,
+			0,
 			VIEWER_PERMISSION_REVISION,
 			queryData,
 			{
@@ -938,6 +942,7 @@ describe('live story SQL execution', () => {
 			'version-1',
 			'viewer-1',
 			'project-1',
+			0,
 			0,
 			VIEWER_PERMISSION_REVISION,
 			queryData,
@@ -1062,6 +1067,51 @@ describe('live story SQL execution', () => {
 		expect(systemPrompt).not.toContain('Acme');
 		expect(systemPrompt).not.toContain('100 customers');
 		expect(systemPrompt).toContain('Viewer-specific narrative.');
+	});
+
+	it('redacts static custom narratives in viewer delivery snapshots', async () => {
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			id: 'version-1',
+			storyId: 'story-1',
+			version: 1,
+			code: 'export default {}',
+			title: 'Customers',
+			isLiveTextDynamic: false,
+			format: 'custom',
+		});
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set(['query_admin']));
+		mocks.listVersionFiles.mockResolvedValue([
+			{
+				path: 'app.tsx',
+				content:
+					"import { Narrative } from '@nao/story-kit'; export default () => <Narrative id='summary'>Acme has 100 customers</Narrative>;",
+			},
+		]);
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: {
+				sqlQuery: 'SELECT customer_count FROM customer_summary',
+				adminMode: true,
+			},
+		});
+		mocks.queryAppDb.mockResolvedValue({
+			_version: '1',
+			columns: ['customer_count'],
+			rows: [{ customer_count: 1 }],
+			rowCount: 1,
+		});
+
+		await expect(
+			refreshStoryDataForDelivery('chat-1', 'customers', {
+				viewerUserId: 'viewer-1',
+			}),
+		).resolves.toMatchObject({
+			narratives: {
+				[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
+				summary: '',
+			},
+		});
+
+		expect(mocks.generateText).not.toHaveBeenCalled();
 	});
 
 	it('falls back to redacted source when viewer classic story generation fails', async () => {

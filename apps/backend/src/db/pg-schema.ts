@@ -1292,6 +1292,7 @@ export const story = pgTable(
 		isLiveTextDynamic: boolean('is_live_text_dynamic').default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
+		viewerCacheRevision: integer('viewer_cache_revision').default(0).notNull(),
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: timestamp('archived_at'),
 		certifiedAt: timestamp('certified_at'),
