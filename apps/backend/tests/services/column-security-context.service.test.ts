@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
 	renderColumnSecurityTableFile,
 	resetColumnCatalogCacheForTesting,
-} from '../src/services/column-security-context.service';
+} from '../../src/services/column-security-context.service';
 
 const temporaryFolders: string[] = [];
 

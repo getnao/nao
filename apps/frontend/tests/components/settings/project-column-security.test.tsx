@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-import { ProjectColumnSecurity } from './project-column-security';
+import { ProjectColumnSecurity } from '@/components/settings/project-column-security';
 
 const mocks = vi.hoisted(() => ({
 	invalidateQueries: vi.fn(),

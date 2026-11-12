@@ -5,7 +5,7 @@ import {
 	normalizeProjectColumnSecurity,
 	parseStoredProjectColumnSecurity,
 	resolveWarehouseColumnSecurity,
-} from './user-group-column-security';
+} from '../src/user-group-column-security';
 
 const table = {
 	databaseType: 'duckdb',
