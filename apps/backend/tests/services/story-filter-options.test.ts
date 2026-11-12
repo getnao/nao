@@ -269,6 +269,29 @@ describe('getStoryFilterOptions', () => {
 		);
 	});
 
+	it('keeps query-backed matches containing apostrophes or backslashes', async () => {
+		const code = '<filter id="customer" type="select" options_query_id="query_customer_options" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code });
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_customer_options: {
+				sqlQuery: 'SELECT customer AS value FROM customers',
+				dialect: 'bigquery',
+				adminMode: false,
+			},
+		});
+
+		for (const search of ["O'Reilly", String.raw`C:\Sales`]) {
+			mocks.executeStoryQueries.mockResolvedValue({
+				query_customer_options: { columns: ['value'], data: [{ value: search }] },
+			});
+
+			await expect(getStoryFilterOptions('chat-1', 'story', 'customer', { search })).resolves.toEqual({
+				options: [search],
+				isComplete: true,
+			});
+		}
+	});
+
 	it('applies the parent selection to a query-backed child filter', async () => {
 		const code = [
 			'<filter id="category" type="select" table="products" column="category" />',

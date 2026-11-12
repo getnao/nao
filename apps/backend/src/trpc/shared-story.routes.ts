@@ -233,13 +233,13 @@ export const sharedStoryRoutes = {
 				if (shared.chatId) {
 					return input.inputs
 						? await getSharedCustomStoryQueryData(
-							shared.chatId,
-							shared.slug,
-							input.queryId,
-							input.versionNumber,
-							ctx.user.id,
-							{ inputs: input.inputs, viewerId: ctx.user.id },
-						)
+								shared.chatId,
+								shared.slug,
+								input.queryId,
+								input.versionNumber,
+								ctx.user.id,
+								{ inputs: input.inputs, viewerId: ctx.user.id },
+							)
 						: await getSharedCustomStoryQueryData(
 								shared.chatId,
 								shared.slug,

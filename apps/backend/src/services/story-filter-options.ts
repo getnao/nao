@@ -124,15 +124,32 @@ export async function getStoryFilterOptions(
 	}
 
 	const source = buildOptionsSource(filter, context, request.parentSelection);
-	const search = normalizeSearchTerm(request.search);
+	const searchText = request.search?.trim().toLocaleLowerCase();
+	const searchPattern = normalizeSearchTerm(request.search);
 	if (viewerUserId) {
 		const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
-		const result = await queryFilterOptions(context, filter.id, source, executionContext, executionOptions, search);
+		const result = await queryFilterOptions(
+			context,
+			filter.id,
+			source,
+			executionContext,
+			executionOptions,
+			searchPattern,
+			searchText,
+		);
 		return restrictConfiguredOptions(result, filter.options);
 	}
-	if (search) {
+	if (searchText) {
 		const executionContext = await createStoryExecutionContext(chatId);
-		return queryFilterOptions(context, filter.id, source, executionContext, executionOptions, search);
+		return queryFilterOptions(
+			context,
+			filter.id,
+			source,
+			executionContext,
+			executionOptions,
+			searchPattern,
+			searchText,
+		);
 	}
 
 	return getCachedFilterOptions(context, filter.id, source, executionOptions);
@@ -227,17 +244,23 @@ async function queryFilterOptions(
 	source: FilterOptionsSource,
 	executionContext: StoryExecutionContext,
 	executionOptions: FilterOptionsExecutionOptions,
-	search?: string,
+	searchPattern?: string,
+	searchText?: string,
 ): Promise<FilterOptionsResult> {
-	const rawValues = await fetchOptionValues(context, filterId, source, executionContext, executionOptions, search);
+	const rawValues = await fetchOptionValues(
+		context,
+		filterId,
+		source,
+		executionContext,
+		executionOptions,
+		searchPattern,
+	);
 	const values = [
 		...new Set(
 			rawValues.filter(
 				(value): value is string =>
 					value !== null &&
-					(!search ||
-						source.kind !== 'query' ||
-						value.toLocaleLowerCase().includes(search.toLocaleLowerCase())),
+					(!searchText || source.kind !== 'query' || value.toLocaleLowerCase().includes(searchText)),
 			),
 		),
 	];
