@@ -13,27 +13,31 @@ const mocks = vi.hoisted(() => ({
 	streamToCompletion: vi.fn(),
 }));
 
-vi.mock('../src/services/agent', () => ({
+vi.mock('../../src/services/agent', () => ({
 	agentService: { create: mocks.createAgent, resolveModelSelection: mocks.resolveModelSelection },
 }));
-vi.mock('../src/utils/llm', () => ({
+vi.mock('../../src/utils/llm', () => ({
 	getProjectAvailableModels: mocks.getProjectAvailableModels,
 	resolveDefaultChatModel: mocks.resolveDefaultChatModel,
 }));
-vi.mock('../src/queries/chat.queries', () => ({
+vi.mock('../../src/queries/chat.queries', () => ({
 	STORY_MODEL_FORK_TYPE: 'story_model',
 	createChat: mocks.createChat,
 	getChat: mocks.getChat,
 }));
-vi.mock('../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
-vi.mock('../src/queries/story.queries', () => ({ getStoryById: mocks.getStoryById }));
-vi.mock('../src/services/custom-story', () => ({
+vi.mock('../../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
+vi.mock('../../src/queries/story.queries', () => ({ getStoryById: mocks.getStoryById }));
+vi.mock('../../src/services/custom-story', () => ({
 	CustomStoryNotFoundError: class CustomStoryNotFoundError extends Error {},
 }));
-vi.mock('../src/agents/tools', () => ({ getTools: () => ({}) }));
-vi.mock('../src/queries/story-reference.queries', () => ({ getReferenceableStory: mocks.getReferenceableStory }));
+vi.mock('../../src/agents/tools', () => ({ getTools: () => ({}) }));
+vi.mock('../../src/queries/story-reference.queries', () => ({ getReferenceableStory: mocks.getReferenceableStory }));
 
-import { CustomStoryModelError, listCustomStoryModels, runCustomStoryModel } from '../src/services/custom-story-model';
+import {
+	CustomStoryModelError,
+	listCustomStoryModels,
+	runCustomStoryModel,
+} from '../../src/services/custom-story-model';
 
 const TARGET = { projectId: 'project-1', storyId: 'story-1', viewerId: 'viewer-1' };
 const AVAILABLE = [

@@ -3,15 +3,15 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { useModel, useModels } from './models';
-import type { UseModelRequest } from './models';
+import type { UseModelRequest } from '@/story-runtime/story-kit/models';
+import { useModel, useModels } from '@/story-runtime/story-kit/models';
 
 const host = vi.hoisted(() => ({
 	requestModel: vi.fn(),
 	requestModels: vi.fn(),
 }));
 
-vi.mock('../story-host', () => host);
+vi.mock('@/story-runtime/story-host', () => host);
 
 function Answer({ request, enabled }: { request: UseModelRequest; enabled?: boolean }) {
 	const answer = useModel(request, { enabled });
