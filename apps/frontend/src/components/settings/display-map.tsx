@@ -396,7 +396,12 @@ function BoundaryEditPanel({
 	const hasFile = pickedFile !== null || storedFile !== undefined;
 	const hasSource = hasUrl ? isEdit || previewGeojson !== null : hasFile;
 	const canSave =
-		hasSource && label.trim() !== '' && key.trim() !== '' && joinProperty !== '' && regionKeyHint.trim() !== '';
+		hasSource &&
+		!isReadingFile &&
+		label.trim() !== '' &&
+		key.trim() !== '' &&
+		joinProperty !== '' &&
+		regionKeyHint.trim() !== '';
 
 	const handleSave = async () => {
 		if (!canSave) {
