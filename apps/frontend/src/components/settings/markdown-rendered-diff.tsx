@@ -10,7 +10,6 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 
-/** The new version of a Markdown file as it renders, with added words highlighted and removed ones struck through. */
 export function MarkdownRenderedDiff({ oldMarkdown, newMarkdown }: { oldMarkdown: string; newMarkdown: string }) {
 	const editor = useEditor(
 		{

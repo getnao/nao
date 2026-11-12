@@ -21,7 +21,6 @@ const CHANGE_KIND_LABELS: Record<UpstreamFileChange['kind'], string> = {
 	deleted: 'Removed',
 };
 
-/** One changed file of the picked upstream branch, its production content against the branch's. */
 export function UpstreamFileDiff({ path }: { path: string }) {
 	const [source] = useUpstreamTestSource();
 	const upstreamChanges = useUpstreamChanges(source);

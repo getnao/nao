@@ -40,7 +40,6 @@ const INHERITED_ENV_NAMES = [
 	'NO_PROXY',
 ];
 
-/** A git repository of `nao_config.yaml` whose branches can be tested before they reach production. */
 export interface UpstreamRepo {
 	name: string;
 	url: string;
@@ -149,7 +148,6 @@ export async function createUpstreamContextSnapshot(input: UpstreamBranchInput):
 	}
 }
 
-/** The files the branch changes in the context, with their production and branch contents, to review before a run. */
 export async function readUpstreamChanges(input: UpstreamBranchInput): Promise<UpstreamChanges> {
 	const remote = await resolveGitRemote({ ...input, repo: input.upstream.repo });
 	const [synced, reviewRequest] = await Promise.all([
@@ -395,7 +393,6 @@ function describeCommandError(error: unknown, secrets: string[]): string {
 	return redacted.slice(-COMMAND_OUTPUT_LIMIT);
 }
 
-/** The files that differ between two folders, compared by content, with paths relative to them. */
 function diffFolders(before: string, after: string): TestContextChange[] {
 	const beforeFiles = listFiles(before);
 	const afterFiles = listFiles(after);

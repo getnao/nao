@@ -1,7 +1,6 @@
 import { arrayMove } from '@dnd-kit/sortable';
 import { useCallback, useState } from 'react';
 
-/** The files opened as tabs, in the order they were opened or then arranged. */
 export function useOpenedTabs(initialPaths: string[] = []) {
 	const [paths, setPaths] = useState<string[]>(initialPaths);
 

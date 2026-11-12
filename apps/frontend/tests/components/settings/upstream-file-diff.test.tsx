@@ -11,7 +11,7 @@ import { UpstreamFileDiff } from '@/components/settings/upstream-file-diff';
 const mocks = vi.hoisted(() => ({ getUpstreamChanges: vi.fn() }));
 
 vi.mock('@/lib/active-project', async (importOriginal) => ({
-	...(await importOriginal<typeof import('@/lib/active-project')>()),
+	...(await importOriginal<object>()),
 	useActiveProjectId: () => null,
 }));
 

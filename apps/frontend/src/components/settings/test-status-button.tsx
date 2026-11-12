@@ -4,7 +4,6 @@ import type { ChangesRunResult } from '@/hooks/use-latest-changes-run';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-/** Opens the tests, showing how many passed on the latest run of these changes once they were tested. */
 export function TestStatusButton({
 	label,
 	result,

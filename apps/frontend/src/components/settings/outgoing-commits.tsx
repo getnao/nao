@@ -5,7 +5,6 @@ import { ChangesSection } from '@/components/settings/changes-section';
 import { Button } from '@/components/ui/button';
 import { getTimeAgo } from '@/lib/time-ago';
 
-/** The commits of the branch not pushed yet, the last of which can be taken back into the changes. */
 export function OutgoingCommits({
 	commits,
 	isUndoing,

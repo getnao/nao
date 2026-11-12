@@ -31,7 +31,6 @@ interface ChangedFileListProps {
 	onDiscard: (file: ContextChangedFile) => void;
 }
 
-/** The changed files, each opening its diff when clicked and discarded from its row. */
 export function ChangedFileList({
 	files,
 	selection,
@@ -112,7 +111,6 @@ export function ChangedFileList({
 	);
 }
 
-/** One changed file: its name and folder, opening its diff, with how it changed at the end of the row. */
 export function ChangeRow({
 	path,
 	kind,

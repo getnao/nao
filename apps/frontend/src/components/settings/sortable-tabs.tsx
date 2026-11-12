@@ -43,7 +43,6 @@ interface SortableTabsProps {
 	onCloseTabs?: (paths: string[]) => void;
 }
 
-/** Tabs of opened files that can be dragged to be reordered, like the tabs of an editor. */
 export function SortableTabs({
 	paths,
 	activePath,

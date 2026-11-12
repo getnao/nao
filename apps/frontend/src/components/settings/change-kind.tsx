@@ -14,7 +14,6 @@ export function toFileChangeKind(kind: ContextChangedFile['kind'] | FileChangeKi
 	return kind === 'untracked' ? 'added' : kind;
 }
 
-/** The letter git shows for a change (A, M or D) in its color, read out as the kind of change. */
 export function ChangeKindLetter({ kind, className }: { kind: FileChangeKind; className?: string }) {
 	const change = CHANGE_KINDS[kind];
 	return (
@@ -28,7 +27,6 @@ export function ChangeKindLetter({ kind, className }: { kind: FileChangeKind; cl
 	);
 }
 
-/** The lines a change adds and removes, such as "+12 −3", or nothing when they could not be counted. */
 export function describeLineChanges(additions: number | null, deletions: number | null): string | undefined {
 	if (additions === null || deletions === null) {
 		return undefined;

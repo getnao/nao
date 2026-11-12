@@ -43,7 +43,6 @@ export function ChangesSection({
 	);
 }
 
-/** A muted line inside a section, such as an empty state, aligned with the rows. */
 export function SectionNote({ children }: { children: ReactNode }) {
 	return <p className='px-6 py-1 text-[11px] text-muted-foreground'>{children}</p>;
 }

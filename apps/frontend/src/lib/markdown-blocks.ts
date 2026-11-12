@@ -1,4 +1,3 @@
-/** A top-level token of the Markdown lexer, as written in the source. */
 export interface MarkdownToken {
 	type: string;
 	raw: string;
@@ -11,7 +10,6 @@ export interface MarkdownLayout {
 	trailing: string;
 }
 
-/** Splits Markdown into its top-level blocks as written, keeping the blank lines between them. */
 export function getMarkdownLayout(tokens: MarkdownToken[]): MarkdownLayout {
 	const layout: MarkdownLayout = { leading: '', blocks: [], trailing: '' };
 	for (const token of tokens) {

@@ -19,7 +19,6 @@ export interface ChangesRunResult {
 	isOutdated: boolean;
 }
 
-/** The latest completed run that tested the changes, with how many tests passed with them. */
 export function useLatestChangesRun(source: ChangesRunSource | null): ChangesRunResult | null {
 	const runs = useQuery({ ...trpc.testRun.listRuns.queryOptions(), enabled: source !== null });
 	const draftContext = useQuery({ ...trpc.testRun.getDraftContext.queryOptions(), enabled: source?.kind === 'own' });

@@ -5,7 +5,6 @@ import { useActiveProjectId } from '@/lib/active-project';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 
-/** A branch of a repository synced into the context, tested instead of the user's File Explorer changes. */
 export interface UpstreamTestSource {
 	repo: string;
 	branch: string;

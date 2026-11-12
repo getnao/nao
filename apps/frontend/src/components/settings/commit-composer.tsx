@@ -26,7 +26,6 @@ interface CommitComposerProps {
 	onCommit: (options: { push: boolean }) => void;
 }
 
-/** Describes the selected changes and commits them, pushing them for review unless asked to commit only. */
 export function CommitComposer({
 	message,
 	selectedCount,

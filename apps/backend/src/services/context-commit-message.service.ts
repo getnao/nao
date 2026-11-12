@@ -18,7 +18,6 @@ const SYSTEM_PROMPT = [
 	'Answer with the message alone, without quotes, prefixes or explanations.',
 ].join(' ');
 
-/** A one-line commit message for the given changed files, written by the project's model from their diff. */
 export async function generateContextCommitMessage(
 	context: ContextExplorerGitContext,
 	paths: string[],

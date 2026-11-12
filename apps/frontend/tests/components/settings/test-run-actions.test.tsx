@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/active-project', async (importOriginal) => ({
-	...(await importOriginal<typeof import('@/lib/active-project')>()),
+	...(await importOriginal<object>()),
 	useActiveProjectId: () => null,
 }));
 
