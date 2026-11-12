@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const testState = vi.hoisted(() => ({
 	inputs: [] as unknown[],
+	error: null as Error | null,
 }));
 
 vi.mock('../../src/db/db', () => ({ db: {} }));
@@ -12,6 +13,9 @@ vi.mock('../../src/db/db', () => ({ db: {} }));
 vi.mock('../../src/mcp/tools/run-agent-tool', () => ({
 	runAgentTool: async (_tool: unknown, input: unknown) => {
 		testState.inputs.push(input);
+		if (testState.error) {
+			throw testState.error;
+		}
 		return {
 			_version: '1',
 			columns: [],
@@ -38,6 +42,7 @@ const connections: Array<{ client: Client; server: McpServer }> = [];
 
 afterEach(async () => {
 	testState.inputs = [];
+	testState.error = null;
 	await Promise.all(connections.splice(0).map(({ client, server }) => Promise.all([client.close(), server.close()])));
 	vi.clearAllMocks();
 });
@@ -176,6 +181,19 @@ describe('MCP execute_sql database selection', () => {
 
 		expect(result.isError).not.toBe(true);
 		expect(testState.inputs).toEqual([{ sql_query: 'select * from query_test', database_id: 'duckdb_local' }]);
+	});
+
+	it('returns warehouse error details to the caller', async () => {
+		const client = await connect([{ id: 'analytics' }]);
+		testState.error = new Error('Query would process 12 GiB, which exceeds the configured limit of 10 GiB.');
+
+		const result = await client.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select * from large_table' },
+		});
+
+		expect(result.isError).toBe(true);
+		expect(resultText(result)).toBe(testState.error.message);
 	});
 });
 
