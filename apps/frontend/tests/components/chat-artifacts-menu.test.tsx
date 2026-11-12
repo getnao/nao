@@ -2,7 +2,6 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { stubScrollIntoView } from '../helpers/browser-stubs';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
 import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
 
@@ -10,6 +9,11 @@ const mocks = vi.hoisted(() => ({
 	density: 'detailed' as 'detailed' | 'compact',
 	messages: [] as UIMessage[],
 	openSidePanel: vi.fn(),
+	revealToolCall: vi.fn(),
+}));
+
+vi.mock('@/lib/tool-call-reveal', () => ({
+	revealToolCall: mocks.revealToolCall,
 }));
 
 vi.mock('@/hooks/use-mentioned-stories', () => ({
@@ -143,28 +147,15 @@ describe('ChatArtifactsMenu', () => {
 		expect(screen.queryByText('Stories')).toBeNull();
 	});
 
-	it('expands, scrolls to and outlines the query result it reveals', () => {
-		vi.stubGlobal('CSS', { escape: (value: string) => value });
-		vi.stubGlobal('matchMedia', () => ({ matches: true }));
-		const toolCall = document.createElement('div');
-		toolCall.dataset.replayTargetId = 'call_query';
-		const scrollIntoView = stubScrollIntoView();
-		const trigger = document.createElement('button');
-		trigger.setAttribute('aria-expanded', 'false');
-		const expand = vi.fn();
-		trigger.addEventListener('click', expand);
-		toolCall.appendChild(trigger);
-		document.body.appendChild(toolCall);
+	it('reveals the tool call of the query it lists', () => {
 		renderMenu(NARROW_COLUMN);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Library (3)' }));
 		fireEvent.click(screen.getByText('Queries'));
 		fireEvent.click(screen.getByText('Monthly revenue'));
 
-		expect(expand).toHaveBeenCalled();
-		expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
-		expect(toolCall.classList.contains('chat-artifact-reveal-highlight')).toBe(true);
-		toolCall.remove();
+		expect(mocks.revealToolCall).toHaveBeenCalledWith('call_query');
+		expect(screen.queryByText('Queries')).toBeNull();
 	});
 
 	it('closes the expanded panel on Escape and on a click outside', () => {
