@@ -58,7 +58,7 @@ const failuresByStoryId = new Map<string, RenderFailure>();
 const viewerThumbnails = new Map<string, { image: Buffer; expiresAt: number }>();
 const pendingViewerThumbnails = new Map<string, Promise<Buffer | null>>();
 let renderQueue: Promise<void> = Promise.resolve();
-let viewerRenderQueue: Promise<void> = Promise.resolve();
+let viewerScreenshotQueue: Promise<void> = Promise.resolve();
 
 class MissingStoryDataError extends Error {}
 
@@ -145,7 +145,7 @@ export async function getViewerCustomStoryThumbnail(
 	if (pending) {
 		return pending;
 	}
-	const rendering = queueViewerThumbnailRender(() => renderViewerThumbnail(story, version, viewerUserId, mode))
+	const rendering = renderViewerThumbnail(story, version, viewerUserId, mode)
 		.catch((error) => {
 			logFailure(version.version.id, error);
 			return null;
@@ -161,9 +161,9 @@ export async function getViewerCustomStoryThumbnail(
 	return rendering;
 }
 
-function queueViewerThumbnailRender(render: () => Promise<Buffer | null>): Promise<Buffer | null> {
-	const rendering = viewerRenderQueue.then(render);
-	viewerRenderQueue = rendering.then(
+function queueViewerThumbnailScreenshot(render: () => Promise<Buffer | null>): Promise<Buffer | null> {
+	const rendering = viewerScreenshotQueue.then(render);
+	viewerScreenshotQueue = rendering.then(
 		() => undefined,
 		() => undefined,
 	);
@@ -213,12 +213,14 @@ async function renderViewerThumbnail(
 		narratives,
 		state,
 	});
-	const { image, ...render } = await renderStoryScreenshot(
-		html,
-		THUMBNAIL_VIEWPORT,
-		themeFontStylesheets(version.theme),
-	);
-	return isBrokenRender(render) ? null : toThumbnailImage(image);
+	return queueViewerThumbnailScreenshot(async () => {
+		const { image, ...render } = await renderStoryScreenshot(
+			html,
+			THUMBNAIL_VIEWPORT,
+			themeFontStylesheets(version.theme),
+		);
+		return isBrokenRender(render) ? null : toThumbnailImage(image);
+	});
 }
 
 function cacheViewerThumbnail(key: string, image: Buffer): void {

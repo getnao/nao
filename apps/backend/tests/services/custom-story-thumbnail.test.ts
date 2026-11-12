@@ -84,6 +84,8 @@ const viewer = vi.hoisted(() => ({
 	ownerNarratives: {} as Record<string, string>,
 	revision: 'revision-1',
 	deniedQueryIds: new Set<string>(),
+	narrativeGate: null as Promise<void> | null,
+	narrativeGateSlug: null as string | null,
 	queryCalls: [] as {
 		chatId: string;
 		storySlug: string;
@@ -130,6 +132,9 @@ vi.mock('../../src/services/custom-story', async (importOriginal) => {
 			options?: { storyVersionId?: string; viewerUserId?: string },
 		) => {
 			viewer.narrativeCalls.push({ chatId, storySlug, options });
+			if (viewer.narrativeGate && viewer.narrativeGateSlug === storySlug) {
+				await viewer.narrativeGate;
+			}
 			return options?.viewerUserId ? viewer.narratives : viewer.ownerNarratives;
 		},
 		getStoredCustomStoryQueryDataByStoryId: async () =>
@@ -200,6 +205,8 @@ describe('custom story thumbnails', () => {
 		viewer.ownerNarratives = {};
 		viewer.revision = crypto.randomUUID();
 		viewer.deniedQueryIds.clear();
+		viewer.narrativeGate = null;
+		viewer.narrativeGateSlug = null;
 		viewer.queryCalls = [];
 		viewer.narrativeCalls = [];
 		versionIds.current = await publishVersion();
@@ -263,6 +270,28 @@ describe('custom story thumbnails', () => {
 		]);
 
 		expect(thumbnails.every((thumbnail) => thumbnail !== null)).toBe(true);
+		expect(screenshots.calls).toBe(2);
+		expect(screenshots.maxActiveCalls).toBe(1);
+	});
+
+	it('does not let slow viewer data preparation block a ready screenshot', async () => {
+		let releaseNarratives!: () => void;
+		viewer.narrativeGateSlug = 'revenue';
+		viewer.narrativeGate = new Promise((resolve) => {
+			releaseNarratives = resolve;
+		});
+		const slowStory = await storyQueries.getStoryById(STORY_ID);
+		const readyStory = await storyQueries.getStoryById(LIVE_STORY_ID);
+
+		const slowThumbnail = getViewerCustomStoryThumbnail(slowStory!, 'user-2', 'light');
+		await vi.waitUntil(() => viewer.narrativeCalls.some(({ storySlug }) => storySlug === 'revenue'));
+		const readyThumbnail = getViewerCustomStoryThumbnail(readyStory!, 'user-2', 'dark');
+
+		await vi.waitUntil(() => screenshots.calls === 1);
+		expect(documents.modes).toEqual(['dark']);
+
+		releaseNarratives();
+		await expect(Promise.all([slowThumbnail, readyThumbnail])).resolves.toHaveLength(2);
 		expect(screenshots.calls).toBe(2);
 		expect(screenshots.maxActiveCalls).toBe(1);
 	});
