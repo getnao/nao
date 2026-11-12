@@ -4,21 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_USAGE_PERIOD_SELECTION, MAX_SAVED_USAGE_PERIODS } from '@nao/backend/usage';
 
+import { stubResizeObserver, stubScrollIntoView } from '../../helpers/browser-stubs';
 import { deferred } from '../../helpers/deferred';
 import type { SavedUsagePeriod } from '@nao/backend/usage';
 import type { ComponentProps } from 'react';
 import { UsageFilters } from '@/components/settings/usage-filters';
 import { UsagePeriodFilter } from '@/components/settings/usage-period-filter';
 
-vi.stubGlobal(
-	'ResizeObserver',
-	class {
-		observe() {}
-		unobserve() {}
-		disconnect() {}
-	},
-);
-Element.prototype.scrollIntoView = vi.fn();
+stubResizeObserver();
+stubScrollIntoView();
 
 const savedPeriods: SavedUsagePeriod[] = [{ id: 'year', days: 365, granularity: 'month' }];
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+	getAllowedLlmConfigIdsForUserModel,
 	getAvailableModelsForUser,
 	getLlmAccessReadiness,
 	resolveUserBackgroundModelId,
@@ -87,6 +88,17 @@ describe('user group LLM access', () => {
 		expect(mocks.resolveAvailableUserGroupAccess).not.toHaveBeenCalled();
 	});
 
+	it('keeps explicit models outside the picker catalog in project mode', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'project' });
+
+		await expect(
+			resolveUserModelSelection('project-1', 'user-1', {
+				provider: 'openai',
+				modelId: 'gpt-4.1',
+			}),
+		).resolves.toEqual({ provider: 'openai', modelId: 'gpt-4.1' });
+	});
+
 	it('uses only the union of config ids resolved from the users groups', async () => {
 		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'user_group' });
 		mocks.resolveAvailableUserGroupAccess.mockResolvedValue({
@@ -99,6 +111,21 @@ describe('user group LLM access', () => {
 		expect(mocks.getProjectAvailableModelsForConfigs).toHaveBeenCalledWith('project-1', ['config-a', 'config-b'], {
 			'config-a': ['gpt-5-mini'],
 		});
+	});
+
+	it('allows only credentials whose model subset includes the requested model', async () => {
+		mocks.getProjectById.mockResolvedValue({ llmAccessMode: 'user_group' });
+		mocks.resolveAvailableUserGroupAccess.mockResolvedValue({
+			llmConfigIds: ['config-a', 'config-b'],
+			llmModelIdsByConfig: {
+				'config-a': ['gpt-5-mini'],
+				'config-b': ['whisper-1'],
+			},
+		});
+
+		await expect(getAllowedLlmConfigIdsForUserModel('project-1', 'user-1', 'whisper-1')).resolves.toEqual([
+			'config-b',
+		]);
 	});
 
 	it('rejects a forged credential selection', async () => {

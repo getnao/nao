@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { stubResizeObserver } from '../../helpers/browser-stubs';
+import { stubResizeObserver, stubScrollIntoView } from '../../helpers/browser-stubs';
 import { openDropdownMenu } from '../../helpers/dropdown-menu';
 import type { MouseEventHandler, ReactNode } from 'react';
 import { ReadOnlyProjectUsers, ProjectUsersTable } from '@/components/settings/project-users-table';
@@ -266,7 +266,7 @@ describe('ReadOnlyProjectUsers', () => {
 
 describe('ProjectUsersTable filtering and bulk group assignment', () => {
 	beforeEach(() => {
-		Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+		stubScrollIntoView();
 	});
 
 	it('searches users by name or email across both sections', () => {

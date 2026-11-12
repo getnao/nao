@@ -8,7 +8,7 @@ import {
 } from '../agents/transcribe.providers';
 import * as projectQueries from '../queries/project.queries';
 import { resolveProviderSettings as resolveLlmProviderSettings } from '../utils/llm';
-import { getAvailableModelsForUser, getProjectLlmAccessMode } from './user-group-llm-access.service';
+import { getAllowedLlmConfigIdsForUserModel, getAvailableModelsForUser } from './user-group-llm-access.service';
 
 export async function transcribeAudio(
 	projectId: string,
@@ -23,7 +23,7 @@ export async function transcribeAudio(
 	const provider: TranscribeProvider = overrides?.provider ?? savedProvider ?? 'openai';
 	const modelId = overrides?.modelId ?? savedModelId ?? getDefaultTranscribeModelId(provider);
 
-	const { apiKey, baseURL } = await resolveTranscribeProviderSettings(projectId, userId, provider);
+	const { apiKey, baseURL } = await resolveTranscribeProviderSettings(projectId, userId, provider, modelId);
 	if (!apiKey) {
 		throw new Error(`No API key configured for ${provider}. Add one in Settings > Models.`);
 	}
@@ -71,22 +71,19 @@ async function resolveTranscribeProviderSettings(
 	projectId: string,
 	userId: string,
 	provider: TranscribeProvider,
+	modelId: string,
 ): Promise<{ apiKey: string | undefined; baseURL: string | undefined }> {
 	const llmProvider = provider as 'openai';
-	const mode = await getProjectLlmAccessMode(projectId);
-	const availableModel = (await getAvailableModelsForUser(projectId, userId)).find(
-		(model) => model.provider === llmProvider,
-	);
-	if (availableModel) {
-		const settings = await resolveLlmProviderSettings(projectId, llmProvider, availableModel.llmConfigId);
+	const allowedConfigIds = await getAllowedLlmConfigIdsForUserModel(projectId, userId, modelId);
+	if (allowedConfigIds === null) {
+		const settings = await resolveLlmProviderSettings(projectId, llmProvider);
+		return { apiKey: settings?.apiKey, baseURL: settings?.baseURL };
+	}
+	for (const configId of allowedConfigIds) {
+		const settings = await resolveLlmProviderSettings(projectId, llmProvider, configId);
 		if (settings) {
 			return { apiKey: settings.apiKey, baseURL: settings.baseURL };
 		}
-	}
-
-	if (mode === 'project') {
-		const settings = await resolveLlmProviderSettings(projectId, llmProvider);
-		return { apiKey: settings?.apiKey, baseURL: settings?.baseURL };
 	}
 	return { apiKey: undefined, baseURL: undefined };
 }

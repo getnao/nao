@@ -134,6 +134,22 @@ export async function getAvailableModelsForUser(projectId: string, userId: strin
 	return getProjectAvailableModelsForConfigs(projectId, access.llmConfigIds, access.llmModelIdsByConfig);
 }
 
+export async function getAllowedLlmConfigIdsForUserModel(
+	projectId: string,
+	userId: string,
+	modelId: string,
+): Promise<string[] | null> {
+	if ((await getProjectLlmAccessMode(projectId)) === 'project') {
+		return null;
+	}
+	const access = await resolveAvailableUserGroupAccess(projectId, userId);
+	return access.llmConfigIds.filter(
+		(configId) =>
+			!Object.hasOwn(access.llmModelIdsByConfig, configId) ||
+			access.llmModelIdsByConfig[configId].includes(modelId),
+	);
+}
+
 export async function getDefaultChatModelForUser(projectId: string, userId: string): Promise<LlmSelectedModel | null> {
 	const [settings, available] = await Promise.all([
 		projectQueries.getDefaultModelSettings(projectId),
@@ -167,6 +183,9 @@ export async function resolveUserModelSelection(
 		if (exact) {
 			return toSelection(exact);
 		}
+		if (mode === 'project') {
+			return requested;
+		}
 		throw new HandlerError('FORBIDDEN', 'The selected model is not available for this user.');
 	}
 	if (candidates.length === 1 || (mode === 'project' && candidates.length > 0)) {
@@ -174,6 +193,9 @@ export async function resolveUserModelSelection(
 	}
 	if (candidates.length > 1) {
 		throw new HandlerError('BAD_REQUEST', 'Select a credential for this model and try again.');
+	}
+	if (mode === 'project') {
+		return requested;
 	}
 	throw new HandlerError('FORBIDDEN', 'The selected model is not available for this user.');
 }
