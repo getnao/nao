@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
+import { useActiveProjectId } from '@/lib/active-project';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 
@@ -10,36 +11,45 @@ export interface UpstreamTestSource {
 	branch: string;
 }
 
-const upstreamSourceStorage = createLocalStorage<UpstreamTestSource>('nao-test-upstream-source');
+const STORAGE_KEY = 'nao-test-upstream-source';
 const upstreamSourceListeners = new Set<() => void>();
-let cachedSerializedSource: string | null = null;
-let cachedSource: UpstreamTestSource | null = null;
+const cachedSources = new Map<string, { serialized: string; source: UpstreamTestSource | null }>();
 
 /**
- * The upstream branch runs test, or null for the user's File Explorer changes, shared by every run button. A branch
- * picked in a repository the current project does not sync is ignored once the repositories are known, as nothing
- * here could unpick it.
+ * The upstream branch runs test, or null for the user's File Explorer changes, shared by every run button of the
+ * project. A branch picked in a repository the project does not sync is ignored once the repositories are known, as
+ * nothing here could unpick it.
  */
 export function useUpstreamTestSource() {
-	const storedSource = useSyncExternalStore(subscribeToUpstreamSource, readUpstreamSource);
+	const storageKey = getStorageKey(useActiveProjectId());
+	const storedSource = useSyncExternalStore(subscribeToUpstreamSource, () => readUpstreamSource(storageKey));
 	const repos = useQuery({ ...trpc.testRun.listUpstreamRepos.queryOptions(), enabled: storedSource !== null });
 	const isRepoSynced = repos.data ? repos.data.some((repo) => repo.name === storedSource?.repo) : true;
-	return [isRepoSynced ? storedSource : null, setUpstreamSource] as const;
+	const setSource = useCallback(
+		(source: UpstreamTestSource | null) => setUpstreamSource(storageKey, source),
+		[storageKey],
+	);
+	return [isRepoSynced ? storedSource : null, setSource] as const;
 }
 
 export function formatUpstreamRef(source: UpstreamTestSource): string {
 	return `${source.repo}:${source.branch}`;
 }
 
+function getStorageKey(projectId: string | null): string {
+	return projectId ? `${STORAGE_KEY}:${projectId}` : STORAGE_KEY;
+}
+
 /** Returns the same object while the stored value is unchanged, as `useSyncExternalStore` requires. */
-function readUpstreamSource(): UpstreamTestSource | null {
-	const source = upstreamSourceStorage.get();
+function readUpstreamSource(storageKey: string): UpstreamTestSource | null {
+	const source = createLocalStorage<UpstreamTestSource>(storageKey).get();
 	const serialized = JSON.stringify(source);
-	if (serialized !== cachedSerializedSource) {
-		cachedSerializedSource = serialized;
-		cachedSource = source;
+	const cached = cachedSources.get(storageKey);
+	if (cached?.serialized === serialized) {
+		return cached.source;
 	}
-	return cachedSource;
+	cachedSources.set(storageKey, { serialized, source });
+	return source;
 }
 
 function subscribeToUpstreamSource(listener: () => void) {
@@ -49,7 +59,7 @@ function subscribeToUpstreamSource(listener: () => void) {
 	};
 }
 
-function setUpstreamSource(source: UpstreamTestSource | null) {
-	upstreamSourceStorage.set(source);
+function setUpstreamSource(storageKey: string, source: UpstreamTestSource | null) {
+	createLocalStorage<UpstreamTestSource>(storageKey).set(source);
 	upstreamSourceListeners.forEach((listener) => listener());
 }

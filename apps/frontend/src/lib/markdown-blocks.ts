@@ -35,6 +35,20 @@ export function getMarkdownLayout(tokens: MarkdownToken[]): MarkdownLayout {
 	return layout;
 }
 
+/** Whether a token, or one nested in it such as inline HTML in a paragraph, has the given type. */
+export function containsTokenType(token: unknown, type: string): boolean {
+	if (Array.isArray(token)) {
+		return token.some((child) => containsTokenType(child, type));
+	}
+	if (typeof token !== 'object' || token === null) {
+		return false;
+	}
+	return (
+		(token as { type?: unknown }).type === type ||
+		Object.values(token).some((value) => typeof value === 'object' && containsTokenType(value, type))
+	);
+}
+
 /**
  * Writes edited Markdown blocks back over their source. A block that still serializes like a source block keeps the
  * text it was written with, so editing one paragraph does not reformat the rest of the file. `sourceCanonicals` are

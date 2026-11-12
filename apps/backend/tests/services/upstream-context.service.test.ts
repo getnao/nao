@@ -90,9 +90,7 @@ const BRANCHES_INPUT = () => ({ projectId: 'project-1', projectFolder, repo: 'bu
 
 describe('listUpstreamRepos', () => {
 	it('lists the git repositories of the project, not its local folders', async () => {
-		expect(await listUpstreamRepos('project-1', projectFolder)).toEqual([
-			{ name: 'business', url: upstreamFolder, branch: 'main' },
-		]);
+		expect(await listUpstreamRepos('project-1', projectFolder)).toEqual([{ name: 'business', branch: 'main' }]);
 	});
 });
 
@@ -120,6 +118,27 @@ describe('listUpstreamBranches', () => {
 
 		expect(branches.map((branch) => branch.name)).toContain('analyst/net-revenue');
 		expect(mocks.getProjectRuntimeEnvVars).toHaveBeenCalledWith('project-1');
+		expect(JSON.stringify(await listUpstreamRepos('project-1', projectFolder))).not.toContain(upstreamFolder);
+	});
+});
+
+describe('listUpstreamBranches errors', () => {
+	it('hides a repository URL filled in from project variables from the error', async () => {
+		writeFiles(projectFolder, {
+			'nao_config.yaml': [
+				'project_name: fibi',
+				'repos:',
+				'  - name: business',
+				`    url: "{{ env('REPO_URL') }}"`,
+				'',
+			].join('\n'),
+		});
+		mocks.getProjectRuntimeEnvVars.mockResolvedValue({ REPO_URL: path.join(root, 'missing-token-123') });
+
+		const error = await listUpstreamBranches(BRANCHES_INPUT()).catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(UpstreamContextError);
+		expect((error as Error).message).not.toContain('missing-token-123');
 	});
 });
 

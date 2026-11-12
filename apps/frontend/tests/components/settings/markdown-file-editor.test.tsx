@@ -66,6 +66,7 @@ describe('MarkdownFileEditor', () => {
 	it.each([
 		{ markup: 'an HTML comment', value: '<!-- owner: data team -->\n\nText\n' },
 		{ markup: 'a link definition', value: 'See [docs].\n\n[docs]: https://example.com\n' },
+		{ markup: 'inline HTML', value: 'Text <span>important</span>\n' },
 	])('shows the rendered file instead when it holds $markup, which editing would lose', ({ value }) => {
 		renderEditor({ value, onChange: vi.fn() });
 

@@ -373,6 +373,9 @@ function getChangeMarkColor(mark: FileChangeMark): string {
 	if (mark.isUpstream) {
 		return 'text-primary';
 	}
+	if (mark.kind === 'deleted') {
+		return 'text-red-600 line-through dark:text-red-400';
+	}
 	return mark.kind === 'added' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400';
 }
 

@@ -102,13 +102,17 @@ interface GitRemote {
 	repo: UpstreamRepo;
 	linkedRepo: LinkedContextRepo;
 	env: NodeJS.ProcessEnv;
-	/** Removed from command output, as git may print the authenticated URL. */
-	secret: string | null;
+	/** Removed from command output, as git may print the authenticated URL or a URL holding project variables. */
+	secrets: string[];
 }
 
-export async function listUpstreamRepos(projectId: string, projectFolder: string): Promise<UpstreamRepo[]> {
+/** Leaves the URLs out, as resolving them may fill in project variables the caller is not allowed to read. */
+export async function listUpstreamRepos(
+	projectId: string,
+	projectFolder: string,
+): Promise<Omit<UpstreamRepo, 'url'>[]> {
 	const repos = extractConfiguredRepos(projectFolder, await getProjectRuntimeEnvVars(projectId));
-	return repos.flatMap((repo) => (repo.url ? [{ name: repo.name, url: repo.url, branch: repo.branch }] : []));
+	return repos.flatMap((repo) => (repo.url ? [{ name: repo.name, branch: repo.branch }] : []));
 }
 
 export async function listUpstreamBranches(input: {
@@ -208,7 +212,7 @@ async function syncUpstreamBranch(input: UpstreamBranchInput, remote: GitRemote)
 async function readBranchHead(remote: GitRemote, branchName: string): Promise<UpstreamBranch> {
 	const branch = (await readRemoteBranches(remote)).find((candidate) => candidate.name === branchName);
 	if (!branch) {
-		throw new UpstreamContextError(`Branch ${branchName} does not exist in ${remote.repo.url}.`);
+		throw new UpstreamContextError(`Branch ${branchName} does not exist in ${remote.repo.name}.`);
 	}
 	return branch;
 }
@@ -280,11 +284,12 @@ async function resolveGitRemote(input: {
 	}
 	const repo = { name: linkedRepo.name, url: linkedRepo.url, branch: linkedRepo.branch };
 	const authenticatedUrl = await resolveAuthenticatedUrl(linkedRepo, input.userId);
+	const writtenUrl = extractRawRepoConfig(input.projectFolder, linkedRepo.name)?.url;
 	return {
 		repo,
 		linkedRepo,
 		env: createGitEnvironment(repo.url, authenticatedUrl, envVars),
-		secret: authenticatedUrl,
+		secrets: [authenticatedUrl, writtenUrl === repo.url ? null : repo.url].filter((secret) => secret !== null),
 	};
 }
 
@@ -375,17 +380,17 @@ async function runCommand(
 		});
 		return stdout;
 	} catch (error) {
-		throw new UpstreamContextError(`${command} ${args[0]} failed: ${describeCommandError(error, remote.secret)}`);
+		throw new UpstreamContextError(`${command} ${args[0]} failed: ${describeCommandError(error, remote.secrets)}`);
 	}
 }
 
-function describeCommandError(error: unknown, secret: string | null): string {
+function describeCommandError(error: unknown, secrets: string[]): string {
 	const failure = error as { code?: unknown; stdout?: string; stderr?: string; message?: string };
 	if (failure.code === 'ENOENT') {
 		return 'the command is not installed on the server.';
 	}
 	const output = [failure.stderr, failure.stdout].filter(Boolean).join('\n').trim() || failure.message || '';
-	const redacted = secret ? output.replaceAll(secret, '***') : output;
+	const redacted = secrets.reduce((text, secret) => text.replaceAll(secret, '***'), output);
 	return redacted.slice(-COMMAND_OUTPUT_LIMIT);
 }
 

@@ -64,10 +64,11 @@ function scoreTerm(path: string, name: string, term: string): number | null {
 	return null;
 }
 
+/** Compares code units on both sides, so a term holding an emoji can match. */
 function isSubsequence(text: string, term: string): boolean {
 	let cursor = 0;
-	for (const character of text) {
-		if (character === term[cursor]) {
+	for (const codeUnit of text.split('')) {
+		if (codeUnit === term[cursor]) {
 			cursor++;
 			if (cursor === term.length) {
 				return true;

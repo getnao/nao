@@ -484,7 +484,12 @@ function ContextExplorerPage() {
 								<FileTree
 									changeMarks={fileChangeMarks}
 									entries={fileTree.data?.entries ?? []}
-									selectedPath={historicalDiff?.path ?? selectedDiffPath ?? selectedPath}
+									selectedPath={
+										historicalDiff?.path ??
+										selectedDiffPath ??
+										(selectedUpstreamDiffPath ? `/${selectedUpstreamDiffPath}` : null) ??
+										selectedPath
+									}
 									onSelectFile={handleSelectFile}
 									search={search}
 									onSearchChange={setSearch}

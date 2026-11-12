@@ -67,7 +67,7 @@ export function CommitComposer({
 					className='m-0.5 shrink-0'
 					aria-label='Write it for me'
 					title='Write the message from the selected changes'
-					disabled={selectedCount === 0 || isCommitting}
+					disabled={selectedCount === 0 || isCommitting || isWritingMessage}
 					isLoading={isWritingMessage}
 					onClick={onWriteMessage}
 				>

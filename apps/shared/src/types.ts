@@ -386,7 +386,7 @@ export type ContextBranchInfo = {
 	defaultBranch: string;
 	aheadCommitCount: number;
 	unpushedCommitCount: number;
-	/** The commits not pushed yet, newest first. */
+	/** The newest commits not pushed yet, at most 20, newest first; `unpushedCommitCount` counts them all. */
 	unpushedCommits: ContextCommit[];
 	branches: string[];
 	suggestedBranch: string;

@@ -10,7 +10,7 @@ import type { ReactNode, RefObject } from 'react';
 
 import type { MarkdownLayout, MarkdownToken } from '@/lib/markdown-blocks';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
-import { getMarkdownLayout, writeMarkdownBlocks } from '@/lib/markdown-blocks';
+import { containsTokenType, getMarkdownLayout, writeMarkdownBlocks } from '@/lib/markdown-blocks';
 
 /** Blocks the editor turns back into the same Markdown; other blocks (HTML, link definitions, …) would be lost. */
 const EDITABLE_BLOCK_TYPES = new Set(['heading', 'paragraph', 'list', 'blockquote', 'code', 'hr', 'table']);
@@ -136,10 +136,12 @@ function readMarkdownSource(editor: Editor, markdown: string): MarkdownSource | 
 	if (!markdownManager) {
 		return null;
 	}
-	const layout = getMarkdownLayout(markdownManager.instance.lexer(markdown) as MarkdownToken[]);
+	const tokens = markdownManager.instance.lexer(markdown) as MarkdownToken[];
+	const layout = getMarkdownLayout(tokens);
 	const canonicals = serializeTopLevelBlocks(editor);
 	const isEditable =
 		layout.blocks.every((block) => EDITABLE_BLOCK_TYPES.has(block.type)) &&
+		!containsTokenType(tokens, 'html') &&
 		canonicals.length === layout.blocks.length;
 	return isEditable ? { markdown, layout, canonicals } : null;
 }
