@@ -6,6 +6,7 @@ export interface AgentSettings {
 	memoryEnabled?: boolean;
 	mapEnabled?: boolean;
 	requireConversationFeedback?: boolean;
+	enforceConversationFeedbackBeforeLeaving?: boolean;
 	experimental?: {
 		codemode?: boolean;
 		sandboxes?: boolean;

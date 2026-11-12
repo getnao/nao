@@ -32,32 +32,47 @@ export function SettingsRequiredConversationFeedback({ isAdmin }: SettingsRequir
 
 	const isLicensed = features.data?.['conversation-feedback'] === true;
 	const isRequired = isLicensed && (agentSettings.data?.requireConversationFeedback ?? false);
+	const isEnforced = isRequired && (agentSettings.data?.enforceConversationFeedbackBeforeLeaving ?? false);
+	const isPending = features.isPending || agentSettings.isPending || updateAgentSettings.isPending;
 
 	return (
 		<SettingsCard
 			title='Conversation feedback'
-			description='Keep rating controls visible in every chat header so users are prompted to rate the latest answer.'
+			description='Collect a thumbs up or down rating on the latest answer in each conversation.'
 			action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
 		>
 			<LockedFieldset disabled={!isLicensed}>
 				<SettingsControlRow
 					id='require-conversation-feedback'
-					label='Require conversation feedback'
-					description='Show persistent thumbs up and down controls without blocking users from leaving the chat.'
+					label='Collect conversation feedback'
+					description='Show persistent thumbs up and down controls in every chat header.'
 					control={
 						<Switch
 							id='require-conversation-feedback'
 							checked={isRequired}
 							onCheckedChange={(enabled) =>
-								updateAgentSettings.mutate({ requireConversationFeedback: enabled })
+								updateAgentSettings.mutate({
+									requireConversationFeedback: enabled,
+									...(!enabled && { enforceConversationFeedbackBeforeLeaving: false }),
+								})
 							}
-							disabled={
-								!isAdmin ||
-								!isLicensed ||
-								features.isPending ||
-								agentSettings.isPending ||
-								updateAgentSettings.isPending
+							disabled={!isAdmin || !isLicensed || isPending}
+						/>
+					}
+				/>
+				<SettingsControlRow
+					id='enforce-conversation-feedback-before-leaving'
+					label='Enforce before leaving chat'
+					description='Require a rating of the latest answer before navigating to another chat or page.'
+					className='ml-2 border-l pl-4'
+					control={
+						<Switch
+							id='enforce-conversation-feedback-before-leaving'
+							checked={isEnforced}
+							onCheckedChange={(enabled) =>
+								updateAgentSettings.mutate({ enforceConversationFeedbackBeforeLeaving: enabled })
 							}
+							disabled={!isAdmin || !isLicensed || !isRequired || isPending}
 						/>
 					}
 				/>
