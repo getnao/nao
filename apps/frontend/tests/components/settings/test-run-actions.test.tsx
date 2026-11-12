@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => ({
 	listUpstreamBranches: vi.fn(),
 }));
 
+vi.mock('@/lib/active-project', async (importOriginal) => ({
+	...(await importOriginal<typeof import('@/lib/active-project')>()),
+	useActiveProjectId: () => null,
+}));
+
 vi.mock('@/main', () => ({
 	trpc: {
 		project: {
