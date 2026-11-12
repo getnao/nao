@@ -21,6 +21,7 @@ export type StoryChatMode = 'edit' | 'ask' | 'mention';
 export interface StoryChatControls {
 	storyId: string | null;
 	isOwner: boolean;
+	canEdit?: boolean;
 	/** False for project viewers and archived stories, which can only be read. */
 	canChat: boolean;
 	onOpenInChat?: () => void;
@@ -36,11 +37,12 @@ const MODES: Record<StoryChatMode, { label: string; icon: LucideIcon }> = {
 export function StoryChatButton({
 	storyId,
 	isOwner,
+	canEdit = isOwner,
 	canChat,
 	onOpenInChat,
 	isOpeningInChat = false,
 }: StoryChatControls) {
-	const mode: StoryChatMode = isOwner ? 'edit' : 'ask';
+	const mode: StoryChatMode = canEdit ? 'edit' : 'ask';
 	const actions = useStoryChatActions(storyId, onOpenInChat);
 	const lists = useStoryChatLists(storyId, canChat);
 	const isDisabled = isOpeningInChat || !actions.isReady;

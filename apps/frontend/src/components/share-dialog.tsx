@@ -1,7 +1,10 @@
-import { Check, Globe, Link as LinkIcon, Loader2, SearchIcon, Unlink, Users } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Check, CircleAlert, Link as LinkIcon, Loader2, SearchIcon, Users, X } from 'lucide-react';
 
-import type { Visibility } from '@nao/shared/types';
-
+import type { ShareModel, ShareTarget, ShareTargetState } from '@/hooks/use-share-target';
+import type { ShareDraft, ShareSavedState } from '@/lib/share-draft';
+import { ShareAccessPanel } from '@/components/share-access-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,8 +16,199 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
+import {
+	useCopyWithFeedback,
+	useShareActionRunner,
+	useShareAudience,
+	useShareCandidates,
+} from '@/hooks/use-share-dialog';
+import { useShareTarget } from '@/hooks/use-share-target';
+import { useSession } from '@/lib/auth-client';
+import { shareSubjectKey } from '@/lib/share-access';
+import { createShareDraft, isShareDraftChanged, isShareDraftEmpty, STOP_SHARING_DRAFT } from '@/lib/share-draft';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
+
+export type { ShareTarget } from '@/hooks/use-share-target';
+
+type ShareAttempt = 'save' | 'stopSharing';
+
+interface ShareDialogProps {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	target: ShareTarget;
+}
+
+export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
+	const share = useShareTarget(target, open);
+	const audience = useShareAudience();
+	const title = target.kind === 'chat' ? 'Share chat' : 'Share story';
+
+	if (share.isLoading || audience.isLoading) {
+		return <ShareLoadingDialog open={open} onOpenChange={onOpenChange} title={title} className='sm:max-w-lg' />;
+	}
+	if (!share.model) {
+		return <ShareErrorDialog open={open} onOpenChange={onOpenChange} title={title} onRetry={share.refetch} />;
+	}
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className='sm:max-w-lg'>
+				<ShareDialogBody
+					chatId={target.chatId}
+					title={title}
+					description={describeAudience(share.model)}
+					model={share.model}
+					commands={share.commands}
+					onClose={() => onOpenChange(false)}
+				/>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function ShareDialogBody({
+	chatId,
+	title,
+	description,
+	model,
+	commands,
+	onClose,
+}: {
+	chatId: string;
+	title: string;
+	description: string;
+	model: ShareModel;
+	commands: ShareTargetState['commands'];
+	onClose: () => void;
+}) {
+	const { data: session } = useSession();
+	const audience = useShareAudience();
+	const smtpQuery = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
+	const actions = useShareActionRunner(commands.invalidate);
+	const lastAttemptRef = useRef<ShareAttempt | null>(null);
+	const saved = toSavedState(model);
+	const [editedDraft, setEditedDraft] = useState<ShareDraft | null>(null);
+	const draft = editedDraft ?? createShareDraft(saved, audience.canShareToProject);
+	const [notify, setNotify] = useState(false);
+	const canNotify = smtpQuery.data === true;
+	const hasChanges = model.canManage && isShareDraftChanged(draft, saved);
+	const sharesWithNobody = isShareDraftEmpty(draft);
+
+	const excludedKeys = useMemo(() => new Set([shareSubjectKey('user', model.owner?.id ?? '')]), [model.owner?.id]);
+	const { candidates, isLoading } = useShareCandidates({
+		chatId,
+		withGroups: model.withGroups,
+		excludedKeys,
+		enabled: model.canManage,
+	});
+
+	const attempt = async (next: ShareAttempt) => {
+		lastAttemptRef.current = next;
+		const savedDraft = next === 'stopSharing' ? STOP_SHARING_DRAFT : draft;
+		const saving = commands.save(savedDraft, { notify: canNotify && notify });
+		if (!model.isShared && !isShareDraftEmpty(savedDraft)) {
+			copyShareLinkOnceSaved(saving);
+		}
+		if (await actions.run(() => saving)) {
+			onClose();
+		}
+	};
+	const retry = () => {
+		if (lastAttemptRef.current) {
+			void attempt(lastAttemptRef.current);
+		}
+	};
+
+	return (
+		<>
+			<DialogHeader className='gap-2'>
+				<DialogTitle className='truncate pr-6'>{title}</DialogTitle>
+				<DialogDescription>{description}</DialogDescription>
+			</DialogHeader>
+			<ShareAccessPanel
+				itemLabel={model.itemLabel}
+				owner={model.owner}
+				currentUserId={session?.user?.id}
+				draft={draft}
+				onDraftChange={setEditedDraft}
+				candidates={candidates}
+				isLoadingCandidates={isLoading}
+				emptyMessage={audience.emptyMessage}
+				withRoles={model.withRoles}
+				canManage={model.canManage}
+				canShareToProject={audience.canShareToProject}
+				canNotify={canNotify}
+				notify={notify}
+				onNotifyChange={setNotify}
+			/>
+			{actions.error && (
+				<ShareActionError message={actions.error} onRetry={retry} onDismiss={actions.dismissError} />
+			)}
+			<DialogFooter className='flex-row items-center sm:justify-between'>
+				<div className='flex items-center gap-2'>
+					{model.isShared && model.shareUrl && <CopyShareLinkButton url={model.shareUrl} />}
+				</div>
+				<div className='flex items-center gap-2'>
+					{model.isShared && model.canManage && !hasChanges && (
+						<Button
+							variant='ghost-muted'
+							className='rounded-full'
+							disabled={actions.isPending}
+							onClick={() => attempt('stopSharing')}
+						>
+							Stop sharing
+						</Button>
+					)}
+					{hasChanges && (
+						<Button variant='outline' className='rounded-full' onClick={onClose}>
+							Cancel
+						</Button>
+					)}
+					<Button
+						className='gap-1.5 rounded-full'
+						variant={hasChanges && model.isShared && sharesWithNobody ? 'destructive' : 'default'}
+						disabled={actions.isPending || (hasChanges && !model.isShared && sharesWithNobody)}
+						onClick={hasChanges ? () => attempt('save') : onClose}
+					>
+						{actions.isPending && <Loader2 className='size-3.5 animate-spin' />}
+						{describeConfirm(model, { hasChanges, sharesWithNobody })}
+					</Button>
+				</div>
+			</DialogFooter>
+		</>
+	);
+}
+
+function toSavedState(model: ShareModel): ShareSavedState {
+	return { isShared: model.isShared, ...model.generalAccess, grants: model.grants };
+}
+
+function describeConfirm(
+	model: ShareModel,
+	{ hasChanges, sharesWithNobody }: { hasChanges: boolean; sharesWithNobody: boolean },
+): string {
+	if (!hasChanges) {
+		return 'Done';
+	}
+	if (model.isShared) {
+		return sharesWithNobody ? 'Stop sharing' : 'Save';
+	}
+	return 'Share & copy link';
+}
+
+/** Writes the link while the click still counts as a user gesture, even though the share is not saved yet. */
+function copyShareLinkOnceSaved(saving: Promise<string | null>): void {
+	const link = saving.then((url) => new Blob([url ?? ''], { type: 'text/plain' }));
+	link.catch(() => {});
+	navigator.clipboard.write([new ClipboardItem({ 'text/plain': link })]).catch(() => {});
+}
+
+function describeAudience(model: ShareModel): string {
+	if (model.itemLabel === 'chat') {
+		return 'People you share it with can read this conversation.';
+	}
+	return 'People you share it with always see the latest version. Editors can change it from their own chats.';
+}
 
 export function ShareLoadingDialog({
 	open,
@@ -73,180 +267,39 @@ export function ShareErrorDialog({
 	);
 }
 
-export function VisibilityPicker({
-	visibility,
-	onChange,
-	specificLabel = 'Specific people',
-	canShareToProject = true,
-}: {
-	visibility: Visibility;
-	onChange: (v: Visibility) => void;
-	specificLabel?: string;
-	canShareToProject?: boolean;
-}) {
-	if (!canShareToProject) {
-		return null;
-	}
+export function CopyShareLinkButton({ url }: { url: string }) {
+	const { isCopied, copy } = useCopyWithFeedback();
 	return (
-		<div className='flex gap-3'>
-			<VisibilityOption
-				active={visibility === 'project'}
-				icon={<Globe className='size-5' />}
-				label='Entire project'
-				description='All project members'
-				onClick={() => onChange('project')}
-			/>
-			<VisibilityOption
-				active={visibility === 'specific'}
-				icon={<Users className='size-5' />}
-				label={specificLabel}
-				description='Choose who can view'
-				onClick={() => onChange('specific')}
-			/>
-		</div>
+		<Button variant='outline' className='gap-1.5 rounded-full' onClick={() => copy(url)}>
+			{isCopied ? <Check className='size-3.5' /> : <LinkIcon className='size-3.5' />}
+			<span>{isCopied ? 'Copied' : 'Copy link'}</span>
+		</Button>
 	);
 }
 
-export function NotifyPeopleToggle({
-	checked,
-	onCheckedChange,
-	itemLabel,
+function ShareActionError({
+	message,
+	onRetry,
+	onDismiss,
 }: {
-	checked: boolean;
-	onCheckedChange: (checked: boolean) => void;
-	itemLabel: string;
+	message: string;
+	onRetry: () => void;
+	onDismiss: () => void;
 }) {
 	return (
-		<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
-			<div className='flex flex-col'>
-				<label htmlFor='notify-people' className='text-md font-medium'>
-					Notify people
-				</label>
-				<p className='text-xs text-muted-foreground'>Send an email letting them know about this {itemLabel}</p>
-			</div>
-			<Switch id='notify-people' checked={checked} onCheckedChange={onCheckedChange} />
-		</div>
-	);
-}
-
-export function VisibilitySummary({
-	visibility,
-	selectedUserIds,
-	selectedGroupIds,
-	itemLabel,
-}: {
-	visibility: Visibility;
-	selectedUserIds: Set<string>;
-	selectedGroupIds?: Set<string>;
-	itemLabel: string;
-}) {
-	return (
-		<div className='flex items-center gap-3 rounded-lg border p-3'>
-			{visibility === 'project' ? (
-				<>
-					<div className='flex size-8 items-center justify-center rounded-full'>
-						<Globe className='size-4' />
-					</div>
-					<div className='flex-1 min-w-0'>
-						<p className='text-md font-medium'>Shared with entire project</p>
-						<p className='text-xs text-muted-foreground'>All project members can view this {itemLabel}</p>
-					</div>
-				</>
-			) : (
-				<>
-					<div className='flex size-8 items-center justify-center rounded-full'>
-						<Users className='size-4' />
-					</div>
-					<div className='flex-1 min-w-0'>
-						<p className='text-md font-medium'>
-							Shared with {formatRecipientCount(selectedUserIds.size, selectedGroupIds?.size ?? 0)}
-						</p>
-						<p className='text-xs text-muted-foreground'>Only selected members can view this {itemLabel}</p>
-					</div>
-				</>
-			)}
-		</div>
-	);
-}
-
-export function ManageShareFooter({
-	isBusy,
-	hasChanges,
-	isDeletePending,
-	isUpdatePending,
-	isCopied,
-	canSave,
-	onUnshare,
-	onSaveAccess,
-	onCopyLink,
-}: {
-	isBusy: boolean;
-	hasChanges: boolean;
-	isDeletePending: boolean;
-	isUpdatePending: boolean;
-	isCopied: boolean;
-	canSave: boolean;
-	onUnshare: () => void;
-	onSaveAccess: () => void;
-	onCopyLink: () => void;
-}) {
-	return (
-		<DialogFooter className='flex-row sm:justify-between'>
-			<Button
-				variant='outline'
-				onClick={onUnshare}
-				disabled={isBusy}
-				className='gap-1.5 text-destructive hover:text-destructive rounded-full'
-			>
-				{isDeletePending ? <Loader2 className='size-3.5 animate-spin' /> : <Unlink className='size-3.5' />}
-				<span>Unshare</span>
-			</Button>
-			<div className='flex items-center gap-2'>
-				{hasChanges && (
-					<Button onClick={onSaveAccess} disabled={isBusy || !canSave} className='gap-1.5 rounded-full'>
-						{isUpdatePending ? (
-							<Loader2 className='size-3.5 animate-spin' />
-						) : (
-							<Check className='size-3.5' />
-						)}
-						<span>Save</span>
-					</Button>
-				)}
-				<Button variant='outline' onClick={onCopyLink} className='gap-1.5 rounded-full'>
-					{isCopied ? <Check className='size-3.5' /> : <LinkIcon className='size-3.5' />}
-					<span>{isCopied ? 'Copied!' : 'Copy link'}</span>
-				</Button>
-			</div>
-		</DialogFooter>
-	);
-}
-
-export function VisibilityOption({
-	active,
-	icon,
-	label,
-	description,
-	onClick,
-}: {
-	active: boolean;
-	icon: React.ReactNode;
-	label: string;
-	description: string;
-	onClick: () => void;
-}) {
-	return (
-		<button
-			type='button'
-			onClick={onClick}
-			className={cn(
-				'flex-1 flex flex-col items-center gap-1.5 rounded-lg border pt-3 pb-3 shadow-xs transition-colors cursor-pointer',
-				active ? 'border-primary' : 'border-border hover:border-muted-foreground/30 hover:bg-muted/50',
-			)}
+		<div
+			role='alert'
+			className='flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs'
 		>
-			<div className='text-foreground'>{icon}</div>
-			<span className='text-md font-medium text-foreground'>{label}</span>
-			<span className='text-xs text-muted-foreground'>{description}</span>
-		</button>
+			<CircleAlert className='size-3.5 shrink-0 text-destructive' />
+			<span className='flex-1 text-destructive'>Couldn't update access. {message}</span>
+			<Button variant='outline' size='sm' className='h-6 rounded-full text-xs' onClick={onRetry}>
+				Retry
+			</Button>
+			<Button variant='ghost-muted' size='icon-xs' aria-label='Dismiss' onClick={onDismiss}>
+				<X className='size-3' />
+			</Button>
+		</div>
 	);
 }
 
@@ -422,33 +475,6 @@ function PickerRow({
 
 function PickerSectionLabel({ children }: { children: React.ReactNode }) {
 	return <div className='px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground'>{children}</div>;
-}
-
-export function hasAccessChanges(
-	visibility: Visibility,
-	allowedUserIds: string[],
-	selectedUserIds: Set<string>,
-	allowedGroupIds: string[] = [],
-	selectedGroupIds: Set<string> = new Set(),
-): boolean {
-	if (visibility !== 'specific') {
-		return false;
-	}
-	return (
-		!isSameSet(new Set(allowedUserIds), selectedUserIds) || !isSameSet(new Set(allowedGroupIds), selectedGroupIds)
-	);
-}
-
-function isSameSet(left: Set<string>, right: Set<string>): boolean {
-	if (left.size !== right.size) {
-		return false;
-	}
-	for (const id of right) {
-		if (!left.has(id)) {
-			return false;
-		}
-	}
-	return true;
 }
 
 function formatRecipientCount(peopleCount: number, groupCount: number): string {

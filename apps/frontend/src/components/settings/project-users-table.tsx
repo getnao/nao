@@ -1,7 +1,7 @@
 import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ChevronDown, EllipsisVertical, Plus } from 'lucide-react';
+import { EllipsisVertical, Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
@@ -9,6 +9,7 @@ import type { MemberStatus, UserRole } from '@nao/shared/types';
 import type { TeamMember } from '@/components/settings/team';
 import type { ProjectUserFilters } from '@/lib/project-user-filters';
 import type { UserSectionsPagination } from '@/hooks/use-paginated-user-sections';
+import type { UserGroupToken } from '@/components/settings/user-group-token-field';
 import {
 	AddMemberDialog,
 	EditMemberDialog,
@@ -16,8 +17,8 @@ import {
 	RemoveMemberDialog,
 } from '@/components/settings/team';
 import { ProjectUsersToolbar } from '@/components/settings/project-users-toolbar';
-import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
+import { UserGroupTokenField } from '@/components/settings/user-group-token-field';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -701,30 +702,22 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 			onSuccess: () => invalidateUserGroupQueries(queryClient),
 		}),
 	);
-	const selectedGroupNames = useMemo(
-		() =>
-			groups
-				.filter((group) => group.isDefault || membershipKeys.has(`${group.id}:${user.id}`))
-				.map((group) => group.name),
-		[groups, membershipKeys, user.id],
-	);
-	const selectedGroupLabel = selectedGroupNames.length > 0 ? selectedGroupNames.join(', ') : 'No groups';
+	const setGroupMembership = (groupId: string, isMember: boolean) => {
+		setMembership.mutate({ groupId, userId: user.id, isMember });
+	};
+	const tokens = groups
+		.filter((group) => group.isDefault || membershipKeys.has(`${group.id}:${user.id}`))
+		.map((group) => toGroupToken(group, ssoMembershipKeys.has(`${group.id}:${user.id}`), setGroupMembership));
+	const selectedGroupLabel = tokens.length > 0 ? tokens.map((token) => token.name).join(', ') : 'No groups';
+	const hasGroupsToAdd = tokens.length < groups.length;
 
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					variant='outline'
-					size='sm'
-					className='h-7 w-full min-w-0 justify-between overflow-hidden bg-transparent px-2 font-normal shadow-none'
-					aria-label={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
-					title={selectedGroupLabel}
-					onClick={(event) => event.stopPropagation()}
-				>
-					<ResponsiveGroupChips names={selectedGroupNames} />
-					<ChevronDown className='shrink-0 text-muted-foreground' />
-				</Button>
-			</DropdownMenuTrigger>
+		<UserGroupTokenField
+			tokens={tokens}
+			triggerLabel={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
+			placeholder={hasGroupsToAdd ? 'Add groups' : ''}
+			isRemoveDisabled={setMembership.isPending}
+		>
 			<DropdownMenuContent
 				align='start'
 				className='max-h-64 min-w-56'
@@ -740,13 +733,7 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 							disabled={group.isDefault || isManagedBySso || setMembership.isPending}
 							aria-label={isManagedBySso ? `${group.name}, managed by SSO` : group.name}
 							onSelect={(event) => event.preventDefault()}
-							onCheckedChange={(checked) =>
-								setMembership.mutate({
-									groupId: group.id,
-									userId: user.id,
-									isMember: checked === true,
-								})
-							}
+							onCheckedChange={(checked) => setGroupMembership(group.id, checked === true)}
 						>
 							<span className='min-w-0 flex-1 truncate'>{group.name}</span>
 							{isManagedBySso && (
@@ -758,6 +745,20 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 					);
 				})}
 			</DropdownMenuContent>
-		</DropdownMenu>
+		</UserGroupTokenField>
 	);
+}
+
+function toGroupToken(
+	group: AssignableUserGroup,
+	isManagedBySso: boolean,
+	setGroupMembership: (groupId: string, isMember: boolean) => void,
+): UserGroupToken {
+	if (group.isDefault) {
+		return { key: group.id, name: group.name, title: 'Added automatically' };
+	}
+	if (isManagedBySso) {
+		return { key: group.id, name: group.name, title: 'Managed by SSO' };
+	}
+	return { key: group.id, name: group.name, onRemove: () => setGroupMembership(group.id, false) };
 }

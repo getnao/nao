@@ -88,6 +88,8 @@ export type SharedNotificationPayload = {
 	itemLabel: SharedItemLabel;
 	itemTitle: string;
 	visibility: Visibility;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 };
 
 export type StoryRefreshNotificationPayload = {
@@ -403,6 +405,11 @@ export type CalendarPeriod = BudgetPeriod | MemberBudgetPeriod;
 
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
+
+export const SHARE_ROLES = ['viewer', 'editor'] as const;
+export type ShareRole = (typeof SHARE_ROLES)[number];
+
+export type StoryAccessRole = 'owner' | ShareRole;
 
 export type StorySharingInfo = {
 	visibility: Visibility;

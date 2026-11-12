@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { EllipsisVertical, Pencil, StarIcon, StarOffIcon, TrashIcon, Upload } from 'lucide-react';
 import { useState } from 'react';
-import { ShareChatDialog } from './share-dialog.chat';
+import { ShareDialog } from './share-dialog';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -199,7 +199,11 @@ export function ChatListItem({ chat, needsAttention = false, resumeOnboarding = 
 				)}
 			</Link>
 
-			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chat.id} />
+			<ShareDialog
+				open={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				target={{ kind: 'chat', chatId: chat.id }}
+			/>
 		</>
 	);
 }

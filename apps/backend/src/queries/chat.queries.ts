@@ -30,6 +30,8 @@ import { applyChatFilters, buildChatGroups, type EnrichedChat, type SourcePlatfo
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
 import * as executeSqlQueries from './execute-sql.queries';
+import { listLockedUserGroupIdsOfMember } from './locked-user-groups';
+import { sharedChatGrantsUser } from './shared-chat.queries';
 
 const chatCreatedAtMs =
 	dbConfig.dialect === Dialect.Postgres
@@ -126,6 +128,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 }
 
 async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const rows = await db
 		.select({
 			id: s.sharedChat.chatId,
@@ -146,10 +149,6 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
 		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
 		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
-		.leftJoin(
-			s.sharedChatAccess,
-			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
-		)
 		.where(
 			and(
 				isNull(s.chat.deletedAt),
@@ -165,7 +164,7 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 							sql`exists(select 1 from ${s.orgMember} where ${s.orgMember.orgId} = ${s.project.orgId} and ${s.orgMember.userId} = ${userId})`,
 						),
 					),
-					and(eq(s.sharedChat.visibility, 'specific'), isNotNull(s.sharedChatAccess.userId)),
+					and(eq(s.sharedChat.visibility, 'specific'), sharedChatGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)
@@ -1256,6 +1255,26 @@ function extractQueryResultFromToolOutput(
 	};
 }
 
+/** Chats of the user, soft-deleted included, that they started from the web chat. */
+export const countUserWebConversations = async (userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ total: count() })
+		.from(s.chat)
+		.where(and(eq(s.chat.userId, userId), isNotAutomationRunChat(), isNotPageScopedChat(), hasWebUserMessage()))
+		.execute();
+	return row?.total ?? 0;
+};
+
+/** Integration, MCP, context recommendation, onboarding and test chats record another source on their messages. */
+const hasWebUserMessage = () => {
+	return sql`exists (
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.role} = 'user'
+		and ${s.chatMessage.source} = 'web'
+	)`;
+};
+
 export async function getChatInfo(
 	chatId: string,
 ): Promise<{ projectId: string; userId: string; title: string } | null> {
@@ -1290,21 +1309,18 @@ export async function canUserAccessChat(chatId: string, userId: string): Promise
 		  and ${s.orgMember.userId} = ${userId}
 	)`;
 
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const [shared] = await db
 		.select({ id: s.sharedChat.id })
 		.from(s.sharedChat)
 		.innerJoin(s.chat, eq(s.chat.id, s.sharedChat.chatId))
 		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
-		.leftJoin(
-			s.sharedChatAccess,
-			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
-		)
 		.where(
 			and(
 				eq(s.sharedChat.chatId, chatId),
 				or(
 					and(eq(s.sharedChat.visibility, 'project'), or(isProjectMember, isOrgMember)),
-					and(eq(s.sharedChat.visibility, 'specific'), sql`${s.sharedChatAccess.userId} IS NOT NULL`),
+					and(eq(s.sharedChat.visibility, 'specific'), sharedChatGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)

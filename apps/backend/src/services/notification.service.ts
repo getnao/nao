@@ -1,6 +1,7 @@
 import type {
 	SharedItemLabel,
 	SharedNotificationPayload,
+	ShareRole,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
 	Visibility,
@@ -41,7 +42,7 @@ const sharedItemAcl: Record<SharedItemLabel, (itemId: string, projectId: string)
 			}
 			const visibility = share.visibility as Visibility;
 			const allowedUserIds =
-				visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(shareId) : [];
+				visibility === 'specific' ? await sharedChatQueries.getSharedChatRecipientUserIds(shareId) : [];
 			return { visibility, allowedUserIds };
 		},
 	};
@@ -201,6 +202,8 @@ export async function notifySharedItem(params: {
 	visibility: Visibility;
 	allowedUserIds?: string[];
 	deliverExternally?: boolean;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 }): Promise<void> {
 	const recipientIds = await resolveSharedItemRecipientIds(params);
 	if (recipientIds.length === 0) {
@@ -216,27 +219,47 @@ export async function notifySharedItem(params: {
 		itemLabel: params.itemLabel,
 		itemTitle: params.itemTitle,
 		visibility: params.visibility,
+		...(params.role && { role: params.role }),
+		...(params.isRoleChange && { isRoleChange: true }),
 	};
 
 	await notifyUsers(recipientIds, {
 		category: 'shared',
-		title: `${params.sharerName} shared a ${params.itemLabel} with you`,
+		title: describeSharedItemTitle(params),
 		body: `"${params.itemTitle}"`,
 		linkUrl,
 		ctaLabel: `Open ${params.itemLabel}`,
 		projectId: params.projectId,
 		payload,
-		channels: params.deliverExternally === false ? ['in_app'] : ['in_app', 'email'],
+		channels: params.deliverExternally === false || params.isRoleChange ? ['in_app'] : ['in_app', 'email'],
 		emailOverride: (recipient, unsubscribeUrl) =>
 			buildSharedItemEmail(
 				recipient,
-				params.sharerName,
-				params.itemLabel,
-				params.itemTitle,
-				itemUrl,
+				{
+					sharerName: params.sharerName,
+					itemLabel: params.itemLabel,
+					itemTitle: params.itemTitle,
+					itemUrl,
+					role: params.role,
+				},
 				unsubscribeUrl,
 			),
 	});
+}
+
+function describeSharedItemTitle(params: {
+	sharerName: string;
+	itemLabel: SharedItemLabel;
+	role?: ShareRole;
+	isRoleChange?: boolean;
+}): string {
+	if (params.isRoleChange) {
+		return params.role === 'viewer'
+			? `${params.sharerName} changed your access to a ${params.itemLabel} to view only`
+			: `${params.sharerName} gave you edit rights on a ${params.itemLabel}`;
+	}
+	const rights = params.role === 'editor' ? ', with edit rights' : '';
+	return `${params.sharerName} shared a ${params.itemLabel} with you${rights}`;
 }
 
 async function resolveOwnerName(ownerId: string): Promise<string | undefined> {

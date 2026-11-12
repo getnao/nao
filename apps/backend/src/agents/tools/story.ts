@@ -16,6 +16,7 @@ import {
 } from '../../services/custom-story-authoring';
 import { ensureStoryChat, findEditableStory } from '../../services/editable-story';
 import { describeSemanticLayerCached } from '../../services/semantic-layer.service';
+import { acquireStoryEditLock, StoryEditLockedError } from '../../services/story-edit-lock.service';
 import { customStoryAuthoringError, isCustomStoriesEnabled } from '../../services/story-mount';
 import { copyQueriesToStoryChat } from '../../services/story-question';
 import { getStoryTemplateWarnings, sqlQueriesFromResults } from '../../services/story-template-validation';
@@ -124,6 +125,10 @@ async function withStoryLocation(
 
 async function runStoryAction(input: story.Input, existingStory: DBStory, context: ToolContext): Promise<story.Output> {
 	const { slug } = existingStory;
+	const lockError = await lockStoryForAgent(existingStory, context);
+	if (lockError) {
+		return fail(slug, lockError);
+	}
 	if (existingStory.format === 'custom') {
 		return runCustomStoryAction(input, existingStory, context);
 	}
@@ -138,6 +143,18 @@ async function runStoryAction(input: story.Input, existingStory: DBStory, contex
 	return input.action === 'update'
 		? updateClassicStory(input, existingStory, latest, context)
 		: replaceClassicStory(input, existingStory, latest, context);
+}
+
+async function lockStoryForAgent(existingStory: DBStory, context: ToolContext): Promise<string | null> {
+	try {
+		await acquireStoryEditLock(existingStory.id, { userId: context.userId, chatId: context.chatId });
+		return null;
+	} catch (error) {
+		if (error instanceof StoryEditLockedError) {
+			return `${error.message} Tell the user, and do not retry until they ask you to.`;
+		}
+		throw error;
+	}
 }
 
 function fail(id: string, error: string, existing?: ExistingStory): story.Output {
@@ -196,17 +213,10 @@ async function updateClassicStory(
 	const splicedCode = `${latest.code.slice(0, searchIndex)}${input.replace}${latest.code.slice(
 		searchIndex + input.search.length,
 	)}`;
-	const chatId = await ensureStoryChat(existingStory, context);
-	const version = await storyQueries.createStoryVersion({
-		chatId,
-		slug,
-		title: latest.title,
+	return saveClassicVersion(existingStory, latest, context, {
 		code: await carryOverTableFormatting(splicedCode, context.chatId),
 		action: 'update',
-		source: 'assistant',
-		...agentProvenance(context),
 	});
-	return classicResult(slug, version, context, chatId);
 }
 
 async function replaceClassicStory(
@@ -220,17 +230,42 @@ async function replaceClassicStory(
 		return fail(slug, '"code" is required for the "replace" action.', latest);
 	}
 
-	const chatId = await ensureStoryChat(existingStory, context);
-	const version = await storyQueries.createStoryVersion({
-		chatId,
-		slug,
-		title: latest.title,
+	return saveClassicVersion(existingStory, latest, context, {
 		code: await carryOverTableFormatting(input.code, context.chatId),
 		action: 'replace',
-		source: 'assistant',
-		...agentProvenance(context),
 	});
-	return classicResult(slug, version, context, chatId);
+}
+
+/** Saves on top of the version the agent read, so a version someone saved meanwhile is never overwritten. */
+async function saveClassicVersion(
+	existingStory: DBStory,
+	latest: ExistingStory,
+	context: ToolContext,
+	change: { code: string; action: 'update' | 'replace' },
+): Promise<story.Output> {
+	const { slug } = existingStory;
+	const chatId = await ensureStoryChat(existingStory, context);
+	try {
+		const version = await storyQueries.createStoryVersion({
+			chatId,
+			slug,
+			title: latest.title,
+			...change,
+			source: 'assistant',
+			basedOnVersion: latest.version,
+			...agentProvenance(context),
+		});
+		return classicResult(slug, version, context, chatId);
+	} catch (error) {
+		if (error instanceof storyQueries.StoryVersionConflictError) {
+			return fail(
+				slug,
+				`Story "${slug}" was changed by someone else while you edited it. Read its latest version and make your change again.`,
+				latest,
+			);
+		}
+		throw error;
+	}
 }
 
 async function classicResult(

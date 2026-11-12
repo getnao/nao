@@ -31,9 +31,10 @@ export function useCustomStory(chatId: string, storySlug: string) {
 		...trpc.story.getCustomVersion.queryOptions({ chatId, storySlug, versionNumber: viewedVersion ?? undefined }),
 		enabled: viewedVersion !== null,
 	});
+	const olderVersionNumber = isViewingLatest ? undefined : (viewedVersion ?? undefined);
 	const dataSource = useMemo<CustomStoryFileSource>(
-		() => ({ kind: 'owner', chatId, storySlug }),
-		[chatId, storySlug],
+		() => ({ kind: 'owner', chatId, storySlug, versionNumber: olderVersionNumber }),
+		[chatId, storySlug, olderVersionNumber],
 	);
 
 	const goToVersion = useCallback(
