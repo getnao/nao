@@ -23,6 +23,11 @@ interface StoryExportContext {
 	chartPlugins: Record<string, string>;
 }
 
+interface CustomStoryDocumentOptions {
+	narratives?: StoryNarratives;
+	state?: StoryExportData['state'];
+}
+
 export async function renderCustomStoryPdf(
 	chatId: string,
 	storySlug: string,
@@ -51,11 +56,12 @@ export async function buildCustomStoryDocumentByStoryId(
 	version: CustomStoryVersionView,
 	queryData: Record<string, StoryQueryResult>,
 	mode: StoryThemeMode,
+	options: CustomStoryDocumentOptions = {},
 ): Promise<string> {
 	const [narratives, runtime, state, chartPlugins] = await Promise.all([
-		getStoredCustomStoryNarrativesByStoryId(storyId),
+		options.narratives ?? getStoredCustomStoryNarrativesByStoryId(storyId),
 		loadStandaloneStoryRuntime(),
-		getUnattendedCustomStoryStateByStoryId(storyId),
+		options.state ?? getUnattendedCustomStoryStateByStoryId(storyId),
 		readStoryChartPluginSources(storyId),
 	]);
 	return buildCustomStoryDocumentHtml(version, { queryData, narratives, runtime, state, chartPlugins }, mode);

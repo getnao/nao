@@ -15,10 +15,14 @@ import { listStoryChartPlugins } from './chart-plugin';
 import {
 	type CustomStoryVersionView,
 	getActiveThemeForStory,
+	getCustomStoryNarratives,
+	getCustomStoryQueryData,
 	getLatestCustomStoryVersionByStoryId,
 	getStoredCustomStoryQueryDataByStoryId,
 } from './custom-story';
 import { buildCustomStoryDocumentByStoryId } from './custom-story-export';
+import { getCustomStoryStateByStoryId } from './custom-story-state';
+import { createStoryExecutionContext } from './live-story';
 import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
 
 const THUMBNAIL_VIEWPORT = { width: 1280, height: 980 };
@@ -27,6 +31,8 @@ const THUMBNAIL_QUALITY = 80;
 const RETRY_AFTER_MS = 2 * 60 * 1000;
 const MISSING_DATA_RETRY_AFTER_MS = 15 * 1000;
 const MAX_BROKEN_RENDERS = 3;
+const VIEWER_THUMBNAIL_TTL_MS = 60 * 1000;
+const MAX_VIEWER_THUMBNAILS = 100;
 /** Stored in place of a mode's image when the version has no app or that mode kept rendering broken: never retried. */
 const UNRENDERABLE = '';
 const CHART_PLUGINS_FINGERPRINT_TTL_MS = 60 * 1000;
@@ -35,11 +41,6 @@ const chartPluginsFingerprints = new Map<string, { fingerprint: string | undefin
 
 /** Base64 WebP per theme mode; a mode not rendered yet is absent. */
 type ModeThumbnails = Partial<Record<StoryThemeMode, string>>;
-
-interface StoredThumbnails {
-	images: ModeThumbnails;
-	redactedImages: ModeThumbnails;
-}
 
 /** The latest failure of a story's thumbnail, so a superseded version's entry is replaced rather than kept. */
 interface RenderFailure {
@@ -52,6 +53,8 @@ interface RenderFailure {
 
 const queuedVersionIds = new Set<string>();
 const failuresByStoryId = new Map<string, RenderFailure>();
+const viewerThumbnails = new Map<string, { image: Buffer; expiresAt: number }>();
+const pendingViewerThumbnails = new Map<string, Promise<Buffer | null>>();
 let renderQueue: Promise<void> = Promise.resolve();
 
 class MissingStoryDataError extends Error {}
@@ -73,7 +76,6 @@ export interface CustomStoryThumbnail {
 	renderKey: string;
 	isCurrent: boolean;
 	image: Buffer;
-	redactedImage: Buffer | null;
 }
 
 export async function canShowStoredCustomStoryThumbnail(storyId: string, userId: string): Promise<boolean> {
@@ -94,11 +96,9 @@ export async function getCustomStoryThumbnail(
 		return null;
 	}
 	const stored = await storyFileQueries.getVersionThumbnail(version.id);
-	const { images, redactedImages } = parseThumbnails(stored?.thumbnail);
+	const images = parseThumbnails(stored?.thumbnail);
 	const currentKey = await thumbnailRenderKey(story, await getActiveThemeForStory(story.id));
-	const isCurrent =
-		stored?.renderKey === currentKey &&
-		STORY_THEME_MODES.every((each) => images[each] !== undefined && redactedImages[each] !== undefined);
+	const isCurrent = stored?.renderKey === currentKey && STORY_THEME_MODES.every((each) => images[each] !== undefined);
 	if (!isCurrent) {
 		queueCustomStoryThumbnail(story.id, version.id);
 	}
@@ -111,8 +111,97 @@ export async function getCustomStoryThumbnail(
 		renderKey: stored.renderKey,
 		isCurrent,
 		image: Buffer.from(image, 'base64'),
-		redactedImage: redactedImages[mode] ? Buffer.from(redactedImages[mode], 'base64') : null,
 	};
+}
+
+export async function getViewerCustomStoryThumbnail(
+	story: DBStory,
+	viewerUserId: string,
+	mode: StoryThemeMode = 'light',
+): Promise<Buffer | null> {
+	const chatId = story.chatId;
+	if (!chatId) {
+		return null;
+	}
+	const [version, executionContext] = await Promise.all([
+		getLatestCustomStoryVersionByStoryId(story.id),
+		createStoryExecutionContext(chatId, viewerUserId),
+	]);
+	const key = `${version.version.id}:${viewerUserId}:${executionContext.permissionRevision}:${mode}`;
+	const cached = viewerThumbnails.get(key);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.image;
+	}
+	const pending = pendingViewerThumbnails.get(key);
+	if (pending) {
+		return pending;
+	}
+	const rendering = renderViewerThumbnail(story, version, viewerUserId, mode)
+		.catch((error) => {
+			logFailure(version.version.id, error);
+			return null;
+		})
+		.then((image) => {
+			if (image) {
+				cacheViewerThumbnail(key, image);
+			}
+			return image;
+		})
+		.finally(() => pendingViewerThumbnails.delete(key));
+	pendingViewerThumbnails.set(key, rendering);
+	return rendering;
+}
+
+async function renderViewerThumbnail(
+	story: DBStory,
+	version: CustomStoryVersionView,
+	viewerUserId: string,
+	mode: StoryThemeMode,
+): Promise<Buffer | null> {
+	if (!story.chatId) {
+		return null;
+	}
+	const chatId = story.chatId;
+	const [queryEntries, narratives, state] = await Promise.all([
+		Promise.all(
+			version.queryIds.map(async (queryId): Promise<[string, StoryQueryResult] | null> => {
+				try {
+					const result = await getCustomStoryQueryData(chatId, story.slug, queryId, {
+						storyVersionId: version.version.id,
+						viewerUserId,
+					});
+					return [queryId, result];
+				} catch {
+					return null;
+				}
+			}),
+		),
+		getCustomStoryNarratives(chatId, story.slug, {
+			storyVersionId: version.version.id,
+			viewerUserId,
+		}),
+		getCustomStoryStateByStoryId(story.id, viewerUserId),
+	]);
+	const queryData = Object.fromEntries(
+		queryEntries.filter((entry): entry is [string, StoryQueryResult] => entry !== null),
+	);
+	const html = await buildCustomStoryDocumentByStoryId(story.id, version, queryData, mode, {
+		narratives,
+		state,
+	});
+	const { image, ...render } = await renderStoryScreenshot(
+		html,
+		THUMBNAIL_VIEWPORT,
+		themeFontStylesheets(version.theme),
+	);
+	return isBrokenRender(render) ? null : toThumbnailImage(image);
+}
+
+function cacheViewerThumbnail(key: string, image: Buffer): void {
+	if (viewerThumbnails.size >= MAX_VIEWER_THUMBNAILS) {
+		viewerThumbnails.delete(viewerThumbnails.keys().next().value!);
+	}
+	viewerThumbnails.set(key, { image, expiresAt: Date.now() + VIEWER_THUMBNAIL_TTL_MS });
 }
 
 /** Renders thumbnails in the background one at a time so they do not compete with viewers. */
@@ -150,8 +239,7 @@ async function renderThumbnails(storyId: string, versionId: string): Promise<voi
 	const story = await storyQueries.getStoryById(storyId);
 	const renderKey = await thumbnailRenderKey({ id: storyId, isLive: story?.isLive ?? false }, version.theme);
 	if (!version.app) {
-		const unavailable = { light: UNRENDERABLE, dark: UNRENDERABLE };
-		const saved = await saveThumbnails(versionId, { images: unavailable, redactedImages: unavailable }, renderKey);
+		const saved = await saveThumbnails(versionId, { light: UNRENDERABLE, dark: UNRENDERABLE }, renderKey);
 		if (!saved) {
 			throw new UnbuiltVersionError('The version has no bundle to render.');
 		}
@@ -162,21 +250,18 @@ async function renderThumbnails(storyId: string, versionId: string): Promise<voi
 		throw new MissingStoryDataError('Some queries have no saved result yet.');
 	}
 
-	const thumbnails = await loadThumbnailsForKey(versionId, renderKey);
+	const images = await loadThumbnailsForKey(versionId, renderKey);
 	const brokenModes: StoryThemeMode[] = [];
-	for (const mode of STORY_THEME_MODES.filter(
-		(each) => thumbnails.images[each] === undefined || thumbnails.redactedImages[each] === undefined,
-	)) {
-		const rendered = await renderModeThumbnail(storyId, version, queryData, mode);
-		if (rendered) {
-			thumbnails.images[mode] = rendered.image;
-			thumbnails.redactedImages[mode] = rendered.redactedImage;
+	for (const mode of STORY_THEME_MODES.filter((each) => images[each] === undefined)) {
+		const image = await renderModeThumbnail(storyId, version, queryData, mode);
+		if (image) {
+			images[mode] = image;
 		} else {
 			brokenModes.push(mode);
 		}
 	}
-	if (Object.keys(thumbnails.images).length > 0 || Object.keys(thumbnails.redactedImages).length > 0) {
-		await saveThumbnails(versionId, thumbnails, renderKey);
+	if (Object.keys(images).length > 0) {
+		await saveThumbnails(versionId, images, renderKey);
 	}
 	if (brokenModes.length > 0) {
 		throw new BrokenRenderError(brokenModes, renderKey);
@@ -188,25 +273,17 @@ async function renderModeThumbnail(
 	version: CustomStoryVersionView,
 	queryData: Record<string, StoryQueryResult>,
 	mode: StoryThemeMode,
-): Promise<{ image: string; redactedImage: string } | null> {
+): Promise<string | null> {
 	const html = await buildCustomStoryDocumentByStoryId(storyId, version, queryData, mode);
-	const { image, redactedImage, ...render } = await renderStoryScreenshot(
+	const { image, ...render } = await renderStoryScreenshot(
 		html,
 		THUMBNAIL_VIEWPORT,
 		themeFontStylesheets(version.theme),
-		{ redactData: true },
 	);
-	if (isBrokenRender(render) || !redactedImage) {
+	if (isBrokenRender(render)) {
 		return null;
 	}
-	const [thumbnail, redactedThumbnail] = await Promise.all([
-		toThumbnailImage(image),
-		toThumbnailImage(redactedImage),
-	]);
-	return {
-		image: thumbnail.toString('base64'),
-		redactedImage: redactedThumbnail.toString('base64'),
-	};
+	return (await toThumbnailImage(image)).toString('base64');
 }
 
 /** Broken renders count per version and render key, so a theme edit or a data refresh gets a fresh retry budget. */
@@ -241,22 +318,21 @@ function retryDelayFor(error: unknown): number {
 }
 
 async function giveUpOnModes(versionId: string, error: BrokenRenderError): Promise<void> {
-	const thumbnails = await loadThumbnailsForKey(versionId, error.renderKey);
+	const images = await loadThumbnailsForKey(versionId, error.renderKey);
 	for (const mode of error.modes) {
-		thumbnails.images[mode] = UNRENDERABLE;
-		thumbnails.redactedImages[mode] = UNRENDERABLE;
+		images[mode] = UNRENDERABLE;
 	}
-	await saveThumbnails(versionId, thumbnails, error.renderKey);
+	await saveThumbnails(versionId, images, error.renderKey);
 }
 
 /** The saved images when they were rendered for `renderKey`; none when the theme or the data changed since. */
-async function loadThumbnailsForKey(versionId: string, renderKey: string): Promise<StoredThumbnails> {
+async function loadThumbnailsForKey(versionId: string, renderKey: string): Promise<ModeThumbnails> {
 	const stored = await storyFileQueries.getVersionThumbnail(versionId);
-	return stored?.renderKey === renderKey ? parseThumbnails(stored.thumbnail) : { images: {}, redactedImages: {} };
+	return stored?.renderKey === renderKey ? parseThumbnails(stored.thumbnail) : {};
 }
 
-async function saveThumbnails(versionId: string, thumbnails: StoredThumbnails, renderKey: string): Promise<boolean> {
-	return storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(thumbnails), renderKey);
+async function saveThumbnails(versionId: string, images: ModeThumbnails, renderKey: string): Promise<boolean> {
+	return storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(images), renderKey);
 }
 
 /** Live data, shared state and project chart plugins change in place, without a new version, so they are part of the key. */
@@ -304,17 +380,12 @@ function chartPluginsFingerprint(plugins: ChartPluginManifestEntry[]): string {
 	return createHash('sha256').update(versions.join('\n')).digest('hex').slice(0, 12);
 }
 
-function parseThumbnails(raw: string | undefined): StoredThumbnails {
+function parseThumbnails(raw: string | undefined): ModeThumbnails {
 	if (!raw) {
-		return { images: {}, redactedImages: {} };
+		return {};
 	}
-	const parsed = JSON.parse(raw) as ModeThumbnails & {
-		images?: ModeThumbnails;
-		redactedImages?: ModeThumbnails;
-	};
-	return parsed.images
-		? { images: parsed.images, redactedImages: parsed.redactedImages ?? {} }
-		: { images: parsed, redactedImages: {} };
+	const parsed = JSON.parse(raw) as ModeThumbnails & { images?: ModeThumbnails };
+	return parsed.images ?? parsed;
 }
 
 function logFailure(versionId: string, error: unknown): void {
