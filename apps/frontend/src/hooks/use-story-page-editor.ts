@@ -16,6 +16,7 @@ interface UseStoryPageEditorParams {
 	latestCode: string;
 	isAgentRunning?: boolean;
 	isReadonlyMode?: boolean;
+	standaloneStoryId?: string;
 }
 
 export function useStoryPageEditor({
@@ -25,6 +26,7 @@ export function useStoryPageEditor({
 	latestCode,
 	isAgentRunning = false,
 	isReadonlyMode = false,
+	standaloneStoryId,
 }: UseStoryPageEditorParams) {
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 	const {
@@ -37,7 +39,7 @@ export function useStoryPageEditor({
 		isViewingLatest,
 		goToVersion,
 		goToLatestVersion,
-	} = useStoryViewerVersions({ chatId, storySlug, isAgentRunning, isReadonlyMode });
+	} = useStoryViewerVersions({ chatId, storySlug, isAgentRunning, isReadonlyMode, standaloneStoryId });
 
 	const code = currentVersion?.code ?? latestCode;
 
@@ -63,6 +65,7 @@ export function useStoryPageEditor({
 		viewMode,
 		setViewMode,
 		onVersionSaved: storyBuffer.markSaved,
+		standaloneStoryId,
 	});
 	const isDirty = storyBuffer.isDirty;
 	const exitGuard = useStoryExitGuard({

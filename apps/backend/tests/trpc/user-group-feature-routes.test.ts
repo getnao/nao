@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	createSharedStory: vi.fn(),
 	pinSharedStory: vi.fn(),
 	createStoryVersion: vi.fn(),
+	createStandaloneVersion: vi.fn(),
 	getDisplaySettings: vi.fn(),
 	getAutomation: vi.fn(),
 	getChatInfo: vi.fn(),
@@ -103,6 +104,7 @@ vi.mock('../../src/queries/story.queries', async (importOriginal) => ({
 	StoryVersionConflictError: (await importOriginal<typeof import('../../src/queries/story.queries')>())
 		.StoryVersionConflictError,
 	createStoryVersion: mocks.createStoryVersion,
+	createStandaloneVersion: mocks.createStandaloneVersion,
 	archiveStory: mocks.archiveStory,
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getStoryById: mocks.getStoryByChatAndSlug,
@@ -559,6 +561,46 @@ describe('user group feature route enforcement', () => {
 				...change,
 			});
 		}
+	});
+
+	describe('standalone stories', () => {
+		const STANDALONE_STORY = {
+			id: 'story-id',
+			chatId: null,
+			projectId: 'project-id',
+			slug: 'standalone-story',
+			title: 'Standalone Story',
+			format: 'classic',
+		};
+		const saveStandaloneEdit = () =>
+			caller.story.createStandaloneVersion({ storyId: 'story-id', code: '# Edited', basedOnVersion: 2 });
+
+		it('saves an edit of a standalone story on top of the version it was based on', async () => {
+			mocks.getStoryByChatAndSlug.mockResolvedValue(STANDALONE_STORY);
+			mocks.createStandaloneVersion.mockResolvedValue({ storyId: 'story-id', version: 3 });
+
+			await expect(saveStandaloneEdit()).resolves.toEqual({ storyId: 'story-id', version: 3 });
+			expect(mocks.createStandaloneVersion).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: 'user-id',
+					projectId: 'project-id',
+					slug: 'standalone-story',
+					code: '# Edited',
+					basedOnVersion: 2,
+					origin: 'editor',
+				}),
+			);
+		});
+
+		it.each([
+			['a story that lives in a chat', { chatId: 'chat-id' }, 'NOT_FOUND'],
+			['a custom story', { format: 'custom' }, 'BAD_REQUEST'],
+		])('refuses to save markdown into %s', async (_label, override, code) => {
+			mocks.getStoryByChatAndSlug.mockResolvedValue({ ...STANDALONE_STORY, ...override });
+
+			await expect(saveStandaloneEdit()).rejects.toMatchObject({ code });
+			expect(mocks.createStandaloneVersion).not.toHaveBeenCalled();
+		});
 	});
 });
 

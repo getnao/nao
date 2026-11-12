@@ -57,7 +57,7 @@ import {
 import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
 import { themeFontStylesheets } from '../utils/story-headless-page';
-import { pickQueryData, type StoryQueryDataMap, withKpiPreviewData } from '../utils/story-query-data';
+import { getStandaloneStoryQueryData, withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -653,15 +653,6 @@ function findStoryToShare(input: StoryToShare): Promise<DBStory | null> {
 	return 'storyId' in input
 		? storyQueries.getStoryById(input.storyId)
 		: storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-}
-
-/** A standalone story has no chat to run its queries in: it shows the rows saved for the queries its code uses. */
-async function getStandaloneStoryQueryData(storyId: string, code: string) {
-	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
-	const queryData = cache?.queryData
-		? pickQueryData(cache.queryData as StoryQueryDataMap, extractQueryIds(code))
-		: null;
-	return { queryData, cachedAt: cache?.cachedAt ?? null, code, needsRefresh: false };
 }
 
 async function canUserAccessShare(
