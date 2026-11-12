@@ -167,6 +167,9 @@ async function refreshStoryDataWithContext(
 		return { queryData: {}, code: version.code, narratives };
 	}
 
+	const storyViewerCacheRevision = options.viewerUserId
+		? await storyQueries.getStoryViewerCacheRevision(version.storyId)
+		: undefined;
 	const chat = await chatQueries.getChatInfo(chatId);
 	if (!chat) {
 		throw new Error('Chat project not found');
@@ -247,6 +250,7 @@ async function refreshStoryDataWithContext(
 			options.viewerUserId,
 			executionContext.toolContext.projectId,
 			executionContext.viewerCacheRevision,
+			storyViewerCacheRevision!,
 			executionContext.permissionRevision,
 			executedQueryData,
 			querySources,

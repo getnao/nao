@@ -79,7 +79,7 @@ describe('scheduled Story refresh principal', () => {
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
 		});
-		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1', 'project-1');
+		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1');
 		expect(mocks.deliverStoryOnRefresh).toHaveBeenCalledWith('story-1', undefined, {});
 	});
 

@@ -82,7 +82,7 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 		const { queryData } = await refreshStoryData(story.chatId, story.slug, {
 			billingAccessVerifiedProjectId: projectId,
 		});
-		await storyQueries.deleteStoryViewerDataCache(story.id, projectId);
+		await storyQueries.deleteStoryViewerDataCache(story.id);
 		const queriesRefreshed = Object.keys(queryData).length;
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 		await warmFilterOptionsAfterRefresh(story.chatId, story.slug, projectId, storyId);

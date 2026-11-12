@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryDataCacheByChatAndSlug: vi.fn(),
 	getStoryViewerDataCache: vi.fn(),
 	getProjectViewerCacheRevision: vi.fn(),
+	getStoryViewerCacheRevision: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
 	queryAppDb: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryDataCacheByChatAndSlug: mocks.getStoryDataCacheByChatAndSlug,
 	getStoryViewerDataCache: mocks.getStoryViewerDataCache,
 	getProjectViewerCacheRevision: mocks.getProjectViewerCacheRevision,
+	getStoryViewerCacheRevision: mocks.getStoryViewerCacheRevision,
 	upsertStoryDataCache: mocks.upsertStoryDataCache,
 	upsertStoryViewerDataCache: mocks.upsertStoryViewerDataCache,
 	updateLatestVersionCode: mocks.updateLatestVersionCode,
@@ -197,6 +199,7 @@ describe('live story SQL execution', () => {
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
 		mocks.getStoryViewerDataCache.mockResolvedValue(null);
 		mocks.getProjectViewerCacheRevision.mockResolvedValue(0);
+		mocks.getStoryViewerCacheRevision.mockResolvedValue(0);
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
 		mocks.hasEffectiveWarehouseRestrictions.mockImplementation(
 			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
@@ -484,7 +487,7 @@ describe('live story SQL execution', () => {
 		});
 
 		expect(mocks.runQueryOnLocalFiles).not.toHaveBeenCalled();
-		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]![6]).toEqual({
+		expect(mocks.upsertStoryViewerDataCache.mock.calls[0]![7]).toEqual({
 			query_local: { columns: [], data: [], accessDenied: true },
 			query_allowed: {
 				columns: ['order_count'],
@@ -865,6 +868,7 @@ describe('live story SQL execution', () => {
 			'viewer-1',
 			'project-1',
 			0,
+			0,
 			VIEWER_PERMISSION_REVISION,
 			queryData,
 			{
@@ -938,6 +942,7 @@ describe('live story SQL execution', () => {
 			'version-1',
 			'viewer-1',
 			'project-1',
+			0,
 			0,
 			VIEWER_PERMISSION_REVISION,
 			queryData,

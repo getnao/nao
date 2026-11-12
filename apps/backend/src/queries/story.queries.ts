@@ -118,6 +118,16 @@ export async function getProjectViewerCacheRevision(projectId: string): Promise<
 	return project?.revision ?? 0;
 }
 
+export async function getStoryViewerCacheRevision(storyId: string): Promise<number> {
+	const [story] = await db
+		.select({ revision: s.story.viewerCacheRevision })
+		.from(s.story)
+		.where(eq(s.story.id, storyId))
+		.limit(1)
+		.execute();
+	return story?.revision ?? 0;
+}
+
 export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
 	const [row] = await db
 		.select({
@@ -1194,7 +1204,8 @@ export async function upsertStoryViewerDataCache(
 	storyVersionId: string,
 	userId: string,
 	projectId: string,
-	viewerCacheRevision: number,
+	projectViewerCacheRevision: number,
+	storyViewerCacheRevision: number,
 	permissionRevision: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 	querySources: StoryQuerySources,
@@ -1217,10 +1228,22 @@ export async function upsertStoryViewerDataCache(
 					viewerCacheRevision: sql`${s.project.viewerCacheRevision}`,
 					updatedAt: sql`${s.project.updatedAt}`,
 				})
-				.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, viewerCacheRevision)))
+				.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, projectViewerCacheRevision)))
 				.returning({ id: s.project.id })
 				.all();
 			if (!project) {
+				return false;
+			}
+			const [story] = transaction
+				.update(s.story)
+				.set({
+					viewerCacheRevision: sql`${s.story.viewerCacheRevision}`,
+					updatedAt: sql`${s.story.updatedAt}`,
+				})
+				.where(and(eq(s.story.id, storyId), eq(s.story.viewerCacheRevision, storyViewerCacheRevision)))
+				.returning({ id: s.story.id })
+				.all();
+			if (!story) {
 				return false;
 			}
 			transaction
@@ -1241,10 +1264,22 @@ export async function upsertStoryViewerDataCache(
 				viewerCacheRevision: sql`${s.project.viewerCacheRevision}`,
 				updatedAt: sql`${s.project.updatedAt}`,
 			})
-			.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, viewerCacheRevision)))
+			.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, projectViewerCacheRevision)))
 			.returning({ id: s.project.id })
 			.execute();
 		if (!project) {
+			return false;
+		}
+		const [story] = await transaction
+			.update(s.story)
+			.set({
+				viewerCacheRevision: sql`${s.story.viewerCacheRevision}`,
+				updatedAt: sql`${s.story.updatedAt}`,
+			})
+			.where(and(eq(s.story.id, storyId), eq(s.story.viewerCacheRevision, storyViewerCacheRevision)))
+			.returning({ id: s.story.id })
+			.execute();
+		if (!story) {
 			return false;
 		}
 		await transaction
@@ -1259,16 +1294,16 @@ export async function upsertStoryViewerDataCache(
 	});
 }
 
-export async function deleteStoryViewerDataCache(storyId: string, projectId: string): Promise<void> {
+export async function deleteStoryViewerDataCache(storyId: string): Promise<void> {
 	if (dbConfig.dialect === Dialect.Sqlite) {
 		db.transaction((transaction) => {
-			bumpProjectViewerCacheRevisionSqlite(projectId, transaction);
+			bumpStoryViewerCacheRevisionSqlite(storyId, transaction);
 			transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).run();
 		});
 		return;
 	}
 	await db.transaction(async (transaction) => {
-		await bumpProjectViewerCacheRevision(projectId, transaction);
+		await bumpStoryViewerCacheRevision(storyId, transaction);
 		await transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).execute();
 	});
 }
@@ -1344,6 +1379,17 @@ function bumpProjectViewerCacheRevisionSqlite(projectId: string, executor: DBExe
 		.run();
 }
 
+function bumpStoryViewerCacheRevisionSqlite(storyId: string, executor: DBExecutor): void {
+	executor
+		.update(s.story)
+		.set({
+			viewerCacheRevision: sql`${s.story.viewerCacheRevision} + 1`,
+			updatedAt: sql`${s.story.updatedAt}`,
+		})
+		.where(eq(s.story.id, storyId))
+		.run();
+}
+
 async function bumpProjectViewerCacheRevision(projectId: string, executor: DBExecutor): Promise<void> {
 	await executor
 		.update(s.project)
@@ -1352,6 +1398,17 @@ async function bumpProjectViewerCacheRevision(projectId: string, executor: DBExe
 			updatedAt: sql`${s.project.updatedAt}`,
 		})
 		.where(eq(s.project.id, projectId))
+		.execute();
+}
+
+async function bumpStoryViewerCacheRevision(storyId: string, executor: DBExecutor): Promise<void> {
+	await executor
+		.update(s.story)
+		.set({
+			viewerCacheRevision: sql`${s.story.viewerCacheRevision} + 1`,
+			updatedAt: sql`${s.story.updatedAt}`,
+		})
+		.where(eq(s.story.id, storyId))
 		.execute();
 }
 

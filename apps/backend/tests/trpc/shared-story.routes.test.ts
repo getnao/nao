@@ -338,7 +338,7 @@ describe('shared Story manual refresh', () => {
 			trigger: 'manual',
 		});
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });
-		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1', 'project-1');
+		expect(mocks.deleteStoryViewerDataCache).toHaveBeenCalledWith('story-1');
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'owner-1' }));
 	});
 
