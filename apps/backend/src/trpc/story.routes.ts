@@ -90,7 +90,7 @@ import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { StoryKitJsxEditError } from '../utils/story-kit-jsx';
-import { backfillMissingQueryData, withKpiPreviewData } from '../utils/story-query-data';
+import { backfillMissingQueryData, getStandaloneStoryQueryData, withKpiPreviewData } from '../utils/story-query-data';
 import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -380,6 +380,66 @@ export const storyRoutes = {
 			theme,
 		};
 	}),
+
+	listStandaloneVersions: storyOwnerProjectProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const story = await getStandaloneClassicStory(input.storyId);
+			const [versions, changes] = await Promise.all([
+				storyQueries.listStoryVersionsByStoryId(story.id),
+				listStoryVersionChanges(story, ctx.user.id),
+			]);
+			return {
+				id: story.id as string | null,
+				title: story.title,
+				archivedAt: story.archivedAt,
+				versions: versions.map((version) => ({ ...version, change: changes.get(version.version) ?? null })),
+			};
+		}),
+
+	getStandaloneVersionQueryData: storyOwnerProjectProcedure
+		.input(z.object({ storyId: z.string(), versionNumber: z.number().int().positive() }))
+		.query(async ({ input }) => {
+			const version = await storyQueries.getVersionByStoryIdAndNumber(input.storyId, input.versionNumber);
+			if (!version) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+			}
+			const { queryData } = await getStandaloneStoryQueryData(input.storyId, version.code);
+			return { queryData };
+		}),
+
+	createStandaloneVersion: storyOwnerProjectProcedure
+		.input(
+			z.object({
+				storyId: z.string(),
+				code: z.string().min(1),
+				basedOnVersion: z.number().int().positive(),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			const story = await getStandaloneClassicStory(input.storyId);
+			await withStoryLockErrors(async () => {
+				await assertStoryEditable(story.id, manualHolder(ctx.user.id));
+			});
+			return storyQueries
+				.createStandaloneVersion({
+					userId: ctx.user.id,
+					projectId: story.projectId,
+					slug: story.slug,
+					title: story.title,
+					code: input.code,
+					action: 'replace',
+					source: 'user',
+					origin: 'editor',
+					basedOnVersion: input.basedOnVersion,
+				})
+				.catch((error) => {
+					if (error instanceof storyQueries.StoryVersionConflictError) {
+						throw new TRPCError({ code: 'CONFLICT', message: error.message });
+					}
+					throw error;
+				});
+		}),
 
 	getLatest: storyEditorProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
@@ -1331,13 +1391,22 @@ export const storyRoutes = {
 	}),
 
 	downloadStandalone: storyOwnerProjectProcedure
-		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS) }))
+		.input(
+			z.object({
+				storyId: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
 		.query(async ({ input, ctx }) => {
 			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
 			if (!story) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const cache = await storyQueries.getStoryDataCacheByStoryId(input.storyId);
+			const content =
+				input.versionNumber !== undefined && input.versionNumber !== story.version
+					? await getStandaloneHistoricalDownloadContent(story.id, input.versionNumber)
+					: await getStandaloneLatestDownloadContent(story);
 
 			if (story.projectId) {
 				logAnalyticsEvent({
@@ -1349,32 +1418,23 @@ export const storyRoutes = {
 					metadata: {
 						type: 'download',
 						format: input.format,
-						versionNumber: story.version,
-						title: story.title,
+						versionNumber: content.versionNumber,
+						title: content.title,
 					},
 				});
 			}
 
-			const storyData = story.chatId
-				? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
-				: null;
 			const [displaySettings, theme] = story.projectId
 				? await Promise.all([
 						projectQueries.getDisplaySettings(story.projectId),
 						getActiveThemeForProject(story.projectId),
 					])
 				: [null, null];
-			const queryData =
-				storyData?.allowsPersistedFallback && story.chatId
-					? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
-					: storyData
-						? storyData.queryData
-						: (cache?.queryData ?? null);
 			return buildDownloadResponse(
 				input.format,
-				story.title,
-				storyData?.code ?? story.code,
-				queryData,
+				content.title,
+				content.code,
+				content.queryData,
 				displaySettings?.dateFormat,
 				theme,
 			);
@@ -1499,6 +1559,44 @@ async function withStoryLockErrors<T>(run: () => Promise<T>): Promise<T> {
 		}
 		throw error;
 	}
+}
+
+/** A markdown story outside any chat: its versions are saved on the story itself rather than through a chat. */
+async function getStandaloneClassicStory(storyId: string) {
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story || story.chatId !== null || !story.projectId) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	if (story.format === 'custom') {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Custom stories are versioned from their files, not from markdown.',
+		});
+	}
+	return { ...story, projectId: story.projectId };
+}
+
+async function getStandaloneLatestDownloadContent(story: storyQueries.UserStoryRow) {
+	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
+	const storyData = story.chatId
+		? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+		: null;
+	const queryData =
+		storyData?.allowsPersistedFallback && story.chatId
+			? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
+			: storyData
+				? storyData.queryData
+				: (cache?.queryData ?? null);
+	return { title: story.title, code: storyData?.code ?? story.code, queryData, versionNumber: story.version };
+}
+
+async function getStandaloneHistoricalDownloadContent(storyId: string, versionNumber: number) {
+	const version = await storyQueries.getVersionByStoryIdAndNumber(storyId, versionNumber);
+	if (!version) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+	}
+	const { queryData } = await getStandaloneStoryQueryData(storyId, version.code);
+	return { title: version.title, code: version.code, queryData, versionNumber: version.version };
 }
 
 async function getStoryInProject(storyId: string, projectId: string) {

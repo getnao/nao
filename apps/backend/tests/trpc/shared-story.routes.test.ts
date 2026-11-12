@@ -121,6 +121,16 @@ describe('storyShare.getSharedStoryInfo', () => {
 		});
 	});
 
+	it('finds a standalone story, which has no chat, by its id', async () => {
+		mocks.getStoryById.mockResolvedValue({ id: 'story-1', chatId: null, projectId: 'project-1' });
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+
+		await expect(
+			createCaller('owner-1').storyShare.getSharedStoryInfo({ storyId: 'story-1' }),
+		).resolves.toMatchObject({ isShared: true, storyId: 'story-1' });
+		expect(mocks.getStoryByChatAndSlug).not.toHaveBeenCalled();
+	});
+
 	it('shows the access list to a project admin', async () => {
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
 

@@ -54,7 +54,7 @@ export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className='sm:max-w-lg'>
 				<ShareDialogBody
-					chatId={target.chatId}
+					target={target}
 					title={title}
 					description={describeAudience(share.model)}
 					model={share.model}
@@ -67,14 +67,14 @@ export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
 }
 
 function ShareDialogBody({
-	chatId,
+	target,
 	title,
 	description,
 	model,
 	commands,
 	onClose,
 }: {
-	chatId: string;
+	target: ShareTarget;
 	title: string;
 	description: string;
 	model: ShareModel;
@@ -96,7 +96,7 @@ function ShareDialogBody({
 
 	const excludedKeys = useMemo(() => new Set([shareSubjectKey('user', model.owner?.id ?? '')]), [model.owner?.id]);
 	const { candidates, isLoading } = useShareCandidates({
-		chatId,
+		source: target,
 		withGroups: model.withGroups,
 		excludedKeys,
 		enabled: model.canManage,

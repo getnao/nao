@@ -187,8 +187,12 @@ export function OwnedStoryPage({
 					isRestoreDisabled: !presence.canEdit,
 				}}
 				elementSelection={
-					canSelectElements
-						? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+					showAskBar
+						? {
+								isSelecting: canSelectElements && isSelectingElements,
+								onSelectingChange: setIsSelectingElements,
+								disabled: !canSelectElements,
+							}
 						: undefined
 				}
 			/>

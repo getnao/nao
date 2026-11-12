@@ -93,7 +93,7 @@ interface VersionControls {
 	versionDate?: string | Date | null;
 	isViewingLatest: boolean;
 	onSelectVersion: (version: number) => void;
-	onRestore: () => void;
+	onRestore?: () => void;
 	isRestoreDisabled?: boolean;
 }
 
@@ -340,16 +340,18 @@ function StorySubHeader({
 						{describeViewedVersion(versionControls.versionDate, versionControls.currentVersion)}
 					</span>
 				)}
-				<Button
-					variant='outline'
-					size='sm'
-					onClick={versionControls.onRestore}
-					disabled={versionControls.isRestoreDisabled}
-					className='gap-1.5 rounded-full'
-				>
-					<RotateCcw className='size-3' strokeWidth={2.25} />
-					<span>Restore</span>
-				</Button>
+				{versionControls.onRestore && (
+					<Button
+						variant='outline'
+						size='sm'
+						onClick={versionControls.onRestore}
+						disabled={versionControls.isRestoreDisabled}
+						className='gap-1.5 rounded-full'
+					>
+						<RotateCcw className='size-3' strokeWidth={2.25} />
+						<span>Restore</span>
+					</Button>
+				)}
 			</div>
 		);
 	}

@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
 	upsertProjectLlmConfig: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	renameProject: vi.fn(),
+	canUserAccessStory: vi.fn(),
+	listShareableMembers: vi.fn(),
 }));
 
 vi.mock('../../src/queries/project.queries', () => ({
@@ -33,6 +35,11 @@ vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	upsertProjectLlmConfig: mocks.upsertProjectLlmConfig,
 }));
 vi.mock('../../src/queries/chat.queries', () => ({}));
+vi.mock('../../src/queries/story.queries', () => ({
+	getStoryProjectId: vi.fn(async () => 'project-id'),
+	canUserAccessStory: mocks.canUserAccessStory,
+}));
+vi.mock('../../src/services/project-sharing.service', () => ({ listShareableMembers: mocks.listShareableMembers }));
 vi.mock('../../src/queries/project-saved-prompt.queries', () => ({}));
 vi.mock('../../src/queries/project-slack-config.queries', () => ({}));
 vi.mock('../../src/queries/project-teams-config.queries', () => ({}));
@@ -189,6 +196,35 @@ describe('project.rename', () => {
 			code: 'FORBIDDEN',
 		});
 		expect(mocks.renameProject).not.toHaveBeenCalled();
+	});
+});
+
+describe('project.getProjectMembersByStoryId', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.listShareableMembers.mockResolvedValue([{ id: 'member-id' }]);
+	});
+
+	it.each([
+		{ role: 'admin', canAccessStory: false },
+		{ role: 'user', canAccessStory: true },
+	])('lists the members to a $role who can access the story: $canAccessStory', async ({ role, canAccessStory }) => {
+		mocks.getUserRoleInProject.mockResolvedValue(role);
+		mocks.canUserAccessStory.mockResolvedValue(canAccessStory);
+
+		await expect(caller.getProjectMembersByStoryId({ storyId: 'story-id' })).resolves.toEqual([
+			{ id: 'member-id' },
+		]);
+	});
+
+	it('hides the members from a project member who cannot access the story', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.canUserAccessStory.mockResolvedValue(false);
+
+		await expect(caller.getProjectMembersByStoryId({ storyId: 'story-id' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.listShareableMembers).not.toHaveBeenCalled();
 	});
 });
 
