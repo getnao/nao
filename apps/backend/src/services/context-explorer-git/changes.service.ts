@@ -68,6 +68,22 @@ export async function getContextFileDiff(
 	};
 }
 
+/**
+ * The uncommitted changes of the given files as one patch, new files shown in full, cut at `maxLength` characters so
+ * it fits in a prompt.
+ */
+export async function readContextChangesPatch(
+	context: ContextExplorerGitContext,
+	filePaths: string[],
+	maxLength: number,
+): Promise<string> {
+	const { repo } = await requireContextExplorerGit(context);
+	const selectedPaths = new Set(filePaths.map((filePath) => `/${normalizeProjectPath(filePath)}`));
+	const changedFiles = readChangedFiles(repo).filter((file) => selectedPaths.has(file.path));
+	const patches = changedFiles.map((file) => readFilePatch(repo, file));
+	return patches.join('\n').slice(0, maxLength);
+}
+
 export async function discardContextFileChange(
 	context: ContextExplorerGitContext,
 	filePath: string,
@@ -316,6 +332,22 @@ function readCommittedText(repo: ResolvedContextRepo, projectPath: string): stri
 	const content = readCommittedFile(repo, projectPath, MAX_CONTEXT_FILE_SIZE);
 	validateContentBuffer(content);
 	return decodeTextContent(content);
+}
+
+function readFilePatch(repo: ResolvedContextRepo, file: ContextChangedFile): string {
+	const projectPath = normalizeProjectPath(file.path);
+	if (file.kind === 'untracked') {
+		return `New file ${projectPath}:\n${readWorkingTreeText(repo, file.path)}`;
+	}
+	const patch = runGit(repo.worktreeRoot, [
+		'diff',
+		'HEAD',
+		'--no-color',
+		'--unified=2',
+		'--',
+		toRepoPath(repo, projectPath),
+	]);
+	return patch.toString();
 }
 
 function readWorkingTreeText(repo: ResolvedContextRepo, filePath: string): string {

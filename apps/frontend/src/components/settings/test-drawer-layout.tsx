@@ -18,7 +18,7 @@ interface RunsColumnWidth {
 	setWidth: (width: number, options?: { persist?: boolean }) => void;
 }
 
-/** The width of the runs column of the drawer panes, shared with the "All tests" tab so their edges line up. */
+/** The width of the runs column of the drawer panes, shared by all of them so their columns line up. */
 export const RunsColumnWidthContext = createContext<RunsColumnWidth>({
 	width: DEFAULT_RUNS_COLUMN_WIDTH,
 	setWidth: () => {},

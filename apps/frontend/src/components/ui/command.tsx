@@ -21,13 +21,14 @@ function Command({ className, ...props }: React.ComponentProps<typeof CommandPri
 type CommandDialogProps = React.ComponentProps<typeof Dialog> & {
 	shouldFilter?: boolean;
 	loop?: boolean;
+	title?: string;
 };
 
-function CommandDialog({ children, shouldFilter, loop, ...props }: CommandDialogProps) {
+function CommandDialog({ children, shouldFilter, loop, title = 'Command Menu', ...props }: CommandDialogProps) {
 	return (
 		<Dialog {...props}>
 			<DialogContent className='overflow-hidden p-0 sm:max-w-2xl' showCloseButton={false}>
-				<DialogTitle className='sr-only'>Command Menu</DialogTitle>
+				<DialogTitle className='sr-only'>{title}</DialogTitle>
 				<Command
 					shouldFilter={shouldFilter}
 					loop={loop}

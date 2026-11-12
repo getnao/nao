@@ -1,11 +1,17 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FilePen } from 'lucide-react';
 
+import type { LineDiff } from '@/lib/line-diff';
+import type { SegmentedControlOption } from '@/components/ui/segmented-control';
 import { FileDiffBody } from '@/components/settings/file-diff';
+import { MarkdownRenderedDiff } from '@/components/settings/markdown-rendered-diff';
 import { Button } from '@/components/ui/button';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
+import { isMarkdownPath } from '@/lib/file-path';
 import { computeLineDiff } from '@/lib/line-diff';
+import { parseMarkdownFrontmatter } from '@/lib/markdown';
 import { trpc } from '@/main';
 
 interface ContextFileDiffProps {
@@ -50,18 +56,63 @@ export function ContextFileDiff({ path, range }: ContextFileDiffProps) {
 	}
 
 	return (
+		<FileDiffPanel
+			path={path}
+			changeLabel={getChangeLabel(fileDiff.data.kind)}
+			diff={diff}
+			contents={{ old: fileDiff.data.oldContent, new: fileDiff.data.newContent }}
+		/>
+	);
+}
+
+type DiffView = 'rendered' | 'lines';
+
+const DIFF_VIEWS: SegmentedControlOption<DiffView>[] = [
+	{ value: 'rendered', label: 'Rendered' },
+	{ value: 'lines', label: 'Lines' },
+];
+
+/**
+ * A file's changes under a header naming the file, how it changed and how many lines were added and removed.
+ * Markdown files can also show their changes as they render.
+ */
+export function FileDiffPanel({
+	path,
+	changeLabel,
+	diff,
+	contents,
+}: {
+	path: string;
+	changeLabel: string;
+	diff: LineDiff;
+	contents?: { old: string; new: string };
+}) {
+	const [view, setView] = useState<DiffView>('rendered');
+	const canRender = contents !== undefined && isMarkdownPath(path);
+
+	return (
 		<div className='flex h-full min-h-0 flex-col'>
 			<div className='flex shrink-0 items-center gap-2 border-b bg-muted/30 px-4 py-2 text-sm'>
 				<FilePen className='size-3.5 text-muted-foreground' />
 				<span className='min-w-0 flex-1 truncate font-mono' title={path}>
 					{path}
 				</span>
-				<span className='text-xs text-muted-foreground'>{getChangeLabel(fileDiff.data.kind)}</span>
+				<span className='text-xs text-muted-foreground'>{changeLabel}</span>
 				<span className='font-mono text-xs text-emerald-600 dark:text-emerald-400'>+{diff.additions}</span>
 				<span className='font-mono text-xs text-red-600 dark:text-red-400'>-{diff.deletions}</span>
+				{canRender && (
+					<SegmentedControl label='Diff view' options={DIFF_VIEWS} value={view} onChange={setView} />
+				)}
 			</div>
 			<div className='min-h-0 flex-1 overflow-auto py-2'>
-				<FileDiffBody lines={diff.lines} />
+				{canRender && view === 'rendered' ? (
+					<MarkdownRenderedDiff
+						oldMarkdown={parseMarkdownFrontmatter(contents.old).body}
+						newMarkdown={parseMarkdownFrontmatter(contents.new).body}
+					/>
+				) : (
+					<FileDiffBody lines={diff.lines} />
+				)}
 			</div>
 		</div>
 	);

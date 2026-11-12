@@ -484,6 +484,129 @@ code.dollar:before {
 	background-color: rgb(250 204 21 / 20%);
 }
 
+/* Markdown file editor: matches the read-only Markdown preview */
+
+.markdown-file-editor .tiptap {
+	@apply min-h-full text-sm leading-relaxed outline-none;
+}
+
+.markdown-file-editor .tiptap > * + * {
+	margin-top: 0.75em;
+}
+
+.markdown-file-editor .tiptap h1,
+.markdown-file-editor .tiptap h2 {
+	@apply mt-6 mb-2 font-semibold;
+	font-size: 20px;
+}
+
+.markdown-file-editor .tiptap h3,
+.markdown-file-editor .tiptap h4,
+.markdown-file-editor .tiptap h5,
+.markdown-file-editor .tiptap h6 {
+	@apply mt-6 mb-2 font-semibold;
+	font-size: 18px;
+}
+
+.markdown-file-editor .tiptap > :first-child {
+	margin-top: 0;
+}
+
+.markdown-file-editor .tiptap ul {
+	@apply list-disc pl-6;
+}
+
+.markdown-file-editor .tiptap ol {
+	@apply list-decimal pl-6;
+}
+
+.markdown-file-editor .tiptap li > p {
+	margin-top: 0;
+}
+
+.markdown-file-editor .tiptap blockquote {
+	@apply border-l-4 pl-4 italic text-muted-foreground;
+}
+
+.markdown-file-editor .tiptap code {
+	@apply rounded bg-muted px-1.5 py-0.5 font-mono text-sm;
+}
+
+.markdown-file-editor .tiptap pre {
+	@apply overflow-x-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs;
+}
+
+.markdown-file-editor .tiptap pre code {
+	@apply bg-transparent p-0;
+}
+
+.markdown-file-editor .tiptap hr {
+	@apply my-6 border-border;
+}
+
+.markdown-file-editor .tiptap strong {
+	@apply font-semibold;
+}
+
+.markdown-file-editor .tiptap a {
+	@apply text-primary underline underline-offset-2;
+}
+
+.markdown-file-editor .tiptap table {
+	@apply w-full border-collapse border border-border;
+}
+
+.markdown-file-editor .tiptap th,
+.markdown-file-editor .tiptap td {
+	@apply border border-border px-3 py-1.5 text-left align-top;
+}
+
+.markdown-file-editor .tiptap th {
+	@apply bg-muted/40 font-semibold;
+}
+
+.markdown-file-editor .tiptap .selectedCell {
+	@apply bg-primary/10;
+}
+
+/* Rendered Markdown diff */
+
+.markdown-rendered-diff .markdown-diff-added {
+	background-color: color-mix(in oklab, var(--color-emerald-500) 22%, transparent);
+	border-radius: 2px;
+}
+
+.markdown-rendered-diff .markdown-diff-added-block {
+	background-color: color-mix(in oklab, var(--color-emerald-500) 8%, transparent);
+	box-shadow: inset 3px 0 var(--color-emerald-500);
+	padding-left: 0.75rem;
+	border-radius: 2px;
+}
+
+.markdown-rendered-diff .markdown-diff-added-block .markdown-diff-added {
+	background-color: transparent;
+}
+
+.markdown-rendered-diff .markdown-diff-removed {
+	background-color: color-mix(in oklab, var(--color-red-500) 18%, transparent);
+	color: var(--color-red-700);
+	text-decoration-color: color-mix(in oklab, var(--color-red-500) 70%, transparent);
+	border-radius: 2px;
+	white-space: pre-wrap;
+}
+
+.dark .markdown-rendered-diff .markdown-diff-removed {
+	color: var(--color-red-300);
+}
+
+.markdown-rendered-diff .markdown-diff-removed-block {
+	display: block;
+	margin-top: 0.75em;
+	padding: 0.25rem 0.75rem;
+	background-color: color-mix(in oklab, var(--color-red-500) 8%, transparent);
+	box-shadow: inset 3px 0 var(--color-red-500);
+}
+
 /* Tiptap story editor */
 
 .story-editor .tiptap {

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import type { ContextBranchCreationResult, ContextBranchInfo } from '@nao/shared/types';
+import type { ContextBranchCreationResult, ContextBranchInfo, ContextCommit } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
 import type { ResolvedContextRepo } from '../../utils/context-repo';
@@ -42,6 +42,8 @@ import type {
 } from './types';
 import { fetchContextRepository, requireContextExplorerGit, resolveAfterBranchChange } from './worktree.service';
 
+const MAX_LISTED_UNPUSHED_COMMITS = 20;
+
 export async function getContextBranches(
 	repo: ResolvedContextRepo,
 	context: Pick<ContextExplorerGitContext, 'projectId' | 'userId'>,
@@ -57,6 +59,7 @@ export async function getContextBranches(
 		defaultBranch,
 		aheadCommitCount: readAheadCommitCount(repo, currentBranch, defaultBranch),
 		unpushedCommitCount: readUnpushedCommitCount(repo, currentBranch, defaultBranch),
+		unpushedCommits: readUnpushedCommits(repo, currentBranch, defaultBranch),
 		branches: [...branches].sort(),
 		suggestedBranch: generateContextBranchName(repo),
 	};
@@ -146,6 +149,17 @@ export async function commitContextChanges(
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const commit = await commitSelectedChanges(repo, context.projectFolder, availableContext, input);
 	return { commit };
+}
+
+/** Takes the last commit back into the uncommitted changes, which is only safe while it is not pushed. */
+export async function undoLastContextCommit(context: ContextExplorerGitContext): Promise<void> {
+	const { repo } = await requireContextExplorerGit(context);
+	const defaultBranch = readDefaultBranch(repo);
+	const currentBranch = readContextCurrentBranch(repo, defaultBranch);
+	if (readUnpushedCommitCount(repo, currentBranch, defaultBranch) === 0) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only a commit that is not pushed yet can be undone.' });
+	}
+	runWorktreeGitMutation(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, ['reset', 'HEAD~1']);
 }
 
 export function pushContextBranch(
@@ -358,12 +372,44 @@ function readUnpushedCommitCount(
 	currentBranch: string | null,
 	defaultBranch: string,
 ): number {
+	const base = readUnpushedBase(repo, currentBranch, defaultBranch);
+	return base ? readCommitCount(repo, `${base}..HEAD`) : 0;
+}
+
+function readUnpushedCommits(
+	repo: ResolvedContextRepo,
+	currentBranch: string | null,
+	defaultBranch: string,
+): ContextCommit[] {
+	const base = readUnpushedBase(repo, currentBranch, defaultBranch);
+	if (!base) {
+		return [];
+	}
+	const log = readOptionalGitValue(repo.worktreeRoot, [
+		'log',
+		`--max-count=${MAX_LISTED_UNPUSHED_COMMITS}`,
+		'--format=%H%x1f%s%x1f%cI',
+		`${base}..HEAD`,
+	]);
+	return (log ?? '').split('\n').filter(Boolean).map(parseCommitLine);
+}
+
+/** Where the commits not pushed yet start: the remote branch once pushed, else the default branch. */
+function readUnpushedBase(
+	repo: ResolvedContextRepo,
+	currentBranch: string | null,
+	defaultBranch: string,
+): string | null {
 	if (!currentBranch || currentBranch === defaultBranch) {
-		return 0;
+		return null;
 	}
 	const remoteBranchRef = `refs/remotes/origin/${currentBranch}`;
-	const base = hasRef(repo, remoteBranchRef) ? `origin/${currentBranch}` : readDefaultBranchRef(repo, defaultBranch);
-	return base ? readCommitCount(repo, `${base}..HEAD`) : 0;
+	return hasRef(repo, remoteBranchRef) ? `origin/${currentBranch}` : readDefaultBranchRef(repo, defaultBranch);
+}
+
+function parseCommitLine(line: string): ContextCommit {
+	const [hash = '', subject = '', committedAt = ''] = line.split('\x1f');
+	return { hash, subject, committedAt };
 }
 
 function readCommitCount(repo: ResolvedContextRepo, range: string): number {

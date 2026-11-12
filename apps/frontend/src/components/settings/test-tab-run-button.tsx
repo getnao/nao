@@ -9,7 +9,7 @@ import { useTestFileRun } from '@/hooks/use-test-run-start';
 import { cn } from '@/lib/utils';
 
 /**
- * The icon of a test tab, which turns into a play button on hover to run the test the way the compare button would:
+ * The icon of a test tab, filling the tab's icon slot, which turns into a play button on hover to run the test the way the compare button would:
  * as it is in the editor when its tab is shown, else as it is saved.
  */
 export function TestTabRunButton({
@@ -54,7 +54,7 @@ export function TestTabRunButton({
 	};
 
 	return (
-		<span className='relative mr-1.5 ml-3 flex size-4 shrink-0 items-center justify-center'>
+		<span className='flex size-full items-center justify-center'>
 			<span className={cn('flex', isStarting ? 'opacity-0' : 'group-hover:opacity-0')}>{icon}</span>
 			<SimpleTooltip content={error ?? disabledReason ?? label} side='top'>
 				<button

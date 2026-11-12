@@ -72,17 +72,10 @@ export function TestModelPicker({ settings, testCount, variantCount, disabled }:
 	return (
 		<Popover>
 			<PopoverTrigger asChild>
-				<Button
-					type='button'
-					size='sm'
-					variant='outline'
-					className='h-6 gap-1.5 px-2 text-xs'
-					disabled={disabled}
-					aria-label='Models to test'
-				>
+				<Button type='button' size='pill' variant='secondary' disabled={disabled} aria-label='Models to test'>
 					<Cpu className='size-3.5' />
 					{describeSelection(models, attempts)}
-					<ChevronDown className='size-3 text-muted-foreground' />
+					<ChevronDown className='size-3.5 text-muted-foreground' />
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent align='end' className='w-96 p-0 text-xs' onInteractOutside={keepOpenInsideMenus}>

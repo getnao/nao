@@ -1,3 +1,4 @@
+import { toExplorerTestPath } from '@nao/shared/test-paths';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDefaultLayout, usePanelRef } from 'react-resizable-panels';
@@ -5,8 +6,9 @@ import type { ReactNode } from 'react';
 
 import type { TestDefinition, TestRunSummary } from '@/components/settings/test-run-types';
 import type { TestFilters } from '@/components/settings/test-suite-filter-menu';
+import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
+import { EditorTab, SortableTabs, TAB_BAR_HEIGHT, TabBar } from '@/components/settings/sortable-tabs';
 import { RunsColumnWidthContext, useRunsColumnWidthState } from '@/components/settings/test-drawer-layout';
-import { DrawerTab, getTestTabLabel, SortableTestTabs } from '@/components/settings/test-drawer-tabs';
 import { SuiteRunActions, TestFileRunActions } from '@/components/settings/test-run-actions';
 import { NO_TEST_FILTERS } from '@/components/settings/test-suite-filter-menu';
 import { getSuiteRunScope, TestSuitePanel } from '@/components/settings/test-suite-panel';
@@ -20,10 +22,9 @@ import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTestDrawerData } from '@/hooks/use-test-drawer-data';
 import { useTestFileValidation } from '@/hooks/use-test-file-validation';
 import { useTestRunSettings } from '@/hooks/use-test-run-settings';
+import { getFileName } from '@/lib/file-path';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
-import { cn } from '@/lib/utils';
 
-const DRAWER_BAR_HEIGHT = 32;
 const DRAWER_MIN_HEIGHT = 160;
 const DRAWER_OPENED_SIZE = '45%';
 const DRAWER_ANIMATION_MS = 200;
@@ -214,96 +215,86 @@ export function TestDrawerLayout({
 				id='tests'
 				panelRef={panelRef}
 				collapsible
-				collapsedSize={DRAWER_BAR_HEIGHT}
+				collapsedSize={TAB_BAR_HEIGHT}
 				minSize={DRAWER_MIN_HEIGHT}
-				defaultSize={DRAWER_BAR_HEIGHT}
+				defaultSize={TAB_BAR_HEIGHT}
 				onResize={handleResize}
 			>
 				<section className='flex h-full flex-col bg-background' aria-label='Tests'>
-					<div
-						className={cn(
-							'flex shrink-0 items-center bg-muted/30 pr-2 text-xs',
-							isOpen && 'shadow-[inset_0_-1px_0_var(--border)]',
-						)}
-						style={{ height: DRAWER_BAR_HEIGHT }}
-					>
-						<div role='tablist' aria-label='Tests' className='flex h-full min-w-0 flex-1'>
-							<DrawerTab
-								label={tests ? `All tests (${tests.length})` : 'All tests'}
-								leading={
-									<SimpleTooltip
-										content={`${isOpen ? 'Hide' : 'Show'} the tests (${getShortcutLabel('toggle-test-drawer')})`}
-										side='top'
-									>
-										<Button
-											type='button'
-											size='icon-sm'
-											variant='ghost'
-											className='ml-1 size-6'
-											onClick={toggle}
-											aria-label={isOpen ? 'Hide the tests' : 'Show the tests'}
-											aria-expanded={isOpen}
-										>
-											{isOpen ? (
-												<ChevronDown className='size-3.5' />
-											) : (
-												<ChevronUp className='size-3.5' />
-											)}
-										</Button>
-									</SimpleTooltip>
-								}
-								width={runsColumnWidth.width}
-								isActive={isOpen && activeTestPath === null}
-								onSelect={() => selectTab(null)}
-							/>
-							<SortableTestTabs
-								testPaths={testTabs}
-								activeTestPath={isOpen ? activeTestPath : null}
-								getLabel={(testPath) => getTestTabLabel(testPath, tests, shownTestFile, validation)}
-								renderIcon={(testPath, icon) => (
-									<TestTabRunButton
-										icon={icon}
-										testPath={testPath}
-										testFile={shownTestFile?.path === testPath ? shownTestFile : null}
-										isTestFileInvalid={
-											shownTestFile?.path === testPath && !validation.validation?.test
-										}
+					<TabBar
+						label='Tests'
+						isBordered={isOpen}
+						leading={
+							<SimpleTooltip
+								content={`${isOpen ? 'Hide' : 'Show'} the tests (${getShortcutLabel('toggle-test-drawer')})`}
+								side='top'
+							>
+								<Button
+									type='button'
+									size='icon-sm'
+									variant='ghost'
+									className='size-7 shrink-0'
+									onClick={toggle}
+									aria-label={isOpen ? 'Hide the tests' : 'Show the tests'}
+									aria-expanded={isOpen}
+								>
+									{isOpen ? <ChevronDown className='size-3.5' /> : <ChevronUp className='size-3.5' />}
+								</Button>
+							</SimpleTooltip>
+						}
+						trailing={
+							<div className='ml-2 flex shrink-0 items-center gap-3'>
+								{activeRun && <ActiveRunStatus run={activeRun} />}
+								{shownTestFile ? (
+									<TestFileRunActions
 										settings={runSettings}
 										draft={draft}
 										activeRun={activeRun}
-										onStart={() => selectTabToRun(testPath)}
+										testFile={shownTestFile}
+										validation={validation}
 										onRunStarted={handleRunStarted}
 									/>
+								) : (
+									!activeTestPath && (
+										<SuiteRunActions
+											settings={runSettings}
+											draft={draft}
+											activeRun={activeRun}
+											scope={getSuiteRunScope(tests ?? NO_TESTS, selection)}
+											onRunStarted={handleRunStarted}
+										/>
+									)
 								)}
-								onSelect={selectTab}
-								onClose={onCloseTab}
-								onMove={onMoveTab}
-							/>
-						</div>
-						<div className='ml-2 flex shrink-0 items-center gap-3'>
-							{activeRun && <ActiveRunStatus run={activeRun} />}
-							{shownTestFile ? (
-								<TestFileRunActions
+							</div>
+						}
+					>
+						<EditorTab
+							label={tests ? `All tests (${tests.length})` : 'All tests'}
+							isActive={isOpen && activeTestPath === null}
+							onSelect={() => selectTab(null)}
+						/>
+						<SortableTabs
+							paths={testTabs}
+							activePath={isOpen ? activeTestPath : null}
+							getLabel={(testPath) => getTestTabLabel(testPath, tests, shownTestFile, validation)}
+							renderIcon={(testPath, icon) => (
+								<TestTabRunButton
+									icon={icon}
+									testPath={testPath}
+									testFile={shownTestFile?.path === testPath ? shownTestFile : null}
+									isTestFileInvalid={shownTestFile?.path === testPath && !validation.validation?.test}
 									settings={runSettings}
 									draft={draft}
 									activeRun={activeRun}
-									testFile={shownTestFile}
-									validation={validation}
+									onStart={() => selectTabToRun(testPath)}
 									onRunStarted={handleRunStarted}
 								/>
-							) : (
-								!activeTestPath && (
-									<SuiteRunActions
-										settings={runSettings}
-										draft={draft}
-										activeRun={activeRun}
-										scope={getSuiteRunScope(tests ?? NO_TESTS, selection)}
-										onRunStarted={handleRunStarted}
-									/>
-								)
 							)}
-						</div>
-					</div>
+							onSelect={selectTab}
+							onClose={onCloseTab}
+							onMove={onMoveTab}
+						/>
+					</TabBar>
 					{(isOpen || isAnimating) && (
 						<RunsColumnWidthContext.Provider value={runsColumnWidth}>
 							<div className='min-h-0 flex-1 overflow-hidden'>
@@ -343,6 +334,18 @@ export function TestDrawerLayout({
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);
+}
+
+/** Names a test tab after its test: as it is in the editor when shown, else as saved, else after its file. */
+function getTestTabLabel(
+	testPath: string,
+	tests: TestDefinition[] | undefined,
+	shownTestFile: { path: string } | null,
+	validation: TestFileValidationState,
+): string {
+	const editedTestName = shownTestFile?.path === testPath ? validation.validation?.test?.name : undefined;
+	const savedTestName = tests?.find((test) => toExplorerTestPath(test.path) === testPath)?.name;
+	return editedTestName ?? savedTestName ?? getFileName(testPath) ?? testPath;
 }
 
 function ActiveRunStatus({ run }: { run: TestRunSummary }) {

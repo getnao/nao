@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as activityQueries from '../queries/activity.queries';
+import { generateContextCommitMessage } from '../services/context-commit-message.service';
 import {
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
@@ -33,6 +34,7 @@ import {
 	sanitizeLiveContextError,
 	suggestContextBranchName,
 	switchContextBranch,
+	undoLastContextCommit,
 	updateContextWorktree,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
@@ -323,6 +325,19 @@ export const contextExplorerRoutes = {
 		}
 		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
+
+	undoLastCommit: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		await undoLastContextCommit(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+	}),
+
+	generateCommitMessage: cloudBillingContextAdminProcedure
+		.input(z.object({ paths: pathsSchema }))
+		.mutation(async ({ ctx, input }) => {
+			return generateContextCommitMessage(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				input.paths,
+			);
+		}),
 
 	pushBranch: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
 		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));

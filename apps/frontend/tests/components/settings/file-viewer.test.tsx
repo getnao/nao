@@ -97,7 +97,7 @@ describe('FileViewer RULES preview', () => {
 		const preview = screen.getByRole('region', { name: 'Markdown preview' });
 		const toolbar = screen.getByRole('toolbar', { name: 'Rules preview options' });
 		const fileHeader = toolbar.previousElementSibling;
-		expect(fileHeader?.textContent).toContain('/RULES.md');
+		expect(fileHeader?.textContent).toContain('RULES.md');
 		expect(fileHeader?.nextElementSibling).toBe(toolbar);
 		expect(fileHeader?.contains(toolbar)).toBe(false);
 		expect(preview.contains(toolbar)).toBe(false);
@@ -122,7 +122,7 @@ describe('FileViewer RULES preview', () => {
 		expect(screen.getByText(/tokens$/).textContent).not.toBe(initialTokens);
 
 		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
-		fireEvent.click(screen.getByRole('button', { name: 'Show markdown source' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Split' }));
 		const source = screen.getByLabelText('File source') as HTMLTextAreaElement;
 		expect(source.value).toBe(content);
 		const splitPreview = screen.getByRole('region', { name: 'Markdown preview' });
@@ -136,8 +136,22 @@ describe('FileViewer RULES preview', () => {
 
 		expect(screen.getByText(/conditional block without a matching endif/)).toBeTruthy();
 		expect(screen.queryByText(/Protected instructions/)).toBeNull();
-		fireEvent.click(screen.getByRole('button', { name: 'Show markdown source' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Source' }));
 		expect((screen.getByLabelText('File source') as HTMLTextAreaElement).value).toBe(content);
+	});
+
+	it.each([
+		{ view: 'Preview', showsPreview: true, showsSource: false },
+		{ view: 'Split', showsPreview: true, showsSource: true },
+		{ view: 'Source', showsPreview: false, showsSource: true },
+	])('shows the panes of the $view view of a Markdown file', ({ view, showsPreview, showsSource }) => {
+		renderViewer({ filePath: '/docs/guide.md', content: '# Guide' });
+
+		fireEvent.click(screen.getByRole('button', { name: view }));
+
+		expect(screen.getByRole('button', { name: view }).getAttribute('aria-pressed')).toBe('true');
+		expect(screen.queryByRole('region', { name: 'Markdown preview' }) !== null).toBe(showsPreview);
+		expect(screen.queryByLabelText('File source') !== null).toBe(showsSource);
 	});
 
 	it('leaves nested Markdown unchanged without a group selector', () => {
@@ -146,7 +160,7 @@ describe('FileViewer RULES preview', () => {
 
 		expect(screen.queryByRole('toolbar', { name: 'Rules preview options' })).toBeNull();
 		expect(screen.queryByRole('button', { name: /Select user groups/ })).toBeNull();
-		expect(screen.getByTestId('markdown-preview').textContent).toBe(content);
+		expect(screen.getByLabelText('Markdown editor').textContent).toContain('{% if group("Finance") %}');
 	});
 
 	it('uses unenforced rendering and hides the selector when groups are unlicensed', () => {

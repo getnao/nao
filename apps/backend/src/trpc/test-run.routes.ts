@@ -35,6 +35,12 @@ import {
 	parseTestContent,
 	serializeTestFile,
 } from '../services/test-suite.service';
+import {
+	listUpstreamBranches,
+	listUpstreamRepos,
+	readUpstreamChanges,
+	UpstreamContextError,
+} from '../services/upstream-context.service';
 import { activeEffortSchema, llmSelectedModelSchema } from '../types/llm';
 import {
 	DEFAULT_TEST_COMPARISON_TOLERANCES,
@@ -58,6 +64,8 @@ interface TestRunRouteContext {
 	user: { id: string; name: string; email: string };
 }
 
+const upstreamBranchSchema = z.object({ repo: z.string().min(1), branch: z.string().min(1) });
+
 const draftTestFileSchema = z.object({
 	path: z.string(),
 	content: z.string().refine((content) => Buffer.byteLength(content, 'utf8') <= MAX_CONTEXT_FILE_SIZE, {
@@ -67,8 +75,9 @@ const draftTestFileSchema = z.object({
 
 /**
  * `production` runs against the production context, `changes` against it with the user's changes, and `compare`
- * against both side by side. The target is a test being edited, run as it is in the editor, or saved tests, the
- * whole suite when `paths` is omitted.
+ * against both side by side. The changes are those of the user's File Explorer, or of `upstream`, a branch of a
+ * repository synced into the context. The target is a test being edited, run as it is in the editor, or saved
+ * tests, the whole suite when `paths` is omitted.
  */
 const startRunSchema = z.object({
 	mode: z.enum(['production', 'changes', 'compare']),
@@ -87,6 +96,7 @@ const startRunSchema = z.object({
 		.max(MAX_TEST_RUN_ATTEMPTS, { message: `Ask each test at most ${MAX_TEST_RUN_ATTEMPTS} times.` })
 		.optional(),
 	threads: z.number().int().min(1).max(MAX_TEST_RUN_THREADS).optional(),
+	upstream: upstreamBranchSchema.optional(),
 });
 
 export const testRunRoutes = {
@@ -101,15 +111,48 @@ export const testRunRoutes = {
 	}),
 
 	startRun: cloudBillingContextAdminProcedure.input(startRunSchema).mutation(async ({ ctx, input }) => {
-		const { mode, target, ...settings } = input;
+		const { mode, target, upstream, ...settings } = input;
 		const runInput = { ...settings, ...parseRunTarget(target), projectId: ctx.project.id, userId: ctx.user.id };
 		try {
-			const draft = mode === 'production' ? null : await requireUserDraft(ctx);
-			if (!draft) {
+			if (mode === 'production') {
 				return await startTestRun(runInput);
 			}
-			const startDraftContextRun = mode === 'compare' ? startComparisonRun : startChangesRun;
-			return await startDraftContextRun({ ...runInput, draft });
+			const startContextChangesRun = mode === 'compare' ? startComparisonRun : startChangesRun;
+			if (upstream) {
+				return await startContextChangesRun({ ...runInput, upstream });
+			}
+			return await startContextChangesRun({ ...runInput, draft: await requireUserDraft(ctx) });
+		} catch (error) {
+			throw toTestRunTrpcError(error, ctx.project.id);
+		}
+	}),
+
+	listUpstreamRepos: contextAdminProtectedProcedure.query(({ ctx }) =>
+		listUpstreamRepos(requireProjectPath(ctx.project.path)),
+	),
+
+	listUpstreamBranches: contextAdminProtectedProcedure
+		.input(z.object({ repo: z.string().min(1) }))
+		.query(async ({ ctx, input }) => {
+			try {
+				return await listUpstreamBranches({
+					projectFolder: requireProjectPath(ctx.project.path),
+					repo: input.repo,
+					userId: ctx.user.id,
+				});
+			} catch (error) {
+				throw toTestRunTrpcError(error, ctx.project.id);
+			}
+		}),
+
+	getUpstreamChanges: contextAdminProtectedProcedure.input(upstreamBranchSchema).query(async ({ ctx, input }) => {
+		try {
+			return await readUpstreamChanges({
+				projectId: ctx.project.id,
+				projectFolder: requireProjectPath(ctx.project.path),
+				userId: ctx.user.id,
+				upstream: input,
+			});
 		} catch (error) {
 			throw toTestRunTrpcError(error, ctx.project.id);
 		}
@@ -279,7 +322,7 @@ function toTestRunTrpcError(error: unknown, projectId: string): TRPCError {
 	if (error instanceof TestRunConflictError) {
 		return new TRPCError({ code: 'CONFLICT', message: error.message });
 	}
-	if (error instanceof TestRunInputError) {
+	if (error instanceof TestRunInputError || error instanceof UpstreamContextError) {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 	}
 	logger.error('Failed to start the test run', { source: 'agent', projectId, context: serializeError(error) });

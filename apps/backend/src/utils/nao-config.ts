@@ -171,6 +171,16 @@ function configuredTemplatesFrom(config: unknown): string[] {
 	return resolvedTemplates.length > 0 ? resolvedTemplates : [...DEFAULT_DATABASE_TEMPLATES];
 }
 
+/** The `repos` entry of `nao_config.yaml` as written, so that `nao sync` can run it with the same filters. */
+export function extractRawRepoConfig(projectFolder: string, repoName: string): Record<string, unknown> | null {
+	const config = loadProjectConfig(projectFolder);
+	if (!isRecord(config) || !Array.isArray(config.repos)) {
+		return null;
+	}
+	const repo = config.repos.find((entry) => isRecord(entry) && entry.name === repoName);
+	return isRecord(repo) ? repo : null;
+}
+
 function loadProjectConfig(projectFolder: string): unknown {
 	const configPath = path.join(projectFolder, 'nao_config.yaml');
 	return fs.existsSync(configPath) ? loadConfig(configPath) : null;

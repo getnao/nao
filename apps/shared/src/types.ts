@@ -374,11 +374,20 @@ export type ContextChangedFile = {
 	deletions: number | null;
 };
 
+/** A commit of the current branch, as listed among those not pushed yet. */
+export type ContextCommit = {
+	hash: string;
+	subject: string;
+	committedAt: string;
+};
+
 export type ContextBranchInfo = {
 	currentBranch: string | null;
 	defaultBranch: string;
 	aheadCommitCount: number;
 	unpushedCommitCount: number;
+	/** The commits not pushed yet, newest first. */
+	unpushedCommits: ContextCommit[];
 	branches: string[];
 	suggestedBranch: string;
 };
