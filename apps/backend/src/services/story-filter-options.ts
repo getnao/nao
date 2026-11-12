@@ -247,6 +247,8 @@ async function queryFilterOptions(
 	searchPattern?: string,
 	searchText?: string,
 ): Promise<FilterOptionsResult> {
+	// ponytail: lossy SQL wildcards run unbounded until exact filtering; replace with per-dialect literal escaping if needed.
+	const limitQueryResults = !searchText || searchPattern === searchText;
 	const rawValues = await fetchOptionValues(
 		context,
 		filterId,
@@ -254,6 +256,7 @@ async function queryFilterOptions(
 		executionContext,
 		executionOptions,
 		searchPattern,
+		limitQueryResults,
 	);
 	const values = [
 		...new Set(
@@ -278,10 +281,18 @@ function fetchOptionValues(
 	executionContext: StoryExecutionContext,
 	executionOptions: FilterOptionsExecutionOptions,
 	search?: string,
+	limitQueryResults = true,
 ): Promise<Array<string | null>> {
 	switch (source.kind) {
 		case 'query':
-			return fetchQueryOptionValues(context, source, executionContext, executionOptions, search);
+			return fetchQueryOptionValues(
+				context,
+				source,
+				executionContext,
+				executionOptions,
+				search,
+				limitQueryResults,
+			);
 		case 'warehouse':
 			return fetchWarehouseOptionValues(source, executionContext, executionOptions, search);
 		case 'semantic':
@@ -295,6 +306,7 @@ async function fetchQueryOptionValues(
 	executionContext: StoryExecutionContext,
 	executionOptions: FilterOptionsExecutionOptions,
 	search?: string,
+	limitResults = true,
 ): Promise<Array<string | null>> {
 	const query = context.sqlQueries[source.queryId];
 	if (!query) {
@@ -310,14 +322,14 @@ async function fetchQueryOptionValues(
 	const databaseType =
 		query.dialect ??
 		(query.adminMode ? dbConfig.dialect : await resolveRawSqlDatabaseType(executionContext, query.databaseId));
-	const boundedQuery = {
+	const optionsQuery = {
 		...query,
-		sqlQuery: buildBoundedOptionsQuery(renderedSql, databaseType, search),
+		sqlQuery: buildQueryOptionsSql(renderedSql, databaseType, search, limitResults),
 		semanticQuery: undefined,
 	};
 	const queryData = await executeStoryQueries(
 		context.chatId,
-		{ [source.queryId]: boundedQuery },
+		{ [source.queryId]: optionsQuery },
 		{
 			executionContext,
 			renderSql: stripSqlFilterBlocks,
@@ -427,7 +439,7 @@ function listStorySemanticMetrics(sqlQueries: Record<string, StoredSqlQuery>): s
 	return [...new Set(metrics)];
 }
 
-function buildBoundedOptionsQuery(sqlQuery: string, databaseType: string, search?: string): string {
+function buildQueryOptionsSql(sqlQuery: string, databaseType: string, search?: string, limitResults = true): string {
 	const sourceSql = sqlQuery.trim().replace(/;+\s*$/, '');
 	const normalizedDatabaseType = databaseType.toLowerCase();
 	const castType =
@@ -440,6 +452,9 @@ function buildBoundedOptionsQuery(sqlQuery: string, databaseType: string, search
 	}
 	const from = `FROM (${sourceSql}) AS nao_filter_options WHERE ${conditions.join(' AND ')} ORDER BY value`;
 	const isTSql = ['mssql', 'fabric', 'tsql'].some((type) => normalizedDatabaseType.includes(type));
+	if (!limitResults) {
+		return `SELECT DISTINCT value ${from}`;
+	}
 	return isTSql
 		? `SELECT DISTINCT TOP (${FILTER_OPTIONS_LIMIT + 1}) value ${from}`
 		: `SELECT DISTINCT value ${from} LIMIT ${FILTER_OPTIONS_LIMIT + 1}`;

@@ -281,8 +281,21 @@ describe('getStoryFilterOptions', () => {
 		});
 
 		for (const search of ["O'Reilly", String.raw`C:\Sales`]) {
-			mocks.executeStoryQueries.mockResolvedValue({
-				query_customer_options: { columns: ['value'], data: [{ value: search }] },
+			mocks.executeStoryQueries.mockImplementation(async (_chatId, queries) => {
+				const sqlQuery = queries.query_customer_options.sqlQuery;
+				expect(sqlQuery).toContain(
+					`LOWER(CAST(value AS STRING)) LIKE '%${search.toLowerCase().replace(/['\\]/g, '_')}%'`,
+				);
+				expect(sqlQuery).not.toContain('LIMIT');
+				return {
+					query_customer_options: {
+						columns: ['value'],
+						data: [
+							...Array.from({ length: 101 }, (_, index) => ({ value: `broad-match-${index}` })),
+							{ value: search },
+						],
+					},
+				};
 			});
 
 			await expect(getStoryFilterOptions('chat-1', 'story', 'customer', { search })).resolves.toEqual({

@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubScrollIntoView } from '../helpers/browser-stubs';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
 import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
 
@@ -147,7 +148,7 @@ describe('ChatArtifactsMenu', () => {
 		vi.stubGlobal('matchMedia', () => ({ matches: true }));
 		const toolCall = document.createElement('div');
 		toolCall.dataset.replayTargetId = 'call_query';
-		toolCall.scrollIntoView = vi.fn();
+		const scrollIntoView = stubScrollIntoView();
 		const trigger = document.createElement('button');
 		trigger.setAttribute('aria-expanded', 'false');
 		const expand = vi.fn();
@@ -161,7 +162,7 @@ describe('ChatArtifactsMenu', () => {
 		fireEvent.click(screen.getByText('Monthly revenue'));
 
 		expect(expand).toHaveBeenCalled();
-		expect(toolCall.scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
+		expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
 		expect(toolCall.classList.contains('chat-artifact-reveal-highlight')).toBe(true);
 		toolCall.remove();
 	});
