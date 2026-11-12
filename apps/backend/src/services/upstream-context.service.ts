@@ -13,6 +13,7 @@ import {
 	readRegularFile,
 	removeContextSnapshot,
 } from './draft-context.service';
+import { getProjectRuntimeEnvVars } from './project-runtime-env';
 import { REVIEW_REQUEST_PROVIDERS, type ReviewRequest } from './review-request-provider';
 
 const execFileAsync = promisify(execFile);
@@ -99,23 +100,24 @@ export class UpstreamContextError extends Error {}
 
 interface GitRemote {
 	repo: UpstreamRepo;
+	linkedRepo: LinkedContextRepo;
 	env: NodeJS.ProcessEnv;
 	/** Removed from command output, as git may print the authenticated URL. */
 	secret: string | null;
 }
 
-export function listUpstreamRepos(projectFolder: string): UpstreamRepo[] {
-	return extractConfiguredRepos(projectFolder).flatMap((repo) =>
-		repo.url ? [{ name: repo.name, url: repo.url, branch: repo.branch }] : [],
-	);
+export async function listUpstreamRepos(projectId: string, projectFolder: string): Promise<UpstreamRepo[]> {
+	const repos = extractConfiguredRepos(projectFolder, await getProjectRuntimeEnvVars(projectId));
+	return repos.flatMap((repo) => (repo.url ? [{ name: repo.name, url: repo.url, branch: repo.branch }] : []));
 }
 
 export async function listUpstreamBranches(input: {
+	projectId: string;
 	projectFolder: string;
 	repo: string;
 	userId: string;
 }): Promise<UpstreamBranch[]> {
-	const remote = await resolveGitRemote(input.projectFolder, input.repo, input.userId);
+	const remote = await resolveGitRemote(input);
 	return readRemoteBranches(remote);
 }
 
@@ -124,7 +126,8 @@ export async function listUpstreamBranches(input: {
  * the way production syncs it, so the copy differs from production by that branch's changes only.
  */
 export async function createUpstreamContextSnapshot(input: UpstreamBranchInput): Promise<UpstreamContextSnapshot> {
-	const synced = await syncUpstreamBranch(input);
+	const remote = await resolveGitRemote({ ...input, repo: input.upstream.repo });
+	const synced = await syncUpstreamBranch(input, remote);
 	const folder = copyProductionContext(input.projectId, input.projectFolder);
 	try {
 		const snapshotRepoFolder = path.join(folder, synced.contextPath);
@@ -140,7 +143,11 @@ export async function createUpstreamContextSnapshot(input: UpstreamBranchInput):
 
 /** The files the branch changes in the context, with their production and branch contents, to review before a run. */
 export async function readUpstreamChanges(input: UpstreamBranchInput): Promise<UpstreamChanges> {
-	const [synced, reviewRequest] = await Promise.all([syncUpstreamBranch(input), findUpstreamReviewRequest(input)]);
+	const remote = await resolveGitRemote({ ...input, repo: input.upstream.repo });
+	const [synced, reviewRequest] = await Promise.all([
+		syncUpstreamBranch(input, remote),
+		findUpstreamReviewRequest(remote, input),
+	]);
 	const productionRepoFolder = path.join(input.projectFolder, synced.contextPath);
 	const changes = listRepoChanges(productionRepoFolder, synced).map((change) => {
 		const repoPath = change.path.slice(synced.contextPath.length + 1);
@@ -154,9 +161,9 @@ export async function readUpstreamChanges(input: UpstreamBranchInput): Promise<U
 }
 
 /** A failed lookup only hides the link, as the changes can be reviewed and tested without it. */
-async function findUpstreamReviewRequest(input: UpstreamBranchInput): Promise<ReviewRequest | null> {
-	const linkedRepo = extractConfiguredRepos(input.projectFolder).find((repo) => repo.name === input.upstream.repo);
-	if (!linkedRepo?.provider || !linkedRepo.repoFullName) {
+async function findUpstreamReviewRequest(remote: GitRemote, input: UpstreamBranchInput): Promise<ReviewRequest | null> {
+	const { linkedRepo } = remote;
+	if (!linkedRepo.provider || !linkedRepo.repoFullName) {
 		return null;
 	}
 	const provider = REVIEW_REQUEST_PROVIDERS[linkedRepo.provider];
@@ -175,12 +182,8 @@ async function findUpstreamReviewRequest(input: UpstreamBranchInput): Promise<Re
  * Syncs the repository at the branch head once per commit and filters, so reviewing the changes and running the
  * tests share one sync. The cache lives with the run snapshots, which removes it once unused for hours.
  */
-async function syncUpstreamBranch(input: UpstreamBranchInput): Promise<SyncedUpstreamBranch> {
-	const remote = await resolveGitRemote(input.projectFolder, input.upstream.repo, input.userId);
-	const branch = (await readRemoteBranches(remote)).find((candidate) => candidate.name === input.upstream.branch);
-	if (!branch) {
-		throw new UpstreamContextError(`Branch ${input.upstream.branch} does not exist in ${remote.repo.url}.`);
-	}
+async function syncUpstreamBranch(input: UpstreamBranchInput, remote: GitRemote): Promise<SyncedUpstreamBranch> {
+	const branch = await readBranchHead(remote, input.upstream.branch);
 	const repoConfig = { ...extractRawRepoConfig(input.projectFolder, remote.repo.name), branch: branch.name };
 	const folder = path.join(
 		getSnapshotsRoot(input.projectFolder, input.projectId),
@@ -188,6 +191,7 @@ async function syncUpstreamBranch(input: UpstreamBranchInput): Promise<SyncedUps
 	);
 	if (!fs.existsSync(folder)) {
 		await syncIntoCache(remote, repoConfig, folder);
+		await assertBranchStayedAt(remote, branch, folder);
 	}
 	const now = new Date();
 	fs.utimesSync(folder, now, now);
@@ -197,6 +201,26 @@ async function syncUpstreamBranch(input: UpstreamBranchInput): Promise<SyncedUps
 		ref: `${remote.repo.name}:${branch.name}`,
 		commit: branch.commit,
 	};
+}
+
+async function readBranchHead(remote: GitRemote, branchName: string): Promise<UpstreamBranch> {
+	const branch = (await readRemoteBranches(remote)).find((candidate) => candidate.name === branchName);
+	if (!branch) {
+		throw new UpstreamContextError(`Branch ${branchName} does not exist in ${remote.repo.url}.`);
+	}
+	return branch;
+}
+
+/**
+ * `nao sync` clones the branch by name, so a push during the sync would leave newer files cached under the older
+ * commit. The cache is dropped then, for the next sync to pick up the new commit.
+ */
+async function assertBranchStayedAt(remote: GitRemote, branch: UpstreamBranch, folder: string): Promise<void> {
+	const head = await readBranchHead(remote, branch.name);
+	if (head.commit !== branch.commit) {
+		removeContextSnapshot(folder);
+		throw new UpstreamContextError(`Branch ${branch.name} received new commits while it was syncing. Try again.`);
+	}
 }
 
 /** Syncs into a folder of its own then moves it in place, so a concurrent sync of the same commit cannot mix files. */
@@ -240,16 +264,24 @@ function hashConfig(config: Record<string, unknown>): string {
 	return createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 12);
 }
 
-async function resolveGitRemote(projectFolder: string, repoName: string, userId: string): Promise<GitRemote> {
-	const linkedRepo = extractConfiguredRepos(projectFolder).find((repo) => repo.name === repoName);
+/** The project's variables resolve the `{{ env(...) }}` references of the repository settings, as in production. */
+async function resolveGitRemote(input: {
+	projectId: string;
+	projectFolder: string;
+	repo: string;
+	userId: string;
+}): Promise<GitRemote> {
+	const envVars = await getProjectRuntimeEnvVars(input.projectId);
+	const linkedRepo = extractConfiguredRepos(input.projectFolder, envVars).find((repo) => repo.name === input.repo);
 	if (!linkedRepo?.url) {
-		throw new UpstreamContextError(`No git repository named ${repoName} is configured in nao_config.yaml.`);
+		throw new UpstreamContextError(`No git repository named ${input.repo} is configured in nao_config.yaml.`);
 	}
 	const repo = { name: linkedRepo.name, url: linkedRepo.url, branch: linkedRepo.branch };
-	const authenticatedUrl = await resolveAuthenticatedUrl(linkedRepo, userId);
+	const authenticatedUrl = await resolveAuthenticatedUrl(linkedRepo, input.userId);
 	return {
 		repo,
-		env: createGitEnvironment(repo.url, authenticatedUrl),
+		linkedRepo,
+		env: createGitEnvironment(repo.url, authenticatedUrl, envVars),
 		secret: authenticatedUrl,
 	};
 }
@@ -264,9 +296,16 @@ async function resolveAuthenticatedUrl(repo: LinkedContextRepo, userId: string):
 	return token ? provider.authenticatedRepoUrl(token, repo.repoFullName) : null;
 }
 
-/** Git reads the URL rewrite from the environment, so the token reaches `nao sync` without being written to disk. */
-function createGitEnvironment(url: string, authenticatedUrl: string | null): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: '0' };
+/**
+ * Git reads the URL rewrite from the environment, so the token reaches `nao sync` without being written to disk. The
+ * project's variables go along, for `nao sync` to resolve the repository settings as in production.
+ */
+function createGitEnvironment(
+	url: string,
+	authenticatedUrl: string | null,
+	envVars: Record<string, string>,
+): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...envVars, GIT_TERMINAL_PROMPT: '0' };
 	for (const name of INHERITED_ENV_NAMES) {
 		if (process.env[name] !== undefined) {
 			env[name] = process.env[name];

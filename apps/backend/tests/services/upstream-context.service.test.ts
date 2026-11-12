@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({ getProjectRuntimeEnvVars: vi.fn() }));
+
+vi.mock('../../src/services/project-runtime-env', () => ({
+	getProjectRuntimeEnvVars: mocks.getProjectRuntimeEnvVars,
+}));
 
 import {
 	createUpstreamContextSnapshot,
@@ -24,6 +30,9 @@ fs.appendFileSync(path.join(__dirname, 'invocations.jsonl'), JSON.stringify({ ar
 for (const repo of config.repos) {
 	const target = path.join('repos', repo.name);
 	execFileSync('git', ['clone', '--quiet', '--branch', repo.branch, repo.url, target]);
+	if (process.env.MOVE_BRANCH_DURING_SYNC) {
+		execFileSync('git', ['-C', repo.url, 'update-ref', 'refs/heads/' + repo.branch, 'main']);
+	}
 	fs.rmSync(path.join(target, '.git'), { recursive: true, force: true });
 }
 `;
@@ -36,6 +45,7 @@ let projectFolder: string;
 let fakeNaoFolder: string;
 
 beforeEach(() => {
+	mocks.getProjectRuntimeEnvVars.mockResolvedValue({});
 	root = fs.realpathSync(createTemporaryFolder('nao-upstream-context-'));
 	upstreamFolder = path.join(root, 'business');
 	projectFolder = path.join(root, 'context');
@@ -76,18 +86,40 @@ beforeEach(() => {
 	process.env.PATH = `${fakeNaoFolder}${path.delimiter}${process.env.PATH}`;
 });
 
+const BRANCHES_INPUT = () => ({ projectId: 'project-1', projectFolder, repo: 'business', userId: 'user-1' });
+
 describe('listUpstreamRepos', () => {
-	it('lists the git repositories of the project, not its local folders', () => {
-		expect(listUpstreamRepos(projectFolder)).toEqual([{ name: 'business', url: upstreamFolder, branch: 'main' }]);
+	it('lists the git repositories of the project, not its local folders', async () => {
+		expect(await listUpstreamRepos('project-1', projectFolder)).toEqual([
+			{ name: 'business', url: upstreamFolder, branch: 'main' },
+		]);
 	});
 });
 
 describe('listUpstreamBranches', () => {
 	it('lists the remote branches with the production one first', async () => {
-		const branches = await listUpstreamBranches({ projectFolder, repo: 'business', userId: 'user-1' });
+		const branches = await listUpstreamBranches(BRANCHES_INPUT());
 
 		expect(branches.map((branch) => branch.name)).toEqual(['main', 'analyst/net-revenue']);
 		expect(branches[1].commit).toBe(runGit(upstreamFolder, ['rev-parse', 'analyst/net-revenue']).toString().trim());
+	});
+
+	it('resolves a repository URL written as an env reference with the project variables', async () => {
+		writeFiles(projectFolder, {
+			'nao_config.yaml': [
+				'project_name: fibi',
+				'repos:',
+				'  - name: business',
+				`    url: "{{ env('BUSINESS_REPO_URL') }}"`,
+				'',
+			].join('\n'),
+		});
+		mocks.getProjectRuntimeEnvVars.mockResolvedValue({ BUSINESS_REPO_URL: upstreamFolder });
+
+		const branches = await listUpstreamBranches(BRANCHES_INPUT());
+
+		expect(branches.map((branch) => branch.name)).toContain('analyst/net-revenue');
+		expect(mocks.getProjectRuntimeEnvVars).toHaveBeenCalledWith('project-1');
 	});
 });
 
@@ -178,6 +210,14 @@ describe('readUpstreamChanges', () => {
 				branchContent: 'Revenue excludes returned orders.\n',
 			},
 		]);
+	});
+
+	it('refuses a sync during which the branch received new commits', async () => {
+		mocks.getProjectRuntimeEnvVars.mockResolvedValue({ MOVE_BRANCH_DURING_SYNC: '1' });
+
+		await expect(readUpstreamChanges(netRevenueInput())).rejects.toThrow(
+			'received new commits while it was syncing',
+		);
 	});
 
 	it('syncs a branch once per commit, so the run reuses the sync of the review', async () => {

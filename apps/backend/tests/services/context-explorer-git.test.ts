@@ -1891,6 +1891,19 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expect((await readFileContent('/context.md', access)).content).toBe('second edit\n');
 	});
 
+	it('refuses to undo a commit pushed from another checkout', async () => {
+		const fixture = createFixture();
+		await createContextBranch(fixture.context, 'nao/undo-elsewhere');
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'edit\n', file.hash, access);
+		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Edit' });
+		const repo = await ensureContextWorktree(fixture.context);
+		runGit(repo.worktreeRoot, ['push', '--quiet', fixture.bare, 'HEAD:refs/heads/nao/undo-elsewhere']);
+
+		await expect(undoLastContextCommit(fixture.context)).rejects.toThrow('not pushed yet');
+	});
+
 	it('shows only the default branch and branches owned by the current user', async () => {
 		const fixture = createFixture();
 		const repo = await ensureContextWorktree(fixture.context);

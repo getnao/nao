@@ -66,6 +66,9 @@ vi.mock('@/main', () => ({
 		},
 		testRun: {
 			listRuns: { queryOptions: () => ({ queryKey: ['runs'], queryFn: () => [] }) },
+			getDraftContext: {
+				queryOptions: () => ({ queryKey: ['draft-context'], queryFn: () => ({ status: 'none' }) }),
+			},
 			listUpstreamRepos: { queryOptions: () => ({ queryKey: ['upstream-repos'], queryFn: () => [] }) },
 		},
 	},

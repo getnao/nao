@@ -151,9 +151,14 @@ export async function commitContextChanges(
 	return { commit };
 }
 
-/** Takes the last commit back into the uncommitted changes, which is only safe while it is not pushed. */
+/**
+ * Takes the last commit back into the uncommitted changes, which is only safe while it is not pushed. The remote is
+ * fetched first, as the commit may have been pushed from another checkout.
+ */
 export async function undoLastContextCommit(context: ContextExplorerGitContext): Promise<void> {
-	const { repo } = await requireContextExplorerGit(context);
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
+	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
 	const defaultBranch = readDefaultBranch(repo);
 	const currentBranch = readContextCurrentBranch(repo, defaultBranch);
 	if (readUnpushedCommitCount(repo, currentBranch, defaultBranch) === 0) {

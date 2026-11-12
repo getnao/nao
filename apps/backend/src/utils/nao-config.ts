@@ -17,6 +17,7 @@ import {
 	type TestModelSelection,
 } from '../types/test-run';
 import { logger } from './logger';
+import { resolveSecrets } from './nao-config-llm';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -79,8 +80,9 @@ function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>
 	}
 }
 
-export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo[] {
-	return configuredReposFrom(loadProjectConfig(projectFolder));
+/** Repository URLs written with `{{ env('NAME') }}` are resolved with the given project variables. */
+export function extractConfiguredRepos(projectFolder: string, envVars: Record<string, string> = {}): LinkedContextRepo[] {
+	return configuredReposFrom(loadProjectConfig(projectFolder), envVars);
 }
 
 /** Returns configured database templates, falling back to the default when unavailable. */
@@ -95,7 +97,7 @@ export function readProjectContext(projectFolder: string): {
 } {
 	const config = loadProjectConfig(projectFolder);
 	return {
-		repos: configuredReposFrom(config),
+		repos: configuredReposFrom(config, {}),
 		templates: configuredTemplatesFrom(config),
 		presence: extractContextPresence(projectFolder),
 	};
@@ -112,7 +114,7 @@ export function extractContextPresence(projectFolder: string): ContextPresence {
 	};
 }
 
-function configuredReposFrom(config: unknown): LinkedContextRepo[] {
+function configuredReposFrom(config: unknown, envVars: Record<string, string>): LinkedContextRepo[] {
 	if (!isRecord(config) || !Array.isArray(config.repos)) {
 		return [];
 	}
@@ -122,7 +124,7 @@ function configuredReposFrom(config: unknown): LinkedContextRepo[] {
 			return [];
 		}
 
-		const url = typeof repo.url === 'string' && repo.url.trim() !== '' ? repo.url.trim() : null;
+		const url = resolveSecrets(repo.url, envVars)?.trim() || null;
 		const branch = typeof repo.branch === 'string' && repo.branch.trim() !== '' ? repo.branch.trim() : null;
 		const localPath =
 			typeof repo.local_path === 'string' && repo.local_path.trim() !== '' ? repo.local_path.trim() : null;

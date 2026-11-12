@@ -25,6 +25,9 @@ vi.mock('@/main', () => ({
 				}),
 			},
 			listRuns: { queryOptions: () => ({ queryKey: ['runs'], queryFn: mocks.listRuns }) },
+			getDraftContext: {
+				queryOptions: () => ({ queryKey: ['draft-context'], queryFn: () => ({ status: 'none' }) }),
+			},
 		},
 	},
 }));
@@ -98,6 +101,30 @@ describe('SyncedRepos', () => {
 		expect(screen.getByRole('button', { name: 'View changes to kpis.md' })).toBeTruthy();
 		expect(screen.getByRole('link', { name: /#87/ }).getAttribute('href')).toBe(
 			'https://github.com/acme/business/pull/87',
+		);
+	});
+
+	it.each([
+		{ testedCommit: 'def456', title: '8 of 8 tests passed on the latest run' },
+		{ testedCommit: 'abc123', title: '8 of 8 tests passed before the latest changes. Test again' },
+	])('tells whether the latest run tested the branch head ($testedCommit)', async ({ testedCommit, title }) => {
+		localStorage.setItem(
+			'nao-test-upstream-source',
+			JSON.stringify({ repo: 'business', branch: 'analyst/net-revenue' }),
+		);
+		mocks.listRuns.mockResolvedValue([
+			{
+				status: 'completed',
+				trigger: 'changes',
+				contextRef: 'business:analyst/net-revenue',
+				contextCommit: testedCommit,
+				testTotals: [{ contextVariant: 'draft', testCount: 8, passedTests: 8 }],
+			},
+		]);
+		renderRepos();
+
+		await vi.waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Test this branch' }).getAttribute('title')).toBe(title),
 		);
 	});
 });

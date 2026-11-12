@@ -160,7 +160,11 @@ function RepoBranchPicker({
 
 function PickedBranchActions({ source, onOpenTests }: { source: UpstreamTestSource; onOpenTests: () => void }) {
 	const upstreamChanges = useUpstreamChanges(source);
-	const latestRun = useLatestChangesRun({ kind: 'upstream', ref: formatUpstreamRef(source) });
+	const latestRun = useLatestChangesRun({
+		kind: 'upstream',
+		ref: formatUpstreamRef(source),
+		commit: upstreamChanges.data?.commit ?? null,
+	});
 	const reviewRequest = upstreamChanges.data?.reviewRequest ?? null;
 	if (upstreamChanges.isLoading) {
 		return <Spinner className='size-3' />;

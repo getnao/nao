@@ -128,7 +128,7 @@ export const testRunRoutes = {
 	}),
 
 	listUpstreamRepos: contextAdminProtectedProcedure.query(({ ctx }) =>
-		listUpstreamRepos(requireProjectPath(ctx.project.path)),
+		listUpstreamRepos(ctx.project.id, requireProjectPath(ctx.project.path)),
 	),
 
 	listUpstreamBranches: contextAdminProtectedProcedure
@@ -136,6 +136,7 @@ export const testRunRoutes = {
 		.query(async ({ ctx, input }) => {
 			try {
 				return await listUpstreamBranches({
+					projectId: ctx.project.id,
 					projectFolder: requireProjectPath(ctx.project.path),
 					repo: input.repo,
 					userId: ctx.user.id,

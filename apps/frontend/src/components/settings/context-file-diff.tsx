@@ -87,8 +87,8 @@ export function FileDiffPanel({
 	diff: LineDiff;
 	contents?: { old: string; new: string };
 }) {
-	const [view, setView] = useState<DiffView>('rendered');
-	const canRender = contents !== undefined && isMarkdownPath(path);
+	const markdown = contents && isMarkdownPath(path) ? splitMarkdownFrontmatter(contents) : null;
+	const [view, setView] = useState<DiffView>(markdown?.hasFrontmatterChange ? 'lines' : 'rendered');
 
 	return (
 		<div className='flex h-full min-h-0 flex-col'>
@@ -100,22 +100,37 @@ export function FileDiffPanel({
 				<span className='text-xs text-muted-foreground'>{changeLabel}</span>
 				<span className='font-mono text-xs text-emerald-600 dark:text-emerald-400'>+{diff.additions}</span>
 				<span className='font-mono text-xs text-red-600 dark:text-red-400'>-{diff.deletions}</span>
-				{canRender && (
+				{markdown && (
 					<SegmentedControl label='Diff view' options={DIFF_VIEWS} value={view} onChange={setView} />
 				)}
 			</div>
 			<div className='min-h-0 flex-1 overflow-auto py-2'>
-				{canRender && view === 'rendered' ? (
-					<MarkdownRenderedDiff
-						oldMarkdown={parseMarkdownFrontmatter(contents.old).body}
-						newMarkdown={parseMarkdownFrontmatter(contents.new).body}
-					/>
+				{markdown && view === 'rendered' ? (
+					<>
+						{markdown.hasFrontmatterChange && (
+							<p className='mx-auto max-w-3xl px-8 pt-2 text-xs text-muted-foreground'>
+								The frontmatter changed too, which only Lines shows.
+							</p>
+						)}
+						<MarkdownRenderedDiff oldMarkdown={markdown.oldBody} newMarkdown={markdown.newBody} />
+					</>
 				) : (
 					<FileDiffBody lines={diff.lines} />
 				)}
 			</div>
 		</div>
 	);
+}
+
+/** The rendered diff shows the bodies only, so a frontmatter change is reported apart. */
+function splitMarkdownFrontmatter(contents: { old: string; new: string }) {
+	const oldMarkdown = parseMarkdownFrontmatter(contents.old);
+	const newMarkdown = parseMarkdownFrontmatter(contents.new);
+	return {
+		oldBody: oldMarkdown.body,
+		newBody: newMarkdown.body,
+		hasFrontmatterChange: oldMarkdown.frontmatter !== newMarkdown.frontmatter,
+	};
 }
 
 function getChangeLabel(kind: 'modified' | 'untracked' | 'deleted'): string {
