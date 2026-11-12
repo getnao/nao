@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckIcon, Radio, Split, ThumbsUp, Users, Wrench } from 'lucide-react';
+import { Radio, Split, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
 import type { SavedUsagePeriod, SavedUsagePeriodInput, UsagePeriodSelection, UsageSource } from '@nao/backend/usage';
@@ -13,7 +13,8 @@ import type { LucideIcon } from 'lucide-react';
 import { UsagePeriodFilter } from '@/components/settings/usage-period-filter';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Command, CommandEmpty, CommandInput, CommandList } from '@/components/ui/command';
+import { MultiSelectActions, MultiSelectOption } from '@/components/ui/multi-select-option';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
@@ -272,14 +273,6 @@ const sourceLabels: Record<UsageSource, string> = {
 	storyModel: 'Story models',
 };
 
-function sameValues<T extends string>(a: T[], b: T[]): boolean {
-	if (a.length !== b.length) {
-		return false;
-	}
-	const setA = new Set(a);
-	return b.every((value) => setA.has(value));
-}
-
 function MultiSelectFilter<T extends string>({
 	label,
 	icon: Icon,
@@ -292,23 +285,27 @@ function MultiSelectFilter<T extends string>({
 	const hasPartialSelection = selectedValues !== undefined && selectedValues.length < allValues.length;
 
 	const [open, setOpen] = useState(false);
-	const [draft, setDraft] = useState<T[]>(committedValues);
-	const isDirty = !sameValues(draft, committedValues);
+	const [checkedValues, setCheckedValues] = useState<T[]>(committedValues);
 
 	const handleOpenChange = (next: boolean) => {
 		if (next) {
-			setDraft(selectedValues ?? allValues);
+			setCheckedValues(committedValues);
 		}
 		setOpen(next);
 	};
 
-	const toggleValue = (value: T) => {
-		setDraft((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
+	/** Applies right away; an empty or complete selection means no filter, while the checks stay as clicked. */
+	const selectValues = (values: T[]) => {
+		setCheckedValues(values);
+		onChange(values.length === 0 || values.length === allValues.length ? undefined : values);
 	};
 
-	const applyDraft = () => {
-		onChange(draft.length === 0 || draft.length === allValues.length ? undefined : draft);
-		setOpen(false);
+	const toggleValue = (value: T) => {
+		selectValues(
+			checkedValues.includes(value)
+				? checkedValues.filter((candidate) => candidate !== value)
+				: [...checkedValues, value],
+		);
 	};
 
 	return (
@@ -329,52 +326,29 @@ function MultiSelectFilter<T extends string>({
 					)}
 				</Button>
 			</PopoverTrigger>
-			<PopoverContent align='start' className='w-56 p-0'>
+			<PopoverContent align='start' className='w-64 p-0'>
 				<Command>
 					<CommandInput placeholder={`Search ${label.toLowerCase()}...`} />
-					<div className='flex items-center justify-between border-b px-2 py-1'>
-						<button
-							type='button'
-							className='text-xs text-muted-foreground hover:text-foreground'
-							onClick={() => setDraft(allValues)}
-						>
-							Select all
-						</button>
-						<button
-							type='button'
-							className='text-xs text-muted-foreground hover:text-foreground'
-							onClick={() => setDraft([])}
-						>
-							Deselect all
-						</button>
-					</div>
-					<CommandList className='max-h-64 overflow-y-auto'>
+					<MultiSelectActions
+						onSelectAll={() => selectValues(allValues)}
+						onDeselectAll={() => selectValues([])}
+					/>
+					<CommandList className='max-h-64 overflow-y-auto p-1'>
 						<CommandEmpty className='py-4 text-center text-xs text-muted-foreground'>
 							No matches
 						</CommandEmpty>
 						{options.map((option) => (
-							<CommandItem
+							<MultiSelectOption
 								key={option.value}
 								value={option.label}
-								onSelect={() => toggleValue(option.value)}
-							>
-								<span className='flex-1 truncate'>{option.label}</span>
-								{typeof option.count === 'number' && (
-									<Badge variant='secondary' className='h-4 px-1 text-xs'>
-										{option.count}
-									</Badge>
-								)}
-								<span className='flex size-4 shrink-0 items-center justify-center'>
-									{draft.includes(option.value) && <CheckIcon className='size-4' />}
-								</span>
-							</CommandItem>
+								label={option.label}
+								count={option.count}
+								isSelected={checkedValues.includes(option.value)}
+								onToggle={() => toggleValue(option.value)}
+								onSelectOnly={() => selectValues([option.value])}
+							/>
 						))}
 					</CommandList>
-					<div className='flex justify-end border-t p-2'>
-						<Button size='sm' disabled={!isDirty} onClick={applyDraft}>
-							Apply
-						</Button>
-					</div>
 				</Command>
 			</PopoverContent>
 		</Popover>

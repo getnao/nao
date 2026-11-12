@@ -39,6 +39,12 @@ stubResizeObserver();
 stubScrollIntoView();
 
 const OWNED_API = { kind: 'owned', chatId: 'chat-1', storySlug: 'story' } as const;
+const COUNTRY_FILTER: ParsedFilterBlock = {
+	id: 'country',
+	label: 'Country',
+	filterType: 'multi_select',
+	options: ['France', 'Spain', 'Peru'],
+};
 const SUBCATEGORY_FILTER: ParsedFilterBlock = {
 	id: 'subcategory',
 	label: 'Sub-category',
@@ -60,12 +66,7 @@ describe('StoryFilterOptionsSelect', () => {
 	it('filters a complete option list in the browser and toggles multi-select values', () => {
 		const onChange = vi.fn();
 		renderSelect({
-			filter: {
-				id: 'country',
-				label: 'Country',
-				filterType: 'multi_select',
-				options: ['France', 'Spain', 'Peru'],
-			},
+			filter: COUNTRY_FILTER,
 			selection: ['Peru'],
 			onChange,
 		});
@@ -76,6 +77,42 @@ describe('StoryFilterOptionsSelect', () => {
 		expect(optionLabels()).toEqual(['France']);
 		fireEvent.click(screen.getByRole('option', { name: 'France' }));
 		expect(onChange).toHaveBeenCalledWith(['Peru', 'France']);
+	});
+
+	it.each([
+		['keeps only the clicked value', 'Only France', '', ['France']],
+		['adds every matching value', 'Select all', 'an', ['Peru', 'France']],
+		['clears the selection', 'Deselect all', '', []],
+	])('%s from the multi-select shortcuts', (_case, action, search, expected) => {
+		const onChange = vi.fn();
+		renderSelect({ filter: COUNTRY_FILTER, selection: ['Peru'], onChange });
+
+		fireEvent.click(screen.getByRole('button', { name: /Peru/ }));
+		fireEvent.change(screen.getByPlaceholderText('Search Country…'), { target: { value: search } });
+		fireEvent.click(screen.getByRole('button', { name: action }));
+
+		expect(onChange.mock.calls).toEqual([[expected]]);
+	});
+
+	it('disables select all until a truncated list is searched', async () => {
+		mocks.fetchOptions.mockImplementation(async (input: { search?: string }) =>
+			input.search ? { options: ['user-99999'], isComplete: true } : { options: ['user-1'], isComplete: false },
+		);
+		renderSelect({
+			filter: { id: 'user', label: 'User', filterType: 'multi_select', table: 'users', column: 'name' },
+			onChange: vi.fn(),
+			api: OWNED_API,
+		});
+
+		fireEvent.click(screen.getByRole('button', { name: /All/ }));
+		await screen.findByRole('option', { name: 'user-1' });
+		expect(screen.getByRole('button', { name: 'Select all' }).hasAttribute('disabled')).toBe(true);
+
+		fireEvent.change(screen.getByPlaceholderText('Search User…'), { target: { value: '99999' } });
+		await screen.findByRole('option', { name: 'user-99999' });
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Select all' }).hasAttribute('disabled')).toBe(false),
+		);
 	});
 
 	it('offers the typed value when the filter allows custom values', () => {
@@ -206,5 +243,5 @@ function selectElement(
 }
 
 function optionLabels(): string[] {
-	return screen.getAllByRole('option').map((option) => option.textContent?.trim() ?? '');
+	return screen.getAllByRole('option').map((option) => option.getAttribute('aria-label') ?? '');
 }

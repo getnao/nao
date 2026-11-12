@@ -7,6 +7,7 @@ import type { StoryFilterApi } from '@/hooks/use-story-filters';
 import { useStoryFilterOptions } from '@/hooks/use-story-filter-options';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { MultiSelectActions, MultiSelectOption } from '@/components/ui/multi-select-option';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
@@ -65,6 +66,8 @@ export function StoryFilterOptionsSelect({
 	};
 
 	const visibleOptions = withSelectedValuesFirst(optionsState.options, selectedValues, search);
+	const canSelectAllVisible =
+		visibleOptions.length > 0 && (optionsState.isComplete || search.trim() !== '') && !optionsState.isSearching;
 	const typedValue = search.trim();
 	const canUseTypedValue =
 		filter.allowCustom && typedValue !== '' && !visibleOptions.includes(typedValue) && !optionsState.isSearching;
@@ -90,23 +93,36 @@ export function StoryFilterOptionsSelect({
 			<PopoverContent className='w-64 p-0' align='start'>
 				<Command shouldFilter={false}>
 					<CommandInput value={search} onValueChange={setSearch} placeholder={`Search ${filter.label}…`} />
-					<CommandList className='max-h-64'>
+					{isMulti && (
+						<MultiSelectActions
+							canSelectAll={canSelectAllVisible}
+							onSelectAll={() => onChange(mergeValues(selectedValues, visibleOptions))}
+							onDeselectAll={() => onChange([])}
+						/>
+					)}
+					<CommandList className='max-h-64 p-1'>
 						{!isMulti && !search && (
-							<CommandItem value='__all__' onSelect={() => selectValue('')}>
+							<CommandItem value='__all__' className='cursor-pointer' onSelect={() => selectValue('')}>
 								All
 								<Check className={cn('ml-auto size-3.5', selectedValues.length > 0 && 'opacity-0')} />
 							</CommandItem>
 						)}
 						{visibleOptions.map((option) => (
-							<CommandItem key={option} value={option} onSelect={() => selectValue(option)}>
-								<span className='truncate'>{option}</span>
-								<Check
-									className={cn('ml-auto size-3.5', !selectedValues.includes(option) && 'opacity-0')}
-								/>
-							</CommandItem>
+							<MultiSelectOption
+								key={option}
+								value={option}
+								label={option}
+								isSelected={selectedValues.includes(option)}
+								onToggle={() => selectValue(option)}
+								onSelectOnly={isMulti ? () => onChange([option]) : undefined}
+							/>
 						))}
 						{canUseTypedValue && (
-							<CommandItem value={`__custom__${typedValue}`} onSelect={() => selectValue(typedValue)}>
+							<CommandItem
+								value={`__custom__${typedValue}`}
+								className='cursor-pointer'
+								onSelect={() => selectValue(typedValue)}
+							>
 								Use “{typedValue}”
 							</CommandItem>
 						)}
@@ -201,6 +217,10 @@ function withSelectedValuesFirst(options: string[], selectedValues: string[], se
 	}
 	const missing = selectedValues.filter((value) => !options.includes(value));
 	return [...missing, ...options];
+}
+
+function mergeValues(selectedValues: string[], addedValues: string[]): string[] {
+	return [...new Set([...selectedValues, ...addedValues])];
 }
 
 function describeSelection(selectedValues: string[]): string {
