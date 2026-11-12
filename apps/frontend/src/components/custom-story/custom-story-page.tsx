@@ -295,6 +295,7 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 					isOpeningInChat: openInChat.isOpening,
 				}}
 				canDuplicate={!isArchived && customStoryCreationEnabled}
+				viewedVersionNumber={versionNumber}
 				download={{ storyId, isOwner: true, onDownload: download }}
 				storyId={storyId}
 				canRename
