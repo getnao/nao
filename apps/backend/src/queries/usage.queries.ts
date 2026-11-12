@@ -1,5 +1,5 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { and, eq, isNotNull, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
+import { and, eq, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
@@ -65,6 +65,8 @@ const INFERENCE_COST_EXPR = {
 	inputCacheWrite: sql<number>`coalesce(${s.llmInference.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0`,
 	output: sql<number>`coalesce(${s.llmInference.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0`,
 };
+
+const HIDDEN_BY_DEFAULT_USAGE_SOURCES: UsageSource[] = ['test'];
 
 export const TOTAL_COST_EXPR = sql<number>`${COST_EXPR.inputNoCache} + ${COST_EXPR.inputCacheRead} + ${COST_EXPR.inputCacheWrite} + ${COST_EXPR.output}`;
 
@@ -564,22 +566,22 @@ function addUserNameFilter(whereConditions: SQL<unknown>[], userNames: string[] 
 }
 
 function addSourceFilter(whereConditions: SQL<unknown>[], sources: UsageSource[] | undefined) {
-	if (!sources?.length) {
-		return;
-	}
-
-	const expr = or(...sources.map((source) => eq(MESSAGE_USAGE_SOURCE_EXPR, source)));
-	if (expr) {
-		whereConditions.push(expr);
-	}
+	addSourceCondition(whereConditions, MESSAGE_USAGE_SOURCE_EXPR, sources);
 }
 
 function addInferenceSourceFilter(whereConditions: SQL<unknown>[], sources: UsageSource[] | undefined) {
-	if (!sources?.length) {
-		return;
-	}
+	addSourceCondition(whereConditions, INFERENCE_USAGE_SOURCE_EXPR, sources);
+}
 
-	const expr = or(...sources.map((source) => eq(INFERENCE_USAGE_SOURCE_EXPR, source)));
+/** Without an explicit source selection, sources such as test runs are left out so they don't inflate real usage. */
+function addSourceCondition(
+	whereConditions: SQL<unknown>[],
+	sourceExpr: SQL<UsageSource | null>,
+	sources: UsageSource[] | undefined,
+) {
+	const expr = sources?.length
+		? or(...sources.map((source) => eq(sourceExpr, source)))
+		: notInArray(sql`coalesce(${sourceExpr}, '')`, HIDDEN_BY_DEFAULT_USAGE_SOURCES);
 	if (expr) {
 		whereConditions.push(expr);
 	}
