@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { basename } from 'node:path';
 
-import { cardToBlockKit, createSlackAdapter } from '@chat-adapter/slack';
+import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { stripAssistantTags } from '@nao/shared';
 import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
@@ -14,7 +14,7 @@ import {
 	WebClient,
 } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { Card, Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent, Thread, ThreadImpl } from 'chat';
+import { Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent, Thread, ThreadImpl } from 'chat';
 
 import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
@@ -58,9 +58,16 @@ import {
 	formatSlackMessageText,
 	isRecoverableSlackPayloadError,
 	renderMapImage,
+	resolveChatSqlOutput,
 	type SlackTableRenderState,
+	toSlackBlocks,
 	type TruncationNotice,
 } from '../utils/messaging-provider';
+import {
+	buildSlackNativeChart,
+	hasRoomForSlackNativeChart,
+	type SlackNativeChartInput,
+} from '../utils/slack-native-chart';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { isStoriesPath } from '../utils/story-mount';
 import { toStorageRelativePath } from '../utils/tools';
@@ -752,7 +759,7 @@ export class ProjectSlackBot {
 			...(threadTs ? { thread_ts: threadTs } : {}),
 			text: buildSlackCardNotificationText(children, await getAppName()),
 		};
-		(args as { blocks?: unknown }).blocks = cardToBlockKit(Card({ children }));
+		(args as { blocks?: unknown }).blocks = toSlackBlocks(children);
 		const result = await this._slackClient.chat.postMessage(args);
 		if (!result.ok || !result.ts) {
 			throw new Error(result.error ?? 'Slack did not return a timestamp for the posted card.');
@@ -770,7 +777,7 @@ export class ProjectSlackBot {
 			ts: messageTs,
 			text: buildSlackCardNotificationText(children, await getAppName()),
 		};
-		(args as { blocks?: unknown }).blocks = cardToBlockKit(Card({ children }));
+		(args as { blocks?: unknown }).blocks = toSlackBlocks(children);
 		const result = await this._slackClient.chat.update(args);
 		if (!result.ok) {
 			throw new Error(result.error ?? 'Slack failed to update the card.');
@@ -1271,6 +1278,7 @@ export class ProjectSlackBot {
 			toolGroupBlockIndex: -1,
 		};
 
+		const handledToolResultIds = new Set<string>();
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
 			const part = uiMessage.parts[uiMessage.parts.length - 1];
 			if (!part) {
@@ -1293,21 +1301,49 @@ export class ProjectSlackBot {
 					.map((messagePart) => messagePart.text)
 					.join('\n\n');
 				await this._handleTextPart(allText, state, ctx);
-			} else if (isQueryResultPart(part)) {
-				this._handleSqlPart(part, state);
-			} else if (part.type === 'tool-display_chart') {
-				await this._handleChartPart(part, state, ctx);
-			} else if (part.type === 'tool-display_map') {
-				await this._handleMapPart(part, state, ctx);
 			} else if (part.type === 'tool-clarification') {
 				await this._handleClarificationPart(part, state, ctx);
-			} else if (part.type === 'tool-write') {
-				await this._handleWritePart(part, state, ctx);
 			}
+			await this._handleNewToolResults(uiMessage.parts, handledToolResultIds, state, ctx);
 		}
 
 		await this._sendFinalText(ctx, activeStream);
 		return state;
+	}
+
+	/**
+	 * Parallel tool calls finish while a sibling is still the last part, so every part is scanned
+	 * and each finished result is handled once, in order (queries before the charts that use them).
+	 */
+	private async _handleNewToolResults(
+		parts: UIMessagePart[],
+		handledToolResultIds: Set<string>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		for (const part of parts) {
+			if (
+				!('toolCallId' in part) ||
+				part.state !== 'output-available' ||
+				handledToolResultIds.has(part.toolCallId)
+			) {
+				continue;
+			}
+			handledToolResultIds.add(part.toolCallId);
+			await this._handleToolResult(part, state, ctx);
+		}
+	}
+
+	private async _handleToolResult(part: UIMessagePart, state: StreamState, ctx: ConversationContext): Promise<void> {
+		if (isQueryResultPart(part)) {
+			this._handleSqlPart(part, state);
+		} else if (part.type === 'tool-display_chart') {
+			await this._handleChartPart(part, state, ctx);
+		} else if (part.type === 'tool-display_map') {
+			await this._handleMapPart(part, state, ctx);
+		} else if (part.type === 'tool-write') {
+			await this._handleWritePart(part, state, ctx);
+		}
 	}
 
 	private async _handleClarificationPart(
@@ -1356,17 +1392,18 @@ export class ProjectSlackBot {
 		if (displayChart.isTableInput(part.input)) {
 			return;
 		}
-		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		const sqlOutput = await resolveChatSqlOutput(state, ctx.chatId, part.input.query_id);
 		if (!sqlOutput) {
 			return;
 		}
 		try {
 			const displaySettings = await projectQueries.getDisplaySettings(this.projectId);
-			const png = generateChartImage({
-				config: part.input,
-				data: sqlOutput.rows,
-				dateFormat: displaySettings.dateFormat,
-			});
+			const chartInput = { config: part.input, data: sqlOutput.rows, dateFormat: displaySettings.dateFormat };
+			if (await this._pushNativeChart(chartInput, part.toolCallId, state, ctx)) {
+				return;
+			}
+
+			const png = generateChartImage(chartInput);
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedToolCallIds.add(part.toolCallId);
 
@@ -1387,6 +1424,24 @@ export class ProjectSlackBot {
 		}
 	}
 
+	/** Posts a hoverable Slack chart when it fits Slack's limits; returns false so the caller sends a PNG instead. */
+	private async _pushNativeChart(
+		chartInput: SlackNativeChartInput,
+		toolCallId: string,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<boolean> {
+		const nativeChart = hasRoomForSlackNativeChart(ctx.blocks) ? buildSlackNativeChart(chartInput) : null;
+		if (!nativeChart) {
+			return false;
+		}
+		state.renderedToolCallIds.add(toolCallId);
+		this._closeCurrentTextRun(ctx);
+		ctx.blocks.push(nativeChart);
+		await this._editConversationCard(ctx, ctx.blocks);
+		return true;
+	}
+
 	private async _handleMapPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 		state: StreamState,
@@ -1400,6 +1455,7 @@ export class ProjectSlackBot {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+		await resolveChatSqlOutput(state, ctx.chatId, part.input.query_id);
 		const png = await renderMapImage(part, state, this.projectId, {
 			chatId: ctx.chatId,
 			toolCallId: part.toolCallId,
