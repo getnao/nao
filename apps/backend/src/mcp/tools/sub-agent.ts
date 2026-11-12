@@ -27,6 +27,13 @@ import { registerMcpTool } from './register-mcp-tool';
 
 type Agent = Awaited<ReturnType<typeof agentService.create>>;
 
+interface AskNaoRun {
+	chatId: string;
+	naoChatUrl: string;
+	model: string;
+	isNewChat: boolean;
+}
+
 /**
  * Time `ask_nao` waits for the run to finish before returning a `running` status.
  * Kept safely below the MCP client default request timeout (60s) so clients that
@@ -185,14 +192,19 @@ export async function registerSubAgentTools(server: McpServer, ctx: McpContext):
 			await mcpService.initializeMcpState(ctx.projectId);
 			await skillService.initializeSkills(ctx.projectId);
 
-			const { chat, uiMessages } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
+			const { chat, uiMessages, isNewChat } = await buildChatContext(ctx.projectId, ctx.userId, question, chatId);
 			const naoChatUrl = chatUrl(chat.id);
 
 			const agent = await agentService.create(chat, modelSelection, mcpAgent, {
 				billingAccessVerifiedProjectId: ctx.projectId,
 			});
 			askNaoRuns.start(chat.id, modelLabel);
-			const runPromise = runAskNaoInBackground(agent, uiMessages, chat.id, naoChatUrl, modelLabel);
+			const runPromise = runAskNaoInBackground(agent, uiMessages, {
+				chatId: chat.id,
+				naoChatUrl,
+				model: modelLabel,
+				isNewChat,
+			});
 
 			const outcome = await waitForResultOrBudget(runPromise, ASK_NAO_SYNC_BUDGET_MS);
 			if (outcome.kind === 'error') {
@@ -270,12 +282,11 @@ async function resolveSubAgentModel(ctx: McpContext): Promise<LlmSelectedModel |
 async function runAskNaoInBackground(
 	agent: Agent,
 	uiMessages: UIMessage[],
-	chatId: string,
-	naoChatUrl: string,
-	model: string,
+	{ chatId, naoChatUrl, model, isNewChat }: AskNaoRun,
 ): Promise<AskNaoResult> {
 	try {
-		let answer = await drainStream(agent.stream(uiMessages));
+		const tracking = { isNewChat, domainHost: new URL(naoChatUrl).host };
+		let answer = await drainStream(agent.stream(uiMessages, { tracking }));
 		if (!answer.text && !answer.clarification) {
 			answer = await extractAnswerFromChat(chatId);
 		}
@@ -537,7 +548,7 @@ async function buildChatContext(
 	userId: string,
 	question: string,
 	chatId: string | undefined,
-): Promise<{ chat: { id: string; projectId: string; userId: string }; uiMessages: UIMessage[] }> {
+): Promise<{ chat: { id: string; projectId: string; userId: string }; uiMessages: UIMessage[]; isNewChat: boolean }> {
 	const userMessage: UIMessage = {
 		id: crypto.randomUUID(),
 		role: 'user',
@@ -554,6 +565,7 @@ async function buildChatContext(
 			return {
 				chat: { id: chatId, projectId, userId },
 				uiMessages: [...history, userMessage],
+				isNewChat: false,
 			};
 		}
 	}
@@ -566,6 +578,7 @@ async function buildChatContext(
 	return {
 		chat: { id: newChatId, projectId, userId },
 		uiMessages: [userMessage],
+		isNewChat: true,
 	};
 }
 

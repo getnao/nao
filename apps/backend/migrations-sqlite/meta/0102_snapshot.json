@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6b921bb5-0bc6-4337-81e4-cc040ddb79af",
+  "id": "df9fd05e-67b3-4ebf-8147-01ec74ed4739",
   "prevId": "e0814a73-7463-4348-a93e-e82d003b940f",
   "tables": {
     "account": {
@@ -6449,13 +6449,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "column_security": {
-          "name": "column_security",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "row_security": {
           "name": "row_security",
           "type": "text",
@@ -7947,6 +7940,73 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "shared_chat_group_access": {
+      "name": "shared_chat_group_access",
+      "columns": {
+        "shared_chat_id": {
+          "name": "shared_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "shared_chat_group_access_groupId_idx": {
+          "name": "shared_chat_group_access_groupId_idx",
+          "columns": [
+            "group_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "shared_chat_group_access_shared_chat_id_shared_chat_id_fk": {
+          "name": "shared_chat_group_access_shared_chat_id_shared_chat_id_fk",
+          "tableFrom": "shared_chat_group_access",
+          "tableTo": "shared_chat",
+          "columnsFrom": [
+            "shared_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "shared_chat_group_access_group_id_user_group_id_fk": {
+          "name": "shared_chat_group_access_group_id_user_group_id_fk",
+          "tableFrom": "shared_chat_group_access",
+          "tableTo": "user_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "shared_chat_group_access_shared_chat_id_group_id_pk": {
+          "columns": [
+            "shared_chat_id",
+            "group_id"
+          ],
+          "name": "shared_chat_group_access_shared_chat_id_group_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "shared_story": {
       "name": "shared_story",
       "columns": {
@@ -7985,6 +8045,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'project'"
+        },
+        "project_role": {
+          "name": "project_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'viewer'"
         },
         "is_pinned": {
           "name": "is_pinned",
@@ -8088,6 +8156,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'viewer'"
         }
       },
       "indexes": {},
@@ -8147,6 +8223,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'viewer'"
         }
       },
       "indexes": {
@@ -8968,6 +9052,114 @@
           "tableTo": "story",
           "columnsFrom": [
             "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "story_edit_lock": {
+      "name": "story_edit_lock",
+      "columns": {
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "acquired_at": {
+          "name": "acquired_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "story_edit_lock_userId_idx": {
+          "name": "story_edit_lock_userId_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "story_edit_lock_chatId_idx": {
+          "name": "story_edit_lock_chatId_idx",
+          "columns": [
+            "chat_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "story_edit_lock_story_id_story_id_fk": {
+          "name": "story_edit_lock_story_id_story_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_edit_lock_user_id_user_id_fk": {
+          "name": "story_edit_lock_user_id_user_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_edit_lock_chat_id_chat_id_fk": {
+          "name": "story_edit_lock_chat_id_chat_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
           ],
           "columnsTo": [
             "id"
@@ -10273,13 +10465,6 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "column_policies": {
-          "name": "column_policies",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

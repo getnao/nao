@@ -9,18 +9,25 @@ import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import {
+	assertCustomStoryExists,
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
+	getCustomStoryId,
 	getCustomStoryNarratives,
 	getCustomStoryVersion,
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
 } from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
+import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	storyModelRequest,
+	storyQueryInputs,
 	storySnapshotHtml,
+	storySqlRequest,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
@@ -74,7 +81,7 @@ export const customStoryViewerRoutes = {
 	}),
 
 	getQueryData: viewerProcedure
-		.input(z.object({ queryId: z.string(), versionNumber }))
+		.input(z.object({ queryId: z.string(), versionNumber, inputs: storyQueryInputs }))
 		.query(async ({ ctx, input }) => {
 			try {
 				return await getSharedCustomStoryQueryData(
@@ -82,11 +89,38 @@ export const customStoryViewerRoutes = {
 					input.storySlug,
 					input.queryId,
 					input.versionNumber,
+					{ inputs: input.inputs, viewerId: ctx.user.id },
 				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
+
+	listModels: viewerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.viewer.projectId, ctx.user.id)),
+
+	runModel: viewerProcedure.input(z.object({ request: storyModelRequest })).mutation(async ({ ctx, input }) => {
+		try {
+			const storyId = await getCustomStoryId(ctx.viewer.chatId, input.storySlug);
+			return await runCustomStoryModel(
+				{ projectId: ctx.viewer.projectId, storyId, viewerId: ctx.user.id },
+				input.request,
+			);
+		} catch (error) {
+			throw toCustomStoryQueryTrpcError(error);
+		}
+	}),
+
+	runSql: viewerProcedure.input(z.object({ request: storySqlRequest })).mutation(async ({ ctx, input }) => {
+		try {
+			await assertCustomStoryExists(ctx.viewer.chatId, input.storySlug);
+			return await runCustomStorySql(
+				{ projectId: ctx.viewer.projectId, chatId: ctx.viewer.chatId, viewerId: ctx.user.id },
+				input.request,
+			);
+		} catch (error) {
+			throw toCustomStoryQueryTrpcError(error);
+		}
+	}),
 
 	getQuerySql: viewerProcedure
 		.input(z.object({ queryId: z.string(), versionNumber }))

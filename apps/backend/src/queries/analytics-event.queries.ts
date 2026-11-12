@@ -5,6 +5,7 @@ import type { DBAnalyticsEvent, NewAnalyticsEvent } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { listLockedUserGroupIds } from './locked-user-groups';
 import { storyVisibleToUser } from './story.queries';
 
 const THROTTLE_MS = 2 * 60 * 1_000;
@@ -84,6 +85,7 @@ export const listEventsForAsset = async (input: {
 };
 
 export const countStoryViewsForUser = async (projectId: string, userId: string): Promise<Record<string, number>> => {
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
 	const rows = await db
 		.select({ storyId: s.analyticsEvent.storyId, views: count() })
 		.from(s.analyticsEvent)
@@ -93,7 +95,7 @@ export const countStoryViewsForUser = async (projectId: string, userId: string):
 				eq(s.analyticsEvent.projectId, projectId),
 				eq(s.analyticsEvent.type, 'page_view'),
 				eq(s.analyticsEvent.assetType, 'story'),
-				storyVisibleToUser(userId, projectId),
+				storyVisibleToUser(userId, projectId, lockedGroupIds),
 			),
 		)
 		.groupBy(s.analyticsEvent.storyId)

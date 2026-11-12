@@ -18,6 +18,22 @@ from nao_core.commands.sync.providers.repositories.provider import (
 from nao_core.config.base import NaoConfig
 from nao_core.config.repos import RepoConfig
 
+FILTERABLE_FILES = {"models/dim.sql": "SELECT 1", "models/schema.yml": "version: 2", "readme.md": "docs"}
+PROVIDER_MODULE = "nao_core.commands.sync.providers.repositories.provider"
+
+
+@pytest.fixture
+def git_run():
+    with patch(f"{PROVIDER_MODULE}.console"), patch(f"{PROVIDER_MODULE}.subprocess.run") as mock_run:
+        yield mock_run
+
+
+@pytest.fixture
+def output_dir(tmp_path: Path) -> Path:
+    output = tmp_path / "output"
+    output.mkdir()
+    return output
+
 
 def _supports_symlinks(tmp_path: Path) -> bool:
     probe = tmp_path / ".symlink_probe"
@@ -86,13 +102,8 @@ class TestRepositorySyncProvider:
 
     def test_get_items_returns_repos_from_config(self):
         provider = RepositorySyncProvider()
-        mock_config = MagicMock(spec=NaoConfig)
-        mock_config.repos = [
-            RepoConfig(name="repo1", url="https://github.com/test/repo1"),
-            RepoConfig(name="repo2", url="https://github.com/test/repo2"),
-        ]
 
-        items = provider.get_items(mock_config)
+        items = provider.get_items(_mock_config(_git_repos("repo1", "repo2")))
 
         assert len(items) == 2
         assert items[0].name == "repo1"
@@ -100,10 +111,8 @@ class TestRepositorySyncProvider:
 
     def test_get_items_returns_empty_list_when_no_repos(self):
         provider = RepositorySyncProvider()
-        mock_config = MagicMock(spec=NaoConfig)
-        mock_config.repos = []
 
-        items = provider.get_items(mock_config)
+        items = provider.get_items(_mock_config([]))
 
         assert items == []
 
@@ -115,125 +124,103 @@ class TestRepositorySyncProvider:
         assert result.provider_name == "Repositories"
         assert result.items_synced == 0
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    @patch(f"{PROVIDER_MODULE}.sync_repo")
+    @patch(f"{PROVIDER_MODULE}.console")
     def test_sync_counts_successful_repos_and_reports_failures(self, mock_console, mock_sync, tmp_path: Path):
         provider = RepositorySyncProvider()
-        repos = [
-            RepoConfig(name="repo1", url="https://github.com/test/repo1"),
-            RepoConfig(name="repo2", url="https://github.com/test/repo2"),
-            RepoConfig(name="repo3", url="https://github.com/test/repo3"),
-        ]
         mock_sync.side_effect = [True, False, True]
 
-        result = provider.sync(repos, tmp_path)
+        result = provider.sync(_git_repos("repo1", "repo2", "repo3"), tmp_path)
 
         assert result.items_synced == 2
         assert result.error == "Failed to sync 1 repository: repo2"
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo", return_value=False)
+    @patch(f"{PROVIDER_MODULE}.sync_repo", return_value=False)
     def test_sync_escapes_repository_name_markup(self, mock_sync, tmp_path: Path):
         provider = RepositorySyncProvider()
         output = StringIO()
         console = Console(file=output, force_terminal=False)
         repo = RepoConfig(name="my[b]db", url="https://github.com/test/repo")
 
-        with patch("nao_core.commands.sync.providers.repositories.provider.console", console):
+        with patch(f"{PROVIDER_MODULE}.console", console):
             result = provider.sync([repo], tmp_path)
             console.print(result.error)
 
         assert "my[b]db" in output.getvalue()
         mock_sync.assert_called_once()
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo", return_value=True)
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    @patch(f"{PROVIDER_MODULE}.sync_repo", return_value=True)
+    @patch(f"{PROVIDER_MODULE}.console")
     def test_sync_runs_repos_with_threads(self, mock_console, mock_sync, tmp_path: Path):
         provider = RepositorySyncProvider()
-        repos = [
-            RepoConfig(name="repo1", url="https://github.com/test/repo1"),
-            RepoConfig(name="repo2", url="https://github.com/test/repo2"),
-            RepoConfig(name="repo3", url="https://github.com/test/repo3"),
-        ]
 
-        result = provider.sync(repos, tmp_path, threads=2)
+        result = provider.sync(_git_repos("repo1", "repo2", "repo3"), tmp_path, threads=2)
 
         assert result.items_synced == 3
         assert mock_sync.call_count == 3
 
     def test_should_sync_returns_true_when_repos_exist(self):
         provider = RepositorySyncProvider()
-        mock_config = MagicMock(spec=NaoConfig)
-        mock_config.repos = [
-            RepoConfig(name="repo1", url="https://github.com/test/repo1"),
-        ]
 
-        assert provider.should_sync(mock_config) is True
+        assert provider.should_sync(_mock_config(_git_repos("repo1"))) is True
 
     def test_should_sync_returns_false_when_no_repos(self):
         provider = RepositorySyncProvider()
-        mock_config = MagicMock(spec=NaoConfig)
-        mock_config.repos = []
 
-        assert provider.should_sync(mock_config) is False
+        assert provider.should_sync(_mock_config([])) is False
 
 
-def git_clone_stub(base_path: Path, repo_name: str):
+def git_clone_stub(base_path: Path, repo_name: str, files: dict[str, str] | None = None):
     """subprocess.run side_effect that simulates git clone by creating the .tmp target directory."""
 
     def _run(*_args, **_kwargs):
-        (base_path / f"{repo_name}.tmp").mkdir(exist_ok=True)
+        cloned = base_path / f"{repo_name}.tmp"
+        cloned.mkdir(exist_ok=True)
+        _write_files(cloned, files or {})
         return MagicMock(returncode=0)
 
     return _run
 
 
 class TestCloneOrPullRepo:
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_clones_new_repo(self, mock_console, mock_run, tmp_path: Path):
+    def test_clones_new_repo(self, git_run, tmp_path: Path):
         repo = RepoConfig(name="new-repo", url="https://github.com/test/new-repo")
-        mock_run.side_effect = git_clone_stub(tmp_path, "new-repo")
+        git_run.side_effect = git_clone_stub(tmp_path, "new-repo")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is True
-        mock_run.assert_called_once()
-        assert "clone" in mock_run.call_args[0][0]
+        git_run.assert_called_once()
+        assert "clone" in git_run.call_args[0][0]
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_clones_with_branch(self, mock_console, mock_run, tmp_path: Path):
+    def test_clones_with_branch(self, git_run, tmp_path: Path):
         repo = RepoConfig(
             name="new-repo",
             url="https://github.com/test/new-repo",
             branch="develop",
         )
-        mock_run.side_effect = git_clone_stub(tmp_path, "new-repo")
+        git_run.side_effect = git_clone_stub(tmp_path, "new-repo")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is True
-        call_args = mock_run.call_args[0][0]
+        call_args = git_run.call_args[0][0]
         assert "-b" in call_args
         assert "develop" in call_args
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_reclones_existing_repo(self, mock_console, mock_run, tmp_path: Path):
+    def test_reclones_existing_repo(self, git_run, tmp_path: Path):
         """Re-sync always re-clones fresh rather than pulling in-place."""
         (tmp_path / "existing-repo").mkdir()
         repo = RepoConfig(name="existing-repo", url="https://github.com/test/existing-repo")
-        mock_run.side_effect = git_clone_stub(tmp_path, "existing-repo")
+        git_run.side_effect = git_clone_stub(tmp_path, "existing-repo")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is True
-        assert mock_run.call_count == 1
-        assert "clone" in mock_run.call_args[0][0]
+        assert git_run.call_count == 1
+        assert "clone" in git_run.call_args[0][0]
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_reclones_existing_repo_with_branch(self, mock_console, mock_run, tmp_path: Path):
+    def test_reclones_existing_repo_with_branch(self, git_run, tmp_path: Path):
         """Re-sync with branch uses a single clone -b, not pull + checkout."""
         (tmp_path / "existing-repo").mkdir()
         repo = RepoConfig(
@@ -241,30 +228,22 @@ class TestCloneOrPullRepo:
             url="https://github.com/test/existing-repo",
             branch="feature",
         )
-        mock_run.side_effect = git_clone_stub(tmp_path, "existing-repo")
+        git_run.side_effect = git_clone_stub(tmp_path, "existing-repo")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is True
-        assert mock_run.call_count == 1
-        call_args = mock_run.call_args[0][0]
+        assert git_run.call_count == 1
+        call_args = git_run.call_args[0][0]
         assert "-b" in call_args
         assert "feature" in call_args
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_strips_git_directory_after_clone(self, mock_console, mock_run, tmp_path: Path):
+    def test_strips_git_directory_after_clone(self, git_run, tmp_path: Path):
         """Core fix: .git/ must be removed so parent repo tracks files, not a gitlink."""
         repo = RepoConfig(name="my-repo", url="https://github.com/test/my-repo")
-
-        def fake_clone_with_git_dir(*args, **kwargs):
-            cloned = tmp_path / "my-repo.tmp"
-            cloned.mkdir(exist_ok=True)
-            (cloned / ".git").mkdir()
-            (cloned / "README.md").write_text("hello")
-            return MagicMock(returncode=0)
-
-        mock_run.side_effect = fake_clone_with_git_dir
+        git_run.side_effect = git_clone_stub(
+            tmp_path, "my-repo", {".git/HEAD": "ref: refs/heads/main", "README.md": "hello"}
+        )
 
         result = clone_or_pull_repo(repo, tmp_path)
 
@@ -272,25 +251,14 @@ class TestCloneOrPullRepo:
         assert not (tmp_path / "my-repo" / ".git").exists()
         assert (tmp_path / "my-repo" / "README.md").exists()
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_respects_include_patterns(self, mock_console, mock_run, tmp_path: Path):
+    def test_respects_include_patterns(self, git_run, tmp_path: Path):
         """include globs must be applied to url repos, not only local_path repos."""
         repo = RepoConfig(
             name="filtered-repo",
             url="https://github.com/test/filtered-repo",
             include=["models/*.sql"],
         )
-
-        def fake_clone(*args, **kwargs):
-            cloned = tmp_path / "filtered-repo.tmp"
-            (cloned / "models").mkdir(parents=True, exist_ok=True)
-            (cloned / "models" / "dim.sql").write_text("SELECT 1")
-            (cloned / "models" / "schema.yml").write_text("version: 2")
-            (cloned / "readme.md").write_text("docs")
-            return MagicMock(returncode=0)
-
-        mock_run.side_effect = fake_clone
+        git_run.side_effect = git_clone_stub(tmp_path, "filtered-repo", FILTERABLE_FILES)
 
         result = clone_or_pull_repo(repo, tmp_path)
 
@@ -299,26 +267,18 @@ class TestCloneOrPullRepo:
         assert not (tmp_path / "filtered-repo" / "models" / "schema.yml").exists()
         assert not (tmp_path / "filtered-repo" / "readme.md").exists()
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_respects_exclude_patterns(self, mock_console, mock_run, tmp_path: Path):
+    def test_respects_exclude_patterns(self, git_run, tmp_path: Path):
         """exclude globs must be applied to url repos, pruning emptied directories."""
         repo = RepoConfig(
             name="excluded-repo",
             url="https://github.com/test/excluded-repo",
             exclude=["**/*.pyc", "cache/**"],
         )
-
-        def fake_clone(*args, **kwargs):
-            cloned = tmp_path / "excluded-repo.tmp"
-            cloned.mkdir(exist_ok=True)
-            (cloned / "model.sql").write_text("SELECT 1")
-            (cloned / "build.pyc").write_text("bytecode")
-            (cloned / "cache").mkdir()
-            (cloned / "cache" / "data.bin").write_text("junk")
-            return MagicMock(returncode=0)
-
-        mock_run.side_effect = fake_clone
+        git_run.side_effect = git_clone_stub(
+            tmp_path,
+            "excluded-repo",
+            {"model.sql": "SELECT 1", "build.pyc": "bytecode", "cache/data.bin": "junk"},
+        )
 
         result = clone_or_pull_repo(repo, tmp_path)
 
@@ -327,19 +287,9 @@ class TestCloneOrPullRepo:
         assert not (tmp_path / "excluded-repo" / "build.pyc").exists()
         assert not (tmp_path / "excluded-repo" / "cache").exists()
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_no_filters_keeps_all_files(self, mock_console, mock_run, tmp_path: Path):
+    def test_no_filters_keeps_all_files(self, git_run, tmp_path: Path):
         repo = RepoConfig(name="full-repo", url="https://github.com/test/full-repo")
-
-        def fake_clone(*args, **kwargs):
-            cloned = tmp_path / "full-repo.tmp"
-            cloned.mkdir(exist_ok=True)
-            (cloned / "a.sql").write_text("SELECT 1")
-            (cloned / "b.md").write_text("docs")
-            return MagicMock(returncode=0)
-
-        mock_run.side_effect = fake_clone
+        git_run.side_effect = git_clone_stub(tmp_path, "full-repo", {"a.sql": "SELECT 1", "b.md": "docs"})
 
         result = clone_or_pull_repo(repo, tmp_path)
 
@@ -347,33 +297,27 @@ class TestCloneOrPullRepo:
         assert (tmp_path / "full-repo" / "a.sql").exists()
         assert (tmp_path / "full-repo" / "b.md").exists()
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_rejects_path_traversal_repo_name(self, mock_console, mock_run, tmp_path: Path):
+    def test_rejects_path_traversal_repo_name(self, git_run, tmp_path: Path):
         """Security: repo.name like '../evil' must be rejected before any git call."""
         repo = RepoConfig(name="../evil", url="https://github.com/test/evil")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is False
-        mock_run.assert_not_called()
+        git_run.assert_not_called()
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_returns_false_on_clone_failure(self, mock_console, mock_run, tmp_path: Path):
+    def test_returns_false_on_clone_failure(self, git_run, tmp_path: Path):
         repo = RepoConfig(name="new-repo", url="https://github.com/test/new-repo")
-        mock_run.return_value = MagicMock(returncode=1, stderr="Error cloning")
+        git_run.return_value = MagicMock(returncode=1, stderr="Error cloning")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
         assert result is False
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
-    @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_returns_false_on_reclone_failure(self, mock_console, mock_run, tmp_path: Path):
+    def test_returns_false_on_reclone_failure(self, git_run, tmp_path: Path):
         (tmp_path / "existing-repo").mkdir()
         repo = RepoConfig(name="existing-repo", url="https://github.com/test/existing-repo")
-        mock_run.return_value = MagicMock(returncode=1, stderr="Error cloning")
+        git_run.return_value = MagicMock(returncode=1, stderr="Error cloning")
 
         result = clone_or_pull_repo(repo, tmp_path)
 
@@ -458,136 +402,86 @@ class TestFilterRepoFilesSymlinks:
 
 
 class TestSyncLocalRepo:
-    def test_copies_all_files_without_filters(self, tmp_path: Path):
-        source = tmp_path / "source"
-        source.mkdir()
-        (source / "file1.txt").write_text("hello")
-        (source / "subdir").mkdir()
-        (source / "subdir" / "file2.txt").write_text("world")
-
-        output = tmp_path / "output"
-        output.mkdir()
+    def test_copies_all_files_without_filters(self, tmp_path: Path, output_dir: Path):
+        source = _write_files(tmp_path / "source", {"file1.txt": "hello", "subdir/file2.txt": "world"})
 
         repo = RepoConfig(name="local-repo", local_path=str(source))
-        result = sync_local_repo(repo, output)
+        result = sync_local_repo(repo, output_dir)
 
         assert result is True
-        assert (output / "local-repo" / "file1.txt").read_text() == "hello"
-        assert (output / "local-repo" / "subdir" / "file2.txt").read_text() == "world"
+        assert (output_dir / "local-repo" / "file1.txt").read_text() == "hello"
+        assert (output_dir / "local-repo" / "subdir" / "file2.txt").read_text() == "world"
 
-    def test_respects_include_patterns(self, tmp_path: Path):
-        source = tmp_path / "source"
-        source.mkdir()
-        (source / "models").mkdir()
-        (source / "models" / "dim.sql").write_text("SELECT 1")
-        (source / "models" / "schema.yml").write_text("version: 2")
-        (source / "readme.md").write_text("docs")
-
-        output = tmp_path / "output"
-        output.mkdir()
+    def test_respects_include_patterns(self, tmp_path: Path, output_dir: Path):
+        source = _write_files(tmp_path / "source", FILTERABLE_FILES)
 
         repo = RepoConfig(name="filtered", local_path=str(source), include=["models/*.sql"])
-        result = sync_local_repo(repo, output)
+        result = sync_local_repo(repo, output_dir)
 
         assert result is True
-        assert (output / "filtered" / "models" / "dim.sql").exists()
-        assert not (output / "filtered" / "models" / "schema.yml").exists()
-        assert not (output / "filtered" / "readme.md").exists()
+        assert (output_dir / "filtered" / "models" / "dim.sql").exists()
+        assert not (output_dir / "filtered" / "models" / "schema.yml").exists()
+        assert not (output_dir / "filtered" / "readme.md").exists()
 
-    def test_respects_exclude_patterns(self, tmp_path: Path):
-        source = tmp_path / "source"
-        source.mkdir()
-        (source / "model.sql").write_text("SELECT 1")
-        (source / "cache.pyc").write_text("bytecode")
-
-        output = tmp_path / "output"
-        output.mkdir()
+    def test_respects_exclude_patterns(self, tmp_path: Path, output_dir: Path):
+        source = _write_files(tmp_path / "source", {"model.sql": "SELECT 1", "cache.pyc": "bytecode"})
 
         repo = RepoConfig(name="excluded", local_path=str(source), exclude=["*.pyc"])
-        result = sync_local_repo(repo, output)
+        result = sync_local_repo(repo, output_dir)
 
         assert result is True
-        assert (output / "excluded" / "model.sql").exists()
-        assert not (output / "excluded" / "cache.pyc").exists()
+        assert (output_dir / "excluded" / "model.sql").exists()
+        assert not (output_dir / "excluded" / "cache.pyc").exists()
 
-    def test_replaces_existing_output(self, tmp_path: Path):
-        source = tmp_path / "source"
-        source.mkdir()
-        (source / "new.txt").write_text("new content")
-
-        output = tmp_path / "output"
-        output.mkdir()
-        stale = output / "local-repo"
-        stale.mkdir()
-        (stale / "old.txt").write_text("stale content")
+    def test_replaces_existing_output(self, tmp_path: Path, output_dir: Path):
+        source = _write_files(tmp_path / "source", {"new.txt": "new content"})
+        _write_files(output_dir / "local-repo", {"old.txt": "stale content"})
 
         repo = RepoConfig(name="local-repo", local_path=str(source))
-        result = sync_local_repo(repo, output)
+        result = sync_local_repo(repo, output_dir)
 
         assert result is True
-        assert (output / "local-repo" / "new.txt").exists()
-        assert not (output / "local-repo" / "old.txt").exists()
+        assert (output_dir / "local-repo" / "new.txt").exists()
+        assert not (output_dir / "local-repo" / "old.txt").exists()
 
-    def test_strips_git_dir_without_filters(self, tmp_path: Path):
-        source = tmp_path / "source"
-        source.mkdir()
-        (source / "file1.txt").write_text("hello")
-        git_dir = source / ".git"
-        git_dir.mkdir()
-        (git_dir / "HEAD").write_text("ref: refs/heads/main")
-
-        output = tmp_path / "output"
-        output.mkdir()
+    def test_strips_git_dir_without_filters(self, tmp_path: Path, output_dir: Path):
+        source = _write_files(tmp_path / "source", {"file1.txt": "hello", ".git/HEAD": "ref: refs/heads/main"})
 
         repo = RepoConfig(name="local-repo", local_path=str(source))
-        result = sync_local_repo(repo, output)
+        result = sync_local_repo(repo, output_dir)
 
         assert result is True
-        assert (output / "local-repo" / "file1.txt").read_text() == "hello"
-        assert not (output / "local-repo" / ".git").exists()
+        assert (output_dir / "local-repo" / "file1.txt").read_text() == "hello"
+        assert not (output_dir / "local-repo" / ".git").exists()
 
-    def test_strips_git_dir_with_filters(self, tmp_path: Path):
-        source = tmp_path / "source"
-        source.mkdir()
-        (source / "model.sql").write_text("SELECT 1")
-        git_dir = source / ".git"
-        git_dir.mkdir()
-        (git_dir / "HEAD").write_text("ref: refs/heads/main")
-
-        output = tmp_path / "output"
-        output.mkdir()
+    def test_strips_git_dir_with_filters(self, tmp_path: Path, output_dir: Path):
+        source = _write_files(tmp_path / "source", {"model.sql": "SELECT 1", ".git/HEAD": "ref: refs/heads/main"})
 
         repo = RepoConfig(name="filtered", local_path=str(source), exclude=["*.pyc"])
-        result = sync_local_repo(repo, output)
+        result = sync_local_repo(repo, output_dir)
 
         assert result is True
-        assert (output / "filtered" / "model.sql").exists()
-        assert not (output / "filtered" / ".git").exists()
+        assert (output_dir / "filtered" / "model.sql").exists()
+        assert not (output_dir / "filtered" / ".git").exists()
 
-    def test_returns_false_for_missing_path(self, tmp_path: Path):
-        output = tmp_path / "output"
-        output.mkdir()
-
+    def test_returns_false_for_missing_path(self, tmp_path: Path, output_dir: Path):
         repo = RepoConfig(name="missing", local_path=str(tmp_path / "nonexistent"))
-        result = sync_local_repo(repo, output)
+        result = sync_local_repo(repo, output_dir)
 
         assert result is False
 
-    def test_returns_false_for_file_not_directory(self, tmp_path: Path):
+    def test_returns_false_for_file_not_directory(self, tmp_path: Path, output_dir: Path):
         source = tmp_path / "a_file.txt"
         source.write_text("not a dir")
 
-        output = tmp_path / "output"
-        output.mkdir()
-
         repo = RepoConfig(name="notdir", local_path=str(source))
-        result = sync_local_repo(repo, output)
+        result = sync_local_repo(repo, output_dir)
 
         assert result is False
 
 
 class TestSyncRepo:
-    @patch("nao_core.commands.sync.providers.repositories.provider.sync_local_repo")
+    @patch(f"{PROVIDER_MODULE}.sync_local_repo")
     def test_dispatches_to_local(self, mock_local):
         mock_local.return_value = True
         repo = RepoConfig(name="local", local_path="/some/path")
@@ -598,7 +492,7 @@ class TestSyncRepo:
         assert result is True
         mock_local.assert_called_once_with(repo, base)
 
-    @patch("nao_core.commands.sync.providers.repositories.provider.clone_or_pull_repo")
+    @patch(f"{PROVIDER_MODULE}.clone_or_pull_repo")
     def test_dispatches_to_git(self, mock_git):
         mock_git.return_value = True
         repo = RepoConfig(name="git-repo", url="https://github.com/test/repo")
@@ -608,3 +502,22 @@ class TestSyncRepo:
 
         assert result is True
         mock_git.assert_called_once_with(repo, base)
+
+
+def _write_files(root: Path, files: dict[str, str]) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    for relative_path, content in files.items():
+        file_path = root / relative_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content)
+    return root
+
+
+def _git_repos(*names: str) -> list[RepoConfig]:
+    return [RepoConfig(name=name, url=f"https://github.com/test/{name}") for name in names]
+
+
+def _mock_config(repos: list[RepoConfig]) -> MagicMock:
+    config = MagicMock(spec=NaoConfig)
+    config.repos = repos
+    return config

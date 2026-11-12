@@ -1315,6 +1315,72 @@ def test_cloud_bigquery_sso_never_uses_server_credentials(
     connect.assert_not_called()
 
 
+@pytest.fixture
+def env_templated_project_folder():
+    """Two databases, one named after an env reference, so an unknown database_id lists the rendered names."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = {
+            "project_name": "test-project",
+            "databases": [
+                {
+                    "name": "db-{{ env('BETTER_AUTH_SECRET') }}",
+                    "type": "duckdb",
+                    "path": ":memory:",
+                },
+                {"name": "other", "type": "duckdb", "path": ":memory:"},
+            ],
+        }
+        with (Path(tmpdir) / "nao_config.yaml").open("w") as f:
+            yaml.dump(config, f)
+        yield tmpdir
+
+
+def _available_databases(project_folder: str, env_vars: dict[str, str] | None = None):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": project_folder,
+            "database_id": "missing",
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            **({"env_vars": env_vars} if env_vars else {}),
+        },
+    )
+    assert response.status_code == 400, response.text
+    return response.json()["detail"]["available_databases"]
+
+
+def test_cloud_project_config_never_reads_the_server_environment(
+    env_templated_project_folder, monkeypatch
+):
+    monkeypatch.setenv("NAO_MODE", "cloud")
+
+    assert _available_databases(env_templated_project_folder) == ["db-", "other"]
+
+
+def test_cloud_project_config_reads_the_project_env_vars(
+    env_templated_project_folder, monkeypatch
+):
+    monkeypatch.setenv("NAO_MODE", "cloud")
+
+    databases = _available_databases(
+        env_templated_project_folder, {"BETTER_AUTH_SECRET": "project-value"}
+    )
+
+    assert databases == ["db-project-value", "other"]
+
+
+def test_self_hosted_project_config_reads_the_server_environment(
+    env_templated_project_folder, monkeypatch
+):
+    monkeypatch.delenv("NAO_MODE", raising=False)
+
+    assert _available_databases(env_templated_project_folder) == [
+        f"db-{INTERNAL_SECRET}",
+        "other",
+    ]
+
+
 def test_execute_sql_simple_bigquery(bigquery_project_folder):
     """Test execute_sql endpoint with BigQuery using SSO."""
     client = TestClient(app, headers=INTERNAL_HEADERS)

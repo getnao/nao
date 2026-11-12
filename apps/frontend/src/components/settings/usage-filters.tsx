@@ -269,6 +269,7 @@ const sourceLabels: Record<UsageSource, string> = {
 	contextRecommendations: 'Context recommendations',
 	onboarding: 'Onboarding',
 	test: 'Tests',
+	storyModel: 'Story models',
 };
 
 function sameValues<T extends string>(a: T[], b: T[]): boolean {

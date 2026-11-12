@@ -22,6 +22,7 @@ interface StoryTableEditProviderProps {
 	storySlug: string;
 	storyTitle: string;
 	storyCode: string;
+	storyVersion?: number;
 	children: React.ReactNode;
 }
 
@@ -34,9 +35,16 @@ export function StoryTableEditProvider({
 	storySlug,
 	storyTitle,
 	storyCode,
+	storyVersion,
 	children,
 }: StoryTableEditProviderProps) {
-	const { replaceBlock, isSaving } = useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode });
+	const { replaceBlock, isSaving } = useStoryBlockEdit({
+		chatId,
+		storySlug,
+		storyTitle,
+		storyCode,
+		storyVersion,
+	});
 
 	const saveTable = useCallback(
 		(rawTag: string, config: StoryTableBlockInput) => replaceBlock(rawTag, buildStoryTableBlock(config)),

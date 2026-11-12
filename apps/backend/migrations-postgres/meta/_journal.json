@@ -719,8 +719,15 @@
     {
       "idx": 102,
       "version": "7",
-      "when": 1794316975390,
-      "tag": "0102_column_security",
+      "when": 1794307823056,
+      "tag": "0102_story_multi_editors",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794499731438,
+      "tag": "0103_column_security",
       "breakpoints": true
     }
   ]

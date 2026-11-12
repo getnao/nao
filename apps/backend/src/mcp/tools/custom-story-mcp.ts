@@ -11,6 +11,18 @@ import {
 	createCustomStoryDraft,
 	publishCustomStoryDraft,
 } from '../../services/custom-story-authoring';
+import {
+	assertWriterAddsNoChatQueries,
+	CustomStoryQueryNotAllowedError,
+} from '../../services/custom-story-query-access';
+import {
+	acquireStoryEditLock,
+	assertStoryEditable,
+	getStoryEditLockState,
+	newMcpStoryEditHolder,
+	releaseStoryEditLock,
+	StoryEditLockedError,
+} from '../../services/story-edit-lock.service';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
 import {
 	backfillMissingQueryDataByIds,
@@ -44,6 +56,9 @@ export const UPDATE_CUSTOM_STORY_DESCRIPTION =
 
 const CHAT_QUERY_DATA_REFUSAL =
 	'`query_data` only applies to a standalone custom story: one attached to a chat reads the queries run in it.';
+
+const CONCURRENT_MCP_WRITE_REFUSAL =
+	'Another `update_story` call is still writing this story. Wait for it to finish, then call `update_story` again.';
 
 const STORY_FILES_INPUT = z
 	.array(
@@ -125,14 +140,78 @@ export async function updateCustomStoryForMcp(
 	if (story.chatId && input.queryData) {
 		return errorResult(CHAT_QUERY_DATA_REFUSAL);
 	}
-	await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
-	if (input.title !== undefined && input.title !== story.title) {
-		await storyQueries.renameStory(story.id, input.title);
+	return withMcpStoryEditLock(story.id, ctx.userId, async () => {
+		const queryRefusal = await chatQueryRefusal(story, ctx.userId, input.files);
+		if (queryRefusal) {
+			return errorResult(queryRefusal);
+		}
+		await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
+		if (input.title !== undefined && input.title !== story.title) {
+			await storyQueries.renameStory(story.id, input.title);
+		}
+		if (!story.chatId) {
+			await saveStandaloneQueryData(story.id, input.queryData, ctx);
+		}
+		return publishResult({ ...story, title: input.title ?? story.title }, ctx);
+	});
+}
+
+/** Holds the story for the whole MCP write, so no one else can start editing it halfway through. */
+export async function withMcpStoryEditLock(
+	storyId: string,
+	userId: string,
+	write: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+	const lockError = await storyEditLockRefusal(storyId, userId);
+	if (lockError) {
+		return errorResult(lockError);
 	}
-	if (!story.chatId) {
-		await saveStandaloneQueryData(story.id, input.queryData, ctx);
+	const lock = await getStoryEditLockState(storyId, { userId, chatId: null });
+	if (lock?.byMcp) {
+		return errorResult(CONCURRENT_MCP_WRITE_REFUSAL);
 	}
-	return publishResult({ ...story, title: input.title ?? story.title }, ctx);
+	if (lock?.isYou) {
+		return write();
+	}
+	const holder = newMcpStoryEditHolder(userId);
+	try {
+		await acquireStoryEditLock(storyId, holder);
+	} catch (error) {
+		if (error instanceof StoryEditLockedError) {
+			return errorResult(error.message);
+		}
+		throw error;
+	}
+	try {
+		return await write();
+	} finally {
+		await releaseStoryEditLock(storyId, holder);
+	}
+}
+
+async function chatQueryRefusal(story: DBStory, userId: string, files: StoryFileInput[]): Promise<string | null> {
+	try {
+		await assertWriterAddsNoChatQueries(story, userId, files);
+		return null;
+	} catch (error) {
+		if (error instanceof CustomStoryQueryNotAllowedError) {
+			return error.message;
+		}
+		throw error;
+	}
+}
+
+/** The reason an MCP client may not edit the story right now, or null when it may. */
+export async function storyEditLockRefusal(storyId: string, userId: string): Promise<string | null> {
+	try {
+		await assertStoryEditable(storyId, { userId, chatId: null });
+		return null;
+	} catch (error) {
+		if (error instanceof StoryEditLockedError) {
+			return error.message;
+		}
+		throw error;
+	}
 }
 
 export async function getCustomStoryForMcp(storyId: string, ctx: McpContext): Promise<ToolResult | null> {

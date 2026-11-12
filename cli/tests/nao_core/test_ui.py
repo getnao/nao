@@ -5,56 +5,42 @@ from unittest.mock import MagicMock, patch
 import pytest
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
+from rich.panel import Panel
 
 from nao_core.ui import UI, ask_confirm, ask_select, ask_text
+
+
+@pytest.fixture
+def mock_console(monkeypatch):
+    console = MagicMock()
+    monkeypatch.setattr(UI, "_console", console)
+    return console
 
 
 class TestUI:
     """Tests for UI helper class."""
 
-    def test_success_prints_green_check(self):
-        """UI.success prints message with green checkmark."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
-        UI.success("Operation completed")
-
-        mock_console.print.assert_called_once()
-        call_arg = mock_console.print.call_args[0][0]
-        assert "✓" in call_arg
-        assert "Operation completed" in call_arg
-        assert "green" in call_arg
-
-    def test_warn_prints_yellow_text(self):
-        """UI.warn prints message in yellow."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
-        UI.warn("Warning message")
+    @pytest.mark.parametrize(
+        ("method", "message", "fragments"),
+        [
+            pytest.param(UI.success, "Operation completed", ["✓", "green"], id="success_prints_green_check"),
+            pytest.param(UI.warn, "Warning message", ["yellow"], id="warn_prints_yellow_text"),
+            pytest.param(UI.error, "Something failed", ["✗", "red"], id="error_prints_red_x"),
+            pytest.param(UI.info, "Info message", ["bold cyan"], id="info_prints_bold_cyan"),
+            pytest.param(UI.bullet, "List item", ["•", "cyan"], id="bullet_prints_indented_cyan_bullet"),
+        ],
+    )
+    def test_styled_message(self, mock_console, method, message, fragments):
+        method(message)
 
         mock_console.print.assert_called_once()
         call_arg = mock_console.print.call_args[0][0]
-        assert "Warning message" in call_arg
-        assert "yellow" in call_arg
+        assert message in call_arg
+        for fragment in fragments:
+            assert fragment in call_arg
 
-    def test_error_prints_red_x(self):
-        """UI.error prints message with red X."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
-        UI.error("Something failed")
-
-        mock_console.print.assert_called_once()
-        call_arg = mock_console.print.call_args[0][0]
-        assert "✗" in call_arg
-        assert "Something failed" in call_arg
-        assert "red" in call_arg
-
-    def test_title_prints_bold_yellow(self):
+    def test_title_prints_bold_yellow(self, mock_console):
         """UI.title prints message in bold yellow with newline prefix."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
         UI.title("Section Title")
 
         mock_console.print.assert_called_once()
@@ -63,70 +49,29 @@ class TestUI:
         assert "bold yellow" in call_arg
         assert call_arg.startswith("\n")
 
-    def test_info_prints_bold_cyan(self):
-        """UI.info prints message in bold cyan."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
-        UI.info("Info message")
-
-        mock_console.print.assert_called_once()
-        call_arg = mock_console.print.call_args[0][0]
-        assert "Info message" in call_arg
-        assert "bold cyan" in call_arg
-
-    def test_bullet_prints_indented_cyan_bullet(self):
-        """UI.bullet prints item with cyan bullet point."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
-        UI.bullet("List item")
-
-        mock_console.print.assert_called_once()
-        call_arg = mock_console.print.call_args[0][0]
-        assert "•" in call_arg
-        assert "List item" in call_arg
-        assert "cyan" in call_arg
-
-    def test_bullets_prints_multiple_items(self):
+    def test_bullets_prints_multiple_items(self, mock_console):
         """UI.bullets prints multiple bullet items."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
         UI.bullets(["Item 1", "Item 2", "Item 3"])
 
         assert mock_console.print.call_count == 3
         for i, call in enumerate(mock_console.print.call_args_list, 1):
             assert f"Item {i}" in call[0][0]
 
-    def test_panel_prints_rich_panel(self):
+    def test_panel_prints_rich_panel(self, mock_console):
         """UI.panel prints content in a Rich panel."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
         UI.panel("Panel content", title="My Panel")
 
         mock_console.print.assert_called_once()
-        call_arg = mock_console.print.call_args[0][0]
-        # Check it's a Panel object
-        from rich.panel import Panel
+        assert isinstance(mock_console.print.call_args[0][0], Panel)
 
-        assert isinstance(call_arg, Panel)
-
-    def test_print_outputs_message(self):
+    def test_print_outputs_message(self, mock_console):
         """UI.print outputs message to console."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
         UI.print("Simple message")
 
         mock_console.print.assert_called_once_with("Simple message")
 
-    def test_print_empty_string(self):
+    def test_print_empty_string(self, mock_console):
         """UI.print can output empty string."""
-        mock_console = MagicMock()
-        UI._console = mock_console
-
         UI.print()
 
         mock_console.print.assert_called_once_with("")
@@ -243,23 +188,15 @@ class TestAskText:
 class TestAskConfirm:
     """Tests for ask_confirm function."""
 
+    @pytest.mark.parametrize("answer", [True, False], ids=["confirmed", "declined"])
     @patch("nao_core.ui.questionary.confirm")
-    def test_returns_true_when_confirmed(self, mock_confirm):
-        """ask_confirm returns True when user confirms."""
-        mock_confirm.return_value.ask.return_value = True
+    def test_returns_the_answer(self, mock_confirm, answer):
+        """ask_confirm returns the user's answer."""
+        mock_confirm.return_value.ask.return_value = answer
 
         result = ask_confirm("Continue?")
 
-        assert result is True
-
-    @patch("nao_core.ui.questionary.confirm")
-    def test_returns_false_when_declined(self, mock_confirm):
-        """ask_confirm returns False when user declines."""
-        mock_confirm.return_value.ask.return_value = False
-
-        result = ask_confirm("Continue?")
-
-        assert result is False
+        assert result is answer
 
     @patch("nao_core.ui.questionary.confirm")
     def test_raises_keyboard_interrupt_on_cancel(self, mock_confirm):

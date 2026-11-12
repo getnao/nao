@@ -455,12 +455,16 @@ async function executeLocalSql(sqlQuery: string, context: ToolContext): Promise<
 	return { data: result.data, columns: result.columns };
 }
 
-export async function createStoryExecutionContext(chatId: string): Promise<StoryExecutionContext> {
-	const [projectId, ownerId] = await Promise.all([requireChatProjectId(chatId), chatQueries.getChatOwnerId(chatId)]);
-	if (!ownerId) {
+/** Queries run with the access of `userId`, the chat owner by default. */
+export async function createStoryExecutionContext(chatId: string, userId?: string): Promise<StoryExecutionContext> {
+	const [projectId, runAsUserId] = await Promise.all([
+		requireChatProjectId(chatId),
+		userId ?? chatQueries.getChatOwnerId(chatId),
+	]);
+	if (!runAsUserId) {
 		throw new Error('Chat owner not found');
 	}
-	const toolContext = await buildToolContext({ projectId, userId: ownerId, chatId });
+	const toolContext = await buildToolContext({ projectId, userId: runAsUserId, chatId });
 	return {
 		toolContext,
 		enforceExcludedColumns: await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings),

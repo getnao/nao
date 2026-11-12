@@ -1,5 +1,5 @@
 {
-  "id": "e1bc0bf8-30c2-44fb-b28f-270714a74e3a",
+  "id": "ffc9d7c5-4eba-4d25-81c9-3dbb0cf72b2e",
   "prevId": "bfd0da27-c446-4300-8996-b49b11a913d3",
   "version": "7",
   "dialect": "postgresql",
@@ -6999,12 +6999,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "column_security": {
-          "name": "column_security",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "row_security": {
           "name": "row_security",
           "type": "jsonb",
@@ -8570,6 +8564,82 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.shared_chat_group_access": {
+      "name": "shared_chat_group_access",
+      "schema": "",
+      "columns": {
+        "shared_chat_id": {
+          "name": "shared_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "shared_chat_group_access_groupId_idx": {
+          "name": "shared_chat_group_access_groupId_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "shared_chat_group_access_shared_chat_id_shared_chat_id_fk": {
+          "name": "shared_chat_group_access_shared_chat_id_shared_chat_id_fk",
+          "tableFrom": "shared_chat_group_access",
+          "tableTo": "shared_chat",
+          "columnsFrom": [
+            "shared_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "shared_chat_group_access_group_id_user_group_id_fk": {
+          "name": "shared_chat_group_access_group_id_user_group_id_fk",
+          "tableFrom": "shared_chat_group_access",
+          "tableTo": "user_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "shared_chat_group_access_shared_chat_id_group_id_pk": {
+          "name": "shared_chat_group_access_shared_chat_id_group_id_pk",
+          "columns": [
+            "shared_chat_id",
+            "group_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.shared_story": {
       "name": "shared_story",
       "schema": "",
@@ -8604,6 +8674,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'project'"
+        },
+        "project_role": {
+          "name": "project_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'viewer'"
         },
         "is_pinned": {
           "name": "is_pinned",
@@ -8735,6 +8812,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'viewer'"
         }
       },
       "indexes": {},
@@ -8795,6 +8879,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'viewer'"
         }
       },
       "indexes": {
@@ -9694,6 +9785,127 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.story_edit_lock": {
+      "name": "story_edit_lock",
+      "schema": "",
+      "columns": {
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "acquired_at": {
+          "name": "acquired_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "story_edit_lock_userId_idx": {
+          "name": "story_edit_lock_userId_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "story_edit_lock_chatId_idx": {
+          "name": "story_edit_lock_chatId_idx",
+          "columns": [
+            {
+              "expression": "chat_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "story_edit_lock_story_id_story_id_fk": {
+          "name": "story_edit_lock_story_id_story_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_edit_lock_user_id_user_id_fk": {
+          "name": "story_edit_lock_user_id_user_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_edit_lock_chat_id_chat_id_fk": {
+          "name": "story_edit_lock_chat_id_chat_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -11036,12 +11248,6 @@
         },
         "sso_mappings": {
           "name": "sso_mappings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "column_policies": {
-          "name": "column_policies",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

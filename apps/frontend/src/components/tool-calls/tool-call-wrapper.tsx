@@ -9,6 +9,7 @@ import { useToolCallContext } from '@/contexts/tool-call';
 import { useIsInToolGroup } from '@/contexts/tool-group';
 import { ToolCallActionsProvider } from '@/contexts/tool-call-actions';
 import { useMemoObject } from '@/hooks/useMemoObject';
+import { useExpandOnToolCallReveal } from '@/hooks/use-tool-call-reveal';
 import { ExportDataMenu } from '@/components/export-data-menu';
 
 interface ExportAction {
@@ -74,6 +75,8 @@ export const ToolCallWrapper = ({
 			hasInitialized.current = true;
 		}
 	}, [hasActions, canExpand, defaultExpanded, setIsExpanded]);
+
+	useExpandOnToolCallReveal(canExpand ? [toolPart.toolCallId] : [], setIsExpanded);
 
 	const hasError = !!toolPart.errorText;
 	const showChevron = isSettled && (!hasError || isHovering);

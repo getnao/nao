@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives import serialization
 
 from nao_core.config.databases.snowflake import SnowflakeConfig
 
-from .base import BaseSyncIntegrationTests, SyncTestSpec
+from .base import BaseSyncIntegrationTests, SyncTestSpec, dml_statements
 
 SNOWFLAKE_ACCOUNT_ID = os.environ.get("SNOWFLAKE_ACCOUNT_ID")
 SNOWFLAKE_USERNAME = os.environ.get("SNOWFLAKE_USERNAME")
@@ -141,18 +141,8 @@ def temp_database():
         # Create schema
         test_conn.raw_sql("CREATE SCHEMA IF NOT EXISTS public").fetchall()
 
-        # Read and execute SQL script
-        sql_file = Path(__file__).parent / "dml" / "snowflake.sql"
-        sql_template = sql_file.read_text()
-
-        # Inject database name into SQL
-        sql_content = sql_template.format(database=db_name)
-
-        # Execute SQL statements
-        for statement in sql_content.split(";"):
-            statement = statement.strip()
-            if statement:
-                test_conn.raw_sql(statement).fetchall()
+        for statement in dml_statements("snowflake.sql", database=db_name):
+            test_conn.raw_sql(statement).fetchall()
 
         test_conn.disconnect()
 

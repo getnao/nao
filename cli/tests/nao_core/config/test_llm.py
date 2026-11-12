@@ -20,7 +20,7 @@ from nao_core.config.llm import (
 
 def test_default_annotation_model_is_applied():
     """annotation_model should default based on the primary provider."""
-    config = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
+    config = LLMConfig(providers=[_openai_provider()])
     assert config.annotation_model == DEFAULT_ANNOTATION_MODELS[LLMProvider.OPENAI]
 
 
@@ -88,8 +88,8 @@ def test_rejects_a_name_the_app_cannot_address():
 def test_accepts_several_named_endpoints_of_the_same_kind():
     config = LLMConfig(
         providers=[
-            ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://prod:8000/v1"),
-            ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="staging", base_url="http://stg:8000/v1"),
+            _named_endpoint("prod", "http://prod:8000/v1"),
+            _named_endpoint("staging", "http://stg:8000/v1"),
         ]
     )
 
@@ -98,8 +98,8 @@ def test_accepts_several_named_endpoints_of_the_same_kind():
     with pytest.raises(ValueError, match="configured more than once"):
         LLMConfig(
             providers=[
-                ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://a:8000/v1"),
-                ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://b:8000/v1"),
+                _named_endpoint("prod", "http://a:8000/v1"),
+                _named_endpoint("prod", "http://b:8000/v1"),
             ]
         )
 
@@ -121,48 +121,35 @@ def test_rejects_duplicate_providers():
 
 def test_rejects_duplicate_models():
     with pytest.raises(ValueError, match="duplicate model 'gpt-4.1'"):
-        ProviderConfig(
-            provider=LLMProvider.OPENAI,
-            api_key="sk-test",
+        _openai_provider(
             models=[ModelConfig(id="gpt-4.1"), ModelConfig(id="gpt-4.1")],
         )
 
 
 def test_rejects_several_default_models():
     with pytest.raises(ValueError, match="only one model can be the default"):
-        ProviderConfig(
-            provider=LLMProvider.OPENAI,
-            api_key="sk-test",
+        _openai_provider(
             models=[ModelConfig(id="gpt-4.1", default=True), ModelConfig(id="gpt-5", default=True)],
         )
 
 
-def test_default_model_prefers_the_flagged_one():
-    provider = ProviderConfig(
-        provider=LLMProvider.OPENAI,
-        api_key="sk-test",
-        models=[ModelConfig(id="gpt-4.1"), ModelConfig(id="gpt-5", default=True)],
-    )
+@pytest.mark.parametrize(
+    ("models", "expected_model_id"),
+    [
+        pytest.param([ModelConfig(id="gpt-4.1"), ModelConfig(id="gpt-5", default=True)], "gpt-5", id="flagged"),
+        pytest.param([ModelConfig(id="gpt-4.1"), ModelConfig(id="gpt-5")], "gpt-4.1", id="first"),
+    ],
+)
+def test_default_model_prefers_the_flagged_one_then_the_first(models, expected_model_id):
+    provider = _openai_provider(models=models)
     assert provider.default_model is not None
-    assert provider.default_model.id == "gpt-5"
-
-
-def test_default_model_falls_back_to_the_first_one():
-    provider = ProviderConfig(
-        provider=LLMProvider.OPENAI,
-        api_key="sk-test",
-        models=[ModelConfig(id="gpt-4.1"), ModelConfig(id="gpt-5")],
-    )
-    assert provider.default_model is not None
-    assert provider.default_model.id == "gpt-4.1"
+    assert provider.default_model.id == expected_model_id
 
 
 def test_budget_reads_limits_and_period():
     config = LLMConfig(
         providers=[
-            ProviderConfig(
-                provider=LLMProvider.OPENAI,
-                api_key="sk-test",
+            _openai_provider(
                 budget=BudgetConfig(limit=100, per_user_limit=20, period=BudgetPeriod.WEEK),
             )
         ]
@@ -188,9 +175,7 @@ def test_budget_requires_a_positive_limit():
 def test_costs_are_resolved_per_model():
     config = LLMConfig(
         providers=[
-            ProviderConfig(
-                provider=LLMProvider.OPENAI,
-                api_key="sk-test",
+            _openai_provider(
                 models=[
                     ModelConfig(id="gpt-4.1", costs=ModelCosts(input_no_cache=2, output=8)),
                     ModelConfig(id="gpt-5"),
@@ -211,16 +196,14 @@ def test_costs_are_resolved_for_a_named_endpoint():
     """A test run priced against `openaiCompatible/prod` must find the prices declared under it."""
     config = LLMConfig(
         providers=[
-            ProviderConfig(
-                provider=LLMProvider.OPENAI_COMPATIBLE,
-                name="prod",
-                base_url="http://prod:8000/v1",
+            _named_endpoint(
+                "prod",
+                "http://prod:8000/v1",
                 models=[ModelConfig(id="llama-3", costs=ModelCosts(input_no_cache=1, output=3))],
             ),
-            ProviderConfig(
-                provider=LLMProvider.OPENAI_COMPATIBLE,
-                name="staging",
-                base_url="http://stg:8000/v1",
+            _named_endpoint(
+                "staging",
+                "http://stg:8000/v1",
                 models=[ModelConfig(id="llama-3", costs=ModelCosts(input_no_cache=5, output=9))],
             ),
         ]
@@ -247,7 +230,7 @@ def test_costs_fall_back_to_deprecated_meta():
 def test_annotation_target_prefers_the_provider_owning_the_model():
     config = LLMConfig(
         providers=[
-            ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test"),
+            _openai_provider(),
             ProviderConfig(
                 provider=LLMProvider.ANTHROPIC,
                 api_key="sk-ant",
@@ -268,18 +251,8 @@ def test_annotation_target_can_name_the_endpoint_a_model_comes_from():
     """Endpoints sharing a model id are told apart by `<provider id>:<model id>`."""
     config = LLMConfig(
         providers=[
-            ProviderConfig(
-                provider=LLMProvider.OPENAI_COMPATIBLE,
-                name="prod",
-                base_url="http://prod:8000/v1",
-                models=[ModelConfig(id="llama-3")],
-            ),
-            ProviderConfig(
-                provider=LLMProvider.OPENAI_COMPATIBLE,
-                name="staging",
-                base_url="http://stg:8000/v1",
-                models=[ModelConfig(id="llama-3")],
-            ),
+            _named_endpoint("prod", "http://prod:8000/v1", models=[ModelConfig(id="llama-3")]),
+            _named_endpoint("staging", "http://stg:8000/v1", models=[ModelConfig(id="llama-3")]),
         ],
         annotation_model="openaiCompatible/staging:llama-3",
     )
@@ -311,7 +284,7 @@ def test_annotation_target_keeps_a_model_id_holding_a_colon():
 def test_annotation_target_falls_back_to_the_primary_provider():
     config = LLMConfig(
         providers=[
-            ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test"),
+            _openai_provider(),
             ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant"),
         ]
     )
@@ -420,3 +393,11 @@ def test_prompt_config_collects_several_providers(mock_select, mock_text, _mock_
     assert {choice.value for choice in second_provider_choices} == {
         provider.value for provider in LLMProvider if provider != LLMProvider.OPENAI
     }
+
+
+def _openai_provider(**fields) -> ProviderConfig:
+    return ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test", **fields)
+
+
+def _named_endpoint(name: str, base_url: str, **fields) -> ProviderConfig:
+    return ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name=name, base_url=base_url, **fields)
