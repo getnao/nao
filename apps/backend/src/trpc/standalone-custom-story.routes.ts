@@ -14,6 +14,7 @@ import {
 } from '../services/custom-story';
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { getCustomStoryStateByStoryId, setCustomStoryStateByStoryId } from '../services/custom-story-state';
+import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	STANDALONE_QUERY_SQL_UNAVAILABLE,
@@ -50,13 +51,20 @@ const standaloneOwnerProcedure = protectedProcedure
 
 export const standaloneCustomStoryRoutes = {
 	listVersions: standaloneOwnerProcedure.query(async ({ ctx }) => {
-		const versions = await storyQueries.listStoryVersionsByStoryId(ctx.story.id);
+		const [versions, changes] = await Promise.all([
+			storyQueries.listStoryVersionsByStoryId(ctx.story.id),
+			listStoryVersionChanges(ctx.story, ctx.user.id),
+		]);
 		return {
 			id: ctx.story.id,
 			title: ctx.story.title,
 			slug: ctx.story.slug,
 			archivedAt: ctx.story.archivedAt,
-			versions: versions.map(({ version, createdAt }) => ({ version, createdAt })),
+			versions: versions.map(({ version, createdAt }) => ({
+				version,
+				createdAt,
+				change: changes.get(version) ?? null,
+			})),
 		};
 	}),
 

@@ -19,7 +19,7 @@ import {
 import { ActionErrorBanner, CustomStoryBody, useActiveStoryTheme } from '@/components/custom-story/custom-story-body';
 import { CustomStoryFiles } from '@/components/custom-story/custom-story-files';
 import { CustomStoryViewLayers } from '@/components/custom-story/custom-story-view-mode';
-import { useCustomStory } from '@/components/custom-story/use-custom-story';
+import { useCustomStory, useStandaloneCustomStoryVersions } from '@/components/custom-story/use-custom-story';
 import { useCustomStoryDownload } from '@/components/custom-story/use-custom-story-download';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ShareDialog } from '@/components/share-dialog';
@@ -241,9 +241,14 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 
 /** A custom story of the user outside any chat: it renders from the rows saved with it and is edited in a new chat. */
 export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
-	const storyQuery = useQuery(trpc.standaloneCustomStory.listVersions.queryOptions({ storyId }));
-	const contentQuery = useQuery(trpc.standaloneCustomStory.getVersion.queryOptions({ storyId }));
-	const story = storyQuery.data;
+	const versionNav = useStandaloneCustomStoryVersions(storyId);
+	const contentQuery = useQuery(
+		trpc.standaloneCustomStory.getVersion.queryOptions({
+			storyId,
+			versionNumber: versionNav.selectedVersion ?? undefined,
+		}),
+	);
+	const story = versionNav.storyQuery.data;
 	const content = contentQuery.data;
 	const versionNumber = content?.version.number;
 	const storySlug = story?.slug ?? '';
@@ -300,6 +305,13 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				elementSelection={
 					canAsk ? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements } : undefined
 				}
+				versionControls={{
+					currentVersion: versionNav.currentVersion,
+					versions: versionNav.versions,
+					versionDate: versionNav.versionDate,
+					isViewingLatest: versionNav.isViewingLatest,
+					onSelectVersion: versionNav.goToVersion,
+				}}
 			/>
 
 			<div className='relative flex min-h-0 flex-1 flex-col'>
