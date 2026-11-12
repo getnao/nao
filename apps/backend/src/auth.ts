@@ -33,6 +33,7 @@ import {
 	rewriteRedirectIssuer,
 	sameOriginRedirectPath,
 } from './mcp/public-issuer';
+import { omitRedundantTokenExpiry } from './mcp/token-response';
 import { verifyJwtWithLocalJwks } from './mcp/verify-jwt';
 import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
@@ -317,6 +318,13 @@ async function createAuthInstance(baseURL: string) {
 		hooks: {
 			after: createAuthMiddleware(async (ctx) => {
 				const publicIssuerResponse = await applyPublicIssuer(ctx);
+				const returned = publicIssuerResponse ?? ctx.context.returned;
+				if (ctx.path === '/oauth2/token') {
+					const portableTokenResponse = omitRedundantTokenExpiry(returned);
+					if (portableTokenResponse !== returned) {
+						return portableTokenResponse;
+					}
+				}
 				if (publicIssuerResponse !== undefined) {
 					return publicIssuerResponse;
 				}
