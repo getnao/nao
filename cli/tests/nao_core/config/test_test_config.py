@@ -53,14 +53,10 @@ def test_models_must_declare_a_provider_and_a_model_id(model):
         TestConfig(models=[model])
 
 
-def test_threads_must_be_positive():
+@pytest.mark.parametrize("field", ["threads", "k"])
+def test_counts_must_be_positive(field):
     with pytest.raises(ValidationError):
-        TestConfig(threads=0)
-
-
-def test_k_must_be_positive():
-    with pytest.raises(ValidationError):
-        TestConfig(k=0)
+        TestConfig.model_validate({field: 0})
 
 
 def test_k_is_loaded_from_config(tmp_path):

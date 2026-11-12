@@ -35,6 +35,7 @@ import {
 	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
 	RECIPIENT_MODES,
+	SHARE_ROLES,
 	SHARE_VISIBILITY,
 	STORY_ACTIONS,
 	STORY_FORMATS,
@@ -930,6 +931,22 @@ export const sharedChatAccess = sqliteTable(
 	(t) => [primaryKey({ columns: [t.sharedChatId, t.userId] })],
 );
 
+export const sharedChatGroupAccess = sqliteTable(
+	'shared_chat_group_access',
+	{
+		sharedChatId: text('shared_chat_id')
+			.notNull()
+			.references(() => sharedChat.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+	},
+	(t) => [
+		primaryKey({ columns: [t.sharedChatId, t.groupId] }),
+		index('shared_chat_group_access_groupId_idx').on(t.groupId),
+	],
+);
+
 export const sharedStory = sqliteTable(
 	'shared_story',
 	{
@@ -946,6 +963,7 @@ export const sharedStory = sqliteTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
+		projectRole: text('project_role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 		isPinned: integer('is_pinned', { mode: 'boolean' }).default(false).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -967,6 +985,7 @@ export const sharedStoryAccess = sqliteTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
 );
@@ -980,6 +999,7 @@ export const sharedStoryGroupAccess = sqliteTable(
 		groupId: text('group_id')
 			.notNull()
 			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.sharedStoryId, t.groupId] }),
@@ -1360,6 +1380,7 @@ export const story = sqliteTable(
 		isLiveTextDynamic: integer('is_live_text_dynamic', { mode: 'boolean' }).default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
+		viewerCacheRevision: integer('viewer_cache_revision').default(0).notNull(),
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		certifiedAt: integer('certified_at', { mode: 'timestamp_ms' }),
@@ -1478,6 +1499,25 @@ export const storyDraftFile = sqliteTable(
 		index('story_draft_file_storyId_idx').on(t.storyId),
 		unique('story_draft_file_story_path_unique').on(t.storyId, t.path),
 	],
+);
+
+export const storyEditLock = sqliteTable(
+	'story_edit_lock',
+	{
+		storyId: text('story_id')
+			.primaryKey()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'cascade' }),
+		sessionId: text('session_id'),
+		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+		acquiredAt: integer('acquired_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [index('story_edit_lock_userId_idx').on(t.userId), index('story_edit_lock_chatId_idx').on(t.chatId)],
 );
 
 export const mcpQueryData = sqliteTable(

@@ -11,6 +11,7 @@ import { useAssistantMessage } from '@/contexts/assistant-message';
 import { isReasoningPart, isQueryToolPart, isStoryStatusPart } from '@/lib/ai';
 import { getStoryStatusDisplay } from '@/lib/story-status';
 import { getStoryToolPartSlug } from '@/lib/story.utils';
+import { getToolCallIds, useExpandOnToolCallReveal } from '@/hooks/use-tool-call-reveal';
 
 interface Props {
 	parts: StoryQueryGroupItem[];
@@ -43,6 +44,8 @@ export const StoryQueryGroup = memo(({ parts, isSettled }: Props) => {
 	useEffect(() => {
 		setIsExpanded(isLoading || shouldStayOpenOnError);
 	}, [isLoading, shouldStayOpenOnError]);
+
+	useExpandOnToolCallReveal(getToolCallIds(parts), setIsExpanded);
 
 	const storySummary = formatStorySummary(storyDisplays, storyCount);
 	const summaryTitle =

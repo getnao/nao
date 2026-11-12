@@ -13,12 +13,11 @@ import {
 	ShieldCheck,
 	Star,
 } from 'lucide-react';
-import { useState } from 'react';
 import type { DragEvent, MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 
 import type { StoryItem } from '@/lib/stories-page';
-import { invalidateStoryArchiveCaches } from '@/lib/stories-cache';
+import { invalidateStoryArchiveCaches, invalidateStoryPlacementCaches } from '@/lib/stories-cache';
 import {
 	AuthorDateLabel,
 	CertifiedBadge,
@@ -31,7 +30,6 @@ import {
 	PrivateBadge,
 	SharingBadge,
 } from '@/components/item-card';
-import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { CustomStoryThumbnail } from '@/components/custom-story-thumbnail';
 import { StoryThumbnail } from '@/components/story-thumbnail';
 import StoryIcon from '@/components/ui/story-icon';
@@ -109,7 +107,6 @@ export function StoryCard({
 	onToggleSelect?: (storyId: string) => void;
 }) {
 	const { role, isAdmin, isViewer } = usePermissions();
-	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
 	const isHomePage = useRouterState({ select: (s) => s.location.pathname === '/' });
 	const storyTheme = useActiveStoryTheme();
 	const { running: isAgentEditingStory } = useChatActivity(item.chatId ?? '');
@@ -125,8 +122,6 @@ export function StoryCard({
 	});
 	const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 	const moveHandler = canMove ? onMoveToFolder : undefined;
-
-	const canOpenPinShareDialog = isAdmin && !item.isShared && item.kind === 'own' && !!item.chatId && !!item.storySlug;
 
 	const canSelect =
 		!!role &&
@@ -259,7 +254,7 @@ export function StoryCard({
 						)}
 						{!selectionActive && (
 							<>
-								<StoryQuickActions item={item} onRequestPinShare={() => setPinShareDialogOpen(true)} />
+								<StoryQuickActions item={item} />
 								<div className='flex items-center max-w-0 overflow-hidden group-hover:max-w-[60px] transition-[max-width] duration-200 ease-out'>
 									{!showArchived && moveHandler && (
 										<StoryMoveToFolderButton item={item} onMoveToFolder={moveHandler} />
@@ -270,15 +265,6 @@ export function StoryCard({
 						)}
 					</div>
 				</div>
-				{canOpenPinShareDialog && item.chatId && item.storySlug && (
-					<ShareStoryDialog
-						open={pinShareDialogOpen}
-						onOpenChange={setPinShareDialogOpen}
-						chatId={item.chatId}
-						storySlug={item.storySlug}
-						intent='pin'
-					/>
-				)}
 			</>
 		);
 	}
@@ -327,24 +313,10 @@ export function StoryCard({
 					onPointerDown={(e) => e.stopPropagation()}
 				>
 					{!selectionActive && (
-						<StoryActions
-							item={item}
-							showArchived={showArchived}
-							onRequestPinShare={() => setPinShareDialogOpen(true)}
-							onMoveToFolder={moveHandler}
-						/>
+						<StoryActions item={item} showArchived={showArchived} onMoveToFolder={moveHandler} />
 					)}
 				</div>
 			</div>
-			{canOpenPinShareDialog && item.chatId && item.storySlug && (
-				<ShareStoryDialog
-					open={pinShareDialogOpen}
-					onOpenChange={setPinShareDialogOpen}
-					chatId={item.chatId}
-					storySlug={item.storySlug}
-					intent='pin'
-				/>
-			)}
 		</>
 	);
 }
@@ -379,17 +351,15 @@ function StoryCheckbox({
 function StoryActions({
 	item,
 	showArchived,
-	onRequestPinShare,
 	onMoveToFolder,
 }: {
 	item: StoryItem;
 	showArchived: boolean;
-	onRequestPinShare: () => void;
 	onMoveToFolder?: (item: StoryItem) => void;
 }) {
 	return (
 		<div className='flex items-center' onPointerDown={(e) => e.stopPropagation()}>
-			<StoryQuickActions item={item} onRequestPinShare={onRequestPinShare} />
+			<StoryQuickActions item={item} />
 			<div className='flex items-center gap-0.5 max-w-0 overflow-hidden group-hover:max-w-[80px] transition-[max-width] duration-200 ease-out'>
 				{!showArchived && <StoryDuplicateButton item={item} />}
 				{!showArchived && onMoveToFolder && (
@@ -462,7 +432,7 @@ function StoryMoveToFolderButton({
 	);
 }
 
-function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onRequestPinShare: () => void }) {
+function StoryQuickActions({ item }: { item: StoryItem }) {
 	const queryClient = useQueryClient();
 	const { isAdmin } = usePermissions();
 
@@ -471,17 +441,16 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 	const pinMutation = useMutation(
 		trpc.storyShare.togglePin.mutationOptions({
 			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				invalidateStoryPlacementCaches(queryClient);
+				void queryClient.invalidateQueries({ queryKey: trpc.storyShare.getShareSettings.queryKey() });
 			},
 		}),
 	);
 
 	const certification = useToggleStoryCertification();
 
-	const canOpenPinShareDialog = isAdmin && !item.isShared && item.kind === 'own' && !!item.chatId && !!item.storySlug;
-	const canTogglePin = isAdmin && item.isShared;
-	const canInteractWithPin = canTogglePin || canOpenPinShareDialog;
+	const canPinUnshared = isAdmin && !item.isShared && item.kind === 'own';
+	const canInteractWithPin = (isAdmin && item.isShared) || canPinUnshared;
 	const showPinSlot = canInteractWithPin || item.isPinned;
 
 	function handleFavorite(e: MouseEvent<HTMLButtonElement>) {
@@ -499,12 +468,8 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 	function handlePin(e: MouseEvent<HTMLButtonElement>) {
 		e.preventDefault();
 		e.stopPropagation();
-		if (canTogglePin) {
+		if (canInteractWithPin) {
 			pinMutation.mutate({ storyId: item.storyId });
-			return;
-		}
-		if (canOpenPinShareDialog) {
-			onRequestPinShare();
 		}
 	}
 
@@ -535,7 +500,9 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 						canInteractWithPin
 							? item.isPinned
 								? 'Unpin for shared members'
-								: 'Pin for shared members'
+								: canPinUnshared
+									? 'Pin for the whole project'
+									: 'Pin for shared members'
 							: 'Only admins can un.pin stories'
 					}
 				>

@@ -1,0 +1,503 @@
+// @vitest-environment jsdom
+
+import { QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { stubResizeObserver } from '../../helpers/browser-stubs';
+import { createTestQueryClient } from '../../helpers/query-client';
+import { openDropdownMenu } from '../../helpers/dropdown-menu';
+import type { TestRunSummary } from '@/components/settings/test-run-types';
+import type { TestFilters } from '@/components/settings/test-suite-filter-menu';
+import { TestSuitePanel } from '@/components/settings/test-suite-panel';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+const mocks = vi.hoisted(() => ({ getRun: vi.fn(), listTests: vi.fn() }));
+
+vi.mock('@/main', () => ({
+	trpc: {
+		testRun: {
+			listTests: {
+				queryOptions: () => ({ queryKey: ['tests'], queryFn: mocks.listTests }),
+			},
+			getRun: {
+				queryOptions: (input: { runId: string }) => ({
+					queryKey: ['test-run', input.runId],
+					queryFn: mocks.getRun,
+				}),
+			},
+		},
+	},
+}));
+
+describe('TestSuitePanel', () => {
+	beforeEach(() => {
+		stubResizeObserver();
+		mocks.listTests.mockResolvedValue({
+			tests: [],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	it('shows the outcome of each test of a run first and filters the tests that passed or failed', async () => {
+		mocks.getRun.mockResolvedValue({
+			id: 'run-1',
+			status: 'completed',
+			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+			attempts: 1,
+			completedAttempts: 2,
+			totalAttempts: 2,
+			errorMessage: null,
+			comparison: null,
+			modelSummaries: [],
+			previousModelSummaries: [],
+			results: [
+				{ testPath: 'revenue.yml', testName: 'revenue', passed: true, message: 'match', errorMessage: null },
+				{
+					testPath: 'churn.yml',
+					testName: 'churn',
+					passed: false,
+					message: 'values differ',
+					errorMessage: null,
+				},
+			],
+		});
+		renderPanel();
+
+		expect(await screen.findByRole('button', { name: /^Passed\s*revenue/ })).toBeTruthy();
+		expect(screen.getByRole('button', { name: /^Failed\s*churn.*values differ/ })).toBeTruthy();
+		expect(filterLabels()).toEqual(['All2', 'Passed1', 'Failed1']);
+
+		fireEvent.click(screen.getByRole('radio', { name: /Failed/ }));
+
+		expect(screen.queryByText('revenue')).toBeNull();
+		expect(screen.getByText('churn')).toBeTruthy();
+	});
+
+	it('ranks the models of a run and shows each test against each model', async () => {
+		mocks.getRun.mockResolvedValue(
+			multiModelRun([
+				['revenue.yml', 'claude-sonnet-5', true],
+				['revenue.yml', 'claude-haiku-5', true],
+				['churn.yml', 'claude-sonnet-5', true],
+				['churn.yml', 'claude-haiku-5', false],
+			]),
+		);
+		renderPanel();
+
+		const leaderboard = (await screen.findAllByRole('table'))[0];
+		const rows = within(leaderboard).getAllByRole('row') as HTMLTableRowElement[];
+		expect(rows.map((row) => row.cells[0].textContent)).toEqual([
+			'Model',
+			'claude-sonnet-5Most accurate',
+			'claude-haiku-5Best value',
+		]);
+		expect(filterLabels()).toEqual(['All2', 'Passed1', 'Failed1', 'Models disagree1']);
+
+		fireEvent.click(screen.getByRole('radio', { name: /Models disagree/ }));
+
+		const matrix = screen.getAllByRole('table')[1];
+		expect(
+			within(matrix)
+				.getAllByRole('button')
+				.map((button) => button.textContent),
+		).toEqual(['churn']);
+	});
+
+	it('shows how a single model moved since its previous run', async () => {
+		mocks.getRun.mockResolvedValue({
+			...multiModelRun([['revenue.yml', 'claude-sonnet-5', true]]),
+			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+			modelSummaries: [summary('claude-sonnet-5', 1, 1, 0.04)],
+			previousModelSummaries: [
+				{
+					runId: 'run-0',
+					runCreatedAt: new Date().toISOString(),
+					summary: summary('claude-sonnet-5', 0, 1, 0.05),
+				},
+			],
+		});
+		renderPanel();
+
+		const stats = await screen.findAllByRole('term');
+		expect(stats.map((stat) => stat.parentElement?.textContent).slice(0, 2)).toEqual([
+			'Passed1/1▲ 1',
+			'$ / question$0.040▼ 20%',
+		]);
+	});
+
+	it('leaves out the change of passed attempts when the previous run asked a different number of times', async () => {
+		mocks.getRun.mockResolvedValue({
+			...multiModelRun([['revenue.yml', 'claude-sonnet-5', true]]),
+			models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+			modelSummaries: [summary('claude-sonnet-5', 3, 3, 0.04)],
+			previousModelSummaries: [
+				{
+					runId: 'run-0',
+					runCreatedAt: new Date().toISOString(),
+					summary: summary('claude-sonnet-5', 1, 1, 0.04),
+				},
+			],
+		});
+		renderPanel();
+
+		const stats = await screen.findAllByRole('term');
+		expect(stats[0].parentElement?.textContent).toBe('Passed3/3');
+	});
+
+	it('sorts the models of a run by a column, best first, then the other way, then back', async () => {
+		mocks.getRun.mockResolvedValue(
+			multiModelRun([
+				['revenue.yml', 'claude-sonnet-5', true],
+				['churn.yml', 'claude-sonnet-5', true],
+				['revenue.yml', 'claude-haiku-5', true],
+				['churn.yml', 'claude-haiku-5', false],
+			]),
+		);
+		renderPanel();
+
+		const table = (await screen.findByRole('button', { name: '$ / question' })).closest('table') as HTMLElement;
+		const listModels = () =>
+			within(table)
+				.getAllByRole('row')
+				.slice(1)
+				.map((row) => row.textContent?.match(/claude-\w+-5/)?.[0]);
+		expect(listModels()).toEqual(['claude-sonnet-5', 'claude-haiku-5']);
+
+		fireEvent.click(within(table).getByRole('button', { name: '$ / question' }));
+		expect(listModels()).toEqual(['claude-haiku-5', 'claude-sonnet-5']);
+
+		fireEvent.click(within(table).getByRole('button', { name: '$ / question' }));
+		expect(listModels()).toEqual(['claude-sonnet-5', 'claude-haiku-5']);
+
+		fireEvent.click(within(table).getByRole('button', { name: '$ / question' }));
+		expect(within(table).getByRole('columnheader', { name: '$ / question' }).getAttribute('aria-sort')).toBeNull();
+	});
+
+	it('names a run of the whole suite apart from a run of some of its tests', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [testDefinition('revenue.yml', []), testDefinition('churn.yml', [])],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		renderPanel({
+			selectedRunId: null,
+			runs: [
+				runSummary('run-all', ['revenue.yml', 'churn.yml']),
+				runSummary('run-some', ['revenue.yml', 'margin.yml']),
+			],
+		});
+
+		const runs = within(await screen.findByRole('navigation', { name: 'Test runs' }));
+		expect((await runs.findByText('All tests')).closest('button')?.textContent).toBe('All tests2/2main');
+		expect(runs.getByText('2 tests').closest('button')?.textContent).toBe('2 tests2/2main');
+	});
+
+	it('narrows the tests to a tag and picks them for the next run', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [testDefinition('revenue.yml', ['finance']), testDefinition('churn.yml', ['product'])],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		const onSelectedPathsChange = vi.fn();
+		const onFiltersChange = vi.fn();
+		renderPanel({
+			selectedRunId: null,
+			filters: { tags: ['finance'], owners: [] },
+			onSelectedPathsChange,
+			onFiltersChange,
+		});
+
+		expect(await screen.findByText('revenue.yml')).toBeTruthy();
+		expect(screen.queryByText('churn.yml')).toBeNull();
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select the shown tests' }));
+		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set(['revenue.yml']));
+
+		openDropdownMenu('Filter the tests');
+		fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'product' }));
+		expect(onFiltersChange).toHaveBeenLastCalledWith({ tags: ['finance', 'product'], owners: [] });
+		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set());
+	});
+
+	it('narrows the tests to an owner, shows the owner and tags of each test and removes a filter', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [
+				{ ...testDefinition('revenue.yml', ['finance']), owner: 'alice@acme.com' },
+				{ ...testDefinition('churn.yml', ['product']), owner: 'bob@acme.com' },
+				testDefinition('orders.yml', ['finance']),
+			],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		const onFiltersChange = vi.fn();
+		renderPanel({ selectedRunId: null, filters: { tags: [], owners: ['alice@acme.com'] }, onFiltersChange });
+
+		const revenueRow = (await screen.findByText('revenue.yml')).closest('li');
+		expect(revenueRow?.textContent).toContain('alice@acme.com');
+		expect(revenueRow?.textContent).toContain('finance');
+		expect(screen.queryByText('churn.yml')).toBeNull();
+		expect(screen.queryByText('orders.yml')).toBeNull();
+
+		openDropdownMenu('Filter the tests');
+		const owners = await screen.findAllByRole('menuitemcheckbox');
+		expect(owners.map((item) => item.textContent)).toEqual([
+			'finance',
+			'product',
+			'alice@acme.com',
+			'bob@acme.com',
+		]);
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'bob@acme.com' }));
+		expect(onFiltersChange).toHaveBeenLastCalledWith({ tags: [], owners: ['alice@acme.com', 'bob@acme.com'] });
+
+		cleanup();
+		renderPanel({ selectedRunId: null, filters: { tags: ['finance'], owners: [] }, onFiltersChange });
+		expect(await screen.findByText('orders.yml')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Remove finance filter' }));
+		expect(onFiltersChange).toHaveBeenLastCalledWith({ tags: [], owners: [] });
+	});
+
+	it('collapses the picked tags into a single chip that clears them when they do not fit', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [testDefinition('revenue.yml', ['finance', 'kpi', 'monthly'])],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		fitTwoChipsInTheHeader();
+		const onFiltersChange = vi.fn();
+		renderPanel({
+			selectedRunId: null,
+			filters: { tags: ['finance', 'kpi'], owners: [] },
+			onFiltersChange,
+		});
+		expect(await screen.findByRole('button', { name: 'Remove finance filter' })).toBeTruthy();
+
+		cleanup();
+		renderPanel({
+			selectedRunId: null,
+			filters: { tags: ['finance', 'kpi', 'monthly'], owners: [] },
+			onFiltersChange,
+		});
+
+		expect(await screen.findByText('3 tags')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Remove finance filter' })).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Remove 3 tags filter' }));
+		expect(onFiltersChange).toHaveBeenLastCalledWith({ tags: [], owners: [] });
+	});
+
+	it('finds the tests by owner or tag in the search', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [
+				{ ...testDefinition('revenue.yml', ['finance']), owner: 'alice@acme.com' },
+				testDefinition('churn.yml', ['product']),
+			],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		renderPanel({ selectedRunId: null, search: 'alice' });
+		expect(await screen.findByText('revenue.yml')).toBeTruthy();
+		expect(screen.queryByText('churn.yml')).toBeNull();
+
+		cleanup();
+		renderPanel({ selectedRunId: null, search: 'PRODUCT' });
+		expect(await screen.findByText('churn.yml')).toBeTruthy();
+		expect(screen.queryByText('revenue.yml')).toBeNull();
+	});
+
+	it('narrows the tests to the ones whose name or path holds the search', async () => {
+		mocks.listTests.mockResolvedValue({
+			tests: [
+				testDefinition('revenue.yml', []),
+				{ ...testDefinition('churn.yml', []), name: 'customer_attrition' },
+			],
+			invalidFiles: [],
+			latestOutcomes: {},
+			settings: { errors: [] },
+		});
+		const onSelectedPathsChange = vi.fn();
+		const onSearchChange = vi.fn();
+		renderPanel({ selectedRunId: null, search: 'ATTRITION', onSelectedPathsChange, onSearchChange });
+
+		expect(await screen.findByText('customer_attrition')).toBeTruthy();
+		expect(screen.queryByText('revenue.yml')).toBeNull();
+
+		fireEvent.click(screen.getByRole('checkbox', { name: 'Select the shown tests' }));
+		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set(['churn.yml']));
+
+		fireEvent.change(screen.getByRole('searchbox', { name: 'Search tests' }), { target: { value: 'rev' } });
+		expect(onSearchChange).toHaveBeenLastCalledWith('rev');
+		expect(onSelectedPathsChange).toHaveBeenLastCalledWith(new Set());
+
+		cleanup();
+		renderPanel({ selectedRunId: null, search: 'Churn.Y' });
+
+		expect(await screen.findByText('customer_attrition')).toBeTruthy();
+		expect(screen.queryByText('revenue.yml')).toBeNull();
+	});
+});
+
+function multiModelRun(results: [testPath: string, modelId: string, passed: boolean][]) {
+	const modelIds = [...new Set(results.map(([, modelId]) => modelId))];
+	return {
+		id: 'run-1',
+		status: 'completed',
+		trigger: 'manual',
+		models: modelIds.map((modelId) => ({ provider: 'anthropic', modelId })),
+		attempts: 1,
+		completedAttempts: results.length,
+		totalAttempts: results.length,
+		errorMessage: null,
+		comparison: null,
+		modelSummaries: modelIds.map((modelId) => {
+			const modelResults = results.filter(([, resultModelId]) => resultModelId === modelId);
+			const passed = modelResults.filter(([, , isPassed]) => isPassed).length;
+			return summary(modelId, passed, modelResults.length, modelId === 'claude-haiku-5' ? 0.01 : 0.04);
+		}),
+		previousModelSummaries: [],
+		results: results.map(([testPath, modelId, passed], index) => ({
+			id: `result-${index}`,
+			testPath,
+			testName: testPath.replace('.yml', ''),
+			llmProvider: 'anthropic',
+			llmModelId: modelId,
+			contextVariant: 'production',
+			passed,
+			message: passed ? 'match' : 'values differ',
+			errorMessage: null,
+			totalCost: null,
+			toolCallCount: null,
+			durationMs: null,
+		})),
+	};
+}
+
+function summary(modelId: string, passedAttempts: number, attempts: number, costPerQuestion: number) {
+	return {
+		provider: 'anthropic',
+		modelId,
+		contextVariant: 'production',
+		attempts,
+		passedAttempts,
+		testCount: attempts,
+		reliableTestCount: passedAttempts,
+		totalCost: costPerQuestion * attempts,
+		costPerQuestion,
+		costPerCorrectAnswer: passedAttempts ? (costPerQuestion * attempts) / passedAttempts : null,
+		averageToolCalls: 5,
+		medianDurationMs: 10_000,
+		averageTokens: 20_000,
+	};
+}
+
+function runSummary(id: string, selection: string[]): TestRunSummary {
+	return {
+		id,
+		status: 'completed',
+		trigger: 'manual',
+		selection,
+		models: [{ provider: 'anthropic', modelId: 'claude-sonnet-5' }],
+		attempts: 1,
+		passedAttempts: selection.length,
+		totalAttempts: selection.length,
+		completedAttempts: selection.length,
+		testTotals: [
+			{
+				contextVariant: 'production',
+				testCount: selection.length,
+				passedTests: selection.length,
+				flakyTests: 0,
+				passedAttempts: selection.length,
+				totalAttempts: selection.length,
+				models: [],
+			},
+		],
+		triggeredByName: null,
+		createdAt: new Date().toISOString(),
+	} as unknown as TestRunSummary;
+}
+
+function testDefinition(path: string, tags: string[]) {
+	return {
+		path,
+		name: path,
+		prompt: 'prompt',
+		sql: null,
+		databaseId: null,
+		assertions: [],
+		tags,
+		owner: null,
+		hash: path,
+	};
+}
+
+/** Each chip takes 100px of a 250px wide line of chips. */
+function fitTwoChipsInTheHeader() {
+	const isChipLine = (element: HTMLElement) => element.getAttribute('aria-label') === 'Active filters';
+	vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+		return isChipLine(this) ? this.children.length * 100 : 0;
+	});
+	vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+		return isChipLine(this) ? 250 : 0;
+	});
+}
+
+function filterLabels() {
+	const filters = screen.getByRole('radiogroup', { name: 'Filter the tests' });
+	return within(filters)
+		.getAllByRole('radio')
+		.map((radio) => radio.textContent);
+}
+
+function renderPanel({
+	selectedRunId = 'run-1',
+	runs = [],
+	filters = { tags: [], owners: [] },
+	search = '',
+	onSelectedPathsChange = vi.fn(),
+	onFiltersChange = vi.fn(),
+	onSearchChange = vi.fn(),
+}: {
+	selectedRunId?: string | null;
+	runs?: TestRunSummary[];
+	filters?: TestFilters;
+	search?: string;
+	onSelectedPathsChange?: (paths: Set<string>) => void;
+	onFiltersChange?: (filters: TestFilters) => void;
+	onSearchChange?: (search: string) => void;
+} = {}) {
+	const queryClient = createTestQueryClient();
+	return render(
+		<QueryClientProvider client={queryClient}>
+			<TooltipProvider>
+				<TestSuitePanel
+					draft={null}
+					runs={runs}
+					selectedRunId={selectedRunId}
+					selection={{
+						selectedPaths: new Set(),
+						onSelectedPathsChange,
+						filters,
+						onFiltersChange,
+						search,
+						onSearchChange,
+					}}
+					onSelectRun={vi.fn()}
+					onOpenTest={vi.fn()}
+				/>
+			</TooltipProvider>
+		</QueryClientProvider>,
+	);
+}

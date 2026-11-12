@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
+import { serializeStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import { normalizeBrandHeader, showsBrandIdentity } from '@nao/shared/story-theme';
-import { getStoryTheme, isEditingEnabled, requestQueryData, subscribeToEditing, subscribeToTheme } from '../story-host';
+import {
+	getStoryTheme,
+	isEditingEnabled,
+	requestQueryData,
+	requestSql,
+	subscribeToEditing,
+	subscribeToTheme,
+} from '../story-host';
+import { useHostRequest } from './use-host-request';
+import type { HostRequest, HostRequestResult } from './use-host-request';
 import type { StoryQueryResult } from '@nao/shared/story-app';
+import type { StoryQueryFilters, StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 export type QueryDataState =
@@ -9,43 +20,54 @@ export type QueryDataState =
 	| { status: 'success'; data: unknown[]; columns: string[]; error: null }
 	| { status: 'error'; data: null; columns: null; error: string };
 
-export interface UseQueryDataOptions {
+export type QueryDataResult = QueryDataState & {
+	/** A new request is running while the rows of the previous one stay on screen. */
+	isFetching: boolean;
+	refetch: () => void;
+};
+
+export interface UseQueryDataOptions extends StoryQueryInputs {
 	enabled?: boolean;
 }
 
-const LOADING: QueryDataState = { status: 'loading', data: null, columns: null, error: null };
-const resultCache = new Map<string, Promise<StoryQueryResult>>();
+export interface UseSqlOptions {
+	databaseId?: string;
+	filters?: StoryQueryFilters;
+	enabled?: boolean;
+}
 
+/** Rows of a saved query; `filters` and `params` re-run it on the server with the story's own selection. */
 export function useQueryData(
 	queryId: string,
-	{ enabled = true }: UseQueryDataOptions = {},
-): QueryDataState & { refetch: () => void } {
-	const [attempt, setAttempt] = useState(0);
-	const [settled, setSettled] = useState<{ requestKey: string; state: QueryDataState } | null>(null);
-	const requestKey = `${attempt}:${queryId}`;
-
-	useEffect(() => {
-		if (!enabled) {
-			return;
-		}
-		let cancelled = false;
-		const settle = (state: QueryDataState) => {
-			if (!cancelled) {
-				setSettled({ requestKey, state });
-			}
+	{ enabled = true, filters, params }: UseQueryDataOptions = {},
+): QueryDataResult {
+	const inputsKey = serializeStoryQueryInputs({ filters, params });
+	const request = useMemo<HostRequest<StoryQueryResult>>(() => {
+		const inputs: StoryQueryInputs = inputsKey ? JSON.parse(inputsKey) : {};
+		return {
+			source: `query:${queryId}`,
+			key: storyQueryRequestKey(queryId, inputs),
+			fetch: (fresh) => requestQueryData(queryId, { fresh, ...inputs }),
 		};
-		fetchQueryData(queryId, attempt > 0).then(
-			(result) => settle({ status: 'success', data: result.data, columns: result.columns, error: null }),
-			(error: unknown) => settle({ status: 'error', data: null, columns: null, error: describeError(error) }),
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [queryId, attempt, enabled, requestKey]);
+	}, [queryId, inputsKey]);
+	return toQueryDataResult(useHostRequest(request, enabled));
+}
 
-	const refetch = useCallback(() => setAttempt((current) => current + 1), []);
-	const state = enabled && settled?.requestKey === requestKey ? settled.state : LOADING;
-	return { ...state, refetch };
+/**
+ * Rows of SQL the story writes itself, run as the viewer: read-only and limited to what nao lets them query.
+ * Its `{% filter %}` blocks render with `filters`, quoted on the server.
+ */
+export function useSql(sql: string, { databaseId, filters, enabled = true }: UseSqlOptions = {}): QueryDataResult {
+	const filtersKey = serializeStoryQueryInputs({ filters });
+	const request = useMemo<HostRequest<StoryQueryResult>>(() => {
+		const inputs: StoryQueryInputs = filtersKey ? JSON.parse(filtersKey) : {};
+		return {
+			source: `sql:${databaseId ?? ''}`,
+			key: storySqlRequestKey({ sql, databaseId, filters: inputs.filters }),
+			fetch: (fresh) => requestSql(sql, { databaseId, filters: inputs.filters, fresh }),
+		};
+	}, [sql, databaseId, filtersKey]);
+	return toQueryDataResult(useHostRequest(request, enabled && sql.trim() !== ''));
 }
 
 export function useStoryTheme(): StoryTheme | null {
@@ -63,21 +85,19 @@ export function useStoryEditing(): boolean {
 	return useSyncExternalStore(subscribeToEditing, isEditingEnabled);
 }
 
-function fetchQueryData(queryId: string, fresh: boolean): Promise<StoryQueryResult> {
-	const cached = fresh ? undefined : resultCache.get(queryId);
-	if (cached) {
-		return cached;
+function toQueryDataResult({ isFetching, refetch, ...state }: HostRequestResult<StoryQueryResult>): QueryDataResult {
+	if (state.status === 'success') {
+		return {
+			status: 'success',
+			data: state.data.data,
+			columns: state.data.columns,
+			error: null,
+			isFetching,
+			refetch,
+		};
 	}
-	const request = requestQueryData(queryId, { fresh });
-	resultCache.set(queryId, request);
-	request.catch(() => {
-		if (resultCache.get(queryId) === request) {
-			resultCache.delete(queryId);
-		}
-	});
-	return request;
-}
-
-function describeError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	if (state.status === 'error') {
+		return { status: 'error', data: null, columns: null, error: state.error, isFetching, refetch };
+	}
+	return { status: 'loading', data: null, columns: null, error: null, isFetching, refetch };
 }

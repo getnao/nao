@@ -19,6 +19,8 @@ interface TabBarProps<Id extends string> {
 	idBase: string;
 	className?: string;
 	fitted?: boolean;
+	size?: 'default' | 'sm';
+	label?: string;
 }
 
 export function tabTriggerId(idBase: string, tabId: string) {
@@ -36,6 +38,8 @@ export function TabBar<Id extends string>({
 	idBase,
 	className,
 	fitted = false,
+	size = 'default',
+	label,
 }: TabBarProps<Id>) {
 	const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -55,7 +59,7 @@ export function TabBar<Id extends string>({
 	};
 
 	return (
-		<div role='tablist' className={cn('flex', className)} onKeyDown={handleKeyDown}>
+		<div role='tablist' aria-label={label} className={cn('flex', className)} onKeyDown={handleKeyDown}>
 			{tabs.map((tab, index) => {
 				const isActive = activeTab === tab.id;
 				return (
@@ -75,7 +79,8 @@ export function TabBar<Id extends string>({
 						title={tab.disabledReason}
 						onClick={() => onTabChange(tab.id)}
 						className={cn(
-							'-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
+							'-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 font-medium transition-colors',
+							size === 'sm' ? 'px-2 py-1.5 text-xs' : 'px-3 py-2.5 text-sm',
 							fitted ? 'w-full justify-center' : 'shrink-0 whitespace-nowrap',
 							tab.disabled
 								? 'cursor-not-allowed border-transparent text-muted-foreground/45'

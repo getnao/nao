@@ -1,3 +1,5 @@
+import type { ShareRole } from '@nao/shared/types';
+
 import type { EmailBranding } from '../../utils/email-branding';
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
@@ -10,6 +12,7 @@ interface SharedItemEmailProps {
 	itemLabel: string;
 	itemTitle: string;
 	itemUrl: string;
+	role?: ShareRole;
 	unsubscribeUrl?: string;
 	branding: EmailBranding;
 }
@@ -20,20 +23,22 @@ export function SharedItemEmail({
 	itemLabel,
 	itemTitle,
 	itemUrl,
+	role,
 	unsubscribeUrl,
 	branding,
 }: SharedItemEmailProps) {
+	const canEdit = role === 'editor';
 	return (
 		<EmailLayout title={`${sharerName} shared "${itemTitle}" with you on ${branding.appName}`} branding={branding}>
 			<EmailParagraph>Hi {userName},</EmailParagraph>
 
 			<EmailParagraph>
 				<strong>{sharerName}</strong> shared the {itemLabel} <strong>{itemTitle}</strong> with you on{' '}
-				{branding.appName}.
+				{branding.appName}.{canEdit && ' You can edit it.'}
 			</EmailParagraph>
 
 			<EmailButton href={itemUrl} color={branding.brandColor}>
-				View {itemLabel}
+				{`${canEdit ? 'Edit' : 'View'} ${itemLabel}`}
 			</EmailButton>
 
 			{unsubscribeUrl && (

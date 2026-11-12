@@ -163,9 +163,14 @@ async function refreshStoryDataWithContext(
 		if (shouldGenerateViewerCode && version.format === 'classic') {
 			throw new Error('Cannot generate viewer story text without query data');
 		}
-		return { queryData: {}, code: version.code, narratives: {} };
+		const narratives =
+			options.viewerUserId && version.format === 'custom' ? await redactCustomStoryNarratives(version.id) : {};
+		return { queryData: {}, code: version.code, narratives };
 	}
 
+	const storyViewerCacheRevision = options.viewerUserId
+		? await storyQueries.getStoryViewerCacheRevision(version.storyId)
+		: undefined;
 	const chat = await chatQueries.getChatInfo(chatId);
 	if (!chat) {
 		throw new Error('Chat project not found');
@@ -217,10 +222,19 @@ async function refreshStoryDataWithContext(
 		refreshedCode = stripHardcodedFilterOptions(refreshedCode);
 	}
 
-	const narratives =
-		version.isLiveTextDynamic && version.format === 'custom'
-			? await regenerateCustomStoryNarratives(target, version, queryData, options.viewerUserId !== undefined)
-			: {};
+	let narratives: StoryNarratives = {};
+	if (version.format === 'custom') {
+		if (version.isLiveTextDynamic) {
+			narratives = await regenerateCustomStoryNarratives(
+				target,
+				version,
+				queryData,
+				options.viewerUserId !== undefined,
+			);
+		} else if (options.viewerUserId) {
+			narratives = await redactCustomStoryNarratives(version.id);
+		}
+	}
 	const querySources = buildQuerySources(sqlQueries);
 	if (options.viewerUserId) {
 		if (!executionContext) {
@@ -237,6 +251,7 @@ async function refreshStoryDataWithContext(
 			options.viewerUserId,
 			executionContext.toolContext.projectId,
 			executionContext.viewerCacheRevision,
+			storyViewerCacheRevision!,
 			executionContext.permissionRevision,
 			executedQueryData,
 			querySources,
@@ -564,7 +579,8 @@ async function loadUpstreamQueries(chatId: string, sqlQueries: StorySqlQueries):
 }
 
 interface RawSqlExecutionOptions {
-	executionContext: StoryExecutionContext;
+	executionContext: Pick<StoryExecutionContext, 'toolContext' | 'enforceExcludedColumns'> &
+		Partial<Pick<StoryExecutionContext, 'isViewerScoped'>>;
 	databaseId?: string;
 	billingAccessVerifiedProjectId?: string;
 }
@@ -612,7 +628,10 @@ export async function resolveRawSqlDatabaseType(
 	return dialect.toLowerCase();
 }
 
-function buildWarehouseSqlOptions(executionContext: StoryExecutionContext, databaseId: string | undefined) {
+function buildWarehouseSqlOptions(
+	executionContext: RawSqlExecutionOptions['executionContext'],
+	databaseId: string | undefined,
+) {
 	const context = executionContext.toolContext;
 	return {
 		projectFolder: context.projectFolder,
@@ -647,14 +666,17 @@ async function executeLocalSql(sqlQuery: string, context: ToolContext): Promise<
 	return { data: result.data, columns: result.columns };
 }
 
+/** Queries run with the access of `userId`, the chat owner by default. */
 export async function createStoryExecutionContext(chatId: string, userId?: string): Promise<StoryExecutionContext> {
-	const [projectId, ownerId] = await Promise.all([requireChatProjectId(chatId), chatQueries.getChatOwnerId(chatId)]);
-	const executionUserId = userId ?? ownerId;
-	if (!executionUserId) {
+	const [projectId, runAsUserId] = await Promise.all([
+		requireChatProjectId(chatId),
+		userId ?? chatQueries.getChatOwnerId(chatId),
+	]);
+	if (!runAsUserId) {
 		throw new Error('Chat owner not found');
 	}
 	const viewerCacheRevision = await storyQueries.getProjectViewerCacheRevision(projectId);
-	const toolContext = await buildToolContext({ projectId, userId: executionUserId, chatId });
+	const toolContext = await buildToolContext({ projectId, userId: runAsUserId, chatId });
 	if ((await storyQueries.getProjectViewerCacheRevision(projectId)) !== viewerCacheRevision) {
 		throw new Error('Viewer permissions changed while building the execution context');
 	}
@@ -783,6 +805,10 @@ function redactViewerNarratives(sources: StoryNarrativeSource[], narratives: Sto
 		[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
 		...Object.fromEntries(sources.map(({ id }) => [id, narratives[id] ?? ''])),
 	};
+}
+
+async function redactCustomStoryNarratives(storyVersionId: string): Promise<StoryNarratives> {
+	return redactViewerNarratives(extractStoryNarratives(await storyFileQueries.listVersionFiles(storyVersionId)));
 }
 
 function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNarrativeSource[]): StoryNarratives {

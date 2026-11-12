@@ -35,6 +35,7 @@ import {
 	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
 	RECIPIENT_MODES,
+	SHARE_ROLES,
 	SHARE_VISIBILITY,
 	STORY_ACTIONS,
 	STORY_FORMATS,
@@ -875,6 +876,22 @@ export const sharedChatAccess = pgTable(
 	(t) => [primaryKey({ columns: [t.sharedChatId, t.userId] })],
 );
 
+export const sharedChatGroupAccess = pgTable(
+	'shared_chat_group_access',
+	{
+		sharedChatId: text('shared_chat_id')
+			.notNull()
+			.references(() => sharedChat.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+	},
+	(t) => [
+		primaryKey({ columns: [t.sharedChatId, t.groupId] }),
+		index('shared_chat_group_access_groupId_idx').on(t.groupId),
+	],
+);
+
 export const sharedStory = pgTable(
 	'shared_story',
 	{
@@ -891,6 +908,7 @@ export const sharedStory = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
+		projectRole: text('project_role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 		isPinned: boolean('is_pinned').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
@@ -910,6 +928,7 @@ export const sharedStoryAccess = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
 );
@@ -923,6 +942,7 @@ export const sharedStoryGroupAccess = pgTable(
 		groupId: text('group_id')
 			.notNull()
 			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.sharedStoryId, t.groupId] }),
@@ -1272,6 +1292,7 @@ export const story = pgTable(
 		isLiveTextDynamic: boolean('is_live_text_dynamic').default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
+		viewerCacheRevision: integer('viewer_cache_revision').default(0).notNull(),
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: timestamp('archived_at'),
 		certifiedAt: timestamp('certified_at'),
@@ -1383,6 +1404,23 @@ export const storyDraftFile = pgTable(
 		index('story_draft_file_storyId_idx').on(t.storyId),
 		unique('story_draft_file_story_path_unique').on(t.storyId, t.path),
 	],
+);
+
+export const storyEditLock = pgTable(
+	'story_edit_lock',
+	{
+		storyId: text('story_id')
+			.primaryKey()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'cascade' }),
+		sessionId: text('session_id'),
+		expiresAt: timestamp('expires_at').notNull(),
+		acquiredAt: timestamp('acquired_at').defaultNow().notNull(),
+	},
+	(t) => [index('story_edit_lock_userId_idx').on(t.userId), index('story_edit_lock_chatId_idx').on(t.chatId)],
 );
 
 export const mcpQueryData = pgTable(

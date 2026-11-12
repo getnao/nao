@@ -14,6 +14,7 @@ import type { StoryQuerySources } from '../types/story-cache';
 import { getOpenProjectIds } from '../utils/open-projects';
 import { isQuickQuestionForkType } from './chat.queries';
 import * as executeSqlQueries from './execute-sql.queries';
+import { listLockedUserGroupIdsOfMember } from './locked-user-groups';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 
 export type UserStoryRow = Pick<
@@ -117,6 +118,16 @@ export async function getProjectViewerCacheRevision(projectId: string): Promise<
 	return project?.revision ?? 0;
 }
 
+export async function getStoryViewerCacheRevision(storyId: string): Promise<number> {
+	const [story] = await db
+		.select({ revision: s.story.viewerCacheRevision })
+		.from(s.story)
+		.where(eq(s.story.id, storyId))
+		.limit(1)
+		.execute();
+	return story?.revision ?? 0;
+}
+
 export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
 	const [row] = await db
 		.select({
@@ -130,6 +141,22 @@ export async function getStoryOwnerId(storyId: string): Promise<string | undefin
 		.execute();
 
 	return row?.chatUserId ?? row?.storyUserId ?? undefined;
+}
+
+export type StoryOwner = { id: string; name: string; email: string };
+
+export async function getStoryOwner(storyId: string): Promise<StoryOwner | null> {
+	const ownerId = await getStoryOwnerId(storyId);
+	if (!ownerId) {
+		return null;
+	}
+	const [row] = await db
+		.select({ id: s.user.id, name: s.user.name, email: s.user.email })
+		.from(s.user)
+		.where(eq(s.user.id, ownerId))
+		.limit(1)
+		.execute();
+	return row ?? null;
 }
 
 export async function getStoryByIdForUser(storyId: string, userId: string): Promise<UserStoryRow | null> {
@@ -307,6 +334,30 @@ export type VersionProvenance = {
 	sourceChatId: string | null;
 };
 
+const STORY_VERSION_UNIQUE_CONSTRAINT = 'story_version_story_version_unique';
+
+export class StoryVersionConflictError extends Error {
+	constructor(
+		message = 'Someone saved a newer version while you were editing. Copy your changes, then cancel to see the latest version.',
+	) {
+		super(message);
+		this.name = 'StoryVersionConflictError';
+	}
+}
+
+/** True when an insert lost the race for a story version number to a concurrent save. */
+export function isStoryVersionUniqueViolation(error: unknown): boolean {
+	const databaseError = error instanceof Error && error.cause ? error.cause : error;
+	if (!databaseError || typeof databaseError !== 'object') {
+		return false;
+	}
+	const { code, constraint_name: constraintName, message } = databaseError as Record<string, unknown>;
+	return (
+		(code === '23505' && constraintName === STORY_VERSION_UNIQUE_CONSTRAINT) ||
+		(typeof message === 'string' && message.includes('UNIQUE constraint failed: story_version'))
+	);
+}
+
 export async function createStoryVersion(
 	data: {
 		chatId: string;
@@ -315,6 +366,7 @@ export async function createStoryVersion(
 		code: string;
 		action: 'create' | 'update' | 'replace';
 		source: 'assistant' | 'user';
+		basedOnVersion?: number;
 	} & VersionProvenance,
 	executor: DBExecutor = db,
 ): Promise<DBStoryVersion & { title: string }> {
@@ -325,22 +377,31 @@ export async function createStoryVersion(
 		.from(s.storyVersion)
 		.where(eq(s.storyVersion.storyId, story.id));
 
-	const [created] = await executor
-		.insert(s.storyVersion)
-		.values({
-			storyId: story.id,
-			code: data.code,
-			action: data.action,
-			source: data.source,
-			origin: data.origin,
-			authorId: data.authorId,
-			sourceChatId: data.sourceChatId,
-			version: sql`(${nextVersion})`,
-		})
-		.returning()
-		.execute();
-
-	return { ...created, title: story.title };
+	if (data.basedOnVersion !== undefined) {
+		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, executor);
+	}
+	try {
+		const [created] = await executor
+			.insert(s.storyVersion)
+			.values({
+				storyId: story.id,
+				code: data.code,
+				action: data.action,
+				source: data.source,
+				origin: data.origin,
+				authorId: data.authorId,
+				sourceChatId: data.sourceChatId,
+				version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
+			})
+			.returning()
+			.execute();
+		return { ...created, title: story.title };
+	} catch (error) {
+		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
+			throw new StoryVersionConflictError();
+		}
+		throw error;
+	}
 }
 
 export async function createStandaloneVersion(data: {
@@ -352,6 +413,7 @@ export async function createStandaloneVersion(data: {
 	action: 'create' | 'update' | 'replace';
 	source: 'assistant' | 'user';
 	origin: StoryVersionOrigin;
+	basedOnVersion?: number;
 }): Promise<DBStoryVersion & { title: string }> {
 	const story = await getOrCreateStandaloneStory({
 		userId: data.userId,
@@ -365,21 +427,30 @@ export async function createStandaloneVersion(data: {
 		.from(s.storyVersion)
 		.where(eq(s.storyVersion.storyId, story.id));
 
-	const [created] = await db
-		.insert(s.storyVersion)
-		.values({
-			storyId: story.id,
-			code: data.code,
-			action: data.action,
-			source: data.source,
-			origin: data.origin,
-			authorId: data.userId,
-			version: sql`(${nextVersion})`,
-		})
-		.returning()
-		.execute();
-
-	return { ...created, title: story.title };
+	if (data.basedOnVersion !== undefined) {
+		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, db);
+	}
+	try {
+		const [created] = await db
+			.insert(s.storyVersion)
+			.values({
+				storyId: story.id,
+				code: data.code,
+				action: data.action,
+				source: data.source,
+				origin: data.origin,
+				authorId: data.userId,
+				version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
+			})
+			.returning()
+			.execute();
+		return { ...created, title: story.title };
+	} catch (error) {
+		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
+			throw new StoryVersionConflictError();
+		}
+		throw error;
+	}
 }
 
 export async function createStandaloneStory(data: {
@@ -498,7 +569,7 @@ async function detachStoriesFromFolders(storyIds: string[]): Promise<void> {
 }
 
 /** Matches `story` rows the user owns or that are shared with them within the project. */
-export function storyVisibleToUser(userId: string, projectId: string): SQL {
+export function storyVisibleToUser(userId: string, projectId: string, lockedGroupIds: readonly string[]): SQL {
 	return sql`(
 		exists (
 			select 1 from ${s.chat}
@@ -512,7 +583,7 @@ export function storyVisibleToUser(userId: string, projectId: string): SQL {
 			  and (
 				${s.sharedStory.userId} = ${userId}
 				or ${s.sharedStory.visibility} = 'project'
-				or ${sharedStoryGrantsUser(userId)}
+				or ${sharedStoryGrantsUser(userId, lockedGroupIds)}
 			  )
 		)
 	)`;
@@ -548,6 +619,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 	)`;
 	const openProjectIds = getOpenProjectIds();
 	const isOpenProject = openProjectIds.length > 0 ? inArray(s.sharedStory.projectId, openProjectIds) : undefined;
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 
 	const [shared] = await db
 		.select({ id: s.sharedStory.id })
@@ -559,7 +631,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 				or(
 					eq(s.sharedStory.userId, userId),
 					and(eq(s.sharedStory.visibility, 'project'), or(isProjectMember, isOrgMember, isOpenProject)),
-					and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId)),
+					and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)
@@ -606,6 +678,20 @@ export function getLatestVersionByChatAndSlug(chatId: string, slug: string): Pro
 
 export function getLatestVersionByStoryId(storyId: string): Promise<StoryVersionWithStory | null> {
 	return getStoryVersion(eq(s.story.id, storyId), { latest: true });
+}
+
+export async function getLatestVersionStamp(
+	storyId: string,
+): Promise<{ version: number; authorName: string | null } | null> {
+	const [row] = await db
+		.select({ version: s.storyVersion.version, authorName: s.user.name })
+		.from(s.storyVersion)
+		.leftJoin(s.user, eq(s.user.id, s.storyVersion.authorId))
+		.where(eq(s.storyVersion.storyId, storyId))
+		.orderBy(desc(s.storyVersion.version))
+		.limit(1)
+		.execute();
+	return row ?? null;
 }
 
 export function getVersionByNumber(
@@ -942,6 +1028,23 @@ async function queryStoriesWithLatestVersion(
 	return query.execute();
 }
 
+async function assertBasedOnLatestVersion(
+	storyId: string,
+	basedOnVersion: number,
+	executor: DBExecutor,
+): Promise<void> {
+	const [latest] = await executor
+		.select({ version: s.storyVersion.version })
+		.from(s.storyVersion)
+		.where(eq(s.storyVersion.storyId, storyId))
+		.orderBy(desc(s.storyVersion.version))
+		.limit(1)
+		.execute();
+	if ((latest?.version ?? 0) !== basedOnVersion) {
+		throw new StoryVersionConflictError();
+	}
+}
+
 async function getOrCreateStory(
 	data: { chatId: string; slug: string; title: string },
 	executor: DBExecutor = db,
@@ -1101,7 +1204,8 @@ export async function upsertStoryViewerDataCache(
 	storyVersionId: string,
 	userId: string,
 	projectId: string,
-	viewerCacheRevision: number,
+	projectViewerCacheRevision: number,
+	storyViewerCacheRevision: number,
 	permissionRevision: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 	querySources: StoryQuerySources,
@@ -1124,10 +1228,22 @@ export async function upsertStoryViewerDataCache(
 					viewerCacheRevision: sql`${s.project.viewerCacheRevision}`,
 					updatedAt: sql`${s.project.updatedAt}`,
 				})
-				.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, viewerCacheRevision)))
+				.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, projectViewerCacheRevision)))
 				.returning({ id: s.project.id })
 				.all();
 			if (!project) {
+				return false;
+			}
+			const [story] = transaction
+				.update(s.story)
+				.set({
+					viewerCacheRevision: sql`${s.story.viewerCacheRevision}`,
+					updatedAt: sql`${s.story.updatedAt}`,
+				})
+				.where(and(eq(s.story.id, storyId), eq(s.story.viewerCacheRevision, storyViewerCacheRevision)))
+				.returning({ id: s.story.id })
+				.all();
+			if (!story) {
 				return false;
 			}
 			transaction
@@ -1148,10 +1264,22 @@ export async function upsertStoryViewerDataCache(
 				viewerCacheRevision: sql`${s.project.viewerCacheRevision}`,
 				updatedAt: sql`${s.project.updatedAt}`,
 			})
-			.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, viewerCacheRevision)))
+			.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, projectViewerCacheRevision)))
 			.returning({ id: s.project.id })
 			.execute();
 		if (!project) {
+			return false;
+		}
+		const [story] = await transaction
+			.update(s.story)
+			.set({
+				viewerCacheRevision: sql`${s.story.viewerCacheRevision}`,
+				updatedAt: sql`${s.story.updatedAt}`,
+			})
+			.where(and(eq(s.story.id, storyId), eq(s.story.viewerCacheRevision, storyViewerCacheRevision)))
+			.returning({ id: s.story.id })
+			.execute();
+		if (!story) {
 			return false;
 		}
 		await transaction
@@ -1167,7 +1295,17 @@ export async function upsertStoryViewerDataCache(
 }
 
 export async function deleteStoryViewerDataCache(storyId: string): Promise<void> {
-	await db.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).execute();
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		db.transaction((transaction) => {
+			bumpStoryViewerCacheRevisionSqlite(storyId, transaction);
+			transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).run();
+		});
+		return;
+	}
+	await db.transaction(async (transaction) => {
+		await bumpStoryViewerCacheRevision(storyId, transaction);
+		await transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).execute();
+	});
 }
 
 export async function invalidateProjectViewerCaches(projectId: string, executor?: DBExecutor): Promise<void> {
@@ -1241,6 +1379,17 @@ function bumpProjectViewerCacheRevisionSqlite(projectId: string, executor: DBExe
 		.run();
 }
 
+function bumpStoryViewerCacheRevisionSqlite(storyId: string, executor: DBExecutor): void {
+	executor
+		.update(s.story)
+		.set({
+			viewerCacheRevision: sql`${s.story.viewerCacheRevision} + 1`,
+			updatedAt: sql`${s.story.updatedAt}`,
+		})
+		.where(eq(s.story.id, storyId))
+		.run();
+}
+
 async function bumpProjectViewerCacheRevision(projectId: string, executor: DBExecutor): Promise<void> {
 	await executor
 		.update(s.project)
@@ -1249,6 +1398,17 @@ async function bumpProjectViewerCacheRevision(projectId: string, executor: DBExe
 			updatedAt: sql`${s.project.updatedAt}`,
 		})
 		.where(eq(s.project.id, projectId))
+		.execute();
+}
+
+async function bumpStoryViewerCacheRevision(storyId: string, executor: DBExecutor): Promise<void> {
+	await executor
+		.update(s.story)
+		.set({
+			viewerCacheRevision: sql`${s.story.viewerCacheRevision} + 1`,
+			updatedAt: sql`${s.story.updatedAt}`,
+		})
+		.where(eq(s.story.id, storyId))
 		.execute();
 }
 

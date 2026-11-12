@@ -2,11 +2,12 @@
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
 
-from nao_core.templates.context import FileProvider
+from nao_core.templates.context import FileProvider, NaoContext
 
 
 @pytest.fixture()
@@ -171,10 +172,6 @@ class TestPermissionError:
 
 class TestNoProjectPath:
     def test_nao_context_file_without_project_path(self):
-        from unittest.mock import MagicMock
-
-        from nao_core.templates.context import NaoContext
-
         config = MagicMock()
         ctx = NaoContext(config, project_path=None)
         with pytest.raises(RuntimeError, match="File reading requires a project path"):

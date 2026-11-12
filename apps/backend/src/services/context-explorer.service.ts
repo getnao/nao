@@ -38,7 +38,8 @@ import { isProductionOnly } from './draft-context.service';
 import { getRepoProviderDisplayName } from './review-request-provider';
 
 const SEARCH_TIMEOUT_MS = 5_000;
-const MAX_SEARCH_FILES = 200;
+export const MAX_SEARCH_FILES = 200;
+export const MAX_SEARCH_PREVIEW_LENGTH = 500;
 export const MAX_CONTEXT_FILE_SIZE = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const FRONTMATTER_READ_SIZE = 8 * 1024;
@@ -389,7 +390,8 @@ function assertEditability(editability: FileEditability): void {
 
 /**
  * Searches the context with its `.naoignore` rules, then each exempt folder without them, so search
- * shows the same files as the explorer tree.
+ * shows the same files as the explorer tree. An exempt folder is searched from the project root and
+ * narrowed by a glob: ripgrep follows a symlink given as the search path, never one it walks into.
  */
 export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {
 	const exemptFolders = (EXPLORER_NAOIGNORE_OPTIONS.naoignoreExemptFolders ?? []).filter((folder) =>
@@ -402,11 +404,7 @@ export async function searchFileContents(query: string, projectFolder: string): 
 			projectFolder,
 		),
 		...exemptFolders.map((folder) =>
-			runContentSearch(
-				getRipgrepPath(),
-				buildSearchArguments(query, path.join(projectFolder, folder), []),
-				projectFolder,
-			),
+			runContentSearch(getRipgrepPath(), buildSearchArguments(query, '.', [], folder), projectFolder),
 		),
 	]);
 	const results = [
@@ -421,7 +419,12 @@ export async function searchFileContents(query: string, projectFolder: string): 
 	};
 }
 
-function buildSearchArguments(query: string, searchPath: string, naoignorePatterns: string[]): string[] {
+function buildSearchArguments(
+	query: string,
+	searchPath: string,
+	naoignorePatterns: string[],
+	onlyFolder?: string,
+): string[] {
 	const args = [
 		'--json',
 		'--no-heading',
@@ -435,9 +438,13 @@ function buildSearchArguments(query: string, searchPath: string, naoignorePatter
 		'--max-filesize',
 		'1M',
 		'--max-columns',
-		'500',
+		String(MAX_SEARCH_PREVIEW_LENGTH),
 		'--max-columns-preview',
 	];
+
+	if (onlyFolder) {
+		args.push('--glob', `${onlyFolder}/**`);
+	}
 
 	for (const exclusionGlob of BUILT_IN_EXCLUSION_GLOBS) {
 		args.push('--glob', exclusionGlob);
@@ -503,7 +510,7 @@ function runContentSearch(
 					return;
 				}
 
-				const filePath = entry.data.path.text;
+				const filePath = path.resolve(projectFolder, entry.data.path.text);
 				if (!isWithinProjectFolder(filePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS)) {
 					return;
 				}

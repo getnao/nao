@@ -50,6 +50,14 @@ def table_path(tmp_path):
     return tmp_path / "type=duckdb" / "database=analytics" / "schema=main" / "table=orders"
 
 
+def write_table_docs(tmp_path, docs):
+    output_path = table_path(tmp_path)
+    output_path.mkdir(parents=True)
+    for name, content in docs.items():
+        (output_path / name).write_text(content)
+    return output_path
+
+
 def run_sync(config, engine, tmp_path):
     progress = MagicMock()
     progress.add_task.return_value = "task"
@@ -82,10 +90,8 @@ def test_ai_summary_refresh_does_not_rewrite_frozen_profiling(tmp_path):
         ProfilingRefreshPolicy.ONCE,
         ProfilingRefreshPolicy.ALWAYS,
     )
-    output_path = table_path(tmp_path)
-    output_path.mkdir(parents=True)
+    output_path = write_table_docs(tmp_path, {"profiling.md": "frozen profiling"})
     profiling_file = output_path / "profiling.md"
-    profiling_file.write_text("frozen profiling")
 
     run_sync(config, engine, tmp_path)
 
@@ -101,10 +107,7 @@ def test_neither_template_due_skips_profiling_compute(tmp_path):
         ProfilingRefreshPolicy.ONCE,
         ProfilingRefreshPolicy.ONCE,
     )
-    output_path = table_path(tmp_path)
-    output_path.mkdir(parents=True)
-    (output_path / "profiling.md").write_text("frozen profiling")
-    (output_path / "ai_summary.md").write_text("frozen summary")
+    write_table_docs(tmp_path, {"profiling.md": "frozen profiling", "ai_summary.md": "frozen summary"})
 
     run_sync(config, engine, tmp_path)
 
@@ -117,10 +120,8 @@ def test_failed_render_keeps_previous_file(tmp_path):
         ProfilingRefreshPolicy.ALWAYS,
         ProfilingRefreshPolicy.ALWAYS,
     )
-    output_path = table_path(tmp_path)
-    output_path.mkdir(parents=True)
+    output_path = write_table_docs(tmp_path, {"ai_summary.md": "previous summary"})
     summary_file = output_path / "ai_summary.md"
-    summary_file.write_text("previous summary")
     engine.render.side_effect = _fail_ai_summary
 
     run_sync(config, engine, tmp_path)
@@ -145,12 +146,6 @@ def test_failed_render_writes_placeholder_without_error_dump(tmp_path):
     assert "stack trace details" not in content
 
 
-def _fail_ai_summary(template_name, **_kwargs):
-    if "ai_summary" in template_name:
-        raise RuntimeError("prompt is too long: 1109582 tokens > 1000000 maximum\nstack trace details")
-    return f"rendered {Path(template_name).stem}"
-
-
 def test_once_policy_retries_after_failed_render_placeholder(tmp_path):
     config, _, engine, _ = create_sync_setup(
         ProfilingRefreshPolicy.ONCE,
@@ -166,3 +161,9 @@ def test_once_policy_retries_after_failed_render_placeholder(tmp_path):
 
     summary = summary_file.read_text()
     assert summary == with_generated_marker("rendered ai_summary.md")
+
+
+def _fail_ai_summary(template_name, **_kwargs):
+    if "ai_summary" in template_name:
+        raise RuntimeError("prompt is too long: 1109582 tokens > 1000000 maximum\nstack trace details")
+    return f"rendered {Path(template_name).stem}"

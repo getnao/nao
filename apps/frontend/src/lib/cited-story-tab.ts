@@ -29,10 +29,11 @@ export function findCitedTabIndex(
 }
 
 function holdsBlock(code: string, cited: StoryBlockReference): boolean {
-	return listBlockReferences(splitCodeIntoSegments(code)).some(
+	const sameBlocks = listBlockReferences(splitCodeIntoSegments(code)).filter(
 		(block) =>
 			block.kind === cited.kind && block.queryId === cited.queryId && (block.title ?? '') === (cited.title ?? ''),
 	);
+	return sameBlocks.length > (cited.occurrence ?? 0);
 }
 
 function listBlockReferences(segments: Segment[]): StoryBlockReference[] {

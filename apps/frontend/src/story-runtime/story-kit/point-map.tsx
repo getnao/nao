@@ -44,6 +44,10 @@ export function PointMap(props: PointMapProps) {
 	const {
 		queryId,
 		data,
+		sql,
+		databaseId,
+		filters,
+		params,
 		latitudeKey,
 		longitudeKey,
 		sizeKey,
@@ -56,7 +60,7 @@ export function PointMap(props: PointMapProps) {
 		style,
 		...block
 	} = props;
-	const source = useBlockData({ queryId, data });
+	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 
 	return (
 		<Block kind='point-map' queryId={queryId} style={style} {...block}>

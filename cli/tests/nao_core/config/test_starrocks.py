@@ -1,6 +1,10 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from nao_core.config.databases.starrocks import StarRocksConfig, StarRocksDatabaseContext
+
+COLUMNS = [{"name": "id", "type": "BIGINT"}]
 
 
 class DummyConn:
@@ -15,14 +19,13 @@ class DummyConn:
 
 
 def test_columns_retries_after_failed_load():
-    context = StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
-    columns = [{"name": "id", "type": "BIGINT"}]
+    context = _events_context()
 
     with (
         patch.object(
             context,
             "_columns_from_information_schema",
-            side_effect=[RuntimeError("metadata unavailable"), columns],
+            side_effect=[RuntimeError("metadata unavailable"), COLUMNS],
         ) as information_schema_columns,
         patch.object(
             context,
@@ -33,61 +36,33 @@ def test_columns_retries_after_failed_load():
         assert context.columns() == []
         assert context._columns_cache is None
         assert context._columns_load_failed is True
-        assert context.columns() == columns
+        assert context.columns() == COLUMNS
 
     assert information_schema_columns.call_count == 2
     assert fallback_columns.call_count == 1
 
 
-def test_columns_falls_back_after_empty_information_schema():
-    context = StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
-    columns = [{"name": "id", "type": "BIGINT"}]
-
-    with (
-        patch.object(context, "_columns_from_information_schema", return_value=[]) as information_schema_columns,
-        patch.object(context, "_columns_from_show_full_columns", return_value=columns) as fallback_columns,
-    ):
-        assert context.columns() == columns
-        assert context.columns() == columns
-
-    assert context._columns_cache == columns
-    assert context._columns_load_failed is False
-    information_schema_columns.assert_called_once()
-    fallback_columns.assert_called_once()
-
-
-def test_columns_falls_back_after_information_schema_failure():
-    context = StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
-    columns = [{"name": "id", "type": "BIGINT"}]
+@pytest.mark.parametrize(
+    ("information_schema_behaviour", "fallback_result"),
+    [
+        pytest.param({"return_value": []}, COLUMNS, id="empty_information_schema"),
+        pytest.param({"side_effect": RuntimeError("metadata unavailable")}, COLUMNS, id="information_schema_failure"),
+        pytest.param({"return_value": []}, [], id="empty_fallback"),
+    ],
+)
+def test_columns_falls_back_once_and_caches_the_result(information_schema_behaviour, fallback_result):
+    context = _events_context()
 
     with (
         patch.object(
-            context,
-            "_columns_from_information_schema",
-            side_effect=RuntimeError("metadata unavailable"),
+            context, "_columns_from_information_schema", **information_schema_behaviour
         ) as information_schema_columns,
-        patch.object(context, "_columns_from_show_full_columns", return_value=columns) as fallback_columns,
+        patch.object(context, "_columns_from_show_full_columns", return_value=fallback_result) as fallback_columns,
     ):
-        assert context.columns() == columns
-        assert context.columns() == columns
+        assert context.columns() == fallback_result
+        assert context.columns() == fallback_result
 
-    assert context._columns_cache == columns
-    assert context._columns_load_failed is False
-    information_schema_columns.assert_called_once()
-    fallback_columns.assert_called_once()
-
-
-def test_columns_caches_empty_fallback():
-    context = StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
-
-    with (
-        patch.object(context, "_columns_from_information_schema", return_value=[]) as information_schema_columns,
-        patch.object(context, "_columns_from_show_full_columns", return_value=[]) as fallback_columns,
-    ):
-        assert context.columns() == []
-        assert context.columns() == []
-
-    assert context._columns_cache == []
+    assert context._columns_cache == fallback_result
     assert context._columns_load_failed is False
     information_schema_columns.assert_called_once()
     fallback_columns.assert_called_once()
@@ -121,3 +96,7 @@ def test_starrocks_get_database_name_variants():
     assert both.get_database_name() == "hive1.analytics"
     assert catalog_only.get_database_name() == "hive1"
     assert fallback.get_database_name() == "starrocks"
+
+
+def _events_context() -> StarRocksDatabaseContext:
+    return StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
