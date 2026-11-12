@@ -177,7 +177,9 @@ export function ChatInputModelSelect({
 										className='size-4'
 									/>
 								)}
-								<span className='leading-none shrink-0'>{selectedModelName}</span>
+								<span className={usesDefaultModel ? 'leading-none shrink-0' : 'truncate'}>
+									{selectedModelName}
+								</span>
 								{usesDefaultModel
 									? resolvedModelName && (
 											<span className='truncate text-muted-foreground'>{resolvedModelName}</span>
