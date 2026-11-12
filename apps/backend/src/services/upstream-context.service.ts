@@ -139,7 +139,8 @@ export async function createUpstreamContextSnapshot(input: UpstreamBranchInput):
 		fs.rmSync(snapshotRepoFolder, { recursive: true, force: true });
 		fs.cpSync(synced.folder, snapshotRepoFolder, {
 			recursive: true,
-			filter: (source) => !fs.lstatSync(source).isSymbolicLink(),
+			verbatimSymlinks: true,
+			filter: (source) => !isLinkOutside(source, synced.folder),
 		});
 		return { folder, ref: synced.ref, commit: synced.commit, changes };
 	} catch (error) {
@@ -412,6 +413,16 @@ function diffFolders(before: string, after: string): TestContextChange[] {
 		}
 	}
 	return changes.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/** A symlink of the branch pointing out of its repository, which a test run must not read through. */
+function isLinkOutside(source: string, root: string): boolean {
+	if (!fs.lstatSync(source).isSymbolicLink()) {
+		return false;
+	}
+	const target = path.resolve(path.dirname(source), fs.readlinkSync(source));
+	const relative = path.relative(root, target);
+	return relative.startsWith('..') || path.isAbsolute(relative);
 }
 
 /** Sizes are compared first, so most changed files are told apart without reading them. */

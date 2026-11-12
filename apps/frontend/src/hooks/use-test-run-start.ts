@@ -50,7 +50,7 @@ export function useTestRunStart({
 }: TestRunStartOptions) {
 	const runStart = useMutation(trpc.testRun.startRun.mutationOptions({ onSuccess: onRunStarted }));
 	const [contextRunMode] = useContextRunMode();
-	const [upstream] = useUpstreamTestSource();
+	const [upstream, , isCheckingUpstream] = useUpstreamTestSource();
 	const hasContextChanges = upstream !== null || getContextChanges(draft).length > 0;
 	const mode: ContextRunMode = hasContextChanges ? contextRunMode : 'production';
 	const isStarting = runStart.isPending;
@@ -61,7 +61,7 @@ export function useTestRunStart({
 		upstream,
 		isStarting,
 		error: runStart.error?.message,
-		disabledReason: getRunDisabledReason({ activeRun, blockedReason, settings, isStarting }),
+		disabledReason: getRunDisabledReason({ activeRun, blockedReason, settings, isStarting, isCheckingUpstream }),
 		run: () =>
 			runStart.mutate({
 				mode,
@@ -127,11 +127,13 @@ function getRunDisabledReason({
 	blockedReason,
 	settings,
 	isStarting,
+	isCheckingUpstream,
 }: {
 	activeRun: TestRunSummary | undefined;
 	blockedReason: string | null;
 	settings: TestRunSettings;
 	isStarting: boolean;
+	isCheckingUpstream: boolean;
 }): string | null {
 	if (activeRun) {
 		return 'Wait for the run in progress to finish.';
@@ -141,6 +143,9 @@ function getRunDisabledReason({
 	}
 	if (settings.models.length === 0) {
 		return settings.isLoading ? 'Loading the models…' : 'No model is configured for tests.';
+	}
+	if (isCheckingUpstream) {
+		return 'Checking the synced repositories…';
 	}
 	return isStarting ? 'Starting the run…' : null;
 }

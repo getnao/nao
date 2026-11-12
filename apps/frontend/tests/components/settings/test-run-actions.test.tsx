@@ -269,6 +269,25 @@ describe('SuiteRunActions', () => {
 		});
 	});
 
+	it('waits for the synced repositories before running a saved branch', async () => {
+		localStorage.setItem('nao-test-upstream-source', JSON.stringify({ repo: 'business', branch: 'analyst/x' }));
+		mocks.listUpstreamRepos.mockReturnValue(new Promise(() => {}));
+		renderWithProviders(
+			<SuiteRunActions
+				settings={settings({ models: MODELS.slice(0, 1), attempts: 1 })}
+				draft={null}
+				activeRun={undefined}
+				scope={{ paths: undefined, testCount: 6, label: '6 tests' }}
+				onRunStarted={vi.fn()}
+			/>,
+		);
+
+		const runButton = await screen.findByRole('button', { name: /6 tests/ });
+		expect(runButton.hasAttribute('disabled')).toBe(true);
+		pressRunShortcut();
+		expect(mocks.startRun).not.toHaveBeenCalled();
+	});
+
 	it('ignores a branch picked in a repository this project does not sync', async () => {
 		localStorage.setItem('nao-test-upstream-source', JSON.stringify({ repo: 'gone', branch: 'analyst/old' }));
 		renderWithProviders(

@@ -17,19 +17,20 @@ const cachedSources = new Map<string, { serialized: string; source: UpstreamTest
 
 /**
  * The upstream branch runs test, or null for the user's File Explorer changes, shared by every run button of the
- * project. A branch picked in a repository the project does not sync is ignored once the repositories are known, as
- * nothing here could unpick it.
+ * project. While the synced repositories load, the saved branch is kept and reported as being checked; it is ignored
+ * when they do not include its repository or fail to load, as nothing here could unpick it.
  */
 export function useUpstreamTestSource() {
 	const storageKey = getStorageKey(useActiveProjectId());
 	const storedSource = useSyncExternalStore(subscribeToUpstreamSource, () => readUpstreamSource(storageKey));
 	const repos = useQuery({ ...trpc.testRun.listUpstreamRepos.queryOptions(), enabled: storedSource !== null });
-	const isRepoSynced = repos.data ? repos.data.some((repo) => repo.name === storedSource?.repo) : true;
+	const isChecking = storedSource !== null && repos.isPending;
+	const isRepoSynced = isChecking || (repos.data?.some((repo) => repo.name === storedSource?.repo) ?? false);
 	const setSource = useCallback(
 		(source: UpstreamTestSource | null) => setUpstreamSource(storageKey, source),
 		[storageKey],
 	);
-	return [isRepoSynced ? storedSource : null, setSource] as const;
+	return [isRepoSynced ? storedSource : null, setSource, isChecking] as const;
 }
 
 export function formatUpstreamRef(source: UpstreamTestSource): string {

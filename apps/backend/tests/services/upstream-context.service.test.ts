@@ -203,6 +203,22 @@ describe('createUpstreamContextSnapshot', () => {
 	});
 });
 
+describe('createUpstreamContextSnapshot links', () => {
+	it('keeps the links of the branch that stay in its repository and drops the others', async () => {
+		runGit(upstreamFolder, ['switch', '--quiet', 'analyst/net-revenue']);
+		fs.symlinkSync('revenue.md', path.join(upstreamFolder, 'alias.md'));
+		fs.symlinkSync(path.join(projectFolder, 'RULES.md'), path.join(upstreamFolder, 'outside.md'));
+		commitAll(upstreamFolder, 'links');
+		runGit(upstreamFolder, ['switch', '--quiet', 'main']);
+
+		const snapshot = await createUpstreamContextSnapshot(netRevenueInput());
+
+		const repoFolder = path.join(snapshot.folder, 'repos/business');
+		expect(fs.readFileSync(path.join(repoFolder, 'alias.md'), 'utf8')).toBe('Revenue excludes returned orders.\n');
+		expect(fs.existsSync(path.join(repoFolder, 'outside.md'))).toBe(false);
+	});
+});
+
 describe('readUpstreamChanges', () => {
 	it('lists the changed files with their production and branch contents', async () => {
 		const upstreamChanges = await readUpstreamChanges(netRevenueInput());
