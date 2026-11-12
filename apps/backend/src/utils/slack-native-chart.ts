@@ -59,7 +59,7 @@ export function buildSlackNativeChart({ config, data, dateFormat }: SlackNativeC
 
 	const chart =
 		chartType === 'pie'
-			? buildPieChart(rows, xAxisKey, series[0]?.data_key, labelFor)
+			? buildPieChart(rows, xAxisKey, series, labelFor)
 			: buildSeriesChart(chartType, rows, xAxisKey, series, labelFor, config);
 	return chart ? Chart({ title, chart }) : null;
 }
@@ -71,10 +71,11 @@ export function hasRoomForSlackNativeChart(blocks: CardChild[]): boolean {
 function buildPieChart(
 	rows: Row[],
 	categoryKey: string,
-	valueKey: string | undefined,
+	series: displayChart.SeriesConfig[],
 	labelFor: (value: unknown) => string | null,
 ): PieChartDefinition | null {
-	if (!valueKey) {
+	const valueKey = series[0]?.data_key;
+	if (!valueKey || formatValueUnit(series[0]?.value_format)) {
 		return null;
 	}
 	const numericRows = rows.map((row) => ({ [categoryKey]: row[categoryKey], [valueKey]: toNumber(row[valueKey]) }));
@@ -93,7 +94,7 @@ function buildPieChart(
 			segments.push({ label, value });
 		}
 	}
-	if (segments.length === 0) {
+	if (segments.length === 0 || !areUniqueLabels(segments.map((segment) => segment.label))) {
 		return null;
 	}
 	return { type: 'pie', segments };
@@ -107,7 +108,13 @@ function buildSeriesChart(
 	labelFor: (value: unknown) => string | null,
 	config: ChartConfig,
 ): SeriesChartDefinition | null {
-	if (rows.length > SLACK_CHART_MAX_CATEGORIES || series.length > SLACK_CHART_MAX_SERIES) {
+	const valueUnit = resolveSharedValueUnit(series);
+	if (
+		config.x_axis_type === 'number' ||
+		valueUnit === null ||
+		rows.length > SLACK_CHART_MAX_CATEGORIES ||
+		series.length > SLACK_CHART_MAX_SERIES
+	) {
 		return null;
 	}
 	const categories = rows.map((row) => labelFor(row[xAxisKey]));
@@ -133,8 +140,32 @@ function buildSeriesChart(
 		categories,
 		series: chartSeries,
 		xLabel: fitText(config.x_axis_label, SLACK_CHART_MAX_TITLE_CHARS) ?? undefined,
-		yLabel: fitText(config.y_axis_label, SLACK_CHART_MAX_TITLE_CHARS) ?? undefined,
+		yLabel: buildValueAxisLabel(config.y_axis_label, valueUnit),
 	};
+}
+
+/**
+ * Slack shows raw numbers, so the series' shared prefix/suffix ($, %, V) moves to the value axis title.
+ * Returns null when series use different units, which one axis title cannot describe.
+ */
+function resolveSharedValueUnit(series: displayChart.SeriesConfig[]): string | null {
+	const units = new Set(series.map((s) => formatValueUnit(s.value_format)));
+	return units.size === 1 ? [...units][0] : null;
+}
+
+function formatValueUnit(format: displayChart.ValueFormat | undefined): string {
+	return [format?.prefix, format?.suffix]
+		.map((part) => part?.trim())
+		.filter(Boolean)
+		.join(' ');
+}
+
+function buildValueAxisLabel(label: string | null | undefined, unit: string): string | undefined {
+	if (!unit) {
+		return fitText(label, SLACK_CHART_MAX_TITLE_CHARS) ?? undefined;
+	}
+	const fittedLabel = fitText(label, SLACK_CHART_MAX_TITLE_CHARS - unit.length - 3);
+	return (fittedLabel ? `${fittedLabel} (${unit})` : fitText(unit, SLACK_CHART_MAX_TITLE_CHARS)) ?? undefined;
 }
 
 /** Slack counts UTF-16 units, so labels whose truncation still exceeds the limit (emoji) are rejected. */
@@ -156,15 +187,8 @@ function isNonNegative(value: unknown): boolean {
 }
 
 function toNumber(value: unknown): number | null {
-	if (typeof value === 'number') {
-		return Number.isFinite(value) ? value : null;
-	}
-	if (typeof value === 'bigint') {
-		return Number(value);
-	}
-	if (typeof value === 'string' && value.trim() !== '') {
-		const parsed = Number(value);
-		return Number.isFinite(parsed) ? parsed : null;
-	}
-	return null;
+	const isNumeric =
+		typeof value === 'number' || typeof value === 'bigint' || (typeof value === 'string' && value.trim() !== '');
+	const parsed = isNumeric ? Number(value) : NaN;
+	return Number.isFinite(parsed) ? parsed : null;
 }

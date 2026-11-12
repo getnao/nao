@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../src/db/db', () => ({ db: {} }));
 vi.mock('@slack/web-api', () => ({ WebClient: class {} }));
 vi.mock('../../src/queries/project.queries', () => ({ getDisplaySettings: vi.fn(async () => ({ dateFormat: null })) }));
+vi.mock('../../src/components/generate-chart', () => ({ generateChartImage: vi.fn(() => Buffer.from('png')) }));
+vi.mock('../../src/queries/chart-image', () => ({ saveChart: vi.fn(async () => 'chart-1') }));
 vi.mock('../../src/utils/logger', () => ({
 	logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
@@ -25,7 +27,7 @@ function createBot(): ProjectSlackBot {
 		dmScopeMissing: false,
 		dmThreadsEnabled: false,
 	});
-	bot['_editConversationCard'] = vi.fn(async () => {});
+	bot['_editConversationCard'] = vi.fn(async () => true);
 	return bot;
 }
 
@@ -138,5 +140,46 @@ describe('ProjectSlackBot parallel tool results', () => {
 		await bot['_handleNewToolResults'](parts, handled, state, ctx);
 
 		expect(ctx.blocks).toHaveLength(1);
+	});
+});
+
+describe('ProjectSlackBot native chart delivery', () => {
+	it('sends the PNG instead when Slack does not take the native chart', async () => {
+		const bot = createBot();
+		bot['_editConversationCard'] = vi.fn(async () => false);
+		const uploadChartImage = vi.fn(async () => {});
+		bot['_uploadChartImageFile'] = uploadChartImage;
+		const state = createState();
+		const ctx = createContext();
+
+		await bot['_handleNewToolResults'](
+			[...queries, chartPart('c1', 'output-available', lineChart)],
+			new Set(),
+			state,
+			ctx,
+		);
+
+		expect(ctx.blocks.some((block) => block.type === 'chart')).toBe(false);
+		expect(uploadChartImage).toHaveBeenCalledTimes(1);
+		expect(state.renderedToolCallIds.has('c1')).toBe(true);
+	});
+
+	it('skips the native chart once Slack has rejected the answer payload', async () => {
+		const bot = createBot();
+		const editCard = vi.fn(async () => true);
+		bot['_editConversationCard'] = editCard;
+		bot['_uploadChartImageFile'] = vi.fn(async () => {});
+		const ctx = createContext();
+		bot['_getSlackStreamState'](ctx).payloadRejected = true;
+
+		await bot['_handleNewToolResults'](
+			[...queries, chartPart('c1', 'output-available', lineChart)],
+			new Set(),
+			createState(),
+			ctx,
+		);
+
+		expect(ctx.blocks.some((block) => block.type === 'chart')).toBe(false);
+		expect(bot['_uploadChartImageFile']).toHaveBeenCalledTimes(1);
 	});
 });

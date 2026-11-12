@@ -674,13 +674,10 @@ export class ProjectSlackBot {
 		ctx: ConversationContext,
 		children: ConversationContext['blocks'],
 		finalDelivery = false,
-	): Promise<void> {
+	): Promise<boolean> {
 		const streamState = this._getSlackStreamState(ctx);
-		if (streamState.payloadRejected && !finalDelivery) {
-			return;
-		}
-		if (children.length === 0) {
-			return;
+		if ((streamState.payloadRejected && !finalDelivery) || children.length === 0) {
+			return false;
 		}
 
 		const slackChildren = finalDelivery ? children : [...children, createStopButtonActions()];
@@ -690,10 +687,11 @@ export class ProjectSlackBot {
 				const postedMessageTs = await this._postSlackCard(ctx, slackChildren);
 				streamState.messageTs = postedMessageTs;
 				streamState.lastDeliveredChildren = [...children];
+				return true;
 			} catch (error) {
 				if (isRecoverableSlackPayloadError(error)) {
 					await this._handleOversizedSlackPayload(ctx, finalDelivery);
-					return;
+					return false;
 				}
 				logger.warn(
 					`${finalDelivery ? 'Slack final card post failed' : 'Slack streaming card post failed'}: ${String(error)}`,
@@ -703,14 +701,14 @@ export class ProjectSlackBot {
 					},
 				);
 			}
-			return;
+			return false;
 		}
 
 		try {
 			const { channelId } = this._getSlackMessageDestination(ctx);
 			await this._updateSlackCard(channelId, messageTs, slackChildren);
 			streamState.lastDeliveredChildren = [...children];
-			return;
+			return true;
 		} catch (error) {
 			if (!isRecoverableSlackPayloadError(error)) {
 				logger.warn(
@@ -720,9 +718,10 @@ export class ProjectSlackBot {
 						context: { chatId: ctx.chatId, threadId: ctx.thread.id },
 					},
 				);
-				return;
+				return false;
 			}
 			await this._handleOversizedSlackPayload(ctx, finalDelivery);
+			return false;
 		}
 	}
 
@@ -1424,7 +1423,7 @@ export class ProjectSlackBot {
 		}
 	}
 
-	/** Posts a hoverable Slack chart when it fits Slack's limits; returns false so the caller sends a PNG instead. */
+	/** Posts a hoverable Slack chart; returns false when it does not fit or was not delivered, so the caller sends a PNG. */
 	private async _pushNativeChart(
 		chartInput: SlackNativeChartInput,
 		toolCallId: string,
@@ -1432,13 +1431,16 @@ export class ProjectSlackBot {
 		ctx: ConversationContext,
 	): Promise<boolean> {
 		const nativeChart = hasRoomForSlackNativeChart(ctx.blocks) ? buildSlackNativeChart(chartInput) : null;
-		if (!nativeChart) {
+		if (!nativeChart || this._getSlackStreamState(ctx).payloadRejected) {
+			return false;
+		}
+		this._closeCurrentTextRun(ctx);
+		ctx.blocks.push(nativeChart);
+		if (!(await this._editConversationCard(ctx, ctx.blocks))) {
+			ctx.blocks.splice(ctx.blocks.indexOf(nativeChart), 1);
 			return false;
 		}
 		state.renderedToolCallIds.add(toolCallId);
-		this._closeCurrentTextRun(ctx);
-		ctx.blocks.push(nativeChart);
-		await this._editConversationCard(ctx, ctx.blocks);
 		return true;
 	}
 

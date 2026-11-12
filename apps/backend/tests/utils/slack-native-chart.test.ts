@@ -121,6 +121,24 @@ describe('buildSlackNativeChart', () => {
 		expect(chart?.chart.type === 'bar' && chart.chart.categories).toEqual(['A Very Long Categor…']);
 	});
 
+	it('moves a shared unit to the value axis title', () => {
+		const withUnit = (y_axis_label?: string) =>
+			buildSlackNativeChart({
+				config: barChart({
+					y_axis_label,
+					series: [
+						{ data_key: 'revenue', value_format: { prefix: '$', d3_format: ',.2f' } },
+						{ data_key: 'cost', value_format: { prefix: '$' } },
+					],
+				}),
+				data: monthlyRevenue,
+			});
+
+		expect(withUnit('Amount')?.chart).toMatchObject({ yLabel: 'Amount ($)' });
+		expect(withUnit()?.chart).toMatchObject({ yLabel: '$' });
+		expect(withUnit('A'.repeat(60))?.chart).toMatchObject({ yLabel: `${'A'.repeat(45)}… ($)` });
+	});
+
 	it.each([
 		['an unsupported chart type', { config: barChart({ chart_type: 'stacked_bar' }), data: monthlyRevenue }],
 		['a missing title', { config: barChart({ title: undefined }), data: monthlyRevenue }],
@@ -155,6 +173,46 @@ describe('buildSlackNativeChart', () => {
 			{
 				config: barChart({ chart_type: 'pie', series: [{ data_key: 'revenue' }] }),
 				data: [{ month: 'jan', revenue: -1 }],
+			},
+		],
+		[
+			'a numeric x axis, which Slack would space evenly',
+			{ config: barChart({ chart_type: 'line', x_axis_type: 'number' }), data: monthlyRevenue },
+		],
+		[
+			'pie labels that collide once truncated',
+			{
+				config: barChart({ chart_type: 'pie', series: [{ data_key: 'revenue' }] }),
+				data: [
+					{ month: 'category label number one', revenue: 1 },
+					{ month: 'category label number two', revenue: 2 },
+				],
+			},
+		],
+		[
+			'a value too large for a number',
+			{ config: barChart({ series: [{ data_key: 'revenue' }] }), data: [{ month: 'jan', revenue: 10n ** 400n }] },
+		],
+		[
+			'series with different units',
+			{
+				config: barChart({
+					series: [
+						{ data_key: 'revenue', value_format: { prefix: '$' } },
+						{ data_key: 'cost', value_format: { suffix: '%' } },
+					],
+				}),
+				data: monthlyRevenue,
+			},
+		],
+		[
+			'a pie with a unit, which has no axis to carry it',
+			{
+				config: barChart({
+					chart_type: 'pie',
+					series: [{ data_key: 'revenue', value_format: { suffix: '%' } }],
+				}),
+				data: monthlyRevenue,
 			},
 		],
 	])('falls back to an image for %s', (_, input) => {
