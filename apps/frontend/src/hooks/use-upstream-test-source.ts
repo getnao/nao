@@ -17,12 +17,13 @@ let cachedSource: UpstreamTestSource | null = null;
 
 /**
  * The upstream branch runs test, or null for the user's File Explorer changes, shared by every run button. A branch
- * picked in a repository the current project does not sync is ignored, as nothing here could unpick it.
+ * picked in a repository the current project does not sync is ignored once the repositories are known, as nothing
+ * here could unpick it.
  */
 export function useUpstreamTestSource() {
 	const storedSource = useSyncExternalStore(subscribeToUpstreamSource, readUpstreamSource);
 	const repos = useQuery({ ...trpc.testRun.listUpstreamRepos.queryOptions(), enabled: storedSource !== null });
-	const isRepoSynced = repos.data?.some((repo) => repo.name === storedSource?.repo) ?? false;
+	const isRepoSynced = repos.data ? repos.data.some((repo) => repo.name === storedSource?.repo) : true;
 	return [isRepoSynced ? storedSource : null, setUpstreamSource] as const;
 }
 

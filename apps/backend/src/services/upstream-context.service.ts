@@ -133,7 +133,10 @@ export async function createUpstreamContextSnapshot(input: UpstreamBranchInput):
 		const snapshotRepoFolder = path.join(folder, synced.contextPath);
 		const changes = listRepoChanges(snapshotRepoFolder, synced);
 		fs.rmSync(snapshotRepoFolder, { recursive: true, force: true });
-		fs.cpSync(synced.folder, snapshotRepoFolder, { recursive: true, verbatimSymlinks: true });
+		fs.cpSync(synced.folder, snapshotRepoFolder, {
+			recursive: true,
+			filter: (source) => !fs.lstatSync(source).isSymbolicLink(),
+		});
 		return { folder, ref: synced.ref, commit: synced.commit, changes };
 	} catch (error) {
 		removeContextSnapshot(folder);
@@ -167,12 +170,11 @@ async function findUpstreamReviewRequest(remote: GitRemote, input: UpstreamBranc
 		return null;
 	}
 	const provider = REVIEW_REQUEST_PROVIDERS[linkedRepo.provider];
-	const token = await provider.getToken(input.userId);
-	if (!token) {
-		return null;
-	}
 	try {
-		return await provider.findReviewRequestByBranch(token, linkedRepo.repoFullName, input.upstream.branch);
+		const token = await provider.getToken(input.userId);
+		return token
+			? await provider.findReviewRequestByBranch(token, linkedRepo.repoFullName, input.upstream.branch)
+			: null;
 	} catch {
 		return null;
 	}
@@ -395,7 +397,7 @@ function diffFolders(before: string, after: string): TestContextChange[] {
 	for (const file of afterFiles) {
 		if (!beforeFiles.has(file)) {
 			changes.push({ path: file, kind: 'added' });
-		} else if (!fs.readFileSync(path.join(before, file)).equals(fs.readFileSync(path.join(after, file)))) {
+		} else if (!haveSameContent(path.join(before, file), path.join(after, file))) {
 			changes.push({ path: file, kind: 'modified' });
 		}
 	}
@@ -405,6 +407,14 @@ function diffFolders(before: string, after: string): TestContextChange[] {
 		}
 	}
 	return changes.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/** Sizes are compared first, so most changed files are told apart without reading them. */
+function haveSameContent(left: string, right: string): boolean {
+	if (fs.statSync(left).size !== fs.statSync(right).size) {
+		return false;
+	}
+	return fs.readFileSync(left).equals(fs.readFileSync(right));
 }
 
 function listFiles(root: string): Set<string> {

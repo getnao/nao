@@ -281,8 +281,7 @@ describe('SuiteRunActions', () => {
 			/>,
 		);
 
-		await waitFor(() => expect(mocks.listUpstreamRepos).toHaveBeenCalled());
-		fireEvent.click(screen.getByRole('button', { name: 'Run 6 tests' }));
+		fireEvent.click(await screen.findByRole('button', { name: 'Run 6 tests' }));
 
 		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
 		expect(mocks.startRun.mock.calls[0][0]).toMatchObject({ mode: 'production', upstream: undefined });

@@ -164,6 +164,7 @@ export async function undoLastContextCommit(context: ContextExplorerGitContext):
 	if (readUnpushedCommitCount(repo, currentBranch, defaultBranch) === 0) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only a commit that is not pushed yet can be undone.' });
 	}
+	await assertCommitBranch(repo, context);
 	runWorktreeGitMutation(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, ['reset', 'HEAD~1']);
 }
 

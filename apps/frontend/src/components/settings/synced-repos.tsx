@@ -134,7 +134,7 @@ function RepoBranchPicker({
 						'h-6 max-w-full min-w-0 shrink gap-1 px-1.5 text-[11px] font-normal text-muted-foreground hover:text-foreground',
 						pickedBranch && 'text-foreground',
 					)}
-					aria-label={`Branch of ${repo}`}
+					aria-label={`Branch of ${repo}: ${pickedBranch ?? productionBranch ?? 'default'}`}
 					title={
 						pickedBranch
 							? `Compared with ${productionBranch ?? 'the default branch'} in production`

@@ -34,6 +34,7 @@ import type { ContextExplorerGitContext, ContextLineCounts, ParsedContextChanged
 import { COMMIT_PATTERN } from './types';
 import { requireContextExplorerGit, resolveContextExplorerGit } from './worktree.service';
 
+const MAX_PATCH_OUTPUT_BYTES = 1024 * 1024;
 export async function getChangedContextFiles(context: ContextExplorerGitContext): Promise<ContextChangedFile[]> {
 	try {
 		const resolution = await resolveContextExplorerGit(context);
@@ -334,20 +335,23 @@ function readCommittedText(repo: ResolvedContextRepo, projectPath: string): stri
 	return decodeTextContent(content);
 }
 
+/** A file whose changes cannot be read as text, such as a binary or oversized one, is only named. */
 function readFilePatch(repo: ResolvedContextRepo, file: ContextChangedFile): string {
 	const projectPath = normalizeProjectPath(file.path);
-	if (file.kind === 'untracked') {
-		return `New file ${projectPath}:\n${readWorkingTreeText(repo, file.path)}`;
+	try {
+		if (file.kind === 'untracked') {
+			return `New file ${projectPath}:\n${readWorkingTreeText(repo, file.path)}`;
+		}
+		const patch = runGit(
+			repo.worktreeRoot,
+			['diff', 'HEAD', '--no-color', '--unified=2', '--', `:(literal)${toRepoPath(repo, projectPath)}`],
+			undefined,
+			MAX_PATCH_OUTPUT_BYTES,
+		);
+		return patch.toString();
+	} catch {
+		return `Changed file ${projectPath} (content not shown)`;
 	}
-	const patch = runGit(repo.worktreeRoot, [
-		'diff',
-		'HEAD',
-		'--no-color',
-		'--unified=2',
-		'--',
-		toRepoPath(repo, projectPath),
-	]);
-	return patch.toString();
 }
 
 function readWorkingTreeText(repo: ResolvedContextRepo, filePath: string): string {

@@ -62,7 +62,7 @@ export function TestUpstreamPicker({ disabled }: { disabled?: boolean }) {
 							repo={repo.name}
 							productionBranch={repo.branch}
 							selected={source}
-							onSelect={setSource}
+							onSelect={(picked) => setSource(picked.branch === repo.branch ? null : picked)}
 						/>
 					</Fragment>
 				))}

@@ -3,7 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import type { DraftContext, TestRunSummary } from '@/components/settings/test-run-types';
 import { trpc } from '@/main';
 
-/** Which runs tested a set of changes: the user's own changes on a branch, or a branch of a synced repository. */
+/**
+ * Which runs tested a set of changes: the user's own changes on a branch, or saved in nao when the branch is null, or
+ * a branch of a synced repository.
+ */
 export type ChangesRunSource =
 	| { kind: 'own'; branch: string | null }
 	| { kind: 'upstream'; ref: string; commit: string | null };
@@ -41,8 +44,7 @@ function isCompletedRunOf(run: TestRunSummary, source: ChangesRunSource): boolea
 	if (source.kind === 'upstream') {
 		return run.contextRef === source.ref;
 	}
-	const isUpstreamRun = run.contextRef?.includes(':') ?? false;
-	return !isUpstreamRun && (source.branch === null || run.contextRef === source.branch);
+	return (run.contextRef ?? null) === source.branch;
 }
 
 /** Edits to files the run already tested go unnoticed, as runs record which files changed, not their content. */

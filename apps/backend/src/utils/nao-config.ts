@@ -182,7 +182,9 @@ export function extractRawRepoConfig(projectFolder: string, repoName: string): R
 	if (!isRecord(config) || !Array.isArray(config.repos)) {
 		return null;
 	}
-	const repo = config.repos.find((entry) => isRecord(entry) && entry.name === repoName);
+	const repo = config.repos.find(
+		(entry) => isRecord(entry) && typeof entry.name === 'string' && entry.name.trim() === repoName,
+	);
 	return isRecord(repo) ? repo : null;
 }
 

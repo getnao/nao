@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ContextChangedFile } from '@nao/shared/types';
 
-import type { ChangesRunResult } from '@/hooks/use-latest-changes-run';
+import type { ChangesRunResult, ChangesRunSource } from '@/hooks/use-latest-changes-run';
 import { ChangedFileList } from '@/components/settings/changed-file-list';
 import { ChangesSection } from '@/components/settings/changes-section';
 import { CommitComposer } from '@/components/settings/commit-composer';
@@ -98,9 +98,7 @@ export function ContextGitPanel({
 		...trpc.contextExplorer.suggestBranchName.queryOptions(),
 		enabled: isGitAvailable && currentBranch === defaultBranch,
 	});
-	const latestRun = useLatestChangesRun(
-		isGitAvailable || isNaoDraft ? { kind: 'own', branch: isNaoDraft ? null : currentBranch } : null,
-	);
+	const latestRun = useLatestChangesRun(getOwnChangesSource({ isNaoDraft, isGitAvailable, currentBranch }));
 	const changedFileList = changedFiles.data ?? [];
 	const hasUncommittedChanges = changedFileList.length > 0;
 	const hasKnownDirtyWorktree = hasUnsavedFileChanges || hasUncommittedChanges;
@@ -341,6 +339,8 @@ export function ContextGitPanel({
 		reviewRequest?.kind === 'link' && reviewRequest.apiRefused
 			? `Branch pushed. The git provider could not create the ${reviewName} automatically, so open it yourself.`
 			: null;
+	const notice =
+		[apiRefusedNotice, fallbackBaseNotice ? FALLBACK_BASE_NOTICE : null].filter(Boolean).join(' ') || null;
 	const reviewRequestLink = toReviewRequestLinkInfo(reviewRequest, reviewAbbreviation, reviewName);
 
 	return (
@@ -449,7 +449,7 @@ export function ContextGitPanel({
 									pushBranch.error?.message,
 									undoLastCommit.error?.message,
 								]}
-								notice={apiRefusedNotice ?? (fallbackBaseNotice ? FALLBACK_BASE_NOTICE : null)}
+								notice={notice}
 							/>
 						</div>
 						<ChangesSection
@@ -852,6 +852,21 @@ function CreateBranchDialog({
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function getOwnChangesSource({
+	isNaoDraft,
+	isGitAvailable,
+	currentBranch,
+}: {
+	isNaoDraft: boolean;
+	isGitAvailable: boolean;
+	currentBranch: string | null;
+}): ChangesRunSource | null {
+	if (isNaoDraft) {
+		return { kind: 'own', branch: null };
+	}
+	return isGitAvailable && currentBranch ? { kind: 'own', branch: currentBranch } : null;
 }
 
 function getPushLabel(unpushedCommitCount: number, hasReviewRequest: boolean, reviewAbbreviation: string): string {

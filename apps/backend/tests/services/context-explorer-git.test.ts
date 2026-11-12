@@ -1760,20 +1760,20 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 	it('reads the patch of the selected changes only, cut to the given length', async () => {
 		const fixture = createFixture({
 			'nao_config.yaml': 'name: test\n',
-			'context.md': 'repository content\n',
-			'other.md': 'other\n',
+			'notes[1].md': 'repository content\n',
+			'notes1.md': 'other\n',
 		});
 		const access = await fileAccess(fixture.context);
-		const contextFile = await readFileContent('/context.md', access);
-		const otherFile = await readFileContent('/other.md', access);
-		await writeFileContent('/context.md', 'selected\n', contextFile.hash, access);
-		await writeFileContent('/other.md', 'unselected\n', otherFile.hash, access);
+		const selectedFile = await readFileContent('/notes[1].md', access);
+		const otherFile = await readFileContent('/notes1.md', access);
+		await writeFileContent('/notes[1].md', 'selected\n', selectedFile.hash, access);
+		await writeFileContent('/notes1.md', 'unselected\n', otherFile.hash, access);
 
-		const patch = await readContextChangesPatch(fixture.context, ['/context.md'], 10_000);
+		const patch = await readContextChangesPatch(fixture.context, ['/notes[1].md'], 10_000);
 
 		expect(patch).toContain('-repository content\n+selected');
 		expect(patch).not.toContain('unselected');
-		expect(await readContextChangesPatch(fixture.context, ['/context.md'], 12)).toHaveLength(12);
+		expect(await readContextChangesPatch(fixture.context, ['/notes[1].md'], 12)).toHaveLength(12);
 	});
 
 	it('uses the logged-in nao user as the commit identity', async () => {

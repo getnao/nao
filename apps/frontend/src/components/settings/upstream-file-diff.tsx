@@ -6,6 +6,8 @@ import type { TrpcRouter } from '@nao/backend/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { UpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { FileDiffPanel } from '@/components/settings/context-file-diff';
+import { Button } from '@/components/ui/button';
+import { ErrorMessage } from '@/components/ui/error-message';
 import { Spinner } from '@/components/ui/spinner';
 import { useUpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { computeLineDiff } from '@/lib/line-diff';
@@ -33,6 +35,18 @@ export function UpstreamFileDiff({ path }: { path: string }) {
 		return (
 			<CenteredMessage>
 				<Spinner />
+			</CenteredMessage>
+		);
+	}
+	if (upstreamChanges.isError) {
+		return (
+			<CenteredMessage>
+				<span className='flex flex-col items-center gap-2'>
+					<ErrorMessage message={upstreamChanges.error.message} />
+					<Button variant='outline' size='pill' onClick={() => upstreamChanges.refetch()}>
+						Retry
+					</Button>
+				</span>
 			</CenteredMessage>
 		);
 	}

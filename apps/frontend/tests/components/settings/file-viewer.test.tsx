@@ -160,7 +160,10 @@ describe('FileViewer RULES preview', () => {
 
 		expect(screen.queryByRole('toolbar', { name: 'Rules preview options' })).toBeNull();
 		expect(screen.queryByRole('button', { name: /Select user groups/ })).toBeNull();
-		expect(screen.getByLabelText('Markdown editor').textContent).toContain('{% if group("Finance") %}');
+		const editorText = screen.getByLabelText('Markdown editor').textContent;
+		for (const part of ['{% if group("Finance") %}', 'Nested content', '{% endif %}']) {
+			expect(editorText).toContain(part);
+		}
 	});
 
 	it('uses unenforced rendering and hides the selector when groups are unlicensed', () => {

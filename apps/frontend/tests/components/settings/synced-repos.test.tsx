@@ -80,7 +80,7 @@ describe('SyncedRepos', () => {
 		fireEvent.click(await screen.findByRole('button', { name: /Synced repos/, expanded: false }));
 
 		expect(screen.getByRole('group', { name: 'business' })).toBeTruthy();
-		expect(screen.getByRole('button', { name: 'Branch of business' }).textContent).toBe('main');
+		expect(screen.getByRole('button', { name: 'Branch of business: main' }).textContent).toBe('main');
 		expect(mocks.getUpstreamChanges).not.toHaveBeenCalled();
 	});
 
