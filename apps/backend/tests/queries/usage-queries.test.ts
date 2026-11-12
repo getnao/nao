@@ -204,7 +204,10 @@ describe('usage query results', () => {
 			})),
 		);
 
-		const records = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' }, sources: [...sources] });
+		const records = await getMessagesUsage(PROJECT_ID, {
+			period: { value: 15, unit: 'day' },
+			sources: [...sources],
+		});
 		const record = records.find((item) => item.date === formatDate(now, 'day'));
 
 		expect(record).toMatchObject({
