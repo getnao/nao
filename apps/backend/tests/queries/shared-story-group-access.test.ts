@@ -15,6 +15,7 @@ import {
 } from '../../src/queries/shared-story.queries';
 import {
 	canUserAccessStory,
+	deleteStoryViewerDataCache,
 	getProjectViewerCacheRevision,
 	getStorySharingInfo,
 	invalidateUserViewerCaches,
@@ -161,6 +162,39 @@ describe('sharing a story with user groups', () => {
 		await invalidateUserViewerCaches(PROJECT_ID, GROUP_MEMBER_ID);
 
 		await expect(getProjectViewerCacheRevision(PROJECT_ID)).resolves.toBe(1);
+		await expect(db.select().from(s.storyViewerDataCache)).resolves.toEqual([]);
+	});
+
+	it('rejects viewer cache writes started before a story cache deletion', async () => {
+		await expect(
+			upsertStoryViewerDataCache(
+				STORY_ID,
+				STORY_VERSION_ID,
+				GROUP_MEMBER_ID,
+				PROJECT_ID,
+				0,
+				'permissions-a',
+				{},
+				{},
+			),
+		).resolves.toBe(true);
+
+		await deleteStoryViewerDataCache(STORY_ID, PROJECT_ID);
+
+		await expect(getProjectViewerCacheRevision(PROJECT_ID)).resolves.toBe(1);
+		await expect(db.select().from(s.storyViewerDataCache)).resolves.toEqual([]);
+		await expect(
+			upsertStoryViewerDataCache(
+				STORY_ID,
+				STORY_VERSION_ID,
+				GROUP_MEMBER_ID,
+				PROJECT_ID,
+				0,
+				'permissions-a',
+				{},
+				{},
+			),
+		).resolves.toBe(false);
 		await expect(db.select().from(s.storyViewerDataCache)).resolves.toEqual([]);
 	});
 

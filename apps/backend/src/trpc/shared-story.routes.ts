@@ -501,7 +501,7 @@ export const sharedStoryRoutes = {
 				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, {
 					billingAccessVerifiedProjectId: shared.projectId,
 				});
-				await storyQueries.deleteStoryViewerDataCache(story.id);
+				await storyQueries.deleteStoryViewerDataCache(story.id, shared.projectId);
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});

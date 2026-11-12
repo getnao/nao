@@ -1259,8 +1259,18 @@ export async function upsertStoryViewerDataCache(
 	});
 }
 
-export async function deleteStoryViewerDataCache(storyId: string): Promise<void> {
-	await db.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).execute();
+export async function deleteStoryViewerDataCache(storyId: string, projectId: string): Promise<void> {
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		db.transaction((transaction) => {
+			bumpProjectViewerCacheRevisionSqlite(projectId, transaction);
+			transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).run();
+		});
+		return;
+	}
+	await db.transaction(async (transaction) => {
+		await bumpProjectViewerCacheRevision(projectId, transaction);
+		await transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).execute();
+	});
 }
 
 export async function invalidateProjectViewerCaches(projectId: string, executor?: DBExecutor): Promise<void> {

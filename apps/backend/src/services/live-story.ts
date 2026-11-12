@@ -162,7 +162,9 @@ async function refreshStoryDataWithContext(
 		if (shouldGenerateViewerCode && version.format === 'classic') {
 			throw new Error('Cannot generate viewer story text without query data');
 		}
-		return { queryData: {}, code: version.code, narratives: {} };
+		const narratives =
+			options.viewerUserId && version.format === 'custom' ? await redactCustomStoryNarratives(version.id) : {};
+		return { queryData: {}, code: version.code, narratives };
 	}
 
 	const chat = await chatQueries.getChatInfo(chatId);
@@ -216,10 +218,19 @@ async function refreshStoryDataWithContext(
 		refreshedCode = stripHardcodedFilterOptions(refreshedCode);
 	}
 
-	const narratives =
-		version.isLiveTextDynamic && version.format === 'custom'
-			? await regenerateCustomStoryNarratives(target, version, queryData, options.viewerUserId !== undefined)
-			: {};
+	let narratives: StoryNarratives = {};
+	if (version.format === 'custom') {
+		if (version.isLiveTextDynamic) {
+			narratives = await regenerateCustomStoryNarratives(
+				target,
+				version,
+				queryData,
+				options.viewerUserId !== undefined,
+			);
+		} else if (options.viewerUserId) {
+			narratives = await redactCustomStoryNarratives(version.id);
+		}
+	}
 	const querySources = buildQuerySources(sqlQueries);
 	if (options.viewerUserId) {
 		if (!executionContext) {
@@ -789,6 +800,10 @@ function redactViewerNarratives(sources: StoryNarrativeSource[], narratives: Sto
 		[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
 		...Object.fromEntries(sources.map(({ id }) => [id, narratives[id] ?? ''])),
 	};
+}
+
+async function redactCustomStoryNarratives(storyVersionId: string): Promise<StoryNarratives> {
+	return redactViewerNarratives(extractStoryNarratives(await storyFileQueries.listVersionFiles(storyVersionId)));
 }
 
 function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNarrativeSource[]): StoryNarratives {

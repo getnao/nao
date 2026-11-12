@@ -1125,7 +1125,7 @@ export const storyRoutes = {
 					const { queryData } = await refreshStoryData(input.chatId, input.storySlug, {
 						billingAccessVerifiedProjectId: ctx.projectId,
 					});
-					await storyQueries.deleteStoryViewerDataCache(story.id);
+					await storyQueries.deleteStoryViewerDataCache(story.id, projectId);
 					const queriesRefreshed = Object.keys(queryData).length;
 					await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 					await notifyStoryRefreshed({
