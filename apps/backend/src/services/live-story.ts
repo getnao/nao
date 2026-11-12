@@ -31,7 +31,6 @@ import { backfillMissingQueryData, extractCustomStoryQueryIds, findMissingQueryI
 import { buildToolContext, MAX_OUTPUT_TOKENS } from './agent';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
-import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 import { runQueryOnLocalFiles } from './local-query.service';
 import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
 import {
@@ -40,6 +39,7 @@ import {
 	semanticBindingsFromCode,
 	type SemanticStoryBindings,
 } from './semantic-story-bindings';
+import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
