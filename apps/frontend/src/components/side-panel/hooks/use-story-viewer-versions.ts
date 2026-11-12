@@ -92,6 +92,7 @@ export const useStoryViewerVersions = ({
 	const currentVersion = versions[currentVersionIndex];
 	const currentVersionNumber = currentVersionIndex + 1;
 	const storedVersionNumber = currentVersion?.version ?? 0;
+	const latestVersionNumber = versions.at(-1)?.version;
 	const isViewingLatest = selectedVersionIndex === null;
 
 	const goToVersion = useCallback(
@@ -116,6 +117,7 @@ export const useStoryViewerVersions = ({
 		currentVersion,
 		currentVersionNumber,
 		storedVersionNumber,
+		latestVersionNumber,
 		isViewingLatest,
 		goToVersion,
 		goToLatestVersion,

@@ -4,9 +4,11 @@ import { useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 import type { ReactNode } from 'react';
 
 import type { TestDefinition, TestRunSummary } from '@/components/settings/test-run-types';
+import type { TestFilters } from '@/components/settings/test-suite-filter-menu';
 import { RunsColumnWidthContext, useRunsColumnWidthState } from '@/components/settings/test-drawer-layout';
 import { DrawerTab, getTestTabLabel, SortableTestTabs } from '@/components/settings/test-drawer-tabs';
 import { SuiteRunActions, TestFileRunActions } from '@/components/settings/test-run-actions';
+import { NO_TEST_FILTERS } from '@/components/settings/test-suite-filter-menu';
 import { getSuiteRunScope, TestSuitePanel } from '@/components/settings/test-suite-panel';
 import { TestTabRunButton } from '@/components/settings/test-tab-run-button';
 import { TestWorkbench } from '@/components/settings/test-workbench';
@@ -71,13 +73,13 @@ export function TestDrawerLayout({
 	const { runs, activeRun, draft, tests, invalidateRuns } = useTestDrawerData();
 	const runSettings = useTestRunSettings();
 	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
-	const [selectedTags, setSelectedTags] = useState<string[]>([]);
+	const [testFilters, setTestFilters] = useState<TestFilters>(NO_TEST_FILTERS);
 	const [testSearch, setTestSearch] = useState('');
 	const selection = {
 		selectedPaths,
 		onSelectedPathsChange: setSelectedPaths,
-		selectedTags,
-		onSelectedTagsChange: setSelectedTags,
+		filters: testFilters,
+		onFiltersChange: setTestFilters,
 		search: testSearch,
 		onSearchChange: setTestSearch,
 	};

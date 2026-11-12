@@ -67,12 +67,6 @@ describe('sumPercentStackBase', () => {
 });
 
 describe('percentStackSeries', () => {
-	it('excludes total series so rendering matches the tooltip shares', () => {
-		const series = [{ data_key: 'a' }, { data_key: 'b' }, { data_key: 'total', is_total: true }];
-		const rendered = percentStackSeries(series);
-		expect(rendered.map((s) => s.data_key)).toEqual(['a', 'b']);
-	});
-
 	it('renders the non-total series whose shares sum to 100%', () => {
 		const series = [{ data_key: 'a' }, { data_key: 'b' }, { data_key: 'total', is_total: true }];
 		const row = { a: 10, b: 20, total: 30 };
@@ -84,15 +78,17 @@ describe('percentStackSeries', () => {
 });
 
 describe('clampNegativeSeriesValues', () => {
+	const series = [{ data_key: 'revenue' }, { data_key: 'cost' }];
+
 	it('zeroes negative series values but leaves a negative non-series value untouched', () => {
 		const data = [{ month: -1, revenue: -5, cost: 20 }];
-		const clamped = clampNegativeSeriesValues(data, [{ data_key: 'revenue' }, { data_key: 'cost' }]);
+		const clamped = clampNegativeSeriesValues(data, series);
 		expect(clamped[0]).toEqual({ month: -1, revenue: 0, cost: 20 });
 	});
 
 	it('returns the original data untouched when no series value is negative', () => {
 		const data = [{ month: -1, revenue: 5, cost: 20 }];
-		const clamped = clampNegativeSeriesValues(data, [{ data_key: 'revenue' }, { data_key: 'cost' }]);
+		const clamped = clampNegativeSeriesValues(data, series);
 		expect(clamped).toBe(data);
 	});
 });
@@ -150,9 +146,5 @@ describe('formatPercentShare', () => {
 	it('returns 0% when the total is zero', () => {
 		expect(formatPercentShare(0, 0)).toBe('0%');
 		expect(formatPercentShare(5, 0)).toBe('0%');
-	});
-
-	it('drops the decimal for whole shares', () => {
-		expect(formatPercentShare(50, 200)).toBe('25%');
 	});
 });

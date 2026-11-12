@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -18,6 +20,9 @@ from nao_core.config.databases.clickhouse import (
     _RestrictedDiscoveryBackend,
     _server_settings_probe_optional,
 )
+
+CLICKHOUSE_MODULE = "nao_core.config.databases.clickhouse"
+HTTP_CLIENT_MODULE = "clickhouse_connect.driver.httpclient"
 
 
 def _base_config(**overrides: Any) -> ClickHouseConfig:
@@ -145,23 +150,18 @@ class TestServerSettingsProbe:
         assert not _is_server_settings_probe("SELECT * FROM system.settings")
 
     def test_forbidden_probe_falls_back_to_no_settings(self) -> None:
-        client_cls = _fake_http_client_class(raise_on=SERVER_SETTINGS_PROBE)
-        with patch.dict("sys.modules", {"clickhouse_connect.driver.httpclient": _module(HttpClient=client_cls)}):
-            with _server_settings_probe_optional():
-                result = client_cls().query(SERVER_SETTINGS_PROBE)
+        with _stubbed_http_client(raise_on=SERVER_SETTINGS_PROBE) as client_cls, _server_settings_probe_optional():
+            result = client_cls().query(SERVER_SETTINGS_PROBE)
         assert list(result.named_results()) == []
 
     def test_other_failures_still_raise(self) -> None:
-        client_cls = _fake_http_client_class(raise_on="SELECT 1")
-        with patch.dict("sys.modules", {"clickhouse_connect.driver.httpclient": _module(HttpClient=client_cls)}):
-            with _server_settings_probe_optional():
-                with pytest.raises(RuntimeError):
-                    client_cls().query("SELECT 1")
+        with _stubbed_http_client(raise_on="SELECT 1") as client_cls, _server_settings_probe_optional():
+            with pytest.raises(RuntimeError):
+                client_cls().query("SELECT 1")
 
     def test_original_query_method_is_restored(self) -> None:
-        client_cls = _fake_http_client_class(raise_on=SERVER_SETTINGS_PROBE)
-        original = client_cls.query
-        with patch.dict("sys.modules", {"clickhouse_connect.driver.httpclient": _module(HttpClient=client_cls)}):
+        with _stubbed_http_client(raise_on=SERVER_SETTINGS_PROBE) as client_cls:
+            original = client_cls.query
             with _server_settings_probe_optional():
                 assert client_cls.query is not original
         assert client_cls.query is original
@@ -258,8 +258,7 @@ class TestRestrictedDiscovery:
     def test_connection_is_wrapped_when_enabled(self) -> None:
         config = _base_config(tolerate_unreadable_system_tables=True, include=["analytics.users"])
         mock_backend = MagicMock(name="ibis_backend")
-        stub = _module(HttpClient=_fake_http_client_class(raise_on=SERVER_SETTINGS_PROBE))
-        with patch.dict("sys.modules", {"clickhouse_connect.driver.httpclient": stub}):
+        with _stubbed_http_client(raise_on=SERVER_SETTINGS_PROBE):
             with patch("nao_core.deps.require_database_backend"):
                 with patch.object(ClickHouseConfig, "_connect_http_client", return_value=mock_backend):
                     conn = config.connect()
@@ -333,23 +332,23 @@ class TestColumnMetadata:
     def test_system_columns_win_when_available(self) -> None:
         conn = MagicMock(name="conn")
         system_columns = [{"name": "from_system", "type": "String"}]
-        with patch("nao_core.config.databases.clickhouse._columns_from_system", return_value=system_columns):
-            with patch("nao_core.config.databases.clickhouse._columns_from_describe") as mock_describe:
+        with patch(f"{CLICKHOUSE_MODULE}._columns_from_system", return_value=system_columns):
+            with patch(f"{CLICKHOUSE_MODULE}._columns_from_describe") as mock_describe:
                 assert _column_metadata(conn, "analytics", "users", describe_fallback=True) == system_columns
         mock_describe.assert_not_called()
 
     def test_describe_is_used_when_system_columns_is_empty(self) -> None:
         conn = MagicMock(name="conn")
         described = [{"name": "from_describe", "type": "String"}]
-        with patch("nao_core.config.databases.clickhouse._columns_from_system", return_value=[]):
-            with patch("nao_core.config.databases.clickhouse._columns_from_describe", return_value=described):
+        with patch(f"{CLICKHOUSE_MODULE}._columns_from_system", return_value=[]):
+            with patch(f"{CLICKHOUSE_MODULE}._columns_from_describe", return_value=described):
                 assert _column_metadata(conn, "analytics", "users", describe_fallback=True) == described
 
     def test_describe_is_not_used_unless_opted_in(self) -> None:
         """With the field off, an empty system.columns must stay empty, as it was before."""
         conn = MagicMock(name="conn")
-        with patch("nao_core.config.databases.clickhouse._columns_from_system", return_value=[]):
-            with patch("nao_core.config.databases.clickhouse._columns_from_describe") as mock_describe:
+        with patch(f"{CLICKHOUSE_MODULE}._columns_from_system", return_value=[]):
+            with patch(f"{CLICKHOUSE_MODULE}._columns_from_describe") as mock_describe:
                 assert _column_metadata(conn, "analytics", "users") == []
         mock_describe.assert_not_called()
 
@@ -358,6 +357,13 @@ class TestColumnMetadata:
         assert _base_config().create_context(conn, "analytics", "users")._describe_fallback is False
         opted_in = _base_config(tolerate_unreadable_system_tables=True)
         assert opted_in.create_context(conn, "analytics", "users")._describe_fallback is True
+
+
+@contextmanager
+def _stubbed_http_client(raise_on: str) -> Iterator[type[_FakeHttpClient]]:
+    client_cls = _fake_http_client_class(raise_on)
+    with patch.dict("sys.modules", {HTTP_CLIENT_MODULE: _module(HttpClient=client_cls)}):
+        yield client_cls
 
 
 def _module(**attributes: Any) -> ModuleType:

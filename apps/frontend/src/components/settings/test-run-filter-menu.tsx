@@ -100,7 +100,7 @@ function matchesKindFilter(trigger: TestRunSummary['trigger'], kind: RunKindFilt
 	}
 }
 
-/** Judged like the run's icon; unfinished runs neither pass nor fail. */
+/** A flaky run did not pass, so it is listed with the failed ones; unfinished runs neither pass nor fail. */
 function matchesRunOutcome(tone: Tone, outcome: RunOutcomeFilter): boolean {
 	switch (outcome) {
 		case 'all':

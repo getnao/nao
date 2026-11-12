@@ -40,7 +40,7 @@
 		"db:seed:cloud": "bun scripts/db.seed-cloud.ts",
 		"db:check-migrations": "bun scripts/db.check-migrations.ts",
 		"format": "prettier --write .",
-		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/tool-outputs/"
+		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/components/tool-outputs/"
 	},
 	"dependencies": {
 		"@ai-sdk/amazon-bedrock": "^4.0.191",
@@ -59,7 +59,7 @@
 		"@better-auth/core": "1.6.30",
 		"@better-auth/oauth-provider": "~1.6.30",
 		"@chat-adapter/discord": "4.38.1",
-		"@chat-adapter/slack": "^4.15.0",
+		"@chat-adapter/slack": "4.38.1",
 		"@chat-adapter/state-memory": "^4.29.0",
 		"@chat-adapter/state-redis": "^4.29.0",
 		"@chat-adapter/teams": "^4.19.0",
@@ -87,7 +87,7 @@
 		"ajv": "^8.20.0",
 		"better-auth": "~1.6.30",
 		"better-sqlite3": "^12.5.0",
-		"chat": "^4.29.0",
+		"chat": "^4.38.1",
 		"chat-adapter-mattermost": "^1.1.3",
 		"cheerio": "^1.2.0",
 		"colorthief": "^3.5.0",

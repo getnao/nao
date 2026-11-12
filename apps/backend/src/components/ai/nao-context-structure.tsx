@@ -65,7 +65,9 @@ export function NaoContextStructure({
 									<ListItem key='annotations'>
 										<Code>annotations.md</Code> — human-written notes about this table; often empty,
 										but when it has content it is authoritative — prefer it over the generated files
-										if they disagree.
+										if they disagree. Its content is appended automatically when you read{' '}
+										<Code>columns.md</Code>; read it directly only when you skip{' '}
+										<Code>columns.md</Code>.
 									</ListItem>,
 									...visibleTemplates.map(({ name, description }) => (
 										<ListItem key={name}>

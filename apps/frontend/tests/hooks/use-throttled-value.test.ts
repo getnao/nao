@@ -1,20 +1,21 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useThrottledValue } from '@/hooks/use-throttled-value';
 
 describe('useThrottledValue', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
 	afterEach(() => {
 		vi.useRealTimers();
 	});
 
 	it('emits the leading value and the latest trailing value', () => {
-		vi.useFakeTimers();
-		const { result, rerender } = renderHook(({ value, enabled }) => useThrottledValue(value, 120, enabled), {
-			initialProps: { value: 'first', enabled: true },
-		});
+		const { result, rerender } = renderThrottledValue();
 
 		expect(result.current).toBe('first');
 		rerender({ value: 'second', enabled: true });
@@ -27,10 +28,7 @@ describe('useThrottledValue', () => {
 	});
 
 	it('passes through immediately when throttling ends', () => {
-		vi.useFakeTimers();
-		const { result, rerender } = renderHook(({ value, enabled }) => useThrottledValue(value, 120, enabled), {
-			initialProps: { value: 'first', enabled: true },
-		});
+		const { result, rerender } = renderThrottledValue();
 
 		rerender({ value: 'pending', enabled: true });
 		expect(result.current).toBe('first');
@@ -40,7 +38,6 @@ describe('useThrottledValue', () => {
 	});
 
 	it('cleans up a pending trailing update on unmount', () => {
-		vi.useFakeTimers();
 		const { rerender, unmount } = renderHook(({ value }) => useThrottledValue(value, 120), {
 			initialProps: { value: 'first' },
 		});
@@ -51,3 +48,9 @@ describe('useThrottledValue', () => {
 		expect(vi.getTimerCount()).toBe(0);
 	});
 });
+
+function renderThrottledValue() {
+	return renderHook(({ value, enabled }) => useThrottledValue(value, 120, enabled), {
+		initialProps: { value: 'first', enabled: true },
+	});
+}

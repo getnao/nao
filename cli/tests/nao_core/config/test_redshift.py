@@ -1,20 +1,13 @@
+from typing import Any
 from unittest.mock import MagicMock
 
 from nao_core.config.databases.redshift import RedshiftConfig, RedshiftDatabaseContext
 
 
 def test_get_schemas_uses_datashare_visible_catalog_view():
-    cfg = RedshiftConfig(
-        name="rs",
-        host="redshift.example",
-        database="analytics",
-        user="alice",
-        password="secret",
-    )
+    cfg = _redshift_config()
     conn = MagicMock()
-    cursor = MagicMock()
-    cursor.fetchall.return_value = [("marts",), ("public",)]
-    conn.raw_sql.return_value = cursor
+    conn.raw_sql.return_value.fetchall.return_value = [("marts",), ("public",)]
 
     schemas = cfg.get_schemas(conn)
 
@@ -28,14 +21,7 @@ def test_get_schemas_uses_datashare_visible_catalog_view():
 
 
 def test_get_schemas_returns_configured_schema_without_querying():
-    cfg = RedshiftConfig(
-        name="rs",
-        host="redshift.example",
-        database="analytics",
-        user="alice",
-        password="secret",
-        schema_name="marts",
-    )
+    cfg = _redshift_config(schema_name="marts")
     conn = MagicMock()
 
     schemas = cfg.get_schemas(conn)
@@ -52,9 +38,7 @@ class TestRedshiftClusteringColumns:
 
     def test_returns_sortkey_columns_in_order(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.fetchall.return_value = [("customer_id",), ("created_at",)]
-        conn.raw_sql.return_value = cursor
+        conn.raw_sql.return_value.fetchall.return_value = [("customer_id",), ("created_at",)]
 
         cols = ctx.clustering_columns()
 
@@ -66,9 +50,7 @@ class TestRedshiftClusteringColumns:
 
     def test_returns_empty_when_no_sortkeys(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.fetchall.return_value = []
-        conn.raw_sql.return_value = cursor
+        conn.raw_sql.return_value.fetchall.return_value = []
 
         assert ctx.clustering_columns() == []
 
@@ -81,12 +63,22 @@ class TestRedshiftClusteringColumns:
     def test_escapes_single_quotes_in_identifiers(self):
         conn = MagicMock()
         ctx = RedshiftDatabaseContext(conn, "pub'lic", "or'ders")
-        cursor = MagicMock()
-        cursor.fetchall.return_value = []
-        conn.raw_sql.return_value = cursor
+        conn.raw_sql.return_value.fetchall.return_value = []
 
         ctx.clustering_columns()
 
         sql = conn.raw_sql.call_args[0][0]
         assert "'pub''lic'" in sql
         assert "'or''ders'" in sql
+
+
+def _redshift_config(**overrides: Any) -> RedshiftConfig:
+    fields: dict[str, Any] = {
+        "name": "rs",
+        "host": "redshift.example",
+        "database": "analytics",
+        "user": "alice",
+        "password": "secret",
+        **overrides,
+    }
+    return RedshiftConfig(**fields)

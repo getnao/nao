@@ -1,4 +1,4 @@
-import { Activity, Archive, ChevronDown, Globe, ListFilter, ShieldCheck, Star, X } from 'lucide-react';
+import { Activity, Archive, ChevronDown, Globe, ListFilter, ShieldCheck, Star } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { StoriesFilters, StoriesFormatFilter, StoriesOwnerFilter } from '@/lib/stories-page';
 import { countActiveFilters, DEFAULT_FILTERS } from '@/lib/stories-page';
@@ -14,6 +14,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { FilterChip } from '@/components/ui/filter-chip';
 import { cn } from '@/lib/utils';
 
 export const TOOLBAR_BUTTON_CLASS = 'h-9 gap-1.5 rounded-full border px-3.5 font-normal';
@@ -174,21 +175,5 @@ export function StoriesActiveFilters({ filters, onFiltersChange, showArchived, o
 				</button>
 			)}
 		</div>
-	);
-}
-
-function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
-	return (
-		<span className='inline-flex h-6 items-center gap-1 rounded-full bg-accent pl-2.5 pr-1 text-xs'>
-			{label}
-			<button
-				type='button'
-				onClick={onRemove}
-				aria-label={`Remove ${label} filter`}
-				className='inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground cursor-pointer'
-			>
-				<X className='size-3' />
-			</button>
-		</span>
 	);
 }

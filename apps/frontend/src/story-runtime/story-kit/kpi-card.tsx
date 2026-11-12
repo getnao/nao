@@ -18,9 +18,24 @@ export interface KpiCardProps extends BlockProps, BlockDataSource, FormatOptions
 }
 
 export function KpiCard(props: KpiCardProps) {
-	const { queryId, data, valueKey, xKey, comparison, label, valueFormat, format, currency, decimals, ...block } =
-		props;
-	const source = useBlockData({ queryId, data });
+	const {
+		queryId,
+		data,
+		sql,
+		databaseId,
+		filters,
+		params,
+		valueKey,
+		xKey,
+		comparison,
+		label,
+		valueFormat,
+		format,
+		currency,
+		decimals,
+		...block
+	} = props;
+	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 	const resolvedFormat = valueFormat ?? toChartValueFormat({ format, currency, decimals });
 	const resolved = source.status === 'ready' ? resolveKeys(source.rows, source.columns, valueKey, xKey) : null;
 	const edit =
