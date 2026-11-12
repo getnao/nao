@@ -471,6 +471,11 @@ code.dollar:before {
 	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
+.code-query-link {
+	text-decoration: underline;
+	cursor: pointer;
+}
+
 ::highlight(nao-file-preview-search-match) {
 	background-color: rgb(245 158 11 / 18%);
 }
@@ -738,6 +743,11 @@ code.dollar:before {
 	outline: 1px solid var(--primary);
 	outline-offset: 2px;
 	animation: replay-highlight-pulse 2s ease-out forwards;
+}
+
+/* A collapsible clips what overflows it, so the outline is drawn on the tool call's own edge there. */
+[data-slot='accordion-content'] .chat-artifact-reveal-highlight {
+	outline-offset: -1px;
 }
 
 @keyframes replay-highlight-pulse {
