@@ -146,15 +146,16 @@ describe('ConversationFeedbackGuard', () => {
 		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
-	it('shows a skippable leave prompt when feedback collection is not enforced', () => {
+	it('shows a dismissible leave prompt without a skip button when feedback collection is not enforced', () => {
 		mocks.agentSettings.enforceConversationFeedbackBeforeLeaving = false;
 
 		render(<ConversationFeedbackGuard chatId='chat-1' />);
 
 		expect(mocks.blockerOptions?.disabled).toBe(false);
 		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(true);
+		expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
 
-		fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+		fireEvent.keyDown(document, { key: 'Escape' });
 
 		expect(mocks.proceed).toHaveBeenCalledOnce();
 	});

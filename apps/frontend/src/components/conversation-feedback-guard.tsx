@@ -99,23 +99,10 @@ export function ConversationFeedbackGuard({ chatId }: { chatId: string }) {
 					<DialogHeader className='text-left'>
 						<DialogTitle>How did it go?</DialogTitle>
 						<DialogDescription className='sr-only'>
-							{isEnforced
-								? 'Rate the latest answer to continue.'
-								: 'Rate the latest answer or skip to continue.'}
+							{isEnforced ? 'Rate the latest answer to continue.' : 'Rate the latest answer.'}
 						</DialogDescription>
 					</DialogHeader>
 					<div className='flex shrink-0 gap-1'>
-						{!isEnforced && (
-							<Button
-								variant='ghost'
-								size='sm'
-								className='rounded-full text-muted-foreground'
-								onClick={navigationBlocker.proceed}
-								disabled={submitFeedback.isPending}
-							>
-								Skip
-							</Button>
-						)}
 						<Button
 							variant='ghost'
 							size='icon'
