@@ -4,7 +4,7 @@ import { STORY_QUERY_ACCESS_DENIED_MESSAGE } from '@nao/shared/story-app';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { BlockState } from './block';
+import { BlockState } from '@/story-runtime/story-kit/block';
 
 afterEach(cleanup);
 

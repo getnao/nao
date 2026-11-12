@@ -58,6 +58,7 @@ const failuresByStoryId = new Map<string, RenderFailure>();
 const viewerThumbnails = new Map<string, { image: Buffer; expiresAt: number }>();
 const pendingViewerThumbnails = new Map<string, Promise<Buffer | null>>();
 let renderQueue: Promise<void> = Promise.resolve();
+let viewerRenderQueue: Promise<void> = Promise.resolve();
 
 class MissingStoryDataError extends Error {}
 
@@ -144,7 +145,7 @@ export async function getViewerCustomStoryThumbnail(
 	if (pending) {
 		return pending;
 	}
-	const rendering = renderViewerThumbnail(story, version, viewerUserId, mode)
+	const rendering = queueViewerThumbnailRender(() => renderViewerThumbnail(story, version, viewerUserId, mode))
 		.catch((error) => {
 			logFailure(version.version.id, error);
 			return null;
@@ -157,6 +158,15 @@ export async function getViewerCustomStoryThumbnail(
 		})
 		.finally(() => pendingViewerThumbnails.delete(key));
 	pendingViewerThumbnails.set(key, rendering);
+	return rendering;
+}
+
+function queueViewerThumbnailRender(render: () => Promise<Buffer | null>): Promise<Buffer | null> {
+	const rendering = viewerRenderQueue.then(render);
+	viewerRenderQueue = rendering.then(
+		() => undefined,
+		() => undefined,
+	);
 	return rendering;
 }
 

@@ -28,18 +28,30 @@ const screenshots = vi.hoisted(() => ({
 	darkImage: null as unknown as Buffer,
 	brokenModes: [] as string[],
 	calls: 0,
+	activeCalls: 0,
+	maxActiveCalls: 0,
+	delayMs: 0,
 }));
 vi.mock('../../src/utils/story-screenshot', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../src/utils/story-screenshot')>()),
 	renderStoryScreenshot: async (html: string) => {
 		screenshots.calls++;
-		const isBroken = screenshots.brokenModes.some((mode) => html.includes(`data-mode="${mode}"`));
-		if (isBroken) {
-			return { ...screenshots.render, blockErrors: ['Something went wrong.'] };
+		screenshots.activeCalls++;
+		screenshots.maxActiveCalls = Math.max(screenshots.maxActiveCalls, screenshots.activeCalls);
+		try {
+			if (screenshots.delayMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, screenshots.delayMs));
+			}
+			const isBroken = screenshots.brokenModes.some((mode) => html.includes(`data-mode="${mode}"`));
+			if (isBroken) {
+				return { ...screenshots.render, blockErrors: ['Something went wrong.'] };
+			}
+			return html.includes('data-mode="dark"')
+				? { ...screenshots.render, image: screenshots.darkImage }
+				: screenshots.render;
+		} finally {
+			screenshots.activeCalls--;
 		}
-		return html.includes('data-mode="dark"')
-			? { ...screenshots.render, image: screenshots.darkImage }
-			: screenshots.render;
 	},
 }));
 
@@ -173,6 +185,9 @@ describe('custom story thumbnails', () => {
 			.set({ rowSecurity: { version: 1, tables: [] } })
 			.where(eq(s.project.id, 'project-1'));
 		screenshots.calls = 0;
+		screenshots.activeCalls = 0;
+		screenshots.maxActiveCalls = 0;
+		screenshots.delayMs = 0;
 		screenshots.brokenModes = [];
 		screenshots.render = await cleanScreenshot('#ffffff');
 		screenshots.darkImage = (await cleanScreenshot('#000000')).image;
@@ -236,6 +251,20 @@ describe('custom story thumbnails', () => {
 		]);
 		expect(documents.queryData).toEqual([viewer.queryData]);
 		expect(documents.options).toEqual([expect.objectContaining({ narratives: viewer.narratives })]);
+	});
+
+	it('renders only one viewer thumbnail at a time', async () => {
+		screenshots.delayMs = 25;
+		const story = await storyQueries.getStoryById(STORY_ID);
+
+		const thumbnails = await Promise.all([
+			getViewerCustomStoryThumbnail(story!, 'user-2', 'light'),
+			getViewerCustomStoryThumbnail(story!, 'user-2', 'dark'),
+		]);
+
+		expect(thumbnails.every((thumbnail) => thumbnail !== null)).toBe(true);
+		expect(screenshots.calls).toBe(2);
+		expect(screenshots.maxActiveCalls).toBe(1);
 	});
 
 	it('renders restricted thumbnails with a safe result for denied queries', async () => {
