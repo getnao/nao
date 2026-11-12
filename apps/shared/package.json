@@ -28,6 +28,7 @@
 		"./conditional-formatting": "./src/conditional-formatting.ts",
 		"./story-segments": "./src/story-segments.ts",
 		"./story-parameter-template": "./src/story-parameter-template.ts",
+		"./story-query-inputs": "./src/story-query-inputs.ts",
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./table-display": "./src/table-display.tsx",
 		"./story-tabs": "./src/story-tabs.ts",

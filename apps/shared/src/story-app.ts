@@ -1,6 +1,7 @@
 import type { ChartType } from './chart-types';
 import type { ColumnConditionalFormats } from './conditional-formatting';
 import type { KeydownSnapshot, Shortcut } from './keyboard-shortcut';
+import type { StoryQueryFilters, StoryQueryInputs } from './story-query-inputs';
 import type { StoryTheme } from './story-theme';
 import type { displayChart } from './tools';
 import type { StoryBlockReference, StoryCitationIntent } from './types';
@@ -39,7 +40,8 @@ export const STORY_DOCUMENT_SLOTS = { head: '<!--nao:head-->', body: '<!--nao:bo
 export const STORY_HTML_API_GLOBAL = 'nao';
 
 export interface StoryHtmlApi {
-	query(queryId: string, options?: { fresh?: boolean }): Promise<StoryQueryResult>;
+	query(queryId: string, options?: StoryQueryRequestOptions): Promise<StoryQueryResult>;
+	sql(sql: string, options?: StorySqlRequestOptions): Promise<StoryQueryResult>;
 	querySql(queryId: string): Promise<string>;
 	narratives(): Promise<StoryNarratives>;
 	theme(): StoryTheme | null;
@@ -48,6 +50,26 @@ export interface StoryHtmlApi {
 	isPrint(): boolean;
 	state: StoryHtmlStateApi;
 	sharedState: StoryHtmlStateApi;
+}
+
+export interface StoryQueryRequestOptions extends StoryQueryInputs {
+	fresh?: boolean;
+}
+
+export interface StorySqlRequestOptions {
+	databaseId?: string;
+	filters?: StoryQueryFilters;
+	fresh?: boolean;
+}
+
+/**
+ * SQL a story runs itself, as its viewer: read-only and limited to what nao lets that viewer query.
+ * Its `{% filter %}` blocks render with `filters`, quoted on the server like those of saved queries.
+ */
+export interface StorySqlRequest {
+	sql: string;
+	databaseId?: string;
+	filters?: StoryQueryFilters;
 }
 
 export interface StoryHtmlStateApi {
@@ -99,6 +121,8 @@ export type StoryNarratives = Record<string, string>;
 
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
+	/** Rows of the filtered queries and story SQL the viewer saw, by request key, so a download shows the same. */
+	requests?: Record<string, StoryQueryResult>;
 	narratives: StoryNarratives;
 	state?: StoryStateSnapshot;
 	chartPlugins?: Record<string, string>;
@@ -209,7 +233,8 @@ export const isStoryKitEditableBlock = (value: string): value is StoryKitEditabl
 /** Frame → host. */
 export type StoryFrameMessage =
 	| { type: 'nao-story:ready' }
-	| { type: 'nao-story:query'; requestId: string; queryId: string; fresh?: boolean }
+	| { type: 'nao-story:query'; requestId: string; queryId: string; fresh?: boolean; inputs?: StoryQueryInputs }
+	| ({ type: 'nao-story:sql'; requestId: string; fresh?: boolean } & StorySqlRequest)
 	| { type: 'nao-story:narratives'; requestId: string }
 	| { type: 'nao-story:error'; message: string; stack?: string }
 	| { type: 'nao-story:copy-table'; columns: string[]; rows: Record<string, unknown>[] }
@@ -281,6 +306,7 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 		[
 			'nao-story:ready',
 			'nao-story:query',
+			'nao-story:sql',
 			'nao-story:narratives',
 			'nao-story:error',
 			'nao-story:copy-table',

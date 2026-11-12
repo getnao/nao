@@ -6,6 +6,7 @@ import {
 	STORY_PRINT_FLAG,
 } from '@nao/shared/story-app';
 import { STORY_THEME_STYLE_ID, storyThemeStyles } from '@nao/shared/story-document';
+import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -28,7 +29,9 @@ import type {
 	StoryHtmlApi,
 	StoryHtmlStateApi,
 	StoryNarratives,
+	StoryQueryRequestOptions,
 	StoryQueryResult,
+	StorySqlRequestOptions,
 	StoryStateSnapshot,
 	StoryTableExportFormat,
 } from '@nao/shared/story-app';
@@ -48,6 +51,8 @@ interface PendingRequest<T> {
 }
 
 const HOST_REPLY_TIMEOUT_MS = 120_000;
+const OFFLINE_QUERY_MESSAGE =
+	'This copy of the story only holds the rows it was saved with: open it in nao to filter or query them.';
 
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
@@ -111,6 +116,7 @@ async function runHtmlStory(source: string): Promise<void> {
 function exposeHtmlApi(): void {
 	const api: StoryHtmlApi = {
 		query: requestQueryData,
+		sql: requestSql,
 		querySql: requestQuerySql,
 		narratives: requestNarratives,
 		theme: getStoryTheme,
@@ -130,12 +136,39 @@ function exposeHtmlApi(): void {
 
 export function requestQueryData(
 	queryId: string,
-	{ fresh = false }: { fresh?: boolean } = {},
+	{ fresh = false, filters, params }: StoryQueryRequestOptions = {},
+): Promise<StoryQueryResult> {
+	const inputs = { filters, params };
+	if (exportData) {
+		return hasStoryQueryInputs(inputs)
+			? readExportedRequest(exportData, storyQueryRequestKey(queryId, inputs))
+			: readExportedQuery(exportData, queryId);
+	}
+	return awaitReply(pendingQueries, (requestId) => ({
+		type: 'nao-story:query',
+		requestId,
+		queryId,
+		fresh,
+		...(hasStoryQueryInputs(inputs) && { inputs }),
+	}));
+}
+
+/** SQL the story writes itself runs as its viewer, with what nao lets that viewer read. */
+export function requestSql(
+	sql: string,
+	{ databaseId, filters, fresh = false }: StorySqlRequestOptions = {},
 ): Promise<StoryQueryResult> {
 	if (exportData) {
-		return readExportedQuery(exportData, queryId);
+		return readExportedRequest(exportData, storySqlRequestKey({ sql, databaseId, filters }));
 	}
-	return awaitReply(pendingQueries, (requestId) => ({ type: 'nao-story:query', requestId, queryId, fresh }));
+	return awaitReply(pendingQueries, (requestId) => ({
+		type: 'nao-story:sql',
+		requestId,
+		sql,
+		databaseId,
+		filters,
+		fresh,
+	}));
 }
 
 export function requestNarratives(): Promise<StoryNarratives> {
@@ -410,6 +443,11 @@ function send(message: StoryFrameMessage): void {
 function readExportedQuery(data: StoryExportData, queryId: string): Promise<StoryQueryResult> {
 	const result = data.queries[queryId];
 	return result ? Promise.resolve(result) : Promise.reject(new Error(`Query ${queryId} is not part of this export.`));
+}
+
+function readExportedRequest(data: StoryExportData, requestKey: string): Promise<StoryQueryResult> {
+	const result = data.requests?.[requestKey];
+	return result ? Promise.resolve(result) : Promise.reject(new Error(OFFLINE_QUERY_MESSAGE));
 }
 
 function readExportedChartPlugin(data: StoryExportData, chartType: string): Promise<string> {
