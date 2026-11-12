@@ -8,7 +8,7 @@ import { chatActivityStore } from '@/stores/chat-activity';
  * or the rows saved with a standalone story.
  */
 export type CustomStoryDataSource =
-	| { kind: 'owner'; chatId: string; storySlug: string }
+	| { kind: 'owner'; chatId: string; storySlug: string; versionNumber?: number }
 	| { kind: 'share'; storyId: string; versionNumber?: number }
 	| { kind: 'viewer'; access: CustomStoryViewerAccess; storySlug: string; versionNumber?: number }
 	| { kind: 'standalone'; storyId: string; storySlug: string; versionNumber?: number };
@@ -55,9 +55,9 @@ export function queryDataOptions(dataSource: CustomStoryDataSource, queryId: str
 		const { storyId, versionNumber } = dataSource;
 		return trpc.standaloneCustomStory.getQueryData.queryOptions({ storyId, queryId, versionNumber });
 	}
-	const { chatId, storySlug } = dataSource;
+	const { chatId, storySlug, versionNumber } = dataSource;
 	return {
-		...trpc.story.getCustomStoryQueryData.queryOptions({ chatId, storySlug, queryId }),
+		...trpc.story.getCustomStoryQueryData.queryOptions({ chatId, storySlug, queryId, versionNumber }),
 		retry: (failureCount: number) =>
 			failureCount < MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING && chatActivityStore.getActivity(chatId).running,
 		retryDelay: QUERY_RETRY_DELAY_MS,
@@ -79,8 +79,8 @@ export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: stri
 	if (dataSource.kind === 'standalone') {
 		return trpc.standaloneCustomStory.getQuerySql.queryOptions({ storyId: dataSource.storyId, queryId });
 	}
-	const { chatId, storySlug } = dataSource;
-	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId });
+	const { chatId, storySlug, versionNumber } = dataSource;
+	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId, versionNumber });
 }
 
 /** Chart plugins come from the story's own project `agent/charts` folder, whichever project the viewer has selected. */

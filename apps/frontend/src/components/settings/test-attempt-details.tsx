@@ -1,10 +1,11 @@
 import { pluralize } from '@nao/shared';
 import { Link } from '@tanstack/react-router';
 import { MessageSquare } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import type { RunBranches } from '@/components/settings/test-run-labels';
 import type { TestRunResult } from '@/components/settings/test-run-types';
+import type { TabBarItem } from '@/components/ui/tab-bar';
 import { AttemptAnswer } from '@/components/settings/test-attempt-chat';
 import { AttemptSql, ComparedAttemptSql } from '@/components/settings/test-attempt-sql';
 import { TestDataDiffView } from '@/components/settings/test-data-diff';
@@ -12,7 +13,7 @@ import { AttemptSideHeader, BranchName } from '@/components/settings/test-run-la
 import { formatCost, formatCount, formatDuration } from '@/components/settings/test-run-types';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 
 type AttemptTab = 'data' | 'answer' | 'sql';
 
@@ -20,7 +21,7 @@ export type ShownAttempt =
 	| { kind: 'single'; attempt: number; result: TestRunResult }
 	| { kind: 'comparison'; attempt: number; production: TestRunResult | null; draft: TestRunResult | null };
 
-const ATTEMPT_TABS: { id: AttemptTab; label: string }[] = [
+const ATTEMPT_TABS: TabBarItem<AttemptTab>[] = [
 	{ id: 'data', label: 'Data' },
 	{ id: 'answer', label: 'Answer' },
 	{ id: 'sql', label: 'SQL' },
@@ -29,6 +30,7 @@ const ATTEMPT_TABS: { id: AttemptTab; label: string }[] = [
 const REFERENCE_SIDES = { removed: 'the reference', added: "the agent's answer" };
 
 export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: ShownAttempt; branches: RunBranches }) {
+	const idBase = useId();
 	const [tab, setTab] = useState<AttemptTab>(() =>
 		listAttemptResults(shownAttempt).some((result) => result.details?.referenceSql) ? 'data' : 'answer',
 	);
@@ -36,29 +38,19 @@ export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: S
 	return (
 		<div className='flex min-h-0 min-w-0 flex-1 flex-col'>
 			<div className='flex shrink-0 items-center gap-1 border-b px-3'>
-				<div role='tablist' aria-label='Answer details' className='flex shrink-0 items-center'>
-					{ATTEMPT_TABS.map((attemptTab) => (
-						<button
-							key={attemptTab.id}
-							type='button'
-							role='tab'
-							aria-selected={tab === attemptTab.id}
-							onClick={() => setTab(attemptTab.id)}
-							className={cn(
-								'-mb-px cursor-pointer border-b-2 px-2 py-1.5 text-xs font-medium transition-colors',
-								tab === attemptTab.id
-									? 'border-primary text-foreground'
-									: 'border-transparent text-muted-foreground hover:text-foreground',
-							)}
-						>
-							{attemptTab.label}
-						</button>
-					))}
-				</div>
+				<TabBar
+					tabs={ATTEMPT_TABS}
+					activeTab={tab}
+					onTabChange={setTab}
+					idBase={idBase}
+					label='Answer details'
+					size='sm'
+					className='shrink-0 items-center'
+				/>
 				<AttemptMetrics shownAttempt={shownAttempt} />
 			</div>
 			{tab === 'data' && (
-				<div role='tabpanel' className='flex min-h-0 flex-1 flex-col overflow-auto text-xs'>
+				<TabPanel idBase={idBase} tabId='data' className='flex min-h-0 flex-1 flex-col overflow-auto text-xs'>
 					{shownAttempt.kind === 'single' ? (
 						<AttemptData result={shownAttempt.result} />
 					) : (
@@ -68,10 +60,10 @@ export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: S
 							branches={branches}
 						/>
 					)}
-				</div>
+				</TabPanel>
 			)}
 			{tab === 'answer' && (
-				<div role='tabpanel' className='flex min-h-0 flex-1 flex-col text-xs'>
+				<TabPanel idBase={idBase} tabId='answer' className='flex min-h-0 flex-1 flex-col text-xs'>
 					{shownAttempt.kind === 'single' ? (
 						<AttemptAnswer result={shownAttempt.result} />
 					) : (
@@ -81,10 +73,10 @@ export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: S
 							branches={branches}
 						/>
 					)}
-				</div>
+				</TabPanel>
 			)}
 			{tab === 'sql' && (
-				<div role='tabpanel' className='min-h-0 flex-1 overflow-auto p-3 text-xs'>
+				<TabPanel idBase={idBase} tabId='sql' className='min-h-0 flex-1 overflow-auto p-3 text-xs'>
 					{shownAttempt.kind === 'single' ? (
 						<AttemptSql result={shownAttempt.result} />
 					) : (
@@ -94,7 +86,7 @@ export function TestAttemptDetails({ shownAttempt, branches }: { shownAttempt: S
 							branches={branches}
 						/>
 					)}
-				</div>
+				</TabPanel>
 			)}
 		</div>
 	);

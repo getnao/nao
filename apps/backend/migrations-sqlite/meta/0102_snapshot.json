@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e4505997-e016-47d6-9a67-2f11f0ce5845",
+  "id": "df9fd05e-67b3-4ebf-8147-01ec74ed4739",
   "prevId": "e0814a73-7463-4348-a93e-e82d003b940f",
   "tables": {
     "account": {
@@ -790,13 +790,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "mcp_enabled": {
           "name": "mcp_enabled",
           "type": "integer",
@@ -977,13 +970,6 @@
         },
         "error_message": {
           "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1476,13 +1462,6 @@
         },
         "llm_model_id": {
           "name": "llm_model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -2441,13 +2420,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "input_total_tokens": {
           "name": "input_total_tokens",
           "type": "integer",
@@ -3304,13 +3276,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "input_total_tokens": {
@@ -6484,14 +6449,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "llm_access_mode": {
-          "name": "llm_access_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'project'"
-        },
         "row_security": {
           "name": "row_security",
           "type": "text",
@@ -6745,27 +6702,12 @@
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "provider": {
           "name": "provider",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "credential_source": {
-          "name": "credential_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'database'"
         },
         "api_key": {
           "name": "api_key",
@@ -6812,13 +6754,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -6844,14 +6779,13 @@
           ],
           "isUnique": false
         },
-        "project_llm_config_project_name": {
-          "name": "project_llm_config_project_name",
+        "project_llm_config_project_provider": {
+          "name": "project_llm_config_project_provider",
           "columns": [
             "project_id",
-            "name"
+            "provider"
           ],
-          "isUnique": true,
-          "where": "\"project_llm_config\".\"disabled_at\" IS NULL"
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -8006,6 +7940,73 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "shared_chat_group_access": {
+      "name": "shared_chat_group_access",
+      "columns": {
+        "shared_chat_id": {
+          "name": "shared_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "shared_chat_group_access_groupId_idx": {
+          "name": "shared_chat_group_access_groupId_idx",
+          "columns": [
+            "group_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "shared_chat_group_access_shared_chat_id_shared_chat_id_fk": {
+          "name": "shared_chat_group_access_shared_chat_id_shared_chat_id_fk",
+          "tableFrom": "shared_chat_group_access",
+          "tableTo": "shared_chat",
+          "columnsFrom": [
+            "shared_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "shared_chat_group_access_group_id_user_group_id_fk": {
+          "name": "shared_chat_group_access_group_id_user_group_id_fk",
+          "tableFrom": "shared_chat_group_access",
+          "tableTo": "user_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "shared_chat_group_access_shared_chat_id_group_id_pk": {
+          "columns": [
+            "shared_chat_id",
+            "group_id"
+          ],
+          "name": "shared_chat_group_access_shared_chat_id_group_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "shared_story": {
       "name": "shared_story",
       "columns": {
@@ -8044,6 +8045,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'project'"
+        },
+        "project_role": {
+          "name": "project_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'viewer'"
         },
         "is_pinned": {
           "name": "is_pinned",
@@ -8147,6 +8156,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'viewer'"
         }
       },
       "indexes": {},
@@ -8206,6 +8223,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'viewer'"
         }
       },
       "indexes": {
@@ -9027,6 +9052,114 @@
           "tableTo": "story",
           "columnsFrom": [
             "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "story_edit_lock": {
+      "name": "story_edit_lock",
+      "columns": {
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "acquired_at": {
+          "name": "acquired_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "story_edit_lock_userId_idx": {
+          "name": "story_edit_lock_userId_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "story_edit_lock_chatId_idx": {
+          "name": "story_edit_lock_chatId_idx",
+          "columns": [
+            "chat_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "story_edit_lock_story_id_story_id_fk": {
+          "name": "story_edit_lock_story_id_story_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_edit_lock_user_id_user_id_fk": {
+          "name": "story_edit_lock_user_id_user_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "story_edit_lock_chat_id_chat_id_fk": {
+          "name": "story_edit_lock_chat_id_chat_id_fk",
+          "tableFrom": "story_edit_lock",
+          "tableTo": "chat",
+          "columnsFrom": [
+            "chat_id"
           ],
           "columnsTo": [
             "id"
@@ -10013,13 +10146,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "llm_config_id": {
-          "name": "llm_config_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "reasoning_effort": {
           "name": "reasoning_effort",
           "type": "text",
@@ -10350,22 +10476,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "llm_config_ids": {
-          "name": "llm_config_ids",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "llm_model_ids_by_config": {
-          "name": "llm_model_ids_by_config",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
         },
         "created_at": {
           "name": "created_at",

@@ -227,16 +227,19 @@ class NaoConfig(BaseModel):
         path: Path,
         extra_env: dict[str, str] | None = None,
         drop_invalid_optional_sections: bool = False,
+        process_env: bool = True,
     ) -> "NaoConfig":
         """Load the configuration from a YAML file.
 
         With drop_invalid_optional_sections=True, a section from OPTIONAL_SECTIONS that
         fails validation is replaced by None and reported as a warning, so commands that
         do not use it can still run. Errors anywhere else fail the load as usual.
+
+        With process_env=False, env references resolve from extra_env only.
         """
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
-        processed_content, missing = process_secrets(content, extra_env=extra_env)
+        processed_content, missing = process_secrets(content, extra_env=extra_env, process_env=process_env)
         cls._missing_secrets = {k: None for k, v in missing.items() if v is None}
         data = yaml.safe_load(processed_content)
         cls._warn_on_legacy_llm(data)
@@ -302,6 +305,7 @@ class NaoConfig(BaseModel):
         raise_on_error: bool = False,
         extra_env: dict[str, str] | None = None,
         drop_invalid_optional_sections: bool = False,
+        process_env: bool = True,
     ) -> "NaoConfig | None":
         """Try to load config from path.
 
@@ -312,6 +316,8 @@ class NaoConfig(BaseModel):
             extra_env: Optional env vars that take precedence over os.environ during template resolution.
             drop_invalid_optional_sections: If True, an invalid OPTIONAL_SECTIONS block is
                 nulled with a warning instead of failing the load (see `load`).
+            process_env: If False, env references resolve from extra_env only. A server that loads
+                a tenant's config sets it, so its own environment never leaks into that config.
         Returns:
             NaoConfig if loaded successfully, None if failed and both flags are False.
         """
@@ -336,6 +342,7 @@ class NaoConfig(BaseModel):
                 path,
                 extra_env=extra_env,
                 drop_invalid_optional_sections=drop_invalid_optional_sections,
+                process_env=process_env,
             )
         except yaml.YAMLError as e:
             handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")

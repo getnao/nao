@@ -44,6 +44,13 @@ export function EditableStoryTitle({
 		}
 	}, [currentTitle]);
 
+	useEffect(() => {
+		if (!canEdit && isEditingRef.current) {
+			isEditingRef.current = false;
+			setIsEditing(false);
+		}
+	}, [canEdit]);
+
 	const startEditing = (event: MouseEvent<HTMLElement>) => {
 		event.preventDefault();
 		event.stopPropagation();

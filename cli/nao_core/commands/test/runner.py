@@ -40,6 +40,7 @@ class ModelConfig:
 
     provider: str
     model_id: str
+    llm_config_id: str | None = None
     reasoning_effort: str | None = None
 
     @classmethod
@@ -52,6 +53,8 @@ class ModelConfig:
 
     def __str__(self) -> str:
         name = f"{self.provider}:{self.model_id}"
+        if self.llm_config_id:
+            name = f"{name}@{self.llm_config_id}"
         return f"{name} · {self.reasoning_effort}" if self.reasoning_effort else name
 
 
@@ -64,6 +67,7 @@ def expand_model_entry(entry: str | TestModelConfig, client: AgentClient) -> lis
     if isinstance(entry, str):
         return [ModelConfig.parse(entry)]
     model = ModelConfig.parse(entry.model)
+    model = replace(model, llm_config_id=entry.llm_config_id)
     if entry.reasoning_efforts is None:
         return [model]
     supported = client.get_reasoning_efforts(model.provider, model.model_id)
@@ -250,6 +254,7 @@ def run_test(
             test_case,
             provider=model.provider,
             model_id=model.model_id,
+            llm_config_id=model.llm_config_id,
             costs=costs,
             comparison=comparison,
             reasoning_effort=model.reasoning_effort,

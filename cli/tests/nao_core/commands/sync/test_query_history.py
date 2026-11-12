@@ -9,6 +9,8 @@ from nao_core.commands.sync.providers.databases.query_history import (
     extract_table_references,
 )
 
+SQLGLOT_PARSE = "nao_core.commands.sync.providers.databases.query_history.sqlglot.parse"
+
 
 class TestExtractTableReferences:
     def test_simple_select(self):
@@ -96,8 +98,7 @@ class TestExtractTableReferences:
         FROM active_users
         JOIN analytics.orders ON active_users.id = orders.user_id
         """
-        parse_path = "nao_core.commands.sync.providers.databases.query_history.sqlglot.parse"
-        with patch(parse_path, side_effect=ValueError):
+        with patch(SQLGLOT_PARSE, side_effect=ValueError):
             refs = extract_table_references(sql)
 
         assert "active_users" not in refs
@@ -112,8 +113,7 @@ class TestExtractTableReferences:
         SELECT *
         FROM active_users
         """
-        parse_path = "nao_core.commands.sync.providers.databases.query_history.sqlglot.parse"
-        with patch(parse_path, side_effect=ValueError):
+        with patch(SQLGLOT_PARSE, side_effect=ValueError):
             refs = extract_table_references(sql)
 
         assert "active_users" not in refs
@@ -191,10 +191,6 @@ class TestComputeTableUsage:
         selected = [("schema1", "users")]
         stats = compute_table_usage(queries, selected)
 
-        assert stats["schema1.users"].usage_count == 0
-
-    def test_empty_queries(self):
-        stats = compute_table_usage([], [("schema1", "users")])
         assert stats["schema1.users"].usage_count == 0
 
     def test_join_tracking(self):

@@ -24,7 +24,7 @@ import {
 	type TestSuite,
 } from '../types/test-run';
 import { resolveModelInferenceSettings } from '../utils/llm';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
 import type { AgentRunResult } from './agent';
@@ -356,7 +356,7 @@ async function resolveFallbackModels(
 
 async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan): Promise<void> {
 	const jobs = buildAttemptJobs(plan);
-	if (!(await testRunQueries.markRunRunning(run.id, jobs.length))) {
+	if (!(await markRunRunningOrFail(run, jobs.length))) {
 		return;
 	}
 
@@ -375,6 +375,20 @@ async function executeTestRun(run: DBTestRun, userId: string, plan: TestRunPlan)
 	} finally {
 		clearInterval(heartbeat);
 		liveRuns.delete(run.id);
+	}
+}
+
+async function markRunRunningOrFail(run: DBTestRun, attemptCount: number): Promise<boolean> {
+	try {
+		return await testRunQueries.markRunRunning(run.id, attemptCount);
+	} catch (error) {
+		logger.error('Failed to mark the test run as running', {
+			source: 'agent',
+			projectId: run.projectId,
+			context: serializeError(error),
+		});
+		await testRunQueries.failRun(run.id, 'Failed to start the test run');
+		return false;
 	}
 }
 

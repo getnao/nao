@@ -8,6 +8,7 @@ import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import type { LinkedStory } from '../types/tools';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { formatStoryFile } from '../utils/story-file-format';
 import {
 	parsePublishedVersionPath,
@@ -18,7 +19,9 @@ import {
 	toStoriesVirtualPath,
 } from '../utils/story-mount';
 import { entriesInVirtualDirectory } from '../utils/virtual-directory';
+import { assertWriterAddsNoChatQueries } from './custom-story-query-access';
 import { type EditableStoryScope, findEditableStory } from './editable-story';
+import { acquireStoryEditLock, getStoryEditLockState, releaseStoryEditLock } from './story-edit-lock.service';
 
 /**
  * The chat whose custom stories are mounted, the story a quick question is about, if any, and the user whose
@@ -94,10 +97,16 @@ export async function writeStoryMountFile(
 		);
 	}
 	const story = await requireCustomStory(scope, target.storyId);
-	const file = await storyFileQueries.writeDraftFile(story.id, {
-		path: target.filePath,
-		content: await formatStoryFile(target.filePath, content),
-	});
+	const file = await withKeyedLock(
+		`story-mount-write:${story.id}:${scope.userId}:${scope.chatId ?? ''}`,
+		async () => {
+			await acquireLockForValidatedWrite(story, scope, content);
+			return storyFileQueries.writeDraftFile(story.id, {
+				path: target.filePath,
+				content: await formatStoryFile(target.filePath, content),
+			});
+		},
+	);
 	return { path: toStoriesVirtualPath(target.storyId, file.path), size: Buffer.byteLength(file.content, 'utf8') };
 }
 
@@ -226,6 +235,21 @@ async function loadSearchedStories(scope: StoryMountScope, targetedStoryId: stri
 async function loadMountedStory(scope: StoryMountScope, storyId: string): Promise<MountedStory> {
 	const story = await requireCustomStory(scope, storyId);
 	return { storyId, files: await storyFileQueries.listDraftFiles(story.id) };
+}
+
+/** Validates under the lock, so the check sees the draft the write lands on; a refused write gives back a lock it just took. */
+async function acquireLockForValidatedWrite(story: DBStory, scope: StoryMountScope, content: string): Promise<void> {
+	const holder = { userId: scope.userId, chatId: scope.chatId };
+	const wasHeld = (await getStoryEditLockState(story.id, holder))?.isMine ?? false;
+	await acquireStoryEditLock(story.id, holder);
+	try {
+		await assertWriterAddsNoChatQueries(story, scope.userId, [{ content }]);
+	} catch (error) {
+		if (!wasHeld) {
+			await releaseStoryEditLock(story.id, holder);
+		}
+		throw error;
+	}
 }
 
 async function requireCustomStory(scope: StoryMountScope, storyId: string): Promise<DBStory> {

@@ -660,9 +660,8 @@ async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]
 		}
 	}
 
-	const retainedProviders = new Set(retainedConfigs.map((config) => config.provider));
 	for (const { provider, llmConfigId, models } of declaredModels) {
-		if (llmConfigId || retainedProviders.has(provider)) {
+		if (llmConfigId) {
 			continue;
 		}
 		for (const model of models) {
