@@ -21,6 +21,7 @@ import * as teamsConfigQueries from '../queries/project-teams-config.queries';
 import * as telegramConfigQueries from '../queries/project-telegram-config.queries';
 import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queries';
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
+import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
 import {
 	type DefaultModelsOverview,
@@ -141,6 +142,17 @@ async function resolveDiscordFallbackUser(projectId: string, email: string) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: `${email} does not have access to this project.` });
 	}
 	return user;
+}
+
+async function listProjectMembersToShareWith(projectId: string | null | undefined, userId: string) {
+	if (!projectId) {
+		return [];
+	}
+	const role = await projectQueries.getUserRoleInProject(projectId, userId);
+	if (!role) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
+	}
+	return listShareableMembers(projectId, userId);
 }
 
 async function validateBoundarySource(url: string): Promise<number> {
@@ -960,17 +972,15 @@ export const projectRoutes = {
 
 	getProjectMembersByChatId: protectedProcedure
 		.input(z.object({ chatId: z.string() }))
-		.query(async ({ ctx, input }) => {
-			const projectId = await chatQueries.getChatProjectId(input.chatId);
-			if (!projectId) {
-				return [];
-			}
-			const role = await projectQueries.getUserRoleInProject(projectId, ctx.user.id);
-			if (!role) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
-			}
-			return listShareableMembers(projectId, ctx.user.id);
-		}),
+		.query(async ({ ctx, input }) =>
+			listProjectMembersToShareWith(await chatQueries.getChatProjectId(input.chatId), ctx.user.id),
+		),
+
+	getProjectMembersByStoryId: protectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(async ({ ctx, input }) =>
+			listProjectMembersToShareWith(await storyQueries.getStoryProjectId(input.storyId), ctx.user.id),
+		),
 
 	getKnownModels: publicProcedure.query(() => {
 		return KNOWN_MODELS;

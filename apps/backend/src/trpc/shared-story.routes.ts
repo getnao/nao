@@ -70,6 +70,11 @@ import {
 } from './trpc';
 
 const shareGrantInput = z.object({ id: z.string(), role: z.enum(SHARE_ROLES) });
+const storyToShareInput = z.union([
+	z.object({ chatId: z.string(), storySlug: z.string() }),
+	z.object({ storyId: z.string() }),
+]);
+type StoryToShare = z.infer<typeof storyToShareInput>;
 
 const shareProcedure = resourceProjectProcedure('storyId', sharedStoryQueries.getSharedStoryByStoryId, 'Shared story');
 const shareAccessProcedure = resourceProjectProcedure(
@@ -488,56 +493,52 @@ export const sharedStoryRoutes = {
 		}
 	}),
 
-	getSharedStoryInfo: projectProtectedProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input, ctx }) => {
-			const notShared = {
-				isShared: false as const,
-				storyId: null,
-				visibility: null,
-				allowedUserIds: [],
-				allowedGroupIds: [],
-			};
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			if (!story) {
-				return notShared;
-			}
-			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
-			if (storyProjectId !== ctx.project.id) {
-				return notShared;
-			}
-			const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
-			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
-				return notShared;
-			}
-			const access = await sharedStoryQueries.getStoryShareAccess(story.id, ctx.project.id);
-			if (!access) {
-				return notShared;
-			}
+	getSharedStoryInfo: projectProtectedProcedure.input(storyToShareInput).query(async ({ input, ctx }) => {
+		const notShared = {
+			isShared: false as const,
+			storyId: null,
+			visibility: null,
+			allowedUserIds: [],
+			allowedGroupIds: [],
+		};
+		const story = await findStoryToShare(input);
+		if (!story) {
+			return notShared;
+		}
+		const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+		if (storyProjectId !== ctx.project.id) {
+			return notShared;
+		}
+		const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
+		if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
+			return notShared;
+		}
+		const access = await sharedStoryQueries.getStoryShareAccess(story.id, ctx.project.id);
+		if (!access) {
+			return notShared;
+		}
 
-			return {
-				isShared: true as const,
-				storyId: story.id,
-				visibility: access.visibility,
-				allowedUserIds: access.allowedUserIds,
-				allowedGroupIds: await filterShareableUserGroupIds(ctx.project.id, access.allowedGroupIds),
-			};
-		}),
+		return {
+			isShared: true as const,
+			storyId: story.id,
+			visibility: access.visibility,
+			allowedUserIds: access.allowedUserIds,
+			allowedGroupIds: await filterShareableUserGroupIds(ctx.project.id, access.allowedGroupIds),
+		};
+	}),
 
 	listShareableGroups: projectProtectedProcedure.query(async ({ ctx }) => {
 		return listShareableGroups(ctx.project.id, ctx.user.id);
 	}),
 
-	getShareSettings: projectProtectedProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input, ctx }) => {
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			const projectId = story && (story.projectId ?? (await storyQueries.getStoryProjectId(story.id)));
-			if (!story || projectId !== ctx.project.id) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-			}
-			return getStoryShareSettings(story, toShareActor(ctx));
-		}),
+	getShareSettings: projectProtectedProcedure.input(storyToShareInput).query(async ({ input, ctx }) => {
+		const story = await findStoryToShare(input);
+		const projectId = story && (story.projectId ?? (await storyQueries.getStoryProjectId(story.id)));
+		if (!story || projectId !== ctx.project.id) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		return getStoryShareSettings(story, toShareActor(ctx));
+	}),
 
 	saveShareSettings: canSendProcedure
 		.input(
@@ -646,6 +647,13 @@ export const sharedStoryRoutes = {
 			);
 		}),
 };
+
+/** A story with a chat is found by its chat and slug; a standalone story, which has none, by its id. */
+function findStoryToShare(input: StoryToShare): Promise<DBStory | null> {
+	return 'storyId' in input
+		? storyQueries.getStoryById(input.storyId)
+		: storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+}
 
 /** A standalone story has no chat to run its queries in: it shows the rows saved for the queries its code uses. */
 async function getStandaloneStoryQueryData(storyId: string, code: string) {

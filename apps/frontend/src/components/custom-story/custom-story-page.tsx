@@ -252,6 +252,7 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 		[storyId, storySlug, versionNumber],
 	);
 	const openInChat = useOpenStandaloneStoryInChat(storyId, story?.slug);
+	const sharing = useStoryViewerSharing({ storyId });
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
@@ -292,6 +293,8 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				download={{ storyId, isOwner: true, onDownload: download }}
 				storyId={storyId}
 				canRename
+				isShared={sharing.isShared}
+				onShare={() => sharing.setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				viewModeControls={{ viewMode, onViewModeChange: setViewMode }}
 				elementSelection={
@@ -328,6 +331,11 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				{!isArchived && <StoryAskBar storyId={storyId} canEdit isInputHidden={isAskInputHidden} />}
 			</div>
 
+			<ShareDialog
+				open={sharing.isShareDialogOpen}
+				onOpenChange={sharing.setIsShareDialogOpen}
+				target={{ kind: 'standalone-story', storyId }}
+			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
 				onOpenChange={setIsAnalyticsOpen}

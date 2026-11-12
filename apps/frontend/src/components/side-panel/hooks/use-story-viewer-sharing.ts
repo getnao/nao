@@ -2,14 +2,11 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { trpc } from '@/main';
 
-interface UseStoryViewerSharingParams {
-	chatId: string;
-	storySlug: string;
-}
+type UseStoryViewerSharingParams = { chatId: string; storySlug: string } | { storyId: string };
 
-export const useStoryViewerSharing = ({ chatId, storySlug }: UseStoryViewerSharingParams) => {
+export const useStoryViewerSharing = (story: UseStoryViewerSharingParams) => {
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
-	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
+	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions(story));
 	const isShared = shareQuery.data?.isShared === true;
 
 	return {

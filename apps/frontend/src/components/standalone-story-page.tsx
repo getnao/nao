@@ -5,6 +5,8 @@ import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/sh
 import type { QueryDataMap } from '@/components/story-embeds';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
+import { ShareDialog } from '@/components/share-dialog';
+import { useStoryViewerSharing } from '@/components/side-panel/hooks/use-story-viewer-sharing';
 import { StoryAccessError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryElementPicker } from '@/components/story-element-picker';
@@ -23,6 +25,7 @@ import { trpc } from '@/main';
 export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
+	const sharing = useStoryViewerSharing({ storyId });
 
 	const storyQuery = useQuery(trpc.story.getStandalone.queryOptions({ storyId }));
 	const story = storyQuery.data;
@@ -72,6 +75,8 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 							}
 						: undefined
 				}
+				isShared={sharing.isShared}
+				onShare={() => sharing.setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 				elementSelection={
 					isArchived
@@ -102,6 +107,12 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 					{!isArchived && <StoryAskBar storyId={storyId} canEdit />}
 				</SelectionProvider>
 			</div>
+
+			<ShareDialog
+				open={sharing.isShareDialogOpen}
+				onOpenChange={sharing.setIsShareDialogOpen}
+				target={{ kind: 'standalone-story', storyId }}
+			/>
 
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
