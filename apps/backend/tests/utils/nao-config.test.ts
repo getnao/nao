@@ -4,11 +4,14 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { extractConfiguredRepos, extractRequiredEnvVars } from '../../src/utils/nao-config';
+import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 vi.mock('../../src/utils/logger', () => import('../helpers/logger-mock'));
 
 const createTemporaryFolder = useTemporaryFolders();
+
+restoreProcessEnvAfterEach();
 
 describe('extractRequiredEnvVars', () => {
 	it('returns env vars declared in nao_config.yaml', () => {
@@ -100,6 +103,23 @@ describe('extractConfiguredRepos', () => {
 				url: null,
 			},
 		]);
+	});
+
+	it.each([
+		{ envVars: undefined, url: "https://x:{{ env('REPO_TOKEN') }}@github.com/nao/dbt-models.git" },
+		{ envVars: { REPO_TOKEN: 'project-token' }, url: 'https://x:project-token@github.com/nao/dbt-models.git' },
+	])('resolves env references in repo URLs only with project variables ($envVars)', ({ envVars, url }) => {
+		process.env.REPO_TOKEN = 'server-token';
+		const dir = createProject({
+			naoConfig: [
+				'project_name: demo',
+				'repos:',
+				'  - name: dbt-models',
+				`    url: "https://x:{{ env('REPO_TOKEN') }}@github.com/nao/dbt-models.git"`,
+			],
+		});
+
+		expect(extractConfiguredRepos(dir, envVars)[0]?.url).toBe(url);
 	});
 
 	it('returns repos declared in nao_config.yaml with GitLab metadata', () => {

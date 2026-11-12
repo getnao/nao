@@ -80,11 +80,11 @@ function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>
 	}
 }
 
-/** Repository URLs written with `{{ env('NAME') }}` are resolved with the given project variables. */
-export function extractConfiguredRepos(
-	projectFolder: string,
-	envVars: Record<string, string> = {},
-): LinkedContextRepo[] {
+/**
+ * Repository URLs written with `{{ env('NAME') }}` are resolved only when project variables are given, for server-side
+ * use: a resolved URL may hold secrets, so the URLs shown to users stay as written.
+ */
+export function extractConfiguredRepos(projectFolder: string, envVars?: Record<string, string>): LinkedContextRepo[] {
 	return configuredReposFrom(loadProjectConfig(projectFolder), envVars);
 }
 
@@ -100,7 +100,7 @@ export function readProjectContext(projectFolder: string): {
 } {
 	const config = loadProjectConfig(projectFolder);
 	return {
-		repos: configuredReposFrom(config, {}),
+		repos: configuredReposFrom(config),
 		templates: configuredTemplatesFrom(config),
 		presence: extractContextPresence(projectFolder),
 	};
@@ -117,7 +117,7 @@ export function extractContextPresence(projectFolder: string): ContextPresence {
 	};
 }
 
-function configuredReposFrom(config: unknown, envVars: Record<string, string>): LinkedContextRepo[] {
+function configuredReposFrom(config: unknown, envVars?: Record<string, string>): LinkedContextRepo[] {
 	if (!isRecord(config) || !Array.isArray(config.repos)) {
 		return [];
 	}
@@ -127,7 +127,7 @@ function configuredReposFrom(config: unknown, envVars: Record<string, string>): 
 			return [];
 		}
 
-		const url = resolveSecrets(repo.url, envVars)?.trim() || null;
+		const url = (envVars ? resolveSecrets(repo.url, envVars) : asString(repo.url))?.trim() || null;
 		const branch = typeof repo.branch === 'string' && repo.branch.trim() !== '' ? repo.branch.trim() : null;
 		const localPath =
 			typeof repo.local_path === 'string' && repo.local_path.trim() !== '' ? repo.local_path.trim() : null;
@@ -186,6 +186,10 @@ export function extractRawRepoConfig(projectFolder: string, repoName: string): R
 		(entry) => isRecord(entry) && typeof entry.name === 'string' && entry.name.trim() === repoName,
 	);
 	return isRecord(repo) ? repo : null;
+}
+
+function asString(value: unknown): string | null {
+	return typeof value === 'string' ? value : null;
 }
 
 function loadProjectConfig(projectFolder: string): unknown {
