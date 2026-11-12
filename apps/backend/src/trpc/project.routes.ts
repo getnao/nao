@@ -148,11 +148,28 @@ async function listProjectMembersToShareWith(projectId: string | null | undefine
 	if (!projectId) {
 		return [];
 	}
+	await getRoleInProjectOrThrow(projectId, userId);
+	return listShareableMembers(projectId, userId);
+}
+
+async function listProjectMembersToShareStoryWith(storyId: string, userId: string) {
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	if (!projectId) {
+		return [];
+	}
+	const role = await getRoleInProjectOrThrow(projectId, userId);
+	if (role !== 'admin' && !(await storyQueries.canUserAccessStory(storyId, userId))) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+	}
+	return listShareableMembers(projectId, userId);
+}
+
+async function getRoleInProjectOrThrow(projectId: string, userId: string) {
 	const role = await projectQueries.getUserRoleInProject(projectId, userId);
 	if (!role) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
 	}
-	return listShareableMembers(projectId, userId);
+	return role;
 }
 
 async function validateBoundarySource(url: string): Promise<number> {
@@ -978,9 +995,7 @@ export const projectRoutes = {
 
 	getProjectMembersByStoryId: protectedProcedure
 		.input(z.object({ storyId: z.string() }))
-		.query(async ({ ctx, input }) =>
-			listProjectMembersToShareWith(await storyQueries.getStoryProjectId(input.storyId), ctx.user.id),
-		),
+		.query(async ({ ctx, input }) => listProjectMembersToShareStoryWith(input.storyId, ctx.user.id)),
 
 	getKnownModels: publicProcedure.query(() => {
 		return KNOWN_MODELS;
