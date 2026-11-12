@@ -1,17 +1,17 @@
+import { isSameModel, providerLabel, providerName } from '@nao/shared/types';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { LockKeyhole, Settings, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isSameModel, providerLabel, providerName } from '@nao/shared/types';
-
-import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import type { KeyboardEvent } from 'react';
 
+import type { LlmModelOption } from '@/lib/llm-model';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut, getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { llmModelValue, toLlmSelectedModel } from '@/lib/llm-model';
 import { matchesShortcut } from '@/lib/platform';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
@@ -66,9 +66,9 @@ export function ChatInputModelSelect({
 				setSelectedModel(null);
 				return;
 			}
-			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
+			const model = availableModels?.find((candidate) => llmModelValue(candidate) === value);
 			if (model) {
-				setSelectedModel(model);
+				setSelectedModel(toLlmSelectedModel(model));
 			}
 		},
 		[availableModels, navigate, setSelectedModel],
@@ -100,7 +100,7 @@ export function ChatInputModelSelect({
 	const isDefaultManagedModel = defaultModel?.provider === 'nao';
 	const resolvedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId;
 	const selectedModelName = usesDefaultModel ? NAO_DEFAULT_LABEL : (resolvedModelName ?? 'Select model');
-	const selectValue = usesDefaultModel ? NAO_DEFAULT_VALUE : selectedModel ? modelValue(selectedModel) : undefined;
+	const selectValue = usesDefaultModel ? NAO_DEFAULT_VALUE : selectedModel ? llmModelValue(selectedModel) : undefined;
 
 	if (isExample) {
 		return <ExampleModel />;
@@ -135,7 +135,7 @@ export function ChatInputModelSelect({
 				/>
 			)}
 			<span>{selectedModelName}</span>
-			{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+			{selectedModel && <ModelSourceHint model={selectedAvailableModel ?? selectedModel} />}
 		</>
 	);
 
@@ -180,7 +180,9 @@ export function ChatInputModelSelect({
 									? resolvedModelName && (
 											<span className='text-muted-foreground'>{resolvedModelName}</span>
 										)
-									: selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+									: selectedModel && (
+											<ModelSourceHint model={selectedAvailableModel ?? selectedModel} />
+										)}
 							</div>
 						</SelectValue>
 					</SelectTrigger>
@@ -207,8 +209,8 @@ export function ChatInputModelSelect({
 
 				{availableModels?.map((model) => (
 					<SelectItem
-						key={`${model.provider}-${model.modelId}`}
-						value={modelValue(model)}
+						key={llmModelValue(model)}
+						value={llmModelValue(model)}
 						disabled={managedCreditsExhausted && model.provider === 'nao'}
 					>
 						<LlmProviderIcon
@@ -217,7 +219,7 @@ export function ChatInputModelSelect({
 							className='size-4 opacity-100'
 						/>
 						{model.name}
-						<NamedProviderHint provider={model.provider} />
+						<ModelSourceHint model={model} />
 						{managedCreditsExhausted && model.provider === 'nao' && <ManagedCreditsLock />}
 					</SelectItem>
 				))}
@@ -286,16 +288,15 @@ function useSelectTriggerTooltip() {
 	return { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange };
 }
 
-function modelValue(model: LlmSelectedModel): string {
-	return `${model.provider}:${model.modelId}`;
-}
-
-function NamedProviderHint({ provider }: { provider: LlmProvider }) {
-	const name = providerName(provider);
+function ModelSourceHint({ model }: { model: LlmModelOption }) {
+	if (model.llmConfigName) {
+		return <span className='text-muted-foreground'>{model.llmConfigName}</span>;
+	}
+	const name = providerName(model.provider);
 	if (!name) {
 		return null;
 	}
-	return <span className='text-muted-foreground'>{providerLabel(provider)}</span>;
+	return <span className='text-muted-foreground'>{providerLabel(model.provider)}</span>;
 }
 
 function ManagedCreditsLock() {

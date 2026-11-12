@@ -23,7 +23,7 @@ import {
 	type TestSourceQuery,
 	type TestSuite,
 } from '../types/test-run';
-import { getProjectAvailableModels, resolveDefaultChatModel, resolveModelInferenceSettings } from '../utils/llm';
+import { resolveModelInferenceSettings } from '../utils/llm';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
@@ -39,6 +39,11 @@ import { skillService } from './skill';
 import { testAgentService } from './test-agent.service';
 import { evaluateTestAttempt, type TestAttemptEvaluation } from './test-evaluation.service';
 import { discoverTests, filterTests } from './test-suite.service';
+import {
+	getAvailableModelsForUser,
+	getDefaultChatModelForUser,
+	resolveUserModelSelection,
+} from './user-group-llm-access.service';
 
 const TEST_RUN_HEARTBEAT_MS = 30_000;
 /** Several missed heartbeats, so that a slow database write does not fail a run that is still executing. */
@@ -246,12 +251,22 @@ async function planTestRun(
 	if (settings.errors.length > 0) {
 		throw new TestRunInputError(`Fix the test settings in nao_config.yaml first: ${settings.errors.join(' ')}`);
 	}
-	const selections = input.models?.length ? input.models : (settings.models ?? (await resolveFallbackModels(input)));
+	const requestedSelections = input.models?.length
+		? input.models
+		: (settings.models ?? (await resolveFallbackModels(input)));
+	const selections = await Promise.all(
+		requestedSelections.map(async (selection) => {
+			const reasoningEfforts = (selection as TestModelSelection).reasoningEfforts;
+			const resolved = await resolveUserModelSelection(input.projectId, input.userId, selection);
+			return reasoningEfforts ? { ...resolved, reasoningEfforts } : resolved;
+		}),
+	);
 	const models = expandReasoningEfforts(selections);
 	return {
 		tests,
 		models,
-		verificationModel: models.length > 1 ? await resolveVerificationModel(input.projectId, models) : null,
+		verificationModel:
+			models.length > 1 ? await resolveVerificationModel(input.projectId, input.userId, models) : null,
 		attempts: Math.min(input.attempts ?? settings.attempts, MAX_TEST_RUN_ATTEMPTS),
 		threads: Math.min(
 			input.threads ?? settings.threads ?? getDefaultTestRunThreads(models.length),
@@ -262,16 +277,20 @@ async function planTestRun(
 }
 
 /** The effort each available model that has reasoning efforts runs at when a run keeps its settings. */
-export async function listDefaultReasoningEfforts(projectId: string): Promise<TestModelDefaultEffort[]> {
-	const models = (await getProjectAvailableModels(projectId)).filter(
+export async function listDefaultReasoningEfforts(
+	projectId: string,
+	userId: string,
+): Promise<TestModelDefaultEffort[]> {
+	const models = (await getAvailableModelsForUser(projectId, userId)).filter(
 		(model) => getModelReasoningEfforts(model.provider, model.modelId).length > 0,
 	);
 	return Promise.all(
-		models.map(async ({ provider, modelId }) => {
-			const settings = await resolveModelInferenceSettings(projectId, provider, modelId);
+		models.map(async ({ provider, modelId, llmConfigId }) => {
+			const settings = await resolveModelInferenceSettings(projectId, provider, modelId, llmConfigId);
 			return {
 				provider,
 				modelId,
+				...(llmConfigId && { llmConfigId }),
 				reasoningEffort: toEffectiveEffort(provider, modelId, settings.reasoningEffort),
 			};
 		}),
@@ -300,12 +319,20 @@ function toEffectiveEffort(
 	return clampEffort(effort, getModelCapabilities(provider, modelId)?.effortOptions);
 }
 
-async function resolveVerificationModel(projectId: string, models: TestModel[]): Promise<LlmSelectedModel> {
-	return (await resolveDefaultChatModel(projectId)) ?? toSelectedModel(models[0]);
+async function resolveVerificationModel(
+	projectId: string,
+	userId: string,
+	models: TestModel[],
+): Promise<LlmSelectedModel> {
+	return (await getDefaultChatModelForUser(projectId, userId)) ?? toSelectedModel(models[0]);
 }
 
 function toSelectedModel(model: TestModel): LlmSelectedModel {
-	return { provider: model.provider, modelId: model.modelId };
+	return {
+		provider: model.provider,
+		modelId: model.modelId,
+		...(model.llmConfigId && { llmConfigId: model.llmConfigId }),
+	};
 }
 
 /** Invalid files block the run when they are selected, or when the whole suite runs, as with `nao test`. */
@@ -317,8 +344,10 @@ function selectInvalidFiles(invalidFiles: InvalidTestFile[], paths: string[] | u
 	return invalidFiles.filter((file) => selectedPaths.has(file.path));
 }
 
-async function resolveFallbackModels(input: Pick<StartTestRunInput, 'projectId'>): Promise<LlmSelectedModel[]> {
-	const defaultModel = await resolveDefaultChatModel(input.projectId);
+async function resolveFallbackModels(
+	input: Pick<StartTestRunInput, 'projectId' | 'userId'>,
+): Promise<LlmSelectedModel[]> {
+	const defaultModel = await getDefaultChatModelForUser(input.projectId, input.userId);
 	if (!defaultModel) {
 		throw new TestRunInputError('No LLM model is configured for this project.');
 	}
@@ -420,6 +449,7 @@ async function runAttempt(
 		tags: test.tags,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId ?? null,
 		reasoningEffort: model.reasoningEffort ?? null,
 		contextVariant: variant,
 		attempt,

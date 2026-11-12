@@ -16,14 +16,13 @@ import type { DBStoryDataCache } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import type { StoryQuerySources } from '../types/story-cache';
 import type { QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
-import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { referencedQueryIds } from '../utils/sql-file-paths';
 import type { StoryNarrativeSource } from '../utils/story-kit-narratives';
@@ -40,6 +39,7 @@ import {
 	semanticBindingsFromCode,
 	type SemanticStoryBindings,
 } from './semantic-story-bindings';
+import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
@@ -575,24 +575,27 @@ type LiveStoryModel = NonNullable<Awaited<ReturnType<typeof resolveLiveStoryMode
 
 async function resolveLiveStoryModel(target: StoryRefreshTarget) {
 	const pinned = await resolveDefaultModelSelection(target.projectId, 'live_story');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(target.projectId));
-	if (!provider) {
-		return null;
-	}
-
-	const modelId = pinned?.modelId ?? getDefaultModelId(provider);
-	const model = await resolveProviderModel(target.projectId, provider, modelId, true, {
-		userId: target.userId,
-		projectId: target.projectId,
-		chatId: target.chatId,
-		category: 'story',
-	});
-	return model ? { provider, model } : null;
+	const selection = await resolveUserBackgroundModelSelection(target.projectId, target.userId, pinned);
+	const model = await resolveProviderModel(
+		target.projectId,
+		selection.provider,
+		selection.modelId,
+		true,
+		{
+			userId: target.userId,
+			projectId: target.projectId,
+			chatId: target.chatId,
+			category: 'story',
+		},
+		undefined,
+		selection.llmConfigId,
+	);
+	return model ? { provider: selection.provider, model, llmConfigId: selection.llmConfigId } : null;
 }
 
 async function generateLiveStoryOutput<T>(
 	target: StoryRefreshTarget,
-	{ provider, model }: LiveStoryModel,
+	{ provider, model, llmConfigId }: LiveStoryModel,
 	systemPrompt: string,
 	instruction: string,
 	schema: z.ZodType<T>,
@@ -613,6 +616,7 @@ async function generateLiveStoryOutput<T>(
 		chatId: target.chatId,
 		llmProvider: provider,
 		llmModelId: model.model.modelId,
+		llmConfigId,
 		...convertToTokenUsage(usage),
 	});
 

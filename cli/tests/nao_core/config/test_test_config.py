@@ -92,6 +92,18 @@ def test_models_can_list_reasoning_efforts(tmp_path):
     ]
 
 
+def test_model_can_select_a_credential(tmp_path):
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text(
+        "project_name: test-project\ntest:\n  models:\n  - model: openai:gpt-5\n    llm_config_id: credential-b\n"
+    )
+
+    config = NaoConfig.load(tmp_path)
+
+    assert config.test is not None
+    assert config.test.models == [TestModelConfig(model="openai:gpt-5", llm_config_id="credential-b")]
+
+
 @pytest.mark.parametrize(
     "entry",
     [

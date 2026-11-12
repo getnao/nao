@@ -30,6 +30,22 @@ export type AutomationListItem = AutomationWithSchedule & {
 	lastRunStartedAt: Date | null;
 };
 
+export const listProjectAutomationModelSelections = async (
+	projectId: string,
+): Promise<Array<Pick<DBAutomation, 'id' | 'userId' | 'modelProvider' | 'modelId' | 'llmConfigId'>>> => {
+	return db
+		.select({
+			id: s.automation.id,
+			userId: s.automation.userId,
+			modelProvider: s.automation.modelProvider,
+			modelId: s.automation.modelId,
+			llmConfigId: s.automation.llmConfigId,
+		})
+		.from(s.automation)
+		.where(eq(s.automation.projectId, projectId))
+		.execute();
+};
+
 export const listAutomations = async (projectId: string, userId: string): Promise<AutomationListItem[]> => {
 	await failStaleAutomationRuns();
 	const rows = await db
@@ -217,6 +233,7 @@ export const updateAutomation = async (
 			| 'timezone'
 			| 'modelProvider'
 			| 'modelId'
+			| 'llmConfigId'
 			| 'mcpEnabled'
 			| 'mcpServers'
 			| 'integrations'
@@ -373,6 +390,10 @@ export const createAutomationRun = async (data: NewAutomationRun): Promise<DBAut
 
 export const attachRunChat = async (runId: string, chatId: string): Promise<void> => {
 	await db.update(s.automationRun).set({ chatId }).where(eq(s.automationRun.id, runId)).execute();
+};
+
+export const setRunLlmConfig = async (runId: string, llmConfigId: string | null): Promise<void> => {
+	await db.update(s.automationRun).set({ llmConfigId }).where(eq(s.automationRun.id, runId)).execute();
 };
 
 export const completeAutomationRun = async (

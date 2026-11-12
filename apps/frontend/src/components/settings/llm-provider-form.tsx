@@ -1,16 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { getDefaultModelId, getModelParameterSpec, getProviderAuth, PROVIDER_META } from '@nao/backend/provider-meta';
+import { providerKind, providerLabels } from '@nao/shared/types';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, MoreHorizontal, Plus, TriangleAlert, X } from 'lucide-react';
-import { getDefaultModelId, getModelParameterSpec, getProviderAuth, PROVIDER_META } from '@nao/backend/provider-meta';
-import { NAMED_PROVIDER_KIND, providerKind, providerLabels, toProviderName } from '@nao/shared/types';
+import { useEffect, useRef, useState } from 'react';
+
 import { CustomModelDialog } from './custom-model-dialog';
 import { ModelParametersDialog } from './model-parameters-dialog';
 import { applySavedModelSettings } from './model-settings-overrides';
-import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
 import type { LlmProvider } from '@nao/shared/types';
-import { Button } from '@/components/ui/button';
+import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
 import { Input } from '@/components/ui/input';
-import { PasswordField, TextField, TextareaField, FormError } from '@/components/ui/form-fields';
+import { FormError, PasswordField, TextareaField, TextField } from '@/components/ui/form-fields';
+import { Button } from '@/components/ui/button';
 
 /** Where credentials already come from when the UI is only layering settings on top. */
 export type InheritedKeySource = 'env' | 'config';
@@ -24,6 +25,7 @@ export interface LlmProviderFormProps {
 	provider: LlmProvider;
 	isEditing: boolean;
 	inheritedKeySource: InheritedKeySource | null;
+	initialName?: string;
 	initialValues?: {
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
@@ -55,6 +57,7 @@ export function LlmProviderForm({
 	provider,
 	isEditing,
 	inheritedKeySource,
+	initialName,
 	initialValues,
 	initialEditedModelId,
 	currentModels,
@@ -103,8 +106,6 @@ export function LlmProviderForm({
 	const providerLabel = providerLabels[kind];
 	const providerMeta = PROVIDER_META[kind];
 	const defaultModelId = getDefaultModelId(provider);
-	// A project can hold several endpoints of this kind, told apart by the name given here.
-	const needsName = !isEditing && kind === NAMED_PROVIDER_KIND;
 
 	const defaultCredentials = Object.fromEntries(extraFields.map((f) => [f.name, '']));
 	const inheritedKeyLabel = inheritedKeySource ? INHERITED_KEY_LABELS[inheritedKeySource] : null;
@@ -113,7 +114,7 @@ export function LlmProviderForm({
 		defaultValues: {
 			apiKey: '',
 			credentials: defaultCredentials,
-			name: '',
+			name: initialName ?? '',
 			enabledModels: initialValues?.enabledModels ?? [],
 			customModels: initialValues?.customModels ?? ([] as CustomModelMetadata[]),
 			modelSettings: initialValues?.modelSettings ?? ({} as ModelSettingsMap),
@@ -125,7 +126,7 @@ export function LlmProviderForm({
 			await onSubmit({
 				apiKey: value.apiKey || undefined,
 				credentials: Object.keys(filledCredentials).length > 0 ? filledCredentials : undefined,
-				name: needsName ? value.name : undefined,
+				name: value.name,
 				enabledModels: value.enabledModels,
 				customModels: value.customModels,
 				modelSettings: value.modelSettings,
@@ -180,25 +181,24 @@ export function LlmProviderForm({
 	};
 
 	const nameError = (value: string): string | undefined => {
-		const normalized = toProviderName(value);
-		if (!value) {
-			return undefined;
+		const trimmed = value.trim();
+		if (!trimmed) {
+			return 'Enter a credential name.';
 		}
-		if (!normalized) {
-			return 'Name this endpoint with letters, digits and dashes.';
+		if (trimmed.length > 80) {
+			return 'Credential names can be at most 80 characters.';
 		}
-		return takenNames.includes(normalized) ? `An endpoint named ${normalized} already exists.` : undefined;
+		return takenNames.includes(trimmed) ? `A credential named ${trimmed} already exists.` : undefined;
 	};
 
 	const nameField = (
 		<form.Field name='name' validators={{ onChange: ({ value }: { value: string }) => nameError(value) }}>
 			{(field) => {
-				const normalized = toProviderName(field.state.value);
 				const invalid = nameError(field.state.value);
 				return (
 					<div className='grid gap-2'>
 						<label htmlFor='provider-name' className='text-sm font-medium text-foreground'>
-							Name <span className='text-muted-foreground font-normal'>(required)</span>
+							Credential name <span className='text-muted-foreground font-normal'>(required)</span>
 						</label>
 						<Input
 							id='provider-name'
@@ -207,13 +207,11 @@ export function LlmProviderForm({
 							onChange={(e) => field.handleChange(e.target.value)}
 							onBlur={field.handleBlur}
 							required
-							placeholder='e.g., my-vllm'
+							maxLength={80}
+							placeholder={`e.g., ${providerLabel} production`}
 						/>
 						<p className={`text-xs ${invalid ? 'text-destructive' : 'text-muted-foreground'}`}>
-							{invalid ??
-								(normalized
-									? `Models of this endpoint are listed under ${normalized}.`
-									: 'How this endpoint is named across the app, so you can add several of them.')}
+							{invalid ?? 'Shown in model selectors and user-group access settings.'}
 						</p>
 					</div>
 				);
@@ -288,7 +286,7 @@ export function LlmProviderForm({
 				</div>
 			)}
 
-			{needsName && nameField}
+			{nameField}
 
 			{showApiKey && (
 				<PasswordField

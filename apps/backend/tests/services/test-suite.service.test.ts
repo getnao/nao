@@ -249,6 +249,18 @@ describe('extractConfiguredTestSettings', () => {
 		});
 	});
 
+	it('reads the credential ID of a model', () => {
+		fs.writeFileSync(
+			path.join(projectFolder, 'nao_config.yaml'),
+			'test:\n  models:\n    - model: openai:gpt-5\n      llm_config_id: credential-b',
+		);
+
+		expect(extractConfiguredTestSettings(projectFolder)).toMatchObject({
+			models: [{ provider: 'openai', modelId: 'gpt-5', llmConfigId: 'credential-b' }],
+			errors: [],
+		});
+	});
+
 	it('reports reasoning efforts a model does not support', () => {
 		fs.writeFileSync(
 			path.join(projectFolder, 'nao_config.yaml'),
@@ -270,7 +282,7 @@ describe('extractConfiguredTestSettings', () => {
 		expect(settings.errors).toEqual([
 			'test.models reasoning_efforts of openai:gpt-5 has unsupported efforts "extreme", expected some of minimal, low, medium, high, max.',
 			'test.models reasoning_efforts of openai:gpt-4.1: this model has no reasoning efforts to pick.',
-			'test.models has an invalid entry {"model":"openai:gpt-5","reasoning_effort":["low"]}, expected { model: \'provider:model_id\', reasoning_efforts: [low, high] or all }.',
+			'test.models has an invalid entry {"model":"openai:gpt-5","reasoning_effort":["low"]}, expected { model: \'provider:model_id\', llm_config_id: \'credential-id\', reasoning_efforts: [low, high] or all }.',
 		]);
 	});
 });

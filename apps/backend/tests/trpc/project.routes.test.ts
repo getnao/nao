@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	listProjectMembersWithRoles: vi.fn(),
 	regenerateMessagingProviderCode: vi.fn(),
 	isUserConfinedToOrganization: vi.fn(),
+	getProjectLlmConfigByProvider: vi.fn(),
 	upsertProjectLlmConfig: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	renameProject: vi.fn(),
@@ -29,7 +30,7 @@ vi.mock('../../src/queries/user.queries', () => ({
 	isUserConfinedToOrganization: mocks.isUserConfinedToOrganization,
 }));
 vi.mock('../../src/queries/project-llm-config.queries', () => ({
-	getProjectLlmConfigByProvider: vi.fn(() => null),
+	getProjectLlmConfigByProvider: mocks.getProjectLlmConfigByProvider,
 	upsertProjectLlmConfig: mocks.upsertProjectLlmConfig,
 }));
 vi.mock('../../src/queries/chat.queries', () => ({}));
@@ -98,6 +99,8 @@ describe('project LLM config overrides', () => {
 	});
 
 	beforeEach(() => {
+		mocks.getProjectLlmConfigByProvider.mockReset();
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue(null);
 		mocks.upsertProjectLlmConfig.mockReset();
 		mocks.upsertProjectLlmConfig.mockImplementation((config) => ({
 			id: 'config-id',
@@ -145,6 +148,62 @@ describe('project LLM config overrides', () => {
 				},
 			}),
 		);
+	});
+
+	it('saves an environment provider as an ENV-backed credential without copying its secret', async () => {
+		writeConfig([]);
+		process.env.OPENAI_API_KEY = 'sk-from-env';
+
+		await upsertLlmConfig('openai');
+
+		expect(mocks.upsertProjectLlmConfig).toHaveBeenCalledWith(
+			expect.objectContaining({
+				provider: 'openai',
+				credentialSource: 'env',
+				apiKey: '',
+			}),
+		);
+	});
+
+	it('converts an ENV-backed credential when an admin supplies a replacement key', async () => {
+		writeConfig([]);
+		process.env.OPENAI_API_KEY = 'sk-from-env';
+		mocks.getProjectLlmConfigByProvider.mockResolvedValue({
+			id: 'env-openai',
+			name: 'OpenAI (ENV)',
+			provider: 'openai',
+			credentialSource: 'env',
+			apiKey: '',
+			credentials: null,
+			enabledModels: [],
+			customModels: [],
+			modelSettings: {},
+			baseUrl: null,
+		});
+
+		await upsertLlmConfig('openai', 'sk-replacement');
+
+		expect(mocks.upsertProjectLlmConfig).toHaveBeenCalledWith(
+			expect.objectContaining({
+				credentialSource: 'database',
+				apiKey: 'sk-replacement',
+			}),
+		);
+	});
+
+	it('reports a duplicate credential name as a conflict', async () => {
+		writeConfig([]);
+		mocks.upsertProjectLlmConfig.mockRejectedValue(
+			Object.assign(
+				new Error('UNIQUE constraint failed: project_llm_config.project_id, project_llm_config.name'),
+				{ code: 'SQLITE_CONSTRAINT_UNIQUE', errno: 2067 },
+			),
+		);
+
+		await expect(upsertLlmConfig('openai', 'sk-test')).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message: "A credential named 'OpenAI' already exists.",
+		});
 	});
 });
 
@@ -208,9 +267,10 @@ function writeConfig(lines: string[]): void {
 	mocks.projectPath = directory;
 }
 
-async function upsertLlmConfig(provider: 'openai' | 'bedrock'): Promise<void> {
+async function upsertLlmConfig(provider: 'openai' | 'bedrock', apiKey?: string): Promise<void> {
 	await caller.upsertLlmConfig({
 		provider,
+		apiKey,
 		enabledModels: [],
 		customModels: [],
 		modelSettings: {},

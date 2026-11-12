@@ -40,11 +40,13 @@ import {
 	getUserGroupOverview,
 	listUserGroupMemberships,
 	listUserGroupSsoMemberships,
+	mergeUserGroupLlmAccess,
 	resolveUserGroupAccess,
 	setUserGroupMembership,
 	setUserGroupMemberships,
 	updateProjectRowSecurity,
 	updateUserGroup,
+	updateUserGroupLlmAccess,
 	validateAssignableUserGroupIds,
 } from '../../src/queries/user-group.queries';
 import { addProjectMemberWithUserGroups } from '../../src/services/project-user-group-membership.service';
@@ -162,6 +164,43 @@ describe('user group queries', () => {
 			updateUserGroup(PROJECT_ID, defaultGroup?.id ?? '', { featureGrants: ['automationCreation'] }),
 		).resolves.toMatchObject({
 			featureGrants: ['automationCreation'],
+		});
+	});
+
+	it('updates only LLM credential assignments', async () => {
+		const group = await createUserGroup(PROJECT_ID, 'Analysts', ['storyCreation']);
+
+		await expect(
+			updateUserGroupLlmAccess(PROJECT_ID, group.id, ['credential-a', 'credential-a', 'credential-b'], {
+				'credential-a': ['model-a', 'model-a'],
+			}),
+		).resolves.toMatchObject({
+			featureGrants: ['storyCreation'],
+			llmConfigIds: ['credential-a', 'credential-b'],
+			llmModelIdsByConfig: { 'credential-a': ['model-a'] },
+		});
+	});
+
+	it('unions model subsets and lets an all-model grant win', () => {
+		expect(
+			mergeUserGroupLlmAccess([
+				{
+					llmConfigIds: ['credential-a', 'credential-b'],
+					llmModelIdsByConfig: {
+						'credential-a': ['model-a'],
+						'credential-b': ['model-b'],
+					},
+				},
+				{
+					llmConfigIds: ['credential-a', 'credential-b'],
+					llmModelIdsByConfig: {
+						'credential-a': ['model-c'],
+					},
+				},
+			]),
+		).toEqual({
+			llmConfigIds: ['credential-a', 'credential-b'],
+			llmModelIdsByConfig: { 'credential-a': ['model-a', 'model-c'] },
 		});
 	});
 
@@ -1036,6 +1075,8 @@ describe('user group queries', () => {
 		const activeGroupIds = new Set([defaultGroup.id, ...activeGroups.map((group) => group.id)]);
 		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID, activeGroupIds)).resolves.toEqual({
 			groupNames: ['All Users', 'First', 'Second', 'Third'],
+			llmConfigIds: [],
+			llmModelIdsByConfig: {},
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			showAllSettings: true,

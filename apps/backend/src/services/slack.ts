@@ -1850,7 +1850,8 @@ class SlackService {
 			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
 			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
 			previous.modelSelection?.provider !== next.modelSelection?.provider ||
-			previous.modelSelection?.modelId !== next.modelSelection?.modelId
+			previous.modelSelection?.modelId !== next.modelSelection?.modelId ||
+			previous.modelSelection?.llmConfigId !== next.modelSelection?.llmConfigId
 		);
 	}
 }

@@ -7,6 +7,7 @@ import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { llmModelValue } from '@/lib/llm-model';
 import { trpc } from '@/main';
 
 interface WhatsappConfigSectionProps {
@@ -33,7 +34,12 @@ export function WhatsappConfigSection({ isAdmin, onCancelSetup }: WhatsappConfig
 		const persisted = projectConfig?.modelSelection;
 		const match =
 			persisted &&
-			availableModels.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+			availableModels.find(
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
+			);
 		setSelectedModel(match || availableModels[0]);
 	}, [availableModels, projectConfig]);
 
@@ -51,6 +57,7 @@ export function WhatsappConfigSection({ isAdmin, onCancelSetup }: WhatsappConfig
 			...values,
 			modelProvider: selectedModel?.provider,
 			modelId: selectedModel?.modelId,
+			llmConfigId: selectedModel?.llmConfigId,
 		});
 		queryClient.invalidateQueries(trpc.project.getWhatsappConfig.queryOptions());
 		setIsEditing(false);
@@ -73,17 +80,26 @@ export function WhatsappConfigSection({ isAdmin, onCancelSetup }: WhatsappConfig
 		const persisted = projectConfig?.modelSelection;
 		const match =
 			persisted &&
-			availableModels?.find((m) => m.provider === persisted.provider && m.modelId === persisted.modelId);
+			availableModels?.find(
+				(model) =>
+					model.provider === persisted.provider &&
+					model.modelId === persisted.modelId &&
+					(!persisted.llmConfigId || model.llmConfigId === persisted.llmConfigId),
+			);
 		setSelectedModel(match || (availableModels?.[0] ?? null));
 		setIsEditing(true);
 	};
 
 	const handleModelChange = useCallback(
 		async (value: string) => {
-			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
+			const model = availableModels?.find((candidate) => llmModelValue(candidate) === value);
 			if (model) {
 				setSelectedModel(model);
-				await updateWhatsappModel.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
+				await updateWhatsappModel.mutateAsync({
+					modelProvider: model.provider,
+					modelId: model.modelId,
+					llmConfigId: model.llmConfigId,
+				});
 				queryClient.invalidateQueries(trpc.project.getWhatsappConfig.queryOptions());
 			}
 		},
@@ -175,7 +191,7 @@ export function WhatsappConfigSection({ isAdmin, onCancelSetup }: WhatsappConfig
 					</p>
 					{hasMultipleModels ? (
 						<Select
-							value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
+							value={selectedModel ? llmModelValue(selectedModel) : undefined}
 							onValueChange={handleModelChange}
 							disabled={updateWhatsappModel.isPending}
 						>
@@ -189,22 +205,27 @@ export function WhatsappConfigSection({ isAdmin, onCancelSetup }: WhatsappConfig
 												className='size-4'
 											/>
 											{selectedModel.name}
+											{selectedModel.llmConfigName && (
+												<span className='text-muted-foreground'>
+													{selectedModel.llmConfigName}
+												</span>
+											)}
 										</div>
 									)}
 								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{availableModels?.map((model) => (
-									<SelectItem
-										key={`${model.provider}-${model.modelId}`}
-										value={`${model.provider}:${model.modelId}`}
-									>
+									<SelectItem key={llmModelValue(model)} value={llmModelValue(model)}>
 										<LlmProviderIcon
 											provider={model.provider}
 											baseUrl={model.baseUrl}
 											className='size-4'
 										/>
 										{model.name}
+										{model.llmConfigName && (
+											<span className='text-muted-foreground'>{model.llmConfigName}</span>
+										)}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -218,6 +239,7 @@ export function WhatsappConfigSection({ isAdmin, onCancelSetup }: WhatsappConfig
 									className='size-4'
 								/>
 								<span>{selectedModel.name}</span>
+								{selectedModel.llmConfigName && <span>{selectedModel.llmConfigName}</span>}
 							</div>
 						)
 					)}

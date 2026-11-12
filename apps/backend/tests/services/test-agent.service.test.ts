@@ -1,4 +1,5 @@
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText, type ModelMessage, Output, stepCountIs, tool } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
@@ -149,6 +150,30 @@ describe('buildVerificationMessages', () => {
 	});
 });
 
+describe('TestAgentService.runVerification', () => {
+	it('resolves the verification model for the user who ran the test', async () => {
+		const service = new CapturingTestAgentService();
+		const model = { provider: 'openai' as const, modelId: 'gpt-5-mini' };
+
+		await expect(
+			service.runVerification(
+				'project-1',
+				'user-1',
+				'What is the revenue?',
+				{ queryResults } as AgentRunResult,
+				['revenue'],
+				model,
+			),
+		).rejects.toThrow('stop after model resolution');
+
+		expect(service.resolvedModelRequest).toEqual({
+			projectId: 'project-1',
+			userId: 'user-1',
+			modelSelection: model,
+		});
+	});
+});
+
 describe('TestAgentService.extractToolCalls', () => {
 	it('returns the error of a failed tool call alongside the successful results', async () => {
 		const result = await generateText({
@@ -188,6 +213,23 @@ describe('TestAgentService.extractToolCalls', () => {
 		]);
 	});
 });
+
+class CapturingTestAgentService extends TestAgentService {
+	resolvedModelRequest?: {
+		projectId: string;
+		userId?: string;
+		modelSelection?: LlmSelectedModel;
+	};
+
+	protected override async _getResolvedLlmSelectedModel(
+		projectId: string,
+		modelSelection?: LlmSelectedModel,
+		userId?: string,
+	): Promise<LlmSelectedModel> {
+		this.resolvedModelRequest = { projectId, userId, modelSelection };
+		throw new Error('stop after model resolution');
+	}
+}
 
 /** A model that answers each step with the next `execute_sql` query. */
 function queryingModel(queries: string[]) {

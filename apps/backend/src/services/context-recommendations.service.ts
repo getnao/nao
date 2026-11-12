@@ -30,6 +30,7 @@ import {
 	ReconcileAction,
 	repairTriggerRefs,
 } from './context-recommendations.reconcile';
+import { resolveUserBackgroundModelSelection } from './user-group-llm-access.service';
 
 const DEFAULT_LOOKBACK_DAYS = 90;
 const IMPACT_FLOOR = 5;
@@ -51,7 +52,7 @@ export async function runContextRecommendations(
 	const userId = options?.triggeredByUserId ?? (await crQueries.getFirstProjectAdminUserId(projectId));
 	const config = await crQueries.getConfig(projectId);
 	const configuredModel = await resolveDefaultModelSelection(projectId, 'context_recommendation');
-	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined);
+	const model = await resolveUserBackgroundModelSelection(projectId, userId, configuredModel);
 
 	const run = await crQueries.createRun({
 		projectId,
@@ -60,6 +61,7 @@ export async function runContextRecommendations(
 		windowEnd: periodEnd,
 		llmProvider: model.provider,
 		llmModelId: model.modelId,
+		llmConfigId: model.llmConfigId,
 	});
 
 	try {
@@ -169,7 +171,12 @@ export async function runContextRecommendations(
 			);
 		}
 
-		await crQueries.completeRun(run.id, { ...tokens, llmProvider: model.provider, llmModelId: model.modelId });
+		await crQueries.completeRun(run.id, {
+			...tokens,
+			llmProvider: model.provider,
+			llmModelId: model.modelId,
+			llmConfigId: model.llmConfigId,
+		});
 		return { runId: run.id };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

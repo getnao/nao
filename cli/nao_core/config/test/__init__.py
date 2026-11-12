@@ -24,6 +24,10 @@ class TestModelConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str = Field(description="The model, in the format 'provider:model_id'")
+    llm_config_id: Annotated[str, Field(min_length=1)] | None = Field(
+        default=None,
+        description="The ID of the credential to use for this model",
+    )
     reasoning_efforts: Annotated[list[ReasoningEffort], Field(min_length=1)] | Literal["all"] | None = Field(
         default=None,
         description="The reasoning efforts to run the model at, or 'all' of the ones it supports",
@@ -44,7 +48,7 @@ class TestConfig(BaseModel):
         default_factory=lambda: list(DEFAULT_TEST_MODELS),
         description=(
             "The models to run the tests against, in the format 'provider:model_id', "
-            "or as {model, reasoning_efforts} to run a model at several reasoning efforts"
+            "or as {model, llm_config_id, reasoning_efforts} to select a credential or run several reasoning efforts"
         ),
     )
     threads: int = Field(default=1, ge=1, description="Number of test runs to execute in parallel")

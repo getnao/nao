@@ -1,10 +1,12 @@
 import type { DBProject, NewProject } from '../db/abstractSchema';
 import * as projectQueries from '../queries/project.queries';
 import { recordOrganizationSetupCandidate } from './credit-grant.service';
+import { registerEnvLlmConfigs } from './env-llm-config.service';
 import { getProjectReadiness } from './project-readiness.service';
 
 export async function createProject(project: NewProject): Promise<DBProject> {
 	const created = await projectQueries.createProject(project);
+	await registerEnvLlmConfigs(created.id);
 	await projectChanged(created.id);
 	return created;
 }

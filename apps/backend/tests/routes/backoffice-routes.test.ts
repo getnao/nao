@@ -808,6 +808,7 @@ async function seedData(projectPath: string) {
 	await db.insert(s.projectLlmConfig).values({
 		id: 'llm-config-1',
 		projectId: PROJECT_ID,
+		name: 'OpenAI',
 		provider: 'openai',
 		apiKey: 'LLM_API_KEY_DO_NOT_LEAK',
 		credentials: { secret: SECRET },

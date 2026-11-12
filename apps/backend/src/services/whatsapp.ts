@@ -77,7 +77,8 @@ class WhatsappService {
 			this._projectId !== config.projectId ||
 			this._redirectUrl !== config.redirectUrl ||
 			this._modelSelection?.provider !== config.modelSelection?.provider ||
-			this._modelSelection?.modelId !== config.modelSelection?.modelId
+			this._modelSelection?.modelId !== config.modelSelection?.modelId ||
+			this._modelSelection?.llmConfigId !== config.modelSelection?.llmConfigId
 		);
 	}
 
@@ -356,7 +357,7 @@ class WhatsappService {
 
 		try {
 			const audio = await this._encodeAttachmentAsBase64(audioAttachment);
-			const transcript = (await transcribeService.transcribeAudio(this._projectId, audio)).trim();
+			const transcript = (await transcribeService.transcribeAudio(this._projectId, ctx.user!.id, audio)).trim();
 			if (!transcript) {
 				throw new Error('Transcription returned empty text');
 			}

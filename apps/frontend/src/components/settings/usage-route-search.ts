@@ -22,6 +22,7 @@ export type UsageRouteSearch = {
 	periodMode: UsagePeriodPreset | undefined;
 	savedPeriodId: string | undefined;
 	users: string[] | undefined;
+	credentials: string[] | undefined;
 	feedback: ChatReplayFeedbackState[] | undefined;
 	tools: ChatReplayToolState[] | undefined;
 	sources: UsageSource[] | undefined;
@@ -44,6 +45,7 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	periodMode: undefined,
 	savedPeriodId: undefined,
 	users: undefined,
+	credentials: undefined,
 	feedback: undefined,
 	tools: undefined,
 	sources: undefined,
@@ -62,7 +64,7 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 
 const tokenViews = ['tokens', 'dollars'] as const satisfies readonly TokenChartDisplayMode[];
 const usageTabs = ['usage'] as const satisfies readonly UsageTab[];
-const filterSearchKeys = ['provider', 'users', 'feedback', 'tools', 'sources', 'splitByUser'] as const;
+const filterSearchKeys = ['provider', 'users', 'credentials', 'feedback', 'tools', 'sources', 'splitByUser'] as const;
 const periodSearchKeys = [
 	'periodMode',
 	'periodValue',
@@ -140,6 +142,7 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 		periodMode: period.mode,
 		savedPeriodId,
 		users: parseStringArray(search.users),
+		credentials: parseStringArray(search.credentials),
 		feedback: parseArrayOf(search.feedback, CHAT_REPLAY_FEEDBACK_STATES),
 		tools: parseArrayOf(search.tools, CHAT_REPLAY_TOOL_STATES),
 		sources: parseArrayOf(search.sources, USAGE_SOURCES),

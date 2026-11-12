@@ -45,6 +45,16 @@ describe('formatTestSettingsYaml', () => {
 		expect(yaml).not.toContain('reasoning_efforts');
 	});
 
+	it('writes the credential ID of a picked model', () => {
+		const yaml = formatTestSettingsYaml({
+			models: [{ provider: 'openai', modelId: 'gpt-5', llmConfigId: 'credential-b' }],
+			attempts: 1,
+			threads: 1,
+		});
+
+		expect(yaml).toContain('    - model: openai:gpt-5\n      llm_config_id: credential-b\n');
+	});
+
 	it('quotes model ids that YAML would misread', () => {
 		const yaml = formatTestSettingsYaml({
 			models: [

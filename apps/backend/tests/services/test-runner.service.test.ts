@@ -44,6 +44,11 @@ vi.mock('../../src/services/test-agent.service', () => ({
 vi.mock('../../src/services/test-evaluation.service', () => ({ evaluateTestAttempt: mocks.evaluateTestAttempt }));
 vi.mock('../../src/services/mcp', () => ({ mcpService: { initializeMcpState: vi.fn() } }));
 vi.mock('../../src/services/skill', () => ({ skillService: { initializeSkills: vi.fn() } }));
+vi.mock('../../src/services/user-group-llm-access.service', () => ({
+	getAvailableModelsForUser: mocks.getProjectAvailableModels,
+	getDefaultChatModelForUser: mocks.resolveDefaultChatModel,
+	resolveUserModelSelection: vi.fn(async (_projectId, _userId, selection) => selection),
+}));
 vi.mock('../../src/utils/llm', () => ({
 	resolveDefaultChatModel: mocks.resolveDefaultChatModel,
 	getProjectAvailableModels: mocks.getProjectAvailableModels,
@@ -619,7 +624,7 @@ describe('listDefaultReasoningEfforts', () => {
 			modelId === 'claude-opus-5-5' ? { reasoningEffort: 'high' } : {},
 		);
 
-		expect(await listDefaultReasoningEfforts('project-1')).toEqual([
+		expect(await listDefaultReasoningEfforts('project-1', 'user-1')).toEqual([
 			{ provider: 'anthropic', modelId: 'claude-opus-5-5', reasoningEffort: 'high' },
 			{ provider: 'anthropic', modelId: 'claude-sonnet-5', reasoningEffort: null },
 		]);

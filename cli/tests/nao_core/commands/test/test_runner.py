@@ -175,6 +175,18 @@ def test_client_sends_the_reasoning_effort_with_the_model(monkeypatch):
     assert payload["model"] == {"provider": "openai", "modelId": "gpt-5", "reasoningEffort": "high"}
 
 
+def test_client_sends_the_credential_id_with_the_model(monkeypatch):
+    payload = _client_payload(
+        monkeypatch, _case("orders"), provider="openai", model_id="gpt-5", llm_config_id="credential-b"
+    )
+
+    assert payload["model"] == {
+        "provider": "openai",
+        "modelId": "gpt-5",
+        "llmConfigId": "credential-b",
+    }
+
+
 def test_client_omits_the_reasoning_effort_without_one(monkeypatch):
     assert _client_payload(monkeypatch, _case("orders"))["model"] == {"provider": "openai", "modelId": "gpt-4.1"}
 
@@ -225,6 +237,16 @@ def test_resolve_model_configs_runs_a_model_once_per_reasoning_effort():
         "anthropic:claude-haiku-4-5",
     ]
     assert client.get_reasoning_efforts.call_count == 2
+
+
+def test_resolve_model_configs_preserves_the_credential_id():
+    models = resolve_model_configs(
+        [TestModelConfig(model="openai:gpt-5", llm_config_id="credential-b")],
+        Mock(),
+    )
+
+    assert models == [ModelConfig(provider="openai", model_id="gpt-5", llm_config_id="credential-b")]
+    assert str(models[0]) == "openai:gpt-5@credential-b"
 
 
 def test_resolve_model_configs_rejects_efforts_the_model_does_not_support():
@@ -394,7 +416,13 @@ def test_run_test_passes_configured_costs_to_client(monkeypatch):
 
     assert result.passed is True
     client.run_test.assert_called_once_with(
-        test_case, provider="openai", model_id="custom-model", costs=COSTS, comparison=None, reasoning_effort=None
+        test_case,
+        provider="openai",
+        model_id="custom-model",
+        llm_config_id=None,
+        costs=COSTS,
+        comparison=None,
+        reasoning_effort=None,
     )
 
 

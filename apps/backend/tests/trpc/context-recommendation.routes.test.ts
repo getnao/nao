@@ -52,6 +52,9 @@ vi.mock('../../src/services/context-recommendations.service', () => ({
 }));
 vi.mock('../../src/services/github', () => ({}));
 vi.mock('../../src/services/gitlab', () => ({}));
+vi.mock('../../src/services/user-group-llm-access.service', () => ({
+	getAvailableModelsForUser: mocks.getProjectAvailableModels,
+}));
 vi.mock('../../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(),
 }));
@@ -90,7 +93,7 @@ describe('context recommendation routes', () => {
 	it('lists models for the project', async () => {
 		await caller.contextRecommendation.listAvailableModels();
 
-		expect(mocks.getProjectAvailableModels).toHaveBeenCalledWith('project-id');
+		expect(mocks.getProjectAvailableModels).toHaveBeenCalledWith('project-id', 'user-id');
 	});
 
 	it('attributes manual runs to the user who triggered them', async () => {

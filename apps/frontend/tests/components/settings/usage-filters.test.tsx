@@ -4,11 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_USAGE_PERIOD_SELECTION, MAX_SAVED_USAGE_PERIODS } from '@nao/backend/usage';
 
+import { stubResizeObserver, stubScrollIntoView } from '../../helpers/browser-stubs';
 import { deferred } from '../../helpers/deferred';
 import type { SavedUsagePeriod } from '@nao/backend/usage';
 import type { ComponentProps } from 'react';
 import { UsageFilters } from '@/components/settings/usage-filters';
 import { UsagePeriodFilter } from '@/components/settings/usage-period-filter';
+
+stubResizeObserver();
+stubScrollIntoView();
 
 const savedPeriods: SavedUsagePeriod[] = [{ id: 'year', days: 365, granularity: 'month' }];
 
@@ -49,6 +53,39 @@ describe('UsageFilters', () => {
 		fireEvent.click(toggle);
 
 		expect(onSplitByUserChange).toHaveBeenCalledWith(true);
+	});
+
+	it('filters usage by credential selection', () => {
+		const onSelectedCredentialIdsChange = vi.fn();
+		render(
+			<UsageFilters
+				provider='all'
+				onProviderChange={vi.fn()}
+				periodSelection={DEFAULT_USAGE_PERIOD_SELECTION}
+				onPeriodSelectionChange={vi.fn()}
+				savedPeriods={[]}
+				onCreateSavedPeriod={vi.fn()}
+				onUpdateSavedPeriod={vi.fn()}
+				onDeleteSavedPeriod={vi.fn()}
+				availableProviders={[]}
+				availableCredentials={[
+					{ id: 'client-a', name: 'Client A' },
+					{ id: 'client-b', name: 'Client B' },
+				]}
+				onSelectedCredentialIdsChange={onSelectedCredentialIdsChange}
+				chatFacets={undefined}
+				selectedUserNames={undefined}
+				onSelectedUserNamesChange={vi.fn()}
+				selectedSources={undefined}
+				onSelectedSourcesChange={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Credentials' }));
+		fireEvent.click(screen.getByText('Client B'));
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+		expect(onSelectedCredentialIdsChange).toHaveBeenCalledWith(['client-a']);
 	});
 
 	it.each([

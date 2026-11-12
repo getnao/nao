@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, renderHook } from '@testing-library/react';
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { useModelSelection } from '@/hooks/use-model-selection';
@@ -8,22 +8,35 @@ import { useModelSelection } from '@/hooks/use-model-selection';
 const mocks = vi.hoisted(() => ({
 	queries: [] as Array<{ queryKey: string[]; enabled?: boolean }>,
 	currentProjectQuery: { data: null as unknown, isPending: false, isError: false },
+	availableModels: [{ provider: 'nao', modelId: 'gpt-6-sol' }] as Array<{
+		provider: 'nao' | 'openai';
+		modelId: string;
+		llmConfigId?: string;
+	}>,
+	selectedModel: null as { provider: 'nao' | 'openai'; modelId: string; llmConfigId?: string } | null,
+	usesDefaultModel: true,
+	setSelectedModel: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
 	useQuery: (options: { queryKey: string[]; enabled?: boolean }) => {
 		mocks.queries.push(options);
-		return options.queryKey[0] === 'current-project'
-			? mocks.currentProjectQuery
-			: { data: [{ provider: 'nao' }], isPending: false, isError: false };
+		if (options.queryKey[0] === 'current-project') {
+			return mocks.currentProjectQuery;
+		}
+		return {
+			data: options.queryKey[0] === 'available-models' ? mocks.availableModels : null,
+			isPending: false,
+			isError: false,
+		};
 	},
 }));
 
 vi.mock('@/contexts/agent.provider', () => ({
 	useAgentContext: () => ({
-		selectedModel: null,
-		usesDefaultModel: true,
-		setSelectedModel: vi.fn(),
+		selectedModel: mocks.selectedModel,
+		usesDefaultModel: mocks.usesDefaultModel,
+		setSelectedModel: mocks.setSelectedModel,
 	}),
 }));
 
@@ -41,6 +54,10 @@ afterEach(() => {
 	cleanup();
 	mocks.queries = [];
 	mocks.currentProjectQuery = { data: null, isPending: false, isError: false };
+	mocks.availableModels = [{ provider: 'nao', modelId: 'gpt-6-sol' }];
+	mocks.selectedModel = null;
+	mocks.usesDefaultModel = true;
+	mocks.setSelectedModel.mockReset();
 });
 
 it('does not request project models when the user has no project', () => {
@@ -59,6 +76,21 @@ it('requests project models when the current project query fails', () => {
 
 	expect(mocks.queries.find((query) => query.queryKey[0] === 'available-models')?.enabled).toBe(true);
 	expect(mocks.queries.find((query) => query.queryKey[0] === 'default-model')?.enabled).toBe(true);
-	expect(result.current.availableModels).toEqual([{ provider: 'nao' }]);
+	expect(result.current.availableModels).toEqual([{ provider: 'nao', modelId: 'gpt-6-sol' }]);
 	expect(result.current.hasProject).toBe(true);
+});
+
+it('falls back to the project default when a stored credential is no longer authorized', async () => {
+	mocks.currentProjectQuery = { data: { id: 'project-1' }, isPending: false, isError: false };
+	mocks.availableModels = [{ provider: 'openai', modelId: 'gpt-5-mini', llmConfigId: 'authorized-config' }];
+	mocks.selectedModel = {
+		provider: 'openai',
+		modelId: 'gpt-5-mini',
+		llmConfigId: 'removed-config',
+	};
+	mocks.usesDefaultModel = false;
+
+	renderHook(() => useModelSelection());
+
+	await waitFor(() => expect(mocks.setSelectedModel).toHaveBeenCalledWith(null));
 });

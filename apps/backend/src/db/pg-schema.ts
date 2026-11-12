@@ -22,6 +22,8 @@ import type {
 	AnalyticsEventMetadata,
 	AutomationEventTriggers,
 	CitationData,
+	LlmAccessMode,
+	LlmModelIdsByConfig,
 	LlmProvider,
 	NotificationChannel,
 	RepoProvider,
@@ -32,6 +34,7 @@ import {
 	BUDGET_PERIODS,
 	FOLDER_SYSTEM_TYPE,
 	FOLDER_VISIBILITY,
+	LLM_ACCESS_MODES,
 	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
 	RECIPIENT_MODES,
@@ -86,7 +89,13 @@ import {
 	RecommendationInsight,
 } from '../types/context-recommendation';
 import { EXAMPLE_CHAT_ALLOWANCE_SCOPES, type ExampleChatAllowanceScope } from '../types/example-chat-allowance';
-import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
+import {
+	type ActiveEffort,
+	LLM_CREDENTIAL_SOURCES,
+	LLM_INFERENCE_TYPES,
+	type LlmCredentialSource,
+	type ModelSettingsMap,
+} from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
 	CREDIT_GRANT_TYPES,
@@ -313,6 +322,10 @@ export const project = pgTable(
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
+		llmAccessMode: text('llm_access_mode', { enum: LLM_ACCESS_MODES })
+			.$type<LlmAccessMode>()
+			.notNull()
+			.default('project'),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -504,6 +517,7 @@ export const chatMessage = pgTable(
 		errorMessage: text('error_message'),
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
+		llmConfigId: text('llm_config_id'),
 		supersededAt: timestamp('superseded_at'),
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
@@ -646,6 +660,8 @@ export const userGroup = pgTable(
 		>(),
 		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
 		rowPolicies: jsonb('row_policies').$type<StoredUserGroupRowPolicies>(),
+		llmConfigIds: jsonb('llm_config_ids').$type<string[]>().notNull().default([]),
+		llmModelIdsByConfig: jsonb('llm_model_ids_by_config').$type<LlmModelIdsByConfig>().notNull().default({}),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -688,7 +704,12 @@ export const projectLlmConfig = pgTable(
 		projectId: text('project_id')
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
 		provider: text('provider').$type<LlmProvider>().notNull(),
+		credentialSource: text('credential_source', { enum: LLM_CREDENTIAL_SOURCES })
+			.$type<LlmCredentialSource>()
+			.notNull()
+			.default('database'),
 		apiKey: text('api_key').notNull(),
 		credentials: jsonb('credentials').$type<Record<string, string>>(),
 		enabledModels: jsonb('enabled_models').$type<string[]>().default([]).notNull(),
@@ -709,6 +730,7 @@ export const projectLlmConfig = pgTable(
 			.notNull(),
 		modelSettings: jsonb('model_settings').$type<ModelSettingsMap>().default({}).notNull(),
 		baseUrl: text('base_url'),
+		disabledAt: timestamp('disabled_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -717,7 +739,9 @@ export const projectLlmConfig = pgTable(
 	},
 	(t) => [
 		index('project_llm_config_projectId_idx').on(t.projectId),
-		unique('project_llm_config_project_provider').on(t.projectId, t.provider),
+		uniqueIndex('project_llm_config_project_name')
+			.on(t.projectId, t.name)
+			.where(sql`${t.disabledAt} IS NULL`),
 	],
 );
 
@@ -988,6 +1012,7 @@ export const automation = pgTable(
 		timezone: text('timezone'),
 		modelProvider: text('model_provider').$type<LlmProvider>(),
 		modelId: text('model_id'),
+		llmConfigId: text('llm_config_id'),
 		mcpEnabled: boolean('mcp_enabled').default(true).notNull(),
 		mcpServers: jsonb('mcp_servers').$type<string[]>(),
 		integrations: jsonb('integrations').$type<AutomationIntegrationConfig>().notNull().default({}),
@@ -1021,6 +1046,7 @@ export const automationRun = pgTable(
 		startedAt: timestamp('started_at').defaultNow().notNull(),
 		completedAt: timestamp('completed_at'),
 		errorMessage: text('error_message'),
+		llmConfigId: text('llm_config_id'),
 		readAt: timestamp('read_at'),
 		integrationResults: jsonb('integration_results').$type<AutomationIntegrationResult[]>().notNull().default([]),
 	},
@@ -1050,6 +1076,7 @@ export const contextRecommendationRun = pgTable(
 		errorMessage: text('error_message'),
 		llmProvider: text('llm_provider').$type<LlmProvider>(),
 		llmModelId: text('llm_model_id'),
+		llmConfigId: text('llm_config_id'),
 		inputTotalTokens: integer('input_total_tokens'),
 		outputTotalTokens: integer('output_total_tokens'),
 		totalTokens: integer('total_tokens'),
@@ -1227,6 +1254,7 @@ export const testRunResult = pgTable(
 		tags: jsonb('tags').$type<string[]>().notNull().default([]),
 		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
+		llmConfigId: text('llm_config_id'),
 		/** Null when the model ran at the reasoning effort configured for it. */
 		reasoningEffort: text('reasoning_effort').$type<ActiveEffort>(),
 		contextVariant: text('context_variant', { enum: TEST_CONTEXT_VARIANTS }).notNull().default('production'),
@@ -1684,6 +1712,7 @@ export const llmInference = pgTable(
 		type: text('type', { enum: LLM_INFERENCE_TYPES }).notNull(),
 		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
 		llmModelId: text('llm_model_id').notNull(),
+		llmConfigId: text('llm_config_id'),
 
 		// Token usage
 		inputTotalTokens: integer('input_total_tokens'),

@@ -134,6 +134,7 @@ const writeAutomationSchema = z.object({
 	timezone: z.string().trim().max(100).optional(),
 	modelProvider: llmProviderSchema.optional(),
 	modelId: z.string().trim().min(1).optional(),
+	llmConfigId: z.string().trim().min(1).optional(),
 	enabled: z.boolean().default(true),
 	mcpEnabled: z.boolean().default(true),
 	mcpServers: z.array(z.string().trim().min(1)).optional(),
@@ -174,7 +175,11 @@ export const automationRoutes = {
 		const { cron, enabled, title, editorChatId, ...promptInput } = input;
 		const modelSelection =
 			input.modelProvider && input.modelId
-				? { provider: input.modelProvider, modelId: input.modelId }
+				? {
+						provider: input.modelProvider,
+						modelId: input.modelId,
+						...(input.llmConfigId && { llmConfigId: input.llmConfigId }),
+					}
 				: undefined;
 		const resolvedTitle =
 			title?.trim() || (await inferAutomationTitle(ctx.project.id, ctx.user.id, input.prompt, modelSelection));
@@ -187,6 +192,7 @@ export const automationRoutes = {
 			timezone: getServerTimezone(),
 			modelProvider: input.modelProvider || null,
 			modelId: input.modelId || null,
+			llmConfigId: input.llmConfigId || null,
 			mcpServers: input.mcpServers,
 		});
 		if (editorChatId) {
@@ -223,6 +229,7 @@ export const automationRoutes = {
 				timezone: getServerTimezone(),
 				modelProvider: data.modelProvider || null,
 				modelId: data.modelId || null,
+				llmConfigId: data.llmConfigId || null,
 				mcpServers: data.mcpServers,
 			});
 			if (!automation) {

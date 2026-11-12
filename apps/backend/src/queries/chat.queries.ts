@@ -625,6 +625,7 @@ export const upsertMessage = async (
 		tokenUsage?: TokenUsage;
 		llmProvider?: LlmProvider;
 		llmModelId?: string;
+		llmConfigId?: string;
 		versionGroupId?: string;
 	},
 	options: { updateMetadata?: boolean } = {},
@@ -640,6 +641,7 @@ export const upsertMessage = async (
 			errorMessage: getErrorMessage(message.error),
 			llmProvider: message.llmProvider,
 			llmModelId: message.llmModelId,
+			llmConfigId: message.llmConfigId,
 			source: message.source,
 			isForked: message.isForked,
 			citations: message.citations ?? null,

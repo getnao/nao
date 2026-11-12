@@ -266,18 +266,33 @@ export function isLlmProvider(value: string): value is LlmProvider {
 	return kind === NAMED_PROVIDER_KIND && rest.length === 1 && PROVIDER_NAME_PATTERN.test(rest[0]);
 }
 
+export const LLM_ACCESS_MODES = ['project', 'user_group'] as const;
+export type LlmAccessMode = (typeof LLM_ACCESS_MODES)[number];
+export type LlmModelIdsByConfig = Record<string, string[]>;
+
 export type LlmSelectedModel = {
 	provider: LlmProvider;
 	modelId: string;
+	llmConfigId?: string;
 };
 
 export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
-	return model.provider === other.provider && model.modelId === other.modelId;
+	return (
+		model.provider === other.provider && model.modelId === other.modelId && model.llmConfigId === other.llmConfigId
+	);
 }
 
 /** The model a stored result names in its own columns, under the shape of a selected model. */
-export function resultModel(result: { llmProvider: LlmProvider; llmModelId: string }): LlmSelectedModel {
-	return { provider: result.llmProvider, modelId: result.llmModelId };
+export function resultModel(result: {
+	llmProvider: LlmProvider;
+	llmModelId: string;
+	llmConfigId?: string | null;
+}): LlmSelectedModel {
+	return {
+		provider: result.llmProvider,
+		modelId: result.llmModelId,
+		...(result.llmConfigId && { llmConfigId: result.llmConfigId }),
+	};
 }
 
 export type SummarySegment =

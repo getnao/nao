@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 	getDatabaseContextCatalog: vi.fn(),
 	getDocsContextCatalog: vi.fn(),
 	getFilesContextCatalog: vi.fn(),
+	getProjectLlmConfigs: vi.fn(),
 	listEffectiveEntraUserGroupMappings: vi.fn(),
 	listEffectiveOidcUserGroupMappings: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
@@ -35,6 +36,7 @@ const mocks = vi.hoisted(() => ({
 	setUserGroupMembership: vi.fn(),
 	setUserGroupMemberships: vi.fn(),
 	updateUserGroup: vi.fn(),
+	updateUserGroupLlmAccess: vi.fn(),
 	updateProjectRowSecurity: vi.fn(),
 	validateWarehouseRowPredicate: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
@@ -56,6 +58,9 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project', path: '/project' })),
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
+vi.mock('../../src/queries/project-llm-config.queries', () => ({
+	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
+}));
 vi.mock('../../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
 	createUserGroup: mocks.createUserGroup,
@@ -68,6 +73,7 @@ vi.mock('../../src/queries/user-group.queries', () => ({
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	setUserGroupMemberships: mocks.setUserGroupMemberships,
 	updateUserGroup: mocks.updateUserGroup,
+	updateUserGroupLlmAccess: mocks.updateUserGroupLlmAccess,
 	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
 }));
 vi.mock('../../src/services/license.service', () => ({
@@ -132,6 +138,7 @@ beforeEach(() => {
 	mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
 	mocks.getFilesContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
 	mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+	mocks.getProjectLlmConfigs.mockResolvedValue([]);
 	mocks.listEffectiveOidcUserGroupMappings.mockResolvedValue([]);
 	mocks.listEffectiveEntraUserGroupMappings.mockResolvedValue([]);
 	mocks.updateProjectRowSecurity.mockImplementation(async (_projectId, value) => value);
@@ -622,6 +629,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			[],
 		);
 	});
 
@@ -649,6 +657,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			[],
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -706,6 +715,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			[],
 		);
 	});
 
@@ -760,6 +770,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			[],
 		);
 	});
 
@@ -790,6 +801,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			[],
 		);
 	});
 
@@ -876,6 +888,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			[],
 		);
 	});
 
@@ -918,6 +931,39 @@ describe('user group routes', () => {
 			toolCallDensityPolicy: DETAILED_DENSITY_POLICY,
 		});
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it('updates only the assigned LLM credentials', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([{ id: 'credential-a' }, { id: 'credential-b' }]);
+		mocks.updateUserGroupLlmAccess.mockResolvedValue({ id: 'group-id' });
+
+		await expect(
+			caller.updateLlmAccess({
+				groupId: 'group-id',
+				llmConfigIds: ['credential-a', 'credential-b'],
+				llmModelIdsByConfig: { 'credential-a': ['model-a', 'model-a'] },
+			}),
+		).resolves.toEqual({ id: 'group-id' });
+
+		expect(mocks.updateUserGroupLlmAccess).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			['credential-a', 'credential-b'],
+			{ 'credential-a': ['model-a'] },
+		);
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('rejects model restrictions for an unassigned credential', async () => {
+		await expect(
+			caller.updateLlmAccess({
+				groupId: 'group-id',
+				llmConfigIds: ['credential-a'],
+				llmModelIdsByConfig: { 'credential-b': ['model-b'] },
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+		expect(mocks.updateUserGroupLlmAccess).not.toHaveBeenCalled();
 	});
 
 	it('saves share targets without the group itself or groups that are not active custom groups', async () => {
@@ -1011,6 +1057,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			[],
 		);
 	});
 
