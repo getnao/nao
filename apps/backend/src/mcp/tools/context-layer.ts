@@ -186,7 +186,9 @@ function registerExecuteSql(
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
 		formatResult: (result) => formatQueryResult(ctx, result),
-		errorMessage: (error) => (error instanceof Error ? error.message : 'execute_sql failed. Please try again.'),
+		errorMessage: (error) => {
+			return error instanceof Error ? error.message : 'execute_sql failed. Please try again.';
+		},
 	});
 }
 
