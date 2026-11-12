@@ -81,7 +81,10 @@ function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>
 }
 
 /** Repository URLs written with `{{ env('NAME') }}` are resolved with the given project variables. */
-export function extractConfiguredRepos(projectFolder: string, envVars: Record<string, string> = {}): LinkedContextRepo[] {
+export function extractConfiguredRepos(
+	projectFolder: string,
+	envVars: Record<string, string> = {},
+): LinkedContextRepo[] {
 	return configuredReposFrom(loadProjectConfig(projectFolder), envVars);
 }
 
