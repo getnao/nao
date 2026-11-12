@@ -136,13 +136,42 @@ describe('ConversationFeedbackGuard', () => {
 		expect(mocks.proceed).toHaveBeenCalledOnce();
 	});
 
-	it('does not enforce feedback after the latest answer has been rated', () => {
+	it('allows navigation after the latest answer has been rated', () => {
 		mocks.messages = [assistantMessage('answer-1', 'down')];
 
 		render(<ConversationFeedbackGuard chatId='chat-1' />);
 
-		expect(mocks.blockerOptions?.disabled).toBe(true);
+		expect(mocks.blockerOptions?.disabled).toBe(false);
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(false);
 		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	it('shows a skippable leave prompt when feedback collection is not enforced', () => {
+		mocks.agentSettings.enforceConversationFeedbackBeforeLeaving = false;
+
+		render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		expect(mocks.blockerOptions?.disabled).toBe(false);
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(true);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+
+		expect(mocks.proceed).toHaveBeenCalledOnce();
+	});
+
+	it('keeps enforced navigation pending while the latest answer is generating', () => {
+		mocks.isRunning = true;
+		const { rerender } = render(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		expect(mocks.blockerOptions?.disabled).toBe(false);
+		expect(mocks.blockerOptions?.shouldBlockFn({ next: { pathname: '/settings/account' } })).toBe(true);
+		expect(screen.queryByRole('dialog')).toBeNull();
+
+		mocks.isRunning = false;
+		rerender(<ConversationFeedbackGuard chatId='chat-1' />);
+
+		expect(screen.getByRole('dialog')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Skip' })).toBeNull();
 	});
 
 	it('allows navigation within the chat and after the chat is deleted', () => {

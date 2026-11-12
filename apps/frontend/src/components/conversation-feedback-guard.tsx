@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useBlocker } from '@tanstack/react-router';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
@@ -18,23 +19,25 @@ export function ConversationFeedbackGuard({ chatId }: { chatId: string }) {
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const features = useLicenseFeatures();
 	const isCloud = useIsCloud();
-	const shouldEnforce =
+	const shouldCollect =
 		!isCloud &&
 		features.data?.['conversation-feedback'] === true &&
 		agentSettings.data?.requireConversationFeedback === true &&
-		agentSettings.data?.enforceConversationFeedbackBeforeLeaving === true &&
 		!isReadonly &&
-		!isRunning &&
 		mode !== 'onboarding' &&
-		!!message &&
-		!message.feedback;
+		!!chatId;
+	const isEnforced = agentSettings.data?.enforceConversationFeedbackBeforeLeaving === true;
+	const needsFeedback = !!message && !message.feedback;
 	const navigationBlocker = useBlocker({
 		shouldBlockFn: ({ next }) => {
 			const staysInConversation = next.pathname === `/${chatId}` || next.pathname.startsWith(`/${chatId}/`);
-			return !staysInConversation && !isConversationFeedbackNavigationAllowed(chatId);
+			if (staysInConversation || isConversationFeedbackNavigationAllowed(chatId)) {
+				return false;
+			}
+			return isRunning ? isEnforced : needsFeedback;
 		},
 		enableBeforeUnload: false,
-		disabled: !shouldEnforce,
+		disabled: !shouldCollect,
 		withResolver: true,
 	});
 	const submitFeedback = useMutation(
@@ -63,6 +66,12 @@ export function ConversationFeedbackGuard({ chatId }: { chatId: string }) {
 		}),
 	);
 
+	useEffect(() => {
+		if (navigationBlocker.status === 'blocked' && !isRunning && !needsFeedback) {
+			navigationBlocker.proceed();
+		}
+	}, [isRunning, navigationBlocker, needsFeedback]);
+
 	const handleVote = (vote: FeedbackVote) => {
 		if (!message) {
 			return;
@@ -72,19 +81,41 @@ export function ConversationFeedbackGuard({ chatId }: { chatId: string }) {
 
 	const handleOpenChange = (open: boolean) => {
 		if (!open && !submitFeedback.isPending && navigationBlocker.status === 'blocked') {
-			navigationBlocker.reset();
+			if (isEnforced) {
+				navigationBlocker.reset();
+			} else {
+				navigationBlocker.proceed();
+			}
 		}
 	};
 
 	return (
-		<Dialog open={navigationBlocker.status === 'blocked'} onOpenChange={handleOpenChange}>
+		<Dialog
+			open={navigationBlocker.status === 'blocked' && !isRunning && needsFeedback}
+			onOpenChange={handleOpenChange}
+		>
 			<DialogContent showCloseButton={false} className='sm:max-w-sm'>
 				<div className='flex items-center justify-between gap-4'>
 					<DialogHeader className='text-left'>
 						<DialogTitle>How did it go?</DialogTitle>
-						<DialogDescription className='sr-only'>Rate the latest answer to continue.</DialogDescription>
+						<DialogDescription className='sr-only'>
+							{isEnforced
+								? 'Rate the latest answer to continue.'
+								: 'Rate the latest answer or skip to continue.'}
+						</DialogDescription>
 					</DialogHeader>
 					<div className='flex shrink-0 gap-1'>
+						{!isEnforced && (
+							<Button
+								variant='ghost'
+								size='sm'
+								className='rounded-full text-muted-foreground'
+								onClick={navigationBlocker.proceed}
+								disabled={submitFeedback.isPending}
+							>
+								Skip
+							</Button>
+						)}
 						<Button
 							variant='ghost'
 							size='icon'

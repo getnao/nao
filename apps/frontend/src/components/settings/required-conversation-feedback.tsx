@@ -45,7 +45,7 @@ export function SettingsRequiredConversationFeedback({ isAdmin }: SettingsRequir
 				<SettingsControlRow
 					id='require-conversation-feedback'
 					label='Collect conversation feedback'
-					description='Show persistent thumbs up and down controls in every chat header.'
+					description='Show persistent rating controls and prompt users when they leave an unrated chat.'
 					control={
 						<Switch
 							id='require-conversation-feedback'

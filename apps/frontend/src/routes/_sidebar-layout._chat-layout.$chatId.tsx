@@ -13,7 +13,6 @@ import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 import { ChatAccessError } from '@/components/chat-access-error';
 import { ChatArtifactsMenu } from '@/components/chat-artifacts-menu';
 import { ChatHeaderFeedback } from '@/components/chat-header-feedback';
-import { ConversationFeedbackGuard } from '@/components/conversation-feedback-guard';
 import { ExampleProjectInfoCard } from '@/components/example-project-info-card';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
@@ -172,7 +171,6 @@ function ChatPage() {
 			open={sidePanel.open}
 			close={sidePanel.close}
 		>
-			<ConversationFeedbackGuard chatId={chatId} />
 			<ChatStoryShortcut chatId={chatId} latestStorySlug={latestStorySlug} />
 			<SelectionProvider resetKey={chatId}>
 				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>

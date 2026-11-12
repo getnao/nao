@@ -37,6 +37,8 @@ vi.mock('@/hooks/use-story-ids', () => ({ useStoryIds: () => [] }));
 vi.mock('@/lib/charts.utils', () => ({ countDisplayCharts: () => 2 }));
 vi.mock('@/lib/ai', () => ({
 	checkAssistantMessageHasContent: () => true,
+	findLastAssistantMessageWithContent: (messages: Array<{ role: string }>) =>
+		[...messages].reverse().find((message) => message.role === 'assistant'),
 	NEW_CHAT_ID: 'new',
 }));
 vi.mock('@/components/chat-messages/assistant-message-actions', () => ({
