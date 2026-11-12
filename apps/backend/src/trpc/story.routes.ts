@@ -1391,13 +1391,22 @@ export const storyRoutes = {
 	}),
 
 	downloadStandalone: storyOwnerProjectProcedure
-		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS) }))
+		.input(
+			z.object({
+				storyId: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
 		.query(async ({ input, ctx }) => {
 			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
 			if (!story) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const cache = await storyQueries.getStoryDataCacheByStoryId(input.storyId);
+			const content =
+				input.versionNumber !== undefined && input.versionNumber !== story.version
+					? await getStandaloneHistoricalDownloadContent(story.id, input.versionNumber)
+					: await getStandaloneLatestDownloadContent(story);
 
 			if (story.projectId) {
 				logAnalyticsEvent({
@@ -1409,32 +1418,23 @@ export const storyRoutes = {
 					metadata: {
 						type: 'download',
 						format: input.format,
-						versionNumber: story.version,
-						title: story.title,
+						versionNumber: content.versionNumber,
+						title: content.title,
 					},
 				});
 			}
 
-			const storyData = story.chatId
-				? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
-				: null;
 			const [displaySettings, theme] = story.projectId
 				? await Promise.all([
 						projectQueries.getDisplaySettings(story.projectId),
 						getActiveThemeForProject(story.projectId),
 					])
 				: [null, null];
-			const queryData =
-				storyData?.allowsPersistedFallback && story.chatId
-					? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
-					: storyData
-						? storyData.queryData
-						: (cache?.queryData ?? null);
 			return buildDownloadResponse(
 				input.format,
-				story.title,
-				storyData?.code ?? story.code,
-				queryData,
+				content.title,
+				content.code,
+				content.queryData,
 				displaySettings?.dateFormat,
 				theme,
 			);
@@ -1574,6 +1574,29 @@ async function getStandaloneClassicStory(storyId: string) {
 		});
 	}
 	return { ...story, projectId: story.projectId };
+}
+
+async function getStandaloneLatestDownloadContent(story: storyQueries.UserStoryRow) {
+	const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
+	const storyData = story.chatId
+		? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+		: null;
+	const queryData =
+		storyData?.allowsPersistedFallback && story.chatId
+			? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
+			: storyData
+				? storyData.queryData
+				: (cache?.queryData ?? null);
+	return { title: story.title, code: storyData?.code ?? story.code, queryData, versionNumber: story.version };
+}
+
+async function getStandaloneHistoricalDownloadContent(storyId: string, versionNumber: number) {
+	const version = await storyQueries.getVersionByStoryIdAndNumber(storyId, versionNumber);
+	if (!version) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+	}
+	const { queryData } = await getStandaloneStoryQueryData(storyId, version.code);
+	return { title: version.title, code: version.code, queryData, versionNumber: version.version };
 }
 
 async function getStoryInProject(storyId: string, projectId: string) {

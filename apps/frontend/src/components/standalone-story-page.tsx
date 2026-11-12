@@ -118,7 +118,7 @@ function StandaloneStoryView({ storyId, story }: { storyId: string; story: Stand
 				}}
 				canDuplicate={!isArchived}
 				viewedVersionNumber={editor.versionNav.storedVersionNumber || undefined}
-				download={{ storyId, isOwner: true }}
+				download={{ storyId, isOwner: true, versionNumber: editor.versionNav.storedVersionNumber || undefined }}
 				storyId={storyId}
 				canRename
 				live={
