@@ -43,6 +43,7 @@ vi.mock('../src/db/db', async () => {
 const screenshots = vi.hoisted(() => ({
 	render: null as unknown as StoryScreenshot,
 	darkImage: null as unknown as Buffer,
+	darkRedactedImage: null as unknown as Buffer,
 	brokenModes: [] as string[],
 	calls: 0,
 }));
@@ -55,7 +56,11 @@ vi.mock('../src/utils/story-screenshot', async (importOriginal) => ({
 			return { ...screenshots.render, blockErrors: ['Something went wrong.'] };
 		}
 		return html.includes('data-mode="dark"')
-			? { ...screenshots.render, image: screenshots.darkImage }
+			? {
+					...screenshots.render,
+					image: screenshots.darkImage,
+					redactedImage: screenshots.darkRedactedImage,
+				}
 			: screenshots.render;
 	},
 }));
@@ -99,6 +104,7 @@ describe('custom story thumbnails', () => {
 			{ id: 'user-2', name: 'Viewer', email: 'viewer@example.com' },
 		]);
 		await db.insert(s.project).values({ id: 'project-1', name: 'Project', type: 'local', path: '/tmp/project' });
+		await db.insert(s.projectMember).values({ projectId: 'project-1', userId: 'user-2', role: 'viewer' });
 		await db.insert(s.chat).values({ id: 'chat-1', projectId: 'project-1', userId: 'user-1', title: 'Chat' });
 		await db
 			.insert(s.story)
@@ -130,7 +136,9 @@ describe('custom story thumbnails', () => {
 		screenshots.calls = 0;
 		screenshots.brokenModes = [];
 		screenshots.render = await cleanScreenshot('#ffffff');
+		screenshots.render.redactedImage = (await cleanScreenshot('#dddddd')).image;
 		screenshots.darkImage = (await cleanScreenshot('#000000')).image;
+		screenshots.darkRedactedImage = (await cleanScreenshot('#222222')).image;
 		documents.modes = [];
 		versionIds.current = await publishVersion();
 	});
@@ -150,11 +158,29 @@ describe('custom story thumbnails', () => {
 
 		expect(thumbnail.versionId).toBe(versionIds.current);
 		expect((await sharp(thumbnail.image).metadata()).format).toBe('webp');
+		expect(thumbnail.redactedImage).not.toBeNull();
+		expect(thumbnail.redactedImage?.equals(thumbnail.image)).toBe(false);
 		expect(documents.modes).toEqual(['light', 'dark']);
 	});
 
-	it('hides stored thumbnails from non-owners when the project has row security', async () => {
-		await expect(canShowStoredCustomStoryThumbnail(STORY_ID, 'user-2')).resolves.toBe(true);
+	it('reads thumbnails stored with metadata', async () => {
+		const story = await storyQueries.getStoryById(STORY_ID);
+		const original = await vi.waitUntil(() => getCustomStoryThumbnail(story!));
+		const stored = await storyFileQueries.getVersionThumbnail(versionIds.current);
+		const payload = JSON.parse(stored!.thumbnail) as { images: unknown };
+		await storyFileQueries.setVersionThumbnail(
+			versionIds.current,
+			JSON.stringify({ images: payload.images, styles: {} }),
+			stored!.renderKey,
+		);
+
+		const thumbnail = await getCustomStoryThumbnail(story!);
+
+		expect(thumbnail?.image.equals(original.image)).toBe(true);
+	});
+
+	it('hides stored thumbnails from restricted non-owners', async () => {
+		await expect(canShowStoredCustomStoryThumbnail(STORY_ID, 'user-2')).resolves.toBe(false);
 		await db
 			.update(s.project)
 			.set({

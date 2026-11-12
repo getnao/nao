@@ -70,7 +70,7 @@ function SharedStoryCard({ item, displayMode }: { item: SharedItem; displayMode:
 				thumbnail={
 					item.format === 'custom' ? (
 						<CustomStoryThumbnail
-							storyId={item.canShowThumbnail ? item.id : undefined}
+							storyId={item.id}
 							version={item.version}
 							summary={item.summary as StoryThumbnailSummary | undefined}
 						/>

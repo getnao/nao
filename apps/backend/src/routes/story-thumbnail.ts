@@ -30,13 +30,15 @@ export const storyThumbnailRoutes = async (app: App) => {
 			if (
 				!story ||
 				story.format !== 'custom' ||
-				!(await storyQueries.canUserAccessStory(storyId, request.user.id)) ||
-				!(await canShowStoredCustomStoryThumbnail(storyId, request.user.id))
+				!(await storyQueries.canUserAccessStory(storyId, request.user.id))
 			) {
 				throw new HandlerError('NOT_FOUND', 'Story not found');
 			}
 
-			const thumbnail = await getCustomStoryThumbnail(story, mode);
+			const [thumbnail, canShowStoredThumbnail] = await Promise.all([
+				getCustomStoryThumbnail(story, mode),
+				canShowStoredCustomStoryThumbnail(storyId, request.user.id),
+			]);
 			if (!thumbnail) {
 				return reply
 					.status(404)
@@ -44,12 +46,19 @@ export const storyThumbnailRoutes = async (app: App) => {
 					.send({ error: 'Thumbnail not rendered yet' });
 			}
 
-			const etag = thumbnailEtag(thumbnail.image);
+			const image = canShowStoredThumbnail ? thumbnail.image : thumbnail.redactedImage;
+			if (!image) {
+				return reply
+					.status(404)
+					.header('Cache-Control', 'no-store')
+					.send({ error: 'Thumbnail not rendered yet' });
+			}
+			const etag = thumbnailEtag(image);
 			reply.header('Cache-Control', 'private, no-cache').header('ETag', etag);
 			if (matchesEtag(request.headers['if-none-match'], etag)) {
 				return reply.status(304).send();
 			}
-			return reply.header('Content-Type', 'image/webp').send(thumbnail.image);
+			return reply.header('Content-Type', 'image/webp').send(image);
 		},
 	);
 };

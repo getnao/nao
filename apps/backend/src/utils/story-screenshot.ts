@@ -8,6 +8,16 @@ const MAX_REPORTED_ERRORS = 5;
 const BLOCK_ERROR_SELECTOR = '.nao-block__state--error';
 const STORY_FRAME_SELECTOR = '#root, .nao-canvas, .nao-canvas__viewport, .nao-canvas__surface, .nao-slide';
 const STORY_ERRORS_GLOBAL = '__naoStoryErrors';
+const REDACTED_DATA_STYLE = `
+[data-nao-block-query] > .nao-block__body,
+.nao-narrative {
+	filter: blur(14px) !important;
+	opacity: 0.45 !important;
+}
+[data-nao-block-query] > .nao-block__body {
+	overflow: hidden !important;
+}
+`;
 
 export interface StoryScreenshot {
 	ready: boolean;
@@ -15,6 +25,7 @@ export interface StoryScreenshot {
 	runtimeErrors: string[];
 	blockErrors: string[];
 	image: Buffer;
+	redactedImage?: Buffer;
 }
 
 interface PageContent {
@@ -28,6 +39,7 @@ export async function renderStoryScreenshot(
 	html: string,
 	viewport: { width: number; height: number },
 	fontStylesheets: string[],
+	options: { redactData?: boolean } = {},
 ): Promise<StoryScreenshot> {
 	const browser = await getBrowser();
 	const page = await browser.newPage();
@@ -44,12 +56,20 @@ export async function renderStoryScreenshot(
 			blockErrorSelector: BLOCK_ERROR_SELECTOR,
 			frameSelector: STORY_FRAME_SELECTOR,
 		});
+		const image = Buffer.from(await page.screenshot({ type: 'png' }));
+		let redactedImage: Buffer | undefined;
+		if (options.redactData) {
+			await page.addStyleTag({ content: REDACTED_DATA_STYLE });
+			await delay(100);
+			redactedImage = Buffer.from(await page.screenshot({ type: 'png' }));
+		}
 		return {
 			ready,
 			blank: content.blank,
 			runtimeErrors: [...new Set([...pageErrors, ...content.storyErrors])].slice(0, MAX_REPORTED_ERRORS),
 			blockErrors: content.blockErrors,
-			image: Buffer.from(await page.screenshot({ type: 'png' })),
+			image,
+			redactedImage,
 		};
 	} finally {
 		await page.close();

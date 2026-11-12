@@ -20,7 +20,7 @@ export function Narrative({ id, children }: NarrativeProps) {
 	if (narratives[id] === undefined && STORY_NARRATIVES_REDACT_MISSING_KEY in narratives) {
 		return null;
 	}
-	return <>{narratives[id] ?? children}</>;
+	return <span className='nao-narrative'>{narratives[id] ?? children}</span>;
 }
 
 function useNarratives(): StoryNarratives | null {
