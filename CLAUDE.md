@@ -67,7 +67,7 @@ Keep the suite from growing out of control:
 - **Don't leak state between files.** Backend and frontend Vitest run with `isolate: false`, so test files share a worker. Restore env vars, timers and globals, close database handles, remove temporary folders, and clear any markup written to `document.body` outside `render`. `tests/setup/shared-worker.ts` resets the common cases; when a new kind of leak appears, fix it there.
 - **Keep helpers fully typed.** The backend and shared `tsconfig` files only include `src/`, so lint does not type-check tests. Fixtures must still match the full types, such as a complete `ToolContext`.
 
-Run them with `npm run test -w @nao/<backend|frontend|shared>` or `cd cli && uv run pytest`.
+Run them with `npm run -w @nao/backend test`, `npm run -w @nao/frontend test`, `npm run -w @nao/shared test`, or `cd cli && uv run pytest`.
 
 ### Linting
 
