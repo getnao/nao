@@ -8,17 +8,17 @@ const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
 }));
 
-vi.mock('../src/services/agent', () => ({ buildToolContext: mocks.buildToolContext }));
-vi.mock('../src/services/live-story', () => ({ executeRawSql: mocks.executeRawSql }));
-vi.mock('../src/services/cloud-billing-access.service', () => ({
+vi.mock('../../src/services/agent', () => ({ buildToolContext: mocks.buildToolContext }));
+vi.mock('../../src/services/live-story', () => ({ executeRawSql: mocks.executeRawSql }));
+vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
 }));
-vi.mock('../src/services/excluded-columns.service', () => ({
+vi.mock('../../src/services/excluded-columns.service', () => ({
 	resolveExcludedColumnEnforcement: mocks.resolveExcludedColumnEnforcement,
 }));
 
-import { CustomStorySqlError, runCustomStorySql } from '../src/services/custom-story-sql';
-import { WarehouseSqlError } from '../src/services/warehouse-sql.service';
+import { CustomStorySqlError, runCustomStorySql } from '../../src/services/custom-story-sql';
+import { WarehouseSqlError } from '../../src/services/warehouse-sql.service';
 
 const TARGET = { projectId: 'project-1', chatId: 'chat-1', viewerId: 'viewer-1' };
 const VIEWER_CONTEXT = {

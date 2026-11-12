@@ -6,13 +6,13 @@ const mocks = vi.hoisted(() => ({
 	getSqlQueryById: vi.fn(),
 }));
 
-vi.mock('../src/services/live-story', () => ({
+vi.mock('../../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
 	executeStoryQueries: mocks.executeStoryQueries,
 }));
-vi.mock('../src/queries/story.queries', () => ({ getSqlQueryById: mocks.getSqlQueryById }));
+vi.mock('../../src/queries/story.queries', () => ({ getSqlQueryById: mocks.getSqlQueryById }));
 
-import { executeStoryQueryWithInputs } from '../src/services/story-query-inputs';
+import { executeStoryQueryWithInputs } from '../../src/services/story-query-inputs';
 
 const SAVED_SQL =
 	'SELECT month, SUM(amount) AS revenue FROM orders WHERE 1 = 1 {% filter status %} AND status = {{ filters.status.sql }} {% endfilter %} GROUP BY 1';

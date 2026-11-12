@@ -3,7 +3,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { useQueryData } from './hooks';
+import { useQueryData } from '@/story-runtime/story-kit/hooks';
 
 const host = vi.hoisted(() => ({
 	getStoryTheme: vi.fn(),
@@ -14,7 +14,7 @@ const host = vi.hoisted(() => ({
 	subscribeToTheme: vi.fn(),
 }));
 
-vi.mock('../story-host', () => host);
+vi.mock('@/story-runtime/story-host', () => host);
 
 let refetchRegion: () => void = () => {};
 
