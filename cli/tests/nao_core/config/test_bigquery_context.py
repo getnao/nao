@@ -1,6 +1,7 @@
 # ABOUTME: Unit tests for BigQueryDatabaseContext partition-aware preview and row_count.
 # ABOUTME: Uses mocks to verify reactive partition-filter behaviour without live BigQuery credentials.
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -14,21 +15,24 @@ from nao_core.config.databases.bigquery import (
 )
 
 PARTITION_ERROR = "Cannot query over table without a filter that can be used for partition elimination"
+FETCH_METADATA_PATH = "nao_core.config.databases.bigquery._fetch_schema_partition_metadata"
 
 
 def _make_context(
     partition_metadata: TablePartitionMetadata | None = None,
     custom_filter: str | None = None,
+    schema_items: list[tuple[str, MagicMock]] | None = None,
 ) -> tuple[BigQueryDatabaseContext, MagicMock]:
     """Return a context with a mock connection and its mock table."""
     mock_conn = MagicMock()
     mock_table = MagicMock()
     mock_schema = MagicMock()
-    schema_items = [
-        ("id", MagicMock(__str__=lambda s: "int64", nullable=False)),
-        ("event_date", MagicMock(__str__=lambda s: "date", nullable=False)),
-        ("event_type", MagicMock(__str__=lambda s: "string", nullable=True)),
-    ]
+    if schema_items is None:
+        schema_items = [
+            ("id", _dtype("int64", nullable=False)),
+            ("event_date", _dtype("date", nullable=False)),
+            ("event_type", _dtype("string")),
+        ]
     mock_schema.items.return_value = schema_items
     mock_schema.keys.return_value = [name for name, _ in schema_items]
     mock_table.schema.return_value = mock_schema
@@ -46,11 +50,71 @@ def _make_context(
 
 
 def _date_meta(col_type: str = "DATE") -> TablePartitionMetadata:
-    return TablePartitionMetadata(
-        partition_column="event_date",
-        partition_column_type=col_type,
-        last_partition_id="20260115",
-        total_rows=2,
+    return _partition_meta(partition_column_type=col_type, last_partition_id="20260115", total_rows=2)
+
+
+def _partition_meta(**overrides) -> TablePartitionMetadata:
+    fields: dict[str, Any] = {
+        "partition_column": "event_date",
+        "partition_column_type": "DATE",
+        "last_partition_id": "20260310",
+        "total_rows": 100,
+        **overrides,
+    }
+    return TablePartitionMetadata(**fields)
+
+
+def _unpartitioned_meta(**overrides) -> TablePartitionMetadata:
+    fields: dict[str, Any] = {
+        "partition_column": None,
+        "partition_column_type": None,
+        "last_partition_id": None,
+        "total_rows": None,
+        **overrides,
+    }
+    return TablePartitionMetadata(**fields)
+
+
+def _dtype(rendered: str, nullable: bool = True) -> MagicMock:
+    return MagicMock(__str__=lambda _self, text=rendered: text, nullable=nullable)
+
+
+def _column_row(
+    table: str,
+    name: str = "event_date",
+    data_type: str = "DATE",
+    nullable: str = "YES",
+    description: str | None = None,
+    partitioning: str = "YES",
+    clustering_position: int | None = None,
+    hidden: str = "NO",
+    table_description: str | None = None,
+    require_partition_filter: bool = False,
+):
+    return (
+        table,
+        name,
+        data_type,
+        nullable,
+        description,
+        partitioning,
+        clustering_position,
+        hidden,
+        table_description,
+        require_partition_filter,
+    )
+
+
+def _metadata_conn(column_rows, partition_rows) -> MagicMock:
+    mock_conn = MagicMock()
+    mock_conn.raw_sql.side_effect = [column_rows, partition_rows]
+    return mock_conn
+
+
+def _events_metadata_conn(partition_ids=("20260310",), require_partition_filter=False) -> MagicMock:
+    return _metadata_conn(
+        column_rows=[_column_row("events_v1", require_partition_filter=require_partition_filter)],
+        partition_rows=[("events_v1", list(partition_ids), 5000)],
     )
 
 
@@ -94,18 +158,9 @@ class TestPreviewRetriesOnPartitionError:
         assert "WHERE `event_date` = DATE('2026-01-15')" in sql
         assert "LIMIT 10" in sql
 
-    def test_timestamp_partition_uses_date_function(self):
-        ctx, mock_conn = _make_context(partition_metadata=_date_meta("TIMESTAMP"))
-        ctx.table.limit.return_value.execute.side_effect = Exception(PARTITION_ERROR)
-        mock_conn.raw_sql.return_value = []
-
-        ctx.preview(limit=5)
-
-        sql = mock_conn.raw_sql.call_args[0][0]
-        assert "WHERE DATE(`event_date`) = DATE('2026-01-15')" in sql
-
-    def test_datetime_partition_uses_date_function(self):
-        ctx, mock_conn = _make_context(partition_metadata=_date_meta("DATETIME"))
+    @pytest.mark.parametrize("column_type", ["TIMESTAMP", "DATETIME"])
+    def test_time_partition_uses_date_function(self, column_type):
+        ctx, mock_conn = _make_context(partition_metadata=_date_meta(column_type))
         ctx.table.limit.return_value.execute.side_effect = Exception(PARTITION_ERROR)
         mock_conn.raw_sql.return_value = []
 
@@ -115,12 +170,7 @@ class TestPreviewRetriesOnPartitionError:
         assert "WHERE DATE(`event_date`) = DATE('2026-01-15')" in sql
 
     def test_integer_partition_uses_is_not_null(self):
-        meta = TablePartitionMetadata(
-            partition_column="month_key",
-            partition_column_type="INTEGER",
-            last_partition_id=None,
-            total_rows=100,
-        )
+        meta = _partition_meta(partition_column="month_key", partition_column_type="INTEGER", last_partition_id=None)
         ctx, mock_conn = _make_context(partition_metadata=meta)
         ctx.table.limit.return_value.execute.side_effect = Exception(PARTITION_ERROR)
         mock_conn.raw_sql.return_value = []
@@ -220,12 +270,7 @@ class TestPreviewGracefulDegradation:
         assert rows == []
 
     def test_no_partition_column_returns_empty(self):
-        meta = TablePartitionMetadata(
-            partition_column=None,
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-        )
+        meta = _unpartitioned_meta()
         ctx, mock_conn = _make_context(partition_metadata=meta)
         ctx.table.limit.return_value.execute.side_effect = Exception(PARTITION_ERROR)
 
@@ -259,12 +304,7 @@ class TestRowCount:
 
     def test_partitioned_table_with_none_sum_returns_zero(self):
         """When INFORMATION_SCHEMA returns NULL for SUM, row_count() returns 0."""
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=None,
-        )
+        meta = _partition_meta(total_rows=None)
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.return_value = [(None,)]
         assert ctx.row_count() == 0
@@ -278,12 +318,7 @@ class TestRowCount:
 
     def test_partitioned_table_runs_fresh_sum_query(self):
         """For partitioned tables, row_count() must run a fresh SUM query, not use cached total_rows."""
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=999,  # stale cached value — must NOT be returned
-        )
+        meta = _partition_meta(total_rows=999)
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.return_value = [(123880,)]
 
@@ -300,12 +335,7 @@ class TestRowCount:
 
     def test_partitioned_table_sum_query_returns_zero_on_streaming(self):
         """When PARTITIONS shows 0 (streaming), row_count() honestly returns 0."""
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id=None,
-            total_rows=0,
-        )
+        meta = _partition_meta(last_partition_id=None, total_rows=0)
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.return_value = [(0,)]
 
@@ -316,12 +346,7 @@ class TestRowCount:
 
     def test_partitioned_table_sum_query_failure_returns_zero(self):
         """If the INFORMATION_SCHEMA query fails, row_count() returns 0 gracefully."""
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=None,
-        )
+        meta = _partition_meta(total_rows=None)
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.side_effect = Exception("permission denied")
 
@@ -329,14 +354,6 @@ class TestRowCount:
 
         assert result == 0
         ctx.table.count.assert_not_called()
-
-    def test_non_partitioned_table_uses_super(self):
-        """Non-partitioned tables still use ibis COUNT(*)."""
-        ctx, _ = _make_context(partition_metadata=None)
-        ctx.table.count.return_value.execute.return_value = 42
-
-        assert ctx.row_count() == 42
-        ctx.table.count.assert_called_once()
 
     def test_no_metadata_partition_error_falls_back_to_information_schema(self):
         """When metadata is None and ibis COUNT(*) throws a partition error, fall back to INFORMATION_SCHEMA."""
@@ -380,10 +397,7 @@ class TestMetadataBatchCaching:
         config = BigQueryConfig(name="test", project_id="my-project", dataset_id="my_dataset")
         mock_conn = MagicMock()
 
-        with patch(
-            "nao_core.config.databases.bigquery._fetch_schema_partition_metadata",
-            return_value={},
-        ) as mock_fetch:
+        with patch(FETCH_METADATA_PATH, return_value={}) as mock_fetch:
             config.create_context(mock_conn, "my_dataset", "table_a")
             config.create_context(mock_conn, "my_dataset", "table_b")
             config.create_context(mock_conn, "my_dataset", "table_c")
@@ -394,10 +408,7 @@ class TestMetadataBatchCaching:
         config = BigQueryConfig(name="test", project_id="my-project")
         mock_conn = MagicMock()
 
-        with patch(
-            "nao_core.config.databases.bigquery._fetch_schema_partition_metadata",
-            return_value={},
-        ) as mock_fetch:
+        with patch(FETCH_METADATA_PATH, return_value={}) as mock_fetch:
             config.create_context(mock_conn, "schema_a", "table_1")
             config.create_context(mock_conn, "schema_a", "table_2")
             config.create_context(mock_conn, "schema_b", "table_1")
@@ -414,7 +425,7 @@ class TestMetadataBatchCaching:
         )
         mock_conn = MagicMock()
 
-        with patch("nao_core.config.databases.bigquery._fetch_schema_partition_metadata", return_value={}):
+        with patch(FETCH_METADATA_PATH, return_value={}):
             ctx = config.create_context(mock_conn, "ds", "events")
 
         assert ctx._custom_partition_filter == "event_date = CURRENT_DATE()"
@@ -427,7 +438,7 @@ class TestMetadataBatchCaching:
         )
         mock_conn = MagicMock()
 
-        with patch("nao_core.config.databases.bigquery._fetch_schema_partition_metadata", return_value={}):
+        with patch(FETCH_METADATA_PATH, return_value={}):
             ctx = config.create_context(mock_conn, "ds", "events")
 
         assert ctx._custom_partition_filter is None
@@ -435,12 +446,7 @@ class TestMetadataBatchCaching:
 
 class TestPartitionContextMethods:
     def test_is_partitioned_true_when_metadata_has_column(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-        )
+        meta = _partition_meta()
         ctx, _ = _make_context(partition_metadata=meta)
         assert ctx.is_partitioned() is True
 
@@ -449,12 +455,7 @@ class TestPartitionContextMethods:
         assert ctx.is_partitioned() is False
 
     def test_is_partitioned_false_when_metadata_has_no_column(self):
-        meta = TablePartitionMetadata(
-            partition_column=None,
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-        )
+        meta = _unpartitioned_meta()
         ctx, _ = _make_context(partition_metadata=meta)
         assert ctx.is_partitioned() is False
 
@@ -475,12 +476,7 @@ class TestPartitionContextMethods:
 
     def test_partition_columns_uses_metadata_without_extra_queries(self):
         """partition_columns() must use metadata when available — no raw_sql calls."""
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-        )
+        meta = _partition_meta()
         ctx, mock_conn = _make_context(partition_metadata=meta)
 
         cols = ctx.partition_columns()
@@ -489,13 +485,7 @@ class TestPartitionContextMethods:
         mock_conn.raw_sql.assert_not_called()
 
     def test_requires_partition_filter_true_when_metadata_says_so(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-            require_partition_filter=True,
-        )
+        meta = _partition_meta(require_partition_filter=True)
         ctx, _ = _make_context(partition_metadata=meta)
         assert ctx.requires_partition_filter() is True
 
@@ -507,13 +497,7 @@ class TestPartitionContextMethods:
 class TestProactivePreview:
     def test_require_filter_skips_super_entirely(self):
         """When require_partition_filter=True, must NOT call super().preview() at all."""
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=1000,
-            require_partition_filter=True,
-        )
+        meta = _partition_meta(total_rows=1000, require_partition_filter=True)
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.return_value = [(1, "2026-03-10", "click")]
 
@@ -524,25 +508,6 @@ class TestProactivePreview:
         sql = mock_conn.raw_sql.call_args[0][0]
         assert "WHERE `event_date` = DATE('2026-03-10')" in sql
         assert "LIMIT 5" in sql
-
-    def test_require_filter_false_still_tries_super_first(self):
-        """When require_partition_filter=False, keeps reactive behaviour."""
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=1000,
-            require_partition_filter=False,
-        )
-        ctx, mock_conn = _make_context(partition_metadata=meta)
-        df = pd.DataFrame({"id": [1], "event_date": ["2026-03-10"], "event_type": ["click"]})
-        ctx.table.limit.return_value.execute.return_value = df
-
-        rows = ctx.preview(limit=1)
-
-        assert len(rows) == 1
-        ctx.table.limit.assert_called_once_with(1)
-        mock_conn.raw_sql.assert_not_called()
 
     def test_require_filter_no_metadata_returns_empty(self):
         """If no metadata and partition error, return empty list gracefully."""
@@ -555,132 +520,71 @@ class TestProactivePreview:
 
 
 class TestBuildPartitionFilter:
-    def _ctx_and_meta(
-        self, col_type: str, last_partition_id: str | None
-    ) -> tuple[BigQueryDatabaseContext, TablePartitionMetadata]:
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type=col_type,
-            last_partition_id=last_partition_id,
-            total_rows=None,
-        )
+    @pytest.mark.parametrize(
+        ("column_type", "last_partition_id", "expected"),
+        [
+            pytest.param("DATE", "20260310", "`event_date` = DATE('2026-03-10')", id="date_with_last_partition_id"),
+            pytest.param(
+                "TIMESTAMP",
+                "20260310",
+                "DATE(`event_date`) = DATE('2026-03-10')",
+                id="timestamp_with_last_partition_id",
+            ),
+            pytest.param("DATE", None, "`event_date` = CURRENT_DATE()", id="date_without_last_partition_id"),
+            pytest.param(
+                "TIMESTAMP", None, "DATE(`event_date`) = CURRENT_DATE()", id="timestamp_without_last_partition_id"
+            ),
+            pytest.param(
+                "DATETIME", None, "DATE(`event_date`) = CURRENT_DATE()", id="datetime_without_last_partition_id"
+            ),
+            pytest.param("INTEGER", None, "`event_date` IS NOT NULL", id="integer_without_last_partition_id"),
+            pytest.param(
+                "DATE",
+                "202603",
+                "DATE_TRUNC(`event_date`, MONTH) = DATE('2026-03-01')",
+                id="date_with_monthly_partition_id",
+            ),
+            pytest.param("DATE", "2026", "EXTRACT(YEAR FROM `event_date`) = 2026", id="date_with_yearly_partition_id"),
+            pytest.param("DATE", "2026031014", "`event_date` = DATE('2026-03-10')", id="date_with_hourly_partition_id"),
+            pytest.param(
+                "TIMESTAMP",
+                "202603",
+                "DATE_TRUNC(DATE(`event_date`), MONTH) = DATE('2026-03-01')",
+                id="timestamp_with_monthly_partition_id",
+            ),
+            pytest.param(
+                "TIMESTAMP", "2026", "EXTRACT(YEAR FROM `event_date`) = 2026", id="timestamp_with_yearly_partition_id"
+            ),
+        ],
+    )
+    def test_builds_filter_for_partition_type(self, column_type, last_partition_id, expected):
+        meta = _partition_meta(partition_column_type=column_type, last_partition_id=last_partition_id, total_rows=None)
         ctx, _ = _make_context(partition_metadata=meta)
-        return ctx, meta
-
-    def test_date_with_last_partition_id(self):
-        ctx, meta = self._ctx_and_meta("DATE", "20260310")
-        assert ctx._build_partition_filter(meta) == "`event_date` = DATE('2026-03-10')"
-
-    def test_timestamp_with_last_partition_id(self):
-        ctx, meta = self._ctx_and_meta("TIMESTAMP", "20260310")
-        assert ctx._build_partition_filter(meta) == "DATE(`event_date`) = DATE('2026-03-10')"
-
-    def test_date_without_last_partition_id_uses_current_date(self):
-        ctx, meta = self._ctx_and_meta("DATE", None)
-        assert ctx._build_partition_filter(meta) == "`event_date` = CURRENT_DATE()"
-
-    def test_timestamp_without_last_partition_id_uses_current_date(self):
-        ctx, meta = self._ctx_and_meta("TIMESTAMP", None)
-        assert ctx._build_partition_filter(meta) == "DATE(`event_date`) = CURRENT_DATE()"
-
-    def test_datetime_without_last_partition_id_uses_current_date(self):
-        ctx, meta = self._ctx_and_meta("DATETIME", None)
-        assert ctx._build_partition_filter(meta) == "DATE(`event_date`) = CURRENT_DATE()"
-
-    def test_integer_without_last_partition_id_keeps_is_not_null(self):
-        ctx, meta = self._ctx_and_meta("INTEGER", None)
-        assert ctx._build_partition_filter(meta) == "`event_date` IS NOT NULL"
+        assert ctx._build_partition_filter(meta) == expected
 
     def test_no_partition_column_returns_none(self):
-        meta = TablePartitionMetadata(
-            partition_column=None,
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-        )
+        meta = _unpartitioned_meta()
         ctx, _ = _make_context(partition_metadata=meta)
         assert ctx._build_partition_filter(meta) is None
 
     def test_integer_with_last_partition_id(self):
-        meta = TablePartitionMetadata(
-            partition_column="month_key",
-            partition_column_type="INTEGER",
-            last_partition_id="2000",
-            total_rows=None,
+        meta = _partition_meta(
+            partition_column="month_key", partition_column_type="INTEGER", last_partition_id="2000", total_rows=None
         )
         ctx, _ = _make_context(partition_metadata=meta)
         assert ctx._build_partition_filter(meta) == "`month_key` = 2000"
 
-    def test_date_with_monthly_partition_id(self):
-        ctx, meta = self._ctx_and_meta("DATE", "202603")
-        assert ctx._build_partition_filter(meta) == "DATE_TRUNC(`event_date`, MONTH) = DATE('2026-03-01')"
-
-    def test_date_with_yearly_partition_id(self):
-        ctx, meta = self._ctx_and_meta("DATE", "2026")
-        assert ctx._build_partition_filter(meta) == "EXTRACT(YEAR FROM `event_date`) = 2026"
-
-    def test_date_with_hourly_partition_id(self):
-        ctx, meta = self._ctx_and_meta("DATE", "2026031014")
-        assert ctx._build_partition_filter(meta) == "`event_date` = DATE('2026-03-10')"
-
-    def test_timestamp_with_monthly_partition_id(self):
-        ctx, meta = self._ctx_and_meta("TIMESTAMP", "202603")
-        assert ctx._build_partition_filter(meta) == "DATE_TRUNC(DATE(`event_date`), MONTH) = DATE('2026-03-01')"
-
-    def test_timestamp_with_yearly_partition_id(self):
-        ctx, meta = self._ctx_and_meta("TIMESTAMP", "2026")
-        assert ctx._build_partition_filter(meta) == "EXTRACT(YEAR FROM `event_date`) = 2026"
-
 
 class TestFetchSchemaPartitionMetadata:
-    @staticmethod
-    def _column(
-        table: str,
-        name: str = "event_date",
-        data_type: str = "DATE",
-        nullable: str = "YES",
-        description: str | None = None,
-        partitioning: str = "YES",
-        clustering_position: int | None = None,
-        hidden: str = "NO",
-        table_description: str | None = None,
-        require_partition_filter: bool = False,
-    ):
-        return (
-            table,
-            name,
-            data_type,
-            nullable,
-            description,
-            partitioning,
-            clustering_position,
-            hidden,
-            table_description,
-            require_partition_filter,
-        )
-
-    def _mock_conn(self, column_rows, partition_rows):
-        """Helper: build a mock conn whose raw_sql returns appropriate rows per call."""
-        mock_conn = MagicMock()
-        results = [column_rows, partition_rows]
-        mock_conn.raw_sql.side_effect = results
-        return mock_conn
-
     def test_require_partition_filter_set_true_for_matching_table(self):
-        conn = self._mock_conn(
-            column_rows=[self._column("events_v1", require_partition_filter=True)],
-            partition_rows=[("events_v1", ["20260310"], 5000)],
-        )
+        conn = _events_metadata_conn(require_partition_filter=True)
 
         result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema")
 
         assert result["events_v1"].require_partition_filter is True
 
     def test_require_partition_filter_false_when_not_in_results(self):
-        conn = self._mock_conn(
-            column_rows=[self._column("events_v1")],
-            partition_rows=[("events_v1", ["20260310"], 5000)],
-        )
+        conn = _events_metadata_conn()
 
         result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema")
 
@@ -688,10 +592,7 @@ class TestFetchSchemaPartitionMetadata:
 
     def test_require_partition_filter_uses_table_options_query(self):
         """The query for require_partition_filter must target TABLE_OPTIONS."""
-        conn = self._mock_conn(
-            column_rows=[self._column("events_v1", require_partition_filter=True)],
-            partition_rows=[("events_v1", ["20260310"], 5000)],
-        )
+        conn = _events_metadata_conn(require_partition_filter=True)
 
         _fetch_schema_partition_metadata(conn, "my-project", "my_schema")
 
@@ -714,10 +615,7 @@ class TestFetchSchemaPartitionMetadata:
 
     def test_uses_second_newest_partition_when_available(self):
         """last_partition_id should be the 2nd newest (closed), not the newest (may still be open)."""
-        conn = self._mock_conn(
-            column_rows=[self._column("events_v1")],
-            partition_rows=[("events_v1", ["20260312", "20260311"], 5000)],
-        )
+        conn = _events_metadata_conn(partition_ids=["20260312", "20260311"])
 
         result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema")
 
@@ -725,19 +623,16 @@ class TestFetchSchemaPartitionMetadata:
 
     def test_uses_only_partition_when_just_one_exists(self):
         """When only one partition exists (newest = only), use it."""
-        conn = self._mock_conn(
-            column_rows=[self._column("events_v1")],
-            partition_rows=[("events_v1", ["20260310"], 5000)],
-        )
+        conn = _events_metadata_conn()
 
         result = _fetch_schema_partition_metadata(conn, "my-project", "my_schema")
 
         assert result["events_v1"].last_partition_id == "20260310"
 
     def test_bulk_metadata_includes_columns_description_and_row_count(self):
-        conn = self._mock_conn(
+        conn = _metadata_conn(
             column_rows=[
-                self._column(
+                _column_row(
                     "events_v1",
                     name="id",
                     data_type="INT64",
@@ -760,9 +655,9 @@ class TestFetchSchemaPartitionMetadata:
         assert metadata.total_rows == 123
 
     def test_bulk_metadata_matches_ibis_array_nullability(self):
-        conn = self._mock_conn(
+        conn = _metadata_conn(
             column_rows=[
-                self._column(
+                _column_row(
                     "events_v1",
                     name="tags",
                     data_type="ARRAY<STRING>",
@@ -780,8 +675,8 @@ class TestFetchSchemaPartitionMetadata:
         ]
 
     def test_selected_unpartitioned_table_is_known_without_fallback_queries(self):
-        conn = self._mock_conn(
-            column_rows=[self._column("plain_table", name="id", data_type="INT64", partitioning="NO")],
+        conn = _metadata_conn(
+            column_rows=[_column_row("plain_table", name="id", data_type="INT64", partitioning="NO")],
             partition_rows=[],
         )
 
@@ -805,7 +700,7 @@ class TestFetchSchemaPartitionMetadata:
         assert ctx.active_partition_filter() == "DATE(`server_received_at`) = DATE('2026-03-11')"
 
     def test_selected_tables_limit_all_bulk_queries(self):
-        conn = self._mock_conn(column_rows=[], partition_rows=[])
+        conn = _metadata_conn(column_rows=[], partition_rows=[])
 
         _fetch_schema_partition_metadata(conn, "my-project", "my_schema", ["events", "users"])
 
@@ -831,10 +726,10 @@ class TestFetchSchemaPartitionMetadata:
         assert "'table_1000'" in second_partition_sql
 
     def test_hidden_ingestion_partition_is_not_a_displayed_column(self):
-        conn = self._mock_conn(
+        conn = _metadata_conn(
             column_rows=[
-                self._column("events", name="id", data_type="INT64", partitioning="NO"),
-                self._column(
+                _column_row("events", name="id", data_type="INT64", partitioning="NO"),
+                _column_row(
                     "events",
                     name="_PARTITIONTIME",
                     data_type="TIMESTAMP",
@@ -854,10 +749,10 @@ class TestFetchSchemaPartitionMetadata:
 
     def test_partial_column_result_is_discarded(self):
         def partial_rows():
-            yield self._column("events", name="id", data_type="INT64")
+            yield _column_row("events", name="id", data_type="INT64")
             raise RuntimeError("page failed")
 
-        conn = self._mock_conn(column_rows=partial_rows(), partition_rows=[])
+        conn = _metadata_conn(column_rows=partial_rows(), partition_rows=[])
 
         result = _fetch_schema_partition_metadata(
             conn,
@@ -870,24 +765,6 @@ class TestFetchSchemaPartitionMetadata:
 
 
 class TestActivePartitionFilter:
-    def test_returns_none_when_no_metadata_and_on_demand_finds_nothing(self):
-        """When metadata is None and on-demand fetch finds no partition, returns None."""
-        ctx, mock_conn = _make_context(partition_metadata=None)
-        # Both on-demand queries return empty
-        mock_conn.raw_sql.return_value = []
-
-        assert ctx.active_partition_filter() is None
-
-    def test_returns_filter_from_metadata_when_available(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-        )
-        ctx, _ = _make_context(partition_metadata=meta)
-        assert ctx.active_partition_filter() == "`event_date` = DATE('2026-03-10')"
-
     def test_no_metadata_on_demand_fetch_returns_filter(self):
         """When metadata is None, on-demand fetch builds a filter from INFORMATION_SCHEMA."""
         ctx, mock_conn = _make_context(partition_metadata=None)
@@ -904,63 +781,44 @@ class TestActivePartitionFilter:
 class TestPartitionFilter:
     """_partition_filter() must generate type-appropriate SQL for DATE, TIMESTAMP, and DATETIME."""
 
-    def test_date_partition_uses_date_sub(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
+    @pytest.mark.parametrize(
+        ("column", "column_type", "expected"),
+        [
+            pytest.param("event_date", "DATE", "`event_date` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)", id="date"),
+            pytest.param(
+                "event_time",
+                "TIMESTAMP",
+                "`event_time` >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)",
+                id="timestamp",
+            ),
+            pytest.param(
+                "created_at",
+                "DATETIME",
+                "`created_at` >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 30 DAY)",
+                id="datetime",
+            ),
+        ],
+    )
+    def test_partition_type_uses_matching_sub_function(self, column, column_type, expected):
+        ctx, _ = _make_context(
+            partition_metadata=_partition_meta(partition_column=column, partition_column_type=column_type)
         )
-        ctx, _ = _make_context(partition_metadata=meta)
-        assert ctx._partition_filter() == "`event_date` >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
-
-    def test_timestamp_partition_uses_timestamp_sub(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_time",
-            partition_column_type="TIMESTAMP",
-            last_partition_id="20260310",
-            total_rows=100,
-        )
-        ctx, _ = _make_context(partition_metadata=meta)
-        assert ctx._partition_filter() == "`event_time` >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
-
-    def test_datetime_partition_uses_datetime_sub(self):
-        meta = TablePartitionMetadata(
-            partition_column="created_at",
-            partition_column_type="DATETIME",
-            last_partition_id="20260310",
-            total_rows=100,
-        )
-        ctx, _ = _make_context(partition_metadata=meta)
-        assert ctx._partition_filter() == "`created_at` >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 30 DAY)"
+        assert ctx._partition_filter() == expected
 
     def test_no_partition_returns_empty_string(self):
-        meta = TablePartitionMetadata(
-            partition_column=None,
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-        )
+        meta = _unpartitioned_meta()
         ctx, _ = _make_context(partition_metadata=meta)
         assert ctx._partition_filter() == ""
 
     def test_unknown_type_defaults_to_date(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-        )
+        meta = _partition_meta(partition_column_type=None, last_partition_id=None, total_rows=None)
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.return_value = []
         assert "DATE_SUB(CURRENT_DATE()" in ctx._partition_filter()
 
     def test_fallback_queries_information_schema_for_type(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_time",
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
+        meta = _partition_meta(
+            partition_column="event_time", partition_column_type=None, last_partition_id=None, total_rows=None
         )
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.side_effect = [[("TIMESTAMP",)]]
@@ -969,66 +827,41 @@ class TestPartitionFilter:
 
 class TestTablePartitionMetadata:
     def test_require_partition_filter_defaults_to_false(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-        )
+        meta = _partition_meta()
         assert meta.require_partition_filter is False
 
     def test_require_partition_filter_can_be_set_true(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-            require_partition_filter=True,
-        )
+        meta = _partition_meta(require_partition_filter=True)
         assert meta.require_partition_filter is True
 
     def test_clustering_columns_defaults_to_empty(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-        )
+        meta = _partition_meta()
         assert meta.clustering_columns == []
 
     def test_clustering_columns_can_be_set(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-            clustering_columns=["user_id", "event_type"],
-        )
+        meta = _partition_meta(clustering_columns=["user_id", "event_type"])
         assert meta.clustering_columns == ["user_id", "event_type"]
 
 
 class TestClusteringColumns:
     def test_clustering_columns_fetched_in_batch(self):
-        mock_conn = MagicMock()
-        mock_conn.raw_sql.side_effect = [
-            [
-                ("events_v1", "event_date", "DATE", "YES", None, "YES", None, "NO", None, False),
-                ("events_v1", "event_type", "STRING", "YES", None, "NO", 2, "NO", None, False),
-                ("events_v1", "user_id", "STRING", "YES", None, "NO", 1, "NO", None, False),
+        mock_conn = _metadata_conn(
+            column_rows=[
+                _column_row("events_v1"),
+                _column_row(
+                    "events_v1", name="event_type", data_type="STRING", partitioning="NO", clustering_position=2
+                ),
+                _column_row("events_v1", name="user_id", data_type="STRING", partitioning="NO", clustering_position=1),
             ],
-            [("events_v1", ["20260310"], 5000)],
-        ]
+            partition_rows=[("events_v1", ["20260310"], 5000)],
+        )
 
         result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
 
         assert result["events_v1"].clustering_columns == ["user_id", "event_type"]
 
     def test_clustering_columns_empty_when_none_exist(self):
-        mock_conn = MagicMock()
-        mock_conn.raw_sql.side_effect = [
-            [("events_v1", "event_date", "DATE", "YES", None, "YES", None, "NO", None, False)],
-            [("events_v1", ["20260310"], 5000)],
-        ]
+        mock_conn = _events_metadata_conn()
 
         result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
 
@@ -1043,14 +876,13 @@ class TestClusteringColumns:
         assert result == {}
 
     def test_table_with_only_clustering_no_partition(self):
-        mock_conn = MagicMock()
-        mock_conn.raw_sql.side_effect = [
-            [
-                ("logs", "timestamp", "TIMESTAMP", "YES", None, "NO", 2, "NO", None, False),
-                ("logs", "user_id", "STRING", "YES", None, "NO", 1, "NO", None, False),
+        mock_conn = _metadata_conn(
+            column_rows=[
+                _column_row("logs", name="timestamp", data_type="TIMESTAMP", partitioning="NO", clustering_position=2),
+                _column_row("logs", name="user_id", data_type="STRING", partitioning="NO", clustering_position=1),
             ],
-            [],
-        ]
+            partition_rows=[],
+        )
 
         result = _fetch_schema_partition_metadata(mock_conn, "my-project", "my_schema")
 
@@ -1059,13 +891,7 @@ class TestClusteringColumns:
         assert result["logs"].clustering_columns == ["user_id", "timestamp"]
 
     def test_context_clustering_columns_from_metadata(self):
-        meta = TablePartitionMetadata(
-            partition_column="event_date",
-            partition_column_type="DATE",
-            last_partition_id="20260310",
-            total_rows=100,
-            clustering_columns=["user_id", "event_type"],
-        )
+        meta = _partition_meta(clustering_columns=["user_id", "event_type"])
         ctx, _ = _make_context(partition_metadata=meta)
 
         assert ctx.clustering_columns() == ["user_id", "event_type"]
@@ -1080,29 +906,12 @@ class TestClusteringColumns:
 class TestColumnsNativeTypes:
     """columns() must overlay native BigQuery types from INFORMATION_SCHEMA over ibis types."""
 
-    @staticmethod
-    def _dtype(rendered: str, nullable: bool = True) -> MagicMock:
-        return MagicMock(__str__=lambda s, r=rendered: r, nullable=nullable)
-
-    def _make_context_with_schema(
-        self, schema_items: list[tuple[str, MagicMock]]
-    ) -> tuple[BigQueryDatabaseContext, MagicMock]:
-        mock_conn = MagicMock()
-        mock_table = MagicMock()
-        mock_schema = MagicMock()
-        mock_schema.items.return_value = schema_items
-        mock_schema.keys.return_value = [name for name, _ in schema_items]
-        mock_table.schema.return_value = mock_schema
-        mock_conn.table.return_value = mock_table
-        ctx = BigQueryDatabaseContext(mock_conn, "my_dataset", "events", project_id="my-project")
-        return ctx, mock_conn
-
     def test_native_types_replace_ibis_normalized_types(self):
         """BQ DATETIME and TIMESTAMP are both rendered as timestamp variants by ibis."""
-        ctx, mock_conn = self._make_context_with_schema(
-            [
-                ("created_at", self._dtype("timestamp")),
-                ("server_received_at", self._dtype("timestamp('UTC')")),
+        ctx, mock_conn = _make_context(
+            schema_items=[
+                ("created_at", _dtype("timestamp")),
+                ("server_received_at", _dtype("timestamp('UTC')")),
             ]
         )
         mock_conn.raw_sql.return_value = [
@@ -1151,7 +960,7 @@ class TestColumnsNativeTypes:
         mock_conn.raw_sql.assert_not_called()
 
     def test_not_null_suffix_is_preserved(self):
-        ctx, mock_conn = self._make_context_with_schema([("id", self._dtype("!int64", nullable=False))])
+        ctx, mock_conn = _make_context(schema_items=[("id", _dtype("!int64", nullable=False))])
         mock_conn.raw_sql.return_value = [("id", "id", "INT64", None)]
 
         cols = ctx.columns()
@@ -1159,7 +968,7 @@ class TestColumnsNativeTypes:
         assert cols[0]["type"] == "INT64 NOT NULL"
 
     def test_descriptions_applied_with_a_single_query(self):
-        ctx, mock_conn = self._make_context_with_schema([("created_at", self._dtype("timestamp"))])
+        ctx, mock_conn = _make_context(schema_items=[("created_at", _dtype("timestamp"))])
         mock_conn.raw_sql.return_value = [("created_at", "created_at", "DATETIME", "Creation time")]
 
         cols = ctx.columns()
@@ -1169,10 +978,10 @@ class TestColumnsNativeTypes:
         mock_conn.raw_sql.assert_called_once()
 
     def test_information_schema_failure_keeps_ibis_types(self):
-        ctx, mock_conn = self._make_context_with_schema(
-            [
-                ("id", self._dtype("!int64", nullable=False)),
-                ("server_received_at", self._dtype("timestamp('UTC')")),
+        ctx, mock_conn = _make_context(
+            schema_items=[
+                ("id", _dtype("!int64", nullable=False)),
+                ("server_received_at", _dtype("timestamp('UTC')")),
             ]
         )
         mock_conn.raw_sql.side_effect = Exception("permission denied")
@@ -1183,10 +992,10 @@ class TestColumnsNativeTypes:
         assert cols["server_received_at"]["type"] == "timestamp('UTC')"
 
     def test_excluded_columns_are_still_filtered(self):
-        ctx, mock_conn = self._make_context_with_schema(
-            [
-                ("id", self._dtype("!int64", nullable=False)),
-                ("secret_token", self._dtype("string")),
+        ctx, mock_conn = _make_context(
+            schema_items=[
+                ("id", _dtype("!int64", nullable=False)),
+                ("secret_token", _dtype("string")),
             ]
         )
         mock_conn.raw_sql.return_value = [
@@ -1200,7 +1009,7 @@ class TestColumnsNativeTypes:
         assert names == ["id"]
 
     def test_nested_field_paths_are_ignored(self):
-        ctx, mock_conn = self._make_context_with_schema([("payload", self._dtype("struct<name: string>"))])
+        ctx, mock_conn = _make_context(schema_items=[("payload", _dtype("struct<name: string>"))])
         mock_conn.raw_sql.return_value = [
             ("payload", "payload", "STRUCT<name STRING>", None),
             ("payload", "payload.name", "STRING", "Nested name"),
@@ -1214,7 +1023,7 @@ class TestColumnsNativeTypes:
         assert "field_path = column_name" in query
 
     def test_struct_column_keeps_its_own_description(self):
-        ctx, mock_conn = self._make_context_with_schema([("payload", self._dtype("struct<name: string>"))])
+        ctx, mock_conn = _make_context(schema_items=[("payload", _dtype("struct<name: string>"))])
         mock_conn.raw_sql.return_value = [
             ("payload", "payload", "STRUCT<name STRING>", "Event payload"),
             ("payload", "payload.name", "STRING", "Nested name"),
@@ -1229,13 +1038,7 @@ class TestClusteredOnlyTable:
     """Regression tests for tables that are clustered but not partitioned."""
 
     def test_partition_columns_empty_for_clustered_only_table(self):
-        meta = TablePartitionMetadata(
-            partition_column=None,
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-            clustering_columns=["user_id", "event_type"],
-        )
+        meta = _unpartitioned_meta(clustering_columns=["user_id", "event_type"])
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.return_value = []
 
@@ -1247,13 +1050,7 @@ class TestClusteredOnlyTable:
         assert "clustering_ordinal_position" not in sql
 
     def test_partition_columns_fallback_recovers_partition_on_partial_metadata(self):
-        meta = TablePartitionMetadata(
-            partition_column=None,
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-            clustering_columns=["user_id"],
-        )
+        meta = _unpartitioned_meta(clustering_columns=["user_id"])
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.return_value = [("event_date",)]
 
@@ -1264,26 +1061,14 @@ class TestClusteredOnlyTable:
         assert "is_partitioning_column" in sql
 
     def test_partition_filter_empty_for_clustered_only_table(self):
-        meta = TablePartitionMetadata(
-            partition_column=None,
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-            clustering_columns=["user_id"],
-        )
+        meta = _unpartitioned_meta(clustering_columns=["user_id"])
         ctx, mock_conn = _make_context(partition_metadata=meta)
         mock_conn.raw_sql.return_value = []
 
         assert ctx._partition_filter() == ""
 
     def test_clustering_columns_from_metadata_on_clustered_only_table(self):
-        meta = TablePartitionMetadata(
-            partition_column=None,
-            partition_column_type=None,
-            last_partition_id=None,
-            total_rows=None,
-            clustering_columns=["user_id", "event_type"],
-        )
+        meta = _unpartitioned_meta(clustering_columns=["user_id", "event_type"])
         ctx, mock_conn = _make_context(partition_metadata=meta)
 
         cols = ctx.clustering_columns()

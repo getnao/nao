@@ -1,3 +1,4 @@
+import type { ShareRole } from '@nao/shared/types';
 import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 
@@ -63,16 +64,14 @@ export async function buildTrialStartedEmail(
 
 export async function buildSharedItemEmail(
 	user: { name: string },
-	sharerName: string,
-	itemLabel: string,
-	itemTitle: string,
-	itemUrl: string,
+	share: { sharerName: string; itemLabel: string; itemTitle: string; itemUrl: string; role?: ShareRole },
 	unsubscribeUrl?: string,
 ): Promise<CreatedEmail> {
 	const branding = await resolveEmailBranding();
+	const rights = share.role === 'editor' ? ' with edit rights' : '';
 	return createEmail(
-		`${sharerName} shared "${itemTitle}" with you on ${branding.appName}`,
-		SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl, unsubscribeUrl, branding }),
+		`${share.sharerName} shared "${share.itemTitle}" with you${rights} on ${branding.appName}`,
+		SharedItemEmail({ userName: user.name, ...share, unsubscribeUrl, branding }),
 		branding,
 	);
 }

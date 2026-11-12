@@ -5,9 +5,9 @@ import {
 	CustomStoryFileNotFoundError,
 	CustomStoryNotFoundError,
 	CustomStoryQueryExecutionError,
-	CustomStoryQueryNotAllowedError,
 	CustomStoryQueryNotFoundError,
 } from '../services/custom-story';
+import { CustomStoryQueryNotAllowedError } from '../services/custom-story-query-access';
 import { InvalidStoryStateError } from '../services/custom-story-state';
 import { InvalidStoryFilePathError } from './story-file-path';
 import { MAX_STORY_SNAPSHOT_BYTES } from './story-snapshot';

@@ -1,0 +1,185 @@
+import '../../src/env';
+
+import { and, eq } from 'drizzle-orm';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import s from '../../src/db/abstractSchema';
+import { db } from '../../src/db/db';
+import {
+	canUserAccessSharedStory,
+	createSharedStory,
+	getSharedStoryRecipientUserIds,
+	getStoryShareAccess,
+	listUserSharedStories,
+	updateSharedStoryRecipients,
+} from '../../src/queries/shared-story.queries';
+import {
+	canUserAccessStory,
+	getProjectViewerCacheRevision,
+	getStorySharingInfo,
+	invalidateUserViewerCaches,
+	upsertStoryViewerDataCache,
+} from '../../src/queries/story.queries';
+
+vi.mock('../../src/db/db', async () => {
+	const { createInMemoryDb } = await import('../helpers/in-memory-db');
+	return { db: createInMemoryDb() };
+});
+
+const PROJECT_ID = 'group-share-project';
+const STORY_ID = 'group-share-story';
+const STORY_VERSION_ID = 'group-share-story-version';
+const OWNER_ID = 'group-share-owner';
+const SHARER_ID = 'group-share-sharer';
+const GROUP_MEMBER_ID = 'group-share-member';
+const DIRECT_USER_ID = 'group-share-direct';
+const OUTSIDER_ID = 'group-share-outsider';
+const GROUP_ID = 'group-share-analysts';
+
+const USER_IDS = [OWNER_ID, SHARER_ID, GROUP_MEMBER_ID, DIRECT_USER_ID, OUTSIDER_ID];
+
+describe('sharing a story with user groups', () => {
+	beforeAll(async () => {
+		await db.insert(s.user).values(USER_IDS.map((id) => ({ id, name: id, email: `${id}@example.com` })));
+		await db.insert(s.project).values({ id: PROJECT_ID, name: 'Group Share', type: 'local', path: '/tmp/gs' });
+		await db
+			.insert(s.projectMember)
+			.values(USER_IDS.map((userId) => ({ projectId: PROJECT_ID, userId, role: 'user' as const })));
+		await db.insert(s.userGroup).values({ id: GROUP_ID, projectId: PROJECT_ID, name: 'Analysts' });
+		await db.insert(s.userGroupMember).values({ groupId: GROUP_ID, userId: GROUP_MEMBER_ID });
+		await db
+			.insert(s.story)
+			.values({ id: STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID, slug: 'revenue', title: 'Revenue' });
+		await db.insert(s.storyVersion).values({
+			id: STORY_VERSION_ID,
+			storyId: STORY_ID,
+			version: 1,
+			code: '# Revenue',
+			action: 'create',
+			source: 'user',
+		});
+	});
+
+	beforeEach(async () => {
+		await db.delete(s.sharedStory);
+		await db.delete(s.storyViewerDataCache);
+		await db.update(s.project).set({ viewerCacheRevision: 0 }).where(eq(s.project.id, PROJECT_ID));
+	});
+
+	afterAll(() => {
+		db.$client.close();
+	});
+
+	it('grants access to group members and direct users only', async () => {
+		const shared = await shareWithGroupAndDirectUser();
+
+		expect(await canUserAccessSharedStory(shared.id, GROUP_MEMBER_ID)).toBe(true);
+		expect(await canUserAccessSharedStory(shared.id, DIRECT_USER_ID)).toBe(true);
+		expect(await canUserAccessSharedStory(shared.id, OUTSIDER_ID)).toBe(false);
+		expect(await canUserAccessStory(STORY_ID, GROUP_MEMBER_ID)).toBe(true);
+		expect(await canUserAccessStory(STORY_ID, OUTSIDER_ID)).toBe(false);
+	});
+
+	it('resolves recipients from direct grants and current group membership', async () => {
+		const shared = await shareWithGroupAndDirectUser();
+
+		expect((await getSharedStoryRecipientUserIds(shared.id)).sort()).toEqual([DIRECT_USER_ID, GROUP_MEMBER_ID]);
+		expect(await getStoryShareAccess(STORY_ID, PROJECT_ID)).toMatchObject({
+			shareId: shared.id,
+			visibility: 'specific',
+			allowedUserIds: [DIRECT_USER_ID],
+			allowedGroupIds: [GROUP_ID],
+		});
+	});
+
+	it('follows group membership changes after the story is shared', async () => {
+		const shared = await shareWithGroupAndDirectUser();
+
+		await db.insert(s.userGroupMember).values({ groupId: GROUP_ID, userId: OUTSIDER_ID });
+		expect(await canUserAccessSharedStory(shared.id, OUTSIDER_ID)).toBe(true);
+		expect(await getSharedStoryRecipientUserIds(shared.id)).toContain(OUTSIDER_ID);
+
+		await db
+			.delete(s.userGroupMember)
+			.where(and(eq(s.userGroupMember.groupId, GROUP_ID), eq(s.userGroupMember.userId, OUTSIDER_ID)));
+		expect(await canUserAccessSharedStory(shared.id, OUTSIDER_ID)).toBe(false);
+		expect(await getSharedStoryRecipientUserIds(shared.id)).not.toContain(OUTSIDER_ID);
+	});
+
+	it('lists group shares for members with user and group counts', async () => {
+		await shareWithGroupAndDirectUser();
+
+		const memberStories = await listUserSharedStories(PROJECT_ID, GROUP_MEMBER_ID);
+		const outsiderStories = await listUserSharedStories(PROJECT_ID, OUTSIDER_ID);
+		const sharingInfo = await getStorySharingInfo([STORY_ID]);
+
+		expect(memberStories).toHaveLength(1);
+		expect(memberStories[0]).toMatchObject({ sharedWithCount: 1, sharedWithGroupCount: 1 });
+		expect(outsiderStories).toHaveLength(0);
+		expect(sharingInfo.get(STORY_ID)).toMatchObject({ sharedWithCount: 1, sharedWithGroupCount: 1 });
+	});
+
+	it('returns the story owner separately from the share initiator', async () => {
+		await createSharedStory(
+			{ storyId: STORY_ID, projectId: PROJECT_ID, userId: SHARER_ID, visibility: 'specific' },
+			{ groupIds: [GROUP_ID] },
+		);
+
+		const [story] = await listUserSharedStories(PROJECT_ID, GROUP_MEMBER_ID);
+
+		expect(story).toMatchObject({ userId: SHARER_ID, ownerUserId: OWNER_ID });
+	});
+
+	it('rejects cache writes from an outdated project revision', async () => {
+		await expect(getProjectViewerCacheRevision(PROJECT_ID)).resolves.toBe(0);
+		await expect(
+			upsertStoryViewerDataCache(
+				STORY_ID,
+				STORY_VERSION_ID,
+				GROUP_MEMBER_ID,
+				PROJECT_ID,
+				1,
+				'permissions-a',
+				{},
+				{},
+			),
+		).resolves.toBe(false);
+		await expect(db.select().from(s.storyViewerDataCache)).resolves.toEqual([]);
+
+		await expect(
+			upsertStoryViewerDataCache(
+				STORY_ID,
+				STORY_VERSION_ID,
+				GROUP_MEMBER_ID,
+				PROJECT_ID,
+				0,
+				'permissions-a',
+				{},
+				{},
+			),
+		).resolves.toBe(true);
+		await invalidateUserViewerCaches(PROJECT_ID, GROUP_MEMBER_ID);
+
+		await expect(getProjectViewerCacheRevision(PROJECT_ID)).resolves.toBe(1);
+		await expect(db.select().from(s.storyViewerDataCache)).resolves.toEqual([]);
+	});
+
+	it('replaces group grants when access is updated or the share becomes project-wide', async () => {
+		const shared = await shareWithGroupAndDirectUser();
+
+		await updateSharedStoryRecipients(shared.id, { userIds: [DIRECT_USER_ID], groupIds: [] });
+		expect(await canUserAccessSharedStory(shared.id, GROUP_MEMBER_ID)).toBe(false);
+
+		await updateSharedStoryRecipients(shared.id, { userIds: [], groupIds: [GROUP_ID] });
+		await createSharedStory({ storyId: STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID, visibility: 'project' });
+		expect(await getStoryShareAccess(STORY_ID, PROJECT_ID)).toMatchObject({ allowedGroupIds: [] });
+		expect(await getSharedStoryRecipientUserIds(shared.id)).toEqual([]);
+	});
+});
+
+function shareWithGroupAndDirectUser() {
+	return createSharedStory(
+		{ storyId: STORY_ID, projectId: PROJECT_ID, userId: OWNER_ID, visibility: 'specific' },
+		{ userIds: [DIRECT_USER_ID], groupIds: [GROUP_ID] },
+	);
+}

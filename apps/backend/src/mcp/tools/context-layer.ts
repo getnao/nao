@@ -14,6 +14,10 @@ import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import {
+	assertWriterAddsNoMarkdownChatQueries,
+	CustomStoryQueryNotAllowedError,
+} from '../../services/custom-story-query-access';
+import {
 	isSemanticQueryToolEnabled,
 	isWarehouseSqlEnabled,
 	SemanticQueryCompileError,
@@ -31,6 +35,7 @@ import {
 	CREATE_CUSTOM_STORY_INPUT,
 	createCustomStoryForMcp,
 	resolveCustomStory,
+	storyEditLockRefusal,
 	UPDATE_CUSTOM_STORY_DESCRIPTION,
 	UPDATE_CUSTOM_STORY_INPUT,
 	updateCustomStoryForMcp,
@@ -419,13 +424,28 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			if (files !== undefined || delete_paths !== undefined) {
 				return errorResult('`files` and `delete_paths` only apply to custom stories.');
 			}
+			const lockRefusal = await storyEditLockRefusal(story.id, ctx.userId);
+			if (lockRefusal) {
+				return errorResult(lockRefusal);
+			}
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
+			const queryRefusal = await markdownChatQueryRefusal(story, ctx.userId, newCode);
+			if (queryRefusal) {
+				return errorResult(queryRefusal);
+			}
+			const updated = await saveNewVersion(story, ctx, {
+				title: newTitle,
+				code: newCode,
+				basedOnVersion: latestVersion?.version,
+			}).catch(rethrowUnlessVersionConflict);
+			if (!updated) {
+				return errorResult(new storyQueries.StoryVersionConflictError().message);
+			}
 			if (title !== undefined && title !== story.title) {
 				await storyQueries.renameStory(story.id, title);
 			}
-			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
@@ -568,8 +588,7 @@ async function createChatLinkedStory(args: {
 async function saveNewVersion(
 	story: { id: string; slug: string; chatId: string | null },
 	ctx: McpContext,
-	title: string,
-	code: string,
+	{ title, code, basedOnVersion }: { title: string; code: string; basedOnVersion: number | undefined },
 ): Promise<{ id: string; title: string; updatedAt: Date }> {
 	if (story.chatId) {
 		await storyQueries.createStoryVersion({
@@ -577,6 +596,7 @@ async function saveNewVersion(
 			slug: story.slug,
 			title,
 			code,
+			basedOnVersion,
 			action: 'update',
 			source: 'user',
 			...mcpProvenance(ctx),
@@ -597,12 +617,39 @@ async function saveNewVersion(
 		action: 'update',
 		source: 'user',
 		origin: 'mcp',
+		basedOnVersion,
 	});
 	const updated = await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, story.slug);
 	if (!updated) {
 		throw new Error(`Failed to retrieve updated story: ${ctx.userId}/${story.slug}`);
 	}
 	return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
+}
+
+async function markdownChatQueryRefusal(
+	story: { slug: string; chatId: string | null },
+	userId: string,
+	code: string,
+): Promise<string | null> {
+	if (!story.chatId) {
+		return null;
+	}
+	try {
+		await assertWriterAddsNoMarkdownChatQueries(story.chatId, story.slug, userId, code);
+		return null;
+	} catch (error) {
+		if (error instanceof CustomStoryQueryNotAllowedError) {
+			return error.message;
+		}
+		throw error;
+	}
+}
+
+function rethrowUnlessVersionConflict(error: unknown): null {
+	if (error instanceof storyQueries.StoryVersionConflictError) {
+		return null;
+	}
+	throw error;
 }
 
 function mcpProvenance(ctx: McpContext): storyQueries.VersionProvenance {

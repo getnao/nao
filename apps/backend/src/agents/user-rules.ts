@@ -1,10 +1,11 @@
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import { createHash } from 'crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 
 import { renderRootRulesForAgent } from '../services/agent-visible-project-file.service';
 import { isDatabaseObjectAllowed, type WarehouseTableAccess } from '../services/context-access';
+import { readProjectFile } from '../utils/project-file';
 
 /**
  * Reads user-defined rules from RULES.md in the project folder if it exists
@@ -20,7 +21,7 @@ export function getUserRules(
 	}
 
 	try {
-		const renderedRules = renderRootRulesForAgent(readFileSync(rulesPath, 'utf-8'), groupAccess);
+		const renderedRules = renderRootRulesForAgent(readProjectFile(projectFolder, 'RULES.md'), groupAccess);
 		if (!renderedRules) {
 			throw new Error('RULES.md could not be rendered safely');
 		}
@@ -155,17 +156,8 @@ function readDatabaseObjectColumns(
 	projectFolder: string,
 	object: Pick<DatabaseObject, 'type' | 'database' | 'schema' | 'table'>,
 ): string[] {
-	const path = join(
-		projectFolder,
-		'databases',
-		`type=${object.type}`,
-		`database=${object.database}`,
-		`schema=${object.schema}`,
-		`table=${object.table}`,
-		'columns.md',
-	);
 	try {
-		return readFileSync(path, 'utf-8')
+		return readProjectFile(projectFolder, columnsFilePath(object))
 			.split(/\r?\n/)
 			.flatMap((line) => {
 				const name = parseGeneratedColumnName(line);
@@ -382,19 +374,20 @@ export function getTableColumnsContent(
 		return undefined;
 	}
 
-	const columnsPath = join(
-		projectFolder,
-		'databases',
-		`type=${obj.type}`,
-		`database=${obj.database}`,
-		`schema=${obj.schema}`,
-		`table=${obj.table}`,
-		'columns.md',
-	);
-
 	try {
-		return readFileSync(columnsPath, 'utf-8');
+		return readProjectFile(projectFolder, columnsFilePath(obj));
 	} catch {
 		return undefined;
 	}
+}
+
+function columnsFilePath(object: Pick<DatabaseObject, 'type' | 'database' | 'schema' | 'table'>): string {
+	return join(
+		'databases',
+		`type=${object.type}`,
+		`database=${object.database}`,
+		`schema=${object.schema}`,
+		`table=${object.table}`,
+		'columns.md',
+	);
 }

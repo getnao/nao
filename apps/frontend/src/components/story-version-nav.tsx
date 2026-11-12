@@ -190,8 +190,8 @@ function VersionItem({
 		>
 			<VersionAuthorAvatar author={change?.author ?? null} />
 			<VersionDescription change={change ?? null} viewerId={viewerId} />
-			<span className='relative shrink-0 tabular-nums text-muted-foreground'>
-				<span className={cn(chat && 'group-data-[highlighted]:invisible')}>
+			<span className='flex shrink-0 tabular-nums text-muted-foreground'>
+				<span className={cn(chat && 'group-data-[highlighted]:hidden')}>
 					{formatVersionTime(entry.createdAt)}
 				</span>
 				{chat && <OpenChatButton onOpen={() => onOpenChat(chat.id)} />}
@@ -220,7 +220,7 @@ function OpenChatButton({ onOpen }: { onOpen: () => void }) {
 	return (
 		<button
 			type='button'
-			className='absolute -inset-y-0.5 -right-6.5 -left-1 hidden items-center justify-between rounded-md pr-0.5 pl-1 text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-xs group-data-[highlighted]:flex'
+			className='-my-0.5 -mr-6.5 hidden items-center gap-1 whitespace-nowrap rounded-md px-1 py-0.5 text-muted-foreground hover:bg-background hover:text-foreground hover:shadow-xs group-data-[highlighted]:flex'
 			onPointerDown={keepFromRow}
 			onPointerUp={keepFromRow}
 			onKeyDown={keepFromRow}

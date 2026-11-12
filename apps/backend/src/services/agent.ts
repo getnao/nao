@@ -11,6 +11,8 @@ import {
 } from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
+import type { StoryBlockPart, StoryBlockPartKind } from '@nao/shared/story-parts';
+import { STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import { story } from '@nao/shared/tools';
 import type { CitationData, LlmProvider, LlmSelectedModel, StoryBlockReference } from '@nao/shared/types';
 import { CODE_CITATION_KIND } from '@nao/shared/types';
@@ -117,6 +119,11 @@ import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
+import {
+	releaseAgentStoryEditLocks,
+	renewAgentStoryEditLocks,
+	STORY_EDIT_LOCK_RENEW_MS,
+} from './story-edit-lock.service';
 import { customStoryAuthoringError } from './story-mount';
 import { resolveStoryOriginConversationSafely } from './story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
@@ -286,6 +293,7 @@ async function assertModelBudget(projectId: string, model: LlmSelectedModel, use
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
+	private _storyLockRenewals = new Map<string, ReturnType<typeof setInterval>>();
 
 	async assertRunAvailable(
 		projectId: string,
@@ -331,7 +339,7 @@ export class AgentService {
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
 			await assertProjectCloudBillingAccess(chat.projectId);
 		}
-		this._disposeAgent(chat.id);
+		await this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		if (!options.isBudgetChecked) {
 			await assertModelBudget(chat.projectId, resolvedLlmSelectedModel, chat.userId);
@@ -376,7 +384,7 @@ export class AgentService {
 			profile,
 			modelConfig,
 			resolvedLlmSelectedModel,
-			() => this._agents.delete(chat.id),
+			() => this._forgetAgent(chat.id, agent),
 			new AbortController(),
 			agentTools,
 			toolContext,
@@ -384,6 +392,7 @@ export class AgentService {
 			usageContext,
 		);
 		this._agents.set(chat.id, agent);
+		this._keepStoryEditLocks(chat.id);
 		return agent;
 	}
 
@@ -407,13 +416,42 @@ export class AgentService {
 		return buildToolContext(opts);
 	}
 
-	private _disposeAgent(chatId: string): void {
+	private async _disposeAgent(chatId: string): Promise<void> {
 		const agent = this._agents.get(chatId);
 		if (!agent) {
 			return;
 		}
 		agent.stop();
+		await this._forgetAgent(chatId, agent);
+	}
+
+	private async _forgetAgent(chatId: string, agent: AgentManager): Promise<void> {
+		if (this._agents.get(chatId) !== agent) {
+			return;
+		}
 		this._agents.delete(chatId);
+		clearInterval(this._storyLockRenewals.get(chatId));
+		this._storyLockRenewals.delete(chatId);
+		await releaseAgentStoryEditLocks(chatId).catch((error) =>
+			logger.error(`Failed to release the story edit locks of an agent run: ${String(error)}`, {
+				source: 'agent',
+				context: { chatId },
+			}),
+		);
+	}
+
+	private _keepStoryEditLocks(chatId: string): void {
+		clearInterval(this._storyLockRenewals.get(chatId));
+		const renewal = setInterval(() => {
+			renewAgentStoryEditLocks(chatId).catch((error) => {
+				logger.error(`Failed to renew the story edit locks of an agent run: ${String(error)}`, {
+					source: 'agent',
+					context: { chatId },
+				});
+			});
+		}, STORY_EDIT_LOCK_RENEW_MS);
+		renewal.unref();
+		this._storyLockRenewals.set(chatId, renewal);
 	}
 
 	get(chatId: string): AgentManager | undefined {
@@ -1337,13 +1375,65 @@ function describeCode({ title, lines }: StoryBlockReference): string {
 	return `${range} of ${source}`;
 }
 
-function describeStoryElement(block: StoryBlockReference): string {
+export function describeStoryElement(block: StoryBlockReference): string {
 	if (block.kind === 'text') {
 		return 'a passage of text';
 	}
-	const title = block.title ? ` "${block.title}"` : '';
-	const query = block.queryId ? `, reading ${block.queryId}` : '';
-	return `the ${block.kind} block${title}${query}`;
+	if (block.part?.kind === 'element') {
+		return describeSelectableElement(block.part, block.kind === STORY_ELEMENT_BLOCK_KIND ? undefined : block);
+	}
+	if (!block.part) {
+		return describeBlock(block);
+	}
+	return `${describePart(block.part)} ${PARTS_INSIDE_BLOCK.has(block.part.kind) ? 'in' : 'of'} ${describeBlock(block)}`;
+}
+
+function describeBlock({ kind, title, queryId }: StoryBlockReference): string {
+	const titled = title ? ` ${JSON.stringify(title)}` : '';
+	const query = queryId ? `, reading ${queryId}` : '';
+	return `the ${kind} block${titled}${query}`;
+}
+
+function describeSelectableElement({ label, value }: StoryBlockPart, block?: StoryBlockReference): string {
+	const detail = value ? ` (${JSON.stringify(value)})` : '';
+	const place = block ? ` in ${describeBlock(block)}` : '';
+	return `the element ${JSON.stringify(label ?? '')}${detail}${place}, marked with selectable() in the story's source`;
+}
+
+const PARTS_INSIDE_BLOCK: ReadonlySet<StoryBlockPartKind> = new Set(['data-point', 'cell']);
+
+const PART_NOUNS: Record<StoryBlockPartKind, string> = {
+	title: 'title',
+	description: 'description',
+	'x-axis': 'x-axis name',
+	'y-axis': 'y-axis name',
+	'axis-tick': 'axis tick',
+	'legend-item': 'legend entry',
+	'data-point': 'data point',
+	'reference-line': 'reference line',
+	'kpi-name': 'KPI name',
+	'kpi-value': 'KPI value',
+	'kpi-comparison': 'KPI comparison',
+	column: 'column',
+	cell: 'cell',
+	element: 'element',
+};
+
+function describePart({ kind, label, series, category, value }: StoryBlockPart): string {
+	const isCell = kind === 'cell';
+	const name = kind === 'data-point' ? (category ?? label) : isCell ? (series ?? label) : label;
+	const secondary = isCell ? { word: 'row', text: category } : { word: 'series', text: series };
+	const parts = [`the ${PART_NOUNS[kind]}`];
+	if (name) {
+		parts.push(JSON.stringify(name));
+	}
+	if (secondary.text && secondary.text !== name) {
+		parts.push(`of ${secondary.word} ${JSON.stringify(secondary.text)}`);
+	}
+	if (value) {
+		parts.push(`(value ${value})`);
+	}
+	return parts.join(' ');
 }
 
 /** Messaging and automation entry points may be the first to reach a project after a restart. */
