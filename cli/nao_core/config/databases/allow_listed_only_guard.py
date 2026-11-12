@@ -73,6 +73,12 @@ def enforce_allow_listed_only(
             allowed_context_tables = load_allowed_context_tables(
                 project_folder, db_config, database_folder=database_folder
             )
+            if db_config.type == "bigquery" and getattr(db_config, "allow_information_schema", False):
+                allowed_context_tables.update(
+                    identity
+                    for identity in referenced_tables
+                    if identity[1].casefold().startswith("information_schema.")
+                )
             unlisted_tables = _find_unlisted_tables(referenced_tables, allowed_context_tables)
             if unlisted_tables:
                 raise AllowListedOnlyGuardError(_unlisted_message(unlisted_tables, allowed_context_tables))

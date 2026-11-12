@@ -474,6 +474,13 @@ class BigQueryConfig(DatabaseConfig):
             "and an error is raised if the estimated bytes processed exceeds this limit."
         ),
     )
+    allow_information_schema: bool = Field(
+        default=False,
+        description=(
+            "Allow read-only dataset INFORMATION_SCHEMA views when allow_listed_only is enabled. "
+            "The requested project and dataset must still match this connection."
+        ),
+    )
 
     # Lazy cache: schema -> table_name -> TablePartitionMetadata
     _schema_metadata: dict[str, dict[str, TablePartitionMetadata]] = PrivateAttr(default_factory=dict)

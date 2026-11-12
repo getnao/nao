@@ -39,6 +39,7 @@ class FakeDatabaseConfig:
         self.allow_listed_only = allow_listed_only
         self.schemas = schemas or {"main": ["orders", "users"]}
         self.database_name = database_name
+        self.allow_information_schema = False
         self.connection = FakeConnection(self.schemas)
         self.connect_count = 0
 
@@ -272,6 +273,65 @@ def test_allowlist_requires_exact_resolved_table_name(tmp_path: Path):
     config = FakeDatabaseConfig(True, {"main": ["users"]})
 
     assert_blocked("SELECT * FROM main.users", config, tmp_path, match=r"main\.users")
+
+
+def test_bigquery_information_schema_requires_explicit_opt_in(tmp_path: Path):
+    create_context_table(tmp_path, "analytics", "events", database_type="bigquery")
+    config = FakeDatabaseConfig(
+        True,
+        {"analytics": ["events"]},
+        database_name="project",
+        database_type="bigquery",
+    )
+    sql = "SELECT table_name FROM `project.analytics.INFORMATION_SCHEMA.COLUMNS`"
+
+    assert_blocked(sql, config, tmp_path, match="was not found in the live schema")
+
+    config.allow_information_schema = True
+    assert_allowed(sql, config, tmp_path)
+
+
+def test_bigquery_information_schema_keeps_project_and_dataset_boundaries(tmp_path: Path):
+    create_context_table(tmp_path, "analytics", "events", database_type="bigquery")
+    config = FakeDatabaseConfig(
+        True,
+        {"analytics": ["events"]},
+        database_name="project",
+        database_type="bigquery",
+    )
+    config.allow_information_schema = True
+
+    assert_blocked(
+        "SELECT * FROM `other.analytics.INFORMATION_SCHEMA.COLUMNS`",
+        config,
+        tmp_path,
+        match="does not match the connected database",
+    )
+    assert_blocked(
+        "SELECT * FROM `project.private.INFORMATION_SCHEMA.COLUMNS`",
+        config,
+        tmp_path,
+        match="schema private was not found",
+    )
+
+
+def test_bigquery_information_schema_does_not_bypass_group_table_access(tmp_path: Path):
+    create_context_table(tmp_path, "analytics", "events", database_type="bigquery")
+    config = FakeDatabaseConfig(
+        True,
+        {"analytics": ["events"]},
+        database_name="project",
+        database_type="bigquery",
+    )
+    config.allow_information_schema = True
+
+    assert_blocked(
+        "SELECT * FROM `project.analytics.INFORMATION_SCHEMA.COLUMNS`",
+        config,
+        tmp_path,
+        {("analytics", "events")},
+        match=r"Context table permissions.*analytics\.INFORMATION_SCHEMA\.COLUMNS",
+    )
 
 
 def test_starrocks_short_schema_resolves_to_canonical_schema(tmp_path: Path):

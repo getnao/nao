@@ -111,6 +111,18 @@ def resolve_table(
     requested_schema = table_expression.args.get("db")
     if requested_schema is not None and not isinstance(requested_schema, exp.Identifier):
         raise blocked("a dynamic schema reference could not be resolved")
+    if is_allowed_bigquery_information_schema_table(db_config, requested_table):
+        if not requested_schema:
+            raise blocked("a BigQuery INFORMATION_SCHEMA view must specify its dataset")
+        schema = match_schema_identifier(
+            requested_schema,
+            schemas,
+            dialect,
+            case_insensitive=case_insensitive,
+        )
+        if schema is None:
+            raise blocked(f"schema {requested_schema.name} was not found in the live database")
+        return schema, requested_table.name
     if requested_schema:
         if requested_catalog and _catalog_matches_connection(
             requested_catalog,
@@ -174,6 +186,17 @@ def resolve_table(
         raise blocked(f"unqualified table {requested_table.name} was not found in the live schema")
     matched_names = ", ".join(f"{schema}.{table}" for schema, table in matches)
     raise blocked(f"unqualified table {requested_table.name} is ambiguous across: {matched_names}")
+
+
+def is_allowed_bigquery_information_schema_table(
+    db_config: DatabaseConfigLike,
+    requested_table: exp.Identifier,
+) -> bool:
+    return (
+        db_config.type == "bigquery"
+        and bool(getattr(db_config, "allow_information_schema", False))
+        and requested_table.name.casefold().startswith("information_schema.")
+    )
 
 
 def match_identifier(requested: str, available: list[str]) -> str | None:
