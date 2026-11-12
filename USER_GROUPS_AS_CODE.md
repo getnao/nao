@@ -1,70 +1,53 @@
 # User Groups as Code
 
 Status: proposed  
-Related: [#1809](https://github.com/getnao/nao/issues/1809), [#1800](https://github.com/getnao/nao/issues/1800), [#2129](https://github.com/getnao/nao/issues/2129), [CLS PR #2346](https://github.com/getnao/nao/pull/2346)
+Related: [#1809](https://github.com/getnao/nao/issues/1809), [#1800](https://github.com/getnao/nao/issues/1800)
 
 ## Decision
 
-One versioned `user_groups.yaml` is desired state. `nao deploy` reconciles it. Listed fields are read-only in the UI and authoritative: removing a member or grant revokes that source on the next successful deploy. No file means leave groups untouched.
+Phase 1 adds one optional `user_groups.yaml` file. It manages groups created from that file, their members, and exact schema/table access. `nao deploy` validates and reconciles the file.
 
-Phase 1 manages manual membership, source-scoped schema/table/positive-pattern access, strict SQL, and database access on the built-in `All Users` group. Later settings reuse the same file and deploy.
+Code-managed groups are entirely read-only in the UI. Existing UI and SSO-managed groups remain unchanged and cannot be adopted in Phase 1. No file means leave all groups untouched.
 
 ```mermaid
 flowchart LR
     File["user_groups.yaml<br/>reviewed in Git"]
-    Plan["Server validation<br/>and change plan"]
-    Auth{"Project admin<br/>authorized?"}
-    Apply["Atomic reconciliation"]
-    Database[("Group records<br/>and memberships")]
-    Runtime["Agent context and<br/>SQL enforcement"]
-
-    File --> Plan
-    Plan --> Auth
-    Auth -->|No| Reject["Reject without changes"]
-    Auth -->|Yes| Apply
-    Apply --> Database
-    Database --> Runtime
+    Validate["Validate admin, license,<br/>users, and exact grants"]
+    Deploy["Existing context deploy"]
+    Reconcile["Reconcile groups<br/>in one DB transaction"]
+    Runtime["Existing access resolution<br/>and SQL enforcement"]
+    File --> Validate
+    Validate -->|Invalid| Reject["Reject before deploy"]
+    Validate -->|Valid| Deploy
+    Deploy --> Reconcile
+    Reconcile --> Runtime
 ```
 
 ## Deploy
 
-Upload, validate, plan, then apply that exact plan. A context-deploy API key is not enough: the server checks the actor is a project admin. A stale plan fails if state changed. Invalid config or a license the plan needs applies nothing, including context.
+Keep the existing single-request `nao deploy` flow:
 
-```mermaid
-sequenceDiagram
-    participant CLI as nao deploy
-    participant API as Deploy API
-    participant Auth as Project authorization
-    participant Catalog as Staged context catalog
-    participant DB as Application database
+1. Extract the uploaded project to the existing temporary directory.
+2. If `user_groups.yaml` exists, parse it and validate the actor, license, users, group keys, names, and grants.
+3. Reject invalid input before replacing the deployed context.
+4. Run the existing context deployment.
+5. Reconcile code-managed groups and memberships in one database transaction.
+6. Return a short summary of created, updated, deactivated, and unchanged groups.
 
-    CLI->>API: Upload staged project
-    API->>Auth: Verify actor can administer project
-    Auth-->>API: Authorized
-    API->>Catalog: Validate sources, schemas, and tables
-    API->>DB: Resolve users and current group state
-    API-->>CLI: Return immutable change plan
-    CLI->>API: Confirm plan
-    API->>DB: Recheck plan version and reconcile
-    alt Apply succeeds
-        API-->>CLI: Deployment and permission summary
-    else Validation, authorization, or conflict fails
-        API-->>CLI: Reject without permission changes
-    end
-```
-
-Stage and validate context, lock the project, swap the directory, commit group changes, restore the previous directory if the commit fails.
+Do not add plan/confirm endpoints, stale-plan versions, project locks, or a dry-run mode in Phase 1. The filesystem deployment and database transaction are not made atomic with each other; an unexpected infrastructure failure reports the partial deployment and a repeated deploy retries reconciliation.
 
 ## Rules
 
-- Stable `key`, mutable `name`. Cross-group refs use the key. Adopt an existing UI group explicitly.
-- Members are normalized emails of existing users. Unknown or ambiguous email fails. No invites.
-- Code owns only declared manual membership. OIDC and Microsoft stay with the identity provider.
-- UI shows each membership source: code, UI/manual, OIDC, Microsoft.
-- Grants: exact schema (future tables included), exact table, or positive pattern (may match nothing). Scoped to one source. Missing exact source, schema, or table fails. No negative patterns; “schema except table” is a snapshot of current tables.
-- `all-users` binds the existing default group and can manage `database_access` only. Never create a second default group.
-- Removal archives the group and deactivates that code source. Users, projects, context, and history stay. Another group or SSO can still grant access. The plan separates “grant removed” from “user loses access.”
-- Same normalized file twice writes nothing. Unmanaged fields stay UI-editable. The UI does not write back to Git.
+- Stable `key`, mutable `name`.
+- Members are normalized emails of existing project users. Unknown or ambiguous emails fail; the deploy does not invite users.
+- A code-managed group cannot share a name with an existing UI-managed group.
+- Only exact schema and table grants are supported. A schema grant includes future tables in that schema.
+- Removing a member deactivates its config membership. Removing a group deactivates the group and all its access without deleting records.
+- An empty `groups` list deactivates every code-managed group. A missing file changes nothing.
+- Restoring the same key reactivates its group. Changing a key creates a new group and deactivates the old one.
+- Deploying the same normalized file twice writes nothing.
+- Effective access remains the union of all active groups, including unrelated UI and SSO groups.
+- The UI does not write changes back to Git.
 
 ## File
 
@@ -72,21 +55,8 @@ Stage and validate context, lock the project, swap the directory, commit group c
 version: 1
 
 groups:
-    - key: all-users
-      builtin: all-users
-      managed_fields:
-          - database_access
-      database_access:
-          mode: restricted
-          strict: true
-          grants: []
-          patterns: []
-
     - key: finance
       name: Finance
-      managed_fields:
-          - members
-          - database_access
       members:
           - alice@example.com
           - bob@example.com
@@ -94,21 +64,22 @@ groups:
           mode: restricted
           strict: true
           grants:
-              - source: warehouse
+              - kind: schema
+                database_type: postgres
+                database: warehouse
                 schema: finance
-              - source: warehouse
+              - kind: table
+                database_type: postgres
+                database: warehouse
                 schema: shared
                 table: exchange_rates
-          patterns:
-              - source: warehouse
-                pattern: reporting.finance_*
 ```
 
-Empty `All Users` grants plus `strict: true` block every table unless another group grants it.
+Use the existing database-access model after converting YAML snake case to its internal representation. `mode: all` remains available. Restricted access accepts exact grants only in Phase 1.
 
 ## Persistence
 
-Extend the existing group and membership tables. Same shape on PostgreSQL and SQLite.
+Extend the existing tables with the minimum ownership and deactivation state. Keep PostgreSQL and SQLite synchronized in one logical migration.
 
 ```mermaid
 erDiagram
@@ -120,66 +91,48 @@ erDiagram
         string id PK
         string project_id FK
         string config_key "nullable, unique per project"
-        json managed_fields
         datetime archived_at "nullable"
-        string applied_revision "nullable"
     }
 
     USER_GROUP_MEMBER {
         string group_id FK
         string user_id FK
         string provider "manual, config, oidc, microsoft"
-        boolean active
-        datetime deactivated_at "nullable"
+        boolean active "default true"
     }
 ```
 
-## Lifecycle
+Active config memberships use `provider: config`. Access resolution ignores inactive memberships and archived groups. Archived records remain hidden from normal UI lists but can be restored by key.
 
-```mermaid
-stateDiagram-v2
-    [*] --> UIManaged: Existing group
-    UIManaged --> CodeManaged: Explicit adoption
-    [*] --> CodeManaged: Created from config
-    CodeManaged --> CodeManaged: Idempotent update
-    CodeManaged --> Archived: Stable key removed
-    Archived --> CodeManaged: Stable key restored
-```
+## Implementation
 
-## Rollout
-
-1. **#1809.** File above, plan/confirm deploy, UI shows code ownership.
-2. **Other settings.** Docs, features, sharing, MCP, skills, export/adopt.
-3. **Controls.** SSO mappings, budgets, audit and drift.
-4. **RLS and CLS.** Project registries in `security.yaml`, group policy in `user_groups.yaml`, one plan. Build on CLS PR #2346.
-
-Skip per-group files, a repo watcher, auto-invites, and UI-generated pull requests until usage shows they are needed.
+1. Add `config_key` and `archived_at` to `user_group`, and `active` plus the `config` provider to `user_group_member`.
+2. Add a strict parser for `user_groups.yaml` and map its database access to the existing shared access types.
+3. Add one reconciliation service that validates first, then upserts or deactivates config-owned rows in a transaction.
+4. Call that service from the existing deploy route after validating against the uploaded context catalog.
+5. Mark code-managed groups read-only in the UI and show a “Managed in user_groups.yaml” label.
+6. Cover reconciliation and runtime filtering with focused PostgreSQL-compatible and SQLite tests.
 
 ## Phase 1 checks
 
-- Missing file preserves current groups. Repeat deploy of the same file writes nothing.
-- Invalid config changes neither context nor permissions. A stale plan does not overwrite newer state.
-- Only a project admin can apply. Plan lists every managed add/revoke and separates that from effective access.
-- Emails resolve or fail clearly. Keys survive renames. Adoption is explicit.
-- Managed fields are read-only and labeled. Unmanaged fields stay editable.
-- Removing a member, grant, or group revokes that source and keeps users, projects, context, and history.
-- Exact selectors match the staged catalog. Patterns are source-scoped. Strict SQL and agent context use the result. SQLite and PostgreSQL match.
+- Missing file preserves all groups; an empty file deactivates only code-managed groups.
+- Repeating a deploy writes nothing.
+- Only a project admin with the required license can apply the file.
+- Invalid YAML, unknown users, name conflicts, and missing exact grants fail before context replacement.
+- Keys survive renames and reactivate archived groups.
+- Removing members, grants, or groups revokes only code-managed access and preserves all records.
+- Existing UI and SSO groups remain unchanged.
+- Archived groups and inactive memberships grant no runtime access.
+- Strict SQL and agent context use the reconciled access.
+- PostgreSQL and SQLite behave the same.
 
-## Confirm before building
+## Deferred
 
-1. Deleting a member, grant, or group from the file removes only the access that file granted. The user stays, and access from another group or SSO stays.
-2. A permission failure rejects the whole deployment.
-3. Unknown users fail. They are not invited or left pending.
-4. `All Users` database access is configurable in code.
-5. Existing UI groups need explicit adoption.
-6. #1800 exclusions use a snapshot when future tables must stay excluded.
+- Adopting existing UI groups or managing individual fields
+- Managing the built-in `All Users` group
+- Patterns, exclusions, and snapshot expansion from #1800
+- SSO mappings, feature settings, sharing, budgets, RLS, and CLS
+- Plan/confirm, dry-run, drift detection, audit history, and cross-storage rollback
+- Per-group files, repository watchers, invitations, and UI-generated pull requests
 
-## Limitations
-
-- YAML changes take effect only after a successful `nao deploy`.
-- The UI does not update `user_groups.yaml`.
-- Fields managed by YAML are read-only in the UI. Other fields remain editable, but UI changes are not written back to YAML.
-- The file can assign only existing project users; it does not create accounts or send invitations.
-- Groups-as-code requires its own Enterprise license feature and is enabled per project only when `user_groups.yaml` exists. Without the file, groups remain UI-managed.
-- The backend enforces the license; hiding controls in the UI is not sufficient.
-- If the license expires, keep the last deployed permissions unchanged and read-only. Never silently remove access or return ownership to the UI.
+Add deferred behavior only after Phase 1 usage proves it is needed.
