@@ -783,7 +783,7 @@ function ChatInputBase({
 
 						{isTranscribeReady && isRecording && <SlidingWaveform analyserRef={analyserRef} />}
 
-						<div className='flex items-center gap-1.5 md:gap-2 ml-auto relative'>
+						<div className='flex shrink-0 items-center gap-1.5 md:gap-2 ml-auto relative'>
 							{mode !== 'onboarding' && (
 								<ChatInputPlusMenu
 									hasDatabases={hasDatabases}
