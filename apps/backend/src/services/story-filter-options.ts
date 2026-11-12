@@ -254,6 +254,7 @@ async function queryFilterOptions(
 		executionContext,
 		executionOptions,
 		searchPattern,
+		searchText,
 	);
 	const values = [
 		...new Set(
@@ -278,10 +279,11 @@ function fetchOptionValues(
 	executionContext: StoryExecutionContext,
 	executionOptions: FilterOptionsExecutionOptions,
 	search?: string,
+	searchText?: string,
 ): Promise<Array<string | null>> {
 	switch (source.kind) {
 		case 'query':
-			return fetchQueryOptionValues(context, source, executionContext, executionOptions, search);
+			return fetchQueryOptionValues(context, source, executionContext, executionOptions, search, searchText);
 		case 'warehouse':
 			return fetchWarehouseOptionValues(source, executionContext, executionOptions, search);
 		case 'semantic':
@@ -295,6 +297,7 @@ async function fetchQueryOptionValues(
 	executionContext: StoryExecutionContext,
 	executionOptions: FilterOptionsExecutionOptions,
 	search?: string,
+	searchText?: string,
 ): Promise<Array<string | null>> {
 	const query = context.sqlQueries[source.queryId];
 	if (!query) {
@@ -310,32 +313,46 @@ async function fetchQueryOptionValues(
 	const databaseType =
 		query.dialect ??
 		(query.adminMode ? dbConfig.dialect : await resolveRawSqlDatabaseType(executionContext, query.databaseId));
-	const boundedQuery = {
-		...query,
-		sqlQuery: buildBoundedOptionsQuery(renderedSql, databaseType, search),
-		semanticQuery: undefined,
-	};
-	const queryData = await executeStoryQueries(
-		context.chatId,
-		{ [source.queryId]: boundedQuery },
-		{
-			executionContext,
-			renderSql: stripSqlFilterBlocks,
-			semanticBindings: semanticBindingsFromCode(context.code, source.selections),
-			billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
-		},
-	);
-	const result = queryData[source.queryId]!;
-	if (result.accessDenied) {
-		return [];
+	const values: Array<string | null> = [];
+	let offset = 0;
+	while (true) {
+		const optionsQuery = {
+			...query,
+			sqlQuery: buildQueryOptionsSql(renderedSql, databaseType, search, offset),
+			semanticQuery: undefined,
+		};
+		const queryData = await executeStoryQueries(
+			context.chatId,
+			{ [source.queryId]: optionsQuery },
+			{
+				executionContext,
+				renderSql: stripSqlFilterBlocks,
+				semanticBindings: semanticBindingsFromCode(context.code, source.selections),
+				billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+			},
+		);
+		const result = queryData[source.queryId]!;
+		if (result.accessDenied) {
+			return [];
+		}
+		if (!result.columns.some((column) => column.toLowerCase() === 'value')) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Options query "${source.queryId}" must return a column named "value".`,
+			});
+		}
+
+		const pageValues = result.data.map((row) => readOptionValue(row, 'value'));
+		values.push(
+			...pageValues.filter(
+				(value) => value !== null && (!searchText || value.toLocaleLowerCase().includes(searchText)),
+			),
+		);
+		if (!searchText || values.length > FILTER_OPTIONS_LIMIT || result.data.length <= FILTER_OPTIONS_LIMIT) {
+			return values;
+		}
+		offset += FILTER_OPTIONS_LIMIT + 1;
 	}
-	if (!result.columns.some((column) => column.toLowerCase() === 'value')) {
-		throw new TRPCError({
-			code: 'BAD_REQUEST',
-			message: `Options query "${source.queryId}" must return a column named "value".`,
-		});
-	}
-	return result.data.map((row) => readOptionValue(row, 'value'));
 }
 
 async function fetchWarehouseOptionValues(
@@ -427,7 +444,7 @@ function listStorySemanticMetrics(sqlQueries: Record<string, StoredSqlQuery>): s
 	return [...new Set(metrics)];
 }
 
-function buildBoundedOptionsQuery(sqlQuery: string, databaseType: string, search?: string): string {
+function buildQueryOptionsSql(sqlQuery: string, databaseType: string, search?: string, offset = 0): string {
 	const sourceSql = sqlQuery.trim().replace(/;+\s*$/, '');
 	const normalizedDatabaseType = databaseType.toLowerCase();
 	const castType =
@@ -440,9 +457,12 @@ function buildBoundedOptionsQuery(sqlQuery: string, databaseType: string, search
 	}
 	const from = `FROM (${sourceSql}) AS nao_filter_options WHERE ${conditions.join(' AND ')} ORDER BY value`;
 	const isTSql = ['mssql', 'fabric', 'tsql'].some((type) => normalizedDatabaseType.includes(type));
-	return isTSql
-		? `SELECT DISTINCT TOP (${FILTER_OPTIONS_LIMIT + 1}) value ${from}`
-		: `SELECT DISTINCT value ${from} LIMIT ${FILTER_OPTIONS_LIMIT + 1}`;
+	if (isTSql) {
+		return offset === 0
+			? `SELECT DISTINCT TOP (${FILTER_OPTIONS_LIMIT + 1}) value ${from}`
+			: `SELECT DISTINCT value ${from} OFFSET ${offset} ROWS FETCH NEXT ${FILTER_OPTIONS_LIMIT + 1} ROWS ONLY`;
+	}
+	return `SELECT DISTINCT value ${from} LIMIT ${FILTER_OPTIONS_LIMIT + 1}${offset > 0 ? ` OFFSET ${offset}` : ''}`;
 }
 
 function buildOptionsSql(source: WarehouseOptionsSource, databaseType: string | undefined, search?: string): string {

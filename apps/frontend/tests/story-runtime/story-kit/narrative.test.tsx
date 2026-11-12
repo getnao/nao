@@ -3,12 +3,12 @@
 import { STORY_NARRATIVES_REDACT_MISSING_KEY } from '@nao/shared/story-app';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import { Narrative } from './narrative';
 import type { StoryNarratives } from '@nao/shared/story-app';
 
+import { Narrative } from '@/story-runtime/story-kit/narrative';
+
 const host = vi.hoisted(() => ({ requestNarratives: vi.fn() }));
-vi.mock('../story-host', () => ({ requestNarratives: host.requestNarratives }));
+vi.mock('@/story-runtime/story-host', () => ({ requestNarratives: host.requestNarratives }));
 
 afterEach(cleanup);
 

@@ -269,7 +269,7 @@ describe('getStoryFilterOptions', () => {
 		);
 	});
 
-	it('keeps query-backed matches containing apostrophes or backslashes', async () => {
+	it('pages bounded query-backed searches containing apostrophes or backslashes', async () => {
 		const code = '<filter id="customer" type="select" options_query_id="query_customer_options" />';
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code });
 		mocks.getSqlQueriesFromCode.mockResolvedValue({
@@ -281,14 +281,31 @@ describe('getStoryFilterOptions', () => {
 		});
 
 		for (const search of ["O'Reilly", String.raw`C:\Sales`]) {
-			mocks.executeStoryQueries.mockResolvedValue({
-				query_customer_options: { columns: ['value'], data: [{ value: search }] },
+			mocks.executeStoryQueries.mockClear();
+			mocks.executeStoryQueries.mockImplementation(async (_chatId, queries) => {
+				const sqlQuery = queries.query_customer_options.sqlQuery;
+				expect(sqlQuery).toContain(
+					`LOWER(CAST(value AS STRING)) LIKE '%${search.toLowerCase().replace(/['\\]/g, '_')}%'`,
+				);
+				expect(sqlQuery).toContain('LIMIT 101');
+				return {
+					query_customer_options: {
+						columns: ['value'],
+						data: sqlQuery.includes('OFFSET 101')
+							? [{ value: search }]
+							: Array.from({ length: 101 }, (_, index) => ({ value: `broad-match-${index}` })),
+					},
+				};
 			});
 
 			await expect(getStoryFilterOptions('chat-1', 'story', 'customer', { search })).resolves.toEqual({
 				options: [search],
 				isComplete: true,
 			});
+			expect(mocks.executeStoryQueries).toHaveBeenCalledTimes(2);
+			expect(mocks.executeStoryQueries.mock.calls[1][1].query_customer_options.sqlQuery).toContain(
+				'LIMIT 101 OFFSET 101',
+			);
 		}
 	});
 
