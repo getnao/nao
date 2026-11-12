@@ -430,6 +430,10 @@ export async function assertCustomStoryExists(chatId: string, storySlug: string)
 	await getCustomStory(chatId, storySlug);
 }
 
+export async function getCustomStoryId(chatId: string, storySlug: string): Promise<string> {
+	return (await getCustomStory(chatId, storySlug)).id;
+}
+
 async function getCustomStory(chatId: string, storySlug: string): Promise<DBStory> {
 	const story = await storyQueries.getStoryByChatAndSlug(chatId, storySlug);
 	if (!story || story.format !== 'custom') {

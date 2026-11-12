@@ -14,7 +14,9 @@ import {
 	fetchChartPluginSource,
 	narrativesOptions,
 	queryDataOptions,
+	modelsOptions,
 	querySqlOptions,
+	runStoryModel,
 	runStorySql,
 	stateOptions,
 } from './story-data-options';
@@ -22,6 +24,7 @@ import { buildStoryFrameDocument } from './story-frame-document';
 import { rememberRequestAnswer } from './story-request-answers';
 import { RememberStateHeader } from './remember-state-header';
 import { useStoryStateRecorder } from './use-story-state-recorder';
+import type { StoryModelRequest } from '@nao/shared/story-models';
 import type { StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type {
 	StoryApp,
@@ -197,6 +200,36 @@ export function CustomStoryFrame({
 		[dataSource, queryClient, reply, viewerId],
 	);
 
+	const answerModels = useCallback(
+		async (requestId: string) => {
+			try {
+				const models = await queryClient.fetchQuery(modelsOptions(dataSource));
+				reply({ type: 'nao-story:models-result', requestId, models });
+			} catch (error) {
+				reply({ type: 'nao-story:models-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
+	/** Model answers are kept for the visit: a story rebuilt, re-themed or republished asks again without paying again. */
+	const answerModel = useCallback(
+		async (requestId: string, request: StoryModelRequest, fresh: boolean) => {
+			try {
+				const result = await queryClient.fetchQuery({
+					queryKey: ['custom-story-model', withoutVersion(dataSource), request],
+					queryFn: () => runStoryModel(dataSource, request),
+					staleTime: fresh ? 0 : Infinity,
+					gcTime: Infinity,
+				});
+				reply({ type: 'nao-story:model-result', requestId, result });
+			} catch (error) {
+				reply({ type: 'nao-story:model-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
 	const answerQuerySql = useCallback(
 		async (requestId: string, queryId: string) => {
 			try {
@@ -267,6 +300,12 @@ export function CustomStoryFrame({
 						{ sql: message.sql, databaseId: message.databaseId, filters: message.filters },
 						message.fresh === true,
 					);
+					break;
+				case 'nao-story:models':
+					void answerModels(message.requestId);
+					break;
+				case 'nao-story:model':
+					void answerModel(message.requestId, message.request, message.fresh === true);
 					break;
 				case 'nao-story:narratives':
 					void answerNarratives(message.requestId);
@@ -344,6 +383,8 @@ export function CustomStoryFrame({
 		return () => window.removeEventListener('message', handleMessage);
 	}, [
 		answerChartPlugin,
+		answerModel,
+		answerModels,
 		answerNarratives,
 		answerQuery,
 		answerQuerySql,
@@ -510,6 +551,14 @@ function useForwardHostKeydown(reply: (message: StoryHostMessage) => void) {
 		document.addEventListener('keydown', handleKeyDown);
 		return () => document.removeEventListener('keydown', handleKeyDown);
 	}, [reply]);
+}
+
+/** A model's answer depends on the request, not on which version of the story asked. */
+function withoutVersion(dataSource: CustomStoryDataSource): Omit<CustomStoryDataSource, 'versionNumber'> {
+	const { versionNumber: _versionNumber, ...identity } = dataSource as CustomStoryDataSource & {
+		versionNumber?: number;
+	};
+	return identity;
 }
 
 function storySlugOf(dataSource: CustomStoryDataSource): string | undefined {

@@ -1,6 +1,7 @@
 import type { ChartType } from './chart-types';
 import type { ColumnConditionalFormats } from './conditional-formatting';
 import type { KeydownSnapshot, Shortcut } from './keyboard-shortcut';
+import type { StoryModel, StoryModelRequest, StoryModelResult } from './story-models';
 import type { StoryQueryFilters, StoryQueryInputs } from './story-query-inputs';
 import type { StoryTheme } from './story-theme';
 import type { displayChart } from './tools';
@@ -42,6 +43,9 @@ export const STORY_HTML_API_GLOBAL = 'nao';
 export interface StoryHtmlApi {
 	query(queryId: string, options?: StoryQueryRequestOptions): Promise<StoryQueryResult>;
 	sql(sql: string, options?: StorySqlRequestOptions): Promise<StoryQueryResult>;
+	/** The models the viewer can call, e.g. the project's LLMs. */
+	models(): Promise<StoryModel[]>;
+	model(request: StoryModelRequest, options?: { fresh?: boolean }): Promise<StoryModelResult>;
 	querySql(queryId: string): Promise<string>;
 	narratives(): Promise<StoryNarratives>;
 	theme(): StoryTheme | null;
@@ -235,6 +239,8 @@ export type StoryFrameMessage =
 	| { type: 'nao-story:ready' }
 	| { type: 'nao-story:query'; requestId: string; queryId: string; fresh?: boolean; inputs?: StoryQueryInputs }
 	| ({ type: 'nao-story:sql'; requestId: string; fresh?: boolean } & StorySqlRequest)
+	| { type: 'nao-story:models'; requestId: string }
+	| { type: 'nao-story:model'; requestId: string; request: StoryModelRequest; fresh?: boolean }
 	| { type: 'nao-story:narratives'; requestId: string }
 	| { type: 'nao-story:error'; message: string; stack?: string }
 	| { type: 'nao-story:copy-table'; columns: string[]; rows: Record<string, unknown>[] }
@@ -272,6 +278,10 @@ export type StoryHostMessage =
 	| { type: 'nao-story:query-error'; requestId: string; message: string }
 	| { type: 'nao-story:query-sql-result'; requestId: string; sqlQuery: string }
 	| { type: 'nao-story:query-sql-error'; requestId: string; message: string }
+	| { type: 'nao-story:models-result'; requestId: string; models: StoryModel[] }
+	| { type: 'nao-story:models-error'; requestId: string; message: string }
+	| { type: 'nao-story:model-result'; requestId: string; result: StoryModelResult }
+	| { type: 'nao-story:model-error'; requestId: string; message: string }
 	| { type: 'nao-story:chart-plugin-result'; requestId: string; source: string }
 	| { type: 'nao-story:chart-plugin-error'; requestId: string; message: string }
 	| { type: 'nao-story:narratives-result'; requestId: string; narratives: StoryNarratives }
@@ -307,6 +317,8 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:ready',
 			'nao-story:query',
 			'nao-story:sql',
+			'nao-story:models',
+			'nao-story:model',
 			'nao-story:narratives',
 			'nao-story:error',
 			'nao-story:copy-table',
@@ -331,6 +343,10 @@ export const isStoryHostMessage = (value: unknown): value is StoryHostMessage =>
 			'nao-story:query-error',
 			'nao-story:query-sql-result',
 			'nao-story:query-sql-error',
+			'nao-story:models-result',
+			'nao-story:models-error',
+			'nao-story:model-result',
+			'nao-story:model-error',
 			'nao-story:chart-plugin-result',
 			'nao-story:chart-plugin-error',
 			'nao-story:narratives-result',

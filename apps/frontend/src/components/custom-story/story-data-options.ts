@@ -5,6 +5,7 @@ import type {
 	StorySqlRequest,
 	StoryStateChange,
 } from '@nao/shared/story-app';
+import type { StoryModelRequest, StoryModelResult } from '@nao/shared/story-models';
 import type { StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import { trpc, trpcClient } from '@/main';
 import { chatActivityStore } from '@/stores/chat-activity';
@@ -69,6 +70,41 @@ export function queryDataOptions(dataSource: CustomStoryDataSource, queryId: str
 			failureCount < MAX_QUERY_RETRIES_WHILE_CHAT_RUNNING && chatActivityStore.getActivity(chatId).running,
 		retryDelay: QUERY_RETRY_DELAY_MS,
 	};
+}
+
+/** The models the person viewing the story can call, from the story's project. */
+export function modelsOptions(dataSource: CustomStoryDataSource) {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		return trpc.customStoryViewer.listModels.queryOptions({ access, storySlug });
+	}
+	if (dataSource.kind === 'share') {
+		return trpc.storyShare.listCustomStoryModels.queryOptions({ storyId: dataSource.storyId });
+	}
+	if (dataSource.kind === 'standalone') {
+		return trpc.standaloneCustomStory.listModels.queryOptions({ storyId: dataSource.storyId });
+	}
+	const { chatId, storySlug } = dataSource;
+	return trpc.story.listCustomStoryModels.queryOptions({ chatId, storySlug });
+}
+
+/** A model call runs as the person viewing the story and is billed to them. */
+export function runStoryModel(
+	dataSource: CustomStoryDataSource,
+	request: StoryModelRequest,
+): Promise<StoryModelResult> {
+	if (dataSource.kind === 'viewer') {
+		const { access, storySlug } = dataSource;
+		return trpcClient.customStoryViewer.runModel.mutate({ access, storySlug, request });
+	}
+	if (dataSource.kind === 'share') {
+		return trpcClient.storyShare.runCustomStoryModel.mutate({ storyId: dataSource.storyId, request });
+	}
+	if (dataSource.kind === 'standalone') {
+		return trpcClient.standaloneCustomStory.runModel.mutate({ storyId: dataSource.storyId, request });
+	}
+	const { chatId, storySlug } = dataSource;
+	return trpcClient.story.runCustomStoryModel.mutate({ chatId, storySlug, request });
 }
 
 /** SQL the story writes itself runs as the person viewing it, wherever the story is opened from. */

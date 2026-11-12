@@ -24,6 +24,7 @@ import {
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
+	getCustomStoryId,
 	getCustomStoryNarratives,
 	getCustomStoryQueryData,
 	getCustomStoryQuerySql,
@@ -31,6 +32,7 @@ import {
 	getEditorCustomStoryQueryData,
 	getEditorCustomStoryQuerySql,
 } from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { assertWriterAddsNoMarkdownChatQueries } from '../services/custom-story-query-access';
 import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
@@ -75,6 +77,7 @@ import { listMostViewedStories } from '../services/story-reference';
 import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
 	storySqlRequest,
@@ -543,6 +546,29 @@ export const storyRoutes = {
 					{
 						projectId: ctx.projectId,
 						chatId: input.chatId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: ctx.projectId,
+					},
+					input.request,
+				);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	listCustomStoryModels: storyEditorProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(({ ctx }) => listCustomStoryModels(ctx.projectId, ctx.user.id)),
+
+	runCustomStoryModel: cloudBillingStoryEditorProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), request: storyModelRequest }))
+		.mutation(async ({ input, ctx }) => {
+			try {
+				const storyId = await getCustomStoryId(input.chatId, input.storySlug);
+				return await runCustomStoryModel(
+					{
+						projectId: ctx.projectId,
+						storyId,
 						viewerId: ctx.user.id,
 						billingAccessVerifiedProjectId: ctx.projectId,
 					},

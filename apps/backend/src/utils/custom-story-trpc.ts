@@ -1,4 +1,5 @@
 import { STORY_FILTER_ID_REGEX } from '@nao/shared/sql-template';
+import { STORY_LLM_MAX_OUTPUT_TOKENS, type StoryModelRequest } from '@nao/shared/story-models';
 import { STORY_QUERY_PARAM_VALUE_REGEX, type StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -9,6 +10,7 @@ import {
 	CustomStoryQueryExecutionError,
 	CustomStoryQueryNotFoundError,
 } from '../services/custom-story';
+import { CustomStoryModelError } from '../services/custom-story-model';
 import { CustomStoryQueryNotAllowedError } from '../services/custom-story-query-access';
 import { CustomStorySqlError, MAX_CUSTOM_STORY_SQL_LENGTH } from '../services/custom-story-sql';
 import { InvalidStoryStateError } from '../services/custom-story-state';
@@ -66,6 +68,26 @@ export const storySqlRequest = z.object({
 	filters: storyQueryFilters.optional(),
 });
 
+const MAX_MODEL_PROMPT_LENGTH = 200_000;
+const MAX_MODEL_SYSTEM_LENGTH = 20_000;
+const MAX_MODEL_SCHEMA_LENGTH = 20_000;
+
+export const storyModelRequest = z.discriminatedUnion('kind', [
+	z.object({
+		kind: z.literal('llm'),
+		model: z.string().max(500).optional(),
+		prompt: z.string().trim().min(1).max(MAX_MODEL_PROMPT_LENGTH),
+		system: z.string().max(MAX_MODEL_SYSTEM_LENGTH).optional(),
+		schema: z
+			.record(z.string(), z.unknown())
+			.refine((schema) => JSON.stringify(schema).length <= MAX_MODEL_SCHEMA_LENGTH, {
+				message: `The schema exceeds ${MAX_MODEL_SCHEMA_LENGTH} characters.`,
+			})
+			.optional(),
+		maxOutputTokens: z.number().int().positive().max(STORY_LLM_MAX_OUTPUT_TOKENS).optional(),
+	}),
+]) satisfies z.ZodType<StoryModelRequest>;
+
 export function toCustomStoryTrpcError(error: unknown): unknown {
 	if (
 		error instanceof CustomStoryNotFoundError ||
@@ -85,7 +107,11 @@ export function toCustomStoryTrpcError(error: unknown): unknown {
 
 /** A failing query is the story's content, not a server fault: its message reaches the frame instead of a masked 500. */
 export function toCustomStoryQueryTrpcError(error: unknown): unknown {
-	if (error instanceof CustomStoryQueryExecutionError || error instanceof CustomStorySqlError) {
+	if (
+		error instanceof CustomStoryQueryExecutionError ||
+		error instanceof CustomStorySqlError ||
+		error instanceof CustomStoryModelError
+	) {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error });
 	}
 	return toCustomStoryTrpcError(error);

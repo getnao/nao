@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { serializeStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import { normalizeBrandHeader, showsBrandIdentity } from '@nao/shared/story-theme';
 import {
@@ -9,6 +9,8 @@ import {
 	subscribeToEditing,
 	subscribeToTheme,
 } from '../story-host';
+import { useHostRequest } from './use-host-request';
+import type { HostRequest, HostRequestResult } from './use-host-request';
 import type { StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryQueryFilters, StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -34,26 +36,13 @@ export interface UseSqlOptions {
 	enabled?: boolean;
 }
 
-interface HostRequest {
-	/** What is asked for; rows of an earlier request with the same source stay shown while the next one runs. */
-	source: string;
-	key: string;
-	fetch: (fresh: boolean) => Promise<StoryQueryResult>;
-}
-
-const LOADING: QueryDataState = { status: 'loading', data: null, columns: null, error: null };
-/** Rows stay as fresh as the host's own query data, and a viewer trying many filters does not keep them all. */
-const RESULT_TTL_MS = 5 * 60 * 1000;
-const MAX_CACHED_RESULTS = 50;
-const resultCache = new Map<string, { result: Promise<StoryQueryResult>; expiresAt: number }>();
-
 /** Rows of a saved query; `filters` and `params` re-run it on the server with the story's own selection. */
 export function useQueryData(
 	queryId: string,
 	{ enabled = true, filters, params }: UseQueryDataOptions = {},
 ): QueryDataResult {
 	const inputsKey = serializeStoryQueryInputs({ filters, params });
-	const request = useMemo<HostRequest>(() => {
+	const request = useMemo<HostRequest<StoryQueryResult>>(() => {
 		const inputs: StoryQueryInputs = inputsKey ? JSON.parse(inputsKey) : {};
 		return {
 			source: `query:${queryId}`,
@@ -61,7 +50,7 @@ export function useQueryData(
 			fetch: (fresh) => requestQueryData(queryId, { fresh, ...inputs }),
 		};
 	}, [queryId, inputsKey]);
-	return useHostRequest(request, enabled);
+	return toQueryDataResult(useHostRequest(request, enabled));
 }
 
 /**
@@ -70,7 +59,7 @@ export function useQueryData(
  */
 export function useSql(sql: string, { databaseId, filters, enabled = true }: UseSqlOptions = {}): QueryDataResult {
 	const filtersKey = serializeStoryQueryInputs({ filters });
-	const request = useMemo<HostRequest>(() => {
+	const request = useMemo<HostRequest<StoryQueryResult>>(() => {
 		const inputs: StoryQueryInputs = filtersKey ? JSON.parse(filtersKey) : {};
 		return {
 			source: `sql:${databaseId ?? ''}`,
@@ -78,7 +67,7 @@ export function useSql(sql: string, { databaseId, filters, enabled = true }: Use
 			fetch: (fresh) => requestSql(sql, { databaseId, filters: inputs.filters, fresh }),
 		};
 	}, [sql, databaseId, filtersKey]);
-	return useHostRequest(request, enabled && sql.trim() !== '');
+	return toQueryDataResult(useHostRequest(request, enabled && sql.trim() !== ''));
 }
 
 export function useStoryTheme(): StoryTheme | null {
@@ -96,76 +85,19 @@ export function useStoryEditing(): boolean {
 	return useSyncExternalStore(subscribeToEditing, isEditingEnabled);
 }
 
-function useHostRequest(request: HostRequest, enabled: boolean): QueryDataResult {
-	const [refreshes, setRefreshes] = useState(0);
-	/** The request `refetch` was called for: the next fetch of it skips the cache, once. */
-	const refreshKeyRef = useRef<string | null>(null);
-	const [settled, setSettled] = useState<{ source: string; key: string; state: QueryDataState } | null>(null);
-	const requestKey = `${refreshes}:${request.key}`;
-
-	useEffect(() => {
-		if (!enabled) {
-			return;
-		}
-		let cancelled = false;
-		const settle = (state: QueryDataState) => {
-			if (!cancelled) {
-				setSettled({ source: request.source, key: requestKey, state });
-			}
+function toQueryDataResult({ isFetching, refetch, ...state }: HostRequestResult<StoryQueryResult>): QueryDataResult {
+	if (state.status === 'success') {
+		return {
+			status: 'success',
+			data: state.data.data,
+			columns: state.data.columns,
+			error: null,
+			isFetching,
+			refetch,
 		};
-		const fresh = refreshKeyRef.current === request.key;
-		refreshKeyRef.current = null;
-		fetchCached(request, fresh).then(
-			(result) => settle({ status: 'success', data: result.data, columns: result.columns, error: null }),
-			(error: unknown) => settle({ status: 'error', data: null, columns: null, error: describeError(error) }),
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [request, refreshes, enabled, requestKey]);
-
-	const refetch = useCallback(() => {
-		refreshKeyRef.current = request.key;
-		setRefreshes((count) => count + 1);
-	}, [request.key]);
-	if (!enabled) {
-		return { ...LOADING, isFetching: false, refetch };
 	}
-	if (settled?.key === requestKey) {
-		return { ...settled.state, isFetching: false, refetch };
+	if (state.status === 'error') {
+		return { status: 'error', data: null, columns: null, error: state.error, isFetching, refetch };
 	}
-	const keepsPreviousRows = settled?.source === request.source && settled.state.status === 'success';
-	return { ...(keepsPreviousRows ? settled.state : LOADING), isFetching: true, refetch };
-}
-
-function fetchCached(request: HostRequest, fresh: boolean): Promise<StoryQueryResult> {
-	const cached = resultCache.get(request.key);
-	if (!fresh && cached && cached.expiresAt > Date.now()) {
-		return cached.result;
-	}
-	const result = request.fetch(fresh);
-	rememberResult(request.key, result);
-	result.catch(() => {
-		if (resultCache.get(request.key)?.result === result) {
-			resultCache.delete(request.key);
-		}
-	});
-	return result;
-}
-
-/** A Map iterates in insertion order, so re-inserting a key makes it the newest and the first key is the oldest. */
-function rememberResult(key: string, result: Promise<StoryQueryResult>): void {
-	resultCache.delete(key);
-	resultCache.set(key, { result, expiresAt: Date.now() + RESULT_TTL_MS });
-	while (resultCache.size > MAX_CACHED_RESULTS) {
-		const oldestKey = resultCache.keys().next().value;
-		if (oldestKey === undefined) {
-			return;
-		}
-		resultCache.delete(oldestKey);
-	}
-}
-
-function describeError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return { status: 'loading', data: null, columns: null, error: null, isFetching, refetch };
 }

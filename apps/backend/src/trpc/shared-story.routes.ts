@@ -21,6 +21,7 @@ import {
 	getStandaloneCustomStoryQueryData,
 	getStandaloneCustomStoryVersion,
 } from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { runCustomStorySql } from '../services/custom-story-sql';
 import {
 	getCustomStoryState,
@@ -45,6 +46,7 @@ import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	STANDALONE_QUERY_SQL_UNAVAILABLE,
 	STANDALONE_SQL_UNAVAILABLE,
+	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
 	storySqlRequest,
@@ -232,6 +234,29 @@ export const sharedStoryRoutes = {
 							input.versionNumber,
 							input.inputs,
 						);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	listCustomStoryModels: shareAccessProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(({ ctx }) => listCustomStoryModels(ctx.resource.projectId, ctx.user.id)),
+
+	runCustomStoryModel: cloudBillingShareAccessProcedure
+		.input(z.object({ storyId: z.string(), request: storyModelRequest }))
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				return await runCustomStoryModel(
+					{
+						projectId: shared.projectId,
+						storyId: shared.storyId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: shared.projectId,
+					},
+					input.request,
+				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
