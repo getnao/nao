@@ -1,5 +1,5 @@
 import type { CustomBoundarySet } from '@nao/shared';
-import { fitMapBoundariesInExport, type StoryMapBoundary } from '@nao/shared/story-app';
+import type { StoryMapBoundary } from '@nao/shared/story-app';
 
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -20,7 +20,7 @@ export async function readCustomStoryMapBoundary(
 	return story ? readStoryMapBoundary(story.id, key) : null;
 }
 
-/** The sets a downloaded story loads, so its maps still draw offline, within the download's boundary budget. */
+/** The sets a server-rendered story loads, so its maps draw without a live connection. */
 export async function readStoryMapBoundaries(
 	storyId: string,
 	keys: string[],
@@ -32,7 +32,7 @@ export async function readStoryMapBoundaries(
 	const entries = await Promise.all(
 		keys.map(async (key) => [key, await toStoryMapBoundary(key, customSets)] as const),
 	);
-	return fitMapBoundariesInExport(entries.filter((entry): entry is [string, StoryMapBoundary] => entry[1] !== null));
+	return Object.fromEntries(entries.filter((entry): entry is [string, StoryMapBoundary] => entry[1] !== null));
 }
 
 async function findStoryBoundarySets(storyId: string): Promise<CustomBoundarySet[] | null> {

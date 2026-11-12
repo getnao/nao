@@ -151,16 +151,16 @@ export const fitMapBoundariesInExport = (
 	boundaries: [string, StoryMapBoundary][],
 ): Record<string, StoryMapBoundary> => {
 	const encoder = new TextEncoder();
-	const kept: Record<string, StoryMapBoundary> = {};
 	let remainingBytes = MAX_STORY_EXPORT_BOUNDARY_BYTES;
-	for (const [key, boundary] of boundaries) {
+	const kept = boundaries.filter(([, boundary]) => {
 		const bytes = encoder.encode(JSON.stringify(boundary)).byteLength;
-		if (bytes <= remainingBytes) {
-			kept[key] = boundary;
-			remainingBytes -= bytes;
+		if (bytes > remainingBytes) {
+			return false;
 		}
-	}
-	return kept;
+		remainingBytes -= bytes;
+		return true;
+	});
+	return Object.fromEntries(kept);
 };
 
 export interface StoryExportData {
