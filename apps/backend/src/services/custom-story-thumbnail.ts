@@ -1,5 +1,5 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
-import type { StoryQueryResult } from '@nao/shared/story-app';
+import { STORY_QUERY_ACCESS_DENIED_MESSAGE, type StoryQueryResult } from '@nao/shared/story-app';
 import { STORY_THEME_MODES, type StoryThemeMode, type StoryThemePair } from '@nao/shared/story-theme';
 import { createHash } from 'crypto';
 
@@ -13,6 +13,8 @@ import { isBrokenRender, renderStoryScreenshot } from '../utils/story-screenshot
 import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
 import { listStoryChartPlugins } from './chart-plugin';
 import {
+	CustomStoryNotFoundError,
+	CustomStoryQueryExecutionError,
 	type CustomStoryVersionView,
 	getActiveThemeForStory,
 	getCustomStoryNarratives,
@@ -123,10 +125,16 @@ export async function getViewerCustomStoryThumbnail(
 	if (!chatId) {
 		return null;
 	}
-	const [version, executionContext] = await Promise.all([
-		getLatestCustomStoryVersionByStoryId(story.id),
-		createStoryExecutionContext(chatId, viewerUserId),
-	]);
+	let version: CustomStoryVersionView;
+	try {
+		version = await getLatestCustomStoryVersionByStoryId(story.id);
+	} catch (error) {
+		if (error instanceof CustomStoryNotFoundError) {
+			return null;
+		}
+		throw error;
+	}
+	const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
 	const key = `${version.version.id}:${viewerUserId}:${executionContext.permissionRevision}:${mode}`;
 	const cached = viewerThumbnails.get(key);
 	if (cached && cached.expiresAt > Date.now()) {
@@ -171,8 +179,14 @@ async function renderViewerThumbnail(
 						viewerUserId,
 					});
 					return [queryId, result];
-				} catch {
-					return null;
+				} catch (error) {
+					if (
+						error instanceof CustomStoryQueryExecutionError &&
+						error.message === STORY_QUERY_ACCESS_DENIED_MESSAGE
+					) {
+						return [queryId, { columns: [], data: [], accessDenied: true }];
+					}
+					throw error;
 				}
 			}),
 		),

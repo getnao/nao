@@ -1,6 +1,7 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import {
 	STORY_NARRATIVES_REDACT_MISSING_KEY,
+	STORY_QUERY_ACCESS_DENIED_MESSAGE,
 	type StoryApp,
 	type StoryNarratives,
 	type StoryQueryResult,
@@ -280,7 +281,7 @@ async function getViewerCustomStoryQueryData(
 
 function requireAccessibleStoryQuery(result: StoryQueryResult & { accessDenied?: true }): StoryQueryResult {
 	if (result.accessDenied) {
-		throw new CustomStoryQueryExecutionError('Query data is unavailable with your current access.');
+		throw new CustomStoryQueryExecutionError(STORY_QUERY_ACCESS_DENIED_MESSAGE);
 	}
 	return result;
 }

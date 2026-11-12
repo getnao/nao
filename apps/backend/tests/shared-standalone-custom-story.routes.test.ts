@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	getSharedStoryByStoryId: vi.fn(),
+	listUserSharedStories: vi.fn(),
 	canUserAccessSharedStory: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../src/queries/user-group.queries', () => ({ getProjectRowSecurity: moc
 vi.mock('../src/queries/shared-story.queries', () => ({
 	getSharedStory: vi.fn(),
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
+	listUserSharedStories: mocks.listUserSharedStories,
 	canUserAccessSharedStory: mocks.canUserAccessSharedStory,
 }));
 vi.mock('../src/queries/story.queries', () => ({
@@ -69,6 +71,7 @@ describe('storyShare standalone classic story', () => {
 		mockShare({ chatId: null, format: 'classic' });
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.canUserAccessSharedStory.mockResolvedValue(true);
+		mocks.listUserSharedStories.mockResolvedValue([]);
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
 		mocks.hasEffectiveWarehouseRestrictions.mockImplementation(
 			async () => (await mocks.getProjectRowSecurity()).tables.length > 0,
@@ -131,6 +134,29 @@ describe('storyShare custom story readers', () => {
 			code: 'FORBIDDEN',
 		});
 		expect(mocks.getStandaloneCustomStoryVersion).not.toHaveBeenCalled();
+	});
+
+	it('hides standalone stories from restricted viewers but keeps chat-backed stories', async () => {
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(true);
+		mocks.listUserSharedStories.mockResolvedValue([
+			sharedStoryListItem({ storyId: 'standalone-story', chatId: null }),
+			sharedStoryListItem({ storyId: 'chat-story', chatId: 'chat-1' }),
+		]);
+
+		const stories = await createCaller().storyShare.list({ projectId: 'project-1' });
+
+		expect(stories.map((story) => story.storyId)).toEqual(['chat-story']);
+	});
+
+	it('keeps the owner’s standalone stories visible when restrictions exist', async () => {
+		mocks.hasEffectiveWarehouseRestrictions.mockResolvedValue(true);
+		mocks.listUserSharedStories.mockResolvedValue([
+			sharedStoryListItem({ storyId: 'standalone-story', chatId: null }),
+		]);
+
+		const stories = await createCaller('owner-1').storyShare.list({ projectId: 'project-1' });
+
+		expect(stories.map((story) => story.storyId)).toEqual(['standalone-story']);
 	});
 
 	it('allows the standalone story owner when row security exists', async () => {
@@ -206,6 +232,26 @@ function mockShare({ chatId, format = 'custom' }: { chatId: string | null; forma
 
 function rows(value: string) {
 	return { columns: ['value'], data: [{ value }] };
+}
+
+function sharedStoryListItem({ storyId, chatId }: { storyId: string; chatId: string | null }) {
+	return {
+		id: `share-${storyId}`,
+		storyId,
+		projectId: 'project-1',
+		userId: 'owner-1',
+		ownerUserId: 'owner-1',
+		chatId,
+		slug: storyId,
+		title: storyId,
+		code: '',
+		format: 'custom',
+		version: 1,
+		visibility: 'project',
+		sharedWithCount: 0,
+		sharedWithGroupCount: 0,
+		isPinned: false,
+	};
 }
 
 function createCaller(userId = 'viewer-1') {
