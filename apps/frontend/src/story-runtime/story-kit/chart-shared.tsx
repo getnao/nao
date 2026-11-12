@@ -47,6 +47,10 @@ export function ChartBlock({
 	blockRef,
 	queryId,
 	data,
+	sql,
+	databaseId,
+	filters,
+	params,
 	height = DEFAULT_CHART_HEIGHT,
 	showGrid = true,
 	title,
@@ -55,7 +59,7 @@ export function ChartBlock({
 	style,
 	...options
 }: ChartBlockProps) {
-	const source = useBlockData({ queryId, data });
+	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options, chartType) : null;
 	const showLegend = resolved ? resolveShowLegend(chartType, resolved, options.showLegend) : false;
 	const edit =

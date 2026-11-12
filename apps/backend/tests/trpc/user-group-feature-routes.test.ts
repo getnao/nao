@@ -132,6 +132,7 @@ vi.mock('../../src/services/story-edit-lock.service', async (importOriginal) => 
 }));
 vi.mock('../../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../../src/agents/profiles/messaging', () => ({ messagingAgent: vi.fn() }));
+vi.mock('../../src/agents/profiles/story-model', () => ({ storyModelAgent: vi.fn() }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),

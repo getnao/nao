@@ -20,9 +20,11 @@ import { agentService } from '../services/agent';
 import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
+	assertCustomStoryExists,
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
+	getCustomStoryId,
 	getCustomStoryNarratives,
 	getCustomStoryQueryData,
 	getCustomStoryQuerySql,
@@ -30,7 +32,9 @@ import {
 	getEditorCustomStoryQueryData,
 	getEditorCustomStoryQuerySql,
 } from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { assertWriterAddsNoMarkdownChatQueries } from '../services/custom-story-query-access';
+import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
@@ -74,7 +78,10 @@ import { listStoryVersionChanges } from '../services/story-version-history';
 import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	storyModelRequest,
+	storyQueryInputs,
 	storySnapshotHtml,
+	storySqlRequest,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
@@ -512,17 +519,62 @@ export const storyRoutes = {
 				storySlug: z.string(),
 				queryId: z.string(),
 				versionNumber: z.number().int().positive().optional(),
+				inputs: storyQueryInputs,
 			}),
 		)
 		.query(async ({ input, ctx }) => {
-			const { chatId, storySlug, queryId, versionNumber } = input;
+			const { chatId, storySlug, queryId, versionNumber, inputs } = input;
+			const rerun = { inputs, viewerId: ctx.user.id };
 			try {
 				return ctx.isChatOwner
-					? await getCustomStoryQueryData(chatId, storySlug, queryId, { deferRefresh: true })
+					? await getCustomStoryQueryData(chatId, storySlug, queryId, { deferRefresh: true, rerun })
 					: await getEditorCustomStoryQueryData(chatId, storySlug, queryId, {
 							deferRefresh: true,
 							versionNumber,
+							rerun,
 						});
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	runCustomStorySql: cloudBillingStoryEditorProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), request: storySqlRequest }))
+		.mutation(async ({ input, ctx }) => {
+			try {
+				await assertCustomStoryExists(input.chatId, input.storySlug);
+				return await runCustomStorySql(
+					{
+						projectId: ctx.projectId,
+						chatId: input.chatId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: ctx.projectId,
+					},
+					input.request,
+				);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	listCustomStoryModels: storyEditorProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(({ ctx }) => listCustomStoryModels(ctx.projectId, ctx.user.id)),
+
+	runCustomStoryModel: cloudBillingStoryEditorProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), request: storyModelRequest }))
+		.mutation(async ({ input, ctx }) => {
+			try {
+				const storyId = await getCustomStoryId(input.chatId, input.storySlug);
+				return await runCustomStoryModel(
+					{
+						projectId: ctx.projectId,
+						storyId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: ctx.projectId,
+					},
+					input.request,
+				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}

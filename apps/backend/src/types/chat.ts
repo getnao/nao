@@ -29,7 +29,8 @@ export interface ForkMetadata {
 		| 'story'
 		| 'story_selection'
 		| 'story_question'
-		| 'automation_edit';
+		| 'automation_edit'
+		| 'story_model';
 	id: string;
 	title: string;
 	authorName: string;
@@ -83,6 +84,7 @@ export const MESSAGE_SOURCES = [
 	'admin',
 	'onboarding',
 	'test',
+	'storyModel',
 ] as const;
 
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];

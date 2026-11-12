@@ -1021,9 +1021,12 @@ export function isQuickQuestionForkType(type: string | undefined): boolean {
 /** Automation editing chats live beside the form of their automation, not in the chat history. */
 export const AUTOMATION_EDIT_FORK_TYPE = 'automation_edit';
 
-const PAGE_SCOPED_FORK_TYPES = [...QUICK_QUESTION_FORK_TYPES, AUTOMATION_EDIT_FORK_TYPE];
+/** Each model call a custom story makes is a chat of its own, kept under the story rather than in the history. */
+export const STORY_MODEL_FORK_TYPE = 'story_model';
 
-/** Leaves out the chats that live on the page they were opened from: quick questions and automation editing. */
+const PAGE_SCOPED_FORK_TYPES = [...QUICK_QUESTION_FORK_TYPES, AUTOMATION_EDIT_FORK_TYPE, STORY_MODEL_FORK_TYPE];
+
+/** Leaves out the chats that live on the page they were opened from: quick questions, automation editing, story model calls. */
 export const isNotPageScopedChat = () => {
 	return sql`coalesce(${forkMetadataField('type')}, '') not in (${sql.join(
 		PAGE_SCOPED_FORK_TYPES.map((type) => sql`${type}`),

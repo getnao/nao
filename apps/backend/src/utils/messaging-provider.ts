@@ -1,15 +1,17 @@
-import { cardToBlockKit } from '@chat-adapter/slack';
+import { cardToBlockKit, type SlackBlock } from '@chat-adapter/slack';
 import { pluralize, stripAssistantTags, TOOL_LABELS } from '@nao/shared';
 import type { CardChild, CardElement, ModalElement, PostableMarkdown } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton, Table } from 'chat';
 
 import { generateMapImage } from '../components/generate-map';
+import * as executeSqlQueries from '../queries/execute-sql.queries';
 import * as projectQueries from '../queries/project.queries';
 import { DEFAULT_APP_NAME } from '../services/branding.service';
 import { UIMessagePart } from '../types/chat';
-import { StreamState, ToolCallEntry } from '../types/messaging-provider';
+import { SqlOutput, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { BudgetExceededError } from './error';
 import { logger } from './logger';
+import { resolveSqlOutput } from './markdown-messaging';
 
 export const EXCLUDED_TOOLS = [
 	'tool-suggest_follow_ups',
@@ -203,7 +205,13 @@ export const createTextBlocks = (text: string, options: CreateTextBlocksOptions 
 			tableState.hasNativeTable = true;
 
 			if (fittedTable.headers.length > 0) {
-				blocks.push(Table({ headers: fittedTable.headers, rows: fittedTable.rows }));
+				blocks.push(
+					Table({
+						headers: fittedTable.headers,
+						rows: fittedTable.rows,
+						pageSize: Math.max(fittedTable.rows.length, 1),
+					}),
+				);
 			}
 
 			const truncationNotice = createTableTruncationNotice(
@@ -368,16 +376,22 @@ function fitRowToBudget(row: string[], characterBudget: number): string[] {
 	});
 }
 
-export function buildSlackTableBlocks(
-	text: string,
-	appName = DEFAULT_APP_NAME,
-): ReturnType<typeof cardToBlockKit> | null {
+export function buildSlackTableBlocks(text: string, appName = DEFAULT_APP_NAME): SlackBlock[] | null {
 	const sanitized = stripAssistantTags(text);
 	const children = createTextBlocks(sanitized, { appName });
 	if (!children.some((child) => child.type === 'table')) {
 		return null;
 	}
-	return cardToBlockKit(Card({ children }));
+	return toSlackBlocks(children);
+}
+
+/** Slack collapses long sections behind "See more"; answers are always shown in full. */
+export function toSlackBlocks(children: CardChild[]): SlackBlock[] {
+	return cardToBlockKit(Card({ children })).map(expandSectionText);
+}
+
+function expandSectionText(block: SlackBlock): SlackBlock {
+	return block.type === 'section' && block.text ? { ...block, expand: true } : block;
 }
 
 export const createNotificationCard = (
@@ -477,6 +491,27 @@ export const createWhatsappMapLink = (title: string, chatUrl: string, appName = 
 	`🗺️ ${title}\nView interactive map in ${appName}: ${chatUrl}`;
 
 /** Renders an interactive map tool call to a static PNG. */
+/** Rows behind a chart or map: from this answer's queries, or from an earlier answer in the same chat. */
+export function resolveChatSqlOutput(
+	state: StreamState,
+	chatId: string,
+	queryId: string,
+): Promise<SqlOutput | undefined> {
+	return resolveSqlOutput({
+		queryId,
+		sqlOutputs: state.sqlOutputs,
+		loadPersisted: (persistedQueryId) => loadPersistedSqlOutput(chatId, persistedQueryId),
+	});
+}
+
+async function loadPersistedSqlOutput(chatId: string, queryId: string): Promise<SqlOutput | null> {
+	const persisted = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
+	if (!persisted?.toolOutput.data) {
+		return null;
+	}
+	return { name: persisted.toolInput.name ?? null, rows: persisted.toolOutput.data };
+}
+
 export async function renderMapImage(
 	part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 	state: StreamState,

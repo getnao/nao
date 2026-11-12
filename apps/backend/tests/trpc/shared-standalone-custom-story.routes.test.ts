@@ -122,7 +122,12 @@ describe('storyShare custom story readers', () => {
 		await caller.storyShare.getCustomStoryQueryData({ ...STORY_INPUT, queryId: 'q_revenue' });
 		await caller.storyShare.getCustomStoryNarratives(STORY_INPUT);
 
-		expect(mocks.getStandaloneCustomStoryQueryData).toHaveBeenCalledWith('story-1', 'q_revenue', undefined);
+		expect(mocks.getStandaloneCustomStoryQueryData).toHaveBeenCalledWith(
+			'story-1',
+			'q_revenue',
+			undefined,
+			undefined,
+		);
 		expect(mocks.getStandaloneCustomStoryNarratives).toHaveBeenCalledWith('story-1');
 	});
 
