@@ -162,6 +162,29 @@ beforeEach(() => {
 });
 
 describe('user group routes', () => {
+	it('holds the project config lock across UI mode checks and group writes', async () => {
+		let lockHeld = false;
+		mocks.withUserGroupConfigLock.mockImplementationOnce(async (_projectId, operation) => {
+			lockHeld = true;
+			try {
+				return await operation();
+			} finally {
+				lockHeld = false;
+			}
+		});
+		mocks.assertUserGroupsUiManaged.mockImplementationOnce(async () => {
+			expect(lockHeld).toBe(true);
+		});
+		mocks.createUserGroup.mockImplementationOnce(async () => {
+			expect(lockHeld).toBe(true);
+			return { id: 'group-id', name: 'Analysts' };
+		});
+
+		await caller.create({ name: 'Analysts' });
+
+		expect(mocks.withUserGroupConfigLock).toHaveBeenCalledWith('project-id', expect.any(Function));
+	});
+
 	it('holds the project config lock across the row-security ownership check and write', async () => {
 		let lockHeld = false;
 		mocks.getUserGroupManagementMode.mockResolvedValue('code');

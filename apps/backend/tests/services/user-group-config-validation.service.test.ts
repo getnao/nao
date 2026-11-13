@@ -91,6 +91,22 @@ describe('validateUserGroupsConfig', () => {
 
 		await expect(validateUserGroupsConfig('project-id', projectPath, config, config)).resolves.toBeUndefined();
 	});
+
+	it('rejects a skill that runtime discovery excludes for leaving the skills folder', async () => {
+		const projectPath = createTemporaryFolder('nao-user-group-config-validation-');
+		const skillsPath = path.join(projectPath, 'agent', 'skills');
+		const outsideSkillPath = path.join(projectPath, 'analysis.md');
+		fs.mkdirSync(skillsPath, { recursive: true });
+		fs.writeFileSync(outsideSkillPath, '---\ndescription: Analysis\n---\n');
+		fs.symlinkSync(outsideSkillPath, path.join(skillsPath, 'analysis.md'));
+		const config = parseUserGroupsConfig(
+			readGuideExample().replace('preloaded_skills: []', 'preloaded_skills: [analysis]'),
+		);
+
+		await expect(validateUserGroupsConfig('project-id', projectPath, config, config)).rejects.toThrow(
+			'Unknown skill: analysis.',
+		);
+	});
 });
 
 function readGuideExample(): string {

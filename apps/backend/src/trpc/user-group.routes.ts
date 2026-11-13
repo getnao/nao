@@ -433,52 +433,53 @@ export const userGroupRoutes = {
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
-		.mutation(async ({ ctx, input }) => {
-			await assertUiManaged(ctx.project.id);
-			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
-			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
-			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
-			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
-			const mcpAccess = normalizeMcpAccess(input.mcpAccess);
-			await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () => EMPTY_MCP_ACCESS);
-			const skillsAccess = normalizeSkillsAccess(input.skillsAccess);
-			await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () => EMPTY_SKILLS_ACCESS);
-			const shareTargets = await keepExistingShareTargetGroups(ctx.project.id, input.shareTargets);
-			let rowPolicies: UserGroupRowPolicies | undefined;
-			if (input.rowPolicies !== undefined) {
-				await assertRowSecurityLicensed(ctx.project.id);
-				const validation = await validateGroupRowPolicies(
-					ctx.project.id,
-					normalizeUserGroupRowPolicies(input.rowPolicies),
-				);
-				rowPolicies = validation.rowPolicies;
-			}
-			const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))
-				? userGroupQueries.createUserGroup
-				: userGroupQueries.createUserGroupWithinLimit.bind(null, FREE_CUSTOM_USER_GROUP_LIMIT);
-			const group = await handleQuery(() => {
-				const values = [
-					ctx.project.id,
-					input.name,
-					unique(input.featureGrants),
-					input.toolCallDensityPolicy,
-					databaseAccess,
-					docsAccess,
-					input.ssoMappings === undefined ? undefined : normalizeUserGroupSsoMappings(input.ssoMappings),
-					rowPolicies,
-					filesAccess,
-					input.projectSharing,
-					mcpAccess,
-					input.showAllSettings,
-					input.preloadedSkills,
-					skillsAccess,
-					shareTargets,
-				] as const;
-				return createUserGroup(...values);
-			});
-			await saveGroupBudget(ctx.project.id, group.id, input.budgetLimitUsd);
-			return group;
-		}),
+		.mutation(({ ctx, input }) =>
+			withUiManagedMutation(ctx.project.id, async () => {
+				await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+				const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
+				const docsAccess = normalizeFileTreeAccess(input.docsAccess);
+				const filesAccess = normalizeFileTreeAccess(input.filesAccess);
+				const mcpAccess = normalizeMcpAccess(input.mcpAccess);
+				await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () => EMPTY_MCP_ACCESS);
+				const skillsAccess = normalizeSkillsAccess(input.skillsAccess);
+				await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () => EMPTY_SKILLS_ACCESS);
+				const shareTargets = await keepExistingShareTargetGroups(ctx.project.id, input.shareTargets);
+				let rowPolicies: UserGroupRowPolicies | undefined;
+				if (input.rowPolicies !== undefined) {
+					await assertRowSecurityLicensed(ctx.project.id);
+					const validation = await validateGroupRowPolicies(
+						ctx.project.id,
+						normalizeUserGroupRowPolicies(input.rowPolicies),
+					);
+					rowPolicies = validation.rowPolicies;
+				}
+				const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups, { projectId: ctx.project.id }))
+					? userGroupQueries.createUserGroup
+					: userGroupQueries.createUserGroupWithinLimit.bind(null, FREE_CUSTOM_USER_GROUP_LIMIT);
+				const group = await handleQuery(() => {
+					const values = [
+						ctx.project.id,
+						input.name,
+						unique(input.featureGrants),
+						input.toolCallDensityPolicy,
+						databaseAccess,
+						docsAccess,
+						input.ssoMappings === undefined ? undefined : normalizeUserGroupSsoMappings(input.ssoMappings),
+						rowPolicies,
+						filesAccess,
+						input.projectSharing,
+						mcpAccess,
+						input.showAllSettings,
+						input.preloadedSkills,
+						skillsAccess,
+						shareTargets,
+					] as const;
+					return createUserGroup(...values);
+				});
+				await saveGroupBudget(ctx.project.id, group.id, input.budgetLimitUsd);
+				return group;
+			}),
+		),
 
 	update: adminProtectedProcedure
 		.input(
@@ -501,73 +502,78 @@ export const userGroupRoutes = {
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
-		.mutation(async ({ ctx, input }) => {
-			await assertUiManaged(ctx.project.id);
-			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
-			const databaseAccess =
-				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
-			const docsAccess = input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
-			const filesAccess =
-				input.filesAccess === undefined ? undefined : normalizeFileTreeAccess(input.filesAccess);
-			const mcpAccess = input.mcpAccess === undefined ? undefined : normalizeMcpAccess(input.mcpAccess);
-			if (mcpAccess !== undefined) {
-				await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () =>
-					getCurrentGroupMcpAccess(ctx.project.id, input.groupId),
+		.mutation(({ ctx, input }) =>
+			withUiManagedMutation(ctx.project.id, async () => {
+				await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+				await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+				const databaseAccess =
+					input.databaseAccess === undefined
+						? undefined
+						: normalizeDatabaseContextAccess(input.databaseAccess);
+				const docsAccess =
+					input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
+				const filesAccess =
+					input.filesAccess === undefined ? undefined : normalizeFileTreeAccess(input.filesAccess);
+				const mcpAccess = input.mcpAccess === undefined ? undefined : normalizeMcpAccess(input.mcpAccess);
+				if (mcpAccess !== undefined) {
+					await assertMcpAccessChangeAllowed(ctx.project.id, mcpAccess, () =>
+						getCurrentGroupMcpAccess(ctx.project.id, input.groupId),
+					);
+				}
+				const skillsAccess =
+					input.skillsAccess === undefined ? undefined : normalizeSkillsAccess(input.skillsAccess);
+				if (skillsAccess !== undefined) {
+					await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () =>
+						getCurrentGroupSkillsAccess(ctx.project.id, input.groupId),
+					);
+				}
+				const shareTargets =
+					input.shareTargets === undefined
+						? undefined
+						: await keepExistingShareTargetGroups(ctx.project.id, input.shareTargets, input.groupId);
+				let rowPolicies: UserGroupRowPolicies | undefined;
+				let rowPoliciesRegistry: ProjectRowSecurity | undefined;
+				if (input.rowPolicies !== undefined) {
+					await assertRowSecurityLicensed(ctx.project.id);
+					const validation = await validateGroupRowPolicies(
+						ctx.project.id,
+						normalizeUserGroupRowPolicies(input.rowPolicies),
+					);
+					rowPolicies = validation.rowPolicies;
+					rowPoliciesRegistry = validation.registry;
+				}
+				const group = await handleQuery(() =>
+					userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
+						name: input.name,
+						featureGrants: unique(input.featureGrants),
+						toolCallDensityPolicy: input.toolCallDensityPolicy,
+						projectSharing: input.projectSharing,
+						shareTargets,
+						showAllSettings: input.showAllSettings,
+						preloadedSkills: input.preloadedSkills,
+						...(databaseAccess === undefined ? {} : { databaseAccess }),
+						...(docsAccess === undefined ? {} : { docsAccess }),
+						...(filesAccess === undefined ? {} : { filesAccess }),
+						...(mcpAccess === undefined ? {} : { mcpAccess }),
+						...(skillsAccess === undefined ? {} : { skillsAccess }),
+						...(input.ssoMappings === undefined
+							? {}
+							: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
+						...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
+					}),
 				);
-			}
-			const skillsAccess =
-				input.skillsAccess === undefined ? undefined : normalizeSkillsAccess(input.skillsAccess);
-			if (skillsAccess !== undefined) {
-				await assertSkillsAccessChangeAllowed(ctx.project.id, skillsAccess, () =>
-					getCurrentGroupSkillsAccess(ctx.project.id, input.groupId),
-				);
-			}
-			const shareTargets =
-				input.shareTargets === undefined
-					? undefined
-					: await keepExistingShareTargetGroups(ctx.project.id, input.shareTargets, input.groupId);
-			let rowPolicies: UserGroupRowPolicies | undefined;
-			let rowPoliciesRegistry: ProjectRowSecurity | undefined;
-			if (input.rowPolicies !== undefined) {
-				await assertRowSecurityLicensed(ctx.project.id);
-				const validation = await validateGroupRowPolicies(
-					ctx.project.id,
-					normalizeUserGroupRowPolicies(input.rowPolicies),
-				);
-				rowPolicies = validation.rowPolicies;
-				rowPoliciesRegistry = validation.registry;
-			}
-			const group = await handleQuery(() =>
-				userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
-					name: input.name,
-					featureGrants: unique(input.featureGrants),
-					toolCallDensityPolicy: input.toolCallDensityPolicy,
-					projectSharing: input.projectSharing,
-					shareTargets,
-					showAllSettings: input.showAllSettings,
-					preloadedSkills: input.preloadedSkills,
-					...(databaseAccess === undefined ? {} : { databaseAccess }),
-					...(docsAccess === undefined ? {} : { docsAccess }),
-					...(filesAccess === undefined ? {} : { filesAccess }),
-					...(mcpAccess === undefined ? {} : { mcpAccess }),
-					...(skillsAccess === undefined ? {} : { skillsAccess }),
-					...(input.ssoMappings === undefined
-						? {}
-						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
-					...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
-				}),
-			);
-			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
-			await revokeUnauthorizedProjectWideShares(ctx.project.id);
-			return group;
-		}),
+				await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
+				await revokeUnauthorizedProjectWideShares(ctx.project.id);
+				return group;
+			}),
+		),
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
-		await assertUiManaged(ctx.project.id);
-		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
-		await revokeUnauthorizedProjectWideShares(ctx.project.id);
+		await withUiManagedMutation(ctx.project.id, async () => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+			await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
+			await revokeUnauthorizedProjectWideShares(ctx.project.id);
+		});
 	}),
 
 	setMembership: adminProtectedProcedure
@@ -579,12 +585,18 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertUiManaged(ctx.project.id);
-			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-			await handleQuery(() =>
-				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
-			);
-			await revokeUnauthorizedProjectWideShares(ctx.project.id);
+			await withUiManagedMutation(ctx.project.id, async () => {
+				await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+				await handleQuery(() =>
+					userGroupQueries.setUserGroupMembership(
+						ctx.project.id,
+						input.groupId,
+						input.userId,
+						input.isMember,
+					),
+				);
+				await revokeUnauthorizedProjectWideShares(ctx.project.id);
+			});
 		}),
 
 	setMemberships: adminProtectedProcedure
@@ -596,14 +608,27 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertUiManaged(ctx.project.id);
-			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-			await handleQuery(() =>
-				userGroupQueries.setUserGroupMemberships(ctx.project.id, input.groupId, input.userIds, input.isMember),
-			);
-			await revokeUnauthorizedProjectWideShares(ctx.project.id);
+			await withUiManagedMutation(ctx.project.id, async () => {
+				await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
+				await handleQuery(() =>
+					userGroupQueries.setUserGroupMemberships(
+						ctx.project.id,
+						input.groupId,
+						input.userIds,
+						input.isMember,
+					),
+				);
+				await revokeUnauthorizedProjectWideShares(ctx.project.id);
+			});
 		}),
 };
+
+async function withUiManagedMutation<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+	return withUserGroupConfigLock(projectId, async () => {
+		await assertUiManaged(projectId);
+		return operation();
+	});
+}
 
 async function assertUiManaged(projectId: string): Promise<void> {
 	await handleQuery(() => assertUserGroupsUiManaged(projectId));

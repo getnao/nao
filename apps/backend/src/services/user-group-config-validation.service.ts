@@ -9,7 +9,7 @@ import { env } from '../env';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from './file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
-import { resolveProjectSkillName } from './skill';
+import { resolveProjectSkillFile, resolveProjectSkillName } from './skill';
 import type { NormalizedUserGroupsConfig, NormalizedUserGroupSettings } from './user-group-config.service';
 import { parseUserGroupsConfig, UserGroupConfigError } from './user-group-config.service';
 import { validateWarehouseRowPredicate } from './warehouse-sql.service';
@@ -168,8 +168,15 @@ function assertSkillReferences(projectPath: string, settings: NormalizedUserGrou
 			if (!filename.endsWith('.md')) {
 				continue;
 			}
-			const parsed = matter(fs.readFileSync(path.join(skillsPath, filename), 'utf8'));
-			skillNames.add(resolveProjectSkillName(filename, parsed.data.name));
+			try {
+				const skillPath = resolveProjectSkillFile(projectPath, skillsPath, path.join(skillsPath, filename));
+				if (skillPath) {
+					const parsed = matter(fs.readFileSync(skillPath, 'utf8'));
+					skillNames.add(resolveProjectSkillName(filename, parsed.data.name));
+				}
+			} catch {
+				continue;
+			}
 		}
 	}
 	for (const group of settings) {
