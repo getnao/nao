@@ -109,6 +109,15 @@ describe('context file headers', () => {
 		});
 	});
 
+	it('only updates the files asked for, like the ones that failed to save before', async () => {
+		const result = await applyOwnerToTableFiles('project', `/${ORDERS}/description.md`, 'ada@example.com', access, [
+			`/${ORDERS}/preview.md`,
+		]);
+
+		expect(result).toEqual({ updatedPaths: [`/${ORDERS}/preview.md`], failedPaths: [] });
+		expect((await readContents(access))[`/${ORDERS}/columns.md`]).toContain('owner: zoe@example.com');
+	});
+
 	it('removes the owner from the files of the table', async () => {
 		await applyOwnerToTableFiles('project', `/${ORDERS}/description.md`, null, access);
 

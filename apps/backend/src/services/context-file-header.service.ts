@@ -82,17 +82,23 @@ export async function listTableFileOwners(
 
 /**
  * Gives the other Markdown files of the table the file documents the same owner, so the whole table has one owner.
- * Files that cannot be edited here keep theirs, and a file that fails to save does not stop the others.
+ * Files that cannot be edited here keep theirs, and a file that fails to save does not stop the others. Given
+ * `onlyPaths`, like the files that failed to save before, it leaves the other files of the table alone.
  */
 export async function applyOwnerToTableFiles(
 	projectId: string,
 	filePath: string,
 	owner: string | null,
 	access: ContextExplorerFileAccess,
+	onlyPaths?: string[],
 ): Promise<TableOwnerUpdate> {
 	const tableFiles = await readOtherTableFiles(projectId, filePath, access);
+	const requestedPaths = onlyPaths && new Set(onlyPaths.map(normalizeProjectPath));
 	const filesToUpdate = tableFiles.filter(
-		({ file, reading }) => canChangeOwner(file, reading) && !isSameContextFileOwner(reading.header.owner, owner),
+		({ path, file, reading }) =>
+			(!requestedPaths || requestedPaths.has(normalizeProjectPath(path))) &&
+			canChangeOwner(file, reading) &&
+			!isSameContextFileOwner(reading.header.owner, owner),
 	);
 	const update: TableOwnerUpdate = { updatedPaths: [], failedPaths: [] };
 	for (const { path, file } of filesToUpdate) {

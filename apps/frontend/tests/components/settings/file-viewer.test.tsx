@@ -293,7 +293,11 @@ describe('FileViewer file header', () => {
 		expect(prompt.textContent).toContain('Updated the owner of 1 other doc of table orders.');
 		expect(within(prompt).getByRole('alert').textContent).toBe('1 other doc could not be saved: how_to_use.md.');
 		fireEvent.click(within(prompt).getByRole('button', { name: 'Retry' }));
-		expect(applyOwner).toHaveBeenCalledWith({ path: `${ORDERS_FOLDER}/columns.md`, owner: 'ada@example.com' });
+		expect(applyOwner).toHaveBeenCalledWith({
+			path: `${ORDERS_FOLDER}/columns.md`,
+			owner: 'ada@example.com',
+			onlyPaths: [`${ORDERS_FOLDER}/how_to_use.md`],
+		});
 	});
 
 	it('offers to retry when the users of the project cannot be loaded', async () => {

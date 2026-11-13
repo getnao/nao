@@ -43,10 +43,13 @@ export function TableOwnerPrompt({ filePath, tableFolder, owner, owners, onDismi
 		(file) => file.isEditable && !isSameContextFileOwner(file.owner, owner),
 	);
 	const table = <code className='font-mono'>{tableFolder.table}</code>;
-	const applyToTable = () => applyOwner.mutate({ path: filePath, owner });
+	const applyToTable = (onlyPaths?: string[]) => applyOwner.mutate({ path: filePath, owner, onlyPaths });
 
 	if (applyOwner.isSuccess) {
 		const { updatedPaths, failedPaths } = applyOwner.data;
+		if (updatedPaths.length === 0 && failedPaths.length === 0) {
+			return null;
+		}
 		return (
 			<PromptBar
 				icon={
@@ -73,7 +76,7 @@ export function TableOwnerPrompt({ filePath, tableFolder, owner, owners, onDismi
 					)}
 				</span>
 				{failedPaths.length > 0 && (
-					<PromptButton disabled={applyOwner.isPending} onClick={applyToTable}>
+					<PromptButton disabled={applyOwner.isPending} onClick={() => applyToTable(failedPaths)}>
 						Retry
 					</PromptButton>
 				)}
@@ -99,7 +102,7 @@ export function TableOwnerPrompt({ filePath, tableFolder, owner, owners, onDismi
 					</span>
 				)}
 			</span>
-			<PromptButton disabled={applyOwner.isPending} onClick={applyToTable}>
+			<PromptButton disabled={applyOwner.isPending} onClick={() => applyToTable()}>
 				{owner ? 'Apply to every doc' : 'Remove from every doc'}
 			</PromptButton>
 		</PromptBar>

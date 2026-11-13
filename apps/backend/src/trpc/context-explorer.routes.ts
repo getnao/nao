@@ -223,10 +223,10 @@ export const contextExplorerRoutes = {
 		}),
 
 	applyOwnerToTableFiles: cloudBillingContextAdminProcedure
-		.input(z.object({ path: z.string(), owner: fileOwnerSchema }))
+		.input(z.object({ path: z.string(), owner: fileOwnerSchema, onlyPaths: pathsSchema.optional() }))
 		.mutation(async ({ ctx, input }) => {
 			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
-			return applyOwnerToTableFiles(ctx.project.id, input.path, input.owner, access);
+			return applyOwnerToTableFiles(ctx.project.id, input.path, input.owner, access, input.onlyPaths);
 		}),
 
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
