@@ -77,6 +77,9 @@ vi.mock('@/main', () => ({
 		},
 		contextExplorer: {
 			getChangedFiles: { queryOptions: () => ({ queryKey: ['changed-files'], queryFn: () => [] }) },
+			getRepositoryStatus: {
+				queryOptions: () => ({ queryKey: ['repository-status'], queryFn: () => ({ branches: null }) }),
+			},
 		},
 	},
 }));

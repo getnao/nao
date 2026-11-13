@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
 
+import type { RepoBranch } from '@nao/shared/types';
+
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
 import { escapeRegExp, sliceHead } from '../utils/utils';
@@ -14,6 +16,23 @@ import {
 export { NAO_CO_AUTHOR };
 
 const GITHUB_DOTCOM_URL = 'https://github.com';
+const MAX_LISTED_BRANCHES = 1_000;
+const LIST_BRANCHES_QUERY = `
+query ($owner: String!, $name: String!, $after: String) {
+	viewer { login }
+	repository(owner: $owner, name: $name) {
+		refs(refPrefix: "refs/heads/", first: 100, after: $after, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) {
+			pageInfo { hasNextPage endCursor }
+			nodes {
+				name
+				target {
+					oid
+					... on Commit { committedDate author { name user { login } } }
+				}
+			}
+		}
+	}
+}`;
 const GITHUB_DOTCOM_API_URL = 'https://api.github.com';
 
 export interface GitHubRepo {
@@ -797,6 +816,57 @@ export async function findPullRequestByBranch(
 	};
 }
 
+/**
+ * The branches of a repository, most recently committed first, with the account that made each last commit. GitHub
+ * links commit emails to accounts, which tells the user's branches apart better than comparing emails.
+ */
+export async function listBranches(token: string, repoFullName: string): Promise<RepoBranch[]> {
+	const [owner, name] = repoFullName.split('/');
+	const branches: RepoBranch[] = [];
+	let after: string | null = null;
+	do {
+		const data: RawBranchesQueryResult = await githubGraphql(token, LIST_BRANCHES_QUERY, { owner, name, after });
+		const refs = data.repository?.refs;
+		if (!refs) {
+			throw new Error(`GitHub repository not found: ${repoFullName}`);
+		}
+		branches.push(...refs.nodes.map((ref) => toRepoBranch(ref, data.viewer.login)));
+		after = refs.pageInfo.hasNextPage ? refs.pageInfo.endCursor : null;
+	} while (after && branches.length < MAX_LISTED_BRANCHES);
+	return branches;
+}
+
+export function githubGraphqlUrl(): string {
+	if (env.GITHUB_API_URL) {
+		return `${env.GITHUB_API_URL.replace(/\/+$/, '').replace(/\/v3$/, '')}/graphql`;
+	}
+	return isGithubEnterprise() ? `${githubBaseUrl()}/api/graphql` : `${GITHUB_DOTCOM_API_URL}/graphql`;
+}
+
+async function githubGraphql<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
+	const res = await githubFetch(token, githubGraphqlUrl(), {
+		method: 'POST',
+		body: JSON.stringify({ query, variables }),
+	});
+	const result = (await res.json()) as { data?: T; errors?: { message: string }[] };
+	if (!result.data || result.errors?.length) {
+		throw new Error(`GitHub API error: ${result.errors?.map((error) => error.message).join('; ') ?? 'no data'}`);
+	}
+	return result.data;
+}
+
+function toRepoBranch(ref: RawBranchRef, viewerLogin: string): RepoBranch {
+	const author = ref.target.author;
+	const login = author?.user?.login ?? null;
+	return {
+		name: ref.name,
+		commit: ref.target.oid,
+		author: author ? { name: author.name ?? login ?? '', login } : null,
+		committedAt: ref.target.committedDate ?? null,
+		isMine: login !== null && login.toLowerCase() === viewerLogin.toLowerCase(),
+	};
+}
+
 async function findPullRequestForBranch(
 	token: string,
 	repo: string,
@@ -858,6 +928,25 @@ async function githubFetch(token: string, path: string, init: RequestInit = {}):
 
 interface RawUser {
 	login: string;
+}
+
+interface RawBranchesQueryResult {
+	viewer: { login: string };
+	repository: {
+		refs: {
+			pageInfo: { hasNextPage: boolean; endCursor: string | null };
+			nodes: RawBranchRef[];
+		} | null;
+	} | null;
+}
+
+interface RawBranchRef {
+	name: string;
+	target: {
+		oid: string;
+		committedDate?: string;
+		author?: { name: string | null; user: { login: string } | null } | null;
+	};
 }
 
 interface RawLabel {

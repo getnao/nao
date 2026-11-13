@@ -1,15 +1,19 @@
+import { addContextFileHeader, updateContextFileHeader } from '@nao/shared/context-file-header';
 import { isRootRulesPath, renderConditionalGroupBlocks } from '@nao/shared/rules-template';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, File, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 import { Streamdown } from 'streamdown';
+import type { ContextFileHeaderChanges } from '@nao/shared/context-file-header';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { FileEditabilityGuidance } from '@nao/shared/types';
+import type { ReactNode } from 'react';
 
 import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
 import type { SegmentedControlOption } from '@/components/ui/segmented-control';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
+import { FileHeaderEditor, FileHeaderSourceBar } from '@/components/settings/file-header-editor';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
 import { MarkdownFileEditor } from '@/components/settings/markdown-file-editor';
 import { UserGroupPicker } from '@/components/settings/user-group-picker';
@@ -30,6 +34,7 @@ import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useFileHeader } from '@/hooks/use-file-header';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
 import { isMarkdownPath } from '@/lib/file-path';
@@ -201,6 +206,7 @@ function EditableFileViewer({
 	const isDirty = isEditable && draft !== savedContent;
 	const debouncedPreview = useDebouncedValue(draft, 250);
 	const parsedMarkdownDraft = useMemo(() => parseMarkdownFrontmatter(draft), [draft]);
+	const fileHeaderState = useFileHeader(filePath, draft, isMarkdown);
 	const isPreviewEditable = useMemo(
 		() => isEditable && isMarkdown && (!isRootRules || !hasRulesTemplate(draft)),
 		[draft, isEditable, isMarkdown, isRootRules],
@@ -285,6 +291,9 @@ function EditableFileViewer({
 					void queryClient.invalidateQueries({
 						queryKey: trpc.contextExplorer.getChangedFiles.queryKey(),
 					});
+					void queryClient.invalidateQueries({
+						queryKey: trpc.contextExplorer.getFileHeaderProblems.queryKey(),
+					});
 				},
 				onError: (error) => {
 					saveInProgressRef.current = false;
@@ -340,10 +349,22 @@ function EditableFileViewer({
 		[parsedMarkdownDraft.frontmatter],
 	);
 
+	const handleHeaderChange = useCallback((changes: ContextFileHeaderChanges) => {
+		setDraft((current) => updateContextFileHeader(current, changes));
+	}, []);
+
 	const showRulesPreviewToolbar = isRootRules && rulesPreviewGroups.status === 'ready' && rulesPreviewGroups.enforced;
 	const rulesPreviewStatus =
 		isRootRules && rulesPreviewGroups.status !== 'ready' ? rulesPreviewGroups.status : undefined;
 
+	const fileHeader = fileHeaderState && (
+		<FileHeaderEditor
+			state={fileHeaderState}
+			isEditable={isEditable}
+			onChange={handleHeaderChange}
+			onSave={handleSave}
+		/>
+	);
 	const renderedMarkdown = (
 		<MarkdownPreview
 			content={preview.content}
@@ -351,6 +372,7 @@ function EditableFileViewer({
 			searchQuery={searchQuery}
 			error={preview.error}
 			status={rulesPreviewStatus}
+			header={fileHeader}
 		/>
 	);
 	const markdownPreview = isPreviewEditable ? (
@@ -361,20 +383,32 @@ function EditableFileViewer({
 			onChange={handleMarkdownChange}
 			onSave={handleSave}
 			fallback={renderedMarkdown}
+			header={fileHeader}
 		/>
 	) : (
 		renderedMarkdown
 	);
 	const markdownSource = (
-		<FileSourceEditor
-			key={isEditable ? 'editable' : 'read-only'}
-			filePath={filePath}
-			value={parsedMarkdownDraft.body}
-			searchQuery={searchQuery}
-			readOnly={!isEditable}
-			onChange={handleMarkdownChange}
-			onSave={isEditable ? handleSave : undefined}
-		/>
+		<div className='flex h-full min-h-0 flex-col'>
+			{fileHeaderState && (
+				<FileHeaderSourceBar
+					state={fileHeaderState}
+					isEditable={isEditable}
+					onAddHeader={() => setDraft((current) => addContextFileHeader(current, fileHeaderState.defaults))}
+				/>
+			)}
+			<div className='min-h-0 flex-1'>
+				<FileSourceEditor
+					key={isEditable ? 'editable' : 'read-only'}
+					filePath={filePath}
+					value={draft}
+					searchQuery={searchQuery}
+					readOnly={!isEditable}
+					onChange={setDraft}
+					onSave={isEditable ? handleSave : undefined}
+				/>
+			</div>
+		</div>
 	);
 
 	return (
@@ -519,12 +553,14 @@ function MarkdownPreview({
 	searchQuery,
 	error,
 	status,
+	header,
 }: {
 	content: string;
 	filePath: string;
 	searchQuery: string;
 	error?: string;
 	status?: 'loading' | 'error';
+	header?: ReactNode;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const parsedMarkdown = useMemo(() => parseMarkdownFrontmatter(content), [content]);
@@ -534,6 +570,7 @@ function MarkdownPreview({
 		<section aria-label='Markdown preview' className='flex h-full min-h-0 flex-col'>
 			<div ref={containerRef} className='min-h-0 flex-1 overflow-auto'>
 				<div className='max-w-3xl mx-auto px-8 py-6'>
+					{header}
 					{status === 'loading' ? (
 						<p className='text-sm text-muted-foreground'>Loading RULES.md preview access...</p>
 					) : status === 'error' ? (

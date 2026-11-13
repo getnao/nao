@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockEnv: Record<string, unknown> = {};
 
@@ -10,6 +10,10 @@ vi.mock('../../src/env', () => ({
 
 beforeEach(() => {
 	Object.keys(mockEnv).forEach((key) => delete mockEnv[key]);
+});
+
+afterEach(() => {
+	vi.unstubAllGlobals();
 });
 
 describe('buildAuthorizationUrl', () => {
@@ -55,6 +59,53 @@ describe('parseMergeRequestUrl with a self-hosted GITLAB_BASE_URL under a subpat
 		expect(parseMergeRequestUrl('https://host.example.com/other/group/project/-/merge_requests/5')).toBeNull();
 	});
 });
+
+describe('listBranches', () => {
+	it('pages through the branches and marks those last committed with an email of the token user', async () => {
+		const responses = [
+			jsonResponse({
+				id: 1,
+				username: 'alice',
+				name: 'Alice',
+				email: 'alice@example.com',
+				commit_email: 'a@users.example.com',
+			}),
+			jsonResponse(
+				[gitlabBranch('alice/orders', 'A@users.example.com'), gitlabBranch('main', 'bob@example.com')],
+				'2',
+			),
+			jsonResponse([gitlabBranch('no-email', null)]),
+		];
+		const fetchMock = vi.fn(async () => responses.shift());
+		vi.stubGlobal('fetch', fetchMock);
+		const { listBranches } = await loadGitlabService();
+
+		const branches = await listBranches('tok', 'group/project');
+
+		expect(branches.map((branch) => [branch.name, branch.isMine])).toEqual([
+			['alice/orders', true],
+			['main', false],
+			['no-email', false],
+		]);
+		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('page=2');
+	});
+});
+
+function jsonResponse(body: unknown, nextPage = ''): Response {
+	return new Response(JSON.stringify(body), { headers: { 'x-next-page': nextPage } });
+}
+
+function gitlabBranch(name: string, authorEmail: string | null) {
+	return {
+		name,
+		commit: {
+			id: `${name}-sha`,
+			author_name: 'Someone',
+			author_email: authorEmail,
+			committed_date: '2026-11-01T10:00:00Z',
+		},
+	};
+}
 
 async function loadGitlabService() {
 	vi.resetModules();

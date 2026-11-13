@@ -1,4 +1,4 @@
-import type { RepoProvider } from '@nao/shared/types';
+import type { RepoBranch, RepoProvider } from '@nao/shared/types';
 
 import type { GitIdentity } from '../utils/git-identity';
 import { GENERIC_GIT_PROVIDER } from './generic-git';
@@ -46,6 +46,8 @@ export interface ReviewRequestProvider {
 		userId: string;
 	}) => Promise<OpenReviewRequestResult | null>;
 	findReviewRequestByBranch: (token: string, repoFullName: string, branch: string) => Promise<ReviewRequest | null>;
+	/** Null when the provider has no API telling who committed to each branch. */
+	listBranches: (token: string, repoFullName: string) => Promise<RepoBranch[] | null>;
 	openReviewRequest: (
 		token: string,
 		repoFullName: string,
@@ -77,6 +79,7 @@ export const REVIEW_REQUEST_PROVIDERS: Record<InternalRepoProvider, ReviewReques
 			github.findOpenPullRequest(token, repoFullName, branch).then(toCreatedReviewRequest),
 		findReviewRequestByBranch: (token, repoFullName, branch) =>
 			github.findPullRequestByBranch(token, repoFullName, branch),
+		listBranches: (token, repoFullName) => github.listBranches(token, repoFullName),
 		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
 			const pullRequest = await github.createPullRequest(token, repoFullName, { title, head, base, body });
 			return { kind: 'created', url: pullRequest.html_url };
@@ -98,6 +101,7 @@ export const REVIEW_REQUEST_PROVIDERS: Record<InternalRepoProvider, ReviewReques
 			gitlab.findOpenMergeRequest(token, repoFullName, branch).then(toCreatedReviewRequest),
 		findReviewRequestByBranch: (token, repoFullName, branch) =>
 			gitlab.findMergeRequestByBranch(token, repoFullName, branch),
+		listBranches: (token, repoFullName) => gitlab.listBranches(token, repoFullName),
 		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
 			const mergeRequest = await gitlab.createMergeRequest(token, repoFullName, {
 				title,

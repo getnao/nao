@@ -101,6 +101,7 @@ export {
 	generateContextBranchName,
 	getContextBranchCommitMessages,
 	getContextBranches,
+	listContextRepositoryBranches,
 	pushContextBranch,
 	suggestContextBranchName,
 	switchContextBranch,

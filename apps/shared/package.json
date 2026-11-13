@@ -16,6 +16,7 @@
 		"./chart-types": "./src/chart-types.ts",
 		"./chart-values": "./src/chart-values.ts",
 		"./color": "./src/color.ts",
+		"./context-file-header": "./src/context-file-header.ts",
 		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
 		"./keyboard-shortcut": "./src/keyboard-shortcut.ts",
@@ -62,6 +63,7 @@
 	"dependencies": {
 		"culori": "^4.0.2",
 		"d3-format": "^3.1.0",
+		"yaml": "^2.8.3",
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {

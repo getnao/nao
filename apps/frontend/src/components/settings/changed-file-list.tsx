@@ -85,7 +85,8 @@ export function ChangedFileList({
 									onCheckedChange={() => selection.onToggle(file.path)}
 									aria-label={`${isSelected ? 'Exclude' : 'Include'} ${fileName} in commit`}
 									className={cn(
-										'size-3.5 rounded-[3px] focus-visible:opacity-100 group-hover/row:opacity-100',
+										'grid size-3 place-items-center rounded-[3px] border border-muted-foreground/50 bg-transparent shadow-none dark:shadow-none focus-visible:opacity-100 group-hover/row:opacity-100 [&_svg]:size-2.5',
+										'data-[state=checked]:border-foreground data-[state=checked]:bg-foreground',
 										isSelected && 'opacity-0',
 									)}
 								/>
@@ -135,11 +136,11 @@ export function ChangeRow({
 	return (
 		<div
 			className={cn(
-				'group/row mx-1 flex h-6 min-w-0 items-center gap-1 rounded-md pr-1.5 pl-0.5 text-xs transition-colors',
+				'group/row mx-1 flex h-6 min-w-0 items-center gap-1 rounded-md pr-1.5 pl-1 text-xs transition-colors',
 				isViewing ? 'bg-muted' : 'hover:bg-muted/50',
 			)}
 		>
-			<span className='flex w-3.5 shrink-0 items-center justify-center'>{leading}</span>
+			<span className='flex w-3 shrink-0 items-center justify-center'>{leading}</span>
 			<button
 				type='button'
 				onClick={onView}

@@ -22,6 +22,9 @@ export async function pushContextExplorerBranch(context: ContextExplorerGitConte
 	if (!currentBranch || currentBranch === branches.defaultBranch) {
 		throw nothingToPushError();
 	}
+	if (!branches.isCurrentBranchOwned) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'This branch belongs to another user.' });
+	}
 	if (branches.aheadCommitCount === 0 && branches.unpushedCommitCount === 0) {
 		throw nothingToPushError();
 	}

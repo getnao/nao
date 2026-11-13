@@ -8,8 +8,11 @@ import { openDropdownMenu } from '../../helpers/dropdown-menu';
 import type { ReactNode } from 'react';
 import { FileViewer, isRootRulesPath } from '@/components/settings/file-viewer';
 
+const owners = [{ id: 'ada', name: 'Ada Lovelace', email: 'ada@example.com' }];
+
 vi.mock('@tanstack/react-query', () => ({
 	useMutation: vi.fn(() => ({ isPending: false, mutate: vi.fn() })),
+	useQuery: vi.fn(() => ({ data: owners })),
 	useQueryClient: vi.fn(() => ({
 		invalidateQueries: vi.fn(),
 		setQueryData: vi.fn(),
@@ -46,6 +49,8 @@ vi.mock('@/main', () => ({
 	trpc: {
 		contextExplorer: {
 			getChangedFiles: { queryKey: vi.fn(() => []) },
+			getFileHeaderProblems: { queryKey: vi.fn(() => []) },
+			listFileOwners: { queryOptions: vi.fn(() => ({ queryKey: [] })) },
 			readFile: { queryOptions: vi.fn(() => ({ queryKey: [] })) },
 			writeFile: { mutationOptions: vi.fn(() => ({})) },
 		},
@@ -194,13 +199,111 @@ describe('FileViewer RULES preview', () => {
 	});
 });
 
+describe('FileViewer file header', () => {
+	it('writes the title and tags typed in the header into the frontmatter, keeping the body', () => {
+		const onDraftChange = vi.fn();
+		renderViewer({ filePath: '/notes.md', content: 'Body\n', onDraftChange });
+
+		const title = screen.getByRole('textbox', { name: 'Title' }) as HTMLTextAreaElement;
+		fireEvent.change(title, { target: { value: 'Revenue report ' } });
+		const tagInput = screen.getByRole('textbox', { name: 'Add a tag' });
+		fireEvent.change(tagInput, { target: { value: 'finance' } });
+		fireEvent.keyDown(tagInput, { key: 'Enter' });
+
+		expect(title.value).toBe('Revenue report ');
+		expect(onDraftChange).toHaveBeenLastCalledWith(
+			'/notes.md',
+			'---\ntitle: Revenue report\ntags: [finance]\n---\n\nBody\n',
+		);
+	});
+
+	it.each([
+		['a user of the project by name', 'ada@example.com', 'Ada Lovelace'],
+		['an unknown owner as a warning', 'gone@example.com', 'gone@example.com'],
+	])('shows %s', (_, owner, shownOwner) => {
+		renderViewer({ filePath: '/notes.md', content: `---\nowner: ${owner}\n---\nBody\n` });
+
+		const ownerButton = screen.getByRole('button', { name: 'Change owner' });
+		expect(ownerButton.textContent).toContain(shownOwner);
+		expect(ownerButton.querySelector('.lucide-triangle-alert') !== null).toBe(owner === 'gone@example.com');
+	});
+
+	it.each([
+		['/docs/revenue_by-region.md', 'Revenue by region', 'Add a description'],
+		['/RULES.md', 'Rules', 'The main rules of the agent, read at the start of every conversation.'],
+	])('shows the default title and description of %s until the file sets them', (filePath, title, description) => {
+		const onDraftChange = vi.fn();
+		renderViewer({ filePath, content: 'Body\n', onDraftChange });
+
+		const titleField = screen.getByRole('textbox', { name: 'Title' }) as HTMLTextAreaElement;
+		expect(titleField.value).toBe('');
+		expect(titleField.placeholder).toBe(title);
+		expect((screen.getByRole('textbox', { name: 'Description' }) as HTMLTextAreaElement).placeholder).toContain(
+			description,
+		);
+		expect(onDraftChange).toHaveBeenLastCalledWith(filePath, 'Body\n');
+	});
+
+	it('shows the header as Markdown in Source, where editing it changes the properties', () => {
+		localStorage.setItem('nao-file-viewer-markdown-view', JSON.stringify('source'));
+		const onDraftChange = vi.fn();
+		renderViewer({ filePath: '/notes.md', content: '---\ntitle: Old\n---\nBody\n', onDraftChange });
+
+		const source = screen.getByRole('textbox', { name: 'File source' }) as HTMLTextAreaElement;
+		expect(source.value).toBe('---\ntitle: Old\n---\nBody\n');
+		expect(screen.queryByLabelText('File properties')).toBeNull();
+		fireEvent.change(source, { target: { value: '---\ntitle: New\n---\nBody\n' } });
+		expect(onDraftChange).toHaveBeenLastCalledWith('/notes.md', '---\ntitle: New\n---\nBody\n');
+	});
+
+	it('adds a header from Source to a file that has none', () => {
+		localStorage.setItem('nao-file-viewer-markdown-view', JSON.stringify('source'));
+		const onDraftChange = vi.fn();
+		renderViewer({ filePath: '/RULES.md', content: '# Rules\n', onDraftChange });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add header' }));
+
+		const [, content] = onDraftChange.mock.lastCall ?? [];
+		expect(content).toMatch(
+			/^---\ntitle: Rules\ndescription: The main rules of the agent.*\nowner:\ntags: \[\]\n---\n\n# Rules\n$/,
+		);
+		expect(screen.queryByRole('button', { name: 'Add header' })).toBeNull();
+	});
+
+	it('lists the wrong header properties above the source as they are typed', () => {
+		localStorage.setItem('nao-file-viewer-markdown-view', JSON.stringify('source'));
+		renderViewer({ filePath: '/RULES.md', content: '---\ntitle: Rules\n---\nBody\n' });
+		expect(screen.queryByLabelText('Header checks')).toBeNull();
+
+		fireEvent.change(screen.getByRole('textbox', { name: 'File source' }), {
+			target: { value: '---\ntitle: Rules\neaze: eaz\nowner: gone@example.com\n---\nBody\n' },
+		});
+
+		const checks = screen.getByLabelText('Header checks').textContent;
+		expect(checks).toContain('Unknown property "eaze"');
+		expect(checks).toContain('The owner gone@example.com is not a user of this project.');
+	});
+
+	it('shows a broken header without letting it be edited', () => {
+		renderViewer({ filePath: '/notes.md', content: '---\ntitle: [unclosed\n---\nBody\n' });
+
+		expect(screen.getByLabelText('File properties').textContent).toContain('Fix it in Source.');
+		expect((screen.getByRole('textbox', { name: 'Title' }) as HTMLTextAreaElement).readOnly).toBe(true);
+		expect(screen.queryByRole('button', { name: 'Change owner' })).toBeNull();
+	});
+});
+
 function renderViewer({
 	filePath,
 	content,
 	rulesPreviewGroups = groups,
+	isEditable = true,
+	onDraftChange,
 }: {
 	filePath: string;
 	content: string;
+	isEditable?: boolean;
+	onDraftChange?: (path: string, content: string) => void;
 	rulesPreviewGroups?:
 		| typeof groups
 		| { status: 'ready'; enforced: false; groups: [] }
@@ -214,7 +317,7 @@ function renderViewer({
 			hash='hash'
 			isLoading={false}
 			isError={false}
-			isEditable
+			isEditable={isEditable}
 			editabilityGuidance={null}
 			searchQuery=''
 			sourceAutoOpenRequestId={null}
@@ -222,6 +325,7 @@ function renderViewer({
 			onOpenGuidancePath={vi.fn()}
 			onReload={vi.fn()}
 			rulesPreviewGroups={rulesPreviewGroups}
+			onDraftChange={onDraftChange}
 		/>,
 	);
 }

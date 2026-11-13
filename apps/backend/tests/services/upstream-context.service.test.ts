@@ -95,11 +95,18 @@ describe('listUpstreamRepos', () => {
 });
 
 describe('listUpstreamBranches', () => {
-	it('lists the remote branches with the production one first', async () => {
-		const branches = await listUpstreamBranches(BRANCHES_INPUT());
+	it('lists the remote branches by name only, with the production one first, off a connected git provider', async () => {
+		const { branches, canFilterMine } = await listUpstreamBranches(BRANCHES_INPUT());
 
 		expect(branches.map((branch) => branch.name)).toEqual(['main', 'analyst/net-revenue']);
-		expect(branches[1].commit).toBe(runGit(upstreamFolder, ['rev-parse', 'analyst/net-revenue']).toString().trim());
+		expect(branches[1]).toEqual({
+			name: 'analyst/net-revenue',
+			commit: runGit(upstreamFolder, ['rev-parse', 'analyst/net-revenue']).toString().trim(),
+			author: null,
+			committedAt: null,
+			isMine: false,
+		});
+		expect(canFilterMine).toBe(false);
 	});
 
 	it('resolves a repository URL written as an env reference with the project variables', async () => {
@@ -114,7 +121,7 @@ describe('listUpstreamBranches', () => {
 		});
 		mocks.getProjectRuntimeEnvVars.mockResolvedValue({ BUSINESS_REPO_URL: upstreamFolder });
 
-		const branches = await listUpstreamBranches(BRANCHES_INPUT());
+		const { branches } = await listUpstreamBranches(BRANCHES_INPUT());
 
 		expect(branches.map((branch) => branch.name)).toContain('analyst/net-revenue');
 		expect(mocks.getProjectRuntimeEnvVars).toHaveBeenCalledWith('project-1');

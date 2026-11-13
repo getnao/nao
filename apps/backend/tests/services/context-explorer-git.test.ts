@@ -122,6 +122,7 @@ import {
 	getDeploymentContextSource,
 	getHistoricalContextDiffActions,
 	getLiveContextUpdateStatus,
+	listContextRepositoryBranches,
 	normalizeRemote,
 	pullLiveContext,
 	readContextChangesPatch,
@@ -156,6 +157,7 @@ import {
 	localProvider,
 	runGit,
 	snapshot,
+	writeFiles,
 } from '../helpers/context-git-fixture';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
@@ -1919,15 +1921,41 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expect(status.branches?.branches).not.toContain('origin');
 	});
 
-	it('rejects switching to a branch owned by another user', async () => {
+	it('opens a branch of another user read-only at its pushed head', async () => {
 		const fixture = createFixture();
-		const repo = await ensureContextWorktree(fixture.context);
-		runGit(repo.worktreeRoot, ['branch', 'colleague']);
+		await ensureContextWorktree(fixture.context);
+		const colleagueHead = pushBranch(fixture, 'colleague', 'colleague@example.com', {
+			'context.md': 'colleague\n',
+		});
 		branchOwnershipMocks.owners.set('project-id:colleague', 'user-2');
 
-		await expect(switchContextBranch(fixture.context, 'colleague')).rejects.toMatchObject({
+		const branches = await switchContextBranch(fixture.context, 'colleague');
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+
+		expect(branches).toMatchObject({ currentBranch: 'colleague', isCurrentBranchOwned: false });
+		expect(file).toMatchObject({ content: 'colleague\n', isEditable: false, reason: 'branch-of-others' });
+		await expect(writeFileContent('/context.md', 'edit\n', file.hash, access)).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
+		await expect(pushContextExplorerBranch(fixture.context)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(runGit(fixture.seed, ['rev-parse', 'colleague']).toString().trim()).toBe(colleagueHead);
+	});
+
+	it('lists every remote branch with its last author, marking the branches of the user', async () => {
+		const fixture = createFixture();
+		const repo = await ensureContextWorktree(fixture.context);
+		pushBranch(fixture, 'colleague', 'colleague@example.com', { 'context.md': 'colleague\n' });
+		pushBranch(fixture, 'by-email', 'TEST@example.com', { 'context.md': 'mine\n' });
+		runGit(repo.worktreeRoot, ['branch', 'nao/unpushed']);
+		branchOwnershipMocks.owners.set('project-id:nao/unpushed', 'user-1');
+
+		const { branches, canFilterMine } = await listContextRepositoryBranches(fixture.context);
+		const mineByName = Object.fromEntries(branches.map((branch) => [branch.name, branch.isMine]));
+
+		expect(canFilterMine).toBe(true);
+		expect(mineByName).toEqual({ main: true, colleague: false, 'by-email': true, 'nao/unpushed': true });
+		expect(branches.find((branch) => branch.name === 'colleague')?.author).toEqual({ name: 'Test', login: null });
 	});
 
 	it('returns an unavailable status when git is unavailable or no repository is connected', async () => {
@@ -2735,6 +2763,31 @@ function createBareOriginCloneFixture(): ContextGitFixture {
 	const fixture = createLocalCloneFixture();
 	runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 	return fixture;
+}
+
+/** Pushes a branch committed by the given author from the seed clone, returning its head. */
+function pushBranch(
+	fixture: ContextGitFixture,
+	branch: string,
+	authorEmail: string,
+	files: Record<string, string>,
+): string {
+	runGit(fixture.seed, ['switch', '--quiet', '-c', branch, 'main']);
+	writeFiles(fixture.seed, files);
+	runGit(fixture.seed, ['add', '-A']);
+	runGit(fixture.seed, [
+		'-c',
+		'user.name=Test',
+		'-c',
+		`user.email=${authorEmail}`,
+		'commit',
+		'--quiet',
+		'-m',
+		branch,
+	]);
+	runGit(fixture.seed, ['push', '--quiet', fixture.bare, branch]);
+	runGit(fixture.seed, ['switch', '--quiet', 'main']);
+	return runGit(fixture.seed, ['rev-parse', branch]).toString().trim();
 }
 
 function temporaryRoot(): string {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockEnv: Record<string, unknown> = {};
 
@@ -15,6 +15,10 @@ async function loadGithubService() {
 
 beforeEach(() => {
 	Object.keys(mockEnv).forEach((key) => delete mockEnv[key]);
+});
+
+afterEach(() => {
+	vi.unstubAllGlobals();
 });
 
 describe('GitHub URLs without GITHUB_BASE_URL', () => {
@@ -96,3 +100,71 @@ describe('GITHUB_API_URL override', () => {
 		expect(github.githubApiUrl()).toBe('https://proxy.example.com/github');
 	});
 });
+
+describe('githubGraphqlUrl', () => {
+	it.each([
+		['github.com', {}, 'https://api.github.com/graphql'],
+		['an enterprise host', { GITHUB_BASE_URL: 'https://ghe.example.com' }, 'https://ghe.example.com/api/graphql'],
+		[
+			'a REST API override',
+			{ GITHUB_API_URL: 'https://ghe.example.com/api/v3/' },
+			'https://ghe.example.com/api/graphql',
+		],
+	])('targets the GraphQL API of %s', async (_case, env, expected) => {
+		Object.assign(mockEnv, env);
+		const github = await loadGithubService();
+
+		expect(github.githubGraphqlUrl()).toBe(expected);
+	});
+});
+
+describe('listBranches', () => {
+	it('pages through the branches and marks those last committed by the token user', async () => {
+		const pages = [
+			branchesPage([branchRef('alice/orders', 'alice'), branchRef('main', 'bob')], 'cursor-1'),
+			branchesPage([branchRef('no-account', null)], null),
+		];
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify(pages.shift())));
+		vi.stubGlobal('fetch', fetchMock);
+		const github = await loadGithubService();
+
+		const branches = await github.listBranches('tok', 'nao/context');
+
+		expect(branches.map((branch) => [branch.name, branch.author?.login ?? null, branch.isMine])).toEqual([
+			['alice/orders', 'alice', true],
+			['main', 'bob', false],
+			['no-account', null, false],
+		]);
+		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).variables).toMatchObject({ after: 'cursor-1' });
+	});
+
+	it('fails when the repository is not visible to the token', async () => {
+		vi.stubGlobal(
+			'fetch',
+			async () => new Response(JSON.stringify({ data: { viewer: { login: 'alice' }, repository: null } })),
+		);
+		const github = await loadGithubService();
+
+		await expect(github.listBranches('tok', 'nao/private')).rejects.toThrow('nao/private');
+	});
+});
+
+function branchesPage(nodes: unknown[], endCursor: string | null) {
+	return {
+		data: {
+			viewer: { login: 'Alice' },
+			repository: { refs: { pageInfo: { hasNextPage: endCursor !== null, endCursor }, nodes } },
+		},
+	};
+}
+
+function branchRef(name: string, login: string | null) {
+	return {
+		name,
+		target: {
+			oid: `${name}-sha`,
+			committedDate: '2026-11-01T10:00:00Z',
+			author: { name: login ?? 'Someone', user: login ? { login } : null },
+		},
+	};
+}

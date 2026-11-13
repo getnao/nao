@@ -30,6 +30,7 @@ import {
 	getContextFileDiff,
 	getContextRepositoryStatus,
 	getHistoricalContextDiffActions,
+	listContextRepositoryBranches,
 	pullLiveContext,
 	sanitizeLiveContextError,
 	suggestContextBranchName,
@@ -38,6 +39,7 @@ import {
 	updateContextWorktree,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
+import { listContextFileHeaderProblems, listContextFileOwners } from '../services/context-file-header.service';
 import {
 	discardAllNaoDraftFiles,
 	discardNaoDraftFile,
@@ -200,6 +202,13 @@ export const contextExplorerRoutes = {
 		};
 	}),
 
+	listFileOwners: contextAdminProtectedProcedure.query(async ({ ctx }) => listContextFileOwners(ctx.project.id)),
+
+	getFileHeaderProblems: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+		return listContextFileHeaderProblems(ctx.project.id, access);
+	}),
+
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
 		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
 		return readFileContent(input.path, access);
@@ -263,6 +272,10 @@ export const contextExplorerRoutes = {
 				input.requiredCommits,
 			);
 		}),
+
+	listBranches: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		return listContextRepositoryBranches(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+	}),
 
 	switchBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))
