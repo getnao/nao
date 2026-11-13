@@ -3,8 +3,10 @@ import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as userGroupQueries from '../queries/user-group.queries';
 import { getActiveThemeForProject } from '../services/custom-story';
 import { getStoryQueryData } from '../services/live-story';
+import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import { assertProjectMcpEnabled, verifyEmbedToken } from './embed-token';
 import { HandlerError } from './error';
 import { backfillMissingQueryDataForSandbox, type StoryQueryDataMap } from './story-query-data';
@@ -21,7 +23,11 @@ export type EmbedStoryContent = {
 	theme: StoryThemePair | null;
 };
 
-export async function loadEmbedStoryContent(storyId: string, token: string): Promise<EmbedStoryContent> {
+export async function loadEmbedStoryContent(
+	storyId: string,
+	token: string,
+	viewerId?: string,
+): Promise<EmbedStoryContent> {
 	const payload = verifyEmbedToken(token);
 	if (!payload || payload.type !== 'story' || payload.resourceId !== storyId) {
 		throw new HandlerError('UNAUTHORIZED', 'Invalid or expired embed token.');
@@ -35,6 +41,16 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 		throw new HandlerError('UNAUTHORIZED', 'Embed token does not match this story.');
 	}
 
+	const hasRls = (await userGroupQueries.getProjectRowSecurity(projectId)).tables.length > 0;
+	const viewerRole = viewerId ? await projectQueries.getUserRoleInProject(projectId, viewerId) : null;
+	if (hasRls && !viewerId) {
+		throw new HandlerError('UNAUTHORIZED', 'Sign in to view this story.');
+	}
+	if (hasRls && !viewerRole) {
+		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
+	}
+	const scopedViewerId = viewerRole ? viewerId : undefined;
+
 	await assertProjectMcpEnabled(projectId);
 
 	const version = await storyQueries.getLatestVersionByStoryId(storyId);
@@ -46,8 +62,9 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 	if (!ownerId) {
 		throw new HandlerError('FORBIDDEN', 'Story has no execution owner.');
 	}
+
 	const [storyData, displaySettings, theme] = await Promise.all([
-		loadEmbedStoryData(version, projectId, ownerId),
+		loadEmbedStoryData(version, projectId, ownerId, scopedViewerId),
 		projectQueries.getDisplaySettings(projectId),
 		getActiveThemeForProject(projectId),
 	]);
@@ -69,11 +86,15 @@ async function loadEmbedStoryData(
 	version: Awaited<ReturnType<typeof storyQueries.getLatestVersionByStoryId>>,
 	projectId: string,
 	ownerId: string,
+	viewerId: string | undefined,
 ): Promise<{ code: string; queryData: StoryQueryDataMap | null }> {
 	if (!version) {
 		throw new HandlerError('NOT_FOUND', 'Story not found.');
 	}
 	if (!version.chatId) {
+		if (viewerId && viewerId !== ownerId && (await hasEffectiveWarehouseRestrictions(projectId, viewerId))) {
+			throw new HandlerError('FORBIDDEN', 'Standalone story embeds are unavailable with restricted data access.');
+		}
 		return {
 			code: version.code,
 			queryData: await backfillMissingQueryDataForSandbox(version.code, {
@@ -90,6 +111,7 @@ async function loadEmbedStoryData(
 		version.code,
 		version.isLive,
 		version.cacheSchedule,
+		{ viewerUserId: viewerId },
 	);
 	const queryData = result.allowsPersistedFallback
 		? await backfillMissingQueryDataForSandbox(version.code, {
