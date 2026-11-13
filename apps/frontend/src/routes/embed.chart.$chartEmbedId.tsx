@@ -52,7 +52,7 @@ function ChartEmbedPage() {
 			typeof chart.sourceChatId === 'string' && chart.sourceChatId.trim()
 				? `${window.location.origin}/${chart.sourceChatId.trim()}`
 				: undefined;
-		inner = <ChartAppView config={chart.chartConfig} data={chart.data} naoUrl={naoUrl} />;
+		inner = <ChartAppView config={chart.chartConfig} data={chart.data} theme={chart.theme} naoUrl={naoUrl} />;
 	}
 
 	return (

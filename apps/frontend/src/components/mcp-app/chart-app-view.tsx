@@ -6,16 +6,20 @@ import { OpenInNaoButton } from './open-in-nao-button';
 import type { displayChart } from '@nao/shared/tools';
 import type { ReactNode } from 'react';
 import type { McpChartEmbedStoredConfig } from '@nao/shared';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 import { sortByDateKey } from '@/lib/charts.utils';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
+import { StoryThemeProvider, useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
 
 interface ChartAppViewProps {
 	config: McpChartEmbedStoredConfig;
 	data: Record<string, unknown>[];
+	theme?: StoryThemePair | null;
 	naoUrl?: string;
 }
 
-export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }: ChartAppViewProps) {
+export const ChartAppView = memo(function ChartAppView({ config, data, theme, naoUrl }: ChartAppViewProps) {
+	const storyTheme = useStoryThemeForCurrentMode(theme);
 	const chartData = useMemo(
 		() => (config.xAxisType === 'date' ? sortByDateKey(data, config.xAxisKey) : data),
 		[data, config.xAxisKey, config.xAxisType],
@@ -81,9 +85,12 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 	return (
 		<div className='flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-background text-foreground'>
 			<McpAppHeader title={config.title}>{naoUrl ? <OpenInNaoButton url={naoUrl} /> : null}</McpAppHeader>
-			<div className='min-h-0 flex-1 overflow-auto'>
+			<StoryThemeProvider
+				theme={storyTheme}
+				className='flex min-h-0 flex-1 flex-col overflow-auto bg-background text-foreground'
+			>
 				<div className='mx-auto flex w-full min-w-0 max-w-5xl flex-col p-4 md:p-8'>{body}</div>
-			</div>
+			</StoryThemeProvider>
 		</div>
 	);
 });
