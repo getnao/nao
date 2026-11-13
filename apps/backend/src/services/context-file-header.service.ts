@@ -14,6 +14,7 @@ import { TRPCError } from '@trpc/server';
 
 import * as projectQueries from '../queries/project.queries';
 import { normalizeProjectPath } from '../utils/context-repo';
+import { logger, serializeError } from '../utils/logger';
 import {
 	type ContextExplorerFileAccess,
 	getFileTree,
@@ -30,6 +31,12 @@ export interface TableFileOwner {
 	owner: string | null;
 	/** False when the file is read-only here or its header cannot be read, so its owner cannot be changed. */
 	isEditable: boolean;
+}
+
+export interface TableOwnerUpdate {
+	updatedPaths: string[];
+	/** Files that could not be saved, like one changed on disk since it was read. */
+	failedPaths: string[];
 }
 
 interface TableFile {
@@ -75,24 +82,47 @@ export async function listTableFileOwners(
 
 /**
  * Gives the other Markdown files of the table the file documents the same owner, so the whole table has one owner.
- * Files that cannot be edited here keep theirs.
+ * Files that cannot be edited here keep theirs, and a file that fails to save does not stop the others.
  */
 export async function applyOwnerToTableFiles(
 	projectId: string,
 	filePath: string,
 	owner: string | null,
 	access: ContextExplorerFileAccess,
-): Promise<{ updatedPaths: string[] }> {
+): Promise<TableOwnerUpdate> {
 	const tableFiles = await readOtherTableFiles(projectId, filePath, access);
 	const filesToUpdate = tableFiles.filter(
 		({ file, reading }) => canChangeOwner(file, reading) && !isSameContextFileOwner(reading.header.owner, owner),
 	);
+	const update: TableOwnerUpdate = { updatedPaths: [], failedPaths: [] };
 	for (const { path, file } of filesToUpdate) {
-		await writeFileContent(path, updateContextFileHeader(file.content, { owner }), file.hash, access);
+		const isWritten = await writeOwner(path, file, owner, access);
+		(isWritten ? update.updatedPaths : update.failedPaths).push(path);
 	}
-	return { updatedPaths: filesToUpdate.map(({ path }) => path) };
+	return update;
 }
 
+async function writeOwner(
+	path: string,
+	file: FileContentResponse,
+	owner: string | null,
+	access: ContextExplorerFileAccess,
+): Promise<boolean> {
+	try {
+		await writeFileContent(path, updateContextFileHeader(file.content, { owner }), file.hash, access);
+		return true;
+	} catch (error) {
+		logger.warn('A file of the table could not be given its owner', {
+			source: 'system',
+			projectId: access.draftOwner.projectId,
+			userId: access.draftOwner.userId,
+			context: { path, error: serializeError(error) },
+		});
+		return false;
+	}
+}
+
+/** The other Markdown files of the table, leaving out the ones that cannot be read, like a file too large to open. */
 async function readOtherTableFiles(
 	projectId: string,
 	filePath: string,
@@ -106,12 +136,17 @@ async function readOtherTableFiles(
 	const paths = (await listMarkdownPaths(projectId, access)).filter(
 		(path) => findContextTableFolder(path)?.path === tableFolder.path && normalizeProjectPath(path) !== ownPath,
 	);
-	return Promise.all(
-		paths.map(async (path) => {
-			const file = await readFileContent(path, access);
-			return { path, file, reading: readContextFileHeader(file.content) };
-		}),
-	);
+	const tableFiles = await Promise.all(paths.map((path) => readTableFile(path, access)));
+	return tableFiles.filter((tableFile) => tableFile !== null);
+}
+
+async function readTableFile(path: string, access: ContextExplorerFileAccess): Promise<TableFile | null> {
+	try {
+		const file = await readFileContent(path, access);
+		return { path, file, reading: readContextFileHeader(file.content) };
+	} catch {
+		return null;
+	}
 }
 
 function canChangeOwner(file: FileContentResponse, reading: ContextFileHeaderReading): boolean {

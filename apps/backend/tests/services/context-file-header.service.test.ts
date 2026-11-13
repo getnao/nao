@@ -20,7 +20,11 @@ vi.mock('../../src/services/nao-draft.service', () => ({
 	getNaoDraftFileTree: async () => [],
 }));
 
-import { type ContextExplorerFileAccess, readFileContent } from '../../src/services/context-explorer.service';
+import {
+	type ContextExplorerFileAccess,
+	MAX_CONTEXT_FILE_SIZE,
+	readFileContent,
+} from '../../src/services/context-explorer.service';
 import {
 	applyOwnerToTableFiles,
 	listContextFileHeaderProblems,
@@ -56,6 +60,7 @@ describe('context file headers', () => {
 			[`${ORDERS}/how_to_use.md`]: '---\nowner: ADA@example.com\n---\nUsage\n',
 			[`${ORDERS}/ai_summary.md`]: '---\ntype: generated\nowner: zoe@example.com\n---\nSummary\n',
 			[`${CUSTOMERS}/columns.md`]: '---\nowner: zoe@example.com\n---\nColumns\n',
+			[`${ORDERS}/too_large.md`]: `---\nowner: zoe@example.com\n---\n${'x'.repeat(MAX_CONTEXT_FILE_SIZE)}`,
 		};
 		const fixture = createContextGitFixture(createTemporaryFolder('nao-context-header-'), files);
 		writeFiles(fixture.live, files);
@@ -81,7 +86,7 @@ describe('context file headers', () => {
 		]);
 	});
 
-	it('lists the owner of the other files of the table', async () => {
+	it('lists the owner of the other files of the table, leaving out the ones too large to read', async () => {
 		expect(await listTableFileOwners('project', `/${ORDERS}/description.md`, access)).toEqual([
 			{ path: `/${ORDERS}/ai_summary.md`, owner: 'zoe@example.com', isEditable: false },
 			{ path: `/${ORDERS}/columns.md`, owner: 'zoe@example.com', isEditable: true },
@@ -93,7 +98,7 @@ describe('context file headers', () => {
 	it('gives the editable files of the table the owner, leaving other tables and generated files', async () => {
 		const result = await applyOwnerToTableFiles('project', `/${ORDERS}/description.md`, 'ada@example.com', access);
 
-		expect(result.updatedPaths).toEqual([`/${ORDERS}/columns.md`, `/${ORDERS}/preview.md`]);
+		expect(result).toEqual({ updatedPaths: [`/${ORDERS}/columns.md`, `/${ORDERS}/preview.md`], failedPaths: [] });
 		expect(await readContents(access)).toEqual({
 			[`/${ORDERS}/description.md`]: '---\nowner: zoe@example.com\n---\nOrders\n',
 			[`/${ORDERS}/columns.md`]: '---\ntitle: Columns\nowner: ada@example.com\n---\nColumns\n',

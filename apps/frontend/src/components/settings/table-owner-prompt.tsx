@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Users, X } from 'lucide-react';
+import { Check, TriangleAlert, Users, X } from 'lucide-react';
 import { isSameContextFileOwner } from '@nao/shared/context-file-header';
 import type { ContextFileOwner, ContextTableFolder } from '@nao/shared/context-file-header';
 import type { ReactNode } from 'react';
@@ -25,10 +25,10 @@ export function TableOwnerPrompt({ filePath, tableFolder, owner, owners, onDismi
 	const tableFiles = useQuery(tableFileOwnersOptions);
 	const applyOwner = useMutation(
 		trpc.contextExplorer.applyOwnerToTableFiles.mutationOptions({
-			onSuccess: ({ updatedPaths }) => {
-				for (const path of updatedPaths) {
+			onSettled: () => {
+				for (const file of tableFiles.data ?? []) {
 					void queryClient.invalidateQueries({
-						queryKey: trpc.contextExplorer.readFile.queryOptions({ path }).queryKey,
+						queryKey: trpc.contextExplorer.readFile.queryOptions({ path: file.path }).queryKey,
 					});
 				}
 				void queryClient.invalidateQueries({ queryKey: tableFileOwnersOptions.queryKey });
@@ -43,14 +43,40 @@ export function TableOwnerPrompt({ filePath, tableFolder, owner, owners, onDismi
 		(file) => file.isEditable && !isSameContextFileOwner(file.owner, owner),
 	);
 	const table = <code className='font-mono'>{tableFolder.table}</code>;
+	const applyToTable = () => applyOwner.mutate({ path: filePath, owner });
 
 	if (applyOwner.isSuccess) {
-		const count = applyOwner.data.updatedPaths.length;
+		const { updatedPaths, failedPaths } = applyOwner.data;
 		return (
-			<PromptBar icon={<Check className='size-3.5 shrink-0' />} onDismiss={onDismiss}>
-				<span>
-					Updated the owner of {formatDocCount(count)} of table {table}. Review them in Changes.
+			<PromptBar
+				icon={
+					failedPaths.length > 0 ? (
+						<TriangleAlert className='size-3.5 shrink-0' />
+					) : (
+						<Check className='size-3.5 shrink-0' />
+					)
+				}
+				onDismiss={onDismiss}
+			>
+				<span className='min-w-0 flex-1'>
+					{updatedPaths.length > 0 && (
+						<>
+							Updated the owner of {formatDocCount(updatedPaths.length)} of table {table}. Review them in
+							Changes.{' '}
+						</>
+					)}
+					{failedPaths.length > 0 && (
+						<span role='alert' className='text-destructive'>
+							{formatDocCount(failedPaths.length)} could not be saved:{' '}
+							{failedPaths.map(fileName).join(', ')}.
+						</span>
+					)}
 				</span>
+				{failedPaths.length > 0 && (
+					<PromptButton disabled={applyOwner.isPending} onClick={applyToTable}>
+						Retry
+					</PromptButton>
+				)}
 			</PromptBar>
 		);
 	}
@@ -59,7 +85,6 @@ export function TableOwnerPrompt({ filePath, tableFolder, owner, owners, onDismi
 	}
 
 	const ownerName = describeOwner(owner, owners);
-	const applyToTable = () => applyOwner.mutate({ path: filePath, owner });
 	return (
 		<PromptBar icon={<Users className='size-3.5 shrink-0' />} onDismiss={onDismiss}>
 			<span className='min-w-0 flex-1'>
@@ -74,16 +99,9 @@ export function TableOwnerPrompt({ filePath, tableFolder, owner, owners, onDismi
 					</span>
 				)}
 			</span>
-			<Button
-				type='button'
-				size='sm'
-				variant='outline'
-				className='h-6 shrink-0 px-2 text-xs'
-				disabled={applyOwner.isPending}
-				onClick={applyToTable}
-			>
+			<PromptButton disabled={applyOwner.isPending} onClick={applyToTable}>
 				{owner ? 'Apply to every doc' : 'Remove from every doc'}
-			</Button>
+			</PromptButton>
 		</PromptBar>
 	);
 }
@@ -111,6 +129,29 @@ function PromptBar({ icon, onDismiss, children }: { icon: ReactNode; onDismiss: 
 	);
 }
 
+function PromptButton({
+	disabled,
+	onClick,
+	children,
+}: {
+	disabled: boolean;
+	onClick: () => void;
+	children: ReactNode;
+}) {
+	return (
+		<Button
+			type='button'
+			size='sm'
+			variant='outline'
+			className='h-6 shrink-0 px-2 text-xs'
+			disabled={disabled}
+			onClick={onClick}
+		>
+			{children}
+		</Button>
+	);
+}
+
 function describeOwner(owner: string | null, owners: ContextFileOwner[] | null): string {
 	const user = owners?.find((candidate) => isSameContextFileOwner(candidate.email, owner));
 	return user?.name || owner || '';
@@ -118,4 +159,8 @@ function describeOwner(owner: string | null, owners: ContextFileOwner[] | null):
 
 function formatDocCount(count: number): string {
 	return count === 1 ? '1 other doc' : `${count} other docs`;
+}
+
+function fileName(path: string): string {
+	return path.split('/').pop() ?? path;
 }

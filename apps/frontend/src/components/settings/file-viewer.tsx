@@ -1,4 +1,9 @@
-import { addContextFileHeader, findContextTableFolder, updateContextFileHeader } from '@nao/shared/context-file-header';
+import {
+	addContextFileHeader,
+	findContextTableFolder,
+	isSameContextFileOwner,
+	updateContextFileHeader,
+} from '@nao/shared/context-file-header';
 import { isRootRulesPath, renderConditionalGroupBlocks } from '@nao/shared/rules-template';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, File, Lock } from 'lucide-react';
@@ -362,6 +367,7 @@ function EditableFileViewer({
 		[tableFolder],
 	);
 
+	const draftOwner = fileHeaderState?.reading.header.owner ?? null;
 	const showRulesPreviewToolbar = isRootRules && rulesPreviewGroups.status === 'ready' && rulesPreviewGroups.enforced;
 	const rulesPreviewStatus =
 		isRootRules && rulesPreviewGroups.status !== 'ready' ? rulesPreviewGroups.status : undefined;
@@ -373,7 +379,7 @@ function EditableFileViewer({
 			onChange={handleHeaderChange}
 			onSave={handleSave}
 		>
-			{tableFolder && changedOwner && (
+			{tableFolder && changedOwner && isSameContextFileOwner(changedOwner.owner, draftOwner) && (
 				<TableOwnerPrompt
 					key={changedOwner.owner ?? ''}
 					filePath={filePath}

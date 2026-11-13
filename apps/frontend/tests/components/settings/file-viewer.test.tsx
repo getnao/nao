@@ -261,6 +261,41 @@ describe('FileViewer file header', () => {
 		}
 	});
 
+	it('stops offering the owner picked once the header names another owner', async () => {
+		stubScrollIntoView();
+		localStorage.setItem('nao-file-viewer-markdown-view', JSON.stringify('split'));
+		mockTableFiles([{ path: `${ORDERS_FOLDER}/preview.md`, owner: null, isEditable: true }]);
+		renderViewer({ filePath: `${ORDERS_FOLDER}/columns.md`, content: '---\nowner: zoe@example.com\n---\nBody\n' });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Change owner/ }));
+		fireEvent.click(await screen.findByRole('option', { name: /Ada Lovelace/ }));
+		expect(screen.getByRole('region', { name: 'Table owner' })).toBeTruthy();
+
+		fireEvent.change(screen.getByRole('textbox', { name: 'File source' }), {
+			target: { value: '---\nowner: zoe@example.com\n---\nBody\n' },
+		});
+
+		expect(screen.queryByRole('region', { name: 'Table owner' })).toBeNull();
+	});
+
+	it('names the docs of the table that could not be saved and offers to retry', async () => {
+		stubScrollIntoView();
+		const applyOwner = mockTableFiles([], {
+			isSuccess: true,
+			data: { updatedPaths: [`${ORDERS_FOLDER}/preview.md`], failedPaths: [`${ORDERS_FOLDER}/how_to_use.md`] },
+		});
+		renderViewer({ filePath: `${ORDERS_FOLDER}/columns.md`, content: '---\nowner: zoe@example.com\n---\nBody\n' });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Change owner/ }));
+		fireEvent.click(await screen.findByRole('option', { name: /Ada Lovelace/ }));
+
+		const prompt = screen.getByRole('region', { name: 'Table owner' });
+		expect(prompt.textContent).toContain('Updated the owner of 1 other doc of table orders.');
+		expect(within(prompt).getByRole('alert').textContent).toBe('1 other doc could not be saved: how_to_use.md.');
+		fireEvent.click(within(prompt).getByRole('button', { name: 'Retry' }));
+		expect(applyOwner).toHaveBeenCalledWith({ path: `${ORDERS_FOLDER}/columns.md`, owner: 'ada@example.com' });
+	});
+
 	it('offers to retry when the users of the project cannot be loaded', async () => {
 		const refetch = vi.fn();
 		vi.mocked(useQuery).mockImplementation(() => ({ data: undefined, isError: true, refetch }) as never);
@@ -374,7 +409,12 @@ function renderViewer({
 	);
 }
 
-function mockTableFiles(tableFiles: { path: string; owner: string | null; isEditable: boolean }[]) {
+function mockTableFiles(
+	tableFiles: { path: string; owner: string | null; isEditable: boolean }[],
+	applyState: { isSuccess: boolean; data?: { updatedPaths: string[]; failedPaths: string[] } } = {
+		isSuccess: false,
+	},
+) {
 	const applyOwner = vi.fn();
 	vi.mocked(useQuery).mockImplementation(
 		(options) => ({ data: options.queryKey[0] === 'listTableFileOwners' ? tableFiles : owners }) as never,
@@ -382,7 +422,7 @@ function mockTableFiles(tableFiles: { path: string; owner: string | null; isEdit
 	vi.mocked(useMutation).mockImplementation(
 		(options) =>
 			(options?.mutationKey?.[0] === 'applyOwnerToTableFiles'
-				? { isPending: false, isSuccess: false, isError: false, mutate: applyOwner }
+				? { isPending: false, isError: false, ...applyState, mutate: applyOwner }
 				: defaultMutation()) as never,
 	);
 	return applyOwner;
