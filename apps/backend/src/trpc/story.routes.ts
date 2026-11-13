@@ -676,7 +676,7 @@ export const storyRoutes = {
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(({ input }) => readCustomStoryChartPluginSources(input.chatId, input.storySlug)),
 
-	getCustomStoryMapBoundary: chatStoryProcedure
+	getCustomStoryMapBoundary: storyEditorProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), key: mapBoundaryKey }))
 		.query(({ input }) => readCustomStoryMapBoundary(input.chatId, input.storySlug, input.key)),
 

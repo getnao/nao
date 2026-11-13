@@ -5,10 +5,10 @@ import path from 'node:path';
 import type { CustomBoundarySet } from '@nao/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { __reloadEnvForTesting } from '../src/env';
-import { deleteBoundaryFile, saveBoundaryFile } from '../src/services/map-boundary-files';
-import { __resetStorageForTesting, STORAGE_DISABLED_MESSAGE } from '../src/services/storage';
-import { loadBoundarySet } from '../src/utils/map-boundary-resolve';
+import { __reloadEnvForTesting } from '../../src/env';
+import { deleteBoundaryFile, saveBoundaryFile } from '../../src/services/map-boundary-files';
+import { __resetStorageForTesting, STORAGE_DISABLED_MESSAGE } from '../../src/services/storage';
+import { loadBoundarySet } from '../../src/utils/map-boundary-resolve';
 
 const regions = {
 	type: 'FeatureCollection',
