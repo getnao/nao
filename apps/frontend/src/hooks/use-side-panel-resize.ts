@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { useResizeObserver } from './use-resize-observer';
-import {
-	CHAT_PANEL_MIN_WIDTH,
-	loadPersistedWidthRatio,
-	SIDE_PANEL_MIN_WIDTH,
-	SIDE_PANEL_WIDTH_STORAGE_KEY,
-} from '@/lib/side-panel';
+import { clampSidePanelWidth, loadPersistedWidthRatio, SIDE_PANEL_WIDTH_STORAGE_KEY } from '@/lib/side-panel';
 
 function persistRatio(ratio: number) {
 	try {
@@ -113,9 +108,7 @@ export const useSidePanelResize = (
 };
 
 function clampWidth(width: number, container: HTMLElement | null): number {
-	const containerWidth = container?.getBoundingClientRect().width ?? Infinity;
-	const maxWidth = Math.max(SIDE_PANEL_MIN_WIDTH, containerWidth - CHAT_PANEL_MIN_WIDTH);
-	return Math.min(Math.max(width, SIDE_PANEL_MIN_WIDTH), maxWidth);
+	return clampSidePanelWidth(width, container?.getBoundingClientRect().width ?? Infinity);
 }
 
 /** Iframes swallow mouse events, which would break the drag when the cursor moves over one */

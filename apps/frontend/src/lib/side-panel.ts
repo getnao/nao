@@ -10,6 +10,12 @@ export const SIDE_PANEL_ANIMATION_EASING = 'cubic-bezier(0.5, 0.5, 0, 1)';
 export const SIDE_PANEL_DEFAULT_WIDTH_RATIO = 0.5;
 export const SIDE_PANEL_WIDTH_STORAGE_KEY = 'nao:side-panel-width-ratio';
 
+/** Keeps the side panel above its minimum width while leaving the chat column at least its own minimum. */
+export function clampSidePanelWidth(width: number, containerWidth: number): number {
+	const maxWidth = Math.max(SIDE_PANEL_MIN_WIDTH, containerWidth - CHAT_PANEL_MIN_WIDTH);
+	return Math.min(Math.max(width, SIDE_PANEL_MIN_WIDTH), maxWidth);
+}
+
 export function loadPersistedWidthRatio(defaultRatio = SIDE_PANEL_DEFAULT_WIDTH_RATIO): number {
 	try {
 		const stored = localStorage.getItem(SIDE_PANEL_WIDTH_STORAGE_KEY);
