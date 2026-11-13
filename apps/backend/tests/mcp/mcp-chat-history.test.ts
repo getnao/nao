@@ -177,6 +177,23 @@ describe('MCP get_chat', () => {
 		expect(lastToolCall(withOutputs)).toEqual({ ...successfulCall, output: '{"row_count":1}' });
 	});
 
+	it('returns long tool inputs in full only when asked', async () => {
+		const longSql = `select ${'amount, '.repeat(400)}id from sales`;
+		mocks.getChatProjectId.mockResolvedValue('project-1');
+		mocks.getChat.mockResolvedValue([uiChat({ withSuccessfulTool: true, sql: longSql }), 'user-2']);
+		mocks.getUserName.mockResolvedValue('Alice');
+		const client = await connect('admin');
+
+		const truncated = await client.callTool({ name: 'get_chat', arguments: { chat_id: 'chat-1' } });
+		const full = await client.callTool({
+			name: 'get_chat',
+			arguments: { chat_id: 'chat-1', full_tool_inputs: true },
+		});
+
+		expect((lastToolCall(truncated) as { input: string }).input).toContain('[truncated]');
+		expect((lastToolCall(full) as { input: string }).input).toBe(JSON.stringify({ sql_query: longSql }));
+	});
+
 	it('refuses chats from another project', async () => {
 		mocks.getChatProjectId.mockResolvedValue('project-2');
 		const client = await connect('admin');
@@ -245,12 +262,12 @@ function projectChatListItem(overrides: Record<string, unknown>) {
 	};
 }
 
-function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
+function uiChat(options: { withSuccessfulTool?: boolean; sql?: string } = {}) {
 	const successfulTool = {
 		type: 'tool-execute_sql',
 		toolCallId: 'call-2',
 		state: 'output-available',
-		input: { sql_query: 'select * from sales' },
+		input: { sql_query: options.sql ?? 'select * from sales' },
 		output: { row_count: 1 },
 	};
 	return {
