@@ -11,6 +11,7 @@ import { getDocsContextCatalog, getFilesContextCatalog } from './file-tree-catal
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import type { NormalizedUserGroupsConfig, NormalizedUserGroupSettings } from './user-group-config.service';
 import { parseUserGroupsConfig, UserGroupConfigError } from './user-group-config.service';
+import { resolveProjectSkillName } from './skill';
 import { validateWarehouseRowPredicate } from './warehouse-sql.service';
 
 export function readUserGroupsConfig(projectPath: string): NormalizedUserGroupsConfig {
@@ -168,9 +169,7 @@ function assertSkillReferences(projectPath: string, settings: NormalizedUserGrou
 				continue;
 			}
 			const parsed = matter(fs.readFileSync(path.join(skillsPath, filename), 'utf8'));
-			if (typeof parsed.data.name === 'string') {
-				skillNames.add(parsed.data.name);
-			}
+			skillNames.add(resolveProjectSkillName(filename, parsed.data.name));
 		}
 	}
 	for (const group of settings) {

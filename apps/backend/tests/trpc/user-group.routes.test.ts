@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
 	updateUserGroup: vi.fn(),
 	updateProjectRowSecurity: vi.fn(),
 	validateWarehouseRowPredicate: vi.fn(),
+	withUserGroupConfigLock: vi.fn(async (_projectId: string, operation: () => Promise<unknown>) => operation()),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
 		constructor(
 			public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT' | 'FORBIDDEN',
@@ -102,6 +103,9 @@ vi.mock('../../src/services/user-group-management.service', () => ({
 	getUserGroupManagementMode: mocks.getUserGroupManagementMode,
 	listPendingUserGroupConfigAssignments: vi.fn(async () => []),
 }));
+vi.mock('../../src/services/user-group-config-lock.service', () => ({
+	withUserGroupConfigLock: mocks.withUserGroupConfigLock,
+}));
 vi.mock('../../src/services/file-tree-catalog.service', () => ({
 	getDocsContextCatalog: mocks.getDocsContextCatalog,
 	getFilesContextCatalog: mocks.getFilesContextCatalog,
@@ -143,6 +147,7 @@ beforeEach(() => {
 	mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
 	mocks.listEffectiveOidcUserGroupMappings.mockResolvedValue([]);
 	mocks.listEffectiveEntraUserGroupMappings.mockResolvedValue([]);
+	mocks.listUserGroups.mockResolvedValue([]);
 	mocks.updateProjectRowSecurity.mockImplementation(async (_projectId, value) => value);
 	mocks.validateWarehouseRowPredicate.mockImplementation(async (predicate) => predicate);
 	mocks.resolveUserGroupAccess.mockResolvedValue({
@@ -157,6 +162,31 @@ beforeEach(() => {
 });
 
 describe('user group routes', () => {
+	it('holds the project config lock across the row-security ownership check and write', async () => {
+		let lockHeld = false;
+		mocks.getUserGroupManagementMode.mockResolvedValue('code');
+		mocks.withUserGroupConfigLock.mockImplementationOnce(async (_projectId, operation) => {
+			lockHeld = true;
+			try {
+				return await operation();
+			} finally {
+				lockHeld = false;
+			}
+		});
+		mocks.getProjectRowSecurity.mockImplementationOnce(async () => {
+			expect(lockHeld).toBe(true);
+			return { version: 1, tables: [] };
+		});
+		mocks.updateProjectRowSecurity.mockImplementationOnce(async (_projectId, value) => {
+			expect(lockHeld).toBe(true);
+			return value;
+		});
+
+		await caller.updateRowSecurity({ version: 1, tables: [] });
+
+		expect(mocks.withUserGroupConfigLock).toHaveBeenCalledWith('project-id', expect.any(Function));
+	});
+
 	it('allows unlicensed row-security table removals', async () => {
 		const customers = { ...ORDERS_TABLE, table: 'customers' };
 		mocks.hasFeature.mockResolvedValue(false);

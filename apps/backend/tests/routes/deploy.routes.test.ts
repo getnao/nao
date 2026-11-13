@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
 	diffUserGroupsConfig: vi.fn(),
 	exportUserGroupsConfig: vi.fn(),
 	getProjectByOrgAndName: vi.fn(),
+	getUserGroupManagementMode: vi.fn(),
 	getUserRoleInProject: vi.fn(),
+	hasCompletedUserGroupConfigDeploy: vi.fn(),
 	listProjectDeploymentPaths: vi.fn(),
 	post: vi.fn(),
 	parseUserGroupsConfig: vi.fn(),
@@ -30,6 +32,9 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getProjectByOrgAndName: mocks.getProjectByOrgAndName,
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	listProjectDeploymentPaths: mocks.listProjectDeploymentPaths,
+}));
+vi.mock('../../src/queries/activity.queries', () => ({
+	hasCompletedUserGroupConfigDeploy: mocks.hasCompletedUserGroupConfigDeploy,
 }));
 
 vi.mock('../../src/services/api-key.service', () => ({
@@ -58,6 +63,9 @@ vi.mock('../../src/services/user-group-config-validation.service', () => ({
 vi.mock('../../src/services/user-group-config.service', () => ({
 	parseUserGroupsConfig: mocks.parseUserGroupsConfig,
 }));
+vi.mock('../../src/services/user-group-management.service', () => ({
+	getUserGroupManagementMode: mocks.getUserGroupManagementMode,
+}));
 
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
@@ -72,6 +80,8 @@ const createTemporaryFolder = useTemporaryFolders();
 beforeEach(async () => {
 	vi.clearAllMocks();
 	mocks.listProjectDeploymentPaths.mockResolvedValue([]);
+	mocks.getUserGroupManagementMode.mockResolvedValue('ui');
+	mocks.hasCompletedUserGroupConfigDeploy.mockResolvedValue(false);
 	mocks.validateApiKey.mockResolvedValue({ createdBy: 'user-id', organization: { id: 'organization-id' } });
 	mocks.readUserGroupsConfig.mockReturnValue({ hash: 'config-hash' });
 	mocks.exportUserGroupsConfig.mockResolvedValue('current-config');
@@ -98,13 +108,46 @@ describe('deploy recovery', () => {
 		fs.writeFileSync(path.join(target, 'version.txt'), 'candidate');
 		fs.mkdirSync(backup);
 		fs.writeFileSync(path.join(backup, 'version.txt'), 'previous');
-		fs.writeFileSync(marker, JSON.stringify({ phase: 'prepared', hadPrevious: true }));
+		fs.writeFileSync(
+			marker,
+			JSON.stringify({
+				deployId: 'current-deploy-id',
+				phase: 'prepared',
+				userGroupConfigHash: 'config-hash',
+				hadPrevious: true,
+			}),
+		);
+		mocks.hasCompletedUserGroupConfigDeploy.mockResolvedValue(true);
 		mocks.listProjectDeploymentPaths.mockResolvedValue([{ id: 'project-id', path: target }]);
 
 		await deployRoutes({ post: mocks.post } as never);
 
 		expect(fs.readFileSync(path.join(target, 'version.txt'), 'utf8')).toBe('previous');
 		expect(fs.existsSync(marker)).toBe(false);
+		expect(mocks.hasCompletedUserGroupConfigDeploy).not.toHaveBeenCalled();
+	});
+
+	it('keeps swapped files only when the same deploy committed its config transaction', async () => {
+		const parent = createTemporaryFolder('nao-deploy-recovery-test-');
+		const target = path.join(parent, 'project-id');
+		const backup = path.join(parent, '.project-id.deploy-backup');
+		const marker = path.join(parent, '.project-id.deploy-recovery.json');
+		fs.mkdirSync(target);
+		fs.writeFileSync(path.join(target, 'version.txt'), 'candidate');
+		fs.mkdirSync(backup);
+		fs.writeFileSync(path.join(backup, 'version.txt'), 'previous');
+		fs.writeFileSync(
+			marker,
+			JSON.stringify({ deployId: 'current-deploy-id', phase: 'swapped', hadPrevious: true }),
+		);
+		mocks.hasCompletedUserGroupConfigDeploy.mockResolvedValue(true);
+		mocks.listProjectDeploymentPaths.mockResolvedValue([{ id: 'project-id', path: target }]);
+
+		await deployRoutes({ post: mocks.post } as never);
+
+		expect(fs.readFileSync(path.join(target, 'version.txt'), 'utf8')).toBe('candidate');
+		expect(fs.existsSync(backup)).toBe(false);
+		expect(mocks.hasCompletedUserGroupConfigDeploy).toHaveBeenCalledWith('project-id', 'current-deploy-id');
 	});
 });
 
@@ -285,8 +328,9 @@ describe('deploy route code-managed groups', () => {
 		mocks.getProjectByOrgAndName.mockResolvedValue({
 			id: 'existing-project',
 			path: projectDir,
-			userGroupManagementMode: 'code',
+			userGroupManagementMode: 'ui',
 		});
+		mocks.getUserGroupManagementMode.mockResolvedValue('code');
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		const send = vi.fn();
 		const status = vi.fn(() => ({ send }));
@@ -337,6 +381,7 @@ describe('deploy route code-managed groups', () => {
 			path: projectDir,
 			userGroupManagementMode: 'code',
 		});
+		mocks.getUserGroupManagementMode.mockResolvedValue('code');
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
 		mocks.reconcileUserGroupsConfigWithinLock.mockRejectedValue(new Error('Reconciliation failed'));
 		const send = vi.fn();
@@ -347,6 +392,27 @@ describe('deploy route code-managed groups', () => {
 		expect(status).toHaveBeenCalledWith(400);
 		expect(send).toHaveBeenCalledWith({ error: 'Reconciliation failed' });
 		expect(fs.readFileSync(path.join(projectDir, 'existing.txt'), 'utf8')).toBe('preserved');
+	});
+
+	it('uses UI-managed deployment when code management was disabled while waiting for the lock', async () => {
+		const projectDir = createTemporaryFolder('nao-deploy-ui-managed-');
+		mocks.getProjectByOrgAndName.mockResolvedValue({
+			id: 'existing-project',
+			path: projectDir,
+			userGroupManagementMode: 'code',
+		});
+		mocks.getUserGroupManagementMode.mockResolvedValue('ui');
+		const send = vi.fn();
+
+		await handler()(deployRequest('analytics'), { status: vi.fn(() => ({ send })), send });
+
+		expect(mocks.reconcileUserGroupsConfigWithinLock).not.toHaveBeenCalled();
+		expect(mocks.recordProjectDeployment).toHaveBeenCalledWith('existing-project');
+		expect(send).toHaveBeenCalledWith({
+			projectId: 'existing-project',
+			projectName: 'analytics',
+			status: 'updated',
+		});
 	});
 });
 

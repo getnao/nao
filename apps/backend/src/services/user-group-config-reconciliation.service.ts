@@ -7,7 +7,6 @@ import s from '../db/abstractSchema';
 import { db, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { createActivity } from '../queries/activity.queries';
-import { withKeyedLock } from '../utils/keyed-lock';
 import type {
 	NormalizedConfiguredUserGroup,
 	NormalizedUserGroupsConfig,
@@ -16,8 +15,12 @@ import type {
 import { UserGroupConfigError } from './user-group-config.service';
 import type { UserGroupConfigDiff } from './user-group-config-diff.service';
 import { diffUserGroupsConfig } from './user-group-config-diff.service';
+import { withUserGroupConfigLock } from './user-group-config-lock.service';
 import { listUsersEligibleForUserGroupConfig } from './user-group-config-membership.service';
 import { getUserGroupManagementMode } from './user-group-management.service';
+import { revokeUnauthorizedProjectWideShares } from './project-sharing.service';
+
+export { withUserGroupConfigLock } from './user-group-config-lock.service';
 
 type ReconciliationKind = 'enable' | 'apply' | 'disable';
 
@@ -30,9 +33,10 @@ export async function reconcileUserGroupsConfig(
 	projectId: string,
 	config: NormalizedUserGroupsConfig,
 	actorUserId: string,
+	deployId?: string,
 ): Promise<UserGroupConfigDiff> {
 	return withUserGroupConfigLock(projectId, () =>
-		reconcileUserGroupsConfigWithinLock(projectId, config, actorUserId),
+		reconcileUserGroupsConfigWithinLock(projectId, config, actorUserId, deployId),
 	);
 }
 
@@ -40,12 +44,14 @@ export async function reconcileUserGroupsConfigWithinLock(
 	projectId: string,
 	config: NormalizedUserGroupsConfig,
 	actorUserId: string,
+	deployId?: string,
 ): Promise<UserGroupConfigDiff> {
 	const mode = await getUserGroupManagementMode(projectId);
 	const kind: ReconciliationKind = mode === 'ui' ? 'enable' : 'apply';
 	try {
 		const diff = await diffUserGroupsConfig(projectId, config);
-		await applyConfig(projectId, config, actorUserId, diff, kind);
+		await applyConfig(projectId, config, actorUserId, diff, kind, deployId);
+		await revokeUnauthorizedProjectWideShares(projectId);
 		return diff;
 	} catch (error) {
 		await recordUserGroupConfigFailure(projectId, actorUserId, kind, config.hash, error);
@@ -54,7 +60,7 @@ export async function reconcileUserGroupsConfigWithinLock(
 }
 
 export async function disableCodeManagedUserGroups(projectId: string, actorUserId: string): Promise<void> {
-	await withKeyedLock(projectLockKey(projectId), async () => {
+	await withUserGroupConfigLock(projectId, async () => {
 		try {
 			if ((await getUserGroupManagementMode(projectId)) !== 'code') {
 				throw new UserGroupConfigError('User groups are already managed in the UI.');
@@ -138,20 +144,13 @@ export async function disableCodeManagedUserGroups(projectId: string, actorUserI
 	});
 }
 
-export function withUserGroupConfigLock<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
-	return withKeyedLock(projectLockKey(projectId), operation);
-}
-
-function projectLockKey(projectId: string): string {
-	return `user-groups:${projectId}`;
-}
-
 async function applyConfig(
 	projectId: string,
 	config: NormalizedUserGroupsConfig,
 	actorUserId: string,
 	diff: UserGroupConfigDiff,
 	kind: Exclude<ReconciliationKind, 'disable'>,
+	deployId?: string,
 ): Promise<void> {
 	const configuredEmails = config.groups.flatMap((group) => group.members);
 	const [storedGroups, users, actor] = await Promise.all([
@@ -304,13 +303,21 @@ async function applyConfig(
 		);
 	}
 	operations.push(
-		auditOperation(projectId, actorUserId, actor, kind, config.hash, {
-			...diff.summary,
-			allUsersChanged: diff.allUsersChanged,
-			pendingEmails: diff.pendingEmails.length,
-			chatShareRevocations: diff.shareRevocations.chats,
-			storyShareRevocations: diff.shareRevocations.stories,
-		}),
+		auditOperation(
+			projectId,
+			actorUserId,
+			actor,
+			kind,
+			config.hash,
+			{
+				...diff.summary,
+				allUsersChanged: diff.allUsersChanged,
+				pendingEmails: diff.pendingEmails.length,
+				chatShareRevocations: diff.shareRevocations.chats,
+				storyShareRevocations: diff.shareRevocations.stories,
+			},
+			deployId,
+		),
 	);
 	await executeOperations(operations);
 }
@@ -472,15 +479,23 @@ function auditOperation(
 	kind: ReconciliationKind,
 	hash: string | null,
 	summary: Record<string, unknown>,
+	deployId?: string,
 ): DatabaseOperation {
 	return insertOperation((transaction) =>
 		transaction.insert(s.activity).values({
+			...(deployId ? { id: deployId } : {}),
 			projectId,
 			userId: actorUserId,
 			type: 'user-groups.config',
 			status: 'completed',
 			trigger: 'manual',
-			payload: { kind, hash, actor: actor ? { id: actorUserId, ...actor } : { id: actorUserId }, summary },
+			payload: {
+				kind,
+				hash,
+				...(deployId ? { deployId } : {}),
+				actor: actor ? { id: actorUserId, ...actor } : { id: actorUserId },
+				summary,
+			},
 			completedAt: new Date(),
 		}),
 	);

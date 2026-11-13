@@ -5,7 +5,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { listContextPullActivities, listRecentActivities } from '../../src/queries/activity.queries';
+import {
+	hasCompletedUserGroupConfigDeploy,
+	listContextPullActivities,
+	listRecentActivities,
+} from '../../src/queries/activity.queries';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
@@ -114,5 +118,29 @@ describe('context pull activity queries', () => {
 			.set({ archivedAt: new Date(), archivedName: 'Activity Group', name: '__archived__activity-group' })
 			.where(eq(s.userGroup.id, 'activity-group'));
 		expect(await listRecentActivities(PROJECT_ID, USER_ID, 10)).toHaveLength(0);
+	});
+
+	it('identifies a completed user-group apply by deploy ID rather than config hash', async () => {
+		await db.insert(s.activity).values([
+			{
+				id: 'completed-deploy',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'user-groups.config',
+				status: 'completed',
+				payload: { hash: 'same-hash' },
+			},
+			{
+				id: 'interrupted-deploy',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'user-groups.config',
+				status: 'failed',
+				payload: { hash: 'same-hash' },
+			},
+		]);
+
+		await expect(hasCompletedUserGroupConfigDeploy(PROJECT_ID, 'completed-deploy')).resolves.toBe(true);
+		await expect(hasCompletedUserGroupConfigDeploy(PROJECT_ID, 'interrupted-deploy')).resolves.toBe(false);
 	});
 });

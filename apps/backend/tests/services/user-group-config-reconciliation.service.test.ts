@@ -52,15 +52,21 @@ async function setup() {
 		{ groupId: 'all-users-group', userId: ACTOR_ID, provider: 'manual', active: true },
 		{ groupId: GROUP_ID, userId: ACTOR_ID, provider: 'manual', active: true },
 	]);
+	await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: IMPLICIT_USER_ID, role: 'user' });
+	await db.insert(s.chat).values({ id: 'project-wide-chat', projectId: PROJECT_ID, userId: IMPLICIT_USER_ID });
+	await db.insert(s.sharedChat).values({ chatId: 'project-wide-chat', visibility: 'project' });
 }
 
 describe('user group config reconciliation', () => {
 	it('adopts, idempotently reapplies, archives, reactivates, and returns ownership to the UI', async () => {
 		await setup();
 		const configured = parseUserGroupsConfig(configSource(true));
-		expect(await listUsersWithProjectAccessDetails(PROJECT_ID)).toEqual([
-			expect.objectContaining({ id: ACTOR_ID, emailVerified: false }),
-		]);
+		expect(await listUsersWithProjectAccessDetails(PROJECT_ID)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ id: ACTOR_ID, emailVerified: false }),
+				expect.objectContaining({ id: IMPLICIT_USER_ID, emailVerified: false }),
+			]),
+		);
 		const enabled = await reconcileUserGroupsConfig(PROJECT_ID, configured, ACTOR_ID);
 
 		expect(enabled.summary.adopted).toBe(1);
@@ -68,6 +74,8 @@ describe('user group config reconciliation', () => {
 		expect(enabled.allUsersChanged).toBe(true);
 		expect(enabled.accessChanges).toContain('finance');
 		expect(enabled.budgetChanges).toEqual(['all_users']);
+		expect(enabled.shareRevocations).toEqual({ chats: 1, stories: 0 });
+		expect(await db.select().from(s.sharedChat)).toEqual([]);
 		expect(await projectMode()).toBe('code');
 		expect(await storedGroup()).toMatchObject({ id: GROUP_ID, configKey: 'finance', archivedAt: null });
 		expect(await memberships(IMPLICIT_USER_ID)).toEqual([{ provider: 'config', active: true }]);
@@ -88,11 +96,19 @@ describe('user group config reconciliation', () => {
 				.where(eq(s.projectMemberBudgetSettings.projectId, PROJECT_ID)),
 		).toEqual([{ limitUsd: 25 }]);
 
-		const repeated = await reconcileUserGroupsConfig(PROJECT_ID, configured, ACTOR_ID);
+		const repeated = await reconcileUserGroupsConfig(PROJECT_ID, configured, ACTOR_ID, 'deploy-id');
 		expect(repeated.summary.unchanged).toBe(1);
 		expect(repeated.allUsersChanged).toBe(false);
 		expect(repeated.accessChanges).toEqual([]);
 		expect(repeated.budgetChanges).toEqual([]);
+		const [deployActivity] = await db
+			.select({ status: s.activity.status, payload: s.activity.payload })
+			.from(s.activity)
+			.where(eq(s.activity.id, 'deploy-id'));
+		expect(deployActivity).toMatchObject({
+			status: 'completed',
+			payload: { deployId: 'deploy-id', hash: configured.hash },
+		});
 
 		const archived = await reconcileUserGroupsConfig(
 			PROJECT_ID,
@@ -148,7 +164,7 @@ defaults:
   features: []
   tool_call_density: { default_density: detailed, can_change: true }
   show_all_settings: false
-  project_sharing: inherit
+  project_sharing: blocked
   share_targets: { include_own_group: true, group_keys: [] }
   preloaded_skills: []
   budget_limit_usd: null

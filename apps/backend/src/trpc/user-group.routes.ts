@@ -398,9 +398,11 @@ export const userGroupRoutes = {
 
 	updateRowSecurity: adminProtectedProcedure.input(projectRowSecuritySchema).mutation(async ({ ctx, input }) => {
 		const rowSecurity = normalizeProjectRowSecurity(input);
-		await assertRowSecurityChangeAllowed(ctx.project.id, rowSecurity);
-		await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
-		return handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
+		return withUserGroupConfigLock(ctx.project.id, async () => {
+			await assertRowSecurityChangeAllowed(ctx.project.id, rowSecurity);
+			await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
+			return handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
+		});
 	}),
 
 	docsContextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {

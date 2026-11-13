@@ -20,6 +20,7 @@ import {
 	recordUserGroupConfigFailure,
 	withUserGroupConfigLock,
 } from '../services/user-group-config-reconciliation.service';
+import { getUserGroupManagementMode } from '../services/user-group-management.service';
 import { readUserGroupsConfig, validateUserGroupsConfig } from '../services/user-group-config-validation.service';
 import { logger, serializeError } from '../utils/logger';
 
@@ -86,8 +87,15 @@ export const deployRoutes = async (app: App) => {
 				if (!projectPath) {
 					throw new DeployError(400, 'The target project has no deployment path.');
 				}
-				const evaluatesGroups = dryRun || existing.userGroupManagementMode === 'code';
-				if (evaluatesGroups) {
+				const result = await withUserGroupConfigLock(projectId, async () => {
+					const mode = await getUserGroupManagementMode(projectId);
+					const evaluatesGroups = dryRun || mode === 'code';
+					if (!evaluatesGroups) {
+						await replaceProjectDirectory(projectId, extractDir, projectPath, () =>
+							recordProjectDeployment(projectId),
+						);
+						return null;
+					}
 					const role = await projectQueries.getUserRoleInProject(projectId, apiKey.createdBy);
 					if (role !== 'admin') {
 						throw new DeployError(
@@ -95,57 +103,48 @@ export const deployRoutes = async (app: App) => {
 							'The API key creator must still be a project admin to deploy code-managed user groups.',
 						);
 					}
-					const result = await withUserGroupConfigLock(projectId, async () => {
-						let config;
+					let config;
+					try {
+						config = readUserGroupsConfig(extractDir);
+						const currentConfig =
+							mode === 'code'
+								? parseUserGroupsConfig(await exportUserGroupsConfig(projectId))
+								: undefined;
+						await validateUserGroupsConfig(projectId, extractDir, config, currentConfig);
+					} catch (error) {
+						if (!dryRun && mode === 'code') {
+							await recordUserGroupConfigFailure(
+								projectId,
+								apiKey.createdBy,
+								'apply',
+								config?.hash ?? null,
+								error,
+							);
+						}
+						throw error;
+					}
+					if (dryRun) {
+						return { diff: await diffUserGroupsConfig(projectId, config), applied: false };
+					}
+					let diff: UserGroupConfigDiff | undefined;
+					await replaceProjectDirectory(projectId, extractDir, projectPath, async (deployId) => {
+						diff = await reconcileUserGroupsConfigWithinLock(projectId, config, apiKey.createdBy, deployId);
 						try {
-							config = readUserGroupsConfig(extractDir);
-							const currentConfig =
-								existing.userGroupManagementMode === 'code'
-									? parseUserGroupsConfig(await exportUserGroupsConfig(projectId))
-									: undefined;
-							await validateUserGroupsConfig(projectId, extractDir, config, currentConfig);
+							await recordProjectDeployment(projectId);
 						} catch (error) {
-							if (!dryRun && existing.userGroupManagementMode === 'code') {
-								await recordUserGroupConfigFailure(
-									projectId,
-									apiKey.createdBy,
-									'apply',
-									config?.hash ?? null,
-									error,
-								);
-							}
-							throw error;
+							logger.warn('User groups were applied but the deployment timestamp was not updated.', {
+								source: 'system',
+								projectId,
+								context: serializeError(error),
+							});
 						}
-						if (dryRun) {
-							return { diff: await diffUserGroupsConfig(projectId, config), applied: false };
-						}
-						let diff: UserGroupConfigDiff | undefined;
-						await replaceProjectDirectory(
-							projectId,
-							extractDir,
-							projectPath,
-							async () => {
-								diff = await reconcileUserGroupsConfigWithinLock(projectId, config, apiKey.createdBy);
-								try {
-									await recordProjectDeployment(projectId);
-								} catch (error) {
-									logger.warn(
-										'User groups were applied but the deployment timestamp was not updated.',
-										{
-											source: 'system',
-											projectId,
-											context: serializeError(error),
-										},
-									);
-								}
-							},
-							config.hash,
-						);
-						if (!diff) {
-							throw new Error('User group reconciliation did not return a result.');
-						}
-						return { diff, applied: true };
 					});
+					if (!diff) {
+						throw new Error('User group reconciliation did not return a result.');
+					}
+					return { diff, applied: true };
+				});
+				if (result) {
 					return reply.send({
 						projectId,
 						projectName,
@@ -153,11 +152,6 @@ export const deployRoutes = async (app: App) => {
 						userGroups: result.diff,
 					});
 				}
-				await withUserGroupConfigLock(projectId, () =>
-					replaceProjectDirectory(projectId, extractDir, projectPath, () =>
-						recordProjectDeployment(projectId),
-					),
-				);
 			} else {
 				if (dryRun) {
 					throw new DeployError(400, 'Dry run requires an existing target project.');
@@ -219,31 +213,25 @@ async function replaceProjectDirectory(
 	projectId: string,
 	source: string,
 	target: string,
-	afterSwap: () => Promise<void>,
-	userGroupConfigHash?: string,
+	afterSwap: (deployId: string) => Promise<void>,
 ): Promise<void> {
 	const parent = path.dirname(target);
 	const backup = path.join(parent, `.${projectId}.deploy-backup`);
 	const next = path.join(parent, `.${projectId}.deploy-next`);
 	const marker = path.join(parent, `.${projectId}.deploy-recovery.json`);
+	const deployId = crypto.randomUUID();
 	await recoverInterruptedDeploy(projectId, target, backup, next, marker);
 	fs.mkdirSync(next, { recursive: true });
 	copyDirectoryContents(source, next);
 	const hadPrevious = fs.existsSync(target);
-	fs.writeFileSync(
-		marker,
-		JSON.stringify({ phase: 'prepared', target, backup, next, userGroupConfigHash, hadPrevious }),
-	);
+	fs.writeFileSync(marker, JSON.stringify({ deployId, phase: 'prepared', target, backup, next, hadPrevious }));
 	if (hadPrevious) {
 		fs.renameSync(target, backup);
 	}
 	try {
 		fs.renameSync(next, target);
-		fs.writeFileSync(
-			marker,
-			JSON.stringify({ phase: 'swapped', target, backup, next, userGroupConfigHash, hadPrevious }),
-		);
-		await afterSwap();
+		fs.writeFileSync(marker, JSON.stringify({ deployId, phase: 'swapped', target, backup, next, hadPrevious }));
+		await afterSwap(deployId);
 	} catch (error) {
 		fs.rmSync(target, { recursive: true, force: true });
 		if (hadPrevious && fs.existsSync(backup)) {
@@ -254,7 +242,7 @@ async function replaceProjectDirectory(
 		throw error;
 	}
 	try {
-		fs.writeFileSync(marker, JSON.stringify({ phase: 'committed', target, backup, next }));
+		fs.writeFileSync(marker, JSON.stringify({ deployId, phase: 'committed', target, backup, next }));
 	} catch {
 		fs.rmSync(marker, { force: true });
 	}
@@ -282,13 +270,20 @@ async function recoverInterruptedDeploy(
 	}
 	const recovery = JSON.parse(fs.readFileSync(marker, 'utf8')) as {
 		phase?: string;
-		userGroupConfigHash?: string;
+		deployId?: string;
 		hadPrevious?: boolean;
 	};
+	if (recovery.phase === 'committed') {
+		fs.rmSync(backup, { recursive: true, force: true });
+		fs.rmSync(next, { recursive: true, force: true });
+		fs.rmSync(marker, { force: true });
+		return;
+	}
 	const groupsCommitted =
-		recovery.userGroupConfigHash !== undefined &&
-		(await activityQueries.hasCompletedUserGroupConfigHash(projectId, recovery.userGroupConfigHash));
-	if (recovery.phase === 'committed' || groupsCommitted) {
+		recovery.phase === 'swapped' &&
+		recovery.deployId !== undefined &&
+		(await activityQueries.hasCompletedUserGroupConfigDeploy(projectId, recovery.deployId));
+	if (groupsCommitted) {
 		fs.rmSync(backup, { recursive: true, force: true });
 		fs.rmSync(next, { recursive: true, force: true });
 		fs.rmSync(marker, { force: true });

@@ -27,6 +27,10 @@ export const PRELOADED_SKILLS_TOTAL_CHAR_LIMIT = 24_000;
 
 const SKILLS_FOLDER_LOCATION = '/agent/skills';
 
+export function resolveProjectSkillName(filename: string, frontmatterName: unknown): string {
+	return String(frontmatterName || filename.replace('.md', '')).trim();
+}
+
 interface ProjectSkills {
 	projectPath: string;
 	skillsFolderPath: string;
@@ -217,7 +221,7 @@ class SkillService {
 			const { data } = matter(readFileSync(realFilePath, 'utf8'));
 			return {
 				skill: {
-					name: String(data.name || file.replace('.md', '')).trim(),
+					name: resolveProjectSkillName(file, data.name),
 					description: data.description || '',
 					location,
 				},

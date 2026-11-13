@@ -50,6 +50,9 @@ vi.mock('../../src/services/warehouse-sql.service', () => ({
 
 import { parseUserGroupsConfig } from '../../src/services/user-group-config.service';
 import { validateUserGroupsConfig } from '../../src/services/user-group-config-validation.service';
+import { useTemporaryFolders } from '../helpers/temporary-folders';
+
+const createTemporaryFolder = useTemporaryFolders();
 
 describe('validateUserGroupsConfig', () => {
 	beforeEach(() => {
@@ -72,6 +75,21 @@ describe('validateUserGroupsConfig', () => {
 		await expect(validateUserGroupsConfig('project-id', '/project', changed, current)).rejects.toThrow(
 			'Code-managed user groups require a user groups license.',
 		);
+	});
+
+	it.each([
+		['a filename when front matter omits the name', 'analysis.md', '---\ndescription: Analysis\n---\n'],
+		['a trimmed front-matter name', 'other.md', '---\nname: " analysis "\n---\n'],
+	])('accepts a skill reference resolved from %s', async (_label, filename, skillSource) => {
+		const projectPath = createTemporaryFolder('nao-user-group-config-validation-');
+		const skillsPath = path.join(projectPath, 'agent', 'skills');
+		fs.mkdirSync(skillsPath, { recursive: true });
+		fs.writeFileSync(path.join(skillsPath, filename), skillSource);
+		const config = parseUserGroupsConfig(
+			readGuideExample().replace('preloaded_skills: []', 'preloaded_skills: [analysis]'),
+		);
+
+		await expect(validateUserGroupsConfig('project-id', projectPath, config, config)).resolves.toBeUndefined();
 	});
 });
 

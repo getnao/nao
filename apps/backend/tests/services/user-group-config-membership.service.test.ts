@@ -1,10 +1,17 @@
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => ({
+	withUserGroupConfigLock: vi.fn(async (_projectId: string, operation: () => Promise<unknown>) => operation()),
+}));
+
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
 	return { db: createInMemoryDb() };
 });
+vi.mock('../../src/services/user-group-config-lock.service', () => ({
+	withUserGroupConfigLock: mocks.withUserGroupConfigLock,
+}));
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
@@ -60,6 +67,18 @@ describe('pending user group config memberships', () => {
 		await db.update(s.user).set({ email: 'other@example.com' }).where(eq(s.user.id, 'ambiguous-membership-user'));
 		await reconcileUserGroupConfigMembershipsForUser(USER_ID);
 		expect(await activeMembershipCount()).toBe(1);
+
+		mocks.withUserGroupConfigLock.mockImplementationOnce(async (_projectId, operation) => {
+			await db
+				.update(s.userGroupConfigMember)
+				.set({ active: false })
+				.where(eq(s.userGroupConfigMember.groupId, GROUP_ID));
+			return operation();
+		});
+		await reconcileUserGroupConfigMembershipsForUser(USER_ID);
+
+		expect(mocks.withUserGroupConfigLock).toHaveBeenLastCalledWith(PROJECT_ID, expect.any(Function));
+		expect(await activeMembershipCount()).toBe(0);
 	});
 });
 

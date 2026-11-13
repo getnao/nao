@@ -9,6 +9,7 @@ import * as userQueries from '../queries/user.queries';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { isOpenProject } from '../utils/open-projects';
 import { chunk } from '../utils/utils';
+import { withUserGroupConfigLock } from './user-group-config-lock.service';
 
 const EMAIL_LOOKUP_BATCH_SIZE = 500;
 
@@ -47,31 +48,92 @@ export async function reconcileUserGroupConfigMembershipsForUser(userId: string)
 	}
 	const normalizedEmail = user.email.trim().toLowerCase();
 	await withKeyedLock(`user-group-config-membership:${normalizedEmail}`, async () => {
-		const [assignments, matchingUsers] = await Promise.all([
+		const [initialAssignments, initialMatchingUsers] = await Promise.all([
 			listAssignments(normalizedEmail),
 			listMatchingUsers(normalizedEmail),
 		]);
-		const desiredGroupsByUser = new Map<string, string[]>();
-		for (const assignment of assignments) {
-			const projectUsers = [];
-			for (const candidate of matchingUsers) {
-				if (await projectQueries.getUserRoleInProject(assignment.projectId, candidate.id)) {
-					projectUsers.push(candidate);
+		const existingProjectIds = await listConfigMembershipProjectIds(
+			initialMatchingUsers.map((candidate) => candidate.id),
+		);
+		const projectIds = [
+			...new Set([...initialAssignments.map((assignment) => assignment.projectId), ...existingProjectIds]),
+		].sort();
+		await withProjectLocks(projectIds, async () => {
+			const [assignments, matchingUsers] = await Promise.all([
+				listAssignments(normalizedEmail),
+				listMatchingUsers(normalizedEmail),
+			]);
+			const affectedGroupIds = await listProjectGroupIds(projectIds);
+			const desiredGroupsByUser = new Map<string, string[]>();
+			for (const assignment of assignments) {
+				const projectUsers = [];
+				for (const candidate of matchingUsers) {
+					if (await projectQueries.getUserRoleInProject(assignment.projectId, candidate.id)) {
+						projectUsers.push(candidate);
+					}
+				}
+				if (projectUsers.length === 1) {
+					const matched = projectUsers[0]!;
+					desiredGroupsByUser.set(matched.id, [
+						...(desiredGroupsByUser.get(matched.id) ?? []),
+						assignment.groupId,
+					]);
 				}
 			}
-			if (projectUsers.length === 1) {
-				const matched = projectUsers[0]!;
-				desiredGroupsByUser.set(matched.id, [
-					...(desiredGroupsByUser.get(matched.id) ?? []),
-					assignment.groupId,
-				]);
+			const affectedUserIds = new Set([userId, ...matchingUsers.map((candidate) => candidate.id)]);
+			for (const affectedUserId of affectedUserIds) {
+				await replaceConfigMemberships(
+					affectedUserId,
+					desiredGroupsByUser.get(affectedUserId) ?? [],
+					affectedGroupIds,
+				);
 			}
-		}
-		const affectedUserIds = new Set([userId, ...matchingUsers.map((candidate) => candidate.id)]);
-		for (const affectedUserId of affectedUserIds) {
-			await replaceConfigMemberships(affectedUserId, desiredGroupsByUser.get(affectedUserId) ?? []);
-		}
+		});
 	});
+}
+
+function withProjectLocks<T>(projectIds: string[], operation: () => Promise<T>): Promise<T> {
+	const [projectId, ...remainingProjectIds] = projectIds;
+	if (!projectId) {
+		return operation();
+	}
+	return withUserGroupConfigLock(projectId, async () => {
+		return withProjectLocks(remainingProjectIds, operation);
+	});
+}
+
+async function listConfigMembershipProjectIds(userIds: string[]): Promise<string[]> {
+	if (userIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.select({ projectId: s.userGroup.projectId })
+		.from(s.userGroupMember)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+		.innerJoin(s.project, eq(s.project.id, s.userGroup.projectId))
+		.where(
+			and(
+				inArray(s.userGroupMember.userId, userIds),
+				eq(s.userGroupMember.provider, 'config'),
+				eq(s.userGroupMember.active, true),
+				eq(s.project.userGroupManagementMode, 'code'),
+			),
+		)
+		.execute();
+	return [...new Set(rows.map((row) => row.projectId))];
+}
+
+async function listProjectGroupIds(projectIds: string[]): Promise<string[]> {
+	if (projectIds.length === 0) {
+		return [];
+	}
+	return (
+		await db
+			.select({ id: s.userGroup.id })
+			.from(s.userGroup)
+			.where(inArray(s.userGroup.projectId, projectIds))
+			.execute()
+	).map((group) => group.id);
 }
 
 async function listAssignments(normalizedEmail: string): Promise<Array<{ groupId: string; projectId: string }>> {
@@ -102,7 +164,14 @@ async function listMatchingUsers(normalizedEmail: string): Promise<Array<{ id: s
 		.execute();
 }
 
-async function replaceConfigMemberships(userId: string, desiredGroupIds: string[]): Promise<void> {
+async function replaceConfigMemberships(
+	userId: string,
+	desiredGroupIds: string[],
+	affectedGroupIds: string[],
+): Promise<void> {
+	if (affectedGroupIds.length === 0) {
+		return;
+	}
 	const now = new Date();
 	if (dbConfig.dialect === Dialect.Sqlite) {
 		db.transaction(
@@ -110,7 +179,13 @@ async function replaceConfigMemberships(userId: string, desiredGroupIds: string[
 				transaction
 					.update(s.userGroupMember)
 					.set({ active: false })
-					.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, 'config')))
+					.where(
+						and(
+							eq(s.userGroupMember.userId, userId),
+							eq(s.userGroupMember.provider, 'config'),
+							inArray(s.userGroupMember.groupId, affectedGroupIds),
+						),
+					)
 					.run();
 				for (const groupId of desiredGroupIds) {
 					transaction
@@ -131,7 +206,13 @@ async function replaceConfigMemberships(userId: string, desiredGroupIds: string[
 		await transaction
 			.update(s.userGroupMember)
 			.set({ active: false })
-			.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, 'config')))
+			.where(
+				and(
+					eq(s.userGroupMember.userId, userId),
+					eq(s.userGroupMember.provider, 'config'),
+					inArray(s.userGroupMember.groupId, affectedGroupIds),
+				),
+			)
 			.execute();
 		if (desiredGroupIds.length > 0) {
 			await transaction

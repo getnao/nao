@@ -86,21 +86,21 @@ export async function listLatestUserGroupConfigActivities(projectId: string) {
 	return { lastSuccess: lastSuccess ?? null, latestFailure: latestFailure ?? null };
 }
 
-export async function hasCompletedUserGroupConfigHash(projectId: string, hash: string): Promise<boolean> {
+export async function hasCompletedUserGroupConfigDeploy(projectId: string, deployId: string): Promise<boolean> {
 	const activities = await db
-		.select({ payload: s.activity.payload })
+		.select({ id: s.activity.id })
 		.from(s.activity)
 		.where(
 			and(
+				eq(s.activity.id, deployId),
 				eq(s.activity.projectId, projectId),
 				eq(s.activity.type, 'user-groups.config'),
 				eq(s.activity.status, 'completed'),
 			),
 		)
-		.orderBy(desc(s.activity.startedAt))
 		.limit(1)
 		.execute();
-	return activities.some((activity) => activity.payload?.hash === hash);
+	return activities.length === 1;
 }
 
 export const startContextPullActivity = async (projectId: string, userId: string): Promise<DBActivity> => {

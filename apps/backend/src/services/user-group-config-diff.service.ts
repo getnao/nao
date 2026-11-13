@@ -8,6 +8,7 @@ import type { NormalizedConfiguredUserGroup, NormalizedUserGroupsConfig } from '
 import { UserGroupConfigError } from './user-group-config.service';
 import { listUsersEligibleForUserGroupConfig } from './user-group-config-membership.service';
 import { getUserGroupManagementMode } from './user-group-management.service';
+import { previewProjectWideShareRevocationForConfig } from './project-sharing.service';
 
 export type UserGroupConfigAction = 'created' | 'adopted' | 'updated' | 'archived' | 'reactivated' | 'unchanged';
 
@@ -123,7 +124,20 @@ export async function diffUserGroupsConfig(
 	const archivedGroupIds = changes.flatMap((change) =>
 		change.action === 'archived' && change.groupId ? [change.groupId] : [],
 	);
-	const shareRevocations = await countShareRevocations(archivedGroupIds);
+	const [groupShareRevocations, projectShareRevocations] = await Promise.all([
+		countShareRevocations(archivedGroupIds),
+		previewProjectWideShareRevocationForConfig(projectId, {
+			allUsersProjectSharing: config.allUsers.projectSharing,
+			groups: config.groups.map((group) => ({
+				projectSharing: group.projectSharing,
+				userIds: group.members.flatMap((email) => usersByEmail.get(email)?.map((user) => user.id) ?? []),
+			})),
+		}),
+	]);
+	const shareRevocations = {
+		chats: groupShareRevocations.chats + projectShareRevocations.chatCount,
+		stories: groupShareRevocations.stories + projectShareRevocations.storyCount,
+	};
 	const accessChanges = getAccessChanges(
 		config,
 		defaultGroup,
