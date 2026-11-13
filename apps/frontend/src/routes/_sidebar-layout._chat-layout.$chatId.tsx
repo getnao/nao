@@ -267,7 +267,9 @@ function ChatPage() {
 										className={cn('size-3', isChatShared && 'text-primary')}
 										strokeWidth={2.25}
 									/>
-									<span className='text-xs @max-md/chat-header:hidden'>{isChatShared ? 'Chat shared' : 'Share chat'}</span>
+									<span className='text-xs @max-md/chat-header:hidden'>
+										{isChatShared ? 'Chat shared' : 'Share chat'}
+									</span>
 								</Button>
 								<ChatArtifactsMenu
 									key={chatId}
