@@ -43,6 +43,7 @@ vi.mock('@/main', () => ({
 		},
 		testRun: {
 			getModelStats: { queryOptions: () => ({ queryKey: ['model-stats'], queryFn: () => [] }) },
+			listUpstreamRepos: { queryOptions: () => ({ queryKey: ['upstream-repos'], queryFn: () => [] }) },
 			getDefaultReasoningEfforts: {
 				queryOptions: () => ({ queryKey: ['default-reasoning-efforts'], queryFn: () => [] }),
 			},

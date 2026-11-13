@@ -124,11 +124,13 @@ import {
 	getLiveContextUpdateStatus,
 	normalizeRemote,
 	pullLiveContext,
+	readContextChangesPatch,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
 	sanitizeContextSourceRepositoryUrl,
 	sanitizeLiveContextError,
 	switchContextBranch,
+	undoLastContextCommit,
 	updateContextWorktree,
 } from '../../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../../src/services/context-explorer-pr.service';
@@ -1755,6 +1757,25 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
+	it('reads the patch of the selected changes only, cut to the given length', async () => {
+		const fixture = createFixture({
+			'nao_config.yaml': 'name: test\n',
+			'notes[1].md': 'repository content\n',
+			'notes1.md': 'other\n',
+		});
+		const access = await fileAccess(fixture.context);
+		const selectedFile = await readFileContent('/notes[1].md', access);
+		const otherFile = await readFileContent('/notes1.md', access);
+		await writeFileContent('/notes[1].md', 'selected\n', selectedFile.hash, access);
+		await writeFileContent('/notes1.md', 'unselected\n', otherFile.hash, access);
+
+		const patch = await readContextChangesPatch(fixture.context, ['/notes[1].md'], 10_000);
+
+		expect(patch).toContain('-repository content\n+selected');
+		expect(patch).not.toContain('unselected');
+		expect(await readContextChangesPatch(fixture.context, ['/notes[1].md'], 12)).toHaveLength(12);
+	});
+
 	it('uses the logged-in nao user as the commit identity', async () => {
 		const fixture = createFixture();
 		fixture.context.user = { name: 'Nao Account', email: 'nao-account@example.com' };
@@ -1823,6 +1844,9 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 			aheadCommitCount: 1,
 			unpushedCommitCount: 1,
 		});
+		expect(committedBranchStatus.branches?.unpushedCommits.map((commit) => commit.subject)).toEqual([
+			'Commit branch edit',
+		]);
 
 		await pushContextExplorerBranch(fixture.context);
 		const pushedBranchStatus = await getContextRepositoryStatus(fixture.context);
@@ -1839,7 +1863,45 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		});
 		const newCommitStatus = await getContextRepositoryStatus(fixture.context);
 		expect(newCommitStatus.branches?.unpushedCommitCount).toBe(1);
+		expect(newCommitStatus.branches?.unpushedCommits.map((commit) => commit.subject)).toEqual([
+			'Commit another edit',
+		]);
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('takes the last commit back into the changes while it is not pushed, and never once pushed', async () => {
+		const fixture = createFixture();
+		await createContextBranch(fixture.context, 'nao/undo');
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'first edit\n', file.hash, access);
+		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'First edit' });
+		await pushContextExplorerBranch(fixture.context);
+
+		await expect(undoLastContextCommit(fixture.context)).rejects.toThrow('not pushed yet');
+
+		const pushedFile = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'second edit\n', pushedFile.hash, access);
+		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Second edit' });
+		await undoLastContextCommit(fixture.context);
+
+		const status = await getContextRepositoryStatus(fixture.context);
+		expect(status.branches?.unpushedCommits).toEqual([]);
+		expect((await getChangedContextFiles(fixture.context)).map((changed) => changed.path)).toEqual(['/context.md']);
+		expect((await readFileContent('/context.md', access)).content).toBe('second edit\n');
+	});
+
+	it('refuses to undo a commit pushed from another checkout', async () => {
+		const fixture = createFixture();
+		await createContextBranch(fixture.context, 'nao/undo-elsewhere');
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'edit\n', file.hash, access);
+		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Edit' });
+		const repo = await ensureContextWorktree(fixture.context);
+		runGit(repo.worktreeRoot, ['push', '--quiet', fixture.bare, 'HEAD:refs/heads/nao/undo-elsewhere']);
+
+		await expect(undoLastContextCommit(fixture.context)).rejects.toThrow('not pushed yet');
 	});
 
 	it('shows only the default branch and branches owned by the current user', async () => {

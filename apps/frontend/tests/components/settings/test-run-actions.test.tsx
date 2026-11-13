@@ -17,6 +17,13 @@ import { isMac } from '@/lib/platform';
 const mocks = vi.hoisted(() => ({
 	startRun: vi.fn(),
 	cancelRun: vi.fn(),
+	listUpstreamRepos: vi.fn(),
+	listUpstreamBranches: vi.fn(),
+}));
+
+vi.mock('@/lib/active-project', async (importOriginal) => ({
+	...(await importOriginal<object>()),
+	useActiveProjectId: () => null,
 }));
 
 vi.mock('@/main', () => ({
@@ -30,6 +37,15 @@ vi.mock('@/main', () => ({
 				queryOptions: () => ({ queryKey: ['default-reasoning-efforts'], queryFn: () => [] }),
 			},
 			listRuns: { queryKey: () => ['test-runs'] },
+			listUpstreamRepos: {
+				queryOptions: () => ({ queryKey: ['upstream-repos'], queryFn: mocks.listUpstreamRepos }),
+			},
+			listUpstreamBranches: {
+				queryOptions: (input: { repo: string }) => ({
+					queryKey: ['upstream-branches', input.repo],
+					queryFn: () => mocks.listUpstreamBranches(input),
+				}),
+			},
 			startRun: { mutationOptions: mutationOptions(mocks.startRun) },
 			cancelRun: { mutationOptions: mutationOptions(mocks.cancelRun) },
 		},
@@ -50,6 +66,7 @@ describe('TestFileRunActions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.startRun.mockResolvedValue({ id: 'run-new' });
+		mocks.listUpstreamRepos.mockResolvedValue([]);
 	});
 
 	afterEach(() => {
@@ -215,9 +232,84 @@ describe('SuiteRunActions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.startRun.mockResolvedValue({ id: 'run-new' });
+		mocks.listUpstreamRepos.mockResolvedValue([]);
 	});
 
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		localStorage.clear();
+	});
+
+	it('compares the tests with a branch of a synced repository picked in the menu', async () => {
+		mocks.listUpstreamRepos.mockResolvedValue([
+			{ name: 'business', url: 'https://github.com/acme/business', branch: 'main' },
+		]);
+		mocks.listUpstreamBranches.mockResolvedValue([
+			{ name: 'main', commit: 'abc' },
+			{ name: 'analyst/net-revenue', commit: 'def' },
+		]);
+		renderWithProviders(
+			<SuiteRunActions
+				settings={settings()}
+				draft={null}
+				activeRun={undefined}
+				scope={{ paths: undefined, testCount: 6, label: '6 tests' }}
+				onRunStarted={vi.fn()}
+			/>,
+		);
+
+		openDropdownMenu(await screen.findByRole('button', { name: 'Changes to test against production' }));
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'analyst/net-revenue' }));
+		fireEvent.click(await screen.findByRole('button', { name: 'Compare 6 tests with main' }));
+
+		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
+		expect(mocks.listUpstreamBranches).toHaveBeenCalledWith({ repo: 'business' });
+		expect(mocks.startRun.mock.calls[0][0]).toEqual({
+			mode: 'compare',
+			target: { paths: undefined },
+			models: MODELS,
+			attempts: 3,
+			threads: 6,
+			upstream: { repo: 'business', branch: 'analyst/net-revenue' },
+		});
+	});
+
+	it('waits for the synced repositories before running a saved branch', async () => {
+		localStorage.setItem('nao-test-upstream-source', JSON.stringify({ repo: 'business', branch: 'analyst/x' }));
+		mocks.listUpstreamRepos.mockReturnValue(new Promise(() => {}));
+		renderWithProviders(
+			<SuiteRunActions
+				settings={settings({ models: MODELS.slice(0, 1), attempts: 1 })}
+				draft={null}
+				activeRun={undefined}
+				scope={{ paths: undefined, testCount: 6, label: '6 tests' }}
+				onRunStarted={vi.fn()}
+			/>,
+		);
+
+		const runButton = await screen.findByRole('button', { name: /6 tests/ });
+		expect(runButton.hasAttribute('disabled')).toBe(true);
+		pressRunShortcut();
+		expect(mocks.startRun).not.toHaveBeenCalled();
+	});
+
+	it('ignores a branch picked in a repository this project does not sync', async () => {
+		localStorage.setItem('nao-test-upstream-source', JSON.stringify({ repo: 'gone', branch: 'analyst/old' }));
+		renderWithProviders(
+			<SuiteRunActions
+				settings={settings({ models: MODELS.slice(0, 1), attempts: 1 })}
+				draft={null}
+				activeRun={undefined}
+				scope={{ paths: undefined, testCount: 6, label: '6 tests' }}
+				onRunStarted={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(await screen.findByRole('button', { name: 'Run 6 tests' }));
+
+		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
+		expect(mocks.startRun.mock.calls[0][0]).toMatchObject({ mode: 'production', upstream: undefined });
+	});
 
 	it('benchmarks the picked tests on every picked model', async () => {
 		renderWithProviders(

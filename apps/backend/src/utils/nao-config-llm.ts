@@ -293,7 +293,7 @@ function toModelSettings(models: z.infer<typeof modelSchema>[]): ModelSettingsMa
  * the file. `aws(...)` and `k8s(...)` are resolved by the CLI only, so a value that still needs
  * them is dropped in favour of the environment.
  */
-function resolveSecrets(value: unknown, extraEnv: Record<string, string>): string | null {
+export function resolveSecrets(value: unknown, extraEnv: Record<string, string>): string | null {
 	if (typeof value !== 'string') {
 		return null;
 	}
