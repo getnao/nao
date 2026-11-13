@@ -1,8 +1,16 @@
 import {
+	columnSecurityTableKey,
+	EMPTY_PROJECT_COLUMN_SECURITY,
+	EMPTY_PROJECT_ROW_SECURITY,
+	EMPTY_USER_GROUP_COLUMN_POLICIES,
+	EMPTY_USER_GROUP_ROW_POLICIES,
+	filterProjectColumnSecurityByDatabaseContext,
+	filterProjectRowSecurityByDatabaseContext,
 	isDatabaseContextTableGranted,
 	matchesDatabaseContextPattern,
 	normalizeDatabaseContextAccess,
 	normalizeDatabaseContextPatterns,
+	rowSecurityTableKey,
 } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, X } from 'lucide-react';
@@ -14,10 +22,19 @@ import type {
 	DatabaseTableGrant,
 	DocsContextAccess,
 	FilesContextAccess,
+	ProjectColumnSecurity,
+	ProjectRowSecurity,
+	SensitiveColumnDefinition,
+	SensitiveTableDefinition,
+	UserGroupColumnPolicies,
+	UserGroupRowPolicies,
 } from '@nao/shared';
 
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
+import { UserGroupColumnRows } from '@/components/settings/user-group-column-security';
 import { UserGroupContextModeSelector } from '@/components/settings/user-group-context-mode-selector';
+import { UserGroupRowSecurity, UserGroupTableRecordAccess } from '@/components/settings/user-group-row-security';
 import {
 	DOCS_TREE_LABELS,
 	FileTreeAccessRoot,
@@ -48,23 +65,47 @@ export interface DatabaseContextObject {
 	columns?: string[];
 }
 
-interface UserGroupContextAccessProps {
+interface UserGroupDataAccessProps {
 	databaseAccess: DatabaseContextAccess;
 	docsAccess?: DocsContextAccess;
 	filesAccess?: FilesContextAccess;
+	columnSecurity?: ProjectColumnSecurity;
+	columnPolicies?: UserGroupColumnPolicies;
+	rowSecurity?: ProjectRowSecurity;
+	rowPolicies?: UserGroupRowPolicies;
+	isColumnSecurityLicensed?: boolean;
+	columnSecurityState?: 'loading' | 'error' | 'ready';
+	rowSecurityState?: 'loading' | 'error' | 'ready';
+	showRowPolicyValidationErrors?: boolean;
 	onDatabaseAccessChange: (access: DatabaseContextAccess) => void;
 	onDocsAccessChange?: (access: DocsContextAccess) => void;
 	onFilesAccessChange?: (access: FilesContextAccess) => void;
+	onColumnPoliciesChange?: (policies: UserGroupColumnPolicies) => void;
+	onRowPoliciesChange?: (policies: UserGroupRowPolicies) => void;
+	onRetryColumnSecurity?: () => void;
+	onRetryRowSecurity?: () => void;
 }
 
-export function UserGroupContextAccess({
+export function UserGroupDataAccess({
 	databaseAccess,
 	docsAccess,
 	filesAccess,
+	columnSecurity = EMPTY_PROJECT_COLUMN_SECURITY,
+	columnPolicies = EMPTY_USER_GROUP_COLUMN_POLICIES,
+	rowSecurity = EMPTY_PROJECT_ROW_SECURITY,
+	rowPolicies = EMPTY_USER_GROUP_ROW_POLICIES,
+	isColumnSecurityLicensed = false,
+	columnSecurityState = 'ready',
+	rowSecurityState = 'ready',
+	showRowPolicyValidationErrors = false,
 	onDatabaseAccessChange,
 	onDocsAccessChange = () => undefined,
 	onFilesAccessChange = () => undefined,
-}: UserGroupContextAccessProps) {
+	onColumnPoliciesChange = () => undefined,
+	onRowPoliciesChange = () => undefined,
+	onRetryColumnSecurity = () => undefined,
+	onRetryRowSecurity = () => undefined,
+}: UserGroupDataAccessProps) {
 	const catalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
 	const filesCatalog = useQuery(trpc.userGroup.filesContextCatalog.queryOptions());
@@ -92,7 +133,30 @@ export function UserGroupContextAccess({
 			: 'restricted';
 	const isSearchEnabled = combinedMode === 'restricted';
 	const isSearching = isSearchEnabled && search.trim().length > 0;
-	const treeObjects = isSearchEnabled ? filterDatabaseContextObjects(objects, search) : objects;
+	const accessibleColumnSecurity = filterProjectColumnSecurityByDatabaseContext(columnSecurity, databaseAccess);
+	const accessibleRowSecurity = filterProjectRowSecurityByDatabaseContext(rowSecurity, databaseAccess);
+	const unavailableColumnPolicyTables =
+		catalog.isLoading || catalog.isError
+			? []
+			: accessibleColumnSecurity.tables.filter(
+					(table) =>
+						columnPolicies.policies.some(
+							(policy) => columnSecurityTableKey(policy) === columnSecurityTableKey(table),
+						) &&
+						!objects.some((object) => columnSecurityTableKey(object) === columnSecurityTableKey(table)),
+				);
+	const unavailableRowPolicyTables =
+		catalog.isLoading || catalog.isError
+			? []
+			: accessibleRowSecurity.tables.filter(
+					(table) =>
+						rowPolicies.policies.some(
+							(policy) => rowSecurityTableKey(policy) === rowSecurityTableKey(table),
+						) && !objects.some((object) => rowSecurityTableKey(object) === rowSecurityTableKey(table)),
+				);
+	const treeObjects = isSearchEnabled
+		? filterDatabaseContextObjects(objects, search, accessibleColumnSecurity, accessibleRowSecurity)
+		: objects;
 	const tableSummary = getDatabaseContextTableSelectionSummary(databaseAccess, objects);
 	const docsCount = docsAccess === undefined ? undefined : getFileTreeSelectionCount(docsAccess, docsEntries);
 	const filesCount = filesAccess === undefined ? undefined : getFileTreeSelectionCount(filesAccess, filesEntries);
@@ -100,8 +164,8 @@ export function UserGroupContextAccess({
 	return (
 		<div className='flex flex-col gap-4'>
 			<p className='text-sm text-muted-foreground'>
-				Choose which synced database tables, docs, and project files this group can access. Access from groups
-				is combined.
+				Choose the tables, records, sensitive fields, docs, and project files this group can access. A person
+				may receive additional access through other groups.
 			</p>
 			<UserGroupContextModeSelector
 				mode={combinedMode}
@@ -138,7 +202,7 @@ export function UserGroupContextAccess({
 					<Input
 						value={search}
 						onChange={(event) => setSearch(event.target.value)}
-						placeholder='Search tables, docs, and files'
+						placeholder='Search tables, columns, docs, and files'
 						aria-label='Search context'
 						className='min-w-0'
 					/>
@@ -148,6 +212,10 @@ export function UserGroupContextAccess({
 					{docsCount !== undefined && ` · ${docsCount} ${docsCount === 1 ? 'doc' : 'docs'}`}
 					{filesCount !== undefined && ` · ${filesCount} ${filesCount === 1 ? 'file' : 'files'}`}
 				</Badge>
+				{!isColumnSecurityLicensed &&
+					(accessibleColumnSecurity.tables.length > 0 || accessibleRowSecurity.tables.length > 0) && (
+						<UpgradeToEnterprise />
+					)}
 			</div>
 			<div data-testid='combined-context-tree' className='h-80 overflow-auto rounded-lg border'>
 				<ul>
@@ -168,12 +236,35 @@ export function UserGroupContextAccess({
 							isSearching={
 								isSearching || (databaseAccess.mode === 'restricted' && draftPattern.trim().length > 0)
 							}
+							search={isSearchEnabled ? search : ''}
 							draftPattern={draftPattern}
+							columnSecurity={accessibleColumnSecurity}
+							columnPolicies={columnPolicies}
+							rowSecurity={accessibleRowSecurity}
+							rowPolicies={rowPolicies}
+							isColumnSecurityLicensed={isColumnSecurityLicensed}
+							showRowPolicyValidationErrors={showRowPolicyValidationErrors}
+							onColumnPoliciesChange={onColumnPoliciesChange}
+							onRowPoliciesChange={onRowPoliciesChange}
 						/>
 					) : (
 						<ContextTreeStatusRow
 							label='Database tables'
 							status={isSearching ? 'No matches' : 'No synced tables'}
+						/>
+					)}
+					{isColumnSecurityLicensed && columnSecurityState !== 'ready' && (
+						<ContextTreeStatusRow
+							label='Hidden columns'
+							status={columnSecurityState === 'loading' ? 'Loading...' : 'Failed to load'}
+							onRetry={columnSecurityState === 'error' ? onRetryColumnSecurity : undefined}
+						/>
+					)}
+					{isColumnSecurityLicensed && rowSecurityState !== 'ready' && (
+						<ContextTreeStatusRow
+							label='Record access rules'
+							status={rowSecurityState === 'loading' ? 'Loading...' : 'Failed to load'}
+							onRetry={rowSecurityState === 'error' ? onRetryRowSecurity : undefined}
 						/>
 					)}
 					{docsAccess !== undefined && (
@@ -213,6 +304,24 @@ export function UserGroupContextAccess({
 					grants={unavailableGrants}
 					databaseAccess={databaseAccess}
 					onChange={onDatabaseAccessChange}
+				/>
+			)}
+			{unavailableColumnPolicyTables.length > 0 && (
+				<UnavailableColumnPolicies
+					tables={unavailableColumnPolicyTables}
+					policies={columnPolicies}
+					isLicensed={isColumnSecurityLicensed}
+					onChange={onColumnPoliciesChange}
+				/>
+			)}
+			{unavailableRowPolicyTables.length > 0 && (
+				<UserGroupRowSecurity
+					registry={{ version: 1, tables: unavailableRowPolicyTables }}
+					databaseAccess={databaseAccess}
+					policies={rowPolicies}
+					isLicensed={isColumnSecurityLicensed}
+					showValidationErrors={showRowPolicyValidationErrors}
+					onChange={onRowPoliciesChange}
 				/>
 			)}
 			{docsAccess?.mode === 'restricted' && unavailableDocsGrants.length > 0 && (
@@ -376,16 +485,42 @@ function DatabaseContextTree({
 	databaseAccess,
 	onChange,
 	isSearching,
+	search,
 	draftPattern,
+	columnSecurity,
+	columnPolicies,
+	rowSecurity,
+	rowPolicies,
+	isColumnSecurityLicensed,
+	showRowPolicyValidationErrors,
+	onColumnPoliciesChange,
+	onRowPoliciesChange,
 }: {
 	objects: DatabaseContextObject[];
 	selectionObjects: DatabaseContextObject[];
 	databaseAccess: DatabaseContextAccess;
 	onChange: (access: DatabaseContextAccess) => void;
 	isSearching: boolean;
+	search: string;
 	draftPattern: string;
+	columnSecurity: ProjectColumnSecurity;
+	columnPolicies: UserGroupColumnPolicies;
+	rowSecurity: ProjectRowSecurity;
+	rowPolicies: UserGroupRowPolicies;
+	isColumnSecurityLicensed: boolean;
+	showRowPolicyValidationErrors: boolean;
+	onColumnPoliciesChange: (policies: UserGroupColumnPolicies) => void;
+	onRowPoliciesChange: (policies: UserGroupRowPolicies) => void;
 }) {
 	const databases = useMemo(() => groupDatabaseContextObjects(objects), [objects]);
+	const restrictedTables = useMemo(
+		() => new Map(columnSecurity.tables.map((table) => [columnSecurityTableKey(table), table])),
+		[columnSecurity],
+	);
+	const filteredTables = useMemo(
+		() => new Map(rowSecurity.tables.map((table) => [rowSecurityTableKey(table), table])),
+		[rowSecurity],
+	);
 	const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
 	if (databases.length === 0) {
@@ -419,6 +554,15 @@ function DatabaseContextTree({
 					onChange={onChange}
 					draftPattern={draftPattern}
 					selectionObjects={selectionObjects}
+					search={search}
+					restrictedTables={restrictedTables}
+					columnPolicies={columnPolicies}
+					filteredTables={filteredTables}
+					rowPolicies={rowPolicies}
+					isColumnSecurityLicensed={isColumnSecurityLicensed}
+					showRowPolicyValidationErrors={showRowPolicyValidationErrors}
+					onColumnPoliciesChange={onColumnPoliciesChange}
+					onRowPoliciesChange={onRowPoliciesChange}
 				/>
 			))}
 		</>
@@ -463,6 +607,15 @@ function DatabaseNode({
 	onChange,
 	draftPattern,
 	selectionObjects,
+	search,
+	restrictedTables,
+	columnPolicies,
+	filteredTables,
+	rowPolicies,
+	isColumnSecurityLicensed,
+	showRowPolicyValidationErrors,
+	onColumnPoliciesChange,
+	onRowPoliciesChange,
 }: {
 	database: GroupedDatabase;
 	expandedKeys: Set<string>;
@@ -472,6 +625,15 @@ function DatabaseNode({
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
 	selectionObjects: DatabaseContextObject[];
+	search: string;
+	restrictedTables: Map<string, SensitiveColumnDefinition>;
+	columnPolicies: UserGroupColumnPolicies;
+	filteredTables: Map<string, SensitiveTableDefinition>;
+	rowPolicies: UserGroupRowPolicies;
+	isColumnSecurityLicensed: boolean;
+	showRowPolicyValidationErrors: boolean;
+	onColumnPoliciesChange: (policies: UserGroupColumnPolicies) => void;
+	onRowPoliciesChange: (policies: UserGroupRowPolicies) => void;
 }) {
 	const folderChain = getSingleChildFolderChain(database, DATABASE_TREE_EXPANSION_ADAPTER);
 	const compactSchema = folderChain.length === 2 ? folderChain[1] : undefined;
@@ -489,6 +651,15 @@ function DatabaseNode({
 				onChange={onChange}
 				draftPattern={draftPattern}
 				selectionObjects={selectionObjects}
+				search={search}
+				restrictedTables={restrictedTables}
+				columnPolicies={columnPolicies}
+				filteredTables={filteredTables}
+				rowPolicies={rowPolicies}
+				isColumnSecurityLicensed={isColumnSecurityLicensed}
+				showRowPolicyValidationErrors={showRowPolicyValidationErrors}
+				onColumnPoliciesChange={onColumnPoliciesChange}
+				onRowPoliciesChange={onRowPoliciesChange}
 			/>
 		);
 	}
@@ -549,6 +720,15 @@ function DatabaseNode({
 							onChange={onChange}
 							draftPattern={draftPattern}
 							selectionObjects={selectionObjects}
+							search={search}
+							restrictedTables={restrictedTables}
+							columnPolicies={columnPolicies}
+							filteredTables={filteredTables}
+							rowPolicies={rowPolicies}
+							isColumnSecurityLicensed={isColumnSecurityLicensed}
+							showRowPolicyValidationErrors={showRowPolicyValidationErrors}
+							onColumnPoliciesChange={onColumnPoliciesChange}
+							onRowPoliciesChange={onRowPoliciesChange}
 						/>
 					))}
 				</ul>
@@ -568,6 +748,15 @@ function SchemaRow({
 	onChange,
 	draftPattern,
 	selectionObjects,
+	search,
+	restrictedTables,
+	columnPolicies,
+	filteredTables,
+	rowPolicies,
+	isColumnSecurityLicensed,
+	showRowPolicyValidationErrors,
+	onColumnPoliciesChange,
+	onRowPoliciesChange,
 }: {
 	schema: GroupedSchema;
 	label: string;
@@ -579,6 +768,15 @@ function SchemaRow({
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
 	selectionObjects: DatabaseContextObject[];
+	search: string;
+	restrictedTables: Map<string, SensitiveColumnDefinition>;
+	columnPolicies: UserGroupColumnPolicies;
+	filteredTables: Map<string, SensitiveTableDefinition>;
+	rowPolicies: UserGroupRowPolicies;
+	isColumnSecurityLicensed: boolean;
+	showRowPolicyValidationErrors: boolean;
+	onColumnPoliciesChange: (policies: UserGroupColumnPolicies) => void;
+	onRowPoliciesChange: (policies: UserGroupRowPolicies) => void;
 }) {
 	const schemaGrant: DatabaseSchemaGrant = {
 		kind: 'schema',
@@ -656,6 +854,15 @@ function SchemaRow({
 							parentSchemaExplicit={explicitSchema}
 							onChange={onChange}
 							draftPattern={draftPattern}
+							search={search}
+							restrictedTable={restrictedTables.get(columnSecurityTableKey(object))}
+							columnPolicies={columnPolicies}
+							filteredTable={filteredTables.get(rowSecurityTableKey(object))}
+							rowPolicies={rowPolicies}
+							isColumnSecurityLicensed={isColumnSecurityLicensed}
+							showRowPolicyValidationErrors={showRowPolicyValidationErrors}
+							onColumnPoliciesChange={onColumnPoliciesChange}
+							onRowPoliciesChange={onRowPoliciesChange}
 						/>
 					))}
 				</ul>
@@ -671,6 +878,15 @@ function TableRow({
 	parentSchemaExplicit,
 	onChange,
 	draftPattern,
+	search,
+	restrictedTable,
+	columnPolicies,
+	filteredTable,
+	rowPolicies,
+	isColumnSecurityLicensed,
+	showRowPolicyValidationErrors,
+	onColumnPoliciesChange,
+	onRowPoliciesChange,
 }: {
 	object: DatabaseContextObject;
 	depth: number;
@@ -678,7 +894,17 @@ function TableRow({
 	parentSchemaExplicit: boolean;
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
+	search: string;
+	restrictedTable?: SensitiveColumnDefinition;
+	columnPolicies: UserGroupColumnPolicies;
+	filteredTable?: SensitiveTableDefinition;
+	rowPolicies: UserGroupRowPolicies;
+	isColumnSecurityLicensed: boolean;
+	showRowPolicyValidationErrors: boolean;
+	onColumnPoliciesChange: (policies: UserGroupColumnPolicies) => void;
+	onRowPoliciesChange: (policies: UserGroupRowPolicies) => void;
 }) {
+	const [detailsExpanded, setDetailsExpanded] = useState(false);
 	const grant: DatabaseTableGrant = { kind: 'table', ...object };
 	const patternDerived =
 		databaseAccess.mode === 'restricted' &&
@@ -687,6 +913,25 @@ function TableRow({
 	const inherited = databaseAccess.mode === 'all' || parentSchemaExplicit || patternDerived;
 	const selected = inherited || hasDatabaseContextGrant(databaseAccess, grant);
 	const previewed = draftPattern.trim().length > 0 && matchesDatabaseContextPattern(draftPattern, object);
+	const detailSearch = search.trim().toLocaleLowerCase();
+	const hasMatchingDetail =
+		detailSearch.length > 0 &&
+		(restrictedTable?.restrictedColumns.some((column) => column.toLocaleLowerCase().includes(detailSearch)) ===
+			true ||
+			filteredTable?.constraintColumns.some((column) => column.toLocaleLowerCase().includes(detailSearch)) ===
+				true);
+	const hasProtectedData = restrictedTable !== undefined || filteredTable !== undefined;
+	const detailsOpen = selected && (detailsExpanded || hasMatchingDetail);
+	const detailsPanelId = `data-access-${toDomId(databaseContextObjectKey(object))}`;
+	const rowPolicy = filteredTable
+		? rowPolicies.policies.find((policy) => rowSecurityTableKey(policy) === rowSecurityTableKey(filteredTable))
+		: undefined;
+	const columnPolicy = restrictedTable
+		? columnPolicies.policies.find(
+				(policy) => columnSecurityTableKey(policy) === columnSecurityTableKey(restrictedTable),
+			)
+		: undefined;
+	const visibleSensitiveFields = columnPolicy?.grantedColumns.length ?? 0;
 
 	return (
 		<li>
@@ -698,7 +943,20 @@ function TableRow({
 				)}
 				style={{ paddingLeft: `${getTreeNodePadding(depth)}px` }}
 			>
-				<span className='size-4 shrink-0' />
+				{hasProtectedData && selected ? (
+					<button
+						type='button'
+						className='flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+						aria-label={`${detailsOpen ? 'Collapse' : 'Expand'} ${object.table} data access`}
+						aria-expanded={detailsOpen}
+						aria-controls={detailsPanelId}
+						onClick={() => setDetailsExpanded((current) => !current)}
+					>
+						<ChevronRight className={cn('size-3.5 transition-transform', detailsOpen && 'rotate-90')} />
+					</button>
+				) : (
+					<span className='size-4 shrink-0' />
+				)}
 				<Checkbox
 					checked={selected}
 					aria-label={`${object.table} table access`}
@@ -717,13 +975,105 @@ function TableRow({
 				<span className='min-w-0 flex-1 truncate' title={object.table}>
 					{object.table}
 				</span>
+				{hasProtectedData && !selected && (
+					<span className='hidden shrink-0 text-[10px] text-muted-foreground sm:inline'>
+						Enable to configure
+					</span>
+				)}
+				{filteredTable && selected && (
+					<span className='hidden shrink-0 text-[10px] text-muted-foreground sm:inline'>
+						{rowPolicy?.access === 'full'
+							? 'All records'
+							: rowPolicy?.access === 'predicate'
+								? 'Matching records'
+								: 'No records'}
+					</span>
+				)}
+				{restrictedTable && selected && (
+					<span className='hidden shrink-0 text-[10px] text-muted-foreground sm:inline'>
+						{visibleSensitiveFields}/{restrictedTable.restrictedColumns.length} sensitive visible
+					</span>
+				)}
 				{inherited && (
 					<span className='shrink-0 text-[10px] text-primary/80'>
 						{patternDerived ? 'Pattern' : 'Inherited'}
 					</span>
 				)}
 			</div>
+			{detailsOpen && (
+				<div id={detailsPanelId} className='flex flex-col gap-4 border-y bg-muted/20 px-3 py-3 sm:ml-8 sm:px-4'>
+					{filteredTable && (
+						<UserGroupTableRecordAccess
+							table={filteredTable}
+							policies={rowPolicies}
+							isLicensed={isColumnSecurityLicensed}
+							showValidationErrors={showRowPolicyValidationErrors}
+							onChange={onRowPoliciesChange}
+						/>
+					)}
+					{restrictedTable && (
+						<div className={cn('flex flex-col gap-2', filteredTable && 'border-t pt-4')}>
+							<div>
+								<p className='text-sm font-medium'>Sensitive fields</p>
+								<p className='text-xs text-muted-foreground'>
+									Hidden by default. Select fields to make them visible to this group.
+								</p>
+							</div>
+							<UserGroupColumnRows
+								table={restrictedTable}
+								depth={0}
+								policies={columnPolicies}
+								isLicensed={isColumnSecurityLicensed}
+								onChange={onColumnPoliciesChange}
+							/>
+						</div>
+					)}
+				</div>
+			)}
 		</li>
+	);
+}
+
+function UnavailableColumnPolicies({
+	tables,
+	policies,
+	isLicensed,
+	onChange,
+}: {
+	tables: SensitiveColumnDefinition[];
+	policies: UserGroupColumnPolicies;
+	isLicensed: boolean;
+	onChange: (policies: UserGroupColumnPolicies) => void;
+}) {
+	return (
+		<section className='flex flex-col gap-2'>
+			<div>
+				<h3 className='text-sm font-medium'>Sensitive field access</h3>
+				<p className='text-xs text-muted-foreground'>
+					These saved grants belong to tables that are not in the latest sync.
+				</p>
+			</div>
+			<div
+				className='flex flex-col divide-y rounded-lg border'
+				role='region'
+				aria-label='Unavailable column grants'
+			>
+				{tables.map((table) => (
+					<div key={columnSecurityTableKey(table)} className='py-2'>
+						<p className='break-all px-3 pb-1 text-sm font-medium'>
+							{table.database}/{table.schema}/{table.table}
+						</p>
+						<UserGroupColumnRows
+							table={table}
+							depth={0}
+							policies={policies}
+							isLicensed={isLicensed}
+							onChange={onChange}
+						/>
+					</div>
+				))}
+			</div>
+		</section>
 	);
 }
 
@@ -814,15 +1164,30 @@ export function getUnavailableDatabaseContextGrants(
 export function filterDatabaseContextObjects(
 	objects: readonly DatabaseContextObject[],
 	search: string,
+	columnSecurity: ProjectColumnSecurity = EMPTY_PROJECT_COLUMN_SECURITY,
+	rowSecurity: ProjectRowSecurity = EMPTY_PROJECT_ROW_SECURITY,
 ): DatabaseContextObject[] {
 	const query = search.trim().toLocaleLowerCase();
 	if (!query) {
 		return [...objects];
 	}
-	return objects.filter((object) =>
-		[object.databaseType, object.database, object.schema, object.table].some((value) =>
-			value.toLocaleLowerCase().includes(query),
-		),
+	const restrictedColumnsByTable = new Map(
+		columnSecurity.tables.map((table) => [columnSecurityTableKey(table), table.restrictedColumns]),
+	);
+	const ruleFieldsByTable = new Map(
+		rowSecurity.tables.map((table) => [rowSecurityTableKey(table), table.constraintColumns]),
+	);
+	return objects.filter(
+		(object) =>
+			[object.databaseType, object.database, object.schema, object.table].some((value) =>
+				value.toLocaleLowerCase().includes(query),
+			) ||
+			restrictedColumnsByTable
+				.get(columnSecurityTableKey(object))
+				?.some((column) => column.toLocaleLowerCase().includes(query)) === true ||
+			ruleFieldsByTable
+				.get(rowSecurityTableKey(object))
+				?.some((column) => column.toLocaleLowerCase().includes(query)) === true,
 	);
 }
 

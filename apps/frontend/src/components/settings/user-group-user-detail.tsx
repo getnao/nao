@@ -1,6 +1,9 @@
 import {
+	EMPTY_PROJECT_COLUMN_SECURITY,
 	EMPTY_PROJECT_ROW_SECURITY,
+	filterProjectColumnSecurityByDatabaseContext,
 	filterProjectRowSecurityByDatabaseContext,
+	resolveWarehouseColumnSecurity,
 	resolveWarehouseRowSecurity,
 } from '@nao/shared';
 import { Lock } from 'lucide-react';
@@ -11,11 +14,14 @@ import type {
 	DocsContextAccess,
 	FilesContextAccess,
 	McpAccess,
+	ProjectColumnSecurity,
 	ProjectRowSecurity,
 	SkillsAccess,
 	ToolCallDensityPolicy,
+	UserGroupColumnPolicies,
 	UserGroupFeature,
 	UserGroupRowPolicies,
+	WarehouseColumnSecurity,
 	WarehouseRowSecurity,
 } from '@nao/shared';
 
@@ -53,6 +59,7 @@ interface EffectiveUserGroupAccess {
 	mcpAccess: McpAccess;
 	skillsAccess: SkillsAccess;
 	preloadedSkills: string[];
+	columnPolicies?: UserGroupColumnPolicies[];
 	rowPolicies: UserGroupRowPolicies[];
 }
 
@@ -75,8 +82,11 @@ interface UserGroupUserDetailProps {
 	onRetryDatabaseCatalog?: () => void;
 	onRetryDocsCatalog?: () => void;
 	onRetryFilesCatalog?: () => void;
+	projectColumnSecurity?: ProjectColumnSecurity;
 	projectRowSecurity?: ProjectRowSecurity;
+	columnSecurityState?: 'loading' | 'error' | 'ready';
 	securityState?: 'loading' | 'error' | 'ready';
+	onRetryColumnSecurity?: () => void;
 	onRetrySecurity?: () => void;
 	activeTab: UserGroupUserDetailTab;
 	onTabChange: (tab: UserGroupUserDetailTab) => void;
@@ -84,10 +94,10 @@ interface UserGroupUserDetailProps {
 
 const tabs = [
 	{ id: 'features', label: 'Features' },
-	{ id: 'context', label: 'Context' },
+	{ id: 'context', label: 'Data access' },
 	{ id: 'mcp', label: 'MCP' },
 	{ id: 'skills', label: 'Skills' },
-	{ id: 'security', label: 'Security' },
+	{ id: 'security', label: 'Data protection' },
 	{ id: 'budget', label: 'Budget' },
 ] satisfies Array<{ id: UserGroupUserDetailTab; label: string }>;
 
@@ -108,8 +118,11 @@ export function UserGroupUserDetail({
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
 	onRetryFilesCatalog,
+	projectColumnSecurity = EMPTY_PROJECT_COLUMN_SECURITY,
 	projectRowSecurity = EMPTY_PROJECT_ROW_SECURITY,
+	columnSecurityState = 'ready',
 	securityState = 'ready',
+	onRetryColumnSecurity,
 	onRetrySecurity,
 	activeTab,
 	onTabChange,
@@ -217,13 +230,22 @@ export function UserGroupUserDetail({
 						/>
 					)}
 					{activeTab === 'security' && (
-						<EffectiveRowSecurity
-							projectRowSecurity={projectRowSecurity}
-							databaseAccess={effectiveAccess.databaseAccess}
-							groupPolicies={effectiveAccess.rowPolicies}
-							state={securityState}
-							onRetry={onRetrySecurity}
-						/>
+						<div className='flex flex-col gap-8'>
+							<EffectiveRowSecurity
+								projectRowSecurity={projectRowSecurity}
+								databaseAccess={effectiveAccess.databaseAccess}
+								groupPolicies={effectiveAccess.rowPolicies}
+								state={securityState}
+								onRetry={onRetrySecurity}
+							/>
+							<EffectiveColumnSecurity
+								projectColumnSecurity={projectColumnSecurity}
+								databaseAccess={effectiveAccess.databaseAccess}
+								groupPolicies={effectiveAccess.columnPolicies ?? []}
+								state={columnSecurityState}
+								onRetry={onRetryColumnSecurity}
+							/>
+						</div>
 					)}
 					{activeTab === 'budget' && <UserGroupUserBudget userId={user.id} isLicensed={hasMemberBudget} />}
 				</TabPanel>
@@ -304,34 +326,107 @@ function EffectiveRowSecurity({
 	return (
 		<div className='flex min-w-0 flex-col gap-4'>
 			<div>
-				<h4 className='text-sm font-medium'>Effective row-level security</h4>
+				<h4 className='text-sm font-medium'>Records this user can access</h4>
 				<p className='text-xs text-muted-foreground'>
-					Combined from all applicable groups. Group filters are joined with OR.
+					Combined from all applicable groups. Matching-record rules are joined with OR.
 				</p>
 			</div>
 			{license.isLoading ? (
-				<SecurityStatus message='Checking row-level security license...' />
+				<SecurityStatus message='Checking record access license...' />
 			) : license.isError || !license.data ? (
-				<SecurityStatus message='Unable to verify row-level security enforcement.' />
+				<SecurityStatus message='Unable to verify record access rules.' />
 			) : !isLicensed ? (
 				<div className='flex items-start justify-between gap-4 rounded-lg border px-3 py-3'>
 					<div className='min-w-0'>
 						<p className='text-sm font-medium'>Enterprise feature inactive</p>
-						<p className='text-xs text-muted-foreground'>No row filters are currently enforced.</p>
+						<p className='text-xs text-muted-foreground'>Record access rules are not currently enforced.</p>
 					</div>
 					<UpgradeToEnterprise />
 				</div>
 			) : state === 'loading' ? (
-				<SecurityStatus message='Loading row-level security...' />
+				<SecurityStatus message='Loading record access rules...' />
 			) : state === 'error' ? (
-				<SecurityStatus message='Failed to load row-level security' onRetry={onRetry} />
+				<SecurityStatus message='Failed to load record access rules' onRetry={onRetry} />
 			) : projectRowSecurity.tables.length > 0 && accessibleProjectRowSecurity.tables.length === 0 ? (
-				<RowSecurityEmptyState message="No protected tables are available through this user's Context permissions." />
+				<RowSecurityEmptyState message='No tables with record rules are available to this user.' />
 			) : (
 				<ResolvedRowSecurity
 					security={resolveWarehouseRowSecurity(accessibleProjectRowSecurity, groupPolicies)}
 				/>
 			)}
+		</div>
+	);
+}
+
+function EffectiveColumnSecurity({
+	projectColumnSecurity,
+	databaseAccess,
+	groupPolicies,
+	state,
+	onRetry,
+}: {
+	projectColumnSecurity: ProjectColumnSecurity;
+	databaseAccess: DatabaseContextAccess;
+	groupPolicies: UserGroupColumnPolicies[];
+	state: 'loading' | 'error' | 'ready';
+	onRetry?: () => void;
+}) {
+	const license = useLicenseFeatures();
+	const isLicensed = license.data?.['row-level-security'] === true;
+	const accessible = filterProjectColumnSecurityByDatabaseContext(projectColumnSecurity, databaseAccess);
+
+	return (
+		<div className='flex min-w-0 flex-col gap-4'>
+			<div>
+				<h4 className='text-sm font-medium'>Sensitive fields this user can access</h4>
+				<p className='text-xs text-muted-foreground'>Visible fields are combined from all applicable groups.</p>
+			</div>
+			{license.isLoading ? (
+				<SecurityStatus message='Checking sensitive-field access license...' />
+			) : license.isError || !license.data ? (
+				<SecurityStatus message='Unable to verify sensitive-field access.' />
+			) : !isLicensed ? (
+				<div className='flex items-start justify-between gap-4 rounded-lg border px-3 py-3'>
+					<p className='text-sm font-medium'>Enterprise feature inactive</p>
+					<UpgradeToEnterprise />
+				</div>
+			) : state === 'loading' ? (
+				<SecurityStatus message='Loading sensitive fields...' />
+			) : state === 'error' ? (
+				<SecurityStatus message='Failed to load sensitive fields' onRetry={onRetry} />
+			) : projectColumnSecurity.tables.length > 0 && accessible.tables.length === 0 ? (
+				<RowSecurityEmptyState message='No tables with sensitive fields are available to this user.' />
+			) : (
+				<ResolvedColumnSecurity security={resolveWarehouseColumnSecurity(accessible, groupPolicies)} />
+			)}
+		</div>
+	);
+}
+
+function ResolvedColumnSecurity({ security }: { security: WarehouseColumnSecurity }) {
+	if (!security.enforced) {
+		return <RowSecurityEmptyState message='No sensitive fields configured.' />;
+	}
+	return (
+		<div className='min-w-0 divide-y rounded-lg border'>
+			{security.tables.map((table) => (
+				<div
+					key={`${table.databaseType}/${table.database}/${table.schema}/${table.table}`}
+					className='flex min-w-0 flex-col gap-1 px-3 py-3'
+				>
+					<div className='flex min-w-0 items-center justify-between gap-3'>
+						<p className='min-w-0 truncate text-sm font-medium'>
+							{table.database}/{table.schema}/{table.table}
+						</p>
+						<Badge variant={table.access === 'full' ? 'success' : 'secondary'}>
+							{table.access === 'full' ? 'All sensitive fields visible' : 'Some fields hidden'}
+						</Badge>
+					</div>
+					{table.access === 'restricted' && (
+						<p className='text-xs text-muted-foreground'>Hidden: {table.deniedColumns.join(', ')}</p>
+					)}
+				</div>
+			))}
 		</div>
 	);
 }
@@ -351,7 +446,7 @@ function SecurityStatus({ message, onRetry }: { message: string; onRetry?: () =>
 
 function ResolvedRowSecurity({ security }: { security: WarehouseRowSecurity }) {
 	if (!security.enforced) {
-		return <RowSecurityEmptyState message='No protected tables configured.' />;
+		return <RowSecurityEmptyState message='No record access rules configured.' />;
 	}
 
 	return (
@@ -388,10 +483,10 @@ function RowSecurityStatusBadge({
 	access: Extract<WarehouseRowSecurity, { enforced: true }>['tables'][number]['access'];
 }) {
 	if (access === 'predicate') {
-		return <Badge variant='success'>Filtered</Badge>;
+		return <Badge variant='success'>Only matching records</Badge>;
 	}
 	if (access === 'full') {
-		return <Badge variant='secondary'>Full access</Badge>;
+		return <Badge variant='secondary'>All records</Badge>;
 	}
-	return <Badge className='bg-accent text-accent-foreground'>No rows</Badge>;
+	return <Badge className='bg-accent text-accent-foreground'>No records</Badge>;
 }

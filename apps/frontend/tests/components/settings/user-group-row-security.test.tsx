@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -101,8 +101,8 @@ describe('UserGroupRowSecurity', () => {
 			/>,
 		);
 
-		expect(screen.getByRole('combobox', { name: 'Row access for orders' })).toBeTruthy();
-		expect(screen.queryByRole('combobox', { name: 'Row access for customers' })).toBeNull();
+		expect(screen.getByRole('combobox', { name: 'Record access for orders' })).toBeTruthy();
+		expect(screen.queryByRole('combobox', { name: 'Record access for customers' })).toBeNull();
 	});
 
 	it('distinguishes no configured tables from none available through Context', () => {
@@ -110,11 +110,9 @@ describe('UserGroupRowSecurity', () => {
 			<StatefulEditor databaseAccess={{ mode: 'restricted', strict: true, grants: [], patterns: [] }} />,
 		);
 
-		expect(
-			screen.getByText("No protected tables are available through this group's Context permissions."),
-		).toBeTruthy();
+		expect(screen.getByText('No tables with record rules are available to this group.')).toBeTruthy();
 		rerender(<StatefulEditor projectRegistry={{ version: 1, tables: [] }} />);
-		expect(screen.getByText('No sensitive tables are configured in the project Security tab.')).toBeTruthy();
+		expect(screen.getByText('No record access rules are configured in project Data protection.')).toBeTruthy();
 	});
 
 	it('validates active drafts against configured columns', () => {
@@ -151,9 +149,9 @@ describe('UserGroupRowSecurity', () => {
 	it('creates a default Guided AND condition and supports full access', () => {
 		render(<StatefulEditor />);
 
-		const access = screen.getByRole('combobox', { name: 'Row access for orders' }) as HTMLSelectElement;
+		const access = screen.getByRole('combobox', { name: 'Record access for orders' }) as HTMLSelectElement;
 		expect(access.value).toBe('none');
-		expect(screen.getByText('Constraint columns: region, tenant_id')).toBeTruthy();
+		expect(screen.getByText('Rule fields: region, tenant_id')).toBeTruthy();
 
 		fireEvent.change(access, { target: { value: 'predicate' } });
 		expect(
@@ -172,10 +170,7 @@ describe('UserGroupRowSecurity', () => {
 			combinator: 'and',
 			conditions: [{ column: 'region', operator: 'equals', value: '' }],
 		});
-		const guidedMode = screen.getByRole('button', { name: 'Guided' });
-		expect(guidedMode.getAttribute('aria-pressed')).toBe('true');
-		expect(guidedMode.className).toContain('cursor-pointer');
-		expect(guidedMode.className).toContain('disabled:cursor-not-allowed');
+		expect(screen.getByRole('button', { name: 'Advanced SQL rule' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'AND' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'OR' })).toBeNull();
 		expect(screen.queryByText('All conditions must match')).toBeNull();
@@ -186,7 +181,7 @@ describe('UserGroupRowSecurity', () => {
 		expect(screen.queryByRole('textbox', { name: 'Value for orders condition 1' })).toBeNull();
 	});
 
-	it('preserves the Guided draft when Guided is already selected', () => {
+	it('renders a saved guided draft without replacing it', () => {
 		const initialPolicies = {
 			version: 1 as const,
 			policies: [
@@ -201,12 +196,13 @@ describe('UserGroupRowSecurity', () => {
 		};
 		render(<StatefulEditor initialPolicies={initialPolicies} />);
 
-		fireEvent.click(screen.getByRole('button', { name: 'Guided' }));
-
+		expect((screen.getByRole('textbox', { name: 'Value for orders condition 1' }) as HTMLInputElement).value).toBe(
+			'7',
+		);
 		expect(readPolicyState()).toEqual(initialPolicies);
 	});
 
-	it('preserves the SQL draft when SQL is already selected', () => {
+	it('renders a saved advanced SQL rule without replacing it', () => {
 		const initialPolicies = {
 			version: 1 as const,
 			policies: [
@@ -220,14 +216,17 @@ describe('UserGroupRowSecurity', () => {
 		};
 		render(<StatefulEditor initialPolicies={initialPolicies} />);
 
-		fireEvent.click(screen.getByRole('button', { name: 'SQL' }));
-
+		expect((screen.getByRole('textbox', { name: 'SQL predicate for orders' }) as HTMLTextAreaElement).value).toBe(
+			"WHERE tenant_id = 7 OR region = 'west'",
+		);
 		expect(readPolicyState()).toEqual(initialPolicies);
 	});
 
 	it('reveals and retains the combinator when conditions are added and removed', () => {
 		render(<StatefulEditor />);
-		selectFilteredRows();
+		fireEvent.change(screen.getByRole('combobox', { name: 'Record access for orders' }), {
+			target: { value: 'predicate' },
+		});
 		fireEvent.change(screen.getByRole('combobox', { name: 'Column for orders condition 1' }), {
 			target: { value: 'region' },
 		});
@@ -239,10 +238,6 @@ describe('UserGroupRowSecurity', () => {
 		});
 		fireEvent.click(screen.getByRole('button', { name: 'Add condition' }));
 
-		const controlRow = screen.getByRole('group', { name: 'Filter controls for orders' });
-		expect(within(controlRow).getByRole('group', { name: 'Filter mode for orders' }).parentElement).toBe(
-			within(controlRow).getByRole('group', { name: 'Condition combination for orders' }).parentElement,
-		);
 		expect(screen.getByRole('button', { name: 'AND' }).getAttribute('aria-pressed')).toBe('true');
 		fireEvent.click(screen.getByRole('button', { name: 'OR' }));
 		expect(screen.getByRole('button', { name: 'OR' }).getAttribute('aria-pressed')).toBe('true');
@@ -280,7 +275,9 @@ describe('UserGroupRowSecurity', () => {
 
 	it('shows Guided field errors only after validation is enabled', () => {
 		const { rerender } = render(<StatefulEditor />);
-		selectFilteredRows();
+		fireEvent.change(screen.getByRole('combobox', { name: 'Record access for orders' }), {
+			target: { value: 'predicate' },
+		});
 
 		const value = screen.getByRole('textbox', { name: 'Value for orders condition 1' });
 		expect(screen.queryByText('Enter a value.')).toBeNull();
@@ -295,18 +292,20 @@ describe('UserGroupRowSecurity', () => {
 		expect(value.getAttribute('aria-invalid')).toBe('false');
 	});
 
-	it('switches between Guided and SQL policies and edits a manual predicate', () => {
+	it('opens an advanced SQL rule and returns to guided rules', () => {
 		render(<StatefulEditor />);
-		selectFilteredRows();
+		fireEvent.change(screen.getByRole('combobox', { name: 'Record access for orders' }), {
+			target: { value: 'predicate' },
+		});
 		fireEvent.change(screen.getByRole('textbox', { name: 'Value for orders condition 1' }), {
 			target: { value: '7' },
 		});
-		fireEvent.click(screen.getByRole('button', { name: 'SQL' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Advanced SQL rule' }));
 
 		const sql = screen.getByRole('textbox', { name: 'SQL predicate for orders' }) as HTMLTextAreaElement;
 		expect(screen.queryByRole('group', { name: 'Condition combination for orders' })).toBeNull();
 		expect(sql.value).toBe('WHERE ("region" = 7)');
-		expect(screen.getByText('Enter a WHERE clause. Only configured constraint columns may be used.')).toBeTruthy();
+		expect(screen.getByText('Enter a WHERE clause. Only configured rule fields may be used.')).toBeTruthy();
 		expect(readPolicyState().policies[0]).toMatchObject({
 			access: 'predicate',
 			mode: 'sql',
@@ -329,7 +328,7 @@ describe('UserGroupRowSecurity', () => {
 		fireEvent.change(sql, { target: { value: ' WHERE ' } });
 		expect(screen.queryByText('Enter an expression after WHERE.')).toBeNull();
 
-		fireEvent.click(screen.getByRole('button', { name: 'Guided' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Use guided rules' }));
 		expect(readPolicyState().policies[0]).toMatchObject({
 			mode: 'guided',
 			combinator: 'and',
@@ -338,15 +337,17 @@ describe('UserGroupRowSecurity', () => {
 		expect(screen.queryByText('Enter a value.')).toBeNull();
 	});
 
-	it('keeps SQL empty when switching from an incomplete Guided policy', () => {
+	it('keeps SQL empty when opening advanced SQL from an incomplete guided policy', () => {
 		render(<StatefulEditor />);
-		selectFilteredRows();
-		fireEvent.click(screen.getByRole('button', { name: 'SQL' }));
+		fireEvent.change(screen.getByRole('combobox', { name: 'Record access for orders' }), {
+			target: { value: 'predicate' },
+		});
+		fireEvent.click(screen.getByRole('button', { name: 'Advanced SQL rule' }));
 
 		const sql = screen.getByRole('textbox', { name: 'SQL predicate for orders' }) as HTMLTextAreaElement;
 		expect(sql.value).toBe('');
 		expect(sql.placeholder).toBe(`WHERE ("region" = 'example')`);
-		expect(screen.getByText('Enter a WHERE clause. Only configured constraint columns may be used.')).toBeTruthy();
+		expect(screen.getByText('Enter a WHERE clause. Only configured rule fields may be used.')).toBeTruthy();
 		expect(screen.queryByText('Enter a WHERE clause.')).toBeNull();
 		expect(sql.getAttribute('aria-invalid')).toBe('false');
 		expect(readPolicyState().policies[0]).toMatchObject({
@@ -389,7 +390,9 @@ describe('UserGroupRowSecurity', () => {
 
 	it('hides values for null operators and reports invalid lists', () => {
 		render(<StatefulEditor showValidationErrors />);
-		selectFilteredRows();
+		fireEvent.change(screen.getByRole('combobox', { name: 'Record access for orders' }), {
+			target: { value: 'predicate' },
+		});
 		const operator = screen.getByRole('combobox', { name: 'Operator for orders condition 1' });
 		fireEvent.change(operator, { target: { value: 'is-null' } });
 
@@ -442,7 +445,7 @@ describe('UserGroupRowSecurity', () => {
 		);
 
 		expect(screen.getByText('Upgrade to Enterprise')).toBeTruthy();
-		expect((screen.getByRole('combobox', { name: 'Row access for orders' }) as HTMLSelectElement).disabled).toBe(
+		expect((screen.getByRole('combobox', { name: 'Record access for orders' }) as HTMLSelectElement).disabled).toBe(
 			true,
 		);
 		expect(
@@ -451,9 +454,7 @@ describe('UserGroupRowSecurity', () => {
 		expect(
 			(screen.getByRole('textbox', { name: 'Value for orders condition 1' }) as HTMLInputElement).disabled,
 		).toBe(true);
-		expect((screen.getByRole('button', { name: 'Guided' }) as HTMLButtonElement).disabled).toBe(true);
-		expect((screen.getByRole('button', { name: 'SQL' }) as HTMLButtonElement).disabled).toBe(true);
-		expect(screen.getByRole('button', { name: 'Guided' }).className).toContain('disabled:cursor-not-allowed');
+		expect((screen.getByRole('button', { name: 'Advanced SQL rule' }) as HTMLButtonElement).disabled).toBe(true);
 		expect((screen.getByRole('button', { name: 'AND' }) as HTMLButtonElement).disabled).toBe(true);
 		expect((screen.getByRole('button', { name: 'OR' }) as HTMLButtonElement).disabled).toBe(true);
 		expect((screen.getByRole('button', { name: 'Add condition' }) as HTMLButtonElement).disabled).toBe(true);
@@ -480,16 +481,9 @@ describe('UserGroupRowSecurity', () => {
 		expect(
 			(screen.getByRole('textbox', { name: 'SQL predicate for orders' }) as HTMLTextAreaElement).disabled,
 		).toBe(true);
-		expect((screen.getByRole('button', { name: 'Guided' }) as HTMLButtonElement).disabled).toBe(true);
-		expect((screen.getByRole('button', { name: 'SQL' }) as HTMLButtonElement).disabled).toBe(true);
+		expect((screen.getByRole('button', { name: 'Use guided rules' }) as HTMLButtonElement).disabled).toBe(true);
 	});
 });
-
-function selectFilteredRows() {
-	fireEvent.change(screen.getByRole('combobox', { name: 'Row access for orders' }), {
-		target: { value: 'predicate' },
-	});
-}
 
 function readPolicyState(): UserGroupRowPolicies {
 	return JSON.parse(screen.getByLabelText('Policy state').textContent ?? '');

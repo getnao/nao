@@ -30,6 +30,7 @@ sys.path.insert(0, str(cli_path))
 
 from api_models import (  # noqa: E402
     BlockedRowAccessTable,
+    ColumnSecurity,
     EnforcedRowSecurity,
     ExecuteSQLRequest,
     ExecuteSQLResponse,
@@ -206,6 +207,7 @@ def _validate_sql(
     enforce_excluded_columns: bool,
     conn=None,
     group_allowed_tables: set[tuple[str, str]] | None = None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None = None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None = None,
     database_folder: str | None = None,
 ) -> str:
@@ -217,9 +219,14 @@ def _validate_sql(
         group_allowed_tables=group_allowed_tables,
         database_folder=database_folder,
     )
-    if enforce_excluded_columns:
+    if enforce_excluded_columns or column_security_policies:
         validated_sql = validate_column_access(
-            validated_sql, db_config, project_path, database_folder
+            validated_sql,
+            db_config,
+            project_path,
+            database_folder,
+            column_security_policies,
+            enforce_static_exclusions=enforce_excluded_columns,
         )
     validated_sql = enforce_row_security(
         validated_sql,
@@ -236,6 +243,7 @@ def _execute_sql_with_guards(
     project_path: Path,
     enforce_excluded_columns: bool,
     group_allowed_tables: set[tuple[str, str]] | None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
 ) -> pd.DataFrame:
@@ -248,6 +256,7 @@ def _execute_sql_with_guards(
             enforce_excluded_columns,
             conn=conn,
             group_allowed_tables=group_allowed_tables,
+            column_security_policies=column_security_policies,
             row_security_policies=row_security_policies,
             database_folder=database_folder,
         )
@@ -454,6 +463,43 @@ def _active_group_allowed_tables(
     }
 
 
+def _active_column_security_policies(
+    column_security: ColumnSecurity,
+    db_config: Any,
+    database_folder: str,
+) -> dict[tuple[str, str], dict[str, Any]] | None:
+    if not column_security.enforced:
+        return None
+
+    database_folder_name = database_folder.removeprefix("database=")
+    database_type = str(db_config.type).lower()
+    policies: dict[tuple[str, str], dict[str, Any]] = {}
+    active_identities: set[tuple[str, str]] = set()
+    for entry in column_security.tables:
+        if (
+            entry.database_type.lower() != database_type
+            or entry.database != database_folder_name
+        ):
+            continue
+        identity = (entry.schema_name, entry.table)
+        if identity in active_identities:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Duplicate column security policy for {entry.schema_name}.{entry.table}.",
+            )
+        active_identities.add(identity)
+        if entry.access == "full":
+            continue
+        if entry.access == "blocked":
+            policies[identity] = {"access": "blocked", "reason": entry.reason}
+        else:
+            policies[identity] = {
+                "access": "restricted",
+                "denied_columns": entry.denied_columns,
+            }
+    return policies
+
+
 def _active_row_security_policies(
     row_security: RowSecurity,
     db_config: Any,
@@ -502,6 +548,7 @@ def _assert_azure_request_can_validate(
     request: ExecuteSQLRequest,
     db_config: Any,
     group_allowed_tables: set[tuple[str, str]] | None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
 ) -> None:
     if not _is_azure_entra_id(db_config):
@@ -519,6 +566,7 @@ def _assert_azure_request_can_validate(
     table_validation_enabled = (
         db_config.allow_listed_only
         or group_allowed_tables is not None
+        or column_security_policies is not None
         or row_security_policies is not None
     )
     if (
@@ -546,11 +594,16 @@ def _validate_request(
     db_config: Any,
     project_path: Path,
     group_allowed_tables: set[tuple[str, str]] | None,
+    column_security_policies: dict[tuple[str, str], dict[str, Any]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
 ) -> str:
     _assert_azure_request_can_validate(
-        request, db_config, group_allowed_tables, row_security_policies
+        request,
+        db_config,
+        group_allowed_tables,
+        column_security_policies,
+        row_security_policies,
     )
     return _validate_sql(
         request.sql,
@@ -558,6 +611,7 @@ def _validate_request(
         project_path,
         request.enforce_excluded_columns,
         group_allowed_tables=group_allowed_tables,
+        column_security_policies=column_security_policies,
         row_security_policies=row_security_policies,
         database_folder=database_folder,
     )
@@ -596,6 +650,9 @@ def execute_sql(request: ExecuteSQLRequest):
         group_allowed_tables = _active_group_allowed_tables(
             request.table_access, db_config, database_folder
         )
+        column_security_policies = _active_column_security_policies(
+            request.column_security, db_config, database_folder
+        )
         row_security_policies = _active_row_security_policies(
             request.row_security, db_config, database_folder
         )
@@ -606,6 +663,7 @@ def execute_sql(request: ExecuteSQLRequest):
                     db_config,
                     project_path,
                     group_allowed_tables,
+                    column_security_policies,
                     row_security_policies,
                     database_folder,
                 )
@@ -616,6 +674,7 @@ def execute_sql(request: ExecuteSQLRequest):
             elif (
                 db_config.allow_listed_only
                 or group_allowed_tables is not None
+                or column_security_policies is not None
                 or row_security_policies is not None
             ):
                 df = _execute_sql_with_guards(
@@ -624,6 +683,7 @@ def execute_sql(request: ExecuteSQLRequest):
                     project_path,
                     request.enforce_excluded_columns,
                     group_allowed_tables,
+                    column_security_policies,
                     row_security_policies,
                     database_folder,
                 )
@@ -633,6 +693,7 @@ def execute_sql(request: ExecuteSQLRequest):
                     db_config,
                     project_path,
                     group_allowed_tables,
+                    column_security_policies,
                     row_security_policies,
                     database_folder,
                 )
@@ -665,6 +726,9 @@ def validate_sql(request: ExecuteSQLRequest):
         group_allowed_tables = _active_group_allowed_tables(
             request.table_access, db_config, database_folder
         )
+        column_security_policies = _active_column_security_policies(
+            request.column_security, db_config, database_folder
+        )
         row_security_policies = _active_row_security_policies(
             request.row_security, db_config, database_folder
         )
@@ -674,6 +738,7 @@ def validate_sql(request: ExecuteSQLRequest):
                 db_config,
                 project_path,
                 group_allowed_tables,
+                column_security_policies,
                 row_security_policies,
                 database_folder,
             )

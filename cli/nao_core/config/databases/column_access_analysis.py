@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from sqlglot import exp
-from sqlglot.optimizer.scope import Scope, traverse_scope
+from sqlglot.optimizer.scope import Scope, find_all_in_scope, traverse_scope
 
 
 class _DatabaseConfigLike(Protocol):
@@ -50,10 +50,14 @@ class _ColumnAccessAnalyzer:
         expression: exp.Query,
         table_infos: TableInfos,
         db_config: _DatabaseConfigLike,
+        denied_columns: dict[tuple[str, str], set[str]] | None = None,
+        enforce_static_exclusions: bool = True,
     ):
         self.expression = expression
         self.table_infos = table_infos
         self.db_config = db_config
+        self.denied_columns = denied_columns or {}
+        self.enforce_static_exclusions = enforce_static_exclusions
         self.scopes = list(traverse_scope(expression))
         self._output_cache: dict[int, list[_OutputColumn]] = {}
 
@@ -72,6 +76,9 @@ class _ColumnAccessAnalyzer:
         for scope in self.scopes:
             for column in scope.columns:
                 origins = self._resolve_column(scope, column)
+                excluded.update(origin for origin in origins if self._is_excluded(origin))
+            for table_column in find_all_in_scope(scope.expression, exp.TableColumn):
+                origins = self._resolve_whole_row(scope, table_column.name)
                 excluded.update(origin for origin in origins if self._is_excluded(origin))
         return excluded
 
@@ -204,6 +211,16 @@ class _ColumnAccessAnalyzer:
             return origins
         raise _blocked(f"column '{column_name}' could not be tied to a source")
 
+    def _resolve_whole_row(self, scope: Scope, source_alias: str) -> set[_ColumnOrigin]:
+        source = scope.sources.get(source_alias)
+        parent = scope.parent
+        while source is None and parent is not None:
+            source = parent.sources.get(source_alias)
+            parent = parent.parent
+        if source is None:
+            raise _blocked(f"whole-row source alias '{source_alias}' could not be resolved")
+        return {origin for output in self._source_outputs(source) for origin in output.origins}
+
     def _table_column_origins(self, table: exp.Table, column_name: str) -> set[_ColumnOrigin]:
         origins = set()
         for info in self._table_infos(table):
@@ -230,7 +247,18 @@ class _ColumnAccessAnalyzer:
         return infos
 
     def _is_excluded(self, origin: _ColumnOrigin) -> bool:
-        return not self.db_config.column_matches_pattern(origin.schema, origin.table, origin.column)
+        if self.enforce_static_exclusions and not self.db_config.column_matches_pattern(
+            origin.schema, origin.table, origin.column
+        ):
+            return True
+        matches = [
+            columns
+            for (schema, table), columns in self.denied_columns.items()
+            if schema.casefold() == origin.schema.casefold() and table.casefold() == origin.table.casefold()
+        ]
+        if len(matches) > 1:
+            raise _blocked(f"multiple column-security policies match '{origin.schema}.{origin.table}'")
+        return bool(matches and origin.column.casefold() in {column.casefold() for column in matches[0]})
 
 
 def _is_unnest_scope(scope: Scope) -> bool:

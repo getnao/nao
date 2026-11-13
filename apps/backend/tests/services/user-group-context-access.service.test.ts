@@ -12,6 +12,7 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getUserRoleInProject: vi.fn(),
 }));
 vi.mock('../../src/queries/user-group.queries', () => ({
+	getProjectColumnSecurity: vi.fn(async () => ({ version: 1, tables: [] })),
 	getProjectRowSecurity: vi.fn(async () => ({ version: 1, tables: [] })),
 }));
 vi.mock('../../src/agents/user-rules', () => ({
@@ -29,7 +30,7 @@ vi.mock('../../src/services/skill', () => ({
 
 import { getDatabaseContextCatalog } from '../../src/agents/user-rules';
 import { getUserRoleInProject } from '../../src/queries/project.queries';
-import { getProjectRowSecurity } from '../../src/queries/user-group.queries';
+import { getProjectColumnSecurity, getProjectRowSecurity } from '../../src/queries/user-group.queries';
 import { hasFeature } from '../../src/services/license.service';
 import { skillService } from '../../src/services/skill';
 import { resolveAvailableUserGroupAccess as resolveUserGroupAccess } from '../../src/services/user-group-availability.service';
@@ -82,6 +83,7 @@ describe('warehouse Context access', () => {
 		vi.mocked(hasFeature).mockResolvedValue(true);
 		vi.mocked(getUserRoleInProject).mockResolvedValue('user');
 		vi.mocked(getDatabaseContextCatalog).mockReturnValue(catalog);
+		vi.mocked(getProjectColumnSecurity).mockResolvedValue({ version: 1, tables: [] });
 		vi.mocked(getProjectRowSecurity).mockResolvedValue({ version: 1, tables: [] });
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
 			userGroupAccess({
@@ -121,6 +123,7 @@ describe('warehouse Context access', () => {
 		vi.mocked(hasFeature).mockResolvedValue(false);
 		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toEqual({
 			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
+			warehouseColumnSecurity: { enforced: false },
 			warehouseRowSecurity: { enforced: false },
 			docsContextAccess: {
 				enforced: true,
@@ -223,6 +226,83 @@ describe('warehouse Context access', () => {
 			warehouseRowSecurity: {
 				enforced: true,
 				tables: [{ ...ORDERS_TABLE, constraintColumns: ['tenant_id'], access: 'full' }],
+			},
+		});
+	});
+
+	it('unions column grants without widening row access', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(getProjectColumnSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['cost', 'margin'] }],
+		});
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, constraintColumns: ['tenant_id'] }],
+		});
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Finance', 'Operations'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'all' },
+			filesAccess: ALL_FILES_CONTEXT_ACCESS,
+			mcpAccess: { mode: 'all' },
+			preloadedSkills: [],
+			columnPolicies: [
+				{ version: 1, policies: [{ ...orders, grantedColumns: ['cost'] }] },
+				{ version: 1, policies: [{ ...orders, grantedColumns: ['margin'] }] },
+			],
+			rowPolicies: [
+				{
+					version: 1,
+					policies: [{ ...orders, access: 'predicate', mode: 'sql', predicate: 'WHERE tenant_id = 7' }],
+				},
+			],
+		});
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseColumnSecurity: {
+				enforced: true,
+				tables: [{ ...orders, restrictedColumns: ['cost', 'margin'], access: 'full' }],
+			},
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...orders, access: 'predicate', predicate: '(tenant_id = 7)' }],
+			},
+		});
+	});
+
+	it('blocks configured columns when the shared security license is inactive', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(hasFeature).mockResolvedValue(false);
+		vi.mocked(getProjectColumnSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, restrictedColumns: ['cost'] }],
+		});
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseColumnSecurity: {
+				enforced: true,
+				tables: [
+					{
+						...orders,
+						restrictedColumns: ['cost'],
+						access: 'blocked',
+						reason: expect.stringContaining('Enterprise license is inactive'),
+					},
+				],
 			},
 		});
 	});
@@ -484,6 +564,7 @@ function userGroupAccess(overrides: Partial<UserGroupAccess>): UserGroupAccess {
 		docsAccess: { mode: 'all' },
 		filesAccess: ALL_FILES_CONTEXT_ACCESS,
 		mcpAccess: { mode: 'all' },
+		columnPolicies: [],
 		rowPolicies: [],
 		...overrides,
 	};

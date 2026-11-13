@@ -1,6 +1,6 @@
 import { EMPTY_PROJECT_ROW_SECURITY, normalizeProjectRowSecurity, rowSecurityTableKey } from '@nao/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, ListFilter, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ProjectRowSecurity, SensitiveTableDefinition } from '@nao/shared';
 import type { Dispatch, SetStateAction } from 'react';
@@ -116,20 +116,20 @@ export function ProjectRowSecurity({
 		<>
 			<SettingsCard
 				title='Row-level security'
-				description='Protect tables by choosing the columns that group policies should use.'
+				description='Limit which rows each group can access. Select fields for row filters, such as company_id or region; these fields stay visible, and allowed values are set per group in Data access.'
 				action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
 				unstyled
 			>
 				{!isLicensed && registry.tables.length > 0 && (
 					<p className='text-xs text-muted-foreground'>
-						Queries on protected tables are blocked until the license is restored. Remove tables to unblock
-						them.
+						Queries on tables with record rules are blocked until the license is restored. Remove tables to
+						unblock them.
 					</p>
 				)}
 				<div className='flex items-center justify-between gap-3'>
 					<Badge variant='secondary' className='shrink-0'>
 						{registry.tables.length} {registry.tables.length === 1 ? 'table' : 'tables'} · {columnCount}{' '}
-						{columnCount === 1 ? 'column' : 'columns'}
+						{columnCount === 1 ? 'rule field' : 'rule fields'}
 					</Badge>
 					<Button
 						type='button'
@@ -137,10 +137,10 @@ export function ProjectRowSecurity({
 						onClick={openAddDialog}
 					>
 						<Plus />
-						Add protected table
+						Add table
 					</Button>
 				</div>
-				<div className='overflow-hidden rounded-lg border' role='region' aria-label='Protected tables'>
+				<div className='overflow-hidden rounded-lg border' role='region' aria-label='Tables with record rules'>
 					{rowSecurity.isLoading ? (
 						<StatusRow status='Loading security settings...' />
 					) : rowSecurity.isError ? (
@@ -150,10 +150,9 @@ export function ProjectRowSecurity({
 						/>
 					) : registry.tables.length === 0 ? (
 						<div className='flex flex-col items-center gap-2 px-4 py-8 text-center'>
-							<p className='text-sm font-medium'>No protected tables</p>
+							<p className='text-sm font-medium'>No record access rules</p>
 							<p className='max-w-md text-xs text-muted-foreground'>
-								Add a table and choose its constraint columns to make row-level policies available to
-								user groups.
+								Add a table when different groups should see different records from it.
 							</p>
 							<Button
 								type='button'
@@ -163,7 +162,7 @@ export function ProjectRowSecurity({
 								disabled={!isLicensed}
 								onClick={openAddDialog}
 							>
-								Add protected table
+								Add table
 							</Button>
 						</div>
 					) : (
@@ -216,23 +215,24 @@ export function ProjectRowSecurity({
 				{dialog?.mode === 'add' ? (
 					<DialogContent className='grid h-[min(46rem,calc(100vh-2rem))] grid-rows-[auto_auto_minmax(0,1fr)_auto] sm:max-w-3xl'>
 						<DialogHeader>
-							<DialogTitle>Add protected tables</DialogTitle>
+							<DialogTitle>Add record access rules</DialogTitle>
 							<DialogDescription>
-								Expand a table and select the columns that group policies should use. Until a group gets
-								a policy for a protected table, its members see no rows from it, admins included.
+								Expand a table and choose fields to use in row filters, such as company_id, region, or
+								department. These fields stay visible. Groups see no rows from a selected table until
+								you give them access in Data access, admins included.
 							</DialogDescription>
 						</DialogHeader>
 						<div className='flex items-center gap-2'>
 							<Input
 								value={search}
 								onChange={(event) => setSearch(event.target.value)}
-								placeholder='Search databases, schemas, tables, and columns'
-								aria-label='Search row-level security tables'
+								placeholder='Search databases, schemas, tables, and fields'
+								aria-label='Search record access tables'
 								autoFocus
 							/>
 							<Badge variant='secondary' className='shrink-0'>
 								{dialogDraft.tables.length} {dialogDraft.tables.length === 1 ? 'table' : 'tables'} ·{' '}
-								{draftColumnCount} {draftColumnCount === 1 ? 'column' : 'columns'}
+								{draftColumnCount} {draftColumnCount === 1 ? 'rule field' : 'rule fields'}
 							</Badge>
 						</div>
 						<div className='min-h-0 overflow-auto rounded-lg border'>
@@ -244,7 +244,7 @@ export function ProjectRowSecurity({
 								<>
 									{visibleObjects.length === 0 ? (
 										<StatusRow
-											status={search ? 'No matching tables or columns.' : 'No synced tables.'}
+											status={search ? 'No matching tables or fields.' : 'No synced tables.'}
 										/>
 									) : (
 										<RowSecurityTree
@@ -279,10 +279,8 @@ export function ProjectRowSecurity({
 				) : dialog?.mode === 'edit' ? (
 					<DialogContent className='sm:max-w-xl'>
 						<DialogHeader>
-							<DialogTitle>Edit protected table</DialogTitle>
-							<DialogDescription>
-								Choose the columns that group policies should use for this table.
-							</DialogDescription>
+							<DialogTitle>Edit record access rule</DialogTitle>
+							<DialogDescription>Choose the fields groups can use to match records.</DialogDescription>
 						</DialogHeader>
 						<EditTableSelector
 							definition={dialog.definition}
@@ -298,9 +296,7 @@ export function ProjectRowSecurity({
 							}
 						/>
 						{dialog.definition.constraintColumns.length === 0 && (
-							<p className='text-sm text-muted-foreground'>
-								Select at least one constraint column to save.
-							</p>
+							<p className='text-sm text-muted-foreground'>Select at least one rule field to save.</p>
 						)}
 						<DialogActions
 							isPending={update.isPending}
@@ -320,10 +316,10 @@ export function ProjectRowSecurity({
 						setRemoveTarget(null);
 					}
 				}}
-				title='Remove protected table?'
+				title='Remove record access rule?'
 				description={
 					removeTarget
-						? `${removeTarget.database}/${removeTarget.schema}/${removeTarget.table} will no longer be available for row-level group policies.`
+						? `${removeTarget.database}/${removeTarget.schema}/${removeTarget.table} will no longer limit records by group. Everyone with table access will see all records.`
 						: ''
 				}
 				confirmLabel='Remove'
@@ -363,7 +359,11 @@ function ProtectedTableSummary({
 					</p>
 					{isTableUnavailable && <Badge variant='destructive'>Unavailable</Badge>}
 				</div>
-				<div className='mt-1.5 flex flex-wrap gap-1.5'>
+				<div className='mt-1.5 flex flex-wrap items-center gap-1.5'>
+					<span className='flex items-center gap-1 text-xs text-muted-foreground'>
+						<ListFilter aria-hidden='true' className='size-3.5' />
+						Rule fields
+					</span>
 					{definition.constraintColumns.map((column) => (
 						<Badge
 							key={column}
@@ -376,7 +376,9 @@ function ProtectedTableSummary({
 					))}
 				</div>
 				{unavailable && !isTableUnavailable && (
-					<p className='mt-1.5 text-xs text-destructive'>Some saved columns are unavailable after sync.</p>
+					<p className='mt-1.5 text-xs text-destructive'>
+						Some saved rule fields are unavailable after sync.
+					</p>
 				)}
 			</div>
 			<div className='flex shrink-0 items-center gap-1'>
@@ -440,11 +442,12 @@ function EditTableSelector({
 			{catalogState === 'error' && <StatusRow status='Failed to load synced table.' onRetry={onRetryCatalog} />}
 			{catalogState === 'ready' && !object && (
 				<p className='border-b px-3 py-2 text-xs text-muted-foreground'>
-					This table was not found in the latest sync. Use Remove outside this dialog to stop protecting it.
+					This table was not found in the latest sync. Use Remove outside this dialog to remove its record
+					rules.
 				</p>
 			)}
 			{columns.length === 0 ? (
-				catalogState === 'ready' && <StatusRow status='No synced columns available.' />
+				catalogState === 'ready' && <StatusRow status='No synced fields available.' />
 			) : (
 				<div className='py-1'>
 					{columns.map((column) => {
@@ -456,7 +459,7 @@ function EditTableSelector({
 							>
 								<Checkbox
 									checked={selected.has(column)}
-									aria-label={`${column} constraint column for ${definition.table}`}
+									aria-label={`${column} rule field for ${definition.table}`}
 									onCheckedChange={(checked) => {
 										const constraintColumns = checked
 											? [...selected, column]
@@ -809,7 +812,7 @@ function SensitiveTableRow({
 								>
 									<Checkbox
 										checked={selected.has(column)}
-										aria-label={`${column} constraint column for ${object.table}`}
+										aria-label={`${column} rule field for ${object.table}`}
 										onCheckedChange={(checked) => {
 											const columns = checked
 												? [...selected, column]

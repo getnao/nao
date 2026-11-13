@@ -428,6 +428,7 @@ function buildWarehouseSqlOptions(executionContext: StoryExecutionContext, datab
 		azureAccessToken: context.azureAccessToken,
 		enforceExcludedColumns: executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		columnSecurity: context.warehouseColumnSecurity,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	};
 }
