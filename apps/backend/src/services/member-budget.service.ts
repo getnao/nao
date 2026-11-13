@@ -11,6 +11,7 @@ import * as userGroupQueries from '../queries/user-group.queries';
 import type { SetMemberBudgetsInput, SetPersonalBudgetInput } from '../types/member-budget';
 import { getMemberBudgetConfig, getMemberBudgetLimit } from '../utils/member-budget';
 import { listActiveUserGroups } from './user-group-availability.service';
+import { CODE_MANAGED_USER_GROUPS_MESSAGE, getUserGroupManagementMode } from './user-group-management.service';
 
 export interface MemberBudgetRow {
 	id: string;
@@ -119,10 +120,17 @@ export async function setPersonalBudget(projectId: string, input: SetPersonalBud
 }
 
 export async function saveMemberBudgets(projectId: string, input: SetMemberBudgetsInput): Promise<void> {
-	const [members, budgetableGroupIds] = await Promise.all([
+	const [members, budgetableGroupIds, current] = await Promise.all([
 		projectQueries.listUsersWithProjectAccess(projectId),
 		listBudgetableGroupIds(projectId),
+		getMemberBudgetConfig(projectId),
 	]);
+	if (
+		(input.groupBudgets.length > 0 || input.defaultLimitUsd !== current.defaultLimitUsd) &&
+		(await getUserGroupManagementMode(projectId)) === 'code'
+	) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: CODE_MANAGED_USER_GROUPS_MESSAGE });
+	}
 	const memberIds = new Set(members.map((member) => member.id));
 	const personalBudgets = input.personalBudgets.filter((budget) => memberIds.has(budget.userId));
 	const groupBudgets = input.groupBudgets.filter((budget) => budgetableGroupIds.has(budget.groupId));
@@ -131,6 +139,9 @@ export async function saveMemberBudgets(projectId: string, input: SetMemberBudge
 
 /** All Users includes every member, so its budget is the project's default per-member budget. */
 export async function setGroupBudget(projectId: string, groupId: string, limitUsd: number | null): Promise<void> {
+	if ((await getUserGroupManagementMode(projectId)) === 'code') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: CODE_MANAGED_USER_GROUPS_MESSAGE });
+	}
 	const group = (await listActiveUserGroups(projectId)).find((candidate) => candidate.id === groupId);
 	if (!group) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'User group not found.' });

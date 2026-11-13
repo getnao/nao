@@ -165,6 +165,26 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('rejects direct group and membership mutations while the project is code-managed', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await db.update(project).set({ userGroupManagementMode: 'code' }).where(eq(project.id, PROJECT_ID));
+
+		const blocked = { code: 'FORBIDDEN', message: expect.stringContaining('user_groups.yaml') };
+		await expect(createUserGroup(PROJECT_ID, 'Finance')).rejects.toMatchObject(blocked);
+		await expect(
+			updateUserGroup(PROJECT_ID, analysts.id, { featureGrants: ['storyCreation'] }),
+		).rejects.toMatchObject(blocked);
+		await expect(setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true)).rejects.toMatchObject(
+			blocked,
+		);
+		await expect(
+			addProjectMemberWithUserGroups({ projectId: PROJECT_ID, userId: OUTSIDER_USER_ID, role: 'user' }, [
+				analysts.id,
+			]),
+		).rejects.toMatchObject(blocked);
+		await expect(deleteUserGroup(PROJECT_ID, analysts.id)).rejects.toMatchObject(blocked);
+	});
+
 	it('loads the overview with legacy raw predicate policies as no policy', async () => {
 		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
 		await db
@@ -917,6 +937,21 @@ describe('user group queries', () => {
 		expect(await countCustomUserGroups(PROJECT_ID)).toBe(3);
 	});
 
+	it('does not count archived groups against the free-group limit', async () => {
+		const archived = await createUserGroup(PROJECT_ID, 'Archived');
+		await db
+			.update(userGroup)
+			.set({ archivedAt: new Date(), archivedName: archived.name, name: `__archived__${archived.id}` })
+			.where(eq(userGroup.id, archived.id))
+			.execute();
+
+		await expect(
+			Promise.all([createGroupWithinFreeLimit('First'), createGroupWithinFreeLimit('Second')]),
+		).resolves.toHaveLength(2);
+		await expect(createGroupWithinFreeLimit('Third')).resolves.toMatchObject({ name: 'Third' });
+		expect(await countCustomUserGroups(PROJECT_ID)).toBe(3);
+	});
+
 	it('resolves every feature for an untouched project', async () => {
 		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
 			'storyCreation',
@@ -935,6 +970,33 @@ describe('user group queries', () => {
 			'storyCreation',
 			'automationCreation',
 		]);
+	});
+
+	it('removes entitlements from inactive memberships and archived groups', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: ['storyCreation'] });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', ['automationCreation']);
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toContain('automationCreation');
+
+		await db
+			.update(userGroupMember)
+			.set({ active: false })
+			.where(and(eq(userGroupMember.groupId, analysts.id), eq(userGroupMember.userId, DIRECT_USER_ID)))
+			.execute();
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).not.toContain('automationCreation');
+
+		await db
+			.update(userGroupMember)
+			.set({ active: true })
+			.where(and(eq(userGroupMember.groupId, analysts.id), eq(userGroupMember.userId, DIRECT_USER_ID)))
+			.execute();
+		await db
+			.update(userGroup)
+			.set({ archivedAt: new Date(), archivedName: analysts.name, name: `__archived__${analysts.id}` })
+			.where(eq(userGroup.id, analysts.id))
+			.execute();
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).not.toContain('automationCreation');
 	});
 
 	it('unions MCP grants and lets a whole-server grant absorb tool grants', async () => {
@@ -1294,7 +1356,12 @@ describe('user group queries', () => {
 		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
 		const defaultGroup = (await getUserGroupOverview(PROJECT_ID)).groups.find((group) => group.isDefault)!;
 		const analystMemberships = async () =>
-			(await db.select().from(userGroupMember).where(eq(userGroupMember.groupId, analysts.id)))
+			(
+				await db
+					.select()
+					.from(userGroupMember)
+					.where(and(eq(userGroupMember.groupId, analysts.id), eq(userGroupMember.active, true)))
+			)
 				.map((membership) => `${membership.userId}:${membership.provider}`)
 				.sort();
 
@@ -1785,6 +1852,28 @@ describe('user group queries', () => {
 		expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual([]);
 	});
 
+	it('resumes suspended SSO mappings only when they are explicitly reconfigured', async () => {
+		const group = await createSsoMappedGroup(PROJECT_ID, 'Finance', ssoMappings(['finance']));
+		await db
+			.update(userGroup)
+			.set({ ssoMappingsSuspendedAt: new Date() })
+			.where(eq(userGroup.id, group.id))
+			.execute();
+
+		await updateUserGroup(PROJECT_ID, group.id, { featureGrants: ['storyCreation'] });
+		expect(
+			(await db.select().from(userGroup).where(eq(userGroup.id, group.id)).execute())[0]?.ssoMappingsSuspendedAt,
+		).not.toBeNull();
+
+		await updateUserGroup(PROJECT_ID, group.id, {
+			featureGrants: ['storyCreation'],
+			ssoMappings: ssoMappings(['finance-reconfigured']),
+		});
+		expect(
+			(await db.select().from(userGroup).where(eq(userGroup.id, group.id)).execute())[0]?.ssoMappingsSuspendedAt,
+		).toBeNull();
+	});
+
 	it('invalidates only memberships for changed SSO providers', async () => {
 		const group = await createSsoMappedGroup(PROJECT_ID, 'Mapped', {
 			version: 1,
@@ -1830,11 +1919,11 @@ describe('user group queries', () => {
 		const group = await createSsoMappedGroup(PROJECT_ID, 'Mapped', ssoMappings(['finance']));
 		await db.insert(userGroupMember).values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' });
 		db.$client.exec(`
-			CREATE TRIGGER fail_sso_membership_delete
-			BEFORE DELETE ON user_group_member
-			WHEN OLD.provider != 'manual'
+			CREATE TRIGGER fail_sso_membership_deactivation
+			BEFORE UPDATE OF active ON user_group_member
+			WHEN OLD.provider != 'manual' AND NEW.active = false
 			BEGIN
-				SELECT RAISE(ABORT, 'blocked delete');
+				SELECT RAISE(ABORT, 'blocked deactivation');
 			END;
 		`);
 
@@ -1844,12 +1933,12 @@ describe('user group queries', () => {
 					featureGrants: [],
 					ssoMappings: ssoMappings([]),
 				}),
-			).rejects.toThrow('blocked delete');
+			).rejects.toThrow('blocked deactivation');
 			const [storedGroup] = await db.select().from(userGroup).where(eq(userGroup.id, group.id));
 			expect(storedGroup.ssoMappings).toEqual(ssoMappings(['finance']));
 			expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual([group.id]);
 		} finally {
-			db.$client.exec('DROP TRIGGER IF EXISTS fail_sso_membership_delete');
+			db.$client.exec('DROP TRIGGER IF EXISTS fail_sso_membership_deactivation');
 		}
 	});
 
@@ -1968,8 +2057,16 @@ async function listSsoGroupIds(userId: string, provider?: SsoGroupProvider): Pro
 		.from(userGroupMember)
 		.where(
 			provider
-				? and(eq(userGroupMember.userId, userId), eq(userGroupMember.provider, provider))
-				: and(eq(userGroupMember.userId, userId), inArray(userGroupMember.provider, ['oidc', 'microsoft'])),
+				? and(
+						eq(userGroupMember.userId, userId),
+						eq(userGroupMember.provider, provider),
+						eq(userGroupMember.active, true),
+					)
+				: and(
+						eq(userGroupMember.userId, userId),
+						inArray(userGroupMember.provider, ['oidc', 'microsoft']),
+						eq(userGroupMember.active, true),
+					),
 		)
 		.then((memberships) => memberships.map((membership) => membership.groupId));
 }

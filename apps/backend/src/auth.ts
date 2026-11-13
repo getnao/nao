@@ -55,6 +55,7 @@ import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc }
 import { enqueueOnce } from './services/scheduler.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
+import { reconcileUserGroupConfigMembershipsForUser } from './services/user-group-config-membership.service';
 import { CLOUD_WELCOME_EMAIL_JOB_NAME } from './types/email';
 import { buildAccountExistsEmail, buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
@@ -278,6 +279,7 @@ async function createAuthInstance(baseURL: string) {
 					expiresIn: 60 * 60,
 					afterEmailVerification: async (user) => {
 						await enqueueVerifiedUserWelcomeEmail(user.id);
+						await reconcileUserGroupConfigMembershipsForUser(user.id);
 					},
 				}
 			: undefined,
@@ -291,6 +293,7 @@ async function createAuthInstance(baseURL: string) {
 			onPasswordReset: async ({ user }) => {
 				if (!user.emailVerified && (await userQueries.markEmailVerified(user.id))) {
 					await enqueueVerifiedUserWelcomeEmail(user.id);
+					await reconcileUserGroupConfigMembershipsForUser(user.id);
 				}
 			},
 			onExistingUserSignUp: async ({ user }, request) => {
@@ -414,6 +417,11 @@ async function createAuthInstance(baseURL: string) {
 						}
 					},
 				},
+				update: {
+					after: async (user) => {
+						await reconcileUserGroupConfigMembershipsForUser(user.id);
+					},
+				},
 				delete: {
 					before: async (user) => {
 						try {
@@ -444,6 +452,7 @@ async function createAuthInstance(baseURL: string) {
 					},
 					async after(session, ctx) {
 						await syncSsoLoginGroups(session.userId, resolveProviderId(ctx));
+						await reconcileUserGroupConfigMembershipsForUser(session.userId);
 						await activateUserJoinCandidates(session.userId);
 					},
 				},

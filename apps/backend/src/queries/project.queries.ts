@@ -38,6 +38,7 @@ export type ProjectAccessSource = 'project' | 'organization' | 'both';
 
 export interface UserWithProjectAccessDetails extends UserWithRole {
 	source: ProjectAccessSource;
+	emailVerified: boolean;
 }
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -57,6 +58,15 @@ export const getProjectByOrgAndName = async (orgId: string, name: string): Promi
 		.where(and(eq(s.project.orgId, orgId), eq(s.project.name, name)))
 		.execute();
 	return project ?? null;
+};
+
+export const listProjectDeploymentPaths = async (): Promise<{ id: string; path: string }[]> => {
+	const projects = await db
+		.select({ id: s.project.id, path: s.project.path })
+		.from(s.project)
+		.where(isNotNull(s.project.path))
+		.execute();
+	return projects.flatMap((project) => (project.path ? [{ id: project.id, path: project.path }] : []));
 };
 
 export const organizationHasProjects = async (orgId: string): Promise<boolean> => {
@@ -253,6 +263,7 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 			id: s.user.id,
 			name: s.user.name,
 			email: s.user.email,
+			emailVerified: s.user.emailVerified,
 			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
 			status: userMemberStatus,
 			source: sql<ProjectAccessSource>`case

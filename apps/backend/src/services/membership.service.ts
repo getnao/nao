@@ -9,6 +9,7 @@ import { HandlerError } from '../utils/error';
 import { cleanupContextWorktree } from './context-explorer-git.service';
 import { recordOrganizationJoinCandidate, recordProjectJoinCandidate } from './credit-grant.service';
 import { addProjectMemberWithUserGroups } from './project-user-group-membership.service';
+import { reconcileUserGroupConfigMembershipsForUser } from './user-group-config-membership.service';
 
 export async function addOrganizationMember(member: NewOrgMember): Promise<DBOrgMember> {
 	await Promise.all([requireOrganization(member.orgId), requireUser(member.userId)]);
@@ -18,6 +19,7 @@ export async function addOrganizationMember(member: NewOrgMember): Promise<DBOrg
 export async function addOrganizationMemberIfMissing(member: NewOrgMember): Promise<void> {
 	await Promise.all([requireOrganization(member.orgId), requireUser(member.userId)]);
 	await persistOrganizationMember(member, () => orgQueries.addOrgMemberIfMissing(member));
+	await reconcileUserGroupConfigMembershipsForUser(member.userId);
 }
 
 export async function addProjectMember(member: NewProjectMember, groupIds: string[] = []): Promise<DBProjectMember> {
@@ -66,6 +68,7 @@ export async function removeOrganizationMember(
 	}
 	await orgQueries.removeOrgMemberFromProjects(orgId, userId);
 	await orgQueries.removeOrgMember(orgId, userId);
+	await reconcileUserGroupConfigMembershipsForUser(userId);
 	await cleanupLostOrgContextAccess(orgId, userId);
 }
 
@@ -101,6 +104,7 @@ export async function removeProjectMember(projectId: string, userId: string): Pr
 		throw new HandlerError('CONFLICT', 'Cannot remove an admin from the project.');
 	}
 	await projectQueries.removeProjectMember(projectId, userId);
+	await reconcileUserGroupConfigMembershipsForUser(userId);
 	const remainingRole = await projectQueries.getUserRoleInProject(projectId, userId);
 	if (project.path && !isContextRole(remainingRole)) {
 		await cleanupContextWorktree(projectId, project.path, userId);
@@ -108,7 +112,9 @@ export async function removeProjectMember(projectId: string, userId: string): Pr
 }
 
 async function createOrganizationMember(member: NewOrgMember): Promise<DBOrgMember> {
-	return persistOrganizationMember(member, () => orgQueries.addOrgMember(member));
+	const created = await persistOrganizationMember(member, () => orgQueries.addOrgMember(member));
+	await reconcileUserGroupConfigMembershipsForUser(member.userId);
+	return created;
 }
 
 async function persistOrganizationMember<T>(member: NewOrgMember, persist: () => Promise<T>): Promise<T> {
@@ -122,6 +128,7 @@ async function createProjectMember(member: NewProjectMember, groupIds: string[] 
 		? await addProjectMemberWithUserGroups(member, groupIds)
 		: await projectQueries.addProjectMember(member);
 	await recordProjectJoinCandidate(member.projectId, member.userId);
+	await reconcileUserGroupConfigMembershipsForUser(member.userId);
 	return created;
 }
 

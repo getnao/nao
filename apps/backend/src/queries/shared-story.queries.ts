@@ -19,6 +19,7 @@ import {
 
 import s, { type DBSharedStory } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
+import { activeUserGroupCondition, activeUserGroupMembershipCondition } from './active-user-group.queries';
 import * as executeSqlQueries from './execute-sql.queries';
 import { listLockedUserGroupIds, listLockedUserGroupIdsOfMember } from './locked-user-groups';
 
@@ -291,10 +292,13 @@ export async function getSharedStoryRecipientUserIds(sharedStoryId: string): Pro
 			.selectDistinct({ userId: s.userGroupMember.userId })
 			.from(s.sharedStoryGroupAccess)
 			.innerJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.sharedStoryGroupAccess.groupId))
+			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 			.where(
 				and(
 					eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId),
 					excludeLockedGroups(s.sharedStoryGroupAccess.groupId, lockedGroupIds),
+					activeUserGroupCondition,
+					activeUserGroupMembershipCondition,
 				),
 			)
 			.execute(),
@@ -342,8 +346,11 @@ export async function listSharedStoryGroupGrants(sharedStoryId: string): Promise
 		})
 		.from(s.sharedStoryGroupAccess)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.sharedStoryGroupAccess.groupId))
-		.leftJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.userGroup.id))
-		.where(eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId))
+		.leftJoin(
+			s.userGroupMember,
+			and(eq(s.userGroupMember.groupId, s.userGroup.id), activeUserGroupMembershipCondition),
+		)
+		.where(and(eq(s.sharedStoryGroupAccess.sharedStoryId, sharedStoryId), activeUserGroupCondition))
 		.groupBy(s.userGroup.id, s.userGroup.name, s.sharedStoryGroupAccess.role)
 		.orderBy(s.userGroup.name)
 		.execute();
@@ -563,8 +570,11 @@ function groupGrantsUser(userId: string, roles: readonly ShareRole[], lockedGrou
 	return sql`exists (
 		select 1 from ${s.sharedStoryGroupAccess}
 		inner join ${s.userGroupMember} on ${s.userGroupMember.groupId} = ${s.sharedStoryGroupAccess.groupId}
+		inner join ${s.userGroup} on ${s.userGroup.id} = ${s.userGroupMember.groupId}
 		where ${s.sharedStoryGroupAccess.sharedStoryId} = ${s.sharedStory.id}
 		  and ${s.userGroupMember.userId} = ${userId}
+		  and ${activeUserGroupMembershipCondition}
+		  and ${activeUserGroupCondition}
 		  and ${inArray(s.sharedStoryGroupAccess.role, [...roles])}
 		  and ${excludeLockedGroups(s.sharedStoryGroupAccess.groupId, lockedGroupIds)}
 	)`;

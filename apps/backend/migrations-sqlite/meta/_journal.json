@@ -722,6 +722,13 @@
       "when": 1794307822126,
       "tag": "0102_story_multi_editors",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "6",
+      "when": 1794565581272,
+      "tag": "0103_user_groups_as_code",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 import '../../src/env';
 
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
@@ -50,6 +51,29 @@ describe('canUserAccessSharedChat', () => {
 		expect((await getSharedChatRecipientUserIds(SHARE_ID)).sort()).toEqual(
 			[DIRECT_RECIPIENT_ID, GROUP_MEMBER_ID].sort(),
 		);
+	});
+
+	it('revokes group access for inactive memberships and archived groups', async () => {
+		await db
+			.update(s.userGroupMember)
+			.set({ active: false })
+			.where(and(eq(s.userGroupMember.groupId, GROUP_ID), eq(s.userGroupMember.userId, GROUP_MEMBER_ID)));
+		expect(await canUserAccessSharedChat(SHARE_ID, GROUP_MEMBER_ID)).toBe(false);
+
+		await db
+			.update(s.userGroupMember)
+			.set({ active: true })
+			.where(and(eq(s.userGroupMember.groupId, GROUP_ID), eq(s.userGroupMember.userId, GROUP_MEMBER_ID)));
+		await db
+			.update(s.userGroup)
+			.set({ archivedAt: new Date(), archivedName: 'Analysts', name: `__archived__${GROUP_ID}` })
+			.where(eq(s.userGroup.id, GROUP_ID));
+		expect(await canUserAccessSharedChat(SHARE_ID, GROUP_MEMBER_ID)).toBe(false);
+
+		await db
+			.update(s.userGroup)
+			.set({ archivedAt: null, archivedName: null, name: 'Analysts' })
+			.where(eq(s.userGroup.id, GROUP_ID));
 	});
 });
 

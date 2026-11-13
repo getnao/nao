@@ -57,6 +57,52 @@ export const createActivity = async (input: CreateActivityInput): Promise<DBActi
 	return created;
 };
 
+export async function listLatestUserGroupConfigActivities(projectId: string) {
+	const selectLatest = (status: DBActivity['status']) =>
+		db
+			.select({
+				id: s.activity.id,
+				status: s.activity.status,
+				payload: s.activity.payload,
+				errorMessage: s.activity.errorMessage,
+				startedAt: s.activity.startedAt,
+				completedAt: s.activity.completedAt,
+				actorName: s.user.name,
+				actorEmail: s.user.email,
+			})
+			.from(s.activity)
+			.leftJoin(s.user, eq(s.user.id, s.activity.userId))
+			.where(
+				and(
+					eq(s.activity.projectId, projectId),
+					eq(s.activity.type, 'user-groups.config'),
+					eq(s.activity.status, status),
+				),
+			)
+			.orderBy(desc(s.activity.startedAt))
+			.limit(1)
+			.execute();
+	const [[lastSuccess], [latestFailure]] = await Promise.all([selectLatest('completed'), selectLatest('failed')]);
+	return { lastSuccess: lastSuccess ?? null, latestFailure: latestFailure ?? null };
+}
+
+export async function hasCompletedUserGroupConfigHash(projectId: string, hash: string): Promise<boolean> {
+	const activities = await db
+		.select({ payload: s.activity.payload })
+		.from(s.activity)
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'user-groups.config'),
+				eq(s.activity.status, 'completed'),
+			),
+		)
+		.orderBy(desc(s.activity.startedAt))
+		.limit(1)
+		.execute();
+	return activities.some((activity) => activity.payload?.hash === hash);
+}
+
 export const startContextPullActivity = async (projectId: string, userId: string): Promise<DBActivity> => {
 	return createActivity({
 		projectId,
@@ -362,7 +408,9 @@ function visibleToUser(projectId: string, userId: string, lockedGroupIds: readon
 			SELECT 1 FROM ${s.sharedStory} ss
 			INNER JOIN ${s.sharedStoryGroupAccess} ssga ON ssga.shared_story_id = ss.id
 			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = ssga.group_id
+			INNER JOIN ${s.userGroup} ug ON ug.id = ugm.group_id
 			WHERE ss.story_id = ${s.activity.storyId} AND ugm.user_id = ${userId}
+				AND ugm.active = true AND ug.archived_at IS NULL
 				${andGroupIsActive('ssga', lockedGroupIds)}
 		)`,
 	);
@@ -382,8 +430,10 @@ function visibleToUser(projectId: string, userId: string, lockedGroupIds: readon
 		sql`EXISTS (
 			SELECT 1 FROM ${s.sharedStoryGroupAccess} ssga
 			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = ssga.group_id
+			INNER JOIN ${s.userGroup} ug ON ug.id = ugm.group_id
 			WHERE ssga.shared_story_id = ${s.activity.sharedStoryId}
 				AND ugm.user_id = ${userId}
+				AND ugm.active = true AND ug.archived_at IS NULL
 				${andGroupIsActive('ssga', lockedGroupIds)}
 		)`,
 	);
@@ -404,8 +454,10 @@ function visibleToUser(projectId: string, userId: string, lockedGroupIds: readon
 		sql`EXISTS (
 			SELECT 1 FROM ${s.sharedChatGroupAccess} scga
 			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = scga.group_id
+			INNER JOIN ${s.userGroup} ug ON ug.id = ugm.group_id
 			WHERE scga.shared_chat_id = ${s.activity.sharedChatId}
 				AND ugm.user_id = ${userId}
+				AND ugm.active = true AND ug.archived_at IS NULL
 				${andGroupIsActive('scga', lockedGroupIds)}
 		)`,
 	);

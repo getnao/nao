@@ -4,11 +4,13 @@ import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
+import { assertUserGroupsUiManaged } from './user-group-management.service';
 
 export async function addProjectMemberWithUserGroups(
 	member: NewProjectMember,
 	groupIds: string[],
 ): Promise<DBProjectMember> {
+	await assertUserGroupsUiManaged(member.projectId);
 	const uniqueGroupIds = [...new Set(groupIds)];
 	if (dbConfig.dialect === Dialect.Sqlite) {
 		return db.transaction((transaction) => {
@@ -18,7 +20,10 @@ export async function addProjectMemberWithUserGroups(
 				.values(
 					uniqueGroupIds.map((groupId) => ({ groupId, userId: member.userId, provider: 'manual' as const })),
 				)
-				.onConflictDoNothing()
+				.onConflictDoUpdate({
+					target: [s.userGroupMember.groupId, s.userGroupMember.userId, s.userGroupMember.provider],
+					set: { active: true, createdAt: new Date() },
+				})
 				.run();
 			return createdMember;
 		});

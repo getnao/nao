@@ -11,10 +11,12 @@ import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
 	assertUserGroupManageable: vi.fn(),
+	assertUserGroupsUiManaged: vi.fn(),
 	createUserGroup: vi.fn(),
 	createUserGroupWithinLimit: vi.fn(),
 	deleteUserGroup: vi.fn(),
 	getUserGroupOverview: vi.fn(),
+	getUserGroupManagementMode: vi.fn(),
 	getDatabaseContextCatalog: vi.fn(),
 	getDocsContextCatalog: vi.fn(),
 	getFilesContextCatalog: vi.fn(),
@@ -95,6 +97,11 @@ vi.mock('../../src/services/user-group-availability.service', () => ({
 	listActiveUserGroups: mocks.listActiveUserGroups,
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
+vi.mock('../../src/services/user-group-management.service', () => ({
+	assertUserGroupsUiManaged: mocks.assertUserGroupsUiManaged,
+	getUserGroupManagementMode: mocks.getUserGroupManagementMode,
+	listPendingUserGroupConfigAssignments: vi.fn(async () => []),
+}));
 vi.mock('../../src/services/file-tree-catalog.service', () => ({
 	getDocsContextCatalog: mocks.getDocsContextCatalog,
 	getFilesContextCatalog: mocks.getFilesContextCatalog,
@@ -127,6 +134,8 @@ beforeEach(() => {
 		userId === 'target-user-id' ? 'viewer' : mocks.role,
 	);
 	mocks.hasFeature.mockResolvedValue(true);
+	mocks.assertUserGroupsUiManaged.mockResolvedValue(undefined);
+	mocks.getUserGroupManagementMode.mockResolvedValue('ui');
 	mocks.getUserGroupOverview.mockResolvedValue({ users: [], groups: [], memberships: [] });
 	mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 	mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });

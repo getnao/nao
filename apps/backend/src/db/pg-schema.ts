@@ -314,6 +314,9 @@ export const project = pgTable(
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
+		userGroupManagementMode: text('user_group_management_mode', { enum: ['ui', 'code'] })
+			.notNull()
+			.default('ui'),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -634,6 +637,10 @@ export const userGroup = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		isDefault: boolean('is_default').default(false).notNull(),
+		configKey: text('config_key'),
+		archivedAt: timestamp('archived_at'),
+		archivedName: text('archived_name'),
+		ssoMappingsSuspendedAt: timestamp('sso_mappings_suspended_at'),
 		featureGrants: jsonb('feature_grants')
 			.$type<StoredUserGroupConfig>()
 			.notNull()
@@ -655,6 +662,7 @@ export const userGroup = pgTable(
 	(t) => [
 		index('user_group_projectId_idx').on(t.projectId),
 		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		unique('user_group_project_config_key_unique').on(t.projectId, t.configKey),
 		uniqueIndex('user_group_project_default_unique')
 			.on(t.projectId)
 			.where(sql`${t.isDefault} = true`),
@@ -670,12 +678,31 @@ export const userGroupMember = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		provider: text('provider').$type<'manual' | SsoGroupProvider>().default('manual').notNull(),
+		provider: text('provider').$type<'manual' | 'config' | SsoGroupProvider>().default('manual').notNull(),
+		active: boolean('active').default(true).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
 		index('user_group_member_user_provider_idx').on(t.userId, t.provider),
+	],
+);
+
+export const userGroupConfigMember = pgTable(
+	'user_group_config_member',
+	{
+		groupId: text('group_id').notNull(),
+		normalizedEmail: text('normalized_email').notNull(),
+		active: boolean('active').default(true).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.groupId, t.normalizedEmail] }),
+		index('user_group_config_member_email_active_idx').on(t.normalizedEmail, t.active),
 	],
 );
 
@@ -800,6 +827,7 @@ export const projectGroupBudget = pgTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		limitUsd: integer('limit_usd').notNull(),
+		active: boolean('active').default(true).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -1532,6 +1560,7 @@ export const ACTIVITY_TYPES = [
 	'story.pinned',
 	'chat.shared',
 	'chat.pinned',
+	'user-groups.config',
 ] as const;
 
 export const ACTIVITY_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;

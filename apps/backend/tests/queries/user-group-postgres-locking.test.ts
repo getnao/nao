@@ -70,7 +70,7 @@ describe('PostgreSQL user group updates', () => {
 			ssoMappings: ssoMappings([]),
 		});
 
-		expect(mocks.events).toEqual(['lock-project', 'refresh-group', 'update-mapping', 'delete-memberships']);
+		expect(mocks.events).toEqual(['lock-project', 'refresh-group', 'update-mapping', 'update-mapping']);
 	});
 
 	it.each([

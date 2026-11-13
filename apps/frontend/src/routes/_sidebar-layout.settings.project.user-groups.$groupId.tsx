@@ -21,17 +21,28 @@ function UserGroupDetailPage() {
 	const { tab } = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const overview = useQuery(trpc.userGroup.overview.queryOptions());
+	const managementStatus = useQuery(trpc.userGroup.managementStatus.queryOptions());
 	const group = groupId === 'new' ? 'new' : overview.data?.groups.find((candidate) => candidate.id === groupId);
+	const isCodeManaged = managementStatus.data?.mode === 'code';
+	const pendingEmails =
+		group === 'new'
+			? []
+			: (managementStatus.data?.pendingAssignments ?? [])
+					.filter((assignment) => assignment.groupId === group?.id)
+					.map((assignment) => assignment.email);
 
 	useEffect(() => {
-		if (groupId !== 'new' && overview.data && (!group || (group !== 'new' && group.isLocked))) {
+		if (
+			(isCodeManaged && groupId === 'new') ||
+			(groupId !== 'new' && overview.data && (!group || (group !== 'new' && group.isLocked)))
+		) {
 			void navigate({
 				to: '/settings/project/user-groups',
 				search: { tab: 'groups' },
 				replace: true,
 			});
 		}
-	}, [group, groupId, navigate, overview.data]);
+	}, [group, groupId, isCodeManaged, navigate, overview.data]);
 
 	if (overview.isLoading) {
 		return <div className='text-sm text-muted-foreground'>Loading group...</div>;
@@ -61,8 +72,21 @@ function UserGroupDetailPage() {
 				User Groups
 			</Link>
 			<h2 className='text-lg font-semibold text-foreground'>{group === 'new' ? 'New group' : group.name}</h2>
+			{isCodeManaged && (
+				<div className='rounded-md border bg-muted/40 p-3 text-sm'>
+					<p>
+						Managed in <code>user_groups.yaml</code>. Deploy an updated file to change this group.
+					</p>
+					{pendingEmails.length > 0 && (
+						<p className='mt-1 text-amber-700 dark:text-amber-400'>
+							Pending desired members: {pendingEmails.join(', ')}
+						</p>
+					)}
+				</div>
+			)}
 			<UserGroupEditor
 				group={group}
+				readOnly={isCodeManaged}
 				activeTab={tab}
 				onTabChange={(nextTab) => {
 					void navigate({

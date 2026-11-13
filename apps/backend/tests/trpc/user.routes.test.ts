@@ -5,6 +5,7 @@ import { createTestCaller } from '../helpers/trpc-caller';
 const mocks = vi.hoisted(() => ({
 	addProjectMember: vi.fn(),
 	addTeamMember: vi.fn(),
+	assertUserGroupsUiManaged: vi.fn(),
 	getUserName: vi.fn(),
 	getUserProfile: vi.fn(),
 	getUserRoleInProject: vi.fn(),
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 	updateUser: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
 		constructor(
-			public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT',
+			public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT' | 'FORBIDDEN',
 			message: string,
 		) {
 			super(message);
@@ -56,6 +57,9 @@ vi.mock('../../src/services/team-member', () => ({ addTeamMember: mocks.addTeamM
 vi.mock('../../src/services/user-group-availability.service', () => ({
 	validateAssignableUserGroupIds: mocks.validateAssignableUserGroupIds,
 }));
+vi.mock('../../src/services/user-group-management.service', () => ({
+	assertUserGroupsUiManaged: mocks.assertUserGroupsUiManaged,
+}));
 vi.mock('../../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(async () => mocks.organizationRoleMappingActive),
 }));
@@ -71,6 +75,7 @@ const caller = createTestCaller(testRouter, { userId: CALLER_ID });
 beforeEach(() => {
 	vi.resetAllMocks();
 	mocks.organizationRoleMappingActive = false;
+	mocks.assertUserGroupsUiManaged.mockResolvedValue(undefined);
 });
 
 describe('user.get', () => {

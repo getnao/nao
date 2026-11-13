@@ -39,6 +39,7 @@ import { z } from 'zod';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { env } from '../env';
+import * as activityQueries from '../queries/activity.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
@@ -58,10 +59,25 @@ import {
 	getAvailableUserGroupOverview,
 	listActiveUserGroups,
 } from '../services/user-group-availability.service';
+import { UserGroupConfigError } from '../services/user-group-config.service';
+import { diffUserGroupsConfig } from '../services/user-group-config-diff.service';
+import { exportUserGroupsConfig } from '../services/user-group-config-export.service';
+import {
+	disableCodeManagedUserGroups,
+	reconcileUserGroupsConfigWithinLock,
+	recordUserGroupConfigFailure,
+	withUserGroupConfigLock,
+} from '../services/user-group-config-reconciliation.service';
+import { readUserGroupsConfig, validateUserGroupsConfig } from '../services/user-group-config-validation.service';
 import {
 	getEffectiveUserGroupAccess,
 	getEffectiveUserGroupAccessForUserDetail,
 } from '../services/user-group-feature-access.service';
+import { assertUserGroupsUiManaged } from '../services/user-group-management.service';
+import {
+	getUserGroupManagementMode,
+	listPendingUserGroupConfigAssignments,
+} from '../services/user-group-management.service';
 import { validateWarehouseRowPredicate } from '../services/warehouse-sql.service';
 import { budgetLimitUsdSchema } from '../types/member-budget';
 import { assertMemberBudgetLicensed } from '../utils/member-budget';
@@ -277,6 +293,73 @@ export const userGroupRoutes = {
 		return handleQuery(() => getAvailableUserGroupOverview(ctx.project.id));
 	}),
 
+	managementStatus: adminProtectedProcedure.query(async ({ ctx }) => {
+		const [mode, activities, pendingAssignments] = await Promise.all([
+			getUserGroupManagementMode(ctx.project.id),
+			activityQueries.listLatestUserGroupConfigActivities(ctx.project.id),
+			listPendingUserGroupConfigAssignments(ctx.project.id),
+		]);
+		return {
+			mode,
+			configPath: 'user_groups.yaml',
+			pendingEmails: [...new Set(pendingAssignments.map((assignment) => assignment.email))].sort(),
+			pendingAssignments,
+			lastSuccess: activities.lastSuccess,
+			latestFailure: activities.latestFailure,
+		};
+	}),
+
+	exportConfig: adminProtectedProcedure.query(async ({ ctx }) => {
+		return {
+			filename: 'user_groups.yaml',
+			source: await handleQuery(() => exportUserGroupsConfig(ctx.project.id)),
+		};
+	}),
+
+	previewCodeManagement: adminProtectedProcedure.query(async ({ ctx }) => {
+		return handleUserGroupConfigOperation(async () =>
+			withUserGroupConfigLock(ctx.project.id, async () => {
+				if ((await getUserGroupManagementMode(ctx.project.id)) !== 'ui') {
+					throw new UserGroupConfigError('User groups are already managed as code.');
+				}
+				const projectPath = requireProjectPath(ctx.project.path);
+				const config = readUserGroupsConfig(projectPath);
+				await validateUserGroupsConfig(ctx.project.id, projectPath, config);
+				return diffUserGroupsConfig(ctx.project.id, config);
+			}),
+		);
+	}),
+
+	enableCodeManagement: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		return handleUserGroupConfigOperation(async () =>
+			withUserGroupConfigLock(ctx.project.id, async () => {
+				if ((await getUserGroupManagementMode(ctx.project.id)) !== 'ui') {
+					throw new UserGroupConfigError('User groups are already managed as code.');
+				}
+				const projectPath = requireProjectPath(ctx.project.path);
+				let config;
+				try {
+					config = readUserGroupsConfig(projectPath);
+					await validateUserGroupsConfig(ctx.project.id, projectPath, config);
+				} catch (error) {
+					await recordUserGroupConfigFailure(
+						ctx.project.id,
+						ctx.user.id,
+						'enable',
+						config?.hash ?? null,
+						error,
+					);
+					throw error;
+				}
+				return reconcileUserGroupsConfigWithinLock(ctx.project.id, config, ctx.user.id);
+			}),
+		);
+	}),
+
+	disableCodeManagement: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		return handleUserGroupConfigOperation(() => disableCodeManagedUserGroups(ctx.project.id, ctx.user.id));
+	}),
+
 	effectiveOidcEnvMappings: adminProtectedProcedure.query(async ({ ctx }) => {
 		if (!(await hasFeature(LICENSE_FEATURES.sso))) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'SSO requires an Enterprise license.' });
@@ -349,6 +432,7 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertUiManaged(ctx.project.id);
 			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
@@ -416,6 +500,7 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertUiManaged(ctx.project.id);
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
 			const databaseAccess =
@@ -477,6 +562,7 @@ export const userGroupRoutes = {
 		}),
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
+		await assertUiManaged(ctx.project.id);
 		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 		await handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
 		await revokeUnauthorizedProjectWideShares(ctx.project.id);
@@ -491,6 +577,7 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertUiManaged(ctx.project.id);
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
@@ -507,6 +594,7 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertUiManaged(ctx.project.id);
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			await handleQuery(() =>
 				userGroupQueries.setUserGroupMemberships(ctx.project.id, input.groupId, input.userIds, input.isMember),
@@ -514,6 +602,10 @@ export const userGroupRoutes = {
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 		}),
 };
+
+async function assertUiManaged(projectId: string): Promise<void> {
+	await handleQuery(() => assertUserGroupsUiManaged(projectId));
+}
 
 async function assertGroupBudgetEditable(projectId: string, budgetLimitUsd: number | null | undefined): Promise<void> {
 	if (budgetLimitUsd !== undefined) {
@@ -609,6 +701,42 @@ async function getCurrentGroupSkillsAccess(projectId: string, groupId: string): 
 }
 
 async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: ProjectRowSecurity): Promise<void> {
+	if ((await getUserGroupManagementMode(projectId)) === 'code') {
+		const [current, groups] = await Promise.all([
+			userGroupQueries.getProjectRowSecurity(projectId),
+			userGroupQueries.listUserGroups(projectId),
+		]);
+		const currentTables = new Map(
+			current.tables.map((table) => [rowSecurityTableKey(table), table.constraintColumns]),
+		);
+		const nextTables = new Map(
+			rowSecurity.tables.map((table) => [rowSecurityTableKey(table), table.constraintColumns]),
+		);
+		const changesYamlPolicy = groups.some((group) =>
+			group.rowPolicies.policies.some((policy) => {
+				const nextColumns = nextTables.get(rowSecurityTableKey(policy));
+				if (!nextColumns) {
+					return true;
+				}
+				const removedColumn = (currentTables.get(rowSecurityTableKey(policy)) ?? []).some(
+					(column) => !nextColumns.includes(column),
+				);
+				return (
+					policy.access === 'predicate' &&
+					removedColumn &&
+					(policy.mode === 'sql' ||
+						policy.conditions.some((condition) => !nextColumns.includes(condition.column)))
+				);
+			}),
+		);
+		if (changesYamlPolicy) {
+			throw new TRPCError({
+				code: 'FORBIDDEN',
+				message:
+					'This registry change would modify a user_groups.yaml row policy. Remove the policy from YAML and deploy it first.',
+			});
+		}
+	}
 	if (await hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId })) {
 		return;
 	}
@@ -722,6 +850,20 @@ async function handleQuery<T>(operation: () => Promise<T>): Promise<T> {
 	try {
 		return await operation();
 	} catch (error) {
+		if (error instanceof userGroupQueries.UserGroupQueryError) {
+			throw new TRPCError({ code: error.code, message: error.message });
+		}
+		throw error;
+	}
+}
+
+async function handleUserGroupConfigOperation<T>(operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	} catch (error) {
+		if (error instanceof UserGroupConfigError) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+		}
 		if (error instanceof userGroupQueries.UserGroupQueryError) {
 			throw new TRPCError({ code: error.code, message: error.message });
 		}
