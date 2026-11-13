@@ -1,4 +1,4 @@
-import { ChevronDown, Sparkles } from 'lucide-react';
+import { ChevronDown, Loader2, Sparkles } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -67,10 +67,9 @@ export function CommitComposer({
 					aria-label='Write it for me'
 					title='Write the message from the selected changes'
 					disabled={selectedCount === 0 || isCommitting || isWritingMessage}
-					isLoading={isWritingMessage}
 					onClick={onWriteMessage}
 				>
-					<Sparkles />
+					{isWritingMessage ? <Loader2 className='animate-spin' /> : <Sparkles />}
 				</Button>
 			</div>
 			<div className='flex'>
