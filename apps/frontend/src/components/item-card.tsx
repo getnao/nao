@@ -101,9 +101,21 @@ export function CertifiedBadge({
 }) {
 	return (
 		<SimpleTooltip content={certifiedByName ? `Certified by ${certifiedByName}` : 'Certified by an admin'}>
-			<span className='inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 shadow-xs dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'>
+			<span
+				className={cn(
+					'inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 shadow-xs dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300',
+					!iconOnlyOnHover && 'gap-1',
+				)}
+			>
 				<ShieldCheck className='size-3' />
-				<span className={cn('text-[11px] font-medium truncate', iconOnlyOnHover && 'group-hover:hidden')}>
+				<span
+					className={cn(
+						'text-[11px] font-medium',
+						iconOnlyOnHover
+							? 'ml-1 max-w-16 overflow-hidden whitespace-nowrap transition-[max-width,margin,opacity] duration-200 ease-out group-hover:ml-0 group-hover:max-w-0 group-hover:opacity-0'
+							: 'truncate',
+					)}
+				>
 					Certified
 				</span>
 			</span>
