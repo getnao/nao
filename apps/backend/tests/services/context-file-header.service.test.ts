@@ -40,6 +40,7 @@ const CUSTOMERS = 'databases/type=duckdb/database=shop/schema=main/table=custome
 describe('context file headers', () => {
 	const createTemporaryFolder = useTemporaryFolders();
 	let access: ContextExplorerFileAccess;
+	let liveFolder: string;
 
 	beforeEach(async () => {
 		mocks.listUsersWithProjectAccess.mockResolvedValue([
@@ -60,10 +61,10 @@ describe('context file headers', () => {
 			[`${ORDERS}/how_to_use.md`]: '---\nowner: ADA@example.com\n---\nUsage\n',
 			[`${ORDERS}/ai_summary.md`]: '---\ntype: generated\nowner: zoe@example.com\n---\nSummary\n',
 			[`${CUSTOMERS}/columns.md`]: '---\nowner: zoe@example.com\n---\nColumns\n',
-			[`${ORDERS}/too_large.md`]: `---\nowner: zoe@example.com\n---\n${'x'.repeat(MAX_CONTEXT_FILE_SIZE)}`,
 		};
 		const fixture = createContextGitFixture(createTemporaryFolder('nao-context-header-'), files);
 		writeFiles(fixture.live, files);
+		liveFolder = fixture.live;
 		access = await fileAccess(fixture.context);
 	});
 
@@ -87,6 +88,8 @@ describe('context file headers', () => {
 	});
 
 	it('lists the owner of the other files of the table, leaving out the ones too large to read', async () => {
+		writeFiles(liveFolder, { [`${ORDERS}/too_large.md`]: 'x'.repeat(MAX_CONTEXT_FILE_SIZE + 1) });
+
 		expect(await listTableFileOwners('project', `/${ORDERS}/description.md`, access)).toEqual([
 			{ path: `/${ORDERS}/ai_summary.md`, owner: 'zoe@example.com', isEditable: false },
 			{ path: `/${ORDERS}/columns.md`, owner: 'zoe@example.com', isEditable: true },
