@@ -5,7 +5,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { listContextPullActivities } from '../../src/queries/activity.queries';
+import {
+	hasCompletedUserGroupConfigDeploy,
+	listContextPullActivities,
+	listRecentActivities,
+} from '../../src/queries/activity.queries';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
@@ -14,13 +18,18 @@ vi.mock('../../src/db/db', async () => {
 
 const PROJECT_ID = 'activity-project';
 const USER_ID = 'activity-user';
+const ACTOR_ID = 'activity-actor';
 
 describe('context pull activity queries', () => {
 	beforeAll(async () => {
-		await db.insert(s.user).values({ id: USER_ID, name: 'Activity User', email: 'activity@example.com' });
+		await db.insert(s.user).values([
+			{ id: USER_ID, name: 'Activity User', email: 'activity@example.com' },
+			{ id: ACTOR_ID, name: 'Activity Actor', email: 'actor@example.com' },
+		]);
 		await db
 			.insert(s.project)
 			.values({ id: PROJECT_ID, name: 'Activity Project', type: 'local', path: '/tmp/activity-project' });
+		await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: USER_ID, role: 'user' });
 	});
 
 	beforeEach(async () => {
@@ -65,5 +74,73 @@ describe('context pull activity queries', () => {
 			errorMessage: 'Activity did not finish before the timeout.',
 		});
 		expect(stale.completedAt).toBeInstanceOf(Date);
+	});
+
+	it('hides group-scoped activity from inactive memberships and archived groups', async () => {
+		await db
+			.insert(s.userGroup)
+			.values({ id: 'activity-group', projectId: PROJECT_ID, name: 'Activity Group' })
+			.onConflictDoNothing();
+		await db.insert(s.userGroupMember).values({ groupId: 'activity-group', userId: USER_ID }).onConflictDoNothing();
+		await db
+			.insert(s.chat)
+			.values({ id: 'activity-chat', projectId: PROJECT_ID, userId: USER_ID, title: 'Activity Chat' })
+			.onConflictDoNothing();
+		await db
+			.insert(s.sharedChat)
+			.values({ id: 'activity-share', chatId: 'activity-chat', visibility: 'specific' })
+			.onConflictDoNothing();
+		await db
+			.insert(s.sharedChatGroupAccess)
+			.values({ sharedChatId: 'activity-share', groupId: 'activity-group' })
+			.onConflictDoNothing();
+		await db.insert(s.activity).values({
+			id: 'group-activity',
+			projectId: PROJECT_ID,
+			userId: ACTOR_ID,
+			type: 'chat.shared',
+			status: 'completed',
+			trigger: 'manual',
+			sharedChatId: 'activity-share',
+			completedAt: new Date(),
+		});
+		expect(await listRecentActivities(PROJECT_ID, USER_ID, 10)).toHaveLength(1);
+
+		await db
+			.update(s.userGroupMember)
+			.set({ active: false })
+			.where(eq(s.userGroupMember.groupId, 'activity-group'));
+		expect(await listRecentActivities(PROJECT_ID, USER_ID, 10)).toHaveLength(0);
+
+		await db.update(s.userGroupMember).set({ active: true }).where(eq(s.userGroupMember.groupId, 'activity-group'));
+		await db
+			.update(s.userGroup)
+			.set({ archivedAt: new Date(), archivedName: 'Activity Group', name: '__archived__activity-group' })
+			.where(eq(s.userGroup.id, 'activity-group'));
+		expect(await listRecentActivities(PROJECT_ID, USER_ID, 10)).toHaveLength(0);
+	});
+
+	it('identifies a completed user-group apply by deploy ID rather than config hash', async () => {
+		await db.insert(s.activity).values([
+			{
+				id: 'completed-deploy',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'user-groups.config',
+				status: 'completed',
+				payload: { hash: 'same-hash' },
+			},
+			{
+				id: 'interrupted-deploy',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'user-groups.config',
+				status: 'failed',
+				payload: { hash: 'same-hash' },
+			},
+		]);
+
+		await expect(hasCompletedUserGroupConfigDeploy(PROJECT_ID, 'completed-deploy')).resolves.toBe(true);
+		await expect(hasCompletedUserGroupConfigDeploy(PROJECT_ID, 'interrupted-deploy')).resolves.toBe(false);
 	});
 });

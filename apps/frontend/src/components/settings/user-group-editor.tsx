@@ -105,6 +105,7 @@ interface UserGroupEditorProps {
 	onCancelNew: () => void;
 	onCreated: (group: UserGroupEditorGroup) => void;
 	onDeleted: (groupId: string) => void;
+	readOnly?: boolean;
 }
 
 const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
@@ -126,6 +127,7 @@ export function UserGroupEditor({
 	onCancelNew,
 	onCreated,
 	onDeleted,
+	readOnly = false,
 }: UserGroupEditorProps) {
 	const queryClient = useQueryClient();
 	const existingGroup = group === 'new' ? null : group;
@@ -431,7 +433,7 @@ export function UserGroupEditor({
 					filesAccess,
 					mcpAccess,
 					skillsAccess,
-					ssoMappings,
+					...(haveSameSsoMappings(ssoMappings, existingGroup.ssoMappings) ? {} : { ssoMappings }),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
@@ -513,7 +515,7 @@ export function UserGroupEditor({
 						id='user-group-name'
 						value={name}
 						onChange={(event) => setName(event.target.value)}
-						disabled={existingGroup?.isDefault}
+						disabled={readOnly || existingGroup?.isDefault}
 						required
 						maxLength={80}
 					/>
@@ -526,240 +528,250 @@ export function UserGroupEditor({
 						idBase='user-group-editor'
 						className='border-b'
 					/>
-					<TabPanel idBase='user-group-editor' tabId={activeTab} className='pt-5'>
-						{activeTab === 'features' && (
-							<UserGroupFeatures
-								featureGrants={featureGrants}
-								onFeatureGrantsChange={setFeatureGrants}
-								isDefaultGroup={existingGroup?.isDefault === true}
-								defaultAllowsProjectSharing={isProjectSharingAllowedByDefault(
-									userGroupOverview.data?.groups,
-								)}
-								projectSharing={projectSharing}
-								onProjectSharingChange={setProjectSharing}
-								groupName={name}
-								shareTargets={shareTargets}
-								shareTargetGroups={listShareTargetGroups(
-									userGroupOverview.data?.groups,
-									existingGroup?.id,
-								)}
-								onShareTargetsChange={setShareTargets}
-								toolCallDensityPolicy={toolCallDensityPolicy}
-								onToolCallDensityPolicyChange={setToolCallDensityPolicy}
-							/>
-						)}
-						{activeTab === 'context' && (
-							<div className='flex flex-col gap-5'>
-								<UserGroupContextAccess
-									databaseAccess={databaseAccess}
-									docsAccess={docsAccess}
-									filesAccess={filesAccess}
-									onDatabaseAccessChange={handleDatabaseAccessChange}
-									onDocsAccessChange={setDocsAccess}
-									onFilesAccessChange={setFilesAccess}
+					<fieldset disabled={readOnly} className='min-w-0 border-0 p-0'>
+						<TabPanel idBase='user-group-editor' tabId={activeTab} className='pt-5'>
+							{activeTab === 'features' && (
+								<UserGroupFeatures
+									featureGrants={featureGrants}
+									onFeatureGrantsChange={setFeatureGrants}
+									isDefaultGroup={existingGroup?.isDefault === true}
+									defaultAllowsProjectSharing={isProjectSharingAllowedByDefault(
+										userGroupOverview.data?.groups,
+									)}
+									projectSharing={projectSharing}
+									onProjectSharingChange={setProjectSharing}
+									groupName={name}
+									shareTargets={shareTargets}
+									shareTargetGroups={listShareTargetGroups(
+										userGroupOverview.data?.groups,
+										existingGroup?.id,
+									)}
+									onShareTargetsChange={setShareTargets}
+									toolCallDensityPolicy={toolCallDensityPolicy}
+									onToolCallDensityPolicyChange={setToolCallDensityPolicy}
 								/>
-								<ConditionalRulesHelp groupName={name} />
-							</div>
-						)}
-						{activeTab === 'mcp' && (
-							<UserGroupMcpAccess
-								mcpAccess={mcpAccess}
-								savedMcpAccess={existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS}
-								isLicensed={hasRowLevelSecurity}
-								onMcpAccessChange={setMcpAccess}
-							/>
-						)}
-						{activeTab === 'skills' && (
-							<UserGroupSkills
-								isDefaultGroup={existingGroup?.isDefault === true}
-								isLicensed={hasRowLevelSecurity}
-								skillsAccess={skillsAccess}
-								savedSkillsAccess={existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
-								preloadedSkills={preloadedSkills}
-								allUsersSkillsAccess={allUsersGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
-								allUsersPreloadedSkills={allUsersGroup?.preloadedSkills ?? []}
-								onChange={handleSkillsChange}
-							/>
-						)}
-						{activeTab === 'security' && (
-							<div className='min-h-64'>
-								{hasRowLevelSecurity && rowSecurityState === 'loading' ? (
-									<RowSecurityStatus message='Loading row-level security...' />
-								) : hasRowLevelSecurity && rowSecurityState === 'error' ? (
-									<RowSecurityStatus
-										message='Failed to load row-level security'
-										onRetry={() => void rowSecurity.refetch()}
-									/>
-								) : (
-									<UserGroupRowSecurity
-										registry={rowSecurityRegistry}
+							)}
+							{activeTab === 'context' && (
+								<div className='flex flex-col gap-5'>
+									<UserGroupContextAccess
 										databaseAccess={databaseAccess}
-										policies={rowPolicies}
-										isLicensed={hasRowLevelSecurity}
-										showValidationErrors={showRowPolicyValidationErrors}
-										onChange={setRowPolicies}
+										docsAccess={docsAccess}
+										filesAccess={filesAccess}
+										onDatabaseAccessChange={handleDatabaseAccessChange}
+										onDocsAccessChange={setDocsAccess}
+										onFilesAccessChange={setFilesAccess}
 									/>
-								)}
-							</div>
-						)}
-						{activeTab === 'budget' && (
-							<UserGroupBudget
-								groupId={existingGroup?.id ?? null}
-								isLicensed={hasMemberBudget}
-								isDefaultGroup={existingGroup?.isDefault === true}
-								isLoading={memberBudgetOverview.isLoading || userGroupOverview.isLoading}
-								isError={memberBudgetOverview.isError || userGroupOverview.isError}
-								limitUsd={groupBudgetUsd}
-								defaultLimitUsd={memberBudgetOverview.data?.defaultLimitUsd ?? 0}
-								period={memberBudgetOverview.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD}
-								members={groupBudgetMembers}
-								groups={memberBudgetOverview.data?.groups ?? []}
-								onLimitChange={setGroupBudgetUsd}
-							/>
-						)}
-						{activeTab === 'advanced' && (
-							<UserGroupAdvancedSettings
-								showAllSettings={showAllSettings}
-								onShowAllSettingsChange={setShowAllSettings}
-								isDefaultGroup={existingGroup?.isDefault === true}
-								allUsersGroup={allUsersGroup}
-							/>
-						)}
-						{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (
-							<div className='flex min-h-64 flex-col gap-5'>
-								{existingGroup?.isDefault ? (
-									<DefaultGroupSsoStatus
-										licenseState={ssoLicenseState}
-										oidcState={oidcConfigurationState}
-										microsoftState={microsoftConfigurationState}
-										onRetryOidc={() => retrySsoConfiguration(oidcConfig)}
-										onRetryMicrosoft={() => retrySsoConfiguration(microsoftConfig)}
-									/>
-								) : (
-									<>
-										{ssoLicenseState !== 'ready' && (
-											<SsoAvailabilityStatus
-												state={ssoLicenseState}
-												onRetry={() => void licenseFeatures.refetch()}
-											/>
-										)}
-										{ssoLicenseState === 'ready' &&
-											!hasConfiguredSsoProvider &&
-											isSsoConfigLoading && (
-												<p className='text-sm text-muted-foreground'>
-													Loading SSO configuration...
-												</p>
-											)}
-										{hasConfiguredSsoProvider && (
-											<>
-												{(hasStoredOidcMappings ||
-													oidcConfigurationState !== 'unavailable') && (
-													<UserGroupSsoMapping
-														key={`${existingGroup?.id ?? 'new'}:oidc`}
-														identifiers={ssoMappings.providers.oidc}
-														provider='oidc'
-														providerName={oidcConfig.data?.providerName ?? 'OIDC'}
-														currentGroupId={existingGroup?.id}
-														effectiveEnvMappings={
-															effectiveOidcEnvMappings.isSuccess
-																? effectiveOidcEnvMappings.data
-																: []
-														}
-														envMappingsState={oidcEnvMappingsState}
-														onRetryEnvMappings={() =>
-															void effectiveOidcEnvMappings.refetch()
-														}
-														configurationState={oidcConfigurationState}
-														onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
-														onChange={(oidc) =>
-															setSsoMappings(
-																normalizeUserGroupSsoMappings({
-																	...ssoMappings,
-																	providers: { ...ssoMappings.providers, oidc },
-																}),
-															)
-														}
-													/>
-												)}
-												{(hasStoredMicrosoftMappings ||
-													microsoftConfigurationState !== 'unavailable') && (
-													<UserGroupSsoMapping
-														key={`${existingGroup?.id ?? 'new'}:microsoft`}
-														identifiers={ssoMappings.providers.microsoft}
-														provider='microsoft'
-														providerName='Microsoft Entra'
-														currentGroupId={existingGroup?.id}
-														effectiveEnvMappings={
-															effectiveMicrosoftEnvMappings.isSuccess
-																? effectiveMicrosoftEnvMappings.data
-																: []
-														}
-														envMappingsState={microsoftEnvMappingsState}
-														onRetryEnvMappings={() =>
-															void effectiveMicrosoftEnvMappings.refetch()
-														}
-														configurationState={microsoftConfigurationState}
-														onRetryConfiguration={() =>
-															retrySsoConfiguration(microsoftConfig)
-														}
-														onChange={(microsoft) =>
-															setSsoMappings(
-																normalizeUserGroupSsoMappings({
-																	...ssoMappings,
-																	providers: {
-																		...ssoMappings.providers,
-																		microsoft,
-																	},
-																}),
-															)
-														}
-													/>
-												)}
-												<DefaultProjectRole
-													value={ssoMappings.defaultProjectRole ?? null}
-													onChange={(defaultProjectRole) =>
-														setSsoMappings(
-															normalizeUserGroupSsoMappings({
-																...ssoMappings,
-																defaultProjectRole,
-															}),
-														)
-													}
+									<ConditionalRulesHelp groupName={name} />
+								</div>
+							)}
+							{activeTab === 'mcp' && (
+								<UserGroupMcpAccess
+									mcpAccess={mcpAccess}
+									savedMcpAccess={existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS}
+									isLicensed={hasRowLevelSecurity}
+									onMcpAccessChange={setMcpAccess}
+								/>
+							)}
+							{activeTab === 'skills' && (
+								<UserGroupSkills
+									isDefaultGroup={existingGroup?.isDefault === true}
+									isLicensed={hasRowLevelSecurity}
+									skillsAccess={skillsAccess}
+									savedSkillsAccess={existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
+									preloadedSkills={preloadedSkills}
+									allUsersSkillsAccess={allUsersGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
+									allUsersPreloadedSkills={allUsersGroup?.preloadedSkills ?? []}
+									onChange={handleSkillsChange}
+								/>
+							)}
+							{activeTab === 'security' && (
+								<div className='min-h-64'>
+									{hasRowLevelSecurity && rowSecurityState === 'loading' ? (
+										<RowSecurityStatus message='Loading row-level security...' />
+									) : hasRowLevelSecurity && rowSecurityState === 'error' ? (
+										<RowSecurityStatus
+											message='Failed to load row-level security'
+											onRetry={() => void rowSecurity.refetch()}
+										/>
+									) : (
+										<UserGroupRowSecurity
+											registry={rowSecurityRegistry}
+											databaseAccess={databaseAccess}
+											policies={rowPolicies}
+											isLicensed={hasRowLevelSecurity}
+											showValidationErrors={showRowPolicyValidationErrors}
+											onChange={setRowPolicies}
+										/>
+									)}
+								</div>
+							)}
+							{activeTab === 'budget' && (
+								<UserGroupBudget
+									groupId={existingGroup?.id ?? null}
+									isLicensed={hasMemberBudget}
+									isDefaultGroup={existingGroup?.isDefault === true}
+									isLoading={memberBudgetOverview.isLoading || userGroupOverview.isLoading}
+									isError={memberBudgetOverview.isError || userGroupOverview.isError}
+									limitUsd={groupBudgetUsd}
+									defaultLimitUsd={memberBudgetOverview.data?.defaultLimitUsd ?? 0}
+									period={memberBudgetOverview.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD}
+									members={groupBudgetMembers}
+									groups={memberBudgetOverview.data?.groups ?? []}
+									onLimitChange={setGroupBudgetUsd}
+								/>
+							)}
+							{activeTab === 'advanced' && (
+								<UserGroupAdvancedSettings
+									showAllSettings={showAllSettings}
+									onShowAllSettingsChange={setShowAllSettings}
+									isDefaultGroup={existingGroup?.isDefault === true}
+									allUsersGroup={allUsersGroup}
+								/>
+							)}
+							{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (
+								<div className='flex min-h-64 flex-col gap-5'>
+									{existingGroup?.isDefault ? (
+										<DefaultGroupSsoStatus
+											licenseState={ssoLicenseState}
+											oidcState={oidcConfigurationState}
+											microsoftState={microsoftConfigurationState}
+											onRetryOidc={() => retrySsoConfiguration(oidcConfig)}
+											onRetryMicrosoft={() => retrySsoConfiguration(microsoftConfig)}
+										/>
+									) : (
+										<>
+											{ssoLicenseState !== 'ready' && (
+												<SsoAvailabilityStatus
+													state={ssoLicenseState}
+													onRetry={() => void licenseFeatures.refetch()}
 												/>
-											</>
-										)}
-									</>
-								)}
-							</div>
-						)}
-					</TabPanel>
+											)}
+											{ssoLicenseState === 'ready' &&
+												!hasConfiguredSsoProvider &&
+												isSsoConfigLoading && (
+													<p className='text-sm text-muted-foreground'>
+														Loading SSO configuration...
+													</p>
+												)}
+											{hasConfiguredSsoProvider && (
+												<>
+													{(hasStoredOidcMappings ||
+														oidcConfigurationState !== 'unavailable') && (
+														<UserGroupSsoMapping
+															key={`${existingGroup?.id ?? 'new'}:oidc`}
+															identifiers={ssoMappings.providers.oidc}
+															provider='oidc'
+															providerName={oidcConfig.data?.providerName ?? 'OIDC'}
+															currentGroupId={existingGroup?.id}
+															effectiveEnvMappings={
+																effectiveOidcEnvMappings.isSuccess
+																	? effectiveOidcEnvMappings.data
+																	: []
+															}
+															envMappingsState={oidcEnvMappingsState}
+															onRetryEnvMappings={() =>
+																void effectiveOidcEnvMappings.refetch()
+															}
+															configurationState={oidcConfigurationState}
+															onRetryConfiguration={() =>
+																retrySsoConfiguration(oidcConfig)
+															}
+															onChange={(oidc) =>
+																setSsoMappings(
+																	normalizeUserGroupSsoMappings({
+																		...ssoMappings,
+																		providers: { ...ssoMappings.providers, oidc },
+																	}),
+																)
+															}
+														/>
+													)}
+													{(hasStoredMicrosoftMappings ||
+														microsoftConfigurationState !== 'unavailable') && (
+														<UserGroupSsoMapping
+															key={`${existingGroup?.id ?? 'new'}:microsoft`}
+															identifiers={ssoMappings.providers.microsoft}
+															provider='microsoft'
+															providerName='Microsoft Entra'
+															currentGroupId={existingGroup?.id}
+															effectiveEnvMappings={
+																effectiveMicrosoftEnvMappings.isSuccess
+																	? effectiveMicrosoftEnvMappings.data
+																	: []
+															}
+															envMappingsState={microsoftEnvMappingsState}
+															onRetryEnvMappings={() =>
+																void effectiveMicrosoftEnvMappings.refetch()
+															}
+															configurationState={microsoftConfigurationState}
+															onRetryConfiguration={() =>
+																retrySsoConfiguration(microsoftConfig)
+															}
+															onChange={(microsoft) =>
+																setSsoMappings(
+																	normalizeUserGroupSsoMappings({
+																		...ssoMappings,
+																		providers: {
+																			...ssoMappings.providers,
+																			microsoft,
+																		},
+																	}),
+																)
+															}
+														/>
+													)}
+													<DefaultProjectRole
+														value={ssoMappings.defaultProjectRole ?? null}
+														onChange={(defaultProjectRole) =>
+															setSsoMappings(
+																normalizeUserGroupSsoMappings({
+																	...ssoMappings,
+																	defaultProjectRole,
+																}),
+															)
+														}
+													/>
+												</>
+											)}
+										</>
+									)}
+								</div>
+							)}
+						</TabPanel>
+					</fieldset>
 				</div>
 				{formError && <p className='text-sm text-destructive'>{formError}</p>}
-				<div className='flex flex-wrap justify-between gap-2'>
-					{existingGroup && !existingGroup.isDefault ? (
-						<Button variant='destructive' className='rounded-full' onClick={() => setConfirmDelete(true)}>
-							Delete group
-						</Button>
-					) : (
-						<span />
-					)}
-					{hasUnsavedChanges && (
-						<div className='ml-auto flex gap-2'>
-							<Button variant='ghost' className='rounded-full border' onClick={handleCancel}>
-								Cancel
-							</Button>
+				{!readOnly && (
+					<div className='flex flex-wrap justify-between gap-2'>
+						{existingGroup && !existingGroup.isDefault ? (
 							<Button
-								variant='primary-gradient'
+								variant='destructive'
 								className='rounded-full'
-								onClick={handleSave}
-								disabled={!existingGroup?.isDefault && name.trim().length === 0}
-								isLoading={createGroup.isPending || updateGroup.isPending}
+								onClick={() => setConfirmDelete(true)}
 							>
-								Save
+								Delete group
 							</Button>
-						</div>
-					)}
-				</div>
+						) : (
+							<span />
+						)}
+						{hasUnsavedChanges && (
+							<div className='ml-auto flex gap-2'>
+								<Button variant='ghost' className='rounded-full border' onClick={handleCancel}>
+									Cancel
+								</Button>
+								<Button
+									variant='primary-gradient'
+									className='rounded-full'
+									onClick={handleSave}
+									disabled={!existingGroup?.isDefault && name.trim().length === 0}
+									isLoading={createGroup.isPending || updateGroup.isPending}
+								>
+									Save
+								</Button>
+							</div>
+						)}
+					</div>
+				)}
 			</div>
 
 			<ConfirmationDialog

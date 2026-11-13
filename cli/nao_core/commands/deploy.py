@@ -1,7 +1,7 @@
 import io
 import tarfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import httpx
 import yaml
@@ -83,6 +83,10 @@ def deploy(
         Path | None,
         Parameter(help="Project directory (defaults to current directory)", name=["--path", "-p"]),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        Parameter(help="Validate and preview user group changes without deploying", name="--dry-run"),
+    ] = False,
 ) -> None:
     """Deploy project context to a remote nao instance."""
     project_path = path or Path.cwd()
@@ -107,6 +111,7 @@ def deploy(
             deploy_url,
             headers={"Authorization": f"Bearer {api_key}"},
             files={"context": ("context.tar.gz", tarball, "application/gzip")},
+            params={"dryRun": "true"} if dry_run else None,
             timeout=120.0,
         )
     except httpx.ConnectError:
@@ -133,8 +138,39 @@ def deploy(
     result = response.json()
     status = result.get("status", "unknown")
 
-    if status == "created":
+    if status == "dry-run":
+        _print_user_group_diff(result.get("userGroups", {}))
+        UI.success("Dry run completed. No files or user groups were changed.")
+    elif status == "created":
         UI.success(f"Project [cyan]{project_name}[/cyan] {status}")
     else:
         UI.warn(f"Project [cyan]{project_name}[/cyan] {status}")
     UI.print(f"[dim]Project ID: {result.get('projectId')}[/dim]")
+
+
+def _print_user_group_diff(diff: object) -> None:
+    if not isinstance(diff, dict):
+        return
+    data = cast(dict[str, object], diff)
+    summary = data.get("summary")
+    if isinstance(summary, dict):
+        summary_data = cast(dict[str, object], summary)
+        labels = ("created", "adopted", "updated", "archived", "reactivated", "unchanged")
+        UI.print("[bold]User group preview[/bold]")
+        UI.print("  " + ", ".join(f"{label}: {summary_data.get(label, 0)}" for label in labels))
+    pending = data.get("pendingEmails")
+    if isinstance(pending, list) and pending:
+        UI.warn(f"Pending member emails: {', '.join(str(email) for email in pending)}")
+    access_changes = data.get("accessChanges")
+    if isinstance(access_changes, list) and access_changes:
+        UI.warn(f"Access changes: {', '.join(str(group) for group in access_changes)}")
+    budget_changes = data.get("budgetChanges")
+    if isinstance(budget_changes, list) and budget_changes:
+        UI.warn(f"Budget changes: {', '.join(str(group) for group in budget_changes)}")
+    revocations = data.get("shareRevocations")
+    if isinstance(revocations, dict):
+        revocation_data = cast(dict[str, object], revocations)
+        chats = revocation_data.get("chats", 0)
+        stories = revocation_data.get("stories", 0)
+        if chats or stories:
+            UI.warn(f"Shares revoked: {chats} chats, {stories} stories")

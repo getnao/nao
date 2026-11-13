@@ -17,6 +17,7 @@ export function UserGroupTokenField({
 	triggerLabel,
 	placeholder,
 	disabled = false,
+	readOnly = false,
 	isRemoveDisabled = false,
 	children,
 }: {
@@ -24,23 +25,24 @@ export function UserGroupTokenField({
 	triggerLabel: string;
 	placeholder: string;
 	disabled?: boolean;
+	readOnly?: boolean;
 	isRemoveDisabled?: boolean;
-	children: ReactNode;
+	children?: ReactNode;
 }) {
-	return (
-		<DropdownMenu>
-			<div
-				onClick={(event) => event.stopPropagation()}
-				className={cn(
-					'flex min-h-8 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-1.5 py-1 shadow-xs transition-[color,box-shadow]',
-					'has-[:focus-visible]:border-ring has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50',
-					'has-[[data-state=open]]:border-ring',
-					disabled && 'pointer-events-none opacity-50',
-				)}
-			>
-				{tokens.map((token) => (
-					<GroupToken key={token.key} token={token} isRemoveDisabled={disabled || isRemoveDisabled} />
-				))}
+	const field = (
+		<div
+			onClick={(event) => event.stopPropagation()}
+			className={cn(
+				'flex min-h-8 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-1.5 py-1 shadow-xs transition-[color,box-shadow]',
+				!readOnly &&
+					'has-[:focus-visible]:border-ring has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 has-[[data-state=open]]:border-ring',
+				disabled && 'pointer-events-none opacity-50',
+			)}
+		>
+			{tokens.map((token) => (
+				<GroupToken key={token.key} token={token} isRemoveDisabled={disabled || isRemoveDisabled} />
+			))}
+			{!readOnly && (
 				<DropdownMenuTrigger asChild>
 					<button
 						type='button'
@@ -52,7 +54,16 @@ export function UserGroupTokenField({
 						<ChevronDown className='size-4 shrink-0 opacity-60' />
 					</button>
 				</DropdownMenuTrigger>
-			</div>
+			)}
+		</div>
+	);
+
+	if (readOnly) {
+		return field;
+	}
+	return (
+		<DropdownMenu>
+			{field}
 			{children}
 		</DropdownMenu>
 	);

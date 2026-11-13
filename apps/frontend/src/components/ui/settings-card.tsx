@@ -21,7 +21,7 @@ interface SettingsCardProps {
 	titleSize?: 'md' | 'lg';
 	description?: React.ReactNode;
 	action?: React.ReactNode;
-	children: React.ReactNode;
+	children?: React.ReactNode;
 	rootClassName?: string;
 	className?: string;
 	divide?: boolean;
@@ -86,18 +86,20 @@ export function SettingsCard({
 				</div>
 			)}
 
-			<div
-				className={cn(
-					'flex flex-col gap-4',
-					!unstyled && 'p-4 rounded-xl border border-border bg-background',
-					flush && 'overflow-hidden [&_th]:px-4 [&_td]:px-4',
-					!unstyled && flush && 'p-0',
-					divide && 'gap-2 divide-y divide-border *:not-last:pb-2',
-					className,
-				)}
-			>
-				{children}
-			</div>
+			{children != null && children !== false && (
+				<div
+					className={cn(
+						'flex flex-col gap-4',
+						!unstyled && 'p-4 rounded-xl border border-border bg-background',
+						flush && 'overflow-hidden [&_th]:px-4 [&_td]:px-4',
+						!unstyled && flush && 'p-0',
+						divide && 'gap-2 divide-y divide-border *:not-last:pb-2',
+						className,
+					)}
+				>
+					{children}
+				</div>
+			)}
 		</div>
 	);
 }

@@ -7,10 +7,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	createProject: vi.fn(),
+	diffUserGroupsConfig: vi.fn(),
+	exportUserGroupsConfig: vi.fn(),
 	getProjectByOrgAndName: vi.fn(),
+	getUserGroupManagementMode: vi.fn(),
+	getUserRoleInProject: vi.fn(),
+	hasCompletedUserGroupConfigDeploy: vi.fn(),
+	listProjectDeploymentPaths: vi.fn(),
 	post: vi.fn(),
+	parseUserGroupsConfig: vi.fn(),
+	readUserGroupsConfig: vi.fn(),
+	reconcileUserGroupsConfigWithinLock: vi.fn(),
+	recordUserGroupConfigFailure: vi.fn(),
 	recordProjectDeployment: vi.fn(),
+	revokeUnauthorizedProjectWideShares: vi.fn(),
 	validateApiKey: vi.fn(),
+	validateUserGroupsConfig: vi.fn(),
 }));
 
 vi.mock('../../src/handlers/context-recommendations.handler', () => ({
@@ -19,6 +31,11 @@ vi.mock('../../src/handlers/context-recommendations.handler', () => ({
 
 vi.mock('../../src/queries/project.queries', () => ({
 	getProjectByOrgAndName: mocks.getProjectByOrgAndName,
+	getUserRoleInProject: mocks.getUserRoleInProject,
+	listProjectDeploymentPaths: mocks.listProjectDeploymentPaths,
+}));
+vi.mock('../../src/queries/activity.queries', () => ({
+	hasCompletedUserGroupConfigDeploy: mocks.hasCompletedUserGroupConfigDeploy,
 }));
 
 vi.mock('../../src/services/api-key.service', () => ({
@@ -28,6 +45,30 @@ vi.mock('../../src/services/api-key.service', () => ({
 vi.mock('../../src/services/project.service', () => ({
 	createProject: mocks.createProject,
 	recordProjectDeployment: mocks.recordProjectDeployment,
+}));
+vi.mock('../../src/services/project-sharing.service', () => ({
+	revokeUnauthorizedProjectWideShares: mocks.revokeUnauthorizedProjectWideShares,
+}));
+vi.mock('../../src/services/user-group-config-diff.service', () => ({
+	diffUserGroupsConfig: mocks.diffUserGroupsConfig,
+}));
+vi.mock('../../src/services/user-group-config-export.service', () => ({
+	exportUserGroupsConfig: mocks.exportUserGroupsConfig,
+}));
+vi.mock('../../src/services/user-group-config-reconciliation.service', () => ({
+	reconcileUserGroupsConfigWithinLock: mocks.reconcileUserGroupsConfigWithinLock,
+	recordUserGroupConfigFailure: mocks.recordUserGroupConfigFailure,
+	withUserGroupConfigLock: (_projectId: string, operation: () => Promise<unknown>) => operation(),
+}));
+vi.mock('../../src/services/user-group-config-validation.service', () => ({
+	readUserGroupsConfig: mocks.readUserGroupsConfig,
+	validateUserGroupsConfig: mocks.validateUserGroupsConfig,
+}));
+vi.mock('../../src/services/user-group-config.service', () => ({
+	parseUserGroupsConfig: mocks.parseUserGroupsConfig,
+}));
+vi.mock('../../src/services/user-group-management.service', () => ({
+	getUserGroupManagementMode: mocks.getUserGroupManagementMode,
 }));
 
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
@@ -42,11 +83,78 @@ const createTemporaryFolder = useTemporaryFolders();
 
 beforeEach(async () => {
 	vi.clearAllMocks();
+	mocks.listProjectDeploymentPaths.mockResolvedValue([]);
+	mocks.getUserGroupManagementMode.mockResolvedValue('ui');
+	mocks.hasCompletedUserGroupConfigDeploy.mockResolvedValue(false);
 	mocks.validateApiKey.mockResolvedValue({ createdBy: 'user-id', organization: { id: 'organization-id' } });
+	mocks.readUserGroupsConfig.mockReturnValue({ hash: 'config-hash' });
+	mocks.exportUserGroupsConfig.mockResolvedValue('current-config');
+	mocks.parseUserGroupsConfig.mockReturnValue({ hash: 'current-config-hash' });
+	mocks.validateUserGroupsConfig.mockResolvedValue(undefined);
+	mocks.diffUserGroupsConfig.mockResolvedValue({
+		hash: 'config-hash',
+		summary: { unchanged: 1 },
+		pendingEmails: [],
+		shareRevocations: { chats: 0, stories: 0 },
+	});
 	await deployRoutes({ post: mocks.post } as never);
 });
 
 const GIT_HEAD = 'ref: refs/heads/main\n';
+
+describe('deploy recovery', () => {
+	it('restores the previous project before registering routes after an interrupted swap', async () => {
+		const parent = createTemporaryFolder('nao-deploy-recovery-test-');
+		const target = path.join(parent, 'project-id');
+		const backup = path.join(parent, '.project-id.deploy-backup');
+		const marker = path.join(parent, '.project-id.deploy-recovery.json');
+		fs.mkdirSync(target);
+		fs.writeFileSync(path.join(target, 'version.txt'), 'candidate');
+		fs.mkdirSync(backup);
+		fs.writeFileSync(path.join(backup, 'version.txt'), 'previous');
+		fs.writeFileSync(
+			marker,
+			JSON.stringify({
+				deployId: 'current-deploy-id',
+				phase: 'prepared',
+				userGroupConfigHash: 'config-hash',
+				hadPrevious: true,
+			}),
+		);
+		mocks.hasCompletedUserGroupConfigDeploy.mockResolvedValue(true);
+		mocks.listProjectDeploymentPaths.mockResolvedValue([{ id: 'project-id', path: target }]);
+
+		await deployRoutes({ post: mocks.post } as never);
+
+		expect(fs.readFileSync(path.join(target, 'version.txt'), 'utf8')).toBe('previous');
+		expect(fs.existsSync(marker)).toBe(false);
+		expect(mocks.hasCompletedUserGroupConfigDeploy).not.toHaveBeenCalled();
+	});
+
+	it('keeps swapped files only when the same deploy committed its config transaction', async () => {
+		const parent = createTemporaryFolder('nao-deploy-recovery-test-');
+		const target = path.join(parent, 'project-id');
+		const backup = path.join(parent, '.project-id.deploy-backup');
+		const marker = path.join(parent, '.project-id.deploy-recovery.json');
+		fs.mkdirSync(target);
+		fs.writeFileSync(path.join(target, 'version.txt'), 'candidate');
+		fs.mkdirSync(backup);
+		fs.writeFileSync(path.join(backup, 'version.txt'), 'previous');
+		fs.writeFileSync(
+			marker,
+			JSON.stringify({ deployId: 'current-deploy-id', phase: 'swapped', hadPrevious: true }),
+		);
+		mocks.hasCompletedUserGroupConfigDeploy.mockResolvedValue(true);
+		mocks.listProjectDeploymentPaths.mockResolvedValue([{ id: 'project-id', path: target }]);
+
+		await deployRoutes({ post: mocks.post } as never);
+
+		expect(fs.readFileSync(path.join(target, 'version.txt'), 'utf8')).toBe('candidate');
+		expect(fs.existsSync(backup)).toBe(false);
+		expect(mocks.hasCompletedUserGroupConfigDeploy).toHaveBeenCalledWith('project-id', 'current-deploy-id');
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
+	});
+});
 
 describe('deploy route cloud billing access', () => {
 	beforeEach(() => {
@@ -218,6 +326,138 @@ describe('deploy route deployment record', () => {
 	});
 });
 
+describe('deploy route code-managed groups', () => {
+	it('requires the API key creator to remain a project admin', async () => {
+		const projectDir = createTemporaryFolder('nao-deploy-code-managed-');
+		fs.writeFileSync(path.join(projectDir, 'existing.txt'), 'preserved');
+		mocks.getProjectByOrgAndName.mockResolvedValue({
+			id: 'existing-project',
+			path: projectDir,
+			userGroupManagementMode: 'ui',
+		});
+		mocks.getUserGroupManagementMode.mockResolvedValue('code');
+		mocks.getUserRoleInProject.mockResolvedValue('user');
+		const send = vi.fn();
+		const status = vi.fn(() => ({ send }));
+
+		await handler()(deployRequest('analytics'), { status, send });
+
+		expect(status).toHaveBeenCalledWith(403);
+		expect(send).toHaveBeenCalledWith({
+			error: 'The API key creator must still be a project admin to deploy code-managed user groups.',
+		});
+		expect(fs.readFileSync(path.join(projectDir, 'existing.txt'), 'utf8')).toBe('preserved');
+		expect(mocks.reconcileUserGroupsConfigWithinLock).not.toHaveBeenCalled();
+	});
+
+	it('returns a dry-run diff without replacing project files', async () => {
+		const projectDir = createTemporaryFolder('nao-deploy-dry-run-');
+		fs.writeFileSync(path.join(projectDir, 'existing.txt'), 'preserved');
+		mocks.getProjectByOrgAndName.mockResolvedValue({
+			id: 'existing-project',
+			path: projectDir,
+			userGroupManagementMode: 'ui',
+		});
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
+		const send = vi.fn();
+
+		await handler()(
+			{ ...deployRequest('analytics'), url: '/deploy?dryRun=true' },
+			{ status: vi.fn(() => ({ send })), send },
+		);
+
+		expect(send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectId: 'existing-project',
+				status: 'dry-run',
+				userGroups: expect.objectContaining({ hash: 'config-hash' }),
+			}),
+		);
+		expect(fs.readFileSync(path.join(projectDir, 'existing.txt'), 'utf8')).toBe('preserved');
+		expect(mocks.recordProjectDeployment).not.toHaveBeenCalled();
+		expect(mocks.reconcileUserGroupsConfigWithinLock).not.toHaveBeenCalled();
+	});
+
+	it('restores the previous project files when code reconciliation fails', async () => {
+		const projectDir = createTemporaryFolder('nao-deploy-rollback-');
+		fs.writeFileSync(path.join(projectDir, 'existing.txt'), 'preserved');
+		mocks.getProjectByOrgAndName.mockResolvedValue({
+			id: 'existing-project',
+			path: projectDir,
+			userGroupManagementMode: 'code',
+		});
+		mocks.getUserGroupManagementMode.mockResolvedValue('code');
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
+		mocks.reconcileUserGroupsConfigWithinLock.mockRejectedValue(new Error('Reconciliation failed'));
+		const send = vi.fn();
+		const status = vi.fn(() => ({ send }));
+
+		await handler()(deployRequest('analytics'), { status, send });
+
+		expect(status).toHaveBeenCalledWith(400);
+		expect(send).toHaveBeenCalledWith({ error: 'Reconciliation failed' });
+		expect(fs.readFileSync(path.join(projectDir, 'existing.txt'), 'utf8')).toBe('preserved');
+	});
+
+	it('keeps committed project files and retries share cleanup after a post-commit failure', async () => {
+		const parent = createTemporaryFolder('nao-deploy-post-commit-');
+		const projectDir = path.join(parent, 'project');
+		const backup = path.join(parent, '.existing-project.deploy-backup');
+		const marker = path.join(parent, '.existing-project.deploy-recovery.json');
+		fs.mkdirSync(projectDir);
+		fs.writeFileSync(path.join(projectDir, 'existing.txt'), 'previous');
+		mocks.getProjectByOrgAndName.mockResolvedValue({
+			id: 'existing-project',
+			path: projectDir,
+			userGroupManagementMode: 'code',
+		});
+		mocks.getUserGroupManagementMode.mockResolvedValue('code');
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
+		mocks.reconcileUserGroupsConfigWithinLock.mockRejectedValue(new Error('Share cleanup failed'));
+		mocks.hasCompletedUserGroupConfigDeploy.mockResolvedValue(true);
+		const send = vi.fn();
+		const status = vi.fn(() => ({ send }));
+
+		await handler()(deployRequest('analytics'), { status, send });
+
+		expect(status).toHaveBeenCalledWith(400);
+		expect(send).toHaveBeenCalledWith({ error: 'Share cleanup failed' });
+		expect(fs.existsSync(path.join(projectDir, 'existing.txt'))).toBe(false);
+		expect(fs.existsSync(path.join(projectDir, 'nao_config.yaml'))).toBe(true);
+		expect(fs.existsSync(backup)).toBe(true);
+		expect(fs.existsSync(marker)).toBe(true);
+
+		mocks.listProjectDeploymentPaths.mockResolvedValue([{ id: 'existing-project', path: projectDir }]);
+		await deployRoutes({ post: mocks.post } as never);
+
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('existing-project');
+		expect(fs.existsSync(backup)).toBe(false);
+		expect(fs.existsSync(marker)).toBe(false);
+		expect(fs.existsSync(path.join(projectDir, 'nao_config.yaml'))).toBe(true);
+	});
+
+	it('uses UI-managed deployment when code management was disabled while waiting for the lock', async () => {
+		const projectDir = createTemporaryFolder('nao-deploy-ui-managed-');
+		mocks.getProjectByOrgAndName.mockResolvedValue({
+			id: 'existing-project',
+			path: projectDir,
+			userGroupManagementMode: 'code',
+		});
+		mocks.getUserGroupManagementMode.mockResolvedValue('ui');
+		const send = vi.fn();
+
+		await handler()(deployRequest('analytics'), { status: vi.fn(() => ({ send })), send });
+
+		expect(mocks.reconcileUserGroupsConfigWithinLock).not.toHaveBeenCalled();
+		expect(mocks.recordProjectDeployment).toHaveBeenCalledWith('existing-project');
+		expect(send).toHaveBeenCalledWith({
+			projectId: 'existing-project',
+			projectName: 'analytics',
+			status: 'updated',
+		});
+	});
+});
+
 function uploadArchive(archive: Buffer) {
 	return upload(vi.fn().mockResolvedValue({ file: toAsyncIterable(archive) }));
 }
@@ -260,6 +500,7 @@ function handler() {
 	return mocks.post.mock.calls[0][1] as (
 		request: {
 			headers: { authorization?: string };
+			url?: string;
 			file: () => Promise<{ file: AsyncIterable<Buffer> } | undefined>;
 		},
 		reply: {

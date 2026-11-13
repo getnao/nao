@@ -178,7 +178,7 @@ function transaction() {
 				mocks.events.push('lock-projects');
 			});
 		},
-		delete: () => mockMutationQuery(),
+		update: () => mockMutationQuery(),
 		insert: () => mockMutationQuery({ beforeExecute: recordEvent(mocks.events, 'insert-membership') }),
 	};
 }

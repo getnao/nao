@@ -9,6 +9,7 @@ import type { DatabaseContextObject } from '@/components/settings/user-group-con
 import type { FileTreeCatalogEntry } from '@/components/settings/user-group-file-tree-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
+import { UserGroupCodeManagement } from '@/components/settings/user-group-code-management';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { ProjectRowSecurity } from '@/components/settings/project-row-security';
 import { ProjectUsersTable } from '@/components/settings/project-users-table';
@@ -70,6 +71,7 @@ function UserGroupsContent({
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
 	const filesContextCatalog = useQuery(trpc.userGroup.filesContextCatalog.queryOptions());
+	const managementStatus = useQuery(trpc.userGroup.managementStatus.queryOptions());
 	const navigate = useNavigate();
 	const membershipKeys = useMemo(
 		() => new Set(overview.data?.memberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
@@ -115,6 +117,7 @@ function UserGroupsContent({
 	const databaseCatalogState = getCatalogState(contextCatalog);
 	const docsCatalogState = getCatalogState(docsContextCatalog);
 	const filesCatalogState = getCatalogState(filesContextCatalog);
+	const isCodeManaged = managementStatus.data?.mode === 'code';
 
 	return (
 		<>
@@ -134,6 +137,7 @@ function UserGroupsContent({
 						onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
 						onRetryFilesCatalog={() => void filesContextCatalog.refetch()}
 						entitlement={entitlement}
+						readOnly={isCodeManaged}
 						onOpenGroup={(groupId) => {
 							void navigate({
 								to: '/settings/project/user-groups/$groupId',
@@ -151,21 +155,25 @@ function UserGroupsContent({
 					/>
 				)}
 				{tab === 'users' && (
-					<ProjectUsersTable
-						canManage
-						projectUsers={projectUsers}
-						organizationUsers={organizationUsers}
-						groups={activeGroups}
-						membershipKeys={membershipKeys}
-						ssoMembershipKeys={ssoMembershipKeys}
-						onOpenUser={(userId) => {
-							void navigate({
-								to: '/settings/project/user-groups/users/$userId',
-								params: { userId },
-								search: { tab: 'features' },
-							});
-						}}
-					/>
+					<div className='flex flex-col gap-5'>
+						<UserGroupCodeManagement />
+						<ProjectUsersTable
+							canManage
+							projectUsers={projectUsers}
+							organizationUsers={organizationUsers}
+							groups={activeGroups}
+							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
+							canManageGroups={!isCodeManaged}
+							onOpenUser={(userId) => {
+								void navigate({
+									to: '/settings/project/user-groups/users/$userId',
+									params: { userId },
+									search: { tab: 'features' },
+								});
+							}}
+						/>
+					</div>
 				)}
 				{tab === 'security' && (
 					<ProjectRowSecurity
@@ -191,6 +199,7 @@ function GroupsTable({
 	onRetryDocsCatalog,
 	onRetryFilesCatalog,
 	entitlement,
+	readOnly,
 	onOpenGroup,
 	onCreateGroup,
 }: {
@@ -206,6 +215,7 @@ function GroupsTable({
 	onRetryDocsCatalog: () => void;
 	onRetryFilesCatalog: () => void;
 	entitlement: UserGroupsEntitlement;
+	readOnly: boolean;
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
@@ -222,7 +232,7 @@ function GroupsTable({
 			title='Group access'
 			description='Configure the features, database tables, docs, and project files each group can access.'
 			action={
-				entitlement === 'loading' ? (
+				readOnly ? null : entitlement === 'loading' ? (
 					<Button disabled>Loading group access...</Button>
 				) : entitlement === 'error' ? (
 					<Button disabled>Create group unavailable</Button>

@@ -80,6 +80,11 @@ vi.mock('@/lib/auth-client', () => ({
 	useSession: () => ({ data: { user: { id: 'admin-id' } } }),
 }));
 vi.mock('@/main', () => ({
+	trpcClient: {
+		userGroup: {
+			exportConfig: { query: vi.fn() },
+		},
+	},
 	trpc: {
 		account: {
 			resetPassword: { mutationOptions: vi.fn() },
@@ -118,6 +123,15 @@ vi.mock('@/main', () => ({
 		},
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
+			managementStatus: {
+				queryOptions: vi.fn(() => ({ queryKey: ['management-status'] })),
+				queryKey: vi.fn(() => ['management-status']),
+			},
+			previewCodeManagement: {
+				queryOptions: vi.fn(() => ({ queryKey: ['preview-code-management'] })),
+			},
+			enableCodeManagement: { mutationOptions: vi.fn() },
+			disableCodeManagement: { mutationOptions: vi.fn() },
 			contextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['context-catalog'] })) },
 			docsContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['docs-context-catalog'] })) },
 			filesContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['files-context-catalog'] })) },
@@ -413,7 +427,15 @@ beforeEach(() => {
 										? { syncState: 'ready', objects: [] }
 										: queryKey === 'docs-context-catalog'
 											? { syncState: 'ready', entries: [] }
-											: overview,
+											: queryKey === 'management-status'
+												? {
+														mode: 'ui',
+														configPath: 'user_groups.yaml',
+														pendingEmails: [],
+														lastSuccess: null,
+														latestFailure: null,
+													}
+												: overview,
 		};
 	});
 	mocks.useMutation.mockReturnValue({
@@ -475,6 +497,37 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('No features · All tables · Not strict · All docs · All files')).toBeTruthy();
 		expect(screen.getByText('No features · No tables · Not strict · No docs · No files')).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Create group' })).toBeTruthy();
+	});
+
+	it('keeps code management on the Users tab while removing mutation controls', () => {
+		const defaultQuery = mocks.useQuery.getMockImplementation()!;
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) =>
+			options?.queryKey?.[0] === 'management-status'
+				? {
+						isLoading: false,
+						isError: false,
+						data: {
+							mode: 'code',
+							configPath: 'user_groups.yaml',
+							pendingEmails: ['pending@example.com'],
+							lastSuccess: null,
+							latestFailure: null,
+						},
+					}
+				: defaultQuery(options),
+		);
+
+		const { rerender } = render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		expect(screen.queryByText(/user_groups.yaml is the source of truth/)).toBeNull();
+		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Create group' })).toBeNull();
+
+		rerender(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+		expect(screen.getByText(/user_groups.yaml is the source of truth/)).toBeTruthy();
+		expect(screen.getByText(/pending@example.com/)).toBeTruthy();
+		expect(screen.getByRole('row', { name: /Project User/ }).textContent).toContain('Analysts');
+		expect(screen.queryByRole('button', { name: /Manage groups for/ })).toBeNull();
 	});
 
 	it('configures project constraint columns when RLS is licensed', () => {

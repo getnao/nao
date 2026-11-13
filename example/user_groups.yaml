@@ -1,0 +1,98 @@
+version: 1
+defaults:
+  features: []
+  tool_call_density:
+    default_density: detailed
+    can_change: true
+  show_all_settings: false
+  project_sharing: inherit
+  share_targets:
+    include_own_group: true
+    group_keys: []
+  preloaded_skills: []
+  budget_limit_usd: null
+  database_access:
+    mode: restricted
+    strict: false
+    grants: []
+    patterns: []
+  docs_access:
+    mode: restricted
+    grants: []
+  files_access:
+    mode: restricted
+    grants: []
+  mcp_access:
+    mode: restricted
+    grants: []
+  skills_access:
+    mode: restricted
+    skills: []
+  row_policies:
+    version: 1
+    policies: []
+all_users:
+  features:
+    - storyCreation
+    - customStoryCreation
+    - automationCreation
+  tool_call_density:
+    default_density: detailed
+    can_change: true
+  show_all_settings: true
+  project_sharing: inherit
+  share_targets:
+    include_own_group: true
+    group_keys: []
+  preloaded_skills: []
+  budget_limit_usd: null
+  database_access:
+    mode: all
+    strict: false
+  docs_access:
+    mode: all
+  files_access:
+    mode: all
+  mcp_access:
+    mode: all
+  skills_access:
+    mode: all
+  row_policies:
+    version: 1
+    policies: []
+groups:
+  - key: les-nobles
+    name: Les Nobles
+    members:
+      - employee2@getnao.io
+    features: []
+    tool_call_density:
+      default_density: detailed
+      can_change: true
+    show_all_settings: false
+    project_sharing: inherit
+    share_targets:
+      include_own_group: true
+      group_keys: []
+    preloaded_skills: []
+    budget_limit_usd: null
+    database_access:
+      mode: restricted
+      strict: false
+      grants: []
+      patterns: []
+    docs_access:
+      mode: restricted
+      grants: []
+    files_access:
+      mode: restricted
+      grants: []
+    mcp_access:
+      mode: restricted
+      grants: []
+    skills_access:
+      mode: restricted
+      skills: []
+    row_policies:
+      version: 1
+      policies: []

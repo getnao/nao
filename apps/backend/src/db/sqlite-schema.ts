@@ -330,6 +330,9 @@ export const project = sqliteTable(
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 		defaultModels: text('default_models', { mode: 'json' }).$type<DefaultModelSettings>(),
 		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
+		userGroupManagementMode: text('user_group_management_mode', { enum: ['ui', 'code'] })
+			.notNull()
+			.default('ui'),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -667,6 +670,10 @@ export const userGroup = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
+		configKey: text('config_key'),
+		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+		archivedName: text('archived_name'),
+		ssoMappingsSuspendedAt: integer('sso_mappings_suspended_at', { mode: 'timestamp_ms' }),
 		featureGrants: text('feature_grants', { mode: 'json' })
 			.$type<StoredUserGroupConfig>()
 			.notNull()
@@ -690,6 +697,7 @@ export const userGroup = sqliteTable(
 	(t) => [
 		index('user_group_projectId_idx').on(t.projectId),
 		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		unique('user_group_project_config_key_unique').on(t.projectId, t.configKey),
 		uniqueIndex('user_group_project_default_unique')
 			.on(t.projectId)
 			.where(sql`${t.isDefault} = 1`),
@@ -705,7 +713,8 @@ export const userGroupMember = sqliteTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		provider: text('provider').$type<'manual' | SsoGroupProvider>().default('manual').notNull(),
+		provider: text('provider').$type<'manual' | 'config' | SsoGroupProvider>().default('manual').notNull(),
+		active: integer('active', { mode: 'boolean' }).default(true).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -713,6 +722,26 @@ export const userGroupMember = sqliteTable(
 	(t) => [
 		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
 		index('user_group_member_user_provider_idx').on(t.userId, t.provider),
+	],
+);
+
+export const userGroupConfigMember = sqliteTable(
+	'user_group_config_member',
+	{
+		groupId: text('group_id').notNull(),
+		normalizedEmail: text('normalized_email').notNull(),
+		active: integer('active', { mode: 'boolean' }).default(true).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.groupId, t.normalizedEmail] }),
+		index('user_group_config_member_email_active_idx').on(t.normalizedEmail, t.active),
 	],
 );
 
@@ -847,6 +876,7 @@ export const projectGroupBudget = sqliteTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		limitUsd: integer('limit_usd').notNull(),
+		active: integer('active', { mode: 'boolean' }).default(true).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -1641,6 +1671,7 @@ export const ACTIVITY_TYPES = [
 	'story.pinned',
 	'chat.shared',
 	'chat.pinned',
+	'user-groups.config',
 ] as const;
 
 export const ACTIVITY_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;

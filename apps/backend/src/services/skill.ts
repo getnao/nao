@@ -27,6 +27,21 @@ export const PRELOADED_SKILLS_TOTAL_CHAR_LIMIT = 24_000;
 
 const SKILLS_FOLDER_LOCATION = '/agent/skills';
 
+export function resolveProjectSkillName(filename: string, frontmatterName: unknown): string {
+	return String(frontmatterName || filename.replace('.md', '')).trim();
+}
+
+export function resolveProjectSkillFile(
+	projectPath: string,
+	skillsFolderPath: string,
+	filePath: string,
+): string | null {
+	const realFilePath = realpathSync(filePath);
+	const isInsideProject = isWithinDirectory(realpathSync(projectPath), realFilePath);
+	const isInsideSkillsFolder = isWithinDirectory(realpathSync(skillsFolderPath), realFilePath);
+	return isInsideProject && isInsideSkillsFolder && statSync(realFilePath).isFile() ? realFilePath : null;
+}
+
 interface ProjectSkills {
 	projectPath: string;
 	skillsFolderPath: string;
@@ -217,7 +232,7 @@ class SkillService {
 			const { data } = matter(readFileSync(realFilePath, 'utf8'));
 			return {
 				skill: {
-					name: String(data.name || file.replace('.md', '')).trim(),
+					name: resolveProjectSkillName(file, data.name),
 					description: data.description || '',
 					location,
 				},
@@ -234,10 +249,8 @@ class SkillService {
 	 */
 	private _resolveSkillFile(entry: ProjectSkills, filePath: string): string | null {
 		try {
-			const realFilePath = realpathSync(filePath);
-			const isInsideProject = isWithinDirectory(realpathSync(entry.projectPath), realFilePath);
-			const isInsideSkillsFolder = isWithinDirectory(realpathSync(entry.skillsFolderPath), realFilePath);
-			if (isInsideProject && isInsideSkillsFolder && statSync(realFilePath).isFile()) {
+			const realFilePath = resolveProjectSkillFile(entry.projectPath, entry.skillsFolderPath, filePath);
+			if (realFilePath) {
 				return realFilePath;
 			}
 			logger.warn(`Ignoring skill file outside the skills folder: ${filePath}`, { source: 'agent' });
