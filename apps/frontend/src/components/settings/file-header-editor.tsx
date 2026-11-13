@@ -15,10 +15,12 @@ interface FileHeaderEditorProps {
 	isEditable: boolean;
 	onChange: (changes: ContextFileHeaderChanges) => void;
 	onSave?: () => void;
+	/** Shown under the properties, like an offer to give the other files of the table the same owner. */
+	children?: ReactNode;
 }
 
 /** The frontmatter of a Markdown file as editable properties, like the header of a document. */
-export function FileHeaderEditor({ state, isEditable, onChange, onSave }: FileHeaderEditorProps) {
+export function FileHeaderEditor({ state, isEditable, onChange, onSave, children }: FileHeaderEditorProps) {
 	const { reading, problems, owners, isOwnersError, retryOwners, defaults } = state;
 	const descriptionRef = useRef<HTMLTextAreaElement>(null);
 	const canEdit = isEditable && isContextFileHeaderEditable(reading);
@@ -76,6 +78,7 @@ export function FileHeaderEditor({ state, isEditable, onChange, onSave }: FileHe
 					<TagsInput tags={header.tags} isEditable={canEdit} onChange={(tags) => onChange({ tags })} />
 				</PropertyRow>
 			</dl>
+			{children}
 		</header>
 	);
 }

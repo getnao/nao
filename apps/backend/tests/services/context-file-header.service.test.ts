@@ -20,10 +20,18 @@ vi.mock('../../src/services/nao-draft.service', () => ({
 	getNaoDraftFileTree: async () => [],
 }));
 
-import type { ContextExplorerFileAccess } from '../../src/services/context-explorer.service';
-import { listContextFileHeaderProblems, listContextFileOwners } from '../../src/services/context-file-header.service';
+import { type ContextExplorerFileAccess, readFileContent } from '../../src/services/context-explorer.service';
+import {
+	applyOwnerToTableFiles,
+	listContextFileHeaderProblems,
+	listContextFileOwners,
+	listTableFileOwners,
+} from '../../src/services/context-file-header.service';
 import { createContextGitFixture, fileAccess, writeFiles } from '../helpers/context-git-fixture';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
+
+const ORDERS = 'databases/type=duckdb/database=shop/schema=main/table=orders';
+const CUSTOMERS = 'databases/type=duckdb/database=shop/schema=main/table=customers';
 
 describe('context file headers', () => {
 	const createTemporaryFolder = useTemporaryFolders();
@@ -42,6 +50,12 @@ describe('context file headers', () => {
 			'docs/long.md': `---\ndescription: ${'x'.repeat(10_000)}\nowner: gone@example.com\n---\nbody\n`,
 			'plain.md': 'no header\n',
 			'notes.txt': '---\nowner: gone@example.com\n---\n',
+			[`${ORDERS}/description.md`]: '---\nowner: zoe@example.com\n---\nOrders\n',
+			[`${ORDERS}/columns.md`]: '---\ntitle: Columns\nowner: zoe@example.com\n---\nColumns\n',
+			[`${ORDERS}/preview.md`]: 'Preview\n',
+			[`${ORDERS}/how_to_use.md`]: '---\nowner: ADA@example.com\n---\nUsage\n',
+			[`${ORDERS}/ai_summary.md`]: '---\ntype: generated\nowner: zoe@example.com\n---\nSummary\n',
+			[`${CUSTOMERS}/columns.md`]: '---\nowner: zoe@example.com\n---\nColumns\n',
 		};
 		const fixture = createContextGitFixture(createTemporaryFolder('nao-context-header-'), files);
 		writeFiles(fixture.live, files);
@@ -66,4 +80,54 @@ describe('context file headers', () => {
 			['/docs/orphan.md', ['unknown-owner']],
 		]);
 	});
+
+	it('lists the owner of the other files of the table', async () => {
+		expect(await listTableFileOwners('project', `/${ORDERS}/description.md`, access)).toEqual([
+			{ path: `/${ORDERS}/ai_summary.md`, owner: 'zoe@example.com', isEditable: false },
+			{ path: `/${ORDERS}/columns.md`, owner: 'zoe@example.com', isEditable: true },
+			{ path: `/${ORDERS}/how_to_use.md`, owner: 'ADA@example.com', isEditable: true },
+			{ path: `/${ORDERS}/preview.md`, owner: null, isEditable: true },
+		]);
+	});
+
+	it('gives the editable files of the table the owner, leaving other tables and generated files', async () => {
+		const result = await applyOwnerToTableFiles('project', `/${ORDERS}/description.md`, 'ada@example.com', access);
+
+		expect(result.updatedPaths).toEqual([`/${ORDERS}/columns.md`, `/${ORDERS}/preview.md`]);
+		expect(await readContents(access)).toEqual({
+			[`/${ORDERS}/description.md`]: '---\nowner: zoe@example.com\n---\nOrders\n',
+			[`/${ORDERS}/columns.md`]: '---\ntitle: Columns\nowner: ada@example.com\n---\nColumns\n',
+			[`/${ORDERS}/preview.md`]: '---\nowner: ada@example.com\n---\n\nPreview\n',
+			[`/${ORDERS}/how_to_use.md`]: '---\nowner: ADA@example.com\n---\nUsage\n',
+			[`/${ORDERS}/ai_summary.md`]: '---\ntype: generated\nowner: zoe@example.com\n---\nSummary\n',
+			[`/${CUSTOMERS}/columns.md`]: '---\nowner: zoe@example.com\n---\nColumns\n',
+		});
+	});
+
+	it('removes the owner from the files of the table', async () => {
+		await applyOwnerToTableFiles('project', `/${ORDERS}/description.md`, null, access);
+
+		const contents = await readContents(access);
+		expect(contents[`/${ORDERS}/columns.md`]).toBe('---\ntitle: Columns\n---\nColumns\n');
+		expect(contents[`/${ORDERS}/how_to_use.md`]).toBe('Usage\n');
+	});
+
+	it('rejects a file that does not document a table', async () => {
+		await expect(listTableFileOwners('project', '/docs/orphan.md', access)).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+	});
 });
+
+async function readContents(access: ContextExplorerFileAccess): Promise<Record<string, string>> {
+	const paths = [
+		`/${ORDERS}/description.md`,
+		`/${ORDERS}/columns.md`,
+		`/${ORDERS}/preview.md`,
+		`/${ORDERS}/how_to_use.md`,
+		`/${ORDERS}/ai_summary.md`,
+		`/${CUSTOMERS}/columns.md`,
+	];
+	const files = await Promise.all(paths.map((path) => readFileContent(path, access)));
+	return Object.fromEntries(paths.map((path, index) => [path, files[index].content]));
+}

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	addContextFileHeader,
+	findContextTableFolder,
 	getDefaultContextFileHeader,
+	isSameContextFileOwner,
 	readContextFileHeader,
 	updateContextFileHeader,
 	validateContextFileHeader,
@@ -152,5 +154,34 @@ describe('getDefaultContextFileHeader', () => {
 		expect(title).toBe('Rules');
 		expect(description).toMatch(/orchestrate/);
 		expect(description?.split('. ')).toHaveLength(2);
+	});
+});
+
+describe('findContextTableFolder', () => {
+	it.each([
+		[
+			'/databases/type=duckdb/database=shop/schema=main/table=orders/columns.md',
+			{ path: 'databases/type=duckdb/database=shop/schema=main/table=orders', table: 'orders' },
+		],
+		[
+			'databases\\schema=main\\table=order_items\\preview.md',
+			{ path: 'databases/schema=main/table=order_items', table: 'order_items' },
+		],
+		['/databases/type=duckdb/database=shop/schema=main/table=orders/notes/usage.md', null],
+		['/databases/type=duckdb/database=shop/schema=main/table=/columns.md', null],
+		['/docs/table=orders.md', null],
+	])('finds the table folder of %s', (filePath, expected) => {
+		expect(findContextTableFolder(filePath)).toEqual(expected);
+	});
+});
+
+describe('isSameContextFileOwner', () => {
+	it.each([
+		['Ada@Example.com', 'ada@example.com', true],
+		[null, null, true],
+		['ada@example.com', null, false],
+		['ada@example.com', 'zoe@example.com', false],
+	])('compares %s with %s', (first, second, expected) => {
+		expect(isSameContextFileOwner(first, second)).toBe(expected);
 	});
 });
