@@ -535,8 +535,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Capabilities',
 		search: { tab: 'tools' },
 		title: 'GeoJSON Boundary Library',
-		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
-		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],
+		description: 'Add custom GeoJSON boundary sets, from a URL or an uploaded file, for choropleth maps.',
+		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon', 'upload', 'file'],
 		adminOnly: true,
 	},
 	{

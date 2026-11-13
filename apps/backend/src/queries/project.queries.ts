@@ -421,33 +421,49 @@ export const getCustomBoundaries = async (projectId: string): Promise<CustomBoun
 	return settings.customBoundaries ?? [];
 };
 
-export const addCustomBoundary = (projectId: string, boundary: CustomBoundarySet): Promise<CustomBoundarySet[]> =>
-	mutateCustomBoundaries(projectId, (current) => {
+export interface CustomBoundaryChange {
+	boundaries: CustomBoundarySet[];
+	previous: CustomBoundarySet | undefined;
+}
+
+export const addCustomBoundary = async (
+	projectId: string,
+	boundary: CustomBoundarySet,
+): Promise<CustomBoundarySet[]> => {
+	const { after } = await mutateCustomBoundaries(projectId, (current) => {
 		if (current.some((b) => b.key === boundary.key)) {
 			throw new Error(`A boundary set with key "${boundary.key}" already exists.`);
 		}
 		return [...current, boundary];
 	});
+	return after;
+};
 
-export const updateCustomBoundary = (
+export const updateCustomBoundary = async (
 	projectId: string,
 	key: string,
 	patch: Partial<CustomBoundarySet>,
-): Promise<CustomBoundarySet[]> =>
-	mutateCustomBoundaries(projectId, (current) => {
+): Promise<CustomBoundaryChange> => {
+	const { before, after } = await mutateCustomBoundaries(projectId, (current) => {
 		if (patch.key && patch.key !== key && current.some((b) => b.key === patch.key)) {
 			throw new Error(`A boundary set with key "${patch.key}" already exists.`);
 		}
 		return current.map((b) => (b.key === key ? { ...b, ...patch } : b));
 	});
+	return { boundaries: after, previous: before.find((b) => b.key === key) };
+};
 
-export const deleteCustomBoundary = (projectId: string, key: string): Promise<CustomBoundarySet[]> =>
-	mutateCustomBoundaries(projectId, (current) => current.filter((b) => b.key !== key));
+export const deleteCustomBoundary = async (projectId: string, key: string): Promise<CustomBoundaryChange> => {
+	const { before, after } = await mutateCustomBoundaries(projectId, (current) =>
+		current.filter((b) => b.key !== key),
+	);
+	return { boundaries: after, previous: before.find((b) => b.key === key) };
+};
 
 const mutateCustomBoundaries = async (
 	projectId: string,
 	transform: (current: CustomBoundarySet[]) => CustomBoundarySet[],
-): Promise<CustomBoundarySet[]> =>
+): Promise<{ before: CustomBoundarySet[]; after: CustomBoundarySet[] }> =>
 	db.transaction(async (tx) => {
 		const base = tx
 			.select({ mapSettings: s.project.mapSettings })
@@ -455,13 +471,14 @@ const mutateCustomBoundaries = async (
 			.where(eq(s.project.id, projectId));
 		const [row] = await lockForUpdate(base).execute();
 		const settings = row?.mapSettings ?? {};
-		const next = transform(settings.customBoundaries ?? []);
+		const before = settings.customBoundaries ?? [];
+		const after = transform(before);
 		await tx
 			.update(s.project)
-			.set({ mapSettings: { ...settings, customBoundaries: next } })
+			.set({ mapSettings: { ...settings, customBoundaries: after } })
 			.where(eq(s.project.id, projectId))
 			.execute();
-		return next;
+		return { before, after };
 	});
 
 const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>

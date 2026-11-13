@@ -1,9 +1,10 @@
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { serializeStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import { normalizeBrandHeader, showsBrandIdentity } from '@nao/shared/story-theme';
 import {
 	getStoryTheme,
 	isEditingEnabled,
+	requestMapBoundary,
 	requestQueryData,
 	requestSql,
 	subscribeToEditing,
@@ -11,7 +12,8 @@ import {
 } from '../story-host';
 import { useHostRequest } from './use-host-request';
 import type { HostRequest, HostRequestResult } from './use-host-request';
-import type { StoryQueryResult } from '@nao/shared/story-app';
+import type { MapFeatureCollection } from '@nao/shared';
+import type { StoryMapBoundary, StoryQueryResult } from '@nao/shared/story-app';
 import type { StoryQueryFilters, StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
@@ -70,6 +72,44 @@ export function useSql(sql: string, { databaseId, filters, enabled = true }: Use
 	return toQueryDataResult(useHostRequest(request, enabled && sql.trim() !== ''));
 }
 
+export type MapBoundaryState =
+	| { status: 'loading'; data: null; joinProperties: null; error: null }
+	| { status: 'success'; data: MapFeatureCollection; joinProperties: string[]; error: null }
+	| { status: 'error'; data: null; joinProperties: null; error: string };
+
+const LOADING_BOUNDARY: MapBoundaryState = { status: 'loading', data: null, joinProperties: null, error: null };
+const boundaryCache = new Map<string, Promise<StoryMapBoundary>>();
+
+/** A project boundary set as GeoJSON, for react-leaflet's `<GeoJSON data>`; regions match on `joinProperties`. */
+export function useMapBoundary(key: string): MapBoundaryState {
+	const [settled, setSettled] = useState<{ key: string; state: MapBoundaryState } | null>(null);
+
+	useEffect(() => {
+		let cancelled = false;
+		const settle = (state: MapBoundaryState) => {
+			if (!cancelled) {
+				setSettled({ key, state });
+			}
+		};
+		fetchMapBoundary(key).then(
+			(boundary) =>
+				settle({
+					status: 'success',
+					data: boundary.geojson,
+					joinProperties: boundary.joinProperties,
+					error: null,
+				}),
+			(error: unknown) =>
+				settle({ status: 'error', data: null, joinProperties: null, error: describeError(error) }),
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [key]);
+
+	return settled?.key === key ? settled.state : LOADING_BOUNDARY;
+}
+
 export function useStoryTheme(): StoryTheme | null {
 	return useSyncExternalStore(subscribeToTheme, getStoryTheme);
 }
@@ -100,4 +140,23 @@ function toQueryDataResult({ isFetching, refetch, ...state }: HostRequestResult<
 		return { status: 'error', data: null, columns: null, error: state.error, isFetching, refetch };
 	}
 	return { status: 'loading', data: null, columns: null, error: null, isFetching, refetch };
+}
+
+function fetchMapBoundary(key: string): Promise<StoryMapBoundary> {
+	const cached = boundaryCache.get(key);
+	if (cached) {
+		return cached;
+	}
+	const request = requestMapBoundary(key);
+	boundaryCache.set(key, request);
+	request.catch(() => {
+		if (boundaryCache.get(key) === request) {
+			boundaryCache.delete(key);
+		}
+	});
+	return request;
+}
+
+function describeError(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }

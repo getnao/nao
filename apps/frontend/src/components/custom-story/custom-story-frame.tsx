@@ -12,6 +12,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import {
 	fetchChartPluginSource,
+	fetchMapBoundary,
 	narrativesOptions,
 	queryDataOptions,
 	modelsOptions,
@@ -254,6 +255,18 @@ export function CustomStoryFrame({
 		[dataSource, queryClient, reply],
 	);
 
+	const answerMapBoundary = useCallback(
+		async (requestId: string, key: string) => {
+			try {
+				const boundary = await fetchMapBoundary(queryClient, dataSource, key);
+				reply({ type: 'nao-story:map-boundary-result', requestId, boundary });
+			} catch (error) {
+				reply({ type: 'nao-story:map-boundary-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
 	const answerNarratives = useCallback(
 		async (requestId: string) => {
 			const narratives = await queryClient.fetchQuery(narrativesOptions(dataSource)).catch(() => ({}));
@@ -364,6 +377,9 @@ export function CustomStoryFrame({
 				case 'nao-story:chart-plugin':
 					void answerChartPlugin(message.requestId, message.chartType);
 					break;
+				case 'nao-story:map-boundary':
+					void answerMapBoundary(message.requestId, message.key);
+					break;
 				case 'nao-story:set-state':
 					if (message.shared === true && hasReadViewerRowsRef.current) {
 						onError?.({ message: SHARED_STATE_AFTER_VIEWER_ROWS_MESSAGE });
@@ -383,6 +399,7 @@ export function CustomStoryFrame({
 		return () => window.removeEventListener('message', handleMessage);
 	}, [
 		answerChartPlugin,
+		answerMapBoundary,
 		answerModel,
 		answerModels,
 		answerNarratives,

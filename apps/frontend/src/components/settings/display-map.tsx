@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Trash2, Upload, X } from 'lucide-react';
 
-import type { CustomBoundarySet } from '@nao/shared';
+import { BOUNDARY_FILE_SIMPLIFY_HINT, MAX_BOUNDARY_FILE_BYTES, validateGeoJson } from '@nao/shared';
+import type { CustomBoundarySet, GeoJsonValidationResult, UploadedBoundaryFile } from '@nao/shared';
 import type { FeatureCollection } from 'geojson';
 
 import {
@@ -25,8 +26,9 @@ import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { MAP_STYLE_DARK, MAP_STYLE_LIGHT } from '@/hooks/use-map-style';
+import { getActiveProjectId } from '@/lib/active-project';
 import { maplibregl } from '@/lib/maplibre';
-import { cn } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 import { trpc } from '@/main';
 
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -34,6 +36,14 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 interface SettingsDisplayMapProps {
 	isAdmin: boolean;
 }
+
+interface PickedBoundaryFile {
+	fileName: string;
+	size: number;
+	result: GeoJsonValidationResult;
+}
+
+const GEOJSON_FILE_TYPES = '.geojson,.json,application/geo+json,application/json';
 
 export function SettingsDisplayMap({ isAdmin }: SettingsDisplayMapProps) {
 	const queryClient = useQueryClient();
@@ -186,9 +196,7 @@ function BoundarySetItem({
 			<div className='flex items-center gap-3 min-w-0 px-1 py-1.5'>
 				<span className='min-w-0'>
 					<span className='block text-sm font-medium truncate'>{set.label}</span>
-					{set.featureCount != null && (
-						<span className='block text-xs text-muted-foreground'>{set.featureCount} features</span>
-					)}
+					<BoundarySetDetails set={set} />
 				</span>
 			</div>
 		);
@@ -207,9 +215,7 @@ function BoundarySetItem({
 					</span>
 					<span className='min-w-0'>
 						<span className='block text-sm font-medium truncate'>{set.label}</span>
-						{set.featureCount != null && (
-							<span className='block text-xs text-muted-foreground'>{set.featureCount} features</span>
-						)}
+						<BoundarySetDetails set={set} />
 					</span>
 				</button>
 				<Button
@@ -226,6 +232,14 @@ function BoundarySetItem({
 	);
 }
 
+function BoundarySetDetails({ set }: { set: CustomBoundarySet }) {
+	const details = [set.featureCount != null && `${set.featureCount} features`, set.file?.name].filter(Boolean);
+	if (details.length === 0) {
+		return null;
+	}
+	return <span className='block text-xs text-muted-foreground truncate'>{details.join(' · ')}</span>;
+}
+
 function BoundaryEditPanel({
 	editTarget,
 	onClose,
@@ -238,6 +252,9 @@ function BoundaryEditPanel({
 	const isEdit = editTarget !== null;
 
 	const [url, setUrl] = useState('');
+	const [pickedFile, setPickedFile] = useState<PickedBoundaryFile | null>(null);
+	const [storedFile, setStoredFile] = useState<UploadedBoundaryFile | undefined>(undefined);
+	const [isReadingFile, setIsReadingFile] = useState(false);
 	const [label, setLabel] = useState('');
 	const [key, setKey] = useState('');
 	const [joinProperty, setJoinProperty] = useState('');
@@ -245,8 +262,11 @@ function BoundaryEditPanel({
 	const [propertyKeys, setPropertyKeys] = useState<string[]>([]);
 	const [previewGeojson, setPreviewGeojson] = useState<FeatureCollection | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
+	const [saveError, setSaveError] = useState<string | null>(null);
 	const [featureCount, setFeatureCount] = useState<number | undefined>(undefined);
 
+	const { data: uploadLimits } = useQuery(trpc.storage.getUploadLimits.queryOptions());
+	const canUpload = uploadLimits?.enabled ?? false;
 	const validateMutation = useMutation(trpc.project.validateMapBoundaryUrl.mutationOptions());
 	const addMutation = useMutation(
 		trpc.project.addMapBoundary.mutationOptions({
@@ -263,33 +283,101 @@ function BoundaryEditPanel({
 		}),
 	);
 
+	const showPreview = (result: GeoJsonValidationResult) => {
+		setPropertyKeys(result.propertyKeys);
+		setPreviewGeojson(result.geojson);
+		setFeatureCount(result.featureCount);
+		setJoinProperty((previous) => pickJoinProperty(previous, result.propertyKeys));
+	};
+
+	const clearPreview = () => {
+		setLoadError(null);
+		setPreviewGeojson(null);
+		setPropertyKeys([]);
+	};
+
 	const loadPreview = async (targetUrl: string) => {
 		if (!targetUrl.trim()) {
 			return;
 		}
-		setLoadError(null);
-		setPreviewGeojson(null);
+		clearPreview();
 		try {
 			const result = await validateMutation.mutateAsync({ url: targetUrl });
-			setPropertyKeys(result.propertyKeys);
-			setPreviewGeojson(result.geojson as FeatureCollection);
-			setFeatureCount(result.featureCount);
-			setJoinProperty((prev) => prev || (result.propertyKeys.length === 1 ? result.propertyKeys[0] : ''));
+			showPreview({ ...result, geojson: result.geojson as FeatureCollection });
 		} catch (err) {
 			setLoadError(err instanceof Error ? err.message : 'Failed to load GeoJSON.');
 		}
 	};
 
+	const loadFile = async (file: File) => {
+		clearPreview();
+		setPickedFile(null);
+		if (file.size > MAX_BOUNDARY_FILE_BYTES) {
+			setLoadError(
+				`${file.name} is larger than the ${formatBytes(MAX_BOUNDARY_FILE_BYTES)} limit. ${BOUNDARY_FILE_SIMPLIFY_HINT}`,
+			);
+			return;
+		}
+		setIsReadingFile(true);
+		try {
+			const result = validateGeoJson(JSON.parse(await file.text()));
+			setPickedFile({ fileName: file.name, size: file.size, result });
+			showPreview(result);
+		} catch (err) {
+			setLoadError(err instanceof SyntaxError ? `${file.name} is not valid JSON.` : describeError(err));
+		} finally {
+			setIsReadingFile(false);
+		}
+	};
+
+	const loadStoredFile = async (boundaryKey: string) => {
+		clearPreview();
+		setIsReadingFile(true);
+		try {
+			const response = await fetch(`/api/map-boundaries/${getActiveProjectId()}/${boundaryKey}`, {
+				cache: 'no-store',
+			});
+			if (!response.ok) {
+				throw new Error('The uploaded GeoJSON could not be loaded.');
+			}
+			showPreview(validateGeoJson(await response.json()));
+		} catch (err) {
+			setLoadError(describeError(err));
+		} finally {
+			setIsReadingFile(false);
+		}
+	};
+
+	const changeUrl = (value: string) => {
+		setUrl(value);
+		if (!value.trim()) {
+			clearPreview();
+		}
+	};
+
+	const removeFile = () => {
+		setPickedFile(null);
+		setStoredFile(undefined);
+		clearPreview();
+	};
+
 	useEffect(() => {
+		setPickedFile(null);
+		setSaveError(null);
+		setStoredFile(editTarget?.file);
 		if (editTarget) {
-			setUrl(editTarget.url);
+			setUrl(editTarget.url ?? '');
 			setLabel(editTarget.label);
 			setKey(editTarget.key);
 			setJoinProperty(editTarget.joinProperty);
 			setRegionKeyHint(editTarget.regionKeyHint);
 			setFeatureCount(editTarget.featureCount);
 			setPropertyKeys([]);
-			loadPreview(editTarget.url);
+			if (editTarget.file) {
+				loadStoredFile(editTarget.key);
+			} else {
+				loadPreview(editTarget.url ?? '');
+			}
 		} else {
 			setUrl('');
 			setLabel('');
@@ -304,36 +392,57 @@ function BoundaryEditPanel({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [editTarget]);
 
+	const hasUrl = url.trim() !== '';
+	const hasFile = pickedFile !== null || storedFile !== undefined;
+	const hasSource = hasUrl ? isEdit || previewGeojson !== null : hasFile;
 	const canSave =
-		url.trim() !== '' &&
+		hasSource &&
+		!isReadingFile &&
 		label.trim() !== '' &&
 		key.trim() !== '' &&
 		joinProperty !== '' &&
-		regionKeyHint.trim() !== '' &&
-		(isEdit || previewGeojson !== null);
+		regionKeyHint.trim() !== '';
 
 	const handleSave = async () => {
 		if (!canSave) {
 			return;
 		}
-		if (isEdit) {
-			const newKey = key !== editTarget.key ? key : undefined;
-			await updateMutation.mutateAsync({
-				key: editTarget.key,
-				newKey,
-				label,
-				url,
-				joinProperty,
-				regionKeyHint,
-				featureCount,
-			});
-		} else {
-			await addMutation.mutateAsync({ key, label, url, joinProperty, regionKeyHint, featureCount });
+		const source = hasUrl
+			? { url }
+			: pickedFile && { upload: { fileName: pickedFile.fileName, geojson: pickedFile.result.geojson } };
+		setSaveError(null);
+		try {
+			if (isEdit) {
+				const newKey = key !== editTarget.key ? key : undefined;
+				await updateMutation.mutateAsync({
+					key: editTarget.key,
+					newKey,
+					label,
+					joinProperty,
+					regionKeyHint,
+					featureCount,
+					...source,
+				});
+			} else {
+				await addMutation.mutateAsync({ key, label, joinProperty, regionKeyHint, featureCount, ...source });
+			}
+			onSaved();
+		} catch (err) {
+			setSaveError(describeError(err));
 		}
-		onSaved();
 	};
 
 	const isSaving = addMutation.isPending || updateMutation.isPending;
+	const isLoadingPreview = validateMutation.isPending || isReadingFile;
+	const isFilePickerDisabled = isReadingFile || !canUpload;
+	const fileSummary = pickedFile
+		? `${pickedFile.fileName} · ${formatBytes(pickedFile.size)}`
+		: storedFile && `${storedFile.name} · ${formatBytes(storedFile.size)}`;
+	const previewSummary = featureCount != null && propertyKeys.length > 1 && (
+		<p className='text-xs text-muted-foreground'>
+			{featureCount} features · {propertyKeys.length} properties
+		</p>
+	);
 
 	return (
 		<div
@@ -342,21 +451,78 @@ function BoundaryEditPanel({
 				editTarget ? 'bg-muted/30' : 'border-dashed',
 			)}
 		>
-			<Field label='GeoJSON URL'>
-				<Input
-					value={url}
-					onChange={(e) => setUrl(e.target.value)}
-					onBlur={() => loadPreview(url)}
-					placeholder='https://example.com/regions.geojson'
-					disabled={validateMutation.isPending}
-				/>
+			<Field
+				label='GeoJSON source'
+				hint={
+					canUpload
+						? `Upload a .geojson or .json file up to ${formatBytes(MAX_BOUNDARY_FILE_BYTES)}, kept in permanent storage, or paste a public URL.`
+						: 'Uploading a file needs permanent storage, which is turned off on this instance.'
+				}
+			>
+				<div className='flex items-center gap-3'>
+					{!hasUrl && (
+						<Button variant='secondary' asChild>
+							<label
+								aria-disabled={isFilePickerDisabled}
+								className={cn(
+									'cursor-pointer shrink-0',
+									isFilePickerDisabled && 'pointer-events-none opacity-50',
+								)}
+							>
+								<Upload className='size-4' />
+								{fileSummary ? 'Replace file' : 'Upload file'}
+								<input
+									type='file'
+									accept={GEOJSON_FILE_TYPES}
+									className='sr-only'
+									disabled={isFilePickerDisabled}
+									onChange={(event) => {
+										const file = event.target.files?.[0];
+										if (file) {
+											loadFile(file);
+										}
+										event.target.value = '';
+									}}
+								/>
+							</label>
+						</Button>
+					)}
+					{fileSummary ? (
+						<span className='text-sm text-muted-foreground truncate min-w-0 flex-1'>{fileSummary}</span>
+					) : (
+						<>
+							{!hasUrl && (
+								<span
+									className={cn('text-xs text-muted-foreground shrink-0', !canUpload && 'opacity-50')}
+								>
+									or
+								</span>
+							)}
+							<Input
+								value={url}
+								onChange={(e) => changeUrl(e.target.value)}
+								onBlur={() => loadPreview(url)}
+								placeholder='https://example.com/regions.geojson'
+								disabled={validateMutation.isPending}
+							/>
+						</>
+					)}
+					{(fileSummary || hasUrl) && (
+						<Button
+							variant='ghost'
+							size='sm'
+							className='shrink-0'
+							onClick={fileSummary ? removeFile : () => changeUrl('')}
+							disabled={isReadingFile || validateMutation.isPending}
+						>
+							<X className='size-3.5' />
+							Remove
+						</Button>
+					)}
+				</div>
 				{loadError && <p className='text-xs text-destructive'>{loadError}</p>}
-				{validateMutation.isPending && <p className='text-xs text-muted-foreground'>Loading…</p>}
-				{featureCount != null && propertyKeys.length > 1 && (
-					<p className='text-xs text-muted-foreground'>
-						{featureCount} features · {propertyKeys.length} properties
-					</p>
-				)}
+				{isLoadingPreview && <p className='text-xs text-muted-foreground'>Loading…</p>}
+				{previewSummary}
 			</Field>
 
 			{previewGeojson && (
@@ -397,7 +563,7 @@ function BoundaryEditPanel({
 			>
 				<Select value={joinProperty} onValueChange={setJoinProperty} disabled={propertyKeys.length === 0}>
 					<SelectTrigger>
-						<SelectValue placeholder='Load a URL to see available properties…' />
+						<SelectValue placeholder='Load the GeoJSON to see available properties…' />
 					</SelectTrigger>
 					<SelectContent>
 						{propertyKeys.map((prop) => (
@@ -426,6 +592,8 @@ function BoundaryEditPanel({
 				/>
 			</Field>
 
+			{saveError && <p className='text-xs text-destructive'>{saveError}</p>}
+
 			<div className='flex justify-end gap-2'>
 				<Button variant='ghost' size='sm' onClick={onClose} disabled={isSaving}>
 					Cancel
@@ -436,6 +604,18 @@ function BoundaryEditPanel({
 			</div>
 		</div>
 	);
+}
+
+function describeError(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/** A join property missing from the new GeoJSON would silently match no region, so it is only kept when still present. */
+function pickJoinProperty(previous: string, propertyKeys: string[]): string {
+	if (previous && propertyKeys.includes(previous)) {
+		return previous;
+	}
+	return propertyKeys.length === 1 ? propertyKeys[0] : '';
 }
 
 function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {

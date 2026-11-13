@@ -1,4 +1,10 @@
-import { type ChartPluginManifestEntry, STORY_REFERENCE_TAG } from '@nao/shared';
+import {
+	BUILTIN_BOUNDARY_LABELS,
+	BUILTIN_BOUNDARY_REGION_KEY_HINTS,
+	type ChartPluginManifestEntry,
+	type CustomBoundarySet,
+	STORY_REFERENCE_TAG,
+} from '@nao/shared';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 
@@ -40,6 +46,8 @@ type SystemPromptProps = {
 	/** Defaults to every skill nao ships; only tests pass this. */
 	internalSkills?: InternalSkill[];
 	customCharts?: ChartPluginManifestEntry[];
+	/** GeoJSON boundary sets the project admin added; only their description is listed, never the geometry. */
+	mapBoundaries?: CustomBoundarySet[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
 	/** Secrets the user made available to sandboxes as environment variables — names and purposes only, never values. */
@@ -78,6 +86,7 @@ export function SystemPrompt({
 	preloadedSkills = [],
 	internalSkills = listInternalSkills(),
 	customCharts = [],
+	mapBoundaries = [],
 	mcpServers = [],
 	sandboxSecrets = [],
 	trustedStories = [],
@@ -402,6 +411,14 @@ export function SystemPrompt({
 				{hasTool('load_skill') && builtInSkills.length > 0 && <BuiltInSkillsBlock skills={builtInSkills} />}
 
 				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
+
+				{mapBoundaries.length > 0 && (
+					<MapBoundariesBlock
+						sets={mapBoundaries}
+						hasDisplayMap={hasTool('display_map')}
+						customStoriesEnabled={customStoriesEnabled}
+					/>
+				)}
 
 				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} canUseCodemode={hasTool('codemode')} />}
 
@@ -892,6 +909,48 @@ function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
 			)}
 		</Block>
 	);
+}
+
+function MapBoundariesBlock({
+	sets,
+	hasDisplayMap,
+	customStoriesEnabled,
+}: {
+	sets: CustomBoundarySet[];
+	hasDisplayMap: boolean;
+	customStoriesEnabled: boolean;
+}) {
+	const builtinKeys = Object.keys(BUILTIN_BOUNDARY_LABELS) as (keyof typeof BUILTIN_BOUNDARY_LABELS)[];
+	return (
+		<Block>
+			<Title level={2}>Map boundaries</Title>
+			<Span>
+				GeoJSON boundary sets available for choropleth maps. Pass a key as <Bold>region_boundaries</Bold> in{' '}
+				{hasDisplayMap && 'display_map or in '}a classic story map
+				{customStoriesEnabled && <>, or load it in a custom story with {'useMapBoundary("key")'}</>}, and make
+				region_key match the set's region key.
+			</Span>
+			<List>
+				{builtinKeys.map((key) => (
+					<ListItem key={key}>
+						<Bold>{key}</Bold> (built-in): {BUILTIN_BOUNDARY_LABELS[key]}. Region key:{' '}
+						{BUILTIN_BOUNDARY_REGION_KEY_HINTS[key]}.
+					</ListItem>
+				))}
+				{sets.map((set) => (
+					<ListItem key={set.key}>
+						<Bold>{set.key}</Bold> ({describeBoundarySetSource(set)}): {set.label}. Join property:{' '}
+						{set.joinProperty}. Region key: {set.regionKeyHint}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
+function describeBoundarySetSource(set: CustomBoundarySet): string {
+	const source = set.file ? 'uploaded' : 'from a URL';
+	return set.featureCount === undefined ? source : `${source}, ${set.featureCount} features`;
 }
 
 function truncateChartDescription(description: string): string {

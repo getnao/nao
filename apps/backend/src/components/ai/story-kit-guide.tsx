@@ -191,6 +191,15 @@ export function storyKitGuideItems(): ReactElement[] {
 			of MapContainer: the only tiles the story can reach, themed, kept to a single world and following the
 			container's size. Leaflet's CSS is already loaded; import nothing else for it.
 		</ListItem>,
+		<ListItem key='map-boundaries'>
+			Region maps: <Bold>{'useMapBoundary("key")'}</Bold> loads one of the project's map boundary sets by its
+			literal key and returns <Bold>data</Bold> (a GeoJSON FeatureCollection, null until <Bold>status</Bold> is
+			"success") and <Bold>joinProperties</Bold>, the feature properties your rows' region values match. Draw it
+			with react-leaflet's <Bold>{'<GeoJSON data={data} style={...} />'}</Bold> and shade each feature from the
+			row whose region matches it. Never fetch GeoJSON from a URL: the story cannot reach the network. In an HTML
+			story, use <Bold>{`await ${STORY_HTML_API_GLOBAL}.mapBoundary("key")`}</Bold> →{' '}
+			{'{ geojson, joinProperties }'}.
+		</ListItem>,
 		<ListItem key='theme'>
 			<Bold>Never hardcode data, colours or fonts.</Bold> Read rows with <Bold>useQueryData</Bold>; style with{' '}
 			<Bold>var(--background)</Bold>, <Bold>var(--card)</Bold>, <Bold>var(--foreground)</Bold>,{' '}
