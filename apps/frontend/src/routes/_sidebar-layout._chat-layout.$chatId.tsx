@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
+import { ArrowRight, Folder, GitFork, Info, TimerIcon, Upload } from 'lucide-react';
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
@@ -40,6 +40,7 @@ import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
 import { findStories } from '@/lib/story.utils';
 import { isForbiddenError, shouldShowChatAccessError } from '@/lib/trpc-error';
+import { cn } from '@/lib/utils';
 
 const SELECTION_FORK_TYPES: ForkMetadata['type'][] = ['chat_selection', 'chat_question', 'story_selection'];
 
@@ -96,7 +97,7 @@ function ChatPage() {
 		...trpc.sharedChat.getShareSettings.queryOptions({ chatId }),
 		enabled: !!chat.data && !shouldShowChatError && !isOnboardingChat,
 	});
-	const isShared = !!shareQuery.data?.shareId;
+	const isChatShared = !isRunning && !!shareQuery.data?.shareId;
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const { complete: onboardingComplete } = useOnboardingCompletion(chatId, isOnboardingChat);
@@ -256,17 +257,11 @@ function ChatPage() {
 									disabled={isRunning}
 									aria-label='Share Chat'
 								>
-									{!isRunning && isShared ? (
-										<>
-											<Globe className='size-3 text-primary' />
-											<span className='text-xs'>Chat shared</span>
-										</>
-									) : (
-										<>
-											<Upload className='size-3' strokeWidth={2.25} />
-											<span className='text-xs'>Share chat</span>
-										</>
-									)}
+									<Upload
+										className={cn('size-3', isChatShared && 'text-primary')}
+										strokeWidth={2.25}
+									/>
+									<span className='text-xs'>{isChatShared ? 'Chat shared' : 'Share chat'}</span>
 								</Button>
 								<ChatArtifactsMenu
 									key={chatId}
