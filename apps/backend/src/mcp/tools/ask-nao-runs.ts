@@ -2,6 +2,7 @@ import type { StoryFormat } from '@nao/shared/types';
 
 export interface AskNaoQuery {
 	id: string;
+	sql?: string;
 	columns: string[];
 	row_count: number;
 	preview: Record<string, unknown>[];

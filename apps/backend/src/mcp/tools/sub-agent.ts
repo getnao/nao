@@ -84,6 +84,7 @@ const ASK_NAO_QUERIES_SCHEMA = z
 	.array(
 		z.object({
 			id: z.string().describe('`query_id` to pass to `display_chart`.'),
+			sql: z.string().optional().describe('The SQL that produced this result.'),
 			columns: z
 				.array(z.string())
 				.describe('Column names in the result — use these for `x_axis_key` and `series[].data_key`.'),

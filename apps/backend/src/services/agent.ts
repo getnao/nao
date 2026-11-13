@@ -97,6 +97,7 @@ import { sanitizeToolCalls } from '../utils/model-message';
 import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { getAssistantMessageTrackingProperties } from '../utils/posthog.utils';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
+import { type QueryResultSummary, summarizeQueryResults } from '../utils/query-results-summary';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { STORY_LIBRARY_MOUNT } from '../utils/story-library';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
@@ -625,18 +626,8 @@ export class AgentManager {
 		return this._toolContext.queryResults.get(queryId);
 	}
 
-	get queryResultsSummary(): {
-		id: string;
-		columns: string[];
-		row_count: number;
-		preview: Record<string, unknown>[];
-	}[] {
-		return [...this._toolContext.queryResults.entries()].map(([id, result]) => ({
-			id,
-			columns: result.columns,
-			row_count: result.data.length,
-			preview: result.data.slice(0, 3),
-		}));
+	get queryResultsSummary(): QueryResultSummary[] {
+		return summarizeQueryResults(this._toolContext.queryResults);
 	}
 
 	stream(
