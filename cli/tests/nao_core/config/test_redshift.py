@@ -1,7 +1,9 @@
 from typing import Any
 from unittest.mock import MagicMock
 
-from nao_core.config.databases.redshift import RedshiftConfig, RedshiftDatabaseContext
+import pytest
+
+from nao_core.config.databases.redshift import RedshiftConfig, RedshiftDatabaseContext, _RedshiftBackend
 
 
 def test_get_schemas_uses_datashare_visible_catalog_view():
@@ -70,6 +72,104 @@ class TestRedshiftClusteringColumns:
         sql = conn.raw_sql.call_args[0][0]
         assert "'pub''lic'" in sql
         assert "'or''ders'" in sql
+
+
+class TestRedshiftBackendListTables:
+    def test_adds_datashare_tables_to_local_tables(self):
+        backend = _catalog_backend({"svv_all_tables": [("orders",), ("shared_payments",), ("shared_accounts",)]})
+        backend.list_tables.return_value = ["orders"]
+
+        tables = _RedshiftBackend(backend).list_tables(database="marts")
+
+        assert tables == ["orders", "shared_accounts", "shared_payments"]
+        sql = _sql_containing(backend, "svv_all_tables")
+        assert "schema_name = 'marts'" in sql
+        assert "database_name = current_database()" in sql
+
+    def test_keeps_local_tables_when_catalog_view_fails(self):
+        backend = MagicMock()
+        backend.list_tables.return_value = ["orders"]
+        backend.raw_sql.side_effect = Exception("permission denied for svv_all_tables")
+
+        assert _RedshiftBackend(backend).list_tables(database="marts") == ["orders"]
+
+    @pytest.mark.parametrize(
+        ("catalog_columns", "expected"),
+        [
+            ([("id",), ("amount",)], ["id", "amount"]),
+            ([], ["local_id"]),
+        ],
+        ids=["datashare_catalog", "ibis_fallback"],
+    )
+    def test_lists_live_columns(self, catalog_columns, expected):
+        backend = _catalog_backend({"svv_all_columns": catalog_columns})
+        backend.table.return_value.schema.return_value.items.return_value = [("local_id", None)]
+
+        columns = _RedshiftBackend(backend).list_live_columns("payments", database="marts")
+
+        assert columns == expected
+        sql = _sql_containing(backend, "svv_all_columns")
+        assert "schema_name = 'marts'" in sql
+        assert "table_name = 'payments'" in sql
+
+    def test_delegates_other_attributes(self):
+        backend = MagicMock()
+
+        _RedshiftBackend(backend).disconnect()
+
+        backend.disconnect.assert_called_once()
+
+
+class TestRedshiftDatashareColumns:
+    @pytest.mark.parametrize(
+        ("local_rows", "all_rows", "expected"),
+        [
+            (
+                [("id", "integer", "NO", None, 32, 0)],
+                [("ignored", "integer", "NO", None, 32, 0, None)],
+                [("id", "int32 NOT NULL", None)],
+            ),
+            (
+                [],
+                [("amount", "double precision", "YES", None, 53, None, "Amount in cents ")],
+                [("amount", "float64", "Amount in cents")],
+            ),
+        ],
+        ids=["local_catalog", "datashare_fallback"],
+    )
+    def test_reads_columns_from_the_catalog_that_sees_the_table(self, local_rows, all_rows, expected):
+        conn = _catalog_backend({"information_schema.columns": local_rows, "svv_all_columns": all_rows})
+        ctx = RedshiftDatabaseContext(conn, "marts", "payments")
+
+        columns = ctx.columns()
+
+        assert [(col["name"], col["type"], col["description"]) for col in columns] == expected
+
+    def test_table_description_falls_back_to_datashare_remarks(self):
+        conn = _catalog_backend({"pg_catalog.pg_description": [], "svv_all_tables": [("Payments shared by finance",)]})
+        ctx = RedshiftDatabaseContext(conn, "marts", "payments")
+
+        assert ctx.description() == "Payments shared by finance"
+
+
+def _catalog_backend(rows_by_source: dict[str, list[tuple]]) -> MagicMock:
+    """A connection whose raw_sql returns the rows of the first catalog named in the query."""
+    conn = MagicMock()
+
+    def raw_sql(query: str) -> MagicMock:
+        rows = next((rows for source, rows in rows_by_source.items() if source in query), [])
+        result = MagicMock()
+        result.fetchall.return_value = rows
+        result.fetchone.return_value = rows[0] if rows else None
+        return result
+
+    conn.raw_sql.side_effect = raw_sql
+    return conn
+
+
+def _sql_containing(conn: MagicMock, fragment: str) -> str:
+    queries = [" ".join(call.args[0].split()) for call in conn.raw_sql.call_args_list]
+    return next(query for query in queries if fragment in query)
 
 
 def _redshift_config(**overrides: Any) -> RedshiftConfig:

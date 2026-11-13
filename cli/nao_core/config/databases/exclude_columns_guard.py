@@ -139,10 +139,9 @@ def _load_table_infos(
                 _blocked,
             )
             try:
-                ibis_schema = conn.table(table, database=schema).schema()
+                columns = _live_columns(conn, schema, table)
             except Exception as error:
                 raise _blocked(f"live schema could not be loaded for {schema}.{table}: {error}") from error
-            columns = tuple(str(name) for name, _ in ibis_schema.items())
             if not columns:
                 raise _blocked(f"live schema returned no columns for {schema}.{table}")
             infos[key] = _TableInfo(schema=schema, table=table, columns=columns)
@@ -150,6 +149,14 @@ def _load_table_infos(
     if not infos and any(expression.find_all(exp.Table)):
         raise _blocked("the query's table references could not be resolved")
     return infos
+
+
+def _live_columns(conn: Any, schema: str, table: str) -> tuple[str, ...]:
+    """Prefer a backend's own column listing (Redshift datashares) over the Ibis table schema."""
+    list_live_columns = getattr(conn, "list_live_columns", None)
+    if callable(list_live_columns):
+        return tuple(str(name) for name in list_live_columns(table, database=schema))
+    return tuple(str(name) for name, _ in conn.table(table, database=schema).schema().items())
 
 
 def _qualify_query(

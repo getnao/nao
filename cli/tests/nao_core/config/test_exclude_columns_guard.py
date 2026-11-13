@@ -321,3 +321,18 @@ def test_athena_catalog_resolves_schema_outside_configured_one_to_bare_schema():
 
     with pytest.raises(ExcludeColumnsGuardError, match=r"crm\.users\.email"):
         enforce_exclude_columns("SELECT email FROM awsdatacatalog.crm.users", config)
+
+
+def test_backend_column_listing_is_preferred_over_ibis_table_schema():
+    class LiveColumnsConnection(FakeConnection):
+        def list_live_columns(self, table: str, *, database: str) -> list[str]:
+            return self.schemas[database][table]
+
+        def table(self, name: str, database: str) -> FakeTable:
+            raise AssertionError("the Ibis table schema must not be read")
+
+    config = FakeDatabaseConfig(["*.email"])
+    config.connection = LiveColumnsConnection(config.schemas)
+
+    with pytest.raises(ExcludeColumnsGuardError, match=STAR_INCLUDES_EMAIL):
+        enforce_exclude_columns("SELECT * FROM users", config)
