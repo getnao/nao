@@ -9,9 +9,9 @@ import { env } from '../env';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from './file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { resolveProjectSkillName } from './skill';
 import type { NormalizedUserGroupsConfig, NormalizedUserGroupSettings } from './user-group-config.service';
 import { parseUserGroupsConfig, UserGroupConfigError } from './user-group-config.service';
-import { resolveProjectSkillName } from './skill';
 import { validateWarehouseRowPredicate } from './warehouse-sql.service';
 
 export function readUserGroupsConfig(projectPath: string): NormalizedUserGroupsConfig {

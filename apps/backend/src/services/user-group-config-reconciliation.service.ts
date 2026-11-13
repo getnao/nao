@@ -7,6 +7,7 @@ import s from '../db/abstractSchema';
 import { db, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { createActivity } from '../queries/activity.queries';
+import { revokeUnauthorizedProjectWideShares } from './project-sharing.service';
 import type {
 	NormalizedConfiguredUserGroup,
 	NormalizedUserGroupsConfig,
@@ -18,7 +19,6 @@ import { diffUserGroupsConfig } from './user-group-config-diff.service';
 import { withUserGroupConfigLock } from './user-group-config-lock.service';
 import { listUsersEligibleForUserGroupConfig } from './user-group-config-membership.service';
 import { getUserGroupManagementMode } from './user-group-management.service';
-import { revokeUnauthorizedProjectWideShares } from './project-sharing.service';
 
 export { withUserGroupConfigLock } from './user-group-config-lock.service';
 

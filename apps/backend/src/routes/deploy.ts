@@ -21,8 +21,8 @@ import {
 	recordUserGroupConfigFailure,
 	withUserGroupConfigLock,
 } from '../services/user-group-config-reconciliation.service';
-import { getUserGroupManagementMode } from '../services/user-group-management.service';
 import { readUserGroupsConfig, validateUserGroupsConfig } from '../services/user-group-config-validation.service';
+import { getUserGroupManagementMode } from '../services/user-group-management.service';
 import { logger, serializeError } from '../utils/logger';
 
 export const deployRoutes = async (app: App) => {

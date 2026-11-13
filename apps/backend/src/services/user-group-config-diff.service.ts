@@ -4,11 +4,11 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import * as memberBudgetQueries from '../queries/member-budget.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
+import { previewProjectWideShareRevocationForConfig } from './project-sharing.service';
 import type { NormalizedConfiguredUserGroup, NormalizedUserGroupsConfig } from './user-group-config.service';
 import { UserGroupConfigError } from './user-group-config.service';
 import { listUsersEligibleForUserGroupConfig } from './user-group-config-membership.service';
 import { getUserGroupManagementMode } from './user-group-management.service';
-import { previewProjectWideShareRevocationForConfig } from './project-sharing.service';
 
 export type UserGroupConfigAction = 'created' | 'adopted' | 'updated' | 'archived' | 'reactivated' | 'unchanged';
 
