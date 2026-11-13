@@ -50,7 +50,6 @@ export interface ContextFileOwner {
 	email: string;
 }
 
-const EMPTY_HEADER: ContextFileHeader = { title: null, description: null, owner: null, tags: [] };
 const KNOWN_PROPERTIES = new Set(['title', 'description', 'owner', 'tags', 'type', 'comment']);
 const FILE_TYPES = new Set(['generated', 'manual']);
 /** Folders whose files `nao sync` writes with the properties of their source, like a Notion page id. */
@@ -164,7 +163,13 @@ export function normalizeContextFileTags(tags: string[]): string[] {
 }
 
 function emptyReading(hasHeader: boolean, problems: ContextFileHeaderProblem[]): ContextFileHeaderReading {
-	return { header: EMPTY_HEADER, hasHeader, properties: [], isGenerated: false, problems };
+	return {
+		header: { title: null, description: null, owner: null, tags: [] },
+		hasHeader,
+		properties: [],
+		isGenerated: false,
+		problems,
+	};
 }
 
 function readHeaderFields(data: Record<string, unknown>): ContextFileHeaderReading {

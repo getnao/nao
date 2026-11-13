@@ -223,7 +223,7 @@ describe('FileViewer file header', () => {
 	])('shows %s', (_, owner, shownOwner) => {
 		renderViewer({ filePath: '/notes.md', content: `---\nowner: ${owner}\n---\nBody\n` });
 
-		const ownerButton = screen.getByRole('button', { name: 'Change owner' });
+		const ownerButton = screen.getByRole('button', { name: `Change owner, currently ${shownOwner}` });
 		expect(ownerButton.textContent).toContain(shownOwner);
 		expect(ownerButton.querySelector('.lucide-triangle-alert') !== null).toBe(owner === 'gone@example.com');
 	});
@@ -289,7 +289,7 @@ describe('FileViewer file header', () => {
 
 		expect(screen.getByLabelText('File properties').textContent).toContain('Fix it in Source.');
 		expect((screen.getByRole('textbox', { name: 'Title' }) as HTMLTextAreaElement).readOnly).toBe(true);
-		expect(screen.queryByRole('button', { name: 'Change owner' })).toBeNull();
+		expect(screen.queryByRole('button', { name: /^Change owner/ })).toBeNull();
 	});
 });
 

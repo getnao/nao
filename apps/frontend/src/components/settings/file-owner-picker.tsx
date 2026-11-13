@@ -36,7 +36,7 @@ export function FileOwnerPicker({ owner, owners, isEditable, onChange }: FileOwn
 			<PopoverTrigger asChild>
 				<button
 					type='button'
-					aria-label='Change owner'
+					aria-label={owner ? `Change owner, currently ${ownerUser?.name || owner}` : 'Change owner'}
 					className='flex h-7 max-w-full min-w-0 cursor-pointer items-center rounded-md px-1.5 outline-none hover:bg-accent focus-visible:bg-accent'
 				>
 					{display}
