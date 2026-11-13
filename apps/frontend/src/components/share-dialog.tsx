@@ -1,12 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, Link as LinkIcon, Loader2, SearchIcon, Users, X } from 'lucide-react';
 
 import type { ShareModel, ShareTarget, ShareTargetState } from '@/hooks/use-share-target';
+import type { ShareOwner } from '@/lib/share-access';
 import type { ShareDraft, ShareSavedState } from '@/lib/share-draft';
 import { ShareAccessPanel } from '@/components/share-access-panel';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
 	Dialog,
 	DialogContent,
@@ -26,6 +28,7 @@ import { useShareTarget } from '@/hooks/use-share-target';
 import { useSession } from '@/lib/auth-client';
 import { shareSubjectKey } from '@/lib/share-access';
 import { createShareDraft, isShareDraftChanged, isShareDraftEmpty, STOP_SHARING_DRAFT } from '@/lib/share-draft';
+import { invalidateStoryOwnershipCaches } from '@/lib/stories-cache';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -37,9 +40,10 @@ interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	target: ShareTarget;
+	onStoryTransferred?: () => void;
 }
 
-export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
+export function ShareDialog({ open, onOpenChange, target, onStoryTransferred }: ShareDialogProps) {
 	const share = useShareTarget(target, open);
 	const audience = useShareAudience();
 	const title = target.kind === 'chat' ? 'Share chat' : 'Share story';
@@ -60,6 +64,7 @@ export function ShareDialog({ open, onOpenChange, target }: ShareDialogProps) {
 					model={share.model}
 					commands={share.commands}
 					onClose={() => onOpenChange(false)}
+					onStoryTransferred={onStoryTransferred}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -73,6 +78,7 @@ function ShareDialogBody({
 	model,
 	commands,
 	onClose,
+	onStoryTransferred,
 }: {
 	target: ShareTarget;
 	title: string;
@@ -80,6 +86,7 @@ function ShareDialogBody({
 	model: ShareModel;
 	commands: ShareTargetState['commands'];
 	onClose: () => void;
+	onStoryTransferred?: () => void;
 }) {
 	const { data: session } = useSession();
 	const audience = useShareAudience();
@@ -93,6 +100,21 @@ function ShareDialogBody({
 	const canNotify = smtpQuery.data === true;
 	const hasChanges = model.canManage && isShareDraftChanged(draft, saved);
 	const sharesWithNobody = isShareDraftEmpty(draft);
+	const ownerCandidates = useOwnerCandidates(model);
+	const storyId = model.storyId;
+	const [newOwner, setNewOwner] = useState<ShareOwner | null>(null);
+	const transfer = useStoryTransfer(() => {
+		setNewOwner(null);
+		setEditedDraft(null);
+		onStoryTransferred?.();
+	});
+	const chooseNewOwner = (owner: ShareOwner | null) => {
+		if (transfer.isPending) {
+			return;
+		}
+		transfer.reset();
+		setNewOwner(owner);
+	};
 
 	const excludedKeys = useMemo(() => new Set([shareSubjectKey('user', model.owner?.id ?? '')]), [model.owner?.id]);
 	const { candidates, isLoading } = useShareCandidates({
@@ -140,7 +162,18 @@ function ShareDialogBody({
 				canNotify={canNotify}
 				notify={notify}
 				onNotifyChange={setNotify}
+				ownerCandidates={ownerCandidates}
+				onChangeOwner={chooseNewOwner}
 			/>
+			{storyId && (
+				<TransferOwnerConfirmation
+					newOwner={newOwner}
+					isPending={transfer.isPending}
+					error={transfer.error?.message}
+					onCancel={() => chooseNewOwner(null)}
+					onConfirm={() => newOwner && transfer.mutate({ storyId, recipientId: newOwner.id })}
+				/>
+			)}
 			{actions.error && (
 				<ShareActionError message={actions.error} onRetry={retry} onDismiss={actions.dismissError} />
 			)}
@@ -181,6 +214,27 @@ function ShareDialogBody({
 
 function toSavedState(model: ShareModel): ShareSavedState {
 	return { isShared: model.isShared, ...model.generalAccess, grants: model.grants };
+}
+
+/** Project members the story can be handed to: everyone but viewers and its current owner. */
+function useOwnerCandidates(model: ShareModel): ShareOwner[] {
+	const recipients = useQuery({
+		...trpc.story.listTransferRecipients.queryOptions({ storyId: model.storyId ?? '' }),
+		enabled: model.storyId !== null && model.canManage,
+	});
+	return recipients.data ?? [];
+}
+
+function useStoryTransfer(onTransferred: () => void) {
+	const queryClient = useQueryClient();
+	return useMutation(
+		trpc.story.transferOwnership.mutationOptions({
+			onSuccess: () => {
+				invalidateStoryOwnershipCaches(queryClient);
+				onTransferred();
+			},
+		}),
+	);
 }
 
 function describeConfirm(
@@ -300,6 +354,35 @@ function ShareActionError({
 				<X className='size-3' />
 			</Button>
 		</div>
+	);
+}
+
+function TransferOwnerConfirmation({
+	newOwner,
+	isPending,
+	error,
+	onCancel,
+	onConfirm,
+}: {
+	newOwner: ShareOwner | null;
+	isPending: boolean;
+	error?: string;
+	onCancel: () => void;
+	onConfirm: () => void;
+}) {
+	return (
+		<ConfirmationDialog
+			open={newOwner !== null}
+			onOpenChange={(open) => !open && onCancel()}
+			title={`Transfer ownership to ${newOwner?.name ?? ''}?`}
+			description="They get the story with its link, sharing and versions. You'll keep access only if the story is shared with the project."
+			confirmLabel='Transfer'
+			confirmVariant='default'
+			onConfirm={onConfirm}
+			isPending={isPending}
+			error={error}
+			preventCloseWhilePending
+		/>
 	);
 }
 

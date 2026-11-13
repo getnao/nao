@@ -84,6 +84,10 @@ vi.mock('@/main', () => ({
 			listUsersWithAccess: { queryOptions: () => ({ queryKey: ['users-with-access'] }) },
 			removeProjectMember: { mutationOptions: () => ({ mutationKey: ['remove-user'] }) },
 		},
+		story: {
+			countOwnedStories: { queryOptions: () => ({ queryKey: ['owned-stories'] }) },
+			transferAllFromUser: { mutationOptions: () => ({ mutationKey: ['transfer-stories'] }) },
+		},
 		system: {
 			getPublicConfig: { queryOptions: () => ({ queryKey: ['system-config'] }) },
 		},

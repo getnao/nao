@@ -4,6 +4,7 @@ import type {
 	ShareRole,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
+	StoryTransferNotificationPayload,
 	Visibility,
 } from '@nao/shared/types';
 
@@ -116,6 +117,39 @@ export async function notifyStorySubscriptionAdded(params: {
 		linkUrl: storyPath(params.storyId),
 		ctaLabel: 'Open story',
 		projectId: params.projectId,
+		payload,
+		channels: ['in_app'],
+	});
+}
+
+export async function notifyStoryTransfer(params: {
+	projectId: string;
+	recipientId: string;
+	senderName: string;
+	stories: Array<{ id: string; title: string }>;
+	previousOwnerId?: string;
+}): Promise<void> {
+	const [story] = params.stories;
+	const isSingleStory = params.stories.length === 1;
+	const payload: StoryTransferNotificationPayload = {
+		kind: 'story_transfer',
+		senderName: params.senderName,
+		storyCount: params.stories.length,
+		storyId: isSingleStory ? story.id : null,
+		storyTitle: isSingleStory ? story.title : null,
+		previousOwnerName: params.previousOwnerId ? ((await resolveOwnerName(params.previousOwnerId)) ?? null) : null,
+	};
+
+	await notify({
+		userId: params.recipientId,
+		projectId: params.projectId,
+		category: 'shared',
+		title: isSingleStory ? story.title : `${params.stories.length} stories`,
+		body: isSingleStory
+			? `${params.senderName} made you the owner of this story.`
+			: `${params.senderName} made you the owner of ${params.stories.length} stories.`,
+		linkUrl: isSingleStory ? storyPath(story.id) : '/stories',
+		ctaLabel: isSingleStory ? 'Open story' : 'Open stories',
 		payload,
 		channels: ['in_app'],
 	});

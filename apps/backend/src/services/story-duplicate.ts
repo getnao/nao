@@ -189,7 +189,7 @@ async function loadStandaloneSnapshot(
 }
 
 /** A live story shows the text it generates, a story that is no longer live the text frozen when it was copied. */
-function pickShownNarratives(source: DBStory, cache: DBStoryDataCache | null): Record<string, string> | null {
+export function pickShownNarratives(source: DBStory, cache: DBStoryDataCache | null): Record<string, string> | null {
 	if (!cache) {
 		return null;
 	}
@@ -267,7 +267,10 @@ async function nextCopyTitle(owner: StoryOwner, sourceTitle: string): Promise<st
 }
 
 async function nextStandaloneSlug(owner: StoryOwner, title: string): Promise<string> {
-	const baseSlug = generateStorySlug(title).slice(0, MAX_SLUG_LENGTH).replace(/-+$/, '');
+	return freeStandaloneSlug(owner, generateStorySlug(title).slice(0, MAX_SLUG_LENGTH).replace(/-+$/, ''));
+}
+
+export async function freeStandaloneSlug(owner: StoryOwner, baseSlug: string): Promise<string> {
 	const taken = new Set(await storyQueries.listStandaloneSlugsStartingWith(owner.userId, owner.projectId, baseSlug));
 	return firstFreeName(baseSlug, (count) => `${baseSlug}-${count}`, taken);
 }

@@ -109,6 +109,16 @@ export type StorySubscriptionNotificationPayload = {
 	ownerName: string;
 };
 
+/** `storyId` and `storyTitle` are set when a single story was handed over. */
+export type StoryTransferNotificationPayload = {
+	kind: 'story_transfer';
+	senderName: string;
+	storyCount: number;
+	storyId: string | null;
+	storyTitle: string | null;
+	previousOwnerName: string | null;
+};
+
 export const MAX_PRELOADED_SKILLS = 50;
 
 /** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
