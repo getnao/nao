@@ -5,6 +5,7 @@ import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSidebar } from '@/contexts/sidebar';
 import {
 	CHAT_PANEL_MIN_WIDTH,
+	clampSidePanelWidth,
 	SIDEBAR_DELTA,
 	SIDE_PANEL_ANIMATION_DURATION,
 	SIDE_PANEL_ANIMATION_EASING,
@@ -112,7 +113,7 @@ export const useSidePanel = ({
 		const sidebarDelta = shouldCollapseSidebar && didCollapseSidebarRef.current ? SIDEBAR_DELTA : 0;
 		const containerWidth = container.getBoundingClientRect().width + sidebarDelta;
 		const ratio = resolveWidthRatio(defaultWidthRatio);
-		const targetWidth = Math.floor(ratio * containerWidth);
+		const targetWidth = clampSidePanelWidth(Math.floor(ratio * containerWidth), containerWidth);
 
 		animateSidePanel({
 			width: `${targetWidth}px`,
