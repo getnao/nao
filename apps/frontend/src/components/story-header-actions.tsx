@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { CopyPlus, Globe, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
+import { CopyPlus, ShieldCheck, Star, ThumbsDown, ThumbsUp, Upload } from 'lucide-react';
 import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { FeedbackVote } from '@/components/chat-messages/assistant-message-actions';
@@ -33,11 +33,7 @@ export function ShareButton({ isShared, onShare, disabled = false }: ShareButton
 					disabled={disabled}
 					aria-label='Share'
 				>
-					{isShared ? (
-						<Globe className='size-3.5 text-primary' strokeWidth={2.25} />
-					) : (
-						<Upload className='size-3.5' strokeWidth={2.25} />
-					)}
+					<Upload className={cn('size-3.5', isShared && 'text-primary')} strokeWidth={2.25} />
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent>Share</TooltipContent>
