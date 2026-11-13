@@ -155,3 +155,18 @@ class TestSyncDatabaseConnectionCleanup:
             run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
 
         mock_conn.disconnect.assert_called_once()
+
+
+@pytest.mark.parametrize(("tables", "warned"), [([], True), (["orders"], False)], ids=["no_tables", "tables"])
+def test_warns_when_no_schema_lists_any_table(tmp_path, mock_progress, tables, warned):
+    db_config = create_mock_db_config(schemas=["marts", "finance"])
+    db_config.connect.return_value.list_tables.return_value = tables
+    engine = create_mock_engine(templates=[], render_behavior=None)
+
+    _, mock_console = run_sync_with_mocks(db_config, engine, tmp_path, mock_progress)
+
+    output = [call.args[0] for call in mock_console.print.call_args_list if call.args]
+    warnings = [line for line in output if "No tables listed in" in line]
+    assert bool(warnings) is warned
+    if warned:
+        assert "marts, finance" in warnings[0]

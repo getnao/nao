@@ -93,6 +93,25 @@ class TestRedshiftBackendListTables:
 
         assert _RedshiftBackend(backend).list_tables(database="marts") == ["orders"]
 
+    @pytest.mark.parametrize(
+        ("catalog_columns", "expected"),
+        [
+            ([("id",), ("amount",)], ["id", "amount"]),
+            ([], ["local_id"]),
+        ],
+        ids=["datashare_catalog", "ibis_fallback"],
+    )
+    def test_lists_live_columns(self, catalog_columns, expected):
+        backend = _catalog_backend({"svv_all_columns": catalog_columns})
+        backend.table.return_value.schema.return_value.items.return_value = [("local_id", None)]
+
+        columns = _RedshiftBackend(backend).list_live_columns("payments", database="marts")
+
+        assert columns == expected
+        sql = _sql_containing(backend, "svv_all_columns")
+        assert "schema_name = 'marts'" in sql
+        assert "table_name = 'payments'" in sql
+
     def test_delegates_other_attributes(self):
         backend = MagicMock()
 

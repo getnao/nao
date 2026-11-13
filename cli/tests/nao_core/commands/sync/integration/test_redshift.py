@@ -6,6 +6,11 @@ Connection is configured via environment variables:
     REDSHIFT_SSLMODE (default require).
 
 The test suite is skipped entirely when REDSHIFT_HOST is not set.
+
+Datashare discovery is checked against an existing consumer setup when
+REDSHIFT_DATASHARE_SCHEMA is set: a schema of REDSHIFT_DATABASE that exposes
+datashare tables (e.g. an external schema created FROM REDSHIFT DATABASE on a
+database created FROM DATASHARE). Those tests are skipped otherwise.
 """
 
 import os
@@ -118,3 +123,41 @@ def spec():
 
 class TestRedshiftSyncIntegration(BaseSyncIntegrationTests):
     """Verify the sync pipeline produces correct output against a live Redshift cluster."""
+
+
+REDSHIFT_DATASHARE_SCHEMA = os.environ.get("REDSHIFT_DATASHARE_SCHEMA")
+
+
+@pytest.mark.skipif(
+    REDSHIFT_DATASHARE_SCHEMA is None,
+    reason="REDSHIFT_DATASHARE_SCHEMA not set - skipping Redshift datashare tests",
+)
+class TestRedshiftDatashareDiscovery:
+    """Tables and columns of a datashare schema are discovered, though local catalogs don't list them."""
+
+    @pytest.fixture(scope="class")
+    def datashare_conn(self):
+        config = RedshiftConfig(
+            name="test-redshift-datashare",
+            host=os.environ["REDSHIFT_HOST"],
+            port=int(os.environ.get("REDSHIFT_PORT", "5439")),
+            database=os.environ.get("REDSHIFT_DATABASE", "dev"),
+            user=os.environ["REDSHIFT_USER"],
+            password=os.environ["REDSHIFT_PASSWORD"],
+            schema_name=REDSHIFT_DATASHARE_SCHEMA,
+            sslmode=os.environ.get("REDSHIFT_SSLMODE", "require"),
+        )
+        conn = config.connect()
+        yield config, conn
+        conn.disconnect()
+
+    def test_lists_datashare_tables_and_columns(self, datashare_conn):
+        config, conn = datashare_conn
+        schema = str(REDSHIFT_DATASHARE_SCHEMA)
+
+        tables = conn.list_tables(database=schema)
+
+        assert tables, f"no tables listed in datashare schema {schema}"
+        context = config.create_context(conn, schema, tables[0])
+        assert context.columns(), f"no columns read for {schema}.{tables[0]}"
+        assert conn.list_live_columns(tables[0], database=schema)

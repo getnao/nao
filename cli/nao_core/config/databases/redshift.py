@@ -222,6 +222,13 @@ class _RedshiftBackend:
         shared_tables = [table for table in _list_all_tables(self._backend, database) if table not in tables]
         return [*tables, *sorted(shared_tables)]
 
+    def list_live_columns(self, table: str, *, database: str) -> list[str]:
+        """Column names of a table, read from svv_all_columns so datashare tables resolve too."""
+        columns = _list_all_columns(self._backend, database, table)
+        if columns:
+            return columns
+        return [str(name) for name, _ in self._backend.table(table, database=database).schema().items()]
+
 
 def _list_all_tables(conn: BaseBackend, schema: str) -> list[str]:
     query = f"""
@@ -229,6 +236,21 @@ def _list_all_tables(conn: BaseBackend, schema: str) -> list[str]:
         FROM svv_all_tables
         WHERE database_name = current_database()
           AND schema_name = '{_quote_literal(schema)}'
+    """
+    try:
+        return [row[0] for row in conn.raw_sql(query).fetchall()]  # type: ignore[union-attr]
+    except Exception:
+        return []
+
+
+def _list_all_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
+    query = f"""
+        SELECT column_name
+        FROM svv_all_columns
+        WHERE database_name = current_database()
+          AND schema_name = '{_quote_literal(schema)}'
+          AND table_name = '{_quote_literal(table)}'
+        ORDER BY ordinal_position
     """
     try:
         return [row[0] for row in conn.raw_sql(query).fetchall()]  # type: ignore[union-attr]
