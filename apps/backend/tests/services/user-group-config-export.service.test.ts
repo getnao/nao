@@ -7,8 +7,8 @@ vi.mock('../../src/db/db', async () => {
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { exportUserGroupsConfig } from '../../src/services/user-group-config-export.service';
 import { parseUserGroupsConfig } from '../../src/services/user-group-config.service';
+import { exportUserGroupsConfig } from '../../src/services/user-group-config-export.service';
 
 describe('exportUserGroupsConfig', () => {
 	it('preserves pending desired emails while groups are code-managed', async () => {

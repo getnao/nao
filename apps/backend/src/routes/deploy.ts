@@ -12,6 +12,7 @@ import * as activityQueries from '../queries/activity.queries';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
 import { createProject, recordProjectDeployment } from '../services/project.service';
+import { parseUserGroupsConfig } from '../services/user-group-config.service';
 import { diffUserGroupsConfig, type UserGroupConfigDiff } from '../services/user-group-config-diff.service';
 import { exportUserGroupsConfig } from '../services/user-group-config-export.service';
 import {
@@ -19,7 +20,6 @@ import {
 	recordUserGroupConfigFailure,
 	withUserGroupConfigLock,
 } from '../services/user-group-config-reconciliation.service';
-import { parseUserGroupsConfig } from '../services/user-group-config.service';
 import { readUserGroupsConfig, validateUserGroupsConfig } from '../services/user-group-config-validation.service';
 import { logger, serializeError } from '../utils/logger';
 
