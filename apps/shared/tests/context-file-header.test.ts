@@ -46,6 +46,7 @@ describe('readContextFileHeader', () => {
 
 	it.each([
 		['broken YAML', '---\ntitle: [unclosed\n---\n', 'invalid-header'],
+		['a header that never closes', '---\ntitle: Report\nbody', 'invalid-header'],
 		['a list instead of properties', '---\n- a\n- b\n---\n', 'invalid-header'],
 		['a title that is not text', '---\ntitle:\n  nested: true\n---\n', 'invalid-field'],
 		['tags that are not text', '---\ntags: [{ a: 1 }]\n---\n', 'invalid-field'],
@@ -92,8 +93,10 @@ describe('addContextFileHeader', () => {
 		expect(validateContextFileHeader(content, { filePath: '/RULES.md' })).toEqual([]);
 	});
 
-	it('leaves a file that already has a header untouched', () => {
-		const content = '---\ntitle: A\n---\nbody';
+	it.each([
+		['a header', '---\ntitle: A\n---\nbody'],
+		['an unclosed header', '---\ntitle: A\nbody'],
+	])('leaves a file that already has %s untouched', (_, content) => {
 		expect(addContextFileHeader(content, { title: 'B', description: null })).toBe(content);
 	});
 });

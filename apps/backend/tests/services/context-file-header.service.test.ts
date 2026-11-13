@@ -39,6 +39,7 @@ describe('context file headers', () => {
 			'owned.md': '---\nowner: ada@example.com\n---\nbody\n',
 			'docs/orphan.md': '---\ntitle: Orphan\nowner: gone@example.com\n---\nbody\n',
 			'docs/broken.md': '---\ntitle: [unclosed\n---\nbody\n',
+			'docs/long.md': `---\ndescription: ${'x'.repeat(10_000)}\nowner: gone@example.com\n---\nbody\n`,
 			'plain.md': 'no header\n',
 			'notes.txt': '---\nowner: gone@example.com\n---\n',
 		};
@@ -61,6 +62,7 @@ describe('context file headers', () => {
 			problems.map(({ path, problems: fileProblems }) => [path, fileProblems.map((problem) => problem.kind)]),
 		).toEqual([
 			['/docs/broken.md', ['invalid-header']],
+			['/docs/long.md', ['unknown-owner']],
 			['/docs/orphan.md', ['unknown-owner']],
 		]);
 	});

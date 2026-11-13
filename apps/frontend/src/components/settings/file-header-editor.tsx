@@ -19,7 +19,7 @@ interface FileHeaderEditorProps {
 
 /** The frontmatter of a Markdown file as editable properties, like the header of a document. */
 export function FileHeaderEditor({ state, isEditable, onChange, onSave }: FileHeaderEditorProps) {
-	const { reading, problems, owners, defaults } = state;
+	const { reading, problems, owners, isOwnersError, retryOwners, defaults } = state;
 	const descriptionRef = useRef<HTMLTextAreaElement>(null);
 	const canEdit = isEditable && isContextFileHeaderEditable(reading);
 	const { header } = reading;
@@ -66,6 +66,8 @@ export function FileHeaderEditor({ state, isEditable, onChange, onSave }: FileHe
 					<FileOwnerPicker
 						owner={header.owner}
 						owners={owners}
+						isOwnersError={isOwnersError}
+						onRetryOwners={retryOwners}
 						isEditable={canEdit}
 						onChange={(owner) => onChange({ owner })}
 					/>

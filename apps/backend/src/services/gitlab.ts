@@ -388,9 +388,10 @@ export async function findMergeRequestByBranch(
 
 /**
  * The branches of a repository, most recently updated first. GitLab gives the author's email only, matched against
- * the emails of the token's user to tell their branches apart.
+ * the emails of the token's user to tell their branches apart. Null when the repository has too many branches to list
+ * them all.
  */
-export async function listBranches(token: string, repoFullName: string): Promise<RepoBranch[]> {
+export async function listBranches(token: string, repoFullName: string): Promise<RepoBranch[] | null> {
 	const encodedPath = encodeURIComponent(repoFullName);
 	const userEmails = getUserEmails(await getUser(token));
 	const branches: RepoBranch[] = [];
@@ -408,7 +409,7 @@ export async function listBranches(token: string, repoFullName: string): Promise
 		branches.push(...rawBranches.map((branch) => toRepoBranch(branch, userEmails)));
 		page = res.headers.get('x-next-page') ?? '';
 	}
-	return branches;
+	return page ? null : branches;
 }
 
 function getUserEmails(user: GitLabUser): Set<string> {

@@ -818,9 +818,10 @@ export async function findPullRequestByBranch(
 
 /**
  * The branches of a repository, most recently committed first, with the account that made each last commit. GitHub
- * links commit emails to accounts, which tells the user's branches apart better than comparing emails.
+ * links commit emails to accounts, which tells the user's branches apart better than comparing emails. Null when the
+ * repository has too many branches to list them all.
  */
-export async function listBranches(token: string, repoFullName: string): Promise<RepoBranch[]> {
+export async function listBranches(token: string, repoFullName: string): Promise<RepoBranch[] | null> {
 	const [owner, name] = repoFullName.split('/');
 	const branches: RepoBranch[] = [];
 	let after: string | null = null;
@@ -833,7 +834,7 @@ export async function listBranches(token: string, repoFullName: string): Promise
 		branches.push(...refs.nodes.map((ref) => toRepoBranch(ref, data.viewer.login)));
 		after = refs.pageInfo.hasNextPage ? refs.pageInfo.endCursor : null;
 	} while (after && branches.length < MAX_LISTED_BRANCHES);
-	return branches;
+	return after ? null : branches;
 }
 
 export function githubGraphqlUrl(): string {

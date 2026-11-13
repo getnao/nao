@@ -130,12 +130,20 @@ describe('listBranches', () => {
 
 		const branches = await github.listBranches('tok', 'nao/context');
 
-		expect(branches.map((branch) => [branch.name, branch.author?.login ?? null, branch.isMine])).toEqual([
+		expect(branches?.map((branch) => [branch.name, branch.author?.login ?? null, branch.isMine])).toEqual([
 			['alice/orders', 'alice', true],
 			['main', 'bob', false],
 			['no-account', null, false],
 		]);
 		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).variables).toMatchObject({ after: 'cursor-1' });
+	});
+
+	it('gives up on a repository with too many branches to list them all, for git to list them', async () => {
+		const fullPage = Array.from({ length: 100 }, (_, index) => branchRef(`branch-${index}`, 'bob'));
+		vi.stubGlobal('fetch', async () => new Response(JSON.stringify(branchesPage(fullPage, 'next'))));
+		const github = await loadGithubService();
+
+		await expect(github.listBranches('tok', 'nao/context')).resolves.toBeNull();
 	});
 
 	it('fails when the repository is not visible to the token', async () => {

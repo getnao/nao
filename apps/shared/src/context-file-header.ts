@@ -62,11 +62,14 @@ const ROOT_RULES_DESCRIPTION =
 	'The main rules of the agent, read at the start of every conversation. They orchestrate the whole context, telling the agent how to work and which files to read for each topic.';
 const FILE_EXTENSION_PATTERN = /\.[^.]+$/;
 const FRONTMATTER_PATTERN = /^(\uFEFF?)---(\r?\n)(?:([\s\S]*?)\r?\n)?(?:---|\.\.\.)\r?(?:\n|$)/;
+const FRONTMATTER_OPENING_PATTERN = /^\uFEFF?---\r?\n/;
 
 export function readContextFileHeader(content: string): ContextFileHeaderReading {
 	const { yaml } = splitFrontmatter(content);
 	if (yaml === null) {
-		return emptyReading(false, []);
+		return hasUnclosedContextFileHeader(content)
+			? emptyReading(true, [invalidHeader('It has no closing `---` line.')])
+			: emptyReading(false, []);
 	}
 	const document = parseDocument(yaml);
 	if (document.errors.length > 0) {
@@ -98,6 +101,11 @@ export function validateContextFileHeader(
 	];
 }
 
+/** Whether the content opens a header that it does not close, either unfinished or cut before its end. */
+export function hasUnclosedContextFileHeader(content: string): boolean {
+	return FRONTMATTER_OPENING_PATTERN.test(content) && !FRONTMATTER_PATTERN.test(content);
+}
+
 export function isContextFileHeaderEditable(reading: ContextFileHeaderReading): boolean {
 	return reading.problems.every((problem) => problem.kind !== 'invalid-header');
 }
@@ -119,7 +127,7 @@ export function addContextFileHeader(
 	defaults: Pick<ContextFileHeader, 'title' | 'description'>,
 ): string {
 	const { bom, lineBreak, yaml, body } = splitFrontmatter(content);
-	if (yaml !== null) {
+	if (yaml !== null || hasUnclosedContextFileHeader(content)) {
 		return content;
 	}
 	const properties = [

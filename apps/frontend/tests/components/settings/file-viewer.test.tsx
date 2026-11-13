@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useQuery } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { stubLocalStorage, stubResizeObserver } from '../../helpers/browser-stubs';
@@ -75,6 +76,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
+	vi.mocked(useQuery).mockImplementation(() => ({ data: owners }) as never);
 });
 
 describe('FileViewer RULES preview', () => {
@@ -226,6 +228,17 @@ describe('FileViewer file header', () => {
 		const ownerButton = screen.getByRole('button', { name: `Change owner, currently ${shownOwner}` });
 		expect(ownerButton.textContent).toContain(shownOwner);
 		expect(ownerButton.querySelector('.lucide-triangle-alert') !== null).toBe(owner === 'gone@example.com');
+	});
+
+	it('offers to retry when the users of the project cannot be loaded', async () => {
+		const refetch = vi.fn();
+		vi.mocked(useQuery).mockImplementation(() => ({ data: undefined, isError: true, refetch }) as never);
+		renderViewer({ filePath: '/notes.md', content: '---\nowner: ada@example.com\n---\nBody\n' });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Change owner, currently ada@example.com' }));
+		fireEvent.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Retry' }));
+
+		expect(refetch).toHaveBeenCalled();
 	});
 
 	it.each([

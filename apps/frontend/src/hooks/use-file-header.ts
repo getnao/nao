@@ -19,6 +19,8 @@ export interface FileHeaderState {
 	problems: ContextFileHeaderProblem[];
 	/** Null while the users of the project load. */
 	owners: ContextFileOwner[] | null;
+	isOwnersError: boolean;
+	retryOwners: () => void;
 	defaults: Pick<ContextFileHeader, 'title' | 'description'>;
 }
 
@@ -29,6 +31,7 @@ export function useFileHeader(filePath: string, content: string, isMarkdown: boo
 		staleTime: 60_000,
 		enabled: isMarkdown,
 	});
+	const refetchOwners = owners.refetch;
 	const userEmails = useMemo(
 		() => (owners.data ? new Set(owners.data.map((owner) => owner.email.toLowerCase())) : undefined),
 		[owners.data],
@@ -42,7 +45,9 @@ export function useFileHeader(filePath: string, content: string, isMarkdown: boo
 			reading: readContextFileHeader(content),
 			problems: validateContextFileHeader(content, { filePath, userEmails }),
 			owners: owners.data ?? null,
+			isOwnersError: owners.isError,
+			retryOwners: () => void refetchOwners(),
 			defaults: getDefaultContextFileHeader(filePath),
 		};
-	}, [content, filePath, isMarkdown, owners.data, userEmails]);
+	}, [content, filePath, isMarkdown, owners.data, owners.isError, refetchOwners, userEmails]);
 }

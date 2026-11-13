@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fsSync from 'node:fs';
 import path from 'node:path';
 
+import { hasUnclosedContextFileHeader } from '@nao/shared/context-file-header';
 import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import type {
 	ContextGitUnavailableReason,
@@ -112,8 +113,8 @@ export async function readFileContent(
 }
 
 /**
- * The start of each file, read where the explorer reads it, long enough to hold its frontmatter. Files that cannot be
- * read are left out.
+ * The start of each file, read where the explorer reads it, long enough to hold its frontmatter: a frontmatter that
+ * does not close within the first bytes is read to its end. Files that cannot be read are left out.
  */
 export async function readFileHeads(
 	filePaths: string[],
@@ -128,8 +129,7 @@ export async function readFileHeads(
 	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
 	return filePaths.flatMap((filePath) => {
 		const draftContent = draftContents.get(normalizeProjectPath(filePath));
-		const content =
-			draftContent?.slice(0, FRONTMATTER_READ_SIZE) ?? readHeadAt(filePath, access, repo, trackedPaths);
+		const content = draftContent ?? readHeadAt(filePath, access, repo, trackedPaths);
 		return content === null ? [] : [{ path: filePath, content }];
 	});
 }
@@ -398,7 +398,11 @@ function readHeadAt(
 ): string | null {
 	try {
 		const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
-		return readFileHead(getReadPath(filePath, livePath, repo, trackedPaths));
+		const readPath = getReadPath(filePath, livePath, repo, trackedPaths);
+		const head = readFileHead(readPath);
+		return head !== null && hasUnclosedContextFileHeader(head)
+			? readValidatedContextFileSync(readPath, filePath).toString('utf-8')
+			: head;
 	} catch {
 		return null;
 	}

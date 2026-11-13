@@ -46,7 +46,7 @@ export interface ReviewRequestProvider {
 		userId: string;
 	}) => Promise<OpenReviewRequestResult | null>;
 	findReviewRequestByBranch: (token: string, repoFullName: string, branch: string) => Promise<ReviewRequest | null>;
-	/** Null when the provider has no API telling who committed to each branch. */
+	/** Null when the provider has no API telling who committed to each branch, or there are too many to list. */
 	listBranches: (token: string, repoFullName: string) => Promise<RepoBranch[] | null>;
 	openReviewRequest: (
 		token: string,

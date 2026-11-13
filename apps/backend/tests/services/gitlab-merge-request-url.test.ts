@@ -82,12 +82,23 @@ describe('listBranches', () => {
 
 		const branches = await listBranches('tok', 'group/project');
 
-		expect(branches.map((branch) => [branch.name, branch.isMine])).toEqual([
+		expect(branches?.map((branch) => [branch.name, branch.isMine])).toEqual([
 			['alice/orders', true],
 			['main', false],
 			['no-email', false],
 		]);
 		expect(String(fetchMock.mock.calls[2]?.[0])).toContain('page=2');
+	});
+
+	it('gives up on a repository with too many branches to list them all, for git to list them', async () => {
+		const fullPage = Array.from({ length: 100 }, (_, index) => gitlabBranch(`branch-${index}`, 'bob@example.com'));
+		const user = { id: 1, username: 'alice', name: 'Alice', email: 'alice@example.com' };
+		const fetchMock = vi.fn(async () => jsonResponse(fullPage, 'next'));
+		fetchMock.mockResolvedValueOnce(jsonResponse(user));
+		vi.stubGlobal('fetch', fetchMock);
+		const { listBranches } = await loadGitlabService();
+
+		await expect(listBranches('tok', 'group/project')).resolves.toBeNull();
 	});
 });
 
