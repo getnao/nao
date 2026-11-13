@@ -1,8 +1,13 @@
 import { createHash } from 'node:crypto';
 
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
-import type { StoryNarratives } from '@nao/shared/story-app';
+import {
+	STORY_NARRATIVES_REDACT_MISSING_KEY,
+	STORY_VIEWER_RESTRICTED_CODE_MARKER,
+	type StoryNarratives,
+} from '@nao/shared/story-app';
 import { extractQueryIds, TAG_ATTRS } from '@nao/shared/story-segments';
+import { formatColumnLabel } from '@nao/shared/story-table-utils';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { StoryFormat } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
@@ -40,7 +45,8 @@ import {
 	semanticBindingsFromCode,
 	type SemanticStoryBindings,
 } from './semantic-story-bindings';
-import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
+import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
+import { executeWarehouseSql, validateWarehouseSql, WarehouseSqlError } from './warehouse-sql.service';
 
 const MAX_RENDERED_ROWS = 60;
 
@@ -64,6 +70,7 @@ export interface StoryQueryResult {
 	columns: string[];
 	/** Story filters not applied to this semantic-layer query because its metrics lack their dimension. */
 	skippedFilterIds?: string[];
+	accessDenied?: true;
 }
 
 export async function executeLiveQuery(
@@ -76,6 +83,12 @@ export async function executeLiveQuery(
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
 
+	const viewerUserId =
+		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
+			? options.viewerUserId
+			: undefined;
+	const executionContext = viewerUserId ? await createStoryExecutionContext(chatId, viewerUserId) : undefined;
+
 	const queryData = await executeStoryQueries(
 		chatId,
 		{ [queryId]: query },
@@ -83,9 +96,14 @@ export async function executeLiveQuery(
 			renderSql: stripSqlFilterBlocks,
 			semanticBindings: options.storyCode ? semanticBindingsFromCode(options.storyCode) : undefined,
 			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+			executionContext,
 		},
 	);
-	return queryData[queryId]!;
+	const result = queryData[queryId]!;
+	if (result.accessDenied) {
+		throw new Error('Query data is unavailable with your current access.');
+	}
+	return result;
 }
 
 export interface RefreshResult {
@@ -95,6 +113,9 @@ export interface RefreshResult {
 
 interface StoryRefreshOptions {
 	billingAccessVerifiedProjectId?: string;
+	generateViewerCode?: boolean;
+	storyVersionId?: string;
+	viewerUserId?: string;
 }
 
 interface LiveQueryOptions extends StoryRefreshOptions {
@@ -111,50 +132,137 @@ export async function refreshStoryData(
 	return { queryData, narratives };
 }
 
+export function refreshStoryDataForDelivery(
+	chatId: string,
+	slug: string,
+	options: StoryRefreshOptions = {},
+): Promise<RefreshResult & { code: string }> {
+	return refreshStoryDataWithContext(chatId, slug, undefined, options);
+}
+
 async function refreshStoryDataWithContext(
 	chatId: string,
 	slug: string,
 	existingExecutionContext?: StoryExecutionContext,
 	options: StoryRefreshOptions = {},
 ): Promise<RefreshResult & { code: string }> {
-	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
+	const version = options.storyVersionId
+		? await storyQueries.getVersionById(chatId, slug, options.storyVersionId)
+		: await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
 	if (!version) {
 		throw new Error('Story not found');
 	}
 
 	const sqlQueries = await getVersionSqlQueries(chatId, version);
+	const shouldGenerateViewerCode = options.viewerUserId !== undefined && options.generateViewerCode === true;
+	const shouldGenerateClassicCode =
+		version.format === 'classic' &&
+		((options.viewerUserId === undefined && version.isLiveTextDynamic) || shouldGenerateViewerCode);
 	if (Object.keys(sqlQueries).length === 0) {
-		return { queryData: {}, code: version.code, narratives: {} };
+		if (shouldGenerateViewerCode && version.format === 'classic') {
+			throw new Error('Cannot generate viewer story text without query data');
+		}
+		const narratives =
+			options.viewerUserId && version.format === 'custom' ? await redactCustomStoryNarratives(version.id) : {};
+		return { queryData: {}, code: version.code, narratives };
 	}
 
+	const storyViewerCacheRevision = options.viewerUserId
+		? await storyQueries.getStoryViewerCacheRevision(version.storyId)
+		: undefined;
 	const chat = await chatQueries.getChatInfo(chatId);
 	if (!chat) {
 		throw new Error('Chat project not found');
 	}
 
-	const queryData = await executeStoryQueries(chatId, sqlQueries, {
+	const executionContext =
+		existingExecutionContext ??
+		(options.viewerUserId ? await createStoryExecutionContext(chatId, options.viewerUserId) : undefined);
+	const executedQueryData = await executeStoryQueries(chatId, sqlQueries, {
 		renderSql: stripSqlFilterBlocks,
 		semanticBindings: semanticBindingsFromCode(version.code),
-		executionContext: existingExecutionContext,
+		executionContext,
 		projectId: chat.projectId,
 		billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 	});
+	const queryData = availableStoryQueryData(executedQueryData);
 
 	let refreshedCode = version.code;
-	const target = { projectId: chat.projectId, userId: chat.userId, chatId };
-	if (version.isLiveTextDynamic && version.format === 'classic') {
-		const newCode = await generateDynamicStoryCode(target, version.title, version.code, queryData);
-		if (newCode) {
+	const target = { projectId: chat.projectId, userId: options.viewerUserId ?? chat.userId, chatId };
+	if (shouldGenerateClassicCode) {
+		const generationSource = shouldGenerateViewerCode ? buildViewerSafeStorySource(version.code) : version.code;
+		let newCode: string | null = null;
+		if (Object.keys(queryData).length > 0) {
+			try {
+				newCode = await generateDynamicStoryCode(
+					target,
+					shouldGenerateViewerCode ? 'Story' : version.title,
+					generationSource,
+					queryData,
+					shouldGenerateViewerCode,
+				);
+			} catch (error) {
+				if (!shouldGenerateViewerCode) {
+					throw error;
+				}
+			}
+		}
+		if (newCode && !options.viewerUserId) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
+		}
+		if (newCode) {
 			refreshedCode = newCode;
+		} else if (shouldGenerateViewerCode) {
+			refreshedCode = generationSource;
 		}
 	}
 
-	const narratives =
-		version.isLiveTextDynamic && version.format === 'custom'
-			? await regenerateCustomStoryNarratives(target, version, queryData)
-			: {};
-	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries), narratives);
+	if (options.viewerUserId) {
+		refreshedCode = stripHardcodedFilterOptions(refreshedCode);
+	}
+
+	let narratives: StoryNarratives = {};
+	if (version.format === 'custom') {
+		if (version.isLiveTextDynamic) {
+			narratives = await regenerateCustomStoryNarratives(
+				target,
+				version,
+				queryData,
+				options.viewerUserId !== undefined,
+			);
+		} else if (options.viewerUserId) {
+			narratives = await redactCustomStoryNarratives(version.id);
+		}
+	}
+	const querySources = buildQuerySources(sqlQueries);
+	if (options.viewerUserId) {
+		if (!executionContext) {
+			throw new Error('Viewer story refresh has no execution context');
+		}
+		const currentPermissionRevision = (await createStoryExecutionContext(chatId, options.viewerUserId))
+			.permissionRevision;
+		if (currentPermissionRevision !== executionContext.permissionRevision) {
+			throw new Error('Viewer permissions changed during story refresh');
+		}
+		const saved = await storyQueries.upsertStoryViewerDataCache(
+			version.storyId,
+			version.id,
+			options.viewerUserId,
+			executionContext.toolContext.projectId,
+			executionContext.viewerCacheRevision,
+			storyViewerCacheRevision!,
+			executionContext.permissionRevision,
+			executedQueryData,
+			querySources,
+			narratives,
+			refreshedCode,
+		);
+		if (!saved) {
+			throw new Error('Viewer permissions changed during story refresh');
+		}
+	} else {
+		await storyQueries.upsertStoryDataCache(chatId, slug, executedQueryData, querySources, narratives);
+	}
 
 	return { queryData, code: refreshedCode, narratives };
 }
@@ -179,6 +287,8 @@ export interface StoryQueryDataResult {
 }
 
 interface StoryQueryDataOptions {
+	storyVersionId?: string;
+	viewerUserId?: string;
 	/** Return the stored data right away and leave the refresh to the caller, instead of refreshing inline. */
 	deferRefresh?: boolean;
 	/** Same, but only for a story that was never cached, so going live does not block on its first refresh. */
@@ -193,6 +303,18 @@ export async function getStoryQueryData(
 	cacheSchedule: string | null,
 	options: StoryQueryDataOptions = {},
 ): Promise<StoryQueryDataResult> {
+	const viewerUserId =
+		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
+			? options.viewerUserId
+			: undefined;
+	if (viewerUserId) {
+		const storyVersionId =
+			options.storyVersionId ?? (await storyQueries.getLatestVersionByChatAndSlug(chatId, slug))?.id;
+		if (!storyVersionId) {
+			throw new Error('Story not found');
+		}
+		return getViewerStoryQueryData(chatId, slug, storyVersionId, code, cacheSchedule, viewerUserId);
+	}
 	if (!isLive) {
 		return {
 			queryData: await getQueryDataFromCode(chatId, code),
@@ -223,6 +345,74 @@ export async function getStoryQueryData(
 	}
 }
 
+/** Never falls back to the chat's stored results: they were produced with the owner's row-level security. */
+async function getViewerStoryQueryData(
+	chatId: string,
+	slug: string,
+	storyVersionId: string,
+	code: string,
+	cacheSchedule: string | null,
+	viewerUserId: string,
+): Promise<StoryQueryDataResult> {
+	const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
+	const cache = await storyQueries.getStoryViewerDataCache(
+		chatId,
+		slug,
+		storyVersionId,
+		viewerUserId,
+		executionContext.permissionRevision,
+	);
+	if (
+		cache !== null &&
+		cache.code !== null &&
+		!isCacheExpired(cache.cachedAt, cacheSchedule) &&
+		findMissingQueryIds(code, cache.queryData).length === 0
+	) {
+		return {
+			queryData: availableStoryQueryData(cache.queryData),
+			cachedAt: cache.cachedAt,
+			code: stripHardcodedFilterOptions(cache.code),
+		};
+	}
+
+	try {
+		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug, executionContext, {
+			storyVersionId,
+			viewerUserId,
+			generateViewerCode: true,
+		});
+		return {
+			queryData: Object.keys(queryData).length > 0 ? queryData : null,
+			cachedAt: new Date(),
+			code: refreshedCode,
+		};
+	} catch (error) {
+		const currentExecutionContext = await createStoryExecutionContext(chatId, viewerUserId);
+		const currentCache =
+			currentExecutionContext.permissionRevision === executionContext.permissionRevision
+				? cache
+				: await storyQueries.getStoryViewerDataCache(
+						chatId,
+						slug,
+						storyVersionId,
+						viewerUserId,
+						currentExecutionContext.permissionRevision,
+					);
+		if (currentCache?.code !== null && currentCache?.code !== undefined) {
+			return {
+				queryData: availableStoryQueryData(currentCache.queryData),
+				cachedAt: currentCache.cachedAt,
+				code: stripHardcodedFilterOptions(currentCache.code),
+			};
+		}
+		throw error;
+	}
+}
+
+export async function requiresViewerStoryData(chatId: string, userId: string): Promise<boolean> {
+	return hasEffectiveWarehouseRestrictions(await requireChatProjectId(chatId), userId);
+}
+
 function shouldDeferRefresh(options: StoryQueryDataOptions, cache: DBStoryDataCache | null, code: string): boolean {
 	const isDeferred = options.deferRefresh || (options.deferFirstRefresh && cache === null);
 	return Boolean(isDeferred) && extractQueryIds(code).size > 0;
@@ -251,7 +441,7 @@ async function resolveLegacyCache(
 	const missing = findMissingQueryIds(code, cache.queryData);
 	const queryData =
 		missing.length > 0 ? await backfillMissingQueryData(code, cache.queryData, { chatId }) : cache.queryData;
-	return { queryData, cachedAt: cache.cachedAt, code };
+	return { queryData: queryData ? availableStoryQueryData(queryData) : null, cachedAt: cache.cachedAt, code };
 }
 
 function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
@@ -276,6 +466,10 @@ function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 	);
 }
 
+export function availableStoryQueryData(queryData: StoryQueryData): StoryQueryData {
+	return Object.fromEntries(Object.entries(queryData).filter(([, result]) => !result.accessDenied));
+}
+
 function normalizeEffectiveSql(sql: string): string {
 	return stripSqlFilterBlocks(sql).replaceAll('\r\n', '\n').trim();
 }
@@ -283,9 +477,12 @@ function normalizeEffectiveSql(sql: string): string {
 export interface StoryExecutionContext {
 	toolContext: ToolContext;
 	enforceExcludedColumns: boolean;
+	isViewerScoped: boolean;
+	viewerCacheRevision: number;
+	permissionRevision: string;
 }
 
-type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'skippedFilterIds'>;
+type ExecutedQueryResult = QueryResult & Pick<StoryQueryResult, 'accessDenied' | 'skippedFilterIds'>;
 
 interface StoryQueryExecutionOptions {
 	renderSql: (sqlQuery: string) => string;
@@ -344,11 +541,11 @@ export async function executeStoryQueries(
 
 		const lineage = new Set([...ancestors, queryId]);
 		const upstreamIds = referencedQueryIds(sql).filter((id) => id in queries && !lineage.has(id));
-		await Promise.all(
-			upstreamIds.map(async (id) => {
-				executionContext.toolContext.queryResults.set(id, await run(id, lineage));
-			}),
-		);
+		const upstreamResults = await Promise.all(upstreamIds.map(async (id) => [id, await run(id, lineage)] as const));
+		if (upstreamResults.some(([, result]) => result.accessDenied)) {
+			return { data: [], columns: [], accessDenied: true };
+		}
+		upstreamResults.forEach(([id, result]) => executionContext.toolContext.queryResults.set(id, result));
 		return executeLocalSql(sql, executionContext.toolContext);
 	};
 
@@ -381,7 +578,8 @@ async function loadUpstreamQueries(chatId: string, sqlQueries: StorySqlQueries):
 }
 
 interface RawSqlExecutionOptions {
-	executionContext: StoryExecutionContext;
+	executionContext: Pick<StoryExecutionContext, 'toolContext' | 'enforceExcludedColumns'> &
+		Partial<Pick<StoryExecutionContext, 'isViewerScoped'>>;
 	databaseId?: string;
 	billingAccessVerifiedProjectId?: string;
 }
@@ -394,17 +592,27 @@ export async function executeRawSql(sqlQuery: string, options: RawSqlExecutionOp
 	return executeBillingValidatedRawSql(sqlQuery, options);
 }
 
-async function executeBillingValidatedRawSql(sqlQuery: string, options: RawSqlExecutionOptions): Promise<QueryResult> {
+async function executeBillingValidatedRawSql(
+	sqlQuery: string,
+	options: RawSqlExecutionOptions,
+): Promise<ExecutedQueryResult> {
 	const context = options.executionContext.toolContext;
 	if (options.databaseId === LOCAL_DATABASE_ID) {
 		return executeLocalSql(sqlQuery, context);
 	}
 
-	const data = await executeWarehouseSql(
-		sqlQuery,
-		buildWarehouseSqlOptions(options.executionContext, options.databaseId),
-	);
-	return { data: data.data, columns: data.columns };
+	try {
+		const data = await executeWarehouseSql(
+			sqlQuery,
+			buildWarehouseSqlOptions(options.executionContext, options.databaseId),
+		);
+		return { data: data.data, columns: data.columns };
+	} catch (error) {
+		if (options.executionContext.isViewerScoped && error instanceof WarehouseSqlError && error.status === 403) {
+			return { data: [], columns: [], accessDenied: true };
+		}
+		throw error;
+	}
 }
 
 /** The type of the database a raw query on `databaseId` runs against, as resolved by the warehouse executor. */
@@ -419,7 +627,10 @@ export async function resolveRawSqlDatabaseType(
 	return dialect.toLowerCase();
 }
 
-function buildWarehouseSqlOptions(executionContext: StoryExecutionContext, databaseId: string | undefined) {
+function buildWarehouseSqlOptions(
+	executionContext: RawSqlExecutionOptions['executionContext'],
+	databaseId: string | undefined,
+) {
 	const context = executionContext.toolContext;
 	return {
 		projectFolder: context.projectFolder,
@@ -463,10 +674,27 @@ export async function createStoryExecutionContext(chatId: string, userId?: strin
 	if (!runAsUserId) {
 		throw new Error('Chat owner not found');
 	}
+	const viewerCacheRevision = await storyQueries.getProjectViewerCacheRevision(projectId);
 	const toolContext = await buildToolContext({ projectId, userId: runAsUserId, chatId });
+	if ((await storyQueries.getProjectViewerCacheRevision(projectId)) !== viewerCacheRevision) {
+		throw new Error('Viewer permissions changed while building the execution context');
+	}
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings);
 	return {
 		toolContext,
-		enforceExcludedColumns: await resolveExcludedColumnEnforcement(projectId, toolContext.agentSettings),
+		enforceExcludedColumns,
+		isViewerScoped: userId !== undefined,
+		viewerCacheRevision,
+		permissionRevision: createHash('sha256')
+			.update(
+				JSON.stringify([
+					toolContext.warehouseTableAccess,
+					toolContext.warehouseRowSecurity,
+					enforceExcludedColumns,
+					viewerCacheRevision,
+				]),
+			)
+			.digest('hex'),
 	};
 }
 
@@ -502,6 +730,7 @@ async function generateDynamicStoryCode(
 	title: string,
 	originalCode: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	allowDisplayCopyChanges = false,
 ): Promise<string | null> {
 	const liveStoryModel = await resolveLiveStoryModel(target);
 	if (!liveStoryModel) {
@@ -510,7 +739,9 @@ async function generateDynamicStoryCode(
 
 	try {
 		const querySummaries = buildQueryDataSummary(queryData);
-		const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
+		const systemPrompt = renderToMarkdown(
+			LiveStoryRefreshPrompt({ title, originalCode, querySummaries, allowDisplayCopyChanges }),
+		);
 
 		const output = await generateLiveStoryOutput(
 			target,
@@ -521,7 +752,7 @@ async function generateDynamicStoryCode(
 		);
 
 		const candidate = stripCodeFence(output.code.trim());
-		if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
+		if (!candidate || !preservesStoryStructure(originalCode, candidate, allowDisplayCopyChanges)) {
 			return null;
 		}
 
@@ -536,20 +767,24 @@ async function regenerateCustomStoryNarratives(
 	target: StoryRefreshTarget,
 	version: { id: string; title: string },
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	viewerSafe = false,
 ): Promise<StoryNarratives> {
 	const sources = extractStoryNarratives(await storyFileQueries.listVersionFiles(version.id));
 	if (sources.length === 0) {
 		return {};
 	}
+	if (viewerSafe && Object.keys(queryData).length === 0) {
+		return redactViewerNarratives(sources);
+	}
 	const liveStoryModel = await resolveLiveStoryModel(target);
 	if (!liveStoryModel) {
-		return {};
+		return viewerSafe ? redactViewerNarratives(sources) : {};
 	}
 
 	const systemPrompt = renderToMarkdown(
 		LiveCustomStoryNarrativesPrompt({
-			title: version.title,
-			narratives: sources,
+			title: viewerSafe ? 'Story' : version.title,
+			narratives: viewerSafe ? sources.map(({ id }) => ({ id, text: 'Viewer-specific narrative.' })) : sources,
 			querySummaries: buildQueryDataSummary(queryData),
 		}),
 	);
@@ -560,7 +795,19 @@ async function regenerateCustomStoryNarratives(
 		'Rewrite every narrative with the latest query results.',
 		z.object({ narratives: z.array(z.object({ id: z.string(), text: z.string() })) }),
 	);
-	return keepKnownNarratives(sources, output.narratives);
+	const narratives = keepKnownNarratives(sources, output.narratives);
+	return viewerSafe ? redactViewerNarratives(sources, narratives) : narratives;
+}
+
+function redactViewerNarratives(sources: StoryNarrativeSource[], narratives: StoryNarratives = {}): StoryNarratives {
+	return {
+		[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
+		...Object.fromEntries(sources.map(({ id }) => [id, narratives[id] ?? ''])),
+	};
+}
+
+async function redactCustomStoryNarratives(storyVersionId: string): Promise<StoryNarratives> {
+	return redactViewerNarratives(extractStoryNarratives(await storyFileQueries.listVersionFiles(storyVersionId)));
 }
 
 function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNarrativeSource[]): StoryNarratives {
@@ -704,20 +951,28 @@ function stripCodeFence(value: string): string {
 		.trim();
 }
 
-function preservesStoryStructure(originalCode: string, candidateCode: string): boolean {
+function preservesStoryStructure(
+	originalCode: string,
+	candidateCode: string,
+	allowDisplayCopyChanges = false,
+): boolean {
+	const normalizeStructureToken = allowDisplayCopyChanges ? stripViewerSensitiveTagCopy : (token: string) => token;
+	const originalStructure = extractStructureTokens(originalCode).map(normalizeStructureToken);
+	const candidateStructure = extractStructureTokens(candidateCode).map(normalizeStructureToken);
+	const originalHeadings = allowDisplayCopyChanges
+		? extractHeadingLevels(originalCode)
+		: extractHeadingTokens(originalCode);
+	const candidateHeadings = allowDisplayCopyChanges
+		? extractHeadingLevels(candidateCode)
+		: extractHeadingTokens(candidateCode);
 	return (
-		JSON.stringify(extractStructureTokens(originalCode)) ===
-			JSON.stringify(extractStructureTokens(candidateCode)) &&
-		JSON.stringify(extractHeadingTokens(originalCode)) === JSON.stringify(extractHeadingTokens(candidateCode))
+		JSON.stringify(originalStructure) === JSON.stringify(candidateStructure) &&
+		JSON.stringify(originalHeadings) === JSON.stringify(candidateHeadings)
 	);
 }
 
 function extractStructureTokens(code: string): string[] {
-	const tokenRegex = new RegExp(
-		String.raw`<grid\s+${TAG_ATTRS}>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>|<filter\s+${TAG_ATTRS}\/?>`,
-		'g',
-	);
-	return code.match(tokenRegex) ?? [];
+	return code.match(storyStructureTokenRegex()) ?? [];
 }
 
 function extractHeadingTokens(code: string): string[] {
@@ -725,4 +980,93 @@ function extractHeadingTokens(code: string): string[] {
 		.split('\n')
 		.map((line) => line.trim())
 		.filter((line) => /^#{1,6}\s+\S/.test(line));
+}
+
+function extractHeadingLevels(code: string): number[] {
+	return extractHeadingTokens(code).map((heading) => heading.match(/^#+/)![0].length);
+}
+
+function buildViewerSafeStorySource(code: string): string {
+	const tags: string[] = [];
+	const tokenized = code.replace(storyStructureTokenRegex(), (tag) => {
+		const index = tags.push(redactViewerStoryTag(tag)) - 1;
+		return `@@NAO_STORY_TAG_${index}@@`;
+	});
+	const redacted = tokenized
+		.split('\n')
+		.map((line) => {
+			const placeholders = line.match(/@@NAO_STORY_TAG_\d+@@/g) ?? [];
+			const heading = line.match(/^\s*(#{1,6})\s+/);
+			if (heading) {
+				return [`${heading[1]} Viewer-specific section`, ...placeholders].join(' ');
+			}
+			if (placeholders.length > 0) {
+				return placeholders.join(' ');
+			}
+			return line.trim() ? 'Viewer-specific narrative.' : '';
+		})
+		.join('\n');
+	return `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${redacted.replace(
+		/@@NAO_STORY_TAG_(\d+)@@/g,
+		(_placeholder, index: string) => tags[Number(index)] ?? '',
+	)}`;
+}
+
+function storyStructureTokenRegex(): RegExp {
+	return new RegExp(
+		String.raw`<grid(?:\s+${TAG_ATTRS})?>|<\/grid>|<chart\s+${TAG_ATTRS}\/?>|<table\s+${TAG_ATTRS}\/?>|<filter\s+${TAG_ATTRS}\/?>|<map\s+${TAG_ATTRS}\/?>|<parameter\s+${TAG_ATTRS}\/?>|<tab\s+${TAG_ATTRS}>|<\/tab>`,
+		'g',
+	);
+}
+
+function redactViewerStoryTag(tag: string): string {
+	const redacted = stripViewerSensitiveTagCopy(tag);
+	if (redacted.startsWith('<tab ') && !/\stitle\s*=/.test(redacted)) {
+		return redacted.replace(/>$/, ' title="Section">');
+	}
+	return redacted;
+}
+
+function stripViewerSensitiveTagCopy(tag: string): string {
+	const sensitiveAttributeRegex = new RegExp(
+		String.raw`\s+(?:title|label|x_axis_label|y_axis_label|y_axis_right_label)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`,
+		'g',
+	);
+	const withoutDisplayCopy = redactViewerSeriesLabels(tag.replace(sensitiveAttributeRegex, ''));
+	return withoutDisplayCopy.startsWith('<filter ')
+		? withoutDisplayCopy.replace(
+				new RegExp(String.raw`\s+options\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')`, 'g'),
+				'',
+			)
+		: withoutDisplayCopy;
+}
+
+function redactViewerSeriesLabels(tag: string): string {
+	let foundSeries = false;
+	const redacted = tag.replace(/(\s+series\s*=\s*)'([^']*)'/g, (attribute, prefix: string, value: string) => {
+		foundSeries = true;
+		try {
+			const series = JSON.parse(value);
+			if (!Array.isArray(series)) {
+				return attribute.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
+			}
+			const safeSeries = series.map((item) => {
+				if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.label !== 'string') {
+					return item;
+				}
+				const dataKey = typeof item.data_key === 'string' && /^\w+$/.test(item.data_key) ? item.data_key : '';
+				return { ...item, label: dataKey ? formatColumnLabel(dataKey) : 'Series' };
+			});
+			return `${prefix}'${JSON.stringify(safeSeries)}'`;
+		} catch {
+			return attribute.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
+		}
+	});
+	return foundSeries ? redacted : redacted.replace(/("label"\s*:\s*)"(?:[^"\\]|\\.)*"/g, '$1"Series"');
+}
+
+function stripHardcodedFilterOptions(code: string): string {
+	const filterTagRegex = new RegExp(String.raw`<filter\s+${TAG_ATTRS}\/?>`, 'g');
+	const optionsAttributeRegex = /\s+options\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g;
+	return code.replace(filterTagRegex, (tag) => tag.replace(optionsAttributeRegex, ''));
 }

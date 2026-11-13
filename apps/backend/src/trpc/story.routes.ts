@@ -75,6 +75,7 @@ import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql 
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { listMostViewedStories } from '../services/story-reference';
 import { listStoryVersionChanges } from '../services/story-version-history';
+import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	storyModelRequest,
@@ -1184,6 +1185,7 @@ export const storyRoutes = {
 					const { queryData } = await refreshStoryData(input.chatId, input.storySlug, {
 						billingAccessVerifiedProjectId: ctx.projectId,
 					});
+					await storyQueries.deleteStoryViewerDataCache(story.id);
 					const queriesRefreshed = Object.keys(queryData).length;
 					await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 					await notifyStoryRefreshed({
@@ -1352,7 +1354,14 @@ export const storyRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
-		return withKpiPreviewData(items, (story) => story.storyId);
+		const hasViewerRestrictions = await hasEffectiveWarehouseRestrictions(ctx.project.id, ctx.user.id);
+		const storiesWithPreview = hasViewerRestrictions
+			? items.map((story) => ({ ...story, kpiPreviewData: null }))
+			: await withKpiPreviewData(items, (story) => story.storyId);
+		return storiesWithPreview.map(({ ownerUserId, ...story }) => ({
+			...story,
+			canShowThumbnail: !hasViewerRestrictions || ownerUserId === ctx.user.id,
+		}));
 	}),
 
 	archiveShared: canSendProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {

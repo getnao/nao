@@ -25,6 +25,9 @@ import {
 	orgMember,
 	project,
 	projectMember,
+	story,
+	storyVersion,
+	storyViewerDataCache,
 	user,
 	userGroup,
 	userGroupMember,
@@ -1517,6 +1520,54 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('invalidates viewer caches only when SSO memberships change', async () => {
+		await createUserGroup(
+			PROJECT_ID,
+			'Cached SSO',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['cached-sso']),
+		);
+		await db.insert(story).values({
+			id: 'sso-cache-story',
+			projectId: PROJECT_ID,
+			userId: DIRECT_USER_ID,
+			slug: 'sso-cache-story',
+			title: 'SSO cache story',
+		});
+		await db.insert(storyVersion).values({
+			id: 'sso-cache-version',
+			storyId: 'sso-cache-story',
+			version: 1,
+			code: '<story />',
+			action: 'create',
+			source: 'user',
+		});
+		const cache = {
+			storyId: 'sso-cache-story',
+			storyVersionId: 'sso-cache-version',
+			userId: DIRECT_USER_ID,
+			permissionRevision: 'permissions-a',
+			queryData: {},
+		};
+		await db.insert(storyViewerDataCache).values(cache);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['cached-sso']);
+		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toEqual([]);
+		await expect(viewerCacheRevision(PROJECT_ID)).resolves.toBe(1);
+
+		await db.insert(storyViewerDataCache).values(cache);
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['cached-sso']);
+		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toHaveLength(1);
+		await expect(viewerCacheRevision(PROJECT_ID)).resolves.toBe(1);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', []);
+		await expect(listViewerCaches(DIRECT_USER_ID)).resolves.toEqual([]);
+		await expect(viewerCacheRevision(PROJECT_ID)).resolves.toBe(2);
+	});
+
 	it('unions manual and OIDC memberships without duplicate effective grants or counts', async () => {
 		const group = await createUserGroup(
 			PROJECT_ID,
@@ -1639,6 +1690,38 @@ describe('user group queries', () => {
 
 		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toBeNull();
 		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[3].id);
+	});
+
+	it('bumps the project revision when an existing membership becomes locked by the free limit', async () => {
+		const groups = await Promise.all(
+			['One', 'Two', 'Three', 'Locked'].map((name) =>
+				createUserGroup(
+					FOREIGN_PROJECT_ID,
+					name,
+					[],
+					DEFAULT_DENSITY,
+					undefined,
+					undefined,
+					ssoMappings([name], 'user'),
+				),
+			),
+		);
+		for (const [index, group] of groups.entries()) {
+			await db
+				.update(userGroup)
+				.set({ createdAt: new Date(`2025-01-0${index + 1}T00:00:00Z`) })
+				.where(eq(userGroup.id, group.id));
+		}
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['Locked']);
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).toContain(groups[3].id);
+		const revisionBeforeLock = await viewerCacheRevision(FOREIGN_PROJECT_ID);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['Locked'], {
+			hasUnlimitedUserGroups: false,
+		});
+
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[3].id);
+		await expect(viewerCacheRevision(FOREIGN_PROJECT_ID)).resolves.toBe(revisionBeforeLock! + 1);
 	});
 
 	it('suppresses UI fallback when env mappings target locked excess groups', async () => {
@@ -1972,6 +2055,18 @@ async function listSsoGroupIds(userId: string, provider?: SsoGroupProvider): Pro
 				: and(eq(userGroupMember.userId, userId), inArray(userGroupMember.provider, ['oidc', 'microsoft'])),
 		)
 		.then((memberships) => memberships.map((membership) => membership.groupId));
+}
+
+async function listViewerCaches(userId: string) {
+	return db.select().from(storyViewerDataCache).where(eq(storyViewerDataCache.userId, userId));
+}
+
+async function viewerCacheRevision(projectId: string) {
+	const [row] = await db
+		.select({ revision: project.viewerCacheRevision })
+		.from(project)
+		.where(eq(project.id, projectId));
+	return row?.revision;
 }
 
 async function projectMembership(projectId: string, userId: string) {

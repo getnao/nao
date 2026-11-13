@@ -1,5 +1,10 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
+import {
+	STORY_NARRATIVES_REDACT_MISSING_KEY,
+	type StoryApp,
+	type StoryNarratives,
+	type StoryQueryResult,
+} from '@nao/shared/story-app';
 import { hasStoryQueryInputs, type StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
@@ -11,11 +16,18 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyThemeQueries from '../queries/story-theme.queries';
 import { isViewableStoryFile } from '../utils/story-file-path';
+import { extractStoryNarrativeIds } from '../utils/story-kit-narratives';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
 import { CustomStoryQueryNotAllowedError, listCustomStoryQueryIds } from './custom-story-query-access';
 import type { RefreshResult } from './live-story';
-import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
+import {
+	createStoryExecutionContext,
+	executeLiveQuery,
+	isCacheExpired,
+	refreshStoryData,
+	requiresViewerStoryData,
+} from './live-story';
 import { assertStoryFiltersEnabled } from './story-filters';
 import { executeStoryQueryWithInputs } from './story-query-inputs';
 
@@ -43,6 +55,8 @@ interface CustomStoryDataOptions {
 	/** Serve the stored data of a story awaiting its background refresh, instead of refreshing inline. */
 	deferRefresh?: boolean;
 	rerun?: StoryQueryRerun;
+	storyVersionId?: string;
+	viewerUserId?: string;
 }
 
 /** Filters and parameters a viewer chose: the query re-runs with them, as that viewer, instead of reading stored rows. */
@@ -182,7 +196,7 @@ async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersi
 	};
 }
 
-/** Live stories read from the story's data cache (refreshed on schedule); others from the chat's own results. */
+/** Viewer-scoped stories read their RLS cache; owner views keep the existing live-cache or chat-result behavior. */
 export async function getCustomStoryQueryData(
 	chatId: string,
 	storySlug: string,
@@ -193,6 +207,18 @@ export async function getCustomStoryQueryData(
 	if (options.rerun && hasStoryQueryInputs(options.rerun.inputs)) {
 		assertStoryFiltersEnabled();
 		return runStoryQueryWithInputs(chatId, queryId, options.rerun.inputs, options.rerun.viewerId);
+	}
+	const viewerUserId =
+		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
+			? options.viewerUserId
+			: undefined;
+	if (viewerUserId) {
+		const storyVersionId =
+			options.storyVersionId ?? (await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug))?.id;
+		if (!storyVersionId) {
+			throw new CustomStoryNotFoundError();
+		}
+		return getViewerCustomStoryQueryData(chatId, story, storyVersionId, queryId, viewerUserId);
 	}
 	if (!story.isLive) {
 		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
@@ -216,14 +242,73 @@ export async function getCustomStoryQueryData(
 	return queryData?.[queryId] ?? runStoryQuery(chatId, queryId);
 }
 
+async function getViewerCustomStoryQueryData(
+	chatId: string,
+	story: DBStory,
+	storyVersionId: string,
+	queryId: string,
+	viewerUserId: string,
+): Promise<StoryQueryResult> {
+	if (story.cacheSchedule === NO_CACHE_SCHEDULE) {
+		return runStoryQuery(chatId, queryId, viewerUserId);
+	}
+
+	const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
+	const cache = await storyQueries.getStoryViewerDataCache(
+		chatId,
+		story.slug,
+		storyVersionId,
+		viewerUserId,
+		executionContext.permissionRevision,
+	);
+	const cachedResult = cache?.queryData[queryId];
+	if (cache && isCacheFresh(story, cache) && cachedResult) {
+		return requireAccessibleStoryQuery(cachedResult);
+	}
+
+	let queryData: Record<string, StoryQueryResult> | undefined;
+	try {
+		queryData = await refreshOnce(
+			chatId,
+			story.slug,
+			viewerUserId,
+			storyVersionId,
+			executionContext.permissionRevision,
+		).then((result) => result.queryData);
+	} catch {
+		const currentExecutionContext = await createStoryExecutionContext(chatId, viewerUserId);
+		queryData =
+			currentExecutionContext.permissionRevision === executionContext.permissionRevision
+				? cache?.queryData
+				: (
+						await storyQueries.getStoryViewerDataCache(
+							chatId,
+							story.slug,
+							storyVersionId,
+							viewerUserId,
+							currentExecutionContext.permissionRevision,
+						)
+					)?.queryData;
+	}
+	const result = queryData?.[queryId];
+	return result ? requireAccessibleStoryQuery(result) : runStoryQuery(chatId, queryId, viewerUserId);
+}
+
+function requireAccessibleStoryQuery(result: StoryQueryResult & { accessDenied?: true }): StoryQueryResult {
+	if (result.accessDenied) {
+		throw new CustomStoryQueryExecutionError('Query data is unavailable with your current access.');
+	}
+	return result;
+}
+
 async function getChatQueryData(chatId: string, queryId: string): Promise<StoryQueryResult | undefined> {
 	const stored = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, new Set([queryId]));
 	return stored[queryId];
 }
 
-async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQueryResult> {
+async function runStoryQuery(chatId: string, queryId: string, viewerUserId?: string): Promise<StoryQueryResult> {
 	try {
-		return await executeLiveQuery(chatId, queryId);
+		return await executeLiveQuery(chatId, queryId, viewerUserId ? { viewerUserId } : {});
 	} catch (error) {
 		throw toQueryExecutionError(error);
 	}
@@ -254,6 +339,20 @@ export async function getCustomStoryNarratives(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryNarratives> {
 	const story = await getCustomStory(chatId, storySlug);
+	const viewerUserId =
+		options.viewerUserId && (await requiresViewerStoryData(chatId, options.viewerUserId))
+			? options.viewerUserId
+			: undefined;
+	if (viewerUserId) {
+		const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug);
+		if (!version) {
+			throw new CustomStoryNotFoundError();
+		}
+		if (!story.isLiveTextDynamic) {
+			return fillMissingViewerNarratives(version.id);
+		}
+		return getViewerCustomStoryNarratives(chatId, story, version.id, viewerUserId);
+	}
 	if (!story.isLive) {
 		return getFrozenNarratives(story.id);
 	}
@@ -274,6 +373,61 @@ export async function getCustomStoryNarratives(
 		(result) => result.narratives,
 		() => cachedNarratives,
 	);
+}
+
+async function getViewerCustomStoryNarratives(
+	chatId: string,
+	story: DBStory,
+	storyVersionId: string,
+	viewerUserId: string,
+): Promise<StoryNarratives> {
+	const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
+	const cache = await storyQueries.getStoryViewerDataCache(
+		chatId,
+		story.slug,
+		storyVersionId,
+		viewerUserId,
+		executionContext.permissionRevision,
+	);
+	const cachedNarratives = cache?.analysisResults ?? {};
+	const isCacheUsable = cache && (story.cacheSchedule === NO_CACHE_SCHEDULE || isCacheFresh(story, cache));
+	if (isCacheUsable) {
+		return fillMissingViewerNarratives(storyVersionId, cachedNarratives);
+	}
+	try {
+		const narratives = await refreshOnce(
+			chatId,
+			story.slug,
+			viewerUserId,
+			storyVersionId,
+			executionContext.permissionRevision,
+		).then((result) => result.narratives);
+		return fillMissingViewerNarratives(storyVersionId, narratives);
+	} catch {
+		const currentExecutionContext = await createStoryExecutionContext(chatId, viewerUserId);
+		const currentCache =
+			currentExecutionContext.permissionRevision === executionContext.permissionRevision
+				? cache
+				: await storyQueries.getStoryViewerDataCache(
+						chatId,
+						story.slug,
+						storyVersionId,
+						viewerUserId,
+						currentExecutionContext.permissionRevision,
+					);
+		return fillMissingViewerNarratives(storyVersionId, currentCache?.analysisResults);
+	}
+}
+
+async function fillMissingViewerNarratives(
+	storyVersionId: string,
+	narratives: StoryNarratives | null | undefined = {},
+): Promise<StoryNarratives> {
+	const ids = extractStoryNarrativeIds(await storyFileQueries.listVersionFiles(storyVersionId));
+	return {
+		[STORY_NARRATIVES_REDACT_MISSING_KEY]: '',
+		...Object.fromEntries(ids.map((id) => [id, narratives?.[id] ?? ''])),
+	};
 }
 
 /** The results already saved for the story (its data cache, else the chat's own), without running any query. */
@@ -319,12 +473,25 @@ export async function getSharedCustomStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	queryId: string,
-	versionNumber?: number,
+	versionNumber: number | undefined,
+	viewerUserId: string,
 	rerun?: StoryQueryRerun,
 ): Promise<StoryQueryResult> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
 	await assertQueryReferencedByVersion(version.id, queryId);
-	return getCustomStoryQueryData(chatId, storySlug, queryId, { rerun });
+	return getCustomStoryQueryData(chatId, storySlug, queryId, {
+		rerun,
+		storyVersionId: version.id,
+		viewerUserId,
+	});
+}
+
+export function getSharedCustomStoryNarratives(
+	chatId: string,
+	storySlug: string,
+	viewerUserId: string,
+): Promise<StoryNarratives> {
+	return getCustomStoryNarratives(chatId, storySlug, { viewerUserId });
 }
 
 export async function getCustomStoryQuerySql(chatId: string, storySlug: string, queryId: string): Promise<string> {
@@ -417,7 +584,7 @@ function usesStoryCache(story: DBStory): boolean {
 	return story.isLive && story.cacheSchedule !== NO_CACHE_SCHEDULE;
 }
 
-function isCacheFresh(story: DBStory, cache: DBStoryDataCache | null): boolean {
+function isCacheFresh(story: DBStory, cache: { cachedAt: Date } | null): boolean {
 	return cache !== null && !isCacheExpired(cache.cachedAt, story.cacheSchedule);
 }
 
@@ -481,13 +648,32 @@ async function getCustomStoryVersionRow(chatId: string, storySlug: string, versi
 }
 
 /** Every block and narrative of a story asks at once; they share one refresh instead of each starting its own. */
-function refreshOnce(chatId: string, storySlug: string): Promise<RefreshResult> {
-	const key = `${chatId}:${storySlug}`;
+function refreshOnce(
+	chatId: string,
+	storySlug: string,
+	viewerUserId?: string,
+	storyVersionId?: string,
+	permissionRevision?: string,
+): Promise<RefreshResult> {
+	const key = `${chatId}:${storySlug}:${storyVersionId ?? ''}:${viewerUserId ?? ''}:${permissionRevision ?? ''}`;
 	const pending = pendingRefreshes.get(key);
 	if (pending) {
 		return pending;
 	}
-	const refresh = refreshStoryData(chatId, storySlug).finally(() => pendingRefreshes.delete(key));
+	const started = viewerUserId
+		? refreshStoryData(chatId, storySlug, { storyVersionId, viewerUserId })
+		: refreshStoryData(chatId, storySlug);
+	const refresh = (
+		viewerUserId && permissionRevision
+			? started.then(async (result) => {
+					const current = await createStoryExecutionContext(chatId, viewerUserId);
+					if (current.permissionRevision !== permissionRevision) {
+						throw new Error('Viewer permissions changed during story refresh');
+					}
+					return result;
+				})
+			: started
+	).finally(() => pendingRefreshes.delete(key));
 	pendingRefreshes.set(key, refresh);
 	return refresh;
 }

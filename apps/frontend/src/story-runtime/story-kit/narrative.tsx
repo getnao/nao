@@ -1,3 +1,4 @@
+import { STORY_NARRATIVES_REDACT_MISSING_KEY } from '@nao/shared/story-app';
 import { useEffect, useState } from 'react';
 import { requestNarratives } from '../story-host';
 import type { StoryNarratives } from '@nao/shared/story-app';
@@ -14,11 +15,10 @@ let narrativesRequest: Promise<StoryNarratives> | null = null;
 export function Narrative({ id, children }: NarrativeProps) {
 	const narratives = useNarratives();
 	if (narratives === null) {
-		return (
-			<span className='nao-narrative nao-narrative--loading' aria-busy='true'>
-				{children}
-			</span>
-		);
+		return <span className='nao-narrative nao-narrative--loading' aria-busy='true' />;
+	}
+	if (narratives[id] === undefined && STORY_NARRATIVES_REDACT_MISSING_KEY in narratives) {
+		return null;
 	}
 	return <>{narratives[id] ?? children}</>;
 }

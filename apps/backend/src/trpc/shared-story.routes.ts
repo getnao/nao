@@ -13,8 +13,8 @@ import {
 	assertCustomStoryExists,
 	getActiveThemeForProject,
 	getActiveThemeForStory,
-	getCustomStoryNarratives,
 	getCustomStoryVersion,
+	getSharedCustomStoryNarratives,
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
 	getStandaloneCustomStoryNarratives,
@@ -29,7 +29,7 @@ import {
 	setCustomStoryState,
 	setCustomStoryStateByStoryId,
 } from '../services/custom-story-state';
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData, requiresViewerStoryData } from '../services/live-story';
 import { listShareableGroups } from '../services/project-sharing.service';
 import { filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
 import { unshareStory } from '../services/shared-story.service';
@@ -41,6 +41,7 @@ import {
 	saveStoryShareSettings,
 	type ShareActor,
 } from '../services/story-share-settings.service';
+import { hasEffectiveWarehouseRestrictions } from '../services/user-group-context-access.service';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
@@ -112,7 +113,14 @@ export const sharedStoryRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
-		return withKpiPreviewData(items, (story) => story.storyId);
+		const hasViewerRestrictions = await hasEffectiveWarehouseRestrictions(input.projectId, ctx.user.id);
+		const storiesWithPreview = hasViewerRestrictions
+			? items.map((story) => ({ ...story, kpiPreviewData: null }))
+			: await withKpiPreviewData(items, (story) => story.storyId);
+		return storiesWithPreview.map(({ ownerUserId, ...story }) => ({
+			...story,
+			canShowThumbnail: !hasViewerRestrictions || ownerUserId === ctx.user.id,
+		}));
 	}),
 
 	getStoryIdByShareId: legacyShareAccessProcedure
@@ -120,7 +128,7 @@ export const sharedStoryRoutes = {
 		.query(({ ctx }) => ({ storyId: ctx.resource.storyId })),
 
 	get: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
-		const { id: shareId, ...shared } = ctx.resource;
+		const { id: shareId, ownerUserId: _ownerUserId, ...shared } = ctx.resource;
 		const storyRow = await storyQueries.getStoryById(shared.storyId);
 		const isLive = storyRow?.isLive ?? false;
 		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
@@ -140,6 +148,8 @@ export const sharedStoryRoutes = {
 					? await getStoryQueryData(shared.chatId, shared.slug, shared.code, isLive, cacheSchedule, {
 							deferRefresh: canRefresh && lastRefreshFailure !== null,
 							deferFirstRefresh: canRefresh,
+							storyVersionId: shared.storyVersionId,
+							viewerUserId: ctx.user.id,
 						})
 					: await getStandaloneStoryQueryData(shared.storyId, shared.code);
 
@@ -225,20 +235,30 @@ export const sharedStoryRoutes = {
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
 			try {
-				return shared.chatId
-					? await getSharedCustomStoryQueryData(
-							shared.chatId,
-							shared.slug,
-							input.queryId,
-							input.versionNumber,
-							{ inputs: input.inputs, viewerId: ctx.user.id },
-						)
-					: await getStandaloneCustomStoryQueryData(
-							shared.storyId,
-							input.queryId,
-							input.versionNumber,
-							input.inputs,
-						);
+				if (shared.chatId) {
+					return input.inputs
+						? await getSharedCustomStoryQueryData(
+								shared.chatId,
+								shared.slug,
+								input.queryId,
+								input.versionNumber,
+								ctx.user.id,
+								{ inputs: input.inputs, viewerId: ctx.user.id },
+							)
+						: await getSharedCustomStoryQueryData(
+								shared.chatId,
+								shared.slug,
+								input.queryId,
+								input.versionNumber,
+								ctx.user.id,
+							);
+				}
+				return await getStandaloneCustomStoryQueryData(
+					shared.storyId,
+					input.queryId,
+					input.versionNumber,
+					input.inputs,
+				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
@@ -294,7 +314,7 @@ export const sharedStoryRoutes = {
 		const shared = ctx.resource;
 		try {
 			return shared.chatId
-				? await getCustomStoryNarratives(shared.chatId, shared.slug)
+				? await getSharedCustomStoryNarratives(shared.chatId, shared.slug, ctx.user.id)
 				: await getStandaloneCustomStoryNarratives(shared.storyId);
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
@@ -369,7 +389,18 @@ export const sharedStoryRoutes = {
 			}
 
 			const queryData = shared.chatId
-				? await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code)
+				? (await requiresViewerStoryData(shared.chatId, ctx.user.id))
+					? (
+							await getStoryQueryData(
+								shared.chatId,
+								shared.slug,
+								version.code,
+								version.isLive,
+								version.cacheSchedule,
+								{ storyVersionId: version.id, viewerUserId: ctx.user.id },
+							)
+						).queryData
+					: await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code)
 				: (await getStandaloneStoryQueryData(shared.storyId, version.code)).queryData;
 			return { queryData };
 		}),
@@ -386,6 +417,7 @@ export const sharedStoryRoutes = {
 			}
 			return executeLiveQuery(shared.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				viewerUserId: ctx.user.id,
 				storyCode: shared.code,
 			});
 		}),
@@ -406,6 +438,7 @@ export const sharedStoryRoutes = {
 				{ search, parentSelection },
 				{
 					billingAccessVerifiedProjectId: shared.projectId,
+					viewerUserId: ctx.user.id,
 				},
 			);
 		}),
@@ -425,6 +458,7 @@ export const sharedStoryRoutes = {
 			}
 			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				viewerUserId: ctx.user.id,
 			});
 		}),
 
@@ -472,6 +506,7 @@ export const sharedStoryRoutes = {
 				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, {
 					billingAccessVerifiedProjectId: shared.projectId,
 				});
+				await storyQueries.deleteStoryViewerDataCache(story.id);
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
@@ -611,6 +646,7 @@ export const sharedStoryRoutes = {
 						version.code,
 						version.isLive,
 						version.cacheSchedule,
+						{ storyVersionId: version.id, viewerUserId: ctx.user.id },
 					)
 				: await getStandaloneStoryQueryData(shared.storyId, version.code);
 
@@ -656,14 +692,24 @@ function findStoryToShare(input: StoryToShare): Promise<DBStory | null> {
 }
 
 async function canUserAccessShare(
-	share: { id: string; visibility: string; userId: string },
+	share: {
+		id: string;
+		visibility: string;
+		userId: string;
+		ownerUserId?: string | null;
+		chatId?: string | null;
+		projectId: string;
+	},
 	userId: string,
 ): Promise<boolean> {
-	return (
+	const canAccessShare =
 		share.visibility !== 'specific' ||
 		share.userId === userId ||
-		sharedStoryQueries.canUserAccessSharedStory(share.id, userId)
-	);
+		(await sharedStoryQueries.canUserAccessSharedStory(share.id, userId));
+	if (!canAccessShare || share.chatId || share.ownerUserId === userId) {
+		return canAccessShare;
+	}
+	return !(await hasEffectiveWarehouseRestrictions(share.projectId, userId));
 }
 
 async function getStoryRefreshAccess(

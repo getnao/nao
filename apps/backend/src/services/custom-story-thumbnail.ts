@@ -7,6 +7,7 @@ import type { DBStory, DBStoryAppState } from '../db/abstractSchema';
 import * as storyQueries from '../queries/story.queries';
 import * as storyAppStateQueries from '../queries/story-app-state.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
+import * as userGroupQueries from '../queries/user-group.queries';
 import { logger } from '../utils/logger';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { isBrokenRender, renderStoryScreenshot } from '../utils/story-screenshot';
@@ -67,6 +68,14 @@ export interface CustomStoryThumbnail {
 	renderKey: string;
 	isCurrent: boolean;
 	image: Buffer;
+}
+
+export async function canShowStoredCustomStoryThumbnail(storyId: string, userId: string): Promise<boolean> {
+	if ((await storyQueries.getStoryOwnerId(storyId)) === userId) {
+		return true;
+	}
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	return projectId !== null && (await userGroupQueries.getProjectRowSecurity(projectId)).tables.length === 0;
 }
 
 /** Reads the latest version's WebP thumbnail without waiting on a render, queueing stale or missing images in the background. */

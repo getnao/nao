@@ -330,6 +330,7 @@ export const project = sqliteTable(
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 		defaultModels: text('default_models', { mode: 'json' }).$type<DefaultModelSettings>(),
 		rowSecurity: text('row_security', { mode: 'json' }).$type<StoredProjectRowSecurity>(),
+		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -1379,6 +1380,7 @@ export const story = sqliteTable(
 		isLiveTextDynamic: integer('is_live_text_dynamic', { mode: 'boolean' }).default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
+		viewerCacheRevision: integer('viewer_cache_revision').default(0).notNull(),
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
 		certifiedAt: integer('certified_at', { mode: 'timestamp_ms' }),
@@ -1586,6 +1588,36 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),
 });
+
+export const storyViewerDataCache = sqliteTable(
+	'story_viewer_data_cache',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		storyVersionId: text('story_version_id')
+			.notNull()
+			.references(() => storyVersion.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		permissionRevision: text('permission_revision').notNull(),
+		queryData: text('query_data', { mode: 'json' })
+			.$type<Record<string, { data: unknown[]; columns: string[] }>>()
+			.notNull(),
+		code: text('code'),
+		querySources: text('query_sources', { mode: 'json' }).$type<StoryQuerySources>(),
+		analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
+		cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('story_viewer_data_cache_story_id_idx').on(t.storyId),
+		index('story_viewer_data_cache_user_id_idx').on(t.userId),
+		primaryKey({ columns: [t.storyVersionId, t.userId] }),
+	],
+);
 
 export const storyFilterOptionsCache = sqliteTable(
 	'story_filter_options_cache',

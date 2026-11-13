@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildStoryChartBlock, buildStoryFilterBlock, buildStoryMapBlock } from '../src/chart-block';
 import {
+	extractQueryIds,
 	getGridTemplateColumns,
 	getStoryFiltersFromCode,
 	getStoryParametersFromCode,
@@ -759,6 +760,27 @@ describe('story filter tags', () => {
 				rawTag: expect.any(String),
 			},
 		]);
+	});
+
+	it('builds, parses, and extracts an options query source', () => {
+		const code = buildStoryFilterBlock({
+			id: 'customer',
+			label: 'Customer',
+			type: 'multi_select',
+			options_query_id: 'query_customer_options',
+		});
+
+		expect(code).toContain('options_query_id="query_customer_options"');
+		expect(getStoryFiltersFromCode(code)).toEqual([
+			{
+				id: 'customer',
+				label: 'Customer',
+				filterType: 'multi_select',
+				optionsQueryId: 'query_customer_options',
+				rawTag: expect.any(String),
+			},
+		]);
+		expect(extractQueryIds(code)).toEqual(new Set(['query_customer_options']));
 	});
 
 	it('parses exact text filters and dependent selects', () => {

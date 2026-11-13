@@ -28,7 +28,10 @@ import { createTool } from '../../utils/tools';
 
 const STORY_FILTER_DESCRIPTION = [
 	'Story-level filters are declared via <filter id="..." label="..." type="select|multi_select|text|search|date_range" ... />.',
-	'For select/multi_select, provide either table+column (options from SELECT DISTINCT, searchable in the UI) or options=\'["a","b"]\' (hardcoded values). Add allow_custom="true" to let users type a value that is not in the list.',
+	'For select/multi_select, hardcode options=\'["a","b"]\' only for universal constants that do not come from database rows.',
+	'Use table+column when each option is the direct value of one database column.',
+	'For computed labels or any other database-derived values, execute a separate options query that returns exactly one column named value, then set options_query_id to that query_id.',
+	'Add allow_custom="true" to let users type a value that is not in the option list.',
 	'IDs and exact codes (user id, order id, SKU) MUST use type="text": it renders the exact value, so put AND user_id = {{ filters.user.sql }} inside its matching {% filter user %} ... {% endfilter %} block. On numeric columns add value_type="number" so the value renders unquoted (and is validated as a number).',
 	'type="search" renders \'%value%\' — already wrapped in % and escaped — so only compare it with LIKE/ILIKE: AND name ILIKE {{ filters.q.sql }}. Never use = or IN with a search filter and never strip the %; use type="text" for exact matches.',
 	'For hierarchies (category > sub-category), add depends_on="<parent_filter_id>" on the child select/multi_select: its options are narrowed by the parent selection, using the parent filter column on the child table.',

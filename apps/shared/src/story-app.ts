@@ -123,6 +123,10 @@ export interface StoryQueryResult {
 /** Narrative id → text regenerated from the latest data */
 export type StoryNarratives = Record<string, string>;
 
+export const STORY_NARRATIVES_REDACT_MISSING_KEY = '__nao_redact_missing_narratives__';
+export const STORY_VIEWER_RESTRICTED_CODE_MARKER =
+	'<!-- nao-internal:viewer-restricted-code:8f14e45f-ea4a-4c14-a947-16f95e8e7f65 -->';
+
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
 	/** Rows of the filtered queries and story SQL the viewer saw, by request key, so a download shows the same. */

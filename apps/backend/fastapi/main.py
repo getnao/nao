@@ -642,7 +642,7 @@ def execute_sql(request: ExecuteSQLRequest):
             ColumnAccessError,
             RowSecurityGuardError,
         ) as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
+            raise HTTPException(status_code=403, detail=str(error)) from error
         return _query_result_response(df, db_config.type)
     except HTTPException:
         raise

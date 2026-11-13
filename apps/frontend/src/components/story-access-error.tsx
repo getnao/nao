@@ -40,7 +40,7 @@ export function StoryAccessError({ error, onRetry }: { error?: unknown; onRetry?
 
 	const title = forbidden ? "You don't have access to this story" : 'Story not found';
 	const description = forbidden
-		? 'This story has not been shared with you. Ask the owner to share it if you need access.'
+		? 'This story has not been shared with you or is unavailable with your current data access.'
 		: 'This story may have been deleted or moved.';
 
 	return (

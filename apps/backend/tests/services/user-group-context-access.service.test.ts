@@ -35,6 +35,7 @@ import { skillService } from '../../src/services/skill';
 import { resolveAvailableUserGroupAccess as resolveUserGroupAccess } from '../../src/services/user-group-availability.service';
 import {
 	expandDatabaseAccess,
+	hasEffectiveWarehouseRestrictions,
 	isDatabaseObjectAllowed,
 	resolveMcpSettingsAccess,
 	resolveMcpUsageAccess,
@@ -210,7 +211,7 @@ describe('warehouse Context access', () => {
 		});
 	});
 
-	it('keeps licensed row-security policy resolution unchanged', async () => {
+	it('keeps viewer-specific data when strict catalog access has full row access', async () => {
 		protectOrdersByTenant();
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
 			userGroupAccess({
@@ -225,6 +226,36 @@ describe('warehouse Context access', () => {
 				tables: [{ ...ORDERS_TABLE, constraintColumns: ['tenant_id'], access: 'full' }],
 			},
 		});
+		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(true);
+	});
+
+	it('keeps viewer-specific data when table access is restricted despite full row access', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, constraintColumns: ['tenant_id'] }],
+		});
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Finance'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			skillsAccess: { mode: 'all' },
+			databaseAccess: {
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+			docsAccess: { mode: 'all' },
+			rowPolicies: [{ version: 1, policies: [{ ...orders, access: 'full' }] }],
+		});
+
+		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(true);
 	});
 
 	it('does not widen rows with policies excluded by same-group Context filtering', async () => {
@@ -264,6 +295,7 @@ describe('warehouse Context access', () => {
 				tables: [{ ...ORDERS_TABLE, access: 'predicate', predicate: '(tenant_id = 7)' }],
 			},
 		});
+		await expect(hasEffectiveWarehouseRestrictions('project-1', 'user-1')).resolves.toBe(true);
 
 		vi.mocked(resolveUserGroupAccess).mockResolvedValue(
 			ordersOnlyGroups([

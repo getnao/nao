@@ -59,6 +59,7 @@ function buildStory(overrides: Partial<StoryItem> & { storyId: string }): StoryI
 		kind: 'own',
 		summary: { segments: [] },
 		kpiPreviewData: null,
+		canShowThumbnail: true,
 		format: 'classic',
 		version: 1,
 		isLive: false,

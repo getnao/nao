@@ -96,6 +96,7 @@ export interface ParsedFilterBlock {
 	metric?: string;
 	/** The original `<filter ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
+	optionsQueryId?: string;
 }
 
 export const STORY_PARAMETER_TYPES = ['metric', 'value'] as const;
@@ -292,9 +293,11 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 	const needsOptionsSource = filterType === 'select' || filterType === 'multi_select';
 	const hasHardcodedOptions = Boolean(options?.length);
 	const hasTableSource = Boolean(attrs.table && attrs.column);
-	if (needsOptionsSource && !hasHardcodedOptions && !hasTableSource && !attrs.dimension) {
+	const hasOptionsQuerySource = Boolean(attrs.options_query_id);
+	if (needsOptionsSource && !hasHardcodedOptions && !hasTableSource && !hasOptionsQuerySource && !attrs.dimension) {
 		return null;
 	}
+	const optionsQueryId = attrs.options_query_id;
 
 	return {
 		id: attrs.id,
@@ -304,6 +307,7 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 		...(attrs.table && { table: attrs.table }),
 		...(attrs.database_id && { databaseId: attrs.database_id }),
 		...(hasHardcodedOptions && { options }),
+		...(optionsQueryId && { optionsQueryId }),
 		...(filterType === 'text' && isFilterValueType(attrs.value_type) && { valueType: attrs.value_type }),
 		...(needsOptionsSource && attrs.depends_on && { dependsOn: attrs.depends_on }),
 		...(needsOptionsSource && attrs.allow_custom === 'true' && { allowCustom: true }),
@@ -844,6 +848,13 @@ export function extractQueryIds(code: string): Set<string> {
 			}
 		}
 	}
+
+	for (const filter of getStoryFiltersFromCode(code)) {
+		if (filter.optionsQueryId) {
+			ids.add(filter.optionsQueryId);
+		}
+	}
+
 	return ids;
 }
 

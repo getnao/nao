@@ -1,4 +1,4 @@
-import type { StoryExportData, StoryQueryResult } from '@nao/shared/story-app';
+import type { StoryExportData, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { DEFAULT_STORY_THEME_PAIR, type StoryThemeMode } from '@nao/shared/story-theme';
 
@@ -27,17 +27,18 @@ export async function renderCustomStoryPdf(
 	chatId: string,
 	storySlug: string,
 	queryData: Record<string, StoryQueryResult>,
+	narratives?: StoryNarratives,
 ): Promise<{ filename: string; buffer: Buffer }> {
 	const version = await getCustomStoryVersion(chatId, storySlug);
-	const [narratives, state, runtime, chartPlugins] = await Promise.all([
-		getCustomStoryNarratives(chatId, storySlug),
+	const [resolvedNarratives, state, runtime, chartPlugins] = await Promise.all([
+		narratives ?? getCustomStoryNarratives(chatId, storySlug),
 		getUnattendedCustomStoryState(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
 		readStoryChartPluginSources(version.storyId),
 	]);
 	const html = buildCustomStoryDocumentHtml(
 		version,
-		{ queryData, narratives, runtime, state, chartPlugins },
+		{ queryData, narratives: resolvedNarratives, runtime, state, chartPlugins },
 		'light',
 	);
 	const buffer = await renderStoryPdf(html, themeFontStylesheets(version.theme));

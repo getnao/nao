@@ -2,8 +2,14 @@ import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo, type StoryVersionOrigin } from '@nao/shared/types';
 import { aliasedTable, and, asc, countDistinct, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
-import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
+import s, {
+	type DBStory,
+	type DBStoryDataCache,
+	type DBStoryVersion,
+	type DBStoryViewerDataCache,
+} from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import type { StoryQuerySources } from '../types/story-cache';
 import { getOpenProjectIds } from '../utils/open-projects';
 import { isQuickQuestionForkType } from './chat.queries';
@@ -100,6 +106,26 @@ export async function getStoryProjectId(storyId: string): Promise<string | null>
 		return null;
 	}
 	return row.chatProjectId ?? row.storyProjectId ?? null;
+}
+
+export async function getProjectViewerCacheRevision(projectId: string): Promise<number> {
+	const [project] = await db
+		.select({ revision: s.project.viewerCacheRevision })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1)
+		.execute();
+	return project?.revision ?? 0;
+}
+
+export async function getStoryViewerCacheRevision(storyId: string): Promise<number> {
+	const [story] = await db
+		.select({ revision: s.story.viewerCacheRevision })
+		.from(s.story)
+		.where(eq(s.story.id, storyId))
+		.limit(1)
+		.execute();
+	return story?.revision ?? 0;
 }
 
 export async function getStoryOwnerId(storyId: string): Promise<string | undefined> {
@@ -678,6 +704,16 @@ export function getVersionByNumber(
 	);
 }
 
+export function getVersionById(
+	chatId: string,
+	slug: string,
+	storyVersionId: string,
+): Promise<StoryVersionWithStory | null> {
+	return getStoryVersion(
+		and(eq(s.story.chatId, chatId), eq(s.story.slug, slug), eq(s.storyVersion.id, storyVersionId))!,
+	);
+}
+
 export function getVersionByStoryIdAndNumber(
 	storyId: string,
 	versionNumber: number,
@@ -1127,6 +1163,274 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 		.execute();
 
 	return row ?? null;
+}
+
+export async function getStoryViewerDataCache(
+	chatId: string,
+	slug: string,
+	storyVersionId: string,
+	userId: string,
+	permissionRevision: string,
+): Promise<DBStoryViewerDataCache | null> {
+	const [row] = await db
+		.select({
+			storyId: s.storyViewerDataCache.storyId,
+			storyVersionId: s.storyViewerDataCache.storyVersionId,
+			userId: s.storyViewerDataCache.userId,
+			permissionRevision: s.storyViewerDataCache.permissionRevision,
+			queryData: s.storyViewerDataCache.queryData,
+			code: s.storyViewerDataCache.code,
+			querySources: s.storyViewerDataCache.querySources,
+			analysisResults: s.storyViewerDataCache.analysisResults,
+			cachedAt: s.storyViewerDataCache.cachedAt,
+		})
+		.from(s.storyViewerDataCache)
+		.innerJoin(s.story, eq(s.storyViewerDataCache.storyId, s.story.id))
+		.where(
+			and(
+				eq(s.story.chatId, chatId),
+				eq(s.story.slug, slug),
+				eq(s.storyViewerDataCache.storyVersionId, storyVersionId),
+				eq(s.storyViewerDataCache.userId, userId),
+				eq(s.storyViewerDataCache.permissionRevision, permissionRevision),
+			),
+		)
+		.execute();
+	return row ?? null;
+}
+
+export async function upsertStoryViewerDataCache(
+	storyId: string,
+	storyVersionId: string,
+	userId: string,
+	projectId: string,
+	projectViewerCacheRevision: number,
+	storyViewerCacheRevision: number,
+	permissionRevision: string,
+	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	querySources: StoryQuerySources,
+	analysisResults?: Record<string, string> | null,
+	code?: string | null,
+): Promise<boolean> {
+	const values = {
+		permissionRevision,
+		queryData,
+		code: code ?? null,
+		querySources,
+		analysisResults: analysisResults ?? null,
+		cachedAt: new Date(),
+	};
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		return db.transaction((transaction) => {
+			const [project] = transaction
+				.update(s.project)
+				.set({
+					viewerCacheRevision: sql`${s.project.viewerCacheRevision}`,
+					updatedAt: sql`${s.project.updatedAt}`,
+				})
+				.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, projectViewerCacheRevision)))
+				.returning({ id: s.project.id })
+				.all();
+			if (!project) {
+				return false;
+			}
+			const [story] = transaction
+				.update(s.story)
+				.set({
+					viewerCacheRevision: sql`${s.story.viewerCacheRevision}`,
+					updatedAt: sql`${s.story.updatedAt}`,
+				})
+				.where(and(eq(s.story.id, storyId), eq(s.story.viewerCacheRevision, storyViewerCacheRevision)))
+				.returning({ id: s.story.id })
+				.all();
+			if (!story) {
+				return false;
+			}
+			transaction
+				.insert(s.storyViewerDataCache)
+				.values({ storyId, storyVersionId, userId, ...values })
+				.onConflictDoUpdate({
+					target: [s.storyViewerDataCache.storyVersionId, s.storyViewerDataCache.userId],
+					set: values,
+				})
+				.run();
+			return true;
+		});
+	}
+	return db.transaction(async (transaction) => {
+		const [project] = await transaction
+			.update(s.project)
+			.set({
+				viewerCacheRevision: sql`${s.project.viewerCacheRevision}`,
+				updatedAt: sql`${s.project.updatedAt}`,
+			})
+			.where(and(eq(s.project.id, projectId), eq(s.project.viewerCacheRevision, projectViewerCacheRevision)))
+			.returning({ id: s.project.id })
+			.execute();
+		if (!project) {
+			return false;
+		}
+		const [story] = await transaction
+			.update(s.story)
+			.set({
+				viewerCacheRevision: sql`${s.story.viewerCacheRevision}`,
+				updatedAt: sql`${s.story.updatedAt}`,
+			})
+			.where(and(eq(s.story.id, storyId), eq(s.story.viewerCacheRevision, storyViewerCacheRevision)))
+			.returning({ id: s.story.id })
+			.execute();
+		if (!story) {
+			return false;
+		}
+		await transaction
+			.insert(s.storyViewerDataCache)
+			.values({ storyId, storyVersionId, userId, ...values })
+			.onConflictDoUpdate({
+				target: [s.storyViewerDataCache.storyVersionId, s.storyViewerDataCache.userId],
+				set: values,
+			})
+			.execute();
+		return true;
+	});
+}
+
+export async function deleteStoryViewerDataCache(storyId: string): Promise<void> {
+	if (dbConfig.dialect === Dialect.Sqlite) {
+		db.transaction((transaction) => {
+			bumpStoryViewerCacheRevisionSqlite(storyId, transaction);
+			transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).run();
+		});
+		return;
+	}
+	await db.transaction(async (transaction) => {
+		await bumpStoryViewerCacheRevision(storyId, transaction);
+		await transaction.delete(s.storyViewerDataCache).where(eq(s.storyViewerDataCache.storyId, storyId)).execute();
+	});
+}
+
+export async function invalidateProjectViewerCaches(projectId: string, executor?: DBExecutor): Promise<void> {
+	if (!executor) {
+		if (dbConfig.dialect === Dialect.Sqlite) {
+			db.transaction((transaction) => invalidateProjectViewerCachesSqlite(projectId, transaction));
+			return;
+		}
+		await db.transaction((transaction) => invalidateProjectViewerCaches(projectId, transaction));
+		return;
+	}
+	await bumpProjectViewerCacheRevision(projectId, executor);
+	const storyIds = await getProjectStoryIds(projectId, executor);
+	if (storyIds.length === 0) {
+		return;
+	}
+	await executor.delete(s.storyViewerDataCache).where(inArray(s.storyViewerDataCache.storyId, storyIds)).execute();
+}
+
+export async function invalidateUserViewerCaches(
+	projectId: string,
+	userId: string,
+	executor?: DBExecutor,
+): Promise<void> {
+	if (!executor) {
+		if (dbConfig.dialect === Dialect.Sqlite) {
+			db.transaction((transaction) => invalidateUserViewerCachesSqlite(projectId, userId, transaction));
+			return;
+		}
+		await db.transaction((transaction) => invalidateUserViewerCaches(projectId, userId, transaction));
+		return;
+	}
+	await bumpProjectViewerCacheRevision(projectId, executor);
+	const storyIds = await getProjectStoryIds(projectId, executor);
+	if (storyIds.length === 0) {
+		return;
+	}
+	await executor
+		.delete(s.storyViewerDataCache)
+		.where(and(inArray(s.storyViewerDataCache.storyId, storyIds), eq(s.storyViewerDataCache.userId, userId)))
+		.execute();
+}
+
+function invalidateProjectViewerCachesSqlite(projectId: string, executor: DBExecutor): void {
+	bumpProjectViewerCacheRevisionSqlite(projectId, executor);
+	const storyIds = getProjectStoryIdsSqlite(projectId, executor);
+	if (storyIds.length > 0) {
+		executor.delete(s.storyViewerDataCache).where(inArray(s.storyViewerDataCache.storyId, storyIds)).run();
+	}
+}
+
+function invalidateUserViewerCachesSqlite(projectId: string, userId: string, executor: DBExecutor): void {
+	bumpProjectViewerCacheRevisionSqlite(projectId, executor);
+	const storyIds = getProjectStoryIdsSqlite(projectId, executor);
+	if (storyIds.length > 0) {
+		executor
+			.delete(s.storyViewerDataCache)
+			.where(and(inArray(s.storyViewerDataCache.storyId, storyIds), eq(s.storyViewerDataCache.userId, userId)))
+			.run();
+	}
+}
+
+function bumpProjectViewerCacheRevisionSqlite(projectId: string, executor: DBExecutor): void {
+	executor
+		.update(s.project)
+		.set({
+			viewerCacheRevision: sql`${s.project.viewerCacheRevision} + 1`,
+			updatedAt: sql`${s.project.updatedAt}`,
+		})
+		.where(eq(s.project.id, projectId))
+		.run();
+}
+
+function bumpStoryViewerCacheRevisionSqlite(storyId: string, executor: DBExecutor): void {
+	executor
+		.update(s.story)
+		.set({
+			viewerCacheRevision: sql`${s.story.viewerCacheRevision} + 1`,
+			updatedAt: sql`${s.story.updatedAt}`,
+		})
+		.where(eq(s.story.id, storyId))
+		.run();
+}
+
+async function bumpProjectViewerCacheRevision(projectId: string, executor: DBExecutor): Promise<void> {
+	await executor
+		.update(s.project)
+		.set({
+			viewerCacheRevision: sql`${s.project.viewerCacheRevision} + 1`,
+			updatedAt: sql`${s.project.updatedAt}`,
+		})
+		.where(eq(s.project.id, projectId))
+		.execute();
+}
+
+async function bumpStoryViewerCacheRevision(storyId: string, executor: DBExecutor): Promise<void> {
+	await executor
+		.update(s.story)
+		.set({
+			viewerCacheRevision: sql`${s.story.viewerCacheRevision} + 1`,
+			updatedAt: sql`${s.story.updatedAt}`,
+		})
+		.where(eq(s.story.id, storyId))
+		.execute();
+}
+
+function getProjectStoryIdsSqlite(projectId: string, executor: DBExecutor): string[] {
+	return executor
+		.select({ id: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(or(eq(s.story.projectId, projectId), eq(s.chat.projectId, projectId)))
+		.all()
+		.map(({ id }) => id);
+}
+
+async function getProjectStoryIds(projectId: string, executor: DBExecutor): Promise<string[]> {
+	const stories = await executor
+		.select({ id: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(or(eq(s.story.projectId, projectId), eq(s.chat.projectId, projectId)))
+		.execute();
+
+	return stories.map(({ id }) => id);
 }
 
 export async function getStorySharingInfo(storyIds: string[]): Promise<Map<string, StorySharingInfo>> {

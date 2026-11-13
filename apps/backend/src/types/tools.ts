@@ -14,6 +14,7 @@ import { AgentSettings } from './agent-settings';
 export interface QueryResult {
 	columns: string[];
 	data: Record<string, unknown>[];
+	accessDenied?: true;
 	/** Set when the semantic layer compiled the SQL from this metric query. */
 	semanticQuery?: executeSemanticQuery.SemanticQuery;
 	/** The SQL as the model wrote it (filter templates included), set for results produced in the current run. */

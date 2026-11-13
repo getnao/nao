@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from '@testing-library/react';
+import { STORY_VIEWER_RESTRICTED_CODE_MARKER } from '@nao/shared/story-app';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SharedStoryPage } from '@/components/shared-story-page';
+import { prepareRestrictedStoryCode, SharedStoryPage } from '@/components/shared-story-page';
 
 const mocks = vi.hoisted(() => ({
 	queryResult: {
@@ -146,6 +147,35 @@ describe('shared Story chat controls', () => {
 		mocks.queryResult.data = createStory({ isArchived: true });
 		render(<SharedStoryPage storyId='story-1' />);
 		expect(screen.queryByText('Ask bar')).toBeNull();
+	});
+});
+
+describe('restricted shared story copy', () => {
+	it('replaces backend placeholders with a single frontend access state', () => {
+		expect(
+			prepareRestrictedStoryCode(
+				[
+					STORY_VIEWER_RESTRICTED_CODE_MARKER,
+					'Viewer-specific narrative.',
+					'## Viewer-specific section',
+					'<chart query_id="query_customers" />',
+					'### Viewer-specific section <table query_id="query_orders" />',
+				].join('\n'),
+			),
+		).toEqual({
+			code: '<chart query_id="query_customers" />\n<table query_id="query_orders" />',
+			hasRestrictedContent: true,
+		});
+	});
+
+	it('leaves normal story copy unchanged', () => {
+		const code = '## Customers\nCustomer revenue summary.\n<chart query_id="query_customers" />';
+		expect(prepareRestrictedStoryCode(code)).toEqual({ code, hasRestrictedContent: false });
+	});
+
+	it('preserves authored placeholder copy and whitespace without the internal marker', () => {
+		const code = '\nViewer-specific narrative.\n\n\n## Viewer-specific section\n';
+		expect(prepareRestrictedStoryCode(code)).toEqual({ code, hasRestrictedContent: false });
 	});
 });
 

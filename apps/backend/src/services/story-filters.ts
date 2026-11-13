@@ -10,12 +10,19 @@ import { TRPCError } from '@trpc/server';
 
 import { env } from '../env';
 import * as storyQueries from '../queries/story.queries';
-import { createStoryExecutionContext, executeStoryQueries, type StoryQueryData } from './live-story';
+import {
+	availableStoryQueryData,
+	createStoryExecutionContext,
+	executeStoryQueries,
+	requiresViewerStoryData,
+	type StoryQueryData,
+} from './live-story';
 import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
 import { bindSemanticQuery, semanticBindingsFromCode } from './semantic-story-bindings';
 
 interface StoryFilterExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
+	viewerUserId?: string;
 }
 
 export function assertStoryFiltersEnabled() {
@@ -30,18 +37,24 @@ export async function getFilteredStoryQueryData(
 	selections: StoryFilterSelections,
 	executionOptions: StoryFilterExecutionOptions = {},
 ): Promise<StoryQueryData> {
+	const executionUserId =
+		executionOptions.viewerUserId && (await requiresViewerStoryData(chatId, executionOptions.viewerUserId))
+			? executionOptions.viewerUserId
+			: undefined;
 	const [{ code, sqlQueries }, executionContext] = await Promise.all([
 		loadStoryCodeAndQueries(chatId, storySlug),
-		createStoryExecutionContext(chatId),
+		createStoryExecutionContext(chatId, executionUserId),
 	]);
 	const specs = filterSpecsFromCode(code);
 
-	return executeStoryQueries(chatId, sqlQueries, {
-		executionContext,
-		renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, specs),
-		semanticBindings: semanticBindingsFromCode(code, selections),
-		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
-	});
+	return availableStoryQueryData(
+		await executeStoryQueries(chatId, sqlQueries, {
+			executionContext,
+			renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, specs),
+			semanticBindings: semanticBindingsFromCode(code, selections),
+			billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		}),
+	);
 }
 
 export async function getStoryQuerySql(

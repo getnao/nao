@@ -314,6 +314,7 @@ export const project = pgTable(
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
+		viewerCacheRevision: integer('viewer_cache_revision').notNull().default(0),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -1291,6 +1292,7 @@ export const story = pgTable(
 		isLiveTextDynamic: boolean('is_live_text_dynamic').default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
 		cacheScheduleDescription: text('cache_schedule_description'),
+		viewerCacheRevision: integer('viewer_cache_revision').default(0).notNull(),
 		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
 		archivedAt: timestamp('archived_at'),
 		certifiedAt: timestamp('certified_at'),
@@ -1479,6 +1481,32 @@ export const storyDataCache = pgTable('story_data_cache', {
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
+
+export const storyViewerDataCache = pgTable(
+	'story_viewer_data_cache',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		storyVersionId: text('story_version_id')
+			.notNull()
+			.references(() => storyVersion.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		permissionRevision: text('permission_revision').notNull(),
+		queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
+		code: text('code'),
+		querySources: jsonb('query_sources').$type<StoryQuerySources>(),
+		analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
+		cachedAt: timestamp('cached_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('story_viewer_data_cache_story_id_idx').on(t.storyId),
+		index('story_viewer_data_cache_user_id_idx').on(t.userId),
+		primaryKey({ columns: [t.storyVersionId, t.userId] }),
+	],
+);
 
 export const storyFilterOptionsCache = pgTable(
 	'story_filter_options_cache',

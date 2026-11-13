@@ -99,6 +99,22 @@ export async function resolveWarehouseTableAccess(
 	return (await resolveProjectContextAccess(projectId, userId, projectFolder)).warehouseTableAccess;
 }
 
+export async function hasEffectiveWarehouseRestrictions(projectId: string, userId: string): Promise<boolean> {
+	if (!(await getUserRoleInProject(projectId, userId))) {
+		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
+	}
+	const [effectiveAccess, rowSecurityLicensed, rowSecurity] = await Promise.all([
+		resolveAvailableUserGroupAccess(projectId, userId),
+		hasFeature(LICENSE_FEATURES.rowLevelSecurity, { projectId }),
+		getProjectRowSecurity(projectId),
+	]);
+	if (effectiveAccess.databaseAccess.mode !== 'all' || effectiveAccess.databaseAccess.strict) {
+		return true;
+	}
+	const resolved = resolveRowSecurityAccess(rowSecurity, effectiveAccess.rowPolicies, rowSecurityLicensed);
+	return resolved.enforced && resolved.tables.some(({ access }) => access !== 'full');
+}
+
 async function resolveSkillsAccess(projectId: string, access: SkillsAccess): Promise<ResolvedSkillsAccess> {
 	if (access.mode === 'all') {
 		return access;

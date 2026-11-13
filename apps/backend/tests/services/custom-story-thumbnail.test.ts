@@ -9,7 +9,11 @@ import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import * as storyQueries from '../../src/queries/story.queries';
 import * as storyFileQueries from '../../src/queries/story-file.queries';
-import { getCustomStoryThumbnail, queueCustomStoryThumbnail } from '../../src/services/custom-story-thumbnail';
+import {
+	canShowStoredCustomStoryThumbnail,
+	getCustomStoryThumbnail,
+	queueCustomStoryThumbnail,
+} from '../../src/services/custom-story-thumbnail';
 import type { StoryScreenshot } from '../../src/utils/story-screenshot';
 
 vi.mock('../../src/db/db', async () => {
@@ -71,7 +75,10 @@ const LIVE_STORY_ID = 'story-live';
 
 describe('custom story thumbnails', () => {
 	beforeAll(async () => {
-		await db.insert(s.user).values({ id: 'user-1', name: 'User', email: 'user@example.com' });
+		await db.insert(s.user).values([
+			{ id: 'user-1', name: 'User', email: 'user@example.com' },
+			{ id: 'user-2', name: 'Viewer', email: 'viewer@example.com' },
+		]);
 		await db.insert(s.project).values({ id: 'project-1', name: 'Project', type: 'local', path: '/tmp/project' });
 		await db.insert(s.chat).values({ id: 'chat-1', projectId: 'project-1', userId: 'user-1', title: 'Chat' });
 		await db
@@ -97,6 +104,10 @@ describe('custom story thumbnails', () => {
 	});
 
 	beforeEach(async () => {
+		await db
+			.update(s.project)
+			.set({ rowSecurity: { version: 1, tables: [] } })
+			.where(eq(s.project.id, 'project-1'));
 		screenshots.calls = 0;
 		screenshots.brokenModes = [];
 		screenshots.render = await cleanScreenshot('#ffffff');
@@ -121,6 +132,30 @@ describe('custom story thumbnails', () => {
 		expect(thumbnail.versionId).toBe(versionIds.current);
 		expect((await sharp(thumbnail.image).metadata()).format).toBe('webp');
 		expect(documents.modes).toEqual(['light', 'dark']);
+	});
+
+	it('hides stored thumbnails from non-owners when the project has row security', async () => {
+		await expect(canShowStoredCustomStoryThumbnail(STORY_ID, 'user-2')).resolves.toBe(true);
+		await db
+			.update(s.project)
+			.set({
+				rowSecurity: {
+					version: 1,
+					tables: [
+						{
+							databaseType: 'duckdb',
+							database: 'analytics',
+							schema: 'main',
+							table: 'orders',
+							constraintColumns: ['tenant_id'],
+						},
+					],
+				},
+			})
+			.where(eq(s.project.id, 'project-1'));
+
+		await expect(canShowStoredCustomStoryThumbnail(STORY_ID, 'user-1')).resolves.toBe(true);
+		await expect(canShowStoredCustomStoryThumbnail(STORY_ID, 'user-2')).resolves.toBe(false);
 	});
 
 	it('renders a queued version before anyone asks for it', async () => {

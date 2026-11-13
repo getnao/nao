@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef } from 'react';
+import { STORY_VIEWER_RESTRICTED_CODE_MARKER } from '@nao/shared/story-app';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
@@ -29,6 +30,9 @@ import { useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 import { requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
+
+const RESTRICTED_STORY_MESSAGE = "Some content in this story isn't available with your current data access.";
+const RESTRICTED_DATA_MESSAGE = 'Data unavailable with your current access.';
 
 export function SharedStoryPage({ storyId }: { storyId: string }) {
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
@@ -228,6 +232,7 @@ function SharedStoryContent({
 	isDataPending: boolean;
 	isViewingLatest: boolean;
 }) {
+	const restrictedContent = useMemo(() => prepareRestrictedStoryCode(code), [code]);
 	const isNoCacheMode = cacheSchedule === 'no-cache';
 	const useLiveUnfiltered = isViewingLatest && isNoCacheMode;
 	const filterApi = useMemo(() => ({ kind: 'shared' as const, storyId }), [storyId]);
@@ -260,9 +265,14 @@ function SharedStoryContent({
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[chart.queryId]
+						? RESTRICTED_DATA_MESSAGE
+						: undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	const renderTable = useCallback(
@@ -281,9 +291,14 @@ function SharedStoryContent({
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[table.queryId]
+						? RESTRICTED_DATA_MESSAGE
+						: undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	const renderMap = useCallback(
@@ -303,15 +318,26 @@ function SharedStoryContent({
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
 				allowExpand
+				unavailableMessage={
+					restrictedContent.hasRestrictedContent && !data?.[map.queryId] ? RESTRICTED_DATA_MESSAGE : undefined
+				}
 			/>
 		),
-		[isDataPending, noCacheQuery, useLiveUnfiltered],
+		[isDataPending, noCacheQuery, restrictedContent.hasRestrictedContent, useLiveUnfiltered],
 	);
 
 	return (
 		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
+			{restrictedContent.hasRestrictedContent && (
+				<div
+					className='mx-4 mt-4 flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground'
+					role='status'
+				>
+					<span>{RESTRICTED_STORY_MESSAGE}</span>
+				</div>
+			)}
 			<StoryTabbedContent
-				code={code}
+				code={restrictedContent.code}
 				baselineQueryData={queryData}
 				filterApi={filterApi}
 				theme={theme}
@@ -321,6 +347,30 @@ function SharedStoryContent({
 			/>
 		</div>
 	);
+}
+
+export function prepareRestrictedStoryCode(code: string): { code: string; hasRestrictedContent: boolean } {
+	if (!code.split('\n').some((line) => line.trim() === STORY_VIEWER_RESTRICTED_CODE_MARKER)) {
+		return { code, hasRestrictedContent: false };
+	}
+
+	const lines = code.split('\n').flatMap((line) => {
+		if (line.trim() === STORY_VIEWER_RESTRICTED_CODE_MARKER) {
+			return [];
+		}
+		if (line.trim() === 'Viewer-specific narrative.') {
+			return [];
+		}
+		const withoutPlaceholderHeading = line.replace(/^\s*#{1,6}\s+Viewer-specific section\s*/, '');
+		return [withoutPlaceholderHeading];
+	});
+	return {
+		code: lines
+			.join('\n')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim(),
+		hasRestrictedContent: true,
+	};
 }
 
 /** Archived stories cannot be referenced or duplicated, and viewers cannot chat. */
