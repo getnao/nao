@@ -492,6 +492,58 @@ export async function claimStandaloneStoryChat(storyId: string, chatId: string):
 	return claimed.length > 0;
 }
 
+/**
+ * Hands a story to its new owner outside any chat, no longer live, unless it left the chat it was in meanwhile.
+ * The chat it leaves and its slug there are kept, so that chat can still tell where the story went.
+ */
+export async function detachStoryToOwner(
+	story: Pick<DBStory, 'id' | 'chatId' | 'slug'>,
+	owner: { userId: string; projectId: string; slug: string },
+	executor: DBExecutor = db,
+): Promise<boolean> {
+	const transferredFrom = story.chatId
+		? { transferredFromChatId: story.chatId, transferredFromSlug: story.slug }
+		: {};
+	const detached = await executor
+		.update(s.story)
+		.set({ ...owner, ...transferredFrom, chatId: null, isLive: false })
+		.where(and(eq(s.story.id, story.id), story.chatId ? eq(s.story.chatId, story.chatId) : isNull(s.story.chatId)))
+		.returning({ id: s.story.id })
+		.execute();
+	return detached.length > 0;
+}
+
+export interface TransferredStory {
+	id: string;
+	ownerName: string;
+}
+
+export async function findStoryTransferredOutOfChat(chatId: string, slug: string): Promise<TransferredStory | null> {
+	const [row] = await db
+		.select({ id: s.story.id, ownerName: s.user.name })
+		.from(s.story)
+		.innerJoin(s.user, eq(s.user.id, s.story.userId))
+		.where(and(eq(s.story.transferredFromChatId, chatId), eq(s.story.transferredFromSlug, slug)))
+		.limit(1)
+		.execute();
+	return row ?? null;
+}
+
+export async function listOwnedStoryIdsInProject(userId: string, projectId: string): Promise<string[]> {
+	const rows = await db
+		.select({ id: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(
+			or(
+				and(eq(s.chat.userId, userId), eq(s.chat.projectId, projectId)),
+				and(isNull(s.story.chatId), eq(s.story.userId, userId), eq(s.story.projectId, projectId)),
+			),
+		)
+		.execute();
+	return rows.map((row) => row.id);
+}
+
 export async function archiveStory(chatId: string, slug: string): Promise<void> {
 	const matcher = and(eq(s.story.chatId, chatId), eq(s.story.slug, slug));
 	await db.update(s.story).set({ archivedAt: new Date() }).where(matcher).execute();
@@ -872,9 +924,10 @@ export async function upsertStoryDataCacheByStoryId(
 	storyId: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 	analysisResults?: Record<string, string> | null,
+	executor: DBExecutor = db,
 ): Promise<void> {
 	const narratives = analysisResults === undefined ? {} : { analysisResults };
-	await db
+	await executor
 		.insert(s.storyDataCache)
 		.values({ storyId, queryData, querySources: null, cachedAt: new Date(), ...narratives })
 		.onConflictDoUpdate({

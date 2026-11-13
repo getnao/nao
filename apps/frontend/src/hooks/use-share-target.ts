@@ -19,6 +19,7 @@ type StoryShareLookup = { chatId: string; storySlug: string } | { storyId: strin
 
 export interface ShareModel {
 	itemLabel: 'chat' | 'story';
+	storyId: string | null;
 	owner: ShareOwner | null;
 	grants: ShareGrant[];
 	generalAccess: GeneralAccess;
@@ -140,6 +141,7 @@ function useStoryShareLookup(target: StoryShareLookup | null): StoryShareLookup 
 function toChatModel(settings: ChatShareSettings): ShareModel {
 	return {
 		itemLabel: 'chat',
+		storyId: null,
 		owner: settings.owner,
 		grants: [
 			...settings.groups.map((group) => ({
@@ -187,6 +189,7 @@ function toStoryModel(settings: StoryShareSettings): ShareModel {
 	}));
 	return {
 		itemLabel: 'story',
+		storyId: settings.storyId,
 		owner: settings.owner,
 		grants: [...groups, ...people],
 		generalAccess: { visibility: settings.visibility, projectRole: settings.projectRole },

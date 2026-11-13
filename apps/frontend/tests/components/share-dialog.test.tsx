@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ShareModel } from '@/hooks/use-share-target';
 import type { ShareDraft } from '@/lib/share-draft';
 import type * as ShareDialogHooks from '@/hooks/use-share-dialog';
+import type { ShareOwner } from '@/lib/share-access';
 import { ShareDialog } from '@/components/share-dialog';
 
 const ADA_GRANT = {
@@ -15,16 +16,34 @@ const ADA_GRANT = {
 	detail: '',
 	role: 'viewer' as const,
 };
+const ADA = { id: 'ada', name: 'Ada', email: 'ada@example.com' };
+const GRACE = { id: 'grace', name: 'Grace', email: 'grace@example.com' };
 
 const mocks = vi.hoisted(() => ({
 	model: undefined as ShareModel | undefined,
 	save: vi.fn(),
+	transfer: vi.fn(),
 	editDraft: undefined as ((draft: ShareDraft) => void) | undefined,
+	changeOwner: undefined as ((owner: ShareOwner) => void) | undefined,
 	canShareToProject: false,
 }));
 
-vi.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: false }) }));
-vi.mock('@/main', () => ({ trpc: { authConfig: { smtp: { isSetup: { queryOptions: () => ({}) } } } } }));
+vi.mock('@tanstack/react-query', () => ({
+	useQuery: (options: { queryKey?: string[] }) => ({
+		data: options.queryKey?.[0] === 'transferRecipients' ? [] : false,
+	}),
+	useQueryClient: () => ({}),
+	useMutation: () => ({ mutate: mocks.transfer, reset: vi.fn(), isPending: false, error: null }),
+}));
+vi.mock('@/main', () => ({
+	trpc: {
+		authConfig: { smtp: { isSetup: { queryOptions: () => ({}) } } },
+		story: {
+			listTransferRecipients: { queryOptions: () => ({ queryKey: ['transferRecipients'] }) },
+			transferOwnership: { mutationOptions: () => ({}) },
+		},
+	},
+}));
 vi.mock('@/lib/auth-client', () => ({ useSession: () => ({ data: { user: { id: 'owner' } } }) }));
 vi.mock('@/hooks/use-share-target', () => ({
 	useShareTarget: () => ({
@@ -40,8 +59,17 @@ vi.mock('@/hooks/use-share-dialog', async (importOriginal) => ({
 	useShareCandidates: () => ({ candidates: [], isLoading: false }),
 }));
 vi.mock('@/components/share-access-panel', () => ({
-	ShareAccessPanel: ({ draft, onDraftChange }: { draft: ShareDraft; onDraftChange: (draft: ShareDraft) => void }) => {
+	ShareAccessPanel: ({
+		draft,
+		onDraftChange,
+		onChangeOwner,
+	}: {
+		draft: ShareDraft;
+		onDraftChange: (draft: ShareDraft) => void;
+		onChangeOwner?: (owner: ShareOwner) => void;
+	}) => {
 		mocks.editDraft = onDraftChange;
+		mocks.changeOwner = onChangeOwner;
 		return <output aria-label='draft'>{`${draft.visibility}:${draft.grants.length}`}</output>;
 	},
 }));
@@ -109,6 +137,28 @@ describe('ShareDialog', () => {
 			expect.anything(),
 		);
 	});
+
+	it('transfers ownership to the member picked, once confirmed', () => {
+		renderDialog();
+		act(() => mocks.changeOwner?.(GRACE));
+
+		expect(mocks.transfer).not.toHaveBeenCalled();
+		const confirmation = screen.getByRole('dialog', { name: 'Transfer ownership to Grace?' });
+		fireEvent.click(within(confirmation).getByRole('button', { name: 'Transfer' }));
+
+		expect(mocks.transfer).toHaveBeenCalledWith({ storyId: 'story-1', recipientId: 'grace' });
+	});
+
+	it('cancels an ownership transfer without running it', () => {
+		renderDialog();
+		act(() => mocks.changeOwner?.(ADA));
+
+		const confirmation = screen.getByRole('dialog', { name: 'Transfer ownership to Ada?' });
+		fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+
+		expect(screen.queryByRole('dialog', { name: 'Transfer ownership to Ada?' })).toBeNull();
+		expect(mocks.transfer).not.toHaveBeenCalled();
+	});
 });
 
 const STORY_TARGET = { kind: 'story' as const, chatId: 'chat-1', storySlug: 'revenue' };
@@ -120,6 +170,7 @@ function renderDialog() {
 function storyModel(model: Partial<ShareModel>): ShareModel {
 	return {
 		itemLabel: 'story',
+		storyId: 'story-1',
 		owner: { id: 'owner', name: 'Owner', email: 'owner@example.com' },
 		grants: [],
 		generalAccess: { visibility: 'specific', projectRole: 'viewer' },

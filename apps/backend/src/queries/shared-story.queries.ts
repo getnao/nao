@@ -175,6 +175,22 @@ export function listProjectArchivedSharedStories(projectId: string): Promise<Sha
 	);
 }
 
+/** Makes `userId` the sharer of the story, giving it a private share if it had none. */
+export async function setSharedStorySharer(
+	storyId: string,
+	projectId: string,
+	userId: string,
+	executor: DBExecutor = db,
+): Promise<string> {
+	const [row] = await executor
+		.insert(s.sharedStory)
+		.values({ storyId, projectId, userId, visibility: 'specific' })
+		.onConflictDoUpdate({ target: [s.sharedStory.projectId, s.sharedStory.storyId], set: { userId } })
+		.returning({ id: s.sharedStory.id })
+		.execute();
+	return row.id;
+}
+
 export async function pinSharedStory(storyId: string): Promise<void> {
 	await db.update(s.sharedStory).set({ isPinned: true }).where(eq(s.sharedStory.storyId, storyId)).execute();
 }
@@ -211,8 +227,9 @@ export async function getQueryDataFromCode(
 export async function getSharedStoryInfo(
 	storyId: string,
 	projectId: string,
+	executor: DBExecutor = db,
 ): Promise<Pick<DBSharedStory, 'id' | 'visibility' | 'projectRole'> | null> {
-	const [row] = await db
+	const [row] = await executor
 		.select({
 			id: s.sharedStory.id,
 			visibility: s.sharedStory.visibility,
