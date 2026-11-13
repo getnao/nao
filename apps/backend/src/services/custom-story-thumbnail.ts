@@ -1,5 +1,5 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
-import type { StoryQueryResult } from '@nao/shared/story-app';
+import { STORY_QUERY_ACCESS_DENIED_MESSAGE, type StoryQueryResult } from '@nao/shared/story-app';
 import { STORY_THEME_MODES, type StoryThemeMode, type StoryThemePair } from '@nao/shared/story-theme';
 import { createHash } from 'crypto';
 
@@ -7,19 +7,25 @@ import type { DBStory, DBStoryAppState } from '../db/abstractSchema';
 import * as storyQueries from '../queries/story.queries';
 import * as storyAppStateQueries from '../queries/story-app-state.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
-import * as userGroupQueries from '../queries/user-group.queries';
 import { logger } from '../utils/logger';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { isBrokenRender, renderStoryScreenshot } from '../utils/story-screenshot';
 import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
 import { listStoryChartPlugins } from './chart-plugin';
 import {
+	CustomStoryNotFoundError,
+	CustomStoryQueryExecutionError,
 	type CustomStoryVersionView,
 	getActiveThemeForStory,
+	getCustomStoryNarratives,
+	getCustomStoryQueryData,
 	getLatestCustomStoryVersionByStoryId,
 	getStoredCustomStoryQueryDataByStoryId,
 } from './custom-story';
 import { buildCustomStoryDocumentByStoryId } from './custom-story-export';
+import { getCustomStoryStateByStoryId } from './custom-story-state';
+import { createStoryExecutionContext } from './live-story';
+import { hasEffectiveWarehouseRestrictions } from './user-group-context-access.service';
 
 const THUMBNAIL_VIEWPORT = { width: 1280, height: 980 };
 const THUMBNAIL_WIDTH = 640;
@@ -27,6 +33,8 @@ const THUMBNAIL_QUALITY = 80;
 const RETRY_AFTER_MS = 2 * 60 * 1000;
 const MISSING_DATA_RETRY_AFTER_MS = 15 * 1000;
 const MAX_BROKEN_RENDERS = 3;
+const VIEWER_THUMBNAIL_TTL_MS = 60 * 1000;
+const MAX_VIEWER_THUMBNAILS = 100;
 /** Stored in place of a mode's image when the version has no app or that mode kept rendering broken: never retried. */
 const UNRENDERABLE = '';
 const CHART_PLUGINS_FINGERPRINT_TTL_MS = 60 * 1000;
@@ -47,7 +55,10 @@ interface RenderFailure {
 
 const queuedVersionIds = new Set<string>();
 const failuresByStoryId = new Map<string, RenderFailure>();
+const viewerThumbnails = new Map<string, { image: Buffer; expiresAt: number }>();
+const pendingViewerThumbnails = new Map<string, Promise<Buffer | null>>();
 let renderQueue: Promise<void> = Promise.resolve();
+let viewerScreenshotQueue: Promise<void> = Promise.resolve();
 
 class MissingStoryDataError extends Error {}
 
@@ -75,7 +86,7 @@ export async function canShowStoredCustomStoryThumbnail(storyId: string, userId:
 		return true;
 	}
 	const projectId = await storyQueries.getStoryProjectId(storyId);
-	return projectId !== null && (await userGroupQueries.getProjectRowSecurity(projectId)).tables.length === 0;
+	return projectId !== null && !(await hasEffectiveWarehouseRestrictions(projectId, userId));
 }
 
 /** Reads the latest version's WebP thumbnail without waiting on a render, queueing stale or missing images in the background. */
@@ -104,6 +115,119 @@ export async function getCustomStoryThumbnail(
 		isCurrent,
 		image: Buffer.from(image, 'base64'),
 	};
+}
+
+export async function getViewerCustomStoryThumbnail(
+	story: DBStory,
+	viewerUserId: string,
+	mode: StoryThemeMode = 'light',
+): Promise<Buffer | null> {
+	const chatId = story.chatId;
+	if (!chatId) {
+		return null;
+	}
+	let version: CustomStoryVersionView;
+	try {
+		version = await getLatestCustomStoryVersionByStoryId(story.id);
+	} catch (error) {
+		if (error instanceof CustomStoryNotFoundError) {
+			return null;
+		}
+		throw error;
+	}
+	const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
+	const key = `${version.version.id}:${viewerUserId}:${executionContext.permissionRevision}:${mode}`;
+	const cached = viewerThumbnails.get(key);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.image;
+	}
+	const pending = pendingViewerThumbnails.get(key);
+	if (pending) {
+		return pending;
+	}
+	const rendering = renderViewerThumbnail(story, version, viewerUserId, mode)
+		.catch((error) => {
+			logFailure(version.version.id, error);
+			return null;
+		})
+		.then((image) => {
+			if (image) {
+				cacheViewerThumbnail(key, image);
+			}
+			return image;
+		})
+		.finally(() => pendingViewerThumbnails.delete(key));
+	pendingViewerThumbnails.set(key, rendering);
+	return rendering;
+}
+
+function queueViewerThumbnailScreenshot(render: () => Promise<Buffer | null>): Promise<Buffer | null> {
+	const rendering = viewerScreenshotQueue.then(render);
+	viewerScreenshotQueue = rendering.then(
+		() => undefined,
+		() => undefined,
+	);
+	return rendering;
+}
+
+async function renderViewerThumbnail(
+	story: DBStory,
+	version: CustomStoryVersionView,
+	viewerUserId: string,
+	mode: StoryThemeMode,
+): Promise<Buffer | null> {
+	if (!story.chatId) {
+		return null;
+	}
+	const chatId = story.chatId;
+	const [queryEntries, narratives, state] = await Promise.all([
+		Promise.all(
+			version.queryIds.map(async (queryId): Promise<[string, StoryQueryResult] | null> => {
+				try {
+					const result = await getCustomStoryQueryData(chatId, story.slug, queryId, {
+						storyVersionId: version.version.id,
+						viewerUserId,
+					});
+					return [queryId, result];
+				} catch (error) {
+					if (
+						error instanceof CustomStoryQueryExecutionError &&
+						error.message === STORY_QUERY_ACCESS_DENIED_MESSAGE
+					) {
+						return [queryId, { columns: [], data: [], accessDenied: true }];
+					}
+					throw error;
+				}
+			}),
+		),
+		getCustomStoryNarratives(chatId, story.slug, {
+			storyVersionId: version.version.id,
+			viewerUserId,
+		}),
+		getCustomStoryStateByStoryId(story.id, viewerUserId),
+	]);
+	const queryData = Object.fromEntries(
+		queryEntries.filter((entry): entry is [string, StoryQueryResult] => entry !== null),
+	);
+	const html = await buildCustomStoryDocumentByStoryId(story.id, version, queryData, mode, {
+		narratives,
+		state,
+	});
+	return queueViewerThumbnailScreenshot(async () => {
+		const { image, ...render } = await renderStoryScreenshot(
+			html,
+			THUMBNAIL_VIEWPORT,
+			themeFontStylesheets(version.theme),
+		);
+		return isBrokenRender(render) ? null : toThumbnailImage(image);
+	});
+}
+
+function cacheViewerThumbnail(key: string, image: Buffer): void {
+	if (viewerThumbnails.size >= MAX_VIEWER_THUMBNAILS) {
+		viewerThumbnails.delete(viewerThumbnails.keys().next().value!);
+	}
+	viewerThumbnails.set(key, { image, expiresAt: Date.now() + VIEWER_THUMBNAIL_TTL_MS });
 }
 
 /** Renders thumbnails in the background one at a time so they do not compete with viewers. */
@@ -283,7 +407,11 @@ function chartPluginsFingerprint(plugins: ChartPluginManifestEntry[]): string {
 }
 
 function parseThumbnails(raw: string | undefined): ModeThumbnails {
-	return raw ? (JSON.parse(raw) as ModeThumbnails) : {};
+	if (!raw) {
+		return {};
+	}
+	const parsed = JSON.parse(raw) as ModeThumbnails & { images?: ModeThumbnails };
+	return parsed.images ?? parsed;
 }
 
 function logFailure(versionId: string, error: unknown): void {

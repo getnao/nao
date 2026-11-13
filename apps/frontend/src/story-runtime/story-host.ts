@@ -4,6 +4,7 @@ import {
 	isStoryHostMessage,
 	STORY_HTML_API_GLOBAL,
 	STORY_PRINT_FLAG,
+	STORY_QUERY_ACCESS_DENIED_MESSAGE,
 } from '@nao/shared/story-app';
 import { STORY_THEME_STYLE_ID, storyThemeStyles } from '@nao/shared/story-document';
 import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
@@ -492,7 +493,10 @@ function send(message: StoryFrameMessage): void {
 
 function readExportedQuery(data: StoryExportData, queryId: string): Promise<StoryQueryResult> {
 	const result = data.queries[queryId];
-	return result ? Promise.resolve(result) : Promise.reject(new Error(`Query ${queryId} is not part of this export.`));
+	if (!result) {
+		return Promise.reject(new Error(`Query ${queryId} is not part of this export.`));
+	}
+	return result.accessDenied ? Promise.reject(new Error(STORY_QUERY_ACCESS_DENIED_MESSAGE)) : Promise.resolve(result);
 }
 
 function readExportedRequest(data: StoryExportData, requestKey: string): Promise<StoryQueryResult> {

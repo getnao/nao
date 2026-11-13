@@ -6,7 +6,11 @@ import { z } from 'zod/v4';
 import type { App } from '../app';
 import { authMiddleware } from '../middleware/auth';
 import * as storyQueries from '../queries/story.queries';
-import { canShowStoredCustomStoryThumbnail, getCustomStoryThumbnail } from '../services/custom-story-thumbnail';
+import {
+	canShowStoredCustomStoryThumbnail,
+	getCustomStoryThumbnail,
+	getViewerCustomStoryThumbnail,
+} from '../services/custom-story-thumbnail';
 import { HandlerError } from '../utils/error';
 
 const paramsSchema = z.object({
@@ -30,26 +34,27 @@ export const storyThumbnailRoutes = async (app: App) => {
 			if (
 				!story ||
 				story.format !== 'custom' ||
-				!(await storyQueries.canUserAccessStory(storyId, request.user.id)) ||
-				!(await canShowStoredCustomStoryThumbnail(storyId, request.user.id))
+				!(await storyQueries.canUserAccessStory(storyId, request.user.id))
 			) {
 				throw new HandlerError('NOT_FOUND', 'Story not found');
 			}
 
-			const thumbnail = await getCustomStoryThumbnail(story, mode);
-			if (!thumbnail) {
+			const canShowStoredThumbnail = await canShowStoredCustomStoryThumbnail(storyId, request.user.id);
+			const image = canShowStoredThumbnail
+				? (await getCustomStoryThumbnail(story, mode))?.image
+				: await getViewerCustomStoryThumbnail(story, request.user.id, mode);
+			if (!image) {
 				return reply
 					.status(404)
 					.header('Cache-Control', 'no-store')
 					.send({ error: 'Thumbnail not rendered yet' });
 			}
-
-			const etag = thumbnailEtag(thumbnail.image);
+			const etag = thumbnailEtag(image);
 			reply.header('Cache-Control', 'private, no-cache').header('ETag', etag);
 			if (matchesEtag(request.headers['if-none-match'], etag)) {
 				return reply.status(304).send();
 			}
-			return reply.header('Content-Type', 'image/webp').send(thumbnail.image);
+			return reply.header('Content-Type', 'image/webp').send(image);
 		},
 	);
 };

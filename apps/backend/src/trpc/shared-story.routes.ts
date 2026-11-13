@@ -102,7 +102,11 @@ export const sharedStoryRoutes = {
 			return [];
 		}
 		const stories = await sharedStoryQueries.listUserSharedStories(input.projectId, ctx.user.id);
-		const items = stories.map(({ id: _shareId, ...story }) => ({
+		const hasViewerRestrictions = await hasEffectiveWarehouseRestrictions(input.projectId, ctx.user.id);
+		const visibleStories = hasViewerRestrictions
+			? stories.filter((story) => story.chatId || story.ownerUserId === ctx.user.id)
+			: stories;
+		const items = visibleStories.map(({ id: _shareId, ...story }) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
@@ -113,7 +117,6 @@ export const sharedStoryRoutes = {
 				isPinned: story.isPinned,
 			},
 		}));
-		const hasViewerRestrictions = await hasEffectiveWarehouseRestrictions(input.projectId, ctx.user.id);
 		const storiesWithPreview = hasViewerRestrictions
 			? items.map((story) => ({ ...story, kpiPreviewData: null }))
 			: await withKpiPreviewData(items, (story) => story.storyId);

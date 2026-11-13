@@ -1,5 +1,6 @@
 import '../../src/env';
 
+import { STORY_QUERY_ACCESS_DENIED_MESSAGE } from '@nao/shared/story-app';
 import { DEFAULT_DARK_STORY_THEME, DEFAULT_STORY_THEME, type StoryThemePair } from '@nao/shared/story-theme';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
@@ -12,6 +13,7 @@ import * as storyFileQueries from '../../src/queries/story-file.queries';
 import {
 	canShowStoredCustomStoryThumbnail,
 	getCustomStoryThumbnail,
+	getViewerCustomStoryThumbnail,
 	queueCustomStoryThumbnail,
 } from '../../src/services/custom-story-thumbnail';
 import type { StoryScreenshot } from '../../src/utils/story-screenshot';
@@ -26,47 +28,125 @@ const screenshots = vi.hoisted(() => ({
 	darkImage: null as unknown as Buffer,
 	brokenModes: [] as string[],
 	calls: 0,
+	activeCalls: 0,
+	maxActiveCalls: 0,
+	delayMs: 0,
 }));
 vi.mock('../../src/utils/story-screenshot', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../src/utils/story-screenshot')>()),
 	renderStoryScreenshot: async (html: string) => {
 		screenshots.calls++;
-		const isBroken = screenshots.brokenModes.some((mode) => html.includes(`data-mode="${mode}"`));
-		if (isBroken) {
-			return { ...screenshots.render, blockErrors: ['Something went wrong.'] };
+		screenshots.activeCalls++;
+		screenshots.maxActiveCalls = Math.max(screenshots.maxActiveCalls, screenshots.activeCalls);
+		try {
+			if (screenshots.delayMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, screenshots.delayMs));
+			}
+			const isBroken = screenshots.brokenModes.some((mode) => html.includes(`data-mode="${mode}"`));
+			if (isBroken) {
+				return { ...screenshots.render, blockErrors: ['Something went wrong.'] };
+			}
+			return html.includes('data-mode="dark"')
+				? { ...screenshots.render, image: screenshots.darkImage }
+				: screenshots.render;
+		} finally {
+			screenshots.activeCalls--;
 		}
-		return html.includes('data-mode="dark"')
-			? { ...screenshots.render, image: screenshots.darkImage }
-			: screenshots.render;
 	},
 }));
 
-const documents = vi.hoisted(() => ({ modes: [] as string[] }));
+const documents = vi.hoisted(() => ({
+	modes: [] as string[],
+	queryData: [] as Record<string, unknown>[],
+	options: [] as unknown[],
+}));
 vi.mock('../../src/services/custom-story-export', () => ({
 	buildCustomStoryDocumentByStoryId: async (
 		_storyId: string,
 		_version: unknown,
-		_queryData: unknown,
+		queryData: Record<string, unknown>,
 		mode: string,
+		options?: unknown,
 	) => {
 		documents.modes.push(mode);
+		documents.queryData.push(queryData);
+		documents.options.push(options);
 		return `<html data-mode="${mode}"></html>`;
 	},
 }));
 const versionIds = vi.hoisted(() => ({ current: '' }));
 const queries = vi.hoisted(() => ({ ids: [] as string[], saved: [] as string[] }));
 const themes = vi.hoisted(() => ({ active: null as StoryThemePair | null }));
-vi.mock('../../src/services/custom-story', async (importOriginal) => ({
-	...(await importOriginal<typeof import('../../src/services/custom-story')>()),
-	getLatestCustomStoryVersionByStoryId: async () => ({
-		version: { id: versionIds.current },
-		app: { kind: 'react', bundle: 'bundle' },
-		queryIds: queries.ids,
-		theme: themes.active,
-	}),
-	getActiveThemeForStory: async () => themes.active,
-	getStoredCustomStoryQueryDataByStoryId: async () =>
-		Object.fromEntries(queries.saved.map((queryId) => [queryId, { data: [], columns: [] }])),
+const viewer = vi.hoisted(() => ({
+	queryData: {} as Record<string, { data: unknown[]; columns: string[] }>,
+	ownerQueryData: {} as Record<string, { data: unknown[]; columns: string[] }>,
+	narratives: {} as Record<string, string>,
+	ownerNarratives: {} as Record<string, string>,
+	revision: 'revision-1',
+	deniedQueryIds: new Set<string>(),
+	narrativeGate: null as Promise<void> | null,
+	narrativeGateSlug: null as string | null,
+	queryCalls: [] as {
+		chatId: string;
+		storySlug: string;
+		queryId: string;
+		options?: { storyVersionId?: string; viewerUserId?: string };
+	}[],
+	narrativeCalls: [] as {
+		chatId: string;
+		storySlug: string;
+		options?: { storyVersionId?: string; viewerUserId?: string };
+	}[],
+}));
+vi.mock('../../src/services/custom-story', async (importOriginal) => {
+	const original = await importOriginal<typeof import('../../src/services/custom-story')>();
+	return {
+		...original,
+		getLatestCustomStoryVersionByStoryId: async () => {
+			if (!versionIds.current) {
+				throw new original.CustomStoryNotFoundError();
+			}
+			return {
+				version: { id: versionIds.current },
+				app: { kind: 'react', bundle: 'bundle' },
+				queryIds: queries.ids,
+				theme: themes.active,
+			};
+		},
+		getActiveThemeForStory: async () => themes.active,
+		getCustomStoryQueryData: async (
+			chatId: string,
+			storySlug: string,
+			queryId: string,
+			options?: { storyVersionId?: string; viewerUserId?: string },
+		) => {
+			viewer.queryCalls.push({ chatId, storySlug, queryId, options });
+			if (viewer.deniedQueryIds.has(queryId)) {
+				throw new original.CustomStoryQueryExecutionError(STORY_QUERY_ACCESS_DENIED_MESSAGE);
+			}
+			return options?.viewerUserId ? viewer.queryData[queryId] : viewer.ownerQueryData[queryId];
+		},
+		getCustomStoryNarratives: async (
+			chatId: string,
+			storySlug: string,
+			options?: { storyVersionId?: string; viewerUserId?: string },
+		) => {
+			viewer.narrativeCalls.push({ chatId, storySlug, options });
+			if (viewer.narrativeGate && viewer.narrativeGateSlug === storySlug) {
+				await viewer.narrativeGate;
+			}
+			return options?.viewerUserId ? viewer.narratives : viewer.ownerNarratives;
+		},
+		getStoredCustomStoryQueryDataByStoryId: async () =>
+			Object.fromEntries(queries.saved.map((queryId) => [queryId, { data: [], columns: [] }])),
+	};
+});
+vi.mock('../../src/services/custom-story-state', () => ({
+	getCustomStoryStateByStoryId: async () => ({ shared: {}, own: {} }),
+}));
+vi.mock('../../src/services/live-story', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/services/live-story')>()),
+	createStoryExecutionContext: async () => ({ permissionRevision: viewer.revision }),
 }));
 
 const STORY_ID = 'story-1';
@@ -80,6 +160,7 @@ describe('custom story thumbnails', () => {
 			{ id: 'user-2', name: 'Viewer', email: 'viewer@example.com' },
 		]);
 		await db.insert(s.project).values({ id: 'project-1', name: 'Project', type: 'local', path: '/tmp/project' });
+		await db.insert(s.projectMember).values({ projectId: 'project-1', userId: 'user-2', role: 'viewer' });
 		await db.insert(s.chat).values({ id: 'chat-1', projectId: 'project-1', userId: 'user-1', title: 'Chat' });
 		await db
 			.insert(s.story)
@@ -109,10 +190,25 @@ describe('custom story thumbnails', () => {
 			.set({ rowSecurity: { version: 1, tables: [] } })
 			.where(eq(s.project.id, 'project-1'));
 		screenshots.calls = 0;
+		screenshots.activeCalls = 0;
+		screenshots.maxActiveCalls = 0;
+		screenshots.delayMs = 0;
 		screenshots.brokenModes = [];
 		screenshots.render = await cleanScreenshot('#ffffff');
 		screenshots.darkImage = (await cleanScreenshot('#000000')).image;
 		documents.modes = [];
+		documents.queryData = [];
+		documents.options = [];
+		viewer.queryData = {};
+		viewer.ownerQueryData = {};
+		viewer.narratives = {};
+		viewer.ownerNarratives = {};
+		viewer.revision = crypto.randomUUID();
+		viewer.deniedQueryIds.clear();
+		viewer.narrativeGate = null;
+		viewer.narrativeGateSlug = null;
+		viewer.queryCalls = [];
+		viewer.narrativeCalls = [];
 		versionIds.current = await publishVersion();
 	});
 
@@ -134,8 +230,115 @@ describe('custom story thumbnails', () => {
 		expect(documents.modes).toEqual(['light', 'dark']);
 	});
 
-	it('hides stored thumbnails from non-owners when the project has row security', async () => {
-		await expect(canShowStoredCustomStoryThumbnail(STORY_ID, 'user-2')).resolves.toBe(true);
+	it('renders restricted thumbnails from viewer-scoped data and narratives', async () => {
+		queries.ids = ['orders'];
+		viewer.queryData = { orders: { data: [{ total: 12 }], columns: ['total'] } };
+		viewer.ownerQueryData = { orders: { data: [{ total: 999 }], columns: ['total'] } };
+		viewer.narratives = { summary: 'Viewer-safe summary' };
+		viewer.ownerNarratives = { summary: 'Owner-only summary' };
+		const story = await storyQueries.getStoryById(STORY_ID);
+
+		const thumbnail = await getViewerCustomStoryThumbnail(story!, 'user-2');
+
+		expect((await sharp(thumbnail!).metadata()).format).toBe('webp');
+		expect(viewer.queryCalls).toEqual([
+			{
+				chatId: 'chat-1',
+				storySlug: 'revenue',
+				queryId: 'orders',
+				options: { storyVersionId: versionIds.current, viewerUserId: 'user-2' },
+			},
+		]);
+		expect(viewer.narrativeCalls).toEqual([
+			{
+				chatId: 'chat-1',
+				storySlug: 'revenue',
+				options: { storyVersionId: versionIds.current, viewerUserId: 'user-2' },
+			},
+		]);
+		expect(documents.queryData).toEqual([viewer.queryData]);
+		expect(documents.options).toEqual([expect.objectContaining({ narratives: viewer.narratives })]);
+	});
+
+	it('renders only one viewer thumbnail at a time', async () => {
+		screenshots.delayMs = 25;
+		const story = await storyQueries.getStoryById(STORY_ID);
+
+		const thumbnails = await Promise.all([
+			getViewerCustomStoryThumbnail(story!, 'user-2', 'light'),
+			getViewerCustomStoryThumbnail(story!, 'user-2', 'dark'),
+		]);
+
+		expect(thumbnails.every((thumbnail) => thumbnail !== null)).toBe(true);
+		expect(screenshots.calls).toBe(2);
+		expect(screenshots.maxActiveCalls).toBe(1);
+	});
+
+	it('does not let slow viewer data preparation block a ready screenshot', async () => {
+		let releaseNarratives!: () => void;
+		viewer.narrativeGateSlug = 'revenue';
+		viewer.narrativeGate = new Promise((resolve) => {
+			releaseNarratives = resolve;
+		});
+		const slowStory = await storyQueries.getStoryById(STORY_ID);
+		const readyStory = await storyQueries.getStoryById(LIVE_STORY_ID);
+
+		const slowThumbnail = getViewerCustomStoryThumbnail(slowStory!, 'user-2', 'light');
+		await vi.waitUntil(() => viewer.narrativeCalls.some(({ storySlug }) => storySlug === 'revenue'));
+		const readyThumbnail = getViewerCustomStoryThumbnail(readyStory!, 'user-2', 'dark');
+
+		await vi.waitUntil(() => screenshots.calls === 1);
+		expect(documents.modes).toEqual(['dark']);
+
+		releaseNarratives();
+		await expect(Promise.all([slowThumbnail, readyThumbnail])).resolves.toHaveLength(2);
+		expect(screenshots.calls).toBe(2);
+		expect(screenshots.maxActiveCalls).toBe(1);
+	});
+
+	it('renders restricted thumbnails with a safe result for denied queries', async () => {
+		queries.ids = ['orders'];
+		viewer.deniedQueryIds.add('orders');
+		const story = await storyQueries.getStoryById(STORY_ID);
+
+		const thumbnail = await getViewerCustomStoryThumbnail(story!, 'user-2');
+
+		expect(thumbnail).not.toBeNull();
+		expect(documents.queryData).toContainEqual({
+			orders: { columns: [], data: [], accessDenied: true },
+		});
+	});
+
+	it('does not render viewer thumbnails for standalone stories', async () => {
+		const story = await storyQueries.getStoryById(STANDALONE_STORY_ID);
+
+		await expect(getViewerCustomStoryThumbnail(story!, 'user-2')).resolves.toBeNull();
+	});
+
+	it('does not render viewer thumbnails without a published version', async () => {
+		versionIds.current = '';
+		const story = await storyQueries.getStoryById(STORY_ID);
+
+		await expect(getViewerCustomStoryThumbnail(story!, 'user-2')).resolves.toBeNull();
+	});
+
+	it('reads thumbnails stored with metadata', async () => {
+		const story = await storyQueries.getStoryById(STORY_ID);
+		const original = await vi.waitUntil(() => getCustomStoryThumbnail(story!));
+		const stored = await storyFileQueries.getVersionThumbnail(versionIds.current);
+		await storyFileQueries.setVersionThumbnail(
+			versionIds.current,
+			JSON.stringify({ images: JSON.parse(stored!.thumbnail), styles: {} }),
+			stored!.renderKey,
+		);
+
+		const thumbnail = await getCustomStoryThumbnail(story!);
+
+		expect(thumbnail?.image.equals(original.image)).toBe(true);
+	});
+
+	it('hides stored thumbnails from restricted non-owners', async () => {
+		await expect(canShowStoredCustomStoryThumbnail(STORY_ID, 'user-2')).resolves.toBe(false);
 		await db
 			.update(s.project)
 			.set({

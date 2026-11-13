@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import {
 	STORY_NARRATIVES_REDACT_MISSING_KEY,
+	STORY_QUERY_ACCESS_DENIED_MESSAGE,
 	STORY_VIEWER_RESTRICTED_CODE_MARKER,
 	type StoryNarratives,
 } from '@nao/shared/story-app';
@@ -101,7 +102,7 @@ export async function executeLiveQuery(
 	);
 	const result = queryData[queryId]!;
 	if (result.accessDenied) {
-		throw new Error('Query data is unavailable with your current access.');
+		throw new Error(STORY_QUERY_ACCESS_DENIED_MESSAGE);
 	}
 	return result;
 }
