@@ -1,12 +1,20 @@
 import { useMemo, useState } from 'react';
-import { Globe, Loader2, SearchIcon, Users } from 'lucide-react';
+import { ChevronDown, Globe, Loader2, SearchIcon, Users } from 'lucide-react';
 import type { ShareRole } from '@nao/shared/types';
 
 import type { ShareCandidate, ShareOwner } from '@/lib/share-access';
 import type { ShareDraft } from '@/lib/share-draft';
 import { SHARE_ROLE_LABELS, ShareRoleSelect } from '@/components/share-role-select';
 import { Avatar } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -35,6 +43,8 @@ export interface ShareAccessPanelProps {
 	canNotify: boolean;
 	notify: boolean;
 	onNotifyChange: (notify: boolean) => void;
+	ownerCandidates?: ShareOwner[];
+	onChangeOwner?: (owner: ShareOwner) => void;
 }
 
 export function ShareAccessPanel(props: ShareAccessPanelProps) {
@@ -146,6 +156,8 @@ function SpecificPeopleList({
 	emptyMessage,
 	withRoles,
 	canManage,
+	ownerCandidates,
+	onChangeOwner,
 }: ShareAccessPanelProps) {
 	const [defaultRole, setDefaultRole] = useState<ShareRole>('viewer');
 	const rows = canManage ? mergeWithGrants(candidates, draft) : draft.grants;
@@ -170,7 +182,16 @@ function SpecificPeopleList({
 					)}
 				</ListHeader>
 			}
-			owner={owner && <OwnerRow owner={owner} currentUserId={currentUserId} />}
+			owner={
+				owner && (
+					<OwnerRow
+						owner={owner}
+						currentUserId={currentUserId}
+						candidates={canManage ? ownerCandidates : undefined}
+						onChange={onChangeOwner}
+					/>
+				)
+			}
 			renderRow={(row) => {
 				const grant = findGrant(draft, row.key);
 				return (
@@ -213,6 +234,8 @@ function ProjectMemberList({
 	candidates,
 	isLoadingCandidates,
 	canManage,
+	ownerCandidates,
+	onChangeOwner,
 }: ShareAccessPanelProps) {
 	const people = (canManage ? mergeWithGrants(candidates, draft) : draft.grants).filter((row) => row.kind === 'user');
 
@@ -231,7 +254,16 @@ function ProjectMemberList({
 					/>
 				</ListHeader>
 			}
-			owner={owner && <OwnerRow owner={owner} currentUserId={currentUserId} />}
+			owner={
+				owner && (
+					<OwnerRow
+						owner={owner}
+						currentUserId={currentUserId}
+						candidates={canManage ? ownerCandidates : undefined}
+						onChange={onChangeOwner}
+					/>
+				)
+			}
 			renderRow={(row) => (
 				<AccessRow key={row.key} candidate={row} currentUserId={currentUserId}>
 					<RoleControl
@@ -314,14 +346,61 @@ function ListHeader({ label, children }: { label: string; children?: React.React
 	);
 }
 
-function OwnerRow({ owner, currentUserId }: { owner: ShareOwner; currentUserId?: string }) {
+function OwnerRow({
+	owner,
+	currentUserId,
+	candidates,
+	onChange,
+}: {
+	owner: ShareOwner;
+	currentUserId?: string;
+	candidates?: ShareOwner[];
+	onChange?: (owner: ShareOwner) => void;
+}) {
 	return (
 		<AccessRow
 			candidate={{ key: 'owner', kind: 'user', id: owner.id, name: owner.name, detail: owner.email }}
 			currentUserId={currentUserId}
 		>
-			<span className='px-2 text-xs text-muted-foreground'>Owner</span>
+			{onChange && candidates?.length ? (
+				<OwnerSelect candidates={candidates} onChange={onChange} />
+			) : (
+				<span className='px-2 text-xs text-muted-foreground'>Owner</span>
+			)}
 		</AccessRow>
+	);
+}
+
+function OwnerSelect({ candidates, onChange }: { candidates: ShareOwner[]; onChange: (owner: ShareOwner) => void }) {
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					variant='ghost-muted'
+					size='sm'
+					aria-label='Change owner'
+					className='h-7 shrink-0 gap-1 rounded-full px-2 text-xs font-normal'
+				>
+					Owner
+					<ChevronDown className='size-3' />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='end' className='max-h-64 w-60 overflow-y-auto'>
+				<DropdownMenuLabel className='text-xs font-normal text-muted-foreground'>
+					Transfer ownership to
+				</DropdownMenuLabel>
+				{candidates.map((candidate) => (
+					<DropdownMenuItem key={candidate.id} className='py-1.5' onSelect={() => onChange(candidate)}>
+						<div className='flex min-w-0 flex-col gap-0.5'>
+							<span className='truncate text-xs font-medium'>{candidate.name}</span>
+							<span className='truncate text-[11px] leading-tight text-muted-foreground'>
+								{candidate.email}
+							</span>
+						</div>
+					</DropdownMenuItem>
+				))}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 

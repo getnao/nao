@@ -29,6 +29,7 @@ import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
 import type { CodeSelection } from '@/stores/ask-bar';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { StoryAccessError, StoryMovedNotice } from '@/components/story-access-error';
 import { ActionErrorBanner } from '@/components/custom-story/custom-story-body';
 import { CustomStoryViewer } from '@/components/custom-story/custom-story-viewer';
 import { ReadonlyCustomStoryViewer } from '@/components/custom-story/readonly-custom-story-viewer';
@@ -81,7 +82,12 @@ export function StoryViewer(props: StoryViewerProps) {
 		() => (isReadonlyMode ? readonlyViewerAccess(props.chatId, shareSource, isReplay) : null),
 		[isReadonlyMode, isReplay, props.chatId, shareSource],
 	);
-	const format = useStoryFormat(props.chatId, props.storySlug, isReadonlyMode, viewerAccess);
+	const { format, movedStory, error, retry } = useStoryFormat(
+		props.chatId,
+		props.storySlug,
+		isReadonlyMode,
+		viewerAccess,
+	);
 	const openStoryInSidePanel = useCallback(
 		(story: { chatId: string; slug: string }) => {
 			open(<StoryViewer chatId={story.chatId} storySlug={story.slug} />, story.slug);
@@ -89,6 +95,20 @@ export function StoryViewer(props: StoryViewerProps) {
 		[open],
 	);
 
+	if (error) {
+		return (
+			<ClosableSidePanelNotice>
+				<StoryAccessError error={error} onRetry={retry} />
+			</ClosableSidePanelNotice>
+		);
+	}
+	if (movedStory) {
+		return (
+			<ClosableSidePanelNotice>
+				<StoryMovedNotice ownerName={movedStory.ownerName} storyId={movedStory.storyId} />
+			</ClosableSidePanelNotice>
+		);
+	}
 	if (format === null) {
 		return <StoryContentLoading />;
 	}
@@ -114,7 +134,7 @@ function useStoryFormat(
 	storySlug: string,
 	isReadonlyMode: boolean,
 	viewerAccess: CustomStoryViewerAccess | null,
-): StoryFormat | null {
+): { format: StoryFormat | null; movedStory?: MovedStory | null; error: unknown; retry: () => void } {
 	const ownerQuery = useQuery({
 		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
 		enabled: !isReadonlyMode,
@@ -127,12 +147,41 @@ function useStoryFormat(
 		enabled: viewerAccess !== null,
 	});
 	if (!isReadonlyMode) {
-		return ownerQuery.isPending ? null : (ownerQuery.data?.format ?? 'classic');
+		return {
+			format: ownerQuery.isPending ? null : (ownerQuery.data?.format ?? 'classic'),
+			movedStory: ownerQuery.data?.movedStory,
+			error: ownerQuery.data ? null : ownerQuery.error,
+			retry: () => void ownerQuery.refetch(),
+		};
 	}
 	if (viewerAccess) {
-		return viewerQuery.isPending ? null : (viewerQuery.data?.format ?? 'classic');
+		return {
+			format: viewerQuery.isPending ? null : (viewerQuery.data?.format ?? 'classic'),
+			error: null,
+			retry: () => void viewerQuery.refetch(),
+		};
 	}
-	return 'classic';
+	return { format: 'classic', error: null, retry: () => undefined };
+}
+
+type MovedStory = { ownerName: string; storyId: string | null };
+
+function ClosableSidePanelNotice({ children, className }: { children: React.ReactNode; className?: string }) {
+	const { close } = useSidePanel();
+	return (
+		<div className={cn('relative flex h-full', className)}>
+			<Button
+				variant='ghost'
+				size='icon-sm'
+				className='absolute top-2 left-4 z-10 hover:rounded-full'
+				onClick={close}
+				aria-label='Close'
+			>
+				<X className='size-3.5' strokeWidth={2.25} />
+			</Button>
+			{children}
+		</div>
+	);
 }
 
 function readonlyViewerAccess(
@@ -409,18 +458,9 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 			);
 		}
 		return (
-			<div className='relative flex h-full items-center justify-center text-muted-foreground text-sm'>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='absolute top-2 left-4 hover:rounded-full'
-					onClick={closeSidePanel}
-					aria-label='Close'
-				>
-					<X className='size-3.5' strokeWidth={2.25} />
-				</Button>
+			<ClosableSidePanelNotice className='items-center justify-center text-muted-foreground text-sm'>
 				{isAgentRunning ? 'Waiting for story stream...' : 'No Story content available.'}
-			</div>
+			</ClosableSidePanelNotice>
 		);
 	}
 
@@ -577,6 +617,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				open={isShareDialogOpen}
 				onOpenChange={setIsShareDialogOpen}
 				target={{ kind: 'story', chatId: chatId, storySlug: resolvedStorySlug }}
+				onStoryTransferred={closeSidePanel}
 			/>
 
 			<AssetAnalyticsDialog

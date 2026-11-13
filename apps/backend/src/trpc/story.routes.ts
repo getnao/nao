@@ -74,6 +74,13 @@ import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/s
 import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { listMostViewedStories } from '../services/story-reference';
+import { assertCanManageStoryShare, type ShareActor } from '../services/story-share-settings.service';
+import {
+	listStoryRecipients,
+	StoryTransferError,
+	transferAllStoriesOfUser,
+	transferStory,
+} from '../services/story-transfer.service';
 import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
@@ -491,6 +498,7 @@ export const storyRoutes = {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				return {
+					movedStory: await describeMovedStory(input.chatId, input.storySlug, ctx.user.id),
 					id: null as string | null,
 					title: input.storySlug,
 					format: 'classic' as StoryFormat,
@@ -508,6 +516,7 @@ export const storyRoutes = {
 				listStoryVersionChanges(story, ctx.user.id),
 			]);
 			return {
+				movedStory: null,
 				id: story.id as string | null,
 				title: story.title,
 				format: story.format,
@@ -884,6 +893,34 @@ export const storyRoutes = {
 			const certifiedAt = await storyQueries.setStoryCertification(story.id, certifiedBy);
 			return { certifiedAt };
 		}),
+
+	listTransferRecipients: canSendProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		const story = await getStoryInProject(input.storyId, ctx.project.id);
+		const actor = toShareActor(ctx);
+		await assertCanManageStoryShare(story, actor);
+		const ownerId = (await storyQueries.getStoryOwnerId(story.id)) ?? ctx.user.id;
+		const recipients = await listStoryRecipients(actor, ownerId);
+		return recipients.map(({ id, name, email }) => ({ id, name, email }));
+	}),
+
+	transferOwnership: canSendProcedure
+		.input(z.object({ storyId: z.string(), recipientId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			await withStoryTransferErrors(() => transferStory(input.storyId, input.recipientId, toShareActor(ctx)));
+		}),
+
+	countOwnedStories: adminProtectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
+		const storyIds = await storyQueries.listOwnedStoryIdsInProject(input.userId, ctx.project.id);
+		return { count: storyIds.length };
+	}),
+
+	transferAllFromUser: adminProtectedProcedure
+		.input(z.object({ fromUserId: z.string(), recipientId: z.string() }))
+		.mutation(({ input, ctx }) =>
+			withStoryTransferErrors(() =>
+				transferAllStoriesOfUser(input.fromUserId, input.recipientId, toShareActor(ctx)),
+			),
+		),
 
 	createVersion: storyEditorProcedure
 		.input(
@@ -1599,6 +1636,25 @@ async function getStandaloneHistoricalDownloadContent(storyId: string, versionNu
 	return { title: version.title, code: version.code, queryData, versionNumber: version.version };
 }
 
+async function withStoryTransferErrors<T>(run: () => Promise<T>): Promise<T> {
+	try {
+		return await run();
+	} catch (error) {
+		if (error instanceof StoryTransferError) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+		}
+		throw error;
+	}
+}
+
+function toShareActor(ctx: {
+	user: { id: string; name: string };
+	userRole: UserRole | null;
+	project: { id: string };
+}): ShareActor {
+	return { id: ctx.user.id, name: ctx.user.name, role: ctx.userRole, projectId: ctx.project.id };
+}
+
 async function getStoryInProject(storyId: string, projectId: string) {
 	const story = await storyQueries.getStoryById(storyId);
 	const storyProjectId = story ? await storyQueries.getStoryProjectId(story.id) : null;
@@ -1655,6 +1711,20 @@ function assertValidRefreshSchedule(isLive: boolean, cacheSchedule: string | nul
 			message: `Invalid cron expression for refresh schedule: ${cacheSchedule}`,
 		});
 	}
+}
+
+/** Where a story that left this chat went, and whether the user can still open it there. */
+async function describeMovedStory(
+	chatId: string,
+	storySlug: string,
+	userId: string,
+): Promise<{ ownerName: string; storyId: string | null } | null> {
+	const moved = await storyQueries.findStoryTransferredOutOfChat(chatId, storySlug);
+	if (!moved) {
+		return null;
+	}
+	const canOpen = await storyQueries.canUserAccessStory(moved.id, userId);
+	return { ownerName: moved.ownerName, storyId: canOpen ? moved.id : null };
 }
 
 /**

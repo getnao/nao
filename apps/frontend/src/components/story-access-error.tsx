@@ -1,6 +1,6 @@
 import { useQueryErrorResetBoundary } from '@tanstack/react-query';
 import { Link, useRouter } from '@tanstack/react-router';
-import { Lock, SearchX, TriangleAlert } from 'lucide-react';
+import { ArrowRightLeft, Lock, SearchX, TriangleAlert } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { isForbiddenError, isNotFoundError } from '@/lib/trpc-error';
@@ -52,6 +52,29 @@ export function StoryAccessError({ error, onRetry }: { error?: unknown; onRetry?
 			<Button asChild variant='secondary'>
 				<Link to='/'>Go home</Link>
 			</Button>
+		</StoryErrorLayout>
+	);
+}
+
+/** A story that left the chat it is opened from, e.g. after its ownership was transferred. */
+export function StoryMovedNotice({ ownerName, storyId }: { ownerName: string; storyId: string | null }) {
+	return (
+		<StoryErrorLayout
+			icon={<ArrowRightLeft className='size-4' aria-hidden />}
+			title='This story is no longer in this chat'
+			description={
+				storyId
+					? `It now belongs to ${ownerName}.`
+					: `It now belongs to ${ownerName}. Ask them to share it if you need access.`
+			}
+		>
+			{storyId && (
+				<Button asChild variant='secondary'>
+					<Link to='/stories/$storyId' params={{ storyId }}>
+						Open story
+					</Link>
+				</Button>
+			)}
 		</StoryErrorLayout>
 	);
 }

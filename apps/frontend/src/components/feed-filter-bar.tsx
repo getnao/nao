@@ -7,6 +7,7 @@ import type {
 	SharedNotificationPayload,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
+	StoryTransferNotificationPayload,
 } from '@nao/shared/types';
 import type { ReactNode } from 'react';
 
@@ -250,7 +251,10 @@ function getFeedItemActor(item: AutomationFeedItem, currentUserName?: string | n
 		return (payload as FeedbackNotificationPayload | null)?.submitterName ?? null;
 	}
 	if (category === 'shared') {
-		return (payload as SharedNotificationPayload | null)?.sharerName ?? null;
+		const sharedPayload = payload as SharedNotificationPayload | StoryTransferNotificationPayload | null;
+		return sharedPayload?.kind === 'story_transfer'
+			? sharedPayload.senderName
+			: (sharedPayload?.sharerName ?? null);
 	}
 	if (category === 'subscription') {
 		return (payload as StorySubscriptionNotificationPayload | null)?.ownerName ?? null;
