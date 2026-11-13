@@ -12,7 +12,7 @@ import { useAgentContext, useAgentMessagesGetter, useAgentMessagesSelector } fro
 import { useChatId } from '@/hooks/use-chat-id';
 import { useInactivityTrigger } from '@/hooks/use-inactivity-trigger';
 import { useStoryIds } from '@/hooks/use-story-ids';
-import { checkAssistantMessageHasContent, NEW_CHAT_ID } from '@/lib/ai';
+import { findLastAssistantMessageWithContent, NEW_CHAT_ID } from '@/lib/ai';
 import { countDisplayCharts } from '@/lib/charts.utils';
 import { createLocalStorage } from '@/lib/local-storage';
 import { lastUserMessagePayload } from '@/lib/mcp-auth-retry';
@@ -714,23 +714,13 @@ function ExpandableDescription({ description }: { description: string }) {
 }
 
 function findLastAssistantWithContentId(messages: UIMessage[]): string | undefined {
-	return findLastAssistantWithContent(messages)?.id;
+	return findLastAssistantMessageWithContent(messages)?.id;
 }
 
 function checkLastAssistantWithContentHasFeedback(messages: UIMessage[]): boolean {
-	return !!findLastAssistantWithContent(messages)?.feedback;
+	return !!findLastAssistantMessageWithContent(messages)?.feedback;
 }
 
 function countMessages(messages: UIMessage[]): number {
 	return messages.length;
-}
-
-function findLastAssistantWithContent(messages: UIMessage[]): UIMessage | undefined {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (message.role === 'assistant' && checkAssistantMessageHasContent(message)) {
-			return message;
-		}
-	}
-	return undefined;
 }

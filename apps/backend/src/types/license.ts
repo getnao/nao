@@ -13,6 +13,7 @@ export const LICENSE_FEATURES = {
 	userBudget: 'user-budget',
 	userGroups: 'user-groups',
 	multiProject: 'multi-project',
+	conversationFeedback: 'conversation-feedback',
 } as const;
 
 export type LicenseFeature = (typeof LICENSE_FEATURES)[keyof typeof LICENSE_FEATURES];
