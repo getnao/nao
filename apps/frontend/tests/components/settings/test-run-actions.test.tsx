@@ -3,6 +3,7 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubResizeObserver, stubScrollIntoView } from '../../helpers/browser-stubs';
 import { createTestQueryClient } from '../../helpers/query-client';
 import { openDropdownMenu } from '../../helpers/dropdown-menu';
 import type { ReactNode } from 'react';
@@ -12,6 +13,7 @@ import type { TestFileValidationState } from '@/hooks/use-test-file-validation';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import { SuiteRunActions, TestFileRunActions } from '@/components/settings/test-run-actions';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { FileExplorerWorktreeProvider } from '@/contexts/file-explorer-worktree';
 import { isMac } from '@/lib/platform';
 
 const mocks = vi.hoisted(() => ({
@@ -19,6 +21,9 @@ const mocks = vi.hoisted(() => ({
 	cancelRun: vi.fn(),
 	listUpstreamRepos: vi.fn(),
 	listUpstreamBranches: vi.fn(),
+	getRepositoryStatus: vi.fn(),
+	listBranches: vi.fn(),
+	switchBranch: vi.fn(),
 }));
 
 vi.mock('@/lib/active-project', async (importOriginal) => ({
@@ -28,6 +33,24 @@ vi.mock('@/lib/active-project', async (importOriginal) => ({
 
 vi.mock('@/main', () => ({
 	trpc: {
+		contextExplorer: {
+			getRepositoryStatus: {
+				queryOptions: () => ({ queryKey: ['repository-status'], queryFn: mocks.getRepositoryStatus }),
+				queryKey: () => ['repository-status'],
+			},
+			getChangedFiles: {
+				queryOptions: () => ({ queryKey: ['changed-files'], queryFn: () => [] }),
+				queryKey: () => ['changed-files'],
+			},
+			listBranches: { queryOptions: () => ({ queryKey: ['branches'], queryFn: mocks.listBranches }) },
+			switchBranch: { mutationOptions: mutationOptions(mocks.switchBranch) },
+			suggestBranchName: { queryKey: () => ['suggest-branch-name'] },
+			getLiveContextPullHistory: { queryKey: () => ['context-pull-history'] },
+			getFileTree: { queryKey: () => ['file-tree'] },
+			readFile: { queryKey: () => ['read-file'] },
+			getFileDiff: { queryKey: () => ['file-diff'] },
+			searchContent: { queryKey: () => ['search-content'] },
+		},
 		project: {
 			listAvailableTranscribeModels: { queryOptions: () => ({ queryKey: ['models'], queryFn: () => [] }) },
 		},
@@ -64,6 +87,8 @@ const VALID: TestFileValidationState = {
 
 describe('TestFileRunActions', () => {
 	beforeEach(() => {
+		stubResizeObserver();
+		stubScrollIntoView();
 		vi.clearAllMocks();
 		mocks.startRun.mockResolvedValue({ id: 'run-new' });
 		mocks.listUpstreamRepos.mockResolvedValue([]);
@@ -230,6 +255,8 @@ describe('TestFileRunActions', () => {
 
 describe('SuiteRunActions', () => {
 	beforeEach(() => {
+		stubResizeObserver();
+		stubScrollIntoView();
 		vi.clearAllMocks();
 		mocks.startRun.mockResolvedValue({ id: 'run-new' });
 		mocks.listUpstreamRepos.mockResolvedValue([]);
@@ -244,10 +271,10 @@ describe('SuiteRunActions', () => {
 		mocks.listUpstreamRepos.mockResolvedValue([
 			{ name: 'business', url: 'https://github.com/acme/business', branch: 'main' },
 		]);
-		mocks.listUpstreamBranches.mockResolvedValue([
-			{ name: 'main', commit: 'abc' },
-			{ name: 'analyst/net-revenue', commit: 'def' },
-		]);
+		mocks.listUpstreamBranches.mockResolvedValue({
+			branches: [repoBranch('main'), repoBranch('analyst/net-revenue')],
+			canFilterMine: false,
+		});
 		renderWithProviders(
 			<SuiteRunActions
 				settings={settings()}
@@ -259,7 +286,8 @@ describe('SuiteRunActions', () => {
 		);
 
 		openDropdownMenu(await screen.findByRole('button', { name: 'Changes to test against production' }));
-		fireEvent.click(await screen.findByRole('menuitem', { name: 'analyst/net-revenue' }));
+		fireEvent.click(await screen.findByRole('menuitem', { name: /business/ }));
+		fireEvent.click(await screen.findByRole('option', { name: /analyst\/net-revenue/ }));
 		fireEvent.click(await screen.findByRole('button', { name: 'Compare 6 tests with main' }));
 
 		await waitFor(() => expect(mocks.startRun).toHaveBeenCalled());
@@ -272,6 +300,40 @@ describe('SuiteRunActions', () => {
 			threads: 6,
 			upstream: { repo: 'business', branch: 'analyst/net-revenue' },
 		});
+	});
+
+	it('switches the File Explorer to another branch of the context repo, then tests its changes', async () => {
+		localStorage.setItem('nao-test-upstream-source', JSON.stringify({ repo: 'business', branch: 'analyst/x' }));
+		mocks.listUpstreamRepos.mockResolvedValue([{ name: 'business', branch: 'main' }]);
+		mocks.getRepositoryStatus.mockResolvedValue({
+			gitUnavailableReason: null,
+			branches: { currentBranch: 'main', defaultBranch: 'main' },
+		});
+		mocks.listBranches.mockResolvedValue({
+			branches: [repoBranch('main'), repoBranch('alice/orders')],
+			canFilterMine: true,
+		});
+		mocks.switchBranch.mockResolvedValue(undefined);
+		const onRepositoryChanged = vi.fn();
+		renderWithProviders(
+			<FileExplorerWorktreeProvider value={{ hasUnsavedFileChanges: false, onRepositoryChanged }}>
+				<SuiteRunActions
+					settings={settings()}
+					draft={null}
+					activeRun={undefined}
+					scope={{ paths: undefined, testCount: 6, label: '6 tests' }}
+					onRunStarted={vi.fn()}
+				/>
+			</FileExplorerWorktreeProvider>,
+		);
+
+		openDropdownMenu(await screen.findByRole('button', { name: 'Changes to test against production' }));
+		fireEvent.click(await screen.findByRole('menuitem', { name: /File Explorer branch/ }));
+		fireEvent.click(await screen.findByRole('option', { name: /alice\/orders/ }));
+
+		await waitFor(() => expect(onRepositoryChanged).toHaveBeenCalled());
+		expect(mocks.switchBranch.mock.calls[0][0]).toEqual({ branch: 'alice/orders' });
+		expect(localStorage.getItem('nao-test-upstream-source')).toBe('null');
 	});
 
 	it('waits for the synced repositories before running a saved branch', async () => {
@@ -390,4 +452,8 @@ function pressRunShortcut() {
 
 function mutationOptions(mutationFn: (input: unknown) => Promise<unknown>) {
 	return (options: object) => ({ mutationFn, ...options });
+}
+
+function repoBranch(name: string) {
+	return { name, commit: `${name}-sha`, author: null, committedAt: null, isMine: false };
 }

@@ -11,6 +11,7 @@ import type { ContextExplorerSearch, TestDrawerSearch } from '@/lib/context-expl
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { ContextSidebar } from '@/components/settings/context-sidebar';
+import { FileHeaderProblems } from '@/components/settings/file-header-problems';
 import { FileTree } from '@/components/settings/file-tree';
 import { FileViewer } from '@/components/settings/file-viewer';
 import { SortableTabs, TabBar } from '@/components/settings/sortable-tabs';
@@ -29,6 +30,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
 import { Spinner } from '@/components/ui/spinner';
+import { FileExplorerWorktreeProvider } from '@/contexts/file-explorer-worktree';
 import { useRegisterOpenContextFileCallback } from '@/contexts/open-context-file-callback';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocalStorage } from '@/hooks/use-local-storage';
@@ -458,174 +460,184 @@ function ContextExplorerPage() {
 	}
 
 	return (
-		<div className='flex flex-col flex-1 overflow-hidden'>
-			<ResizablePanelGroup
-				orientation='horizontal'
-				className='flex-1 min-h-0'
-				defaultLayout={defaultLayout ?? { tree: 1.1, viewer: 5 }}
-				onLayoutChanged={onLayoutChanged}
-			>
-				<ResizablePanel id='tree' minSize={180}>
-					<ContextSidebar
-						changeCount={changedFileCount}
-						files={
-							fileTree.isLoading ? (
-								<div className='flex items-center justify-center h-32'>
-									<Spinner />
-								</div>
-							) : fileTree.isError ? (
-								<div className='flex flex-col items-center justify-center h-32 text-muted-foreground text-sm gap-2'>
-									<p>Failed to load files</p>
-									<Button variant='outline' size='sm' onClick={() => fileTree.refetch()}>
-										Retry
-									</Button>
-								</div>
-							) : (
-								<FileTree
-									changeMarks={fileChangeMarks}
-									entries={fileTree.data?.entries ?? []}
-									selectedPath={
-										historicalDiff?.path ??
-										selectedDiffPath ??
-										(selectedUpstreamDiffPath ? `/${selectedUpstreamDiffPath}` : null) ??
-										selectedPath
-									}
-									onSelectFile={handleSelectFile}
-									search={search}
-									onSearchChange={setSearch}
-									isContentSearchEnabled={isContentSearchEnabled}
-									onContentSearchEnabledChange={setIsContentSearchEnabled}
-									contentMatches={contentMatches}
-									isContentSearchPending={isContentSearchPending}
-									contentSearchFailed={shouldSearchContent && contentSearch.isError}
-									contentSearchTruncated={
-										isLiveContentSearchEligible &&
-										shouldSearchContent &&
-										!isContentSearchPending &&
-										!contentSearch.isPlaceholderData &&
-										contentSearch.data?.truncated === true
-									}
-								/>
-							)
-						}
-						changes={
-							<ContextGitPanel
-								selectedDiffPath={selectedDiffPath}
-								selectedUpstreamDiffPath={selectedUpstreamDiffPath}
-								hasUnsavedFileChanges={isViewerDirty}
-								onViewDiff={handleViewDiff}
-								onViewUpstreamDiff={handleViewUpstreamDiff}
-								onCommitted={handleChangesCommitted}
-								onDiscarded={handleLocalChangeDiscarded}
-								onDiscardAll={handleAllLocalChangesDiscarded}
-								onRepositoryChanged={handleRepositoryChanged}
-								onOpenTests={openTestSuite}
-							/>
-						}
-					/>
-				</ResizablePanel>
-
-				<ResizableSeparator />
-
-				<ResizablePanel id='viewer' minSize={300}>
-					<TestDrawerLayout
-						testTabs={openedTestTabs.paths}
-						activeTestPath={activeTestPath}
-						activeTestFile={activeTestFile}
-						selectedRunId={testDrawerRun ?? null}
-						openRequestId={testDrawerOpenRequestId}
-						onSelectTab={selectTestTab}
-						onCloseTab={closeTestTab}
-						onMoveTab={openedTestTabs.moveTab}
-						onSelectRun={selectTestRun}
-						onOpenTest={(path, testRun) =>
-							requestViewerTarget({ type: 'file', path, openSource: false, testRun })
-						}
-					>
-						<div className='flex h-full flex-col bg-background'>
-							{openedFileTabs.paths.length > 0 && (
-								<TabBar label='Opened files'>
-									<SortableTabs
-										paths={openedFileTabs.paths}
-										activePath={shownFilePath}
-										unsavedPath={isViewerDirty ? shownFilePath : null}
-										getDescription={(path) => fileTabFolders.get(path)}
-										onSelect={selectFileTab}
-										onClose={(path) => closeFileTabs([path])}
-										onCloseTabs={closeFileTabs}
-										onMove={openedFileTabs.moveTab}
-									/>
-								</TabBar>
-							)}
-							<div className='min-h-0 flex-1'>
-								{historicalDiff ? (
-									<ContextFileDiff
-										path={historicalDiff.path}
-										range={{ from: historicalDiff.from, to: historicalDiff.to }}
-									/>
-								) : selectedDiffPath ? (
-									<ContextFileDiff path={selectedDiffPath} />
-								) : selectedUpstreamDiffPath ? (
-									<UpstreamFileDiff path={selectedUpstreamDiffPath} />
+		<FileExplorerWorktreeProvider
+			value={{ hasUnsavedFileChanges: isViewerDirty, onRepositoryChanged: handleRepositoryChanged }}
+		>
+			<div className='flex flex-col flex-1 overflow-hidden'>
+				<ResizablePanelGroup
+					orientation='horizontal'
+					className='flex-1 min-h-0'
+					defaultLayout={defaultLayout ?? { tree: 1.1, viewer: 5 }}
+					onLayoutChanged={onLayoutChanged}
+				>
+					<ResizablePanel id='tree' minSize={180}>
+						<ContextSidebar
+							changeCount={changedFileCount}
+							files={
+								fileTree.isLoading ? (
+									<div className='flex items-center justify-center h-32'>
+										<Spinner />
+									</div>
+								) : fileTree.isError ? (
+									<div className='flex flex-col items-center justify-center h-32 text-muted-foreground text-sm gap-2'>
+										<p>Failed to load files</p>
+										<Button variant='outline' size='sm' onClick={() => fileTree.refetch()}>
+											Retry
+										</Button>
+									</div>
 								) : (
-									<FileViewer
-										key={`${selectedPath ?? 'empty'}:${viewerRevision}`}
-										filePath={selectedPath}
-										content={fileContent.data?.content}
-										hash={fileContent.data?.hash}
-										isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
-										isError={fileContent.isError && !fileContent.data}
-										isEditable={fileContent.data?.isEditable === true}
-										editabilityGuidance={fileContent.data?.guidance ?? null}
-										searchQuery={shouldSearchContent ? debouncedSearch : ''}
-										sourceAutoOpenRequestId={
-											sourceAutoOpenRequest?.path === selectedPath
-												? sourceAutoOpenRequest.id
-												: null
+									<FileTree
+										changeMarks={fileChangeMarks}
+										entries={fileTree.data?.entries ?? []}
+										selectedPath={
+											historicalDiff?.path ??
+											selectedDiffPath ??
+											(selectedUpstreamDiffPath ? `/${selectedUpstreamDiffPath}` : null) ??
+											selectedPath
 										}
-										onDirtyChange={setIsViewerDirty}
-										onOpenGuidancePath={(path, kind) => {
-											if (kind === 'route') {
-												void navigate({ to: path });
-												return;
-											}
-											requestViewerTarget({ type: 'file', path, openSource: false });
-										}}
-										onReload={async () => {
-											const result = await fileContent.refetch();
-											if (result.error) {
-												throw result.error;
-											}
-											return result.data;
-										}}
-										rulesPreviewGroups={rulesPreviewGroupsState}
-										onDraftChange={handleEditorDraftChange}
+										onSelectFile={handleSelectFile}
+										search={search}
+										onSearchChange={setSearch}
+										isContentSearchEnabled={isContentSearchEnabled}
+										onContentSearchEnabledChange={setIsContentSearchEnabled}
+										contentMatches={contentMatches}
+										isContentSearchPending={isContentSearchPending}
+										contentSearchFailed={shouldSearchContent && contentSearch.isError}
+										contentSearchTruncated={
+											isLiveContentSearchEligible &&
+											shouldSearchContent &&
+											!isContentSearchPending &&
+											!contentSearch.isPlaceholderData &&
+											contentSearch.data?.truncated === true
+										}
 									/>
+								)
+							}
+							changes={
+								<ContextGitPanel
+									selectedDiffPath={selectedDiffPath}
+									selectedUpstreamDiffPath={selectedUpstreamDiffPath}
+									hasUnsavedFileChanges={isViewerDirty}
+									onViewDiff={handleViewDiff}
+									onViewUpstreamDiff={handleViewUpstreamDiff}
+									onCommitted={handleChangesCommitted}
+									onDiscarded={handleLocalChangeDiscarded}
+									onDiscardAll={handleAllLocalChangesDiscarded}
+									onRepositoryChanged={handleRepositoryChanged}
+									onOpenTests={openTestSuite}
+								/>
+							}
+							footer={
+								<FileHeaderProblems
+									selectedPath={shownFilePath}
+									onOpenFile={(path) => handleSelectFile(path, { isContentMatch: false })}
+								/>
+							}
+						/>
+					</ResizablePanel>
+
+					<ResizableSeparator />
+
+					<ResizablePanel id='viewer' minSize={300}>
+						<TestDrawerLayout
+							testTabs={openedTestTabs.paths}
+							activeTestPath={activeTestPath}
+							activeTestFile={activeTestFile}
+							selectedRunId={testDrawerRun ?? null}
+							openRequestId={testDrawerOpenRequestId}
+							onSelectTab={selectTestTab}
+							onCloseTab={closeTestTab}
+							onMoveTab={openedTestTabs.moveTab}
+							onSelectRun={selectTestRun}
+							onOpenTest={(path, testRun) =>
+								requestViewerTarget({ type: 'file', path, openSource: false, testRun })
+							}
+						>
+							<div className='flex h-full flex-col bg-background'>
+								{openedFileTabs.paths.length > 0 && (
+									<TabBar label='Opened files'>
+										<SortableTabs
+											paths={openedFileTabs.paths}
+											activePath={shownFilePath}
+											unsavedPath={isViewerDirty ? shownFilePath : null}
+											getDescription={(path) => fileTabFolders.get(path)}
+											onSelect={selectFileTab}
+											onClose={(path) => closeFileTabs([path])}
+											onCloseTabs={closeFileTabs}
+											onMove={openedFileTabs.moveTab}
+										/>
+									</TabBar>
 								)}
+								<div className='min-h-0 flex-1'>
+									{historicalDiff ? (
+										<ContextFileDiff
+											path={historicalDiff.path}
+											range={{ from: historicalDiff.from, to: historicalDiff.to }}
+										/>
+									) : selectedDiffPath ? (
+										<ContextFileDiff path={selectedDiffPath} />
+									) : selectedUpstreamDiffPath ? (
+										<UpstreamFileDiff path={selectedUpstreamDiffPath} />
+									) : (
+										<FileViewer
+											key={`${selectedPath ?? 'empty'}:${viewerRevision}`}
+											filePath={selectedPath}
+											content={fileContent.data?.content}
+											hash={fileContent.data?.hash}
+											isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
+											isError={fileContent.isError && !fileContent.data}
+											isEditable={fileContent.data?.isEditable === true}
+											editabilityGuidance={fileContent.data?.guidance ?? null}
+											searchQuery={shouldSearchContent ? debouncedSearch : ''}
+											sourceAutoOpenRequestId={
+												sourceAutoOpenRequest?.path === selectedPath
+													? sourceAutoOpenRequest.id
+													: null
+											}
+											onDirtyChange={setIsViewerDirty}
+											onOpenGuidancePath={(path, kind) => {
+												if (kind === 'route') {
+													void navigate({ to: path });
+													return;
+												}
+												requestViewerTarget({ type: 'file', path, openSource: false });
+											}}
+											onReload={async () => {
+												const result = await fileContent.refetch();
+												if (result.error) {
+													throw result.error;
+												}
+												return result.data;
+											}}
+											rulesPreviewGroups={rulesPreviewGroupsState}
+											onDraftChange={handleEditorDraftChange}
+										/>
+									)}
+								</div>
 							</div>
-						</div>
-					</TestDrawerLayout>
-				</ResizablePanel>
-			</ResizablePanelGroup>
-			<DiscardChangesDialog
-				open={pendingViewerTarget !== null}
-				onOpenChange={(open) => {
-					if (!open) {
-						setPendingViewerTarget(null);
-					}
-				}}
-				onDiscard={handleDiscardAndChangeView}
-			/>
-			<DiscardChangesDialog
-				open={navigationBlocker.status === 'blocked'}
-				onOpenChange={(open) => {
-					if (!open && navigationBlocker.status === 'blocked') {
-						navigationBlocker.reset();
-					}
-				}}
-				onDiscard={handleDiscardAndNavigate}
-			/>
-		</div>
+						</TestDrawerLayout>
+					</ResizablePanel>
+				</ResizablePanelGroup>
+				<DiscardChangesDialog
+					open={pendingViewerTarget !== null}
+					onOpenChange={(open) => {
+						if (!open) {
+							setPendingViewerTarget(null);
+						}
+					}}
+					onDiscard={handleDiscardAndChangeView}
+				/>
+				<DiscardChangesDialog
+					open={navigationBlocker.status === 'blocked'}
+					onOpenChange={(open) => {
+						if (!open && navigationBlocker.status === 'blocked') {
+							navigationBlocker.reset();
+						}
+					}}
+					onDiscard={handleDiscardAndNavigate}
+				/>
+			</div>
+		</FileExplorerWorktreeProvider>
 	);
 }
 

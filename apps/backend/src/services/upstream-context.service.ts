@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import type { RepoBranch, RepoBranchList } from '@nao/shared/types';
+
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import type { TestContextChange } from '../types/test-run';
 import { extractConfiguredRepos, extractRawRepoConfig } from '../utils/nao-config';
@@ -114,14 +116,26 @@ export async function listUpstreamRepos(
 	return repos.flatMap((repo) => (repo.url ? [{ name: repo.name, branch: repo.branch }] : []));
 }
 
+/**
+ * Lists the branches with who last committed to each when the repository is on the user's connected GitHub or
+ * GitLab, and by name only otherwise.
+ */
 export async function listUpstreamBranches(input: {
 	projectId: string;
 	projectFolder: string;
 	repo: string;
 	userId: string;
-}): Promise<UpstreamBranch[]> {
+}): Promise<RepoBranchList> {
 	const remote = await resolveGitRemote(input);
-	return readRemoteBranches(remote);
+	const providerBranches = await readProviderBranches(remote.linkedRepo, input.userId);
+	if (providerBranches) {
+		return { branches: providerBranches, canFilterMine: true };
+	}
+	const branches = await readRemoteBranches(remote);
+	return {
+		branches: branches.map((branch) => ({ ...branch, author: null, committedAt: null, isMine: false })),
+		canFilterMine: false,
+	};
 }
 
 /**
@@ -290,6 +304,20 @@ async function resolveGitRemote(input: {
 		env: createGitEnvironment(repo.url, authenticatedUrl, envVars),
 		secrets: [authenticatedUrl, writtenUrl === repo.url ? null : repo.url].filter((secret) => secret !== null),
 	};
+}
+
+/** Null when the user's account cannot list them, as git still can with the server's credentials. */
+async function readProviderBranches(repo: LinkedContextRepo, userId: string): Promise<RepoBranch[] | null> {
+	if (!repo.provider || !repo.repoFullName) {
+		return null;
+	}
+	const provider = REVIEW_REQUEST_PROVIDERS[repo.provider];
+	try {
+		const token = await provider.getToken(userId);
+		return token ? await provider.listBranches(token, repo.repoFullName) : null;
+	} catch {
+		return null;
+	}
 }
 
 /** Uses the user's GitHub or GitLab account when connected, else whatever git credentials the server has. */

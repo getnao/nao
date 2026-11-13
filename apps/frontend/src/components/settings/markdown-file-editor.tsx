@@ -11,6 +11,7 @@ import type { ReactNode, RefObject } from 'react';
 import type { MarkdownLayout, MarkdownToken } from '@/lib/markdown-blocks';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
 import { containsTokenType, getMarkdownLayout, writeMarkdownBlocks } from '@/lib/markdown-blocks';
+import { cn } from '@/lib/utils';
 
 /** Blocks the editor turns back into the same Markdown; other blocks (HTML, link definitions, …) would be lost. */
 const EDITABLE_BLOCK_TYPES = new Set(['heading', 'paragraph', 'list', 'blockquote', 'code', 'hr', 'table']);
@@ -29,6 +30,8 @@ interface MarkdownFileEditorProps {
 	onSave: () => void;
 	/** Shown instead of the editor when the file holds Markdown the editor could not write back. */
 	fallback: ReactNode;
+	/** Shown above the content and scrolling with it, like the properties of the file. */
+	header?: ReactNode;
 }
 
 /**
@@ -42,6 +45,7 @@ export function MarkdownFileEditor({
 	onChange,
 	onSave,
 	fallback,
+	header,
 }: MarkdownFileEditorProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const onChangeRef = useLatestRef(onChange);
@@ -103,10 +107,11 @@ export function MarkdownFileEditor({
 	return (
 		<section aria-label='Markdown preview' className='flex h-full min-h-0 flex-col'>
 			<div ref={containerRef} className='min-h-0 flex-1 overflow-auto'>
+				{header && <div className='mx-auto max-w-3xl px-8 pt-6'>{header}</div>}
 				<EditorContent
 					editor={editor}
 					aria-label='Markdown editor'
-					className='markdown-file-editor mx-auto max-w-3xl px-8 py-6'
+					className={cn('markdown-file-editor mx-auto max-w-3xl px-8 py-6', header && 'pt-2')}
 				/>
 			</div>
 		</section>

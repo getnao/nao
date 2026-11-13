@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, FolderGit2, GitBranch, GitPullRequest, Lock } from 'lucide-react';
 
@@ -5,10 +6,10 @@ import type { UpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { ChangeRow } from '@/components/settings/changed-file-list';
 import { ChangesSection, SectionNote } from '@/components/settings/changes-section';
 import { TestStatusButton } from '@/components/settings/test-status-button';
-import { UpstreamRepoBranches } from '@/components/settings/test-upstream-picker';
+import { UpstreamBranchPicker } from '@/components/settings/test-upstream-picker';
 import { useUpstreamChanges } from '@/components/settings/upstream-file-diff';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
 import { useLatestChangesRun } from '@/hooks/use-latest-changes-run';
 import { formatUpstreamRef, useUpstreamTestSource } from '@/hooks/use-upstream-test-source';
@@ -123,9 +124,10 @@ function RepoBranchPicker({
 	pickedBranch: string | null;
 	onPick: (branch: string | null) => void;
 }) {
+	const [isOpen, setIsOpen] = useState(false);
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
+		<Popover open={isOpen} onOpenChange={setIsOpen}>
+			<PopoverTrigger asChild>
 				<Button
 					type='button'
 					size='sm'
@@ -145,16 +147,19 @@ function RepoBranchPicker({
 					<span className='truncate font-mono'>{pickedBranch ?? productionBranch ?? 'default'}</span>
 					<ChevronDown className='size-3 shrink-0 text-muted-foreground' />
 				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='max-h-96 w-72 max-w-[calc(100vw-2rem)] overflow-y-auto'>
-				<UpstreamRepoBranches
+			</PopoverTrigger>
+			<PopoverContent align='start' className='w-80 max-w-[calc(100vw-2rem)] p-0'>
+				<UpstreamBranchPicker
 					repo={repo}
 					productionBranch={productionBranch}
-					selected={{ repo, branch: pickedBranch ?? productionBranch ?? '' }}
-					onSelect={(source) => onPick(source.branch)}
+					selectedBranch={pickedBranch ?? productionBranch}
+					onSelect={(branch) => {
+						onPick(branch);
+						setIsOpen(false);
+					}}
 				/>
-			</DropdownMenuContent>
-		</DropdownMenu>
+			</PopoverContent>
+		</Popover>
 	);
 }
 

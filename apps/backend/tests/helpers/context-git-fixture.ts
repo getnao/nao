@@ -91,6 +91,7 @@ export function localProvider(
 		},
 		findOpenReviewRequest: async () => openReviewRequest,
 		findReviewRequestByBranch: async () => null,
+		listBranches: async () => null,
 		openReviewRequest: async () => {
 			openReviewRequest = { kind: 'created', url: 'https://github.com/nao/context/pull/1' };
 			return openReviewRequest;

@@ -16,6 +16,7 @@ import {
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
+	readFileHeads,
 	searchFileContents,
 	writeFileContent,
 } from '../../src/services/context-explorer.service';
@@ -82,6 +83,15 @@ describe('context explorer worktree writes', () => {
 			code: 'CONFLICT',
 		});
 		expectLiveUnchanged(fixture.live, liveSnapshot);
+	});
+
+	it('reads the head of each file where the explorer reads it, leaving out the files it cannot read', async () => {
+		const heads = await readFileHeads(['/context.md', '/untracked.md', '/missing.md', '/../outside.md'], access);
+
+		expect(heads).toEqual([
+			{ path: '/context.md', content: 'repository content\n' },
+			{ path: '/untracked.md', content: 'live only\n' },
+		]);
 	});
 
 	it('creates new files as editable worktree drafts without touching the live project', async () => {

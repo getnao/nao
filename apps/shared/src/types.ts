@@ -327,7 +327,8 @@ export type FileEditabilityReason =
 	| 'rendered-template'
 	| 'synced-source'
 	| 'not-tracked'
-	| 'production-only';
+	| 'production-only'
+	| 'branch-of-others';
 
 export type FileEditabilityGuidance =
 	| {
@@ -390,6 +391,29 @@ export type ContextBranchInfo = {
 	unpushedCommits: ContextCommit[];
 	branches: string[];
 	suggestedBranch: string;
+	/** False on a branch of another user, which the File Explorer only shows: commits go to a branch of one's own. */
+	isCurrentBranchOwned: boolean;
+};
+
+/** A branch of a git repository, with who last committed to it when the git provider or git tells. */
+export type RepoBranch = {
+	name: string;
+	commit: string;
+	author: RepoBranchAuthor | null;
+	committedAt: string | null;
+	isMine: boolean;
+};
+
+export type RepoBranchAuthor = {
+	name: string;
+	/** The account on the git provider, when the commit email is linked to one. */
+	login: string | null;
+};
+
+export type RepoBranchList = {
+	branches: RepoBranch[];
+	/** Whether `isMine` is known, which needs the user's own GitHub or GitLab account. */
+	canFilterMine: boolean;
 };
 
 export type ContextBranchCreationResult = ContextBranchInfo & {

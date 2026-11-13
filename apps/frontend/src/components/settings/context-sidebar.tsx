@@ -17,10 +17,13 @@ export function ContextSidebar({
 	changeCount,
 	files,
 	changes,
+	footer,
 }: {
 	changeCount: number;
 	files: ReactNode;
 	changes: ReactNode;
+	/** Stays under both views, like a warning panel. */
+	footer?: ReactNode;
 }) {
 	const [view, setView] = useLocalStorage(sidebarViewStorage);
 
@@ -37,6 +40,7 @@ export function ContextSidebar({
 			</TabBar>
 			<div className={cn('min-h-0 flex-1', view !== 'files' && 'hidden')}>{files}</div>
 			<div className={cn('min-h-0 flex-1', view !== 'changes' && 'hidden')}>{changes}</div>
+			{footer}
 		</div>
 	);
 }

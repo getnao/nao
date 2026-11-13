@@ -34,6 +34,7 @@ export const GENERIC_GIT_PROVIDER: ReviewRequestProvider = {
 	pushBranch,
 	findOpenReviewRequest,
 	findReviewRequestByBranch: async () => null,
+	listBranches: async () => null,
 	openReviewRequest,
 };
 

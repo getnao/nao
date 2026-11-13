@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deferred } from '../../helpers/deferred';
 import { createTestQueryClient } from '../../helpers/query-client';
-import { invalidateExplorerQueries } from '@/components/settings/context-git-panel';
+import { invalidateExplorerQueries } from '@/lib/context-explorer-queries';
 import { LiveContextUpdateSettings } from '@/components/settings/live-context-update-settings';
 
 const mocks = vi.hoisted(() => ({

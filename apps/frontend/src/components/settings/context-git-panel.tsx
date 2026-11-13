@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronDown, FlaskConical, GitBranch, GitPullRequest, PenLine, Plus, RefreshCw, Undo2 } from 'lucide-react';
+import { FlaskConical, GitPullRequest, PenLine, RefreshCw, Undo2 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { QueryClient } from '@tanstack/react-query';
 import type { ContextChangedFile } from '@nao/shared/types';
 
 import type { ChangesRunResult, ChangesRunSource } from '@/hooks/use-latest-changes-run';
@@ -15,24 +14,18 @@ import {
 	isDirtyWorktreeConflict,
 } from '@/components/settings/context-worktree-update-dialog';
 import { OutgoingCommits } from '@/components/settings/outgoing-commits';
+import { getBranchChangeReason, RepositoryBranchMenu } from '@/components/settings/repository-branch-menu';
 import { SyncedRepos } from '@/components/settings/synced-repos';
 import { TestStatusButton } from '@/components/settings/test-status-button';
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import {
-	DropdownMenu,
-	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { useContextChanges } from '@/hooks/use-context-changes';
 import { useLatestChangesRun } from '@/hooks/use-latest-changes-run';
+import { invalidateExplorerQueries } from '@/lib/context-explorer-queries';
 import { getReviewRequestNumber } from '@/lib/review-request';
 import { trpc } from '@/main';
 
@@ -326,7 +319,11 @@ export function ContextGitPanel({
 	const openReviewRequest = status?.openReviewRequest ?? null;
 	const aheadCommitCount = branches?.aheadCommitCount ?? 0;
 	const unpushedCommitCount = branches?.unpushedCommitCount ?? 0;
-	const isReviewBranch = currentBranch !== null && defaultBranch !== null && currentBranch !== defaultBranch;
+	const isReviewBranch =
+		currentBranch !== null &&
+		defaultBranch !== null &&
+		currentBranch !== defaultBranch &&
+		branches?.isCurrentBranchOwned !== false;
 	const canPush = isReviewBranch && (unpushedCommitCount > 0 || (aheadCommitCount > 0 && openReviewRequest === null));
 	const hasDraftChanges = hasUncommittedChanges || (isReviewBranch && aheadCommitCount > 0);
 	const reviewRequest = pushedReviewRequest ?? openReviewRequest;
@@ -380,17 +377,17 @@ export function ContextGitPanel({
 				) : (
 					<>
 						<PanelBar>
-							<BranchMenu
-								branches={branches.branches}
+							<RepositoryBranchMenu
 								currentBranch={currentBranch}
 								defaultBranch={branches.defaultBranch}
-								disabled={branchChangeDisabled}
-								reason={branchChangeReason}
-								onSwitch={(branch) => {
-									if (branch !== currentBranch) {
-										switchBranch.mutate({ branch });
-									}
-								}}
+								isCurrentBranchOwned={branches.isCurrentBranchOwned}
+								disabledReason={
+									branchChangeDisabled
+										? (branchChangeReason ?? 'Wait for the current change to finish.')
+										: null
+								}
+								switchingBranch={switchBranch.isPending ? switchBranch.variables.branch : null}
+								onSwitch={(branch) => switchBranch.mutate({ branch })}
 								onCreate={() => {
 									createBranch.reset();
 									setIsCreateBranchOpen(true);
@@ -405,7 +402,9 @@ export function ContextGitPanel({
 							)}
 						</PanelBar>
 						<div className='flex flex-col gap-1.5 empty:hidden'>
-							{hasUncommittedChanges ? (
+							{!branches.isCurrentBranchOwned ? (
+								<ReadOnlyBranchNote />
+							) : hasUncommittedChanges ? (
 								<CommitComposer
 									message={commitMessage}
 									selectedCount={selectedChangedPaths.length}
@@ -558,19 +557,6 @@ export function ContextGitPanel({
 	);
 }
 
-export async function invalidateExplorerQueries(queryClient: QueryClient): Promise<void> {
-	await Promise.all([
-		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getRepositoryStatus.queryKey() }),
-		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getChangedFiles.queryKey() }),
-		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.suggestBranchName.queryKey() }),
-		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getLiveContextPullHistory.queryKey() }),
-		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileTree.queryKey() }),
-		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.readFile.queryKey() }),
-		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileDiff.queryKey() }),
-		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.searchContent.queryKey() }),
-	]);
-}
-
 function PanelBar({ children }: { children: ReactNode }) {
 	return <div className='flex h-9 shrink-0 items-center gap-1 pr-2 pl-1.5'>{children}</div>;
 }
@@ -637,59 +623,13 @@ function DiscardAllButton({ disabledReason, onClick }: { disabledReason: string 
 	);
 }
 
-function BranchMenu({
-	branches,
-	currentBranch,
-	defaultBranch,
-	disabled,
-	reason,
-	onSwitch,
-	onCreate,
-}: {
-	branches: string[];
-	currentBranch: string | null;
-	defaultBranch: string;
-	disabled: boolean;
-	reason: string | null;
-	onSwitch: (branch: string) => void;
-	onCreate: () => void;
-}) {
+/** A branch of another user, shown as it is pushed: changes go to a branch of one's own. */
+function ReadOnlyBranchNote() {
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					variant='ghost'
-					size='sm'
-					className='mr-auto h-6 min-w-0 gap-1 px-1.5 text-[11.5px] font-normal'
-					aria-label='Current repository branch'
-				>
-					<GitBranch className='size-3 shrink-0 text-muted-foreground' />
-					<span className='truncate font-mono'>{currentBranch ?? 'Choose branch'}</span>
-					<ChevronDown className='size-3 shrink-0 text-muted-foreground' />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' sideOffset={4} className='w-64 max-w-[calc(100vw-2rem)]'>
-				{branches.map((branch) => (
-					<DropdownMenuCheckboxItem
-						key={branch}
-						checked={branch === currentBranch}
-						disabled={disabled}
-						onSelect={() => onSwitch(branch)}
-					>
-						<span className='min-w-0 truncate'>{branch}</span>
-						{branch === defaultBranch && (
-							<span className='ml-auto shrink-0 text-muted-foreground'>(default)</span>
-						)}
-					</DropdownMenuCheckboxItem>
-				))}
-				{reason && <div className='px-2 py-1.5 text-xs text-muted-foreground'>{reason}</div>}
-				<DropdownMenuSeparator />
-				<DropdownMenuItem disabled={disabled} onSelect={onCreate}>
-					<Plus className='size-3.5' />
-					New branch…
-				</DropdownMenuItem>
-			</DropdownMenuContent>
-		</DropdownMenu>
+		<p className='px-3 pb-1 text-[11px] text-muted-foreground'>
+			This branch belongs to another user, so it is read-only here. Switch to one of your branches, or create one,
+			to make changes.
+		</p>
 	);
 }
 
@@ -874,29 +814,6 @@ function getPushLabel(unpushedCommitCount: number, hasReviewRequest: boolean, re
 		return `Push & open ${reviewAbbreviation}`;
 	}
 	return `Push ${unpushedCommitCount} ${unpushedCommitCount === 1 ? 'commit' : 'commits'}`;
-}
-
-function getBranchChangeReason({
-	hasUnsavedFileChanges,
-	isLoading,
-	isError,
-	hasUncommittedChanges,
-}: {
-	hasUnsavedFileChanges: boolean;
-	isLoading: boolean;
-	isError: boolean;
-	hasUncommittedChanges: boolean;
-}): string | null {
-	if (hasUnsavedFileChanges) {
-		return 'Save or discard the open file before changing branches.';
-	}
-	if (isLoading) {
-		return 'Checking for uncommitted changes before changing branches.';
-	}
-	if (isError) {
-		return 'Reload changed files before changing branches.';
-	}
-	return hasUncommittedChanges ? 'Commit or discard changes before switching branches.' : null;
 }
 
 function toReviewRequestLinkInfo(
