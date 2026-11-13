@@ -12,6 +12,7 @@ import * as activityQueries from '../queries/activity.queries';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
 import { createProject, recordProjectDeployment } from '../services/project.service';
+import { revokeUnauthorizedProjectWideShares } from '../services/project-sharing.service';
 import { parseUserGroupsConfig } from '../services/user-group-config.service';
 import { diffUserGroupsConfig, type UserGroupConfigDiff } from '../services/user-group-config-diff.service';
 import { exportUserGroupsConfig } from '../services/user-group-config-export.service';
@@ -233,6 +234,9 @@ async function replaceProjectDirectory(
 		fs.writeFileSync(marker, JSON.stringify({ deployId, phase: 'swapped', target, backup, next, hadPrevious }));
 		await afterSwap(deployId);
 	} catch (error) {
+		if (await activityQueries.hasCompletedUserGroupConfigDeploy(projectId, deployId)) {
+			throw error;
+		}
 		fs.rmSync(target, { recursive: true, force: true });
 		if (hadPrevious && fs.existsSync(backup)) {
 			fs.renameSync(backup, target);
@@ -284,6 +288,7 @@ async function recoverInterruptedDeploy(
 		recovery.deployId !== undefined &&
 		(await activityQueries.hasCompletedUserGroupConfigDeploy(projectId, recovery.deployId));
 	if (groupsCommitted) {
+		await revokeUnauthorizedProjectWideShares(projectId);
 		fs.rmSync(backup, { recursive: true, force: true });
 		fs.rmSync(next, { recursive: true, force: true });
 		fs.rmSync(marker, { force: true });

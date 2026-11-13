@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 	reconcileUserGroupsConfigWithinLock: vi.fn(),
 	recordUserGroupConfigFailure: vi.fn(),
 	recordProjectDeployment: vi.fn(),
+	revokeUnauthorizedProjectWideShares: vi.fn(),
 	validateApiKey: vi.fn(),
 	validateUserGroupsConfig: vi.fn(),
 }));
@@ -44,6 +45,9 @@ vi.mock('../../src/services/api-key.service', () => ({
 vi.mock('../../src/services/project.service', () => ({
 	createProject: mocks.createProject,
 	recordProjectDeployment: mocks.recordProjectDeployment,
+}));
+vi.mock('../../src/services/project-sharing.service', () => ({
+	revokeUnauthorizedProjectWideShares: mocks.revokeUnauthorizedProjectWideShares,
 }));
 vi.mock('../../src/services/user-group-config-diff.service', () => ({
 	diffUserGroupsConfig: mocks.diffUserGroupsConfig,
@@ -148,6 +152,7 @@ describe('deploy recovery', () => {
 		expect(fs.readFileSync(path.join(target, 'version.txt'), 'utf8')).toBe('candidate');
 		expect(fs.existsSync(backup)).toBe(false);
 		expect(mocks.hasCompletedUserGroupConfigDeploy).toHaveBeenCalledWith('project-id', 'current-deploy-id');
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('project-id');
 	});
 });
 
@@ -392,6 +397,43 @@ describe('deploy route code-managed groups', () => {
 		expect(status).toHaveBeenCalledWith(400);
 		expect(send).toHaveBeenCalledWith({ error: 'Reconciliation failed' });
 		expect(fs.readFileSync(path.join(projectDir, 'existing.txt'), 'utf8')).toBe('preserved');
+	});
+
+	it('keeps committed project files and retries share cleanup after a post-commit failure', async () => {
+		const parent = createTemporaryFolder('nao-deploy-post-commit-');
+		const projectDir = path.join(parent, 'project');
+		const backup = path.join(parent, '.existing-project.deploy-backup');
+		const marker = path.join(parent, '.existing-project.deploy-recovery.json');
+		fs.mkdirSync(projectDir);
+		fs.writeFileSync(path.join(projectDir, 'existing.txt'), 'previous');
+		mocks.getProjectByOrgAndName.mockResolvedValue({
+			id: 'existing-project',
+			path: projectDir,
+			userGroupManagementMode: 'code',
+		});
+		mocks.getUserGroupManagementMode.mockResolvedValue('code');
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
+		mocks.reconcileUserGroupsConfigWithinLock.mockRejectedValue(new Error('Share cleanup failed'));
+		mocks.hasCompletedUserGroupConfigDeploy.mockResolvedValue(true);
+		const send = vi.fn();
+		const status = vi.fn(() => ({ send }));
+
+		await handler()(deployRequest('analytics'), { status, send });
+
+		expect(status).toHaveBeenCalledWith(400);
+		expect(send).toHaveBeenCalledWith({ error: 'Share cleanup failed' });
+		expect(fs.existsSync(path.join(projectDir, 'existing.txt'))).toBe(false);
+		expect(fs.existsSync(path.join(projectDir, 'nao_config.yaml'))).toBe(true);
+		expect(fs.existsSync(backup)).toBe(true);
+		expect(fs.existsSync(marker)).toBe(true);
+
+		mocks.listProjectDeploymentPaths.mockResolvedValue([{ id: 'existing-project', path: projectDir }]);
+		await deployRoutes({ post: mocks.post } as never);
+
+		expect(mocks.revokeUnauthorizedProjectWideShares).toHaveBeenCalledWith('existing-project');
+		expect(fs.existsSync(backup)).toBe(false);
+		expect(fs.existsSync(marker)).toBe(false);
+		expect(fs.existsSync(path.join(projectDir, 'nao_config.yaml'))).toBe(true);
 	});
 
 	it('uses UI-managed deployment when code management was disabled while waiting for the lock', async () => {
