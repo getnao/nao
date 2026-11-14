@@ -13,7 +13,7 @@ export const BUILT_IN_MENU_ENTRY_LABELS: Record<BuiltInMenuEntryId, string> = {
 	automations: 'Automations',
 };
 
-export const MAX_SIDEBAR_MENU_ENTRIES = 30;
+export const MAX_CUSTOM_MENU_ENTRIES = 30;
 export const MAX_MENU_ENTRY_LABEL_LENGTH = 40;
 
 const labelSchema = z.string().trim().min(1).max(MAX_MENU_ENTRY_LABEL_LENGTH);
@@ -80,7 +80,10 @@ export const sidebarMenuEntrySchema = z.discriminatedUnion('type', [
 export const sidebarMenuSchema = z.object({
 	entries: z
 		.array(sidebarMenuEntrySchema)
-		.max(MAX_SIDEBAR_MENU_ENTRIES)
+		.refine(
+			(entries) => countCustomMenuEntries(entries) <= MAX_CUSTOM_MENU_ENTRIES,
+			`A menu holds at most ${MAX_CUSTOM_MENU_ENTRIES} custom entries.`,
+		)
 		.refine(
 			(entries) => new Set(entries.map((entry) => entry.id)).size === entries.length,
 			'Entry ids must be unique.',
@@ -117,6 +120,11 @@ export function getMenuEntryLabel(entry: SidebarMenuEntry): string {
 		return entry.label ?? BUILT_IN_MENU_ENTRY_LABELS[entry.id];
 	}
 	return entry.label;
+}
+
+/** Only custom entries count towards the limit, so a full menu still saves once a new built-in entry is appended. */
+export function countCustomMenuEntries(entries: readonly SidebarMenuEntry[]): number {
+	return entries.filter((entry) => entry.type !== 'built-in').length;
 }
 
 export function isBuiltInMenuEntryId(id: string): id is BuiltInMenuEntryId {

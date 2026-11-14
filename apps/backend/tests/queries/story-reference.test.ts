@@ -10,6 +10,7 @@ import {
 	listAllReferenceableStoryListings,
 	listMentioningChats,
 	listReferenceableStories,
+	listReferenceableStoryIds,
 	MAX_REFERENCEABLE_STORIES_LIMIT,
 } from '../../src/queries/story-reference.queries';
 import {
@@ -87,6 +88,16 @@ describe('referencing other stories', () => {
 			expect(listings.map((story) => story.storyId)).toEqual(await listIds(userId));
 			expect(listings.every((story) => !('code' in story))).toBe(true);
 		}
+	});
+
+	it('keeps only the given stories a user can see', async () => {
+		const storyIds = [PRIVATE_STORY, GROUP_STORY, PINNED_STORY, ARCHIVED_STORY, OTHER_PROJECT_STORY];
+
+		expect(await listReferenceableStoryIds(MEMBER_ID, PROJECT_ID, storyIds)).toEqual([PINNED_STORY]);
+		expect((await listReferenceableStoryIds(GROUP_MEMBER_ID, PROJECT_ID, storyIds)).sort()).toEqual(
+			[GROUP_STORY, PINNED_STORY].sort(),
+		);
+		expect(await listReferenceableStoryIds(MEMBER_ID, PROJECT_ID, [])).toEqual([]);
 	});
 
 	it('filters on trusted stories', async () => {

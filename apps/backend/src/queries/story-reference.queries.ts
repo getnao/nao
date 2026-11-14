@@ -117,6 +117,25 @@ export async function listAllReferenceableStoryListings(
 	return rows.map((row) => toReferenceableStory(row, userId));
 }
 
+export async function listReferenceableStoryIds(
+	userId: string,
+	projectId: string,
+	storyIds: string[],
+): Promise<string[]> {
+	if (storyIds.length === 0) {
+		return [];
+	}
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
+	const rows = await db
+		.select({ storyId: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.leftJoin(s.sharedStory, and(eq(s.sharedStory.storyId, s.story.id), eq(s.sharedStory.projectId, projectId)))
+		.where(isReferenceable(userId, projectId, lockedGroupIds, { storyIds }))
+		.execute();
+	return rows.map((row) => row.storyId);
+}
+
 export async function getReferenceableStory(
 	userId: string,
 	projectId: string,

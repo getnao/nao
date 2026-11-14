@@ -15,8 +15,9 @@ import { useState } from 'react';
 import {
 	BUILT_IN_MENU_ENTRY_LABELS,
 	getMenuEntryLabel,
+	countCustomMenuEntries,
+	MAX_CUSTOM_MENU_ENTRIES,
 	MAX_MENU_ENTRY_LABEL_LENGTH,
-	MAX_SIDEBAR_MENU_ENTRIES,
 } from '@nao/shared/sidebar-menu';
 import type { ReactNode } from 'react';
 import type { DragEndEvent, Modifier } from '@dnd-kit/core';
@@ -48,13 +49,15 @@ export function SidebarMenuSettings({ isAdmin }: { isAdmin: boolean }) {
 	const entries = draft ?? menu.entries;
 	const isReadOnly = !menu.isCustomizable || !isAdmin;
 
-	const invalidateMenu = async () => {
-		await queryClient.invalidateQueries({ queryKey: trpc.sidebarMenu.get.queryKey() });
-		setDraft(null);
-	};
-	const saveMenu = useMutation(trpc.sidebarMenu.update.mutationOptions({ onSuccess: invalidateMenu }));
-	const resetMenu = useMutation(trpc.sidebarMenu.reset.mutationOptions({ onSuccess: invalidateMenu }));
+	const saveMenu = useMutation(trpc.sidebarMenu.update.mutationOptions());
+	const resetMenu = useMutation(trpc.sidebarMenu.reset.mutationOptions());
 	const error = saveMenu.error ?? resetMenu.error;
+
+	/** Keeps the edits made while the request was running, which the saved menu does not include. */
+	async function refreshMenu(submittedDraft: SidebarMenuEntry[] | null) {
+		await queryClient.invalidateQueries({ queryKey: trpc.sidebarMenu.get.queryKey() });
+		setDraft((current) => (current === submittedDraft ? null : current));
+	}
 
 	function updateEntries(update: (current: SidebarMenuEntry[]) => SidebarMenuEntry[]) {
 		setDraft(update(entries));
@@ -95,7 +98,7 @@ export function SidebarMenuSettings({ isAdmin }: { isAdmin: boolean }) {
 							variant='outline'
 							size='sm'
 							onClick={() => setDialog({ entry: null })}
-							disabled={entries.length >= MAX_SIDEBAR_MENU_ENTRIES}
+							disabled={countCustomMenuEntries(entries) >= MAX_CUSTOM_MENU_ENTRIES}
 						>
 							<Plus />
 							Add entry
@@ -104,7 +107,7 @@ export function SidebarMenuSettings({ isAdmin }: { isAdmin: boolean }) {
 							<Button
 								variant='ghost'
 								size='sm'
-								onClick={() => resetMenu.mutate()}
+								onClick={() => resetMenu.mutate(undefined, { onSuccess: () => refreshMenu(draft) })}
 								disabled={resetMenu.isPending || saveMenu.isPending}
 							>
 								Reset to default
@@ -116,7 +119,7 @@ export function SidebarMenuSettings({ isAdmin }: { isAdmin: boolean }) {
 							)}
 							<Button
 								size='sm'
-								onClick={() => saveMenu.mutate({ entries })}
+								onClick={() => saveMenu.mutate({ entries }, { onSuccess: () => refreshMenu(draft) })}
 								disabled={!draft || saveMenu.isPending}
 							>
 								Save menu

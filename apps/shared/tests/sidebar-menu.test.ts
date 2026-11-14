@@ -5,6 +5,7 @@ import {
 	BUILT_IN_MENU_ENTRY_IDS,
 	DEFAULT_STORIES_PAGE_FILTERS,
 	getMenuEntryLabel,
+	MAX_CUSTOM_MENU_ENTRIES,
 	resolveSidebarMenu,
 	sidebarMenuSchema,
 } from '../src/sidebar-menu';
@@ -77,6 +78,19 @@ describe('sidebarMenuSchema', () => {
 
 	it('rejects two entries with the same id', () => {
 		expect(sidebarMenuSchema.safeParse({ entries: [appsEntry, appsEntry] }).success).toBe(false);
+	});
+
+	it('limits the custom entries but not the built-in entries appended to a full menu', () => {
+		const customEntries = Array.from({ length: MAX_CUSTOM_MENU_ENTRIES }, (_, index) => ({
+			...appsEntry,
+			id: `apps-${index}`,
+		}));
+		const fullMenu = resolveSidebarMenu({ entries: customEntries });
+
+		expect(sidebarMenuSchema.safeParse({ entries: fullMenu }).success).toBe(true);
+		expect(sidebarMenuSchema.safeParse({ entries: [...fullMenu, { ...appsEntry, id: 'one-more' }] }).success).toBe(
+			false,
+		);
 	});
 
 	it('accepts an https link', () => {

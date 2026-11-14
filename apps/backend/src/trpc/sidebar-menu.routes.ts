@@ -11,7 +11,7 @@ import {
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 export const sidebarMenuRoutes = {
-	get: projectProtectedProcedure.query(({ ctx }) => getProjectSidebarMenu(ctx.project.id)),
+	get: projectProtectedProcedure.query(({ ctx }) => getProjectSidebarMenu(ctx.project.id, ctx.user.id)),
 
 	update: adminProtectedProcedure.input(sidebarMenuSchema).mutation(async ({ ctx, input }) => {
 		await assertCanCustomizeSidebarMenu(ctx.project.id);

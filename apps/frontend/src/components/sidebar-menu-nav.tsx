@@ -53,10 +53,13 @@ export function SidebarMenuNav({
 	hasProject: boolean;
 	access: SidebarMenuAccess;
 }) {
-	const { entries } = useSidebarMenu(hasProject);
+	const { entries, unavailableEntryIds } = useSidebarMenu(hasProject);
 	const openEntry = useOpenMenuEntry();
+	const openableEntries = entries.filter((entry) => !unavailableEntryIds.includes(entry.id));
 
-	return <SidebarMenuList entries={entries} access={access} isCollapsed={isCollapsed} onOpenEntry={openEntry} />;
+	return (
+		<SidebarMenuList entries={openableEntries} access={access} isCollapsed={isCollapsed} onOpenEntry={openEntry} />
+	);
 }
 
 /** Without `onOpenEntry` the menu is an inert preview, as shown in the menu settings. */

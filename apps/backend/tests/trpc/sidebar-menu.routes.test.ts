@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	isLicensed: true,
 	storedMenu: null as SidebarMenu | null,
 	updateMenuSettings: vi.fn(),
+	openableStoryIds: [] as string[],
 }));
 
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
@@ -15,6 +16,11 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getUserRoleInProject: vi.fn(async () => 'admin'),
 	getMenuSettings: vi.fn(async () => mocks.storedMenu),
 	updateMenuSettings: mocks.updateMenuSettings,
+}));
+vi.mock('../../src/queries/story-reference.queries', () => ({
+	listReferenceableStoryIds: vi.fn(async (_userId: string, _projectId: string, storyIds: string[]) =>
+		storyIds.filter((storyId) => mocks.openableStoryIds.includes(storyId)),
+	),
 }));
 vi.mock('../../src/services/license.service', () => ({
 	hasFeature: vi.fn(async () => mocks.isLicensed),
@@ -42,6 +48,7 @@ describe('sidebar menu routes', () => {
 		vi.clearAllMocks();
 		mocks.isLicensed = true;
 		mocks.storedMenu = null;
+		mocks.openableStoryIds = [];
 	});
 
 	it('serves the stored menu to a licensed project', async () => {
@@ -51,6 +58,21 @@ describe('sidebar menu routes', () => {
 
 		expect(menu.isCustomizable).toBe(true);
 		expect(menu.entries[0]).toMatchObject({ id: 'apps', label: 'Apps' });
+	});
+
+	it('flags the story entries the viewer cannot open', async () => {
+		mocks.storedMenu = {
+			entries: [
+				{ type: 'story', id: 'shared-kpis', label: 'KPIs', icon: null, storyId: 'story-shared' },
+				{ type: 'story', id: 'private-draft', label: 'Draft', icon: null, storyId: 'story-private' },
+			],
+		};
+		mocks.openableStoryIds = ['story-shared'];
+
+		const menu = await caller.get();
+
+		expect(menu.unavailableEntryIds).toEqual(['private-draft']);
+		expect(menu.entries.map((entry) => entry.id)).toContain('private-draft');
 	});
 
 	it('falls back to the default menu once the license lapses', async () => {

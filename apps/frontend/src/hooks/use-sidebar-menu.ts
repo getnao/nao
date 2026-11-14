@@ -10,6 +10,7 @@ export function useSidebarMenu(enabled = true) {
 	const menu = useQuery({ ...trpc.sidebarMenu.get.queryOptions(), enabled, staleTime: 60_000 });
 	return {
 		entries: menu.data?.entries ?? DEFAULT_SIDEBAR_MENU_ENTRIES,
+		unavailableEntryIds: menu.data?.unavailableEntryIds ?? [],
 		isCustomizable: menu.data?.isCustomizable ?? false,
 		isLoading: menu.isLoading,
 	};
