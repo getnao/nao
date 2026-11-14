@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import type { RepoBranch, RepoBranchList } from '@nao/shared/types';
+import type { RepoBranchList } from '@nao/shared/types';
 
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import type { TestContextChange } from '../types/test-run';
