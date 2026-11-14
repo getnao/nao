@@ -90,7 +90,7 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 				icon: BookOpenIcon,
 				action: () => {
 					invalidateStoriesCaches(queryClient);
-					navigate({ to: '/stories', search: { folderId: null } });
+					navigate({ to: '/stories', search: { folderId: null, view: undefined } });
 				},
 				shortcut: getShortcutLabel('go-to-stories'),
 				group: 'Jump to',
