@@ -5,6 +5,7 @@ import type * as EnvModule from '../../src/env';
 import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
+	applyRecommendationToChanges: vi.fn(),
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
 	createRecommendationPullRequest: vi.fn(),
@@ -47,6 +48,9 @@ vi.mock('../../src/services/context-pr.service', () => ({
 	createBatchRecommendationPullRequest: vi.fn(),
 	createRecommendationPullRequest: mocks.createRecommendationPullRequest,
 	resolveRecommendationRepo: vi.fn(),
+}));
+vi.mock('../../src/services/context-recommendation-apply.service', () => ({
+	applyRecommendationToChanges: mocks.applyRecommendationToChanges,
 }));
 vi.mock('../../src/services/context-recommendation-prompt', () => ({ buildAgentPrompt: vi.fn() }));
 vi.mock('../../src/services/context-recommendations.service', () => ({
@@ -133,6 +137,19 @@ describe('context recommendation routes', () => {
 			billingAccessVerifiedProjectId: 'project-id',
 			trigger: 'manual',
 			triggeredByUserId: 'user-id',
+		});
+	});
+
+	it('applies a recommendation in the changes of the user who asked', async () => {
+		mocks.getProjectByUserId.mockResolvedValue({ id: 'project-id', orgId: 'org-id', path: '/projects/shop' });
+
+		await caller.contextRecommendation.applyToChanges({ id: 'recommendation-id' });
+
+		expect(mocks.applyRecommendationToChanges).toHaveBeenCalledWith({
+			projectId: 'project-id',
+			projectFolder: '/projects/shop',
+			editor: expect.objectContaining({ id: 'user-id', name: 'Test User', email: 'user-id@example.com' }),
+			recommendationId: 'recommendation-id',
 		});
 	});
 

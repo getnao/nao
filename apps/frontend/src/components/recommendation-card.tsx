@@ -10,6 +10,7 @@ import {
 	GitMerge,
 	GitPullRequest,
 	GitPullRequestClosed,
+	Library,
 	Loader2,
 	MessageCircleX,
 	ScrollText,
@@ -41,6 +42,7 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useRecommendationCollapsed } from '@/hooks/use-recommendation-collapsed';
 import { useTimeAgo } from '@/hooks/use-time-ago';
+import { listContextFileEdits } from '@/lib/context-hub-recommendations';
 import { computeLineDiff } from '@/lib/line-diff';
 import { RecommendationText } from '@/lib/recommendation-text';
 import { cn } from '@/lib/utils';
@@ -246,6 +248,7 @@ export function RecommendationCard({
 	const edits = useMemo(() => rec.proposedEdits ?? [], [rec.proposedEdits]);
 	const hasPatch = rec.fixKind === 'patch' && edits.length > 0;
 	const hasManualFix = rec.fixKind === 'manual' && (!!rec.fixGuidance || !!rec.fixPrompt);
+	const firstContextFilePath = useMemo(() => listContextFileEdits(rec).at(0)?.path ?? null, [rec]);
 
 	const diffTotals = useMemo(() => {
 		if (!hasPatch) {
@@ -552,7 +555,13 @@ export function RecommendationCard({
 										size='sm'
 										variant='outline'
 										onClick={() =>
-											sidePanel.open(<RecommendationDiffPanel title={rec.title} edits={edits} />)
+											sidePanel.open(
+												<RecommendationDiffPanel
+													recommendationId={rec.id}
+													title={rec.title}
+													edits={edits}
+												/>,
+											)
 										}
 									>
 										<ScrollText className='size-3.5' />
@@ -568,6 +577,17 @@ export function RecommendationCard({
 											</span>
 										)}
 									</Button>
+									{firstContextFilePath && (
+										<Button size='sm' variant='outline' asChild>
+											<Link
+												to='/context-hub'
+												search={{ path: firstContextFilePath, recommendation: rec.id }}
+											>
+												<Library className='size-3.5' />
+												Open in Context Hub
+											</Link>
+										</Button>
+									)}
 									{rec.prUrl ? (
 										<Button size='sm' variant='outline' asChild>
 											<a href={rec.prUrl} target='_blank' rel='noopener noreferrer'>

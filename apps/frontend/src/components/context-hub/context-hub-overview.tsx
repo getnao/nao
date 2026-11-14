@@ -12,6 +12,7 @@ import type {
 } from '@/lib/context-hub';
 import { ContextHubSectionIcon } from '@/components/context-hub/context-hub-section-icon';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useOpenRecommendationsByFile } from '@/hooks/use-context-recommendations';
 import { useSession } from '@/lib/auth-client';
 import { CONTEXT_HUB_DOC_SECTIONS, findContextHubItem, toThumbnailLines } from '@/lib/context-hub';
 import { formatRelativeDate } from '@/lib/time-ago';
@@ -88,6 +89,7 @@ export function ContextHubOverview({
 						isLoading={summaries.isLoading}
 						onOpenFile={onOpenFile}
 					/>
+					<SuggestedChanges content={content} onOpenFile={onOpenFile} />
 				</div>
 				{BROWSED_SECTIONS.map((section) => (
 					<ThumbnailSection
@@ -213,6 +215,38 @@ function OwnedFiles({
 			files={files.slice(0, LIST_LIMIT)}
 			isLoading={isLoading}
 			emptyMessage='Files whose header names you as owner show here.'
+			onOpenFile={onOpenFile}
+		/>
+	);
+}
+
+/** The files nao recommends changing, from what went wrong in real chats. */
+function SuggestedChanges({ content, onOpenFile }: { content: ContextHubContent; onOpenFile: (path: string) => void }) {
+	const { isEnabled, isLoading, recommendationsByFile } = useOpenRecommendationsByFile();
+	if (!isEnabled) {
+		return null;
+	}
+
+	const files = [...recommendationsByFile].flatMap(([path, recommendations]): ListedFile[] => {
+		const item = findContextHubItem(content, path);
+		return item
+			? [
+					{
+						item,
+						detail: formatCount(recommendations.length, 'suggestion'),
+						title: recommendations.map((recommendation) => recommendation.title).join('\n'),
+					},
+				]
+			: [];
+	});
+
+	return (
+		<FileList
+			title='Suggested by nao'
+			meta='From real chats'
+			files={files.slice(0, LIST_LIMIT)}
+			isLoading={isLoading}
+			emptyMessage='No open recommendation changes these files.'
 			onOpenFile={onOpenFile}
 		/>
 	);

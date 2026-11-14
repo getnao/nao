@@ -16,3 +16,7 @@ export async function invalidateExplorerQueries(queryClient: QueryClient): Promi
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getRecentChanges.queryKey() }),
 	]);
 }
+
+export async function invalidateRecommendationQueries(queryClient: QueryClient): Promise<void> {
+	await queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.pathKey() });
+}

@@ -1,4 +1,5 @@
-import { ChevronRight, FilePen, FilePlus } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { ChevronRight, FilePen, FilePlus, Library } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
 
@@ -6,6 +7,7 @@ import type { LineDiff } from '@/lib/line-diff';
 import { FileDiffBody } from '@/components/settings/file-diff';
 import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { toContextHubPath } from '@/lib/context-hub-recommendations';
 import { computeLineDiff } from '@/lib/line-diff';
 
 interface ProposedEdit {
@@ -13,14 +15,16 @@ interface ProposedEdit {
 	kind: 'edit' | 'create';
 	oldContent: string;
 	newContent: string;
+	targetRepo?: unknown;
 }
 
 interface RecommendationDiffPanelProps {
+	recommendationId: string;
 	title: string;
 	edits: ProposedEdit[];
 }
 
-export function RecommendationDiffPanel({ title, edits }: RecommendationDiffPanelProps) {
+export function RecommendationDiffPanel({ recommendationId, title, edits }: RecommendationDiffPanelProps) {
 	const diffs = useMemo(
 		() => edits.map((edit) => ({ edit, diff: computeLineDiff(edit.oldContent, edit.newContent) })),
 		[edits],
@@ -50,7 +54,13 @@ export function RecommendationDiffPanel({ title, edits }: RecommendationDiffPane
 					className='flex flex-col gap-2'
 				>
 					{diffs.map(({ edit, diff }) => (
-						<FileDiff key={edit.path} edit={edit} diff={diff} onTriggerClick={handleTriggerClick} />
+						<FileDiff
+							key={edit.path}
+							recommendationId={recommendationId}
+							edit={edit}
+							diff={diff}
+							onTriggerClick={handleTriggerClick}
+						/>
 					))}
 				</Accordion>
 			</div>
@@ -59,10 +69,12 @@ export function RecommendationDiffPanel({ title, edits }: RecommendationDiffPane
 }
 
 function FileDiff({
+	recommendationId,
 	edit,
 	diff,
 	onTriggerClick,
 }: {
+	recommendationId: string;
 	edit: ProposedEdit;
 	diff: LineDiff;
 	onTriggerClick: (event: MouseEvent, path: string) => void;
@@ -88,8 +100,24 @@ function FileDiff({
 				<span className='shrink-0 font-mono text-[11px] text-red-600 dark:text-red-400'>-{diff.deletions}</span>
 			</AccordionTrigger>
 			<AccordionContent className='p-0'>
+				{!edit.targetRepo && <OpenInContextHubLink recommendationId={recommendationId} path={edit.path} />}
 				<FileDiffBody lines={diff.lines} />
 			</AccordionContent>
 		</AccordionItem>
+	);
+}
+
+function OpenInContextHubLink({ recommendationId, path }: { recommendationId: string; path: string }) {
+	return (
+		<div className='flex justify-end border-b bg-muted/30 px-3 py-1.5'>
+			<Link
+				to='/context-hub'
+				search={{ path: toContextHubPath(path), recommendation: recommendationId }}
+				className='flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground'
+			>
+				<Library className='size-3.5' />
+				Open in Context Hub
+			</Link>
+		</div>
 	);
 }
