@@ -32,11 +32,11 @@ export function ContextFileRecommendations({ path, isDirty }: { path: string | n
 
 	return (
 		<div className='flex flex-col divide-y border-b bg-amber-500/5'>
-			{fileRecommendations.map(({ recommendation, edit }) => (
+			{fileRecommendations.map(({ recommendation, edits }) => (
 				<FileRecommendation
 					key={recommendation.id}
 					recommendation={recommendation}
-					edit={edit}
+					edits={edits}
 					isDirty={isDirty}
 					isInitiallyExpanded={recommendation.id === requestedRecommendationId}
 				/>
@@ -47,12 +47,13 @@ export function ContextFileRecommendations({ path, isDirty }: { path: string | n
 
 function FileRecommendation({
 	recommendation,
-	edit,
+	edits,
 	isDirty,
 	isInitiallyExpanded,
 }: {
 	recommendation: ContextRecommendation;
-	edit: RecommendationFileEdit;
+	/** Everything Apply writes, the open file first. */
+	edits: RecommendationFileEdit[];
 	isDirty: boolean;
 	isInitiallyExpanded: boolean;
 }) {
@@ -81,7 +82,7 @@ function FileRecommendation({
 					</span>
 				</button>
 				<div className='flex shrink-0 items-center gap-1'>
-					<ApplyButton isDirty={isDirty} isPending={isPending} onApply={apply} />
+					<ApplyButton fileCount={edits.length} isDirty={isDirty} isPending={isPending} onApply={apply} />
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button
@@ -100,16 +101,26 @@ function FileRecommendation({
 				</div>
 			</div>
 			{errorMessage && <p className='pl-5.5 text-xs text-destructive'>{errorMessage}</p>}
-			{isExpanded && <RecommendationDetails recommendation={recommendation} edit={edit} />}
+			{isExpanded && <RecommendationDetails recommendation={recommendation} edits={edits} />}
 		</div>
 	);
 }
 
-function ApplyButton({ isDirty, isPending, onApply }: { isDirty: boolean; isPending: boolean; onApply: () => void }) {
+function ApplyButton({
+	fileCount,
+	isDirty,
+	isPending,
+	onApply,
+}: {
+	fileCount: number;
+	isDirty: boolean;
+	isPending: boolean;
+	onApply: () => void;
+}) {
 	const button = (
 		<Button size='sm' variant='outline' disabled={isDirty || isPending} onClick={onApply}>
 			{isPending ? <Loader2 className='animate-spin' /> : <Check />}
-			Apply
+			{fileCount > 1 ? `Apply to ${fileCount} files` : 'Apply'}
 		</Button>
 	);
 	if (!isDirty) {
@@ -127,21 +138,19 @@ function ApplyButton({ isDirty, isPending, onApply }: { isDirty: boolean; isPend
 
 function RecommendationDetails({
 	recommendation,
-	edit,
+	edits,
 }: {
 	recommendation: ContextRecommendation;
-	edit: RecommendationFileEdit;
+	edits: RecommendationFileEdit[];
 }) {
-	const diff = useMemo(() => computeLineDiff(edit.oldContent, edit.newContent), [edit]);
-
 	return (
 		<div className='flex flex-col gap-2 pl-5.5'>
 			<p className='leading-relaxed text-muted-foreground'>
 				<RecommendationText text={recommendation.summary} />
 			</p>
-			<div className='max-h-80 overflow-auto rounded-md border bg-background'>
-				<FileDiffBody lines={diff.lines} />
-			</div>
+			{edits.map((edit) => (
+				<EditDiff key={edit.path} edit={edit} hasPathHeader={edits.length > 1} />
+			))}
 			<Link
 				to='/settings/recommendations'
 				search={{ tab: 'recommendations', openChats: undefined }}
@@ -150,6 +159,24 @@ function RecommendationDetails({
 				See the chats behind it
 				<ExternalLink className='size-3' />
 			</Link>
+		</div>
+	);
+}
+
+function EditDiff({ edit, hasPathHeader }: { edit: RecommendationFileEdit; hasPathHeader: boolean }) {
+	const diff = useMemo(() => computeLineDiff(edit.oldContent, edit.newContent), [edit]);
+
+	return (
+		<div className='overflow-hidden rounded-md border bg-background'>
+			{hasPathHeader && (
+				<div className='flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 font-mono text-xs'>
+					<span className='truncate'>{edit.path}</span>
+					{edit.kind === 'create' && <span className='shrink-0 text-emerald-600'>new file</span>}
+				</div>
+			)}
+			<div className='max-h-80 overflow-auto'>
+				<FileDiffBody lines={diff.lines} />
+			</div>
 		</div>
 	);
 }

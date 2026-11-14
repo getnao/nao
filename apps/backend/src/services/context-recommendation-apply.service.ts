@@ -152,7 +152,7 @@ function resolveNewContent(edit: ProposedEdit, current: CurrentFile | null): str
 		return edit.newContent;
 	}
 	const { removed, added } = extractChangedSnippet(edit.oldContent, edit.newContent, SNIPPET_CONTEXT_LINES);
-	if (current.content.includes(added) && !current.content.includes(removed)) {
+	if (added && current.content.includes(added) && !current.content.includes(removed)) {
 		return current.content;
 	}
 	return replaceUniqueSnippet(current.content, removed, added);

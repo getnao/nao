@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	findContextFileEdit,
 	groupRecommendationsByFile,
+	isOpenableInContextHub,
 	listContextFileEdits,
+	listContextFileEditsStartingWith,
 } from '@/lib/context-hub-recommendations';
 
 const RULES_EDIT = {
@@ -32,12 +33,26 @@ describe('context hub recommendations', () => {
 		expect(contextFileEdits.map((edit) => edit.path)).toEqual(paths);
 	});
 
-	it('finds the edit a recommendation proposes on a hub file', () => {
+	it('lists the edits of a recommendation with the open file first', () => {
 		const recommendation = { id: 'rec-1', fixKind: 'patch', proposedEdits: [RULES_EDIT, DOC_EDIT] };
 
-		expect(findContextFileEdit(recommendation, '/docs/refunds.md')).toMatchObject({ newContent: '# Refunds\n' });
-		expect(findContextFileEdit(recommendation, '/docs/orders.md')).toBeNull();
+		const edits = listContextFileEditsStartingWith(recommendation, '/docs/refunds.md');
+
+		expect(edits.map((edit) => edit.path)).toEqual(['/docs/refunds.md', '/RULES.md']);
 	});
+
+	it.each([
+		{ edit: RULES_EDIT, canUseFileTree: false, expected: true },
+		{ edit: DOC_EDIT, canUseFileTree: true, expected: false },
+		{ edit: REPOSITORY_EDIT, canUseFileTree: true, expected: false },
+		{ edit: { ...RULES_EDIT, path: 'nao_config.yaml' }, canUseFileTree: false, expected: false },
+		{ edit: { ...RULES_EDIT, path: 'nao_config.yaml' }, canUseFileTree: true, expected: true },
+	])(
+		'opens $edit.path ($edit.kind) in the Context Hub with the file tree $canUseFileTree: $expected',
+		({ edit, canUseFileTree, expected }) => {
+			expect(isOpenableInContextHub(edit, canUseFileTree)).toBe(expected);
+		},
+	);
 
 	it('groups the recommendations by the files they change, in their order', () => {
 		const rules = { id: 'rec-rules', fixKind: 'patch', proposedEdits: [RULES_EDIT] };

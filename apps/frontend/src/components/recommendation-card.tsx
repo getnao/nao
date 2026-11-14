@@ -42,7 +42,8 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useRecommendationCollapsed } from '@/hooks/use-recommendation-collapsed';
 import { useTimeAgo } from '@/hooks/use-time-ago';
-import { listContextFileEdits } from '@/lib/context-hub-recommendations';
+import { useCanUseAdvancedContextExplorer } from '@/hooks/use-can-use-advanced-context-explorer';
+import { isOpenableInContextHub, listContextFileEdits } from '@/lib/context-hub-recommendations';
 import { computeLineDiff } from '@/lib/line-diff';
 import { RecommendationText } from '@/lib/recommendation-text';
 import { cn } from '@/lib/utils';
@@ -248,7 +249,11 @@ export function RecommendationCard({
 	const edits = useMemo(() => rec.proposedEdits ?? [], [rec.proposedEdits]);
 	const hasPatch = rec.fixKind === 'patch' && edits.length > 0;
 	const hasManualFix = rec.fixKind === 'manual' && (!!rec.fixGuidance || !!rec.fixPrompt);
-	const firstContextFilePath = useMemo(() => listContextFileEdits(rec).at(0)?.path ?? null, [rec]);
+	const canUseFileTree = useCanUseAdvancedContextExplorer();
+	const firstContextFilePath = useMemo(
+		() => listContextFileEdits(rec).find((edit) => isOpenableInContextHub(edit, canUseFileTree))?.path ?? null,
+		[rec, canUseFileTree],
+	);
 
 	const diffTotals = useMemo(() => {
 		if (!hasPatch) {

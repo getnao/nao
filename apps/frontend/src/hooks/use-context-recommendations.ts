@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { TrpcRouter } from '@nao/backend/trpc';
 
-import { findContextFileEdit, groupRecommendationsByFile } from '@/lib/context-hub-recommendations';
+import { groupRecommendationsByFile, listContextFileEditsStartingWith } from '@/lib/context-hub-recommendations';
 import { trpc } from '@/main';
 
 export type ContextRecommendation = inferRouterOutputs<TrpcRouter>['contextRecommendation']['list'][number];
@@ -27,16 +27,16 @@ export function useOpenRecommendationsByFile() {
 	return { isEnabled, isLoading: recommendations.isLoading, recommendationsByFile };
 }
 
-/** The open recommendations proposing a change to the file, each with the edit it proposes there. */
+/** The open recommendations proposing a change to the file, each with all the edits it proposes, this file's first. */
 export function useFileRecommendations(path: string | null) {
 	const { recommendationsByFile } = useOpenRecommendationsByFile();
 	return useMemo(() => {
 		if (!path) {
 			return [];
 		}
-		return (recommendationsByFile.get(path) ?? []).flatMap((recommendation) => {
-			const edit = findContextFileEdit(recommendation, path);
-			return edit ? [{ recommendation, edit }] : [];
-		});
+		return (recommendationsByFile.get(path) ?? []).map((recommendation) => ({
+			recommendation,
+			edits: listContextFileEditsStartingWith(recommendation, path),
+		}));
 	}, [recommendationsByFile, path]);
 }

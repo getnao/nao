@@ -1,3 +1,5 @@
+import { isListedInContextHub } from '@/lib/context-hub';
+
 export interface RecommendationFileEdit {
 	path: string;
 	kind: 'edit' | 'create';
@@ -22,11 +24,21 @@ export function listContextFileEdits(recommendation: RecommendationWithEdits): R
 		.map((edit) => ({ ...edit, path: toContextHubPath(edit.path) }));
 }
 
-export function findContextFileEdit(
+/**
+ * Whether the Context Hub can show the file an edit changes: a file that exists already, listed in the doc view unless
+ * the user also has the file tree. A file the edit creates only shows up once the recommendation is applied.
+ */
+export function isOpenableInContextHub(edit: RecommendationFileEdit, canUseFileTree: boolean): boolean {
+	return !edit.targetRepo && edit.kind === 'edit' && (canUseFileTree || isListedInContextHub(edit.path));
+}
+
+/** The edits a recommendation proposes on context files, the one on the given file first. */
+export function listContextFileEditsStartingWith(
 	recommendation: RecommendationWithEdits,
 	path: string,
-): RecommendationFileEdit | null {
-	return listContextFileEdits(recommendation).find((edit) => edit.path === path) ?? null;
+): RecommendationFileEdit[] {
+	const edits = listContextFileEdits(recommendation);
+	return [...edits.filter((edit) => edit.path === path), ...edits.filter((edit) => edit.path !== path)];
 }
 
 /** The recommendations proposing a change to each context file, in the order they are given. */

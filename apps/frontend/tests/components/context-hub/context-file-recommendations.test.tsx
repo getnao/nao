@@ -65,7 +65,7 @@ describe('ContextFileRecommendations', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 		mocks.search = {};
-		mocks.fileRecommendations = [{ recommendation: RECOMMENDATION, edit: EDIT }];
+		mocks.fileRecommendations = [{ recommendation: RECOMMENDATION, edits: [EDIT] }];
 	});
 
 	afterEach(cleanup);
@@ -88,6 +88,18 @@ describe('ContextFileRecommendations', () => {
 
 		expect(screen.getByText('Exclude refunds from revenue')).toBeDefined();
 		expect(screen.queryByText(/refunds excluded/) !== null).toBe(isDiffShown);
+	});
+
+	it('shows every file Apply changes when the recommendation spans several', () => {
+		const docEdit = { path: '/docs/refunds.md', kind: 'create', oldContent: '', newContent: '# Refunds policy\n' };
+		mocks.fileRecommendations = [{ recommendation: RECOMMENDATION, edits: [EDIT, docEdit] }];
+		mocks.search = { recommendation: 'rec-1' };
+
+		renderRecommendations();
+
+		expect(screen.getByRole('button', { name: 'Apply to 2 files' })).toBeDefined();
+		expect(screen.getByText('/docs/refunds.md')).toBeDefined();
+		expect(screen.getByText(/Refunds policy/)).toBeDefined();
 	});
 
 	it('applies the change to the user changes and refreshes the hub', async () => {

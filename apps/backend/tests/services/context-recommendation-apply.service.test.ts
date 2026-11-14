@@ -91,8 +91,16 @@ describe('applyRecommendationToChanges', () => {
 		expect(mocks.writeFileContent).not.toHaveBeenCalled();
 	});
 
-	it('reports an edit whose snippet is gone from the file as a conflict and keeps the recommendation open', async () => {
-		mocks.readFileContent.mockResolvedValue({ content: '# Rules\n\nRewritten by hand.\n', hash: HASH });
+	it.each([
+		{ label: 'whose snippet is gone from the file', edit: RULES_EDIT, current: '# Rules\n\nRewritten by hand.\n' },
+		{
+			label: 'emptying a file changed since',
+			edit: { ...RULES_EDIT, newContent: '' },
+			current: '# Rules\n\nRewritten by hand.\n',
+		},
+	])('reports an edit $label as a conflict and keeps the recommendation open', async ({ edit, current }) => {
+		mocks.getRecommendationById.mockResolvedValue(createRecommendation({ id: 'rec-1', proposedEdits: [edit] }));
+		mocks.readFileContent.mockResolvedValue({ content: current, hash: HASH });
 
 		const result = await apply();
 

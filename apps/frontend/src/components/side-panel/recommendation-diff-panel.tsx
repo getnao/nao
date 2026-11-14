@@ -7,7 +7,8 @@ import type { LineDiff } from '@/lib/line-diff';
 import { FileDiffBody } from '@/components/settings/file-diff';
 import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { toContextHubPath } from '@/lib/context-hub-recommendations';
+import { useCanUseAdvancedContextExplorer } from '@/hooks/use-can-use-advanced-context-explorer';
+import { isOpenableInContextHub, toContextHubPath } from '@/lib/context-hub-recommendations';
 import { computeLineDiff } from '@/lib/line-diff';
 
 interface ProposedEdit {
@@ -79,6 +80,8 @@ function FileDiff({
 	diff: LineDiff;
 	onTriggerClick: (event: MouseEvent, path: string) => void;
 }) {
+	const isOpenable = isOpenableInContextHub(edit, useCanUseAdvancedContextExplorer());
+
 	return (
 		<AccordionItem value={edit.path} className='overflow-hidden rounded-lg border last:border-b'>
 			<AccordionTrigger
@@ -100,7 +103,7 @@ function FileDiff({
 				<span className='shrink-0 font-mono text-[11px] text-red-600 dark:text-red-400'>-{diff.deletions}</span>
 			</AccordionTrigger>
 			<AccordionContent className='p-0'>
-				{!edit.targetRepo && <OpenInContextHubLink recommendationId={recommendationId} path={edit.path} />}
+				{isOpenable && <OpenInContextHubLink recommendationId={recommendationId} path={edit.path} />}
 				<FileDiffBody lines={diff.lines} />
 			</AccordionContent>
 		</AccordionItem>
