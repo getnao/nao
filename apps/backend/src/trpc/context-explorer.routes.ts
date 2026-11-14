@@ -15,7 +15,6 @@ import {
 	createGitContext,
 	createSafeFileAccess,
 	createStrictFileAccess,
-	getProviderToken,
 } from '../services/context-explorer-access.service';
 import {
 	commitContextChanges,
@@ -55,6 +54,7 @@ import {
 	searchNaoDraftContents,
 } from '../services/nao-draft.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
+import { resolveRepositoryProvider } from '../services/shared-github-token.service';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
 import { ContextProjectResolutionError } from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
@@ -168,12 +168,14 @@ export const contextExplorerRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			const projectFolder = requireProjectPath(ctx.project.path);
+			const provider = await resolveRepositoryProvider(ctx.project.id, input.provider);
 			const context: ContextExplorerGitContext = {
 				projectId: ctx.project.id,
 				projectFolder,
 				userId: ctx.user.id,
 				user: { name: ctx.user.name, email: ctx.user.email },
-				token: await getProviderToken(input.provider, ctx.user.id),
+				token: await provider.getToken(ctx.user.id),
+				providerOverride: provider,
 			};
 			if (!context.token) {
 				throw new TRPCError({

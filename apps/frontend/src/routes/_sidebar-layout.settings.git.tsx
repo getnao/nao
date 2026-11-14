@@ -10,6 +10,7 @@ import GithubIcon from '@/components/icons/github-icon.svg';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { DeploymentManagedGitSettings } from '@/components/settings/deployment-managed-git-settings';
 import { GithubRepoList } from '@/components/settings/github-repo-list';
+import { GithubSharedTokenForm, GithubSharedTokenSummary } from '@/components/settings/github-shared-token-settings';
 import { GitlabRepoList } from '@/components/settings/gitlab-repo-list';
 import { LiveContextUpdateSettings } from '@/components/settings/live-context-update-settings';
 import { ConnectedProviderAccount, ProviderConnectionCard } from '@/components/settings/provider-connection-card';
@@ -38,6 +39,21 @@ export const Route = createFileRoute('/_sidebar-layout/settings/git')({
 });
 
 type GitProvider = 'github' | 'gitlab';
+
+type GithubAccessMethod = 'shared-token' | 'personal-accounts';
+
+const GITHUB_ACCESS_METHODS: { id: GithubAccessMethod; label: string; description: string }[] = [
+	{
+		id: 'shared-token',
+		label: 'Shared access token',
+		description: 'One GitHub account, such as a bot, commits and opens pull requests for everyone.',
+	},
+	{
+		id: 'personal-accounts',
+		label: 'Personal accounts',
+		description: 'Each person signs in with their own GitHub account through a GitHub OAuth App.',
+	},
+];
 
 interface RepositoryListProps {
 	selected: string | null;
@@ -102,20 +118,28 @@ function GitSettingsPage() {
 	const [isConfirmingRepository, setIsConfirmingRepository] = useState(false);
 	const [isDisconnectingRepository, setIsDisconnectingRepository] = useState(false);
 	const [showRecommendedSetup, setShowRecommendedSetup] = useState(false);
+	const [githubAccessMethodOverride, setGithubAccessMethodOverride] = useState<GithubAccessMethod | null>(null);
 
 	const repositoryStatus = useQuery(trpc.contextExplorer.getRepositoryStatus.queryOptions());
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
 	const gitlabAvailable = useQuery(trpc.gitlab.isAvailable.queryOptions());
+	const sharedToken = useQuery(trpc.github.getSharedAccessToken.queryOptions());
+	const sharedTokenConfigured = sharedToken.data?.configured === true;
+	const sharedTokenAccount = sharedToken.data?.configured ? sharedToken.data.account : null;
 	const selectedProvider =
 		selectedProviderOverride ??
 		getDefaultProvider(
 			repositoryStatus.data?.repo?.provider,
-			githubAvailable.data === true,
+			githubAvailable.data === true || sharedTokenConfigured,
 			gitlabAvailable.data === true,
 		);
+	const githubAccessMethod =
+		githubAccessMethodOverride ??
+		getDefaultGithubAccessMethod(sharedTokenConfigured, githubAvailable.data === true);
+	const usesSharedToken = selectedProvider === 'github' && githubAccessMethod === 'shared-token';
 	const githubStatus = useQuery({
 		...trpc.github.getStatus.queryOptions(),
-		enabled: selectedProvider === 'github' && githubAvailable.data === true,
+		enabled: selectedProvider === 'github' && !usesSharedToken && githubAvailable.data === true,
 	});
 	const gitlabStatus = useQuery({
 		...trpc.gitlab.getStatus.queryOptions(),
@@ -166,15 +190,18 @@ function GitSettingsPage() {
 
 	const status = repositoryStatus.data;
 	const providerConfig = PROVIDER_CONFIGS[selectedProvider];
+	const githubAccount = usesSharedToken
+		? sharedTokenAccount && { username: sharedTokenAccount.login, avatarUrl: sharedTokenAccount.avatarUrl }
+		: githubStatus.data?.connected
+			? { username: githubStatus.data.user.login, avatarUrl: githubStatus.data.user.avatarUrl }
+			: null;
 	const provider =
 		selectedProvider === 'github'
 			? {
 					...providerConfig,
 					id: selectedProvider,
-					available: githubAvailable.data === true,
-					account: githubStatus.data?.connected
-						? { username: githubStatus.data.user.login, avatarUrl: githubStatus.data.user.avatarUrl }
-						: null,
+					available: usesSharedToken ? sharedTokenAccount !== null : githubAvailable.data === true,
+					account: githubAccount,
 					disconnect: handleDisconnectGithub,
 					disconnectPending: disconnectGithub.isPending,
 					disconnectError: disconnectGithub.error,
@@ -194,6 +221,7 @@ function GitSettingsPage() {
 	const RepositoryList = provider.repositoryList;
 	const instanceReady = provider.available;
 	const accountReady = provider.account !== null;
+	const personalAccountReady = accountReady && !usesSharedToken;
 	const repositoryProvider = status?.repo?.provider;
 	const connectedRepositoryProvider = isGitProvider(repositoryProvider) ? repositoryProvider : null;
 	const repositoryReady = connectedRepositoryProvider !== null;
@@ -205,10 +233,19 @@ function GitSettingsPage() {
 		repositoryStatus.isLoading ||
 		githubAvailable.isLoading ||
 		gitlabAvailable.isLoading ||
+		sharedToken.isLoading ||
 		(instanceReady && selectedAccountStatus.isLoading);
 	const loadError =
-		repositoryStatus.error ?? githubAvailable.error ?? gitlabAvailable.error ?? selectedAccountStatus.error;
+		repositoryStatus.error ??
+		githubAvailable.error ??
+		gitlabAvailable.error ??
+		sharedToken.error ??
+		selectedAccountStatus.error;
 	const providerSwitchError = disconnectRepository.error ?? provider.disconnectError;
+
+	const toggleSelectedRepository = (fullName: string) => {
+		setSelectedRepository(fullName === selectedRepository ? null : fullName);
+	};
 
 	const selectProvider = (nextProvider: GitProvider) => {
 		setSelectedProviderOverride(nextProvider);
@@ -223,7 +260,7 @@ function GitSettingsPage() {
 		if (repositoryReady && repositoryDisconnectBlockedReason) {
 			return;
 		}
-		if (!repositoryReady && !accountReady) {
+		if (!repositoryReady && !personalAccountReady) {
 			selectProvider(nextProvider);
 			return;
 		}
@@ -237,7 +274,7 @@ function GitSettingsPage() {
 			targetProvider: nextProvider,
 			sourceProvider: selectedProvider,
 			repositoryName: repositoryReady ? (status?.repo?.repoFullName ?? null) : null,
-			disconnectAccount: accountReady,
+			disconnectAccount: personalAccountReady,
 			accountDisconnected: false,
 		});
 	};
@@ -293,6 +330,7 @@ function GitSettingsPage() {
 										void repositoryStatus.refetch();
 										void githubAvailable.refetch();
 										void gitlabAvailable.refetch();
+										void sharedToken.refetch();
 										if (instanceReady) {
 											void selectedAccountStatus.refetch();
 										}
@@ -317,20 +355,62 @@ function GitSettingsPage() {
 									<div id='recommended-git-setup' className='contents'>
 										<NumberedSetupSection
 											number={1}
-											title={`${provider.label} server keys`}
-											ownership='Done by the admin who deploys nao, once for everyone.'
+											title={
+												usesSharedToken
+													? 'GitHub access token'
+													: `${provider.label} server keys`
+											}
+											ownership={
+												usesSharedToken
+													? 'Done by a project admin, once for everyone.'
+													: 'Done by the admin who deploys nao, once for everyone.'
+											}
 											isDone={instanceReady}
+											completedContent={
+												usesSharedToken ? (
+													<GithubSharedTokenSummary
+														account={sharedTokenAccount}
+														error={null}
+														canEdit={isAdmin}
+													/>
+												) : undefined
+											}
 											persistentContent={
-												<ProviderSelector
-													selectedProvider={selectedProvider}
-													switchBlockedReason={
-														repositoryReady ? repositoryDisconnectBlockedReason : null
-													}
-													onSelect={handleProviderSelect}
-												/>
+												<div className='space-y-3'>
+													<ProviderSelector
+														selectedProvider={selectedProvider}
+														switchBlockedReason={
+															repositoryReady ? repositoryDisconnectBlockedReason : null
+														}
+														onSelect={handleProviderSelect}
+													/>
+													{selectedProvider === 'github' && (
+														<GithubAccessMethodSelector
+															selectedMethod={githubAccessMethod}
+															switchBlockedReason={
+																sharedTokenConfigured
+																	? 'Remove the access token to use personal accounts instead.'
+																	: null
+															}
+															onSelect={setGithubAccessMethodOverride}
+														/>
+													)}
+												</div>
 											}
 										>
-											{!instanceReady && (
+											{!instanceReady && usesSharedToken && (
+												<div className='space-y-4'>
+													{sharedToken.data?.configured && (
+														<GithubSharedTokenSummary
+															account={null}
+															error={sharedToken.data.error}
+															canEdit={isAdmin}
+														/>
+													)}
+													<GithubSharedTokenForm canEdit={isAdmin} />
+												</div>
+											)}
+											{!instanceReady && !usesSharedToken && (
 												<div className='space-y-2 text-sm text-muted-foreground'>
 													<p>
 														Create a {provider.oauthAppName} in {provider.oauthAppLocation},
@@ -379,7 +459,12 @@ function GitSettingsPage() {
 												Connect the repository that stores context files for this project.
 											</p>
 
-											{!accountReady ? (
+											{!accountReady && usesSharedToken ? (
+												<DisabledAction
+													label='Connect repository'
+													reason='Save the GitHub access token in step 1 first.'
+												/>
+											) : !accountReady ? (
 												<div className='flex flex-col items-start gap-2'>
 													<p className='text-sm text-muted-foreground'>
 														Connect the {provider.label} account that has access to the
@@ -403,34 +488,40 @@ function GitSettingsPage() {
 												</div>
 											) : (
 												<div className='flex min-w-0 flex-col gap-6'>
-													<div className='space-y-2'>
-														<ProviderConnectionCard
-															providerLabel={provider.label}
-															icon={provider.icon}
-															connectHref={provider.connectHref}
-															description='This account is used to find repositories.'
-															connected
-															username={provider.account?.username}
-															avatarUrl={provider.account?.avatarUrl}
-															onDisconnect={provider.disconnect}
-															disconnectPending={provider.disconnectPending}
-														/>
-														{provider.disconnectError && (
-															<ErrorMessage message={provider.disconnectError.message} />
-														)}
-													</div>
+													{!usesSharedToken && (
+														<div className='space-y-2'>
+															<ProviderConnectionCard
+																providerLabel={provider.label}
+																icon={provider.icon}
+																connectHref={provider.connectHref}
+																description='This account is used to find repositories.'
+																connected
+																username={provider.account?.username}
+																avatarUrl={provider.account?.avatarUrl}
+																onDisconnect={provider.disconnect}
+																disconnectPending={provider.disconnectPending}
+															/>
+															{provider.disconnectError && (
+																<ErrorMessage
+																	message={provider.disconnectError.message}
+																/>
+															)}
+														</div>
+													)}
 													{canConnectRepository ? (
 														<div className='flex min-w-0 flex-col gap-2'>
-															<RepositoryList
-																selected={selectedRepository}
-																onSelect={(fullName) => {
-																	setSelectedRepository(
-																		fullName === selectedRepository
-																			? null
-																			: fullName,
-																	);
-																}}
-															/>
+															{usesSharedToken ? (
+																<GithubRepoList
+																	useSharedToken
+																	selected={selectedRepository}
+																	onSelect={toggleSelectedRepository}
+																/>
+															) : (
+																<RepositoryList
+																	selected={selectedRepository}
+																	onSelect={toggleSelectedRepository}
+																/>
+															)}
 															<Button
 																size='sm'
 																disabled={!selectedRepository}
@@ -470,56 +561,60 @@ function GitSettingsPage() {
 												)}
 										</NumberedSetupSection>
 
-										<NumberedSetupSection
-											number={3}
-											title={`Connect your personal ${provider.label} account`}
-											ownership='Done by every context admin, for themselves.'
-											isDone={accountReady}
-											completedContent={
-												repositoryReady ? (
-													<div className='space-y-2'>
-														<ConnectedProviderAccount
-															username={provider.account?.username}
-															avatarUrl={provider.account?.avatarUrl}
+										{!usesSharedToken && (
+											<NumberedSetupSection
+												number={3}
+												title={`Connect your personal ${provider.label} account`}
+												ownership='Done by every context admin, for themselves.'
+												isDone={accountReady}
+												completedContent={
+													repositoryReady ? (
+														<div className='space-y-2'>
+															<ConnectedProviderAccount
+																username={provider.account?.username}
+																avatarUrl={provider.account?.avatarUrl}
+																onDisconnect={provider.disconnect}
+																disconnectPending={provider.disconnectPending}
+															/>
+															{provider.disconnectError && (
+																<ErrorMessage
+																	message={provider.disconnectError.message}
+																/>
+															)}
+														</div>
+													) : undefined
+												}
+											>
+												{repositoryReady ? (
+													<>
+														<p className='text-sm text-muted-foreground'>
+															Connect your own {provider.label} account because{' '}
+															{provider.reviewRequestNamePlural} are opened as you. Your
+															connection does not connect anyone else.
+														</p>
+														<ProviderConnectionCard
+															providerLabel={provider.label}
+															icon={provider.icon}
+															connectHref={provider.connectHref}
+															description={`This account is used to open ${provider.reviewRequestNamePlural} as you.`}
+															connected={false}
 															onDisconnect={provider.disconnect}
 															disconnectPending={provider.disconnectPending}
+															connectDisabledReason={
+																instanceReady
+																	? undefined
+																	: `The nao admin must set the ${provider.label} server keys and redeploy or restart nao first.`
+															}
 														/>
-														{provider.disconnectError && (
-															<ErrorMessage message={provider.disconnectError.message} />
-														)}
-													</div>
-												) : undefined
-											}
-										>
-											{repositoryReady ? (
-												<>
+													</>
+												) : (
 													<p className='text-sm text-muted-foreground'>
-														Connect your own {provider.label} account because{' '}
-														{provider.reviewRequestNamePlural} are opened as you. Your
-														connection does not connect anyone else.
+														Connect the context files repository in step 2 before each
+														person can connect their own account.
 													</p>
-													<ProviderConnectionCard
-														providerLabel={provider.label}
-														icon={provider.icon}
-														connectHref={provider.connectHref}
-														description={`This account is used to open ${provider.reviewRequestNamePlural} as you.`}
-														connected={false}
-														onDisconnect={provider.disconnect}
-														disconnectPending={provider.disconnectPending}
-														connectDisabledReason={
-															instanceReady
-																? undefined
-																: `The nao admin must set the ${provider.label} server keys and redeploy or restart nao first.`
-														}
-													/>
-												</>
-											) : (
-												<p className='text-sm text-muted-foreground'>
-													Connect the context files repository in step 2 before each person
-													can connect their own account.
-												</p>
-											)}
-										</NumberedSetupSection>
+												)}
+											</NumberedSetupSection>
+										)}
 									</div>
 								)}
 							</>
@@ -717,6 +812,45 @@ function ProviderSelector({
 	);
 }
 
+function GithubAccessMethodSelector({
+	selectedMethod,
+	switchBlockedReason,
+	onSelect,
+}: {
+	selectedMethod: GithubAccessMethod;
+	switchBlockedReason: string | null;
+	onSelect: (method: GithubAccessMethod) => void;
+}) {
+	return (
+		<div className='space-y-1 pl-9'>
+			<div className='flex items-center gap-2' aria-label='GitHub access'>
+				{GITHUB_ACCESS_METHODS.map((method) => {
+					const isSelected = method.id === selectedMethod;
+					return (
+						<Button
+							key={method.id}
+							type='button'
+							size='sm'
+							variant={isSelected ? 'secondary' : 'outline'}
+							aria-pressed={isSelected}
+							disabled={!isSelected && switchBlockedReason !== null}
+							onClick={() => {
+								onSelect(method.id);
+							}}
+						>
+							{method.label}
+						</Button>
+					);
+				})}
+			</div>
+			<p className='text-xs text-muted-foreground'>
+				{switchBlockedReason ??
+					GITHUB_ACCESS_METHODS.find((method) => method.id === selectedMethod)?.description}
+			</p>
+		</div>
+	);
+}
+
 function NumberedSetupSection({
 	number,
 	title,
@@ -842,6 +976,10 @@ async function invalidateProviderAccountQueries(queryClient: QueryClient, provid
 		queryClient.invalidateQueries({ queryKey: repositoriesQueryKey }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getRepositoryStatus.queryKey() }),
 	]);
+}
+
+function getDefaultGithubAccessMethod(sharedTokenConfigured: boolean, oauthAvailable: boolean): GithubAccessMethod {
+	return sharedTokenConfigured || !oauthAvailable ? 'shared-token' : 'personal-accounts';
 }
 
 function getDefaultProvider(

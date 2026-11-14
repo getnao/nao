@@ -30,6 +30,7 @@ import * as github from './github';
 import * as gitlab from './gitlab';
 import type { InternalRepoProvider, ReviewRequestProvider } from './review-request-provider';
 import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
+import { resolveRepositoryProvider, resolveRepositoryToken } from './shared-github-token.service';
 
 export { REVIEW_REQUEST_PROVIDERS };
 export type { ReviewRequestProvider };
@@ -93,12 +94,13 @@ async function resolveConfiguredRepoSubPath(
 		return getRepoSubPath(project.path);
 	}
 	if (userId) {
-		return detectConfiguredRepoSubPath(provider, repoFullName, userId);
+		return detectConfiguredRepoSubPath(projectId, provider, repoFullName, userId);
 	}
 	return '';
 }
 
 async function detectConfiguredRepoSubPath(
+	projectId: string,
 	provider: InternalRepoProvider,
 	repoFullName: string,
 	userId: string,
@@ -106,7 +108,7 @@ async function detectConfiguredRepoSubPath(
 	if (provider !== 'github' && provider !== 'gitlab') {
 		return '';
 	}
-	const token = await REVIEW_REQUEST_PROVIDERS[provider].getToken(userId);
+	const token = await resolveRepositoryToken(projectId, provider, userId);
 	if (!token) {
 		return '';
 	}
@@ -197,7 +199,7 @@ export async function createRecommendationPullRequest(
 
 	try {
 		const { url } = await createReviewRequest({
-			provider: REVIEW_REQUEST_PROVIDERS[repo.provider],
+			provider: await resolveRepositoryProvider(projectId, repo.provider),
 			userId,
 			repoFullName,
 			workdir,
@@ -263,7 +265,7 @@ export async function createBatchRecommendationPullRequest(
 
 	try {
 		const { url, committedRecIds } = await createBatchReviewRequest({
-			provider: REVIEW_REQUEST_PROVIDERS[repo.provider],
+			provider: await resolveRepositoryProvider(projectId, repo.provider),
 			userId,
 			repoFullName: repo.repoFullName,
 			workdir,
@@ -334,7 +336,7 @@ export async function createReviewRequest(args: {
 		branch,
 		message: commitMessage,
 		author,
-		coAuthors: [provider.coAuthor],
+		coAuthors: provider.commitCoAuthors({ name: user.name, email: user.email }),
 	});
 
 	const reviewRequest = await provider.openReviewRequest(token, repoFullName, {
@@ -395,7 +397,7 @@ async function createBatchReviewRequest(args: {
 		const committed = commitAll(workdir, {
 			message: commitMessage(rec),
 			author,
-			coAuthors: [provider.coAuthor],
+			coAuthors: provider.commitCoAuthors({ name: user.name, email: user.email }),
 		});
 		if (committed) {
 			committedRecIds.push(rec.id);

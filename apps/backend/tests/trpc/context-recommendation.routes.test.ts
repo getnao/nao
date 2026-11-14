@@ -52,6 +52,7 @@ vi.mock('../../src/services/context-recommendations.service', () => ({
 }));
 vi.mock('../../src/services/github', () => ({}));
 vi.mock('../../src/services/gitlab', () => ({}));
+vi.mock('../../src/services/shared-github-token.service', () => ({ resolveRepositoryToken: vi.fn() }));
 vi.mock('../../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(),
 }));

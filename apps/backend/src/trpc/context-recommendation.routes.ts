@@ -24,6 +24,7 @@ import {
 } from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
+import { resolveRepositoryToken } from '../services/shared-github-token.service';
 import {
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
 	CONTEXT_RECOMMENDATION_STATUSES,
@@ -209,7 +210,7 @@ export const contextRecommendationRoutes = {
 
 		const githubParsed = github.parsePullRequestUrl(rec.prUrl);
 		if (githubParsed) {
-			const token = await userQueries.getGithubToken(ctx.user.id);
+			const token = await resolveRepositoryToken(ctx.project.id, 'github', ctx.user.id);
 			if (!token) {
 				return null;
 			}

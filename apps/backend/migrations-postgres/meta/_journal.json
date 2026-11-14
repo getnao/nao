@@ -722,6 +722,13 @@
       "when": 1794307823056,
       "tag": "0102_story_multi_editors",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794656202354,
+      "tag": "0103_shared_github_access_token",
+      "breakpoints": true
     }
   ]
 }

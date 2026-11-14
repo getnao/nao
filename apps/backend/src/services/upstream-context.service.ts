@@ -16,7 +16,8 @@ import {
 	removeContextSnapshot,
 } from './draft-context.service';
 import { getProjectRuntimeEnvVars } from './project-runtime-env';
-import { REVIEW_REQUEST_PROVIDERS, type ReviewRequest } from './review-request-provider';
+import type { ReviewRequest } from './review-request-provider';
+import { resolveRepositoryProvider } from './shared-github-token.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -81,6 +82,8 @@ export interface UpstreamChanges {
 	reviewRequest: ReviewRequest | null;
 }
 
+type RepositoryUser = Pick<UpstreamBranchInput, 'projectId' | 'userId'>;
+
 interface UpstreamBranchInput {
 	projectId: string;
 	projectFolder: string;
@@ -127,7 +130,7 @@ export async function listUpstreamBranches(input: {
 	userId: string;
 }): Promise<RepoBranchList> {
 	const remote = await resolveGitRemote(input);
-	const providerBranches = await readProviderBranches(remote.linkedRepo, input.userId);
+	const providerBranches = await readProviderBranches(remote.linkedRepo, input);
 	if (providerBranches) {
 		return { branches: providerBranches, canFilterMine: true };
 	}
@@ -186,8 +189,8 @@ async function findUpstreamReviewRequest(remote: GitRemote, input: UpstreamBranc
 	if (!linkedRepo.provider || !linkedRepo.repoFullName) {
 		return null;
 	}
-	const provider = REVIEW_REQUEST_PROVIDERS[linkedRepo.provider];
 	try {
+		const provider = await resolveRepositoryProvider(input.projectId, linkedRepo.provider);
 		const token = await provider.getToken(input.userId);
 		return token
 			? await provider.findReviewRequestByBranch(token, linkedRepo.repoFullName, input.upstream.branch)
@@ -296,7 +299,7 @@ async function resolveGitRemote(input: {
 		throw new UpstreamContextError(`No git repository named ${input.repo} is configured in nao_config.yaml.`);
 	}
 	const repo = { name: linkedRepo.name, url: linkedRepo.url, branch: linkedRepo.branch };
-	const authenticatedUrl = await resolveAuthenticatedUrl(linkedRepo, input.userId);
+	const authenticatedUrl = await resolveAuthenticatedUrl(linkedRepo, input);
 	const writtenUrl = extractRawRepoConfig(input.projectFolder, linkedRepo.name)?.url;
 	return {
 		repo,
@@ -307,13 +310,13 @@ async function resolveGitRemote(input: {
 }
 
 /** Null when the user's account cannot list them, as git still can with the server's credentials. */
-async function readProviderBranches(repo: LinkedContextRepo, userId: string): Promise<RepoBranch[] | null> {
+async function readProviderBranches(repo: LinkedContextRepo, user: RepositoryUser): Promise<RepoBranch[] | null> {
 	if (!repo.provider || !repo.repoFullName) {
 		return null;
 	}
-	const provider = REVIEW_REQUEST_PROVIDERS[repo.provider];
 	try {
-		const token = await provider.getToken(userId);
+		const provider = await resolveRepositoryProvider(user.projectId, repo.provider);
+		const token = await provider.getToken(user.userId);
 		return token ? await provider.listBranches(token, repo.repoFullName) : null;
 	} catch {
 		return null;
@@ -321,12 +324,12 @@ async function readProviderBranches(repo: LinkedContextRepo, userId: string): Pr
 }
 
 /** Uses the user's GitHub or GitLab account when connected, else whatever git credentials the server has. */
-async function resolveAuthenticatedUrl(repo: LinkedContextRepo, userId: string): Promise<string | null> {
+async function resolveAuthenticatedUrl(repo: LinkedContextRepo, user: RepositoryUser): Promise<string | null> {
 	if (!repo.provider || !repo.repoFullName) {
 		return null;
 	}
-	const provider = REVIEW_REQUEST_PROVIDERS[repo.provider];
-	const token = await provider.getToken(userId);
+	const provider = await resolveRepositoryProvider(user.projectId, repo.provider);
+	const token = await provider.getToken(user.userId);
 	return token ? provider.authenticatedRepoUrl(token, repo.repoFullName) : null;
 }
 

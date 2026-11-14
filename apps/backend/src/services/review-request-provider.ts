@@ -1,6 +1,6 @@
 import type { RepoBranch, RepoProvider } from '@nao/shared/types';
 
-import type { GitIdentity } from '../utils/git-identity';
+import { type GitIdentity, withRequester } from '../utils/git-identity';
 import { GENERIC_GIT_PROVIDER } from './generic-git';
 import * as github from './github';
 import * as gitlab from './gitlab';
@@ -27,7 +27,9 @@ export interface ReviewRequestProvider {
 	cloneRepo: (token: string, repoFullName: string, dir: string, branch?: string) => void;
 	getGitInfo: (dir: string) => { branch: string | null };
 	getUserGitIdentity: (args: { token: string | null; user: GitIdentity }) => Promise<GitIdentity>;
-	coAuthor: GitIdentity;
+	commitCoAuthors: (requester: GitIdentity) => GitIdentity[];
+	/** GitHub or GitLab itself, whose git credentials go through askpass rather than the remote URL. */
+	isFirstParty: boolean;
 	commitAllAndPushBranch: (args: {
 		token: string;
 		repoFullName: string;
@@ -72,7 +74,8 @@ export const REVIEW_REQUEST_PROVIDERS: Record<InternalRepoProvider, ReviewReques
 		cloneRepo: github.cloneRepo,
 		getGitInfo: github.getGitInfo,
 		getUserGitIdentity: ({ token }) => github.getUserGitIdentity(requireToken(token)),
-		coAuthor: github.NAO_CO_AUTHOR,
+		commitCoAuthors: () => [github.NAO_CO_AUTHOR],
+		isFirstParty: true,
 		commitAllAndPushBranch: github.commitAllAndPushBranch,
 		pushBranch: (args) => github.pushBranch(args),
 		findOpenReviewRequest: ({ token, repoFullName, branch }) =>
@@ -94,7 +97,8 @@ export const REVIEW_REQUEST_PROVIDERS: Record<InternalRepoProvider, ReviewReques
 		cloneRepo: gitlab.cloneRepo,
 		getGitInfo: gitlab.getGitInfo,
 		getUserGitIdentity: ({ token }) => gitlab.getUserGitIdentity(requireToken(token)),
-		coAuthor: gitlab.NAO_CO_AUTHOR,
+		commitCoAuthors: () => [gitlab.NAO_CO_AUTHOR],
+		isFirstParty: true,
 		commitAllAndPushBranch: gitlab.commitAllAndPushBranch,
 		pushBranch: (args) => gitlab.pushBranch(args),
 		findOpenReviewRequest: ({ token, repoFullName, branch }) =>
@@ -114,6 +118,28 @@ export const REVIEW_REQUEST_PROVIDERS: Record<InternalRepoProvider, ReviewReques
 	},
 	generic: GENERIC_GIT_PROVIDER,
 };
+
+/**
+ * Everyone works through one access token: its account authors the commits and opens the review requests, which credit
+ * the person who asked for them. Branch authors all look like that account, so only nao knows whose a branch is.
+ */
+export function withSharedAccessToken(provider: ReviewRequestProvider, token: string): ReviewRequestProvider {
+	return {
+		...provider,
+		getToken: async () => token,
+		isIntegrationAvailable: () => true,
+		commitCoAuthors: (requester) => [requester],
+		listBranches: async (branchesToken, repoFullName) => {
+			const branches = await provider.listBranches(branchesToken, repoFullName);
+			return branches?.map((branch) => ({ ...branch, isMine: false })) ?? null;
+		},
+		openReviewRequest: (reviewToken, repoFullName, args) =>
+			provider.openReviewRequest(reviewToken, repoFullName, {
+				...args,
+				body: withRequester(args.body, args.requester),
+			}),
+	};
+}
 
 export function getRepoProviderDisplayName(provider: string | null | undefined): string {
 	if (provider === 'github') {
