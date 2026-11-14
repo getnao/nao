@@ -32,6 +32,7 @@ import {
 	MIN_AUTO_PRS_PER_RUN,
 } from '../types/context-recommendation';
 import { llmProviderSchema } from '../types/llm';
+import { redactCredentialedUrls } from '../utils/credential-redaction';
 import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
@@ -58,7 +59,7 @@ function toPullRequestTrpcError(err: unknown): TRPCError {
 	}
 	return new TRPCError({
 		code: 'INTERNAL_SERVER_ERROR',
-		message: err instanceof Error ? err.message : 'Failed to create pull request',
+		message: err instanceof Error ? redactCredentialedUrls(err.message) : 'Failed to create pull request',
 	});
 }
 

@@ -83,8 +83,8 @@ const contextDraftMocks = vi.hoisted(() => ({
 vi.mock('../../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 vi.mock('../../src/queries/context-recommendation.queries', () => contextConfigMocks);
 vi.mock('../../src/queries/context-draft.queries', () => contextDraftMocks);
-vi.mock('../../src/utils/logger', () => {
-	const redactCredentialedUrls = (value: string) => value.replace(/:\/\/[^/\s@]+@/g, '://***@');
+vi.mock('../../src/utils/logger', async () => {
+	const { redactCredentialedUrls } = await import('../../src/utils/credential-redaction');
 	return {
 		logger: {
 			warn: loggerMocks.warn,

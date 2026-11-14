@@ -1,5 +1,6 @@
 import * as logQueries from '../queries/log.queries';
 import type { LogLevel, LogSource } from '../types/log';
+import { redactCredentialedUrls } from './credential-redaction';
 import { scheduleTask } from './schedule-task';
 
 interface LogOptions {
@@ -7,13 +8,6 @@ interface LogOptions {
 	projectId?: string;
 	userId?: string;
 	context?: Record<string, unknown>;
-}
-
-/** Matches credentials embedded in a URL, e.g. `https://oauth2:TOKEN@host/...` (git clone/push errors). */
-const CREDENTIALED_URL_PATTERN = /:\/\/[^/\s@]+@/g;
-
-function redactCredentialedUrls(value: string): string {
-	return value.replace(CREDENTIALED_URL_PATTERN, '://***@');
 }
 
 /** Extracts structured error info (name, message, stack) from unknown caught values. */
