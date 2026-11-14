@@ -4,7 +4,12 @@ import {
 	isSameContextFileOwner,
 	updateContextFileHeader,
 } from '@nao/shared/context-file-header';
-import { isRootRulesPath, renderConditionalGroupBlocks } from '@nao/shared/rules-template';
+import {
+	findRenderedRulesLines,
+	isRootRulesPath,
+	renderConditionalGroupBlocks,
+	renderConditionalGroupBlocksWithSourceLines,
+} from '@nao/shared/rules-template';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, File, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,7 +17,7 @@ import { useDefaultLayout } from 'react-resizable-panels';
 import { Streamdown } from 'streamdown';
 import type { ContextFileHeaderChanges } from '@nao/shared/context-file-header';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
-import type { FileEditabilityGuidance } from '@nao/shared/types';
+import type { FileEditabilityGuidance, StoryCodeLines } from '@nao/shared/types';
 import type { ReactNode } from 'react';
 
 import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
@@ -43,11 +48,17 @@ import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useFileHeader } from '@/hooks/use-file-header';
 import { useLocalStorage } from '@/hooks/use-local-storage';
+import { useMarkdownLinesReveal } from '@/hooks/use-markdown-lines-reveal';
 import { useSaveShortcut } from '@/hooks/use-save-shortcut';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
 import { isMarkdownPath } from '@/lib/file-path';
 import { createLocalStorage } from '@/lib/local-storage';
-import { joinMarkdownFrontmatter, markdownPlugins, parseMarkdownFrontmatter } from '@/lib/markdown';
+import {
+	countFrontmatterLines,
+	joinMarkdownFrontmatter,
+	markdownPlugins,
+	parseMarkdownFrontmatter,
+} from '@/lib/markdown';
 import { isForbiddenError } from '@/lib/trpc-error';
 import { trpc } from '@/main';
 import { markdownLinkSafety } from '@/components/external-link-dialog';
@@ -408,6 +419,7 @@ function EditableFileViewer({
 	const renderedMarkdown = (
 		<MarkdownPreview
 			content={preview.content}
+			toRenderedLines={preview.toRenderedLines}
 			filePath={filePath}
 			searchQuery={searchQuery}
 			error={preview.error}
@@ -440,6 +452,7 @@ function EditableFileViewer({
 	const markdownPreview = isPreviewEditable ? (
 		<MarkdownFileEditor
 			value={parsedMarkdownDraft.body}
+			lineOffset={countFrontmatterLines(parsedMarkdownDraft)}
 			filePath={filePath}
 			searchQuery={searchQuery}
 			onChange={handleMarkdownChange}
@@ -610,6 +623,7 @@ function ReadOnlyNote({
 
 function MarkdownPreview({
 	content,
+	toRenderedLines,
 	filePath,
 	searchQuery,
 	error,
@@ -617,6 +631,7 @@ function MarkdownPreview({
 	header,
 }: {
 	content: string;
+	toRenderedLines?: (lines: StoryCodeLines) => StoryCodeLines | null;
 	filePath: string;
 	searchQuery: string;
 	error?: string;
@@ -624,12 +639,23 @@ function MarkdownPreview({
 	header?: ReactNode;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const markdownRef = useRef<HTMLDivElement>(null);
 	const parsedMarkdown = useMemo(() => parseMarkdownFrontmatter(content), [content]);
 	usePreviewHighlights({ containerRef, content: parsedMarkdown.body, filePath, searchQuery });
+	const findBlocksRoot = useCallback(() => markdownRef.current?.firstElementChild ?? null, []);
+	const linesHighlight = useMarkdownLinesReveal({
+		filePath,
+		markdown: parsedMarkdown.body,
+		lineOffset: countFrontmatterLines(parsedMarkdown),
+		toRenderedLines,
+		containerRef,
+		findBlocksRoot,
+	});
 
 	return (
 		<section aria-label='Markdown preview' className='flex h-full min-h-0 flex-col'>
-			<div ref={containerRef} className='min-h-0 flex-1 overflow-auto'>
+			<div ref={containerRef} className='relative min-h-0 flex-1 overflow-auto'>
+				{linesHighlight}
 				<div className='max-w-3xl mx-auto px-8 py-6'>
 					{header}
 					{status === 'loading' ? (
@@ -639,14 +665,16 @@ function MarkdownPreview({
 					) : error ? (
 						<ErrorMessage message={error} />
 					) : (
-						<Streamdown
-							linkSafety={markdownLinkSafety}
-							mode='static'
-							controls={false}
-							plugins={markdownPlugins}
-						>
-							{parsedMarkdown.body}
-						</Streamdown>
+						<div ref={markdownRef}>
+							<Streamdown
+								linkSafety={markdownLinkSafety}
+								mode='static'
+								controls={false}
+								plugins={markdownPlugins}
+							>
+								{parsedMarkdown.body}
+							</Streamdown>
+						</div>
 					)}
 				</div>
 			</div>
@@ -740,11 +768,18 @@ function getRulesGroupAccess(
 	};
 }
 
+interface RulesPreview {
+	content: string;
+	/** Rules rendered for some groups drop lines, so the lines of the file move in the preview. */
+	toRenderedLines?: (lines: StoryCodeLines) => StoryCodeLines | null;
+	error?: string;
+}
+
 function renderRulesPreview(
 	content: string,
 	isRootRules: boolean,
 	groupAccess: UserRulesGroupAccess | null,
-): { content: string; error?: string } {
+): RulesPreview {
 	if (!isRootRules) {
 		return { content };
 	}
@@ -752,7 +787,11 @@ function renderRulesPreview(
 		return { content: '' };
 	}
 	try {
-		return { content: renderConditionalGroupBlocks(content, groupAccess) };
+		const rendered = renderConditionalGroupBlocksWithSourceLines(content, groupAccess);
+		return {
+			content: rendered.content,
+			toRenderedLines: (lines) => findRenderedRulesLines(rendered, lines),
+		};
 	} catch (error) {
 		return {
 			content: '',

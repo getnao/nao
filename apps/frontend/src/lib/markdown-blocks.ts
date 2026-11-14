@@ -1,3 +1,6 @@
+import { parseMarkdownIntoBlocks } from 'streamdown';
+import type { StoryCodeLines } from '@nao/shared/types';
+
 export interface MarkdownToken {
 	type: string;
 	raw: string;
@@ -31,6 +34,38 @@ export function getMarkdownLayout(tokens: MarkdownToken[]): MarkdownLayout {
 		lastBlock.gap = '';
 	}
 	return layout;
+}
+
+/**
+ * A rendered top-level block of a Markdown document holding some lines of its source, by its position among the
+ * blocks that are not blank. `rows` are the list items or table rows holding them, or null for the whole block.
+ */
+export interface MarkdownLinesTarget {
+	blockIndex: number;
+	rows: number[] | null;
+}
+
+/** The rendered blocks, and the list items or table rows within them, that show these lines of a Markdown source. */
+export function findMarkdownLinesTargets(markdown: string, lines: StoryCodeLines): MarkdownLinesTarget[] {
+	const targets: MarkdownLinesTarget[] = [];
+	let startLine = 1;
+	let blockIndex = 0;
+	for (const block of parseMarkdownIntoBlocks(markdown)) {
+		const leadingBlankLines = LEADING_BLANK_LINES_PATTERN.exec(block)?.[0] ?? '';
+		const content = block.slice(leadingBlankLines.length).trimEnd();
+		if (content) {
+			const firstLine = startLine + countLineBreaks(leadingBlankLines);
+			const blockLines = content.split('\n');
+			const lastLine = firstLine + blockLines.length - 1;
+			if (firstLine <= lines.end && lastLine >= lines.start) {
+				const rows = findRowsAtLines(blockLines, lines.start - firstLine, lines.end - firstLine);
+				targets.push({ blockIndex, rows });
+			}
+			blockIndex += 1;
+		}
+		startLine += countLineBreaks(block);
+	}
+	return targets;
 }
 
 /** Whether a token, or one nested in it such as inline HTML in a paragraph, has the given type. */
@@ -93,4 +128,50 @@ function findSourceBlock(
 		(canonical, index) => index >= preferredStart && isMatch(canonical, index),
 	);
 	return following !== -1 ? following : sourceCanonicals.findIndex(isMatch);
+}
+
+const LEADING_BLANK_LINES_PATTERN = /^(?:[ \t]*\n)+/;
+const TABLE_SEPARATOR_PATTERN = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+const LIST_ITEM_PATTERN = /^(\s*)(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
+
+/** The table rows or list items of a block on its lines `first` to `last`, counted from 0, or null for other blocks. */
+function findRowsAtLines(blockLines: string[], first: number, last: number): number[] | null {
+	const rowOfLine = TABLE_SEPARATOR_PATTERN.test(blockLines[1] ?? '')
+		? getTableRowOfLines(blockLines)
+		: getListItemOfLines(blockLines);
+	if (!rowOfLine) {
+		return null;
+	}
+	const rows = new Set<number>();
+	for (let line = Math.max(first, 0); line <= Math.min(last, blockLines.length - 1); line += 1) {
+		const row = rowOfLine[line];
+		if (row !== null) {
+			rows.add(row);
+		}
+	}
+	return rows.size > 0 ? [...rows] : null;
+}
+
+/** The header is the first row and the separator line no row. */
+function getTableRowOfLines(blockLines: string[]): (number | null)[] {
+	return blockLines.map((_line, index) => (index === 0 ? 0 : index === 1 ? null : index - 1));
+}
+
+/** Each line belongs to the item started on it or above it, at the indent of the first item. */
+function getListItemOfLines(blockLines: string[]): (number | null)[] | null {
+	const indent = LIST_ITEM_PATTERN.exec(blockLines[0])?.[1];
+	if (indent === undefined) {
+		return null;
+	}
+	let item = -1;
+	return blockLines.map((line) => {
+		if (LIST_ITEM_PATTERN.exec(line)?.[1] === indent) {
+			item += 1;
+		}
+		return item;
+	});
+}
+
+function countLineBreaks(text: string): number {
+	return text.split('\n').length - 1;
 }

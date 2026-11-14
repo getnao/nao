@@ -73,6 +73,23 @@ function ContextEditorPrompt({ openPath }: { openPath: string | null }) {
 					<Code>name</Code> and a <Code>description</Code> of when to use it, followed by the steps to follow.
 				</ListItem>
 			</List>
+
+			<Title level={3}>Pointing at the context</Title>
+			<List>
+				<ListItem>
+					When you mention a context file, write it as{' '}
+					{`<context-file path="docs/glossary.md">the glossary</context-file>`}, which renders as a chip that
+					opens the file in the hub. Use the path the file tools take and a short label the user understands,
+					like the table or doc name, never in backticks or in a code block.
+				</ListItem>
+				<ListItem>
+					Point at a passage with <Code>lines</Code>, like{' '}
+					{`<context-file path="docs/glossary.md" lines="4-8">churn definition</context-file>`} or{' '}
+					<Code>lines=&quot;12&quot;</Code> for one line: the hub scrolls to it and highlights it. Count lines
+					in the content <Code>read_context_file</Code> returned, from 1 at its first line, header included,
+					and only for a file you read in this conversation.
+				</ListItem>
+			</List>
 		</Block>
 	);
 }

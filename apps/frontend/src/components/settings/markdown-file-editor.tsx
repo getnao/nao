@@ -10,6 +10,7 @@ import type { ReactNode, RefObject } from 'react';
 
 import type { MarkdownLayout, MarkdownToken } from '@/lib/markdown-blocks';
 import { MarkdownOutline } from '@/components/settings/markdown-outline';
+import { useMarkdownLinesReveal } from '@/hooks/use-markdown-lines-reveal';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
 import { containsTokenType, getMarkdownLayout, writeMarkdownBlocks } from '@/lib/markdown-blocks';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,8 @@ interface MarkdownSource {
 
 interface MarkdownFileEditorProps {
 	value: string;
+	/** The lines of the file before `value`, like its frontmatter. */
+	lineOffset?: number;
 	filePath: string;
 	searchQuery: string;
 	onChange: (markdown: string) => void;
@@ -42,6 +45,7 @@ interface MarkdownFileEditorProps {
  */
 export function MarkdownFileEditor({
 	value,
+	lineOffset = 0,
 	filePath,
 	searchQuery,
 	onChange,
@@ -94,6 +98,17 @@ export function MarkdownFileEditor({
 	}, [adoptSource, editor, value]);
 
 	usePreviewHighlights({ containerRef, content: value, filePath, searchQuery });
+	const findBlocksRoot = useCallback(
+		() => (editor ? containerRef.current?.querySelector('.ProseMirror') : null) ?? null,
+		[editor],
+	);
+	const linesHighlight = useMarkdownLinesReveal({
+		filePath,
+		markdown: value,
+		lineOffset,
+		containerRef,
+		findBlocksRoot,
+	});
 
 	if (!isEditable) {
 		return (
@@ -107,7 +122,8 @@ export function MarkdownFileEditor({
 	return (
 		<section aria-label='Markdown preview' className='relative flex h-full min-h-0 flex-col'>
 			<MarkdownOutline editor={editor} scrollContainerRef={containerRef} />
-			<div ref={containerRef} className='min-h-0 flex-1 overflow-auto'>
+			<div ref={containerRef} className='relative min-h-0 flex-1 overflow-auto'>
+				{linesHighlight}
 				{header && <div className='mx-auto max-w-3xl px-8 pt-6'>{header}</div>}
 				<EditorContent
 					editor={editor}
