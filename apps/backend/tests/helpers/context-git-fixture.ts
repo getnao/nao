@@ -85,6 +85,7 @@ export function localProvider(
 		getUserGitIdentity: async ({ user }) => user,
 		commitCoAuthors: () => [{ name: 'nao', email: 'naoagent@getnao.io' }],
 		isFirstParty: false,
+		sharesAccessToken: false,
 		commitAllAndPushBranch: () => undefined,
 		pushBranch: ({ dir, branch }) => {
 			runGit(dir, ['push', bare, `HEAD:refs/heads/${branch}`]);

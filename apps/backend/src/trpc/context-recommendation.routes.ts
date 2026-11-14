@@ -124,7 +124,12 @@ export const contextRecommendationRoutes = {
 	}),
 
 	getConfig: recommendationsProcedure.query(async ({ ctx }) => {
-		return crQueries.getConfig(ctx.project.id);
+		const config = await crQueries.getConfig(ctx.project.id);
+		if (!config) {
+			return null;
+		}
+		const { encryptedGithubAccessToken: _encryptedGithubAccessToken, ...publicConfig } = config;
+		return publicConfig;
 	}),
 
 	setConfig: recommendationMutationProcedure

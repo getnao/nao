@@ -31,6 +31,7 @@ export const GENERIC_GIT_PROVIDER: ReviewRequestProvider = {
 	getUserGitIdentity: async ({ user }) => user,
 	commitCoAuthors: () => [NAO_CO_AUTHOR],
 	isFirstParty: false,
+	sharesAccessToken: false,
 	commitAllAndPushBranch,
 	pushBranch,
 	findOpenReviewRequest,

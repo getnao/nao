@@ -30,6 +30,8 @@ export interface ReviewRequestProvider {
 	commitCoAuthors: (requester: GitIdentity) => GitIdentity[];
 	/** GitHub or GitLab itself, whose git credentials go through askpass rather than the remote URL. */
 	isFirstParty: boolean;
+	/** One account acts for everyone, so the provider cannot tell which branches are the user's. */
+	sharesAccessToken: boolean;
 	commitAllAndPushBranch: (args: {
 		token: string;
 		repoFullName: string;
@@ -76,6 +78,7 @@ export const REVIEW_REQUEST_PROVIDERS: Record<InternalRepoProvider, ReviewReques
 		getUserGitIdentity: ({ token }) => github.getUserGitIdentity(requireToken(token)),
 		commitCoAuthors: () => [github.NAO_CO_AUTHOR],
 		isFirstParty: true,
+		sharesAccessToken: false,
 		commitAllAndPushBranch: github.commitAllAndPushBranch,
 		pushBranch: (args) => github.pushBranch(args),
 		findOpenReviewRequest: ({ token, repoFullName, branch }) =>
@@ -99,6 +102,7 @@ export const REVIEW_REQUEST_PROVIDERS: Record<InternalRepoProvider, ReviewReques
 		getUserGitIdentity: ({ token }) => gitlab.getUserGitIdentity(requireToken(token)),
 		commitCoAuthors: () => [gitlab.NAO_CO_AUTHOR],
 		isFirstParty: true,
+		sharesAccessToken: false,
 		commitAllAndPushBranch: gitlab.commitAllAndPushBranch,
 		pushBranch: (args) => gitlab.pushBranch(args),
 		findOpenReviewRequest: ({ token, repoFullName, branch }) =>
@@ -128,6 +132,7 @@ export function withSharedAccessToken(provider: ReviewRequestProvider, token: st
 		...provider,
 		getToken: async () => token,
 		isIntegrationAvailable: () => true,
+		sharesAccessToken: true,
 		commitCoAuthors: (requester) => [requester],
 		listBranches: async (branchesToken, repoFullName) => {
 			const branches = await provider.listBranches(branchesToken, repoFullName);

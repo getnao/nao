@@ -7,6 +7,7 @@ import { createTestCaller } from '../helpers/trpc-caller';
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	getConfig: vi.fn(),
 	getFirstProjectAdminUserId: vi.fn(),
 	getLatestRun: vi.fn(),
 	getProjectAvailableModels: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../../src/handlers/context-recommendations.handler', () => ({
 	ensureContextRecommendationsSchedule: vi.fn(),
 }));
 vi.mock('../../src/queries/context-recommendation.queries', () => ({
+	getConfig: mocks.getConfig,
 	getFirstProjectAdminUserId: mocks.getFirstProjectAdminUserId,
 	getLatestRun: mocks.getLatestRun,
 }));
@@ -86,6 +88,18 @@ describe('context recommendation routes', () => {
 		});
 
 		expect(mocks.runContextRecommendations).not.toHaveBeenCalled();
+	});
+
+	it('never sends the saved GitHub access token to the browser', async () => {
+		mocks.getConfig.mockResolvedValue({
+			projectId: 'project-id',
+			frequency: 'daily',
+			encryptedGithubAccessToken: 'iv.tag.ct',
+		});
+
+		const config = await caller.contextRecommendation.getConfig();
+
+		expect(config).toEqual({ projectId: 'project-id', frequency: 'daily' });
 	});
 
 	it('lists models for the project', async () => {

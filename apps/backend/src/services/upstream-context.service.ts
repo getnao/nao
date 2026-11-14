@@ -132,7 +132,7 @@ export async function listUpstreamBranches(input: {
 	const remote = await resolveGitRemote(input);
 	const providerBranches = await readProviderBranches(remote.linkedRepo, input);
 	if (providerBranches) {
-		return { branches: providerBranches, canFilterMine: true };
+		return providerBranches;
 	}
 	const branches = await readRemoteBranches(remote);
 	return {
@@ -310,14 +310,15 @@ async function resolveGitRemote(input: {
 }
 
 /** Null when the user's account cannot list them, as git still can with the server's credentials. */
-async function readProviderBranches(repo: LinkedContextRepo, user: RepositoryUser): Promise<RepoBranch[] | null> {
+async function readProviderBranches(repo: LinkedContextRepo, user: RepositoryUser): Promise<RepoBranchList | null> {
 	if (!repo.provider || !repo.repoFullName) {
 		return null;
 	}
 	try {
 		const provider = await resolveRepositoryProvider(user.projectId, repo.provider);
 		const token = await provider.getToken(user.userId);
-		return token ? await provider.listBranches(token, repo.repoFullName) : null;
+		const branches = token ? await provider.listBranches(token, repo.repoFullName) : null;
+		return branches && { branches, canFilterMine: !provider.sharesAccessToken };
 	} catch {
 		return null;
 	}
