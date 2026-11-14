@@ -13,7 +13,6 @@ interface ContextHubViewerProps {
 	path: string | null;
 	/** A change picked in the Changes tab, shown instead of the open file. */
 	diffPath: string | null;
-	/** The open file has edits that are not saved yet. */
 	isDirty: boolean;
 	onOpenFile: (path: string) => void;
 	onDirtyChange: (isDirty: boolean) => void;

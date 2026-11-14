@@ -49,7 +49,6 @@ describe('buildContextHubContent', () => {
 		{ path: '/docs/notion/onboarding.md', doc: { title: 'onboarding', section: 'docs', folder: 'notion' } },
 		{ path: '/semantics/metrics/revenue.md', doc: { title: 'revenue', section: 'metrics', folder: 'metrics' } },
 		{ path: '/agent/skills/top-customers.md', doc: { title: 'top-customers', section: 'skills', folder: null } },
-		{ path: '/agent/skills/churn/SKILL.md', doc: { title: 'churn', section: 'skills', folder: null } },
 	])('lists $path as a doc', ({ path, doc }) => {
 		expect(buildContextHubContent(tree([path])).docs).toEqual([{ path, ...doc }]);
 	});
@@ -59,6 +58,8 @@ describe('buildContextHubContent', () => {
 		'/agent/mcps/mcp.json',
 		'/agent/charts/progress-bars.js',
 		'/agent/skills/churn/query.sql',
+		'/agent/skills/churn/SKILL.md',
+		'/agent/skills/notes.txt',
 		'/templates/databases/preview.md.j2',
 		'/nao_config.yaml',
 		'/docs/diagram.png',

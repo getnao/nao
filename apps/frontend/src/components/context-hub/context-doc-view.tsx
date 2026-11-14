@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBlocker, useNavigate } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
 import type { ContextHubView } from '@/hooks/use-context-hub-view';
@@ -74,8 +74,9 @@ export function ContextDocView({
 	const docs = useMemo(() => content.docs.filter((doc) => matchesContextHubDoc(doc, search)), [content.docs, search]);
 	const openPath = isKnownPath(content, requestedPath) ? requestedPath : null;
 	const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'context-explorer', storage: localStorage });
+	const isShowingTargetRef = useRef(false);
 	const navigationBlocker = useBlocker({
-		shouldBlockFn: ({ current, next }) => isDirty && current.pathname !== next.pathname,
+		shouldBlockFn: ({ current, next }) => isDirty && !isShowingTargetRef.current && leavesOpenFile(current, next),
 		enableBeforeUnload: isDirty,
 		disabled: !isDirty,
 		withResolver: true,
@@ -88,7 +89,10 @@ export function ContextDocView({
 			return;
 		}
 		setDiffPath(null);
-		void navigate({ to: '.', search: target.path ? { path: target.path } : {} });
+		isShowingTargetRef.current = true;
+		void navigate({ to: '.', search: target.path ? { path: target.path } : {} }).finally(() => {
+			isShowingTargetRef.current = false;
+		});
 	};
 
 	const requestTarget = (target: ViewerTarget) => {
@@ -110,7 +114,7 @@ export function ContextDocView({
 
 	const handleSkillCreated = async (path: string) => {
 		await invalidateExplorerQueries(queryClient);
-		showTarget({ type: 'file', path });
+		requestTarget({ type: 'file', path });
 	};
 
 	const handleRepositoryChanged = () => showTarget({ type: 'file', path: null });
@@ -275,6 +279,18 @@ function DiscardChangesDialog({
 			</AlertDialogContent>
 		</AlertDialog>
 	);
+}
+
+/** Back and Forward move between files through the search, which would replace the edited file. */
+function leavesOpenFile(
+	current: { pathname: string; search: object },
+	next: { pathname: string; search: object },
+): boolean {
+	return current.pathname !== next.pathname || getSearchPath(current.search) !== getSearchPath(next.search);
+}
+
+function getSearchPath(search: object): unknown {
+	return 'path' in search ? search.path : undefined;
 }
 
 /** Only the tables and docs the hub lists open in it, so a link to another context file shows nothing. */

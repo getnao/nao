@@ -15,7 +15,6 @@ const CHANGE_LIMIT = 30;
 const RECORD_SEPARATOR = '\u001e';
 const FIELD_SEPARATOR = '\u001f';
 
-/** The files the last commits of the branch shown changed, most recent first; null without a Git repository. */
 export function listRecentContextChanges(access: ContextExplorerFileAccess): RecentContextChange[] | null {
 	if (access.git.status !== 'available') {
 		return null;

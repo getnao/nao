@@ -12,5 +12,7 @@ export async function invalidateExplorerQueries(queryClient: QueryClient): Promi
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.readFile.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileDiff.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.searchContent.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileSummaries.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getRecentChanges.queryKey() }),
 	]);
 }

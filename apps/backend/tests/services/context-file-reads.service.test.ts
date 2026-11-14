@@ -15,10 +15,10 @@ describe('getMostReadContextFiles', () => {
 
 	it('merges the ways the agent wrote a path and reads from the last 30 days', async () => {
 		mocks.getContextFileReads.mockResolvedValue([
-			{ filePath: '/docs/orders.md', readCount: 4, chatCount: 2 },
-			{ filePath: 'RULES.md', readCount: 3, chatCount: 3 },
-			{ filePath: './RULES.md', readCount: 2, chatCount: 1 },
-			{ filePath: '../secrets.md', readCount: 9, chatCount: 9 },
+			{ filePath: '/docs/orders.md', readCount: 4 },
+			{ filePath: 'RULES.md', readCount: 3 },
+			{ filePath: './RULES.md', readCount: 2 },
+			{ filePath: '../secrets.md', readCount: 9 },
 		]);
 
 		const result = await getMostReadContextFiles('project', new Date('2026-11-14T00:00:00Z'));
@@ -26,8 +26,8 @@ describe('getMostReadContextFiles', () => {
 		expect(result).toEqual({
 			windowDays: 30,
 			files: [
-				{ path: '/RULES.md', readCount: 5, chatCount: 4 },
-				{ path: '/docs/orders.md', readCount: 4, chatCount: 2 },
+				{ path: '/RULES.md', readCount: 5 },
+				{ path: '/docs/orders.md', readCount: 4 },
 			],
 		});
 		expect(mocks.getContextFileReads).toHaveBeenCalledWith('project', new Date('2026-10-15T00:00:00Z'), 200);

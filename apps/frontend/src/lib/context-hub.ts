@@ -70,7 +70,6 @@ const TABLE_FILE_LABELS: Record<string, string> = {
 	profiling: 'Profiling',
 };
 const DOC_EXTENSIONS = /\.(md|mdx|markdown|txt)$/i;
-const SKILL_FILE_NAME = 'SKILL.md';
 const TABLE_DIVIDER_PATTERN = /^\|?\s*:?-{3,}/;
 
 /**
@@ -118,12 +117,10 @@ export function groupTablesByLocation(
 		.sort((left, right) => left.label.localeCompare(right.label));
 }
 
-/** The table a context file belongs to, or null for a file outside the tables. */
 export function findTableOfPath(tables: readonly ContextHubTable[], path: string | null): ContextHubTable | null {
 	return path ? (tables.find((table) => table.files.some((file) => file.path === path)) ?? null) : null;
 }
 
-/** The doc or table page a context file is in the hub, or null for a file the hub leaves out. */
 export function findContextHubItem(content: ContextHubContent, path: string): ContextHubItem | null {
 	const doc = content.docs.find((candidate) => candidate.path === path);
 	if (doc) {
@@ -223,16 +220,13 @@ function toFolderDoc(path: string, root: string, section: ContextHubDocSection):
 	return { path: toExplorerPath(path), title: stripExtension(fileName), section, folder: folder || null };
 }
 
-/** A skill is either `agent/skills/<name>.md` or the `SKILL.md` of an `agent/skills/<name>/` folder. */
+/** Only the Markdown files right under `agent/skills/` are loaded by the agent, so they are the only skills listed. */
 function toSkillDoc(path: string): ContextHubDoc | null {
 	const segments = path.slice('agent/skills/'.length).split('/');
-	if (segments.length === 1) {
-		return { path: toExplorerPath(path), title: stripExtension(segments[0]), section: 'skills', folder: null };
+	if (segments.length !== 1 || !segments[0].endsWith('.md')) {
+		return null;
 	}
-	if (segments.length === 2 && segments[1] === SKILL_FILE_NAME) {
-		return { path: toExplorerPath(path), title: segments[0], section: 'skills', folder: null };
-	}
-	return null;
+	return { path: toExplorerPath(path), title: stripExtension(segments[0]), section: 'skills', folder: null };
 }
 
 function listFilePaths(entries: readonly FileTreeEntry[]): string[] {

@@ -36,15 +36,13 @@ describe('getContextFileReads', () => {
 
 	it('counts the reads and chats of each file in users’ chats since the date, most read first', async () => {
 		expect(await getContextFileReads(PROJECT_ID, SINCE, 10)).toEqual([
-			{ filePath: 'RULES.md', readCount: 3, chatCount: 2 },
-			{ filePath: '/docs/orders.md', readCount: 1, chatCount: 1 },
+			{ filePath: 'RULES.md', readCount: 3 },
+			{ filePath: '/docs/orders.md', readCount: 1 },
 		]);
 	});
 
 	it('keeps the most read files up to the limit', async () => {
-		expect(await getContextFileReads(PROJECT_ID, SINCE, 1)).toEqual([
-			{ filePath: 'RULES.md', readCount: 3, chatCount: 2 },
-		]);
+		expect(await getContextFileReads(PROJECT_ID, SINCE, 1)).toEqual([{ filePath: 'RULES.md', readCount: 3 }]);
 	});
 });
 

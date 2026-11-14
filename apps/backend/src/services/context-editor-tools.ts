@@ -44,7 +44,7 @@ const createInputSchema = z.object({
  * Tools reading and changing context files as the user's own changes, like edits made in the Context Hub: they land
  * in the user's draft or File Explorer branch, never in the live context, and the user publishes them for review.
  */
-export function createContextEditorTools(editor: ContextEditor): Record<string, unknown> {
+export function createContextEditorTools(editor: ContextEditor) {
 	return {
 		read_context_file: createTool<{ path: string }, ReadContextFileOutput>({
 			description:

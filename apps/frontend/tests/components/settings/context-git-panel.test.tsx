@@ -58,6 +58,8 @@ vi.mock('@/main', () => ({
 			readFile: { queryKey: () => ['read-file'] },
 			getFileDiff: { queryKey: () => ['file-diff'] },
 			searchContent: { queryKey: () => ['search-content'] },
+			getFileSummaries: { queryKey: () => ['file-summaries'] },
+			getRecentChanges: { queryKey: () => ['recent-changes'] },
 			switchBranch: { mutationOptions: mutationOptions(mocks.switchBranch) },
 			updateWorktree: { mutationOptions: mutationOptions(mocks.updateWorktree) },
 			createBranch: { mutationOptions: mutationOptions(mocks.mutation) },

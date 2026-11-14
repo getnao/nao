@@ -55,6 +55,8 @@ vi.mock('@/main', () => ({
 			readFile: { queryKey: () => ['read-file'] },
 			getFileDiff: { queryKey: (input?: unknown) => ['file-diff', input] },
 			searchContent: { queryKey: () => ['search-content'] },
+			getFileSummaries: { queryKey: () => ['file-summaries'] },
+			getRecentChanges: { queryKey: () => ['recent-changes'] },
 		},
 	},
 }));

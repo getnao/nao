@@ -108,7 +108,6 @@ export function validateContextFileHeader(
 	];
 }
 
-/** The content after the header, or all of it for a file without one. */
 export function getContextFileBody(content: string): string {
 	return splitFrontmatter(content).body;
 }

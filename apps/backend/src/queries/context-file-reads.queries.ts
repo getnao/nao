@@ -9,7 +9,6 @@ export interface ContextFileReads {
 	/** The path as the agent wrote it, which may lack the leading slash. */
 	filePath: string;
 	readCount: number;
-	chatCount: number;
 }
 
 /** How often the agent read each file with its read tool since a date in users' chats, most read first. */
@@ -21,7 +20,7 @@ export async function getContextFileReads(projectId: string, since: Date, limit:
 	const readCount = sql<number>`count(*)`;
 
 	const rows = await db
-		.select({ filePath, readCount, chatCount: sql<number>`count(distinct ${s.chat.id})` })
+		.select({ filePath, readCount })
 		.from(s.messagePart)
 		.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.messagePart.messageId))
 		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
@@ -43,7 +42,7 @@ export async function getContextFileReads(projectId: string, since: Date, limit:
 
 	return rows
 		.filter((row): row is typeof row & { filePath: string } => Boolean(row.filePath))
-		.map((row) => ({ filePath: row.filePath, readCount: Number(row.readCount), chatCount: Number(row.chatCount) }));
+		.map((row) => ({ filePath: row.filePath, readCount: Number(row.readCount) }));
 }
 
 function recommendationAnalysisChatIds(projectId: string) {

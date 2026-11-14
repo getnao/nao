@@ -6,7 +6,6 @@ export interface MostReadContextFile {
 	/** The File Explorer path, with a leading slash. */
 	path: string;
 	readCount: number;
-	chatCount: number;
 }
 
 const WINDOW_DAYS = 30;
@@ -31,9 +30,8 @@ export async function getMostReadContextFiles(
 		if (!explorerPath) {
 			continue;
 		}
-		const file = filesByPath.get(explorerPath) ?? { path: explorerPath, readCount: 0, chatCount: 0 };
+		const file = filesByPath.get(explorerPath) ?? { path: explorerPath, readCount: 0 };
 		file.readCount += read.readCount;
-		file.chatCount += read.chatCount;
 		filesByPath.set(explorerPath, file);
 	}
 
@@ -43,7 +41,6 @@ export async function getMostReadContextFiles(
 	return { windowDays: WINDOW_DAYS, files };
 }
 
-/** The File Explorer path of a path the agent read, or null when it points outside the project. */
 export function toExplorerPath(agentPath: string): string | null {
 	const relativePath = path.posix.normalize(agentPath.trim().replace(/^\/+/, ''));
 	if (!relativePath || relativePath === '.' || relativePath.startsWith('..')) {
