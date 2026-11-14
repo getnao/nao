@@ -44,6 +44,7 @@ import {
 	consumeOpenTestsSearch,
 	getHistoricalContextDiffTarget,
 } from '@/lib/context-explorer-search';
+import { isListedInContextHub } from '@/lib/context-hub';
 import { getDistinguishingFolders } from '@/lib/file-path';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
@@ -484,7 +485,9 @@ export function ContextFileTreeView({
 									<ContextHubViewMenu
 										view='files'
 										isDirty={isViewerDirty}
-										onSwitchView={(view) => onSwitchView(view, shownFilePath)}
+										onSwitchView={(view) =>
+											onSwitchView(view, getPathKeptInView(view, shownFilePath))
+										}
 									/>
 								)
 							}
@@ -712,4 +715,9 @@ function DiscardChangesDialog({
 			</AlertDialogContent>
 		</AlertDialog>
 	);
+}
+
+/** The doc view opens a file it does not list in the file tree, so picking the doc view leaves such a file behind. */
+function getPathKeptInView(view: ContextHubView, path: string | null): string | null {
+	return view === 'docs' && path && !isListedInContextHub(path) ? null : path;
 }

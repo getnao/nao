@@ -88,6 +88,12 @@ export function buildContextHubContent(entries: readonly FileTreeEntry[]): Conte
 	};
 }
 
+/** Whether the doc view lists the file, as a doc or as the page of a table. */
+export function isListedInContextHub(path: string): boolean {
+	const projectPath = toProjectPath(path);
+	return toContextHubDoc(projectPath) !== null || parseTableFilePath(projectPath) !== null;
+}
+
 export function formatTableLocation(table: ContextHubTable): string {
 	return [table.database ?? table.connection, table.schema].filter(Boolean).join(' · ');
 }

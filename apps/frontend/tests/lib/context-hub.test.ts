@@ -7,6 +7,7 @@ import {
 	findTableOfPath,
 	formatTableLocation,
 	groupTablesByLocation,
+	isListedInContextHub,
 	matchesContextHubDoc,
 	matchesContextHubTable,
 	toThumbnailLines,
@@ -51,6 +52,7 @@ describe('buildContextHubContent', () => {
 		{ path: '/agent/skills/top-customers.md', doc: { title: 'top-customers', section: 'skills', folder: null } },
 	])('lists $path as a doc', ({ path, doc }) => {
 		expect(buildContextHubContent(tree([path])).docs).toEqual([{ path, ...doc }]);
+		expect(isListedInContextHub(path)).toBe(true);
 	});
 
 	it.each([
@@ -67,6 +69,7 @@ describe('buildContextHubContent', () => {
 		'/README.md',
 	])('leaves %s out of the hub', (path) => {
 		expect(buildContextHubContent(tree([path]))).toEqual({ tables: [], docs: [] });
+		expect(isListedInContextHub(path)).toBe(false);
 	});
 });
 
