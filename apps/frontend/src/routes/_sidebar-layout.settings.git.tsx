@@ -133,9 +133,9 @@ function GitSettingsPage() {
 			githubAvailable.data === true || sharedTokenConfigured,
 			gitlabAvailable.data === true,
 		);
-	const githubAccessMethod =
-		githubAccessMethodOverride ??
-		getDefaultGithubAccessMethod(sharedTokenConfigured, githubAvailable.data === true);
+	const githubAccessMethod = sharedTokenConfigured
+		? 'shared-token'
+		: (githubAccessMethodOverride ?? getDefaultGithubAccessMethod(githubAvailable.data === true));
 	const usesSharedToken = selectedProvider === 'github' && githubAccessMethod === 'shared-token';
 	const githubStatus = useQuery({
 		...trpc.github.getStatus.queryOptions(),
@@ -242,6 +242,12 @@ function GitSettingsPage() {
 		sharedToken.error ??
 		selectedAccountStatus.error;
 	const providerSwitchError = disconnectRepository.error ?? provider.disconnectError;
+
+	const selectGithubAccessMethod = (method: GithubAccessMethod) => {
+		setGithubAccessMethodOverride(method);
+		setSelectedRepository(null);
+		setIsConfirmingRepository(false);
+	};
 
 	const toggleSelectedRepository = (fullName: string) => {
 		setSelectedRepository(fullName === selectedRepository ? null : fullName);
@@ -392,7 +398,7 @@ function GitSettingsPage() {
 																	? 'Remove the access token to use personal accounts instead.'
 																	: null
 															}
-															onSelect={setGithubAccessMethodOverride}
+															onSelect={selectGithubAccessMethod}
 														/>
 													)}
 												</div>
@@ -978,8 +984,8 @@ async function invalidateProviderAccountQueries(queryClient: QueryClient, provid
 	]);
 }
 
-function getDefaultGithubAccessMethod(sharedTokenConfigured: boolean, oauthAvailable: boolean): GithubAccessMethod {
-	return sharedTokenConfigured || !oauthAvailable ? 'shared-token' : 'personal-accounts';
+function getDefaultGithubAccessMethod(oauthAvailable: boolean): GithubAccessMethod {
+	return oauthAvailable ? 'personal-accounts' : 'shared-token';
 }
 
 function getDefaultProvider(

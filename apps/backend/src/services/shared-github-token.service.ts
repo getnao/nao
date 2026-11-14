@@ -57,18 +57,26 @@ export async function getSharedGithubTokenStatus(projectId: string): Promise<Sha
 	}
 	try {
 		return { configured: true, account: await readTokenAccount(token), error: null };
-	} catch {
+	} catch (error) {
 		return {
 			configured: true,
 			account: null,
-			error: 'GitHub rejected the saved access token. It may have expired or been revoked.',
+			error: isRejectedToken(error)
+				? 'GitHub rejected the saved access token. It may have expired or been revoked.'
+				: 'GitHub could not be reached to check the saved access token.',
 		};
 	}
 }
 
 export async function saveSharedGithubToken(projectId: string, token: string): Promise<SharedGithubAccount> {
-	const account = await readTokenAccount(token).catch(() => {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub rejected this access token.' });
+	const account = await readTokenAccount(token).catch((error: unknown) => {
+		throw isRejectedToken(error)
+			? new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub rejected this access token.' })
+			: new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'GitHub could not be reached to check this access token. Try again.',
+					cause: error,
+				});
 	});
 	await contextRecommendationQueries.updateConfig(projectId, { encryptedGithubAccessToken: encryptSecret(token) });
 	return account;
@@ -86,6 +94,10 @@ export async function readSharedGithubToken(projectId: string): Promise<string |
 async function readTokenAccount(token: string): Promise<SharedGithubAccount> {
 	const user = await github.getUser(token);
 	return { login: user.login, avatarUrl: user.avatar_url };
+}
+
+function isRejectedToken(error: unknown): boolean {
+	return error instanceof github.GithubApiError && (error.status === 401 || error.status === 403);
 }
 
 /** Null when the app secret changed since the token was saved, for nao to fall back to personal accounts. */

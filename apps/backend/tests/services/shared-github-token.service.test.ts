@@ -50,12 +50,13 @@ describe('shared GitHub token', () => {
 		});
 	});
 
-	it('refuses a token GitHub rejects', async () => {
-		stubGithubUser(401);
+	it.each([
+		[401, 'GitHub rejected this access token.'],
+		[503, 'GitHub could not be reached to check this access token. Try again.'],
+	])('does not save a token when GitHub answers %i', async (status, message) => {
+		stubGithubUser(status);
 
-		await expect(saveSharedGithubToken(PROJECT_ID, 'github_pat_revoked')).rejects.toThrow(
-			'GitHub rejected this access token.',
-		);
+		await expect(saveSharedGithubToken(PROJECT_ID, 'github_pat_unchecked')).rejects.toThrow(message);
 		await expect(getSharedGithubTokenStatus(PROJECT_ID)).resolves.toEqual({ configured: false });
 	});
 
