@@ -51,8 +51,13 @@ export function MarkdownOutline({ editor, scrollContainerRef }: MarkdownOutlineP
 	}
 
 	return (
-		<nav aria-label='Outline' className='group absolute top-6 right-4 z-10'>
-			<ul className='flex flex-col py-1'>
+		<nav aria-label='Outline' className='group pointer-events-none absolute top-6 right-4 bottom-6 z-10'>
+			<ul
+				className={cn(
+					'flex max-h-full w-64 flex-col overflow-x-hidden overflow-y-auto overscroll-contain py-1 [scrollbar-width:none]',
+					'group-hover:pointer-events-auto group-has-focus-visible:pointer-events-auto',
+				)}
+			>
 				{headings.map((heading, index) => (
 					<OutlineItem
 						key={heading.position}
@@ -74,40 +79,47 @@ interface OutlineItemProps {
 	onSelect: (heading: OutlineHeading) => void;
 }
 
-/** A mark that spreads out on hover of the outline, revealing its heading title on its left. */
+/**
+ * A mark that spreads out on hover of the outline, revealing its heading title on its left. Only the mark catches the
+ * pointer until the outline opens, so the hidden title never opens it from the editor text.
+ */
 function OutlineItem({ heading, index, isActive, onSelect }: OutlineItemProps) {
 	const revealDelay = `${Math.min(index * REVEAL_STAGGER_MS, MAXIMUM_REVEAL_DELAY_MS)}ms`;
 
 	return (
-		<li className='flex h-2.5 justify-end transition-[height] duration-300 ease-out group-has-focus-visible:h-6 group-hover:h-6'>
+		<li className='flex h-2.5 shrink-0 transition-[height] duration-300 ease-out group-has-focus-visible:h-6 group-hover:h-6'>
 			<button
 				type='button'
 				aria-current={isActive ? 'location' : undefined}
 				onClick={() => onSelect(heading)}
-				className='group/item relative flex h-full w-7 cursor-pointer items-center justify-end outline-none'
+				className={cn(
+					'group/item pointer-events-none flex h-full w-full cursor-pointer items-center outline-none',
+					'group-hover:pointer-events-auto group-has-focus-visible:pointer-events-auto',
+				)}
 			>
 				<span
 					style={{ transitionDelay: revealDelay }}
 					className={cn(
-						'pointer-events-none absolute top-0 right-full h-full w-56 translate-x-2 truncate pr-2 text-right text-xs leading-6 whitespace-nowrap opacity-0 transition-[opacity,translate,color] duration-300 ease-out',
-						'group-has-focus-visible:pointer-events-auto group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100',
-						'group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100',
+						'min-w-0 flex-1 translate-x-2 truncate pr-2 text-right text-xs opacity-0 transition-[opacity,translate,color] duration-300 ease-out',
+						'group-hover:translate-x-0 group-hover:opacity-100 group-has-focus-visible:translate-x-0 group-has-focus-visible:opacity-100',
 						'group-hover/item:text-foreground group-focus-visible/item:text-foreground',
 						isActive ? 'font-medium text-foreground' : 'text-muted-foreground',
 					)}
 				>
 					{heading.text}
 				</span>
-				<span
-					className={cn(
-						'h-0.5 shrink-0 rounded-full transition-all duration-300 ease-out',
-						heading.level === 1
-							? 'w-4 group-has-focus-visible:w-5 group-hover:w-5'
-							: 'w-2.5 group-has-focus-visible:w-3.5 group-hover:w-3.5',
-						'group-hover/item:bg-foreground group-focus-visible/item:bg-foreground',
-						isActive ? 'bg-foreground' : 'bg-muted-foreground/30',
-					)}
-				/>
+				<span className='pointer-events-auto flex h-full w-7 shrink-0 items-center justify-end'>
+					<span
+						className={cn(
+							'h-0.5 rounded-full transition-all duration-300 ease-out',
+							heading.level === 1
+								? 'w-4 group-hover:w-5 group-has-focus-visible:w-5'
+								: 'w-2.5 group-hover:w-3.5 group-has-focus-visible:w-3.5',
+							'group-hover/item:bg-foreground group-focus-visible/item:bg-foreground',
+							isActive ? 'bg-foreground' : 'bg-muted-foreground/30',
+						)}
+					/>
+				</span>
 			</button>
 		</li>
 	);
@@ -125,7 +137,6 @@ function readOutlineHeadings(editor: Editor): OutlineHeading[] {
 	return headings;
 }
 
-/** The last heading scrolled past the top of the container, or the first one before any is reached. */
 function useActiveHeadingIndex(
 	editor: Editor | null,
 	headings: OutlineHeading[],
@@ -138,22 +149,33 @@ function useActiveHeadingIndex(
 		if (!editor || !container) {
 			return;
 		}
-		const updateActiveIndex = () => {
-			const threshold = container.scrollTop + SCROLL_MARGIN * 2;
-			let index = 0;
-			headings.forEach((heading, headingIndex) => {
-				const element = getHeadingElement(editor, heading);
-				if (element && getOffsetInContainer(container, element) <= threshold) {
-					index = headingIndex;
-				}
-			});
-			setActiveIndex(index);
-		};
+		const updateActiveIndex = () => setActiveIndex(findActiveHeadingIndex(editor, headings, container));
 		updateActiveIndex();
 		container.addEventListener('scroll', updateActiveIndex, { passive: true });
 		return () => container.removeEventListener('scroll', updateActiveIndex);
 	}, [editor, headings, scrollContainerRef]);
 
+	return activeIndex;
+}
+
+/**
+ * The last heading scrolled past the top of the container, or the first one before any is reached. Once scrolled to
+ * the bottom, the final heading may never reach the top, so it becomes the active one.
+ */
+function findActiveHeadingIndex(editor: Editor, headings: OutlineHeading[], container: HTMLElement): number {
+	const isScrolledToBottom =
+		container.scrollTop > 0 && container.scrollTop + container.clientHeight >= container.scrollHeight - 1;
+	if (isScrolledToBottom) {
+		return headings.length - 1;
+	}
+	const threshold = container.scrollTop + SCROLL_MARGIN * 2;
+	let activeIndex = 0;
+	headings.forEach((heading, index) => {
+		const element = getHeadingElement(editor, heading);
+		if (element && getOffsetInContainer(container, element) <= threshold) {
+			activeIndex = index;
+		}
+	});
 	return activeIndex;
 }
 
