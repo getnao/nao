@@ -7,6 +7,8 @@ import { createTestCaller } from '../helpers/trpc-caller';
 const mocks = vi.hoisted(() => ({
 	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	createRecommendationPullRequest: vi.fn(),
+	getConfig: vi.fn(),
 	getFirstProjectAdminUserId: vi.fn(),
 	getLatestRun: vi.fn(),
 	getProjectAvailableModels: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock('../../src/handlers/context-recommendations.handler', () => ({
 	ensureContextRecommendationsSchedule: vi.fn(),
 }));
 vi.mock('../../src/queries/context-recommendation.queries', () => ({
+	getConfig: mocks.getConfig,
 	getFirstProjectAdminUserId: mocks.getFirstProjectAdminUserId,
 	getLatestRun: mocks.getLatestRun,
 }));
@@ -42,7 +45,7 @@ vi.mock('../../src/services/context-pr.service', () => ({
 	ContextPullRequestInputError: class extends Error {},
 	ProviderNotConnectedError: class extends Error {},
 	createBatchRecommendationPullRequest: vi.fn(),
-	createRecommendationPullRequest: vi.fn(),
+	createRecommendationPullRequest: mocks.createRecommendationPullRequest,
 	resolveRecommendationRepo: vi.fn(),
 }));
 vi.mock('../../src/services/context-recommendation-prompt', () => ({ buildAgentPrompt: vi.fn() }));
@@ -52,6 +55,7 @@ vi.mock('../../src/services/context-recommendations.service', () => ({
 }));
 vi.mock('../../src/services/github', () => ({}));
 vi.mock('../../src/services/gitlab', () => ({}));
+vi.mock('../../src/services/shared-github-token.service', () => ({ resolveRepositoryToken: vi.fn() }));
 vi.mock('../../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(),
 }));
@@ -68,6 +72,7 @@ const caller = createTestCaller(testRouter);
 describe('context recommendation routes', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.assertOrganizationCloudBillingAccess.mockResolvedValue(undefined);
 		mocks.getFirstProjectAdminUserId.mockResolvedValue('execution-user-id');
 		mocks.getLatestRun.mockResolvedValue(null);
 		mocks.getProjectAvailableModels.mockResolvedValue([]);
@@ -85,6 +90,31 @@ describe('context recommendation routes', () => {
 		});
 
 		expect(mocks.runContextRecommendations).not.toHaveBeenCalled();
+	});
+
+	it('never sends the saved GitHub access token to the browser', async () => {
+		mocks.getConfig.mockResolvedValue({
+			projectId: 'project-id',
+			frequency: 'daily',
+			encryptedGithubAccessToken: 'iv.tag.ct',
+		});
+
+		const config = await caller.contextRecommendation.getConfig();
+
+		expect(config).toEqual({ projectId: 'project-id', frequency: 'daily' });
+	});
+
+	it('removes the access token from a failed git command before returning its error', async () => {
+		mocks.createRecommendationPullRequest.mockRejectedValue(
+			new Error('Command failed: git clone https://x-access-token:ghp_secret@github.com/acme/context.git'),
+		);
+
+		await expect(caller.contextRecommendation.createPullRequest({ id: 'recommendation-id' })).rejects.toMatchObject(
+			{
+				code: 'INTERNAL_SERVER_ERROR',
+				message: 'Command failed: git clone https://***@github.com/acme/context.git',
+			},
+		);
 	});
 
 	it('lists models for the project', async () => {

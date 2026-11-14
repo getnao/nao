@@ -7,7 +7,7 @@ import {
 	resolveContextSourceGitToken,
 	sanitizeContextSourceRepositoryUrl,
 } from '../utils/context-repo';
-import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors, withRequester } from '../utils/git-identity';
 import { toGitError } from '../utils/git-repo';
 import * as github from './github';
 import * as gitlab from './gitlab';
@@ -29,7 +29,9 @@ export const GENERIC_GIT_PROVIDER: ReviewRequestProvider = {
 	cloneRepo,
 	getGitInfo,
 	getUserGitIdentity: async ({ user }) => user,
-	coAuthor: NAO_CO_AUTHOR,
+	commitCoAuthors: () => [NAO_CO_AUTHOR],
+	isFirstParty: false,
+	sharesAccessToken: false,
 	commitAllAndPushBranch,
 	pushBranch,
 	findOpenReviewRequest,
@@ -258,7 +260,7 @@ async function createReviewRequest(
 	repository: ParsedGenericRepository,
 	args: { title: string; head: string; base: string; body: string; requester: GitIdentity },
 ): Promise<OpenReviewRequestResult> {
-	const body = `${args.body}${args.body ? '\n\n' : ''}Requested by ${args.requester.name}`;
+	const body = withRequester(args.body, args.requester);
 	if (platform === 'github') {
 		const apiBaseUrl = githubApiBaseUrl(repository, repositoryUrl);
 		const pullRequest = await github.createPullRequest(

@@ -24,6 +24,7 @@ import {
 } from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
+import { resolveRepositoryToken } from '../services/shared-github-token.service';
 import {
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
 	CONTEXT_RECOMMENDATION_STATUSES,
@@ -31,6 +32,7 @@ import {
 	MIN_AUTO_PRS_PER_RUN,
 } from '../types/context-recommendation';
 import { llmProviderSchema } from '../types/llm';
+import { redactCredentialedUrls } from '../utils/credential-redaction';
 import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
@@ -57,7 +59,7 @@ function toPullRequestTrpcError(err: unknown): TRPCError {
 	}
 	return new TRPCError({
 		code: 'INTERNAL_SERVER_ERROR',
-		message: err instanceof Error ? err.message : 'Failed to create pull request',
+		message: err instanceof Error ? redactCredentialedUrls(err.message) : 'Failed to create pull request',
 	});
 }
 
@@ -123,7 +125,12 @@ export const contextRecommendationRoutes = {
 	}),
 
 	getConfig: recommendationsProcedure.query(async ({ ctx }) => {
-		return crQueries.getConfig(ctx.project.id);
+		const config = await crQueries.getConfig(ctx.project.id);
+		if (!config) {
+			return null;
+		}
+		const { encryptedGithubAccessToken: _encryptedGithubAccessToken, ...publicConfig } = config;
+		return publicConfig;
 	}),
 
 	setConfig: recommendationMutationProcedure
@@ -209,7 +216,7 @@ export const contextRecommendationRoutes = {
 
 		const githubParsed = github.parsePullRequestUrl(rec.prUrl);
 		if (githubParsed) {
-			const token = await userQueries.getGithubToken(ctx.user.id);
+			const token = await resolveRepositoryToken(ctx.project.id, 'github', ctx.user.id);
 			if (!token) {
 				return null;
 			}

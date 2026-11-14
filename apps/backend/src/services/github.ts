@@ -149,12 +149,18 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
 	return data.access_token;
 }
 
+export class GithubApiError extends Error {
+	constructor(readonly status: number) {
+		super(`GitHub API error: ${status}`);
+	}
+}
+
 export async function getUser(token: string): Promise<GitHubUser> {
 	const res = await fetch(`${githubApiUrl()}/user`, {
 		headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
 	});
 	if (!res.ok) {
-		throw new Error(`GitHub API error: ${res.status}`);
+		throw new GithubApiError(res.status);
 	}
 	return res.json() as Promise<GitHubUser>;
 }

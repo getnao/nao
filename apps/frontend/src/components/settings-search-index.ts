@@ -683,6 +683,24 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/git',
 		pageLabel: 'Git',
+		title: 'GitHub access token',
+		description:
+			'Use one GitHub personal access token, such as a bot account, for everyone instead of personal accounts.',
+		keywords: [
+			'github',
+			'personal access token',
+			'pat',
+			'fine-grained token',
+			'bot account',
+			'shared token',
+			'co-author',
+			'pull request author',
+		],
+		adminOrContextAdmin: true,
+	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
 		title: 'Deployment repository',
 		description: 'View the repository used for File Explorer commits and review requests.',
 		keywords: [

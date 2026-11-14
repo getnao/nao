@@ -35,11 +35,8 @@ vi.mock('../../src/utils/context-repo', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../../src/utils/context-repo')>()),
 	resolveContextRepository: repositoryMocks.resolveContextRepository,
 }));
-vi.mock('../../src/services/review-request-provider', () => ({
-	REVIEW_REQUEST_PROVIDERS: {
-		github: providerMocks,
-		gitlab: providerMocks,
-	},
+vi.mock('../../src/services/shared-github-token.service', () => ({
+	resolveRepositoryProvider: async () => providerMocks,
 }));
 vi.mock('../../src/utils/logger', () => ({
 	logger: {

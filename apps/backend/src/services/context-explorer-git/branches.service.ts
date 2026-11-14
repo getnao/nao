@@ -348,7 +348,7 @@ async function commitSelectedChanges(
 	runGitWithIdentity(
 		repo,
 		projectFolder,
-		['commit', '--quiet', '-m', withCoAuthors(input.message, [provider.coAuthor])],
+		['commit', '--quiet', '-m', withCoAuthors(input.message, provider.commitCoAuthors(context.user))],
 		author,
 	);
 	return runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();

@@ -1,14 +1,13 @@
-import type { RepoProvider } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
-import * as userQueries from '../queries/user.queries';
-import { resolveContextRepository, resolveContextSourceGitToken } from '../utils/context-repo';
+import { resolveContextRepository } from '../utils/context-repo';
 import type { ContextExplorerFileAccess } from './context-explorer.service';
 import {
 	type ContextExplorerGitContext,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
 } from './context-explorer-git.service';
+import { resolveRepositoryProvider } from './shared-github-token.service';
 
 interface ContextExplorerUser {
 	id: string;
@@ -52,18 +51,13 @@ export async function createGitContext(
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project path configured.' });
 	}
 	const repository = await resolveContextRepository(projectId);
+	const provider = await resolveRepositoryProvider(projectId, repository?.provider ?? 'github');
 	return {
 		projectId,
 		projectFolder: projectPath,
 		userId: user.id,
 		user: { name: user.name, email: user.email },
-		token:
-			repository?.provider === 'generic'
-				? resolveContextSourceGitToken()
-				: await getProviderToken(repository?.provider ?? 'github', user.id),
+		token: await provider.getToken(user.id),
+		providerOverride: repository ? provider : undefined,
 	};
-}
-
-export function getProviderToken(provider: RepoProvider, userId: string): Promise<string | null> {
-	return provider === 'gitlab' ? userQueries.getGitlabToken(userId) : userQueries.getGithubToken(userId);
 }

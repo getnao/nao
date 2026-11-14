@@ -3,12 +3,16 @@ import path from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ getProjectRuntimeEnvVars: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getProjectRuntimeEnvVars: vi.fn(), resolveRepositoryProvider: vi.fn() }));
 
 vi.mock('../../src/services/project-runtime-env', () => ({
 	getProjectRuntimeEnvVars: mocks.getProjectRuntimeEnvVars,
 }));
+vi.mock('../../src/services/shared-github-token.service', () => ({
+	resolveRepositoryProvider: mocks.resolveRepositoryProvider,
+}));
 
+import { REVIEW_REQUEST_PROVIDERS } from '../../src/services/review-request-provider';
 import {
 	createUpstreamContextSnapshot,
 	listUpstreamBranches,
@@ -108,6 +112,42 @@ describe('listUpstreamBranches', () => {
 		});
 		expect(canFilterMine).toBe(false);
 	});
+
+	it.each([
+		['a personal account', false, true],
+		['a shared access token', true, false],
+	])(
+		'only offers the Mine filter for a GitHub repository listed with %s',
+		async (_, sharesAccessToken, canFilter) => {
+			writeFiles(projectFolder, {
+				'nao_config.yaml': [
+					'project_name: fibi',
+					'repos:',
+					'  - name: business',
+					'    url: https://github.com/acme/business',
+					'',
+				].join('\n'),
+			});
+			const branch = {
+				name: 'analyst/net-revenue',
+				commit: 'abc',
+				author: null,
+				committedAt: null,
+				isMine: false,
+			};
+			mocks.resolveRepositoryProvider.mockResolvedValue({
+				...REVIEW_REQUEST_PROVIDERS.github,
+				sharesAccessToken,
+				getToken: async () => 'token',
+				listBranches: async () => [branch],
+			});
+
+			await expect(listUpstreamBranches(BRANCHES_INPUT())).resolves.toEqual({
+				branches: [branch],
+				canFilterMine: canFilter,
+			});
+		},
+	);
 
 	it('resolves a repository URL written as an env reference with the project variables', async () => {
 		writeFiles(projectFolder, {

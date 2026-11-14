@@ -1,0 +1,1 @@
+ALTER TABLE `context_recommendation_config` ADD `encrypted_github_access_token` text;

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 	connectContextRepository: vi.fn(),
 	failActivity: vi.fn(),
 	getContextFileDiff: vi.fn(),
+	getContextRecommendationConfig: vi.fn(),
 	getFileTree: vi.fn(),
 	getGithubToken: vi.fn(),
 	getGitlabToken: vi.fn(),
@@ -53,6 +54,9 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
 
+vi.mock('../../src/queries/context-recommendation.queries', () => ({
+	getConfig: mocks.getContextRecommendationConfig,
+}));
 vi.mock('../../src/queries/user.queries', () => ({
 	getGithubToken: mocks.getGithubToken,
 	getGitlabToken: mocks.getGitlabToken,
@@ -113,6 +117,7 @@ vi.mock('../../src/utils/context-repo', () => ({
 
 import { contextExplorerRoutes } from '../../src/trpc/context-explorer.routes';
 import { router } from '../../src/trpc/trpc';
+import { encryptSecret } from '../../src/utils/encryption';
 
 const testRouter = router(contextExplorerRoutes);
 const caller = createTestCaller(testRouter);
@@ -124,6 +129,7 @@ beforeEach(() => {
 	vi.resetAllMocks();
 	mocks.getUserRoleInProject.mockResolvedValue('admin');
 	mocks.getGithubToken.mockResolvedValue('github-token');
+	mocks.getContextRecommendationConfig.mockResolvedValue(null);
 	mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
 });
 
@@ -150,6 +156,19 @@ describe('context explorer repository connection', () => {
 				repoFullName: 'nao/context',
 				token: 'github-token',
 			}),
+		);
+	});
+
+	it("connects a GitHub repository with the project's shared token instead of the user's", async () => {
+		mocks.getContextRecommendationConfig.mockResolvedValue({
+			encryptedGithubAccessToken: encryptSecret('shared-token'),
+		});
+
+		await caller.connectRepository({ provider: 'github', repoFullName: 'nao/context' });
+
+		expect(mocks.getGithubToken).not.toHaveBeenCalled();
+		expect(mocks.connectContextRepository).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: 'github', token: 'shared-token' }),
 		);
 	});
 

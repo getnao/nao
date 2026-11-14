@@ -1072,6 +1072,7 @@ export const contextRecommendationConfig = pgTable('context_recommendation_confi
 	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
 	repoFullName: text('repo_full_name'),
 	repoProvider: text('repo_provider').$type<RepoProvider>(),
+	encryptedGithubAccessToken: text('encrypted_github_access_token'),
 	autoCreatePrs: boolean('auto_create_prs'),
 	maxAutoPrsPerRun: integer('max_auto_prs_per_run'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),

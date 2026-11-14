@@ -83,7 +83,9 @@ export function localProvider(
 		cloneRepo: () => undefined,
 		getGitInfo: () => ({ branch: 'main' }),
 		getUserGitIdentity: async ({ user }) => user,
-		coAuthor: { name: 'nao', email: 'naoagent@getnao.io' },
+		commitCoAuthors: () => [{ name: 'nao', email: 'naoagent@getnao.io' }],
+		isFirstParty: false,
+		sharesAccessToken: false,
 		commitAllAndPushBranch: () => undefined,
 		pushBranch: ({ dir, branch }) => {
 			runGit(dir, ['push', bare, `HEAD:refs/heads/${branch}`]);

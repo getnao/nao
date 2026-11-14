@@ -83,8 +83,8 @@ const contextDraftMocks = vi.hoisted(() => ({
 vi.mock('../../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 vi.mock('../../src/queries/context-recommendation.queries', () => contextConfigMocks);
 vi.mock('../../src/queries/context-draft.queries', () => contextDraftMocks);
-vi.mock('../../src/utils/logger', () => {
-	const redactCredentialedUrls = (value: string) => value.replace(/:\/\/[^/\s@]+@/g, '://***@');
+vi.mock('../../src/utils/logger', async () => {
+	const { redactCredentialedUrls } = await import('../../src/utils/credential-redaction');
 	return {
 		logger: {
 			warn: loggerMocks.warn,
@@ -140,6 +140,7 @@ import {
 	parseGenericRepositoryUrl,
 	parseReviewRequestLink,
 } from '../../src/services/generic-git';
+import { withSharedAccessToken } from '../../src/services/review-request-provider';
 import {
 	getContextWorktreePath,
 	resolveContextRepository,
@@ -1368,6 +1369,26 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		expect(file.content).toBe('repository content\n');
 		expect(fs.readFileSync(path.join(repo.worktreeRoot, 'context.md'), 'utf8')).toBe('worktree edit\n');
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it.each([
+		['personal accounts', (provider: ContextRepositoryProvider) => provider, 'nao <naoagent@getnao.io>'],
+		[
+			'a shared access token',
+			(provider: ContextRepositoryProvider) => withSharedAccessToken(provider, 'shared-token'),
+			'Test User <test@example.com>',
+		],
+	])('credits the co-author of commits made through %s', async (_, withAccess, coAuthor) => {
+		const fixture = createFixture();
+		const context = { ...fixture.context, providerOverride: withAccess(localProvider(fixture.bare)) };
+		const access = await fileAccess(context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'co-authored edit\n', file.hash, access);
+		await createContextBranchAndCommit(context, { paths: ['/context.md'], message: 'Co-authored edit' });
+
+		const repo = await ensureContextWorktree(context);
+		const trailers = runGit(repo.worktreeRoot, ['log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)']);
+		expect(trailers.toString().trim()).toBe(coAuthor);
 	});
 
 	it('encodes unsafe user ids without escaping the project worktree directory', async () => {

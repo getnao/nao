@@ -504,10 +504,7 @@ function isFirstPartyOAuthProvider(
 	providerName: ResolvedContextRepo['provider'],
 	provider: ContextRepositoryProvider,
 ): providerName is RepoProvider {
-	return (
-		(providerName === 'github' && provider === REVIEW_REQUEST_PROVIDERS.github) ||
-		(providerName === 'gitlab' && provider === REVIEW_REQUEST_PROVIDERS.gitlab)
-	);
+	return providerName !== 'generic' && provider.isFirstParty;
 }
 
 function readLiveDefaultCommit(projectFolder: string, defaultBranch: string): string | null {

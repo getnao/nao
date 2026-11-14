@@ -729,6 +729,13 @@
       "when": 1794608572473,
       "tag": "0103_project_menu_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "6",
+      "when": 1794665344716,
+      "tag": "0104_shared_github_access_token",
+      "breakpoints": true
     }
   ]
 }
