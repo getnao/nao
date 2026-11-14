@@ -43,6 +43,12 @@ export interface ContextFileHeaderProblems {
 	problems: ContextFileHeaderProblem[];
 }
 
+/** The `table=<name>` folder that `nao sync` writes for a table, whose files all document that table. */
+export interface ContextTableFolder {
+	path: string;
+	table: string;
+}
+
 /** A user of the project, who can own context files. */
 export interface ContextFileOwner {
 	id: string;
@@ -58,6 +64,7 @@ const SYNCED_SOURCE_FOLDERS = ['repos/', 'docs/notion/', 'docs/confluence/', 'do
 const SKILLS_FOLDER = 'agent/skills/';
 const SKILL_FILE_NAME = 'SKILL.md';
 const SKILL_NAME_PROPERTY = 'name';
+const TABLE_FOLDER_PREFIX = 'table=';
 const ROOT_RULES_DESCRIPTION =
 	'The main rules of the agent, read at the start of every conversation. They orchestrate the whole context, telling the agent how to work and which files to read for each topic.';
 const FILE_EXTENSION_PATTERN = /\.[^.]+$/;
@@ -119,6 +126,22 @@ export function getDefaultContextFileHeader(filePath: string): Pick<ContextFileH
 		title: titleFromFileName(filePath),
 		description: isRootRulesPath(filePath) ? ROOT_RULES_DESCRIPTION : null,
 	};
+}
+
+/** The table folder holding the file, or null when the file does not document a table. */
+export function findContextTableFolder(filePath: string): ContextTableFolder | null {
+	const segments = toProjectPath(filePath).split('/');
+	const folder = segments.at(-2) ?? '';
+	const table = folder.slice(TABLE_FOLDER_PREFIX.length);
+	if (!folder.startsWith(TABLE_FOLDER_PREFIX) || !table) {
+		return null;
+	}
+	return { path: segments.slice(0, -1).join('/'), table };
+}
+
+/** Owners are emails, so two spellings of the same email are the same owner. */
+export function isSameContextFileOwner(first: string | null, second: string | null): boolean {
+	return (first?.toLowerCase() ?? null) === (second?.toLowerCase() ?? null);
 }
 
 /** Starts a header showing every property, filled with the defaults of the file, for the user to complete. */

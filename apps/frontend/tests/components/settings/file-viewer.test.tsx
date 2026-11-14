@@ -1,18 +1,20 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { stubLocalStorage, stubResizeObserver } from '../../helpers/browser-stubs';
+import { stubLocalStorage, stubResizeObserver, stubScrollIntoView } from '../../helpers/browser-stubs';
 import { openDropdownMenu } from '../../helpers/dropdown-menu';
 import type { ReactNode } from 'react';
 import { FileViewer, isRootRulesPath } from '@/components/settings/file-viewer';
 
 const owners = [{ id: 'ada', name: 'Ada Lovelace', email: 'ada@example.com' }];
+const ORDERS_FOLDER = '/databases/type=duckdb/database=shop/schema=main/table=orders';
+const defaultMutation = () => ({ isPending: false, mutate: vi.fn() });
 
 vi.mock('@tanstack/react-query', () => ({
-	useMutation: vi.fn(() => ({ isPending: false, mutate: vi.fn() })),
+	useMutation: vi.fn(() => defaultMutation()),
 	useQuery: vi.fn(() => ({ data: owners })),
 	useQueryClient: vi.fn(() => ({
 		invalidateQueries: vi.fn(),
@@ -51,7 +53,9 @@ vi.mock('@/main', () => ({
 		contextExplorer: {
 			getChangedFiles: { queryKey: vi.fn(() => []) },
 			getFileHeaderProblems: { queryKey: vi.fn(() => []) },
+			applyOwnerToTableFiles: { mutationOptions: vi.fn(() => ({ mutationKey: ['applyOwnerToTableFiles'] })) },
 			listFileOwners: { queryOptions: vi.fn(() => ({ queryKey: [] })) },
+			listTableFileOwners: { queryOptions: vi.fn(() => ({ queryKey: ['listTableFileOwners'] })) },
 			readFile: { queryOptions: vi.fn(() => ({ queryKey: [] })) },
 			writeFile: { mutationOptions: vi.fn(() => ({})) },
 		},
@@ -77,6 +81,7 @@ afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
 	vi.mocked(useQuery).mockImplementation(() => ({ data: owners }) as never);
+	vi.mocked(useMutation).mockImplementation(() => defaultMutation() as never);
 });
 
 describe('FileViewer RULES preview', () => {
@@ -230,6 +235,71 @@ describe('FileViewer file header', () => {
 		expect(ownerButton.querySelector('.lucide-triangle-alert') !== null).toBe(owner === 'gone@example.com');
 	});
 
+	it.each([
+		['offers to give the other docs of its table the owner picked', `${ORDERS_FOLDER}/columns.md`, true],
+		['does not offer it for a file outside a table folder', '/docs/columns.md', false],
+	])('%s', async (_, filePath, isOffered) => {
+		stubScrollIntoView();
+		const applyOwner = mockTableFiles([
+			{ path: `${ORDERS_FOLDER}/preview.md`, owner: 'zoe@example.com', isEditable: true },
+			{ path: `${ORDERS_FOLDER}/how_to_use.md`, owner: 'ada@example.com', isEditable: true },
+			{ path: `${ORDERS_FOLDER}/ai_summary.md`, owner: null, isEditable: false },
+		]);
+		renderViewer({ filePath, content: '---\nowner: zoe@example.com\n---\nBody\n' });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Change owner/ }));
+		fireEvent.click(await screen.findByRole('option', { name: /Ada Lovelace/ }));
+
+		const prompt = screen.queryByRole('region', { name: 'Table owner' });
+		expect(prompt !== null).toBe(isOffered);
+		if (prompt) {
+			expect(prompt.textContent).toContain(
+				'1 other doc of table orders has another owner. Make Ada Lovelace the owner of every doc of the table?',
+			);
+			fireEvent.click(within(prompt).getByRole('button', { name: 'Apply to every doc' }));
+			expect(applyOwner).toHaveBeenCalledWith({ path: filePath, owner: 'ada@example.com' });
+		}
+	});
+
+	it('stops offering the owner picked once the header names another owner', async () => {
+		stubScrollIntoView();
+		localStorage.setItem('nao-file-viewer-markdown-view', JSON.stringify('split'));
+		mockTableFiles([{ path: `${ORDERS_FOLDER}/preview.md`, owner: null, isEditable: true }]);
+		renderViewer({ filePath: `${ORDERS_FOLDER}/columns.md`, content: '---\nowner: zoe@example.com\n---\nBody\n' });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Change owner/ }));
+		fireEvent.click(await screen.findByRole('option', { name: /Ada Lovelace/ }));
+		expect(screen.getByRole('region', { name: 'Table owner' })).toBeTruthy();
+
+		fireEvent.change(screen.getByRole('textbox', { name: 'File source' }), {
+			target: { value: '---\nowner: zoe@example.com\n---\nBody\n' },
+		});
+
+		expect(screen.queryByRole('region', { name: 'Table owner' })).toBeNull();
+	});
+
+	it('names the docs of the table that could not be saved and offers to retry', async () => {
+		stubScrollIntoView();
+		const applyOwner = mockTableFiles([], {
+			isSuccess: true,
+			data: { updatedPaths: [`${ORDERS_FOLDER}/preview.md`], failedPaths: [`${ORDERS_FOLDER}/how_to_use.md`] },
+		});
+		renderViewer({ filePath: `${ORDERS_FOLDER}/columns.md`, content: '---\nowner: zoe@example.com\n---\nBody\n' });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Change owner/ }));
+		fireEvent.click(await screen.findByRole('option', { name: /Ada Lovelace/ }));
+
+		const prompt = screen.getByRole('region', { name: 'Table owner' });
+		expect(prompt.textContent).toContain('Updated the owner of 1 other doc of table orders.');
+		expect(within(prompt).getByRole('alert').textContent).toBe('1 other doc could not be saved: how_to_use.md.');
+		fireEvent.click(within(prompt).getByRole('button', { name: 'Retry' }));
+		expect(applyOwner).toHaveBeenCalledWith({
+			path: `${ORDERS_FOLDER}/columns.md`,
+			owner: 'ada@example.com',
+			onlyPaths: [`${ORDERS_FOLDER}/how_to_use.md`],
+		});
+	});
+
 	it('offers to retry when the users of the project cannot be loaded', async () => {
 		const refetch = vi.fn();
 		vi.mocked(useQuery).mockImplementation(() => ({ data: undefined, isError: true, refetch }) as never);
@@ -341,4 +411,23 @@ function renderViewer({
 			onDraftChange={onDraftChange}
 		/>,
 	);
+}
+
+function mockTableFiles(
+	tableFiles: { path: string; owner: string | null; isEditable: boolean }[],
+	applyState: { isSuccess: boolean; data?: { updatedPaths: string[]; failedPaths: string[] } } = {
+		isSuccess: false,
+	},
+) {
+	const applyOwner = vi.fn();
+	vi.mocked(useQuery).mockImplementation(
+		(options) => ({ data: options.queryKey[0] === 'listTableFileOwners' ? tableFiles : owners }) as never,
+	);
+	vi.mocked(useMutation).mockImplementation(
+		(options) =>
+			(options?.mutationKey?.[0] === 'applyOwnerToTableFiles'
+				? { isPending: false, isError: false, ...applyState, mutate: applyOwner }
+				: defaultMutation()) as never,
+	);
+	return applyOwner;
 }

@@ -302,6 +302,13 @@ describe('context explorer file access', () => {
 		await expect(caller.getFileDiff(input)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 		expect(mocks.getContextFileDiff).not.toHaveBeenCalled();
 	});
+
+	it.each(['', '   ', `${'a'.repeat(310)}@example.com`])('rejects %j as the owner of a table', async (owner) => {
+		await expect(
+			caller.applyOwnerToTableFiles({ path: '/databases/table=orders/columns.md', owner }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.resolveContextExplorerGit).not.toHaveBeenCalled();
+	});
 });
 
 describe('live context update access', () => {

@@ -39,7 +39,12 @@ import {
 	updateContextWorktree,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
-import { listContextFileHeaderProblems, listContextFileOwners } from '../services/context-file-header.service';
+import {
+	applyOwnerToTableFiles,
+	listContextFileHeaderProblems,
+	listContextFileOwners,
+	listTableFileOwners,
+} from '../services/context-file-header.service';
 import {
 	discardAllNaoDraftFiles,
 	discardNaoDraftFile,
@@ -59,6 +64,7 @@ import { cloudBillingAdminProcedure, cloudBillingContextAdminProcedure, contextA
 const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
 const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
+const fileOwnerSchema = z.string().trim().min(1).max(320).nullable();
 const MAX_PULL_HISTORY_FILES = 1_000;
 const fileDiffInputSchema = z
 	.object({
@@ -208,6 +214,20 @@ export const contextExplorerRoutes = {
 		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
 		return listContextFileHeaderProblems(ctx.project.id, access);
 	}),
+
+	listTableFileOwners: contextAdminProtectedProcedure
+		.input(z.object({ path: z.string() }))
+		.query(async ({ ctx, input }) => {
+			const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+			return listTableFileOwners(ctx.project.id, input.path, access);
+		}),
+
+	applyOwnerToTableFiles: cloudBillingContextAdminProcedure
+		.input(z.object({ path: z.string(), owner: fileOwnerSchema, onlyPaths: pathsSchema.optional() }))
+		.mutation(async ({ ctx, input }) => {
+			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+			return applyOwnerToTableFiles(ctx.project.id, input.path, input.owner, access, input.onlyPaths);
+		}),
 
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
 		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);

@@ -1,4 +1,9 @@
-import { addContextFileHeader, updateContextFileHeader } from '@nao/shared/context-file-header';
+import {
+	addContextFileHeader,
+	findContextTableFolder,
+	isSameContextFileOwner,
+	updateContextFileHeader,
+} from '@nao/shared/context-file-header';
 import { isRootRulesPath, renderConditionalGroupBlocks } from '@nao/shared/rules-template';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, File, Lock } from 'lucide-react';
@@ -14,6 +19,7 @@ import type { UserGroupPickerOption } from '@/components/settings/user-group-pic
 import type { SegmentedControlOption } from '@/components/ui/segmented-control';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { FileHeaderEditor, FileHeaderSourceBar } from '@/components/settings/file-header-editor';
+import { TableOwnerPrompt } from '@/components/settings/table-owner-prompt';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
 import { MarkdownFileEditor } from '@/components/settings/markdown-file-editor';
 import { UserGroupPicker } from '@/components/settings/user-group-picker';
@@ -195,6 +201,7 @@ function EditableFileViewer({
 	const [isReloadDialogOpen, setIsReloadDialogOpen] = useState(false);
 	const [isReloading, setIsReloading] = useState(false);
 	const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+	const [changedOwner, setChangedOwner] = useState<{ owner: string | null } | null>(null);
 	const activePathRef = useRef(filePath);
 	const saveInProgressRef = useRef(false);
 	activePathRef.current = filePath;
@@ -202,6 +209,7 @@ function EditableFileViewer({
 	const saveMutation = useMutation(trpc.contextExplorer.writeFile.mutationOptions());
 	const isMarkdown = isMarkdownPath(filePath);
 	const isRootRules = isRootRulesPath(filePath);
+	const tableFolder = useMemo(() => findContextTableFolder(filePath), [filePath]);
 	const markdownView = isSourceAutoOpened && markdownViewPreference === 'preview' ? 'split' : markdownViewPreference;
 	const isDirty = isEditable && draft !== savedContent;
 	const debouncedPreview = useDebouncedValue(draft, 250);
@@ -349,10 +357,17 @@ function EditableFileViewer({
 		[parsedMarkdownDraft.frontmatter],
 	);
 
-	const handleHeaderChange = useCallback((changes: ContextFileHeaderChanges) => {
-		setDraft((current) => updateContextFileHeader(current, changes));
-	}, []);
+	const handleHeaderChange = useCallback(
+		(changes: ContextFileHeaderChanges) => {
+			setDraft((current) => updateContextFileHeader(current, changes));
+			if (tableFolder && changes.owner !== undefined) {
+				setChangedOwner({ owner: changes.owner });
+			}
+		},
+		[tableFolder],
+	);
 
+	const draftOwner = fileHeaderState?.reading.header.owner ?? null;
 	const showRulesPreviewToolbar = isRootRules && rulesPreviewGroups.status === 'ready' && rulesPreviewGroups.enforced;
 	const rulesPreviewStatus =
 		isRootRules && rulesPreviewGroups.status !== 'ready' ? rulesPreviewGroups.status : undefined;
@@ -363,7 +378,18 @@ function EditableFileViewer({
 			isEditable={isEditable}
 			onChange={handleHeaderChange}
 			onSave={handleSave}
-		/>
+		>
+			{tableFolder && changedOwner && isSameContextFileOwner(changedOwner.owner, draftOwner) && (
+				<TableOwnerPrompt
+					key={changedOwner.owner ?? ''}
+					filePath={filePath}
+					tableFolder={tableFolder}
+					owner={changedOwner.owner}
+					owners={fileHeaderState.owners}
+					onDismiss={() => setChangedOwner(null)}
+				/>
+			)}
+		</FileHeaderEditor>
 	);
 	const renderedMarkdown = (
 		<MarkdownPreview
