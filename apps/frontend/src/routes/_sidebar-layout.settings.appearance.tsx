@@ -4,6 +4,7 @@ import { useRef } from 'react';
 import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import { DateFormatSection } from '@/components/settings/date-format-section';
+import { SidebarMenuSettings } from '@/components/settings/sidebar-menu-settings';
 import { StoryThemeEditorProvider } from '@/components/settings/story-theme-editor-context';
 import { StoryThemeSettings } from '@/components/settings/story-theme-settings';
 import { WhiteLabelSettings } from '@/components/settings/white-label-settings';
@@ -17,11 +18,12 @@ import { useSidePanel } from '@/hooks/use-side-panel';
 import { requireNonViewer } from '@/lib/route-guards';
 import { trpc } from '@/main';
 
-type AppearanceTab = 'general' | 'stories';
+type AppearanceTab = 'general' | 'stories' | 'menu';
 
 const tabs: TabBarItem<AppearanceTab>[] = [
 	{ id: 'general', label: 'General' },
 	{ id: 'stories', label: 'Stories' },
+	{ id: 'menu', label: 'Menu' },
 ];
 
 const tabIdBase = 'appearance';
@@ -79,6 +81,7 @@ function AppearancePage() {
 							<TabPanel idBase={tabIdBase} tabId={tab} className='flex min-w-0 flex-col gap-12'>
 								{tab === 'general' && <GeneralSettings isAdmin={isAdmin} />}
 								{tab === 'stories' && <StoryThemeSettings isAdmin={isAdmin} />}
+								{tab === 'menu' && <SidebarMenuSettings isAdmin={isAdmin} />}
 							</TabPanel>
 						</div>
 					</SettingsPageWrapper>
@@ -115,5 +118,5 @@ function GeneralSettings({ isAdmin }: { isAdmin: boolean }) {
 }
 
 function isAppearanceTab(value: unknown): value is AppearanceTab {
-	return value === 'general' || value === 'stories';
+	return value === 'general' || value === 'stories' || value === 'menu';
 }

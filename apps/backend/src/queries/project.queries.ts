@@ -15,6 +15,7 @@ import {
 	USER_GROUP_FEATURES,
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
+import type { SidebarMenu } from '@nao/shared/sidebar-menu';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, notExists, or, type SQL, sql } from 'drizzle-orm';
 
@@ -414,6 +415,15 @@ export const updateDefaultModelSettings = async (
 export const getMapSettings = async (projectId: string): Promise<MapSettings> => {
 	const project = await getProjectById(projectId);
 	return project?.mapSettings ?? {};
+};
+
+export const getMenuSettings = async (projectId: string): Promise<SidebarMenu | null> => {
+	const project = await getProjectById(projectId);
+	return project?.menuSettings ?? null;
+};
+
+export const updateMenuSettings = async (projectId: string, menuSettings: SidebarMenu | null): Promise<void> => {
+	await db.update(s.project).set({ menuSettings }).where(eq(s.project.id, projectId)).execute();
 };
 
 export const getCustomBoundaries = async (projectId: string): Promise<CustomBoundarySet[]> => {

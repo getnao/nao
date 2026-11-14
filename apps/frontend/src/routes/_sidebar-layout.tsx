@@ -56,7 +56,10 @@ function GlobalShortcuts({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcuts:
 	const { canStartNewChat } = usePermissions();
 
 	const navigateHome = useCallback(() => navigate({ to: '/' }), [navigate]);
-	const navigateStories = useCallback(() => navigate({ to: '/stories', search: { folderId: null } }), [navigate]);
+	const navigateStories = useCallback(
+		() => navigate({ to: '/stories', search: { folderId: null, view: undefined } }),
+		[navigate],
+	);
 	const toggleTheme = useCallback(() => {
 		setTheme(theme === 'light' ? 'dark' : 'light');
 	}, [theme, setTheme]);

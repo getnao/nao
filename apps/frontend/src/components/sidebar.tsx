@@ -1,18 +1,17 @@
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useMatchRoute, useNavigate, useRouterState } from '@tanstack/react-router';
-import { ChevronRight, NewspaperIcon, PanelLeft, PlusIcon, SearchIcon, X } from 'lucide-react';
+import { ChevronRight, PanelLeft, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
-import { NewChatDropTarget } from './new-chat-drop-target';
 import { ChatListItem } from './sidebar-chat-list-item';
 import { SidebarBackToApp } from './sidebar-back-to-app';
 import { SidebarCommunity } from './sidebar-community';
+import { SidebarMenuNav } from './sidebar-menu-nav';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarVersionNotice } from './sidebar-version-notice';
 import { Spinner } from './ui/spinner';
-import StoryIcon from './ui/story-icon';
 import type {
 	AutomationEventTriggers,
 	ChatFilterType,
@@ -20,13 +19,11 @@ import type {
 	ChatGroupBy,
 	GroupedChatItem,
 } from '@nao/shared/types';
-import type { LucideIcon } from 'lucide-react';
 
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
-import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
@@ -40,7 +37,6 @@ import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
 import { getEnabledNaoEvents, isAutomationActive, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { SIDE_PANEL_ANIMATION_DURATION, SIDE_PANEL_ANIMATION_EASING } from '@/lib/side-panel';
-import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -55,7 +51,6 @@ const SIDEBAR_TRANSITION_STYLE: React.CSSProperties = {
 
 export function Sidebar() {
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const matchRoute = useMatchRoute();
 	const {
 		isCollapsed,
@@ -66,7 +61,6 @@ export function Sidebar() {
 		expand: expandSidebar,
 	} = useSidebar();
 	const [toggleHintOpen, setToggleHintOpen] = useState(false);
-	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const switchProject = useProjectSwitch(project.data?.id);
@@ -80,7 +74,7 @@ export function Sidebar() {
 	const showAutomations = project.data != null && !isViewer && betaAutomationsEnabled;
 	const unreadCount = useUnreadCount(project.data?.id).data ?? 0;
 	const unreadAutomationRunCount = useUnreadAutomationRunCount(showAutomations, project.data?.id).data ?? 0;
-	const hasFeedActivity = unreadCount > 0 || unreadAutomationRunCount > 0;
+	const hasInboxActivity = unreadCount > 0 || unreadAutomationRunCount > 0;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
@@ -117,28 +111,6 @@ export function Sidebar() {
 			closeMobile();
 		}
 	}, [navigate, isMobile, closeMobile]);
-
-	const handleNavigateStories = useCallback(() => {
-		invalidateStoriesCaches(queryClient);
-		navigate({ to: '/stories', search: { folderId: null } });
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [navigate, isMobile, closeMobile, queryClient]);
-
-	const handleNavigateFeed = useCallback(() => {
-		navigate({ to: '/feed' });
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [navigate, isMobile, closeMobile]);
-
-	const handleSearchChats = useCallback(() => {
-		openCommandMenu();
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [openCommandMenu, isMobile, closeMobile]);
 
 	useEffect(() => {
 		if (!project.data?.id) {
@@ -260,41 +232,15 @@ export function Sidebar() {
 				)}
 				{!isInSettings && (
 					<>
-						<div className='py-4'>
-							{!isViewer && (
-								<NewChatDropTarget>
-									<SidebarMenuButton
-										icon={PlusIcon}
-										label='New chat'
-										shortcut={getShortcutLabel('new-chat')}
-										isCollapsed={effectiveIsCollapsed}
-										onClick={handleNavigateHome}
-									/>
-								</NewChatDropTarget>
-							)}
-							<SidebarMenuButton
-								icon={SearchIcon}
-								label='Search chats'
-								shortcut={getShortcutLabel('command-menu')}
-								isCollapsed={effectiveIsCollapsed}
-								onClick={handleSearchChats}
-							/>
-							<SidebarMenuButton
-								icon={StoryIcon as unknown as LucideIcon}
-								label='Stories'
-								shortcut={getShortcutLabel('go-to-stories')}
-								isCollapsed={effectiveIsCollapsed}
-								onClick={handleNavigateStories}
-							/>
-							<SidebarMenuButton
-								icon={NewspaperIcon as unknown as LucideIcon}
-								label='Feed'
-								shortcut=''
-								isCollapsed={effectiveIsCollapsed}
-								onClick={handleNavigateFeed}
-								indicator={hasFeedActivity}
-							/>
-						</div>
+						<SidebarMenuNav
+							isCollapsed={effectiveIsCollapsed}
+							hasProject={project.data != null}
+							access={{
+								canCreateChat: !isViewer,
+								canSeeAutomations: showAutomations,
+								hasInboxActivity,
+							}}
+						/>
 					</>
 				)}
 			</div>
@@ -364,49 +310,6 @@ export function Sidebar() {
 	}
 
 	return sidebarContent;
-}
-
-function SidebarMenuButton({
-	icon: Icon,
-	label,
-	shortcut,
-	isCollapsed,
-	onClick,
-	indicator = false,
-}: {
-	icon: LucideIcon;
-	label: string;
-	shortcut: string;
-	isCollapsed: boolean;
-	onClick: () => void;
-	indicator?: boolean;
-}) {
-	return (
-		<Button
-			variant='ghost'
-			className={cn(
-				'w-full justify-start relative group shadow-none transition-[padding,height,background-color] duration-300 p-[10px_!important] gap-4',
-				isCollapsed ? 'h-9' : '',
-			)}
-			onClick={onClick}
-		>
-			<span className='relative flex items-center'>
-				<Icon className='size-4' />
-				{indicator && (
-					<span
-						aria-hidden
-						className='absolute -right-1 -top-1 size-2 rounded-full bg-primary ring-2 ring-sidebar'
-					/>
-				)}
-			</span>
-			<div className={cn('flex items-center transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
-				<span>{label}</span>
-				<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity hidden md:inline'>
-					{shortcut}
-				</kbd>
-			</div>
-		</Button>
-	);
 }
 
 function SidebarChatHeader({
