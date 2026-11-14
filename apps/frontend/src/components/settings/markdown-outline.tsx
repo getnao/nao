@@ -10,6 +10,7 @@ const MINIMUM_HEADING_COUNT = 2;
 const SCROLL_MARGIN = 16;
 const REVEAL_STAGGER_MS = 20;
 const MAXIMUM_REVEAL_DELAY_MS = 200;
+const NO_HEADINGS: OutlineHeading[] = [];
 const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const;
 
 interface OutlineHeading {
@@ -30,10 +31,12 @@ interface MarkdownOutlineProps {
 export function MarkdownOutline({ editor, scrollContainerRef }: MarkdownOutlineProps) {
 	const headings = useEditorState({
 		editor,
-		selector: ({ editor: currentEditor }) => (currentEditor ? readOutlineHeadings(currentEditor) : []),
+		selector: ({ editor: currentEditor }) => {
+			return currentEditor ? readOutlineHeadings(currentEditor) : NO_HEADINGS;
+		},
 		equalityFn: areSameHeadings,
 	});
-	const { activeIndex, pinActiveIndex } = useActiveHeadingIndex(editor, headings ?? [], scrollContainerRef);
+	const { activeIndex, pinActiveIndex } = useActiveHeadingIndex(editor, headings ?? NO_HEADINGS, scrollContainerRef);
 
 	const selectHeading = useCallback(
 		(index: number) => {
@@ -94,7 +97,9 @@ function OutlineItem({ heading, index, isActive, onSelect }: OutlineItemProps) {
 			<button
 				type='button'
 				aria-current={isActive ? 'location' : undefined}
-				onClick={() => onSelect(index)}
+				onClick={() => {
+					onSelect(index);
+				}}
 				className={cn(
 					'group/item pointer-events-none flex h-full w-full cursor-pointer items-center outline-none',
 					'group-hover:pointer-events-auto group-has-focus-visible:pointer-events-auto',
@@ -146,7 +151,8 @@ function readOutlineHeadings(editor: Editor): OutlineHeading[] {
 
 /**
  * The heading being read, following the scroll. A picked heading stays active until the user scrolls or clicks in the
- * editor, since the editor cannot always scroll it to the top, like in a short file or near its end.
+ * editor, or the headings change, since the editor cannot always scroll it to the top, like in a short file or near
+ * its end.
  */
 function useActiveHeadingIndex(
 	editor: Editor | null,
@@ -154,17 +160,22 @@ function useActiveHeadingIndex(
 	scrollContainerRef: RefObject<HTMLElement | null>,
 ): { activeIndex: number; pinActiveIndex: (index: number) => void } {
 	const [scrolledIndex, setScrolledIndex] = useState(0);
-	const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
+	const [pin, setPin] = useState<{ index: number; headings: OutlineHeading[] } | null>(null);
+	const pinnedIndex = pin?.headings === headings ? pin.index : null;
 
 	useEffect(() => {
 		const container = scrollContainerRef.current;
 		if (!editor || !container) {
 			return;
 		}
-		const updateScrolledIndex = () => setScrolledIndex(findActiveHeadingIndex(editor, headings, container));
+		const updateScrolledIndex = () => {
+			setScrolledIndex(findActiveHeadingIndex(editor, headings, container));
+		};
 		updateScrolledIndex();
 		container.addEventListener('scroll', updateScrolledIndex, { passive: true });
-		return () => container.removeEventListener('scroll', updateScrolledIndex);
+		return () => {
+			container.removeEventListener('scroll', updateScrolledIndex);
+		};
 	}, [editor, headings, scrollContainerRef]);
 
 	useEffect(() => {
@@ -172,12 +183,27 @@ function useActiveHeadingIndex(
 		if (pinnedIndex === null || !container) {
 			return;
 		}
-		const unpin = () => setPinnedIndex(null);
-		USER_SCROLL_EVENTS.forEach((eventName) => container.addEventListener(eventName, unpin, { passive: true }));
-		return () => USER_SCROLL_EVENTS.forEach((eventName) => container.removeEventListener(eventName, unpin));
+		const unpin = () => {
+			setPin(null);
+		};
+		USER_SCROLL_EVENTS.forEach((eventName) => {
+			container.addEventListener(eventName, unpin, { passive: true });
+		});
+		return () => {
+			USER_SCROLL_EVENTS.forEach((eventName) => {
+				container.removeEventListener(eventName, unpin);
+			});
+		};
 	}, [pinnedIndex, scrollContainerRef]);
 
-	return { activeIndex: pinnedIndex ?? scrolledIndex, pinActiveIndex: setPinnedIndex };
+	const pinActiveIndex = useCallback(
+		(index: number) => {
+			setPin({ index, headings });
+		},
+		[headings],
+	);
+
+	return { activeIndex: pinnedIndex ?? scrolledIndex, pinActiveIndex };
 }
 
 /**

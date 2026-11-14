@@ -18,7 +18,11 @@ describe('MarkdownOutline', () => {
 
 		const items = within(screen.getByRole('navigation', { name: 'Outline' })).getAllByRole('button');
 
-		expect(items.map((item) => item.textContent)).toEqual(titles);
+		expect(
+			items.map((item) => {
+				return item.textContent;
+			}),
+		).toEqual(titles);
 	});
 
 	it.each([
@@ -60,6 +64,19 @@ describe('MarkdownOutline', () => {
 		expect(getActiveTitle()).toBe('Orders');
 	});
 
+	it('follows the scroll again once the headings change, like from the Source pane', () => {
+		const { rerender } = renderEditor(SOURCE);
+		const container = getScrollContainer();
+		container.scrollTo = vi.fn();
+		stubHeadingTops([0, 500, 900]);
+		fireEvent.scroll(container);
+		fireEvent.click(screen.getByRole('button', { name: 'Freshness' }));
+
+		rerender(editorElement(SOURCE.replace('# Orders\n\n', '')));
+
+		expect(screen.queryByRole('button', { current: 'location' })).not.toBeNull();
+	});
+
 	it('scrolls the editor to the picked heading', () => {
 		renderEditor(SOURCE);
 		const heading = screen.getByRole('heading', { name: 'Freshness' });
@@ -77,7 +94,11 @@ describe('MarkdownOutline', () => {
 });
 
 function renderEditor(value: string) {
-	return render(
+	return render(editorElement(value));
+}
+
+function editorElement(value: string) {
+	return (
 		<MarkdownFileEditor
 			value={value}
 			filePath='/docs/orders.md'
@@ -85,7 +106,7 @@ function renderEditor(value: string) {
 			onChange={vi.fn()}
 			onSave={vi.fn()}
 			fallback={<div />}
-		/>,
+		/>
 	);
 }
 
