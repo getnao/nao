@@ -71,13 +71,9 @@ function AutomationsListRow({ item }: { item: AutomationSummary }) {
 
 function AutomationStatusBadge({ item }: { item: AutomationSummary }) {
 	if (!item.cron) {
-		const eventTriggerLabel = getEventTriggerBadgeLabel(item);
-		if (!eventTriggerLabel) {
-			return null;
-		}
 		return (
 			<Badge variant='secondary' className='px-1.5 py-0 text-[10px]'>
-				{eventTriggerLabel}
+				{getEventTriggerBadgeLabel(item) ?? 'Paused'}
 			</Badge>
 		);
 	}

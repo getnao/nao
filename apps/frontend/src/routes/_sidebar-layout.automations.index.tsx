@@ -43,12 +43,27 @@ function AutomationsPage() {
 						</Button>
 					)}
 				</header>
-				<AutomationsList
-					items={automations.data ?? []}
-					isLoading={automations.isLoading}
-					canCreateAutomation={canCreateAutomation}
-				/>
+				{automations.isError ? (
+					<AutomationsLoadError message={automations.error.message} onRetry={() => automations.refetch()} />
+				) : (
+					<AutomationsList
+						items={automations.data ?? []}
+						isLoading={automations.isLoading}
+						canCreateAutomation={canCreateAutomation}
+					/>
+				)}
 			</div>
+		</div>
+	);
+}
+
+function AutomationsLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+	return (
+		<div className='flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed bg-background/40 p-10 text-center'>
+			<p className='text-sm text-muted-foreground'>The automations could not be loaded: {message}</p>
+			<Button variant='outline' size='sm' onClick={onRetry}>
+				Try again
+			</Button>
 		</div>
 	);
 }
