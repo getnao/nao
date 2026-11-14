@@ -398,6 +398,35 @@ describe('FileViewer file header', () => {
 	});
 });
 
+describe('FileViewer save shortcut', () => {
+	it.each([
+		['saves the edits when pressed outside the editors', false],
+		['leaves the save to the editor that handled it', true],
+	])('%s', (_, isHandledByEditor) => {
+		const writeFile = vi.fn();
+		vi.mocked(useMutation).mockImplementation(() => ({ isPending: false, mutate: writeFile }) as never);
+		localStorage.setItem('nao-file-viewer-markdown-view', JSON.stringify('source'));
+		renderViewer({ filePath: '/notes.md', content: 'Body\n' });
+		fireEvent.change(screen.getByRole('textbox', { name: 'File source' }), { target: { value: 'Edited\n' } });
+
+		const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true });
+		if (isHandledByEditor) {
+			event.preventDefault();
+		}
+		document.body.dispatchEvent(event);
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(writeFile.mock.calls.length > 0).toBe(!isHandledByEditor);
+		if (!isHandledByEditor) {
+			expect(writeFile.mock.calls[0][0]).toEqual({
+				path: '/notes.md',
+				content: 'Edited\n',
+				expectedHash: 'hash',
+			});
+		}
+	});
+});
+
 function renderViewer({
 	filePath,
 	content,
