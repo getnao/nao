@@ -4,7 +4,12 @@ import {
 	isSameContextFileOwner,
 	updateContextFileHeader,
 } from '@nao/shared/context-file-header';
-import { isRootRulesPath, renderConditionalGroupBlocks } from '@nao/shared/rules-template';
+import {
+	findRenderedRulesLines,
+	isRootRulesPath,
+	renderConditionalGroupBlocks,
+	renderConditionalGroupBlocksWithSourceLines,
+} from '@nao/shared/rules-template';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, File, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,7 +17,7 @@ import { useDefaultLayout } from 'react-resizable-panels';
 import { Streamdown } from 'streamdown';
 import type { ContextFileHeaderChanges } from '@nao/shared/context-file-header';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
-import type { FileEditabilityGuidance } from '@nao/shared/types';
+import type { FileEditabilityGuidance, StoryCodeLines } from '@nao/shared/types';
 import type { ReactNode } from 'react';
 
 import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
@@ -414,6 +419,7 @@ function EditableFileViewer({
 	const renderedMarkdown = (
 		<MarkdownPreview
 			content={preview.content}
+			toRenderedLines={preview.toRenderedLines}
 			filePath={filePath}
 			searchQuery={searchQuery}
 			error={preview.error}
@@ -617,6 +623,7 @@ function ReadOnlyNote({
 
 function MarkdownPreview({
 	content,
+	toRenderedLines,
 	filePath,
 	searchQuery,
 	error,
@@ -624,6 +631,7 @@ function MarkdownPreview({
 	header,
 }: {
 	content: string;
+	toRenderedLines?: (lines: StoryCodeLines) => StoryCodeLines | null;
 	filePath: string;
 	searchQuery: string;
 	error?: string;
@@ -639,6 +647,7 @@ function MarkdownPreview({
 		filePath,
 		markdown: parsedMarkdown.body,
 		lineOffset: countFrontmatterLines(parsedMarkdown),
+		toRenderedLines,
 		containerRef,
 		findBlocksRoot,
 	});
@@ -759,11 +768,18 @@ function getRulesGroupAccess(
 	};
 }
 
+interface RulesPreview {
+	content: string;
+	/** Rules rendered for some groups drop lines, so the lines of the file move in the preview. */
+	toRenderedLines?: (lines: StoryCodeLines) => StoryCodeLines | null;
+	error?: string;
+}
+
 function renderRulesPreview(
 	content: string,
 	isRootRules: boolean,
 	groupAccess: UserRulesGroupAccess | null,
-): { content: string; error?: string } {
+): RulesPreview {
 	if (!isRootRules) {
 		return { content };
 	}
@@ -771,7 +787,11 @@ function renderRulesPreview(
 		return { content: '' };
 	}
 	try {
-		return { content: renderConditionalGroupBlocks(content, groupAccess) };
+		const rendered = renderConditionalGroupBlocksWithSourceLines(content, groupAccess);
+		return {
+			content: rendered.content,
+			toRenderedLines: (lines) => findRenderedRulesLines(rendered, lines),
+		};
 	} catch (error) {
 		return {
 			content: '',

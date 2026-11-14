@@ -3,6 +3,7 @@
 import { act, cleanup, render, renderHook, screen } from '@testing-library/react';
 import { useCallback, useRef } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { StoryCodeLines } from '@nao/shared/types';
 
 import { useMarkdownLinesReveal } from '@/hooks/use-markdown-lines-reveal';
 import { completeCodeReveal, requestFileLinesReveal, useCodeRevealRequest } from '@/stores/code-reveal';
@@ -39,6 +40,18 @@ describe('useMarkdownLinesReveal', () => {
 		expect(container.scrollTop).toBe(0);
 	});
 
+	it.each([
+		{ case: 'highlights lines the rendering moved', renderedLine: 7, isHighlighted: true },
+		{ case: 'highlights nothing for lines the rendering dropped', renderedLine: null, isHighlighted: false },
+	])('$case', ({ renderedLine, isHighlighted }) => {
+		const toRenderedLines = () => (renderedLine ? { start: renderedLine, end: renderedLine } : null);
+		render(<RenderedMarkdown filePath='/RULES.md' toRenderedLines={toRenderedLines} />);
+
+		act(() => requestFileLinesReveal('/RULES.md', { start: 40, end: 40 }));
+
+		expect(screen.queryByTestId('cited-markdown-lines') !== null).toBe(isHighlighted);
+	});
+
 	it('leaves the lines asked for another file to its view', () => {
 		const request = renderHook(() => useCodeRevealRequest());
 		render(<RenderedMarkdown filePath='/docs/orders.md' />);
@@ -51,7 +64,13 @@ describe('useMarkdownLinesReveal', () => {
 });
 
 /** A document whose 3-line frontmatter is not rendered, so its list starts at line 6 of the file. */
-function RenderedMarkdown({ filePath }: { filePath: string }) {
+function RenderedMarkdown({
+	filePath,
+	toRenderedLines,
+}: {
+	filePath: string;
+	toRenderedLines?: (lines: StoryCodeLines) => StoryCodeLines | null;
+}) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const blocksRef = useRef<HTMLDivElement>(null);
 	const findBlocksRoot = useCallback(() => blocksRef.current, []);
@@ -59,6 +78,7 @@ function RenderedMarkdown({ filePath }: { filePath: string }) {
 		filePath,
 		markdown: MARKDOWN,
 		lineOffset: 3,
+		toRenderedLines,
 		containerRef,
 		findBlocksRoot,
 	});

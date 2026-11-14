@@ -11,6 +11,8 @@ interface MarkdownLinesRevealOptions {
 	markdown: string;
 	/** The lines of the file before the Markdown rendered, like its frontmatter. */
 	lineOffset: number;
+	/** The lines of the rendered content showing lines of the file, when rendering moves them, or null for none. */
+	toRenderedLines?: (lines: StoryCodeLines) => StoryCodeLines | null;
 	/** The positioned element scrolling the document, which the highlight is drawn in. */
 	containerRef: RefObject<HTMLElement | null>;
 	/** The element whose children are the rendered blocks, or null while they are not rendered yet. */
@@ -34,6 +36,7 @@ export function useMarkdownLinesReveal({
 	filePath,
 	markdown,
 	lineOffset,
+	toRenderedLines,
 	containerRef,
 	findBlocksRoot,
 }: MarkdownLinesRevealOptions): ReactNode {
@@ -46,17 +49,20 @@ export function useMarkdownLinesReveal({
 			if (!container || !blocksRoot) {
 				return false;
 			}
-			const targets = findMarkdownLinesTargets(markdown, {
-				start: lines.start - lineOffset,
-				end: lines.end - lineOffset,
-			});
+			const renderedLines = toRenderedLines ? toRenderedLines(lines) : lines;
+			const targets = renderedLines
+				? findMarkdownLinesTargets(markdown, {
+						start: renderedLines.start - lineOffset,
+						end: renderedLines.end - lineOffset,
+					})
+				: [];
 			const elements = findTargetElements(blocksRoot, targets);
 			const box = elements.length > 0 ? measureBox(container, elements) : null;
 			container.scrollTop = box ? Math.max(0, box.top - (container.clientHeight - box.height) / 2) : 0;
 			setHighlight(box && { id: Date.now(), box });
 			return true;
 		},
-		[containerRef, findBlocksRoot, lineOffset, markdown],
+		[containerRef, findBlocksRoot, lineOffset, markdown, toRenderedLines],
 	);
 
 	useFileLinesReveal(filePath, reveal);
