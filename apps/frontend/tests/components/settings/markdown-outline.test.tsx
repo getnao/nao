@@ -10,12 +10,15 @@ const SOURCE = ['# Orders', '', 'Intro.', '', '## Columns', '', '### Keys', '', 
 describe('MarkdownOutline', () => {
 	afterEach(cleanup);
 
-	it('lists the H1 and H2 headings of the file in order', () => {
-		renderEditor(SOURCE);
+	it.each([
+		{ case: 'at the top level', value: SOURCE, titles: ['Orders', 'Columns', 'Freshness'] },
+		{ case: 'inside a blockquote', value: '# Orders\n\n> ## Quoted\n', titles: ['Orders', 'Quoted'] },
+	])('lists the H1 and H2 headings $case in order', ({ value, titles }) => {
+		renderEditor(value);
 
 		const items = within(screen.getByRole('navigation', { name: 'Outline' })).getAllByRole('button');
 
-		expect(items.map((item) => item.textContent)).toEqual(['Orders', 'Columns', 'Freshness']);
+		expect(items.map((item) => item.textContent)).toEqual(titles);
 	});
 
 	it.each([
@@ -36,14 +39,25 @@ describe('MarkdownOutline', () => {
 		Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 1000 });
 		Object.defineProperty(container, 'clientHeight', { configurable: true, value: 400 });
 		container.scrollTop = scrollTop;
-		['Orders', 'Columns', 'Freshness'].forEach((name, index) => {
-			const heading = screen.getByRole('heading', { name });
-			vi.spyOn(heading, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, headingTops[index], 0, 0));
-		});
+		stubHeadingTops(headingTops);
 
 		fireEvent.scroll(container);
 
-		expect(screen.getByRole('button', { current: 'location' }).textContent).toBe(activeTitle);
+		expect(getActiveTitle()).toBe(activeTitle);
+	});
+
+	it('keeps a picked heading marked until the user scrolls the editor', () => {
+		renderEditor(SOURCE);
+		const container = getScrollContainer();
+		container.scrollTo = vi.fn();
+		stubHeadingTops([0, 500, 900]);
+		fireEvent.scroll(container);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+		expect(getActiveTitle()).toBe('Columns');
+
+		fireEvent.wheel(container);
+		expect(getActiveTitle()).toBe('Orders');
 	});
 
 	it('scrolls the editor to the picked heading', () => {
@@ -81,4 +95,15 @@ function getScrollContainer(): HTMLElement {
 		throw new Error('Expected the editor scroll container');
 	}
 	return container;
+}
+
+function stubHeadingTops(tops: number[]) {
+	['Orders', 'Columns', 'Freshness'].forEach((name, index) => {
+		const heading = screen.getByRole('heading', { name });
+		vi.spyOn(heading, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, tops[index], 0, 0));
+	});
+}
+
+function getActiveTitle(): string | null {
+	return screen.getByRole('button', { current: 'location' }).textContent;
 }

@@ -10,6 +10,7 @@ const MINIMUM_HEADING_COUNT = 2;
 const SCROLL_MARGIN = 16;
 const REVEAL_STAGGER_MS = 20;
 const MAXIMUM_REVEAL_DELAY_MS = 200;
+const USER_SCROLL_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const;
 
 interface OutlineHeading {
 	level: number;
@@ -32,18 +33,20 @@ export function MarkdownOutline({ editor, scrollContainerRef }: MarkdownOutlineP
 		selector: ({ editor: currentEditor }) => (currentEditor ? readOutlineHeadings(currentEditor) : []),
 		equalityFn: areSameHeadings,
 	});
-	const activeIndex = useActiveHeadingIndex(editor, headings ?? [], scrollContainerRef);
+	const { activeIndex, pinActiveIndex } = useActiveHeadingIndex(editor, headings ?? [], scrollContainerRef);
 
-	const scrollToHeading = useCallback(
-		(heading: OutlineHeading) => {
+	const selectHeading = useCallback(
+		(index: number) => {
 			const container = scrollContainerRef.current;
-			const element = editor && getHeadingElement(editor, heading);
+			const heading = headings?.[index];
+			const element = editor && heading && getHeadingElement(editor, heading);
 			if (!container || !element) {
 				return;
 			}
+			pinActiveIndex(index);
 			container.scrollTo({ top: getOffsetInContainer(container, element) - SCROLL_MARGIN, behavior: 'smooth' });
 		},
-		[editor, scrollContainerRef],
+		[editor, headings, pinActiveIndex, scrollContainerRef],
 	);
 
 	if (!headings || headings.length < MINIMUM_HEADING_COUNT) {
@@ -64,7 +67,7 @@ export function MarkdownOutline({ editor, scrollContainerRef }: MarkdownOutlineP
 						heading={heading}
 						index={index}
 						isActive={index === activeIndex}
-						onSelect={scrollToHeading}
+						onSelect={selectHeading}
 					/>
 				))}
 			</ul>
@@ -76,7 +79,7 @@ interface OutlineItemProps {
 	heading: OutlineHeading;
 	index: number;
 	isActive: boolean;
-	onSelect: (heading: OutlineHeading) => void;
+	onSelect: (index: number) => void;
 }
 
 /**
@@ -91,7 +94,7 @@ function OutlineItem({ heading, index, isActive, onSelect }: OutlineItemProps) {
 			<button
 				type='button'
 				aria-current={isActive ? 'location' : undefined}
-				onClick={() => onSelect(heading)}
+				onClick={() => onSelect(index)}
 				className={cn(
 					'group/item pointer-events-none flex h-full w-full cursor-pointer items-center outline-none',
 					'group-hover:pointer-events-auto group-has-focus-visible:pointer-events-auto',
@@ -127,35 +130,54 @@ function OutlineItem({ heading, index, isActive, onSelect }: OutlineItemProps) {
 
 function readOutlineHeadings(editor: Editor): OutlineHeading[] {
 	const headings: OutlineHeading[] = [];
-	editor.state.doc.forEach((node, position) => {
+	editor.state.doc.descendants((node, position) => {
+		if (node.type.name !== 'heading') {
+			return true;
+		}
 		const level = node.attrs.level as number;
 		const text = node.textContent.trim();
-		if (node.type.name === 'heading' && OUTLINE_LEVELS.has(level) && text) {
+		if (OUTLINE_LEVELS.has(level) && text) {
 			headings.push({ level, text, position });
 		}
+		return false;
 	});
 	return headings;
 }
 
+/**
+ * The heading being read, following the scroll. A picked heading stays active until the user scrolls or clicks in the
+ * editor, since the editor cannot always scroll it to the top, like in a short file or near its end.
+ */
 function useActiveHeadingIndex(
 	editor: Editor | null,
 	headings: OutlineHeading[],
 	scrollContainerRef: RefObject<HTMLElement | null>,
-): number {
-	const [activeIndex, setActiveIndex] = useState(0);
+): { activeIndex: number; pinActiveIndex: (index: number) => void } {
+	const [scrolledIndex, setScrolledIndex] = useState(0);
+	const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
 
 	useEffect(() => {
 		const container = scrollContainerRef.current;
 		if (!editor || !container) {
 			return;
 		}
-		const updateActiveIndex = () => setActiveIndex(findActiveHeadingIndex(editor, headings, container));
-		updateActiveIndex();
-		container.addEventListener('scroll', updateActiveIndex, { passive: true });
-		return () => container.removeEventListener('scroll', updateActiveIndex);
+		const updateScrolledIndex = () => setScrolledIndex(findActiveHeadingIndex(editor, headings, container));
+		updateScrolledIndex();
+		container.addEventListener('scroll', updateScrolledIndex, { passive: true });
+		return () => container.removeEventListener('scroll', updateScrolledIndex);
 	}, [editor, headings, scrollContainerRef]);
 
-	return activeIndex;
+	useEffect(() => {
+		const container = scrollContainerRef.current;
+		if (pinnedIndex === null || !container) {
+			return;
+		}
+		const unpin = () => setPinnedIndex(null);
+		USER_SCROLL_EVENTS.forEach((eventName) => container.addEventListener(eventName, unpin, { passive: true }));
+		return () => USER_SCROLL_EVENTS.forEach((eventName) => container.removeEventListener(eventName, unpin));
+	}, [pinnedIndex, scrollContainerRef]);
+
+	return { activeIndex: pinnedIndex ?? scrolledIndex, pinActiveIndex: setPinnedIndex };
 }
 
 /**
