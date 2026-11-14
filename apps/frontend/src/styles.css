@@ -479,6 +479,21 @@ code.dollar:before {
 	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 
+.cited-markdown-lines {
+	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+	animation: cited-markdown-lines-fade 2s ease-in forwards;
+}
+
+@keyframes cited-markdown-lines-fade {
+	0%,
+	70% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
 .code-query-link {
 	text-decoration: underline;
 	cursor: pointer;

@@ -103,6 +103,16 @@ describe('agent profiles', () => {
 		expect(renderToMarkdown(SystemPrompt({}))).toContain('expert AI data analyst');
 	});
 
+	it('teaches only the Context Hub agent to link context files', () => {
+		const profile = contextEditorAgent({
+			editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
+			openPath: null,
+		});
+
+		expect(profile.promptAppendix).toContain('<context-file path="docs/glossary.md" lines="4-8">');
+		expect(renderToMarkdown(SystemPrompt({}))).not.toContain('<context-file');
+	});
+
 	it('adapts the analytics agent to the chat app it answers in', () => {
 		expect(messagingAgent('slack')).toMatchObject({
 			source: 'slack',
