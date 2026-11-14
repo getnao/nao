@@ -44,6 +44,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useFileHeader } from '@/hooks/use-file-header';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useMarkdownLinesReveal } from '@/hooks/use-markdown-lines-reveal';
+import { useSaveShortcut } from '@/hooks/use-save-shortcut';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
 import { isMarkdownPath } from '@/lib/file-path';
 import { createLocalStorage } from '@/lib/local-storage';
@@ -338,6 +339,8 @@ function EditableFileViewer({
 			},
 		);
 	}, [draft, expectedHash, filePath, isDirty, isEditable, queryClient, saveMutation]);
+
+	useSaveShortcut(handleSave);
 
 	const handleReload = useCallback(async () => {
 		setIsReloading(true);
