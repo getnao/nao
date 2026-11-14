@@ -31,6 +31,7 @@ interface MarkdownFileEditorProps {
 	onSave: () => void;
 	/** Shown instead of the editor when the file holds Markdown the editor could not write back. */
 	fallback: ReactNode;
+	fallbackHint?: string;
 	/** Shown above the content and scrolling with it, like the properties of the file. */
 	header?: ReactNode;
 }
@@ -46,6 +47,7 @@ export function MarkdownFileEditor({
 	onChange,
 	onSave,
 	fallback,
+	fallbackHint = SOURCE_VIEW_FALLBACK_HINT,
 	header,
 }: MarkdownFileEditorProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -96,10 +98,7 @@ export function MarkdownFileEditor({
 	if (!isEditable) {
 		return (
 			<div className='flex h-full min-h-0 flex-col'>
-				<p className='shrink-0 border-b px-4 py-1.5 text-xs text-muted-foreground'>
-					This file uses Markdown the visual editor cannot keep, like HTML or link definitions. Edit it in
-					Source.
-				</p>
+				<p className='shrink-0 border-b px-4 py-1.5 text-xs text-muted-foreground'>{fallbackHint}</p>
 				<div className='min-h-0 flex-1'>{fallback}</div>
 			</div>
 		);
@@ -119,6 +118,9 @@ export function MarkdownFileEditor({
 		</section>
 	);
 }
+
+const SOURCE_VIEW_FALLBACK_HINT =
+	'This file uses Markdown the visual editor cannot keep, like HTML or link definitions. Edit it in Source.';
 
 function createMarkdownExtensions(onSaveRef: RefObject<() => void>) {
 	return [

@@ -57,7 +57,8 @@ export const CONTEXT_HUB_DOC_SECTIONS: ReadonlyArray<{ key: ContextHubDocSection
 ];
 
 const TABLE_LOCATION_PARTS: ReadonlyArray<(table: ContextHubTable) => string | null> = [
-	(table) => table.database ?? table.connection,
+	(table) => table.connection,
+	(table) => table.database,
 	(table) => table.schema,
 ];
 const UNNAMED_TABLE_FOLDER = 'Other';
@@ -69,7 +70,7 @@ const TABLE_FILE_LABELS: Record<string, string> = {
 	preview: 'Preview',
 	profiling: 'Profiling',
 };
-const DOC_EXTENSIONS = /\.(md|mdx|markdown|txt)$/i;
+const DOC_EXTENSIONS = /\.(md|mdx|markdown)$/i;
 const TABLE_DIVIDER_PATTERN = /^\|?\s*:?-{3,}/;
 
 /**

@@ -63,10 +63,11 @@ describe('createContextEditorTools', () => {
 	});
 
 	it.each([
-		{ old_string: 'Missing text', error: 'was not found' },
-		{ old_string: 'O', error: 'appears several times' },
-	])('refuses an edit whose text to replace is ambiguous: $error', async ({ old_string, error }) => {
-		mocks.readFileContent.mockResolvedValue({ content: 'One Orders', hash: 'a'.repeat(64), isEditable: true });
+		{ content: 'One Orders', old_string: 'Missing text', error: 'was not found' },
+		{ content: 'One Orders', old_string: 'O', error: 'appears several times' },
+		{ content: 'Status: ===', old_string: '==', error: 'appears several times' },
+	])('refuses the edit of $old_string in $content', async ({ content, old_string, error }) => {
+		mocks.readFileContent.mockResolvedValue({ content, hash: 'a'.repeat(64), isEditable: true });
 
 		await expect(
 			executeTool(tools.edit_context_file, { path: 'docs/orders.md', old_string, new_string: 'x' }, context),

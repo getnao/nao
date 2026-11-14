@@ -30,7 +30,7 @@ describe('getMostReadContextFiles', () => {
 				{ path: '/docs/orders.md', readCount: 4 },
 			],
 		});
-		expect(mocks.getContextFileReads).toHaveBeenCalledWith('project', new Date('2026-10-15T00:00:00Z'), 200);
+		expect(mocks.getContextFileReads).toHaveBeenCalledWith('project', new Date('2026-10-15T00:00:00Z'), 5_000);
 	});
 });
 

@@ -174,6 +174,12 @@ describe('FileViewer RULES preview', () => {
 			content: '{% if group("Finance") %}\nFinance\n{% endif %}',
 			showsSource: true,
 		},
+		{
+			name: 'a doc the visual editor cannot keep as source',
+			filePath: '/docs/layout.md',
+			content: '<div align="center">Guide</div>',
+			showsSource: true,
+		},
 	])('opens $name without the Markdown view switch', ({ filePath, content, showsSource }) => {
 		renderViewer({ filePath, content, hasMarkdownSourceViews: false });
 

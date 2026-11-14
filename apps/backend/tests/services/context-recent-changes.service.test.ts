@@ -52,13 +52,13 @@ describe('listRecentContextChanges', () => {
 describe('parseRecentContextChanges', () => {
 	it('keeps the files of the project folder of the repository, without its prefix', () => {
 		const output = [
-			'\u001e2026-11-14T10:00:00+01:00\u001fAda\u001fEdit orders\n\nproject/docs/orders.md\nother/readme.md\n',
-			'\u001e2026-11-13T10:00:00+01:00\u001fZoe\u001fFirst\n\nproject/docs/orders.md\nproject/RULES.md\n',
+			'\u001e2026-11-14T10:00:00+01:00\u001fAda\u001fEdit orders\u0000\nproject/docs/orders.md\u0000other/readme.md\u0000',
+			'\u001e2026-11-13T10:00:00+01:00\u001fZoe\u001fFirst\u0000\nproject/docs/orders.md\u0000project/ notes\t1.md\u0000',
 		].join('');
 
 		expect(parseRecentContextChanges(output, { projectPrefix: 'project' })).toEqual([
 			{ path: '/docs/orders.md', changedAt: '2026-11-14T10:00:00+01:00', author: 'Ada', message: 'Edit orders' },
-			{ path: '/RULES.md', changedAt: '2026-11-13T10:00:00+01:00', author: 'Zoe', message: 'First' },
+			{ path: '/ notes\t1.md', changedAt: '2026-11-13T10:00:00+01:00', author: 'Zoe', message: 'First' },
 		]);
 	});
 });

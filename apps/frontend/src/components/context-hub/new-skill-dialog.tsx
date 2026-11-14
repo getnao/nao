@@ -27,18 +27,25 @@ export function NewSkillDialog({ open, onOpenChange, onCreated }: NewSkillDialog
 	const createSkill = useMutation(trpc.contextExplorer.createSkill.mutationOptions());
 	const skillName = toSkillName(title);
 
+	const close = () => {
+		setTitle('');
+		setDescription('');
+		createSkill.reset();
+		onOpenChange(false);
+	};
+
+	/** The skill opens once it is created, so the dialog stays until then rather than letting Cancel race it. */
 	const handleOpenChange = (nextOpen: boolean) => {
-		if (!nextOpen) {
-			setTitle('');
-			setDescription('');
-			createSkill.reset();
+		if (nextOpen) {
+			onOpenChange(true);
+		} else if (!createSkill.isPending) {
+			close();
 		}
-		onOpenChange(nextOpen);
 	};
 
 	const handleCreate = async () => {
 		const created = await createSkill.mutateAsync({ name: skillName, description: description.trim() });
-		handleOpenChange(false);
+		close();
 		onCreated(created.path);
 	};
 
@@ -81,7 +88,12 @@ export function NewSkillDialog({ open, onOpenChange, onCreated }: NewSkillDialog
 					</label>
 					{createSkill.error && <ErrorMessage message={createSkill.error.message} />}
 					<DialogFooter>
-						<Button type='button' variant='outline' onClick={() => handleOpenChange(false)}>
+						<Button
+							type='button'
+							variant='outline'
+							disabled={createSkill.isPending}
+							onClick={() => handleOpenChange(false)}
+						>
 							Cancel
 						</Button>
 						<Button type='submit' disabled={!skillName} isLoading={createSkill.isPending}>

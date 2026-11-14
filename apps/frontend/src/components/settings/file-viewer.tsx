@@ -412,19 +412,6 @@ function EditableFileViewer({
 			header={fileHeader}
 		/>
 	);
-	const markdownPreview = isPreviewEditable ? (
-		<MarkdownFileEditor
-			value={parsedMarkdownDraft.body}
-			filePath={filePath}
-			searchQuery={searchQuery}
-			onChange={handleMarkdownChange}
-			onSave={handleSave}
-			fallback={renderedMarkdown}
-			header={fileHeader}
-		/>
-	) : (
-		renderedMarkdown
-	);
 	const markdownSource = (
 		<div className='flex h-full min-h-0 flex-col'>
 			{fileHeaderState && (
@@ -446,6 +433,20 @@ function EditableFileViewer({
 				/>
 			</div>
 		</div>
+	);
+	const markdownPreview = isPreviewEditable ? (
+		<MarkdownFileEditor
+			value={parsedMarkdownDraft.body}
+			filePath={filePath}
+			searchQuery={searchQuery}
+			onChange={handleMarkdownChange}
+			onSave={handleSave}
+			fallback={hasMarkdownSourceViews ? renderedMarkdown : markdownSource}
+			fallbackHint={hasMarkdownSourceViews ? undefined : DOCUMENT_FALLBACK_HINT}
+			header={fileHeader}
+		/>
+	) : (
+		renderedMarkdown
 	);
 
 	return (
@@ -561,6 +562,9 @@ function EditableFileViewer({
 		</div>
 	);
 }
+
+const DOCUMENT_FALLBACK_HINT =
+	'This file uses Markdown the visual editor cannot keep, like HTML or link definitions, so it opens as text.';
 
 function getPreferredMarkdownView(preference: MarkdownView, isSourceAutoOpened: boolean): MarkdownView {
 	return isSourceAutoOpened && preference === 'preview' ? 'split' : preference;

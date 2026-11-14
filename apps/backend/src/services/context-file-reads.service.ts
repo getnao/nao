@@ -9,7 +9,8 @@ export interface MostReadContextFile {
 }
 
 const WINDOW_DAYS = 30;
-const RAW_PATH_LIMIT = 200;
+/** High enough that the spellings of one file are all fetched before they are merged and ranked. */
+const RAW_PATH_LIMIT = 5_000;
 const MOST_READ_LIMIT = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 

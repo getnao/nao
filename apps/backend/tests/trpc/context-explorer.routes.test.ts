@@ -277,7 +277,9 @@ describe('context explorer file access', () => {
 
 		expect(mocks.createDraftFile).toHaveBeenCalledWith(
 			'/agent/skills/weekly-sales.md',
-			expect.stringMatching(/^---\nname: weekly-sales\ndescription: "Weekly: sales"\nowner: \S+@\S+\n---\n/),
+			expect.stringMatching(
+				/^---\nname: weekly-sales\ndescription: "Weekly: sales"\nowner: user-id@example\.com\n---\n/,
+			),
 			expect.objectContaining({ git: availableGit }),
 		);
 	});

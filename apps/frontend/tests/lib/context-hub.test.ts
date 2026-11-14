@@ -63,6 +63,7 @@ describe('buildContextHubContent', () => {
 		'/templates/databases/preview.md.j2',
 		'/nao_config.yaml',
 		'/docs/diagram.png',
+		'/docs/notes.txt',
 		'/README.md',
 	])('leaves %s out of the hub', (path) => {
 		expect(buildContextHubContent(tree([path]))).toEqual({ tables: [], docs: [] });
@@ -140,6 +141,14 @@ describe('groupTablesByLocation', () => {
 			expected: [
 				{ label: 'crm · raw', tables: ['table_1'] },
 				{ label: 'shop · main', tables: ['table_0'] },
+			],
+		},
+		{
+			name: 'a folder per database type when the database and schema are shared',
+			folders: ['type=duckdb/database=shop/schema=main', 'type=postgres/database=shop/schema=main'],
+			expected: [
+				{ label: 'duckdb', tables: ['table_0'] },
+				{ label: 'postgres', tables: ['table_1'] },
 			],
 		},
 	])('makes $name', ({ folders, expected }) => {

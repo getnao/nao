@@ -93,7 +93,7 @@ function replaceOnce(content: string, oldString: string, newString: string, path
 	if (index === -1) {
 		throw new Error(`The text to replace was not found in ${path}. Read the file again and copy it exactly.`);
 	}
-	if (content.indexOf(oldString, index + oldString.length) !== -1) {
+	if (content.indexOf(oldString, index + 1) !== -1) {
 		throw new Error(`The text to replace appears several times in ${path}. Include more surrounding lines.`);
 	}
 	return content.slice(0, index) + newString + content.slice(index + oldString.length);

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBlocker, useNavigate } from '@tanstack/react-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
 import type { ContextHubView } from '@/hooks/use-context-hub-view';
@@ -43,6 +43,12 @@ import { trpc } from '@/main';
 /** What the right column shows: a table or doc page, nothing, or a change picked in the Changes tab. */
 type ViewerTarget = { type: 'file'; path: string | null } | { type: 'diff'; path: string };
 
+/** A diff stays shown only while the URL points at the file it was opened over, so Back and Forward replace it. */
+interface ShownDiff {
+	path: string;
+	requestedPath: string | null;
+}
+
 /**
  * The doc view of the Context Hub: the tables and docs the agent knows, by section, with a chat to edit them. It is
  * laid out like the file tree, so switching between them keeps the same frame.
@@ -59,7 +65,8 @@ export function ContextDocView({
 	const queryClient = useQueryClient();
 	const [search, setSearch] = useState('');
 	const [isDirty, setIsDirty] = useState(false);
-	const [diffPath, setDiffPath] = useState<string | null>(null);
+	const [shownDiff, setShownDiff] = useState<ShownDiff | null>(null);
+	const diffPath = shownDiff?.requestedPath === requestedPath ? shownDiff.path : null;
 	const [pendingTarget, setPendingTarget] = useState<ViewerTarget | null>(null);
 	const [isNewSkillOpen, setIsNewSkillOpen] = useState(false);
 	const [isChatOpen, setIsChatOpen] = useContextHubChatPanelOpen();
@@ -73,6 +80,7 @@ export function ContextDocView({
 	const tableFolders = useMemo(() => groupTablesByLocation(tables, content.tables), [tables, content.tables]);
 	const docs = useMemo(() => content.docs.filter((doc) => matchesContextHubDoc(doc, search)), [content.docs, search]);
 	const openPath = isKnownPath(content, requestedPath) ? requestedPath : null;
+	const unlistedRequestedPath = fileTree.isSuccess && requestedPath !== openPath ? requestedPath : null;
 	const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'context-explorer', storage: localStorage });
 	const isShowingTargetRef = useRef(false);
 	const navigationBlocker = useBlocker({
@@ -85,10 +93,10 @@ export function ContextDocView({
 	const showTarget = (target: ViewerTarget) => {
 		setIsDirty(false);
 		if (target.type === 'diff') {
-			setDiffPath(target.path);
+			setShownDiff({ path: target.path, requestedPath });
 			return;
 		}
-		setDiffPath(null);
+		setShownDiff(null);
 		isShowingTargetRef.current = true;
 		void navigate({ to: '.', search: target.path ? { path: target.path } : {} }).finally(() => {
 			isShowingTargetRef.current = false;
@@ -107,8 +115,14 @@ export function ContextDocView({
 
 	useRegisterOpenContextFileCallback(openFile, [openFile]);
 
+	useEffect(() => {
+		if (unlistedRequestedPath && onSwitchView) {
+			onSwitchView('files', unlistedRequestedPath);
+		}
+	}, [unlistedRequestedPath, onSwitchView]);
+
 	const refreshChanges = async () => {
-		setDiffPath(null);
+		setShownDiff(null);
 		await invalidateExplorerQueries(queryClient);
 	};
 
