@@ -92,14 +92,14 @@ function FileItem({ path, onSelect }: { path: string; onSelect: () => void }) {
 	);
 }
 
-/** Opens the file in the File Explorer shown, which asks before dropping unsaved changes, or navigates to it. */
+/** Opens the file in the Context Hub shown, which asks before dropping unsaved changes, or navigates to it. */
 function useOpenFileInExplorer() {
 	const navigate = useNavigate();
 	const matchRoute = useMatchRoute();
 	const { fire: openFileInShownExplorer } = useOpenContextFileCallback();
 
 	return (path: string) => {
-		if (matchRoute({ to: '/settings/context-explorer' })) {
+		if (matchRoute({ to: '/settings/context-explorer' }) || matchRoute({ to: '/context-hub' })) {
 			openFileInShownExplorer(path);
 			return;
 		}

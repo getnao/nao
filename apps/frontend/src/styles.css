@@ -206,6 +206,7 @@ code.dollar:before {
 	--color-chart-9: var(--chart-9);
 	--color-chart-10: var(--chart-10);
 	--color-chart-11: var(--chart-11);
+	--color-chart-12: var(--chart-12);
 	--color-sidebar: var(--sidebar);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar-primary: var(--sidebar-primary);
@@ -264,6 +265,7 @@ code.dollar:before {
 	--chart-9: oklch(0.62 0.18 145);
 	--chart-10: oklch(0.65 0.19 335);
 	--chart-11: oklch(0.68 0.15 210);
+	--chart-12: oklch(0.6 0.15 115);
 
 	--sidebar: oklch(0.99 0 0);
 	--sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -317,6 +319,7 @@ code.dollar:before {
 	--chart-9: oklch(0.72 0.18 145);
 	--chart-10: oklch(0.74 0.18 335);
 	--chart-11: oklch(0.78 0.14 210);
+	--chart-12: oklch(0.76 0.15 115);
 }
 
 @layer base {

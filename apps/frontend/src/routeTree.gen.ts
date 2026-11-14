@@ -21,6 +21,7 @@ import { Route as CliLoginRouteImport } from './routes/cli-login'
 import { Route as SidebarLayoutRouteImport } from './routes/_sidebar-layout'
 import { Route as SidebarLayoutSettingsRouteImport } from './routes/_sidebar-layout.settings'
 import { Route as SidebarLayoutOnboardingRouteImport } from './routes/_sidebar-layout.onboarding'
+import { Route as SidebarLayoutContextHubRouteImport } from './routes/_sidebar-layout.context-hub'
 import { Route as SidebarLayoutChatLayoutRouteImport } from './routes/_sidebar-layout._chat-layout'
 import { Route as SidebarLayoutStoriesIndexRouteImport } from './routes/_sidebar-layout.stories.index'
 import { Route as SidebarLayoutSettingsIndexRouteImport } from './routes/_sidebar-layout.settings.index'
@@ -142,6 +143,11 @@ const SidebarLayoutSettingsRoute = SidebarLayoutSettingsRouteImport.update({
 const SidebarLayoutOnboardingRoute = SidebarLayoutOnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => SidebarLayoutRoute,
+} as any)
+const SidebarLayoutContextHubRoute = SidebarLayoutContextHubRouteImport.update({
+  id: '/context-hub',
+  path: '/context-hub',
   getParentRoute: () => SidebarLayoutRoute,
 } as any)
 const SidebarLayoutChatLayoutRoute = SidebarLayoutChatLayoutRouteImport.update({
@@ -527,6 +533,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/context-hub': typeof SidebarLayoutContextHubRoute
   '/onboarding': typeof SidebarLayoutOnboardingRoute
   '/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
@@ -602,6 +609,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
+  '/context-hub': typeof SidebarLayoutContextHubRoute
   '/onboarding': typeof SidebarLayoutOnboardingRoute
   '/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
   '/automations/$automationId': typeof SidebarLayoutAutomationsAutomationIdRoute
@@ -673,6 +681,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/_sidebar-layout/_chat-layout': typeof SidebarLayoutChatLayoutRouteWithChildren
+  '/_sidebar-layout/context-hub': typeof SidebarLayoutContextHubRoute
   '/_sidebar-layout/onboarding': typeof SidebarLayoutOnboardingRoute
   '/_sidebar-layout/settings': typeof SidebarLayoutSettingsRouteWithChildren
   '/_sidebar-layout/_chat-layout/$chatId': typeof SidebarLayoutChatLayoutChatIdRoute
@@ -751,6 +760,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/signup'
+    | '/context-hub'
     | '/onboarding'
     | '/settings'
     | '/$chatId'
@@ -826,6 +836,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/signup'
+    | '/context-hub'
     | '/onboarding'
     | '/$chatId'
     | '/automations/$automationId'
@@ -896,6 +907,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/_sidebar-layout/_chat-layout'
+    | '/_sidebar-layout/context-hub'
     | '/_sidebar-layout/onboarding'
     | '/_sidebar-layout/settings'
     | '/_sidebar-layout/_chat-layout/$chatId'
@@ -1059,6 +1071,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof SidebarLayoutOnboardingRouteImport
+      parentRoute: typeof SidebarLayoutRoute
+    }
+    '/_sidebar-layout/context-hub': {
+      id: '/_sidebar-layout/context-hub'
+      path: '/context-hub'
+      fullPath: '/context-hub'
+      preLoaderRoute: typeof SidebarLayoutContextHubRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
     '/_sidebar-layout/_chat-layout': {
@@ -1732,6 +1751,7 @@ const SidebarLayoutSettingsRouteWithChildren =
 
 interface SidebarLayoutRouteChildren {
   SidebarLayoutChatLayoutRoute: typeof SidebarLayoutChatLayoutRouteWithChildren
+  SidebarLayoutContextHubRoute: typeof SidebarLayoutContextHubRoute
   SidebarLayoutOnboardingRoute: typeof SidebarLayoutOnboardingRoute
   SidebarLayoutSettingsRoute: typeof SidebarLayoutSettingsRouteWithChildren
   SidebarLayoutAutomationsAutomationIdRoute: typeof SidebarLayoutAutomationsAutomationIdRoute
@@ -1749,6 +1769,7 @@ interface SidebarLayoutRouteChildren {
 
 const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
   SidebarLayoutChatLayoutRoute: SidebarLayoutChatLayoutRouteWithChildren,
+  SidebarLayoutContextHubRoute: SidebarLayoutContextHubRoute,
   SidebarLayoutOnboardingRoute: SidebarLayoutOnboardingRoute,
   SidebarLayoutSettingsRoute: SidebarLayoutSettingsRouteWithChildren,
   SidebarLayoutAutomationsAutomationIdRoute:

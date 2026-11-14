@@ -69,6 +69,7 @@ export function Sidebar() {
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
 	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
+	const showContextHub = isAdmin || isContextAdmin;
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const showAutomations = project.data != null && !isViewer && betaAutomationsEnabled;
@@ -238,6 +239,7 @@ export function Sidebar() {
 							access={{
 								canCreateChat: !isViewer,
 								canSeeAutomations: showAutomations,
+								canSeeContextHub: showContextHub,
 								hasInboxActivity,
 							}}
 						/>

@@ -2,7 +2,14 @@ import { z } from 'zod';
 
 import { STORY_FORMATS } from './types';
 
-export const BUILT_IN_MENU_ENTRY_IDS = ['new-chat', 'search-chats', 'stories', 'inbox', 'automations'] as const;
+export const BUILT_IN_MENU_ENTRY_IDS = [
+	'new-chat',
+	'search-chats',
+	'stories',
+	'inbox',
+	'automations',
+	'context-hub',
+] as const;
 export type BuiltInMenuEntryId = (typeof BUILT_IN_MENU_ENTRY_IDS)[number];
 
 export const BUILT_IN_MENU_ENTRY_LABELS: Record<BuiltInMenuEntryId, string> = {
@@ -11,6 +18,7 @@ export const BUILT_IN_MENU_ENTRY_LABELS: Record<BuiltInMenuEntryId, string> = {
 	stories: 'Stories',
 	inbox: 'Inbox',
 	automations: 'Automations',
+	'context-hub': 'Context Hub',
 };
 
 export const MAX_CUSTOM_MENU_ENTRIES = 30;

@@ -3,6 +3,7 @@ import {
 	type ContextFileHeaderReading,
 	type ContextFileOwner,
 	findContextTableFolder,
+	getContextFileBody,
 	isContextFileHeaderEditable,
 	isSameContextFileOwner,
 	readContextFileHeader,
@@ -25,6 +26,16 @@ import {
 import { getNaoDraftFileTree, hasContextRepository } from './nao-draft.service';
 
 const MARKDOWN_PATH_PATTERN = /\.(md|mdx|markdown)$/i;
+const EXCERPT_LENGTH = 600;
+
+/** What the Context Hub shows of a Markdown file without opening it: its header and the start of its text. */
+export interface ContextFileSummary {
+	path: string;
+	title: string | null;
+	description: string | null;
+	owner: string | null;
+	excerpt: string;
+}
 
 export interface TableFileOwner {
 	path: string;
@@ -50,6 +61,23 @@ export async function listContextFileOwners(projectId: string): Promise<ContextF
 	return users
 		.map(({ id, name, email }) => ({ id, name, email }))
 		.sort((first, second) => first.name.localeCompare(second.name));
+}
+
+export async function listContextFileSummaries(
+	projectId: string,
+	access: ContextExplorerFileAccess,
+): Promise<ContextFileSummary[]> {
+	const files = await readFileHeads(await listMarkdownPaths(projectId, access), access);
+	return files.map(({ path, content }) => {
+		const { header } = readContextFileHeader(content);
+		return {
+			path,
+			title: header.title,
+			description: header.description,
+			owner: header.owner,
+			excerpt: getContextFileBody(content).trim().slice(0, EXCERPT_LENGTH),
+		};
+	});
 }
 
 /** The Markdown files of the context whose header is broken or names an owner who is not a user of the project. */

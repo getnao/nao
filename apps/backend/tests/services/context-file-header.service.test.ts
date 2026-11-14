@@ -29,6 +29,7 @@ import {
 	applyOwnerToTableFiles,
 	listContextFileHeaderProblems,
 	listContextFileOwners,
+	listContextFileSummaries,
 	listTableFileOwners,
 } from '../../src/services/context-file-header.service';
 import { createContextGitFixture, fileAccess, writeFiles } from '../helpers/context-git-fixture';
@@ -133,6 +134,20 @@ describe('context file headers', () => {
 		await expect(listTableFileOwners('project', '/docs/orphan.md', access)).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
 		});
+	});
+
+	it('summarizes each Markdown file by its header and the start of its text', async () => {
+		const summaries = await listContextFileSummaries('project', access);
+
+		expect(summaries.find((summary) => summary.path === '/owned.md')).toEqual({
+			path: '/owned.md',
+			title: null,
+			description: null,
+			owner: 'ada@example.com',
+			excerpt: 'body',
+		});
+		expect(summaries.find((summary) => summary.path === '/plain.md')?.excerpt).toBe('no header');
+		expect(summaries.some((summary) => summary.path === '/notes.txt')).toBe(false);
 	});
 });
 

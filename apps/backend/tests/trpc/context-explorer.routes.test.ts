@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	ContextProjectResolutionError: class ContextProjectResolutionError extends Error {},
 	completeActivity: vi.fn(),
 	connectContextRepository: vi.fn(),
+	createDraftFile: vi.fn(),
 	failActivity: vi.fn(),
 	getContextFileDiff: vi.fn(),
 	getContextRecommendationConfig: vi.fn(),
@@ -76,6 +77,7 @@ vi.mock('../../src/services/sso-group-mapping.service', () => ({
 }));
 
 vi.mock('../../src/services/context-explorer.service', () => ({
+	createDraftFile: mocks.createDraftFile,
 	getFileTree: mocks.getFileTree,
 	MAX_CONTEXT_FILE_SIZE: 1024 * 1024,
 	readFileContent: mocks.readFileContent,
@@ -262,6 +264,29 @@ describe('context explorer file access', () => {
 			'0'.repeat(64),
 			expect.objectContaining({ git: availableGit }),
 		);
+	});
+
+	it('creates a skill owned by its author in the user changes', async () => {
+		const availableGit = { status: 'available', repo: {}, context: {} };
+		mocks.resolveContextExplorerGit.mockResolvedValue(availableGit);
+		mocks.createDraftFile.mockResolvedValue({ hash: 'hash' });
+
+		await expect(caller.createSkill({ name: 'weekly-sales', description: 'Weekly: sales' })).resolves.toEqual({
+			path: '/agent/skills/weekly-sales.md',
+		});
+
+		expect(mocks.createDraftFile).toHaveBeenCalledWith(
+			'/agent/skills/weekly-sales.md',
+			expect.stringMatching(
+				/^---\nname: weekly-sales\ndescription: "Weekly: sales"\nowner: user-id@example\.com\n---\n/,
+			),
+			expect.objectContaining({ git: availableGit }),
+		);
+	});
+
+	it.each(['../RULES', 'Weekly Sales', 'skills/nested', '-leading'])('rejects the skill name %s', async (name) => {
+		await expect(caller.createSkill({ name, description: '' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.createDraftFile).not.toHaveBeenCalled();
 	});
 
 	it('passes validated historical commit ranges to the file diff service', async () => {

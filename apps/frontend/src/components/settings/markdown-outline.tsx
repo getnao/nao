@@ -57,24 +57,45 @@ export function MarkdownOutline({ editor, scrollContainerRef }: MarkdownOutlineP
 	}
 
 	return (
-		<nav aria-label='Outline' className='group pointer-events-none absolute top-6 right-4 bottom-6 z-10'>
-			<ul
-				className={cn(
-					'flex max-h-full w-64 flex-col overflow-x-hidden overflow-y-auto overscroll-contain py-1 [scrollbar-width:none]',
-					'group-hover:pointer-events-auto group-has-focus-visible:pointer-events-auto',
-				)}
-			>
-				{headings.map((heading, index) => (
-					<OutlineItem
-						key={heading.position}
-						heading={heading}
-						index={index}
-						isActive={index === activeIndex}
-						onSelect={selectHeading}
-					/>
-				))}
-			</ul>
+		<nav
+			aria-label='Outline'
+			className='group pointer-events-none absolute top-6 right-4 bottom-6 z-10 flex flex-col items-end'
+		>
+			<div className='relative flex min-h-0 flex-col'>
+				<OutlineBackdrop />
+				<ul
+					className={cn(
+						'relative flex min-h-0 w-64 flex-col overflow-x-hidden overflow-y-auto overscroll-contain py-1 [scrollbar-width:none]',
+						'group-hover:pointer-events-auto group-has-focus-visible:pointer-events-auto',
+					)}
+				>
+					{headings.map((heading, index) => (
+						<OutlineItem
+							key={heading.position}
+							heading={heading}
+							index={index}
+							isActive={index === activeIndex}
+							onSelect={selectHeading}
+						/>
+					))}
+				</ul>
+			</div>
 		</nav>
+	);
+}
+
+/** Fades the editor text out behind the opened outline so the revealed titles stay readable. */
+function OutlineBackdrop() {
+	return (
+		<div
+			aria-hidden
+			className={cn(
+				'absolute -inset-y-4 -right-4 -left-16 opacity-0 transition-opacity duration-300 ease-out',
+				'bg-linear-to-l from-background from-55% to-transparent',
+				'[mask-image:linear-gradient(to_bottom,transparent,black_1rem,black_calc(100%-1rem),transparent)]',
+				'group-hover:opacity-100 group-has-focus-visible:opacity-100',
+			)}
+		/>
 	);
 }
 

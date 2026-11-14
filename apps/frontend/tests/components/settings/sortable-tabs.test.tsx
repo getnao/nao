@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SortableTabs } from '@/components/settings/sortable-tabs';
+import { EditorTab, SortableTabs } from '@/components/settings/sortable-tabs';
 
 const TABS = ['/docs/a.md', '/docs/b.md', '/docs/c.md'];
 
@@ -37,6 +37,16 @@ describe('SortableTabs', () => {
 		renderTabs({ getDescription: (path) => (path === '/docs/b.md' ? 'docs' : undefined) });
 
 		expect(screen.getByRole('tab', { name: 'b.md, docs' }).getAttribute('title')).toBe('/docs/b.md');
+	});
+});
+
+describe('EditorTab', () => {
+	afterEach(cleanup);
+
+	it.each([true, false])('marks a tab that cannot close as unsaved: %s', (isUnsaved) => {
+		render(<EditorTab label='Notes' isActive isUnsaved={isUnsaved} onSelect={vi.fn()} />);
+
+		expect(screen.queryByRole('img', { name: 'Unsaved changes' }) !== null).toBe(isUnsaved);
 	});
 });
 

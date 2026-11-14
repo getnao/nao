@@ -804,7 +804,9 @@ export class AgentManager {
 		const memories = this._profile.excludesMemories
 			? []
 			: await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
-		const userRules = getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
+		const userRules = this._profile.excludesUserRules
+			? undefined
+			: getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
@@ -848,6 +850,7 @@ export class AgentManager {
 				repoNames,
 				contextPresence,
 				timezone,
+				role: this._profile.role,
 				toolNames,
 				options: {
 					savedFilesEnabled: isStorageEnabled(),

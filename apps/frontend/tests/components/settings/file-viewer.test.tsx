@@ -166,6 +166,28 @@ describe('FileViewer RULES preview', () => {
 		expect(screen.queryByLabelText('File source') !== null).toBe(showsSource);
 	});
 
+	it.each([
+		{ name: 'a doc as a document', filePath: '/docs/guide.md', content: '# Guide', showsSource: false },
+		{
+			name: 'templated root rules as source',
+			filePath: 'RULES.md',
+			content: '{% if group("Finance") %}\nFinance\n{% endif %}',
+			showsSource: true,
+		},
+		{
+			name: 'a doc the visual editor cannot keep as source',
+			filePath: '/docs/layout.md',
+			content: '<div align="center">Guide</div>',
+			showsSource: true,
+		},
+	])('opens $name without the Markdown view switch', ({ filePath, content, showsSource }) => {
+		renderViewer({ filePath, content, hasMarkdownSourceViews: false });
+
+		expect(screen.queryByRole('button', { name: 'Split' })).toBeNull();
+		expect(screen.queryByRole('region', { name: 'Markdown preview' }) !== null).toBe(!showsSource);
+		expect(screen.queryByLabelText('File source') !== null).toBe(showsSource);
+	});
+
 	it('leaves nested Markdown unchanged without a group selector', () => {
 		const content = '{% if group("Finance") %}\nNested content\n{% endif %}';
 		renderViewer({ filePath: '/docs/RULES.md', content });
@@ -381,11 +403,13 @@ function renderViewer({
 	content,
 	rulesPreviewGroups = groups,
 	isEditable = true,
+	hasMarkdownSourceViews,
 	onDraftChange,
 }: {
 	filePath: string;
 	content: string;
 	isEditable?: boolean;
+	hasMarkdownSourceViews?: boolean;
 	onDraftChange?: (path: string, content: string) => void;
 	rulesPreviewGroups?:
 		| typeof groups
@@ -404,6 +428,7 @@ function renderViewer({
 			editabilityGuidance={null}
 			searchQuery=''
 			sourceAutoOpenRequestId={null}
+			hasMarkdownSourceViews={hasMarkdownSourceViews}
 			onDirtyChange={vi.fn()}
 			onOpenGuidancePath={vi.fn()}
 			onReload={vi.fn()}

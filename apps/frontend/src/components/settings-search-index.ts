@@ -14,6 +14,8 @@ export interface SettingsSearchEntry {
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
+	/** Hidden from context admins whose groups do not grant the file tree view of the Context Hub. */
+	requiresAdvancedContextExplorer?: boolean;
 	/** Hidden unless the current project role can view usage analytics. */
 	requiresUsageAccess?: boolean;
 	cloudHidden?: boolean;
@@ -1147,6 +1149,25 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/user-groups',
 		pageLabel: 'Users & Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
+		title: 'Context Hub file tree',
+		description: 'Choose whether context admins can switch the Context Hub from the doc view to the file tree.',
+		keywords: [
+			'file explorer',
+			'file tree',
+			'doc view',
+			'context hub',
+			'simplified',
+			'context admin',
+			'non technical',
+			'groups',
+		],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
 		section: 'Security',
 		search: { tab: 'security' },
 		title: 'Row-level security',
@@ -1671,25 +1692,39 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	// ── Context Explorer ─────────────────────────────────────
 	{
 		page: '/settings/context-explorer',
-		pageLabel: 'File Explorer',
-		title: 'File Explorer',
-		description: 'Browse and inspect the files and context available to the agent.',
-		keywords: ['files', 'context', 'documents', 'knowledge base'],
+		pageLabel: 'Context Hub',
+		title: 'Context Hub',
+		description: 'Browse the tables, docs and files the agent knows, edit them and add skills.',
+		keywords: [
+			'context',
+			'tables',
+			'docs',
+			'documentation',
+			'skills',
+			'rules',
+			'metrics',
+			'knowledge base',
+			'files',
+			'file explorer',
+			'file tree',
+			'doc view',
+		],
 		adminOrContextAdmin: true,
 	},
 
 	{
 		page: '/settings/context-explorer',
-		pageLabel: 'File Explorer',
+		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Tests',
 		description: 'Run the context tests from the Tests drawer of the File Explorer and review their results.',
 		keywords: ['tests', 'evaluation', 'eval', 'nao test', 'run tests', 'pass rate', 'reliability'],
 		adminOrContextAdmin: true,
+		requiresAdvancedContextExplorer: true,
 	},
 	{
 		page: '/settings/context-explorer',
-		pageLabel: 'File Explorer',
+		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Compare models',
 		description: 'Run the tests on several models and compare their accuracy, cost, tool calls and time.',
@@ -1704,10 +1739,11 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'leaderboard',
 		],
 		adminOrContextAdmin: true,
+		requiresAdvancedContextExplorer: true,
 	},
 	{
 		page: '/settings/context-explorer',
-		pageLabel: 'File Explorer',
+		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Compare your changes with the default branch',
 		description: 'Run the tests on your File Explorer changes and on the default branch side by side.',
@@ -1724,5 +1760,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'branch',
 		],
 		adminOrContextAdmin: true,
+		requiresAdvancedContextExplorer: true,
 	},
 ];

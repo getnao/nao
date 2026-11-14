@@ -198,6 +198,13 @@ export function EditorTab({
 				)}
 			>
 				<span className='max-w-60 truncate whitespace-nowrap'>{label}</span>
+				{isUnsaved && !onClose && (
+					<span
+						role='img'
+						aria-label='Unsaved changes'
+						className='size-1.5 shrink-0 rounded-full bg-foreground/70'
+					/>
+				)}
 				{badge !== undefined && (
 					<span className='flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground tabular-nums'>
 						{badge}

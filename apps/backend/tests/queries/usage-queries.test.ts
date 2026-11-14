@@ -179,9 +179,12 @@ describe('usage query results', () => {
 		).resolves.toHaveLength(13);
 	});
 
-	it('counts messages by source, including context recommendations and tests', async () => {
+	it('counts messages by source, including the editor panels, automations, context recommendations and tests', async () => {
 		const sources = [
 			'web',
+			'automationEditor',
+			'contextEditor',
+			'automation',
 			'slack',
 			'teams',
 			'telegram',
@@ -211,8 +214,11 @@ describe('usage query results', () => {
 		const record = records.find((item) => item.date === formatDate(now, 'day'));
 
 		expect(record).toMatchObject({
-			messageCount: 11,
+			messageCount: 14,
 			webMessageCount: 1,
+			automationEditorMessageCount: 1,
+			contextEditorMessageCount: 1,
+			automationMessageCount: 1,
 			slackMessageCount: 1,
 			teamsMessageCount: 1,
 			telegramMessageCount: 1,

@@ -50,6 +50,8 @@ vi.mock('@/main', () => ({
 			readFile: { queryKey: () => ['read-file'] },
 			getFileDiff: { queryKey: () => ['file-diff'] },
 			searchContent: { queryKey: () => ['search-content'] },
+			getFileSummaries: { queryKey: () => ['file-summaries'] },
+			getRecentChanges: { queryKey: () => ['recent-changes'] },
 		},
 		project: {
 			listAvailableTranscribeModels: { queryOptions: () => ({ queryKey: ['models'], queryFn: () => [] }) },

@@ -20,6 +20,7 @@ import type { SegmentedControlOption } from '@/components/ui/segmented-control';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { FileHeaderEditor, FileHeaderSourceBar } from '@/components/settings/file-header-editor';
 import { TableOwnerPrompt } from '@/components/settings/table-owner-prompt';
+import { FileSaveStatus } from '@/components/settings/file-save-status';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
 import { MarkdownFileEditor } from '@/components/settings/markdown-file-editor';
 import { UserGroupPicker } from '@/components/settings/user-group-picker';
@@ -76,6 +77,8 @@ interface FileViewerProps {
 	editabilityGuidance: FileEditabilityGuidance | null;
 	searchQuery: string;
 	sourceAutoOpenRequestId: number | null;
+	/** False keeps markdown as a document, without the split and source views. Defaults to true. */
+	hasMarkdownSourceViews?: boolean;
 	onDirtyChange: (isDirty: boolean) => void;
 	/** Follows the content in the editor, saved or not. */
 	onDraftChange?: (path: string, content: string) => void;
@@ -109,6 +112,7 @@ export function FileViewer({
 	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
+	hasMarkdownSourceViews = true,
 	onDirtyChange,
 	onDraftChange,
 	onOpenGuidancePath,
@@ -150,6 +154,7 @@ export function FileViewer({
 			editabilityGuidance={editabilityGuidance}
 			searchQuery={searchQuery}
 			sourceAutoOpenRequestId={sourceAutoOpenRequestId}
+			hasMarkdownSourceViews={hasMarkdownSourceViews}
 			onDirtyChange={onDirtyChange}
 			onDraftChange={onDraftChange}
 			onOpenGuidancePath={onOpenGuidancePath}
@@ -167,6 +172,7 @@ function EditableFileViewer({
 	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
+	hasMarkdownSourceViews,
 	onDirtyChange,
 	onDraftChange,
 	onOpenGuidancePath,
@@ -181,6 +187,7 @@ function EditableFileViewer({
 	| 'editabilityGuidance'
 	| 'searchQuery'
 	| 'sourceAutoOpenRequestId'
+	| 'hasMarkdownSourceViews'
 	| 'onDirtyChange'
 	| 'onDraftChange'
 	| 'onOpenGuidancePath'
@@ -198,6 +205,7 @@ function EditableFileViewer({
 	const [savedContent, setSavedContent] = useState(content);
 	const [expectedHash, setExpectedHash] = useState(hash);
 	const [saveError, setSaveError] = useState<FileSaveError | null>(null);
+	const [savedAt, setSavedAt] = useState<number | null>(null);
 	const [isReloadDialogOpen, setIsReloadDialogOpen] = useState(false);
 	const [isReloading, setIsReloading] = useState(false);
 	const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -210,7 +218,6 @@ function EditableFileViewer({
 	const isMarkdown = isMarkdownPath(filePath);
 	const isRootRules = isRootRulesPath(filePath);
 	const tableFolder = useMemo(() => findContextTableFolder(filePath), [filePath]);
-	const markdownView = isSourceAutoOpened && markdownViewPreference === 'preview' ? 'split' : markdownViewPreference;
 	const isDirty = isEditable && draft !== savedContent;
 	const debouncedPreview = useDebouncedValue(draft, 250);
 	const parsedMarkdownDraft = useMemo(() => parseMarkdownFrontmatter(draft), [draft]);
@@ -219,6 +226,9 @@ function EditableFileViewer({
 		() => isEditable && isMarkdown && (!isRootRules || !hasRulesTemplate(draft)),
 		[draft, isEditable, isMarkdown, isRootRules],
 	);
+	const markdownView = hasMarkdownSourceViews
+		? getPreferredMarkdownView(markdownViewPreference, isSourceAutoOpened)
+		: getDocumentMarkdownView(isEditable, isPreviewEditable);
 	const rulesGroupAccess = useMemo(
 		() => getRulesGroupAccess(isRootRules, rulesPreviewGroups, selectedGroupIds),
 		[isRootRules, rulesPreviewGroups, selectedGroupIds],
@@ -295,6 +305,7 @@ function EditableFileViewer({
 						setSavedContent(contentToSave);
 						setExpectedHash(result.hash);
 						setSaveError(null);
+						setSavedAt(Date.now());
 					}
 					void queryClient.invalidateQueries({
 						queryKey: trpc.contextExplorer.getChangedFiles.queryKey(),
@@ -401,19 +412,6 @@ function EditableFileViewer({
 			header={fileHeader}
 		/>
 	);
-	const markdownPreview = isPreviewEditable ? (
-		<MarkdownFileEditor
-			value={parsedMarkdownDraft.body}
-			filePath={filePath}
-			searchQuery={searchQuery}
-			onChange={handleMarkdownChange}
-			onSave={handleSave}
-			fallback={renderedMarkdown}
-			header={fileHeader}
-		/>
-	) : (
-		renderedMarkdown
-	);
 	const markdownSource = (
 		<div className='flex h-full min-h-0 flex-col'>
 			{fileHeaderState && (
@@ -436,16 +434,38 @@ function EditableFileViewer({
 			</div>
 		</div>
 	);
+	const markdownPreview = isPreviewEditable ? (
+		<MarkdownFileEditor
+			value={parsedMarkdownDraft.body}
+			filePath={filePath}
+			searchQuery={searchQuery}
+			onChange={handleMarkdownChange}
+			onSave={handleSave}
+			fallback={hasMarkdownSourceViews ? renderedMarkdown : markdownSource}
+			fallbackHint={hasMarkdownSourceViews ? undefined : DOCUMENT_FALLBACK_HINT}
+			header={fileHeader}
+		/>
+	) : (
+		renderedMarkdown
+	);
 
 	return (
 		<div className='flex flex-col h-full'>
 			<div className='flex h-8 shrink-0 items-center gap-2.5 border-b px-3 text-[11px] text-muted-foreground'>
 				<FilePathBreadcrumb filePath={filePath} />
+				{isEditable && (
+					<FileSaveStatus
+						isDirty={isDirty}
+						isSaving={saveMutation.isPending}
+						savedAt={savedAt}
+						onSave={handleSave}
+					/>
+				)}
 				{rulesPreviewStatus === undefined && <TokenEstimate count={estimatedTokenCount} />}
 				{isMarkdown && parsedMarkdownDraft.label !== null && (
 					<span className='shrink-0'>{parsedMarkdownDraft.label}</span>
 				)}
-				{isMarkdown && (
+				{isMarkdown && hasMarkdownSourceViews && (
 					<SegmentedControl
 						label='Markdown view'
 						options={MARKDOWN_VIEWS}
@@ -541,6 +561,18 @@ function EditableFileViewer({
 			</AlertDialog>
 		</div>
 	);
+}
+
+const DOCUMENT_FALLBACK_HINT =
+	'This file uses Markdown the visual editor cannot keep, like HTML or link definitions, so it opens as text.';
+
+function getPreferredMarkdownView(preference: MarkdownView, isSourceAutoOpened: boolean): MarkdownView {
+	return isSourceAutoOpened && preference === 'preview' ? 'split' : preference;
+}
+
+/** Without the source views, a file that can only be edited as text, like root rules with a template, opens as source. */
+function getDocumentMarkdownView(isEditable: boolean, isPreviewEditable: boolean): MarkdownView {
+	return isEditable && !isPreviewEditable ? 'source' : 'preview';
 }
 
 function ReadOnlyNote({

@@ -1,5 +1,6 @@
 import {
 	canRoleSeeAdvancedSettings,
+	canRoleUseAdvancedContextExplorer,
 	type DatabaseContextAccess,
 	type DocsContextAccess,
 	type FilesContextAccess,
@@ -27,6 +28,7 @@ export interface EffectiveUserGroupAccess {
 	features: UserGroupFeatureFlags;
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	canSeeAdvancedSettings: boolean;
+	canUseAdvancedContextExplorer: boolean;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
@@ -150,6 +152,7 @@ function formatEffectiveUserGroupAccess(
 		features: createUserGroupFeatureFlags(access.features),
 		toolCallDensityPolicy: access.toolCallDensityPolicy,
 		canSeeAdvancedSettings: canRoleSeeAdvancedSettings(role, access.showAllSettings),
+		canUseAdvancedContextExplorer: canRoleUseAdvancedContextExplorer(role, access.advancedContextExplorer),
 		databaseAccess: access.databaseAccess,
 		docsAccess: access.docsAccess,
 		filesAccess: access.filesAccess,
