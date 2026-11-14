@@ -131,7 +131,7 @@ export async function listReferenceableStoryIds(
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
 		.leftJoin(s.sharedStory, and(eq(s.sharedStory.storyId, s.story.id), eq(s.sharedStory.projectId, projectId)))
-		.where(isReferenceable(userId, projectId, lockedGroupIds, { storyIds }))
+		.where(and(isReferenceable(userId, projectId, lockedGroupIds, { storyIds }), exists(storyVersions())))
 		.execute();
 	return rows.map((row) => row.storyId);
 }
