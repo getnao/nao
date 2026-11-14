@@ -14,14 +14,22 @@ const sidebarViewStorage = createLocalStorage<ContextSidebarView>('nao-context-s
  * mounted, so a commit message or file selection survives a look at the files.
  */
 export function ContextSidebar({
+	filesLabel = 'Files',
+	onSelectFiles,
 	changeCount,
 	files,
 	changes,
+	viewMenu,
 	footer,
 }: {
+	filesLabel?: string;
+	/** Runs on every click of the files tab, even when it is already shown, like going back to a home page. */
+	onSelectFiles?: () => void;
 	changeCount: number;
 	files: ReactNode;
 	changes: ReactNode;
+	/** Sits at the end of the tab bar, like the menu switching to the doc view. */
+	viewMenu?: ReactNode;
 	/** Stays under both views, like a warning panel. */
 	footer?: ReactNode;
 }) {
@@ -29,8 +37,15 @@ export function ContextSidebar({
 
 	return (
 		<div className='flex h-full flex-col overflow-hidden bg-card'>
-			<TabBar label='File Explorer views'>
-				<EditorTab label='Files' isActive={view === 'files'} onSelect={() => setView('files')} />
+			<TabBar label='Context Hub views' trailing={viewMenu}>
+				<EditorTab
+					label={filesLabel}
+					isActive={view === 'files'}
+					onSelect={() => {
+						setView('files');
+						onSelectFiles?.();
+					}}
+				/>
 				<EditorTab
 					label='Changes'
 					badge={changeCount > 0 ? changeCount : undefined}

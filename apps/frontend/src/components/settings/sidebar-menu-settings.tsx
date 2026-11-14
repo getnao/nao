@@ -179,6 +179,7 @@ function SidebarMenuPreview({ entries }: { entries: SidebarMenuEntry[] }) {
 	const access: SidebarMenuAccess = {
 		canCreateChat: true,
 		canSeeAutomations: config.data?.betaAutomationsEnabled === true,
+		canSeeContextHub: true,
 		hasInboxActivity: false,
 	};
 
@@ -191,7 +192,9 @@ function SidebarMenuPreview({ entries }: { entries: SidebarMenuEntry[] }) {
 			>
 				<SidebarMenuList entries={entries} access={access} isCollapsed={false} />
 			</div>
-			<p className='text-xs text-muted-foreground'>Automations only show to people allowed to use them.</p>
+			<p className='text-xs text-muted-foreground'>
+				Automations and Context Hub only show to people allowed to use them.
+			</p>
 		</div>
 	);
 }

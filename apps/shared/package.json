@@ -17,6 +17,7 @@
 		"./chart-values": "./src/chart-values.ts",
 		"./color": "./src/color.ts",
 		"./context-file-header": "./src/context-file-header.ts",
+		"./context-editor": "./src/context-editor.ts",
 		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
 		"./keyboard-shortcut": "./src/keyboard-shortcut.ts",

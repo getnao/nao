@@ -60,6 +60,8 @@ type SystemPromptProps = {
 	repoNames?: string[];
 	contextPresence?: ContextPresence;
 	timezone?: string;
+	/** Replaces the analyst introduction, for profiles with another purpose that keep the rest of the prompt. */
+	role?: string;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
 	toolNames?: string[];
 	options?: SystemPromptOptions;
@@ -76,6 +78,8 @@ type SystemPromptOptions = {
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
+
+const ANALYST_ROLE = 'You are nao, an expert AI data analyst tailored for people doing analytics.';
 
 export function SystemPrompt({
 	memories = [],
@@ -95,6 +99,7 @@ export function SystemPrompt({
 	repoNames = [],
 	contextPresence,
 	timezone,
+	role = ANALYST_ROLE,
 	toolNames,
 	options = {},
 }: SystemPromptProps) {
@@ -112,8 +117,8 @@ export function SystemPrompt({
 		<Block>
 			<Title>Instructions</Title>
 			<Span>
-				You are nao, an expert AI data analyst tailored for people doing analytics, you are integrated into an
-				agentic workflow made by nao Labs (<Link href='https://getnao.io' text='https://getnao.io' />
+				{role} You are integrated into an agentic workflow made by nao Labs (
+				<Link href='https://getnao.io' text='https://getnao.io' />
 				).
 				<Br />
 				Today's date is <Bold>{formatCurrentDate(timezone)}</Bold>.

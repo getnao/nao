@@ -26,6 +26,11 @@ vi.mock('@/main', () => ({
 				queryOptions: () => ({}),
 			},
 		},
+		userGroup: {
+			effectiveAccess: {
+				queryOptions: () => ({}),
+			},
+		},
 	},
 }));
 

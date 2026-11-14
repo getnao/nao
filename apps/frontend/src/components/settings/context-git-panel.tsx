@@ -34,12 +34,14 @@ interface ContextGitPanelProps {
 	selectedUpstreamDiffPath: string | null;
 	hasUnsavedFileChanges: boolean;
 	onViewDiff: (path: string) => void;
-	onViewUpstreamDiff: (path: string) => void;
+	/** Without it, as in the Context Hub, the repositories `nao sync` copies are not shown. */
+	onViewUpstreamDiff?: (path: string) => void;
 	onCommitted: (paths: string[]) => Promise<void>;
 	onDiscarded: (path: string) => Promise<void>;
 	onDiscardAll: () => Promise<void>;
 	onRepositoryChanged: () => void;
-	onOpenTests: () => void;
+	/** Without it, as in the Context Hub, the panel offers no tests. */
+	onOpenTests?: () => void;
 }
 
 type ReviewRequestState = { kind: 'created'; url: string } | { kind: 'link'; url: string; apiRefused?: boolean };
@@ -393,7 +395,7 @@ export function ContextGitPanel({
 									setIsCreateBranchOpen(true);
 								}}
 							/>
-							{hasDraftChanges && (
+							{hasDraftChanges && onOpenTests && (
 								<TestStatusButton label='Test your changes' result={latestRun} onClick={onOpenTests} />
 							)}
 							{reviewRequestLink && <ReviewRequestLink link={reviewRequestLink} />}
@@ -483,11 +485,13 @@ export function ContextGitPanel({
 				)}
 			</section>
 
-			<SyncedRepos
-				selectedPath={selectedUpstreamDiffPath}
-				onViewDiff={onViewUpstreamDiff}
-				onOpenTests={onOpenTests}
-			/>
+			{onViewUpstreamDiff && onOpenTests && (
+				<SyncedRepos
+					selectedPath={selectedUpstreamDiffPath}
+					onViewDiff={onViewUpstreamDiff}
+					onOpenTests={onOpenTests}
+				/>
+			)}
 
 			<CreateBranchDialog
 				open={isCreateBranchOpen}
@@ -657,7 +661,7 @@ function NaoDraftChanges({
 	onViewDiff: (path: string) => void;
 	onDiscard: (file: ContextChangedFile) => void;
 	onDiscardAll: () => void;
-	onTest: () => void;
+	onTest?: () => void;
 	onSetup: () => void;
 }) {
 	return (
@@ -668,9 +672,9 @@ function NaoDraftChanges({
 					Draft
 					<span className='truncate text-muted-foreground'>· only you</span>
 				</span>
-				{latestRun && <TestStatusButton label='Open tests' result={latestRun} onClick={onTest} />}
+				{latestRun && onTest && <TestStatusButton label='Open tests' result={latestRun} onClick={onTest} />}
 			</PanelBar>
-			{files.length > 0 && (
+			{files.length > 0 && onTest && (
 				<Button variant='secondary' size='sm' className='mx-2 h-7 text-xs' onClick={onTest}>
 					<FlaskConical />
 					Test vs production

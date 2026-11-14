@@ -11,6 +11,7 @@ const KEYBOARD_STEP = 16;
 /** Dragged narrower than this, the panel closes; a closed panel dragged wider than this opens. */
 const COLLAPSE_THRESHOLD = MIN_PANEL_WIDTH / 2;
 
+/** Shared by every editing chat; the key predates the Context Hub chat, so it keeps the automation name. */
 const panelWidthStorage = createLocalStorage<number>('nao-automation-chat-panel-width', DEFAULT_PANEL_WIDTH);
 
 interface PanelWidth {
@@ -25,8 +26,8 @@ interface PanelOpenState {
 
 type DragState = { startX: number; startWidth: number; width: number; isOpen: boolean };
 
-/** The width of the automation chat panel, remembered across automations. */
-export function useAutomationChatPanelWidth(): PanelWidth {
+/** The width of the editing chat panels, remembered across pages. */
+export function useEditorChatPanelWidth(): PanelWidth {
 	const [width, setWidth] = useLocalStorage(panelWidthStorage);
 	return { width: clampPanelWidth(width), setWidth };
 }
@@ -38,12 +39,7 @@ export function useAutomationChatPanelWidth(): PanelWidth {
  *
  * The drag is followed on the window: opening or closing the panel replaces the element holding this handle.
  */
-export function AutomationChatPanelResizeHandle({
-	width,
-	setWidth,
-	isOpen,
-	onOpenChange,
-}: PanelWidth & PanelOpenState) {
+export function EditorChatPanelResizeHandle({ width, setWidth, isOpen, onOpenChange }: PanelWidth & PanelOpenState) {
 	const dragRef = useRef<DragState | null>(null);
 
 	const followDrag = (event: PointerEvent) => {

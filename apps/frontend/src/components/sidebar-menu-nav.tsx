@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { BotIcon, ExternalLink, InboxIcon, LayoutGrid, PlusIcon, SearchIcon } from 'lucide-react';
+import { BotIcon, ExternalLink, InboxIcon, LayoutGrid, Library, PlusIcon, SearchIcon } from 'lucide-react';
 import { getMenuEntryLabel } from '@nao/shared/sidebar-menu';
 import type { BuiltInMenuEntry, BuiltInMenuEntryId, CustomMenuEntry, SidebarMenuEntry } from '@nao/shared/sidebar-menu';
 import type { LucideIcon } from 'lucide-react';
@@ -24,6 +24,7 @@ export const BUILT_IN_MENU_ICONS: Record<BuiltInMenuEntryId, LucideIcon> = {
 	stories: STORY_MENU_ICON,
 	inbox: InboxIcon,
 	automations: BotIcon,
+	'context-hub': Library,
 };
 
 export const CUSTOM_MENU_ICONS: Record<CustomMenuEntry['type'], LucideIcon> = {
@@ -41,6 +42,7 @@ const BUILT_IN_MENU_SHORTCUTS: Partial<Record<BuiltInMenuEntryId, Parameters<typ
 export interface SidebarMenuAccess {
 	canCreateChat: boolean;
 	canSeeAutomations: boolean;
+	canSeeContextHub: boolean;
 	hasInboxActivity: boolean;
 }
 
@@ -191,6 +193,8 @@ function canSeeBuiltInEntry(id: BuiltInMenuEntryId, access: SidebarMenuAccess): 
 			return access.canCreateChat;
 		case 'automations':
 			return access.canSeeAutomations;
+		case 'context-hub':
+			return access.canSeeContextHub;
 		default:
 			return true;
 	}
@@ -236,6 +240,8 @@ function useOpenMenuEntry() {
 				return navigate({ to: '/inbox' });
 			case 'automations':
 				return navigate({ to: '/automations' });
+			case 'context-hub':
+				return navigate({ to: '/context-hub' });
 		}
 	}
 }

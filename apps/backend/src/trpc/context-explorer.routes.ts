@@ -3,8 +3,11 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as activityQueries from '../queries/activity.queries';
+import * as chatQueries from '../queries/chat.queries';
 import { generateContextCommitMessage } from '../services/context-commit-message.service';
+import { startContextEditChat } from '../services/context-editor.service';
 import {
+	createDraftFile,
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
@@ -42,8 +45,11 @@ import {
 	applyOwnerToTableFiles,
 	listContextFileHeaderProblems,
 	listContextFileOwners,
+	listContextFileSummaries,
 	listTableFileOwners,
 } from '../services/context-file-header.service';
+import { getMostReadContextFiles } from '../services/context-file-reads.service';
+import { listRecentContextChanges } from '../services/context-recent-changes.service';
 import {
 	discardAllNaoDraftFiles,
 	discardNaoDraftFile,
@@ -66,6 +72,12 @@ const pathsSchema = z.array(z.string()).min(1).max(100);
 const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
 const fileOwnerSchema = z.string().trim().min(1).max(320).nullable();
 const MAX_PULL_HISTORY_FILES = 1_000;
+const skillNameSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(64)
+	.regex(/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/, 'Use lowercase letters, digits and dashes.');
 const fileDiffInputSchema = z
 	.object({
 		path: z.string(),
@@ -249,6 +261,35 @@ export const contextExplorerRoutes = {
 			return writeFileContent(input.path, input.content, input.expectedHash, access);
 		}),
 
+	createSkill: cloudBillingContextAdminProcedure
+		.input(z.object({ name: skillNameSchema, description: z.string().trim().max(1_000) }))
+		.mutation(async ({ ctx, input }) => {
+			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+			const path = `/agent/skills/${input.name}.md`;
+			await createDraftFile(path, buildSkillTemplate(input.name, input.description, ctx.user.email), access);
+			return { path };
+		}),
+
+	startEditChat: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) =>
+		startContextEditChat({ userId: ctx.user.id, projectId: ctx.project.id }),
+	),
+
+	getMostReadFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => getMostReadContextFiles(ctx.project.id)),
+
+	getFileSummaries: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+		return listContextFileSummaries(ctx.project.id, access);
+	}),
+
+	getRecentChanges: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+		return { changes: listRecentContextChanges(access) };
+	}),
+
+	latestEditChat: contextAdminProtectedProcedure.query(async ({ ctx }): Promise<{ chatId: string | null }> => {
+		return { chatId: await chatQueries.getLatestContextEditChatId(ctx.user.id, ctx.project.id) };
+	}),
+
 	searchContent: contextAdminProtectedProcedure
 		.input(z.object({ query: z.string().min(2).max(200) }))
 		.query(async ({ ctx, input }) => {
@@ -412,4 +453,19 @@ function logPullHistoryFailure(message: string, projectId: string, activityId: s
 		source: 'system',
 		context: { projectId, activityId, error: serializeError(error) },
 	});
+}
+
+function buildSkillTemplate(name: string, description: string, ownerEmail: string): string {
+	return [
+		'---',
+		`name: ${name}`,
+		`description: ${JSON.stringify(description || `When to use the ${name} skill.`)}`,
+		`owner: ${ownerEmail}`,
+		'---',
+		'',
+		`# ${name}`,
+		'',
+		'Describe the steps the agent should follow.',
+		'',
+	].join('\n');
 }

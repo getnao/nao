@@ -259,6 +259,9 @@ const feedbackStateLabels: Record<ChatReplayFeedbackState, string> = {
 
 const sourceLabels: Record<UsageSource, string> = {
 	web: 'Web',
+	automationEditor: 'Web (automations)',
+	contextEditor: 'Web (context hub)',
+	automation: 'Automations',
 	slack: 'Slack',
 	teams: 'Teams',
 	telegram: 'Telegram',

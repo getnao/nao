@@ -35,6 +35,7 @@ describe('resolveSidebarMenu', () => {
 			'search-chats',
 			'stories',
 			'automations',
+			'context-hub',
 		]);
 	});
 

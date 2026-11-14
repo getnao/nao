@@ -108,6 +108,11 @@ export function validateContextFileHeader(
 	];
 }
 
+/** The content after the header, or all of it for a file without one. */
+export function getContextFileBody(content: string): string {
+	return splitFrontmatter(content).body;
+}
+
 /** Whether the content opens a header that it does not close, either unfinished or cut before its end. */
 export function hasUnclosedContextFileHeader(content: string): boolean {
 	return FRONTMATTER_OPENING_PATTERN.test(content) && !FRONTMATTER_PATTERN.test(content);
