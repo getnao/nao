@@ -174,7 +174,7 @@ export function StoryCard({
 	if (displayMode === 'grid') {
 		const certifiedBadge = item.isCertified && (
 			<div className='absolute top-1.5 right-2 flex h-5 items-center'>
-				<CertifiedBadge certifiedByName={item.certifiedByName} />
+				<CertifiedBadge certifiedByName={item.certifiedByName} iconOnlyOnHover />
 			</div>
 		);
 		const hasPersistentTopIcons = item.isCertified || (!selectionActive && (item.isPinned || item.isFavorited));
