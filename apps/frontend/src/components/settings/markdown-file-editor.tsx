@@ -9,6 +9,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { ReactNode, RefObject } from 'react';
 
 import type { MarkdownLayout, MarkdownToken } from '@/lib/markdown-blocks';
+import { MarkdownOutline } from '@/components/settings/markdown-outline';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
 import { containsTokenType, getMarkdownLayout, writeMarkdownBlocks } from '@/lib/markdown-blocks';
 import { cn } from '@/lib/utils';
@@ -105,7 +106,8 @@ export function MarkdownFileEditor({
 	}
 
 	return (
-		<section aria-label='Markdown preview' className='flex h-full min-h-0 flex-col'>
+		<section aria-label='Markdown preview' className='relative flex h-full min-h-0 flex-col'>
+			<MarkdownOutline editor={editor} scrollContainerRef={containerRef} />
 			<div ref={containerRef} className='min-h-0 flex-1 overflow-auto'>
 				{header && <div className='mx-auto max-w-3xl px-8 pt-6'>{header}</div>}
 				<EditorContent
