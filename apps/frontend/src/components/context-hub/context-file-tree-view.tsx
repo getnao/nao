@@ -9,6 +9,7 @@ import type { FileSelectionOptions } from '@/components/settings/file-tree';
 import type { ContextHubView } from '@/hooks/use-context-hub-view';
 import type { ContextExplorerSearch, TestDrawerSearch } from '@/lib/context-explorer-search';
 
+import { ContextFileRecommendations } from '@/components/context-hub/context-file-recommendations';
 import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-menu';
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
@@ -585,6 +586,9 @@ export function ContextFileTreeView({
 											onMove={openedFileTabs.moveTab}
 										/>
 									</TabBar>
+								)}
+								{!historicalDiff && !selectedDiffPath && !selectedUpstreamDiffPath && (
+									<ContextFileRecommendations path={selectedPath} isDirty={isViewerDirty} />
 								)}
 								<div className='min-h-0 flex-1'>
 									{historicalDiff ? (

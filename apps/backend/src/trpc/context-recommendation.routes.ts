@@ -17,6 +17,7 @@ import {
 	ProviderNotConnectedError,
 	resolveRecommendationRepo,
 } from '../services/context-pr.service';
+import { applyRecommendationToChanges } from '../services/context-recommendation-apply.service';
 import { buildAgentPrompt } from '../services/context-recommendation-prompt';
 import {
 	repairRecommendationTriggerRefs,
@@ -207,6 +208,17 @@ export const contextRecommendationRoutes = {
 				userId: ctx.user.id,
 			});
 		}),
+
+	applyToChanges: recommendationMutationProcedure
+		.input(z.object({ id: z.string() }))
+		.mutation(async ({ ctx, input }) =>
+			applyRecommendationToChanges({
+				projectId: ctx.project.id,
+				projectFolder: ctx.project.path,
+				editor: ctx.user,
+				recommendationId: input.id,
+			}),
+		),
 
 	getPrStatus: recommendationsProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
 		const rec = await crQueries.getRecommendationById(ctx.project.id, input.id);

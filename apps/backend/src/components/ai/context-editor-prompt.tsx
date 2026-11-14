@@ -3,11 +3,16 @@ import { Block, Code, List, ListItem, renderToMarkdown, Span, Title } from '../.
 export const CONTEXT_EDITOR_ROLE =
 	'You are nao, the context editor of the Context Hub: you help the user improve what the analytics agents of this project know about its data, through the table descriptions and notes, the agent rules, the docs, the metrics and the skills.';
 
-export function renderContextEditorPrompt({ openPath }: { openPath: string | null }): string {
-	return renderToMarkdown(<ContextEditorPrompt openPath={openPath} />);
+interface ContextEditorPromptProps {
+	openPath: string | null;
+	hasRecommendations: boolean;
 }
 
-function ContextEditorPrompt({ openPath }: { openPath: string | null }) {
+export function renderContextEditorPrompt(props: ContextEditorPromptProps): string {
+	return renderToMarkdown(<ContextEditorPrompt {...props} />);
+}
+
+function ContextEditorPrompt({ openPath, hasRecommendations }: ContextEditorPromptProps) {
 	return (
 		<Block>
 			<Title level={2}>Context Hub Editor</Title>
@@ -33,6 +38,11 @@ function ContextEditorPrompt({ openPath }: { openPath: string | null }) {
 				<ListItem>Write docs, such as a glossary of business terms.</ListItem>
 				<ListItem>Create a skill: steps the agents follow for a recurring kind of request.</ListItem>
 				<ListItem>Find what is missing or unclear in the context of a table or a topic, and fix it.</ListItem>
+				{hasRecommendations && (
+					<ListItem>
+						Review and apply the recommendations nao derived from how people use the agents.
+					</ListItem>
+				)}
 			</List>
 			<Span>
 				When asked what you can do, describe these, with an example request tied to the tables or docs of this
@@ -90,6 +100,44 @@ function ContextEditorPrompt({ openPath }: { openPath: string | null }) {
 					and only for a file you read in this conversation.
 				</ListItem>
 			</List>
+			{hasRecommendations && <RecommendationsSection />}
 		</Block>
+	);
+}
+
+function RecommendationsSection() {
+	return (
+		<>
+			<Title level={3}>Recommendations</Title>
+			<Span>
+				nao analyses the chats of this project and records recommendations: changes to the context backed by
+				what went wrong in real chats, like tool errors, downvotes or repeated corrections. Most come with the
+				file edits that fix them.
+			</Span>
+			<List>
+				<ListItem>
+					When the user asks what to improve, or about the open file, start from{' '}
+					<Code>list_recommendations</Code>, filtered on the open file when the question is about it.
+				</ListItem>
+				<ListItem>
+					Read one with <Code>get_recommendation</Code> before discussing or applying it, and explain it in
+					plain words: what the agents got wrong and what the change adds.
+				</ListItem>
+				<ListItem>
+					Apply its edits with <Code>apply_recommendation</Code> when the user asks for it. Edits it reports
+					as conflicts no longer fit the file: apply them with <Code>edit_context_file</Code> after reading
+					the file, then mark the recommendation applied with <Code>set_recommendation_status</Code>.
+				</ListItem>
+				<ListItem>
+					A recommendation without edits, or whose edits change a linked repository, cannot be applied here:
+					follow its guidance with your own edits when it targets a context file, or tell the user where to
+					fix it.
+				</ListItem>
+				<ListItem>
+					Dismiss a recommendation with <Code>set_recommendation_status</Code> only when the user asks, so nao
+					stops suggesting it.
+				</ListItem>
+			</List>
+		</>
 	);
 }

@@ -103,6 +103,18 @@ describe('context explorer search', () => {
 	});
 
 	it.each([
+		{
+			search: { path: '/RULES.md', recommendation: 'rec-1' },
+			expected: { path: '/RULES.md', recommendation: 'rec-1' },
+		},
+		{ search: { recommendation: 'rec-1' }, expected: {} },
+		{ search: { path: '../RULES.md', recommendation: 'rec-1' }, expected: {} },
+		{ search: { path: '/RULES.md', recommendation: 'rec 1' }, expected: { path: '/RULES.md' } },
+	])('keeps the recommendation to show over the file opened in $search', ({ search, expected }) => {
+		expect(validateContextExplorerSearch(search)).toEqual(expected);
+	});
+
+	it.each([
 		{ search: { path: '/RULES.md' }, expected: false },
 		{ search: { path: '/RULES.md', from: 'a'.repeat(40) }, expected: false },
 		{ search: { path: '/RULES.md', from: 'a'.repeat(40), to: 'b'.repeat(40) }, expected: true },

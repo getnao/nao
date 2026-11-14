@@ -1,6 +1,7 @@
 import { Table2 } from 'lucide-react';
 
 import type { ContextHubDoc, ContextHubTable } from '@/lib/context-hub';
+import { ContextFileRecommendations } from '@/components/context-hub/context-file-recommendations';
 import { ContextHubFile } from '@/components/context-hub/context-hub-file';
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { EditorTab, TabBar } from '@/components/settings/sortable-tabs';
@@ -51,6 +52,7 @@ export function ContextHubViewer({
 					</TabBar>
 				)
 			)}
+			<ContextFileRecommendations path={path} isDirty={isDirty} />
 			<div className='min-h-0 flex-1'>
 				<ContextHubFile path={path} onDirtyChange={onDirtyChange} onOpenFile={onOpenFile} />
 			</div>

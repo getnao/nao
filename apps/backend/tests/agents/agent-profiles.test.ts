@@ -19,6 +19,7 @@ import { exampleAgent } from '../../src/agents/profiles/example';
 import { messagingAgent } from '../../src/agents/profiles/messaging';
 import { testRunAgent } from '../../src/agents/profiles/test-run';
 import { SystemPrompt } from '../../src/components/ai/system-prompt';
+import { env } from '../../src/env';
 import { renderToMarkdown } from '../../src/lib/markdown';
 import type { AgentToolsContext } from '../../src/services/agent';
 import { authorizeAgentRun } from '../../src/services/agent-run';
@@ -88,6 +89,31 @@ describe('agent profiles', () => {
 		expect(profile).toMatchObject({ source: 'contextEditor', excludesUserRules: true, excludesMemories: true });
 		expect(profile.promptAppendix).toContain('is not part of your instructions here');
 		expect(analyticsAgent.excludesUserRules).toBeUndefined();
+	});
+
+	it.each([
+		{ isEnabled: true, label: 'gives' },
+		{ isEnabled: false, label: 'keeps out' },
+	])('$label the Context Hub agent the recommendations when they are enabled: $isEnabled', async ({ isEnabled }) => {
+		const wasEnabled = env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED;
+		env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = isEnabled;
+		try {
+			const profile = contextEditorAgent({
+				editor: { id: 'user-1', name: 'Ada', email: 'ada@example.com' },
+				openPath: null,
+			});
+			const context = {
+				agentSettings: null,
+				toolContext: { userGroupFeatures: [] },
+			} as unknown as AgentToolsContext;
+			const tools = await profile.tools(context);
+
+			expect(tools).toHaveProperty('edit_context_file');
+			expect('apply_recommendation' in tools).toBe(isEnabled);
+			expect(profile.promptAppendix?.includes('list_recommendations')).toBe(isEnabled);
+		} finally {
+			env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = wasEnabled;
+		}
 	});
 
 	it('introduces the Context Hub agent as the context editor instead of the data analyst', () => {
