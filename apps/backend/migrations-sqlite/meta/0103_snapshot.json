@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "10a3122f-4da9-42aa-929f-81e724fc7365",
+  "id": "ea4a79f0-75ed-41a2-bf5b-012dbeca7392",
   "prevId": "df9fd05e-67b3-4ebf-8147-01ec74ed4739",
   "tables": {
     "account": {
@@ -2199,13 +2199,6 @@
         },
         "repo_provider": {
           "name": "repo_provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "encrypted_github_access_token": {
-          "name": "encrypted_github_access_token",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -6444,6 +6437,13 @@
         },
         "map_settings": {
           "name": "map_settings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "menu_settings": {
+          "name": "menu_settings",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

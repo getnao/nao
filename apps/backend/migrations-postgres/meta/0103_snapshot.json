@@ -1,5 +1,5 @@
 {
-  "id": "a45ccb73-5be0-4aca-b527-bddc4607f440",
+  "id": "38240ebc-4e78-41c7-9176-f824a3fdcfa2",
   "prevId": "ffc9d7c5-4eba-4d25-81c9-3dbb0cf72b2e",
   "version": "7",
   "dialect": "postgresql",
@@ -2462,12 +2462,6 @@
         },
         "repo_provider": {
           "name": "repo_provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "encrypted_github_access_token": {
-          "name": "encrypted_github_access_token",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -6995,6 +6989,12 @@
         },
         "map_settings": {
           "name": "map_settings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "menu_settings": {
+          "name": "menu_settings",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

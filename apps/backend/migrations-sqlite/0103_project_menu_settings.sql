@@ -1,0 +1,1 @@
+ALTER TABLE `project` ADD `menu_settings` text;

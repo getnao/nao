@@ -21,6 +21,7 @@
 		"./date": "./src/date.ts",
 		"./keyboard-shortcut": "./src/keyboard-shortcut.ts",
 		"./map": "./src/map.ts",
+		"./sidebar-menu": "./src/sidebar-menu.ts",
 		"./test-paths": "./src/test-paths.ts",
 		"./types": "./src/types.ts",
 		"./member-budget": "./src/member-budget.ts",

@@ -726,8 +726,15 @@
     {
       "idx": 103,
       "version": "7",
-      "when": 1794656202354,
-      "tag": "0103_shared_github_access_token",
+      "when": 1794608573692,
+      "tag": "0103_project_menu_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794665362220,
+      "tag": "0104_shared_github_access_token",
       "breakpoints": true
     }
   ]

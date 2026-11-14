@@ -1426,6 +1426,33 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 
+	// ── Appearance > Menu ────────────────────────────────────
+	{
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
+		search: { tab: 'menu' },
+		section: 'Menu',
+		title: 'Sidebar menu',
+		description:
+			'Rename, hide and reorder the sidebar menu entries, and add entries that open a story, a filtered Stories page or a link. Enterprise feature.',
+		keywords: [
+			'menu',
+			'sidebar',
+			'navigation',
+			'nav',
+			'entries',
+			'links',
+			'rename',
+			'hide',
+			'reorder',
+			'apps',
+			'custom page',
+			'shortcut',
+			'enterprise',
+		],
+		adminOnly: true,
+	},
+
 	// ── Appearance > Stories ─────────────────────────────────
 	{
 		page: '/settings/appearance',
