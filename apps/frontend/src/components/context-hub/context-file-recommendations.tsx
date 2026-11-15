@@ -49,6 +49,7 @@ export function ContextFileRecommendations({ path, isDirty }: { path: string | n
 
 	return (
 		<RecommendationGroup
+			key={`${path}:${requestedRecommendationId ?? ''}`}
 			count={fileRecommendations.length}
 			isInitiallyExpanded={fileRecommendations.some(
 				({ recommendation }) => recommendation.id === requestedRecommendationId,
@@ -59,7 +60,10 @@ export function ContextFileRecommendations({ path, isDirty }: { path: string | n
 	);
 }
 
-/** Folds a long list of recommendations behind one row so they do not push the file out of view. */
+/**
+ * Folds a long list of recommendations behind one row so they do not push the file out of view. The list stays
+ * mounted while folded so Apply feedback survives.
+ */
 function RecommendationGroup({
 	count,
 	isInitiallyExpanded,
@@ -88,7 +92,9 @@ function RecommendationGroup({
 				<Lightbulb className='size-4 shrink-0 text-amber-500' />
 				<span className='font-medium'>nao suggests {count} changes to this file</span>
 			</button>
-			{isExpanded && <div className='max-h-[40vh] overflow-y-auto border-t'>{children}</div>}
+			<div hidden={!isExpanded} className='max-h-[40vh] overflow-y-auto border-t'>
+				{children}
+			</div>
 		</div>
 	);
 }

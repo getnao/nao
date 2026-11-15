@@ -138,6 +138,43 @@ describe('ContextFileRecommendations', () => {
 		]);
 	});
 
+	it('opens the folded list again when a link asks for another recommendation', () => {
+		mocks.fileRecommendations = createRecommendations(5);
+		mocks.search = { recommendation: 'rec-3' };
+		const { rerender } = renderRecommendations();
+		fireEvent.click(screen.getByRole('button', { name: /nao suggests 5 changes/ }));
+
+		mocks.search = { recommendation: 'rec-1' };
+		rerender(
+			<QueryClientProvider client={createTestQueryClient()}>
+				<TooltipProvider>
+					<ContextFileRecommendations path='/RULES.md' isDirty={false} />
+				</TooltipProvider>
+			</QueryClientProvider>,
+		);
+
+		expect(screen.queryAllByRole('button', { name: 'Apply' })).toHaveLength(5);
+	});
+
+	it('keeps what could not be applied after folding and reopening the list', async () => {
+		mocks.fileRecommendations = createRecommendations(5);
+		mocks.search = { recommendation: 'rec-0' };
+		mocks.applyToChanges.mockResolvedValue({
+			changedPaths: [],
+			unchangedPaths: [],
+			conflicts: [{ path: '/RULES.md', reason: 'The file changed since nao proposed this edit.' }],
+		});
+		renderRecommendations();
+		fireEvent.click(screen.getAllByRole('button', { name: 'Apply' })[0]);
+		await screen.findByText(/The file changed since nao proposed this edit/);
+
+		const groupToggle = screen.getByRole('button', { name: /nao suggests 5 changes/ });
+		fireEvent.click(groupToggle);
+		fireEvent.click(groupToggle);
+
+		expect(screen.getByText(/The file changed since nao proposed this edit/)).toBeDefined();
+	});
+
 	it('applies the change to the user changes and refreshes the hub', async () => {
 		mocks.applyToChanges.mockResolvedValue({ changedPaths: ['/RULES.md'], unchangedPaths: [], conflicts: [] });
 		renderRecommendations();
