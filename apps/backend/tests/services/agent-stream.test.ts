@@ -73,6 +73,25 @@ describe('AgentStreamService', () => {
 		expect(await Array.fromAsync(reconnected!)).toEqual([START, FINISH]);
 	});
 
+	it('forgets a replaced run that ended before the run that replaced it', async () => {
+		const reclaim = vi.fn(async () => {});
+		const relay = {
+			publish: vi.fn(async () => ({ end: vi.fn(async () => {}), reclaim })),
+			read: vi.fn(async () => null),
+		} as unknown as AgentStreamRelay;
+		const service = new AgentStreamService(relay);
+		const firstAgentStream = controllableStream();
+		const firstReading = Array.fromAsync(service.open('chat-1', 'user-1').start(firstAgentStream.stream));
+		const newerRun = service.open('chat-1', 'user-1');
+		firstAgentStream.close();
+		await firstReading;
+
+		newerRun.fail();
+
+		await vi.waitFor(async () => expect(await service.read('chat-1')).toBeNull());
+		expect(reclaim).not.toHaveBeenCalled();
+	});
+
 	it('has no stream to read for a chat once its run ended', async () => {
 		const service = new AgentStreamService(null);
 		const agentStream = controllableStream();
