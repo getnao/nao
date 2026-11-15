@@ -8,6 +8,7 @@ import { deferred } from '../helpers/deferred';
 import type { AgentState } from '@/hooks/use-agent';
 import { useAgent, useSyncMessages } from '@/hooks/use-agent';
 import { agentService } from '@/services/agents';
+import { chatActivityStore } from '@/stores/chat-activity';
 
 const mocks = vi.hoisted(() => {
 	Object.defineProperty(URL, 'createObjectURL', {
@@ -202,6 +203,44 @@ describe('useAgent stream resume', () => {
 
 		await waitFor(() => expect(result.current.isLoadingMessages).toBe(false));
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe('useAgent chat activity', () => {
+	const answered = [
+		{ id: 'user-message', role: 'user', parts: [{ type: 'text', text: 'How did revenue do?' }] },
+		{ id: 'assistant-message', role: 'assistant', parts: [{ type: 'text', text: 'It grew.' }] },
+	];
+
+	afterEach(() => {
+		['running-chat', 'idle-chat'].forEach((chatId) => {
+			agentService.getAgent(chatId)?.stop();
+			agentService.disposeAgent(chatId);
+			chatActivityStore.setRunning(chatId, false);
+			chatActivityStore.setUnread(chatId, false);
+		});
+		vi.unstubAllGlobals();
+	});
+
+	it('keeps each chat running state its own when navigating between a running and an idle chat', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => new Promise<Response>(() => {})),
+		);
+		openChat('running-chat', answered);
+		const { result, rerender } = renderAgent();
+		void agentService.getAgent('running-chat')!.sendMessage({ text: 'And costs?' });
+		await waitFor(() => expect(result.current.isRunning).toBe(true));
+
+		mocks.contextChatId = 'idle-chat';
+		rerender();
+		await waitFor(() => expect(result.current.isRunning).toBe(false));
+		expect(chatActivityStore.getActivity('running-chat').running).toBe(true);
+
+		mocks.contextChatId = 'running-chat';
+		rerender();
+		await waitFor(() => expect(result.current.isRunning).toBe(true));
+		expect(chatActivityStore.getActivity('idle-chat').running).toBe(false);
 	});
 });
 

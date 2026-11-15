@@ -125,6 +125,11 @@ export const useAgent = ({
 	const navigate = useNavigate();
 	const contextChatId = useChatId();
 	const [chatId, setChatId] = useState(contextChatId);
+	const [previousContextChatId, setPreviousContextChatId] = useState(contextChatId);
+	if (contextChatId !== previousContextChatId) {
+		setPreviousContextChatId(contextChatId);
+		setChatId(contextChatId);
+	}
 	const chat = useChatQuery({ chatId });
 	const { data: session } = useSession();
 
@@ -156,10 +161,6 @@ export const useAgent = ({
 	const adminModeRef = useRef(false);
 	/** Set to the server id of a chat that was just created, so the upcoming chatId change is treated as the same conversation continuing rather than opening a different chat. */
 	const continuationChatIdRef = useRef<string | undefined>(undefined);
-
-	useEffect(() => {
-		setChatId(contextChatId);
-	}, [contextChatId]);
 
 	const setMentions = useCallback((mentions: MentionOption[]) => {
 		mentionsRef.current = mentions;
@@ -356,7 +357,7 @@ export const useAgent = ({
 	);
 	const isCatchingUp = useResumeRunningAnswer({
 		agent: agentInstance,
-		chatId: chatId === contextChatId ? chatId : undefined,
+		chatId,
 		loadedMessages: chat.data?.messages,
 		status,
 		refetchSavedMessages,
@@ -691,8 +692,7 @@ const RESUME_RETRY_DELAY_MS = 1_000;
 /**
  * After a reload, follows the answer the server is still writing, and returns whether it is still waiting
  * for the server to answer. The saved messages only hold an answer once it is complete, so a chat whose
- * last saved message is the user's may have one running. `chatId` is only set once the loaded messages
- * belong to the agent's chat.
+ * last saved message is the user's may have one running.
  */
 function useResumeRunningAnswer({
 	agent,

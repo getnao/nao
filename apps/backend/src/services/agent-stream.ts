@@ -14,6 +14,9 @@ interface LocalStream {
 	streamId: string;
 	userId: string;
 	buffer: ChunkBuffer<UIMessageChunk>;
+	published?: Promise<PublishedAgentStream | undefined>;
+	replaced?: LocalStream;
+	hasEnded: boolean;
 }
 
 export const FAILED_STREAM_MESSAGE = 'The agent stream failed.';
@@ -28,11 +31,18 @@ export class AgentStreamService {
 
 	constructor(private readonly _relay: AgentStreamRelay | null) {}
 
+	/** Opens the chat's run. One it replaces, still running, comes back once this one ends. */
 	open(chatId: string, userId: string): OpenAgentStream {
-		const local: LocalStream = { streamId: crypto.randomUUID(), userId, buffer: new ChunkBuffer() };
+		const local: LocalStream = {
+			streamId: crypto.randomUUID(),
+			userId,
+			buffer: new ChunkBuffer(),
+			replaced: findRunning(this._streams.get(chatId)),
+			hasEnded: false,
+		};
 		this._streams.set(chatId, local);
-		const published = this._publish(chatId, local);
-		const end = () => this._end(chatId, local, published);
+		local.published = this._publish(chatId, local);
+		const end = () => this._end(chatId, local);
 		return {
 			start: (stream) => {
 				void drainInto(stream, local.buffer).finally(end);
@@ -81,18 +91,26 @@ export class AgentStreamService {
 		}
 	}
 
-	private async _end(
-		chatId: string,
-		local: LocalStream,
-		published: Promise<PublishedAgentStream | undefined>,
-	): Promise<void> {
-		if (this._streams.get(chatId) === local) {
-			this._streams.delete(chatId);
+	private async _end(chatId: string, local: LocalStream): Promise<void> {
+		local.hasEnded = true;
+		const isCurrent = this._streams.get(chatId) === local;
+		const restored = isCurrent ? findRunning(local.replaced) : undefined;
+		if (isCurrent) {
+			this._setOrDelete(chatId, restored);
 		}
 		try {
-			await (await published)?.end();
+			await (await local.published)?.end();
+			await (await restored?.published)?.reclaim();
 		} catch (error) {
 			logStreamError('Failed to end a published agent stream', chatId, error);
+		}
+	}
+
+	private _setOrDelete(chatId: string, local: LocalStream | undefined): void {
+		if (local) {
+			this._streams.set(chatId, local);
+		} else {
+			this._streams.delete(chatId);
 		}
 	}
 }
@@ -113,6 +131,14 @@ async function drainInto(stream: ReadableStream<UIMessageChunk>, buffer: ChunkBu
 	} finally {
 		buffer.close();
 	}
+}
+
+function findRunning(local: LocalStream | undefined): LocalStream | undefined {
+	let candidate = local;
+	while (candidate?.hasEnded) {
+		candidate = candidate.replaced;
+	}
+	return candidate;
 }
 
 function logStreamError(message: string, chatId: string, error: unknown): void {
