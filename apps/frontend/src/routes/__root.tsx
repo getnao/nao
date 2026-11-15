@@ -4,6 +4,7 @@ import { BrandingHead } from '../components/branding-head';
 import { ModifyPassword } from '../components/modify-password';
 import { Spinner } from '@/components/ui/spinner';
 import { useDisposeInactiveAgents } from '@/hooks/use-agent';
+import { useServerRunningChats } from '@/hooks/use-server-running-chats';
 import { useSessionOrNavigateToIndexPage } from '@/hooks/use-session-or-navigate-to-index-page';
 import { useNavigateToResetPasswordPageIfNeeded } from '@/hooks/useNavigateToResetPasswordPageIfNeeded';
 import { useIdentifyPostHog } from '@/hooks/use-identify-posthog';
@@ -25,6 +26,7 @@ function RootComponent() {
 function AuthenticatedRoot() {
 	const session = useSessionOrNavigateToIndexPage();
 	useDisposeInactiveAgents();
+	useServerRunningChats(!!session.data);
 	useIdentifyPostHog();
 
 	if (useNavigateToResetPasswordPageIfNeeded()) {

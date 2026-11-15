@@ -61,6 +61,8 @@ export interface AgentHelpers {
 	submitQueuedMessageNow: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
+	/** The chat reconnects to an answer the server is still writing, and has not received any of it yet. */
+	isCatchingUp: boolean;
 	isLoadingMessages: boolean;
 	cancelAgent: () => Promise<void>;
 	error: Error | undefined;
@@ -236,12 +238,17 @@ export const useAgent = ({
 		const newAgent = new Agent<UIMessage>({
 			transport: new DefaultChatTransport({
 				api: '/api/agent',
+				prepareReconnectToStreamRequest: () => ({
+					api: `/api/agent/${agentId}/stream`,
+					headers: getProjectRequestHeaders(),
+				}),
 				prepareSendMessagesRequest: ({ body, messages }) => {
 					const messageToSend = messages.at(-1);
 					if (!messageToSend) {
 						throw new Error('No message to send.');
 					}
 
+					agentsReadingServerStream.add(newAgent);
 					const liveRefs = agentSendRefsStore.get(newAgent);
 					const activeMentionsRef = liveRefs?.mentionsRef ?? mentionsRef;
 					const activeModeRef = liveRefs?.modeRef ?? modeRef;
@@ -339,11 +346,24 @@ export const useAgent = ({
 	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
 
+	const refetchChat = useCallback(() => {
+		if (chatIdRef.current) {
+			queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: chatIdRef.current }) });
+		}
+	}, [queryClient]);
+	const isCatchingUp = useResumeRunningAnswer({
+		agent: agentInstance,
+		chatId,
+		loadedMessages: chat.data?.messages,
+		status,
+		refetchChat,
+	});
+
 	useEffect(() => {
 		if (chatId) {
-			chatActivityStore.setRunning(chatId, isRunning);
+			chatActivityStore.setRunning(chatId, isRunning || isCatchingUp);
 		}
-	}, [chatId, isRunning]);
+	}, [chatId, isRunning, isCatchingUp]);
 
 	useEffect(() => {
 		if (chatId) {
@@ -603,6 +623,7 @@ export const useAgent = ({
 		submitQueuedMessageNow,
 		status,
 		isRunning,
+		isCatchingUp,
 		isLoadingMessages: chat.isLoading,
 		cancelAgent,
 		error,
@@ -657,6 +678,63 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 		wasRunningRef.current = agent.isRunning;
 	}, [agent.isRunning, setChat, chatId]);
 };
+
+/** Agents that already read their chat's stream, by sending a message or by resuming, so they never resume again. */
+const agentsReadingServerStream = new WeakSet<Agent<UIMessage>>();
+
+/**
+ * After a reload, follows the answer the server is still writing, and returns whether it is still waiting
+ * for the server to answer. The saved messages only hold an answer once it is complete, so a chat whose
+ * last saved message is the user's may have one running. When the answer completed in the meantime, the
+ * saved messages are fetched again to show it.
+ */
+function useResumeRunningAnswer({
+	agent,
+	chatId,
+	loadedMessages,
+	status,
+	refetchChat,
+}: {
+	agent: Agent<UIMessage>;
+	chatId: string | undefined;
+	loadedMessages: UIMessage[] | undefined;
+	status: UseChatHelpers<UIMessage>['status'];
+	refetchChat: () => void;
+}): boolean {
+	const [catchingUpAgent, setCatchingUpAgent] = useState<Agent<UIMessage>>();
+	const hasServerAnswered = status !== 'ready';
+
+	useEffect(() => {
+		if (hasServerAnswered) {
+			setCatchingUpAgent(undefined);
+		}
+	}, [hasServerAnswered]);
+
+	useEffect(() => {
+		const awaitsAnswer = loadedMessages?.at(-1)?.role === 'user';
+		if (
+			!chatId ||
+			!loadedMessages ||
+			!awaitsAnswer ||
+			agentsReadingServerStream.has(agent) ||
+			checkIsAgentRunning(agent)
+		) {
+			return;
+		}
+
+		agentsReadingServerStream.add(agent);
+		agent.messages = loadedMessages;
+		setCatchingUpAgent(agent);
+		void agent.resumeStream().then(() => {
+			setCatchingUpAgent((current) => (current === agent ? undefined : current));
+			if (agent.messages.at(-1)?.role === 'user') {
+				refetchChat();
+			}
+		});
+	}, [agent, chatId, loadedMessages, refetchChat]);
+
+	return catchingUpAgent === agent && !hasServerAnswered;
+}
 
 /**
  * User messages without the optimistic copy the server has not acknowledged yet: while the agent

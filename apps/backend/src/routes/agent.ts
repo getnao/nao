@@ -1,17 +1,25 @@
 import { JsonToSseTransformStream, UI_MESSAGE_STREAM_HEADERS } from 'ai';
 import type { IncomingHttpHeaders } from 'http';
+import { z } from 'zod/v4';
 
 import type { App } from '../app';
 import { handleAgentRoute } from '../handlers/agent';
 import { authMiddleware } from '../middleware/auth';
+import { getChatOwnerId } from '../queries/chat.queries';
 import { authorizeAgentRun } from '../services/agent-run';
+import { agentStreamService } from '../services/agent-stream';
 import { AgentRequestSchema } from '../types/chat';
 import { trackAgentStreamDisconnect } from '../utils/agent-stream-disconnect';
+import { HandlerError } from '../utils/error';
 import { withQueryResultPreviewsInStream } from '../utils/query-result-preview';
 import { withSseKeepAlive } from '../utils/sse-keep-alive';
 
 const DEBUG_CHUNKS = false;
 const KEEP_ALIVE_INTERVAL_MS = 10_000;
+
+const streamParamsSchema = z.object({
+	chatId: z.string(),
+});
 
 export const agentRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
@@ -34,7 +42,7 @@ export const agentRoutes = async (app: App) => {
 			throw error;
 		});
 
-		let stream = withQueryResultPreviewsInStream(result.stream);
+		let stream = agentStreamService.start(result.chatId, user.id, withQueryResultPreviewsInStream(result.stream));
 
 		if (DEBUG_CHUNKS) {
 			stream = stream.pipeThrough(
@@ -59,6 +67,20 @@ export const agentRoutes = async (app: App) => {
 		}).pipeThrough(new JsonToSseTransformStream());
 
 		return createAgentStreamResponse(sseStream);
+	});
+
+	/** Where a client reconnects after a reload: replays the chat's running answer, or 204 when none runs. */
+	app.get('/:chatId/stream', { schema: { params: streamParamsSchema } }, async (request, reply) => {
+		const { chatId } = request.params;
+		if ((await getChatOwnerId(chatId)) !== request.user.id) {
+			throw new HandlerError('NOT_FOUND', `Chat with id ${chatId} not found.`);
+		}
+
+		const stream = await agentStreamService.read(chatId);
+		if (!stream) {
+			return reply.status(204).send();
+		}
+		return createAgentStreamResponse(stream.pipeThrough(new JsonToSseTransformStream()));
 	});
 };
 
