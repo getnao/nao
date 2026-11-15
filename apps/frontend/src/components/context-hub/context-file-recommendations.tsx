@@ -17,6 +17,9 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 const SAVE_FIRST_MESSAGE = 'Save or discard your edits before applying the change.';
+const MAX_UNGROUPED_RECOMMENDATIONS = 3;
+
+type FileRecommendationEntry = { recommendation: ContextRecommendation; edits: RecommendationFileEdit[] };
 
 /**
  * The changes nao recommends for the open file, from what went wrong in real chats: each one can be reviewed as a
@@ -30,15 +33,87 @@ export function ContextFileRecommendations({ path, isDirty }: { path: string | n
 		return null;
 	}
 
+	const isGrouped = fileRecommendations.length > MAX_UNGROUPED_RECOMMENDATIONS;
+	const list = (
+		<RecommendationList
+			fileRecommendations={fileRecommendations}
+			requestedRecommendationId={requestedRecommendationId}
+			isDirty={isDirty}
+			hasSourceLabel={!isGrouped}
+		/>
+	);
+
+	if (!isGrouped) {
+		return <div className='border-b bg-amber-500/5'>{list}</div>;
+	}
+
 	return (
-		<div className='flex flex-col divide-y border-b bg-amber-500/5'>
-			{fileRecommendations.map(({ recommendation, edits }) => (
+		<RecommendationGroup
+			count={fileRecommendations.length}
+			isInitiallyExpanded={fileRecommendations.some(
+				({ recommendation }) => recommendation.id === requestedRecommendationId,
+			)}
+		>
+			{list}
+		</RecommendationGroup>
+	);
+}
+
+/** Folds a long list of recommendations behind one row so they do not push the file out of view. */
+function RecommendationGroup({
+	count,
+	isInitiallyExpanded,
+	children,
+}: {
+	count: number;
+	isInitiallyExpanded: boolean;
+	children: React.ReactNode;
+}) {
+	const [isExpanded, setIsExpanded] = useState(isInitiallyExpanded);
+
+	return (
+		<div className='flex flex-col border-b bg-amber-500/5'>
+			<button
+				type='button'
+				onClick={() => setIsExpanded((value) => !value)}
+				aria-expanded={isExpanded}
+				className='flex cursor-pointer items-center gap-2 px-4 py-2 text-left text-sm'
+			>
+				<ChevronRight
+					className={cn(
+						'size-3.5 shrink-0 text-muted-foreground transition-transform',
+						isExpanded && 'rotate-90',
+					)}
+				/>
+				<Lightbulb className='size-4 shrink-0 text-amber-500' />
+				<span className='font-medium'>nao suggests {count} changes to this file</span>
+			</button>
+			{isExpanded && <div className='max-h-[40vh] overflow-y-auto border-t'>{children}</div>}
+		</div>
+	);
+}
+
+function RecommendationList({
+	fileRecommendations,
+	requestedRecommendationId,
+	isDirty,
+	hasSourceLabel,
+}: {
+	fileRecommendations: FileRecommendationEntry[];
+	requestedRecommendationId: string | undefined;
+	isDirty: boolean;
+	hasSourceLabel: boolean;
+}) {
+	return (
+		<div className='flex flex-col divide-y'>
+			{putRequestedFirst(fileRecommendations, requestedRecommendationId).map(({ recommendation, edits }) => (
 				<FileRecommendation
 					key={recommendation.id}
 					recommendation={recommendation}
 					edits={edits}
 					isDirty={isDirty}
 					isInitiallyExpanded={recommendation.id === requestedRecommendationId}
+					hasSourceLabel={hasSourceLabel}
 				/>
 			))}
 		</div>
@@ -50,12 +125,14 @@ function FileRecommendation({
 	edits,
 	isDirty,
 	isInitiallyExpanded,
+	hasSourceLabel,
 }: {
 	recommendation: ContextRecommendation;
 	/** Everything Apply writes, the open file first. */
 	edits: RecommendationFileEdit[];
 	isDirty: boolean;
 	isInitiallyExpanded: boolean;
+	hasSourceLabel: boolean;
 }) {
 	const [isExpanded, setIsExpanded] = useState(isInitiallyExpanded);
 	const { apply, dismiss, isPending, errorMessage } = useRecommendationActions(recommendation.id);
@@ -76,7 +153,7 @@ function FileRecommendation({
 						)}
 					/>
 					<Lightbulb className='size-4 shrink-0 text-amber-500' />
-					<span className='shrink-0 text-xs text-muted-foreground'>Suggested by nao</span>
+					{hasSourceLabel && <span className='shrink-0 text-xs text-muted-foreground'>Suggested by nao</span>}
 					<span className='truncate font-medium' title={recommendation.title}>
 						{recommendation.title}
 					</span>
@@ -210,4 +287,15 @@ function describeConflicts(result: ContextRecommendationApplyResult): string | n
 	}
 	const reasons = result.conflicts.map((conflict) => `${conflict.path}: ${conflict.reason}`).join(' ');
 	return `Some of the change could not be applied. ${reasons} Ask nao in the chat to apply it.`;
+}
+
+function putRequestedFirst(
+	fileRecommendations: FileRecommendationEntry[],
+	requestedRecommendationId: string | undefined,
+): FileRecommendationEntry[] {
+	const requested = fileRecommendations.filter(
+		({ recommendation }) => recommendation.id === requestedRecommendationId,
+	);
+	const others = fileRecommendations.filter(({ recommendation }) => recommendation.id !== requestedRecommendationId);
+	return [...requested, ...others];
 }
