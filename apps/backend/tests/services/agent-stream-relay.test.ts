@@ -37,7 +37,7 @@ describe('AgentStreamRelay', () => {
 		await db.insert(s.user).values({ id: 'user-1', name: 'User', email: 'user@example.com' });
 		await db.insert(s.project).values({ id: 'project-1', name: 'Project', type: 'local', path: '/tmp/project' });
 		await db.insert(s.chat).values(
-			['chat-relayed', 'chat-ended', 'chat-stale', 'chat-stopped'].map((id) => ({
+			['chat-relayed', 'chat-relay-failed', 'chat-ended', 'chat-stale', 'chat-stopped'].map((id) => ({
 				id,
 				projectId: 'project-1',
 				userId: 'user-1',
@@ -62,6 +62,23 @@ describe('AgentStreamRelay', () => {
 
 		expect(await reading).toEqual([START, TEXT, FINISH]);
 		await published.end();
+	});
+
+	it('picks the relay up where it failed, so the reader still gets the whole run', async () => {
+		const { runningInstance, readingInstance } = createInstances({ failingChunkNotifications: 1 });
+		const buffer = new ChunkBuffer<UIMessageChunk>();
+		buffer.push(START);
+		const published = await runningInstance.publish('chat-relay-failed', 'stream-relay-failed', buffer);
+
+		const stream = await readingInstance.read('chat-relay-failed');
+		const reading = Array.fromAsync(stream!);
+		await new Promise((resolve) => setTimeout(resolve, TIMINGS.readPollMs * 3));
+		buffer.push(TEXT);
+		buffer.push(FINISH);
+		buffer.close();
+		await published.end();
+
+		expect(await reading).toEqual([START, TEXT, FINISH]);
 	});
 
 	it('has no stream for a chat without a live run, including one whose run ended', async () => {
@@ -104,13 +121,21 @@ describe('AgentStreamRelay', () => {
 });
 
 /** Two backend instances sharing one database and one notification bus. */
-function createInstances({ runningHeartbeatIntervalMs = TIMINGS.heartbeatIntervalMs } = {}) {
+function createInstances({
+	runningHeartbeatIntervalMs = TIMINGS.heartbeatIntervalMs,
+	failingChunkNotifications = 0,
+} = {}) {
 	const listeners = new Map<string, Set<(payload: string) => void>>();
+	let chunkNotificationsToFail = failingChunkNotifications;
 	const notifications: DatabaseNotifications = {
 		listen: async (channel, onNotify) => {
 			listeners.set(channel, (listeners.get(channel) ?? new Set()).add(onNotify));
 		},
 		notify: async (channel, payload) => {
+			if (channel === 'agent_stream_chunks' && chunkNotificationsToFail > 0) {
+				chunkNotificationsToFail--;
+				throw new Error('Notification failed');
+			}
 			setTimeout(() => listeners.get(channel)?.forEach((onNotify) => onNotify(payload)));
 		},
 	};

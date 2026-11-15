@@ -58,14 +58,20 @@ describe('useServerRunningChats', () => {
 		expect(chatActivityStore.getActivity('chat-open')).toEqual({ running: false, unread: false });
 	});
 
-	it('leaves a chat with an agent in this tab to that agent', async () => {
-		agentService.registerAgent('chat-with-agent', {} as Agent);
-		mocks.runningChatIds = ['chat-with-agent', 'chat-elsewhere'];
-		renderHook(() => useServerRunningChats(true), { wrapper: withQueryClient(createTestQueryClient()) });
+	it.each([
+		{ agentStatus: 'streaming', isShownRunning: false },
+		{ agentStatus: 'ready', isShownRunning: true },
+	] as const)(
+		'shows a chat whose agent in this tab is $agentStatus as running: $isShownRunning',
+		async ({ agentStatus, isShownRunning }) => {
+			agentService.registerAgent('chat-with-agent', { status: agentStatus } as Agent);
+			mocks.runningChatIds = ['chat-with-agent', 'chat-elsewhere'];
+			renderHook(() => useServerRunningChats(true), { wrapper: withQueryClient(createTestQueryClient()) });
 
-		await waitFor(() => expect(chatActivityStore.getActivity('chat-elsewhere').running).toBe(true));
-		expect(chatActivityStore.getActivity('chat-with-agent').running).toBe(false);
-	});
+			await waitFor(() => expect(chatActivityStore.getActivity('chat-elsewhere').running).toBe(true));
+			expect(chatActivityStore.getActivity('chat-with-agent').running).toBe(isShownRunning);
+		},
+	);
 });
 
 function withQueryClient(queryClient: ReturnType<typeof createTestQueryClient>) {

@@ -346,17 +346,20 @@ export const useAgent = ({
 	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
 
-	const refetchChat = useCallback(() => {
-		if (chatIdRef.current) {
-			queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: chatIdRef.current }) });
-		}
-	}, [queryClient]);
+	const refetchSavedMessages = useCallback(
+		async (chatIdToRefetch: string) => {
+			const queryKey = trpc.chat.get.queryKey({ chatId: chatIdToRefetch });
+			await queryClient.invalidateQueries({ queryKey });
+			return queryClient.getQueryData(queryKey)?.messages;
+		},
+		[queryClient],
+	);
 	const isCatchingUp = useResumeRunningAnswer({
 		agent: agentInstance,
-		chatId,
+		chatId: chatId === contextChatId ? chatId : undefined,
 		loadedMessages: chat.data?.messages,
 		status,
-		refetchChat,
+		refetchSavedMessages,
 	});
 
 	useEffect(() => {
@@ -682,24 +685,27 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 /** Agents that already read their chat's stream, by sending a message or by resuming, so they never resume again. */
 const agentsReadingServerStream = new WeakSet<Agent<UIMessage>>();
 
+const RESUME_ATTEMPTS = 8;
+const RESUME_RETRY_DELAY_MS = 1_000;
+
 /**
  * After a reload, follows the answer the server is still writing, and returns whether it is still waiting
  * for the server to answer. The saved messages only hold an answer once it is complete, so a chat whose
- * last saved message is the user's may have one running. When the answer completed in the meantime, the
- * saved messages are fetched again to show it.
+ * last saved message is the user's may have one running. `chatId` is only set once the loaded messages
+ * belong to the agent's chat.
  */
 function useResumeRunningAnswer({
 	agent,
 	chatId,
 	loadedMessages,
 	status,
-	refetchChat,
+	refetchSavedMessages,
 }: {
 	agent: Agent<UIMessage>;
 	chatId: string | undefined;
 	loadedMessages: UIMessage[] | undefined;
 	status: UseChatHelpers<UIMessage>['status'];
-	refetchChat: () => void;
+	refetchSavedMessages: (chatId: string) => Promise<UIMessage[] | undefined>;
 }): boolean {
 	const [catchingUpAgent, setCatchingUpAgent] = useState<Agent<UIMessage>>();
 	const hasServerAnswered = status !== 'ready';
@@ -711,11 +717,10 @@ function useResumeRunningAnswer({
 	}, [hasServerAnswered]);
 
 	useEffect(() => {
-		const awaitsAnswer = loadedMessages?.at(-1)?.role === 'user';
 		if (
 			!chatId ||
 			!loadedMessages ||
-			!awaitsAnswer ||
+			!isAwaitingAnswer(loadedMessages) ||
 			agentsReadingServerStream.has(agent) ||
 			checkIsAgentRunning(agent)
 		) {
@@ -725,15 +730,40 @@ function useResumeRunningAnswer({
 		agentsReadingServerStream.add(agent);
 		agent.messages = loadedMessages;
 		setCatchingUpAgent(agent);
-		void agent.resumeStream().then(() => {
-			setCatchingUpAgent((current) => (current === agent ? undefined : current));
-			if (agent.messages.at(-1)?.role === 'user') {
-				refetchChat();
-			}
-		});
-	}, [agent, chatId, loadedMessages, refetchChat]);
+		void followRunningAnswer(agent, () => refetchSavedMessages(chatId)).finally(() =>
+			setCatchingUpAgent((current) => (current === agent ? undefined : current)),
+		);
+	}, [agent, chatId, loadedMessages, refetchSavedMessages]);
 
 	return catchingUpAgent === agent && !hasServerAnswered;
+}
+
+/**
+ * Reconnects until the answer shows up. Right after the question is saved, the server may still be setting
+ * the run up, and once the answer is complete it is in the saved messages, fetched again to show it.
+ */
+async function followRunningAnswer(
+	agent: Agent<UIMessage>,
+	refetchSavedMessages: () => Promise<UIMessage[] | undefined>,
+): Promise<void> {
+	for (let attempt = 1; attempt <= RESUME_ATTEMPTS; attempt++) {
+		await agent.resumeStream();
+		if (!isAwaitingAnswer(agent.messages)) {
+			return;
+		}
+		const savedMessages = await refetchSavedMessages();
+		if (!savedMessages || !isAwaitingAnswer(savedMessages) || attempt === RESUME_ATTEMPTS) {
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, RESUME_RETRY_DELAY_MS));
+		if (checkIsAgentRunning(agent)) {
+			return;
+		}
+	}
+}
+
+function isAwaitingAnswer(messages: UIMessage[]): boolean {
+	return messages.at(-1)?.role === 'user';
 }
 
 /**

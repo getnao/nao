@@ -33,7 +33,9 @@ const mocks = vi.hoisted(() => {
 		contextChatId: undefined as string | undefined,
 		setChat: vi.fn(),
 		trpc: new Proxy({}, trpcHandler),
-		useChatQuery: vi.fn((): { data?: { messages: unknown[] }; isLoading?: boolean } => ({ data: undefined })),
+		useChatQuery: vi.fn((_query: { chatId?: string }): { data?: { messages: unknown[] }; isLoading?: boolean } => ({
+			data: undefined,
+		})),
 	};
 });
 
@@ -157,6 +159,40 @@ describe('useAgent stream resume', () => {
 		await waitFor(() =>
 			expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['trpc-query', { chatId: 'finished-chat' }] }),
 		);
+	});
+
+	it('reconnects again while the server is still setting the run up', async () => {
+		openChat('starting-chat', [question]);
+		fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+		fetchMock.mockResolvedValueOnce(
+			toEventStreamResponse([{ type: 'start', messageId: 'assistant-message' }, { type: 'finish' }]),
+		);
+		const queryClient = new QueryClient();
+		queryClient.setQueryData(['trpc-query', { chatId: 'starting-chat' }], { messages: [question] });
+
+		const { result } = renderAgent(queryClient);
+
+		await waitFor(() => expect(result.current.messages.at(-1)?.id).toBe('assistant-message'), { timeout: 3_000 });
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not resume a chat with the messages of the chat it navigated from', async () => {
+		mocks.useChatQuery.mockImplementation(({ chatId }) => ({
+			data: { messages: chatId === 'next-chat' ? [question, answer] : [question] },
+			isLoading: false,
+		}));
+		fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+		mocks.contextChatId = 'previous-chat';
+		const { rerender } = renderAgent();
+		await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+		agentService.disposeAgent('previous-chat');
+		fetchMock.mockClear();
+
+		mocks.contextChatId = 'next-chat';
+		rerender();
+
+		await waitFor(() => expect(mocks.useChatQuery).toHaveBeenLastCalledWith({ chatId: 'next-chat' }));
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('does not reconnect to a chat whose last saved message is an answer', async () => {

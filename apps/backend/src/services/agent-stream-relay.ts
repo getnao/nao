@@ -23,7 +23,14 @@ export interface PublishedAgentStream {
 
 interface PublishedStream {
 	buffer: ChunkBuffer<UIMessageChunk>;
+	relayed: RelayProgress;
 	relaying?: Promise<void>;
+}
+
+interface RelayProgress {
+	seq: number;
+	index: number;
+	isComplete: boolean;
 }
 
 interface NextRows {
@@ -32,6 +39,7 @@ interface NextRows {
 }
 
 export const INTERRUPTED_RUN_MESSAGE = 'The agent run was interrupted because the server running it stopped.';
+export const INCOMPLETE_RELAY_MESSAGE = 'The rest of the answer could not be loaded. Reload the page to see it.';
 
 const CHANNELS = {
 	relayRequest: 'agent_stream_relay_request',
@@ -73,7 +81,7 @@ export class AgentStreamRelay {
 	): Promise<PublishedAgentStream> {
 		await this._listen();
 		await agentStreamQueries.upsertStreamRun(chatId, streamId);
-		const published: PublishedStream = { buffer };
+		const published: PublishedStream = { buffer, relayed: { seq: 0, index: 0, isComplete: false } };
 		this._published.set(streamId, published);
 		const heartbeat = setInterval(
 			() => void agentStreamQueries.touchStreamRun(streamId).catch(logRelayError),
@@ -85,9 +93,13 @@ export class AgentStreamRelay {
 			end: async () => {
 				clearInterval(heartbeat);
 				await published.relaying;
+				if (published.relayed.seq > 0 && !published.relayed.isComplete) {
+					this._startRelay(streamId);
+					await published.relaying;
+				}
 				this._published.delete(streamId);
 				await agentStreamQueries.deleteStreamRun(streamId);
-				if (published.relaying) {
+				if (published.relayed.seq > 0) {
 					this._deleteChunksLater(streamId);
 				}
 			},
@@ -142,26 +154,31 @@ export class AgentStreamRelay {
 		return this._listening;
 	}
 
+	/** Starts relaying the stream, or picks it up where a failed write left it, since waiting readers keep asking. */
 	private _startRelay(streamId: string): void {
 		const published = this._published.get(streamId);
-		if (!published || published.relaying) {
+		if (!published || published.relaying || published.relayed.isComplete) {
 			return;
 		}
-		published.relaying = this._relay(streamId, published.buffer).catch(logRelayError);
+		published.relaying = this._relay(streamId, published)
+			.catch(logRelayError)
+			.finally(() => {
+				published.relaying = undefined;
+			});
 	}
 
 	/** Writes what the run produced so far in one row, then what follows in batches until it ends. */
-	private async _relay(streamId: string, buffer: ChunkBuffer<UIMessageChunk>): Promise<void> {
-		let index = 0;
-		for (let seq = 0; ; seq++) {
-			const { chunks, isClosed } = await buffer.next(index);
-			index += chunks.length;
-			await agentStreamQueries.insertStreamChunks(streamId, { seq, chunks, isFinal: isClosed });
+	private async _relay(streamId: string, { buffer, relayed }: PublishedStream): Promise<void> {
+		while (!relayed.isComplete) {
+			const { chunks, isClosed } = await buffer.next(relayed.index);
+			await agentStreamQueries.insertStreamChunks(streamId, { seq: relayed.seq, chunks, isFinal: isClosed });
+			relayed.seq++;
+			relayed.index += chunks.length;
+			relayed.isComplete = isClosed;
 			await this._notifications.notify(CHANNELS.chunks, streamId);
-			if (isClosed) {
-				return;
+			if (!isClosed) {
+				await delay(this._timings.flushIntervalMs);
 			}
-			await delay(this._timings.flushIntervalMs);
 		}
 	}
 
@@ -185,6 +202,9 @@ export class AgentStreamRelay {
 				if (runState === 'stale') {
 					controller.enqueue({ type: 'error', errorText: INTERRUPTED_RUN_MESSAGE });
 				}
+				if (runState === 'gone' && afterSeq >= 0) {
+					controller.enqueue({ type: 'error', errorText: INCOMPLETE_RELAY_MESSAGE });
+				}
 				if (runState !== 'live') {
 					controller.close();
 				}
@@ -207,9 +227,7 @@ export class AgentStreamRelay {
 			if (runState !== 'live') {
 				return { rows: await agentStreamQueries.getStreamChunksAfter(streamId, afterSeq), runState };
 			}
-			if (afterSeq < 0) {
-				await this._notifications.notify(CHANNELS.relayRequest, streamId);
-			}
+			await this._notifications.notify(CHANNELS.relayRequest, streamId);
 		}
 		return { rows: [], runState: 'gone' };
 	}
