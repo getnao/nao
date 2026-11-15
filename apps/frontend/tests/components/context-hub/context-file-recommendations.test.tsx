@@ -51,6 +51,13 @@ const EDIT = {
 	newContent: '## Revenue\nSum of amounts, refunds excluded.\n',
 };
 
+function createRecommendations(count: number) {
+	return Array.from({ length: count }, (_, index) => ({
+		recommendation: { ...RECOMMENDATION, id: `rec-${index}`, title: `Recommendation ${index}` },
+		edits: [EDIT],
+	}));
+}
+
 function renderRecommendations({ isDirty = false } = {}) {
 	return render(
 		<QueryClientProvider client={createTestQueryClient()}>
@@ -100,6 +107,72 @@ describe('ContextFileRecommendations', () => {
 		expect(screen.getByRole('button', { name: 'Apply to 2 files' })).toBeDefined();
 		expect(screen.getByText('/docs/refunds.md')).toBeDefined();
 		expect(screen.getByText(/Refunds policy/)).toBeDefined();
+	});
+
+	it.each([
+		{ requested: undefined, isListShown: false },
+		{ requested: 'rec-3', isListShown: true },
+	])('folds a long list behind one row unless the link asked for $requested', ({ requested, isListShown }) => {
+		mocks.fileRecommendations = createRecommendations(5);
+		mocks.search = { recommendation: requested };
+
+		renderRecommendations();
+
+		expect(screen.getByRole('button', { name: /nao suggests 5 changes/ })).toBeDefined();
+		expect(screen.queryAllByRole('button', { name: 'Apply' })).toHaveLength(isListShown ? 5 : 0);
+	});
+
+	it('lists the folded recommendations, the requested one first, once the row is opened', () => {
+		mocks.fileRecommendations = createRecommendations(5);
+		mocks.search = { recommendation: 'rec-3' };
+
+		renderRecommendations();
+
+		const titles = screen.getAllByText(/^Recommendation \d$/).map((title) => title.textContent);
+		expect(titles).toEqual([
+			'Recommendation 3',
+			'Recommendation 0',
+			'Recommendation 1',
+			'Recommendation 2',
+			'Recommendation 4',
+		]);
+	});
+
+	it('opens the folded list again when a link asks for another recommendation', () => {
+		mocks.fileRecommendations = createRecommendations(5);
+		mocks.search = { recommendation: 'rec-3' };
+		const { rerender } = renderRecommendations();
+		fireEvent.click(screen.getByRole('button', { name: /nao suggests 5 changes/ }));
+
+		mocks.search = { recommendation: 'rec-1' };
+		rerender(
+			<QueryClientProvider client={createTestQueryClient()}>
+				<TooltipProvider>
+					<ContextFileRecommendations path='/RULES.md' isDirty={false} />
+				</TooltipProvider>
+			</QueryClientProvider>,
+		);
+
+		expect(screen.queryAllByRole('button', { name: 'Apply' })).toHaveLength(5);
+	});
+
+	it('keeps what could not be applied after folding and reopening the list', async () => {
+		mocks.fileRecommendations = createRecommendations(5);
+		mocks.search = { recommendation: 'rec-0' };
+		mocks.applyToChanges.mockResolvedValue({
+			changedPaths: [],
+			unchangedPaths: [],
+			conflicts: [{ path: '/RULES.md', reason: 'The file changed since nao proposed this edit.' }],
+		});
+		renderRecommendations();
+		fireEvent.click(screen.getAllByRole('button', { name: 'Apply' })[0]);
+		await screen.findByText(/The file changed since nao proposed this edit/);
+
+		const groupToggle = screen.getByRole('button', { name: /nao suggests 5 changes/ });
+		fireEvent.click(groupToggle);
+		fireEvent.click(groupToggle);
+
+		expect(screen.getByText(/The file changed since nao proposed this edit/)).toBeDefined();
 	});
 
 	it('applies the change to the user changes and refreshes the hub', async () => {
