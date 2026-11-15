@@ -4,6 +4,12 @@ import { logger } from '../utils/logger';
 import { agentService } from './agent';
 import { AgentStreamRelay, type PublishedAgentStream, type UIMessageChunk } from './agent-stream-relay';
 
+/** A run readable from the moment its question is saved, which the agent stream feeds once it is set up. */
+export interface OpenAgentStream {
+	start(stream: ReadableStream<UIMessageChunk>): ReadableStream<UIMessageChunk>;
+	fail(): void;
+}
+
 interface LocalStream {
 	streamId: string;
 	userId: string;
@@ -22,12 +28,22 @@ export class AgentStreamService {
 
 	constructor(private readonly _relay: AgentStreamRelay | null) {}
 
-	start(chatId: string, userId: string, stream: ReadableStream<UIMessageChunk>): ReadableStream<UIMessageChunk> {
+	open(chatId: string, userId: string): OpenAgentStream {
 		const local: LocalStream = { streamId: crypto.randomUUID(), userId, buffer: new ChunkBuffer() };
 		this._streams.set(chatId, local);
 		const published = this._publish(chatId, local);
-		void drainInto(stream, local.buffer).finally(() => this._end(chatId, local, published));
-		return local.buffer.read();
+		const end = () => this._end(chatId, local, published);
+		return {
+			start: (stream) => {
+				void drainInto(stream, local.buffer).finally(end);
+				return local.buffer.read();
+			},
+			fail: () => {
+				local.buffer.push({ type: 'error', errorText: FAILED_STREAM_MESSAGE });
+				local.buffer.close();
+				void end();
+			},
+		};
 	}
 
 	async read(chatId: string): Promise<ReadableStream<UIMessageChunk> | null> {

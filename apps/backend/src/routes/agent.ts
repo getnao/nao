@@ -7,7 +7,7 @@ import { handleAgentRoute } from '../handlers/agent';
 import { authMiddleware } from '../middleware/auth';
 import { getChatOwnerId } from '../queries/chat.queries';
 import { authorizeAgentRun } from '../services/agent-run';
-import { agentStreamService } from '../services/agent-stream';
+import { agentStreamService, type OpenAgentStream } from '../services/agent-stream';
 import { AgentRequestSchema } from '../types/chat';
 import { trackAgentStreamDisconnect } from '../utils/agent-stream-disconnect';
 import { HandlerError } from '../utils/error';
@@ -27,6 +27,7 @@ export const agentRoutes = async (app: App) => {
 	app.post('/', { schema: { body: AgentRequestSchema } }, async (request, reply) => {
 		const { user, project, body, headers } = request;
 		const run = await authorizeAgentRun({ userId: user.id, currentProject: project, body });
+		let answer: OpenAgentStream | undefined;
 
 		const result = await handleAgentRoute({
 			...body,
@@ -37,12 +38,17 @@ export const agentRoutes = async (app: App) => {
 			unbilledManagedAiUsage: run.unbilledManagedAiUsage,
 			billingAccessVerifiedProjectId: run.projectId,
 			domainHost: getDomainHost(headers),
+			onUserMessageSaved: (chatId) => {
+				answer = agentStreamService.open(chatId, user.id);
+			},
 		}).catch(async (error) => {
+			answer?.fail();
 			await run.release?.();
 			throw error;
 		});
 
-		let stream = agentStreamService.start(result.chatId, user.id, withQueryResultPreviewsInStream(result.stream));
+		answer ??= agentStreamService.open(result.chatId, user.id);
+		let stream = answer.start(withQueryResultPreviewsInStream(result.stream));
 
 		if (DEBUG_CHUNKS) {
 			stream = stream.pipeThrough(
