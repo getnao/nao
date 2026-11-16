@@ -34,6 +34,7 @@ import {
 import { createLocalStorage } from '@/lib/local-storage';
 import { requireContextAdminOrAdmin } from '@/lib/route-guards';
 import { trpc } from '@/main';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const contentSearchStorage = createLocalStorage<boolean>('nao-file-explorer-content-search', true);
 
@@ -50,6 +51,7 @@ function ContextExplorerPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const isCloud = useIsCloud();
+	const { isAdmin } = usePermissions();
 	const { path: initialPath, from: historicalFrom, to: historicalTo } = Route.useSearch();
 	const initialHistoricalDiff = getHistoricalContextDiffTarget({
 		path: initialPath,
@@ -282,7 +284,7 @@ function ContextExplorerPage() {
 										}
 									/>
 								</div>
-								{isCloud && <CloudSyncPanel />}
+								{isCloud && <CloudSyncPanel isAdmin={isAdmin} />}
 								{!fileTree.data?.isManagedRepository && (
 									<ContextGitPanel
 										selectedDiffPath={selectedDiffPath}

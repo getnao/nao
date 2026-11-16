@@ -5,7 +5,7 @@
     "": {
       "name": "nao-chat",
       "dependencies": {
-        "@boxlite-ai/boxlite": "^0.10.0",
+        "@boxlite-ai/boxlite": "^0.12.0",
         "@emnapi/core": "^1.9.2",
         "@emnapi/runtime": "^1.9.2",
         "@streamdown/code": "^1.1.1",
@@ -138,7 +138,7 @@
         "@radix-ui/react-dialog": "^1.1.15",
         "@radix-ui/react-dropdown-menu": "^2.1.16",
         "@radix-ui/react-menubar": "^1.1.16",
-        "@radix-ui/react-popover": "^1.1.21",
+        "@radix-ui/react-popover": "^1.1.15",
         "@radix-ui/react-select": "^2.2.6",
         "@radix-ui/react-slot": "^1.2.4",
         "@radix-ui/react-tooltip": "^1.2.8",
@@ -432,13 +432,13 @@
 
     "@better-fetch/fetch": ["@better-fetch/fetch@1.3.1", "", {}, "sha512-ABkD1WhyfPZprKRQI3bhATjeiFuNWC9PXhfGWqL+sg/gKrM977oFrYkdb4msM3hgUGonr7KlOsOFT5TU2rht9g=="],
 
-    "@boxlite-ai/boxlite": ["@boxlite-ai/boxlite@0.10.4", "", { "optionalDependencies": { "@boxlite-ai/boxlite-darwin-arm64": "0.10.4", "@boxlite-ai/boxlite-linux-arm64-gnu": "0.10.4", "@boxlite-ai/boxlite-linux-x64-gnu": "0.10.4" }, "peerDependencies": { "playwright-core": ">=1.58.0" }, "optionalPeers": ["playwright-core"] }, "sha512-KT1pW/GqnHMlfCObsxBxkqM2EoXKmdjEkHwFtaHLkub+gw0s+b7swRiQaPQixLpgY3oLYYP4VoJtk2nwrYrTZQ=="],
+    "@boxlite-ai/boxlite": ["@boxlite-ai/boxlite@0.12.0", "", { "optionalDependencies": { "@boxlite-ai/boxlite-darwin-arm64": "0.12.0", "@boxlite-ai/boxlite-linux-arm64-gnu": "0.12.0", "@boxlite-ai/boxlite-linux-x64-gnu": "0.12.0" }, "peerDependencies": { "playwright-core": ">=1.58.0" }, "optionalPeers": ["playwright-core"] }, "sha512-BfrwYmfsgxGfOV8a2MhdUlhynj1RMFmP8raUqu+Lwd52V8QWkZxbl80KSDzu/ankH1XYcCp5pI+XbrEIbnopgA=="],
 
-    "@boxlite-ai/boxlite-darwin-arm64": ["@boxlite-ai/boxlite-darwin-arm64@0.10.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-CRLvXhsBRy1SwQ16+L5bUBEzcoY2+Gz17cjTBvaQsQlSt0P/2fXxvG3lqZWnmmhsSDc1CbgjfOswGc3RPKVoAQ=="],
+    "@boxlite-ai/boxlite-darwin-arm64": ["@boxlite-ai/boxlite-darwin-arm64@0.12.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Zmk8RathIbCm2Ko7vJVS5Bcfc4WEqrgcAgKJ0/hJP/wDEtZv+iAK2XkRXDVDnNOHKAPzKF4JT6vfJGWi3SCa2w=="],
 
-    "@boxlite-ai/boxlite-linux-arm64-gnu": ["@boxlite-ai/boxlite-linux-arm64-gnu@0.10.4", "", { "os": "linux", "cpu": "arm64" }, "sha512-52InkfAPtaOZejiWwJ4bUyQCGUHUN5HcstGfmDbFA4Xb1B6vhGq6Al/s7XVsX/RlSX7a3GUFJ/EOwsD+51XoZA=="],
+    "@boxlite-ai/boxlite-linux-arm64-gnu": ["@boxlite-ai/boxlite-linux-arm64-gnu@0.12.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-Xpw4IlsQE/emdEiNziWDkAVdYiQdlbrbPQ+5UPcadq/Wmxw+BMF56CHz8kJMdlW7y6ml5yGQXN+ZgbRpvyftoQ=="],
 
-    "@boxlite-ai/boxlite-linux-x64-gnu": ["@boxlite-ai/boxlite-linux-x64-gnu@0.10.4", "", { "os": "linux", "cpu": "x64" }, "sha512-xzTBhmaFZeOwCroANhwpVYfyzdkIkbyXQ8/QAzyaMIA1vx1upQBTpV27BuD+CRk2wTT1g3PDXI0Tm3FoC5Lh4w=="],
+    "@boxlite-ai/boxlite-linux-x64-gnu": ["@boxlite-ai/boxlite-linux-x64-gnu@0.12.0", "", { "os": "linux", "cpu": "x64" }, "sha512-tcgqqXKTTsVDD+QXpmblaAKJYLz0T0WwnV5U9AIn2iaBTUyPZuITX+HNHtdmmupxqL5Nead4jvMQkjXjjet6fA=="],
 
     "@braintree/sanitize-url": ["@braintree/sanitize-url@7.1.2", "", {}, "sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA=="],
 

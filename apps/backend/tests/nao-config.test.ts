@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { extractConfiguredRepos, extractRequiredEnvVars } from '../src/utils/nao-config';
+import { extractConfiguredRepos, extractRequiredEnvVars, extractRequiredSyncEnvVars } from '../src/utils/nao-config';
 
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -91,6 +91,76 @@ describe('extractRequiredEnvVars', () => {
 			fs.mkdirSync(mcpConfigPath, { recursive: true });
 
 			expect(extractRequiredEnvVars(dir)).toEqual([]);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+});
+
+describe('extractRequiredSyncEnvVars', () => {
+	it('includes only active sync and rendered-template variables', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'project_name: demo',
+					'databases:',
+					'  - name: warehouse',
+					'    type: postgres',
+					'    host: "{{ env(\'DB_HOST\') }}"',
+					'    password: "{{ env(\'DB_PASSWORD\') }}"',
+					'repos:',
+					'  - name: app',
+					'    url: "{{ env(\'REPO_URL\') }}"',
+					'llm:',
+					'  provider: anthropic',
+					'  api_key: "{{ env(\'ANTHROPIC_API_KEY\') }}"',
+					'slack:',
+					'  bot_token: "{{ env(\'SLACK_BOT_TOKEN\') }}"',
+				].join('\n'),
+			);
+			fs.mkdirSync(path.join(dir, 'reports'));
+			fs.writeFileSync(path.join(dir, 'reports', 'summary.md.j2'), "{{ env('TEMPLATE_VALUE') }}");
+			fs.mkdirSync(path.join(dir, 'agent', 'mcps'), { recursive: true });
+			fs.writeFileSync(
+				path.join(dir, 'agent', 'mcps', 'mcp.json'),
+				JSON.stringify({ mcpServers: { dbt: { env: { DBT_TOKEN: '${DBT_TOKEN}' } } } }),
+			);
+
+			expect(extractRequiredSyncEnvVars(dir)).toEqual(['DB_HOST', 'DB_PASSWORD', 'REPO_URL', 'TEMPLATE_VALUE']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('includes ambient provider credentials only when the active sync needs them', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'project_name: demo',
+					'databases:',
+					'  - name: warehouse',
+					'    type: athena',
+					'    templates: [columns, ai_summary]',
+					'    password: "{{ aws(\'warehouse/password\') }}"',
+					'llm:',
+					'  provider: vertex',
+					'  service_account_json: "{{ env(\'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON\') }}"',
+				].join('\n'),
+			);
+
+			expect(extractRequiredSyncEnvVars(dir)).toEqual(
+				expect.arrayContaining([
+					'AWS_ACCESS_KEY_ID',
+					'AWS_SECRET_ACCESS_KEY',
+					'AWS_SESSION_TOKEN',
+					'GOOGLE_VERTEX_PROJECT',
+					'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
+				]),
+			);
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}

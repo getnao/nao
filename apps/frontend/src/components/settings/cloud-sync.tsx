@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, CircleAlert, RefreshCw, Terminal, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { CheckCircle2, CircleAlert, RefreshCw, Terminal, X, CircleDot } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import { invalidateExplorerQueries } from '@/components/settings/context-git-panel';
 import { Button } from '@/components/ui/button';
@@ -9,12 +9,13 @@ import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { getTimeAgo } from '@/lib/time-ago';
 import { trpc } from '@/main';
 
-export function CloudSyncPanel() {
+export function CloudSyncPanel({ isAdmin }: { isAdmin: boolean }) {
 	const { isOpen, setIsOpen } = useSidebarSectionOpen('context-explorer-cloud-sync', false);
 	const queryClient = useQueryClient();
 	const refreshedRunId = useRef<string | null>(null);
 	const terminalRef = useRef<HTMLPreElement | null>(null);
 	const shouldFollowLogs = useRef(true);
+	const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
 	const syncState = useQuery({
 		...trpc.projectSync.getStatus.queryOptions(),
 		refetchInterval: (query) => {
@@ -36,6 +37,7 @@ export function CloudSyncPanel() {
 			onSuccess: async () => {
 				await queryClient.invalidateQueries({ queryKey: trpc.projectSync.getStatus.queryKey() });
 			},
+			onError: () => setCancellingRunId(null),
 		}),
 	);
 	const run = syncState.data?.run ?? null;
@@ -45,10 +47,16 @@ export function CloudSyncPanel() {
 	const isComplete = run?.status === 'succeeded';
 	const isFailed = run?.status === 'failed';
 	const isCancelled = run?.status === 'cancelled';
+	const isCancelling = cancellingRunId === run?.id && (run?.status === 'queued' || run?.status === 'running');
+	const isCompletedWithErrors = run?.status === 'completed_with_errors';
 	const error = startSync.error?.message ?? cancelSync.error?.message ?? run?.error ?? syncState.error?.message;
 
 	useEffect(() => {
-		if (!run || !['succeeded', 'failed', 'cancelled'].includes(run.status) || refreshedRunId.current === run.id) {
+		if (
+			!run ||
+			!['succeeded', 'failed', 'cancelled', 'completed_with_errors'].includes(run.status) ||
+			refreshedRunId.current === run.id
+		) {
 			return;
 		}
 		refreshedRunId.current = run.id;
@@ -69,15 +77,17 @@ export function CloudSyncPanel() {
 	}, [run?.id]);
 
 	useEffect(() => {
+		if (!run || !['queued', 'running'].includes(run.status)) {
+			setCancellingRunId(null);
+		}
+	}, [run]);
+
+	useEffect(() => {
 		const terminal = terminalRef.current;
 		if (terminal && shouldFollowLogs.current) {
 			terminal.scrollTop = terminal.scrollHeight;
 		}
 	}, [run?.logs]);
-
-	if (syncState.data && !syncState.data.available) {
-		return null;
-	}
 
 	return (
 		<div className='shrink-0 border-t'>
@@ -95,9 +105,11 @@ export function CloudSyncPanel() {
 			>
 				<div className='flex flex-col gap-3 px-2 py-3'>
 					<p className='pr-2 pl-[13px] text-[11px] text-muted-foreground'>
-						Refresh this project's configured databases, repositories, and documentation.
+						{isAdmin
+							? "Refresh this project's configured databases, repositories, and documentation."
+							: 'Only project admins can start or stop a sync. You can view its status here.'}
 					</p>
-					{run && (
+					{run && syncState.data?.available && isAdmin && (
 						<div className='mx-2 overflow-hidden rounded-md border border-white/10 bg-zinc-950 shadow-sm'>
 							<div className='flex items-center justify-between border-b border-white/10 px-2.5 py-1.5'>
 								<div className='max-h-40 flex items-center gap-1.5 text-[10px] text-zinc-400'>
@@ -105,7 +117,12 @@ export function CloudSyncPanel() {
 									nao sync
 								</div>
 								<div className='flex items-center gap-1.5 text-[10px]'>
-									{isSyncing ? (
+									{isCancelling ? (
+										<>
+											<span className='size-1.5 animate-pulse rounded-full bg-violet' />
+											<span className='text-zinc-400'>Cancelling</span>
+										</>
+									) : isSyncing ? (
 										<>
 											<span className='size-1.5 animate-pulse rounded-full bg-violet' />
 											<span className='text-zinc-400'>Running</span>
@@ -113,10 +130,18 @@ export function CloudSyncPanel() {
 												type='button'
 												className='ml-1 text-zinc-500 hover:text-zinc-200'
 												disabled={cancelSync.isPending}
-												onClick={() => cancelSync.mutate()}
+												onClick={() => {
+													setCancellingRunId(run.id);
+													cancelSync.mutate();
+												}}
 											>
 												Stop
 											</button>
+										</>
+									) : isCompletedWithErrors ? (
+										<>
+											<CircleDot className='size-3 text-amber-400' />
+											<span className='text-amber-400'>Completed with errors</span>
 										</>
 									) : isFailed ? (
 										<>
@@ -146,11 +171,21 @@ export function CloudSyncPanel() {
 										terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight < 8;
 								}}
 							>
-								{run.logs || (isSyncing ? 'Waiting for sync to start...' : 'No logs available.')}
+								{isCancelling
+									? `${run.logs ? `${run.logs}\n` : ''}Cancelling sync... This may take a minute.`
+									: run.logs || (isSyncing ? 'Waiting for sync to start...' : 'No logs available.')}
 							</pre>
 						</div>
 					)}
-					{error && <p className='pr-2 pl-[13px] px-2 text-[11px] leading-4 text-destructive'>{error}</p>}
+					{error && (
+						<p
+							className={`pr-2 pl-[13px] px-2 text-[11px] leading-4 ${
+								isCompletedWithErrors ? 'text-amber-400' : 'text-destructive'
+							}`}
+						>
+							{error}
+						</p>
+					)}
 					<div className='flex items-center justify-end gap-2 px-2'>
 						<span className='text-[10px] text-muted-foreground'>
 							{isSyncing
@@ -161,21 +196,27 @@ export function CloudSyncPanel() {
 										? `Last synced ${getTimeAgo(lastSyncedAt.getTime()).humanReadable.toLowerCase()}${lastSyncedBy ? ` by ${lastSyncedBy}` : ''}`
 										: null}
 						</span>
-						<Button
-							type='button'
-							size='sm'
-							variant='secondary'
-							className='h-6 w-fit gap-1 px-1.5 text-[11px]'
-							disabled={isSyncing || syncState.isLoading || syncState.isError || !!syncingBy}
-							isLoading={isSyncing}
-							onClick={() => {
-								startSync.reset();
-								cancelSync.reset();
-								startSync.mutate();
-							}}
-						>
-							{isComplete ? 'Sync again' : isFailed ? 'Retry sync' : 'Sync project'}
-						</Button>
+						{isAdmin && (
+							<Button
+								type='button'
+								size='sm'
+								variant='secondary'
+								className='h-6 w-fit gap-1 px-1.5 text-[11px]'
+								disabled={isSyncing || syncState.isLoading || syncState.isError || !!syncingBy}
+								isLoading={isSyncing}
+								onClick={() => {
+									startSync.reset();
+									cancelSync.reset();
+									startSync.mutate();
+								}}
+							>
+								{isComplete
+									? 'Sync again'
+									: isFailed || isCompletedWithErrors
+										? 'Retry sync'
+										: 'Sync project'}
+							</Button>
+						)}
 					</div>
 				</div>
 			</Expandable>

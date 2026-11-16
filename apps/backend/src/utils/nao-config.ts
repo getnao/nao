@@ -12,6 +12,34 @@ import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
 const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
+const SYNC_CONFIG_SECTIONS = ['databases', 'repos', 'notion', 'confluence', 'obsidian', 'semantic_layer'] as const;
+const TEMPLATE_EXCLUDED_DIRECTORIES = new Set([
+	'templates',
+	'.git',
+	'.venv',
+	'venv',
+	'node_modules',
+	'__pycache__',
+	'.nao',
+]);
+const SECRET_REFERENCE_PATTERN = /\$?\{\{\s*(env|aws|k8s)\(\s*['"]([^'"]+)['"]\s*\)\s*\}\}/g;
+const AWS_SYNC_ENV_VARS = [
+	'AWS_ACCESS_KEY_ID',
+	'AWS_SECRET_ACCESS_KEY',
+	'AWS_SESSION_TOKEN',
+	'AWS_REGION',
+	'AWS_DEFAULT_REGION',
+	'AWS_BEARER_TOKEN_BEDROCK',
+] as const;
+const GCP_SYNC_ENV_VARS = [
+	'GOOGLE_APPLICATION_CREDENTIALS',
+	'GOOGLE_CLOUD_PROJECT',
+	'GOOGLE_VERTEX_PROJECT',
+	'GOOGLE_VERTEX_LOCATION',
+	'VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON',
+	'VERTEX_GOOGLE_APPLICATION_CREDENTIALS',
+] as const;
+const K8S_SYNC_ENV_VARS = ['KUBERNETES_SERVICE_HOST', 'KUBERNETES_SERVICE_PORT'] as const;
 
 export type ContextPresence = {
 	rules: boolean;
@@ -46,6 +74,105 @@ export function extractRequiredEnvVars(projectFolder: string): string[] {
 	addEnvVarsFromFile(mcpConfigPath, MCP_CONFIG_ENV_PATTERN, vars);
 
 	return [...vars];
+}
+
+export function extractRequiredSyncEnvVars(projectFolder: string): string[] {
+	const configPath = path.join(projectFolder, 'nao_config.yaml');
+	const source = fs.readFileSync(configPath, 'utf8');
+	const references = new Map<string, { protocol: string; name: string }>();
+	const substituted = source.replace(SECRET_REFERENCE_PATTERN, (_match, protocol: string, name: string) => {
+		const token = `__NAO_SYNC_SECRET_${references.size}__`;
+		references.set(token, { protocol, name });
+		return token;
+	});
+	const config = yaml.load(substituted);
+	if (!isRecord(config)) {
+		throw new Error('Cannot determine sync credentials because nao_config.yaml is not an object.');
+	}
+	const activeConfig: unknown[] = SYNC_CONFIG_SECTIONS.map((section) => config[section]);
+	if (containsValue(config.databases, 'ai_summary')) {
+		activeConfig.push(config.llm);
+	}
+	const required = new Set<string>();
+	const protocols = new Set<string>();
+	collectReferencedSecrets(activeConfig, references, required, protocols);
+	for (const template of listProjectTemplates(projectFolder)) {
+		const contents = fs.readFileSync(template, 'utf8');
+		for (const [, protocol, name] of contents.matchAll(SECRET_REFERENCE_PATTERN)) {
+			protocols.add(protocol);
+			if (protocol === 'env') {
+				required.add(name);
+			}
+		}
+	}
+	const activeConfigText = JSON.stringify(activeConfig).toLowerCase();
+	if (
+		protocols.has('aws') ||
+		activeConfigText.includes('"athena"') ||
+		activeConfigText.includes('"bedrock"') ||
+		activeConfigText.includes('"auth_mode":"iam"')
+	) {
+		AWS_SYNC_ENV_VARS.forEach((name) => required.add(name));
+	}
+	if (activeConfigText.includes('"bigquery"') || activeConfigText.includes('"vertex"')) {
+		GCP_SYNC_ENV_VARS.forEach((name) => required.add(name));
+	}
+	if (protocols.has('k8s')) {
+		K8S_SYNC_ENV_VARS.forEach((name) => required.add(name));
+	}
+	return [...required].sort();
+}
+
+function collectReferencedSecrets(
+	value: unknown,
+	references: Map<string, { protocol: string; name: string }>,
+	required: Set<string>,
+	protocols: Set<string>,
+): void {
+	if (typeof value === 'string') {
+		for (const [token, reference] of references) {
+			if (value.includes(token)) {
+				protocols.add(reference.protocol);
+				if (reference.protocol === 'env') {
+					required.add(reference.name);
+				}
+			}
+		}
+		return;
+	}
+	if (Array.isArray(value)) {
+		value.forEach((item) => collectReferencedSecrets(item, references, required, protocols));
+		return;
+	}
+	if (isRecord(value)) {
+		Object.values(value).forEach((item) => collectReferencedSecrets(item, references, required, protocols));
+	}
+}
+
+function listProjectTemplates(root: string, relativeDirectory = ''): string[] {
+	const templates: string[] = [];
+	for (const entry of fs.readdirSync(path.join(root, relativeDirectory), { withFileTypes: true })) {
+		if (TEMPLATE_EXCLUDED_DIRECTORIES.has(entry.name)) {
+			continue;
+		}
+		const relativePath = path.join(relativeDirectory, entry.name);
+		if (entry.isDirectory()) {
+			templates.push(...listProjectTemplates(root, relativePath));
+		} else if (entry.isFile() && entry.name.endsWith('.j2')) {
+			templates.push(path.join(root, relativePath));
+		}
+	}
+	return templates;
+}
+
+function containsValue(value: unknown, expected: string): boolean {
+	if (value === expected) {
+		return true;
+	}
+	if (Array.isArray(value)) {
+		return value.some((item) => containsValue(item, expected));
+	}
+	return isRecord(value) && Object.values(value).some((item) => containsValue(item, expected));
 }
 
 function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>) {

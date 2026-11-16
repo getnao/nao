@@ -21,6 +21,38 @@ const optionalNonEmptyString = z
 	.optional()
 	.transform((value) => value?.trim() || undefined);
 
+const projectHostApprovals = z
+	.string()
+	.optional()
+	.transform((value, context): Record<string, string[]> => {
+		if (!value?.trim()) {
+			return {};
+		}
+		try {
+			const parsed: unknown = JSON.parse(value);
+			if (
+				typeof parsed !== 'object' ||
+				parsed === null ||
+				Array.isArray(parsed) ||
+				Object.values(parsed).some(
+					(hosts) =>
+						!Array.isArray(hosts) ||
+						hosts.length === 0 ||
+						hosts.some((host) => typeof host !== 'string' || !host.trim()),
+				)
+			) {
+				throw new Error();
+			}
+			return parsed as Record<string, string[]>;
+		} catch {
+			context.addIssue({
+				code: 'custom',
+				message: 'must be a JSON object mapping project IDs to non-empty hostname arrays',
+			});
+			return z.NEVER;
+		}
+	});
+
 function blankToUndefined(value: unknown): unknown {
 	return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
@@ -266,6 +298,11 @@ const baseRawEnvSchema = z.object({
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
+	NAO_SYNC_MAX_RUNTIME_HOURS: z.coerce.number().positive().default(24),
+	NAO_SYNC_MAX_FILE_SIZE_MB: z.coerce.number().positive().default(500),
+	NAO_SYNC_MAX_OUTPUT_SIZE_GB: z.coerce.number().int().positive().default(8),
+	NAO_SYNC_MAX_OUTPUT_FILES: z.coerce.number().int().positive().default(500_000),
+	NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS: projectHostApprovals,
 	/** Enables the internal cloud backoffice API and is only honoured when NAO_MODE=cloud. */
 	NAO_BACKOFFICE_API_KEY: z
 		.string()

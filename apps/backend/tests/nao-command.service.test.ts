@@ -5,20 +5,39 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const boxlite = vi.hoisted(() => ({ create: vi.fn() }));
+const testEnv = vi.hoisted(() => ({
+	APP_COMMIT: 'abc1234',
+	NAO_MODE: 'cloud',
+	NAO_SYNC_MAX_RUNTIME_HOURS: 24,
+	NAO_SYNC_MAX_FILE_SIZE_MB: 500,
+	NAO_SYNC_MAX_OUTPUT_SIZE_GB: 8,
+	NAO_SYNC_MAX_OUTPUT_FILES: 500_000,
+	NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS: {} as Record<string, string[]>,
+}));
 
-vi.mock('../src/env', () => ({ env: { APP_COMMIT: 'abc1234' } }));
+vi.mock('../src/env', () => ({ env: testEnv }));
 vi.mock('../src/utils/logger', () => ({ logger: { warn: vi.fn() } }));
 vi.mock('../src/services/sandbox-runtime', () => ({
 	sandboxRuntime: { JsBoxlite: { withDefaultConfig: () => ({ create: boxlite.create }) } },
 }));
 
-import { NaoCommandExitError, runNaoCommandInSandbox } from '../src/services/nao-command.service';
+import {
+	NaoCommandExitError,
+	NaoCommandOutputLimitError,
+	NaoCommandTimeoutError,
+	runNaoCommandInSandbox,
+} from '../src/services/nao-command.service';
 
 let root: string;
 let project: string;
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	testEnv.NAO_SYNC_MAX_RUNTIME_HOURS = 24;
+	testEnv.NAO_SYNC_MAX_FILE_SIZE_MB = 500;
+	testEnv.NAO_SYNC_MAX_OUTPUT_SIZE_GB = 8;
+	testEnv.NAO_SYNC_MAX_OUTPUT_FILES = 500_000;
+	testEnv.NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS = {};
 	root = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-command-test-'));
 	project = path.join(root, 'project');
 	writeFiles(project, {
@@ -28,6 +47,7 @@ beforeEach(() => {
 		'databases/stale/columns.md': 'removed by sync\n',
 		'repos/source/docs': 'docs used to be a file\n',
 		'repos/source/readme/intro.md': 'readme used to be a folder\n',
+		'reports/summary.md.j2': 'Summary for {{ nao.project.name }}\n',
 		'.git/config': '[core]\n',
 		'.git/hooks/README': 'hooks\n',
 	});
@@ -42,31 +62,88 @@ afterEach(() => {
 describe('runNaoCommandInSandbox', () => {
 	it('runs nao in a box that only sees the project env vars, and streams the logs', async () => {
 		const box = useFakeBox({ stdout: ['\u001b[32mSyncing\u001b[0m\r', 'Done\n'] });
-		const onOutput = vi.fn(async () => undefined);
+		const onOutput = vi.fn(async (_output: string) => undefined);
+		fs.writeFileSync(
+			path.join(project, 'nao_config.yaml'),
+			"project_name: sales\ndatabases:\n  - name: warehouse\n    type: postgres\n    host: {{ env('POSTGRES_HOST') }}\n",
+		);
+		testEnv.NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS = { 'project-1': ['10.20.30.40'] };
 
-		await runNaoCommandInSandbox(['sync'], project, { POSTGRES_PASSWORD: 'secret' }, onOutput);
+		await runNaoCommandInSandbox(
+			['sync'],
+			project,
+			{ POSTGRES_HOST: '10.20.30.40', POSTGRES_PASSWORD: 'secret' },
+			onOutput,
+			undefined,
+			'project-1',
+		);
 
 		expect(boxlite.create).toHaveBeenCalledWith(
 			expect.objectContaining({
 				image: 'getnao/nao:abc1234',
-				volumes: [{ hostPath: expect.not.stringContaining(project), guestPath: '/project' }],
+				diskSizeGb: 8,
+				workingDir: '/',
 				autoStop: 0,
+				security: { jailerEnabled: true, maxFileSize: 500 * 1024 * 1024 },
+				network: {
+					outbound: { mode: 'enabled', allowNet: ['10.20.30.40'] },
+					inbound: { mode: 'disabled' },
+				},
 			}),
 		);
+		expect(boxlite.create.mock.calls[0][0]).not.toHaveProperty('volumes');
+		expect(box.copyIn).toHaveBeenCalledWith(expect.stringMatching(/[\\/]\.$/), '/project', {
+			recursive: true,
+			overwrite: true,
+			followSymlinks: false,
+		});
+		expect(box.copyOut).toHaveBeenCalledWith('/project/.', expect.any(String), {
+			recursive: true,
+			overwrite: true,
+			followSymlinks: false,
+		});
 		expect(box.exec).toHaveBeenCalledWith(
 			'nao',
 			['sync'],
-			[['POSTGRES_PASSWORD', 'secret']],
+			[
+				['POSTGRES_HOST', '10.20.30.40'],
+				['POSTGRES_PASSWORD', 'secret'],
+				['POSTHOG_DISABLED', 'true'],
+			],
 			false,
 			null,
 			null,
 			'/project',
 		);
-		expect(onOutput).toHaveBeenLastCalledWith('Syncing\nDone\n');
+		const output = vi.mocked(onOutput).mock.calls.at(-1)?.[0];
+		expect(output).toContain('Checking sync connections...');
+		expect(output).toContain('Preparing the secure sync environment. The first run may take a few minutes...');
+		expect(output).toContain('Copying the project into the secure sync environment...');
+		expect(output).toContain('Starting nao sync...');
+		expect(output).toContain('Syncing\nDone\n');
 		await vi.waitFor(() => expect(fs.existsSync(box.mountPath())).toBe(false));
 	});
 
-	it('gives the box a copy without Git or symlinks, and brings back only plain files', async () => {
+	it('stops a cloud sync at the emergency runtime ceiling and brings nothing back', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		testEnv.NAO_SYNC_MAX_RUNTIME_HOURS = 1 / 3600;
+		const box = useFakeBox({
+			runsUntilKilled: true,
+			run: (staged) => writeFiles(staged, { 'databases/timed-out.md': 'partial\n' }),
+		});
+
+		const result = runNaoCommandInSandbox(['sync'], project, {});
+		await vi.waitFor(() => expect(box.exec).toHaveBeenCalled());
+		const timedOut = expect(result).rejects.toThrow(NaoCommandTimeoutError);
+		await vi.advanceTimersByTimeAsync(1000);
+
+		await timedOut;
+		expect(box.execution.kill).toHaveBeenCalled();
+		expect(fs.existsSync(path.join(project, 'databases', 'timed-out.md'))).toBe(false);
+		await vi.waitFor(() => expect(fs.existsSync(box.mountPath())).toBe(false));
+	});
+
+	it('brings back only expected sync and existing-template outputs', async () => {
 		let stagedEntries: string[] = [];
 		useFakeBox({
 			run: (staged) => {
@@ -80,6 +157,16 @@ describe('runNaoCommandInSandbox', () => {
 					'databases/orders/columns.md': 'synced\n',
 					'repos/source/docs/page.md': 'docs is now a folder\n',
 					'repos/source/readme': 'readme is now a file\n',
+					'semantics/metrics/orders.md': 'metric\n',
+					'docs/notion/page.md': 'notion\n',
+					'docs/confluence/page.md': 'confluence\n',
+					'docs/obsidian/page.md': 'obsidian\n',
+					'reports/summary.md.j2': 'modified template\n',
+					'reports/summary.md': 'rendered summary\n',
+					'reports/untrusted.md.j2': 'untrusted template\n',
+					'reports/untrusted.md': 'untrusted output\n',
+					'docs/other/page.md': 'not a sync output\n',
+					'outside-output.md': 'not a sync output\n',
 					'.git/config': '[core]\n\tfsmonitor = touch /tmp/pwned\n',
 					'docs/.git/config': '[core]\n\tfsmonitor = touch /tmp/pwned\n',
 				});
@@ -93,17 +180,78 @@ describe('runNaoCommandInSandbox', () => {
 
 		expect(stagedEntries).not.toContain('.git');
 		expect(stagedEntries).not.toContain('linked.md');
-		expect(read('RULES.md')).toBe('new rules\n');
+		expect(read('RULES.md')).toBe('old rules\n');
 		expect(read('databases/orders/columns.md')).toBe('synced\n');
-		expect(fs.existsSync(path.join(project, 'old.md'))).toBe(false);
+		expect(read('old.md')).toBe('removed by sync\n');
 		expect(fs.existsSync(path.join(project, 'databases', 'stale'))).toBe(false);
 		expect(read('repos/source/docs/page.md')).toBe('docs is now a folder\n');
 		expect(read('repos/source/readme')).toBe('readme is now a file\n');
+		expect(read('semantics/metrics/orders.md')).toBe('metric\n');
+		expect(read('docs/notion/page.md')).toBe('notion\n');
+		expect(read('docs/confluence/page.md')).toBe('confluence\n');
+		expect(read('docs/obsidian/page.md')).toBe('obsidian\n');
+		expect(read('reports/summary.md')).toBe('rendered summary\n');
+		expect(read('reports/summary.md.j2')).toBe('Summary for {{ nao.project.name }}\n');
+		expect(fs.existsSync(path.join(project, 'reports', 'untrusted.md.j2'))).toBe(false);
+		expect(fs.existsSync(path.join(project, 'reports', 'untrusted.md'))).toBe(false);
+		expect(fs.existsSync(path.join(project, 'docs', 'other'))).toBe(false);
+		expect(fs.existsSync(path.join(project, 'outside-output.md'))).toBe(false);
 		expect(read('.git/config')).toBe('[core]\n');
 		expect(fs.existsSync(path.join(project, 'docs', '.git'))).toBe(false);
 		expect(fs.existsSync(path.join(project, 'escape.md'))).toBe(false);
 		expect(fs.lstatSync(path.join(project, 'linked.md')).isSymbolicLink()).toBe(true);
 		expect(fs.readFileSync(path.join(root, 'outside.md'), 'utf8')).toBe('outside\n');
+	});
+
+	it('rejects an oversized generated file before copying anything back', async () => {
+		testEnv.NAO_SYNC_MAX_FILE_SIZE_MB = 1 / (1024 * 1024);
+		useFakeBox({
+			run: (staged) => {
+				clearSyncOutputs(staged);
+				writeFiles(staged, { 'databases/oversized.md': 'xx' });
+			},
+		});
+
+		const result = runNaoCommandInSandbox(['sync'], project, {});
+
+		await expect(result).rejects.toThrow(NaoCommandOutputLimitError);
+		await expect(result).rejects.toThrow('file-size limit');
+		expect(fs.existsSync(path.join(project, 'databases', 'oversized.md'))).toBe(false);
+		expect(read('databases/stale/columns.md')).toBe('removed by sync\n');
+	});
+
+	it('rejects excessive total output before copying anything back', async () => {
+		testEnv.NAO_SYNC_MAX_OUTPUT_SIZE_GB = 1 / (1024 * 1024 * 1024);
+		useFakeBox({
+			run: (staged) => {
+				clearSyncOutputs(staged);
+				writeFiles(staged, { 'databases/first.md': 'x', 'repos/second.md': 'x' });
+			},
+		});
+
+		const result = runNaoCommandInSandbox(['sync'], project, {});
+
+		await expect(result).rejects.toThrow(NaoCommandOutputLimitError);
+		await expect(result).rejects.toThrow('total-output limit');
+		expect(fs.existsSync(path.join(project, 'databases', 'first.md'))).toBe(false);
+		expect(read('databases/stale/columns.md')).toBe('removed by sync\n');
+	});
+
+	it('rejects excessive output file counts before copying anything back', async () => {
+		testEnv.NAO_SYNC_MAX_OUTPUT_FILES = 1;
+		useFakeBox({
+			run: (staged) => {
+				clearSyncOutputs(staged);
+				writeFiles(staged, { 'databases/first.md': 'x', 'repos/second.md': 'x' });
+			},
+		});
+
+		const result = runNaoCommandInSandbox(['sync'], project, {});
+
+		await expect(result).rejects.toThrow(NaoCommandOutputLimitError);
+		await expect(result).rejects.toThrow('output files');
+		expect(fs.existsSync(path.join(project, 'databases', 'first.md'))).toBe(false);
+		expect(read('databases/stale/columns.md')).toBe('removed by sync\n');
 	});
 
 	it('keeps what synced and fails with the CLI output when nao exits with an error', async () => {
@@ -174,7 +322,7 @@ function useFakeBox({
 	runsUntilKilled?: boolean;
 	run?: (stagedProject: string) => void;
 }) {
-	let mountPath = '';
+	const mountPath = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-command-box-'));
 	let markKilled: () => void = () => undefined;
 	const killed = new Promise<void>((resolve) => {
 		markKilled = resolve;
@@ -203,6 +351,8 @@ function useFakeBox({
 		execution,
 		mountPath: () => mountPath,
 		start: vi.fn(async () => undefined),
+		copyIn: vi.fn(async (hostPath: string) => copyDirectoryContents(hostPath, mountPath)),
+		copyOut: vi.fn(async (_guestPath: string, hostPath: string) => copyDirectoryContents(mountPath, hostPath)),
 		exec: vi.fn(async () => {
 			if (box.start.mock.calls.length === 0) {
 				throw new Error('Cannot exec box: it is configured but not started.');
@@ -210,13 +360,26 @@ function useFakeBox({
 			run(mountPath);
 			return execution;
 		}),
-		stop: vi.fn(async () => undefined),
+		stop: vi.fn(async () => fs.rmSync(mountPath, { recursive: true, force: true })),
 	};
-	boxlite.create.mockImplementation(async (options: { volumes: { hostPath: string }[] }) => {
-		mountPath = options.volumes[0].hostPath;
-		return box;
-	});
+	boxlite.create.mockImplementation(async () => box);
 	return box;
+}
+
+function copyDirectoryContents(source: string, destination: string): void {
+	for (const entry of fs.readdirSync(source)) {
+		fs.cpSync(path.join(source, entry), path.join(destination, entry), {
+			recursive: true,
+			dereference: false,
+			force: true,
+		});
+	}
+}
+
+function clearSyncOutputs(directory: string): void {
+	for (const relativePath of ['databases', 'repos', 'semantics', 'docs']) {
+		fs.rmSync(path.join(directory, relativePath), { recursive: true, force: true });
+	}
 }
 
 function writeFiles(directory: string, files: Record<string, string>): void {

@@ -40,7 +40,7 @@ vi.mock('../src/services/managed-github-repository', () => ({
 	readManagedGithubRepositoryFullName: vi.fn(),
 }));
 vi.mock('../src/services/project-runtime-env', () => ({
-	getProjectRuntimeEnvVars: vi.fn(),
+	getProjectSyncEnvVars: vi.fn(),
 }));
 vi.mock('../src/services/nao-command.service', () => ({
 	NaoCommandExitError: class NaoCommandExitError extends Error {},
@@ -73,7 +73,7 @@ import {
 	readManagedGithubRepositoryFullName,
 } from '../src/services/managed-github-repository';
 import { NaoCommandExitError, runNaoCommandInSandbox } from '../src/services/nao-command.service';
-import { getProjectRuntimeEnvVars } from '../src/services/project-runtime-env';
+import { getProjectSyncEnvVars } from '../src/services/project-runtime-env';
 import {
 	__resetProjectSyncRunsForTesting,
 	assertNoProjectSyncRunning,
@@ -98,7 +98,7 @@ beforeEach(() => {
 	vi.mocked(readManagedGithubRepositoryFullName).mockResolvedValue(null);
 	vi.mocked(getLatestUserProjectSync).mockResolvedValue(null);
 	vi.mocked(getRunningProjectSync).mockResolvedValue(null);
-	vi.mocked(getProjectRuntimeEnvVars).mockResolvedValue({ POSTGRES_PASSWORD: 'super-secret' });
+	vi.mocked(getProjectSyncEnvVars).mockResolvedValue({ POSTGRES_PASSWORD: 'super-secret' });
 });
 
 afterEach(() => {
@@ -108,7 +108,7 @@ afterEach(() => {
 
 describe('project sync', () => {
 	it("runs nao sync in the user's editor worktree and leaves the results there", async () => {
-		vi.mocked(getProjectRuntimeEnvVars).mockResolvedValue({
+		vi.mocked(getProjectSyncEnvVars).mockResolvedValue({
 			POSTGRES_PASSWORD: 'super-secret',
 			SHORT_SECRET: 'abc',
 		});
@@ -129,7 +129,9 @@ describe('project sync', () => {
 			{ POSTGRES_PASSWORD: 'super-secret', SHORT_SECRET: 'abc' },
 			expect.any(Function),
 			expect.any(AbortSignal),
+			project.id,
 		);
+		expect(getProjectSyncEnvVars).toHaveBeenCalledWith(project, 'user-1', worktreeRoot);
 		expect(state.run?.logs).toContain('Connecting with [REDACTED:POSTGRES_PASSWORD]');
 		expect(state.run?.logs).toContain('[REDACTED:SHORT_SECRET]');
 		expect(state.run?.logs).toContain('✓ Synced files are ready to review in your changes');
@@ -165,6 +167,18 @@ describe('project sync', () => {
 		finishSync();
 		await waitForStatus('user-1', 'succeeded');
 		await expect(assertNoProjectSyncRunning(project.id, 'user-1')).resolves.toBeUndefined();
+	});
+
+	it('allows only one active sync per project', async () => {
+		vi.mocked(getRunningProjectSync).mockResolvedValue({ actorName: 'Maya' });
+
+		await expect(getProjectSyncState(project, gitContext('user-2'))).resolves.toMatchObject({ syncingBy: 'Maya' });
+		await expect(startProjectSync(project, gitContext('user-2'))).rejects.toThrow(
+			'Maya is already syncing this project.',
+		);
+
+		expect(startProjectSyncActivity).not.toHaveBeenCalled();
+		expect(runNaoCommandInSandbox).not.toHaveBeenCalled();
 	});
 
 	it("pauses saves in the syncing user's worktree, and every admin's saves for nao-managed projects", async () => {
@@ -247,20 +261,22 @@ describe('project sync', () => {
 		expect(publishManagedGithubRepositoryUpdate).not.toHaveBeenCalled();
 	});
 
-	it('keeps what synced and fails the run when one source fails, like the CLI', async () => {
+	it('keeps what synced and completes with errors when one source fails, like the CLI', async () => {
 		vi.mocked(runNaoCommandInSandbox).mockImplementation(async (_args, cwd) => {
 			fs.writeFileSync(path.join(cwd, 'sales.md'), 'synced');
 			throw new NaoCommandExitError('nao sync failed: Failed to sync 1 database: finance');
 		});
 
 		const run = await startProjectSync(project, gitContext('user-1'));
-		await waitForStatus('user-1', 'failed');
+		await waitForStatus('user-1', 'completed_with_errors');
 
 		const state = await getProjectSyncState(project, gitContext('user-1'));
-		expect(state.run?.error).toBe('nao sync failed: Failed to sync 1 database: finance');
-		expect(failActivity).toHaveBeenCalledWith(run.id, 'nao sync failed: Failed to sync 1 database: finance', {
-			logs: state.run?.logs,
-		});
+		expect(state.run?.error).toBe('Sync completed with errors. Review the terminal output above for more details.');
+		expect(failActivity).toHaveBeenCalledWith(
+			run.id,
+			'Sync completed with errors. Review the terminal output above for more details.',
+			{ logs: state.run?.logs, outcome: 'completed_with_errors' },
+		);
 		expect(completeActivity).not.toHaveBeenCalled();
 		expect(fs.readFileSync(path.join(worktreeRoot, 'sales.md'), 'utf8')).toBe('synced');
 	});
@@ -288,6 +304,7 @@ describe('project sync', () => {
 			expect.anything(),
 			expect.any(Function),
 			expect.any(AbortSignal),
+			project.id,
 		);
 		expect(publishManagedGithubRepositoryUpdate).toHaveBeenCalledWith({
 			projectDir: worktreeRoot,
@@ -301,7 +318,7 @@ describe('project sync', () => {
 		);
 	});
 
-	it('does not publish a failed nao-managed sync', async () => {
+	it('does not publish a nao-managed sync that completed with errors', async () => {
 		vi.mocked(resolveContextExplorerGitSafely).mockResolvedValue({
 			status: 'unavailable',
 			reason: 'no-repo',
@@ -315,11 +332,12 @@ describe('project sync', () => {
 		const managedContext = gitContext('user-1', worktreeRoot);
 
 		await startProjectSync(project, managedContext);
-		await waitForStatus('user-1', 'failed');
+		await waitForStatus('user-1', 'completed_with_errors');
 
 		expect(publishManagedGithubRepositoryUpdate).not.toHaveBeenCalled();
 		expect((await getProjectSyncState(project, managedContext)).run).toMatchObject({
-			error: 'nao sync failed: Failed to sync 1 database: finance',
+			status: 'completed_with_errors',
+			error: 'Sync completed with errors. Review the terminal output above for more details.',
 			logs: expect.stringContaining('✗ Sync failed'),
 		});
 	});
@@ -392,6 +410,25 @@ describe('project sync', () => {
 
 		await expect(getProjectSyncState(project, gitContext('user-1'))).resolves.toMatchObject({
 			run: { id: 'old-deployment-run', status: 'succeeded', logs: 'Synced 3 tables\n' },
+		});
+	});
+
+	it('restores a completed-with-errors outcome from a previous deployment', async () => {
+		vi.mocked(getLatestUserProjectSync).mockResolvedValue(
+			syncActivity({
+				id: 'old-deployment-run',
+				status: 'failed',
+				payload: { logs: 'Confluence failed\n', outcome: 'completed_with_errors' },
+				errorMessage: 'Sync completed with errors. Review the terminal output above for more details.',
+			}),
+		);
+
+		await expect(getProjectSyncState(project, gitContext('user-1'))).resolves.toMatchObject({
+			run: {
+				id: 'old-deployment-run',
+				status: 'completed_with_errors',
+				logs: 'Confluence failed\n',
+			},
 		});
 	});
 
@@ -476,7 +513,7 @@ function syncActivity(activity: Pick<DBActivity, 'id' | 'status'> & Partial<DBAc
 	};
 }
 
-async function waitForStatus(userId: string, status: 'succeeded' | 'failed'): Promise<void> {
+async function waitForStatus(userId: string, status: 'succeeded' | 'failed' | 'completed_with_errors'): Promise<void> {
 	await vi.waitFor(async () => {
 		expect((await getProjectSyncState(project, gitContext(userId))).run?.status).toBe(status);
 	});

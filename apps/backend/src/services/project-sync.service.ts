@@ -15,10 +15,10 @@ import { redactSecretValues } from '../utils/sandbox-secrets';
 import { type ContextExplorerGitContext, resolveContextExplorerGitSafely } from './context-explorer-git.service';
 import { publishManagedGithubRepositoryUpdate, readManagedGithubRepositoryFullName } from './managed-github-repository';
 import { NaoCommandExitError, runNaoCommandInSandbox } from './nao-command.service';
-import { getProjectRuntimeEnvVars } from './project-runtime-env';
+import { getProjectSyncEnvVars } from './project-runtime-env';
 import { isSandboxAvailable } from './sandbox-runtime';
 
-export type ProjectSyncStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type ProjectSyncStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'completed_with_errors';
 
 export interface ProjectSyncRun {
 	id: string;
@@ -67,12 +67,11 @@ export async function getProjectSyncState(
 ): Promise<ProjectSyncState> {
 	const target = await resolveSyncTarget(gitContext);
 	const unavailableReason = 'unavailableReason' in target ? target.unavailableReason : null;
-	const isManaged = 'root' in target && target.managedRepoFullName !== null;
 	await activityQueries.failInterruptedProjectSyncActivities();
 	const [run, lastSync, otherSync] = await Promise.all([
 		getUserRun(project.id, gitContext.userId),
 		activityQueries.getLatestCompletedProjectSync(project.id),
-		isManaged ? activityQueries.getRunningProjectSync(project.id, gitContext.userId) : null,
+		activityQueries.getRunningProjectSync(project.id, gitContext.userId),
 	]);
 	return {
 		available: unavailableReason === null,
@@ -99,14 +98,12 @@ export async function startProjectSync(
 		if (current && isRunActive(current)) {
 			return current;
 		}
-		if (target.managedRepoFullName) {
-			const activeSync = await activityQueries.getRunningProjectSync(project.id, gitContext.userId);
-			if (activeSync) {
-				throw new TRPCError({
-					code: 'CONFLICT',
-					message: `${activeSync.actorName ?? 'Another admin'} is already syncing this project.`,
-				});
-			}
+		const activeSync = await activityQueries.getRunningProjectSync(project.id, gitContext.userId);
+		if (activeSync) {
+			throw new TRPCError({
+				code: 'CONFLICT',
+				message: `${activeSync.actorName ?? 'Another admin'} is already syncing this project.`,
+			});
 		}
 
 		const activity = await activityQueries.startProjectSyncActivity(project.id, gitContext.userId);
@@ -225,7 +222,11 @@ async function runProjectSync(
 			startedAt: new Date(),
 		});
 
-		const projectEnvVars = await getProjectRuntimeEnvVars(project.id);
+		const target = await resolveSyncTarget(gitContext);
+		if ('unavailableReason' in target) {
+			throw new Error(target.unavailableReason);
+		}
+		const projectEnvVars = await getProjectSyncEnvVars(project, gitContext.userId, target.root);
 		const redact = (value: string) =>
 			redactSecretValues(
 				value,
@@ -234,16 +235,13 @@ async function runProjectSync(
 
 		try {
 			signal?.throwIfAborted();
-			const target = await resolveSyncTarget(gitContext);
-			if ('unavailableReason' in target) {
-				throw new Error(target.unavailableReason);
-			}
 			const onOutput = async (logs: string) => {
 				updateRun(runKey, runId, { logs: redact(logs) });
 			};
 			let syncError: NaoCommandExitError | null;
 			if (target.managedRepoFullName) {
 				const result = await syncAndPublish(target.root, target.managedRepoFullName, gitContext, {
+					projectId: project.id,
 					projectEnvVars,
 					onOutput,
 					signal,
@@ -260,7 +258,7 @@ async function runProjectSync(
 				);
 			} else {
 				syncError = await withKeyedLock(`context-worktree-write:${canonicalizeWriteRoot(target.root)}`, () =>
-					runNaoSync(target.root, projectEnvVars, onOutput, signal),
+					runNaoSync(project.id, target.root, projectEnvVars, onOutput, signal),
 				);
 				appendRunLog(
 					runKey,
@@ -291,17 +289,34 @@ async function runProjectSync(
 				return;
 			}
 			const failure = leaseLost ? signal.reason : error;
-			const message = redact(failure instanceof Error ? failure.message : 'Project sync failed.');
-			await activityQueries.failActivity(runId, message, { logs: runs.get(runKey)?.logs ?? '' });
-			updateRun(runKey, runId, {
-				status: 'failed',
-				error: message,
-				finishedAt: new Date(),
-			});
-			logger.error(`Project sync failed: ${message}`, {
-				source: 'system',
-				context: { projectId: project.id, runId },
-			});
+			if (failure instanceof NaoCommandExitError) {
+				const message = 'Sync completed with errors. Review the terminal output above for more details.';
+				await activityQueries.failActivity(runId, message, {
+					logs: runs.get(runKey)?.logs ?? '',
+					outcome: 'completed_with_errors',
+				});
+				updateRun(runKey, runId, {
+					status: 'completed_with_errors',
+					error: message,
+					finishedAt: new Date(),
+				});
+				logger.error(`Project sync completed with errors`, {
+					source: 'system',
+					context: { projectId: project.id, runId },
+				});
+			} else {
+				const message = redact(failure instanceof Error ? failure.message : 'Project sync failed.');
+				await activityQueries.failActivity(runId, message, { logs: runs.get(runKey)?.logs ?? '' });
+				updateRun(runKey, runId, {
+					status: 'failed',
+					error: message,
+					finishedAt: new Date(),
+				});
+				logger.error(`Project sync failed: ${message}`, {
+					source: 'system',
+					context: { projectId: project.id, runId },
+				});
+			}
 		} finally {
 			controllers.delete(runKey);
 		}
@@ -334,13 +349,14 @@ async function holdSyncLease(activityId: string, onLost: () => void): Promise<()
 }
 
 async function runNaoSync(
+	projectId: string,
 	projectPath: string,
 	projectEnvVars: Record<string, string>,
 	onOutput: (logs: string) => Promise<void>,
 	signal?: AbortSignal,
 ): Promise<NaoCommandExitError | null> {
 	try {
-		await runNaoCommandInSandbox(['sync'], projectPath, projectEnvVars, onOutput, signal);
+		await runNaoCommandInSandbox(['sync'], projectPath, projectEnvVars, onOutput, signal, projectId);
 		return null;
 	} catch (error) {
 		if (error instanceof NaoCommandExitError) {
@@ -355,10 +371,15 @@ function syncAndPublish(
 	projectDir: string,
 	repoFullName: string,
 	gitContext: ContextExplorerGitContext,
-	sync: { projectEnvVars: Record<string, string>; onOutput: (logs: string) => Promise<void>; signal?: AbortSignal },
+	sync: {
+		projectId: string;
+		projectEnvVars: Record<string, string>;
+		onOutput: (logs: string) => Promise<void>;
+		signal?: AbortSignal;
+	},
 ): Promise<{ syncError: NaoCommandExitError | null; published: boolean }> {
 	return withKeyedLock(`managed-context-write:${canonicalizeWriteRoot(projectDir)}`, async () => {
-		const syncError = await runNaoSync(projectDir, sync.projectEnvVars, sync.onOutput, sync.signal);
+		const syncError = await runNaoSync(sync.projectId, projectDir, sync.projectEnvVars, sync.onOutput, sync.signal);
 		if (syncError) {
 			return { syncError, published: false };
 		}
@@ -380,9 +401,13 @@ async function getUserRun(projectId: string, userId: string): Promise<ProjectSyn
 	if (!latest || localRun?.id === latest.id) {
 		return localRun ?? null;
 	}
+	const status =
+		latest.status === 'failed' && latest.payload?.outcome === 'completed_with_errors'
+			? 'completed_with_errors'
+			: RUN_STATUS_BY_ACTIVITY_STATUS[latest.status];
 	return {
 		id: latest.id,
-		status: RUN_STATUS_BY_ACTIVITY_STATUS[latest.status],
+		status,
 		logs:
 			typeof latest.payload?.logs === 'string'
 				? latest.payload.logs
