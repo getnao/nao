@@ -1,10 +1,10 @@
 import { executeSemanticQuery, executeSql } from '@nao/shared/tools';
-import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import dbConfig, { Dialect } from '../db/dbConfig';
 import { takeFirstOrThrow } from '../utils/queries';
+import { toQueryPartColumns } from '../utils/query-result-preview';
 import { chunk } from '../utils/utils';
 
 export const EXECUTE_SQL_TOOL_NAME = 'execute_sql';
@@ -60,14 +60,12 @@ function toQueryToolName(toolName: string): QueryToolName {
 	return toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME ? EXECUTE_SEMANTIC_QUERY_TOOL_NAME : EXECUTE_SQL_TOOL_NAME;
 }
 
-export function messagePartToolOutputIdEquals(queryId: string) {
-	return dbConfig.dialect === Dialect.Postgres
-		? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
-		: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+export function messagePartQueryIdEquals(queryId: string) {
+	return eq(s.messagePart.queryId, queryId);
 }
 
-function messagePartToolOutputIdIn(queryIds: Set<string>) {
-	return or(...[...queryIds].map(messagePartToolOutputIdEquals));
+function messagePartQueryIdIn(queryIds: Set<string>) {
+	return inArray(s.messagePart.queryId, [...queryIds]);
 }
 
 export type LatestExecuteSqlRow = {
@@ -98,7 +96,7 @@ export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<Lat
 		.from(s.messagePart)
 		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.where(and(isQueryToolPart(), isNull(s.chatMessage.supersededAt), messagePartToolOutputIdEquals(queryId)))
+		.where(and(isQueryToolPart(), isNull(s.chatMessage.supersededAt), messagePartQueryIdEquals(queryId)))
 		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.createdAt), desc(s.messagePart.order))
 		.limit(1)
 		.execute();
@@ -121,16 +119,22 @@ export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<Lat
 export async function getExecuteSqlOwnerByQueryId(
 	queryId: string,
 ): Promise<{ projectId: string; userId: string; chatId: string; toolCallId: string } | null> {
-	const row = await getLatestExecuteSqlByQueryId(queryId);
-	if (!row) {
-		return null;
-	}
-	return {
-		projectId: row.projectId,
-		userId: row.userId,
-		chatId: row.chatId,
-		toolCallId: row.toolCallId,
-	};
+	const [row] = await db
+		.select({
+			projectId: s.chat.projectId,
+			userId: s.chat.userId,
+			chatId: s.chat.id,
+			toolCallId: s.messagePart.toolCallId,
+		})
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(and(isQueryToolPart(), isNull(s.chatMessage.supersededAt), messagePartQueryIdEquals(queryId)))
+		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.createdAt), desc(s.messagePart.order))
+		.limit(1)
+		.execute();
+
+	return row?.toolCallId ? { ...row, toolCallId: row.toolCallId } : null;
 }
 
 /** Latest non-superseded query part for a query id within a chat, read as SQL. */
@@ -160,7 +164,7 @@ export async function getExecuteSqlPartByQueryIdInChat(
 				eq(s.chatMessage.chatId, chatId),
 				isNull(s.chatMessage.supersededAt),
 				isQueryToolPart(),
-				messagePartToolOutputIdEquals(queryId),
+				messagePartQueryIdEquals(queryId),
 			),
 		)
 		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.createdAt), desc(s.messagePart.order))
@@ -200,7 +204,7 @@ export async function updateExecuteSqlPart(
 	await takeFirstOrThrow(
 		db
 			.update(s.messagePart)
-			.set({ toolInput, toolOutput })
+			.set({ toolInput, toolOutput, ...toQueryPartColumns(EXECUTE_SQL_TOOL_NAME, toolOutput) })
 			.where(and(eq(s.messagePart.toolCallId, toolCallId), eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME)))
 			.returning({ toolCallId: s.messagePart.toolCallId })
 			.execute(),
@@ -215,7 +219,7 @@ export async function updateSemanticQueryPart(
 	await takeFirstOrThrow(
 		db
 			.update(s.messagePart)
-			.set({ toolInput, toolOutput })
+			.set({ toolInput, toolOutput, ...toQueryPartColumns(EXECUTE_SEMANTIC_QUERY_TOOL_NAME, toolOutput) })
 			.where(
 				and(
 					eq(s.messagePart.toolCallId, toolCallId),
@@ -244,7 +248,7 @@ export async function getLatestSqlQueryDataByChats(
 				inArray(s.chatMessage.chatId, [...queryIdsByChat.keys()]),
 				isNull(s.chatMessage.supersededAt),
 				isQueryToolPart(),
-				messagePartToolOutputIdIn(allQueryIds),
+				messagePartQueryIdIn(allQueryIds),
 			),
 		)
 		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.createdAt), asc(s.messagePart.order))
@@ -279,7 +283,7 @@ async function loadLatestExecuteSqlParts(chatIds: string[], queryIds: Set<string
 				inArray(s.chatMessage.chatId, chatIds),
 				isNull(s.chatMessage.supersededAt),
 				isQueryToolPart(),
-				messagePartToolOutputIdIn(queryIds),
+				messagePartQueryIdIn(queryIds),
 			),
 		)
 		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.createdAt), asc(s.messagePart.order))

@@ -50,7 +50,10 @@ export const sharedChatRoutes = {
 			chat: UIChat;
 			userRole: UserRole | null;
 		}> => {
-			const [chat] = await chatQueries.getChat(ctx.resource.chatId, { includeFeedback: true });
+			const [chat] = await chatQueries.getChat(ctx.resource.chatId, {
+				includeFeedback: true,
+				queryResultPreviews: true,
+			});
 			if (!chat) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 			}

@@ -187,7 +187,9 @@ function registerGetChat(server: McpServer, ctx: McpContext): void {
 		handler: async ({ chat_id, include_tool_outputs }) => {
 			const chatProjectId = await chatQueries.getChatProjectId(chat_id);
 			const [chat, ownerId] =
-				chatProjectId === ctx.projectId ? await chatQueries.getChat(chat_id, { includeFeedback: true }) : [];
+				chatProjectId === ctx.projectId
+					? await chatQueries.getChat(chat_id, { includeFeedback: true, queryResultPreviews: true })
+					: [];
 			if (!chat) {
 				throw new Error(`Chat ${chat_id} not found in this project.`);
 			}
