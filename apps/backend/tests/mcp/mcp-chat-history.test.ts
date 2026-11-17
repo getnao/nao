@@ -119,7 +119,7 @@ describe('MCP search_chats', () => {
 });
 
 describe('MCP get_chat', () => {
-	it('returns the transcript with tool errors and feedback', async () => {
+	it('returns the transcript with thoughts, tool errors and feedback', async () => {
 		mocks.getChatProjectId.mockResolvedValue('project-1');
 		mocks.getChat.mockResolvedValue([uiChat(), 'user-2']);
 		mocks.getUserName.mockResolvedValue('Alice');
@@ -132,11 +132,19 @@ describe('MCP get_chat', () => {
 			id: 'chat-1',
 			author: { id: 'user-2', name: 'Alice' },
 			messages: [
-				{ id: 'message-1', role: 'user', text: 'What is our revenue?', toolCalls: [], feedback: null },
+				{
+					id: 'message-1',
+					role: 'user',
+					text: 'What is our revenue?',
+					thoughts: '',
+					toolCalls: [],
+					feedback: null,
+				},
 				{
 					id: 'message-2',
 					role: 'assistant',
 					text: 'I could not query the table.',
+					thoughts: 'Revenue lives in the orders table.\n\nThe table is missing, I should say so.',
 					toolCalls: [
 						{
 							toolName: 'execute_sql',
@@ -232,6 +240,7 @@ function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
 				role: 'assistant',
 				feedback: { messageId: 'message-2', vote: 'down', explanation: 'Wrong table' },
 				parts: [
+					{ type: 'reasoning', text: 'Revenue lives in the orders table.' },
 					{
 						type: 'tool-execute_sql',
 						toolCallId: 'call-1',
@@ -240,6 +249,8 @@ function uiChat(options: { withSuccessfulTool?: boolean } = {}) {
 						errorText: 'Table orders does not exist',
 					},
 					...(options.withSuccessfulTool ? [successfulTool] : []),
+					{ type: 'reasoning', text: '' },
+					{ type: 'reasoning', text: 'The table is missing, I should say so.' },
 					{ type: 'text', text: 'I could not query the table.' },
 				],
 			},
