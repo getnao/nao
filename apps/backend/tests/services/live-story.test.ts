@@ -24,6 +24,9 @@ const mocks = vi.hoisted(() => ({
 	resolveDefaultChatModel: vi.fn(),
 	resolveDefaultModelSelection: vi.fn(),
 	resolveProviderModel: vi.fn(),
+	extractCustomStoryQueryIds: vi.fn(),
+	listVersionFiles: vi.fn(),
+	getLatestSqlQueriesByIds: vi.fn(),
 }));
 
 vi.mock('ai', async (importOriginal) => ({
@@ -90,7 +93,15 @@ vi.mock('../../src/utils/schedule-task', () => ({
 vi.mock('../../src/utils/story-query-data', () => ({
 	backfillMissingQueryData: mocks.backfillMissingQueryData,
 	findMissingQueryIds: mocks.findMissingQueryIds,
-	extractCustomStoryQueryIds: () => new Set<string>(),
+	extractCustomStoryQueryIds: mocks.extractCustomStoryQueryIds,
+}));
+
+vi.mock('../../src/queries/story-file.queries', () => ({
+	listVersionFiles: mocks.listVersionFiles,
+}));
+
+vi.mock('../../src/queries/execute-sql.queries', () => ({
+	getLatestSqlQueriesByIds: mocks.getLatestSqlQueriesByIds,
 }));
 
 import { assertProjectCloudBillingAccess } from '../../src/services/cloud-billing-access.service';
@@ -161,6 +172,7 @@ describe('live story SQL execution', () => {
 		mocks.updateLatestVersionCode.mockResolvedValue(undefined);
 		mocks.resolveDefaultModelSelection.mockResolvedValue(null);
 		mocks.resolveDefaultChatModel.mockResolvedValue(null);
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set());
 	});
 
 	afterEach(() => {
@@ -299,6 +311,47 @@ describe('live story SQL execution', () => {
 		expect(logger.warn).toHaveBeenCalledWith(
 			expect.stringContaining('could not parse the response'),
 			expect.objectContaining({ projectId: 'project-1' }),
+		);
+	});
+
+	it('keeps the narratives of the last refresh when the model fails to rewrite a custom story', async () => {
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			id: 'version-1',
+			code: '',
+			title: 'Usage',
+			isLiveTextDynamic: true,
+			format: 'custom',
+		});
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set(['query_admin']));
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT * FROM v_messages', adminMode: true },
+		});
+		mocks.listVersionFiles.mockResolvedValue([
+			{
+				path: 'src/App.tsx',
+				content: [
+					"import { Narrative } from '@nao/story-kit';",
+					'export default () => <Narrative id="summary">Usage is flat</Narrative>;',
+				].join('\n'),
+			},
+		]);
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue({ analysisResults: { summary: 'Usage grew 12%' } });
+		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['n'], rows: [{ n: 1 }], rowCount: 1 });
+		mocks.resolveDefaultModelSelection.mockResolvedValue({ provider: 'openrouter', modelId: 'some/model' });
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'some/model' } });
+		mocks.generateText.mockRejectedValue(new Error('No object generated: could not parse the response.'));
+
+		await expect(refreshStoryData('chat-1', 'usage')).resolves.toMatchObject({
+			narratives: { summary: 'Usage grew 12%' },
+		});
+
+		expect(mocks.generateText).toHaveBeenCalledOnce();
+		expect(mocks.upsertStoryDataCache).toHaveBeenCalledWith(
+			'chat-1',
+			'usage',
+			{ query_admin: { columns: ['n'], data: [{ n: 1 }] } },
+			expect.anything(),
+			{ summary: 'Usage grew 12%' },
 		);
 	});
 

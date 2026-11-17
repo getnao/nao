@@ -146,7 +146,7 @@ async function refreshStoryDataWithContext(
 		const newCode = await keepCurrentTextOnFailure(
 			target,
 			() => generateDynamicStoryCode(target, version.title, version.code, queryData),
-			null,
+			async () => null,
 		);
 		if (newCode) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
@@ -159,7 +159,7 @@ async function refreshStoryDataWithContext(
 			? await keepCurrentTextOnFailure(
 					target,
 					() => regenerateCustomStoryNarratives(target, version, queryData),
-					{},
+					() => getCachedNarratives(chatId, slug),
 				)
 			: {};
 	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries), narratives);
@@ -539,7 +539,7 @@ async function generateDynamicStoryCode(
 async function keepCurrentTextOnFailure<T>(
 	target: StoryRefreshTarget,
 	rewriteText: () => Promise<T>,
-	currentText: T,
+	currentText: () => Promise<T>,
 ): Promise<T> {
 	try {
 		return await rewriteText();
@@ -549,8 +549,14 @@ async function keepCurrentTextOnFailure<T>(
 			projectId: target.projectId,
 			context: { chatId: target.chatId },
 		});
-		return currentText;
+		return currentText();
 	}
+}
+
+/** Narratives of the last successful refresh, which the cache upsert would otherwise replace. */
+async function getCachedNarratives(chatId: string, slug: string): Promise<StoryNarratives> {
+	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
+	return cache?.analysisResults ?? {};
 }
 
 /** Narratives are rewritten from the text in the published source, never from a previous refresh, so they cannot drift. */
