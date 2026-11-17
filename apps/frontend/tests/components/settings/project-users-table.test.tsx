@@ -186,13 +186,23 @@ describe('ProjectUsersTable member management', () => {
 		expect(await screen.findByText('Password: generated-password')).toBeTruthy();
 	});
 
-	it('offers member actions for other project members only', () => {
+	it('offers member actions for other members only', () => {
 		renderTable();
 
 		expect(screen.getByRole('button', { name: 'Actions for Project User' })).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Actions for Organisation User' })).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Actions for Admin' })).toBeNull();
-		expect(screen.queryByRole('button', { name: 'Actions for Organisation User' })).toBeNull();
 		expect(screen.getByText('(you)')).toBeTruthy();
+	});
+
+	it('only offers to transfer the stories of an organisation member', () => {
+		renderTable();
+
+		openDropdownMenu('Actions for Organisation User');
+
+		expect(screen.getByRole('menuitem', { name: 'Transfer stories' })).toBeTruthy();
+		expect(screen.queryByRole('menuitem', { name: 'Edit user' })).toBeNull();
+		expect(screen.queryByRole('menuitem', { name: 'Remove' })).toBeNull();
 	});
 
 	it('removes a project member after confirmation', async () => {

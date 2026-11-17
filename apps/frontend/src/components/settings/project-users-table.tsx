@@ -528,6 +528,7 @@ function UserAccessTableContent({
 							columnCount={columnCount}
 							currentUserId={currentUserId}
 							management={management}
+							showMemberActions
 						/>
 					)}
 				</TableBody>
@@ -676,8 +677,10 @@ function UserIdentity({ user, isCurrentUser, name }: { user: ProjectUser; isCurr
 	);
 }
 
+/** Organisation members are managed from the organisation, so here they only get their stories handed over. */
 function MemberRowActions({ user, actions }: { user: ProjectUser; actions: ProjectMemberActions }) {
 	const { onEdit, onTransferStories, onRemove, onResetPassword } = actions;
+	const isProjectMember = user.source !== 'organization';
 
 	return (
 		<DropdownMenu>
@@ -693,14 +696,16 @@ function MemberRowActions({ user, actions }: { user: ProjectUser; actions: Proje
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' onClick={(event) => event.stopPropagation()}>
 				<DropdownMenuGroup>
-					<DropdownMenuItem onSelect={() => onEdit(user)}>Edit user</DropdownMenuItem>
-					{onResetPassword && (
+					{isProjectMember && <DropdownMenuItem onSelect={() => onEdit(user)}>Edit user</DropdownMenuItem>}
+					{isProjectMember && onResetPassword && (
 						<DropdownMenuItem onSelect={() => onResetPassword(user)}>Reset password</DropdownMenuItem>
 					)}
 					<DropdownMenuItem onSelect={() => onTransferStories(user)}>Transfer stories</DropdownMenuItem>
-					<DropdownMenuItem className='text-destructive' onSelect={() => onRemove(user)}>
-						Remove
-					</DropdownMenuItem>
+					{isProjectMember && (
+						<DropdownMenuItem className='text-destructive' onSelect={() => onRemove(user)}>
+							Remove
+						</DropdownMenuItem>
+					)}
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
