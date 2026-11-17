@@ -203,21 +203,26 @@ class TestSyncCommand:
         assert any("Sync Failed" in call for call in calls)
 
     @pytest.mark.parametrize(
-        "provider_kwargs",
+        ("provider_kwargs", "expected_lines"),
         [
-            {"sync_error": "Run pip install 'nao-core[semantic-layer]'"},
-            {"items": ["item1"], "result_error": "Run pip install 'nao-core[semantic-layer]'"},
+            ({"sync_error": "Run pip install 'nao-core[semantic-layer]'"}, ["❌ TestProvider: ", "TestProvider: "]),
+            ({"items": ["item1"], "result_error": "Run pip install 'nao-core[semantic-layer]'"}, ["TestProvider: "]),
         ],
     )
-    def test_sync_keeps_brackets_in_printed_errors(self, create_config, sync_console, provider_kwargs):
+    def test_sync_keeps_brackets_in_printed_errors(self, create_config, sync_console, provider_kwargs, expected_lines):
         create_config()
         failing = _make_provider(emoji="❌", **provider_kwargs)
 
         with pytest.raises(SystemExit):
             sync(_providers=[failing], render_templates=False)
 
-        rendered = Console(width=200)
-        with rendered.capture() as capture:
-            for call in sync_console.print.call_args_list:
-                rendered.print(*call.args)
-        assert "nao-core[semantic-layer]" in capture.get()
+        error_lines = [line for line in _render_printed_lines(sync_console) if "Run pip install" in line]
+        assert error_lines == [f"{prefix}Run pip install 'nao-core[semantic-layer]'" for prefix in expected_lines]
+
+
+def _render_printed_lines(console: MagicMock) -> list[str]:
+    rendered = Console(width=200)
+    with rendered.capture() as capture:
+        for call in console.print.call_args_list:
+            rendered.print(*call.args)
+    return [line.strip(" ⚠•") for line in capture.get().splitlines()]

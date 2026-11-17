@@ -289,7 +289,7 @@ class RepositorySyncProvider(SyncProvider):
 
         error = None
         if failed_repositories:
-            failed_names = ", ".join(escape(name) for name in sorted(failed_repositories))
+            failed_names = ", ".join(sorted(failed_repositories))
             repository_label = "repository" if len(failed_repositories) == 1 else "repositories"
             error = f"Failed to sync {len(failed_repositories)} {repository_label}: {failed_names}"
 
