@@ -116,9 +116,9 @@ describe('runNaoCommandInSandbox', () => {
 			'/project',
 		);
 		const output = vi.mocked(onOutput).mock.calls.at(-1)?.[0];
-		expect(output).toContain('Checking sync connections...');
-		expect(output).toContain('Preparing the secure sync environment. The first run may take a few minutes...');
-		expect(output).toContain('Copying the project into the secure sync environment...');
+		expect(output).toContain('Checking sync connections.');
+		expect(output).toContain('Preparing the secure sync environment. The first run may take a few minutes.');
+		expect(output).toContain('Copying the project into the secure sync environment.');
 		expect(output).toContain('Starting nao sync...');
 		expect(output).toContain('Syncing\nDone\n');
 		await vi.waitFor(() => expect(fs.existsSync(box.mountPath())).toBe(false));

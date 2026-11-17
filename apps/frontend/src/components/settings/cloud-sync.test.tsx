@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 	start: vi.fn(),
 }));
 
-vi.mock('./context-git-panel', () => ({
+vi.mock('@/lib/context-explorer-queries', () => ({
 	invalidateExplorerQueries: mocks.invalidateExplorerQueries,
 }));
 
