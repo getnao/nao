@@ -72,11 +72,13 @@ import {
 } from '../services/story-edit-lock.service';
 import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
 import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
+import { readCustomStoryMapBoundary } from '../services/story-map-boundary';
 import { resolveSpecificRecipientUserIds } from '../services/story-recipients';
 import { listMostViewedStories } from '../services/story-reference';
 import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	mapBoundaryKey,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
@@ -673,6 +675,10 @@ export const storyRoutes = {
 	getCustomStoryChartPlugins: storyEditorProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
 		.query(({ input }) => readCustomStoryChartPluginSources(input.chatId, input.storySlug)),
+
+	getCustomStoryMapBoundary: storyEditorProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string(), key: mapBoundaryKey }))
+		.query(({ input }) => readCustomStoryMapBoundary(input.chatId, input.storySlug, input.key)),
 
 	getCustomStoryState: storyEditorProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string() }))

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectAvailableModels: vi.fn(),
 	resolveModelInferenceSettings: vi.fn(),
 	createDraftContextSnapshot: vi.fn(),
+	createUpstreamContextSnapshot: vi.fn(),
 	removeContextSnapshot: vi.fn(),
 }));
 
@@ -57,6 +58,9 @@ vi.mock('../../src/services/draft-context.service', () => ({
 	createDraftContextSnapshot: mocks.createDraftContextSnapshot,
 	removeContextSnapshot: mocks.removeContextSnapshot,
 	removeContextSnapshotsOlderThan: vi.fn(),
+}));
+vi.mock('../../src/services/upstream-context.service', () => ({
+	createUpstreamContextSnapshot: mocks.createUpstreamContextSnapshot,
 }));
 
 import { getModelReasoningEfforts } from '../../src/agents/provider-meta';
@@ -521,6 +525,34 @@ describe('startComparisonRun', () => {
 		expect(contextFolders).toEqual([draftFolder]);
 		expect(mocks.recordResultWhileRunning).toHaveBeenCalledWith(
 			expect.objectContaining({ testPath: 'revenue.yml', contextVariant: 'draft' }),
+		);
+	});
+
+	it('runs the tests against production and an upstream branch synced into the context', async () => {
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+		mocks.createUpstreamContextSnapshot.mockResolvedValue({
+			folder: draftFolder,
+			ref: 'business:analyst/net-revenue',
+			commit: 'def456',
+			changes: [{ path: 'repos/business/revenue.md', kind: 'modified' }],
+		});
+		const upstream = { repo: 'business', branch: 'analyst/net-revenue' };
+
+		const run = await startComparisonRun({ projectId: 'project-1', userId: 'user-1', upstream });
+		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
+
+		expect(run.totalAttempts).toBe(2);
+		expect(mocks.createUpstreamContextSnapshot).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: 'project-1', userId: 'user-1', upstream }),
+		);
+		expect(mocks.createDraftContextSnapshot).not.toHaveBeenCalled();
+		expect(mocks.createRunUnlessActive).toHaveBeenCalledWith(
+			expect.objectContaining({
+				trigger: 'comparison',
+				contextRef: 'business:analyst/net-revenue',
+				contextCommit: 'def456',
+				contextChanges: [{ path: 'repos/business/revenue.md', kind: 'modified' }],
+			}),
 		);
 	});
 

@@ -66,7 +66,7 @@ function AutomationDetailPage() {
 	async function handleDelete() {
 		await deleteAutomation.mutateAsync({ id: automationId });
 		await queryClient.invalidateQueries({ queryKey: trpc.automation.list.queryKey() });
-		navigate({ to: '/feed' });
+		navigate({ to: '/automations' });
 	}
 
 	async function handleRunNow() {
@@ -112,7 +112,7 @@ function AutomationDetailPage() {
 		>
 			<div className='mb-6 flex items-center justify-between gap-3 flex-wrap'>
 				<Button variant='ghost' size='sm' asChild>
-					<Link to='/feed'>
+					<Link to='/automations'>
 						<ArrowLeft className='size-4' />
 						Automations
 					</Link>

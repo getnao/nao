@@ -1,5 +1,10 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
+import {
+	extractStoryMapBoundaryKeys,
+	type StoryApp,
+	type StoryNarratives,
+	type StoryQueryResult,
+} from '@nao/shared/story-app';
 import { hasStoryQueryInputs, type StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
@@ -29,6 +34,7 @@ export interface CustomStoryVersionView {
 	styles: { path: string; content: string }[];
 	files: CustomStoryFileSummary[];
 	queryIds: string[];
+	mapBoundaryKeys: string[];
 	theme: StoryThemePair | null;
 	isLive: boolean;
 	cachedAt: Date | null;
@@ -168,6 +174,7 @@ async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersi
 			.filter((file) => isViewableStoryFile(file.path))
 			.map((file) => ({ path: file.path, size: Buffer.byteLength(file.content, 'utf8') })),
 		queryIds,
+		mapBoundaryKeys: extractStoryMapBoundaryKeys(files.map((file) => file.content)),
 		theme,
 		isLive: story.isLive,
 		cachedAt: cache?.cachedAt ?? null,

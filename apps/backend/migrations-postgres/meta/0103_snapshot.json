@@ -1,5 +1,5 @@
 {
-  "id": "da8b0913-4262-4780-b0a2-fda78cb7c157",
+  "id": "38240ebc-4e78-41c7-9176-f824a3fdcfa2",
   "prevId": "ffc9d7c5-4eba-4d25-81c9-3dbb0cf72b2e",
   "version": "7",
   "dialect": "postgresql",
@@ -6993,6 +6993,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "menu_settings": {
+          "name": "menu_settings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "default_models": {
           "name": "default_models",
           "type": "jsonb",
@@ -7004,13 +7010,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "user_group_management_mode": {
-          "name": "user_group_management_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'ui'"
         },
         "created_at": {
           "name": "created_at",
@@ -7193,13 +7192,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
         },
         "created_at": {
           "name": "created_at",
@@ -11247,30 +11239,6 @@
           "notNull": true,
           "default": false
         },
-        "config_key": {
-          "name": "config_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "archived_name": {
-          "name": "archived_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sso_mappings_suspended_at": {
-          "name": "sso_mappings_suspended_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
         "feature_grants": {
           "name": "feature_grants",
           "type": "jsonb",
@@ -11368,92 +11336,8 @@
             "project_id",
             "name"
           ]
-        },
-        "user_group_project_config_key_unique": {
-          "name": "user_group_project_config_key_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "project_id",
-            "config_key"
-          ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.user_group_config_member": {
-      "name": "user_group_config_member",
-      "schema": "",
-      "columns": {
-        "group_id": {
-          "name": "group_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "normalized_email": {
-          "name": "normalized_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "user_group_config_member_email_active_idx": {
-          "name": "user_group_config_member_email_active_idx",
-          "columns": [
-            {
-              "expression": "normalized_email",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "active",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "user_group_config_member_group_id_normalized_email_pk": {
-          "name": "user_group_config_member_group_id_normalized_email_pk",
-          "columns": [
-            "group_id",
-            "normalized_email"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -11480,13 +11364,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'manual'"
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
         },
         "created_at": {
           "name": "created_at",

@@ -4,6 +4,7 @@ import { STORY_THEME_MODES, type StoryThemeMode, type StoryThemePair } from '@na
 import { createHash } from 'crypto';
 
 import type { DBStory, DBStoryAppState } from '../db/abstractSchema';
+import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyAppStateQueries from '../queries/story-app-state.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
@@ -228,15 +229,16 @@ async function saveThumbnails(versionId: string, images: ModeThumbnails, renderK
 	return storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(images), renderKey);
 }
 
-/** Live data, shared state and project chart plugins change in place, without a new version, so they are part of the key. */
+/** Live data, shared state, project chart plugins and boundary sets change in place, without a new version, so they are part of the key. */
 async function thumbnailRenderKey(
 	story: Pick<DBStory, 'id' | 'isLive'>,
 	theme: StoryThemePair | null,
 ): Promise<string> {
-	const [dataCachedAt, sharedState, chartPlugins] = await Promise.all([
+	const [dataCachedAt, sharedState, chartPlugins, mapBoundaries] = await Promise.all([
 		story.isLive ? storyQueries.getStoryDataCachedAt(story.id) : null,
 		storyAppStateQueries.listProjectStoryAppState(story.id),
 		cachedChartPluginsFingerprint(story.id),
+		mapBoundariesFingerprint(story.id),
 	]);
 	return [
 		`${THUMBNAIL_VIEWPORT.width}x${THUMBNAIL_VIEWPORT.height}`,
@@ -244,6 +246,7 @@ async function thumbnailRenderKey(
 		dataCachedAt?.getTime(),
 		sharedState.length > 0 ? sharedStateFingerprint(sharedState) : undefined,
 		chartPlugins,
+		mapBoundaries,
 	]
 		.filter((part) => part !== undefined)
 		.join('.');
@@ -271,6 +274,16 @@ async function cachedChartPluginsFingerprint(storyId: string): Promise<string | 
 function chartPluginsFingerprint(plugins: ChartPluginManifestEntry[]): string {
 	const versions = plugins.map((plugin) => `${plugin.type}@${plugin.version}`).sort();
 	return createHash('sha256').update(versions.join('\n')).digest('hex').slice(0, 12);
+}
+
+async function mapBoundariesFingerprint(storyId: string): Promise<string | undefined> {
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	const sets = projectId ? await projectQueries.getCustomBoundaries(projectId) : [];
+	if (sets.length === 0) {
+		return undefined;
+	}
+	const sources = sets.map((set) => `${set.key}:${set.file?.storageKey ?? set.url}:${set.joinProperty}`).sort();
+	return createHash('sha256').update(sources.join('\n')).digest('hex').slice(0, 12);
 }
 
 function parseThumbnails(raw: string | undefined): ModeThumbnails {

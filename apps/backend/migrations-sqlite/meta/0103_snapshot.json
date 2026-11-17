@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f66aa855-4917-47ed-9ae7-ae51fc2d0137",
+  "id": "ea4a79f0-75ed-41a2-bf5b-012dbeca7392",
   "prevId": "df9fd05e-67b3-4ebf-8147-01ec74ed4739",
   "tables": {
     "account": {
@@ -6442,6 +6442,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "menu_settings": {
+          "name": "menu_settings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "default_models": {
           "name": "default_models",
           "type": "text",
@@ -6455,14 +6462,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "user_group_management_mode": {
-          "name": "user_group_management_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'ui'"
         },
         "created_at": {
           "name": "created_at",
@@ -6634,14 +6633,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "active": {
-          "name": "active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
         },
         "created_at": {
           "name": "created_at",
@@ -10464,34 +10455,6 @@
           "autoincrement": false,
           "default": false
         },
-        "config_key": {
-          "name": "config_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "archived_name": {
-          "name": "archived_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sso_mappings_suspended_at": {
-          "name": "sso_mappings_suspended_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "feature_grants": {
           "name": "feature_grants",
           "type": "text",
@@ -10561,14 +10524,6 @@
             "name"
           ],
           "isUnique": true
-        },
-        "user_group_project_config_key_unique": {
-          "name": "user_group_project_config_key_unique",
-          "columns": [
-            "project_id",
-            "config_key"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -10587,71 +10542,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "user_group_config_member": {
-      "name": "user_group_config_member",
-      "columns": {
-        "group_id": {
-          "name": "group_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "normalized_email": {
-          "name": "normalized_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "active": {
-          "name": "active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "user_group_config_member_email_active_idx": {
-          "name": "user_group_config_member_email_active_idx",
-          "columns": [
-            "normalized_email",
-            "active"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "user_group_config_member_group_id_normalized_email_pk": {
-          "columns": [
-            "group_id",
-            "normalized_email"
-          ],
-          "name": "user_group_config_member_group_id_normalized_email_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -10679,14 +10569,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'manual'"
-        },
-        "active": {
-          "name": "active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
         },
         "created_at": {
           "name": "created_at",

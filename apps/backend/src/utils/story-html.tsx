@@ -57,6 +57,7 @@ import { generateChartImage, renderChartToSvg } from '../components/generate-cha
 import type { EmailAttachment } from '../types/email';
 import { svgToPng } from './generate-chart';
 import { getCachedBoundary, setCachedBoundary } from './map-boundary-cache';
+import { loadBoundarySet } from './map-boundary-resolve';
 import { parseAndValidateGeoJson, safeFetch } from './safe-fetch';
 import { type Basemap, basemapByteBudgetForCount, buildBasemapTiles } from './static-map-basemap';
 import {
@@ -271,24 +272,9 @@ async function prefetchCustomBoundaries(
 
 	await Promise.all([
 		...[...customKeysNeeded].map(async (key) => {
-			const resolved = resolveBoundary(key, customBoundaries);
-			if (!resolved) {
-				return;
-			}
-			const isCustom = customBoundaries.some((set) => set.key === key);
-			const url = isCustom ? resolved.url : builtinBoundaryUrl(key) || resolved.url;
-			const cached = getCachedBoundary(url);
-			if (cached) {
-				result.set(key, { geojson: cached, joinProps: resolved.joinProps });
-				return;
-			}
-			try {
-				const text = await safeFetch(url);
-				const { geojson } = parseAndValidateGeoJson(text);
-				setCachedBoundary(url, geojson);
-				result.set(key, { geojson, joinProps: resolved.joinProps });
-			} catch {
-				// silently skip — the map will render without region fills
+			const boundary = await loadBoundarySet(key, customBoundaries);
+			if (boundary) {
+				result.set(key, boundary);
 			}
 		}),
 		// Boundary GeoJSON depends only on the URL, so it is shared across maps. The join property is

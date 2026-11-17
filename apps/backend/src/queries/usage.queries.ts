@@ -149,6 +149,18 @@ export const getMessagesUsage = async (
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'web' then ${s.chatMessage.id} end)`.as(
 						'web_message_count',
 					),
+				automationEditorMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'automationEditor' then ${s.chatMessage.id} end)`.as(
+						'automation_editor_message_count',
+					),
+				contextEditorMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'contextEditor' then ${s.chatMessage.id} end)`.as(
+						'context_editor_message_count',
+					),
+				automationMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'automation' then ${s.chatMessage.id} end)`.as(
+						'automation_message_count',
+					),
 				slackMessageCount:
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'slack' then ${s.chatMessage.id} end)`.as(
 						'slack_message_count',
@@ -212,6 +224,9 @@ export const getMessagesUsage = async (
 				date: inferenceDateExpr.as('date'),
 				messageCount: sql<number>`0`.as('message_count'),
 				webMessageCount: sql<number>`0`.as('web_message_count'),
+				automationEditorMessageCount: sql<number>`0`.as('automation_editor_message_count'),
+				contextEditorMessageCount: sql<number>`0`.as('context_editor_message_count'),
+				automationMessageCount: sql<number>`0`.as('automation_message_count'),
 				slackMessageCount: sql<number>`0`.as('slack_message_count'),
 				teamsMessageCount: sql<number>`0`.as('teams_message_count'),
 				telegramMessageCount: sql<number>`0`.as('telegram_message_count'),
@@ -252,6 +267,9 @@ export const getMessagesUsage = async (
 			date: combinedUsage.date,
 			messageCount: sum(combinedUsage.messageCount),
 			webMessageCount: sum(combinedUsage.webMessageCount),
+			automationEditorMessageCount: sum(combinedUsage.automationEditorMessageCount),
+			contextEditorMessageCount: sum(combinedUsage.contextEditorMessageCount),
+			automationMessageCount: sum(combinedUsage.automationMessageCount),
 			slackMessageCount: sum(combinedUsage.slackMessageCount),
 			teamsMessageCount: sum(combinedUsage.teamsMessageCount),
 			telegramMessageCount: sum(combinedUsage.telegramMessageCount),
@@ -439,6 +457,9 @@ function normalizeMessageUsageRow(row: {
 	date: string;
 	messageCount: unknown;
 	webMessageCount: unknown;
+	automationEditorMessageCount: unknown;
+	contextEditorMessageCount: unknown;
+	automationMessageCount: unknown;
 	slackMessageCount: unknown;
 	teamsMessageCount: unknown;
 	telegramMessageCount: unknown;
@@ -468,6 +489,9 @@ function normalizeMessageUsageRow(row: {
 		date: row.date,
 		messageCount: Number(row.messageCount ?? 0),
 		webMessageCount: Number(row.webMessageCount ?? 0),
+		automationEditorMessageCount: Number(row.automationEditorMessageCount ?? 0),
+		contextEditorMessageCount: Number(row.contextEditorMessageCount ?? 0),
+		automationMessageCount: Number(row.automationMessageCount ?? 0),
 		slackMessageCount: Number(row.slackMessageCount ?? 0),
 		teamsMessageCount: Number(row.teamsMessageCount ?? 0),
 		telegramMessageCount: Number(row.telegramMessageCount ?? 0),

@@ -22,8 +22,10 @@ import {
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
+import { readCustomStoryMapBoundary } from '../services/story-map-boundary';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	mapBoundaryKey,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
@@ -165,6 +167,10 @@ export const customStoryViewerRoutes = {
 	getChartPlugins: viewerProcedure.query(({ ctx, input }) =>
 		readCustomStoryChartPluginSources(ctx.viewer.chatId, input.storySlug),
 	),
+
+	getMapBoundary: viewerProcedure
+		.input(z.object({ key: mapBoundaryKey }))
+		.query(({ ctx, input }) => readCustomStoryMapBoundary(ctx.viewer.chatId, input.storySlug, input.key)),
 
 	download: viewerProcedure
 		.input(z.object({ format: z.enum(DOWNLOAD_FORMATS), html: storySnapshotHtml, versionNumber }))

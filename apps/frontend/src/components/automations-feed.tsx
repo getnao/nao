@@ -980,7 +980,7 @@ function FeedEmptyState({
 				{hasAutomations
 					? 'Once your automations run or your live stories refresh, their output will show up here.'
 					: canCreateAutomation
-						? 'Create your first automation or refresh a live story to start seeing activity in this feed.'
+						? 'Create your first automation or refresh a live story to start seeing activity in your inbox.'
 						: 'Automation and live Story activity will appear here.'}
 			</p>
 		</div>

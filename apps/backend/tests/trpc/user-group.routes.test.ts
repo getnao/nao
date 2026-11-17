@@ -684,6 +684,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			false,
 		);
 	});
 
@@ -711,6 +712,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			false,
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
@@ -768,6 +770,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			false,
 		);
 	});
 
@@ -822,6 +825,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			false,
 		);
 	});
 
@@ -852,6 +856,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			false,
 		);
 	});
 
@@ -938,6 +943,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			false,
 		);
 	});
 
@@ -1073,6 +1079,7 @@ describe('user group routes', () => {
 			[],
 			EMPTY_SKILLS_ACCESS,
 			DEFAULT_GROUP_SHARE_TARGETS,
+			false,
 		);
 	});
 
@@ -1253,6 +1260,7 @@ describe('user group routes', () => {
 			},
 			toolCallDensityPolicy: COMPACT_DENSITY_POLICY,
 			canSeeAdvancedSettings: false,
+			canUseAdvancedContextExplorer: false,
 			databaseAccess: RESTRICTED_DATABASE_ACCESS,
 			docsAccess: RESTRICTED_DOCS_ACCESS,
 			rowPolicies: [{ version: 1, policies: [] }],
@@ -1297,6 +1305,7 @@ describe('user group routes', () => {
 			},
 			toolCallDensityPolicy: COMPACT_DENSITY_POLICY,
 			canSeeAdvancedSettings: false,
+			canUseAdvancedContextExplorer: false,
 			databaseAccess: RESTRICTED_DATABASE_ACCESS,
 			docsAccess: RESTRICTED_DOCS_ACCESS,
 		});

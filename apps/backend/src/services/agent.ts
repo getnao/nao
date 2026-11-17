@@ -804,7 +804,9 @@ export class AgentManager {
 		const memories = this._profile.excludesMemories
 			? []
 			: await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
-		const userRules = getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
+		const userRules = this._profile.excludesUserRules
+			? undefined
+			: getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
@@ -820,7 +822,7 @@ export class AgentManager {
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets, trustedStories] = await Promise.all([
+		const [mcpServers, sandboxSecrets, trustedStories, mapBoundaries] = await Promise.all([
 			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
@@ -828,6 +830,7 @@ export class AgentManager {
 			toolNames.includes('list') && toolNames.includes('read')
 				? listTrustedStoriesForPrompt({ userId: this.chat.userId, projectId: this.chat.projectId })
 				: Promise.resolve([]),
+			projectQueries.getCustomBoundaries(this.chat.projectId),
 		]);
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
@@ -838,6 +841,7 @@ export class AgentManager {
 				skills,
 				preloadedSkills,
 				customCharts,
+				mapBoundaries,
 				mcpServers,
 				sandboxSecrets,
 				trustedStories,
@@ -846,6 +850,7 @@ export class AgentManager {
 				repoNames,
 				contextPresence,
 				timezone,
+				role: this._profile.role,
 				toolNames,
 				options: {
 					savedFilesEnabled: isStorageEnabled(),

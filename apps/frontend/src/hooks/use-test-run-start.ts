@@ -6,8 +6,10 @@ import type { TrpcRouter } from '@nao/backend/trpc';
 import type { inferRouterInputs } from '@trpc/server';
 import type { DraftContext, TestRunSummary } from '@/components/settings/test-run-types';
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
+import type { UpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { getMainBranch } from '@/components/settings/test-run-labels';
 import { getContextChanges } from '@/components/settings/test-run-types';
+import { formatUpstreamRef, useUpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 
@@ -34,8 +36,9 @@ const contextRunModeStorage = createLocalStorage<ContextRunMode>('nao-test-conte
 const contextRunModeListeners = new Set<() => void>();
 
 /**
- * Starts a run of some tests on the main branch, with the user's changes, or both side by side, as picked in the menu
- * of the compare button. Runs go to the main branch alone while the context has no changes.
+ * Starts a run of some tests on the main branch, with the changes, or both side by side, as picked in the menu of the
+ * compare button. The changes are the user's, or those of the upstream branch picked. Runs go to the main branch alone
+ * while there are no changes.
  */
 export function useTestRunStart({
 	target,
@@ -47,16 +50,18 @@ export function useTestRunStart({
 }: TestRunStartOptions) {
 	const runStart = useMutation(trpc.testRun.startRun.mutationOptions({ onSuccess: onRunStarted }));
 	const [contextRunMode] = useContextRunMode();
-	const hasContextChanges = getContextChanges(draft).length > 0;
+	const [upstream, , isCheckingUpstream] = useUpstreamTestSource();
+	const hasContextChanges = upstream !== null || getContextChanges(draft).length > 0;
 	const mode: ContextRunMode = hasContextChanges ? contextRunMode : 'production';
 	const isStarting = runStart.isPending;
 
 	return {
 		mode,
 		hasContextChanges,
+		upstream,
 		isStarting,
 		error: runStart.error?.message,
-		disabledReason: getRunDisabledReason({ activeRun, blockedReason, settings, isStarting }),
+		disabledReason: getRunDisabledReason({ activeRun, blockedReason, settings, isStarting, isCheckingUpstream }),
 		run: () =>
 			runStart.mutate({
 				mode,
@@ -64,6 +69,7 @@ export function useTestRunStart({
 				models: settings.models,
 				attempts: settings.attempts,
 				threads: settings.threads,
+				upstream: mode === 'production' ? undefined : (upstream ?? undefined),
 			}),
 	};
 }
@@ -88,7 +94,7 @@ export function useTestFileRun({
 	return {
 		...testRun,
 		label: testRun.hasContextChanges
-			? describeTestFileRun(testRun.mode, getMainBranch(options.draft))
+			? describeTestFileRun(testRun.mode, getMainBranch(options.draft), describeChanges(testRun.upstream))
 			: 'Run this test',
 	};
 }
@@ -100,12 +106,17 @@ export function useContextRunMode() {
 	return [mode, setContextRunMode] as const;
 }
 
-function describeTestFileRun(mode: ContextRunMode, mainBranch: string): string {
+/** Names the tested changes in sentences such as "Run this test with your changes". */
+export function describeChanges(upstream: UpstreamTestSource | null): string {
+	return upstream ? formatUpstreamRef(upstream) : 'your changes';
+}
+
+function describeTestFileRun(mode: ContextRunMode, mainBranch: string, changes: string): string {
 	switch (mode) {
 		case 'compare':
 			return `Compare this test with ${mainBranch}`;
 		case 'changes':
-			return 'Run this test with your changes';
+			return `Run this test with ${changes}`;
 		case 'production':
 			return `Run this test on ${mainBranch}`;
 	}
@@ -116,11 +127,13 @@ function getRunDisabledReason({
 	blockedReason,
 	settings,
 	isStarting,
+	isCheckingUpstream,
 }: {
 	activeRun: TestRunSummary | undefined;
 	blockedReason: string | null;
 	settings: TestRunSettings;
 	isStarting: boolean;
+	isCheckingUpstream: boolean;
 }): string | null {
 	if (activeRun) {
 		return 'Wait for the run in progress to finish.';
@@ -130,6 +143,9 @@ function getRunDisabledReason({
 	}
 	if (settings.models.length === 0) {
 		return settings.isLoading ? 'Loading the models…' : 'No model is configured for tests.';
+	}
+	if (isCheckingUpstream) {
+		return 'Checking the synced repositories…';
 	}
 	return isStarting ? 'Starting the run…' : null;
 }

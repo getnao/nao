@@ -83,7 +83,9 @@ export function localProvider(
 		cloneRepo: () => undefined,
 		getGitInfo: () => ({ branch: 'main' }),
 		getUserGitIdentity: async ({ user }) => user,
-		coAuthor: { name: 'nao', email: 'naoagent@getnao.io' },
+		commitCoAuthors: () => [{ name: 'nao', email: 'naoagent@getnao.io' }],
+		isFirstParty: false,
+		sharesAccessToken: false,
 		commitAllAndPushBranch: () => undefined,
 		pushBranch: ({ dir, branch }) => {
 			runGit(dir, ['push', bare, `HEAD:refs/heads/${branch}`]);
@@ -91,6 +93,7 @@ export function localProvider(
 		},
 		findOpenReviewRequest: async () => openReviewRequest,
 		findReviewRequestByBranch: async () => null,
+		listBranches: async () => null,
 		openReviewRequest: async () => {
 			openReviewRequest = { kind: 'created', url: 'https://github.com/nao/context/pull/1' };
 			return openReviewRequest;

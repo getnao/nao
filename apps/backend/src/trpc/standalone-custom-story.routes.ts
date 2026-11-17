@@ -14,9 +14,11 @@ import {
 } from '../services/custom-story';
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
 import { getCustomStoryStateByStoryId, setCustomStoryStateByStoryId } from '../services/custom-story-state';
+import { readStoryMapBoundary } from '../services/story-map-boundary';
 import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	mapBoundaryKey,
 	STANDALONE_QUERY_SQL_UNAVAILABLE,
 	storyModelRequest,
 	storyQueryInputs,
@@ -129,6 +131,10 @@ export const standaloneCustomStoryRoutes = {
 	}),
 
 	getChartPlugins: standaloneOwnerProcedure.query(({ ctx }) => readStoryChartPluginSources(ctx.story.id)),
+
+	getMapBoundary: standaloneOwnerProcedure
+		.input(z.object({ key: mapBoundaryKey }))
+		.query(({ ctx, input }) => readStoryMapBoundary(ctx.story.id, input.key)),
 
 	getState: standaloneOwnerProcedure.query(({ ctx }) => getCustomStoryStateByStoryId(ctx.story.id, ctx.user.id)),
 

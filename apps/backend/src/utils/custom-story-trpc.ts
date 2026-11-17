@@ -35,6 +35,8 @@ export const storyStateChange = z.object({
 	shared: z.boolean(),
 });
 
+export const mapBoundaryKey = z.string().min(1).max(64);
+
 const MAX_FILTER_TEXT_LENGTH = 1_000;
 const MAX_FILTER_LIST_LENGTH = 500;
 

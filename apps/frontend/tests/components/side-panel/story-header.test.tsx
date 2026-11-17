@@ -107,11 +107,11 @@ describe('StoryHeader actions', () => {
 		expect(onShare).toHaveBeenCalledOnce();
 	});
 
-	it('switches the share icon once the story is shared', () => {
+	it('keeps the share arrow icon and highlights it once the story is shared', () => {
 		const { container } = renderHeader({ isShared: true });
 
-		expect(container.querySelector('.lucide-globe')).not.toBeNull();
-		expect(container.querySelector('.lucide-upload')).toBeNull();
+		expect(container.querySelector('.lucide-upload.text-primary')).not.toBeNull();
+		expect(container.querySelector('.lucide-globe')).toBeNull();
 	});
 
 	it('disables share while the agent is running', () => {

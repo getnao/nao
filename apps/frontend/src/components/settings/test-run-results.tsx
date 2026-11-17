@@ -1,3 +1,4 @@
+import { pluralize } from '@nao/shared';
 import { toExplorerTestPath } from '@nao/shared/test-paths';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -13,7 +14,7 @@ import { ModelLeaderboard } from '@/components/settings/test-model-leaderboard';
 import { listTestsWhereModelsDisagree, TestModelMatrix } from '@/components/settings/test-model-matrix';
 import { matchesResultFilter, TestResultFilterPills } from '@/components/settings/test-result-filter';
 import { TestRow } from '@/components/settings/test-row';
-import { BranchName, ToneIcon } from '@/components/settings/test-run-labels';
+import { BranchName, CHANGES_FALLBACK, ToneIcon } from '@/components/settings/test-run-labels';
 import { RunStatStrip } from '@/components/settings/test-run-stat-strip';
 import {
 	ACTIVE_RUN_REFETCH_MS,
@@ -41,6 +42,8 @@ interface RunTest {
 }
 
 type TestMetrics = ReturnType<typeof summarizeTestMetrics>;
+
+const MAX_SHOWN_CONTEXT_CHANGES = 5;
 
 export function TestRunResults({
 	runId,
@@ -94,6 +97,7 @@ function RunResults({
 				/>
 				<RunDescription run={run} mainBranch={mainBranch} />
 			</PanelHeader>
+			<RunContextChanges run={run} />
 			<RunModelsOverview run={run} mainBranch={mainBranch} />
 			{hasSeveralModels && !run.comparison ? (
 				<TestModelMatrix
@@ -220,13 +224,43 @@ function MetricColumns({ cost, toolCalls, duration }: { cost: string; toolCalls:
 	);
 }
 
+/** The context files the run tested against production, so a score can be traced back to the changes behind it. */
+function RunContextChanges({ run }: { run: TestRunWithResults }) {
+	const changes = run.contextChanges ?? [];
+	if (changes.length === 0) {
+		return null;
+	}
+	const shownChanges = changes.slice(0, MAX_SHOWN_CONTEXT_CHANGES);
+	const hiddenCount = changes.length - shownChanges.length;
+	return (
+		<div className='flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b px-3 py-1.5 text-muted-foreground'>
+			<span>
+				Tested {changes.length} changed {pluralize('file', changes.length)}
+				{run.contextRef && (
+					<>
+						{' '}
+						of <BranchName name={run.contextRef} />
+					</>
+				)}
+				:
+			</span>
+			{shownChanges.map((change) => (
+				<span key={change.path} className='font-mono text-foreground' title={change.kind}>
+					{change.path}
+				</span>
+			))}
+			{hiddenCount > 0 && <span>and {hiddenCount} more</span>}
+		</div>
+	);
+}
+
 function RunDescription({ run, mainBranch }: { run: TestRunWithResults; mainBranch: string }) {
 	const models = describeTestModels(run.models);
 	return (
 		<span className='min-w-0 flex-1 truncate text-right'>
 			{isActiveRun(run) && `Running ${run.completedAttempts}/${run.totalAttempts} · `}
 			{run.comparison &&
-				`${mainBranch} ${formatPassRate(run.comparison.production.passedAttempts, run.comparison.production.totalAttempts)} → your changes ${formatPassRate(run.comparison.draft.passedAttempts, run.comparison.draft.totalAttempts)} · `}
+				`${mainBranch} ${formatPassRate(run.comparison.production.passedAttempts, run.comparison.production.totalAttempts)} → ${run.contextRef ?? CHANGES_FALLBACK} ${formatPassRate(run.comparison.draft.passedAttempts, run.comparison.draft.totalAttempts)} · `}
 			{models}
 			{run.attempts > 1 && ` · ${run.attempts} answers per test`}
 			{run.errorMessage && <span className='text-destructive'> · {run.errorMessage}</span>}

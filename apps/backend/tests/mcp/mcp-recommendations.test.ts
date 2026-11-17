@@ -32,6 +32,7 @@ vi.mock('../../src/services/context-recommendations.service', () => ({
 
 import { env } from '../../src/env';
 import { registerContextAdminTools } from '../../src/mcp/tools/context-admin-tools';
+import { createRecommendation as recommendation } from '../helpers/context-recommendation';
 
 const RECOMMENDATION_TOOLS = ['list_recommendations', 'get_recommendation', 'set_recommendation_status'];
 
@@ -205,51 +206,4 @@ async function connect(role: McpUserRole): Promise<Client> {
 async function toolNames(client: Client): Promise<string[]> {
 	const { tools } = await client.listTools();
 	return tools.map((tool) => tool.name);
-}
-
-function recommendation(overrides: Record<string, unknown>) {
-	return {
-		id: 'rec',
-		projectId: 'project-1',
-		runId: 'run-1',
-		fingerprint: 'fingerprint',
-		suggestedFile: 'RULES.md',
-		subjectKey: 'revenue',
-		status: 'open',
-		impactScore: 80,
-		impact: { affectedChats: 4, failureShare: 0.5 },
-		insights: [
-			{ signalType: 'downvote_theme', metric: 'downvotes', count: 3, triggerRefs: [{ chatId: 'chat-1' }] },
-		],
-		title: 'Exclude refunds from revenue',
-		summary: 'Revenue answers include refunded orders.',
-		suggestedAction: 'Document that revenue excludes refunds.',
-		fixKind: 'patch',
-		fixTarget: 'rules',
-		category: 'semantic_missing',
-		rootCause: 'RULES.md does not say revenue excludes refunds.',
-		rootCauseKind: 'context_missing',
-		proposedEdits: [
-			{
-				path: 'RULES.md',
-				kind: 'edit',
-				oldContent: '# Revenue',
-				newContent: '# Revenue\nRevenue excludes refunds.',
-			},
-		],
-		fixGuidance: null,
-		fixPrompt: null,
-		prUrl: null,
-		prBranch: null,
-		prCreatedAt: null,
-		llmProvider: null,
-		llmModelId: null,
-		firstSeenAt: new Date('2026-10-01T03:00:00.000Z'),
-		lastSeenAt: new Date('2026-10-20T03:00:00.000Z'),
-		occurrenceCount: 2,
-		statusChangedAt: null,
-		statusChangedBy: null,
-		createdAt: new Date('2026-10-01T03:00:00.000Z'),
-		...overrides,
-	};
 }

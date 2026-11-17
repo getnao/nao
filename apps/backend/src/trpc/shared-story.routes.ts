@@ -35,6 +35,7 @@ import { filterShareableUserGroupIds } from '../services/shareable-user-groups.s
 import { unshareStory } from '../services/shared-story.service';
 import { filterOptionsRequestSchema, getStoryFilterOptions } from '../services/story-filter-options';
 import { assertStoryFiltersEnabled, getFilteredStoryQueryData, getStoryQuerySql } from '../services/story-filters';
+import { readStoryMapBoundary } from '../services/story-map-boundary';
 import {
 	assertCanManageStoryShare,
 	getStoryShareSettings,
@@ -44,6 +45,7 @@ import {
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	mapBoundaryKey,
 	STANDALONE_QUERY_SQL_UNAVAILABLE,
 	STANDALONE_SQL_UNAVAILABLE,
 	storyModelRequest,
@@ -304,6 +306,10 @@ export const sharedStoryRoutes = {
 	getCustomStoryChartPlugins: shareAccessProcedure
 		.input(z.object({ storyId: z.string() }))
 		.query(({ ctx }) => readStoryChartPluginSources(ctx.resource.storyId)),
+
+	getCustomStoryMapBoundary: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), key: mapBoundaryKey }))
+		.query(({ ctx, input }) => readStoryMapBoundary(ctx.resource.storyId, input.key)),
 
 	getCustomStoryState: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
 		const shared = ctx.resource;

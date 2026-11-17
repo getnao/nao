@@ -551,6 +551,35 @@ describe('SystemPrompt follow-up suggestions rules', () => {
 	});
 });
 
+describe('SystemPrompt map boundaries', () => {
+	const uploadedSet = {
+		key: 'french_postal_codes',
+		label: 'French postal codes',
+		file: { name: 'postal.geojson', size: 1024, storageKey: 'projects/p1/map-boundaries/a.geojson' },
+		joinProperty: 'code_postal',
+		regionKeyHint: '5-digit French postal code',
+		featureCount: 6000,
+	};
+
+	it('lists built-in and custom sets with how to join them, without their geometry', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({ mapBoundaries: [uploadedSet], options: { customStoriesEnabled: true } }),
+		);
+
+		expect(markdown).toContain('## Map boundaries');
+		expect(markdown).toContain('**world_countries** (built-in)');
+		expect(markdown).toContain(
+			'**french_postal_codes** (uploaded, 6000 features): French postal codes. Join property: code_postal.',
+		);
+		expect(markdown).toContain('useMapBoundary("key")');
+		expect(markdown).not.toContain(uploadedSet.file.storageKey);
+	});
+
+	it('leaves the prompt unchanged when the project has no custom set', () => {
+		expect(renderToMarkdown(SystemPrompt({}))).not.toContain('## Map boundaries');
+	});
+});
+
 describe('SystemPrompt display_map rules', () => {
 	it('includes the display_map rule by default', () => {
 		expect(renderToMarkdown(SystemPrompt({}))).toContain('display_map');
