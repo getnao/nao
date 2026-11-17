@@ -25,7 +25,7 @@ import * as contextDraftQueries from '../queries/context-draft.queries';
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
 import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
 import type { GitIdentity } from '../utils/git-identity';
-import { withKeyedLock } from '../utils/keyed-lock';
+import { contextWorktreeLockKey, withKeyedLock } from '../utils/keyed-lock';
 import { logger, serializeError } from '../utils/logger';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
@@ -178,7 +178,7 @@ export async function writeFileContent(
 	}
 	const repo = access.git.repo;
 	const worktreeRoot = getWorktreeProjectRoot(repo);
-	return withKeyedLock(`context-worktree-write:${canonicalizeWriteRoot(worktreeRoot)}`, async () => {
+	return withKeyedLock(contextWorktreeLockKey(access.draftOwner.projectId, access.draftOwner.userId), async () => {
 		const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 		const trackedPaths = getCommittedProjectPaths(repo);
 		await assertBranchEditable(repo, access);

@@ -102,7 +102,7 @@ export function extractRequiredSyncEnvVars(projectFolder: string): string[] {
 		throw new Error('Cannot determine sync credentials because nao_config.yaml is not an object.');
 	}
 	const activeConfig: unknown[] = SYNC_CONFIG_SECTIONS.map((section) => config[section]);
-	if (containsValue(config.databases, 'ai_summary')) {
+	if (syncUsesLlm(config.databases)) {
 		activeConfig.push(config.llm);
 	}
 	const required = new Set<string>();
@@ -175,6 +175,10 @@ function listProjectTemplates(root: string, relativeDirectory = ''): string[] {
 		}
 	}
 	return templates;
+}
+
+export function syncUsesLlm(databases: unknown): boolean {
+	return containsValue(databases, 'ai_summary');
 }
 
 function containsValue(value: unknown, expected: string): boolean {

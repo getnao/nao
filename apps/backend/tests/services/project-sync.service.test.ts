@@ -5,17 +5,18 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sandbox = vi.hoisted(() => ({ isAvailable: true }));
+const lockState = vi.hoisted(() => ({ locks: new Map<string, Promise<unknown>>() }));
 
-vi.mock('../src/env', () => ({ env: { NAO_MODE: 'cloud' } }));
-vi.mock('../src/services/sandbox-runtime', () => ({
+vi.mock('../../src/env', () => ({ env: { NAO_MODE: 'cloud' } }));
+vi.mock('../../src/services/sandbox-runtime', () => ({
 	get isSandboxAvailable() {
 		return sandbox.isAvailable;
 	},
 }));
-vi.mock('../src/utils/context-repo', () => ({
+vi.mock('../../src/utils/context-repo', () => ({
 	getWorktreeProjectRoot: (repo: { worktreeRoot: string }) => repo.worktreeRoot,
 }));
-vi.mock('../src/queries/activity.queries', () => ({
+vi.mock('../../src/queries/activity.queries', () => ({
 	startProjectSyncActivity: vi.fn(async () => ({ id: crypto.randomUUID() })),
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
@@ -27,33 +28,43 @@ vi.mock('../src/queries/activity.queries', () => ({
 	SYNC_LEASE_MS: 120_000,
 	PROJECT_SYNC_LEASE_KEY_PREFIX: 'project-sync:activity:',
 }));
-vi.mock('../src/queries/keyed-lock.queries', () => ({
+vi.mock('../../src/queries/keyed-lock.queries', () => ({
 	tryAcquireLock: vi.fn(async () => true),
 	renewLock: vi.fn(async () => true),
 	releaseLock: vi.fn(async () => undefined),
 }));
-vi.mock('../src/services/context-explorer-git.service', () => ({
+vi.mock('../../src/services/context-explorer-git.service', () => ({
 	resolveContextExplorerGitSafely: vi.fn(),
 }));
-vi.mock('../src/services/managed-github-repository', () => ({
+vi.mock('../../src/services/managed-github-repository', () => ({
 	publishManagedGithubRepositoryUpdate: vi.fn(),
 	readManagedGithubRepositoryFullName: vi.fn(),
 }));
-vi.mock('../src/services/project-runtime-env', () => ({
+vi.mock('../../src/services/project-runtime-env', () => ({
 	getProjectSyncEnvVars: vi.fn(),
 }));
-vi.mock('../src/services/nao-command.service', () => ({
+vi.mock('../../src/services/nao-command.service', () => ({
 	NaoCommandExitError: class NaoCommandExitError extends Error {},
 	runNaoCommandInSandbox: vi.fn(),
 }));
-vi.mock('../src/utils/keyed-lock', () => ({
-	withKeyedLock: vi.fn((_key, fn) => fn()),
+vi.mock('../../src/utils/keyed-lock', () => ({
+	contextWorktreeLockKey: (projectId: string, userId: string) => `context-worktree-write:${projectId}:${userId}`,
+	withKeyedLock: vi.fn((key: string, fn: () => Promise<unknown>) => {
+		const previous = lockState.locks.get(key) ?? Promise.resolve();
+		const current = previous.catch(() => undefined).then(fn);
+		lockState.locks.set(key, current);
+		return current.finally(() => {
+			if (lockState.locks.get(key) === current) {
+				lockState.locks.delete(key);
+			}
+		});
+	}),
 }));
-vi.mock('../src/utils/logger', () => ({
+vi.mock('../../src/utils/logger', () => ({
 	logger: { error: vi.fn() },
 }));
 
-import type { DBActivity, DBProject } from '../src/db/abstractSchema';
+import type { DBActivity, DBProject } from '../../src/db/abstractSchema';
 import {
 	cancelActivity,
 	completeActivity,
@@ -62,18 +73,18 @@ import {
 	getLatestUserProjectSync,
 	getRunningProjectSync,
 	startProjectSyncActivity,
-} from '../src/queries/activity.queries';
-import { releaseLock, renewLock, tryAcquireLock } from '../src/queries/keyed-lock.queries';
+} from '../../src/queries/activity.queries';
+import { releaseLock, renewLock, tryAcquireLock } from '../../src/queries/keyed-lock.queries';
 import {
 	type ContextExplorerGitContext,
 	resolveContextExplorerGitSafely,
-} from '../src/services/context-explorer-git.service';
+} from '../../src/services/context-explorer-git.service';
 import {
 	publishManagedGithubRepositoryUpdate,
 	readManagedGithubRepositoryFullName,
-} from '../src/services/managed-github-repository';
-import { NaoCommandExitError, runNaoCommandInSandbox } from '../src/services/nao-command.service';
-import { getProjectSyncEnvVars } from '../src/services/project-runtime-env';
+} from '../../src/services/managed-github-repository';
+import { NaoCommandExitError, runNaoCommandInSandbox } from '../../src/services/nao-command.service';
+import { getProjectSyncEnvVars } from '../../src/services/project-runtime-env';
 import {
 	__resetProjectSyncRunsForTesting,
 	assertNoProjectSyncRunning,
@@ -81,8 +92,9 @@ import {
 	cancelProjectSync,
 	getProjectSyncState,
 	startProjectSync,
-} from '../src/services/project-sync.service';
-import { withKeyedLock } from '../src/utils/keyed-lock';
+	withProjectSyncIdleWorktree,
+} from '../../src/services/project-sync.service';
+import { withKeyedLock } from '../../src/utils/keyed-lock';
 
 const project = { id: 'project-1', name: 'Sales', path: '/live/project-1' } as DBProject;
 
@@ -90,6 +102,7 @@ let worktreeRoot: string;
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	lockState.locks.clear();
 	__resetProjectSyncRunsForTesting();
 	worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-sync-test-'));
 	fs.writeFileSync(path.join(worktreeRoot, 'nao_config.yaml'), 'project_name: edited in the editor\n');
@@ -137,10 +150,7 @@ describe('project sync', () => {
 		expect(state.run?.logs).toContain('✓ Synced files are ready to review in your changes');
 		expect(completeActivity).toHaveBeenCalledWith(run.id, { logs: state.run?.logs });
 		expect(failActivity).not.toHaveBeenCalled();
-		expect(withKeyedLock).toHaveBeenCalledWith(
-			`context-worktree-write:${fs.realpathSync(worktreeRoot)}`,
-			expect.any(Function),
-		);
+		expect(withKeyedLock).toHaveBeenCalledWith('context-worktree-write:project-1:user-1', expect.any(Function));
 		expect(fs.readFileSync(path.join(worktreeRoot, 'databases', 'sales.md'), 'utf8')).toBe('synced');
 		const [leaseKey, leaseOwner] = vi.mocked(tryAcquireLock).mock.calls[0];
 		expect(leaseKey).toBe(`project-sync:activity:${run.id}`);
@@ -167,6 +177,27 @@ describe('project sync', () => {
 		finishSync();
 		await waitForStatus('user-1', 'succeeded');
 		await expect(assertNoProjectSyncRunning(project.id, 'user-1')).resolves.toBeUndefined();
+	});
+
+	it('holds the worktree lock until sync finishes before running a Git action', async () => {
+		let finishSync: () => void = () => undefined;
+		vi.mocked(runNaoCommandInSandbox).mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					finishSync = resolve;
+				}),
+		);
+		await startProjectSync(project, gitContext('user-1'));
+		await vi.waitFor(() => expect(runNaoCommandInSandbox).toHaveBeenCalled());
+		const action = vi.fn(async () => 'switched');
+		const result = withProjectSyncIdleWorktree(project.id, 'user-1', action);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(action).not.toHaveBeenCalled();
+
+		finishSync();
+
+		await expect(result).resolves.toBe('switched');
+		expect(action).toHaveBeenCalledOnce();
 	});
 
 	it('allows only one active sync per project', async () => {

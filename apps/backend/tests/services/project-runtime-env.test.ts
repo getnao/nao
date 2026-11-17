@@ -4,23 +4,23 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/queries/project.queries', () => ({
+vi.mock('../../src/queries/project.queries', () => ({
 	getUserRoleInProject: vi.fn(async () => 'admin'),
 	getProjectEnvVarsByIdentity: vi.fn(async () => ({
 		REPO_URL: 'https://github.com/acme/app.git',
 		UNRELATED_API_KEY: 'must-not-enter-the-sandbox',
 	})),
 }));
-vi.mock('../src/services/warehouse-credentials', () => ({
+vi.mock('../../src/services/warehouse-credentials', () => ({
 	getProjectWarehouseEnvVarsByIdentity: vi.fn(async () => ({
 		DB_PASSWORD: 'warehouse-secret',
 		UNUSED_WAREHOUSE_SECRET: 'must-not-enter-the-sandbox',
 	})),
 }));
 
-import { getProjectEnvVarsByIdentity, getUserRoleInProject } from '../src/queries/project.queries';
-import { getProjectSyncEnvVars } from '../src/services/project-runtime-env';
-import { getProjectWarehouseEnvVarsByIdentity } from '../src/services/warehouse-credentials';
+import { getProjectEnvVarsByIdentity, getUserRoleInProject } from '../../src/queries/project.queries';
+import { getProjectSyncEnvVars } from '../../src/services/project-runtime-env';
+import { getProjectWarehouseEnvVarsByIdentity } from '../../src/services/warehouse-credentials';
 
 let project: string;
 

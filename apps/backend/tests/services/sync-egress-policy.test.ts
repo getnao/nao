@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { resolveSyncOutboundPolicy } from '../src/services/sync-egress-policy';
+import { resolveSyncOutboundPolicy } from '../../src/services/sync-egress-policy';
 
 let project: string;
 
@@ -35,6 +35,7 @@ databases:
     type: postgres
     host: {{ env('POSTGRES_HOST') }}
     password: {{ aws('warehouse/password') }}
+    templates: [columns, ai_summary]
   - name: databricks
     type: databricks
     server_hostname: adb-123.azuredatabricks.net
@@ -275,6 +276,10 @@ confluence:
 	it('fails closed when an LLM provider host cannot be determined', async () => {
 		writeConfig(`
 project_name: sales
+databases:
+  - name: local
+    type: duckdb
+    templates: [ai_summary]
 llm:
   provider: ollama
 `);
@@ -282,6 +287,23 @@ llm:
 		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).rejects.toThrow(
 			'LLM provider "ollama" without base_url',
 		);
+	});
+
+	it('ignores an unused LLM provider whose base URL is unavailable during sync', async () => {
+		writeConfig(`
+project_name: sales
+databases:
+  - name: local
+    type: duckdb
+    templates: [columns]
+llm:
+  provider: openaiCompatible/custom
+  base_url: "{{ env('CUSTOM_LLM_BASE_URL') }}"
+`);
+
+		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
+			mode: 'disabled',
+		});
 	});
 
 	it('fails closed when a required hostname does not resolve', async () => {

@@ -15,9 +15,9 @@ const testEnv = vi.hoisted(() => ({
 	NAO_SYNC_APPROVED_PRIVATE_WAREHOUSE_HOSTS: {} as Record<string, string[]>,
 }));
 
-vi.mock('../src/env', () => ({ env: testEnv }));
-vi.mock('../src/utils/logger', () => ({ logger: { warn: vi.fn() } }));
-vi.mock('../src/services/sandbox-runtime', () => ({
+vi.mock('../../src/env', () => ({ env: testEnv }));
+vi.mock('../../src/utils/logger', () => ({ logger: { warn: vi.fn() } }));
+vi.mock('../../src/services/sandbox-runtime', () => ({
 	sandboxRuntime: { JsBoxlite: { withDefaultConfig: () => ({ create: boxlite.create }) } },
 }));
 
@@ -26,7 +26,7 @@ import {
 	NaoCommandOutputLimitError,
 	NaoCommandTimeoutError,
 	runNaoCommandInSandbox,
-} from '../src/services/nao-command.service';
+} from '../../src/services/nao-command.service';
 
 let root: string;
 let project: string;

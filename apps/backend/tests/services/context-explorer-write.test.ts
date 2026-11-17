@@ -37,8 +37,7 @@ import {
 import { resolveContextExplorerGit } from '../../src/services/context-explorer-git.service';
 import { ManagedGithubPublishUncertainError } from '../../src/services/managed-github-repository';
 import { getWorktreeProjectRoot } from '../../src/utils/context-repo';
-import { withKeyedLock } from '../../src/utils/keyed-lock';
-import { canonicalizeWriteRoot } from '../../src/utils/safe-file-write';
+import { contextWorktreeLockKey, withKeyedLock } from '../../src/utils/keyed-lock';
 import { isIgnoredByNaoignore } from '../../src/utils/tools';
 import {
 	commitAll,
@@ -240,7 +239,7 @@ describe('context explorer worktree writes', () => {
 		const acquired = new Promise<void>((resolve) => {
 			lockAcquired = resolve;
 		});
-		const heldLock = withKeyedLock(`context-worktree-write:${canonicalizeWriteRoot(worktreeRoot)}`, async () => {
+		const heldLock = withKeyedLock(contextWorktreeLockKey('project-id', 'user-1'), async () => {
 			lockAcquired();
 			await new Promise<void>((resolve) => {
 				releaseLock = resolve;

@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import yaml from 'js-yaml';
 
+import { syncUsesLlm } from '../utils/nao-config';
 import { isPrivateAddress, isPrivateHostname } from '../utils/safe-fetch';
 
 export type SyncOutboundPolicy = { mode: 'disabled' } | { mode: 'enabled'; allowNet: string[] };
@@ -78,7 +79,9 @@ export async function resolveSyncOutboundPolicy(
 	addDatabaseHosts(hosts, privateWarehouseHosts, config.databases, projectEnvVars);
 	addRepositoryHosts(hosts, config.repos, projectEnvVars);
 	addIntegrationHosts(hosts, config, projectEnvVars);
-	addLlmHosts(hosts, config.llm, projectEnvVars);
+	if (syncUsesLlm(config.databases)) {
+		addLlmHosts(hosts, config.llm, projectEnvVars);
+	}
 	const allowNet = [...hosts].sort();
 	await validateHosts(
 		allowNet,

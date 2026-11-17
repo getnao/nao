@@ -60,7 +60,7 @@ import {
 	listNaoDraftChanges,
 	searchNaoDraftContents,
 } from '../services/nao-draft.service';
-import { assertNoProjectSyncRunning, assertNoProjectSyncWritingFiles } from '../services/project-sync.service';
+import { assertNoProjectSyncWritingFiles, withProjectSyncIdleWorktree } from '../services/project-sync.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { resolveRepositoryProvider } from '../services/shared-github-token.service';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
@@ -353,9 +353,8 @@ export const contextExplorerRoutes = {
 	updateWorktree: cloudBillingContextAdminProcedure
 		.input(z.object({ requiredCommits: z.array(commitSchema).max(2).default([]) }))
 		.mutation(async ({ ctx, input }) => {
-			return updateContextWorktree(
-				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input.requiredCommits,
+			return runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, (gitContext) =>
+				updateContextWorktree(gitContext, input.requiredCommits),
 			);
 		}),
 
@@ -366,18 +365,16 @@ export const contextExplorerRoutes = {
 	switchBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
-			return switchContextBranch(
-				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input.branch,
+			return runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, (gitContext) =>
+				switchContextBranch(gitContext, input.branch),
 			);
 		}),
 
 	createBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
-			return createContextBranch(
-				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input.branch,
+			return runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, (gitContext) =>
+				createContextBranch(gitContext, input.branch),
 			);
 		}),
 
@@ -394,16 +391,17 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return createContextBranchAndCommit(
-				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input,
+			return runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, (gitContext) =>
+				createContextBranchAndCommit(gitContext, input),
 			);
 		}),
 
 	commitChanges: cloudBillingContextAdminProcedure
 		.input(z.object({ paths: commitPathsSchema, message: z.string().trim().min(1).max(500) }))
 		.mutation(async ({ ctx, input }) => {
-			return commitContextChanges(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
+			return runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, (gitContext) =>
+				commitContextChanges(gitContext, input),
+			);
 		}),
 
 	discardLocalChange: cloudBillingContextAdminProcedure
@@ -412,9 +410,8 @@ export const contextExplorerRoutes = {
 			if (!(await hasContextRepository(ctx.project.id))) {
 				return discardNaoDraftFile(draftOwnerOf(ctx), requireProjectPath(ctx.project.path), input.path);
 			}
-			return discardContextFileChange(
-				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input.path,
+			return runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, (gitContext) =>
+				discardContextFileChange(gitContext, input.path),
 			);
 		}),
 
@@ -422,11 +419,11 @@ export const contextExplorerRoutes = {
 		if (!(await hasContextRepository(ctx.project.id))) {
 			return discardAllNaoDraftFiles(draftOwnerOf(ctx));
 		}
-		return discardAllContextChanges(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		return runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, discardAllContextChanges);
 	}),
 
 	undoLastCommit: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
-		await undoLastContextCommit(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		await runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, undoLastContextCommit);
 	}),
 
 	generateCommitMessage: cloudBillingContextAdminProcedure
@@ -439,17 +436,20 @@ export const contextExplorerRoutes = {
 		}),
 
 	pushBranch: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
-		return pushContextExplorerBranch(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		return runIdleGitAction(ctx.project.id, ctx.project.path, ctx.user, pushContextExplorerBranch);
 	}),
 };
 
-async function createIdleGitContext(
+function runIdleGitAction<T>(
 	projectId: string,
 	projectPath: string | null,
 	user: { id: string; name: string; email: string },
-): Promise<ContextExplorerGitContext> {
-	await assertNoProjectSyncRunning(projectId, user.id);
-	return createGitContext(projectId, projectPath, user);
+	action: (context: ContextExplorerGitContext) => Promise<T>,
+): Promise<T> {
+	return withProjectSyncIdleWorktree(projectId, user.id, async () => {
+		const context = await createGitContext(projectId, projectPath, user);
+		return action(context);
+	});
 }
 
 function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivityRow) {
