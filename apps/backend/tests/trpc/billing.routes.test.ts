@@ -16,6 +16,7 @@ const stripeMocks = vi.hoisted(() => ({
 	createPortal: vi.fn(),
 	createResubscribe: vi.fn(),
 	getBillingPlans: vi.fn(),
+	getCurrentPlan: vi.fn(),
 	getSubscriptionCurrency: vi.fn(),
 	getUpcomingInvoice: vi.fn(),
 	listInvoices: vi.fn(),
@@ -75,6 +76,7 @@ vi.mock('../../src/services/stripe.service', () => ({
 	createCloudPortalSession: stripeMocks.createPortal,
 	createCloudResubscribeSession: stripeMocks.createResubscribe,
 	getCloudBillingPlans: stripeMocks.getBillingPlans,
+	getCurrentCloudBillingPlan: stripeMocks.getCurrentPlan,
 	getCurrentCloudBillingPlans: vi.fn(async () =>
 		(['monthly', 'yearly'] as const).map((interval) => ({
 			planKey: `cloud_unlimited_${interval}_v1`,
@@ -150,6 +152,7 @@ describe('billing.getAccess', () => {
 			overCapacity: false,
 			isReadOnly: false,
 			trialAvailable: false,
+			paidPlanWillStart: false,
 			requiresBillingAction: true,
 			freeTierEnabled: false,
 		});
@@ -170,6 +173,19 @@ describe('billing.getAccess', () => {
 			hasAccess: true,
 			status: 'active',
 			accessEndsAt,
+		});
+	});
+
+	it('reports when a selected paid plan will start after trial', async () => {
+		testState.membership = membership({
+			billingPlan: 'cloud_unlimited_monthly_v1',
+			billingStatus: 'trialing',
+			hasDefaultPaymentMethod: true,
+			stripeSubscriptionId: 'sub_trial',
+		});
+
+		await expect(caller().billing.getAccess()).resolves.toMatchObject({
+			paidPlanWillStart: true,
 		});
 	});
 
@@ -332,6 +348,32 @@ describe('billing.getStatus', () => {
 			availablePlans: { monthly: { currency: 'eur' }, yearly: { currency: 'eur' } },
 		});
 		expect(stripeMocks.getBillingPlans).toHaveBeenCalledWith(null, 'eur', null);
+	});
+
+	it("prices the current plan in the subscription's currency", async () => {
+		testState.freeTierEnabled = true;
+		testState.membership = membership({
+			billingPlan: 'cloud_unlimited_monthly_v1',
+			billingStatus: 'active',
+			stripeSubscriptionId: 'sub_cloud',
+		});
+		stripeMocks.getSubscriptionCurrency.mockResolvedValue('eur');
+		stripeMocks.getCurrentPlan.mockResolvedValue({
+			planKey: 'cloud_unlimited_monthly_v1',
+			tier: 'unlimited',
+			interval: 'monthly',
+			currency: 'eur',
+			unitAmount: 90_000,
+			perSeat: false,
+		});
+
+		const status = await caller().billing.getStatus({ currency: 'usd' });
+
+		expect(status.availablePlans.every((plan) => plan.currency === 'usd')).toBe(true);
+		expect(status.current).toMatchObject({ currency: 'eur' });
+		expect(status.currentPlanOffer).toMatchObject({ currency: 'eur', unitAmount: 90_000 });
+		expect(status.plan).toMatchObject({ currency: 'eur', amount: 90_000 });
+		expect(stripeMocks.getCurrentPlan).toHaveBeenCalledWith('cloud_unlimited_monthly_v1', 'eur');
 	});
 
 	it('does not invent a plan for an uninitialized organization', async () => {

@@ -105,7 +105,9 @@ export function CloudBillingTeamSeatsDialog({
 							disabled={disabled || isPending}
 							aria-invalid={input !== '' && quantity === null}
 							className='w-20 shrink-0 text-center'
-							onChange={(event) => setInput(event.target.value.replace(/\D/g, '').slice(0, 2))}
+							onChange={(event) => {
+								setInput(event.target.value.replace(/\D/g, '').slice(0, 2));
+							}}
 							onBlur={clampInput}
 						/>
 					</div>
@@ -130,13 +132,21 @@ export function CloudBillingTeamSeatsDialog({
 					</p>
 				)}
 				<DialogFooter>
-					<Button variant='secondary' disabled={isPending} onClick={() => onOpenChange(false)}>
+					<Button
+						variant='secondary'
+						disabled={isPending}
+						onClick={() => {
+							onOpenChange(false);
+						}}
+					>
 						Cancel
 					</Button>
 					<Button
 						isLoading={isPending}
 						disabled={disabled || quantity === null}
-						onClick={() => void confirm()}
+						onClick={() => {
+							void confirm();
+						}}
 					>
 						{redirectsToCheckout ? 'Continue to Stripe' : 'Review change'}
 					</Button>

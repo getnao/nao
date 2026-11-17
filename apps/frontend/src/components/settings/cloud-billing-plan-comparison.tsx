@@ -68,22 +68,36 @@ export function CloudBillingPlanComparison({
 	onCancelPlan?: () => void;
 	onKeepPlan?: () => void;
 }) {
-	const selectedPlans = plans.filter((plan) => plan.interval === interval);
-	const team = selectedPlans.find((plan) => plan.tier === 'team');
-	const unlimited = selectedPlans.find((plan) => plan.tier === 'unlimited');
+	const selectedPlans = plans.filter((plan) => {
+		return plan.interval === interval;
+	});
+	const team = selectedPlans.find((plan) => {
+		return plan.tier === 'team';
+	});
+	const unlimited = selectedPlans.find((plan) => {
+		return plan.tier === 'unlimited';
+	});
 	const teamYearlyDiscount = getYearlyDiscount(
-		plans.find((plan) => plan.tier === 'team' && plan.interval === 'monthly'),
-		plans.find((plan) => plan.tier === 'team' && plan.interval === 'yearly'),
+		plans.find((plan) => {
+			return plan.tier === 'team' && plan.interval === 'monthly';
+		}),
+		plans.find((plan) => {
+			return plan.tier === 'team' && plan.interval === 'yearly';
+		}),
 	);
 	const unlimitedYearlyDiscount = getYearlyDiscount(
-		plans.find((plan) => plan.tier === 'unlimited' && plan.interval === 'monthly'),
-		plans.find((plan) => plan.tier === 'unlimited' && plan.interval === 'yearly'),
+		plans.find((plan) => {
+			return plan.tier === 'unlimited' && plan.interval === 'monthly';
+		}),
+		plans.find((plan) => {
+			return plan.tier === 'unlimited' && plan.interval === 'yearly';
+		}),
 	);
 	const currency = team?.currency ?? unlimited?.currency ?? 'usd';
 	const intervalLabel = interval === 'monthly' ? 'month' : 'year';
 	const trialing = currentTier === 'trial';
-	const paidStatus = (plan: CloudPlanOffer): PlanStatus | undefined =>
-		informational
+	const paidStatus = (plan: CloudPlanOffer): PlanStatus | undefined => {
+		return informational
 			? undefined
 			: currentTier === plan.tier && currentPlanKey === plan.planKey
 				? 'current'
@@ -92,6 +106,7 @@ export function CloudBillingPlanComparison({
 					: pendingPlanKey === plan.planKey
 						? 'scheduled'
 						: undefined;
+	};
 	const teamStatus = team ? paidStatus(team) : undefined;
 	const unlimitedStatus = unlimited ? paidStatus(unlimited) : undefined;
 	const paidPlanAction = (plan: CloudPlanOffer, status: PlanStatus | undefined) => {
@@ -107,7 +122,9 @@ export function CloudBillingPlanComparison({
 		return {
 			label: status ? planStatusActionLabel[status] : `Choose ${plan.tier === 'team' ? 'Team' : 'Unlimited'}`,
 			disabled: disabled || (cancellationScheduled && !trialing && !replacesCanceledTeam) || status !== undefined,
-			onAction: () => onChoose(plan),
+			onAction: () => {
+				onChoose(plan);
+			},
 		};
 	};
 	const teamAction = team ? paidPlanAction(team, teamStatus) : undefined;
@@ -135,18 +152,22 @@ export function CloudBillingPlanComparison({
 					role='group'
 					aria-label='Billing interval'
 				>
-					{(['monthly', 'yearly'] as const).map((value) => (
-						<Button
-							key={value}
-							variant={interval === value ? 'default' : 'ghost'}
-							size='sm'
-							aria-pressed={interval === value}
-							onClick={() => onIntervalChange(value)}
-							disabled={disabled}
-						>
-							{value === 'monthly' ? 'Monthly' : 'Yearly'}
-						</Button>
-					))}
+					{(['monthly', 'yearly'] as const).map((value) => {
+						return (
+							<Button
+								key={value}
+								variant={interval === value ? 'default' : 'ghost'}
+								size='sm'
+								aria-pressed={interval === value}
+								onClick={() => {
+									onIntervalChange(value);
+								}}
+								disabled={disabled}
+							>
+								{value === 'monthly' ? 'Monthly' : 'Yearly'}
+							</Button>
+						);
+					})}
 				</div>
 			}
 		>
@@ -274,12 +295,14 @@ function PlanCard({
 				<p className='mt-1 text-xs text-muted-foreground'>{supportingText}</p>
 			</div>
 			<ul className='flex-1 space-y-2.5 text-sm text-muted-foreground'>
-				{features.map((feature) => (
-					<li key={feature} className='flex gap-2'>
-						<Check className='mt-0.5 size-4 shrink-0 text-primary' aria-hidden='true' />
-						<span>{feature}</span>
-					</li>
-				))}
+				{features.map((feature) => {
+					return (
+						<li key={feature} className='flex gap-2'>
+							<Check className='mt-0.5 size-4 shrink-0 text-primary' aria-hidden='true' />
+							<span>{feature}</span>
+						</li>
+					);
+				})}
 			</ul>
 			{notice && <p className='rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground'>{notice}</p>}
 			{actionLabel && (

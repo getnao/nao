@@ -31,31 +31,49 @@ export function CloudBillingSwitchToFreeDialog({
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [isPending, setIsPending] = useState(false);
-	const automaticAdmins = candidates.filter((candidate) => candidate.storedOrgRole === 'admin').slice(0, 3);
+	const automaticAdmins = candidates
+		.filter((candidate) => {
+			return candidate.storedOrgRole === 'admin';
+		})
+		.slice(0, 3);
 	const selectableLimit = Math.max(0, 3 - automaticAdmins.length);
 
 	useEffect(() => {
 		if (open) {
-			const selectableCandidates = candidates.filter((candidate) => candidate.storedOrgRole !== 'admin');
+			const selectableCandidates = candidates.filter((candidate) => {
+				return candidate.storedOrgRole !== 'admin';
+			});
 			const preferredIds = selectableCandidates
-				.filter((candidate) => candidate.isSelected)
-				.map((candidate) => candidate.userId);
+				.filter((candidate) => {
+					return candidate.isSelected;
+				})
+				.map((candidate) => {
+					return candidate.userId;
+				});
 			const seatedIds = selectableCandidates
-				.filter((candidate) => candidate.isSeated)
-				.map((candidate) => candidate.userId);
+				.filter((candidate) => {
+					return candidate.isSeated;
+				})
+				.map((candidate) => {
+					return candidate.userId;
+				});
 			setSelectedIds([...new Set([...preferredIds, ...seatedIds])].slice(0, selectableLimit));
 			setError(null);
 		}
 	}, [candidates, open, selectableLimit]);
 
-	const selectedCandidates = candidates.filter(
-		(candidate) =>
-			automaticAdmins.some((admin) => admin.userId === candidate.userId) ||
-			selectedIds.includes(candidate.userId),
-	);
-	const readOnlyCandidates = candidates.filter(
-		(candidate) => !selectedCandidates.some((selected) => selected.userId === candidate.userId),
-	);
+	const selectedCandidates = candidates.filter((candidate) => {
+		return (
+			automaticAdmins.some((admin) => {
+				return admin.userId === candidate.userId;
+			}) || selectedIds.includes(candidate.userId)
+		);
+	});
+	const readOnlyCandidates = candidates.filter((candidate) => {
+		return !selectedCandidates.some((selected) => {
+			return selected.userId === candidate.userId;
+		});
+	});
 
 	const confirm = async () => {
 		setIsPending(true);
@@ -86,7 +104,9 @@ export function CloudBillingSwitchToFreeDialog({
 						<div className='space-y-2'>
 							<p className='text-sm font-medium'>Choose who keeps full access</p>
 							{candidates.map((candidate) => {
-								const admin = automaticAdmins.some((item) => item.userId === candidate.userId);
+								const admin = automaticAdmins.some((item) => {
+									return item.userId === candidate.userId;
+								});
 								const checked = admin || selectedIds.includes(candidate.userId);
 								return (
 									<label
@@ -101,13 +121,15 @@ export function CloudBillingSwitchToFreeDialog({
 												isPending
 											}
 											aria-label={`Keep ${candidate.name} seated on Free`}
-											onCheckedChange={(nextChecked) =>
-												setSelectedIds((current) =>
-													nextChecked
+											onCheckedChange={(nextChecked) => {
+												setSelectedIds((current) => {
+													return nextChecked
 														? [...new Set([...current, candidate.userId])]
-														: current.filter((id) => id !== candidate.userId),
-												)
-											}
+														: current.filter((id) => {
+																return id !== candidate.userId;
+															});
+												});
+											}}
 										/>
 										<span>{candidate.name}</span>
 										{admin && (
@@ -119,8 +141,12 @@ export function CloudBillingSwitchToFreeDialog({
 						</div>
 						{readOnlyCandidates.length > 0 && (
 							<p className='text-sm text-muted-foreground'>
-								{readOnlyCandidates.map((candidate) => candidate.name).join(', ')} will have read-only
-								access. No memberships or data will be removed.
+								{readOnlyCandidates
+									.map((candidate) => {
+										return candidate.name;
+									})
+									.join(', ')}{' '}
+								will have read-only access. No memberships or data will be removed.
 							</p>
 						)}
 					</>
@@ -131,10 +157,21 @@ export function CloudBillingSwitchToFreeDialog({
 					</p>
 				)}
 				<DialogFooter>
-					<Button variant='secondary' disabled={isPending} onClick={() => onOpenChange(false)}>
+					<Button
+						variant='secondary'
+						disabled={isPending}
+						onClick={() => {
+							onOpenChange(false);
+						}}
+					>
 						{trialing ? 'Cancel' : 'Keep current plan'}
 					</Button>
-					<Button isLoading={isPending} onClick={() => void confirm()}>
+					<Button
+						isLoading={isPending}
+						onClick={() => {
+							void confirm();
+						}}
+					>
 						{trialing ? 'Confirm Free after trial' : 'Confirm Switch to Free'}
 					</Button>
 				</DialogFooter>

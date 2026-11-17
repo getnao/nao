@@ -3,8 +3,8 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-import { OrgMembers } from './org-members';
 import type { ReactNode } from 'react';
+import { OrgMembers } from '@/components/settings/org-members';
 
 const mocks = vi.hoisted(() => ({
 	invalidateQueries: vi.fn(),

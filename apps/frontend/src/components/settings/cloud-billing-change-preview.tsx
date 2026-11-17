@@ -55,7 +55,9 @@ export function CloudBillingSeatQuantityField({
 				value={review.seatInput}
 				disabled={disabled || review.isPending}
 				aria-invalid={review.seatInput !== '' && review.seatQuantity === null}
-				onChange={(event) => review.setSeatInput(event.target.value)}
+				onChange={(event) => {
+					review.setSeatInput(event.target.value);
+				}}
 			/>
 		</div>
 	);

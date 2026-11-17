@@ -197,6 +197,9 @@ function getFreeTierTrialEndingDescription(access: CloudBillingAccess, remaining
 		const count = access.seatUserCount - access.seatQuantity;
 		return `${prefix} ${count} ${count === 1 ? 'person' : 'people'} will be read-only when the trial ends. Add seats to keep everyone working.`;
 	}
+	if (access.paidPlanWillStart) {
+		return `${prefix} Your subscription will start automatically.`;
+	}
 	if (access.seatUserCount > FREE_TIER_SEAT_LIMIT) {
 		return `${prefix} You have ${access.seatUserCount} people with editing access; on Free only ${FREE_TIER_SEAT_LIMIT} keep it. Choose Team or Unlimited to keep everyone working.`;
 	}

@@ -44,7 +44,11 @@ export function CloudBillingSeatsTab({
 				currentPromotionCodes={currentPlanSummary?.promotionCodes}
 				disabled={billingState.isBillingCommandPending || (data.scheduleConflict && !seatOnlyPendingChange)}
 				onAddSeats={
-					data.access.tier === 'free' && teamPlanOffer ? () => onChoosePlan(teamPlanOffer) : undefined
+					data.access.tier === 'free' && teamPlanOffer
+						? () => {
+								onChoosePlan(teamPlanOffer);
+							}
+						: undefined
 				}
 				onPreviewSeatChange={data.current?.tier === 'team' ? billingState.previewSeatChange : undefined}
 				onConfirmSeatChange={billingState.confirmSeatChange}

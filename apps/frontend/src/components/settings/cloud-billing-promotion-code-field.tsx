@@ -34,7 +34,9 @@ export function CloudBillingPromotionCodeField({
 					value={value}
 					disabled={disabled}
 					className='h-8 text-sm'
-					onChange={(event) => onChange(event.target.value)}
+					onChange={(event) => {
+						onChange(event.target.value);
+					}}
 				/>
 				{applied ? (
 					<div

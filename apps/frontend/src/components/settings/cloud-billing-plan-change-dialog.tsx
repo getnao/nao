@@ -45,9 +45,13 @@ export function CloudBillingPlanChangeDialog({
 			preview: 'Unable to preview this plan change.',
 			confirm: 'Unable to apply this plan change.',
 		},
-		onPreview: (seatQuantity, promotionCode) => onPreview(seatQuantity ?? undefined, promotionCode),
+		onPreview: (seatQuantity, promotionCode) => {
+			return onPreview(seatQuantity ?? undefined, promotionCode);
+		},
 		onConfirm,
-		onDone: () => onOpenChange(false),
+		onDone: () => {
+			onOpenChange(false);
+		},
 	});
 
 	if (!plan) {
@@ -95,7 +99,9 @@ export function CloudBillingPlanChangeDialog({
 						disabled={disabled || isPending}
 						applyDisabled={missingSeats || !review.promotionCodeChanged}
 						onChange={review.setPromotionCode}
-						onApply={() => void review.review()}
+						onApply={() => {
+							void review.review();
+						}}
 					/>
 
 					<CloudBillingChangeReviewNotices review={review} />
@@ -108,14 +114,22 @@ export function CloudBillingPlanChangeDialog({
 				</div>
 
 				<DialogFooter>
-					<Button variant='secondary' disabled={isPending} onClick={() => onOpenChange(false)}>
+					<Button
+						variant='secondary'
+						disabled={isPending}
+						onClick={() => {
+							onOpenChange(false);
+						}}
+					>
 						Cancel
 					</Button>
 					{review.canConfirm ? (
 						<Button
 							isLoading={isPending}
 							disabled={disabled || isPending}
-							onClick={() => void review.confirm()}
+							onClick={() => {
+								void review.confirm();
+							}}
 						>
 							Confirm change
 						</Button>
@@ -123,7 +137,9 @@ export function CloudBillingPlanChangeDialog({
 						<Button
 							isLoading={isPending}
 							disabled={disabled || missingSeats}
-							onClick={() => void review.review()}
+							onClick={() => {
+								void review.review();
+							}}
 						>
 							Review change
 						</Button>
@@ -180,11 +196,13 @@ function PlanSummary({
 			{(price || promotionCodes?.length) && (
 				<div className='mt-0.5 flex flex-wrap items-center gap-1.5'>
 					{price && <p className='text-xs text-muted-foreground'>{price}</p>}
-					{promotionCodes?.map((code) => (
-						<Badge key={code} variant='outline' className='text-[10px]'>
-							{code}
-						</Badge>
-					))}
+					{promotionCodes?.map((code) => {
+						return (
+							<Badge key={code} variant='outline' className='text-[10px]'>
+								{code}
+							</Badge>
+						);
+					})}
 				</div>
 			)}
 		</div>

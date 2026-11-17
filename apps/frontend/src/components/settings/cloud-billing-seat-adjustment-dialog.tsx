@@ -64,8 +64,12 @@ export function CloudBillingSeatAdjustmentDialog({
 			}
 			return promotionCode ? onPreview(quantity, promotionCode) : onPreview(quantity);
 		},
-		onConfirm: (preview) => onConfirm(preview.previewToken),
-		onDone: () => onOpenChange(false),
+		onConfirm: (preview) => {
+			return onConfirm(preview.previewToken);
+		},
+		onDone: () => {
+			onOpenChange(false);
+		},
 	});
 	const { seatQuantity: quantity, appliedPromotion, reviewedPreview, isPending, error } = review;
 	const reviewDisabled = quantity === null || quantity === unchangedQuantity;
@@ -102,7 +106,9 @@ export function CloudBillingSeatAdjustmentDialog({
 						disabled={disabled || isPending}
 						applyDisabled={reviewDisabled || !review.promotionCodeChanged}
 						onChange={review.setPromotionCode}
-						onApply={() => void review.review()}
+						onApply={() => {
+							void review.review();
+						}}
 					/>
 					{pendingQuantity !== null && pendingEffectiveAt && (
 						<Callout>
@@ -129,9 +135,9 @@ export function CloudBillingSeatAdjustmentDialog({
 						<Button
 							variant='ghost'
 							disabled={disabled || isPending}
-							onClick={() =>
-								void review.runAndClose(onCancelPending, 'Unable to cancel the scheduled seat change.')
-							}
+							onClick={() => {
+								void review.runAndClose(onCancelPending, 'Unable to cancel the scheduled seat change.');
+							}}
 						>
 							Cancel scheduled change
 						</Button>
@@ -139,14 +145,22 @@ export function CloudBillingSeatAdjustmentDialog({
 						<span />
 					)}
 					<div className='flex flex-col-reverse gap-2 sm:flex-row'>
-						<Button variant='secondary' disabled={isPending} onClick={() => onOpenChange(false)}>
+						<Button
+							variant='secondary'
+							disabled={isPending}
+							onClick={() => {
+								onOpenChange(false);
+							}}
+						>
 							Cancel
 						</Button>
 						{review.canConfirm ? (
 							<Button
 								isLoading={isPending}
 								disabled={disabled || isPending}
-								onClick={() => void review.confirm()}
+								onClick={() => {
+									void review.confirm();
+								}}
 							>
 								Confirm change
 							</Button>
@@ -154,7 +168,9 @@ export function CloudBillingSeatAdjustmentDialog({
 							<Button
 								isLoading={isPending}
 								disabled={disabled || reviewDisabled}
-								onClick={() => void review.review()}
+								onClick={() => {
+									void review.review();
+								}}
 							>
 								Review change
 							</Button>

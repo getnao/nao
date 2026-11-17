@@ -3,9 +3,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-import { TeamMembersList } from './team-members-list';
-
-import type { TeamMember } from './types';
+import type { TeamMember } from '@/components/settings/team/types';
+import { TeamMembersList } from '@/components/settings/team/team-members-list';
 
 beforeEach(() => {
 	vi.stubGlobal(

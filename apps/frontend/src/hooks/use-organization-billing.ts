@@ -139,6 +139,7 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 		isCheckoutConfirmationDelayed: billingSync.isCheckoutConfirmationDelayed,
 		checkoutFeedback: billingSync.checkoutFeedback,
 		portalFeedback: billingSync.portalFeedback,
+		billingSyncError: billingSync.syncError,
 		trialCheckoutError: trialCheckout.isError ? trialCheckout.error.message : null,
 		managementError:
 			commandError?.message ??
@@ -146,7 +147,6 @@ export function useOrganizationBilling(search: OrganizationBillingSearch) {
 			resubscribe.error?.message ??
 			paymentMethodPortal.error?.message ??
 			portal.error?.message ??
-			billingSync.syncError ??
 			null,
 		isTrialCheckoutPending: trialCheckout.isPending,
 		isPortalPending: portal.isPending,

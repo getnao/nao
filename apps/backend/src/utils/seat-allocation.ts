@@ -5,13 +5,16 @@ export function resolveSeatedOrgUserIds(candidates: OrgSeatCandidate[], seatLimi
 	const eligibleCandidates =
 		seatLimit === null
 			? candidates
-			: candidates.filter(
-					(candidate) =>
+			: candidates.filter((candidate) => {
+					return (
 						candidate.membershipClass === 'org_admin' ||
 						candidate.selectedAt !== null ||
-						candidate.selectionExplicit !== true,
-				);
-	return eligibleCandidates.slice(0, seatLimit === null ? undefined : Math.max(0, seatLimit)).map(({ id }) => id);
+						candidate.selectionExplicit !== true
+					);
+				});
+	return eligibleCandidates.slice(0, seatLimit === null ? undefined : Math.max(0, seatLimit)).map(({ id }) => {
+		return id;
+	});
 }
 
 export function resolveReadOnlyUserIds(entitlement: CloudEntitlement, candidates: OrgSeatCandidate[]): Set<string> {
@@ -20,7 +23,15 @@ export function resolveReadOnlyUserIds(entitlement: CloudEntitlement, candidates
 		return new Set();
 	}
 	const seatedIds = new Set(resolveSeatedOrgUserIds(candidates, seatLimit));
-	return new Set(candidates.filter(({ id }) => !seatedIds.has(id)).map(({ id }) => id));
+	return new Set(
+		candidates
+			.filter(({ id }) => {
+				return !seatedIds.has(id);
+			})
+			.map(({ id }) => {
+				return id;
+			}),
+	);
 }
 
 /** A Team subscription without a known seat quantity seats nobody. */

@@ -16,6 +16,7 @@ export type CloudBillingAccess = {
 	isReadOnly: boolean;
 	trialAvailable: boolean;
 	canManageBilling: boolean;
+	paidPlanWillStart: boolean;
 	requiresBillingAction: boolean;
 };
 

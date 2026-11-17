@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => ({
 	selectedBillingInterval: 'monthly' as 'monthly' | 'yearly',
 	setSelectedBillingInterval: vi.fn(),
 	syncBilling: vi.fn(),
+	syncError: null as string | null,
 	stripeTrialPlaceholder: false,
 	status: 'trialing' as BillingData['status'],
 	trialAvailable: false,
@@ -137,6 +138,7 @@ beforeEach(() => {
 	mocks.selectedBillingInterval = 'monthly';
 	mocks.stripeTrialPlaceholder = false;
 	mocks.status = 'trialing';
+	mocks.syncError = null;
 	mocks.trialAvailable = false;
 	mocks.trialEndsAt = new Date('2026-10-08T00:00:00.000Z');
 	mocks.trialStartedAt = new Date('2026-09-24T00:00:00.000Z');
@@ -570,6 +572,15 @@ it('refreshes billing state from the page header outside the invoices tab', () =
 	expect(mocks.syncBilling).toHaveBeenCalledOnce();
 });
 
+it('shows billing refresh errors beside the shared header', () => {
+	mocks.freeTierEnabled = true;
+	mocks.syncError = 'Stripe could not refresh billing details.';
+
+	render(<OrganizationBillingSettings search={{ tab: 'plans' }} />);
+
+	expect(screen.getByRole('alert').textContent).toBe('Stripe could not refresh billing details.');
+});
+
 it('keeps Credits available for bypass organizations before a trial', () => {
 	mocks.freeTierEnabled = true;
 	mocks.cloudBypassBilling = true;
@@ -686,8 +697,8 @@ it('re-previews a plan change with a replacement promotion code before confirmin
 	fireEvent.click(screen.getByRole('button', { name: 'Choose Unlimited' }));
 	const dialog = screen.getByRole('dialog', { name: 'Change to Unlimited' });
 	expect(dialog.textContent).toContain('Team · 8 seats');
-	expect(dialog.textContent).toContain('$360 / month');
-	expect(dialog.textContent).toContain('CURRENT10');
+	expect(dialog.textContent).toContain('$400 / month');
+	expect(dialog.textContent).not.toContain('CURRENT10');
 	expect(dialog.textContent).toContain('Unlimited');
 	expect(dialog.textContent).toContain('$2,000 / month');
 	expect(screen.queryByLabelText('Paid seats')).toBeNull();
@@ -1159,6 +1170,7 @@ function billingState(): BillingState {
 		isResubscribePending: false,
 		isResumePending: false,
 		isTrialCheckoutPending: false,
+		billingSyncError: mocks.syncError,
 		managementError: null,
 		openPaymentMethodPortal: mocks.openPaymentMethodPortal,
 		openPortal: mocks.openPortal,
@@ -1277,6 +1289,11 @@ function cloudBillingState(): BillingState {
 					freeTierEnabled: true,
 				},
 				availablePlans: plans,
+				currentPlanOffer: currentPlan
+					? (plans.find((plan) => {
+							return plan.planKey === currentPlan.planKey;
+						}) ?? null)
+					: null,
 				seatCandidates: mocks.cloudSeatCandidates,
 				current: currentPlan,
 				pending: mocks.cloudPendingPlan
@@ -1328,6 +1345,7 @@ function billingStateDefaults(): Partial<BillingState> {
 		isBillingCommandPending: false,
 		isPlanSelectionPending: false,
 		isPortalPending: false,
+		billingSyncError: mocks.syncError,
 		previewPlanChange: mocks.cloudPreviewPlanChange,
 		confirmPlanChange: mocks.cloudConfirmPlanChange,
 		previewSeatChange: mocks.cloudPreviewSeatChange,

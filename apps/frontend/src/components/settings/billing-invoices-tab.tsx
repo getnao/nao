@@ -52,65 +52,69 @@ function InvoicesCard({ billingState }: { billingState: OrganizationBillingState
 			) : visibleInvoices?.length ? (
 				<>
 					<div className='flex flex-col divide-y divide-border'>
-						{visibleInvoices.map((invoice) => (
-							<div
-								key={invoice.id}
-								className='flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between'
-							>
-								<div>
-									<div className='flex items-center gap-2'>
-										<p className='font-medium text-foreground'>
-											{formatInvoiceLabel(invoice.createdAt)}
-										</p>
-										<Badge variant='secondary'>
+						{visibleInvoices.map((invoice) => {
+							return (
+								<div
+									key={invoice.id}
+									className='flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between'
+								>
+									<div>
+										<div className='flex items-center gap-2'>
+											<p className='font-medium text-foreground'>
+												{formatInvoiceLabel(invoice.createdAt)}
+											</p>
+											<Badge variant='secondary'>
+												{invoice.invoiceKind === 'trial'
+													? 'Trial'
+													: invoice.invoiceKind === 'no_charge'
+														? 'No charge'
+														: invoice.invoiceKind === 'credit_top_up'
+															? 'Nao credits'
+															: invoice.planTier === 'team'
+																? 'Team'
+																: invoice.planTier === 'unlimited'
+																	? 'Unlimited'
+																	: 'Subscription'}
+											</Badge>
+											{invoice.invoiceKind === 'subscription' &&
+												invoice.promotionCodes.map((code) => {
+													return (
+														<Badge key={code} variant='outline'>
+															{code}
+														</Badge>
+													);
+												})}
+										</div>
+										<p className='text-sm text-muted-foreground'>
 											{invoice.invoiceKind === 'trial'
-												? 'Trial'
+												? `${formatBillingDate(invoice.createdAt)} · $0 charged during trial`
 												: invoice.invoiceKind === 'no_charge'
-													? 'No charge'
-													: invoice.invoiceKind === 'credit_top_up'
-														? 'Nao credits'
-														: invoice.planTier === 'team'
-															? 'Team'
-															: invoice.planTier === 'unlimited'
-																? 'Unlimited'
-																: 'Subscription'}
-										</Badge>
-										{invoice.invoiceKind === 'subscription' &&
-											invoice.promotionCodes.map((code) => (
-												<Badge key={code} variant='outline'>
-													{code}
-												</Badge>
-											))}
+													? `${formatBillingDate(invoice.createdAt)} · No charge`
+													: `${formatBillingDate(invoice.createdAt)} · ${formatBillingPrice(invoice.total, invoice.currency)} · ${formatBillingStatus(invoice.status)}`}
+										</p>
+										{invoice.number && (
+											<p className='text-xs text-muted-foreground'>{invoice.number}</p>
+										)}
 									</div>
-									<p className='text-sm text-muted-foreground'>
-										{invoice.invoiceKind === 'trial'
-											? `${formatBillingDate(invoice.createdAt)} · $0 charged during trial`
-											: invoice.invoiceKind === 'no_charge'
-												? `${formatBillingDate(invoice.createdAt)} · No charge`
-												: `${formatBillingDate(invoice.createdAt)} · ${formatBillingPrice(invoice.total, invoice.currency)} · ${formatBillingStatus(invoice.status)}`}
-									</p>
-									{invoice.number && (
-										<p className='text-xs text-muted-foreground'>{invoice.number}</p>
-									)}
+									<div className='flex flex-wrap gap-2'>
+										{invoice.hostedInvoiceUrl && (
+											<Button variant='secondary' size='sm' asChild>
+												<a href={invoice.hostedInvoiceUrl} target='_blank' rel='noreferrer'>
+													{invoice.status === 'open' ? 'Complete payment' : 'View invoice'}
+												</a>
+											</Button>
+										)}
+										{invoice.invoicePdf && (
+											<Button variant='secondary' size='sm' asChild>
+												<a href={invoice.invoicePdf} target='_blank' rel='noreferrer'>
+													Download PDF
+												</a>
+											</Button>
+										)}
+									</div>
 								</div>
-								<div className='flex flex-wrap gap-2'>
-									{invoice.hostedInvoiceUrl && (
-										<Button variant='secondary' size='sm' asChild>
-											<a href={invoice.hostedInvoiceUrl} target='_blank' rel='noreferrer'>
-												{invoice.status === 'open' ? 'Complete payment' : 'View invoice'}
-											</a>
-										</Button>
-									)}
-									{invoice.invoicePdf && (
-										<Button variant='secondary' size='sm' asChild>
-											<a href={invoice.invoicePdf} target='_blank' rel='noreferrer'>
-												Download PDF
-											</a>
-										</Button>
-									)}
-								</div>
-							</div>
-						))}
+							);
+						})}
 					</div>
 					{pageCount > 1 && (
 						<div className='mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4'>
@@ -121,7 +125,9 @@ function InvoicesCard({ billingState }: { billingState: OrganizationBillingState
 								variant='outline'
 								size='sm'
 								disabled={currentPageIndex === 0}
-								onClick={() => setPageIndex(currentPageIndex - 1)}
+								onClick={() => {
+									setPageIndex(currentPageIndex - 1);
+								}}
 							>
 								Previous
 							</Button>
@@ -129,7 +135,9 @@ function InvoicesCard({ billingState }: { billingState: OrganizationBillingState
 								variant='outline'
 								size='sm'
 								disabled={currentPageIndex === pageCount - 1}
-								onClick={() => setPageIndex(currentPageIndex + 1)}
+								onClick={() => {
+									setPageIndex(currentPageIndex + 1);
+								}}
 							>
 								Next
 							</Button>

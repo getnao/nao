@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 
-import { usePermissions } from './use-permissions';
 import type { ReactNode } from 'react';
+import { usePermissions } from '@/hooks/use-permissions';
 
 vi.mock('@/main', () => ({
 	trpc: {

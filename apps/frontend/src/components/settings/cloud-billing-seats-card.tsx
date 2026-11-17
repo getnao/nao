@@ -29,7 +29,9 @@ export function seatCandidateToTeamMember(candidate: CloudSeatCandidate): TeamMe
 		email: candidate.email,
 		role:
 			(candidate.storedOrgRole as UserRole | null) ??
-			candidate.storedProjectRoles?.find((role) => role !== 'viewer') ??
+			candidate.storedProjectRoles?.find((role) => {
+				return role !== 'viewer';
+			}) ??
 			'user',
 		status: 'active',
 		membershipSource: candidate.membershipClass === 'project_only' ? 'project' : 'organization',
@@ -42,11 +44,17 @@ export function getNextSeatSelection(
 	access: 'seated' | 'read-only',
 ): string[] {
 	const selectedUserIds = candidates
-		.filter(({ storedOrgRole, isSeated }) => storedOrgRole !== 'admin' && isSeated)
-		.map((candidate) => candidate.userId);
+		.filter(({ storedOrgRole, isSeated }) => {
+			return storedOrgRole !== 'admin' && isSeated;
+		})
+		.map((candidate) => {
+			return candidate.userId;
+		});
 	return access === 'seated'
 		? [...new Set([...selectedUserIds, userId])]
-		: selectedUserIds.filter((selectedUserId) => selectedUserId !== userId);
+		: selectedUserIds.filter((selectedUserId) => {
+				return selectedUserId !== userId;
+			});
 }
 
 export function CloudBillingSeatsCard({
@@ -87,14 +95,20 @@ export function CloudBillingSeatsCard({
 	const [adjustmentOpen, setAdjustmentOpen] = useState(false);
 	const [accessError, setAccessError] = useState<string | null>(null);
 
-	const seatedMembers = candidates.filter(({ isSeated }) => isSeated);
+	const seatedMembers = candidates.filter(({ isSeated }) => {
+		return isSeated;
+	});
 	const isTeamSeatQuantityUnavailable = tier === 'team' && seatQuantity === null;
 	const capacity = tier === 'team' ? seatQuantity : tier === 'free' ? (seatLimit ?? 3) : null;
 	const accessByUserId = Object.fromEntries(
-		candidates.map(({ userId, isSeated }) => [userId, isSeated ? 'seated' : 'read-only'] as const),
+		candidates.map(({ userId, isSeated }) => {
+			return [userId, isSeated ? 'seated' : 'read-only'] as const;
+		}),
 	);
 	const accessDisabledByUserId = Object.fromEntries(
-		candidates.map(({ userId, storedOrgRole }) => [userId, storedOrgRole === 'admin']),
+		candidates.map(({ userId, storedOrgRole }) => {
+			return [userId, storedOrgRole === 'admin'];
+		}),
 	);
 
 	const changeAccess = async (member: TeamMember, access: 'seated' | 'read-only') => {
@@ -160,7 +174,13 @@ export function CloudBillingSeatsCard({
 								Add seats now or schedule fewer seats for your next renewal.
 							</p>
 						</div>
-						<Button variant='secondary' disabled={disabled} onClick={() => setAdjustmentOpen(true)}>
+						<Button
+							variant='secondary'
+							disabled={disabled}
+							onClick={() => {
+								setAdjustmentOpen(true);
+							}}
+						>
 							Adjust seats
 						</Button>
 					</div>
@@ -185,7 +205,11 @@ export function CloudBillingSeatsCard({
 					accessChangesDisabled={disabled}
 					accessSummary={capacity !== null ? `${seatedMembers.length}/${capacity}` : undefined}
 					onAccessChange={
-						onSaveSeatSelection ? (member, access) => void changeAccess(member, access) : undefined
+						onSaveSeatSelection
+							? (member, access) => {
+									void changeAccess(member, access);
+								}
+							: undefined
 					}
 				/>
 			</SettingsCard>

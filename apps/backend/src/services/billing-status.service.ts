@@ -23,7 +23,12 @@ import {
 	isUserReadOnlyInOrganization,
 } from './cloud-billing-access.service';
 import { loadSeatCandidates } from './organization-seat.service';
-import { getCloudBillingPlans, getCloudSubscriptionCurrency, getCurrentCloudBillingPlans } from './stripe.service';
+import {
+	getCloudBillingPlans,
+	getCloudSubscriptionCurrency,
+	getCurrentCloudBillingPlan,
+	getCurrentCloudBillingPlans,
+} from './stripe.service';
 
 type Billing = OrganizationWithBilling['billing'];
 type CurrentCloudBillingPlan = Awaited<ReturnType<typeof getCurrentCloudBillingPlans>>[number];
@@ -85,10 +90,18 @@ export async function getCloudBillingStatus(input: {
 	if (!monthlyUnlimited || !yearlyUnlimited) {
 		throw new Error('Stripe did not return both Unlimited billing intervals');
 	}
-	const currentOffer = availablePlans.find(({ planKey }) => planKey === billing?.billingPlan);
+	const currentOffer =
+		billing?.billingPlan && isCloudBillingPlanKey(billing.billingPlan)
+			? subscriptionCurrency && subscriptionCurrency !== input.currency
+				? await getCurrentCloudBillingPlan(billing.billingPlan, subscriptionCurrency)
+				: availablePlans.find(({ planKey }) => {
+						return planKey === billing.billingPlan;
+					})
+			: undefined;
 	return {
 		access,
 		plan: currentOffer ? toLegacyCompatiblePlan(currentOffer) : null,
+		currentPlanOffer: currentOffer ?? null,
 		availablePlans: Object.assign(availablePlans, {
 			monthly: toLegacyCompatiblePlan(monthlyUnlimited),
 			yearly: toLegacyCompatiblePlan(yearlyUnlimited),
@@ -133,6 +146,11 @@ async function buildCloudBillingAccess(input: BillingAccessInput, billing: Billi
 		overCapacity: entitlement.overCapacity,
 		isReadOnly: await isUserReadOnlyInOrganization(input.organization.id, input.userId, entitlement),
 		trialAvailable: isTrialAvailable(billing),
+		paidPlanWillStart:
+			billing?.billingStatus === 'trialing' &&
+			isPaidPlanSelected(billing) &&
+			billing.hasDefaultPaymentMethod === true &&
+			!billing.cancellationScheduled,
 		requiresBillingAction:
 			billing?.billingStatus === 'trialing' &&
 			billing.hasDefaultPaymentMethod !== true &&
@@ -216,7 +234,9 @@ function recommendTier(
 }
 
 function findPlan(plans: CurrentCloudBillingPlan[], tier: 'team' | 'unlimited', interval: 'monthly' | 'yearly') {
-	return plans.find((plan) => plan.tier === tier && plan.interval === interval);
+	return plans.find((plan) => {
+		return plan.tier === tier && plan.interval === interval;
+	});
 }
 
 function isPaidPlanSelected(billing: Billing): boolean {

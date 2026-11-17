@@ -32,7 +32,9 @@ export function CloudBillingPlansTab({
 					data={data}
 					billingState={billingState}
 					disabled={billingState.isPlanSelectionPending}
-					onCancelPendingChange={() => void billingState.cancelPendingPlanChange()}
+					onCancelPendingChange={() => {
+						void billingState.cancelPendingPlanChange();
+					}}
 				/>
 			)}
 			<CloudBillingPlanComparison
@@ -163,11 +165,13 @@ function CloudPlanOverviewColumn({
 					</Badge>
 				)}
 				{price && <span className='text-base font-medium leading-none text-muted-foreground'>{price}</span>}
-				{promotions?.map((promotion) => (
-					<Badge key={promotion} variant='outline' className='self-center text-xs'>
-						{promotion}
-					</Badge>
-				))}
+				{promotions?.map((promotion) => {
+					return (
+						<Badge key={promotion} variant='outline' className='self-center text-xs'>
+							{promotion}
+						</Badge>
+					);
+				})}
 			</p>
 			<p className='mt-1 text-sm text-muted-foreground'>{plan.description}</p>
 			{plan.note && <p className='mt-1 text-xs text-muted-foreground'>{plan.note}</p>}

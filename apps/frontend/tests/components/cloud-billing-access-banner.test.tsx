@@ -15,6 +15,7 @@ const restrictedTrialAccess = {
 	hasAccess: false,
 	bypassBilling: false,
 	organizationId: 'project-organization',
+	paidPlanWillStart: false,
 	requiresBillingAction: true,
 	status: 'trialing',
 	trialAvailable: false,
@@ -201,6 +202,31 @@ it('explains the Free destination when a small trial ends', () => {
 	render(<CloudBillingAccessBanner />);
 
 	expect(screen.getByRole('status').textContent).toContain('You’ll move to Free');
+});
+
+it.each([
+	['cloud_unlimited_monthly_v1', null],
+	['cloud_team_monthly_v1', 4],
+] as const)('explains that the selected %s plan starts after trial', (billingPlan, seatQuantity) => {
+	const now = new Date('2026-10-05T12:00:00.000Z');
+	vi.useFakeTimers();
+	vi.setSystemTime(now);
+	mocks.access = {
+		...restrictedTrialAccess,
+		billingPlan,
+		freeTierEnabled: true,
+		hasAccess: true,
+		paidPlanWillStart: true,
+		seatUserCount: 3,
+		seatQuantity,
+		tier: 'trial',
+		trialEndsAt: new Date(now.getTime() + 2 * DAY_MS),
+	};
+
+	render(<CloudBillingAccessBanner />);
+
+	expect(screen.getByRole('status').textContent).toContain('Your subscription will start automatically.');
+	expect(screen.queryByText(/move to Free/)).toBeNull();
 });
 
 it('shows admins that their trial has started and rounds up the remaining days', () => {

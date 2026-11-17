@@ -919,22 +919,26 @@ export async function getCloudPrice(planKey: CloudBillingPlanKey): Promise<Cloud
 export async function getCurrentCloudBillingPlans(currency: CloudBillingCurrency) {
 	return Promise.all(
 		(Object.keys(CLOUD_BILLING_PLANS) as CloudBillingPlanKey[]).map(async (planKey) => {
-			const plan = CLOUD_BILLING_PLANS[planKey];
-			const price = await getCloudPrice(planKey);
-			const unitAmount = cloudPriceAmount(price, currency);
-			if (unitAmount === null) {
-				throw new Error(`Stripe Price "${price.id}" does not support ${currency.toUpperCase()}`);
-			}
-			return {
-				planKey,
-				tier: plan.tier,
-				interval: plan.interval === 'month' ? ('monthly' as const) : ('yearly' as const),
-				currency,
-				unitAmount,
-				perSeat: plan.perSeat,
-			};
+			return getCurrentCloudBillingPlan(planKey, currency);
 		}),
 	);
+}
+
+export async function getCurrentCloudBillingPlan(planKey: CloudBillingPlanKey, currency: string) {
+	const plan = CLOUD_BILLING_PLANS[planKey];
+	const price = await getCloudPrice(planKey);
+	const unitAmount = cloudPriceAmount(price, currency);
+	if (unitAmount === null) {
+		throw new Error(`Stripe Price "${price.id}" does not support ${currency.toUpperCase()}`);
+	}
+	return {
+		planKey,
+		tier: plan.tier,
+		interval: plan.interval === 'month' ? ('monthly' as const) : ('yearly' as const),
+		currency,
+		unitAmount,
+		perSeat: plan.perSeat,
+	};
 }
 
 async function getLegacyCloudPrice(billingInterval: CloudBillingInterval): Promise<CloudPrice> {

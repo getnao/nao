@@ -75,7 +75,9 @@ export function OrganizationBillingSettings({
 
 				<BillingTabs
 					activeTab={activeTab}
-					tabs={billingTabs.filter((tab) => tab.value !== 'seats')}
+					tabs={billingTabs.filter((tab) => {
+						return tab.value !== 'seats';
+					})}
 					onTabChange={onTabChange}
 				/>
 				<BillingFeedback billingState={billingState} />
@@ -146,34 +148,21 @@ function CloudOrganizationBillingSettings({
 		}
 		return true;
 	});
-	const visibleActiveTab = visibleTabs.some(({ value }) => value === activeTab) ? activeTab : 'plans';
-	const currentPlanOffer = data.current ? plans.find((plan) => plan.planKey === data.current?.planKey) : undefined;
-	const teamPlanOffer = plans.find(
-		(plan) => plan.tier === 'team' && plan.interval === billingState.selectedBillingInterval,
-	);
-	const upcomingPayment =
-		billingState.canLoadUpcomingInvoice &&
-		!billingState.upcomingInvoice.isLoading &&
-		!billingState.upcomingInvoice.isError
-			? billingState.upcomingInvoice.data
-			: null;
-	const discountedCurrentAmount =
-		upcomingPayment &&
-		upcomingPayment.promotionCodes.length > 0 &&
-		upcomingPayment.currency === currentPlanOffer?.currency
-			? upcomingPayment.amountDue
-			: undefined;
+	const visibleActiveTab = visibleTabs.some(({ value }) => {
+		return value === activeTab;
+	})
+		? activeTab
+		: 'plans';
+	const currentPlanOffer = data.currentPlanOffer ?? undefined;
+	const teamPlanOffer = plans.find((plan) => {
+		return plan.tier === 'team' && plan.interval === billingState.selectedBillingInterval;
+	});
 	const currentPlanSummary = data.current
 		? {
 				name: getCloudPlanName(data.current.tier, data.current.seatQuantity),
 				price: currentPlanOffer
-					? formatCloudPlanRecurringPrice(
-							currentPlanOffer,
-							data.current.seatQuantity,
-							discountedCurrentAmount,
-						)
+					? formatCloudPlanRecurringPrice(currentPlanOffer, data.current.seatQuantity)
 					: undefined,
-				promotionCodes: discountedCurrentAmount !== undefined ? upcomingPayment?.promotionCodes : undefined,
 			}
 		: null;
 	const planChangeBaseline =
@@ -223,7 +212,9 @@ function CloudOrganizationBillingSettings({
 							plans={plans}
 							billingState={billingState}
 							onChoosePlan={choosePlan}
-							onSwitchToFree={() => setSwitchToFreeOpen(true)}
+							onSwitchToFree={() => {
+								setSwitchToFreeOpen(true);
+							}}
 						/>
 					)}
 					{visibleActiveTab === 'seats' && (
@@ -242,7 +233,11 @@ function CloudOrganizationBillingSettings({
 			</SettingsPageWrapper>
 			<CloudBillingPlanChangeDialog
 				open={selectedPlanChange !== null}
-				onOpenChange={(open) => !open && setSelectedPlanChange(null)}
+				onOpenChange={(open) => {
+					if (!open) {
+						setSelectedPlanChange(null);
+					}
+				}}
 				plan={selectedPlanChange}
 				currentPlan={planChangeBaseline}
 				disabled={billingState.isPlanSelectionPending}
@@ -254,7 +249,9 @@ function CloudOrganizationBillingSettings({
 						? billingState.previewPlanChange(selectedPlanChange.planKey, seatQuantity, promotionCode)
 						: billingState.previewPlanChange(selectedPlanChange.planKey, seatQuantity);
 				}}
-				onConfirm={(preview) => billingState.confirmPlanChange(preview.previewToken)}
+				onConfirm={(preview) => {
+					return billingState.confirmPlanChange(preview.previewToken);
+				}}
 			/>
 			<CloudBillingTeamSeatsDialog
 				open={selectedTeamPlan !== null}
@@ -263,7 +260,11 @@ function CloudOrganizationBillingSettings({
 				trialing={data.access.tier === 'trial'}
 				redirectsToCheckout={!data.current}
 				disabled={billingState.isPlanSelectionPending}
-				onOpenChange={(open) => !open && setSelectedTeamPlan(null)}
+				onOpenChange={(open) => {
+					if (!open) {
+						setSelectedTeamPlan(null);
+					}
+				}}
 				onConfirm={startPlanCheckout}
 			/>
 			<CloudBillingSwitchToFreeDialog
@@ -284,6 +285,11 @@ function BillingHeader({ description, billingState }: { description: string; bil
 			<div>
 				<h1 className='text-lg font-semibold text-foreground'>Billing & Credits</h1>
 				<p className='text-sm text-muted-foreground'>{description}</p>
+				{billingState.billingSyncError && (
+					<p className='mt-1 text-sm text-destructive' role='alert'>
+						{billingState.billingSyncError}
+					</p>
+				)}
 			</div>
 			{billingState.billing.data?.canManageBilling && (
 				<Button
@@ -320,23 +326,27 @@ function BillingTabs({
 	return (
 		<div className='overflow-x-auto border-b border-border'>
 			<div className='flex min-w-max gap-6' role='tablist' aria-label='Billing sections'>
-				{tabs.map((tab) => (
-					<button
-						key={tab.value}
-						type='button'
-						role='tab'
-						aria-selected={activeTab === tab.value}
-						className={cn(
-							'cursor-pointer border-b-2 px-1 pb-3 text-sm font-medium transition-colors',
-							activeTab === tab.value
-								? 'border-primary text-foreground'
-								: 'border-transparent text-muted-foreground hover:text-foreground',
-						)}
-						onClick={() => onTabChange?.(tab.value)}
-					>
-						{tab.label}
-					</button>
-				))}
+				{tabs.map((tab) => {
+					return (
+						<button
+							key={tab.value}
+							type='button'
+							role='tab'
+							aria-selected={activeTab === tab.value}
+							className={cn(
+								'cursor-pointer border-b-2 px-1 pb-3 text-sm font-medium transition-colors',
+								activeTab === tab.value
+									? 'border-primary text-foreground'
+									: 'border-transparent text-muted-foreground hover:text-foreground',
+							)}
+							onClick={() => {
+								onTabChange?.(tab.value);
+							}}
+						>
+							{tab.label}
+						</button>
+					);
+				})}
 			</div>
 		</div>
 	);
