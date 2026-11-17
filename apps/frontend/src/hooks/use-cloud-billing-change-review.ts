@@ -88,7 +88,9 @@ export function useCloudBillingChangeReview({
 		if (!reviewedPreview || expired) {
 			return;
 		}
-		const { error: failure } = await run(() => onConfirm(reviewedPreview), errorMessages.confirm);
+		const { error: failure } = await run(() => {
+			return onConfirm(reviewedPreview);
+		}, errorMessages.confirm);
 		if (!failure) {
 			onDone();
 		}
@@ -97,11 +99,12 @@ export function useCloudBillingChangeReview({
 		}
 	};
 
-	const runAndClose = (action: () => Promise<unknown>, failureMessage: string) =>
-		run(async () => {
+	const runAndClose = (action: () => Promise<unknown>, failureMessage: string) => {
+		return run(async () => {
 			await action();
 			onDone();
 		}, failureMessage);
+	};
 
 	return {
 		seatInput,

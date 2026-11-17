@@ -135,11 +135,13 @@ function UpcomingPaymentEstimate({ billingState }: { billingState: OrganizationB
 					{formatBillingPrice(upcomingInvoice.data.amountDue, upcomingInvoice.data.currency)} on{' '}
 					{formatBillingDate(paymentAt)}
 				</p>
-				{upcomingInvoice.data.promotionCodes.map((code) => (
-					<Badge key={code} variant='outline'>
-						Code {code}
-					</Badge>
-				))}
+				{upcomingInvoice.data.promotionCodes.map((code) => {
+					return (
+						<Badge key={code} variant='outline'>
+							Code {code}
+						</Badge>
+					);
+				})}
 			</div>
 			<p className='mt-1 text-xs text-muted-foreground'>
 				{trialing && 'This is a preview, not a paid invoice. '}
