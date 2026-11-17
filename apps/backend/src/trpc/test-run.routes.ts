@@ -47,7 +47,7 @@ import {
 } from '../types/test-run';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
-import { compareContextVariants, listAddedTestPaths } from '../utils/test-comparison';
+import { compareContextVariants, listAddedTestPaths, listComparedResults } from '../utils/test-comparison';
 import { summarizeModels } from '../utils/test-model-summary';
 import { requireProjectPath } from './route-context';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
@@ -175,18 +175,15 @@ export const testRunRoutes = {
 	getRun: contextAdminProtectedProcedure.input(z.object({ runId: z.string() })).query(async ({ ctx, input }) => {
 		const run = await getProjectRun(ctx.project.id, input.runId);
 		const results = await testRunQueries.listResultOutcomes(run.id);
+		const isComparison = run.trigger === 'comparison';
+		const addedTestPaths = isComparison ? listAddedTestPaths(run.contextChanges) : new Set<string>();
 		return {
 			...run,
 			results,
-			comparison:
-				run.trigger === 'comparison'
-					? compareContextVariants(
-							results,
-							run.models.length * run.attempts,
-							listAddedTestPaths(run.contextChanges),
-						)
-					: null,
-			modelSummaries: summarizeModels(results),
+			comparison: isComparison
+				? compareContextVariants(results, run.models.length * run.attempts, addedTestPaths)
+				: null,
+			modelSummaries: summarizeModels(listComparedResults(results, addedTestPaths)),
 			previousModelSummaries: await getPreviousModelSummaries(run, results),
 		};
 	}),

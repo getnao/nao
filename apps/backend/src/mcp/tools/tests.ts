@@ -223,8 +223,8 @@ function registerGetTestRun(server: McpServer, ctx: McpContext): void {
 			),
 			comparison: z
 				.object({
-					production: ATTEMPT_COUNTS_SCHEMA,
-					changes: ATTEMPT_COUNTS_SCHEMA,
+					production: ATTEMPT_COUNTS_SCHEMA.describe('Over the tests both sides ran.'),
+					changes: ATTEMPT_COUNTS_SCHEMA.describe('Over the tests both sides ran, without the `new` ones.'),
 					tests: z.array(
 						z.object({
 							testPath: z.string(),
@@ -239,6 +239,7 @@ function registerGetTestRun(server: McpServer, ctx: McpContext): void {
 		},
 		errorMessage: errorMessageOf('get_test_run'),
 		handler: async ({ run_id }) => {
+			await failStaleTestRuns(ctx.projectId);
 			const run = await requireRun(ctx, run_id);
 			const results = await testRunQueries.listResultOutcomes(run.id);
 			return jsonToolResult({

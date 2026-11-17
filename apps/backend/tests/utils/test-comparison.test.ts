@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { TestContextVariant } from '../../src/types/test-run';
-import { compareContextVariants, listAddedTestPaths } from '../../src/utils/test-comparison';
+import { compareContextVariants, listAddedTestPaths, listComparedResults } from '../../src/utils/test-comparison';
 
 describe('compareContextVariants', () => {
 	it('classifies each test by how the draft changed its pass rate, regressions first', () => {
@@ -47,7 +47,7 @@ describe('compareContextVariants', () => {
 });
 
 describe('compareContextVariants with tests the draft adds', () => {
-	it('marks them new instead of pending, as they never run on production', () => {
+	it('marks them new instead of pending, and leaves them out of the totals of both sides', () => {
 		const comparison = compareContextVariants(
 			[
 				...attempts('revenue', 'production', [true]),
@@ -63,6 +63,15 @@ describe('compareContextVariants with tests the draft adds', () => {
 			['revenue', 'unchanged'],
 		]);
 		expect(comparison.production).toEqual({ passedAttempts: 1, totalAttempts: 1 });
+		expect(comparison.draft).toEqual({ passedAttempts: 1, totalAttempts: 1 });
+	});
+
+	it('keeps the results both sides ran for the scores', () => {
+		const results = [...attempts('revenue', 'production', [true]), ...attempts('margin', 'draft', [false])];
+
+		expect(listComparedResults(results, new Set(['margin.yml']))).toEqual(
+			attempts('revenue', 'production', [true]),
+		);
 	});
 });
 

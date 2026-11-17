@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 	listRunsWithTestTotals: vi.fn(),
 	startRunInMode: vi.fn(),
 	cancelTestRun: vi.fn(),
+	failStaleTestRuns: vi.fn(),
 }));
 
 vi.mock('../../src/db/db', () => ({ db: {} }));
@@ -33,7 +34,7 @@ vi.mock('../../src/services/test-history.service', () => ({
 vi.mock('../../src/services/test-run-start.service', () => ({ startRunInMode: mocks.startRunInMode }));
 vi.mock('../../src/services/test-runner.service', () => ({
 	cancelTestRun: mocks.cancelTestRun,
-	failStaleTestRuns: vi.fn(),
+	failStaleTestRuns: mocks.failStaleTestRuns,
 }));
 
 import { BASELINE_TOOL, listToolNames, useContextAdminMcpClient } from '../helpers/context-admin-mcp-client';
@@ -157,6 +158,19 @@ describe('MCP get_test_run', () => {
 			['margin.yml', 'new'],
 		]);
 		expect(output.tests.find((test) => test.testPath === 'revenue.yml')?.firstFailure).toBe('Wrong total');
+	});
+
+	it('fails a run left behind by a restart before reading it, so polling reaches a final status', async () => {
+		mocks.getRun.mockResolvedValue(testRun({ status: 'failed' }));
+		mocks.listResultOutcomes.mockResolvedValue([]);
+		const client = await connect('admin');
+
+		await client.callTool({ name: 'get_test_run', arguments: { run_id: 'run-1' } });
+
+		expect(mocks.failStaleTestRuns).toHaveBeenCalledWith('project-1');
+		expect(mocks.failStaleTestRuns.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.getRun.mock.invocationCallOrder[0],
+		);
 	});
 
 	it('refuses a run of another project', async () => {

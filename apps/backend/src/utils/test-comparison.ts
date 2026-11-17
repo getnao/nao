@@ -29,7 +29,7 @@ const NO_ATTEMPTS: AttemptCounts = { passedAttempts: 0, totalAttempts: 0 };
 /**
  * Compares, test by test, the attempts that ran against production with those that ran against the draft.
  * A test stays pending until both variants have all their attempts, except a test the draft adds, which only runs
- * against the draft.
+ * against the draft and so stays out of the totals of both sides.
  */
 export function compareContextVariants(
 	results: ComparedResult[],
@@ -54,11 +54,20 @@ export function compareContextVariants(
 				TEST_COMPARISON_CHANGES.indexOf(left.change) - TEST_COMPARISON_CHANGES.indexOf(right.change) ||
 				left.testName.localeCompare(right.testName),
 		);
+	const comparedTests = tests.filter((test) => test.change !== 'new');
 	return {
-		production: sumAttemptCounts(tests.map((test) => test.production)),
-		draft: sumAttemptCounts(tests.map((test) => test.draft)),
+		production: sumAttemptCounts(comparedTests.map((test) => test.production)),
+		draft: sumAttemptCounts(comparedTests.map((test) => test.draft)),
 		tests,
 	};
+}
+
+/** The results of a comparison that both sides ran, leaving out the tests the changes add. */
+export function listComparedResults<Result extends Pick<DBTestRunResult, 'testPath'>>(
+	results: Result[],
+	addedTestPaths: ReadonlySet<string>,
+): Result[] {
+	return results.filter((result) => !addedTestPaths.has(result.testPath));
 }
 
 /** The tests a run's changes add, which production does not have, so they run with the changes only. */
