@@ -7,5 +7,7 @@ export type ProjectSwitcherMode = 'switch' | 'static';
 export function useMultiProject(): ProjectSwitcherMode {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 
-	return config.data?.naoMode === 'cloud' ? 'switch' : 'static';
+	const canSwitchProjects = config.data?.naoMode === 'cloud' || config.data?.selfHostedMultiProjectEnabled === true;
+
+	return canSwitchProjects ? 'switch' : 'static';
 }
