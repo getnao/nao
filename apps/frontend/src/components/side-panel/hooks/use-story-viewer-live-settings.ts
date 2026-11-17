@@ -58,9 +58,21 @@ export const useStoryViewerLiveSettings = (params: UseStoryViewerLiveSettingsPar
 		return standaloneStory ? invalidateStandaloneStory(standaloneStory) : Promise.resolve();
 	};
 
+	const invalidateLiveQueryData = () => {
+		if (chatStory) {
+			return queryClient.invalidateQueries({ queryKey: trpc.story.getLiveQueryData.queryKey(chatStory) });
+		}
+		return standaloneStory
+			? queryClient.invalidateQueries({
+					queryKey: trpc.story.getStandaloneLiveQueryData.queryKey(standaloneStory),
+				})
+			: Promise.resolve();
+	};
+
 	const invalidateRefreshedStory = () => {
 		const invalidations: Promise<unknown>[] = [
 			invalidateStory(),
+			invalidateLiveQueryData(),
 			queryClient.invalidateQueries({ queryKey: trpc.automation.feed.queryKey() }),
 		];
 		if (chatStory && storyId) {
