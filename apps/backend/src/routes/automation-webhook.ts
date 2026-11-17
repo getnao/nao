@@ -53,6 +53,7 @@ export const automationWebhookRoutes = async (app: App) => {
 		const run = await startAutomationRun(automationId, {
 			billingAccessVerifiedProjectId: automation.projectId,
 			requireEnabled: false,
+			trigger: 'webhook',
 		});
 		logger.info('Automation webhook triggered run', {
 			source: 'http',

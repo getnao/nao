@@ -1,11 +1,13 @@
-import { REPO_PROVIDERS, type RepoProvider } from '@nao/shared/types';
+import { REPO_PROVIDERS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as activityQueries from '../queries/activity.queries';
-import * as userQueries from '../queries/user.queries';
-import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
+import * as chatQueries from '../queries/chat.queries';
+import { generateContextCommitMessage } from '../services/context-commit-message.service';
+import { startContextEditChat } from '../services/context-editor.service';
 import {
+	createDraftFile,
 	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
@@ -13,10 +15,14 @@ import {
 	writeFileContent,
 } from '../services/context-explorer.service';
 import {
+	createGitContext,
+	createSafeFileAccess,
+	createStrictFileAccess,
+} from '../services/context-explorer-access.service';
+import {
 	commitContextChanges,
 	connectContextRepository,
 	type ContextExplorerGitContext,
-	type ContextExplorerGitResolution,
 	createContextBranch,
 	createContextBranchAndCommit,
 	discardAllContextChanges,
@@ -26,32 +32,55 @@ import {
 	getContextFileDiff,
 	getContextRepositoryStatus,
 	getHistoricalContextDiffActions,
+	listContextRepositoryBranches,
 	pullLiveContext,
-	resolveContextExplorerGit,
-	resolveContextExplorerGitSafely,
 	sanitizeLiveContextError,
 	suggestContextBranchName,
 	switchContextBranch,
+	undoLastContextCommit,
 	updateContextWorktree,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
+import {
+	applyOwnerToTableFiles,
+	listContextFileHeaderProblems,
+	listContextFileOwners,
+	listContextFileSummaries,
+	listTableFileOwners,
+} from '../services/context-file-header.service';
+import { getMostReadContextFiles } from '../services/context-file-reads.service';
+import { listRecentContextChanges } from '../services/context-recent-changes.service';
 import { assertRepositoryEditable, readManagedGithubRepositoryFullName } from '../services/managed-github-repository';
+import {
+	discardAllNaoDraftFiles,
+	discardNaoDraftFile,
+	getNaoDraftFileDiff,
+	getNaoDraftFileTree,
+	hasContextRepository,
+	listNaoDraftChanges,
+	searchNaoDraftContents,
+} from '../services/nao-draft.service';
 import { assertNoProjectSyncRunning, assertNoProjectSyncWritingFiles } from '../services/project-sync.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
+import { resolveRepositoryProvider } from '../services/shared-github-token.service';
 import { listActiveUserGroups } from '../services/user-group-availability.service';
-import {
-	ContextProjectResolutionError,
-	resolveContextRepository,
-	resolveContextSourceGitToken,
-} from '../utils/context-repo';
+import { ContextProjectResolutionError } from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
+import { draftOwnerOf, requireProjectPath } from './route-context';
 import { cloudBillingAdminProcedure, cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
 const commitPathsSchema = z.union([pathsSchema, z.literal('all')]);
 const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
+const fileOwnerSchema = z.string().trim().min(1).max(320).nullable();
 const MAX_PULL_HISTORY_FILES = 1_000;
+const skillNameSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(64)
+	.regex(/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/, 'Use lowercase letters, digits and dashes.');
 const fileDiffInputSchema = z
 	.object({
 		path: z.string(),
@@ -160,12 +189,14 @@ export const contextExplorerRoutes = {
 		.mutation(async ({ ctx, input }) => {
 			await assertRepositoryEditable(ctx.project.path);
 			const projectFolder = requireProjectPath(ctx.project.path);
+			const provider = await resolveRepositoryProvider(ctx.project.id, input.provider);
 			const context: ContextExplorerGitContext = {
 				projectId: ctx.project.id,
 				projectFolder,
 				userId: ctx.user.id,
 				user: { name: ctx.user.name, email: ctx.user.email },
-				token: await getProviderToken(input.provider, ctx.user.id),
+				token: await provider.getToken(ctx.user.id),
+				providerOverride: provider,
 			};
 			if (!context.token) {
 				throw new TRPCError({
@@ -186,8 +217,15 @@ export const contextExplorerRoutes = {
 	}),
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
-		return { entries: await getFileTree(access), isManagedRepository: Boolean(access.managedRepository) };
+		const projectFolder = requireProjectPath(ctx.project.path);
+		const hasRepository = await hasContextRepository(ctx.project.id);
+		const managedRepository = hasRepository ? null : await readManagedGithubRepositoryFullName(projectFolder);
+		const entries = hasRepository
+			? await getFileTree(await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user))
+			: managedRepository
+				? await getFileTree(projectFolder)
+				: await getNaoDraftFileTree(draftOwnerOf(ctx), projectFolder);
+		return { entries, isManagedRepository: managedRepository !== null };
 	}),
 
 	getRulesPreviewGroups: contextAdminProtectedProcedure.query(async ({ ctx }) => {
@@ -197,6 +235,28 @@ export const contextExplorerRoutes = {
 			groups: groups.map(({ id, name, isDefault }) => ({ id, name, isDefault })),
 		};
 	}),
+
+	listFileOwners: contextAdminProtectedProcedure.query(async ({ ctx }) => listContextFileOwners(ctx.project.id)),
+
+	getFileHeaderProblems: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+		return listContextFileHeaderProblems(ctx.project.id, access);
+	}),
+
+	listTableFileOwners: contextAdminProtectedProcedure
+		.input(z.object({ path: z.string() }))
+		.query(async ({ ctx, input }) => {
+			const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+			return listTableFileOwners(ctx.project.id, input.path, access);
+		}),
+
+	applyOwnerToTableFiles: cloudBillingContextAdminProcedure
+		.input(z.object({ path: z.string(), owner: fileOwnerSchema, onlyPaths: pathsSchema.optional() }))
+		.mutation(async ({ ctx, input }) => {
+			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+			await assertNoProjectSyncWritingFiles(ctx.project.id, ctx.user.id, Boolean(access.managedRepository));
+			return applyOwnerToTableFiles(ctx.project.id, input.path, input.owner, access, input.onlyPaths);
+		}),
 
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
 		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
@@ -217,17 +277,62 @@ export const contextExplorerRoutes = {
 			return writeFileContent(input.path, input.content, input.expectedHash, access);
 		}),
 
+	createSkill: cloudBillingContextAdminProcedure
+		.input(z.object({ name: skillNameSchema, description: z.string().trim().max(1_000) }))
+		.mutation(async ({ ctx, input }) => {
+			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+			await assertNoProjectSyncWritingFiles(ctx.project.id, ctx.user.id, Boolean(access.managedRepository));
+			const path = `/agent/skills/${input.name}.md`;
+			await createDraftFile(path, buildSkillTemplate(input.name, input.description, ctx.user.email), access);
+			return { path };
+		}),
+
+	startEditChat: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) =>
+		startContextEditChat({ userId: ctx.user.id, projectId: ctx.project.id }),
+	),
+
+	getMostReadFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => getMostReadContextFiles(ctx.project.id)),
+
+	getFileSummaries: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+		return listContextFileSummaries(ctx.project.id, access);
+	}),
+
+	getRecentChanges: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+		return { changes: listRecentContextChanges(access) };
+	}),
+
+	latestEditChat: contextAdminProtectedProcedure.query(async ({ ctx }): Promise<{ chatId: string | null }> => {
+		return { chatId: await chatQueries.getLatestContextEditChatId(ctx.user.id, ctx.project.id) };
+	}),
+
 	searchContent: contextAdminProtectedProcedure
 		.input(z.object({ query: z.string().min(2).max(200) }))
-		.query(async ({ ctx, input }) =>
-			searchFileContents(input.query, await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user)),
-		),
+		.query(async ({ ctx, input }) => {
+			const projectFolder = requireProjectPath(ctx.project.path);
+			if (await hasContextRepository(ctx.project.id)) {
+				return searchFileContents(
+					input.query,
+					await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user),
+				);
+			}
+			return (await readManagedGithubRepositoryFullName(projectFolder))
+				? searchFileContents(input.query, projectFolder)
+				: searchNaoDraftContents(draftOwnerOf(ctx), projectFolder, input.query);
+		}),
 
 	getChangedFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		if (!(await hasContextRepository(ctx.project.id))) {
+			return listNaoDraftChanges(draftOwnerOf(ctx));
+		}
 		return getChangedContextFiles(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
 	getFileDiff: contextAdminProtectedProcedure.input(fileDiffInputSchema).query(async ({ ctx, input }) => {
+		if (!input.from && !(await hasContextRepository(ctx.project.id))) {
+			return getNaoDraftFileDiff(draftOwnerOf(ctx), requireProjectPath(ctx.project.path), input.path);
+		}
 		return getContextFileDiff(
 			await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
 			input.path,
@@ -253,6 +358,10 @@ export const contextExplorerRoutes = {
 				input.requiredCommits,
 			);
 		}),
+
+	listBranches: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		return listContextRepositoryBranches(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+	}),
 
 	switchBranch: cloudBillingContextAdminProcedure
 		.input(z.object({ branch: branchSchema }))
@@ -300,6 +409,9 @@ export const contextExplorerRoutes = {
 	discardLocalChange: cloudBillingContextAdminProcedure
 		.input(z.object({ path: z.string() }))
 		.mutation(async ({ ctx, input }) => {
+			if (!(await hasContextRepository(ctx.project.id))) {
+				return discardNaoDraftFile(draftOwnerOf(ctx), requireProjectPath(ctx.project.path), input.path);
+			}
 			return discardContextFileChange(
 				await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.path,
@@ -307,13 +419,38 @@ export const contextExplorerRoutes = {
 		}),
 
 	discardAllChanges: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		if (!(await hasContextRepository(ctx.project.id))) {
+			return discardAllNaoDraftFiles(draftOwnerOf(ctx));
+		}
 		return discardAllContextChanges(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
+
+	undoLastCommit: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		await undoLastContextCommit(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user));
+	}),
+
+	generateCommitMessage: cloudBillingContextAdminProcedure
+		.input(z.object({ paths: pathsSchema }))
+		.mutation(async ({ ctx, input }) => {
+			return generateContextCommitMessage(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				input.paths,
+			);
+		}),
 
 	pushBranch: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
 		return pushContextExplorerBranch(await createIdleGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 };
+
+async function createIdleGitContext(
+	projectId: string,
+	projectPath: string | null,
+	user: { id: string; name: string; email: string },
+): Promise<ContextExplorerGitContext> {
+	await assertNoProjectSyncRunning(projectId, user.id);
+	return createGitContext(projectId, projectPath, user);
+}
 
 function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivityRow) {
 	const payload = parsePullPayload(activity.payload);
@@ -350,80 +487,17 @@ function logPullHistoryFailure(message: string, projectId: string, activityId: s
 	});
 }
 
-async function createSafeFileAccess(
-	projectId: string,
-	projectPath: string | null,
-	user: { id: string; name: string; email: string },
-): Promise<ContextExplorerFileAccess> {
-	const context = await createGitContext(projectId, projectPath, user);
-	const git = await resolveContextExplorerGitSafely(context);
-	return {
-		projectFolder: context.projectFolder,
-		git,
-		managedRepository: await resolveManagedRepository(git, context),
-	};
-}
-
-async function createStrictFileAccess(
-	projectId: string,
-	projectPath: string | null,
-	user: { id: string; name: string; email: string },
-): Promise<ContextExplorerFileAccess> {
-	const context = await createGitContext(projectId, projectPath, user);
-	const git = await resolveContextExplorerGit(context);
-	return {
-		projectFolder: context.projectFolder,
-		git,
-		managedRepository: await resolveManagedRepository(git, context),
-	};
-}
-
-async function resolveManagedRepository(
-	git: ContextExplorerGitResolution,
-	context: ContextExplorerGitContext,
-): Promise<ContextExplorerFileAccess['managedRepository']> {
-	if (git.status !== 'unavailable' || git.reason !== 'no-repo') {
-		return null;
-	}
-	const repoFullName = await readManagedGithubRepositoryFullName(context.projectFolder);
-	return repoFullName ? { repoFullName, author: context.user } : null;
-}
-
-async function createIdleGitContext(
-	projectId: string,
-	projectPath: string | null,
-	user: { id: string; name: string; email: string },
-): Promise<ContextExplorerGitContext> {
-	await assertNoProjectSyncRunning(projectId, user.id);
-	return createGitContext(projectId, projectPath, user);
-}
-
-export async function createGitContext(
-	projectId: string,
-	projectPath: string | null,
-	user: { id: string; name: string; email: string },
-): Promise<ContextExplorerGitContext> {
-	const projectFolder = requireProjectPath(projectPath);
-	const repository = await resolveContextRepository(projectId);
-	return {
-		projectId,
-		projectFolder,
-		userId: user.id,
-		user: { name: user.name, email: user.email },
-		token:
-			repository?.provider === 'generic'
-				? resolveContextSourceGitToken()
-				: await getProviderToken(repository?.provider ?? 'github', user.id),
-	};
-}
-
-function getProviderToken(provider: RepoProvider, userId: string): Promise<string | null> {
-	return provider === 'gitlab' ? userQueries.getGitlabToken(userId) : userQueries.getGithubToken(userId);
-}
-
-function requireProjectPath(projectPath: string | null): string {
-	if (!projectPath) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project path configured.' });
-	}
-	return projectPath;
+function buildSkillTemplate(name: string, description: string, ownerEmail: string): string {
+	return [
+		'---',
+		`name: ${name}`,
+		`description: ${JSON.stringify(description || `When to use the ${name} skill.`)}`,
+		`owner: ${ownerEmail}`,
+		'---',
+		'',
+		`# ${name}`,
+		'',
+		'Describe the steps the agent should follow.',
+		'',
+	].join('\n');
 }

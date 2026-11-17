@@ -1,8 +1,10 @@
+import type { ChartPluginManifestEntry } from '@nao/shared';
 import type { StoryQueryResult } from '@nao/shared/story-app';
 import { STORY_THEME_MODES, type StoryThemeMode, type StoryThemePair } from '@nao/shared/story-theme';
 import { createHash } from 'crypto';
 
 import type { DBStory, DBStoryAppState } from '../db/abstractSchema';
+import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyAppStateQueries from '../queries/story-app-state.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
@@ -10,6 +12,7 @@ import { logger } from '../utils/logger';
 import { themeFontStylesheets } from '../utils/story-headless-page';
 import { isBrokenRender, renderStoryScreenshot } from '../utils/story-screenshot';
 import { storyThemeFingerprint } from '../utils/story-theme-fingerprint';
+import { listStoryChartPlugins } from './chart-plugin';
 import {
 	type CustomStoryVersionView,
 	getActiveThemeForStory,
@@ -26,6 +29,9 @@ const MISSING_DATA_RETRY_AFTER_MS = 15 * 1000;
 const MAX_BROKEN_RENDERS = 3;
 /** Stored in place of a mode's image when the version has no app or that mode kept rendering broken: never retried. */
 const UNRENDERABLE = '';
+const CHART_PLUGINS_FINGERPRINT_TTL_MS = 60 * 1000;
+
+const chartPluginsFingerprints = new Map<string, { fingerprint: string | undefined; expiresAt: number }>();
 
 /** Base64 WebP per theme mode; a mode not rendered yet is absent. */
 type ModeThumbnails = Partial<Record<StoryThemeMode, string>>;
@@ -223,20 +229,24 @@ async function saveThumbnails(versionId: string, images: ModeThumbnails, renderK
 	return storyFileQueries.setVersionThumbnail(versionId, JSON.stringify(images), renderKey);
 }
 
-/** Live data and shared state change in place, without a new version, so they are part of the key. */
+/** Live data, shared state, project chart plugins and boundary sets change in place, without a new version, so they are part of the key. */
 async function thumbnailRenderKey(
 	story: Pick<DBStory, 'id' | 'isLive'>,
 	theme: StoryThemePair | null,
 ): Promise<string> {
-	const [dataCachedAt, sharedState] = await Promise.all([
+	const [dataCachedAt, sharedState, chartPlugins, mapBoundaries] = await Promise.all([
 		story.isLive ? storyQueries.getStoryDataCachedAt(story.id) : null,
 		storyAppStateQueries.listProjectStoryAppState(story.id),
+		cachedChartPluginsFingerprint(story.id),
+		mapBoundariesFingerprint(story.id),
 	]);
 	return [
 		`${THUMBNAIL_VIEWPORT.width}x${THUMBNAIL_VIEWPORT.height}`,
 		storyThemeFingerprint(theme),
 		dataCachedAt?.getTime(),
 		sharedState.length > 0 ? sharedStateFingerprint(sharedState) : undefined,
+		chartPlugins,
+		mapBoundaries,
 	]
 		.filter((part) => part !== undefined)
 		.join('.');
@@ -247,6 +257,33 @@ function sharedStateFingerprint(state: DBStoryAppState[]): string {
 		.map((entry) => [entry.key, entry.value])
 		.sort(([left], [right]) => String(left).localeCompare(String(right)));
 	return createHash('sha256').update(JSON.stringify(entries)).digest('hex').slice(0, 12);
+}
+
+/** Plugins are read from disk, so their fingerprint is reused for a minute rather than recomputed on every thumbnail request. */
+async function cachedChartPluginsFingerprint(storyId: string): Promise<string | undefined> {
+	const cached = chartPluginsFingerprints.get(storyId);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.fingerprint;
+	}
+	const plugins = await listStoryChartPlugins(storyId);
+	const fingerprint = plugins.length > 0 ? chartPluginsFingerprint(plugins) : undefined;
+	chartPluginsFingerprints.set(storyId, { fingerprint, expiresAt: Date.now() + CHART_PLUGINS_FINGERPRINT_TTL_MS });
+	return fingerprint;
+}
+
+function chartPluginsFingerprint(plugins: ChartPluginManifestEntry[]): string {
+	const versions = plugins.map((plugin) => `${plugin.type}@${plugin.version}`).sort();
+	return createHash('sha256').update(versions.join('\n')).digest('hex').slice(0, 12);
+}
+
+async function mapBoundariesFingerprint(storyId: string): Promise<string | undefined> {
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	const sets = projectId ? await projectQueries.getCustomBoundaries(projectId) : [];
+	if (sets.length === 0) {
+		return undefined;
+	}
+	const sources = sets.map((set) => `${set.key}:${set.file?.storageKey ?? set.url}:${set.joinProperty}`).sort();
+	return createHash('sha256').update(sources.join('\n')).digest('hex').slice(0, 12);
 }
 
 function parseThumbnails(raw: string | undefined): ModeThumbnails {

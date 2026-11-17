@@ -2,10 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert, RefreshCw, Terminal, X, CircleDot } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import { invalidateExplorerQueries } from '@/components/settings/context-git-panel';
 import { Button } from '@/components/ui/button';
 import { Expandable } from '@/components/ui/expandable';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
+import { invalidateExplorerQueries } from '@/lib/context-explorer-queries';
 import { getTimeAgo } from '@/lib/time-ago';
 import { trpc } from '@/main';
 

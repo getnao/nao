@@ -2,6 +2,7 @@ import { memo, type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import { type ClassNameMerger, joinClassNames } from './class-names';
 import type { DateFormatSettings } from './date';
+import { partAttributes } from './story-parts';
 import {
 	formatCellValue,
 	formatColumnLabel,
@@ -137,6 +138,11 @@ export const TableDisplay = memo(function TableDisplay({
 													: 'descending'
 												: 'none'
 										}
+										{...partAttributes({
+											kind: 'column',
+											label: columnLabel(column),
+											series: column,
+										})}
 										className={cn(
 											'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 font-medium whitespace-nowrap text-foreground',
 											alignRight && 'nao-table-display__numeric text-right tabular-nums',
@@ -172,9 +178,17 @@ export const TableDisplay = memo(function TableDisplay({
 										const value = row[column];
 										const isNull = value === null || value === undefined;
 										const background = cellBackground?.(column, value);
+										const cellText = isNull ? 'NULL' : formatCellValue(value, dateFormat);
 										return (
 											<td
 												key={`${rowIndex}-${column}`}
+												{...partAttributes({
+													kind: 'cell',
+													label: columnLabel(column),
+													series: column,
+													category: rowCategory(row, resolvedColumns, dateFormat),
+													value: cellText,
+												})}
 												style={{
 													minWidth: columnMinWidths[column],
 													...(background ? { backgroundColor: background } : {}),
@@ -190,7 +204,7 @@ export const TableDisplay = memo(function TableDisplay({
 														NULL
 													</span>
 												) : (
-													formatCellValue(value, dateFormat)
+													cellText
 												)}
 											</td>
 										);
@@ -379,6 +393,11 @@ function computeColumnMinWidths(
 		widths[column] = `calc(${maxChars}ch + 1.5rem)`;
 	}
 	return widths;
+}
+
+function rowCategory(row: TableRow, columns: string[], dateFormat?: DateFormatSettings | null): string | undefined {
+	const firstValue = row[columns[0]];
+	return firstValue === null || firstValue === undefined ? undefined : formatCellValue(firstValue, dateFormat);
 }
 
 function inferColumns(data: TableRow[]): string[] {

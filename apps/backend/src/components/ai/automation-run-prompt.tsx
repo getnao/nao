@@ -6,19 +6,21 @@ import {
 	getAutomationIntegrationToolDescriptions,
 	getAutomationIntegrationToolNames,
 } from '../../services/automation-tools';
-import type { AutomationIntegrationConfig } from '../../types/automation';
+import type { AutomationIntegrationConfig, AutomationTriggerEvent } from '../../types/automation';
+import { AutomationTriggerEventSection } from './automation-trigger-event-prompt';
 
 type AutomationRunPromptProps = {
 	prompt: string;
 	integrations: AutomationIntegrationConfig;
 	userEmail: string;
+	triggerEvent?: AutomationTriggerEvent;
 };
 
 export function renderAutomationRunPrompt(props: AutomationRunPromptProps): string {
 	return renderToMarkdown(<AutomationRunPrompt {...props} />);
 }
 
-function AutomationRunPrompt({ prompt, integrations, userEmail }: AutomationRunPromptProps) {
+function AutomationRunPrompt({ prompt, integrations, userEmail, triggerEvent }: AutomationRunPromptProps) {
 	const requiredTools = getAutomationIntegrationToolNames(integrations);
 
 	return (
@@ -64,6 +66,8 @@ function AutomationRunPrompt({ prompt, integrations, userEmail }: AutomationRunP
 				)}
 				<ListItem>Do NOT call suggest_follow_ups; this run has no human follow-up.</ListItem>
 			</List>
+
+			{triggerEvent ? <AutomationTriggerEventSection event={triggerEvent} /> : null}
 
 			<Title>Automation prompt</Title>
 			<Span>{prompt}</Span>

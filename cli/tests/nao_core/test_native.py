@@ -12,6 +12,7 @@ import pytest
 from nao_core import native
 
 PACKAGE_NAME = "@duckdb/node-bindings-darwin-arm64"
+GROUP_DIRECTORY = "duckdb-1.4.4-r.1"
 
 
 def write_manifest(bin_dir: Path, entries: list[dict]) -> Path:
@@ -66,14 +67,15 @@ def test_load_manifest_reads_recorded_packages(tmp_path):
     assert packages[0].group == "duckdb"
 
 
-def test_load_manifest_survives_a_corrupted_file(tmp_path):
-    (tmp_path / native.MANIFEST_NAME).write_text("{ not json", encoding="utf-8")
-
-    assert native.load_manifest(tmp_path) == []
-
-
-def test_load_manifest_survives_invalid_structure(tmp_path):
-    (tmp_path / native.MANIFEST_NAME).write_text('{"group": "duckdb"}', encoding="utf-8")
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("{ not json", id="corrupted_file"),
+        pytest.param('{"group": "duckdb"}', id="invalid_structure"),
+    ],
+)
+def test_load_manifest_survives_unreadable_content(tmp_path, content):
+    (tmp_path / native.MANIFEST_NAME).write_text(content, encoding="utf-8")
 
     assert native.load_manifest(tmp_path) == []
 
@@ -102,13 +104,13 @@ def test_tarball_url_honours_a_custom_registry(monkeypatch, cache_root):
 def test_cache_dir_is_keyed_by_group_and_version(cache_root):
     package = native.NativePackage(**duckdb_entry())
 
-    assert package.cache_dir == cache_root / "duckdb-1.4.4-r.1" / PACKAGE_NAME
+    assert package.cache_dir == cache_root / GROUP_DIRECTORY / PACKAGE_NAME
 
 
 def test_node_path_lists_group_roots_even_before_they_exist(tmp_path, cache_root):
     write_manifest(tmp_path, [duckdb_entry()])
 
-    assert native.node_path(tmp_path) == str(cache_root / "duckdb-1.4.4-r.1")
+    assert native.node_path(tmp_path) == str(cache_root / GROUP_DIRECTORY)
 
 
 def test_node_path_keeps_an_existing_value(tmp_path, cache_root):
@@ -116,7 +118,7 @@ def test_node_path_keeps_an_existing_value(tmp_path, cache_root):
 
     result = native.node_path(tmp_path, "/somewhere/node_modules")
 
-    assert result.split(os.pathsep) == [str(cache_root / "duckdb-1.4.4-r.1"), "/somewhere/node_modules"]
+    assert result.split(os.pathsep) == [str(cache_root / GROUP_DIRECTORY), "/somewhere/node_modules"]
 
 
 def test_node_path_is_empty_when_nothing_is_downloadable(tmp_path):
@@ -127,20 +129,20 @@ def test_ensure_group_downloads_verifies_and_unpacks(tmp_path, cache_root):
     payload = make_tarball({"package/duckdb.node": b"native code"})
     write_manifest(tmp_path, [duckdb_entry(integrity_of(payload))])
 
-    with patch.object(native, "_download", side_effect=lambda _package, path: path.write_bytes(payload)):
+    with _downloads(payload):
         assert native.ensure_group(tmp_path, "duckdb") is True
 
-    assert (cache_root / "duckdb-1.4.4-r.1" / PACKAGE_NAME / "duckdb.node").read_bytes() == b"native code"
+    assert (cache_root / GROUP_DIRECTORY / PACKAGE_NAME / "duckdb.node").read_bytes() == b"native code"
 
 
 def test_ensure_group_rejects_a_tampered_download(tmp_path, cache_root):
     payload = make_tarball({"package/duckdb.node": b"native code"})
     write_manifest(tmp_path, [duckdb_entry("sha512-" + base64.b64encode(b"wrong").decode())])
 
-    with patch.object(native, "_download", side_effect=lambda _package, path: path.write_bytes(payload)):
+    with _downloads(payload):
         assert native.ensure_group(tmp_path, "duckdb") is False
 
-    assert not (cache_root / "duckdb-1.4.4-r.1" / PACKAGE_NAME).exists()
+    assert not (cache_root / GROUP_DIRECTORY / PACKAGE_NAME).exists()
 
 
 def test_ensure_group_reports_a_failed_download(tmp_path, cache_root):
@@ -152,7 +154,7 @@ def test_ensure_group_reports_a_failed_download(tmp_path, cache_root):
 
 def test_ensure_group_skips_work_when_already_cached(tmp_path, cache_root):
     write_manifest(tmp_path, [duckdb_entry()])
-    (cache_root / "duckdb-1.4.4-r.1" / PACKAGE_NAME).mkdir(parents=True)
+    (cache_root / GROUP_DIRECTORY / PACKAGE_NAME).mkdir(parents=True)
 
     with patch.object(native, "_download") as download:
         assert native.ensure_group(tmp_path, "duckdb") is True
@@ -163,7 +165,7 @@ def test_ensure_group_skips_work_when_already_cached(tmp_path, cache_root):
 def test_install_treats_concurrent_cache_hit_as_success(tmp_path, cache_root):
     payload = make_tarball({"package/duckdb.node": b"native code"})
     package = native.NativePackage(**duckdb_entry(integrity_of(payload)))
-    winner = cache_root / "duckdb-1.4.4-r.1" / PACKAGE_NAME
+    winner = cache_root / GROUP_DIRECTORY / PACKAGE_NAME
     winner.mkdir(parents=True)
     (winner / "duckdb.node").write_bytes(b"from winner")
 
@@ -175,7 +177,7 @@ def test_install_treats_concurrent_cache_hit_as_success(tmp_path, cache_root):
         return original_rename(self, target)
 
     with (
-        patch.object(native, "_download", side_effect=lambda _package, path: path.write_bytes(payload)),
+        _downloads(payload),
         patch.object(Path, "rename", rename_after_winner),
     ):
         native._install(package)
@@ -200,7 +202,7 @@ def test_ensure_group_drops_a_previous_version_from_the_cache(tmp_path, cache_ro
     unrelated = cache_root / "sandbox-0.3.0"
     unrelated.mkdir(parents=True)
 
-    with patch.object(native, "_download", side_effect=lambda _package, path: path.write_bytes(payload)):
+    with _downloads(payload):
         native.ensure_group(tmp_path, "duckdb")
 
     assert not stale.parent.exists()
@@ -218,3 +220,7 @@ def test_extract_skips_members_that_escape_the_destination(tmp_path, cache_root)
 
     assert (destination / "package" / "ok.txt").exists()
     assert not (tmp_path / "escaped.txt").exists()
+
+
+def _downloads(payload: bytes):
+    return patch.object(native, "_download", side_effect=lambda _package, path: path.write_bytes(payload))

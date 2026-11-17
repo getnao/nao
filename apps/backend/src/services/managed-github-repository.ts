@@ -20,6 +20,9 @@ const APP_CONFIGURATION_ERROR_STATUSES = new Set([401, 404]);
 /** Publishing cannot succeed on this instance until an operator fixes its managed GitHub configuration. */
 export class ManagedGithubConfigurationError extends Error {}
 
+/** The push failed and GitHub could not confirm whether it accepted the commit, so the local commit was preserved. */
+export class ManagedGithubPublishUncertainError extends Error {}
+
 interface ManagedRepositoryInput {
 	projectId: string;
 	projectName: string;
@@ -143,35 +146,54 @@ export async function publishManagedGithubRepositoryUpdate(input: ManagedReposit
 
 	const previousCommit = (await runGit(input.projectDir, ['rev-parse', 'HEAD'])).trim();
 	let committed = false;
+	let committedCommit: string | null = null;
+	let token: string | null = null;
 
 	try {
 		await runGit(input.projectDir, ['add', '--', ...input.paths]);
 		const stagedFiles = (
 			await runGit(input.projectDir, ['diff', '--cached', '--name-only', '--', ...input.paths])
 		).trim();
-		if (!stagedFiles) {
-			return false;
+		if (stagedFiles) {
+			assertNoSecrets(stagedFiles);
+			await runGit(input.projectDir, ['commit', '-m', input.message, '--', ...input.paths], {
+				GIT_AUTHOR_NAME: input.author.name,
+				GIT_AUTHOR_EMAIL: input.author.email,
+				GIT_COMMITTER_NAME: NAO_CO_AUTHOR.name,
+				GIT_COMMITTER_EMAIL: NAO_CO_AUTHOR.email,
+			});
+			committed = true;
+			committedCommit = (await runGit(input.projectDir, ['rev-parse', 'HEAD'])).trim();
+		} else {
+			committedCommit = previousCommit;
 		}
 
-		assertNoSecrets(stagedFiles);
-		await runGit(input.projectDir, ['commit', '-m', input.message, '--', ...input.paths], {
-			GIT_AUTHOR_NAME: input.author.name,
-			GIT_AUTHOR_EMAIL: input.author.email,
-			GIT_COMMITTER_NAME: NAO_CO_AUTHOR.name,
-			GIT_COMMITTER_EMAIL: NAO_CO_AUTHOR.email,
-		});
-		committed = true;
-
-		const token = await createInstallationToken(config);
+		token = await createInstallationToken(config);
 		await pushRepositoryWithAuthenticationRetry(
 			input.projectDir,
 			input.repoFullName,
 			token,
 			config,
-			() => undefined,
+			(refreshedToken) => {
+				token = refreshedToken;
+			},
 		);
 		return true;
 	} catch (error) {
+		if (committedCommit && token) {
+			let remoteCommit: string | null;
+			try {
+				remoteCommit = await readRemoteMainCommit(input.projectDir, input.repoFullName, token);
+			} catch (verificationError) {
+				throw new ManagedGithubPublishUncertainError(
+					`Managed repository push failed and its remote status could not be verified: ${getErrorMessage(error)}`,
+					{ cause: new AggregateError([error, verificationError]) },
+				);
+			}
+			if (remoteCommit === committedCommit) {
+				return true;
+			}
+		}
 		try {
 			if (committed) {
 				await runGit(input.projectDir, ['reset', '--soft', previousCommit]);
@@ -430,6 +452,17 @@ async function pushRepository(projectDir: string, repoFullName: string, token: s
 		['push', cleanUrl, 'HEAD:refs/heads/main'],
 		getGitOAuthCredential('github', token),
 	);
+}
+
+async function readRemoteMainCommit(projectDir: string, repoFullName: string, token: string): Promise<string | null> {
+	const cleanUrl = `https://github.com/${repoFullName}.git`;
+	const output = await runGitWithOAuthAsync(
+		projectDir,
+		['ls-remote', cleanUrl, 'refs/heads/main'],
+		getGitOAuthCredential('github', token),
+	);
+	const [commit, ref] = output.toString('utf-8').trim().split(/\s+/);
+	return ref === 'refs/heads/main' && /^[a-f0-9]{40,64}$/i.test(commit) ? commit : null;
 }
 
 function isGithubAuthenticationError(error: unknown): boolean {

@@ -1,0 +1,1 @@
+ALTER TABLE `project` ADD `deployed_at` integer;

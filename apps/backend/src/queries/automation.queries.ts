@@ -1,5 +1,6 @@
 import { isQueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart, executeSql } from '@nao/shared/tools';
+import type { NaoEventType } from '@nao/shared/types';
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, max, ne, type SQL } from 'drizzle-orm';
 
 import s, {
@@ -51,7 +52,10 @@ export type AutomationOwner = { id: string; name: string; email: string };
 
 type LatestRunSummary = Pick<AutomationListItem, 'lastRunStatus' | 'lastRunStartedAt'>;
 
-export type ProjectAutomationSummary = Pick<DBAutomation, 'id' | 'title' | 'scheduleDescription' | 'webhookEnabled'> &
+export type ProjectAutomationSummary = Pick<
+	DBAutomation,
+	'id' | 'title' | 'scheduleDescription' | 'webhookEnabled' | 'eventTriggers'
+> &
 	Pick<AutomationWithSchedule, 'cron' | 'enabled'> &
 	LatestRunSummary & {
 		owner: AutomationOwner | null;
@@ -65,6 +69,7 @@ export const listProjectAutomations = async (projectId: string): Promise<Project
 			title: s.automation.title,
 			scheduleDescription: s.automation.scheduleDescription,
 			webhookEnabled: s.automation.webhookEnabled,
+			eventTriggers: s.automation.eventTriggers,
 			cron: s.scheduledJob.cron,
 			scheduledJobStatus: s.scheduledJob.status,
 			owner: { id: s.user.id, name: s.user.name, email: s.user.email },
@@ -174,6 +179,22 @@ export const getAutomationById = async (id: string): Promise<AutomationWithSched
 	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
 };
 
+/** Event triggers are stored as JSON, so they are filtered here to stay portable across SQLite and Postgres. */
+export const listEventTriggeredAutomations = async (
+	projectId: string,
+	eventType: NaoEventType,
+): Promise<AutomationWithSchedule[]> => {
+	const rows = await db
+		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
+		.from(s.automation)
+		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
+		.where(eq(s.automation.projectId, projectId))
+		.execute();
+	return rows
+		.filter((row) => row.automation.eventTriggers[eventType]?.enabled)
+		.map((row) => mapAutomationWithSchedule(row.automation, row.scheduledJob));
+};
+
 export const createAutomation = async (data: NewAutomation): Promise<DBAutomation> => {
 	const [created] = await db.insert(s.automation).values(data).returning().execute();
 	return created;
@@ -200,6 +221,7 @@ export const updateAutomation = async (
 			| 'mcpServers'
 			| 'integrations'
 			| 'webhookEnabled'
+			| 'eventTriggers'
 		>
 	>,
 ): Promise<DBAutomation | null> => {
@@ -212,8 +234,11 @@ export const updateAutomation = async (
 	return updated ?? null;
 };
 
-export const setAutomationWebhookEnabled = async (id: string, webhookEnabled: boolean): Promise<void> => {
-	await db.update(s.automation).set({ webhookEnabled }).where(eq(s.automation.id, id)).execute();
+export const setAutomationEventTriggers = async (
+	id: string,
+	triggers: Pick<NewAutomation, 'webhookEnabled' | 'eventTriggers'>,
+): Promise<void> => {
+	await db.update(s.automation).set(triggers).where(eq(s.automation.id, id)).execute();
 };
 
 /** Also hands over the chats of past runs so the new owner can open the run history. */

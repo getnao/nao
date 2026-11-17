@@ -54,6 +54,11 @@ export function collectChatArtifacts(messages: UIMessage[]): ChatArtifacts {
 	return artifacts;
 }
 
+/** The tool call of the latest run of a query, which is the one the conversation shows for it. */
+export function findQueryToolCallId(messages: UIMessage[], queryId: string): string | undefined {
+	return collectChatArtifacts(messages).queries.find((query) => query.id === queryId)?.toolCallId;
+}
+
 export function countChatArtifacts(artifacts: ChatArtifacts, includeQueries: boolean): number {
 	return artifacts.stories.length + artifacts.files.length + (includeQueries ? artifacts.queries.length : 0);
 }

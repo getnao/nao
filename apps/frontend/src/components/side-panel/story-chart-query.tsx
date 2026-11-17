@@ -53,14 +53,14 @@ export function StoryChartQueryView({ queryId, source }: { queryId: string; sour
 					<h4 className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>
 						Semantic query
 					</h4>
-					<SemanticQueryDefinition query={data.semanticQuery} />
+					<SemanticQueryDefinition query={data.effectiveSemanticQuery ?? data.semanticQuery} />
 				</section>
 				<section className='flex flex-col gap-1'>
 					<h4 className='text-xs font-medium uppercase tracking-wide text-muted-foreground'>Compiled SQL</h4>
 					<p className='text-xs text-muted-foreground'>
 						Compiled again from the current semantic layer each time the story refreshes.
 					</p>
-					<SqlQueryDisplay query={data.sqlQuery} />
+					<SqlQueryDisplay query={data.renderedSql} />
 				</section>
 			</div>
 		);

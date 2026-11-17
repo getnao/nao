@@ -9,7 +9,8 @@ import s, {
 	type StoryVisibility,
 } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { databaseNow } from './keyed-lock.queries';
+import { databaseNow } from './database-time';
+import { listLockedUserGroupIds } from './locked-user-groups';
 
 export const storyRefreshJobUniqueKey = (storyId: string): string => `story-refresh:${storyId}`;
 
@@ -269,7 +270,7 @@ export const failInterruptedProjectSyncActivities = async (): Promise<void> => {
 				lte(s.activity.startedAt, new Date(Date.now() - SYNC_LEASE_MS)),
 				notExists(
 					db
-						.select()
+						.select({ key: s.keyedLock.key })
 						.from(s.keyedLock)
 						.where(
 							and(
@@ -352,7 +353,8 @@ export const listRecentActivities = async (
 ): Promise<ListActivityRow[]> => {
 	await failStaleActivities();
 
-	const filters = [eq(s.activity.projectId, projectId), visibleToUser(projectId, userId)];
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
+	const filters = [eq(s.activity.projectId, projectId), visibleToUser(projectId, userId, lockedGroupIds)];
 	if (types && types.length > 0) {
 		filters.push(inArray(s.activity.type, [...types]));
 	}
@@ -446,7 +448,7 @@ export const listRecentActivities = async (
  *   - `story.shared` / `chat.shared`: the recipients of the share, excluding
  *     the sharer themselves.
  */
-function visibleToUser(projectId: string, userId: string) {
+function visibleToUser(projectId: string, userId: string, lockedGroupIds: readonly string[]) {
 	const userIsActor = eq(s.activity.userId, userId);
 
 	const userOwnsStory = sql`EXISTS (
@@ -472,6 +474,7 @@ function visibleToUser(projectId: string, userId: string) {
 			INNER JOIN ${s.sharedStoryGroupAccess} ssga ON ssga.shared_story_id = ss.id
 			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = ssga.group_id
 			WHERE ss.story_id = ${s.activity.storyId} AND ugm.user_id = ${userId}
+				${andGroupIsActive('ssga', lockedGroupIds)}
 		)`,
 	);
 
@@ -492,6 +495,7 @@ function visibleToUser(projectId: string, userId: string) {
 			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = ssga.group_id
 			WHERE ssga.shared_story_id = ${s.activity.sharedStoryId}
 				AND ugm.user_id = ${userId}
+				${andGroupIsActive('ssga', lockedGroupIds)}
 		)`,
 	);
 
@@ -508,6 +512,13 @@ function visibleToUser(projectId: string, userId: string) {
 			WHERE sca.shared_chat_id = ${s.activity.sharedChatId}
 				AND sca.user_id = ${userId}
 		)`,
+		sql`EXISTS (
+			SELECT 1 FROM ${s.sharedChatGroupAccess} scga
+			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = scga.group_id
+			WHERE scga.shared_chat_id = ${s.activity.sharedChatId}
+				AND ugm.user_id = ${userId}
+				${andGroupIsActive('scga', lockedGroupIds)}
+		)`,
 	);
 
 	return or(
@@ -515,4 +526,15 @@ function visibleToUser(projectId: string, userId: string) {
 		and(eq(s.activity.type, 'story.shared'), ne(s.activity.userId, userId), storyShareIncludesUser),
 		and(eq(s.activity.type, 'chat.shared'), ne(s.activity.userId, userId), chatShareIncludesUser),
 	);
+}
+
+function andGroupIsActive(groupAccessAlias: 'ssga' | 'scga', lockedGroupIds: readonly string[]) {
+	if (lockedGroupIds.length === 0) {
+		return sql``;
+	}
+	const lockedIds = sql.join(
+		lockedGroupIds.map((groupId) => sql`${groupId}`),
+		sql`, `,
+	);
+	return sql`AND ${sql.raw(groupAccessAlias)}.group_id NOT IN (${lockedIds})`;
 }

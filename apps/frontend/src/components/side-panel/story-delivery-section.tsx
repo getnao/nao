@@ -1,9 +1,10 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Mail, Send, Slack, Wand2 } from 'lucide-react';
+import { Loader2, Mail, Send, Wand2 } from 'lucide-react';
 import type { NotificationChannel, RecipientMode } from '@nao/shared/types';
 
+import SlackIcon from '@/components/icons/slack.svg';
 import { MemberPicker } from '@/components/share-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -380,7 +381,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 								/>
 								{isSlackConfigured ? (
 									<ChannelCard
-										icon={<Slack className='size-4' />}
+										icon={<SlackIcon className='size-4' />}
 										label='Slack'
 										active={slackEnabled}
 										onClick={() => setSlackEnabled((v) => !v)}
@@ -389,7 +390,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 									<SimpleTooltip content='Connect Slack in your project settings to deliver stories to Slack.'>
 										<span className='flex-1 cursor-not-allowed'>
 											<ChannelCard
-												icon={<Slack className='size-4' />}
+												icon={<SlackIcon className='size-4' />}
 												label='Slack'
 												active={false}
 												disabled

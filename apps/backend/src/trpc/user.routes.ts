@@ -13,6 +13,7 @@ import * as userPreferenceQueries from '../queries/user-preference.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject } from '../services/discord-helpers';
+import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services/github-star-prompt.service';
 import { addProjectMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
@@ -132,6 +133,14 @@ export const userRoutes = {
 		.mutation(async ({ input, ctx }) => {
 			return toPublicUserPreferences(await userPreferenceQueries.updateUserPreferences(ctx.user.id, input));
 		}),
+
+	getGithubStarPrompt: protectedProcedure.query(async ({ ctx }) => {
+		return { shouldShow: await shouldShowGithubStarPrompt(ctx.user.id) };
+	}),
+
+	dismissGithubStarPrompt: protectedProcedure.mutation(async ({ ctx }) => {
+		await dismissGithubStarPrompt(ctx.user.id);
+	}),
 
 	getMemorySettings: protectedProcedure.query(async ({ ctx }) => {
 		const memoryEnabled = await userQueries.getUserMemoryEnabled(ctx.user.id);

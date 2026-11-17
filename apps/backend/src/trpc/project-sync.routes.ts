@@ -1,5 +1,5 @@
+import { createGitContext } from '../services/context-explorer-access.service';
 import { cancelProjectSync, getProjectSyncState, startProjectSync } from '../services/project-sync.service';
-import { createGitContext } from './context-explorer.routes';
 import { adminProtectedProcedure, cloudBillingAdminProcedure, contextAdminProtectedProcedure, router } from './trpc';
 
 export const projectSyncRoutes = router({

@@ -10,8 +10,7 @@ export function automationAgent(
 	integrationTools: Record<string, unknown>,
 ): AgentProfile {
 	return {
-		// Automation chats are told apart by their run, not by message source.
-		source: 'web',
+		source: 'automation',
 		tools: ({ agentSettings, toolContext, webTools }) =>
 			getTools(
 				agentSettings,

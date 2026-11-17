@@ -48,6 +48,7 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 		appToken: settings.slackAppToken ?? '',
 		replyMode: toSlackReplyMode(settings.slackReplyMode),
 		dmScopeMissing: settings.slackDmScopeMissing ?? false,
+		dmThreadsEnabled: settings.slackDmThreadsEnabled ?? false,
 	};
 };
 
@@ -77,6 +78,7 @@ export const upsertProjectSlackConfig = async (data: {
 		slackTransportMode: data.transportMode,
 		slackAppToken: data.appToken ?? '',
 		slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
+		slackDmThreadsEnabled: existing?.slackDmThreadsEnabled,
 	}));
 
 	const settings = updated.slackSettings;
@@ -109,6 +111,7 @@ export const applySlackTransportSettings = async (data: {
 		autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
 		autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
 		slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
+		slackDmThreadsEnabled: existing?.slackDmThreadsEnabled,
 	}));
 };
 
@@ -127,6 +130,7 @@ export const updateProjectSlackModel = async (
 		slackTransportMode: existing?.slackTransportMode ?? 'webhook',
 		slackAppToken: existing?.slackAppToken ?? '',
 		slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
+		slackDmThreadsEnabled: existing?.slackDmThreadsEnabled,
 		// A model change edits a UI-managed field; credential ownership is untouched.
 		slackSettingsSource: existing?.slackSettingsSource,
 	}));
@@ -138,6 +142,15 @@ export const updateProjectSlackReplyMode = async (projectId: string, replyMode: 
 			throw new Error(`Slack is not configured for project ${projectId}`);
 		}
 		return { ...existing, slackReplyMode: replyMode };
+	});
+};
+
+export const updateProjectSlackDmThreads = async (projectId: string, enabled: boolean): Promise<void> => {
+	await updateProjectSettings(projectId, 'slackSettings', (existing) => {
+		if (!existing) {
+			throw new Error(`Slack is not configured for project ${projectId}`);
+		}
+		return { ...existing, slackDmThreadsEnabled: enabled };
 	});
 };
 
@@ -176,6 +189,8 @@ export interface SlackConfig {
 	appToken: string;
 	replyMode: SlackReplyMode;
 	dmScopeMissing: boolean;
+	/** Drives the Slack adapter's `agentView`, which makes every top-level DM message its own thread. */
+	dmThreadsEnabled: boolean;
 }
 
 export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
@@ -198,6 +213,7 @@ export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
 			appToken: settings.slackAppToken,
 			replyMode: toSlackReplyMode(settings.slackReplyMode),
 			dmScopeMissing: settings.slackDmScopeMissing ?? false,
+			dmThreadsEnabled: settings.slackDmThreadsEnabled ?? false,
 		});
 	}
 	return configs;

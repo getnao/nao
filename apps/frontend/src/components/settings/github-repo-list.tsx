@@ -13,10 +13,11 @@ interface GithubRepoListProps {
 	onSelect: (repoFullName: string, repo: GithubRepo) => void;
 	onSearchChange?: () => void;
 	renderRepoMeta?: (repo: GithubRepo) => ReactNode;
+	useSharedToken?: boolean;
 }
 
-/** Searchable, paginated list of the connected user's GitHub repositories. */
-export function GithubRepoList(props: GithubRepoListProps) {
+/** Searchable, paginated list of the GitHub repositories the user's account, or the project's shared token, can see. */
+export function GithubRepoList({ useSharedToken = false, ...props }: GithubRepoListProps) {
 	return (
 		<RepoList<GithubRepo>
 			{...props}
@@ -24,7 +25,9 @@ export function GithubRepoList(props: GithubRepoListProps) {
 			resourceNounPlural='repositories'
 			useItems={({ page, search }) => {
 				const repos = useQuery({
-					...trpc.github.listRepos.queryOptions({ page, search }),
+					...(useSharedToken
+						? trpc.github.listSharedAccessTokenRepos.queryOptions({ page, search })
+						: trpc.github.listRepos.queryOptions({ page, search })),
 					placeholderData: (prev) => prev,
 				});
 				return {

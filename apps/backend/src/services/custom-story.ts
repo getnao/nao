@@ -1,5 +1,11 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { StoryApp, StoryNarratives, StoryQueryResult } from '@nao/shared/story-app';
+import {
+	extractStoryMapBoundaryKeys,
+	type StoryApp,
+	type StoryNarratives,
+	type StoryQueryResult,
+} from '@nao/shared/story-app';
+import { hasStoryQueryInputs, type StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 
 import type { DBStory, DBStoryDataCache, DBStoryVersion } from '../db/abstractSchema';
@@ -12,8 +18,11 @@ import * as storyThemeQueries from '../queries/story-theme.queries';
 import { isViewableStoryFile } from '../utils/story-file-path';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { storyHasLocalState, storyUsesState } from '../utils/story-state-usage';
+import { CustomStoryQueryNotAllowedError, listCustomStoryQueryIds } from './custom-story-query-access';
 import type { RefreshResult } from './live-story';
 import { executeLiveQuery, isCacheExpired, refreshStoryData } from './live-story';
+import { assertStoryFiltersEnabled } from './story-filters';
+import { executeStoryQueryWithInputs } from './story-query-inputs';
 
 export interface CustomStoryVersionView {
 	storyId: string;
@@ -25,6 +34,7 @@ export interface CustomStoryVersionView {
 	styles: { path: string; content: string }[];
 	files: CustomStoryFileSummary[];
 	queryIds: string[];
+	mapBoundaryKeys: string[];
 	theme: StoryThemePair | null;
 	isLive: boolean;
 	cachedAt: Date | null;
@@ -38,6 +48,13 @@ export interface CustomStoryVersionView {
 interface CustomStoryDataOptions {
 	/** Serve the stored data of a story awaiting its background refresh, instead of refreshing inline. */
 	deferRefresh?: boolean;
+	rerun?: StoryQueryRerun;
+}
+
+/** Filters and parameters a viewer chose: the query re-runs with them, as that viewer, instead of reading stored rows. */
+export interface StoryQueryRerun {
+	inputs?: StoryQueryInputs;
+	viewerId: string;
 }
 
 export interface CustomStoryFileSummary {
@@ -59,18 +76,15 @@ export class CustomStoryFileNotFoundError extends Error {
 
 export class CustomStoryQueryNotFoundError extends Error {
 	constructor(queryId: string) {
-		super(`Query ${queryId} was not found in this chat.`);
-	}
-}
-
-export class CustomStoryQueryNotAllowedError extends Error {
-	constructor(queryId: string) {
-		super(`Query ${queryId} is not part of this story.`);
+		super(`Query ${queryId} was not found.`);
 	}
 }
 
 /** The query itself failing is story content its viewer should read; any other failure stays an internal error. */
 export class CustomStoryQueryExecutionError extends Error {}
+
+const STANDALONE_INPUTS_UNAVAILABLE =
+	'This story keeps the rows of its queries but not their SQL, so it cannot re-run them with filters or parameters.';
 
 const pendingRefreshes = new Map<string, Promise<RefreshResult>>();
 
@@ -91,6 +105,50 @@ export async function getLatestCustomStoryVersionByStoryId(storyId: string): Pro
 		throw new CustomStoryNotFoundError();
 	}
 	return buildCustomStoryVersionView(story, version);
+}
+
+export async function getStandaloneCustomStoryVersion(
+	storyId: string,
+	versionNumber?: number,
+): Promise<CustomStoryVersionView> {
+	const story = await getStandaloneCustomStory(storyId);
+	return buildCustomStoryVersionView(story, await getStandaloneVersionRow(storyId, versionNumber));
+}
+
+export async function getStandaloneCustomStoryFile(
+	storyId: string,
+	path: string,
+	versionNumber?: number,
+): Promise<CustomStoryFileSummary & { content: string }> {
+	await getStandaloneCustomStory(storyId);
+	const version = await getStandaloneVersionRow(storyId, versionNumber);
+	return readVersionFile(version.id, path);
+}
+
+/** A standalone story has no chat to run its queries in: it serves the rows saved in its data cache. */
+export async function getStandaloneCustomStoryQueryData(
+	storyId: string,
+	queryId: string,
+	versionNumber?: number,
+	inputs?: StoryQueryInputs,
+): Promise<StoryQueryResult> {
+	await getStandaloneCustomStory(storyId);
+	if (hasStoryQueryInputs(inputs)) {
+		throw new CustomStoryQueryExecutionError(STANDALONE_INPUTS_UNAVAILABLE);
+	}
+	const version = await getStandaloneVersionRow(storyId, versionNumber);
+	await assertQueryReferencedByVersion(version.id, queryId);
+	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
+	const result = cache?.queryData?.[queryId];
+	if (!result) {
+		throw new CustomStoryQueryNotFoundError(queryId);
+	}
+	return result;
+}
+
+export async function getStandaloneCustomStoryNarratives(storyId: string): Promise<StoryNarratives> {
+	await getStandaloneCustomStory(storyId);
+	return (await storyQueries.getStoryDataCacheByStoryId(storyId))?.analysisResults ?? {};
 }
 
 async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersion): Promise<CustomStoryVersionView> {
@@ -116,6 +174,7 @@ async function buildCustomStoryVersionView(story: DBStory, version: DBStoryVersi
 			.filter((file) => isViewableStoryFile(file.path))
 			.map((file) => ({ path: file.path, size: Buffer.byteLength(file.content, 'utf8') })),
 		queryIds,
+		mapBoundaryKeys: extractStoryMapBoundaryKeys(files.map((file) => file.content)),
 		theme,
 		isLive: story.isLive,
 		cachedAt: cache?.cachedAt ?? null,
@@ -138,6 +197,10 @@ export async function getCustomStoryQueryData(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryQueryResult> {
 	const story = await getCustomStory(chatId, storySlug);
+	if (options.rerun && hasStoryQueryInputs(options.rerun.inputs)) {
+		assertStoryFiltersEnabled();
+		return runStoryQueryWithInputs(chatId, queryId, options.rerun.inputs, options.rerun.viewerId);
+	}
 	if (!story.isLive) {
 		return (await getChatQueryData(chatId, queryId)) ?? runStoryQuery(chatId, queryId);
 	}
@@ -169,8 +232,27 @@ async function runStoryQuery(chatId: string, queryId: string): Promise<StoryQuer
 	try {
 		return await executeLiveQuery(chatId, queryId);
 	} catch (error) {
-		throw new CustomStoryQueryExecutionError(error instanceof Error ? error.message : String(error));
+		throw toQueryExecutionError(error);
 	}
+}
+
+/** Filtered rows are the viewer's own exploration: they are never written to the story's data cache. */
+async function runStoryQueryWithInputs(
+	chatId: string,
+	queryId: string,
+	inputs: StoryQueryInputs,
+	viewerId: string,
+): Promise<StoryQueryResult> {
+	try {
+		const { data, columns } = await executeStoryQueryWithInputs(chatId, queryId, inputs, { viewerId });
+		return { data, columns };
+	} catch (error) {
+		throw toQueryExecutionError(error);
+	}
+}
+
+function toQueryExecutionError(error: unknown): CustomStoryQueryExecutionError {
+	return new CustomStoryQueryExecutionError(error instanceof Error ? error.message : String(error));
 }
 
 export async function getCustomStoryNarratives(
@@ -179,7 +261,10 @@ export async function getCustomStoryNarratives(
 	options: CustomStoryDataOptions = {},
 ): Promise<StoryNarratives> {
 	const story = await getCustomStory(chatId, storySlug);
-	if (!story.isLive || !story.isLiveTextDynamic) {
+	if (!story.isLive) {
+		return getFrozenNarratives(story.id);
+	}
+	if (!story.isLiveTextDynamic) {
 		return {};
 	}
 
@@ -204,7 +289,7 @@ export async function getStoredCustomStoryQueryDataByStoryId(
 	queryIds: string[],
 ): Promise<Record<string, StoryQueryResult>> {
 	const story = await getCustomStoryById(storyId);
-	const usesCache = story.isLive && story.cacheSchedule !== NO_CACHE_SCHEDULE;
+	const usesCache = !story.chatId || usesStoryCache(story);
 	const cached = usesCache ? ((await storyQueries.getStoryDataCacheByStoryId(story.id))?.queryData ?? {}) : {};
 	const uncachedIds = new Set(queryIds.filter((queryId) => !cached[queryId]));
 	const fromChat =
@@ -222,10 +307,18 @@ export async function getStoredCustomStoryQueryDataByStoryId(
 /** The narratives already saved for the story, without refreshing it. */
 export async function getStoredCustomStoryNarrativesByStoryId(storyId: string): Promise<StoryNarratives> {
 	const story = await getCustomStoryById(storyId);
-	if (!story.isLive || !story.isLiveTextDynamic) {
+	if (story.chatId && !story.isLive) {
+		return getFrozenNarratives(story.id);
+	}
+	if (story.chatId && !story.isLiveTextDynamic) {
 		return {};
 	}
 	return (await storyQueries.getStoryDataCacheByStoryId(story.id))?.analysisResults ?? {};
+}
+
+async function getFrozenNarratives(storyId: string): Promise<StoryNarratives> {
+	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
+	return cache && cache.querySources === null ? (cache.analysisResults ?? {}) : {};
 }
 
 /** A shared custom story only serves the queries its own sources reference, never any other query of the chat. */
@@ -234,13 +327,11 @@ export async function getSharedCustomStoryQueryData(
 	storySlug: string,
 	queryId: string,
 	versionNumber?: number,
+	rerun?: StoryQueryRerun,
 ): Promise<StoryQueryResult> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
-	const referencedIds = extractCustomStoryQueryIds(await storyFileQueries.listVersionFiles(version.id));
-	if (!referencedIds.has(queryId)) {
-		throw new CustomStoryQueryNotAllowedError(queryId);
-	}
-	return getCustomStoryQueryData(chatId, storySlug, queryId);
+	await assertQueryReferencedByVersion(version.id, queryId);
+	return getCustomStoryQueryData(chatId, storySlug, queryId, { rerun });
 }
 
 export async function getCustomStoryQuerySql(chatId: string, storySlug: string, queryId: string): Promise<string> {
@@ -260,10 +351,29 @@ export async function getSharedCustomStoryQuerySql(
 	versionNumber?: number,
 ): Promise<string> {
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
-	const referencedIds = extractCustomStoryQueryIds(await storyFileQueries.listVersionFiles(version.id));
-	if (!referencedIds.has(queryId)) {
-		throw new CustomStoryQueryNotAllowedError(queryId);
-	}
+	await assertQueryReferencedByVersion(version.id, queryId);
+	return getCustomStoryQuerySql(chatId, storySlug, queryId);
+}
+
+/** An editor who does not own the chat only reads the queries the story itself references, never the rest of the chat. */
+export async function getEditorCustomStoryQueryData(
+	chatId: string,
+	storySlug: string,
+	queryId: string,
+	options: CustomStoryDataOptions & { versionNumber?: number } = {},
+): Promise<StoryQueryResult> {
+	const { versionNumber, ...dataOptions } = options;
+	await assertQueryReferencedByStory(chatId, storySlug, queryId, versionNumber);
+	return getCustomStoryQueryData(chatId, storySlug, queryId, dataOptions);
+}
+
+export async function getEditorCustomStoryQuerySql(
+	chatId: string,
+	storySlug: string,
+	queryId: string,
+	versionNumber?: number,
+): Promise<string> {
+	await assertQueryReferencedByStory(chatId, storySlug, queryId, versionNumber);
 	return getCustomStoryQuerySql(chatId, storySlug, queryId);
 }
 
@@ -275,11 +385,39 @@ export async function getCustomStoryFile(
 ): Promise<CustomStoryFileSummary & { content: string }> {
 	await getCustomStory(chatId, storySlug);
 	const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
-	const file = isViewableStoryFile(path) ? await storyFileQueries.getVersionFile(version.id, path) : null;
+	return readVersionFile(version.id, path);
+}
+
+async function readVersionFile(versionId: string, path: string): Promise<CustomStoryFileSummary & { content: string }> {
+	const file = isViewableStoryFile(path) ? await storyFileQueries.getVersionFile(versionId, path) : null;
 	if (!file) {
 		throw new CustomStoryFileNotFoundError(path);
 	}
 	return { path: file.path, size: Buffer.byteLength(file.content, 'utf8'), content: file.content };
+}
+
+async function assertQueryReferencedByVersion(versionId: string, queryId: string): Promise<void> {
+	const referencedIds = extractCustomStoryQueryIds(await storyFileQueries.listVersionFiles(versionId));
+	if (!referencedIds.has(queryId)) {
+		throw new CustomStoryQueryNotAllowedError(queryId);
+	}
+}
+
+async function assertQueryReferencedByStory(
+	chatId: string,
+	storySlug: string,
+	queryId: string,
+	versionNumber?: number,
+): Promise<void> {
+	await getCustomStory(chatId, storySlug);
+	if (versionNumber !== undefined) {
+		const version = await getCustomStoryVersionRow(chatId, storySlug, versionNumber);
+		await assertQueryReferencedByVersion(version.id, queryId);
+		return;
+	}
+	if (!(await listCustomStoryQueryIds(chatId, storySlug)).has(queryId)) {
+		throw new CustomStoryQueryNotAllowedError(queryId);
+	}
 }
 
 function usesStoryCache(story: DBStory): boolean {
@@ -293,6 +431,14 @@ function isCacheFresh(story: DBStory, cache: DBStoryDataCache | null): boolean {
 /** Mirrors `needsRefresh`: a stale story waits on its viewer's refresh when it was never cached or its last refresh failed. */
 async function isAwaitingBackgroundRefresh(storyId: string, cache: DBStoryDataCache | null): Promise<boolean> {
 	return cache === null || (await activityQueries.getLatestStoryRefreshFailure(storyId)) !== null;
+}
+
+export async function assertCustomStoryExists(chatId: string, storySlug: string): Promise<void> {
+	await getCustomStory(chatId, storySlug);
+}
+
+export async function getCustomStoryId(chatId: string, storySlug: string): Promise<string> {
+	return (await getCustomStory(chatId, storySlug)).id;
 }
 
 async function getCustomStory(chatId: string, storySlug: string): Promise<DBStory> {
@@ -309,6 +455,25 @@ async function getCustomStoryById(storyId: string): Promise<DBStory> {
 		throw new CustomStoryNotFoundError();
 	}
 	return story;
+}
+
+async function getStandaloneCustomStory(storyId: string): Promise<DBStory> {
+	const story = await getCustomStoryById(storyId);
+	if (story.chatId) {
+		throw new CustomStoryNotFoundError();
+	}
+	return story;
+}
+
+async function getStandaloneVersionRow(storyId: string, versionNumber?: number) {
+	const version =
+		versionNumber === undefined
+			? await storyQueries.getLatestVersionByStoryId(storyId)
+			: await storyQueries.getVersionByStoryIdAndNumber(storyId, versionNumber);
+	if (!version) {
+		throw new CustomStoryNotFoundError();
+	}
+	return version;
 }
 
 async function getCustomStoryVersionRow(chatId: string, storySlug: string, versionNumber?: number) {

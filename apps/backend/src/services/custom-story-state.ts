@@ -20,9 +20,13 @@ export async function getCustomStoryState(
 	viewerId: string,
 ): Promise<StoryStateSnapshot> {
 	const story = await requireCustomStory(chatId, storySlug);
+	return getCustomStoryStateByStoryId(story.id, viewerId);
+}
+
+export async function getCustomStoryStateByStoryId(storyId: string, viewerId: string): Promise<StoryStateSnapshot> {
 	const [shared, own] = await Promise.all([
-		storyAppStateQueries.listProjectStoryAppState(story.id),
-		storyAppStateQueries.listUserStoryAppState(story.id, viewerId),
+		storyAppStateQueries.listProjectStoryAppState(storyId),
+		storyAppStateQueries.listUserStoryAppState(storyId, viewerId),
 	]);
 	return { shared: toValues(shared), own: toValues(own) };
 }
@@ -45,10 +49,18 @@ export async function setCustomStoryState(
 	change: StoryStateChange,
 ): Promise<void> {
 	const story = await requireCustomStory(chatId, storySlug);
+	await setCustomStoryStateByStoryId(story.id, viewerId, change);
+}
+
+export async function setCustomStoryStateByStoryId(
+	storyId: string,
+	viewerId: string,
+	change: StoryStateChange,
+): Promise<void> {
 	assertValidKey(change.key);
 
 	const stateKey: storyAppStateQueries.StoryAppStateKey = {
-		storyId: story.id,
+		storyId,
 		scope: change.shared ? 'project' : 'user',
 		userId: change.shared ? null : viewerId,
 		key: change.key,

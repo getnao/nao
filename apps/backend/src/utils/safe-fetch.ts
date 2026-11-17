@@ -1,5 +1,5 @@
+import { type GeoJsonValidationResult, validateGeoJson } from '@nao/shared';
 import dns from 'dns/promises';
-import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import http from 'http';
 import https from 'https';
 import net from 'net';
@@ -275,12 +275,6 @@ async function readBodyText(body: Readable, maxBytes: number): Promise<string> {
 	return text + decoder.decode();
 }
 
-export interface GeoJsonValidationResult {
-	geojson: FeatureCollection;
-	propertyKeys: string[];
-	featureCount: number;
-}
-
 export function parseAndValidateGeoJson(text: string): GeoJsonValidationResult {
 	let parsed: unknown;
 	try {
@@ -288,61 +282,5 @@ export function parseAndValidateGeoJson(text: string): GeoJsonValidationResult {
 	} catch {
 		throw new Error('Response is not valid JSON.');
 	}
-
-	const geojson = normalizeToFeatureCollection(parsed);
-
-	const propertyKeySet = new Set<string>();
-	for (const feature of geojson.features) {
-		if (feature.properties) {
-			for (const key of Object.keys(feature.properties)) {
-				propertyKeySet.add(key);
-			}
-		}
-	}
-
-	return {
-		geojson,
-		propertyKeys: [...propertyKeySet].sort(),
-		featureCount: geojson.features.length,
-	};
-}
-
-function normalizeToFeatureCollection(value: unknown): FeatureCollection {
-	if (typeof value !== 'object' || value === null) {
-		throw new Error('GeoJSON must be an object.');
-	}
-	const record = value as Record<string, unknown>;
-
-	if (record.type === 'FeatureCollection') {
-		if (!Array.isArray(record.features)) {
-			throw new Error('FeatureCollection must have a features array.');
-		}
-		return value as FeatureCollection;
-	}
-
-	if (record.type === 'Feature') {
-		return { type: 'FeatureCollection', features: [value as Feature] };
-	}
-
-	if (isGeometry(record)) {
-		return {
-			type: 'FeatureCollection',
-			features: [{ type: 'Feature', geometry: value as Geometry, properties: {} }],
-		};
-	}
-
-	throw new Error('Response is not a valid GeoJSON FeatureCollection, Feature, or Geometry.');
-}
-
-function isGeometry(value: Record<string, unknown>): boolean {
-	const geometryTypes = [
-		'Point',
-		'MultiPoint',
-		'LineString',
-		'MultiLineString',
-		'Polygon',
-		'MultiPolygon',
-		'GeometryCollection',
-	];
-	return typeof value.type === 'string' && geometryTypes.includes(value.type);
+	return validateGeoJson(parsed);
 }

@@ -11,6 +11,8 @@ interface UseStoryViewerVersionsParams {
 	isAgentRunning: boolean;
 	latestStoryOutputVersion?: number | null;
 	isReadonlyMode?: boolean;
+	/** A story outside any chat lists its versions by its id. */
+	standaloneStoryId?: string;
 }
 
 interface HistoricalVersionSelection {
@@ -25,12 +27,18 @@ export const useStoryViewerVersions = ({
 	isAgentRunning,
 	latestStoryOutputVersion = null,
 	isReadonlyMode,
+	standaloneStoryId,
 }: UseStoryViewerVersionsParams) => {
 	const queryClient = useQueryClient();
-	const { data, refetch } = useQuery({
+	const chatVersionsQuery = useQuery({
 		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
-		enabled: !isReadonlyMode,
+		enabled: !isReadonlyMode && !standaloneStoryId,
 	});
+	const standaloneVersionsQuery = useQuery({
+		...trpc.story.listStandaloneVersions.queryOptions({ storyId: standaloneStoryId ?? '' }),
+		enabled: !isReadonlyMode && Boolean(standaloneStoryId),
+	});
+	const { data, refetch } = standaloneStoryId ? standaloneVersionsQuery : chatVersionsQuery;
 	const versions = useMemo(() => data?.versions ?? [], [data?.versions]);
 	const storyId = data?.id ?? null;
 	const storyTitle = data?.title;
@@ -92,6 +100,7 @@ export const useStoryViewerVersions = ({
 	const currentVersion = versions[currentVersionIndex];
 	const currentVersionNumber = currentVersionIndex + 1;
 	const storedVersionNumber = currentVersion?.version ?? 0;
+	const latestVersionNumber = versions.at(-1)?.version;
 	const isViewingLatest = selectedVersionIndex === null;
 
 	const goToVersion = useCallback(
@@ -116,6 +125,7 @@ export const useStoryViewerVersions = ({
 		currentVersion,
 		currentVersionNumber,
 		storedVersionNumber,
+		latestVersionNumber,
 		isViewingLatest,
 		goToVersion,
 		goToLatestVersion,

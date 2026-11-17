@@ -201,6 +201,7 @@ function normalizeColumnType(columnType: string): string {
 		BigInt53: 'Integer',
 		Jsonb: 'Json',
 		TextJson: 'Json',
+		DoublePrecision: 'Real',
 	};
 
 	return equivalentTypes[stripped] ?? stripped;

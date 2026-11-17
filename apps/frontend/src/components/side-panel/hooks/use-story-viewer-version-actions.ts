@@ -4,7 +4,7 @@ import type { MutableRefObject } from 'react';
 import type { StoryViewMode } from '../story-viewer.types';
 import type { StoryCodeViewHandle } from '../story-code-view';
 import type { StorySaveResult } from '@/lib/story-save';
-import { saveStoryCodeIfChanged } from '@/lib/story-save';
+import { isStoryVersionConflict, saveStoryCodeIfChanged } from '@/lib/story-save';
 import { trpc } from '@/main';
 
 interface UseStoryViewerVersionActionsParams {
@@ -12,6 +12,9 @@ interface UseStoryViewerVersionActionsParams {
 	storySlug: string;
 	storyTitle?: string;
 	currentVersionCode?: string;
+	currentVersionNumber?: number;
+	latestVersionNumber?: number;
+	hasUnsavedChanges: boolean;
 	isViewingLatest: boolean;
 	goToLatestVersion: () => void;
 	codeViewRef: MutableRefObject<StoryCodeViewHandle | null>;
@@ -19,6 +22,14 @@ interface UseStoryViewerVersionActionsParams {
 	viewMode: StoryViewMode;
 	setViewMode: (mode: StoryViewMode) => void;
 	onVersionSaved?: (code: string) => void;
+	/** A story outside any chat saves its versions by its id. */
+	standaloneStoryId?: string;
+}
+
+interface StoryVersionDraft {
+	title: string;
+	code: string;
+	basedOnVersion: number;
 }
 
 interface StoryIdentity {
@@ -31,6 +42,9 @@ export const useStoryViewerVersionActions = ({
 	storySlug,
 	storyTitle,
 	currentVersionCode,
+	currentVersionNumber,
+	latestVersionNumber,
+	hasUnsavedChanges,
 	isViewingLatest,
 	goToLatestVersion,
 	codeViewRef,
@@ -38,19 +52,17 @@ export const useStoryViewerVersionActions = ({
 	viewMode,
 	setViewMode,
 	onVersionSaved,
+	standaloneStoryId,
 }: UseStoryViewerVersionActionsParams) => {
 	const queryClient = useQueryClient();
-	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storySlug });
-	const listVersionsQueryKey = trpc.story.listVersions.queryKey({ chatId, storySlug });
 	const identity = { chatId, storySlug };
 	const currentIdentityRef = useRef(identity);
-	const baselineRef = useRef({ identity, code: currentVersionCode });
+	const baselineRef = useRef({ identity, code: currentVersionCode, version: currentVersionNumber });
+	const [saveError, setSaveError] = useState<string | null>(null);
 	const savePromiseRef = useRef<{ identity: StoryIdentity; promise: Promise<StorySaveResult> } | null>(null);
 	const [isSavingVersion, setIsSavingVersion] = useState(false);
 	const paramsRef = useRef({
 		identity,
-		chatId,
-		storySlug,
 		storyTitle,
 		currentVersionCode,
 		getCurrentCode,
@@ -60,12 +72,10 @@ export const useStoryViewerVersionActions = ({
 
 	currentIdentityRef.current = identity;
 	if (!isSameStoryIdentity(baselineRef.current.identity, identity)) {
-		baselineRef.current = { identity, code: currentVersionCode };
+		baselineRef.current = { identity, code: currentVersionCode, version: currentVersionNumber };
 	}
 	paramsRef.current = {
 		identity,
-		chatId,
-		storySlug,
 		storyTitle,
 		currentVersionCode,
 		getCurrentCode,
@@ -73,16 +83,40 @@ export const useStoryViewerVersionActions = ({
 		onVersionSaved,
 	};
 
-	const createVersionMutation = useMutation(trpc.story.createVersion.mutationOptions());
-	const mutationRef = useRef(createVersionMutation);
-	mutationRef.current = createVersionMutation;
+	const { mutateAsync: createVersion, isPending: isCreatingVersion } = useMutation(
+		trpc.story.createVersion.mutationOptions(),
+	);
+	const { mutateAsync: createStandaloneVersion, isPending: isCreatingStandaloneVersion } = useMutation(
+		trpc.story.createStandaloneVersion.mutationOptions(),
+	);
+	const persistVersion = useCallback(
+		(draft: StoryVersionDraft) =>
+			standaloneStoryId
+				? createStandaloneVersion({
+						storyId: standaloneStoryId,
+						code: draft.code,
+						basedOnVersion: draft.basedOnVersion,
+					})
+				: createVersion({ chatId, storySlug, ...draft, action: 'replace' }),
+		[chatId, createStandaloneVersion, createVersion, standaloneStoryId, storySlug],
+	);
+	const persistVersionRef = useRef(persistVersion);
+	persistVersionRef.current = persistVersion;
+	const isPersistingVersion = isCreatingVersion || isCreatingStandaloneVersion;
 	const refreshQueries = useCallback(async () => {
-		await Promise.all([
-			queryClient.invalidateQueries({ queryKey: listVersionsQueryKey }),
-			queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() }),
-			queryClient.invalidateQueries({ queryKey: latestStoryQueryKey }),
-		]);
-	}, [latestStoryQueryKey, listVersionsQueryKey, queryClient]);
+		const queryKeys = standaloneStoryId
+			? [
+					trpc.story.listStandaloneVersions.queryKey({ storyId: standaloneStoryId }),
+					trpc.story.listStandalone.queryKey(),
+					trpc.story.getStandalone.queryKey({ storyId: standaloneStoryId }),
+				]
+			: [
+					trpc.story.listVersions.queryKey({ chatId, storySlug }),
+					trpc.story.listAll.queryKey(),
+					trpc.story.getLatest.queryKey({ chatId, storySlug }),
+				];
+		await Promise.all(queryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+	}, [chatId, queryClient, standaloneStoryId, storySlug]);
 	const refreshQueriesRef = useRef(refreshQueries);
 	refreshQueriesRef.current = refreshQueries;
 
@@ -90,10 +124,22 @@ export const useStoryViewerVersionActions = ({
 		const activeSave = savePromiseRef.current;
 		const hasActiveSaveForStory =
 			activeSave !== null && isSameStoryIdentity(activeSave.identity, { chatId, storySlug });
-		if (currentVersionCode !== undefined && !hasActiveSaveForStory) {
-			baselineRef.current = { identity: { chatId, storySlug }, code: currentVersionCode };
+		if (currentVersionCode === undefined || hasActiveSaveForStory) {
+			return;
 		}
-	}, [chatId, currentVersionCode, storySlug]);
+		const storyIdentity = { chatId, storySlug };
+		if (!hasUnsavedChanges) {
+			baselineRef.current = { identity: storyIdentity, code: currentVersionCode, version: currentVersionNumber };
+			return;
+		}
+		if (isLateVersionOfEditedCode(baselineRef.current, storyIdentity, currentVersionCode)) {
+			baselineRef.current = { ...baselineRef.current, version: currentVersionNumber };
+		}
+	}, [chatId, currentVersionCode, currentVersionNumber, hasUnsavedChanges, storySlug]);
+
+	useEffect(() => {
+		setSaveError(null);
+	}, [chatId, storySlug]);
 
 	const readCurrentCode = useCallback(
 		(saveIdentity: StoryIdentity): { code: string } | StorySaveResult => {
@@ -137,11 +183,9 @@ export const useStoryViewerVersionActions = ({
 
 		const saveTarget = {
 			identity: saveIdentity,
-			chatId: params.chatId,
-			storySlug: params.storySlug,
 			storyTitle: params.storyTitle,
 			onVersionSaved: params.onVersionSaved,
-			persist: mutationRef.current.mutateAsync,
+			persist: persistVersionRef.current,
 			refreshQueries: refreshQueriesRef.current,
 		};
 		const isSaveIdentityActive = () => isSameStoryIdentity(currentIdentityRef.current, saveTarget.identity);
@@ -157,10 +201,14 @@ export const useStoryViewerVersionActions = ({
 				if (typeof snapshot === 'string') {
 					return snapshot;
 				}
-				if (!isSameStoryIdentity(baselineRef.current.identity, saveTarget.identity)) {
+				if (
+					!isSameStoryIdentity(baselineRef.current.identity, saveTarget.identity) ||
+					baselineRef.current.version === undefined
+				) {
 					return 'unavailable';
 				}
 
+				let savedVersion = baselineRef.current.version;
 				const result = await saveStoryCodeIfChanged({
 					baselineCode: baselineRef.current.code,
 					code: snapshot.code,
@@ -168,15 +216,19 @@ export const useStoryViewerVersionActions = ({
 						if (!isSaveIdentityActive()) {
 							return;
 						}
-						await saveTarget.persist({
-							chatId: saveTarget.chatId,
-							storySlug: saveTarget.storySlug,
-							title: saveTarget.storyTitle,
-							code: snapshot.code,
-							action: 'replace',
-						});
-						if (!isSaveIdentityActive()) {
-							return;
+						try {
+							const created = await saveTarget.persist({
+								title: saveTarget.storyTitle,
+								code: snapshot.code,
+								basedOnVersion: savedVersion,
+							});
+							savedVersion = created.version;
+							setSaveError(null);
+						} catch (error) {
+							if (isStoryVersionConflict(error)) {
+								setSaveError((error as Error).message);
+							}
+							throw error;
 						}
 					},
 				});
@@ -210,7 +262,7 @@ export const useStoryViewerVersionActions = ({
 					return result;
 				}
 
-				baselineRef.current = { identity: saveTarget.identity, code: snapshot.code };
+				baselineRef.current = { identity: saveTarget.identity, code: snapshot.code, version: savedVersion };
 				saved = true;
 			}
 		};
@@ -235,33 +287,29 @@ export const useStoryViewerVersionActions = ({
 	}, [saveCurrentVersion, setViewMode]);
 
 	const handleRestore = useCallback(() => {
-		const hasVersionData = storyTitle !== undefined && currentVersionCode !== undefined;
-		if (!hasVersionData || isViewingLatest || createVersionMutation.isPending) {
+		const hasVersionData =
+			storyTitle !== undefined && currentVersionCode !== undefined && latestVersionNumber !== undefined;
+		if (!hasVersionData || isViewingLatest || isPersistingVersion) {
 			return;
 		}
 
-		createVersionMutation.mutate(
-			{
-				chatId,
-				storySlug,
-				title: storyTitle,
-				code: currentVersionCode,
-				action: 'replace',
+		persistVersion({ title: storyTitle, code: currentVersionCode, basedOnVersion: latestVersionNumber }).then(
+			async () => {
+				setSaveError(null);
+				await refreshQueries();
+				goToLatestVersion();
 			},
-			{
-				onSuccess: async () => {
-					await refreshQueries();
-					goToLatestVersion();
-				},
+			(error: Error) => {
+				setSaveError(error.message);
 			},
 		);
 	}, [
-		chatId,
-		storySlug,
 		storyTitle,
 		currentVersionCode,
+		latestVersionNumber,
 		isViewingLatest,
-		createVersionMutation,
+		isPersistingVersion,
+		persistVersion,
 		refreshQueries,
 		goToLatestVersion,
 	]);
@@ -270,9 +318,23 @@ export const useStoryViewerVersionActions = ({
 		handleSave,
 		saveCurrentVersion,
 		handleRestore,
-		isSaving: createVersionMutation.isPending || isSavingVersion,
+		isSaving: isPersistingVersion || isSavingVersion,
+		saveError,
 	};
 };
+
+/** Edits may start before the version list loads; its number still applies when it describes the code being edited. */
+function isLateVersionOfEditedCode(
+	baseline: { identity: StoryIdentity; code: string | undefined; version: number | undefined },
+	identity: StoryIdentity,
+	currentVersionCode: string,
+): boolean {
+	return (
+		baseline.version === undefined &&
+		isSameStoryIdentity(baseline.identity, identity) &&
+		baseline.code === currentVersionCode
+	);
+}
 
 function isSameStoryIdentity(first: StoryIdentity, second: StoryIdentity): boolean {
 	return first.chatId === second.chatId && first.storySlug === second.storySlug;

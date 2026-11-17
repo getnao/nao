@@ -26,6 +26,12 @@ export const InputSchema = z.object({
 	limit: z.number().int().positive().optional().describe('Maximum number of rows to return.'),
 	start_time: z.string().optional().describe('Inclusive ISO date lower bound on metric_time, e.g. "2024-01-01".'),
 	end_time: z.string().optional().describe('Inclusive ISO date upper bound on metric_time, e.g. "2024-12-31".'),
+	params: z
+		.record(z.string(), z.string())
+		.optional()
+		.describe(
+			'Story parameters only: default values for {{ params.<id> }} placeholders used in metrics, group_by, order_by or where, e.g. metrics ["{{ params.metric }}"] with params {"metric": "revenue"}. The query runs with these defaults; a story <parameter> lets readers switch them.',
+		),
 	name: z.string().optional().describe('A descriptive name for the query that will be used to show in the UI.'),
 });
 

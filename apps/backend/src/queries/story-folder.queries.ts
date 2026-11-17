@@ -5,6 +5,7 @@ import { and, asc, count, eq, inArray, isNotNull, isNull, or, type SQL, sql } fr
 import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { listLockedUserGroupIds } from './locked-user-groups';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 import type { ReferenceableStoryFilters } from './story-reference.queries';
 
@@ -135,6 +136,7 @@ function isVisibleTo(folder: DBStoryFolder, userId: string): boolean {
 }
 
 async function countSharedWithMeStories(userId: string, projectId: string): Promise<number> {
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
 	const [row] = await db
 		.select({ cnt: count(s.sharedStory.id) })
 		.from(s.sharedStory)
@@ -142,7 +144,7 @@ async function countSharedWithMeStories(userId: string, projectId: string): Prom
 			and(
 				eq(s.sharedStory.projectId, projectId),
 				eq(s.sharedStory.visibility, 'specific'),
-				sharedStoryGrantsUser(userId),
+				sharedStoryGrantsUser(userId, lockedGroupIds),
 			),
 		)
 		.execute();
