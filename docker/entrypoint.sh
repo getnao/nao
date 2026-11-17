@@ -9,11 +9,23 @@ if [ "$NAO_MODE" = "cloud" ]; then
     unset NAO_DEFAULT_PROJECT_PATH
 else
     NAO_CONTEXT_SOURCE="${NAO_CONTEXT_SOURCE:-local}"
-    NAO_DEFAULT_PROJECT_PATH="${NAO_DEFAULT_PROJECT_PATH:-/app/context}"
+    # The bundled example is only the fallback when no project is supplied
+    if [ "$NAO_CONTEXT_SOURCE" = "git" ] || [ -z "$NAO_PROJECT_PATHS" ]; then
+        NAO_DEFAULT_PROJECT_PATH="${NAO_DEFAULT_PROJECT_PATH:-/app/example}"
+    fi
 fi
 
+# Every local project folder: NAO_DEFAULT_PROJECT_PATH plus the comma-separated NAO_PROJECT_PATHS
+project_paths() {
+    {
+        [ -n "$NAO_DEFAULT_PROJECT_PATH" ] && echo "$NAO_DEFAULT_PROJECT_PATH"
+        echo "$NAO_PROJECT_PATHS" | tr ',' '\n'
+    } | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | awk '!seen[$0]++'
+}
+
 echo "Context source: $NAO_CONTEXT_SOURCE"
-echo "Target path: $NAO_DEFAULT_PROJECT_PATH"
+echo "Target path: ${NAO_DEFAULT_PROJECT_PATH:-<none>}"
+[ -n "$NAO_PROJECT_PATHS" ] && echo "Project paths: $NAO_PROJECT_PATHS"
 
 # Initialize context based on source type
 if [ "$NAO_CONTEXT_SOURCE" = "git" ]; then
@@ -135,20 +147,22 @@ EOF
 elif [ "$NAO_CONTEXT_SOURCE" = "local" ]; then
     echo ""
     echo "=== Validating Local Context ==="
-    
-    if [ ! -d "$NAO_DEFAULT_PROJECT_PATH" ]; then
-        echo "ERROR: Context path does not exist: $NAO_DEFAULT_PROJECT_PATH"
-        echo "For local mode, ensure the path is mounted as a Docker volume"
-        echo "or use NAO_CONTEXT_SOURCE=git for git-based context."
-        exit 1
-    fi
-    
-    if [ ! -f "$NAO_DEFAULT_PROJECT_PATH/nao_config.yaml" ]; then
-        echo "ERROR: nao_config.yaml not found in $NAO_DEFAULT_PROJECT_PATH"
-        echo "Ensure the context path contains a valid nao project."
-        exit 1
-    fi
-    
+
+    while IFS= read -r project_path; do
+        if [ ! -d "$project_path" ]; then
+            echo "ERROR: Context path does not exist: $project_path"
+            echo "For local mode, ensure the path is mounted as a Docker volume"
+            echo "or use NAO_CONTEXT_SOURCE=git for git-based context."
+            exit 1
+        fi
+
+        if [ ! -f "$project_path/nao_config.yaml" ]; then
+            echo "ERROR: nao_config.yaml not found in $project_path"
+            echo "Ensure the context path contains a valid nao project."
+            exit 1
+        fi
+    done < <(project_paths)
+
     echo "✓ Local context validated"
 
 elif [ "$NAO_CONTEXT_SOURCE" = "api" ]; then
@@ -168,10 +182,14 @@ fi
 
 # The agent writes into the context (discovered MCP specs, query results), so the
 # `nao` user needs write access. A root-owned bind mount is the usual culprit.
-if [ -n "$NAO_DEFAULT_PROJECT_PATH" ] && ! su nao -s /bin/sh -c "test -w '$NAO_DEFAULT_PROJECT_PATH'"; then
-    echo "⚠ $NAO_DEFAULT_PROJECT_PATH is not writable by the nao user (uid $(id -u nao))."
-    echo "  MCP tool discovery and other context writes will fail."
-    echo "  Fix the ownership on the host: chown -R $(id -u nao):$(id -g nao) <context-folder>"
+if [ "$NAO_CONTEXT_SOURCE" != "api" ]; then
+    while IFS= read -r project_path; do
+        if ! su nao -s /bin/sh -c "test -w '$project_path'"; then
+            echo "⚠ $project_path is not writable by the nao user (uid $(id -u nao))."
+            echo "  MCP tool discovery and other context writes will fail."
+            echo "  Fix the ownership on the host: chown -R $(id -u nao):$(id -g nao) <context-folder>"
+        fi
+    done < <(project_paths)
 fi
 
 echo ""

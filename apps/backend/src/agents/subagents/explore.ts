@@ -29,6 +29,7 @@ export const exploreSubagent: SubagentDefinition = {
 				repoNames: repos.map((repo) => repo.name),
 				contextPresence: presence,
 				userRules: userRules ? truncateMiddle(userRules, USER_RULES_MAX_CHARS) : undefined,
+				isUserRulesExcerpt: (userRules?.length ?? 0) > USER_RULES_MAX_CHARS,
 			}),
 		);
 	},

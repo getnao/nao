@@ -53,6 +53,13 @@ const projectHostApprovals = z
 		}
 	});
 
+function parseCommaSeparatedList(value: string | undefined): string[] {
+	return (value ?? '')
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+}
+
 function blankToUndefined(value: unknown): unknown {
 	return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
@@ -296,6 +303,14 @@ const baseRawEnvSchema = z.object({
 	APP_BUILD_DATE: z.string().default(''),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
+	/**
+	 * Comma-separated project paths a self-hosted instance starts with, shown in the project selector.
+	 * Loading more than one project requires the Enterprise `multi-project` feature.
+	 */
+	NAO_PROJECT_PATHS: z
+		.string()
+		.optional()
+		.transform((val) => parseCommaSeparatedList(val)),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	NAO_SYNC_MAX_RUNTIME_HOURS: z.coerce.number().positive().default(24),
@@ -480,12 +495,7 @@ const baseRawEnvSchema = z.object({
 	DISABLED_PROVIDERS: z
 		.string()
 		.optional()
-		.transform((val) =>
-			(val ?? '')
-				.split(',')
-				.map((entry) => entry.trim())
-				.filter(Boolean),
-		)
+		.transform((val) => parseCommaSeparatedList(val))
 		.refine((providers) => providers.every(isLlmProvider), {
 			message: `DISABLED_PROVIDERS must be a comma-separated list of provider kinds (${LLM_PROVIDERS.join(', ')}) or named instances (${NAMED_PROVIDER_KIND}/<name>)`,
 		}),
@@ -634,6 +644,11 @@ if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 	process.exit(1);
 }
 
+if (result.data.NAO_PROJECT_PATHS.length > 0 && result.data.NAO_MODE === 'cloud') {
+	console.error('NAO_PROJECT_PATHS and NAO_MODE=cloud cannot be set at the same time.');
+	process.exit(1);
+}
+
 if (result.data.NAO_CONTEXT_SOURCE === 'git' && result.data.NAO_MODE === 'cloud') {
 	console.error('NAO_CONTEXT_SOURCE=git cannot be set when NAO_MODE=cloud.');
 	process.exit(1);
@@ -724,5 +739,5 @@ export function isMcpPublicHost(requestHost: string | undefined): boolean {
 export function noProjectMessage(): string {
 	return isCloud
 		? 'No project configured. Create a project or ask your organization admin to add you to one.'
-		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.';
+		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH or NAO_PROJECT_PATHS environment variable.';
 }
