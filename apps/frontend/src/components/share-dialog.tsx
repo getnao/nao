@@ -36,6 +36,8 @@ export type { ShareTarget } from '@/hooks/use-share-target';
 
 type ShareAttempt = 'save' | 'stopSharing';
 
+const UNSAVED_SHARING_ERROR = 'Save or cancel your sharing changes first, so the new owner gets the sharing you see.';
+
 interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -99,6 +101,7 @@ function ShareDialogBody({
 	const [notify, setNotify] = useState(false);
 	const canNotify = smtpQuery.data === true;
 	const hasChanges = model.canManage && isShareDraftChanged(draft, saved);
+	const hasEditedSharing = editedDraft !== null && hasChanges;
 	const sharesWithNobody = isShareDraftEmpty(draft);
 	const ownerCandidates = useOwnerCandidates(model);
 	const storyId = model.storyId;
@@ -169,9 +172,11 @@ function ShareDialogBody({
 				<TransferOwnerConfirmation
 					newOwner={newOwner}
 					isPending={transfer.isPending}
-					error={transfer.error?.message}
+					error={hasEditedSharing ? UNSAVED_SHARING_ERROR : transfer.error?.message}
 					onCancel={() => chooseNewOwner(null)}
-					onConfirm={() => newOwner && transfer.mutate({ storyId, recipientId: newOwner.id })}
+					onConfirm={() =>
+						!hasEditedSharing && newOwner && transfer.mutate({ storyId, recipientId: newOwner.id })
+					}
 				/>
 			)}
 			{actions.error && (

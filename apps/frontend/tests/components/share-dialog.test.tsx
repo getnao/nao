@@ -149,6 +149,19 @@ describe('ShareDialog', () => {
 		expect(mocks.transfer).toHaveBeenCalledWith({ storyId: 'story-1', recipientId: 'grace' });
 	});
 
+	it('asks to save edited sharing before transferring, so the new owner gets the sharing shown', () => {
+		mocks.model = storyModel({ isShared: true, grants: [ADA_GRANT] });
+		renderDialog();
+		act(() => mocks.editDraft?.({ visibility: 'project', projectRole: 'viewer', grants: [] }));
+		act(() => mocks.changeOwner?.(GRACE));
+
+		const confirmation = screen.getByRole('dialog', { name: 'Transfer ownership to Grace?' });
+		fireEvent.click(within(confirmation).getByRole('button', { name: 'Transfer' }));
+
+		expect(mocks.transfer).not.toHaveBeenCalled();
+		expect(within(confirmation).getByText(/Save or cancel your sharing changes first/)).toBeTruthy();
+	});
+
 	it('cancels an ownership transfer without running it', () => {
 		renderDialog();
 		act(() => mocks.changeOwner?.(ADA));
