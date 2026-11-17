@@ -57,7 +57,7 @@ function describeOwnedStories(memberName: string, storyCount: number | undefined
 		return `${memberName} owns no stories in this project.`;
 	}
 	const stories = storyCount === 1 ? '1 story' : `${storyCount} stories`;
-	return `${memberName} owns ${stories} in this project. The new owner gets each one with its link, sharing and history.`;
+	return `${memberName} owns ${stories} in this project. The new owner gets each one with its link, sharing, history and live settings.`;
 }
 
 function describeFailedTransfers(failedCount: number | undefined): string | undefined {

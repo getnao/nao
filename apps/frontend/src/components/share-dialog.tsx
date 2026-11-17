@@ -375,7 +375,7 @@ function TransferOwnerConfirmation({
 			open={newOwner !== null}
 			onOpenChange={(open) => !open && onCancel()}
 			title={`Transfer ownership to ${newOwner?.name ?? ''}?`}
-			description="They get the story with its link, sharing and versions. You'll keep access only if the story is shared with the project."
+			description="They get the story with its link, sharing, versions and live settings. You'll keep access only if the story is shared with the project."
 			confirmLabel='Transfer'
 			confirmVariant='default'
 			onConfirm={onConfirm}

@@ -2,25 +2,23 @@ import { extractQueryIds } from '@nao/shared/story-segments';
 
 import type { DBStory } from '../db/abstractSchema';
 import { db, type DBTransaction } from '../db/db';
-import * as executeSqlQueries from '../queries/execute-sql.queries';
 import * as projectQueries from '../queries/project.queries';
-import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import type { UserWithRole } from '../types/project';
-import type { StoryQueryDataMap } from '../utils/chat-message-story';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { agentService } from './agent';
 import { notifyStoryTransfer } from './notification.service';
 import { listShareableMembers } from './project-sharing.service';
-import { syncStoryDeliveryJob } from './story-delivery.service';
-import { freeStandaloneSlug, pickShownNarratives } from './story-duplicate';
+import { freeStandaloneSlug, loadSnapshot } from './story-duplicate';
 import { acquireStoryEditLock, releaseStoryEditLock, StoryEditLockedError } from './story-edit-lock.service';
+import { syncStoryScheduledJobs } from './story-refresh.service';
 import { assertCanManageStoryShare, type ShareActor } from './story-share-settings.service';
+import { copyStoryQueries } from './story-sql-queries';
 
 const TRANSFER_LOCK_SESSION_ID = 'story-transfer';
 
@@ -40,14 +38,9 @@ interface Handover {
 	projectId: string;
 }
 
-interface StorySnapshot {
-	queryData: StoryQueryDataMap;
-	narratives: Record<string, string> | null;
-}
-
 /**
  * Hands a story over to another member. It leaves the previous owner's chat and becomes a standalone story of its
- * new owner, frozen with the rows of every version: it keeps its shares, versions and settings, but is no longer live.
+ * new owner, with the SQL and rows of every version: it keeps its shares, versions and live settings.
  * The previous owner keeps access only through the story's shares.
  */
 export async function transferStory(storyId: string, recipientId: string, actor: ShareActor): Promise<void> {
@@ -108,16 +101,20 @@ async function handOverStory(storyId: string, recipient: StoryRecipient, actor: 
 
 async function moveToRecipient(story: DBStory, handover: Handover): Promise<void> {
 	const owner = { userId: handover.recipientId, projectId: handover.projectId };
-	const snapshot = story.chatId ? await loadChatSnapshot(story, story.chatId) : null;
+	const queryIds = story.chatId ? await listStoryQueryIds(story) : null;
+	const snapshot = queryIds ? await loadSnapshot(story, queryIds) : null;
 	const slug = await freeStandaloneSlug(owner, story.slug);
 	await db.transaction(async (tx) => {
 		if (!(await storyQueries.detachStoryToOwner(story, { ...owner, slug }, tx))) {
 			throw new StoryTransferError('The story changed while it was being transferred. Try again.');
 		}
-		if (snapshot) {
+		if (queryIds) {
+			await copyStoryQueries(story, story.id, queryIds, tx);
+		}
+		if (snapshot?.queryData || snapshot?.narratives) {
 			await storyQueries.upsertStoryDataCacheByStoryId(
 				story.id,
-				snapshot.queryData,
+				snapshot.queryData ?? {},
 				snapshot.narratives,
 				null,
 				tx,
@@ -126,7 +123,7 @@ async function moveToRecipient(story: DBStory, handover: Handover): Promise<void
 		await handOverShare(handover, tx);
 		await handOverPrivateFolder(handover, tx);
 	});
-	await stopScheduledJobs(story);
+	await syncStoryScheduledJobs(story.id);
 }
 
 async function notifyRecipient(
@@ -187,21 +184,7 @@ async function whileNobodyEdits<T>(story: DBStory, userId: string, run: () => Pr
 	}
 }
 
-/** Freezes the rows the story shows today, and those of its older versions so restoring one still shows its data. */
-async function loadChatSnapshot(story: DBStory, chatId: string): Promise<StorySnapshot> {
-	const [cache, queryIds] = await Promise.all([
-		storyQueries.getStoryDataCacheByStoryId(story.id),
-		listStoryQueryIds(story),
-	]);
-	const cached = (cache?.queryData as StoryQueryDataMap | undefined) ?? {};
-	const fromChat = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, queryIds);
-	return {
-		queryData: story.isLive ? { ...fromChat, ...cached } : { ...cached, ...fromChat },
-		narratives: pickShownNarratives(story, cache),
-	};
-}
-
-/** Every version and the draft keep their rows, so restoring an older version still shows its data. */
+/** Every version and the draft keep their SQL and rows, so restoring an older version still shows its data. */
 async function listStoryQueryIds(story: DBStory): Promise<Set<string>> {
 	const versions = await storyQueries.listStoryVersionsByStoryId(story.id);
 	if (story.format !== 'custom') {
@@ -212,14 +195,6 @@ async function listStoryQueryIds(story: DBStory): Promise<Set<string>> {
 		storyFileQueries.listDraftFiles(story.id),
 	]);
 	return extractCustomStoryQueryIds([...versionFiles, ...draftFiles]);
-}
-
-/** A story that is no longer live stops refreshing and stops being delivered. */
-async function stopScheduledJobs(story: DBStory): Promise<void> {
-	if (story.scheduledJobId) {
-		await scheduledJobQueries.deleteJob(story.scheduledJobId);
-	}
-	await syncStoryDeliveryJob(story.id, false, null);
 }
 
 /** The new owner becomes the sharer, so the share no longer disappears with the previous owner's account. */

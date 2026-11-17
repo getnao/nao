@@ -494,7 +494,7 @@ export async function claimStandaloneStoryChat(storyId: string, chatId: string):
 }
 
 /**
- * Hands a story to its new owner outside any chat, no longer live, unless it left the chat it was in meanwhile.
+ * Hands a story to its new owner outside any chat, unless it left the chat it was in meanwhile.
  * The chat it leaves and its slug there are kept, so that chat can still tell where the story went.
  */
 export async function detachStoryToOwner(
@@ -507,7 +507,7 @@ export async function detachStoryToOwner(
 		: {};
 	const detached = await executor
 		.update(s.story)
-		.set({ ...owner, ...transferredFrom, chatId: null, isLive: false })
+		.set({ ...owner, ...transferredFrom, chatId: null })
 		.where(and(eq(s.story.id, story.id), story.chatId ? eq(s.story.chatId, story.chatId) : isNull(s.story.chatId)))
 		.returning({ id: s.story.id })
 		.execute();

@@ -152,7 +152,7 @@ async function listVersionFileInputs(versionId: string): Promise<StoryFileInput[
 }
 
 /** Reads the rows the source shows today: a live story reads its cache first, a chat story the queries of its chat. */
-async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<StorySnapshot> {
+export async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<StorySnapshot> {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(source.id);
 	const cached = pickQueryData((cache?.queryData as StoryQueryDataMap | null) ?? {}, queryIds);
 	if (!source.chatId) {
@@ -189,7 +189,7 @@ async function loadStandaloneSnapshot(
 }
 
 /** A live story shows the text it generates, a story that is no longer live the text frozen when it was copied. */
-export function pickShownNarratives(source: DBStory, cache: DBStoryDataCache | null): Record<string, string> | null {
+function pickShownNarratives(source: DBStory, cache: DBStoryDataCache | null): Record<string, string> | null {
 	if (!cache) {
 		return null;
 	}

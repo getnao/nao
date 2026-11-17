@@ -15,6 +15,7 @@ import {
 	listOwnedStoryIdsInProject,
 	listStoriesInChat,
 } from '../../src/queries/story.queries';
+import { listStoryQueries } from '../../src/queries/story-query.queries';
 import { notifyStoryTransfer } from '../../src/services/notification.service';
 import { acquireStoryEditLock, releaseStoryEditLock } from '../../src/services/story-edit-lock.service';
 import type { ShareActor } from '../../src/services/story-share-settings.service';
@@ -69,11 +70,11 @@ describe('transferring story ownership', () => {
 		db.$client.close();
 	});
 
-	it('makes the story a standalone story of its new owner, frozen with its rows, out of reach of the previous owner', async () => {
+	it('makes the story a live standalone story of its new owner, with its rows, out of reach of the previous owner', async () => {
 		await transferStory(OWNER_STORY_ID, RECIPIENT_ID, OWNER);
 
 		const story = await getStoryById(OWNER_STORY_ID);
-		expect(story).toMatchObject({ chatId: null, userId: RECIPIENT_ID, projectId: PROJECT_ID, isLive: false });
+		expect(story).toMatchObject({ chatId: null, userId: RECIPIENT_ID, projectId: PROJECT_ID, isLive: true });
 		expect((await getStoryDataCacheByStoryId(OWNER_STORY_ID))?.queryData).toEqual({ [QUERY_ID]: ROWS });
 		expect(await listOwnedStoryIdsInProject(RECIPIENT_ID, PROJECT_ID)).toContain(OWNER_STORY_ID);
 		expect(await listOwnedStoryIdsInProject(OWNER_ID, PROJECT_ID)).toEqual([]);
@@ -85,10 +86,11 @@ describe('transferring story ownership', () => {
 		);
 	});
 
-	it("keeps a handed-over story when the previous owner's chat is deleted", async () => {
+	it("keeps a handed-over story and the SQL it reruns when the previous owner's chat is deleted", async () => {
 		await deleteChat(ownerChatId);
 
 		expect(await getStoryOwnerId(OWNER_STORY_ID)).toBe(RECIPIENT_ID);
+		expect(await listStoryQueries(OWNER_STORY_ID)).toMatchObject({ [QUERY_ID]: { sqlQuery: QUERY_SQL } });
 	});
 
 	it('refuses to hand over a story someone is editing, and leaves it untouched', async () => {
