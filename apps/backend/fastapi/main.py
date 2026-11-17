@@ -3,6 +3,7 @@ import math
 import os
 import secrets
 import sys
+from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from decimal import Decimal
@@ -80,7 +81,8 @@ from warehouse_provisioning import (  # noqa: E402
 )
 
 port = int(os.environ.get("PORT", 8005))
-max_result_size_mb = float(os.environ.get("NAO_SQL_MAX_RESULT_SIZE_MB", 100))
+MAX_RESULT_SIZE_MB = float(os.environ.get("NAO_SQL_MAX_RESULT_SIZE_MB", 100))
+RESULT_CHUNK_ROWS = 10_000
 
 # Global scheduler instance
 scheduler = None
@@ -258,30 +260,32 @@ def _execute_sql_with_guards(
 
 
 def _query_result_response(df: pd.DataFrame, dialect: str) -> Response:
-    """Results can hold hundreds of thousands of rows: serialize column by column and skip response model validation."""
+    """Results can hold hundreds of thousands of rows: serialize them chunk by chunk and skip response model validation."""
     columns = [str(column) for column in df.columns]
-    column_values = [_column_values(df.iloc[:, index]) for index in range(len(columns))]
-    data = [dict(zip(columns, row)) for row in zip(*column_values)]
-    content = orjson.dumps(
-        {"data": data, "row_count": len(data), "columns": columns, "dialect": dialect},
-        default=_json_fallback,
-        option=orjson.OPT_SERIALIZE_NUMPY,
-    )
-    _reject_oversized_result(content)
+    rows = b",".join(_serialized_row_chunks(df, columns))
+    envelope = orjson.dumps({"row_count": len(df), "columns": columns, "dialect": dialect})
+    content = b"".join((b'{"data":[', rows, b"],", envelope[1:]))
     return Response(content=content, media_type="application/json")
 
 
-def _reject_oversized_result(content: bytes) -> None:
-    """The backend parses a result in one piece, so an unbounded one exhausts its memory."""
-    size_mb = len(content) / 1024**2
-    if size_mb > max_result_size_mb:
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                f"Query result too large: {size_mb:,.1f} MB, above the {max_result_size_mb:g} MB limit. "
-                "Aggregate, filter or LIMIT the query, or ask an admin to raise NAO_SQL_MAX_RESULT_SIZE_MB."
-            ),
-        )
+def _serialized_row_chunks(df: pd.DataFrame, columns: list[str]) -> Iterator[bytes]:
+    """Refuses a result as soon as it outgrows the limit: the backend parses it in one piece, so its size is its cost."""
+    size = 0
+    for start in range(0, len(df), RESULT_CHUNK_ROWS):
+        chunk = df.iloc[start : start + RESULT_CHUNK_ROWS]
+        column_values = [_column_values(chunk.iloc[:, index]) for index in range(len(columns))]
+        rows = [dict(zip(columns, row)) for row in zip(*column_values)]
+        serialized = orjson.dumps(rows, default=_json_fallback, option=orjson.OPT_SERIALIZE_NUMPY)[1:-1]
+        size += len(serialized)
+        if size > MAX_RESULT_SIZE_MB * 1024**2:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Query result is larger than the {MAX_RESULT_SIZE_MB:g} MB limit. Aggregate, filter or LIMIT "
+                    "the query, or ask an admin to raise NAO_SQL_MAX_RESULT_SIZE_MB."
+                ),
+            )
+        yield serialized
 
 
 def _column_values(column: pd.Series) -> list:
