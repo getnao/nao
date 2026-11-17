@@ -141,11 +141,13 @@ export function summarizeRunByTag(run: TestRunWithResults): TagSummary[] {
 	const measuredVariant = run.comparison ? 'draft' : getSingleRunVariant(run);
 	const expectedAttempts = run.models.length * run.attempts;
 	const testsByTag = groupTestsByTag(run.results);
+	const addedTestPaths = listAddedTestPaths(run);
 	const summaries = [...testsByTag].map(([tag, testResults]) => {
-		const measured = testResults.flatMap((results) =>
+		const comparedResults = testResults.filter((results) => !addedTestPaths.has(results[0].testPath));
+		const measured = comparedResults.flatMap((results) =>
 			results.filter((result) => result.contextVariant === measuredVariant),
 		);
-		const baseline = testResults.flatMap((results) =>
+		const baseline = comparedResults.flatMap((results) =>
 			results.filter((result) => result.contextVariant === 'production'),
 		);
 		return {
@@ -326,6 +328,12 @@ function groupTestsByTag(results: TestResultOutcome[]): Map<string, TestResultOu
 	return testsByTag;
 }
 
+/** Tests the user's changes added have no answer on main, so they would move the accuracy of their tag for nothing. */
+function listAddedTestPaths(run: TestRunWithResults): Set<string> {
+	const addedTests = run.comparison?.tests.filter((test) => test.change === 'new') ?? [];
+	return new Set(addedTests.map((test) => test.testPath));
+}
+
 function isPassedTest(results: Pick<TestResultOutcome, 'passed'>[], expectedAttempts: number): boolean {
 	return results.length >= Math.max(expectedAttempts, 1) && results.every((result) => result.passed);
 }
@@ -336,7 +344,10 @@ function countAttempts(results: Pick<TestResultOutcome, 'passed'>[]): AttemptCou
 
 /** The weakest tag first, the tags still waiting for an answer and the untagged tests last. */
 function compareTagSummaries(left: TagSummary, right: TagSummary): number {
+	if ((left.tag === UNTAGGED) !== (right.tag === UNTAGGED)) {
+		return left.tag === UNTAGGED ? 1 : -1;
+	}
 	const rank = (summary: TagSummary) =>
-		summary.tag === UNTAGGED || summary.totalAttempts === 0 ? 2 : summary.passedAttempts / summary.totalAttempts;
+		summary.totalAttempts === 0 ? 2 : summary.passedAttempts / summary.totalAttempts;
 	return rank(left) - rank(right) || left.tag.localeCompare(right.tag);
 }
