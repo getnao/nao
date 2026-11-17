@@ -154,19 +154,19 @@ export async function publishManagedGithubRepositoryUpdate(input: ManagedReposit
 		const stagedFiles = (
 			await runGit(input.projectDir, ['diff', '--cached', '--name-only', '--', ...input.paths])
 		).trim();
-		if (!stagedFiles) {
-			return false;
+		if (stagedFiles) {
+			assertNoSecrets(stagedFiles);
+			await runGit(input.projectDir, ['commit', '-m', input.message, '--', ...input.paths], {
+				GIT_AUTHOR_NAME: input.author.name,
+				GIT_AUTHOR_EMAIL: input.author.email,
+				GIT_COMMITTER_NAME: NAO_CO_AUTHOR.name,
+				GIT_COMMITTER_EMAIL: NAO_CO_AUTHOR.email,
+			});
+			committed = true;
+			committedCommit = (await runGit(input.projectDir, ['rev-parse', 'HEAD'])).trim();
+		} else {
+			committedCommit = previousCommit;
 		}
-
-		assertNoSecrets(stagedFiles);
-		await runGit(input.projectDir, ['commit', '-m', input.message, '--', ...input.paths], {
-			GIT_AUTHOR_NAME: input.author.name,
-			GIT_AUTHOR_EMAIL: input.author.email,
-			GIT_COMMITTER_NAME: NAO_CO_AUTHOR.name,
-			GIT_COMMITTER_EMAIL: NAO_CO_AUTHOR.email,
-		});
-		committed = true;
-		committedCommit = (await runGit(input.projectDir, ['rev-parse', 'HEAD'])).trim();
 
 		token = await createInstallationToken(config);
 		await pushRepositoryWithAuthenticationRetry(

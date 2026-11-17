@@ -159,6 +159,31 @@ describe('managed GitHub repository provisioning', () => {
 		);
 	});
 
+	it('retries a pending local commit when the requested files have no new changes', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
+		const pendingCommit = 'b'.repeat(40);
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				callback(null, args[0] === 'rev-parse' ? `${pendingCommit}\n` : '', '');
+			},
+		);
+
+		await expect(publishManagedGithubRepositoryUpdate(managedUpdate)).resolves.toBe(true);
+
+		expect(mocks.execFile).not.toHaveBeenCalledWith(
+			'git',
+			expect.arrayContaining(['commit']),
+			expect.any(Object),
+			expect.any(Function),
+		);
+		expect(mocks.execFile).toHaveBeenCalledWith(
+			'git',
+			['push', 'https://github.com/nao-org/nao-project.git', 'HEAD:refs/heads/main'],
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
 	it('rolls back the local commit when the managed push fails', async () => {
 		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
 		mocks.execFile.mockImplementation(
