@@ -994,6 +994,23 @@ def test_execute_sql_simple_duckdb(duckdb_project_folder):
     )
 
 
+def test_execute_sql_rejects_result_above_size_limit(monkeypatch: pytest.MonkeyPatch, duckdb_project_folder):
+    monkeypatch.setattr(main, "max_result_size_mb", 0.001)
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT repeat('x', 100) AS padding FROM range(1000)",
+            "nao_project_folder": duckdb_project_folder,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+        },
+    )
+
+    assert response.status_code == 413
+    assert "1,000 rows" in response.json()["detail"]
+    assert "NAO_SQL_MAX_RESULT_SIZE_MB" in response.json()["detail"]
+
+
 def test_execute_sql_blocks_star_with_excluded_columns(
     duckdb_project_with_excluded_columns,
 ):

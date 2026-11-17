@@ -80,6 +80,7 @@ from warehouse_provisioning import (  # noqa: E402
 )
 
 port = int(os.environ.get("PORT", 8005))
+max_result_size_mb = float(os.environ.get("NAO_SQL_MAX_RESULT_SIZE_MB", 200))
 
 # Global scheduler instance
 scheduler = None
@@ -258,6 +259,7 @@ def _execute_sql_with_guards(
 
 def _query_result_response(df: pd.DataFrame, dialect: str) -> Response:
     """Results can hold hundreds of thousands of rows: serialize column by column and skip response model validation."""
+    _reject_oversized_result(df)
     columns = [str(column) for column in df.columns]
     column_values = [_column_values(df.iloc[:, index]) for index in range(len(columns))]
     data = [dict(zip(columns, row)) for row in zip(*column_values)]
@@ -267,6 +269,20 @@ def _query_result_response(df: pd.DataFrame, dialect: str) -> Response:
         option=orjson.OPT_SERIALIZE_NUMPY,
     )
     return Response(content=content, media_type="application/json")
+
+
+def _reject_oversized_result(df: pd.DataFrame) -> None:
+    """The backend parses a result in one piece, so an unbounded one exhausts the memory of both processes."""
+    size_mb = df.memory_usage(deep=True).sum() / 1024**2
+    if size_mb > max_result_size_mb:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Query result too large: {len(df):,} rows take {size_mb:,.0f} MB, "
+                f"above the {max_result_size_mb:,.0f} MB limit. Aggregate, filter or LIMIT the query, "
+                "or ask an admin to raise NAO_SQL_MAX_RESULT_SIZE_MB."
+            ),
+        )
 
 
 def _column_values(column: pd.Series) -> list:
