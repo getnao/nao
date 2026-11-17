@@ -1,7 +1,7 @@
 import type { LlmProvider } from '@nao/shared/types';
 import { and, eq, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
-import { LLM_PROVIDERS } from '../agents/providers';
+import { resolveModelPrices } from '../agents/model-prices';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
@@ -637,32 +637,60 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 }
 
 async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
-	const costs = new Map<string, ModelCosts>();
-
-	for (const [provider, config] of Object.entries(LLM_PROVIDERS)) {
-		for (const model of config.models) {
-			costs.set(`${provider}\u0000${model.id}`, { ...model.costPerM });
-		}
-	}
-
-	for (const { provider, models } of await getProjectDeclaredModels(projectId)) {
+	const [usedModels, declaredSources] = await Promise.all([
+		getProjectUsedModels(projectId),
+		getProjectDeclaredModels(projectId),
+	]);
+	const declaredPrices = new Map<string, ModelCosts | undefined>(
+		usedModels.map((model) => [costKey(model), undefined]),
+	);
+	for (const { provider, models } of declaredSources) {
 		for (const model of models) {
-			const key = `${provider}\u0000${model.id}`;
-			costs.set(key, { ...costs.get(key), ...model.costPerM });
+			declaredPrices.set(costKey({ provider, modelId: model.id }), model.costPerM);
 		}
 	}
 
-	return [...costs].map(([key, cost]) => {
-		const [provider, modelId] = key.split('\u0000');
-		return [
-			provider,
-			modelId,
-			cost.inputNoCache ?? 0,
-			cost.inputCacheRead ?? 0,
-			cost.inputCacheWrite ?? 0,
-			cost.output ?? 0,
-		] satisfies CostLookupTuple;
+	const tuples = [...declaredPrices].flatMap(([key, declared]) => {
+		const [provider, modelId] = key.split('\u0000') as [LlmProvider, string];
+		const prices = resolveModelPrices(provider, modelId, declared);
+		return prices ? [toCostLookupTuple(provider, modelId, prices)] : [];
 	});
+	return tuples.length > 0 ? tuples : [toCostLookupTuple('', '', {})];
+}
+
+/** Every model the project has answered with, including Bedrock geo ids missing from the price table. */
+async function getProjectUsedModels(projectId: string): Promise<Array<{ provider: LlmProvider; modelId: string }>> {
+	const [messageModels, inferenceModels] = await Promise.all([
+		db
+			.selectDistinct({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+			.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmModelId)))
+			.execute(),
+		db
+			.selectDistinct({ provider: s.llmInference.llmProvider, modelId: s.llmInference.llmModelId })
+			.from(s.llmInference)
+			.where(eq(s.llmInference.projectId, projectId))
+			.execute(),
+	]);
+	return [...messageModels, ...inferenceModels].filter(
+		(model): model is { provider: LlmProvider; modelId: string } => !!model.provider && !!model.modelId,
+	);
+}
+
+function costKey({ provider, modelId }: { provider: LlmProvider; modelId: string }): string {
+	return `${provider}\u0000${modelId}`;
+}
+
+function toCostLookupTuple(provider: string, modelId: string, prices: ModelCosts): CostLookupTuple {
+	return [
+		provider,
+		modelId,
+		prices.inputNoCache ?? 0,
+		prices.inputCacheRead ?? 0,
+		prices.inputCacheWrite ?? 0,
+		prices.output ?? 0,
+	];
 }
 
 function tupleToValuesRow(tuple: CostLookupTuple): SQL {

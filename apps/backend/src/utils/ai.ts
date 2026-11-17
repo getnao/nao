@@ -1,7 +1,7 @@
 import type { LlmProvider } from '@nao/shared/types';
 import { isToolUIPart, LanguageModelUsage, ModelMessage, parsePartialJson } from 'ai';
 
-import { getProviderMeta } from '../agents/providers';
+import { resolveModelPrices } from '../agents/model-prices';
 import { type ITokenCounter, tokenCounter } from '../services/token-counter';
 import { CompactionPart, TokenCost, TokenUsage, UIMessage, UIMessagePart, UIToolPart } from '../types/chat';
 import type { CustomModelMetadata, ModelCosts } from '../types/llm';
@@ -34,11 +34,8 @@ export const convertToCost = (
 	customModels: CustomModelMetadata[] = [],
 	costs?: ModelCosts,
 ): TokenCost => {
-	const builtInCosts = getProviderMeta(provider).models.find((model) => model.id === modelId)?.costPerM;
 	const declaredCosts = customModels.find((m) => m.id === modelId)?.costPerM;
-
-	// Prices declared for a model win over nao's built-in table, token type by token type.
-	const costPerM = builtInCosts || declaredCosts ? { ...builtInCosts, ...declaredCosts } : costs;
+	const costPerM = resolveModelPrices(provider, modelId, declaredCosts) ?? costs;
 
 	if (!costPerM) {
 		return {

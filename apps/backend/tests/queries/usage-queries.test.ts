@@ -2,6 +2,7 @@ import '../../src/env';
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getBuiltInModelPrices } from '../../src/agents/model-prices';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import {
@@ -408,6 +409,30 @@ describe('usage query results', () => {
 		expect(records.find((record) => record.date === formatDate(previousDay, 'day'))?.users).toEqual([
 			{ userName: 'Other Usage User', messageCount: 1, totalTokens: 0, totalCost: 0 },
 		]);
+	});
+
+	it('prices an unlisted Bedrock geo id the project used from its twin', async () => {
+		await db.insert(s.chatMessage).values({
+			id: 'geo-twin-assistant',
+			chatId: CHAT_ID,
+			role: 'assistant',
+			llmProvider: 'bedrock',
+			llmModelId: 'apac.anthropic.claude-sonnet-5-5',
+			inputNoCacheTokens: 1_000_000,
+			totalTokens: 1_000_000,
+		});
+		const twinPrice = getBuiltInModelPrices('bedrock', 'us.anthropic.claude-sonnet-5-5')?.inputNoCache;
+
+		const records = await getMessagesUsageByUser(PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		expect(twinPrice).toBeGreaterThan(0);
+		expect(records.at(-1)?.users[0]?.totalCost).toBeCloseTo(twinPrice ?? 0);
+	});
+
+	it('computes usage of a project that has used no model yet', async () => {
+		const records = await getMessagesUsageByUser(OTHER_PROJECT_ID, { period: { value: 1, unit: 'day' } });
+
+		expect(records).toEqual([{ date: expect.any(String), users: [] }]);
 	});
 
 	it('scopes every usage aggregate and provider to one user', async () => {
