@@ -681,10 +681,20 @@ function getProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
 	if (cached && cached.expiresAt > Date.now()) {
 		return cached.models;
 	}
+	evictExpiredUsedModels();
 	const models = queryProjectUsedModels(projectId);
 	usedModelsCache.set(projectId, { expiresAt: Date.now() + USED_MODELS_CACHE_TTL_MS, models });
 	models.catch(() => usedModelsCache.delete(projectId));
 	return models;
+}
+
+function evictExpiredUsedModels(): void {
+	const now = Date.now();
+	for (const [projectId, entry] of usedModelsCache) {
+		if (entry.expiresAt <= now) {
+			usedModelsCache.delete(projectId);
+		}
+	}
 }
 
 async function queryProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
