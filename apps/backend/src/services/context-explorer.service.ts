@@ -587,7 +587,12 @@ async function searchFolder(
 			includePath,
 		),
 		...exemptFolders.map((folder) =>
-			runContentSearch(getRipgrepPath(), buildSearchArguments(query, '.', [], folder), projectFolder, includePath),
+			runContentSearch(
+				getRipgrepPath(),
+				buildSearchArguments(query, '.', [], folder),
+				projectFolder,
+				includePath,
+			),
 		),
 	]);
 	const results = [

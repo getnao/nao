@@ -218,9 +218,7 @@ export const contextExplorerRoutes = {
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const projectFolder = requireProjectPath(ctx.project.path);
 		const hasRepository = await hasContextRepository(ctx.project.id);
-		const managedRepository = hasRepository
-			? null
-			: await readManagedGithubRepositoryFullName(projectFolder);
+		const managedRepository = hasRepository ? null : await readManagedGithubRepositoryFullName(projectFolder);
 		const entries = hasRepository
 			? await getFileTree(await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user))
 			: managedRepository

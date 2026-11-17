@@ -532,20 +532,22 @@ export function ContextFileTreeView({
 									/>
 								)
 							}
-							changes={!fileTree.data?.isManagedRepository ? (
-								<ContextGitPanel
-									selectedDiffPath={selectedDiffPath}
-									selectedUpstreamDiffPath={selectedUpstreamDiffPath}
-									hasUnsavedFileChanges={isViewerDirty}
-									onViewDiff={handleViewDiff}
-									onViewUpstreamDiff={handleViewUpstreamDiff}
-									onCommitted={handleChangesCommitted}
-									onDiscarded={handleLocalChangeDiscarded}
-									onDiscardAll={handleAllLocalChangesDiscarded}
-									onRepositoryChanged={handleRepositoryChanged}
-									onOpenTests={openTestSuite}
-								/>
-							) : undefined}
+							changes={
+								!fileTree.data?.isManagedRepository ? (
+									<ContextGitPanel
+										selectedDiffPath={selectedDiffPath}
+										selectedUpstreamDiffPath={selectedUpstreamDiffPath}
+										hasUnsavedFileChanges={isViewerDirty}
+										onViewDiff={handleViewDiff}
+										onViewUpstreamDiff={handleViewUpstreamDiff}
+										onCommitted={handleChangesCommitted}
+										onDiscarded={handleLocalChangeDiscarded}
+										onDiscardAll={handleAllLocalChangesDiscarded}
+										onRepositoryChanged={handleRepositoryChanged}
+										onOpenTests={openTestSuite}
+									/>
+								) : undefined
+							}
 							footer={
 								<FileHeaderProblems
 									selectedPath={shownFilePath}
