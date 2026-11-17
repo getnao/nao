@@ -1,32 +1,18 @@
-import '../src/env';
+import '../../src/env';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import s from '../src/db/abstractSchema';
-import { db } from '../src/db/db';
-import { countOrgSeatUsers, listOrgSeatCandidates, listReadOnlyOrgUsers } from '../src/queries/organization.queries';
-import { resolveSeatedOrgUserIds } from '../src/utils/seat-allocation';
+import s from '../../src/db/abstractSchema';
+import { db } from '../../src/db/db';
+import { countOrgSeatUsers, listOrgSeatCandidates, listReadOnlyOrgUsers } from '../../src/queries/organization.queries';
+import { resolveSeatedOrgUserIds } from '../../src/utils/seat-allocation';
 
-vi.mock('../src/db/db', async () => {
-	const { default: Database } = await import('better-sqlite3');
-	const { drizzle } = await import('drizzle-orm/better-sqlite3');
-	const { generateSQLiteDrizzleJson, generateSQLiteMigration } = await import('drizzle-kit/api');
-	const sqliteSchema = await import('../src/db/sqlite-schema');
-
-	const sqlite = new Database(':memory:');
-	const statements = await generateSQLiteMigration(
-		await generateSQLiteDrizzleJson({}),
-		await generateSQLiteDrizzleJson(sqliteSchema),
-	);
-	for (const statement of statements) {
-		sqlite.exec(statement);
-	}
-	sqlite.pragma('foreign_keys = ON');
-
-	return { db: drizzle(sqlite, { schema: sqliteSchema }) };
+vi.mock('../../src/db/db', async () => {
+	const { createInMemoryDb } = await import('../helpers/in-memory-db');
+	return { db: createInMemoryDb() };
 });
 
-vi.mock('../src/queries/project-llm-config.queries', () => ({
+vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigs: async () => [],
 }));
 

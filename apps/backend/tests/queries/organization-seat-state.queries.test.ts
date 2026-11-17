@@ -1,34 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import type * as EnvModule from '../src/env';
-
-vi.mock('../src/env', async (importOriginal) => {
-	const actual = await importOriginal<typeof EnvModule>();
-	return { ...actual, env: { ...actual.env, DB_URI: 'sqlite::memory:' } };
-});
-
-vi.mock('../src/db/db', async () => {
-	const { default: Database } = await import('better-sqlite3');
-	const { drizzle } = await import('drizzle-orm/better-sqlite3');
-	const { generateSQLiteDrizzleJson, generateSQLiteMigration } = await import('drizzle-kit/api');
-	const sqliteSchema = await import('../src/db/sqlite-schema');
-
-	const sqlite = new Database(':memory:');
-	const statements = await generateSQLiteMigration(
-		await generateSQLiteDrizzleJson({}),
-		await generateSQLiteDrizzleJson(sqliteSchema),
-	);
-	for (const statement of statements) {
-		sqlite.exec(statement);
-	}
-	sqlite.pragma('foreign_keys = ON');
-
-	return { db: drizzle(sqlite, { schema: sqliteSchema }) };
-});
-
-import s from '../src/db/abstractSchema';
-import { db } from '../src/db/db';
+import type * as EnvModule from '../../src/env';
+import s from '../../src/db/abstractSchema';
+import { db } from '../../src/db/db';
 import {
 	claimOrganizationSeatEmailNotification,
 	claimPausedWorkInAppNotification,
@@ -37,7 +12,17 @@ import {
 	releaseOrganizationSeatEmailNotification,
 	setOrganizationSeatSelection,
 	syncOrganizationSeatState,
-} from '../src/queries/organization-seat-state.queries';
+} from '../../src/queries/organization-seat-state.queries';
+
+vi.mock('../../src/env', async (importOriginal) => {
+	const actual = await importOriginal<typeof EnvModule>();
+	return { ...actual, env: { ...actual.env, DB_URI: 'sqlite::memory:' } };
+});
+
+vi.mock('../../src/db/db', async () => {
+	const { createInMemoryDb } = await import('../helpers/in-memory-db');
+	return { db: createInMemoryDb() };
+});
 
 describe('organization seat state queries', () => {
 	beforeAll(async () => {
