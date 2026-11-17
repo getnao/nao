@@ -27,7 +27,7 @@ import {
 } from '../../utils/story-library';
 import { groupBy } from '../../utils/utils';
 import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
-import { NaoContextStructure } from './nao-context-structure';
+import { NaoContextStructure, UserRulesSection } from './nao-context-structure';
 import { storyKitGuideItems } from './story-kit-guide';
 
 type Connection = {
@@ -134,7 +134,12 @@ export function SystemPrompt({
 				<Br />
 				Skills can be mentioned using the / trigger.
 			</Span>
-			<NaoContextStructure templates={templates} repoNames={repoNames} contextPresence={contextPresence} />
+			<NaoContextStructure
+				templates={templates}
+				repoNames={repoNames}
+				contextPresence={contextPresence}
+				rulesInPrompt={Boolean(userRules)}
+			/>
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>
@@ -362,12 +367,7 @@ export function SystemPrompt({
 				</ListItem>
 			</List>
 			<Block separator={'\n\n---\n\n'}>
-				{userRules && (
-					<Block>
-						<Title level={2}>User Rules</Title>
-						{userRules}
-					</Block>
-				)}
+				{userRules && <UserRulesSection rules={userRules} />}
 
 				{connections.length > 0 && (
 					<Block>

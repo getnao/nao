@@ -17,16 +17,34 @@ import {
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { SidebarMenu } from '@nao/shared/sidebar-menu';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte, ne, notExists, or, type SQL, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gt,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	lte,
+	ne,
+	notExists,
+	or,
+	type SQL,
+	sql,
+} from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction, type Lockable } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { env, isCloud } from '../env';
+import { isCloud } from '../env';
+import { getActiveProjectPaths, isSelfHostedMultiProjectEnabled } from '../services/multi-project.service';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
+import { getDefaultProjectPath } from '../utils/project-paths';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 import { userMemberStatus } from './user.queries';
 
@@ -161,7 +179,13 @@ export const listProjectMembershipsForUser = async (
 		.execute();
 };
 
-export const listUserProjectsWithRoles = async (userId: string): Promise<UserProjectWithRole[]> => {
+/** `includeInactive` also returns self-hosted projects the instance no longer serves, for cleanups. */
+export type ListUserProjectsOptions = { includeInactive?: boolean };
+
+export const listUserProjectsWithRoles = async (
+	userId: string,
+	{ includeInactive = false }: ListUserProjectsOptions = {},
+): Promise<UserProjectWithRole[]> => {
 	const results = await db
 		.select({
 			project: s.project,
@@ -174,6 +198,7 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 			and(
 				ne(s.project.id, SYSTEM_EXAMPLE_PROJECT_ID),
 				or(eq(s.projectMember.userId, userId), eq(s.orgMember.userId, userId)),
+				includeInactive ? undefined : await selfHostedActiveProjectsFilter(),
 			),
 		)
 		.orderBy(asc(s.project.name))
@@ -181,8 +206,20 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 	return results;
 };
 
-export const listUserProjects = async (userId: string): Promise<DBProject[]> => {
-	const results = await listUserProjectsWithRoles(userId);
+/**
+ * Self-hosted instances only list the projects they currently serve, so projects whose path was
+ * removed, or that a lapsed multi-project license no longer covers, stay hidden.
+ */
+async function selfHostedActiveProjectsFilter(): Promise<SQL | undefined> {
+	if (isCloud) {
+		return undefined;
+	}
+	const activeProjectPaths = await getActiveProjectPaths();
+	return activeProjectPaths.length > 0 ? inArray(s.project.path, activeProjectPaths) : undefined;
+}
+
+export const listUserProjects = async (userId: string, options?: ListUserProjectsOptions): Promise<DBProject[]> => {
+	const results = await listUserProjectsWithRoles(userId, options);
 	return results.map((r) => r.project);
 };
 
@@ -272,7 +309,7 @@ export const listUsersWithProjectAccessDetails = async (projectId: string): Prom
 };
 
 export const getDefaultProject = async (): Promise<DBProject | null> => {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
+	const projectPath = getDefaultProjectPath();
 	if (projectPath) {
 		return getProjectByPath(projectPath);
 	}
@@ -285,7 +322,7 @@ export const getProjectByUserId = async (
 	userId: string,
 	selectedProjectId?: string | null,
 ): Promise<DBProject | null> => {
-	if (isCloud) {
+	if (isCloud || (await isSelfHostedMultiProjectEnabled())) {
 		const projects = await listUserProjects(userId);
 		if (selectedProjectId) {
 			const selectedProject = projects.find((project) => project.id === selectedProjectId);
@@ -293,7 +330,7 @@ export const getProjectByUserId = async (
 				return selectedProject;
 			}
 		}
-		return projects[0] ?? null;
+		return projects.find((project) => project.path === getDefaultProjectPath()) ?? projects[0] ?? null;
 	}
 
 	const project = await getDefaultProject();

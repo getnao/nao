@@ -1,11 +1,9 @@
 """Unit tests for the repository sync provider."""
 
-from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from rich.console import Console
 
 from nao_core.commands.sync.providers.repositories.provider import (
     RepositorySyncProvider,
@@ -136,18 +134,13 @@ class TestRepositorySyncProvider:
         assert result.error == "Failed to sync 1 repository: repo2"
 
     @patch(f"{PROVIDER_MODULE}.sync_repo", return_value=False)
-    def test_sync_escapes_repository_name_markup(self, mock_sync, tmp_path: Path):
-        provider = RepositorySyncProvider()
-        output = StringIO()
-        console = Console(file=output, force_terminal=False)
+    @patch(f"{PROVIDER_MODULE}.console")
+    def test_sync_reports_failed_repository_names_as_plain_text(self, mock_console, mock_sync, tmp_path: Path):
         repo = RepoConfig(name="my[b]db", url="https://github.com/test/repo")
 
-        with patch(f"{PROVIDER_MODULE}.console", console):
-            result = provider.sync([repo], tmp_path)
-            console.print(result.error)
+        result = RepositorySyncProvider().sync([repo], tmp_path)
 
-        assert "my[b]db" in output.getvalue()
-        mock_sync.assert_called_once()
+        assert result.error == "Failed to sync 1 repository: my[b]db"
 
     @patch(f"{PROVIDER_MODULE}.sync_repo", return_value=True)
     @patch(f"{PROVIDER_MODULE}.console")

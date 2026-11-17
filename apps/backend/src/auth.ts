@@ -418,7 +418,7 @@ async function createAuthInstance(baseURL: string) {
 					before: async (user) => {
 						try {
 							const { cleanupContextWorktree } = await import('./services/context-explorer-git.service');
-							const projects = await projectQueries.listUserProjects(user.id);
+							const projects = await projectQueries.listUserProjects(user.id, { includeInactive: true });
 							for (const project of projects) {
 								if (project.path) {
 									await cleanupContextWorktree(project.id, project.path, user.id);
