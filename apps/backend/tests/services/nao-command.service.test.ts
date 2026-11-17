@@ -61,7 +61,10 @@ afterEach(() => {
 
 describe('runNaoCommandInSandbox', () => {
 	it('runs nao in a box that only sees the project env vars, and streams the logs', async () => {
-		const box = useFakeBox({ stdout: ['\u001b[32mSyncing\u001b[0m\r', 'Done\n'] });
+		const box = useFakeBox({
+			stdout: ['\u001b[32mSyncing\u001b[0m\r', 'Done\n'],
+			run: (staged) => expect(fs.existsSync(path.join(staged, 'nao_config.yaml'))).toBe(true),
+		});
 		const onOutput = vi.fn(async (_output: string) => undefined);
 		fs.writeFileSync(
 			path.join(project, 'nao_config.yaml'),
@@ -351,8 +354,12 @@ function useFakeBox({
 		execution,
 		mountPath: () => mountPath,
 		start: vi.fn(async () => undefined),
-		copyIn: vi.fn(async (hostPath: string) => copyDirectoryContents(hostPath, mountPath)),
-		copyOut: vi.fn(async (_guestPath: string, hostPath: string) => copyDirectoryContents(mountPath, hostPath)),
+		copyIn: vi.fn(async (hostPath: string) =>
+			copyDirectory(hostPath, mountPath, hostPath.endsWith(`${path.sep}.`)),
+		),
+		copyOut: vi.fn(async (guestPath: string, hostPath: string) =>
+			copyDirectory(mountPath, hostPath, guestPath.endsWith('/.')),
+		),
 		exec: vi.fn(async () => {
 			if (box.start.mock.calls.length === 0) {
 				throw new Error('Cannot exec box: it is configured but not started.');
@@ -364,6 +371,18 @@ function useFakeBox({
 	};
 	boxlite.create.mockImplementation(async () => box);
 	return box;
+}
+
+function copyDirectory(source: string, destination: string, copyContents: boolean): void {
+	if (!copyContents) {
+		fs.cpSync(source, path.join(destination, path.basename(source)), {
+			recursive: true,
+			dereference: false,
+			force: true,
+		});
+		return;
+	}
+	copyDirectoryContents(source, destination);
 }
 
 function copyDirectoryContents(source: string, destination: string): void {

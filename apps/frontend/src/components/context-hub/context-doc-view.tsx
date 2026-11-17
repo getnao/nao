@@ -154,7 +154,7 @@ export function ContextDocView({
 							filesLabel='Context'
 							onSelectFiles={() => requestTarget({ type: 'file', path: null })}
 							changeCount={changedFileCount}
-							footer={isCloud ? <CloudSyncPanel isAdmin={isAdmin} /> : undefined}
+							sync={isCloud ? <CloudSyncPanel isAdmin={isAdmin} /> : undefined}
 							viewMenu={
 								<div className='flex shrink-0 items-center gap-0.5'>
 									<OpenEditorChatButton

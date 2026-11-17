@@ -65,8 +65,9 @@ describe('CloudSyncPanel', () => {
 	it('starts a project sync from the panel', async () => {
 		renderPanel();
 
-		fireEvent.click(await screen.findByRole('button', { name: 'Sync' }));
-		fireEvent.click(await screen.findByRole('button', { name: 'Sync project' }));
+		const syncButton = await screen.findByRole('button', { name: 'Sync project' });
+		await waitFor(() => expect(syncButton.hasAttribute('disabled')).toBe(false));
+		fireEvent.click(syncButton);
 
 		await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
 	});
@@ -116,8 +117,6 @@ describe('CloudSyncPanel', () => {
 		});
 		const { container } = renderPanel();
 
-		fireEvent.click(await screen.findByRole('button', { name: 'Sync' }));
-
 		expect(await screen.findByText('Completed with errors')).toBeTruthy();
 		expect(container.querySelector('.lucide-circle-dot')).toBeTruthy();
 		expect(screen.getByText(message).className).toContain('text-amber-400');
@@ -134,7 +133,6 @@ describe('CloudSyncPanel', () => {
 		});
 		const { queryClient } = renderPanel();
 
-		fireEvent.click(await screen.findByRole('button', { name: 'Sync' }));
 		await screen.findByText('Project is currently being synced by Gary');
 		expect(mocks.invalidateExplorerQueries).not.toHaveBeenCalled();
 
@@ -168,7 +166,6 @@ describe('CloudSyncPanel', () => {
 		mocks.cancel.mockReturnValue(new Promise(() => undefined));
 		renderPanel();
 
-		fireEvent.click(await screen.findByRole('button', { name: 'Sync' }));
 		fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
 
 		expect(await screen.findByText('Cancelling sync... This may take a minute.')).toBeTruthy();

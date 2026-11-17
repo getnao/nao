@@ -553,14 +553,12 @@ export function ContextFileTreeView({
 									/>
 								) : undefined
 							}
+							sync={isCloud ? <CloudSyncPanel isAdmin={isAdmin} /> : undefined}
 							footer={
-								<>
-									{isCloud && <CloudSyncPanel isAdmin={isAdmin} />}
-									<FileHeaderProblems
-										selectedPath={shownFilePath}
-										onOpenFile={(path) => handleSelectFile(path, { isContentMatch: false })}
-									/>
-								</>
+								<FileHeaderProblems
+									selectedPath={shownFilePath}
+									onOpenFile={(path) => handleSelectFile(path, { isContentMatch: false })}
+								/>
 							}
 						/>
 					</ResizablePanel>
