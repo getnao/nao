@@ -542,6 +542,7 @@ export function UserGroupEditor({
 								featureGrants={featureGrants}
 								onFeatureGrantsChange={setFeatureGrants}
 								isDefaultGroup={existingGroup?.isDefault === true}
+								allUsersFeatureGrants={allUsersGroup?.featureGrants ?? []}
 								defaultAllowsProjectSharing={isProjectSharingAllowedByDefault(
 									userGroupOverview.data?.groups,
 								)}
@@ -1162,6 +1163,7 @@ function UserGroupFeatures({
 	featureGrants,
 	onFeatureGrantsChange,
 	isDefaultGroup,
+	allUsersFeatureGrants,
 	defaultAllowsProjectSharing,
 	projectSharing,
 	onProjectSharingChange,
@@ -1175,6 +1177,7 @@ function UserGroupFeatures({
 	featureGrants: UserGroupFeature[];
 	onFeatureGrantsChange: (featureGrants: UserGroupFeature[]) => void;
 	isDefaultGroup: boolean;
+	allUsersFeatureGrants: UserGroupFeature[];
 	defaultAllowsProjectSharing: boolean | undefined;
 	projectSharing: ProjectSharingPermission;
 	onProjectSharingChange: (value: ProjectSharingPermission) => void;
@@ -1186,6 +1189,8 @@ function UserGroupFeatures({
 	onToolCallDensityPolicyChange: (policy: ToolCallDensityPolicy) => void;
 }) {
 	const offeredFeatures = useOfferedUserGroupFeatures();
+	const inheritedFeatureGrants = isDefaultGroup ? [] : allUsersFeatureGrants;
+	const effectiveFeatureGrants = [...new Set([...featureGrants, ...inheritedFeatureGrants])];
 	return (
 		<div className='flex flex-col gap-6'>
 			<div className='flex flex-col gap-3'>
@@ -1199,13 +1204,16 @@ function UserGroupFeatures({
 							key={feature.key}
 							feature={feature}
 							selected={featureGrants.includes(feature.key)}
+							inherited={inheritedFeatureGrants.includes(feature.key)}
 							disabledReason={
 								featureGrants.includes(feature.key)
 									? undefined
-									: missingPrerequisiteReason(feature, featureGrants)
+									: missingPrerequisiteReason(feature, effectiveFeatureGrants)
 							}
 							onSelectedChange={(selected) =>
-								onFeatureGrantsChange(toggleFeatureGrant(featureGrants, feature.key, selected))
+								onFeatureGrantsChange(
+									toggleFeatureGrant(featureGrants, feature.key, selected, inheritedFeatureGrants),
+								)
 							}
 						/>
 					))}
@@ -1304,18 +1312,21 @@ function haveSameRowPolicies(left: UserGroupRowPolicies, right: UserGroupRowPoli
 	}
 }
 
-/** Unchecking a feature also unchecks the ones that require it, so a group never grants a dependent feature alone. */
+/** Unchecking a feature keeps dependents only when All Users still satisfies their prerequisite. */
 function toggleFeatureGrant(
 	grants: UserGroupFeature[],
 	feature: UserGroupFeature,
 	selected: boolean,
+	inheritedGrants: UserGroupFeature[] = [],
 ): UserGroupFeature[] {
 	if (selected) {
 		return [...grants, feature];
 	}
-	const dependents = USER_GROUP_FEATURE_DEFINITIONS.filter((definition) => definition.requires === feature).map(
-		(definition) => definition.key,
-	);
+	const dependents = inheritedGrants.includes(feature)
+		? []
+		: USER_GROUP_FEATURE_DEFINITIONS.filter((definition) => definition.requires === feature).map(
+				(definition) => definition.key,
+			);
 	return grants.filter((key) => key !== feature && !dependents.includes(key));
 }
 

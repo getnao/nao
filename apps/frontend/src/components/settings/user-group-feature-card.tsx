@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { UserGroupFeature } from '@nao/shared';
 
 import { GRID_CARD_CLASS } from '@/components/item-card';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 interface UserGroupFeatureDefinition {
@@ -14,6 +15,7 @@ interface UserGroupFeatureDefinition {
 interface UserGroupFeatureCardProps {
 	feature: UserGroupFeatureDefinition;
 	selected: boolean;
+	inherited?: boolean;
 	onSelectedChange: (selected: boolean) => void;
 	disabledReason?: string;
 }
@@ -21,17 +23,21 @@ interface UserGroupFeatureCardProps {
 export function UserGroupFeatureCard({
 	feature,
 	selected,
+	inherited = false,
 	onSelectedChange,
 	disabledReason,
 }: UserGroupFeatureCardProps) {
-	const disabled = disabledReason !== undefined;
+	const inheritedOnly = inherited && !selected;
+	const effectiveSelected = selected || inherited;
+	const inheritanceLabel = inherited ? (selected ? 'Also from All Users' : 'From All Users') : null;
+	const disabled = inheritedOnly || disabledReason !== undefined;
 	return (
 		<button
 			type='button'
-			aria-label={`${feature.label}. ${feature.description}`}
-			aria-pressed={selected}
+			aria-label={`${feature.label}. ${feature.description}${inheritanceLabel ? `. ${inheritanceLabel}` : ''}`}
+			aria-pressed={effectiveSelected}
 			disabled={disabled}
-			title={disabledReason}
+			title={inheritedOnly ? 'Granted by All Users' : disabledReason}
 			onClick={() => onSelectedChange(!selected)}
 			className={cn(
 				GRID_CARD_CLASS,
@@ -39,23 +45,32 @@ export function UserGroupFeatureCard({
 				'hover:border-primary/40 hover:bg-accent/20',
 				'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent',
 				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-				selected && 'border-primary bg-primary/[0.04] ring-1 ring-primary/40 hover:bg-primary/[0.06]',
+				effectiveSelected &&
+					!inheritedOnly &&
+					'border-primary bg-primary/[0.04] ring-1 ring-primary/40 hover:bg-primary/[0.06]',
 			)}
 		>
 			<UserGroupFeatureCardContent
 				feature={feature}
 				status={
-					<div
-						className={cn(
-							'absolute right-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border bg-background/90 transition-colors',
-							selected
-								? 'border-primary bg-primary text-primary-foreground'
-								: 'border-border text-transparent',
+					<>
+						{inheritanceLabel && (
+							<Badge variant='secondary' className='absolute left-2 top-2 z-10 text-[10px]'>
+								{inheritanceLabel}
+							</Badge>
 						)}
-						aria-hidden='true'
-					>
-						<Check className='size-3' strokeWidth={3} />
-					</div>
+						<div
+							className={cn(
+								'absolute right-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border bg-background/90 transition-colors',
+								effectiveSelected
+									? 'border-primary bg-primary text-primary-foreground'
+									: 'border-border text-transparent',
+							)}
+							aria-hidden='true'
+						>
+							<Check className='size-3' strokeWidth={3} />
+						</div>
+					</>
 				}
 			/>
 		</button>
