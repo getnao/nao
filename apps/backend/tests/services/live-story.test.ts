@@ -717,7 +717,7 @@ function expiredCache() {
 }
 
 function stubWarehouseFetch(response: { columns: string[]; data: unknown[] }) {
-	const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(response) });
+	const fetchMock = vi.fn(async () => Response.json(response));
 	vi.stubGlobal('fetch', fetchMock);
 	return fetchMock;
 }

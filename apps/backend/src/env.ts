@@ -391,6 +391,12 @@ const baseRawEnvSchema = z.object({
 		.positive({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be greater than 0' })
 		.default(10),
 
+	/** Largest warehouse query result the backend reads, so an unbounded SELECT fails with a clear error instead of exhausting memory. */
+	NAO_QUERY_RESULT_MAX_SIZE_MB: z.coerce
+		.number({ message: 'NAO_QUERY_RESULT_MAX_SIZE_MB must be a number of megabytes' })
+		.positive({ message: 'NAO_QUERY_RESULT_MAX_SIZE_MB must be greater than 0' })
+		.default(100),
+
 	/**
 	 * Where DuckDB extensions were pre-installed at image build time. Set so that spreadsheet
 	 * support works with no network at query time, since the query runs with external access off.

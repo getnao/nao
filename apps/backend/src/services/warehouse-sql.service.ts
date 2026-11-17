@@ -3,6 +3,8 @@ import type { WarehouseRowSecurity } from '@nao/shared';
 import { env } from '../env';
 import { assertWarehouseTableAccess, type WarehouseTableAccess } from './context-access';
 
+const BYTES_PER_MB = 1024 * 1024;
+
 interface WarehouseSqlOptions {
 	projectFolder: string;
 	databaseId?: string;
@@ -102,7 +104,44 @@ async function requestWarehouseSql<T>(
 		);
 	}
 
-	return response.json() as Promise<T>;
+	return readJsonWithinLimit<T>(response, env.NAO_QUERY_RESULT_MAX_SIZE_MB * BYTES_PER_MB);
+}
+
+/** A result over ~2 GB cannot even be parsed, so the body is read under a cap and rejected early when the server declares its size. */
+async function readJsonWithinLimit<T>(response: Response, maxBytes: number): Promise<T> {
+	const declaredBytes = Number(response.headers.get('content-length'));
+	if (declaredBytes > maxBytes) {
+		await response.body?.cancel();
+		throw resultTooLargeError(declaredBytes);
+	}
+	return JSON.parse(await readBodyWithinLimit(response, maxBytes)) as T;
+}
+
+async function readBodyWithinLimit(response: Response, maxBytes: number): Promise<string> {
+	if (!response.body) {
+		return response.text();
+	}
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let readBytes = 0;
+	for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+		readBytes += chunk.value.byteLength;
+		if (readBytes > maxBytes) {
+			await reader.cancel();
+			throw resultTooLargeError();
+		}
+		chunks.push(chunk.value);
+	}
+	return Buffer.concat(chunks).toString('utf8');
+}
+
+function resultTooLargeError(resultBytes?: number): WarehouseSqlError {
+	const size = resultBytes ? `${Math.ceil(resultBytes / BYTES_PER_MB).toLocaleString('en-US')} MB` : 'larger';
+	return new WarehouseSqlError(
+		413,
+		`Query result is ${size}, above the ${env.NAO_QUERY_RESULT_MAX_SIZE_MB} MB limit. ` +
+			'Aggregate or filter the query, or add a LIMIT, so it returns less data.',
+	);
 }
 
 function serializeRowSecurity(rowSecurity: WarehouseRowSecurity) {
