@@ -301,7 +301,10 @@ const baseRawEnvSchema = z.object({
 	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
 	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
-	/** Set to false to hide the repositories `nao sync` copies into the context from the Context Hub and the tests. */
+	/**
+	 * Set to false to turn off branch management of the repositories `nao sync` copies into the context: their branches
+	 * can no longer be picked in the Context Hub changes or tested. Their files stay in the context.
+	 */
 	NAO_CONTEXT_SYNCED_REPOS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
