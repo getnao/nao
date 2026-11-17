@@ -23,6 +23,12 @@ vi.mock('@/main', () => ({
 					queryFn: () => mocks.fetchOptions(input),
 				}),
 			},
+			getStandaloneFilterOptions: {
+				queryOptions: (input: Record<string, unknown>) => ({
+					queryKey: ['standalone-story-filter-options', input],
+					queryFn: () => mocks.fetchOptions(input),
+				}),
+			},
 		},
 		storyShare: {
 			getFilterOptions: {
