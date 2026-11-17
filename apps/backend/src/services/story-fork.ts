@@ -15,7 +15,7 @@ import {
 } from '../utils/chat-message-story';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { publishCustomStoryDraft } from './custom-story-authoring';
-import { loadStorySqlQueries, type StoryQueryOrigin } from './story-sql-queries';
+import { copyStoryQueries, loadStorySqlQueries, type StoryQueryOrigin } from './story-sql-queries';
 
 export interface ForkableStory {
 	storyId: string;
@@ -52,7 +52,8 @@ export async function forkStoryIntoChat(story: ForkableStory, owner: ForkOwner):
 	);
 
 	try {
-		await copyStory(story, files, chat.id, owner);
+		const copyId = await copyStory(story, files, chat.id, owner);
+		await copyStoryQueries({ id: story.storyId, chatId: story.chatId }, copyId, queryIds);
 	} catch (error) {
 		await chatQueries.deleteChat(chat.id);
 		throw error;
@@ -60,7 +61,7 @@ export async function forkStoryIntoChat(story: ForkableStory, owner: ForkOwner):
 	return { chatId: chat.id };
 }
 
-function copyStory(story: ForkableStory, files: StoryFileInput[], chatId: string, owner: ForkOwner): Promise<void> {
+function copyStory(story: ForkableStory, files: StoryFileInput[], chatId: string, owner: ForkOwner): Promise<string> {
 	return story.format === 'custom'
 		? copyCustomStory(story, files, chatId, owner)
 		: copyClassicStory(story, chatId, owner);
@@ -98,7 +99,7 @@ async function loadCachedQueryData(storyId: string, queryIds: Set<string>): Prom
 	return Object.fromEntries(Object.entries(cachedQueryData).filter(([queryId]) => queryIds.has(queryId)));
 }
 
-async function copyClassicStory(story: ForkableStory, chatId: string, owner: ForkOwner): Promise<void> {
+async function copyClassicStory(story: ForkableStory, chatId: string, owner: ForkOwner): Promise<string> {
 	const version = await storyQueries.createStoryVersion({
 		chatId,
 		slug: story.slug,
@@ -118,6 +119,7 @@ async function copyClassicStory(story: ForkableStory, chatId: string, owner: For
 		version: version.version,
 	});
 	await storyFolderQueries.saveStoryInPrivateRoot(owner.userId, owner.projectId, version.storyId);
+	return version.storyId;
 }
 
 async function copyCustomStory(
@@ -125,7 +127,7 @@ async function copyCustomStory(
 	files: StoryFileInput[],
 	chatId: string,
 	owner: ForkOwner,
-): Promise<void> {
+): Promise<string> {
 	const copy = await storyQueries.createCustomStory({ chatId, slug: story.slug, title: story.title });
 	await storyFileQueries.seedDraftFiles(copy.id, files);
 	const published = await publishCustomStoryDraft(copy, owner, {
@@ -145,4 +147,5 @@ async function copyCustomStory(
 		version: published.version,
 		files: published.files,
 	});
+	return copy.id;
 }
