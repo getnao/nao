@@ -117,25 +117,27 @@ async function moveToRecipient(story: DBStory, handover: Handover): Promise<void
 	const owner = { userId: handover.recipientId, projectId: handover.projectId };
 	const queryIds = story.chatId ? await listStoryQueryIds(story) : null;
 	const snapshot = queryIds ? await loadSnapshot(story, queryIds) : null;
-	const slug = await freeStandaloneSlug(owner, story.slug);
-	await db.transaction(async (tx) => {
-		if (!(await storyQueries.detachStoryToOwner(story, { ...owner, slug }, tx))) {
-			throw new StoryTransferError('The story changed while it was being transferred. Try again.');
-		}
-		if (queryIds) {
-			await copyStoryQueries(story, story.id, queryIds, tx);
-		}
-		if (snapshot?.queryData || snapshot?.narratives) {
-			await storyQueries.upsertStoryDataCacheByStoryId(
-				story.id,
-				snapshot.queryData ?? {},
-				snapshot.narratives,
-				null,
-				tx,
-			);
-		}
-		await handOverShare(handover, tx);
-		await handOverPrivateFolder(handover, tx);
+	await withKeyedLock(`standalone-slugs:${owner.projectId}:${owner.userId}`, async () => {
+		const slug = await freeStandaloneSlug(owner, story.slug);
+		await db.transaction(async (tx) => {
+			if (!(await storyQueries.detachStoryToOwner(story, { ...owner, slug }, tx))) {
+				throw new StoryTransferError('The story changed while it was being transferred. Try again.');
+			}
+			if (queryIds) {
+				await copyStoryQueries(story, story.id, queryIds, tx);
+			}
+			if (snapshot?.queryData || snapshot?.narratives) {
+				await storyQueries.upsertStoryDataCacheByStoryId(
+					story.id,
+					snapshot.queryData ?? {},
+					snapshot.narratives,
+					null,
+					tx,
+				);
+			}
+			await handOverShare(handover, tx);
+			await handOverPrivateFolder(handover, tx);
+		});
 	});
 	await syncStoryScheduledJobs(story.id);
 }
