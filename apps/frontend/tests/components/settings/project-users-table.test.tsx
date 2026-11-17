@@ -84,6 +84,10 @@ vi.mock('@/main', () => ({
 			listUsersWithAccess: { queryOptions: () => ({ queryKey: ['users-with-access'] }) },
 			removeProjectMember: { mutationOptions: () => ({ mutationKey: ['remove-user'] }) },
 		},
+		automation: {
+			countOwnedByUser: { queryOptions: () => ({ queryKey: ['owned-automations'] }) },
+			transferAllFromUser: { mutationOptions: () => ({ mutationKey: ['transfer-automations'] }) },
+		},
 		story: {
 			countOwnedStories: { queryOptions: () => ({ queryKey: ['owned-stories'] }) },
 			transferAllFromUser: { mutationOptions: () => ({ mutationKey: ['transfer-stories'] }) },
@@ -204,6 +208,21 @@ describe('ProjectUsersTable member management', () => {
 		expect(screen.queryByRole('menuitem', { name: 'Edit user' })).toBeNull();
 		expect(screen.queryByRole('menuitem', { name: 'Remove' })).toBeNull();
 	});
+
+	it.each([
+		{ betaAutomationsEnabled: true, offered: true },
+		{ betaAutomationsEnabled: false, offered: false },
+	])(
+		'offers to transfer automations only when automations are enabled ($betaAutomationsEnabled)',
+		({ betaAutomationsEnabled, offered }) => {
+			mocks.useQuery.mockReturnValue({ data: { naoMode: 'self-hosted', betaAutomationsEnabled } });
+			renderTable();
+
+			openProjectUserActions();
+
+			expect(!!screen.queryByRole('menuitem', { name: 'Transfer automations' })).toBe(offered);
+		},
+	);
 
 	it('removes a project member after confirmation', async () => {
 		renderTable();

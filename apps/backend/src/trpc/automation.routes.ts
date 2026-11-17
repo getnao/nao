@@ -337,6 +337,26 @@ export const automationRoutes = {
 			return { success: true as const };
 		}),
 
+	countOwnedByUser: automationAdminProcedure.input(z.object({ userId: z.string() })).query(async ({ ctx, input }) => {
+		const count = await automationQueries.countProjectAutomationsOfUser(ctx.project.id, input.userId);
+		return { count };
+	}),
+
+	transferAllFromUser: automationAdminProcedure
+		.input(z.object({ fromUserId: z.string(), recipientId: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			if (input.fromUserId === input.recipientId) {
+				return { transferredCount: 0 };
+			}
+			await assertCanOwnAutomation(ctx.project.id, input.recipientId);
+			const transferredCount = await automationQueries.transferProjectAutomationsOfUser(
+				ctx.project.id,
+				input.fromUserId,
+				input.recipientId,
+			);
+			return { transferredCount };
+		}),
+
 	deleteAsAdmin: automationAdminProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
 		const automation = await automationQueries.getProjectAutomation(ctx.project.id, input.id);
 		if (!automation) {
