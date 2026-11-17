@@ -174,6 +174,7 @@ describe('project selection', () => {
 			const result = await getProjectByUserId(USER_B_ID, FINANCE_PROJECT_ID);
 
 			expect(result?.id).toBe(SALES_PROJECT_ID);
+			expect((await listUserProjects(USER_B_ID)).map((p) => p.id)).toEqual([SALES_PROJECT_ID]);
 		});
 	});
 });

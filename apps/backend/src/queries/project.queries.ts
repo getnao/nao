@@ -200,12 +200,16 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 	return results;
 };
 
-/** In self-hosted multi-project mode, hides projects whose path was removed from the configuration. */
+/**
+ * Self-hosted instances only list the projects they currently serve, so projects whose path was
+ * removed, or that a lapsed multi-project license no longer covers, stay hidden.
+ */
 async function selfHostedActiveProjectsFilter(): Promise<SQL | undefined> {
-	if (!(await isSelfHostedMultiProjectEnabled())) {
+	if (isCloud) {
 		return undefined;
 	}
-	return inArray(s.project.path, await getActiveProjectPaths());
+	const activeProjectPaths = await getActiveProjectPaths();
+	return activeProjectPaths.length > 0 ? inArray(s.project.path, activeProjectPaths) : undefined;
 }
 
 export const listUserProjects = async (userId: string): Promise<DBProject[]> => {
