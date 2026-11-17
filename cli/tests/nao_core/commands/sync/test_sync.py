@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from nao_core.commands.sync import sync
 from nao_core.commands.sync.providers import (
@@ -200,3 +201,23 @@ class TestSyncCommand:
         assert exc_info.value.code == 1
         calls = [str(call) for call in sync_console.print.call_args_list]
         assert any("Sync Failed" in call for call in calls)
+
+    @pytest.mark.parametrize(
+        "provider_kwargs",
+        [
+            {"sync_error": "Run pip install 'nao-core[semantic-layer]'"},
+            {"items": ["item1"], "result_error": "Run pip install 'nao-core[semantic-layer]'"},
+        ],
+    )
+    def test_sync_keeps_brackets_in_printed_errors(self, create_config, sync_console, provider_kwargs):
+        create_config()
+        failing = _make_provider(emoji="❌", **provider_kwargs)
+
+        with pytest.raises(SystemExit):
+            sync(_providers=[failing], render_templates=False)
+
+        rendered = Console(width=200)
+        with rendered.capture() as capture:
+            for call in sync_console.print.call_args_list:
+                rendered.print(*call.args)
+        assert "nao-core[semantic-layer]" in capture.get()
