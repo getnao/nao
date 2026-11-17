@@ -1,6 +1,4 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { McpUserRole } from '../../src/types/mcp-endpoint';
@@ -23,14 +21,11 @@ vi.mock('../../src/queries/chat.queries', () => ({
 }));
 vi.mock('../../src/queries/user.queries', () => ({ getUserName: mocks.getUserName }));
 
-import { registerContextAdminTools } from '../../src/mcp/tools/context-admin-tools';
+import { BASELINE_TOOL, listToolNames, useContextAdminMcpClient } from '../helpers/context-admin-mcp-client';
 
-const BASELINE_TOOL = 'baseline';
+const connect = useContextAdminMcpClient();
 
-const connections: Array<{ client: Client; server: McpServer }> = [];
-
-afterEach(async () => {
-	await Promise.all(connections.splice(0).map(({ client, server }) => Promise.all([client.close(), server.close()])));
+afterEach(() => {
 	vi.clearAllMocks();
 });
 
@@ -38,13 +33,13 @@ describe('MCP context admin tools', () => {
 	it.each<McpUserRole>(['admin', 'context_admin'])('exposes the chat history tools to %s', async (role) => {
 		const client = await connect(role);
 
-		expect(await toolNames(client)).toEqual(expect.arrayContaining(['search_chats', 'get_chat']));
+		expect(await listToolNames(client)).toEqual(expect.arrayContaining(['search_chats', 'get_chat']));
 	});
 
 	it('hides the chat history tools from regular users', async () => {
 		const client = await connect('user');
 
-		expect(await toolNames(client)).toEqual([BASELINE_TOOL]);
+		expect(await listToolNames(client)).toEqual([BASELINE_TOOL]);
 	});
 });
 
@@ -187,36 +182,6 @@ describe('MCP get_chat', () => {
 		expect(mocks.getChat).not.toHaveBeenCalled();
 	});
 });
-
-async function connect(role: McpUserRole): Promise<Client> {
-	const server = new McpServer({ name: 'test', version: '0.0.0' });
-	server.registerTool(
-		BASELINE_TOOL,
-		{ description: 'Always registered, like the tools of the other modes.' },
-		() => ({
-			content: [],
-		}),
-	);
-	registerContextAdminTools(server, {
-		userId: 'user-1',
-		projectId: 'project-1',
-		role,
-		settings: { enabled: true, subAgentModeEnabled: true, contextLayerModeEnabled: true },
-		chartDataMode: false,
-		storyCreationEnabled: true,
-		customStoryCreationEnabled: false,
-	});
-	const client = new Client({ name: 'test-client', version: '0.0.0' });
-	const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-	await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-	connections.push({ client, server });
-	return client;
-}
-
-async function toolNames(client: Client): Promise<string[]> {
-	const { tools } = await client.listTools();
-	return tools.map((tool) => tool.name);
-}
 
 function lastToolCall(result: Awaited<ReturnType<Client['callTool']>>): unknown {
 	const messages = (result.structuredContent as { messages: Array<{ toolCalls: unknown[] }> }).messages;

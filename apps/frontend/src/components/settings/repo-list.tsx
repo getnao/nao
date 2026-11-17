@@ -6,10 +6,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { formatRelativeDate } from '@/lib/time-ago';
+import { cn } from '@/lib/utils';
 
 interface RepoListPage<T> {
 	items: T[];
 	hasMore: boolean;
+}
+
+interface RepoListItems<T> {
+	data?: RepoListPage<T>;
+	isLoading: boolean;
+	/** The previous search or page stays shown while the new one loads. */
+	isShowingPreviousResults: boolean;
 }
 
 interface RepoListProps<T> {
@@ -19,7 +27,7 @@ interface RepoListProps<T> {
 	renderRepoMeta?: (item: T) => ReactNode;
 	searchPlaceholder: string;
 	resourceNounPlural: string;
-	useItems: (params: { page: number; search?: string }) => { data?: RepoListPage<T>; isLoading: boolean };
+	useItems: (params: { page: number; search?: string }) => RepoListItems<T>;
 	getKey: (item: T) => string | number;
 	getValue: (item: T) => string;
 	getLabel: (item: T) => string;
@@ -51,7 +59,8 @@ export function RepoList<T>({
 	const [page, setPage] = useState(1);
 	const debouncedSearch = useDebouncedValue(search, 300);
 
-	const { data, isLoading } = useItems({ page, search: debouncedSearch || undefined });
+	const { data, isLoading, isShowingPreviousResults } = useItems({ page, search: debouncedSearch || undefined });
+	const isSearching = search !== debouncedSearch || isShowingPreviousResults;
 
 	const handleSearchChange = (value: string) => {
 		onSearchChange?.();
@@ -67,11 +76,24 @@ export function RepoList<T>({
 					placeholder={searchPlaceholder}
 					value={search}
 					onChange={(e) => handleSearchChange(e.target.value)}
-					className='pl-9'
+					className='pl-9 pr-9'
 				/>
+				{isSearching && (
+					<Loader2
+						role='status'
+						aria-label={`Searching ${resourceNounPlural}`}
+						className='absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground'
+					/>
+				)}
 			</div>
 
-			<div className='flex flex-col gap-1 max-h-[340px] overflow-y-auto -mx-1 px-1'>
+			<div
+				aria-busy={isSearching}
+				className={cn(
+					'flex flex-col gap-1 max-h-[340px] overflow-y-auto -mx-1 px-1 transition-opacity',
+					isSearching && 'opacity-50',
+				)}
+			>
 				{isLoading && !data ? (
 					<div className='flex items-center justify-center py-8 text-muted-foreground'>
 						<Loader2 className='size-5 animate-spin' />

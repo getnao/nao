@@ -12,6 +12,7 @@ vi.mock('../../src/services/shared-github-token.service', () => ({
 	resolveRepositoryProvider: mocks.resolveRepositoryProvider,
 }));
 
+import { env } from '../../src/env';
 import { REVIEW_REQUEST_PROVIDERS } from '../../src/services/review-request-provider';
 import {
 	createUpstreamContextSnapshot,
@@ -95,6 +96,25 @@ const BRANCHES_INPUT = () => ({ projectId: 'project-1', projectFolder, repo: 'bu
 describe('listUpstreamRepos', () => {
 	it('lists the git repositories of the project, not its local folders', async () => {
 		expect(await listUpstreamRepos('project-1', projectFolder)).toEqual([{ name: 'business', branch: 'main' }]);
+	});
+});
+
+describe('synced repos turned off with NAO_CONTEXT_SYNCED_REPOS_ENABLED', () => {
+	beforeEach(() => {
+		env.NAO_CONTEXT_SYNCED_REPOS_ENABLED = false;
+		return () => {
+			env.NAO_CONTEXT_SYNCED_REPOS_ENABLED = true;
+		};
+	});
+
+	it('lists no repository', async () => {
+		expect(await listUpstreamRepos('project-1', projectFolder)).toEqual([]);
+	});
+
+	it('refuses to read the branches of a configured repository', async () => {
+		await expect(listUpstreamBranches(BRANCHES_INPUT())).rejects.toThrow(
+			'Synced repos are turned off on this instance.',
+		);
 	});
 });
 

@@ -478,6 +478,32 @@ describe('startComparisonRun', () => {
 		);
 	});
 
+	it('runs a test the changes add against the draft only, as production does not have it', async () => {
+		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
+		writeDraftTestFile('margin.yml', 'prompt: What is the margin?');
+		mocks.createDraftContextSnapshot.mockReturnValue({
+			folder: draftFolder,
+			branch: 'add-margin-test',
+			productionBranch: 'main',
+			productionCommit: 'abc123',
+			changes: [{ path: 'tests/margin.yml', kind: 'added' }],
+			excludedChanges: [],
+			outdatedPaths: [],
+		});
+
+		const run = await startComparisonRun({ projectId: 'project-1', userId: 'user-1', draft: gitDraft() });
+		await vi.waitFor(() => expect(mocks.removeContextSnapshot).toHaveBeenCalledWith(draftFolder));
+
+		expect(run.totalAttempts).toBe(3);
+		const variantsOf = (testPath: string) =>
+			mocks.recordResultWhileRunning.mock.calls
+				.map(([result]) => result)
+				.filter((result) => result.testPath === testPath)
+				.map((result) => result.contextVariant);
+		expect(variantsOf('margin.yml')).toEqual(['draft']);
+		expect(variantsOf('revenue.yml').sort()).toEqual(['draft', 'production']);
+	});
+
 	it('compares only the given tests, as they are in the editor', async () => {
 		writeDraftTestFile('revenue.yml', 'prompt: What is the revenue?');
 		writeDraftTestFile('margin.yml', 'prompt: What is the margin?');
