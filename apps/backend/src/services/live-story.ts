@@ -873,14 +873,14 @@ async function regenerateCustomStoryNarratives(
 	target: StoryRefreshTarget,
 	version: { id: string; title: string },
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
-): Promise<StoryNarratives | undefined> {
+): Promise<StoryNarratives> {
 	const sources = extractStoryNarratives(await storyFileQueries.listVersionFiles(version.id));
 	if (sources.length === 0) {
 		return {};
 	}
 	const liveStoryModel = await resolveLiveStoryModel(target);
 	if (!liveStoryModel) {
-		return undefined;
+		return {};
 	}
 
 	const systemPrompt = renderToMarkdown(
