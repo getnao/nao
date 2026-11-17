@@ -32,6 +32,12 @@ const COST_COLS = [
 
 type UsageByUserRow = UserUsageBreakdown & { date: string };
 
+type ProjectModel = { provider: LlmProvider; modelId: string };
+
+const USED_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const usedModelsCache = new Map<string, { expiresAt: number; models: Promise<ProjectModel[]> }>();
+
 type CostLookupTuple = readonly [
 	provider: string,
 	modelId: string,
@@ -638,12 +644,13 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 }
 
 async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
-	const [availableModels, declaredSources] = await Promise.all([
+	const [usedModels, availableModels, declaredSources] = await Promise.all([
+		getProjectUsedModels(projectId),
 		getProjectAvailableModels(projectId),
 		getProjectDeclaredModels(projectId),
 	]);
 	const declaredPrices = new Map<string, ModelCosts | undefined>(
-		[...getCatalogueModels(), ...availableModels].map((model) => [costKey(model), undefined]),
+		[...getCatalogueModels(), ...usedModels, ...availableModels].map((model) => [costKey(model), undefined]),
 	);
 	for (const { provider, models } of declaredSources) {
 		for (const model of models) {
@@ -659,14 +666,47 @@ async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]
 	return tuples.length > 0 ? tuples : [toCostLookupTuple('', '', {})];
 }
 
-/** Bounded on purpose: a project's whole message history is too costly to scan on every budget check. */
-function getCatalogueModels(): Array<{ provider: LlmProvider; modelId: string }> {
+function getCatalogueModels(): ProjectModel[] {
 	return Object.entries(PROVIDER_META).flatMap(([provider, meta]) =>
 		meta.models.map((model) => ({ provider: provider as LlmProvider, modelId: model.id })),
 	);
 }
 
-function costKey({ provider, modelId }: { provider: LlmProvider; modelId: string }): string {
+/**
+ * Cached because budget checks build the cost lookup on every message. A model is used only once it is enabled, and
+ * enabled models are read fresh, so the cache only has to remember the models used before they were disabled.
+ */
+function getProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
+	const cached = usedModelsCache.get(projectId);
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.models;
+	}
+	const models = queryProjectUsedModels(projectId);
+	usedModelsCache.set(projectId, { expiresAt: Date.now() + USED_MODELS_CACHE_TTL_MS, models });
+	models.catch(() => usedModelsCache.delete(projectId));
+	return models;
+}
+
+async function queryProjectUsedModels(projectId: string): Promise<ProjectModel[]> {
+	const [messageModels, inferenceModels] = await Promise.all([
+		db
+			.selectDistinct({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+			.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmModelId)))
+			.execute(),
+		db
+			.selectDistinct({ provider: s.llmInference.llmProvider, modelId: s.llmInference.llmModelId })
+			.from(s.llmInference)
+			.where(eq(s.llmInference.projectId, projectId))
+			.execute(),
+	]);
+	return [...messageModels, ...inferenceModels].filter(
+		(model): model is ProjectModel => !!model.provider && !!model.modelId,
+	);
+}
+
+function costKey({ provider, modelId }: ProjectModel): string {
 	return `${provider}\u0000${modelId}`;
 }
 
