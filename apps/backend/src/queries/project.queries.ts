@@ -179,7 +179,13 @@ export const listProjectMembershipsForUser = async (
 		.execute();
 };
 
-export const listUserProjectsWithRoles = async (userId: string): Promise<UserProjectWithRole[]> => {
+/** `includeInactive` also returns self-hosted projects the instance no longer serves, for cleanups. */
+export type ListUserProjectsOptions = { includeInactive?: boolean };
+
+export const listUserProjectsWithRoles = async (
+	userId: string,
+	{ includeInactive = false }: ListUserProjectsOptions = {},
+): Promise<UserProjectWithRole[]> => {
 	const results = await db
 		.select({
 			project: s.project,
@@ -192,7 +198,7 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 			and(
 				ne(s.project.id, SYSTEM_EXAMPLE_PROJECT_ID),
 				or(eq(s.projectMember.userId, userId), eq(s.orgMember.userId, userId)),
-				await selfHostedActiveProjectsFilter(),
+				includeInactive ? undefined : await selfHostedActiveProjectsFilter(),
 			),
 		)
 		.orderBy(asc(s.project.name))
@@ -212,8 +218,8 @@ async function selfHostedActiveProjectsFilter(): Promise<SQL | undefined> {
 	return activeProjectPaths.length > 0 ? inArray(s.project.path, activeProjectPaths) : undefined;
 }
 
-export const listUserProjects = async (userId: string): Promise<DBProject[]> => {
-	const results = await listUserProjectsWithRoles(userId);
+export const listUserProjects = async (userId: string, options?: ListUserProjectsOptions): Promise<DBProject[]> => {
+	const results = await listUserProjectsWithRoles(userId, options);
 	return results.map((r) => r.project);
 };
 

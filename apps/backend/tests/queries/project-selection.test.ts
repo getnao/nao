@@ -166,6 +166,9 @@ describe('project selection', () => {
 
 			expect(projects.map((p) => p.id).sort()).toEqual([FINANCE_PROJECT_ID, SALES_PROJECT_ID]);
 			expect((await getProjectByUserId(USER_B_ID, REMOVED_PROJECT_ID))?.id).toBe(SALES_PROJECT_ID);
+			expect((await listUserProjects(USER_B_ID, { includeInactive: true })).map((p) => p.id)).toContain(
+				REMOVED_PROJECT_ID,
+			);
 		});
 
 		it('only serves the default project without the Enterprise license', async () => {
