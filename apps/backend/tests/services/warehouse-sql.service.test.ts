@@ -5,6 +5,7 @@ import { executeWarehouseSql } from '../../src/services/warehouse-sql.service';
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 
 const MEGABYTE = 1024 * 1024;
+const CHUNK_BYTES = 64 * 1024;
 const RESULT_OPTIONS = {
 	projectFolder: '/tmp/project',
 	enforceExcludedColumns: false,
@@ -26,32 +27,37 @@ afterEach(() => {
 describe('executeWarehouseSql result size limit', () => {
 	it('returns a result under the limit', async () => {
 		const result = { data: [{ n: 1 }], row_count: 1, columns: ['n'] };
-		stubWarehouseResponse(new Response(streamOf(JSON.stringify(result))));
+		stubWarehouseResponse(new Response(trackedStreamOf(JSON.stringify(result)).stream));
 
 		await expect(executeWarehouseSql('SELECT 1', RESULT_OPTIONS)).resolves.toEqual(result);
 	});
 
-	it.each([
-		{
-			name: 'a declared size',
-			response: () => new Response('{}', { headers: { 'content-length': String(2 * MEGABYTE) } }),
-			message: 'Query result is 2 MB, above the 1 MB limit.',
-		},
-		{
-			name: 'a streamed body without a declared size',
-			response: () => new Response(streamOf(`"${'x'.repeat(MEGABYTE)}"`)),
-			message: 'Query result is larger, above the 1 MB limit.',
-		},
-	])('rejects a result over the limit from $name', async ({ response, message }) => {
-		stubWarehouseResponse(response());
+	it('cancels a result whose declared size is over the limit without reading it', async () => {
+		const body = trackedStreamOf(`"${'x'.repeat(2 * MEGABYTE)}"`);
+		stubWarehouseResponse(new Response(body.stream, { headers: { 'content-length': String(body.totalBytes) } }));
 
-		await expect(executeWarehouseSql('SELECT *', RESULT_OPTIONS)).rejects.toMatchObject({
-			name: 'WarehouseSqlError',
-			status: 413,
-			message: expect.stringContaining(message),
-		});
+		await expectResultTooLarge('Query result is 3 MB, above the 1 MB limit.');
+		expect(body.pulledBytes()).toBe(0);
+		expect(body.wasCanceled()).toBe(true);
+	});
+
+	it('stops reading a streamed result as soon as it goes over the limit', async () => {
+		const body = trackedStreamOf(`"${'x'.repeat(4 * MEGABYTE)}"`);
+		stubWarehouseResponse(new Response(body.stream));
+
+		await expectResultTooLarge('Query result is larger, above the 1 MB limit.');
+		expect(body.pulledBytes()).toBeLessThanOrEqual(MEGABYTE + CHUNK_BYTES);
+		expect(body.wasCanceled()).toBe(true);
 	});
 });
+
+async function expectResultTooLarge(message: string) {
+	await expect(executeWarehouseSql('SELECT *', RESULT_OPTIONS)).rejects.toMatchObject({
+		name: 'WarehouseSqlError',
+		status: 413,
+		message: expect.stringContaining(message),
+	});
+}
 
 function stubWarehouseResponse(response: Response) {
 	vi.stubGlobal(
@@ -60,18 +66,30 @@ function stubWarehouseResponse(response: Response) {
 	);
 }
 
-function streamOf(text: string): ReadableStream<Uint8Array> {
+function trackedStreamOf(text: string) {
 	const bytes = new TextEncoder().encode(text);
-	const chunkSize = 64 * 1024;
 	let offset = 0;
-	return new ReadableStream({
-		pull(controller) {
-			if (offset >= bytes.byteLength) {
-				controller.close();
-				return;
-			}
-			controller.enqueue(bytes.subarray(offset, offset + chunkSize));
-			offset += chunkSize;
+	let canceled = false;
+	const stream = new ReadableStream<Uint8Array>(
+		{
+			pull(controller) {
+				if (offset >= bytes.byteLength) {
+					controller.close();
+					return;
+				}
+				controller.enqueue(bytes.subarray(offset, offset + CHUNK_BYTES));
+				offset += CHUNK_BYTES;
+			},
+			cancel() {
+				canceled = true;
+			},
 		},
-	});
+		{ highWaterMark: 0 },
+	);
+	return {
+		stream,
+		totalBytes: bytes.byteLength,
+		pulledBytes: () => Math.min(offset, bytes.byteLength),
+		wasCanceled: () => canceled,
+	};
 }
