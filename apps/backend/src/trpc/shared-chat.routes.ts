@@ -1,4 +1,4 @@
-import { DOWNLOAD_FORMATS, type UserRole } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -6,12 +6,14 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
-import * as userQueries from '../queries/user.queries';
-import { logActivity } from '../services/activity';
+import {
+	assertCanManageChatShare,
+	getChatShareSettings,
+	saveChatShareSettings,
+} from '../services/chat-share-settings.service';
 import { getActiveThemeForProject } from '../services/custom-story';
 import { getStoryQueryData } from '../services/live-story';
-import { notifySharedItem } from '../services/notification.service';
-import { assertCanShareToProject, assertCanShareWith } from '../services/project-sharing.service';
+import type { ShareActor } from '../services/story-share-settings.service';
 import { type UIChat } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
@@ -39,63 +41,6 @@ export const sharedChatRoutes = {
 		const projectIds = projects.map((p) => p.id);
 		return sharedChatQueries.listUserSharedChats(projectIds, ctx.user.id);
 	}),
-
-	create: canSendProcedure
-		.input(
-			z.object({
-				chatId: z.string(),
-				visibility: z.enum(['project', 'specific']).default('project'),
-				allowedUserIds: z.array(z.string()).optional(),
-				notify: z.boolean().default(false),
-			}),
-		)
-		.mutation(async ({ input, ctx }) => {
-			const chatInfo = await chatQueries.getChatInfo(input.chatId);
-			if (!chatInfo) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
-			}
-			if (chatInfo.projectId !== ctx.project.id) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
-			}
-			if (chatInfo.userId !== ctx.user.id && ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
-			}
-			if (input.visibility === 'project') {
-				await assertCanShareToProject(ctx.project.id, ctx.user.id);
-			} else {
-				await assertCanShareWith(ctx.project.id, ctx.user.id, { userIds: input.allowedUserIds });
-			}
-
-			const created = await sharedChatQueries.createSharedChat(
-				{
-					chatId: input.chatId,
-					visibility: input.visibility,
-				},
-				input.allowedUserIds,
-			);
-
-			await logActivity({
-				projectId: ctx.project.id,
-				userId: ctx.user.id,
-				type: 'chat.shared',
-				chatId: input.chatId,
-				sharedChatId: created.id,
-			});
-
-			notifySharedItem({
-				projectId: ctx.project.id,
-				sharerId: ctx.user.id,
-				sharerName: ctx.user.name,
-				itemId: created.id,
-				itemLabel: 'chat',
-				itemTitle: chatInfo.title,
-				visibility: input.visibility,
-				allowedUserIds: input.allowedUserIds,
-				deliverExternally: input.notify,
-			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
-
-			return created;
-		}),
 
 	getSharedChat: shareAccessProcedure.input(z.object({ shareId: z.string() })).query(
 		async ({
@@ -125,59 +70,24 @@ export const sharedChatRoutes = {
 		},
 	),
 
-	getShareOptionsByChatId: chatProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }) => {
-		const share = await sharedChatQueries.getShareIdByChatId(input.chatId, ctx.user.id);
-		if (!share) {
-			return { shareId: null, visibility: null, allowedUserIds: [] };
-		}
-
-		const allowedUserIds =
-			share.visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(share.id) : [];
-
-		return { shareId: share.id, visibility: share.visibility, allowedUserIds };
+	getShareSettings: chatProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }) => {
+		const actor = toShareActor({ ...ctx, project: { id: ctx.resource.projectId } });
+		return getChatShareSettings({ id: input.chatId, ...ctx.resource }, actor);
 	}),
 
-	updateAccess: shareProcedure
-		.input(z.object({ shareId: z.string(), allowedUserIds: z.array(z.string()) }))
+	saveShareSettings: canSendProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				visibility: z.enum(SHARE_VISIBILITY),
+				userIds: z.array(z.string()).default([]),
+				groupIds: z.array(z.string()).default([]),
+				notify: z.boolean().default(false),
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
-			const chatOwnerId = await chatQueries.getChatOwnerId(ctx.resource.chatId);
-			if (!chatOwnerId || (chatOwnerId !== ctx.user.id && ctx.userRole !== 'admin')) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
-			}
-
-			const previousAllowedUserIds = await sharedChatQueries.getShareAllowedUserIds(input.shareId);
-			await assertCanShareWith(ctx.resource.projectId, ctx.user.id, {
-				userIds: input.allowedUserIds.filter((id) => !previousAllowedUserIds.includes(id)),
-			});
-
-			const accessibleUsers = await projectQueries.listUsersWithProjectAccess(ctx.resource.projectId);
-			const accessibleUserIds = new Set(accessibleUsers.map((m) => m.id));
-			const validUserIds = input.allowedUserIds.filter((id) => accessibleUserIds.has(id));
-			if (input.allowedUserIds.length > 0 && validUserIds.length === 0) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No valid users in the provided list.' });
-			}
-
-			await sharedChatQueries.updateSharedChatAllowedUsers(input.shareId, validUserIds);
-
-			// Re-read the committed ACL: a concurrent update could have won the last write,
-			// so only notify users who were newly added AND actually still have access.
-			const committedAllowedUserIds = new Set(await sharedChatQueries.getShareAllowedUserIds(input.shareId));
-			const newlyAddedUserIds = validUserIds.filter(
-				(id) => !previousAllowedUserIds.includes(id) && committedAllowedUserIds.has(id),
-			);
-			if (newlyAddedUserIds.length > 0) {
-				const ownerName = (await userQueries.getUserName(chatOwnerId)) ?? ctx.user.name;
-				notifySharedItem({
-					projectId: ctx.resource.projectId,
-					sharerId: chatOwnerId,
-					sharerName: ownerName,
-					itemId: input.shareId,
-					itemLabel: 'chat',
-					itemTitle: ctx.resource.title || '',
-					visibility: 'specific',
-					allowedUserIds: newlyAddedUserIds,
-				}).catch((err) => console.error('Failed to notify shared chat recipients', err));
-			}
+			const { chat, actor } = await loadManagedChat(input.chatId, ctx);
+			return saveChatShareSettings(chat, actor, input);
 		}),
 
 	delete: shareProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ input, ctx }) => {
@@ -247,3 +157,22 @@ export const sharedChatRoutes = {
 			);
 		}),
 };
+
+function toShareActor(ctx: {
+	user: { id: string; name: string };
+	userRole: UserRole | null;
+	project: { id: string };
+}): ShareActor {
+	return { id: ctx.user.id, name: ctx.user.name, role: ctx.userRole, projectId: ctx.project.id };
+}
+
+async function loadManagedChat(chatId: string, ctx: Parameters<typeof toShareActor>[0]) {
+	const chatInfo = await chatQueries.getChatInfo(chatId);
+	if (!chatInfo) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
+	}
+	const chat = { id: chatId, ...chatInfo };
+	const actor = toShareActor(ctx);
+	assertCanManageChatShare(chat, actor);
+	return { chat, actor };
+}

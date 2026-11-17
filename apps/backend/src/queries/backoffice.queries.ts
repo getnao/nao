@@ -4,25 +4,9 @@ import { and, asc, count, desc, eq, gte, or, sql } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import dbConfig, { Dialect } from '../db/dbConfig';
 import type { ProjectPaginationInput, SearchPaginationInput } from '../types/backoffice';
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
-
-export async function checkDatabaseConnection(): Promise<boolean> {
-	try {
-		if (dbConfig.dialect === Dialect.Postgres) {
-			await (db as unknown as { execute(query: ReturnType<typeof sql>): Promise<unknown> }).execute(
-				sql`select 1`,
-			);
-		} else {
-			await db.run(sql`select 1`);
-		}
-		return true;
-	} catch {
-		return false;
-	}
-}
 
 export async function listOrganizations(input: SearchPaginationInput) {
 	const searchFilter = buildSearchFilter(input.search, s.organization.name, s.organization.slug);

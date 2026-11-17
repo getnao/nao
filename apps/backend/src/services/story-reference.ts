@@ -128,6 +128,7 @@ export function toStorySummary(story: storyReferenceQueries.ReferenceableStory):
 		format: story.format,
 		pinned: story.isPinned,
 		certified: story.isCertified,
+		editable: story.canEdit,
 		updatedAt: story.updatedAt.toISOString(),
 	};
 }

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getMcpChartEmbedById, getMcpMapEmbedById } from '../queries/mcp-embed.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { getCustomBoundaries } from '../queries/project.queries';
+import { getActiveThemeForProject } from '../services/custom-story';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { loadEmbedStoryContent } from '../utils/embed-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from '../utils/embed-token';
@@ -63,7 +64,10 @@ export const embedRoutes = router({
 
 		await assertProjectMcpEnabled(embed.projectId);
 
-		const queryData = await getMcpQueryData(embed.queryId, embed.projectId);
+		const [queryData, theme] = await Promise.all([
+			getMcpQueryData(embed.queryId, embed.projectId),
+			getActiveThemeForProject(embed.projectId),
+		]);
 		if (!queryData) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Query data not found or expired.' });
 		}
@@ -80,6 +84,7 @@ export const embedRoutes = router({
 			data: queryData.data,
 			sourceChatId,
 			chartConfig: embed.chartConfig,
+			theme,
 		};
 	}),
 

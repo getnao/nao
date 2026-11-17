@@ -1,4 +1,6 @@
 import { resolveDataKey } from '@nao/shared';
+import { extractParameterIds } from '@nao/shared/story-parameter-template';
+import { partAttributes } from '@nao/shared/story-parts';
 import { Code, Pencil } from 'lucide-react';
 import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { StoryBlockDragContext } from './story-editor-drag-context';
@@ -94,6 +96,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				yAxisRightMax={chart.yAxisRightMax}
 				yAxisRightLabel={chart.yAxisRightLabel}
 				showDataLabels={chart.showDataLabels}
+				showLegend={chart.showLegend}
 				comparisonMode={chart.comparisonMode}
 				normalSize
 				hideTotal={chart.hideTotal}
@@ -134,7 +137,7 @@ export function StoryChartEmbedShell({
 	const [editorView, setEditorView] = useState<ChartEditorView>('chart');
 	const [showQuery, setShowQuery] = useState(false);
 	const [palette, setPalette] = useState<string[] | undefined>();
-	const canEdit = Boolean(edit && chart.rawTag);
+	const canEdit = Boolean(edit && chart.rawTag && !usesStoryParameters(chart.rawTag));
 	const sourceQuery = useStoryChartSourceQuery({
 		queryId: chart.queryId,
 		story: edit?.story,
@@ -169,6 +172,7 @@ export function StoryChartEmbedShell({
 			y_axis_right_label: chart.yAxisRightLabel,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
+			show_legend: chart.showLegend,
 			comparison_mode: chart.comparisonMode,
 			hide_total: chart.hideTotal,
 		}),
@@ -217,7 +221,12 @@ export function StoryChartEmbedShell({
 					<div className='flex min-w-0 flex-1 items-center gap-1'>
 						{dragHandlePlacement === 'leading' ? dragHandle : null}
 						{chart.title ? (
-							<span className='text-sm font-medium text-foreground min-w-0 truncate'>{chart.title}</span>
+							<span
+								className='text-sm font-medium text-foreground min-w-0 truncate'
+								{...partAttributes({ kind: 'title' })}
+							>
+								{chart.title}
+							</span>
 						) : null}
 					</div>
 					<div className='flex shrink-0 items-center gap-1'>
@@ -258,4 +267,9 @@ export function StoryChartEmbedShell({
 			)}
 		</div>
 	);
+}
+
+/** The visual editor rebuilds the tag from resolved values, which would drop `{{ params.<id> }}` placeholders. */
+function usesStoryParameters(rawTag: string): boolean {
+	return extractParameterIds(rawTag).length > 0;
 }

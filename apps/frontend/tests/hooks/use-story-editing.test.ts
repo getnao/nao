@@ -67,34 +67,27 @@ describe('Story editing', () => {
 		).toBe('# Refreshed persisted Story');
 	});
 
-	it('switches dirty Edit to Code without saving or losing the buffer', async () => {
-		const save = vi.fn(async (): Promise<StorySaveResult> => 'saved');
-		const { result } = renderEditingSession({ initialMode: 'edit', save });
+	it.each<[string, string, StoryViewMode, StoryViewMode, string]>([
+		['Edit', 'Code', 'edit', 'code', '# Unsaved visual edit'],
+		['valid Code', 'Edit', 'code', 'edit', '# Unsaved code edit'],
+	])(
+		'switches dirty %s to %s without saving or losing the buffer',
+		async (_from, _to, initialMode, targetMode, editedCode) => {
+			const save = createSuccessfulSave();
+			const { result } = renderEditingSession({ initialMode, save });
 
-		act(() => result.current.changeCode('# Unsaved visual edit'));
-		await act(() => result.current.requestViewMode('code'));
+			act(() => result.current.changeCode(editedCode));
+			await act(() => result.current.requestViewMode(targetMode));
 
-		expect(save).not.toHaveBeenCalled();
-		expect(result.current.viewMode).toBe('code');
-		expect(result.current.code).toBe('# Unsaved visual edit');
-		expect(result.current.isDirty).toBe(true);
-	});
-
-	it('switches dirty valid Code to Edit without saving or losing the buffer', async () => {
-		const save = vi.fn(async (): Promise<StorySaveResult> => 'saved');
-		const { result } = renderEditingSession({ initialMode: 'code', save });
-
-		act(() => result.current.changeCode('# Unsaved code edit'));
-		await act(() => result.current.requestViewMode('edit'));
-
-		expect(save).not.toHaveBeenCalled();
-		expect(result.current.viewMode).toBe('edit');
-		expect(result.current.code).toBe('# Unsaved code edit');
-		expect(result.current.isDirty).toBe(true);
-	});
+			expect(save).not.toHaveBeenCalled();
+			expect(result.current.viewMode).toBe(targetMode);
+			expect(result.current.code).toBe(editedCode);
+			expect(result.current.isDirty).toBe(true);
+		},
+	);
 
 	it('keeps invalid Code active with its buffer intact', async () => {
-		const save = vi.fn(async (): Promise<StorySaveResult> => 'saved');
+		const save = createSuccessfulSave();
 		const { result } = renderEditingSession({ initialMode: 'code', isCodeValid: false, save });
 
 		act(() => result.current.changeCode('<invalid>'));
@@ -193,4 +186,8 @@ function renderEditingSession({
 			requestViewMode: transitions.requestViewMode,
 		};
 	});
+}
+
+function createSuccessfulSave() {
+	return vi.fn(async (): Promise<StorySaveResult> => 'saved');
 }

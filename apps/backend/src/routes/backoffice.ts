@@ -13,6 +13,7 @@ import * as backofficeQueries from '../queries/backoffice.queries';
 import * as eventQueries from '../queries/backoffice-events.queries';
 import * as statsQueries from '../queries/backoffice-stats.queries';
 import * as userQueries from '../queries/backoffice-user.queries';
+import { checkDatabaseConnection } from '../queries/health.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
 import * as creditsService from '../services/backoffice-credits.service';
@@ -56,7 +57,7 @@ export const backofficeRoutes = async (app: App) => {
 	});
 
 	app.get('/health', async () => {
-		const connected = await backofficeQueries.checkDatabaseConnection();
+		const connected = await checkDatabaseConnection();
 		return {
 			status: connected ? 'ok' : 'degraded',
 			version: env.APP_VERSION,

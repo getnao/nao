@@ -52,14 +52,14 @@ export const managedAiSource: ModelSource = {
 		return [{ provider: 'nao', enabledModels, customModels: [], baseUrl: null }];
 	},
 
-	async resolveModel({ projectId, provider, modelId, usageContext }) {
+	async resolveModel({ projectId, provider, modelId, usageContext, inferenceOverrides }) {
 		const apiKey = env.NAO_MANAGED_OPENAI_API_KEY;
 		const resolvedModelId = LEGACY_MANAGED_MODEL_ALIASES[modelId] ?? modelId;
 		if (!isManagedAiEnabled() || !apiKey || !usageContext?.userId || !isManagedModel(provider, resolvedModelId)) {
 			return null;
 		}
 		const orgId = usageContext.orgId ?? (await projectQueries.getProjectById(projectId))?.orgId ?? undefined;
-		const result = createProviderModel(provider, { apiKey }, resolvedModelId);
+		const result = createProviderModel(provider, { apiKey }, resolvedModelId, inferenceOverrides);
 		return {
 			...result,
 			model: withManagedAiUsageMetering(result.model, provider, resolvedModelId, {

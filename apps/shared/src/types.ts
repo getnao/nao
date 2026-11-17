@@ -1,5 +1,8 @@
 import type { DocumentExtension } from './attachments';
+import type { StoryBlockPart } from './story-parts';
 import type { ValueFormat } from './tools/display-chart';
+
+export type { StoryBlockPart, StoryBlockPartKind } from './story-parts';
 
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
@@ -45,6 +48,27 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	subscription: "When you're added to a story's scheduled delivery.",
 };
 
+export const FEEDBACK_VOTES = ['up', 'down'] as const;
+export type FeedbackVote = (typeof FEEDBACK_VOTES)[number];
+
+export const FEEDBACK_SOURCES = ['chat', 'story'] as const;
+export type FeedbackSource = (typeof FEEDBACK_SOURCES)[number];
+
+/** Runs an automation whenever a matching thumbs up/down is left on a chat answer or a story. */
+export type AutomationFeedbackTrigger = {
+	enabled: boolean;
+	votes: FeedbackVote[];
+	sources: FeedbackSource[];
+};
+
+export const NAO_EVENT_TYPES = ['feedback'] as const;
+export type NaoEventType = (typeof NAO_EVENT_TYPES)[number];
+
+/** nao events an automation listens to, keyed by event type. */
+export type AutomationEventTriggers = {
+	feedback?: AutomationFeedbackTrigger;
+};
+
 export type SharedItemLabel = 'story' | 'chat';
 
 export type ShareSource = { type: 'chat'; shareId: string } | { type: 'story'; storyId: string };
@@ -64,6 +88,8 @@ export type SharedNotificationPayload = {
 	itemLabel: SharedItemLabel;
 	itemTitle: string;
 	visibility: Visibility;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 };
 
 export type StoryRefreshNotificationPayload = {
@@ -245,6 +271,15 @@ export type LlmSelectedModel = {
 	modelId: string;
 };
 
+export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
+	return model.provider === other.provider && model.modelId === other.modelId;
+}
+
+/** The model a stored result names in its own columns, under the shape of a selected model. */
+export function resultModel(result: { llmProvider: LlmProvider; llmModelId: string }): LlmSelectedModel {
+	return { provider: result.llmProvider, modelId: result.llmModelId };
+}
+
 export type SummarySegment =
 	| { type: 'text'; content: string }
 	| {
@@ -291,7 +326,9 @@ export type FileEditabilityReason =
 	| 'generated'
 	| 'rendered-template'
 	| 'synced-source'
-	| 'not-tracked';
+	| 'not-tracked'
+	| 'production-only'
+	| 'branch-of-others';
 
 export type FileEditabilityGuidance =
 	| {
@@ -338,13 +375,45 @@ export type ContextChangedFile = {
 	deletions: number | null;
 };
 
+/** A commit of the current branch, as listed among those not pushed yet. */
+export type ContextCommit = {
+	hash: string;
+	subject: string;
+	committedAt: string;
+};
+
 export type ContextBranchInfo = {
 	currentBranch: string | null;
 	defaultBranch: string;
 	aheadCommitCount: number;
 	unpushedCommitCount: number;
+	/** The newest commits not pushed yet, at most 20, newest first; `unpushedCommitCount` counts them all. */
+	unpushedCommits: ContextCommit[];
 	branches: string[];
 	suggestedBranch: string;
+	/** False on a branch of another user, which the File Explorer only shows: commits go to a branch of one's own. */
+	isCurrentBranchOwned: boolean;
+};
+
+/** A branch of a git repository, with who last committed to it when the git provider or git tells. */
+export type RepoBranch = {
+	name: string;
+	commit: string;
+	author: RepoBranchAuthor | null;
+	committedAt: string | null;
+	isMine: boolean;
+};
+
+export type RepoBranchAuthor = {
+	name: string;
+	/** The account on the git provider, when the commit email is linked to one. */
+	login: string | null;
+};
+
+export type RepoBranchList = {
+	branches: RepoBranch[];
+	/** Whether `isMine` is known, which needs the user's own GitHub or GitLab account. */
+	canFilterMine: boolean;
 };
 
 export type ContextBranchCreationResult = ContextBranchInfo & {
@@ -370,6 +439,11 @@ export type CalendarPeriod = BudgetPeriod | MemberBudgetPeriod;
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
 
+export const SHARE_ROLES = ['viewer', 'editor'] as const;
+export type ShareRole = (typeof SHARE_ROLES)[number];
+
+export type StoryAccessRole = 'owner' | ShareRole;
+
 export type StorySharingInfo = {
 	visibility: Visibility;
 	sharedWithCount: number;
@@ -388,6 +462,17 @@ export type StoryAction = (typeof STORY_ACTIONS)[number];
 
 export const STORY_SOURCES = ['assistant', 'user'] as const;
 export type StorySource = (typeof STORY_SOURCES)[number];
+
+export const STORY_VERSION_ORIGINS = ['agent', 'editor', 'mcp', 'copy'] as const;
+export type StoryVersionOrigin = (typeof STORY_VERSION_ORIGINS)[number];
+
+export type StoryVersionVia = 'original_chat' | 'quick_question' | 'chat' | 'agent' | 'editor' | 'mcp' | 'copy';
+
+export interface StoryVersionChange {
+	author: { id: string; name: string } | null;
+	via: StoryVersionVia;
+	chat: { id: string; title: string } | null;
+}
 
 export const STORY_FORMATS = ['classic', 'custom'] as const;
 export type StoryFormat = (typeof STORY_FORMATS)[number];
@@ -455,18 +540,38 @@ export type AnalyticsEventMetadata =
 	| { type: 'refresh'; trigger: 'manual' | 'scheduled'; queriesRefreshed?: number }
 	| { type: 'view_duration'; durationMs: number; startedAt: number; versionNumber?: number };
 
+export const MAX_CITATIONS_PER_MESSAGE = 100;
+export const MAX_CITATION_TEXT_LENGTH = 10_000;
+
 export interface CitationData {
 	start: number;
 	end: number;
 	text: string;
 	storySlug?: string;
+	/** The chat the cited story belongs to, which can differ from the chat that quotes it. */
+	storyChatId?: string;
 	block?: StoryBlockReference;
+	intent?: StoryCitationIntent;
 }
+
+export type StoryCitationIntent = 'ask' | 'edit';
+
+/** Code cited from a story's source or a file of a custom story, whose path is the reference's title. */
+export const CODE_CITATION_KIND = 'code';
 
 export interface StoryBlockReference {
 	kind: string;
 	title?: string;
 	queryId?: string;
+	/** Position among the blocks sharing this kind, title and query, set only past the first. */
+	occurrence?: number;
+	lines?: StoryCodeLines;
+	part?: StoryBlockPart;
+}
+
+export interface StoryCodeLines {
+	start: number;
+	end: number;
 }
 
 export type MessageBubble = { role: 'user' | 'assistant'; charCount: number };

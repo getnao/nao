@@ -12,7 +12,7 @@ import { useId } from 'react';
 import { Legend, ResponsiveContainer, Tooltip } from 'recharts';
 
 import { Block, BlockState } from './block';
-import { chartBlockConfig, resolveChart, toSeriesConfigs } from './block-config';
+import { chartBlockConfig, resolveChart, resolveShowLegend, toSeriesConfigs } from './block-config';
 import { withNumericValues } from './columns';
 import { useStoryTheme } from './hooks';
 import { piePresentation, pieTooltipLabel } from './pie';
@@ -28,7 +28,6 @@ export { seriesColor };
 
 export interface ChartProps extends BlockProps, BlockDataSource, ChartOptions {
 	height?: number;
-	showLegend?: boolean;
 	showGrid?: boolean;
 }
 
@@ -48,8 +47,11 @@ export function ChartBlock({
 	blockRef,
 	queryId,
 	data,
+	sql,
+	databaseId,
+	filters,
+	params,
 	height = DEFAULT_CHART_HEIGHT,
-	showLegend,
 	showGrid = true,
 	title,
 	description,
@@ -57,13 +59,14 @@ export function ChartBlock({
 	style,
 	...options
 }: ChartBlockProps) {
-	const source = useBlockData({ queryId, data });
+	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options, chartType) : null;
+	const showLegend = resolved ? resolveShowLegend(chartType, resolved, options.showLegend) : false;
 	const edit =
 		resolved && source.status === 'ready'
 			? {
 					block: blockRef,
-					config: chartBlockConfig(chartType, queryId, title, resolved, options),
+					config: chartBlockConfig(chartType, queryId, title, resolved, { ...options, showLegend }),
 					columns: source.columns,
 					rows: source.rows,
 				}
@@ -88,7 +91,7 @@ export function ChartBlock({
 							xAxisKey={resolved.xAxisKey}
 							series={toSeriesConfigs(resolved.series, options)}
 							height={height}
-							showLegend={showLegend ?? (isPieChart(chartType) || resolved.series.length > 1)}
+							showLegend={showLegend}
 							showGrid={showGrid}
 							options={options}
 						/>

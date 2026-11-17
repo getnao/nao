@@ -18,9 +18,12 @@ import {
 	getProjectRequestHeaders,
 	subscribeToExternalActiveProjectChanges,
 } from './lib/active-project';
+import { reloadOnStaleChunkError } from './lib/stale-chunk-reload';
 import { routeTree } from './routeTree.gen';
 import reportWebVitals from './reportWebVitals';
 import type { TrpcRouter } from '@nao/backend/trpc';
+
+reloadOnStaleChunkError();
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {

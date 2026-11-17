@@ -1,4 +1,5 @@
 import {
+	CITATION_MENTION_TRIGGER,
 	type CustomBoundarySet,
 	getSchemaKeyFromMentionId,
 	isSchemaMentionId,
@@ -6,11 +7,15 @@ import {
 	isStoryFolderMentionId,
 	isStoryReferenceMentionId,
 	normalizeCitationMarkers,
+	quoteCitationTokens,
 } from '@nao/shared';
 import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
+import type { StoryBlockPart, StoryBlockPartKind } from '@nao/shared/story-parts';
+import { STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
 import { story } from '@nao/shared/tools';
-import type { CitationData, LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { CitationData, LlmProvider, LlmSelectedModel, StoryBlockReference } from '@nao/shared/types';
+import { CODE_CITATION_KIND } from '@nao/shared/types';
 import {
 	type ContentPart,
 	convertToModelMessages,
@@ -19,8 +24,10 @@ import {
 	generateText,
 	InferUIMessageChunk,
 	ModelMessage,
+	type OutputInterface,
 	type PrepareStepResult,
 	pruneMessages,
+	readUIMessageStream,
 	stepCountIs,
 	type StepResult,
 	type StopCondition,
@@ -32,10 +39,17 @@ import {
 
 import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import type { AgentProfile } from '../agents/profiles/types';
-import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
+import {
+	disableModelReasoning,
+	fitThinkingBudget,
+	getProviderMeta,
+	ProviderModelResult,
+	ProviderOptionsMap,
+} from '../agents/providers';
 import { interactiveStopConditions } from '../agents/stop-conditions';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
+import { protectInternalToolResults } from '../agents/tool-result-clearing';
 import { getTools } from '../agents/tools';
 import { createWebSearchTools } from '../agents/tools/web-search';
 import { getConnections, getTableColumnsContent, getUserRules, listSchemaTableFqdns } from '../agents/user-rules';
@@ -57,7 +71,7 @@ import {
 	UIMessage,
 	UIMessagePart,
 } from '../types/chat';
-import type { ModelCosts } from '../types/llm';
+import type { ModelCosts, ModelInferenceSettings } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
 import { McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
@@ -106,7 +120,13 @@ import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
+import {
+	releaseAgentStoryEditLocks,
+	renewAgentStoryEditLocks,
+	STORY_EDIT_LOCK_RENEW_MS,
+} from './story-edit-lock.service';
 import { customStoryAuthoringError } from './story-mount';
+import { resolveStoryOriginConversationSafely } from './story-origin';
 import { addStoryQuestionReference, resolveLinkedStory } from './story-question';
 import {
 	keepStoryReferencesThroughCompaction,
@@ -137,6 +157,8 @@ export interface AgentRunResult {
 	}>;
 	/** All message parts (step-starts, tool calls, text) for persisting to the DB */
 	responseParts: UIMessagePart[];
+	/** The structured answer of a profile that asks for one (`AgentProfile.output`). */
+	output?: unknown;
 	/** Rows returned by every `execute_sql` call of the run, keyed by query id */
 	queryResults: Map<string, QueryResult>;
 }
@@ -199,6 +221,7 @@ export async function buildToolContext(opts: {
 	modelSelection?: LlmSelectedModel;
 	usageRunId?: string;
 	managedAiBillingMode?: ManagedAiUsageContext['billingMode'];
+	contextFolder?: string;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return {
@@ -229,25 +252,28 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
+	/** A copy of the context to run against instead of the project folder, such as a draft being tested. */
+	contextFolder?: string;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
 		throw new HandlerError('BAD_REQUEST', 'Project path does not exist.');
 	}
+	const projectFolder = opts.contextFolder ?? project.path;
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
 	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
 		getProjectRuntimeEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
-		resolveProjectContextAccess(opts.projectId, opts.userId, project.path),
+		resolveProjectContextAccess(opts.projectId, opts.userId, projectFolder),
 	]);
 	return {
-		projectFolder: project.path,
+		projectFolder,
 		userId: opts.userId,
 		projectId: opts.projectId,
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
-		semanticLayerMode: resolveSemanticLayerMode(project.path, agentSettings),
+		semanticLayerMode: resolveSemanticLayerMode(projectFolder, agentSettings),
 		envVars,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
 		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
@@ -270,6 +296,7 @@ async function assertModelBudget(projectId: string, model: LlmSelectedModel, use
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
+	private _storyLockRenewals = new Map<string, ReturnType<typeof setInterval>>();
 
 	async assertRunAvailable(
 		projectId: string,
@@ -305,13 +332,17 @@ export class AgentService {
 			isBudgetChecked?: boolean;
 			/** Records managed usage without charging an organization wallet. */
 			unbilledManagedAiUsage?: boolean;
+			/** Runs against this copy of the context instead of the project folder. */
+			contextFolder?: string;
+			/** Settings that win over the ones configured for the model. */
+			inferenceOverrides?: ModelInferenceSettings;
 		} = {},
 	): Promise<AgentManager> {
 		await assertUserIsActive(chat.userId);
 		if (options.billingAccessVerifiedProjectId !== chat.projectId) {
 			await assertProjectCloudBillingAccess(chat.projectId);
 		}
-		this._disposeAgent(chat.id);
+		await this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		if (!options.isBudgetChecked) {
 			await assertModelBudget(chat.projectId, resolvedLlmSelectedModel, chat.userId);
@@ -324,7 +355,12 @@ export class AgentService {
 			category: profile.usageCategory ?? 'chat',
 			billingMode: options.unbilledManagedAiUsage ? 'unbilled' : 'wallet',
 		};
-		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel, usageContext);
+		const modelConfig = await this._getModelConfig(
+			chat.projectId,
+			resolvedLlmSelectedModel,
+			usageContext,
+			options.inferenceOverrides,
+		);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
@@ -340,6 +376,7 @@ export class AgentService {
 			modelSelection: resolvedLlmSelectedModel,
 			usageRunId: usageContext.runId,
 			managedAiBillingMode: usageContext.billingMode,
+			contextFolder: options.contextFolder,
 		});
 		toolContext.linkedStory = await resolveLinkedStory(chat);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
@@ -350,7 +387,7 @@ export class AgentService {
 			profile,
 			modelConfig,
 			resolvedLlmSelectedModel,
-			() => this._agents.delete(chat.id),
+			() => this._forgetAgent(chat.id, agent),
 			new AbortController(),
 			agentTools,
 			toolContext,
@@ -358,6 +395,7 @@ export class AgentService {
 			usageContext,
 		);
 		this._agents.set(chat.id, agent);
+		this._keepStoryEditLocks(chat.id);
 		return agent;
 	}
 
@@ -381,13 +419,42 @@ export class AgentService {
 		return buildToolContext(opts);
 	}
 
-	private _disposeAgent(chatId: string): void {
+	private async _disposeAgent(chatId: string): Promise<void> {
 		const agent = this._agents.get(chatId);
 		if (!agent) {
 			return;
 		}
 		agent.stop();
+		await this._forgetAgent(chatId, agent);
+	}
+
+	private async _forgetAgent(chatId: string, agent: AgentManager): Promise<void> {
+		if (this._agents.get(chatId) !== agent) {
+			return;
+		}
 		this._agents.delete(chatId);
+		clearInterval(this._storyLockRenewals.get(chatId));
+		this._storyLockRenewals.delete(chatId);
+		await releaseAgentStoryEditLocks(chatId).catch((error) =>
+			logger.error(`Failed to release the story edit locks of an agent run: ${String(error)}`, {
+				source: 'agent',
+				context: { chatId },
+			}),
+		);
+	}
+
+	private _keepStoryEditLocks(chatId: string): void {
+		clearInterval(this._storyLockRenewals.get(chatId));
+		const renewal = setInterval(() => {
+			renewAgentStoryEditLocks(chatId).catch((error) => {
+				logger.error(`Failed to renew the story edit locks of an agent run: ${String(error)}`, {
+					source: 'agent',
+					context: { chatId },
+				});
+			});
+		}, STORY_EDIT_LOCK_RENEW_MS);
+		renewal.unref();
+		this._storyLockRenewals.set(chatId, renewal);
 	}
 
 	get(chatId: string): AgentManager | undefined {
@@ -413,6 +480,7 @@ export class AgentService {
 		projectId: string,
 		modelSelection: LlmSelectedModel,
 		usageContext?: ManagedAiUsageContext,
+		inferenceOverrides?: ModelInferenceSettings,
 	): Promise<ProviderModelResult> {
 		const result = await resolveProviderModel(
 			projectId,
@@ -420,6 +488,7 @@ export class AgentService {
 			modelSelection.modelId,
 			true,
 			usageContext,
+			inferenceOverrides,
 		);
 		if (!result) {
 			throw new HandlerError('BAD_REQUEST', 'The selected model could not be resolved.');
@@ -431,12 +500,13 @@ export class AgentService {
 export const MAX_OUTPUT_TOKENS = 16_000;
 
 export class AgentManager {
-	private readonly _agent: ToolLoopAgent<never, AgentTools, never>;
+	private readonly _agent: ToolLoopAgent<never, AgentTools, OutputInterface>;
 	private readonly _finished: Promise<void>;
 	private _resolveFinished: (() => void) | undefined;
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
 	private _systemPrompt = '';
 	private _runCompaction = new RunCompaction(compactionService);
+	private _streamResult?: StreamTextResult<AgentTools, OutputInterface>;
 
 	constructor(
 		readonly chat: AgentChat,
@@ -455,13 +525,14 @@ export class AgentManager {
 		});
 		const callSettings = this._modelConfig.callSettings ?? {};
 		const provider = this._modelSelection.provider;
-		const providerOptions = fitThinkingBudget(this._modelConfig.providerOptions, this._maxOutputTokens);
+		const providerOptions = this._protectInternalToolResults();
 		const providerParams = Object.values(providerOptions)[0];
 		this._agent = new ToolLoopAgent({
 			model: this._modelConfig.model,
 			providerOptions,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
+			...(this._profile.output && { output: this._profile.output }),
 			...(callSettings.temperature !== undefined && { temperature: callSettings.temperature }),
 			...(callSettings.topP !== undefined && { topP: callSettings.topP }),
 			...(callSettings.topK !== undefined && { topK: callSettings.topK }),
@@ -489,7 +560,8 @@ export class AgentManager {
 	}
 
 	private get _maxOutputTokens(): number {
-		return this._modelConfig.callSettings?.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
+		const modelLimit = this._modelConfig.callSettings?.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
+		return Math.min(modelLimit, this._profile.maxOutputTokens ?? modelLimit);
 	}
 
 	private get _stopConditions(): StopCondition<AgentTools>[] {
@@ -529,10 +601,20 @@ export class AgentManager {
 		});
 
 		const conversationMessages = workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages;
+		const stepMessages = this._addCache(this._pruneMessages(conversationMessages));
 		return {
 			...this._profile.stepTools?.(steps),
-			messages: this._addCache(this._pruneMessages(conversationMessages)),
+			messages: stepMessages,
+			providerOptions: this._protectInternalToolResults(stepMessages),
 		};
+	}
+
+	private _protectInternalToolResults(history: ModelMessage[] = []): ProviderOptionsMap {
+		return protectInternalToolResults(
+			fitThinkingBudget(this._modelConfig.providerOptions, this._maxOutputTokens),
+			Object.keys(this._agentTools),
+			history,
+		);
 	}
 
 	get generatedArtifacts(): ToolContext['generatedArtifacts'] {
@@ -568,7 +650,7 @@ export class AgentManager {
 		} = {},
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
-		let result: StreamTextResult<AgentTools, never> | undefined;
+		let result: StreamTextResult<AgentTools, OutputInterface> | undefined;
 		const assistantMessageId = crypto.randomUUID();
 		this._usageContext.messageId = assistantMessageId;
 		const handleError = (err: unknown): string => {
@@ -607,9 +689,12 @@ export class AgentManager {
 					abortSignal: this._abortController.signal,
 					experimental_transform: normalizeCitationMarkersStream(),
 				});
+				this._streamResult = result;
 
 				// Extract memory immediately after the request to the agent is sent
-				this._scheduleMemoryExtraction(uiMessages);
+				if (!this._profile.excludesMemories) {
+					this._scheduleMemoryExtraction(uiMessages);
+				}
 
 				if (opts.events?.newChat) {
 					this._scheduleTitleGeneration(getLastUserMessageText(uiMessages));
@@ -716,8 +801,12 @@ export class AgentManager {
 	}
 
 	private async _buildDefaultSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
-		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
-		const userRules = getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
+		const memories = this._profile.excludesMemories
+			? []
+			: await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
+		const userRules = this._profile.excludesUserRules
+			? undefined
+			: getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
 		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
@@ -733,7 +822,7 @@ export class AgentManager {
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
 		const toolNames = Object.keys(this._agentTools);
-		const [mcpServers, sandboxSecrets, trustedStories] = await Promise.all([
+		const [mcpServers, sandboxSecrets, trustedStories, mapBoundaries] = await Promise.all([
 			mcpService.getEnabledServers(this.chat.projectId, this._toolContext.mcpAccess),
 			toolNames.includes('execute_sandboxed_code')
 				? sandboxSecretService.safeListDefinitions(this.chat.userId, this.chat.projectId)
@@ -741,6 +830,7 @@ export class AgentManager {
 			toolNames.includes('list') && toolNames.includes('read')
 				? listTrustedStoriesForPrompt({ userId: this.chat.userId, projectId: this.chat.projectId })
 				: Promise.resolve([]),
+			projectQueries.getCustomBoundaries(this.chat.projectId),
 		]);
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
@@ -751,6 +841,7 @@ export class AgentManager {
 				skills,
 				preloadedSkills,
 				customCharts,
+				mapBoundaries,
 				mcpServers,
 				sandboxSecrets,
 				trustedStories,
@@ -759,6 +850,7 @@ export class AgentManager {
 				repoNames,
 				contextPresence,
 				timezone,
+				role: this._profile.role,
 				toolNames,
 				options: {
 					savedFilesEnabled: isStorageEnabled(),
@@ -776,6 +868,7 @@ export class AgentManager {
 						basePrompt: renderedPrompt,
 						forkMetadata: this.chat.forkMetadata,
 						linkedStory: this._toolContext.linkedStory,
+						storyOriginConversation: await resolveStoryOriginConversationSafely(this.chat),
 					}),
 				)
 			: renderedPrompt;
@@ -921,28 +1014,13 @@ export class AgentManager {
 				abortSignal: this._abortController.signal,
 			});
 			const durationMs = Math.round(performance.now() - startTime);
-
 			const usage = convertToTokenUsage(result.totalUsage);
-			const customModels = await getProjectDeclaredModels(this.chat.projectId)
-				.then(
-					(sources) =>
-						sources.find((source) => source.provider === this._modelSelection.provider)?.models ?? [],
-				)
-				.catch(() => []);
-			const cost = convertToCost(
-				usage,
-				this._modelSelection.provider,
-				this._modelSelection.modelId,
-				customModels,
-				opts.costs,
-			);
-			const finishReason = result.finishReason ?? 'stop';
 
 			return {
 				text: normalizeCitationMarkers(result.text),
 				usage,
-				cost,
-				finishReason,
+				cost: await this._computeCost(usage, opts.costs),
+				finishReason: result.finishReason ?? 'stop',
 				durationMs,
 				responseMessages: result.response.messages,
 				steps: result.steps as AgentRunResult['steps'],
@@ -952,6 +1030,55 @@ export class AgentManager {
 		} finally {
 			this._finish();
 		}
+	}
+
+	/**
+	 * Runs the agent like an interactive chat, so the answer is persisted and can be replayed,
+	 * and waits for the whole loop to finish. For background runs that need the outcome (e.g. tests).
+	 */
+	async streamToCompletion(uiMessages: UIMessage[]): Promise<AgentRunResult> {
+		const startTime = performance.now();
+		const stream = this.stream(uiMessages);
+		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
+			void message;
+		}
+		await this.waitUntilFinished();
+
+		const result = this._streamResult;
+		if (!result) {
+			throw new Error('The agent run did not start.');
+		}
+		const [text, totalUsage, finishReason, steps, response, output] = await Promise.all([
+			result.text,
+			result.totalUsage,
+			result.finishReason,
+			result.steps,
+			result.response,
+			this._profile.output ? result.output : undefined,
+		]);
+		const usage = convertToTokenUsage(totalUsage);
+
+		return {
+			text: normalizeCitationMarkers(text),
+			usage,
+			cost: await this._computeCost(usage),
+			finishReason: finishReason ?? 'stop',
+			durationMs: Math.round(performance.now() - startTime),
+			responseMessages: response.messages,
+			steps: steps as AgentRunResult['steps'],
+			responseParts: [],
+			queryResults: this._toolContext.queryResults,
+			...(this._profile.output && { output }),
+		};
+	}
+
+	private async _computeCost(usage: TokenUsage, costs?: ModelCosts): Promise<TokenCost> {
+		const customModels = await getProjectDeclaredModels(this.chat.projectId)
+			.then(
+				(sources) => sources.find((source) => source.provider === this._modelSelection.provider)?.models ?? [],
+			)
+			.catch(() => []);
+		return convertToCost(usage, this._modelSelection.provider, this._modelSelection.modelId, customModels, costs);
 	}
 
 	checkIsUserOwner(userId: string): boolean {
@@ -984,13 +1111,17 @@ export class AgentManager {
 	}
 
 	private _addCitationContext(messages: UIMessage[]): UIMessage[] {
-		const [lastUserMessage] = findLastUserMessage(messages);
-		if (!lastUserMessage?.citation) {
-			return messages;
+		const messagesWithQuotes = quoteEarlierCitations(messages);
+		const [lastUserMessage] = findLastUserMessage(messagesWithQuotes);
+		const citations = lastUserMessage?.citations;
+		if (!citations?.length) {
+			return messagesWithQuotes;
 		}
 
-		const context = describeCitation(lastUserMessage.citation);
-		return this._transformLastUserMessageText(messages, (text) => (text ? `${context}\n\n${text}` : context));
+		return this._transformLastUserMessageText(messagesWithQuotes, (text) => {
+			const context = describeCitations(citations, text);
+			return text ? `${context}\n\n${text}` : context;
+		});
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
@@ -1200,13 +1331,121 @@ function describeStoredAttachment(part: { url: string; mediaType: string; filena
 	return `[The user attached ${name} (${part.mediaType}) to this message. It is saved at ${part.url}. Its contents are not included here: read that path when you need them.${workbookHint}]`;
 }
 
-function describeCitation({ start, end, text, storySlug, block }: CitationData): string {
-	if (!block) {
-		return `[The user is referring to the following text selection (chars ${start}–${end}):\n"${text}"]`;
+/** Only the last message has its citations described in full; earlier ones read with each quote in place of `❝[n]`. */
+function quoteEarlierCitations(messages: UIMessage[]): UIMessage[] {
+	const [, lastUserMessageIndex] = findLastUserMessage(messages);
+	return messages.map((message, index) => {
+		const citations = message.citations;
+		if (index === lastUserMessageIndex || message.role !== 'user' || !citations?.length) {
+			return message;
+		}
+		const parts = message.parts.map((part) =>
+			part.type === 'text' ? { ...part, text: quoteCitationTokens(part.text, citations) } : part,
+		);
+		return { ...message, parts };
+	});
+}
+
+/** Citations placed inline appear in the text as `❝[n]`; older messages carry them apart from the text. */
+function describeCitations(citations: CitationData[], text: string): string {
+	const isPlacedInline = text.includes(`${CITATION_MENTION_TRIGGER}[`);
+	if (citations.length === 1 && !isPlacedInline) {
+		return describeCitation(citations[0]);
 	}
-	const title = block.title ? ` "${block.title}"` : '';
-	const query = block.queryId ? `, reading ${block.queryId}` : '';
-	return `[The user is referring to the ${block.kind} block${title}${query} of the custom story "${storySlug}". Apply their request to that block in the story's source and publish again.]`;
+	const numbered = citations.map((citation, index) => `${index + 1}. ${describeCitation(citation)}`);
+	const reference = isPlacedInline
+		? `In their message, ${CITATION_MENTION_TRIGGER}[n] stands for element n`
+		: 'They may refer to them by number';
+	return `The user cites ${citations.length} story elements. ${reference}:\n${numbered.join('\n')}`;
+}
+
+function describeCitation({ start, end, text, storySlug, block, intent }: CitationData): string {
+	if (!block) {
+		const position = end > start ? ` (chars ${start}–${end})` : '';
+		return `[The user is referring to the following text selection${position}:\n"${text}"]`;
+	}
+	if (block.kind === CODE_CITATION_KIND) {
+		return `[The user is asking about ${describeCode(block)} of ${describeStory(storySlug)}:\n\`\`\`\n${text}\n\`\`\`]`;
+	}
+	if (intent === 'ask') {
+		const quote = text && text !== block.title ? `:\n"${text}"` : '';
+		return `[The user is asking about ${describeStoryElement(block)} of ${describeStory(storySlug)}${quote}]`;
+	}
+	return `[The user is referring to ${describeStoryElement(block)} of ${describeStory(storySlug)}. Apply their request to that block in the story's source and publish again.]`;
+}
+
+function describeStory(storySlug: string | undefined): string {
+	return storySlug ? `the story "${storySlug}"` : 'the story they are looking at';
+}
+
+function describeCode({ title, lines }: StoryBlockReference): string {
+	const source = title ? `the file ${title}` : 'the source';
+	if (!lines) {
+		return `code from ${source}`;
+	}
+	const range = lines.start === lines.end ? `line ${lines.start}` : `lines ${lines.start}–${lines.end}`;
+	return `${range} of ${source}`;
+}
+
+export function describeStoryElement(block: StoryBlockReference): string {
+	if (block.kind === 'text') {
+		return 'a passage of text';
+	}
+	if (block.part?.kind === 'element') {
+		return describeSelectableElement(block.part, block.kind === STORY_ELEMENT_BLOCK_KIND ? undefined : block);
+	}
+	if (!block.part) {
+		return describeBlock(block);
+	}
+	return `${describePart(block.part)} ${PARTS_INSIDE_BLOCK.has(block.part.kind) ? 'in' : 'of'} ${describeBlock(block)}`;
+}
+
+function describeBlock({ kind, title, queryId }: StoryBlockReference): string {
+	const titled = title ? ` ${JSON.stringify(title)}` : '';
+	const query = queryId ? `, reading ${queryId}` : '';
+	return `the ${kind} block${titled}${query}`;
+}
+
+function describeSelectableElement({ label, value }: StoryBlockPart, block?: StoryBlockReference): string {
+	const detail = value ? ` (${JSON.stringify(value)})` : '';
+	const place = block ? ` in ${describeBlock(block)}` : '';
+	return `the element ${JSON.stringify(label ?? '')}${detail}${place}, marked with selectable() in the story's source`;
+}
+
+const PARTS_INSIDE_BLOCK: ReadonlySet<StoryBlockPartKind> = new Set(['data-point', 'cell']);
+
+const PART_NOUNS: Record<StoryBlockPartKind, string> = {
+	title: 'title',
+	description: 'description',
+	'x-axis': 'x-axis name',
+	'y-axis': 'y-axis name',
+	'axis-tick': 'axis tick',
+	'legend-item': 'legend entry',
+	'data-point': 'data point',
+	'reference-line': 'reference line',
+	'kpi-name': 'KPI name',
+	'kpi-value': 'KPI value',
+	'kpi-comparison': 'KPI comparison',
+	column: 'column',
+	cell: 'cell',
+	element: 'element',
+};
+
+function describePart({ kind, label, series, category, value }: StoryBlockPart): string {
+	const isCell = kind === 'cell';
+	const name = kind === 'data-point' ? (category ?? label) : isCell ? (series ?? label) : label;
+	const secondary = isCell ? { word: 'row', text: category } : { word: 'series', text: series };
+	const parts = [`the ${PART_NOUNS[kind]}`];
+	if (name) {
+		parts.push(JSON.stringify(name));
+	}
+	if (secondary.text && secondary.text !== name) {
+		parts.push(`of ${secondary.word} ${JSON.stringify(secondary.text)}`);
+	}
+	if (value) {
+		parts.push(`(value ${value})`);
+	}
+	return parts.join(' ');
 }
 
 /** Messaging and automation entry points may be the first to reach a project after a restart. */

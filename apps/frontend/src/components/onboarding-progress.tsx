@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
 
@@ -8,12 +9,14 @@ import type { UIMessage } from '@nao/backend/chat';
 import { Button } from '@/components/ui/button';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useRestartOnboarding } from '@/contexts/onboarding-restart';
+import { useActiveProjectId } from '@/lib/active-project';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 const ONBOARDING_STEPS = {
 	new: ['Install', 'Initialize', 'Verify & sync', 'Deploy'],
 	local: ['Locate project', 'Verify', 'Sync', 'Deploy'],
-	github: ['Connect GitHub', 'Import repository'],
+	github: ['Connect GitHub', 'Import repository', 'Set environment variables'],
 	database: ['Connect warehouse', 'Initialize', 'Verify', 'Sync metadata', 'Prepare context'],
 } as const;
 
@@ -185,14 +188,79 @@ export function isOnboardingComplete(
 	return projectSetupComplete && (warehouseReady || progressComplete || warehouseProvisioningActive === false);
 }
 
-export function findCreatedOnboardingProject<T extends { createdAt: Date }>(
+export function canFinishDeployOnboarding(
+	projectSetupComplete: boolean,
+	hasCloudAccess: boolean,
+	progress: OnboardingProgressState | null,
+	warehouseReady: boolean,
+	warehouseProvisioningActive?: boolean,
+): boolean {
+	if (progress?.flow !== 'new' && progress?.flow !== 'local') {
+		return false;
+	}
+	return (
+		hasCloudAccess &&
+		isOnboardingComplete(projectSetupComplete, progress, warehouseReady, warehouseProvisioningActive)
+	);
+}
+
+export function shouldReturnToOnboarding({
+	cloudBillingEnabled,
+	hasProject,
+	setupComplete,
+	hasAccess,
+}: {
+	cloudBillingEnabled: boolean;
+	hasProject: boolean;
+	setupComplete: boolean | undefined;
+	hasAccess: boolean | undefined;
+}): boolean {
+	return cloudBillingEnabled && hasProject && setupComplete === false && hasAccess === false;
+}
+
+export function useOnboardingMissingEnvVars(
+	progress: OnboardingProgressState | null,
+	onboardingProjectId: string | undefined,
+	force = false,
+): string[] | undefined {
+	const activeProjectId = useActiveProjectId();
+	const projectAvailable =
+		force || (progress?.flow === 'github' && progress.step === 2) || isDeployStepReached(progress);
+	const enabled = projectAvailable && onboardingProjectId !== undefined && onboardingProjectId === activeProjectId;
+	const missingEnvVars = useQuery({ ...trpc.project.getMissingEnvVars.queryOptions(), enabled });
+	return enabled ? missingEnvVars.data : [];
+}
+
+export function hasOnboardingCloudAccess(
+	cloudBillingEnabled: boolean,
+	access: { hasAccess: boolean; bypassBilling: boolean } | undefined,
+): boolean {
+	return !cloudBillingEnabled || access?.hasAccess === true || access?.bypassBilling === true;
+}
+
+export function findCreatedOnboardingProject<T extends { createdAt: Date; deployedAt: Date | null }>(
 	projects: T[] | undefined,
 	onboardingStartedAt: number | undefined,
 ): T | null {
-	if (onboardingStartedAt === undefined) {
+	if (onboardingStartedAt === undefined || !projects) {
 		return null;
 	}
-	return projects?.find((project) => project.createdAt.getTime() >= onboardingStartedAt) ?? null;
+	return (
+		projects
+			.filter((project) => deployedDuringOnboarding(project, onboardingStartedAt))
+			.sort((left, right) => deploymentTime(right) - deploymentTime(left))[0] ?? null
+	);
+}
+
+function deployedDuringOnboarding(
+	project: { createdAt: Date; deployedAt: Date | null },
+	onboardingStartedAt: number,
+): boolean {
+	return deploymentTime(project) >= onboardingStartedAt;
+}
+
+function deploymentTime(project: { createdAt: Date; deployedAt: Date | null }): number {
+	return (project.deployedAt ?? project.createdAt).getTime();
 }
 
 function findLatestProgress(messages: UIMessage[]): OnboardingProgressState | null {

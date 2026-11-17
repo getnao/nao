@@ -52,7 +52,8 @@ export const KIT_STYLES = `
 .nao-slides__stage{display:flex;flex:1;align-items:center;justify-content:center;min-height:0}
 .nao-slides__viewport{position:relative;flex:none;overflow:hidden;border:1px solid var(--border);box-sizing:content-box}
 .nao-slide{container:${STORY_FRAME_CONTAINER} / size;position:relative;display:flex;flex-direction:column;gap:24px;width:${STORY_SLIDE_SIZE.width}px;height:${STORY_SLIDE_SIZE.height}px;padding:48px 56px;overflow:hidden;box-sizing:border-box;color:var(--foreground);background:radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 10%, transparent), transparent 40%),color-mix(in srgb, var(--background) 94%, var(--foreground) 3%)}
-.nao-slides__viewport>.nao-slide{transform:scale(var(--nao-slide-scale));transform-origin:top left;will-change:transform}
+.nao-slides__slot{display:contents}
+.nao-slides__slot>.nao-slide{transform:scale(var(--nao-slide-scale));transform-origin:top left;will-change:transform}
 .nao-slide__heading{display:flex;flex-direction:column;gap:8px;flex:none}
 html:has(.nao-slides) .nao-brand-header{display:none}
 .nao-slide__title{margin:0;max-width:980px;font-family:var(--font-heading);font-size:52px;line-height:1;letter-spacing:-.04em;color:var(--foreground)}

@@ -271,6 +271,7 @@ export function StoryTabbedEditor({
 				<div className={contentClassName}>
 					<StoryEditor
 						code={tabs[active]?.innerCode ?? ''}
+						parameterCode={bufferCode}
 						editorRef={editorRef}
 						onSave={onSave}
 						onDragControlsChange={handleDragControlsChange}

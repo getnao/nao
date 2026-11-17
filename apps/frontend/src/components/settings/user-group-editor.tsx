@@ -1,4 +1,5 @@
 import {
+	DEFAULT_GROUP_SHARE_TARGETS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
@@ -29,6 +30,7 @@ import type {
 	DocsContextAccess,
 	FilesContextAccess,
 	FileTreeAccess,
+	GroupShareTargets,
 	McpAccess,
 	ProjectSharingPermission,
 	SkillsAccess,
@@ -40,6 +42,7 @@ import type { ToolCallDensity, UserRole } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
+import type { ShareTargetGroupOption } from '@/components/settings/user-group-project-sharing';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupAdvancedSettings } from '@/components/settings/user-group-advanced-settings';
 import { UserGroupBudget } from '@/components/settings/user-group-budget';
@@ -81,7 +84,9 @@ export interface UserGroupEditorGroup {
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	projectSharing: ProjectSharingPermission;
+	shareTargets?: GroupShareTargets;
 	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
 	preloadedSkills: string[];
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
@@ -145,6 +150,9 @@ export function UserGroupEditor({
 		existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	);
 	const [showAllSettings, setShowAllSettings] = useState(existingGroup?.showAllSettings ?? false);
+	const [advancedContextExplorer, setAdvancedContextExplorer] = useState(
+		existingGroup?.advancedContextExplorer ?? false,
+	);
 	const [databaseAccess, setDatabaseAccess] = useState<DatabaseContextAccess>(
 		existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS,
 	);
@@ -161,6 +169,9 @@ export function UserGroupEditor({
 	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
 	const [projectSharing, setProjectSharing] = useState<ProjectSharingPermission>(
 		existingGroup?.projectSharing ?? 'inherit',
+	);
+	const [shareTargets, setShareTargets] = useState<GroupShareTargets>(
+		existingGroup?.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS,
 	);
 	const [preloadedSkills, setPreloadedSkills] = useState<string[]>(existingGroup?.preloadedSkills ?? []);
 	const [skillsAccess, setSkillsAccess] = useState<SkillsAccess>(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
@@ -275,7 +286,9 @@ export function UserGroupEditor({
 			featureGrants,
 			toolCallDensityPolicy,
 			projectSharing,
+			shareTargets,
 			showAllSettings,
+			advancedContextExplorer,
 			preloadedSkills,
 			databaseAccess,
 			docsAccess,
@@ -291,7 +304,9 @@ export function UserGroupEditor({
 		setFeatureGrants(existingGroup?.featureGrants ?? []);
 		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
 		setProjectSharing(existingGroup?.projectSharing ?? 'inherit');
+		setShareTargets(existingGroup?.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS);
 		setShowAllSettings(existingGroup?.showAllSettings ?? false);
+		setAdvancedContextExplorer(existingGroup?.advancedContextExplorer ?? false);
 		setPreloadedSkills(existingGroup?.preloadedSkills ?? []);
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
@@ -316,7 +331,9 @@ export function UserGroupEditor({
 				featureGrants,
 				toolCallDensityPolicy,
 				projectSharing,
+				shareTargets,
 				showAllSettings,
+				advancedContextExplorer,
 				preloadedSkills,
 				databaseAccess,
 				docsAccess,
@@ -331,6 +348,7 @@ export function UserGroupEditor({
 			resetForm();
 		}
 	}, [
+		advancedContextExplorer,
 		databaseAccess,
 		docsAccess,
 		editorGroup,
@@ -342,6 +360,7 @@ export function UserGroupEditor({
 		projectSharing,
 		resetForm,
 		rowPolicies,
+		shareTargets,
 		showAllSettings,
 		skillsAccess,
 		ssoMappings,
@@ -412,7 +431,9 @@ export function UserGroupEditor({
 					featureGrants,
 					toolCallDensityPolicy,
 					projectSharing,
+					shareTargets,
 					showAllSettings,
+					advancedContextExplorer,
 					preloadedSkills,
 					databaseAccess,
 					docsAccess,
@@ -430,7 +451,9 @@ export function UserGroupEditor({
 					featureGrants,
 					toolCallDensityPolicy,
 					projectSharing,
+					shareTargets,
 					showAllSettings,
+					advancedContextExplorer,
 					preloadedSkills,
 					databaseAccess,
 					docsAccess,
@@ -524,6 +547,13 @@ export function UserGroupEditor({
 								)}
 								projectSharing={projectSharing}
 								onProjectSharingChange={setProjectSharing}
+								groupName={name}
+								shareTargets={shareTargets}
+								shareTargetGroups={listShareTargetGroups(
+									userGroupOverview.data?.groups,
+									existingGroup?.id,
+								)}
+								onShareTargetsChange={setShareTargets}
 								toolCallDensityPolicy={toolCallDensityPolicy}
 								onToolCallDensityPolicyChange={setToolCallDensityPolicy}
 							/>
@@ -544,6 +574,7 @@ export function UserGroupEditor({
 						{activeTab === 'mcp' && (
 							<UserGroupMcpAccess
 								mcpAccess={mcpAccess}
+								savedMcpAccess={existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS}
 								isLicensed={hasRowLevelSecurity}
 								onMcpAccessChange={setMcpAccess}
 							/>
@@ -553,6 +584,7 @@ export function UserGroupEditor({
 								isDefaultGroup={existingGroup?.isDefault === true}
 								isLicensed={hasRowLevelSecurity}
 								skillsAccess={skillsAccess}
+								savedSkillsAccess={existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
 								preloadedSkills={preloadedSkills}
 								allUsersSkillsAccess={allUsersGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
 								allUsersPreloadedSkills={allUsersGroup?.preloadedSkills ?? []}
@@ -599,6 +631,8 @@ export function UserGroupEditor({
 							<UserGroupAdvancedSettings
 								showAllSettings={showAllSettings}
 								onShowAllSettingsChange={setShowAllSettings}
+								advancedContextExplorer={advancedContextExplorer}
+								onAdvancedContextExplorerChange={setAdvancedContextExplorer}
 								isDefaultGroup={existingGroup?.isDefault === true}
 								allUsersGroup={allUsersGroup}
 							/>
@@ -791,6 +825,15 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
 		return null;
 	}
 	return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function listShareTargetGroups(
+	groups: ReadonlyArray<{ id: string; name: string; isDefault: boolean; isLocked?: boolean }> | undefined,
+	currentGroupId: string | undefined,
+): ShareTargetGroupOption[] {
+	return (groups ?? [])
+		.filter((group) => !group.isDefault && !group.isLocked && group.id !== currentGroupId)
+		.map((group) => ({ id: group.id, name: group.name }));
 }
 
 function isProjectSharingAllowedByDefault(
@@ -1002,7 +1045,9 @@ export function hasUserGroupEditorChanges(
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy: ToolCallDensityPolicy;
 		projectSharing?: ProjectSharingPermission;
+		shareTargets?: GroupShareTargets;
 		showAllSettings?: boolean;
+		advancedContextExplorer?: boolean;
 		preloadedSkills?: string[];
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
@@ -1019,7 +1064,12 @@ export function hasUserGroupEditorChanges(
 		values.toolCallDensityPolicy.defaultDensity !== group.toolCallDensityPolicy.defaultDensity ||
 		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
 		(values.projectSharing ?? group.projectSharing) !== group.projectSharing ||
+		!haveSameShareTargets(
+			values.shareTargets ?? group.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS,
+			group.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS,
+		) ||
 		(values.showAllSettings ?? group.showAllSettings) !== group.showAllSettings ||
+		(values.advancedContextExplorer ?? group.advancedContextExplorer) !== group.advancedContextExplorer ||
 		!haveSameOrderedItems(values.preloadedSkills ?? group.preloadedSkills, group.preloadedSkills) ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
@@ -1115,6 +1165,10 @@ function UserGroupFeatures({
 	defaultAllowsProjectSharing,
 	projectSharing,
 	onProjectSharingChange,
+	groupName,
+	shareTargets,
+	shareTargetGroups,
+	onShareTargetsChange,
 	toolCallDensityPolicy,
 	onToolCallDensityPolicyChange,
 }: {
@@ -1124,6 +1178,10 @@ function UserGroupFeatures({
 	defaultAllowsProjectSharing: boolean | undefined;
 	projectSharing: ProjectSharingPermission;
 	onProjectSharingChange: (value: ProjectSharingPermission) => void;
+	groupName: string;
+	shareTargets: GroupShareTargets;
+	shareTargetGroups: ShareTargetGroupOption[];
+	onShareTargetsChange: (shareTargets: GroupShareTargets) => void;
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	onToolCallDensityPolicyChange: (policy: ToolCallDensityPolicy) => void;
 }) {
@@ -1156,9 +1214,13 @@ function UserGroupFeatures({
 
 			<UserGroupProjectSharing
 				isDefaultGroup={isDefaultGroup}
+				groupName={groupName}
 				defaultAllowed={defaultAllowsProjectSharing}
 				value={projectSharing}
 				onChange={onProjectSharingChange}
+				shareTargets={shareTargets}
+				shareTargetGroups={shareTargetGroups}
+				onShareTargetsChange={onShareTargetsChange}
 			/>
 
 			<div className='flex flex-col gap-3'>
@@ -1204,6 +1266,10 @@ function haveSameItems<T>(left: T[], right: T[]): boolean {
 
 function haveSameOrderedItems<T>(left: readonly T[], right: readonly T[]): boolean {
 	return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function haveSameShareTargets(left: GroupShareTargets, right: GroupShareTargets): boolean {
+	return left.includeOwnGroup === right.includeOwnGroup && haveSameItems(left.groupIds, right.groupIds);
 }
 
 function haveSameDatabaseAccess(left: DatabaseContextAccess, right: DatabaseContextAccess): boolean {

@@ -1,7 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router';
 import { LockKeyhole, Settings, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { providerLabel, providerName } from '@nao/shared/types';
+import { isSameModel, providerLabel, providerName } from '@nao/shared/types';
 
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 import type { KeyboardEvent } from 'react';
@@ -9,7 +9,7 @@ import type { KeyboardEvent } from 'react';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
+import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut, getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
@@ -51,7 +51,7 @@ export function ChatInputModelSelect({
 		if (usesDefaultModel || !availableModels || availableModels.length === 0) {
 			return;
 		}
-		if (!availableModels.some((model) => isSameModel(model, selectedModel))) {
+		if (!selectedModel || !availableModels.some((model) => isSameModel(model, selectedModel))) {
 			setSelectedModel(null);
 		}
 	}, [usesDefaultModel, availableModels, selectedModel, setSelectedModel]);

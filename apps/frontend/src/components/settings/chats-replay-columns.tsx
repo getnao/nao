@@ -1,4 +1,16 @@
-import { CircleAlert, CircleHelp, Globe2, Lightbulb, Shield, ThumbsDown, ThumbsUp } from 'lucide-react';
+import {
+	Bot,
+	CircleAlert,
+	CircleHelp,
+	FlaskConical,
+	Globe2,
+	Library,
+	Lightbulb,
+	Shield,
+	ThumbsDown,
+	ThumbsUp,
+	Workflow,
+} from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
@@ -15,6 +27,9 @@ import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 
 const sourceConfig = {
 	web: { label: 'Web', icon: <Globe2 className='size-3.5' /> },
+	automationEditor: { label: 'Web (automations)', icon: <Workflow className='size-3.5' /> },
+	contextEditor: { label: 'Web (context hub)', icon: <Library className='size-3.5' /> },
+	automation: { label: 'Automations', icon: <Bot className='size-3.5' /> },
 	slack: { label: 'Slack', icon: <SlackIcon className='size-3.5' /> },
 	teams: { label: 'Teams', icon: <TeamsIcon className='size-3.5' /> },
 	telegram: { label: 'Telegram', icon: <TelegramIcon className='size-3.5' /> },
@@ -27,6 +42,7 @@ const sourceConfig = {
 		label: 'Context recommendations',
 		icon: <Lightbulb className='size-3.5' />,
 	},
+	test: { label: 'Tests', icon: <FlaskConical className='size-3.5' /> },
 } as const;
 
 export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {

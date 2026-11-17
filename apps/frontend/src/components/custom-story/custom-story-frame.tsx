@@ -9,27 +9,45 @@ import {
 } from '@nao/shared/story-app';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { narrativesOptions, queryDataOptions, querySqlOptions, stateOptions } from './story-data-options';
+import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
+import {
+	fetchChartPluginSource,
+	fetchMapBoundary,
+	narrativesOptions,
+	queryDataOptions,
+	modelsOptions,
+	querySqlOptions,
+	runStoryModel,
+	runStorySql,
+	stateOptions,
+} from './story-data-options';
 import { buildStoryFrameDocument } from './story-frame-document';
+import { rememberRequestAnswer } from './story-request-answers';
 import { RememberStateHeader } from './remember-state-header';
 import { useStoryStateRecorder } from './use-story-state-recorder';
+import type { StoryModelRequest } from '@nao/shared/story-models';
+import type { StoryQueryInputs } from '@nao/shared/story-query-inputs';
 import type {
 	StoryApp,
 	StoryBlockEditPayload,
+	StoryElementCitation,
 	StoryFrameMessage,
 	StoryHostMessage,
+	StorySqlRequest,
 	StoryStateSnapshot,
 	StoryTableFormatEditRequest,
 } from '@nao/shared/story-app';
 import type { StoryTheme } from '@nao/shared/story-theme';
-import type { StoryBlockReference } from '@nao/shared/types';
 
 import type { CustomStoryDataSource } from './story-data-options';
 import type { StoryRuntimeLocation } from './story-frame-document';
 import { useDateFormat } from '@/hooks/use-date-format';
+import { useSession } from '@/lib/auth-client';
+import { readBlockAsk, readStoryElementAsk } from '@/lib/story-element-ask';
 import { getAppWideShortcuts, isTypingTarget } from '@/lib/keyboard-shortcuts';
 import { downloadCsv, downloadXlsx, tableToCsv, tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
+import { isStoryRequestFresh, useStoryHighlightRequest } from '@/stores/story-highlight';
 
 export interface CustomStoryRuntimeError {
 	message: string;
@@ -46,7 +64,8 @@ interface CustomStoryFrameProps {
 	editable?: boolean;
 	onEditBlock?: (request: StoryBlockEditPayload) => void;
 	onEditTableFormat?: (request: StoryTableFormatEditRequest) => void;
-	onAskBlock?: (block: StoryBlockReference) => void;
+	onAsk?: (citation: StoryElementCitation) => void;
+	isSelectingElements?: boolean;
 	onReady?: () => void;
 	onError?: (error: CustomStoryRuntimeError) => void;
 	stateControls?: StoryStateControls;
@@ -60,6 +79,13 @@ export interface StoryStateControls {
 	hasLocalState: boolean;
 }
 
+/**
+ * Story SQL and filtered reruns read rows with the viewer's own access, which other viewers may not have: once a
+ * story has read some, it can no longer write the state every viewer reads.
+ */
+const SHARED_STATE_AFTER_VIEWER_ROWS_MESSAGE =
+	'This story read data with your own access, so it cannot change the state other viewers see until it is reloaded.';
+
 const NAVIGATED_AWAY_MESSAGE = 'The story tried to navigate away from its frame and was stopped.';
 
 export function CustomStoryFrame({
@@ -70,7 +96,8 @@ export function CustomStoryFrame({
 	editable = false,
 	onEditBlock,
 	onEditTableFormat,
-	onAskBlock,
+	onAsk,
+	isSelectingElements = false,
 	onReady,
 	onError,
 	stateControls,
@@ -81,10 +108,13 @@ export function CustomStoryFrame({
 	const loadCountRef = useRef(0);
 	const isFrameReadyRef = useRef(false);
 	const portRef = useRef<MessagePort | null>(null);
+	const hasReadViewerRowsRef = useRef(false);
 	const [navigatedAway, setNavigatedAway] = useState(false);
 	const queryClient = useQueryClient();
+	const viewerId = useSession().data?.user.id ?? '';
 	const dateFormat = useDateFormat();
 	const usesState = stateControls?.usesState ?? false;
+	const isAskable = onAsk !== undefined;
 	const frameDocument = useStoryFrameDocument(app, styles, theme, dataSource, usesState, onError);
 	const srcDoc = frameDocument?.html ?? null;
 	const channel = frameDocument?.channel;
@@ -96,6 +126,24 @@ export function CustomStoryFrame({
 
 	const reportStateError = useCallback((message: string) => onError?.({ message }), [onError]);
 	const recordStateChange = useStoryStateRecorder(dataSource, reportStateError);
+
+	const highlightRequest = useStoryHighlightRequest();
+	const handledHighlightId = useRef<number | null>(null);
+	const forwardHighlight = useEffectEvent(() => {
+		const isForThisStory =
+			highlightRequest &&
+			(!highlightRequest.storySlug || highlightRequest.storySlug === storySlugOf(dataSource)) &&
+			isStoryRequestFresh(highlightRequest);
+		if (!isForThisStory || !isFrameReadyRef.current || handledHighlightId.current === highlightRequest.id) {
+			return;
+		}
+		handledHighlightId.current = highlightRequest.id;
+		reply({ type: 'nao-story:highlight', ...highlightRequest.element });
+	});
+
+	useEffect(() => {
+		forwardHighlight();
+	}, [highlightRequest]);
 
 	const syncThemeOnReady = useEffectEvent(() => {
 		if (theme !== bootTheme) {
@@ -117,13 +165,67 @@ export function CustomStoryFrame({
 	}, []);
 
 	const answerQuery = useCallback(
-		async (requestId: string, queryId: string, fresh: boolean) => {
+		async (requestId: string, queryId: string, fresh: boolean, inputs?: StoryQueryInputs) => {
 			try {
-				const options = queryDataOptions(dataSource, queryId);
+				if (hasStoryQueryInputs(inputs)) {
+					hasReadViewerRowsRef.current = true;
+				}
+				const options = queryDataOptions(dataSource, queryId, inputs);
 				const result = await queryClient.fetchQuery(fresh ? { ...options, staleTime: 0 } : options);
+				if (hasStoryQueryInputs(inputs)) {
+					rememberRequestAnswer(viewerId, dataSource, storyQueryRequestKey(queryId, inputs), result);
+				}
 				reply({ type: 'nao-story:query-result', requestId, result });
 			} catch (error) {
 				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply, viewerId],
+	);
+
+	const answerSql = useCallback(
+		async (requestId: string, request: StorySqlRequest, fresh: boolean) => {
+			hasReadViewerRowsRef.current = true;
+			try {
+				const result = await queryClient.fetchQuery({
+					queryKey: ['custom-story-sql', dataSource, request],
+					queryFn: () => runStorySql(dataSource, request),
+					...(fresh && { staleTime: 0 }),
+				});
+				rememberRequestAnswer(viewerId, dataSource, storySqlRequestKey(request), result);
+				reply({ type: 'nao-story:query-result', requestId, result });
+			} catch (error) {
+				reply({ type: 'nao-story:query-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply, viewerId],
+	);
+
+	const answerModels = useCallback(
+		async (requestId: string) => {
+			try {
+				const models = await queryClient.fetchQuery(modelsOptions(dataSource));
+				reply({ type: 'nao-story:models-result', requestId, models });
+			} catch (error) {
+				reply({ type: 'nao-story:models-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
+	/** Model answers are kept for the visit: a story rebuilt, re-themed or republished asks again without paying again. */
+	const answerModel = useCallback(
+		async (requestId: string, request: StoryModelRequest, fresh: boolean) => {
+			try {
+				const result = await queryClient.fetchQuery({
+					queryKey: ['custom-story-model', withoutVersion(dataSource), request],
+					queryFn: () => runStoryModel(dataSource, request),
+					staleTime: fresh ? 0 : Infinity,
+					gcTime: Infinity,
+				});
+				reply({ type: 'nao-story:model-result', requestId, result });
+			} catch (error) {
+				reply({ type: 'nao-story:model-error', requestId, message: describeError(error) });
 			}
 		},
 		[dataSource, queryClient, reply],
@@ -136,6 +238,30 @@ export function CustomStoryFrame({
 				reply({ type: 'nao-story:query-sql-result', requestId, sqlQuery });
 			} catch (error) {
 				reply({ type: 'nao-story:query-sql-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
+	const answerChartPlugin = useCallback(
+		async (requestId: string, chartType: string) => {
+			try {
+				const source = await fetchChartPluginSource(queryClient, dataSource, chartType);
+				reply({ type: 'nao-story:chart-plugin-result', requestId, source });
+			} catch (error) {
+				reply({ type: 'nao-story:chart-plugin-error', requestId, message: describeError(error) });
+			}
+		},
+		[dataSource, queryClient, reply],
+	);
+
+	const answerMapBoundary = useCallback(
+		async (requestId: string, key: string) => {
+			try {
+				const boundary = await fetchMapBoundary(queryClient, dataSource, key);
+				reply({ type: 'nao-story:map-boundary-result', requestId, boundary });
+			} catch (error) {
+				reply({ type: 'nao-story:map-boundary-error', requestId, message: describeError(error) });
 			}
 		},
 		[dataSource, queryClient, reply],
@@ -172,12 +298,27 @@ export function CustomStoryFrame({
 					isFrameReadyRef.current = true;
 					connectPort(handlePortMessage);
 					reply({ type: 'nao-story:editing', enabled: editable });
+					reply({ type: 'nao-story:inspector', enabled: isAskable, selectsElements: isSelectingElements });
 					reply({ type: 'nao-story:shortcuts', shortcuts: getAppWideShortcuts() });
 					syncThemeOnReady();
+					forwardHighlight();
 					onReady?.();
 					break;
 				case 'nao-story:query':
-					void answerQuery(message.requestId, message.queryId, message.fresh === true);
+					void answerQuery(message.requestId, message.queryId, message.fresh === true, message.inputs);
+					break;
+				case 'nao-story:sql':
+					void answerSql(
+						message.requestId,
+						{ sql: message.sql, databaseId: message.databaseId, filters: message.filters },
+						message.fresh === true,
+					);
+					break;
+				case 'nao-story:models':
+					void answerModels(message.requestId);
+					break;
+				case 'nao-story:model':
+					void answerModel(message.requestId, message.request, message.fresh === true);
 					break;
 				case 'nao-story:narratives':
 					void answerNarratives(message.requestId);
@@ -216,15 +357,34 @@ export function CustomStoryFrame({
 						});
 					}
 					break;
-				case 'nao-story:ask-block':
-					if (editable) {
-						onAskBlock?.(message.block);
+				case 'nao-story:ask-block': {
+					const ask = editable ? readBlockAsk(message.block) : null;
+					if (ask) {
+						onAsk?.({ ...ask, intent: 'edit' });
 					}
 					break;
+				}
+				case 'nao-story:ask': {
+					const ask = isUserGesture() ? readStoryElementAsk(message) : null;
+					if (ask) {
+						onAsk?.({ ...ask, intent: 'ask' });
+					}
+					break;
+				}
 				case 'nao-story:query-sql':
 					void answerQuerySql(message.requestId, message.queryId);
 					break;
+				case 'nao-story:chart-plugin':
+					void answerChartPlugin(message.requestId, message.chartType);
+					break;
+				case 'nao-story:map-boundary':
+					void answerMapBoundary(message.requestId, message.key);
+					break;
 				case 'nao-story:set-state':
+					if (message.shared === true && hasReadViewerRowsRef.current) {
+						onError?.({ message: SHARED_STATE_AFTER_VIEWER_ROWS_MESSAGE });
+						break;
+					}
 					recordStateChange({ key: message.key, value: message.value, shared: message.shared === true });
 					break;
 				case 'nao-story:keydown':
@@ -238,14 +398,21 @@ export function CustomStoryFrame({
 		window.addEventListener('message', handleMessage);
 		return () => window.removeEventListener('message', handleMessage);
 	}, [
+		answerChartPlugin,
+		answerMapBoundary,
+		answerModel,
+		answerModels,
 		answerNarratives,
 		answerQuery,
 		answerQuerySql,
+		answerSql,
 		channel,
 		connectPort,
 		dateFormat,
 		editable,
-		onAskBlock,
+		isAskable,
+		isSelectingElements,
+		onAsk,
 		onEditBlock,
 		onEditTableFormat,
 		onError,
@@ -259,6 +426,12 @@ export function CustomStoryFrame({
 			reply({ type: 'nao-story:editing', enabled: editable });
 		}
 	}, [editable, reply]);
+
+	useEffect(() => {
+		if (isFrameReadyRef.current) {
+			reply({ type: 'nao-story:inspector', enabled: isAskable, selectsElements: isSelectingElements });
+		}
+	}, [isAskable, isSelectingElements, reply]);
 
 	useEffect(() => {
 		if (isFrameReadyRef.current) {
@@ -282,6 +455,7 @@ export function CustomStoryFrame({
 	useEffect(() => {
 		if (srcDoc !== null) {
 			closePort();
+			hasReadViewerRowsRef.current = false;
 			loadCountRef.current = 0;
 			isFrameReadyRef.current = false;
 			setNavigatedAway(false);
@@ -394,6 +568,18 @@ function useForwardHostKeydown(reply: (message: StoryHostMessage) => void) {
 		document.addEventListener('keydown', handleKeyDown);
 		return () => document.removeEventListener('keydown', handleKeyDown);
 	}, [reply]);
+}
+
+/** A model's answer depends on the request, not on which version of the story asked. */
+function withoutVersion(dataSource: CustomStoryDataSource): Omit<CustomStoryDataSource, 'versionNumber'> {
+	const { versionNumber: _versionNumber, ...identity } = dataSource as CustomStoryDataSource & {
+		versionNumber?: number;
+	};
+	return identity;
+}
+
+function storySlugOf(dataSource: CustomStoryDataSource): string | undefined {
+	return 'storySlug' in dataSource ? dataSource.storySlug : undefined;
 }
 
 function storyRuntimeLocation(): StoryRuntimeLocation {

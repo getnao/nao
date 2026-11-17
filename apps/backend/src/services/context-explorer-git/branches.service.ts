@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 
-import type { ContextBranchCreationResult, ContextBranchInfo } from '@nao/shared/types';
+import type {
+	ContextBranchCreationResult,
+	ContextBranchInfo,
+	ContextCommit,
+	RepoBranch,
+	RepoBranchList,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
 import type { ResolvedContextRepo } from '../../utils/context-repo';
@@ -45,6 +51,9 @@ import type {
 } from './types';
 import { fetchContextRepository, requireContextExplorerGit, resolveAfterBranchChange } from './worktree.service';
 
+const MAX_LISTED_UNPUSHED_COMMITS = 20;
+const BRANCH_FIELD_SEPARATOR = '\x1f';
+
 const GIT_ADD_BATCH_SIZE = 500;
 
 export async function getContextBranches(
@@ -57,14 +66,46 @@ export async function getContextBranches(
 	const ownedBranches = await branchOwnershipQueries.getOwnedContextBranches(context.projectId, context.userId);
 	const branches = new Set([...readContextBranchNames(repo)].filter((branch) => ownedBranches.has(branch)));
 	branches.add(defaultBranch);
+	if (currentBranch) {
+		branches.add(currentBranch);
+	}
 	return {
 		currentBranch,
 		defaultBranch,
 		aheadCommitCount: readAheadCommitCount(repo, currentBranch, defaultBranch),
 		unpushedCommitCount: readUnpushedCommitCount(repo, currentBranch, defaultBranch),
+		unpushedCommits: readUnpushedCommits(repo, currentBranch, defaultBranch),
 		branches: [...branches].sort(),
 		suggestedBranch: generateContextBranchName(repo),
+		isCurrentBranchOwned:
+			currentBranch === null || currentBranch === defaultBranch || ownedBranches.has(currentBranch),
 	};
+}
+
+/**
+ * Every branch of the repository, for the File Explorer to show any of them. The git provider tells who last
+ * committed to each with the user's own account; otherwise git does, after a fetch. Branches the user created in nao
+ * are theirs, pushed or not.
+ */
+export async function listContextRepositoryBranches(context: ContextExplorerGitContext): Promise<RepoBranchList> {
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
+	const branchOwnershipQueries = await getBranchOwnershipQueries();
+	const ownedBranches = await branchOwnershipQueries.getOwnedContextBranches(context.projectId, context.userId);
+	const providerBranches = await readProviderBranches(provider, availableContext.token, repo.repoFullName);
+	if (!providerBranches) {
+		fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+	}
+	const remoteBranches = providerBranches ?? readBranchRefs(repo, 'refs/remotes/origin', context.user.email);
+	const remoteNames = new Set(remoteBranches.map((branch) => branch.name));
+	const unpushedOwnedBranches = readBranchRefs(repo, 'refs/heads', context.user.email).filter(
+		(branch) => ownedBranches.has(branch.name) && !remoteNames.has(branch.name),
+	);
+	const branches = [...remoteBranches, ...unpushedOwnedBranches].map((branch) => ({
+		...branch,
+		isMine: branch.isMine || ownedBranches.has(branch.name),
+	}));
+	return { branches: sortRecentFirst(branches), canFilterMine: true };
 }
 
 export async function switchContextBranch(
@@ -88,7 +129,8 @@ export async function switchContextBranch(
 				defaultRef,
 			]);
 		} else if (!(await isContextBranchOwnedByUser(context, branch))) {
-			throw new TRPCError({ code: 'FORBIDDEN', message: 'This branch belongs to another user.' });
+			fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+			switchToBranchOfOthers(repo, context.projectFolder, branch);
 		} else if (hasRef(repo, `refs/heads/${branch}`)) {
 			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, ['switch', branch]);
 		} else if (hasRef(repo, `refs/remotes/origin/${branch}`)) {
@@ -151,6 +193,23 @@ export async function commitContextChanges(
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const commit = await commitSelectedChanges(repo, context.projectFolder, availableContext, input);
 	return { commit };
+}
+
+/**
+ * Takes the last commit back into the uncommitted changes, which is only safe while it is not pushed. The remote is
+ * fetched first, as the commit may have been pushed from another checkout.
+ */
+export async function undoLastContextCommit(context: ContextExplorerGitContext): Promise<void> {
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
+	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+	const defaultBranch = readDefaultBranch(repo);
+	const currentBranch = readContextCurrentBranch(repo, defaultBranch);
+	if (readUnpushedCommitCount(repo, currentBranch, defaultBranch) === 0) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only a commit that is not pushed yet can be undone.' });
+	}
+	await assertCommitBranch(repo, context);
+	runWorktreeGitMutation(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, ['reset', 'HEAD~1']);
 }
 
 export function pushContextBranch(
@@ -305,7 +364,7 @@ async function commitSelectedChanges(
 	runGitWithIdentity(
 		repo,
 		projectFolder,
-		['commit', '--quiet', '-m', withCoAuthors(input.message, [provider.coAuthor])],
+		['commit', '--quiet', '-m', withCoAuthors(input.message, provider.commitCoAuthors(context.user))],
 		author,
 	);
 	return runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
@@ -340,6 +399,82 @@ async function assertCommitBranch(
 			message: 'Create a branch before committing context changes.',
 		});
 	}
+}
+
+/**
+ * Shows a branch the user did not create at its pushed head. Commits are refused on it, so its local copy never holds
+ * work of its own and is reset to the remote, unless it somehow does.
+ */
+function switchToBranchOfOthers(repo: ResolvedContextRepo, projectFolder: string, branch: string): void {
+	const remoteRef = `origin/${branch}`;
+	if (!hasRef(repo, `refs/remotes/${remoteRef}`)) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `Branch not found: ${branch}` });
+	}
+	if (hasRef(repo, `refs/heads/${branch}`) && readVerifiedCommitCount(repo, `${remoteRef}..${branch}`) !== 0) {
+		throw new TRPCError({ code: 'CONFLICT', message: `Branch ${branch} has local commits that are not pushed.` });
+	}
+	runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+		'switch',
+		'--track',
+		'-C',
+		branch,
+		remoteRef,
+	]);
+}
+
+/** Null when the provider cannot list them for this user, for git to list them instead. */
+async function readProviderBranches(
+	provider: ContextRepositoryProvider,
+	token: string,
+	repoFullName: string,
+): Promise<RepoBranch[] | null> {
+	try {
+		return await provider.listBranches(token, repoFullName);
+	} catch {
+		return null;
+	}
+}
+
+function readBranchRefs(repo: ResolvedContextRepo, refPrefix: string, userEmail: string): RepoBranch[] {
+	const format = ['%(refname)', '%(objectname)', '%(authorname)', '%(authoremail)', '%(committerdate:iso-strict)'];
+	const output = runGit(repo.worktreeRoot, [
+		'for-each-ref',
+		`--format=${format.join(BRANCH_FIELD_SEPARATOR)}`,
+		refPrefix,
+	]);
+	return output
+		.toString()
+		.split('\n')
+		.filter(Boolean)
+		.flatMap((line) => {
+			const [ref = '', commit = '', authorName = '', authorEmail = '', committedAt = ''] =
+				line.split(BRANCH_FIELD_SEPARATOR);
+			const name = ref.slice(refPrefix.length + 1);
+			if (!name || name === 'HEAD') {
+				return [];
+			}
+			return [
+				{
+					name,
+					commit,
+					author: authorName ? { name: authorName, login: null } : null,
+					committedAt: committedAt || null,
+					isMine: isSameEmail(authorEmail, userEmail),
+				},
+			];
+		});
+}
+
+function isSameEmail(gitEmail: string, email: string): boolean {
+	return gitEmail.replace(/^<|>$/g, '').toLowerCase() === email.toLowerCase();
+}
+
+function sortRecentFirst(branches: RepoBranch[]): RepoBranch[] {
+	return [...branches].sort((left, right) => readTime(right.committedAt) - readTime(left.committedAt));
+}
+
+function readTime(date: string | null): number {
+	return date ? Date.parse(date) || 0 : 0;
 }
 
 function readContextBranchNames(repo: ResolvedContextRepo): Set<string> {
@@ -391,12 +526,44 @@ function readUnpushedCommitCount(
 	currentBranch: string | null,
 	defaultBranch: string,
 ): number {
+	const base = readUnpushedBase(repo, currentBranch, defaultBranch);
+	return base ? readCommitCount(repo, `${base}..HEAD`) : 0;
+}
+
+function readUnpushedCommits(
+	repo: ResolvedContextRepo,
+	currentBranch: string | null,
+	defaultBranch: string,
+): ContextCommit[] {
+	const base = readUnpushedBase(repo, currentBranch, defaultBranch);
+	if (!base) {
+		return [];
+	}
+	const log = readOptionalGitValue(repo.worktreeRoot, [
+		'log',
+		`--max-count=${MAX_LISTED_UNPUSHED_COMMITS}`,
+		'--format=%H%x1f%s%x1f%cI',
+		`${base}..HEAD`,
+	]);
+	return (log ?? '').split('\n').filter(Boolean).map(parseCommitLine);
+}
+
+/** Where the commits not pushed yet start: the remote branch once pushed, else the default branch. */
+function readUnpushedBase(
+	repo: ResolvedContextRepo,
+	currentBranch: string | null,
+	defaultBranch: string,
+): string | null {
 	if (!currentBranch || currentBranch === defaultBranch) {
-		return 0;
+		return null;
 	}
 	const remoteBranchRef = `refs/remotes/origin/${currentBranch}`;
-	const base = hasRef(repo, remoteBranchRef) ? `origin/${currentBranch}` : readDefaultBranchRef(repo, defaultBranch);
-	return base ? readCommitCount(repo, `${base}..HEAD`) : 0;
+	return hasRef(repo, remoteBranchRef) ? `origin/${currentBranch}` : readDefaultBranchRef(repo, defaultBranch);
+}
+
+function parseCommitLine(line: string): ContextCommit {
+	const [hash = '', subject = '', committedAt = ''] = line.split('\x1f');
+	return { hash, subject, committedAt };
 }
 
 function readCommitCount(repo: ResolvedContextRepo, range: string): number {

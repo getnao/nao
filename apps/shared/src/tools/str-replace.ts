@@ -1,7 +1,7 @@
 import z from 'zod/v3';
 
 export const InputSchema = z.object({
-	file_path: z.string().describe('Path of an existing file, e.g. "/stories/q3-review/src/App.tsx".'),
+	file_path: z.string().describe('Path of an existing file, e.g. "/stories/<story id>/src/App.tsx".'),
 	old_string: z
 		.string()
 		.min(1)

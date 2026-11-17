@@ -1,5 +1,6 @@
 import {
 	type DatabaseContextAccess,
+	DEFAULT_GROUP_SHARE_TARGETS,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	type DocsContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
@@ -10,6 +11,7 @@ import {
 	EMPTY_USER_GROUP_ROW_POLICIES,
 	type FilesContextAccess,
 	filterUserGroupRowPoliciesByDatabaseContext,
+	type GroupShareTargets,
 	isSkillGranted,
 	type McpAccess,
 	parseStoredProjectRowSecurity,
@@ -61,7 +63,9 @@ export interface UserGroup extends Omit<
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	projectSharing: ProjectSharingPermission;
+	shareTargets: GroupShareTargets;
 	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
 	preloadedSkills: string[];
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
@@ -84,6 +88,7 @@ export interface EffectiveUserGroupAccess {
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	filesAccess: FilesContextAccess;
@@ -188,6 +193,7 @@ export const resolveUserGroupAccess = async (
 			canChange: applicableGroups.some((group) => group.config.toolCallDensity.canChange),
 		},
 		showAllSettings: applicableGroups.some((group) => group.config.showAllSettings),
+		advancedContextExplorer: applicableGroups.some((group) => group.config.advancedContextExplorer),
 		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.contextAccess.databaseAccess)),
 		docsAccess: unionFileTreeAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
 		filesAccess: unionFileTreeAccess(applicableGroups.map((group) => group.contextAccess.filesAccess)),
@@ -268,6 +274,8 @@ export const createUserGroup = async (
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+	advancedContextExplorer = false,
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -284,6 +292,8 @@ export const createUserGroup = async (
 		showAllSettings,
 		preloadedSkills,
 		skillsAccess,
+		shareTargets,
+		advancedContextExplorer,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -322,6 +332,8 @@ export const createUserGroupWithinLimit = async (
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+	advancedContextExplorer = false,
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -338,6 +350,8 @@ export const createUserGroupWithinLimit = async (
 		showAllSettings,
 		preloadedSkills,
 		skillsAccess,
+		shareTargets,
+		advancedContextExplorer,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -380,6 +394,7 @@ export const updateUserGroup = async (
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy?: ToolCallDensityPolicy;
 		showAllSettings?: boolean;
+		advancedContextExplorer?: boolean;
 		databaseAccess?: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		filesAccess?: FilesContextAccess;
@@ -389,6 +404,7 @@ export const updateUserGroup = async (
 		rowPolicies?: UserGroupRowPolicies;
 		rowPoliciesRegistry?: ProjectRowSecurity;
 		projectSharing?: ProjectSharingPermission;
+		shareTargets?: GroupShareTargets;
 		preloadedSkills?: string[];
 	},
 ): Promise<UserGroup> => {
@@ -426,6 +442,8 @@ export const updateUserGroup = async (
 			data.projectSharing ?? currentConfig.projectSharing,
 			data.showAllSettings ?? currentConfig.showAllSettings,
 			data.preloadedSkills ?? currentConfig.preloadedSkills,
+			data.shareTargets ?? currentConfig.shareTargets,
+			data.advancedContextExplorer ?? currentConfig.advancedContextExplorer,
 		),
 		...(data.databaseAccess === undefined &&
 		data.docsAccess === undefined &&
@@ -580,19 +598,37 @@ export const setUserGroupMembership = async (
 	userId: string,
 	isMember: boolean,
 ): Promise<void> => {
+	await setUserGroupMemberships(projectId, groupId, [userId], isMember);
+};
+
+export const setUserGroupMemberships = async (
+	projectId: string,
+	groupId: string,
+	userIds: string[],
+	isMember: boolean,
+): Promise<void> => {
+	const uniqueUserIds = [...new Set(userIds)];
 	const group = await getUserGroup(projectId, groupId);
 	if (group.isDefault) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'Membership in All Users cannot be changed.');
 	}
-	const effectiveUsers = await listUsersWithProjectAccess(projectId);
-	if (!effectiveUsers.some((user) => user.id === userId)) {
-		throw new UserGroupQueryError('BAD_REQUEST', 'This user does not have access to the project.');
+	const effectiveUserIds = new Set((await listUsersWithProjectAccess(projectId)).map((user) => user.id));
+	if (uniqueUserIds.some((userId) => !effectiveUserIds.has(userId))) {
+		throw new UserGroupQueryError(
+			'BAD_REQUEST',
+			uniqueUserIds.length === 1
+				? 'This user does not have access to the project.'
+				: 'One or more users do not have access to the project.',
+		);
+	}
+	if (uniqueUserIds.length === 0) {
+		return;
 	}
 
 	if (isMember) {
 		await db
 			.insert(s.userGroupMember)
-			.values({ groupId, userId, provider: 'manual' })
+			.values(uniqueUserIds.map((userId) => ({ groupId, userId, provider: 'manual' as const })))
 			.onConflictDoNothing()
 			.execute();
 		return;
@@ -602,7 +638,7 @@ export const setUserGroupMembership = async (
 		.where(
 			and(
 				eq(s.userGroupMember.groupId, groupId),
-				eq(s.userGroupMember.userId, userId),
+				inArray(s.userGroupMember.userId, uniqueUserIds),
 				eq(s.userGroupMember.provider, 'manual'),
 			),
 		)
@@ -676,6 +712,8 @@ function createUserGroupValues(
 	showAllSettings = false,
 	preloadedSkills: string[] = [],
 	skillsAccess: SkillsAccess = EMPTY_SKILLS_ACCESS,
+	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
+	advancedContextExplorer = false,
 ): NewUserGroup {
 	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	return {
@@ -687,6 +725,8 @@ function createUserGroupValues(
 			projectSharing,
 			showAllSettings,
 			preloadedSkills,
+			shareTargets,
+			advancedContextExplorer,
 		),
 		contextGrants: serializeUserGroupContextAccess({
 			databaseAccess,
@@ -827,7 +867,9 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
 		projectSharing: config.projectSharing,
+		shareTargets: config.shareTargets,
 		showAllSettings: config.showAllSettings,
+		advancedContextExplorer: config.advancedContextExplorer,
 		preloadedSkills: config.preloadedSkills,
 		databaseAccess: contextAccess.databaseAccess,
 		docsAccess: contextAccess.docsAccess,
@@ -959,4 +1001,40 @@ function deduplicateMemberships(
 	return [
 		...new Map(memberships.map(({ groupId, userId }) => [`${groupId}:${userId}`, { groupId, userId }])).values(),
 	];
+}
+
+export async function listUserIdsInGroups(groupIds: string[]): Promise<string[]> {
+	if (groupIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.selectDistinct({ userId: s.userGroupMember.userId })
+		.from(s.userGroupMember)
+		.where(inArray(s.userGroupMember.groupId, groupIds))
+		.execute();
+	return rows.map((row) => row.userId);
+}
+
+export type CustomUserGroupSummary = { id: string; projectId: string; createdAt: Date };
+
+export async function listCustomUserGroupSummaries(projectId: string): Promise<CustomUserGroupSummary[]> {
+	return db
+		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId, createdAt: s.userGroup.createdAt })
+		.from(s.userGroup)
+		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+		.execute();
+}
+
+/** Every custom group of the projects where the user belongs to one, the only kind of group a plan can lock. */
+export async function listCustomUserGroupSummariesAroundMember(userId: string): Promise<CustomUserGroupSummary[]> {
+	const memberProjectIds = db
+		.selectDistinct({ projectId: s.userGroup.projectId })
+		.from(s.userGroupMember)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+		.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroup.isDefault, false)));
+	return db
+		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId, createdAt: s.userGroup.createdAt })
+		.from(s.userGroup)
+		.where(and(inArray(s.userGroup.projectId, memberProjectIds), eq(s.userGroup.isDefault, false)))
+		.execute();
 }

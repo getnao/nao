@@ -1,4 +1,5 @@
 import { joinClassNames } from '@nao/shared/class-names';
+import { partAttributes } from '@nao/shared/story-parts';
 import { CodeIcon, PencilIcon } from 'lucide-react';
 import { useState } from 'react';
 import { isPrintMode, isStoryExport, requestBlockAsk, requestBlockEdit } from '../story-host';
@@ -30,12 +31,26 @@ export function Block({ kind, queryId, title, description, className, style, edi
 	const canViewQuery = queryId !== undefined && !isStoryExport() && !isPrintMode();
 	const [showQuery, setShowQuery] = useState(false);
 	return (
-		<section className={joinClassNames('nao-block', `nao-${kind}`, className)} style={style}>
+		<section
+			className={joinClassNames('nao-block', `nao-${kind}`, className)}
+			style={style}
+			data-nao-block-kind={kind}
+			data-nao-block-title={title || undefined}
+			data-nao-block-query={queryId}
+		>
 			{(title || description || editingEnabled || canViewQuery) && (
 				<header className='nao-block__header'>
 					<div className='nao-block__heading'>
-						{title && <h3 className='nao-block__title'>{title}</h3>}
-						{description && <p className='nao-block__description'>{description}</p>}
+						{title && (
+							<h3 className='nao-block__title' {...partAttributes({ kind: 'title' })}>
+								{title}
+							</h3>
+						)}
+						{description && (
+							<p className='nao-block__description' {...partAttributes({ kind: 'description' })}>
+								{description}
+							</p>
+						)}
 					</div>
 					{(canViewQuery || editingEnabled) && (
 						<div className='nao-block__actions'>

@@ -14,6 +14,8 @@ class DatabaseConfigLike(Protocol):
 
     def get_database_name(self) -> str: ...
 
+    def get_catalog_names(self) -> list[str]: ...
+
     def get_schemas(self, conn: Any) -> list[str]: ...
 
 
@@ -97,21 +99,26 @@ def resolve_table(
     if requested_catalog is not None and not isinstance(requested_catalog, exp.Identifier):
         raise blocked("a dynamic catalog reference could not be resolved")
     if requested_catalog:
-        database_name = db_config.get_database_name()
-        if not _catalog_matches_connection(
-            requested_catalog,
-            database_name,
-            schemas,
-            dialect,
-            case_insensitive=case_insensitive,
+        catalog_names = db_config.get_catalog_names()
+        if not any(
+            _catalog_matches_connection(requested_catalog, name, schemas, dialect, case_insensitive=case_insensitive)
+            for name in catalog_names
         ):
-            raise blocked(f"catalog '{requested_catalog.name}' does not match the connected database '{database_name}'")
+            raise blocked(
+                f"catalog '{requested_catalog.name}' does not match the connected database '{', '.join(catalog_names)}'"
+            )
 
     requested_schema = table_expression.args.get("db")
     if requested_schema is not None and not isinstance(requested_schema, exp.Identifier):
         raise blocked("a dynamic schema reference could not be resolved")
     if requested_schema:
-        if requested_catalog:
+        if requested_catalog and _catalog_matches_connection(
+            requested_catalog,
+            db_config.get_database_name(),
+            schemas,
+            dialect,
+            case_insensitive=case_insensitive,
+        ):
             combined_schema = _join_identifiers(requested_catalog, requested_schema, dialect)
             schema = match_sql_identifier(
                 combined_schema,

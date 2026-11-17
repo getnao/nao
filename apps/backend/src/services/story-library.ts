@@ -209,6 +209,7 @@ function renderMetadata(story: StoryDetails): string {
 		['format', story.format],
 		['pinned', story.pinned],
 		['certified', story.certified],
+		['editable', story.editable],
 		['version', story.version],
 		['updated_at', story.updatedAt],
 	];
@@ -229,6 +230,7 @@ function describeStory(story: StorySummary): string {
 		story.pinned ? 'pinned' : null,
 		story.certified ? 'certified' : null,
 		story.format === 'custom' ? 'custom story' : null,
+		story.editable ? 'editable' : null,
 		story.author ? `by ${story.author}` : null,
 		`updated ${story.updatedAt.slice(0, 10)}`,
 	].filter(Boolean);

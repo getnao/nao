@@ -2,9 +2,12 @@ import {
 	BUBBLE_MAX_RADIUS,
 	bubbleLegendValues,
 	buildChoroplethEntries,
+	buildChoroplethLegend,
+	buildChoroplethScale,
 	buildMapPoints,
 	CHOROPLETH_MIN_OPACITY,
-	choroplethValueDomain,
+	type ChoroplethLegendModel,
+	choroplethOpacityExpression,
 	computeMapBounds,
 	type CustomBoundarySet,
 	DEFAULT_MARKER_COLOR,
@@ -125,7 +128,7 @@ async function buildChoroplethMap(
 	customBoundaries: CustomBoundarySet[],
 ): Promise<BuiltMap | null> {
 	const entries = buildChoroplethEntries(rows, config);
-	const domain = choroplethValueDomain(entries);
+	const scale = buildChoroplethScale(entries, config.color_scale);
 	const color = config.color?.trim() || DEFAULT_MARKER_COLOR;
 
 	const boundary = await resolveChoroplethBoundary(config, customBoundaries);
@@ -151,9 +154,9 @@ async function buildChoroplethMap(
 			type: 'choropleth',
 			color,
 			regions,
-			domain: domain ? { min: domain.min, max: domain.max } : null,
+			fillOpacity: choroplethOpacityExpression(scale),
 		},
-		legendHtml: domain ? choroplethLegendHtml(color, domain) : '',
+		legendHtml: scale ? choroplethLegendHtml(color, buildChoroplethLegend(scale)) : '',
 	};
 }
 
@@ -207,7 +210,7 @@ interface ChoroplethDataMap {
 	type: 'choropleth';
 	color: string;
 	regions: ChoroplethRegionConfig[];
-	domain: { min: number; max: number } | null;
+	fillOpacity: number | unknown[];
 }
 
 type DataMap = PointsDataMap | ChoroplethDataMap;
@@ -242,7 +245,11 @@ html,body{background:#ffffff}
 .nao-map-legend-circle{display:block;border-radius:9999px}
 .nao-map-legend-scale{display:flex;flex-direction:column;gap:4px}
 .nao-map-legend-bar{width:96px;height:8px;border-radius:4px}
-.nao-map-legend-scale-labels{display:flex;justify-content:space-between}
+.nao-map-legend-scale-labels{position:relative;display:flex;justify-content:space-between}
+.nao-map-legend-tick{position:absolute;transform:translateX(-50%)}
+.nao-map-legend-classes{display:grid;gap:2px}
+.nao-map-legend-class{display:flex;align-items:center;gap:6px}
+.nao-map-legend-swatch{display:block;width:10px;height:10px;border-radius:2px}
 </style>
 </head>
 <body>
@@ -270,10 +277,28 @@ function bubbleLegendHtml(color: string, domain: NumericDomain, maxRadius: numbe
 	return `<div class="nao-map-legend">${items}</div>`;
 }
 
-function choroplethLegendHtml(color: string, domain: NumericDomain): string {
+function choroplethLegendHtml(color: string, legend: ChoroplethLegendModel): string {
+	if (legend.kind === 'classes') {
+		const rows = legend.classes
+			.map((item) => {
+				const swatchStyle = escapeAttribute(`background:${withOpacity(color, item.opacity)}`);
+				return `<div class="nao-map-legend-class"><span class="nao-map-legend-swatch" style="${swatchStyle}"></span><span>${escapeHtml(item.label)}</span></div>`;
+			})
+			.join('');
+		return `<div class="nao-map-legend"><div class="nao-map-legend-classes">${rows}</div></div>`;
+	}
 	const gradient = `linear-gradient(to right, ${withOpacity(color, CHOROPLETH_MIN_OPACITY)}, ${color})`;
 	const barStyle = escapeAttribute(`background:${gradient}`);
-	return `<div class="nao-map-legend"><div class="nao-map-legend-scale"><span class="nao-map-legend-bar" style="${barStyle}"></span><span class="nao-map-legend-scale-labels"><span>${escapeHtml(formatCompactNumber(domain.min))}</span><span>${escapeHtml(formatCompactNumber(domain.max))}</span></span></div></div>`;
+	const labels = legend.ticks
+		.map((tick) => {
+			const attributes =
+				tick.align === 'center'
+					? ` class="nao-map-legend-tick" style="${escapeAttribute(`left:${tick.position * 100}%`)}"`
+					: '';
+			return `<span${attributes}>${escapeHtml(tick.label)}</span>`;
+		})
+		.join('');
+	return `<div class="nao-map-legend"><div class="nao-map-legend-scale"><span class="nao-map-legend-bar" style="${barStyle}"></span><span class="nao-map-legend-scale-labels">${labels}</span></div></div>`;
 }
 
 function escapeHtml(value: string): string {
