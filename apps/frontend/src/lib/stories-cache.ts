@@ -34,6 +34,10 @@ export function invalidateStoryOwnershipCaches(queryClient: QueryClient): void {
 	void queryClient.invalidateQueries({ queryKey: trpc.story.listStories.queryKey() });
 	void queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey() });
 	void queryClient.invalidateQueries({ queryKey: trpc.story.getCustomVersion.queryKey() });
+	void queryClient.invalidateQueries({ queryKey: trpc.story.getStandalone.queryKey() });
+	void queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneVersions.queryKey() });
+	void queryClient.invalidateQueries({ queryKey: trpc.standaloneCustomStory.listVersions.queryKey() });
+	void queryClient.invalidateQueries({ queryKey: trpc.standaloneCustomStory.getVersion.queryKey() });
 }
 
 export function invalidateStoryTitleCaches(queryClient: QueryClient): void {
