@@ -151,7 +151,7 @@ export async function notifyStoryTransfer(params: {
 		linkUrl: isSingleStory ? storyPath(story.id) : '/stories',
 		ctaLabel: isSingleStory ? 'Open story' : 'Open stories',
 		payload,
-		channels: ['in_app'],
+		channels: ['in_app', 'email'],
 	});
 }
 
