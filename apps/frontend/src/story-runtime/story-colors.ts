@@ -2,11 +2,7 @@ import { SERIES_COLORS } from '@nao/shared/chart-series';
 import type { StoryBlockChartConfig, StoryBlockColors } from '@nao/shared/story-app';
 
 export function resolveBlockColors(config: StoryBlockChartConfig): StoryBlockColors {
-	const probe = document.createElement('span');
-	probe.hidden = true;
-	document.body.append(probe);
-	try {
-		const compute = (color: string) => computeColor(probe, color);
+	return withColorProbe((compute) => {
 		const resolved: Record<string, string> = {};
 		for (const { color } of config.series) {
 			const computed = color ? compute(color) : null;
@@ -15,6 +11,19 @@ export function resolveBlockColors(config: StoryBlockChartConfig): StoryBlockCol
 			}
 		}
 		return { palette: SERIES_COLORS.map((color) => compute(color) ?? ''), resolved };
+	});
+}
+
+export function resolveSeriesPalette(): string[] {
+	return withColorProbe((compute) => SERIES_COLORS.map((color) => compute(color) ?? ''));
+}
+
+function withColorProbe<T>(run: (compute: (color: string) => string | null) => T): T {
+	const probe = document.createElement('span');
+	probe.hidden = true;
+	document.body.append(probe);
+	try {
+		return run((color) => computeColor(probe, color));
 	} finally {
 		probe.remove();
 	}

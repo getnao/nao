@@ -38,7 +38,7 @@ const REMOTE_STYLE_IMPORT = /@import\s+(?:url\(\s*)?["']?(https?:\/\/[^"')\s;]+)
 
 export async function buildStoryApp(files: StorySourceFile[]): Promise<StoryBuildResult> {
 	const sources = Object.fromEntries(files.map((file) => [file.path, file.content]));
-	const entry = resolveEntry(sources);
+	const entry = resolveStoryEntry(sources);
 	if (!entry.ok) {
 		return entry;
 	}
@@ -77,7 +77,9 @@ function toStoryApp(bundle: string, pageShell: string | null): StoryApp {
 	return pageShell === null ? { kind: 'react', bundle } : { kind: 'html', bundle, pageShell };
 }
 
-function resolveEntry(sources: Record<string, string>): { ok: true; path: string } | { ok: false; errors: string[] } {
+export function resolveStoryEntry(
+	sources: Record<string, string>,
+): { ok: true; path: string } | { ok: false; errors: string[] } {
 	const declared = declaredEntry(sources);
 	if (declared.error) {
 		return { ok: false, errors: [declared.error] };

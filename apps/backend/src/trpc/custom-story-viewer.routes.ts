@@ -7,20 +7,30 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
+import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
 import { assertProjectUserCloudBillingAccess, isProjectUserReadOnly } from '../services/cloud-billing-access.service';
 import {
+	assertCustomStoryExists,
 	getActiveThemeForProject,
 	getActiveThemeForStory,
 	getCustomStoryFile,
+	getCustomStoryId,
 	getCustomStoryNarratives,
 	getCustomStoryVersion,
 	getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql,
 } from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
+import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
+import { readCustomStoryMapBoundary } from '../services/story-map-boundary';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
+	mapBoundaryKey,
+	storyModelRequest,
+	storyQueryInputs,
 	storySnapshotHtml,
+	storySqlRequest,
 	storyStateChange,
 	toCustomStoryQueryTrpcError,
 	toCustomStoryTrpcError,
@@ -74,7 +84,7 @@ export const customStoryViewerRoutes = {
 	}),
 
 	getQueryData: viewerProcedure
-		.input(z.object({ queryId: z.string(), versionNumber }))
+		.input(z.object({ queryId: z.string(), versionNumber, inputs: storyQueryInputs }))
 		.query(async ({ ctx, input }) => {
 			try {
 				return await getSharedCustomStoryQueryData(
@@ -84,6 +94,7 @@ export const customStoryViewerRoutes = {
 					{
 						cachedOnly: await isProjectUserReadOnly(ctx.viewer.projectId, ctx.user.id),
 						principalUserId: ctx.user.id,
+						rerun: { inputs: input.inputs, viewerId: ctx.user.id },
 					},
 					input.versionNumber,
 				);
@@ -91,6 +102,32 @@ export const customStoryViewerRoutes = {
 				throw toCustomStoryQueryTrpcError(error);
 			}
 		}),
+
+	listModels: viewerProcedure.query(({ ctx }) => listCustomStoryModels(ctx.viewer.projectId, ctx.user.id)),
+
+	runModel: viewerProcedure.input(z.object({ request: storyModelRequest })).mutation(async ({ ctx, input }) => {
+		try {
+			const storyId = await getCustomStoryId(ctx.viewer.chatId, input.storySlug);
+			return await runCustomStoryModel(
+				{ projectId: ctx.viewer.projectId, storyId, viewerId: ctx.user.id },
+				input.request,
+			);
+		} catch (error) {
+			throw toCustomStoryQueryTrpcError(error);
+		}
+	}),
+
+	runSql: viewerProcedure.input(z.object({ request: storySqlRequest })).mutation(async ({ ctx, input }) => {
+		try {
+			await assertCustomStoryExists(ctx.viewer.chatId, input.storySlug);
+			return await runCustomStorySql(
+				{ projectId: ctx.viewer.projectId, chatId: ctx.viewer.chatId, viewerId: ctx.user.id },
+				input.request,
+			);
+		} catch (error) {
+			throw toCustomStoryQueryTrpcError(error);
+		}
+	}),
 
 	getQuerySql: viewerProcedure
 		.input(z.object({ queryId: z.string(), versionNumber }))
@@ -135,6 +172,14 @@ export const customStoryViewerRoutes = {
 			throw toCustomStoryTrpcError(error);
 		}
 	}),
+
+	getChartPlugins: viewerProcedure.query(({ ctx, input }) =>
+		readCustomStoryChartPluginSources(ctx.viewer.chatId, input.storySlug),
+	),
+
+	getMapBoundary: viewerProcedure
+		.input(z.object({ key: mapBoundaryKey }))
+		.query(({ ctx, input }) => readCustomStoryMapBoundary(ctx.viewer.chatId, input.storySlug, input.key)),
 
 	download: viewerProcedure
 		.input(z.object({ format: z.enum(DOWNLOAD_FORMATS), html: storySnapshotHtml, versionNumber }))

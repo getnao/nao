@@ -53,7 +53,7 @@ function useStoryDownload({
 			if (onDownload) {
 				result = await onDownload(format);
 			} else if (storyId) {
-				result = await trpcClient.story.downloadStandalone.query({ storyId, format });
+				result = await trpcClient.story.downloadStandalone.query({ storyId, format, versionNumber });
 			} else if (isOwner) {
 				result = await trpcClient.story.download.query({
 					chatId: chatId!,

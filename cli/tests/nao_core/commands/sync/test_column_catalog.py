@@ -13,12 +13,7 @@ from nao_core.config.databases.column_catalog import (
 
 def test_sync_writes_unfiltered_columns_and_partial_sync_preserves_other_tables(tmp_path: Path):
     project_path = tmp_path / "project"
-    output_path = project_path / "databases"
     config = _database_config()
-    progress = MagicMock()
-    progress.add_task.return_value = "task"
-    engine = MagicMock()
-    engine.list_templates.return_value = []
 
     config.connect.return_value.list_tables.return_value = ["users", "orders"]
     config.create_context.side_effect = [
@@ -30,7 +25,7 @@ def test_sync_writes_unfiltered_columns_and_partial_sync_preserves_other_tables(
         ),
         _context([{"name": "id", "type": "INTEGER"}]),
     ]
-    _sync(config, engine, output_path, project_path, progress)
+    _sync(config, project_path)
 
     catalog_path = project_path / ".meta" / "databases" / "type=duckdb" / "database=analytics" / "columns.json"
     assert json.loads(catalog_path.read_text()) == {
@@ -54,14 +49,7 @@ def test_sync_writes_unfiltered_columns_and_partial_sync_preserves_other_tables(
             ]
         )
     ]
-    _sync(
-        config,
-        engine,
-        output_path,
-        project_path,
-        progress,
-        select=["main.users"],
-    )
+    _sync(config, project_path, select=["main.users"])
 
     assert json.loads(catalog_path.read_text())["schemas"] == {
         "main": {
@@ -82,7 +70,7 @@ def test_sync_writes_unfiltered_columns_and_partial_sync_preserves_other_tables(
             ]
         )
     ]
-    _sync(config, engine, output_path, project_path, progress)
+    _sync(config, project_path)
 
     assert json.loads(catalog_path.read_text())["schemas"] == {
         "main": {
@@ -96,13 +84,8 @@ def test_sync_writes_unfiltered_columns_and_partial_sync_preserves_other_tables(
 
 def test_full_sync_preserves_catalog_for_schema_that_failed_to_list(tmp_path: Path):
     project_path = tmp_path / "project"
-    output_path = project_path / "databases"
     config = _database_config()
     config.get_schemas.return_value = ["main", "archive"]
-    progress = MagicMock()
-    progress.add_task.return_value = "task"
-    engine = MagicMock()
-    engine.list_templates.return_value = []
     catalog_path = column_catalog_path(project_path, "duckdb", "database=analytics")
     write_column_catalog(
         catalog_path,
@@ -115,7 +98,7 @@ def test_full_sync_preserves_catalog_for_schema_that_failed_to_list(tmp_path: Pa
     config.connect.return_value.list_tables.side_effect = [["users"], RuntimeError("listing failed")]
     config.create_context.return_value = _context([{"name": "id", "type": "BIGINT"}])
 
-    _sync(config, engine, output_path, project_path, progress)
+    _sync(config, project_path)
 
     assert load_column_catalog(catalog_path) == {
         "main": {"users": [{"name": "id", "type": "BIGINT"}]},
@@ -125,12 +108,7 @@ def test_full_sync_preserves_catalog_for_schema_that_failed_to_list(tmp_path: Pa
 
 def test_full_sync_preserves_failed_table_and_refreshes_other_column_results(tmp_path: Path):
     project_path = tmp_path / "project"
-    output_path = project_path / "databases"
     config = _database_config()
-    progress = MagicMock()
-    progress.add_task.return_value = "task"
-    engine = MagicMock()
-    engine.list_templates.return_value = []
     catalog_path = column_catalog_path(project_path, "duckdb", "database=analytics")
     write_column_catalog(
         catalog_path,
@@ -150,7 +128,7 @@ def test_full_sync_preserves_failed_table_and_refreshes_other_column_results(tmp
         _context([{"name": "id", "type": "BIGINT"}]),
     ]
 
-    _sync(config, engine, output_path, project_path, progress)
+    _sync(config, project_path)
 
     assert load_column_catalog(catalog_path) == {
         "main": {
@@ -223,14 +201,11 @@ def _context(columns: list[dict[str, str]] | None) -> MagicMock:
     return context
 
 
-def _sync(
-    config: MagicMock,
-    engine: MagicMock,
-    output_path: Path,
-    project_path: Path,
-    progress: MagicMock,
-    select: list[str] | None = None,
-) -> None:
+def _sync(config: MagicMock, project_path: Path, select: list[str] | None = None) -> None:
+    progress = MagicMock()
+    progress.add_task.return_value = "task"
+    engine = MagicMock()
+    engine.list_templates.return_value = []
     with (
         patch(
             "nao_core.commands.sync.providers.databases.provider.get_template_engine",
@@ -240,7 +215,7 @@ def _sync(
     ):
         sync_database(
             config,
-            output_path,
+            project_path / "databases",
             progress,
             project_path=project_path,
             select=select,

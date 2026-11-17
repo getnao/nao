@@ -22,6 +22,10 @@ nested fields are addressed with dot-notation::
 When the same secret is referenced more than once in a single config load,
 the underlying AWS / k8s call is made only once -- the parsed payload is
 cached for the duration of :func:`process_secrets`.
+
+On nao Cloud the config belongs to a tenant while the process belongs to nao,
+so ``aws`` and ``k8s`` are refused, and a server process resolves ``env`` from
+the project's variables only (``process_env=False``).
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ import os
 import re
 from typing import Any
 
+from nao_core.cloud import is_nao_cloud
 from nao_core.deps import require_dependency
 
 _TEMPLATE_REGEX = re.compile(r"\$?\{\{\s*(?P<protocol>env|aws|k8s)\(\s*['\"](?P<identifier>[^'\"]+)['\"]\s*\)\s*\}\}")
@@ -48,6 +53,8 @@ SecretCache = dict[tuple[str, str], Any]
 def process_secrets(
     content: str,
     extra_env: dict[str, str] | None = None,
+    *,
+    process_env: bool = True,
 ) -> tuple[str, dict[str, str | None]]:
     """Substitute every secret reference in *content*.
 
@@ -57,6 +64,8 @@ def process_secrets(
 
     Repeated references to the same AWS / k8s secret hit the backend once;
     subsequent references reuse the cached payload.
+
+    With ``process_env=False``, ``env`` references resolve from *extra_env* only.
     """
     missing: dict[str, str | None] = {}
     cache: SecretCache = {}
@@ -66,11 +75,13 @@ def process_secrets(
         identifier = match.group("identifier")
 
         if protocol == "env":
-            value = resolve_env(identifier, extra_env=extra_env)
+            value = resolve_env(identifier, extra_env=extra_env, process_env=process_env)
             if value is None:
                 missing[identifier] = None
                 return ""
             return value
+
+        _refuse_process_identity_on_cloud(protocol)
 
         if protocol == "aws":
             return resolve_aws(identifier, cache=cache)
@@ -82,13 +93,29 @@ def process_secrets(
     return _TEMPLATE_REGEX.sub(replacer, content), missing
 
 
-def resolve_env(identifier: str, extra_env: dict[str, str] | None = None) -> str | None:
-    """Look up *identifier* in *extra_env* first, then ``os.environ``."""
+def resolve_env(
+    identifier: str,
+    extra_env: dict[str, str] | None = None,
+    *,
+    process_env: bool = True,
+) -> str | None:
+    """Look up *identifier* in *extra_env* first, then ``os.environ`` unless *process_env* is off."""
     if extra_env is not None and identifier in extra_env:
         value = extra_env[identifier]
-    else:
+    elif process_env:
         value = os.environ.get(identifier)
+    else:
+        value = None
     return value or None
+
+
+def _refuse_process_identity_on_cloud(protocol: str) -> None:
+    """``aws`` and ``k8s`` references authenticate as the process, which on nao Cloud is nao and not the tenant."""
+    if is_nao_cloud():
+        raise ValueError(
+            f"{{{{ {protocol}(...) }}}} secret references are not available on nao Cloud. "
+            "Store the value in the project's environment variables and reference it with {{ env('NAME') }}."
+        )
 
 
 def resolve_aws(identifier: str, cache: SecretCache | None = None) -> str:

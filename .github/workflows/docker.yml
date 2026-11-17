@@ -224,6 +224,7 @@ jobs:
                       docker run -p "127.0.0.1:$NEW_PORT:5005" \
                         --restart unless-stopped \
                         --stop-timeout 150 \
+                        --memory 2g \
                         -v nao-chat-storage:/app/storage \
                         -e "NAO_STORAGE_LOCAL_PATH=/app/storage" \
                         -e "SHUTDOWN_DRAIN_DELAY_MS=10000" \
@@ -320,6 +321,7 @@ jobs:
                           --name "$NEW" \
                           --restart unless-stopped \
                           --stop-timeout 150 \
+                          --memory 12g \
                           --network nao-internal \
                           --network-alias "$APP" \
                           -p "127.0.0.1:$NEW_PORT:5005" \

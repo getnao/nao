@@ -56,6 +56,7 @@ import {
 import { STRIPE_WEBHOOK_PROCESS_JOB_NAME, stripeWebhookProcessHandler } from './handlers/stripe-webhook.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
+import { checkDatabaseConnection } from './queries/health.queries';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
@@ -116,6 +117,7 @@ import { FRONTEND_DEV_ORIGIN, staticRoot } from './utils/static-root';
 
 const isDev = env.MODE !== 'prod';
 const HEALTH_PATH = '/api/health';
+const HEALTH_DATABASE_TIMEOUT_MS = 2_000;
 const BACKOFFICE_LOGS_PATH = '/api/backoffice/logs';
 // pino-pretty transport uses worker threads and can't be resolved inside a Bun-compiled binary.
 // Unix path: /$bunfs/root/..., Windows path: B:/~BUN/root/...
@@ -446,6 +448,9 @@ app.get(HEALTH_PATH, { logLevel: 'silent' }, async (_request, reply) => {
 	if (isDraining()) {
 		return reply.status(503).send({ status: 'draining' });
 	}
+	if (!(await checkDatabaseConnection(HEALTH_DATABASE_TIMEOUT_MS))) {
+		return reply.status(503).send({ status: 'database_unavailable' });
+	}
 	return { status: 'ok' };
 });
 
@@ -465,6 +470,9 @@ const isReservedBackendPath = (url: string) => {
 		pathname.startsWith('/.well-known/')
 	);
 };
+
+/** Hashed build chunks must 404 when missing (e.g. after a deploy) rather than fall back to index.html. */
+const isBuiltAssetPath = (url: string) => url.startsWith('/assets/');
 
 console.log('Static root:', staticRoot || 'Not found (API-only mode)');
 
@@ -493,7 +501,7 @@ if (staticRoot) {
 // SPA fallback: serve index.html for all non-API routes.
 // In dev mode without a built frontend, redirect to the Vite dev server.
 app.setNotFoundHandler((request, reply) => {
-	if (isReservedBackendPath(request.url)) {
+	if (isReservedBackendPath(request.url) || isBuiltAssetPath(request.url)) {
 		reply.status(404).send({ error: 'Not found' });
 	} else if (staticRoot) {
 		reply.sendFile('index.html');

@@ -15,11 +15,13 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
+import type { SidebarMenu } from '@nao/shared/sidebar-menu';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
 import type {
 	AnalyticsEventMetadata,
+	AutomationEventTriggers,
 	CitationData,
 	LlmProvider,
 	NotificationChannel,
@@ -34,10 +36,12 @@ import {
 	MEMBER_BUDGET_PERIODS,
 	NOTIFICATION_CATEGORIES,
 	RECIPIENT_MODES,
+	SHARE_ROLES,
 	SHARE_VISIBILITY,
 	STORY_ACTIONS,
 	STORY_FORMATS,
 	STORY_SOURCES,
+	STORY_VERSION_ORIGINS,
 	USER_ROLES,
 } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
@@ -47,6 +51,7 @@ import {
 	bigint,
 	boolean,
 	check,
+	doublePrecision,
 	foreignKey,
 	index,
 	integer,
@@ -60,7 +65,12 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { AgentSettings } from '../types/agent-settings';
-import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
+import {
+	AUTOMATION_RUN_STATUSES,
+	AUTOMATION_RUN_TRIGGERS,
+	AutomationIntegrationConfig,
+	AutomationIntegrationResult,
+} from '../types/automation';
 import { BILLING_STATUSES } from '../types/billing';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import {
@@ -77,7 +87,7 @@ import {
 	RecommendationInsight,
 } from '../types/context-recommendation';
 import { EXAMPLE_CHAT_ALLOWANCE_SCOPES, type ExampleChatAllowanceScope } from '../types/example-chat-allowance';
-import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
+import { type ActiveEffort, LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import {
 	CREDIT_GRANT_TYPES,
@@ -103,6 +113,14 @@ import {
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
+import {
+	TEST_CONTEXT_VARIANTS,
+	TEST_RUN_STATUSES,
+	TEST_RUN_TRIGGERS,
+	TestContextChange,
+	TestRunModels,
+	TestRunResultDetails,
+} from '../types/test-run';
 import type { StoredUserPreferences } from '../types/usage';
 import {
 	WAREHOUSE_CONNECTION_CHECK_OUTCOMES,
@@ -321,6 +339,7 @@ export const project = pgTable(
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
+		menuSettings: jsonb('menu_settings').$type<SidebarMenu>(),
 		defaultModels: jsonb('default_models').$type<DefaultModelSettings>(),
 		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 
@@ -329,6 +348,7 @@ export const project = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
+		deployedAt: timestamp('deployed_at'),
 	},
 	(t) => [
 		check('local_project_path_required', sql`CASE WHEN "type" = 'local' THEN "path" IS NOT NULL ELSE TRUE END`),
@@ -516,7 +536,7 @@ export const chatMessage = pgTable(
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
 		isForked: boolean('isForked'),
-		citation: jsonb('citation').$type<CitationData>(),
+		citations: jsonb('citations').$type<CitationData[]>(),
 		discordMessageId: text('discord_message_id'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 
@@ -884,6 +904,22 @@ export const sharedChatAccess = pgTable(
 	(t) => [primaryKey({ columns: [t.sharedChatId, t.userId] })],
 );
 
+export const sharedChatGroupAccess = pgTable(
+	'shared_chat_group_access',
+	{
+		sharedChatId: text('shared_chat_id')
+			.notNull()
+			.references(() => sharedChat.id, { onDelete: 'cascade' }),
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+	},
+	(t) => [
+		primaryKey({ columns: [t.sharedChatId, t.groupId] }),
+		index('shared_chat_group_access_groupId_idx').on(t.groupId),
+	],
+);
+
 export const sharedStory = pgTable(
 	'shared_story',
 	{
@@ -900,6 +936,7 @@ export const sharedStory = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
 		visibility: text('visibility', { enum: SHARE_VISIBILITY }).default('project').notNull(),
+		projectRole: text('project_role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 		isPinned: boolean('is_pinned').default(false).notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
@@ -919,6 +956,7 @@ export const sharedStoryAccess = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.sharedStoryId, t.userId] })],
 );
@@ -932,6 +970,7 @@ export const sharedStoryGroupAccess = pgTable(
 		groupId: text('group_id')
 			.notNull()
 			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: SHARE_ROLES }).default('viewer').notNull(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.sharedStoryId, t.groupId] }),
@@ -982,6 +1021,7 @@ export const automation = pgTable(
 		mcpServers: jsonb('mcp_servers').$type<string[]>(),
 		integrations: jsonb('integrations').$type<AutomationIntegrationConfig>().notNull().default({}),
 		webhookEnabled: boolean('webhook_enabled').default(false).notNull(),
+		eventTriggers: jsonb('event_triggers').$type<AutomationEventTriggers>().notNull().default({}),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -1006,6 +1046,7 @@ export const automationRun = pgTable(
 			.references(() => automation.id, { onDelete: 'cascade' }),
 		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
 		status: text('status', { enum: AUTOMATION_RUN_STATUSES }).notNull().default('running'),
+		trigger: text('trigger', { enum: AUTOMATION_RUN_TRIGGERS }),
 		startedAt: timestamp('started_at').defaultNow().notNull(),
 		completedAt: timestamp('completed_at'),
 		errorMessage: text('error_message'),
@@ -1058,6 +1099,7 @@ export const contextRecommendationConfig = pgTable('context_recommendation_confi
 	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
 	repoFullName: text('repo_full_name'),
 	repoProvider: text('repo_provider').$type<RepoProvider>(),
+	encryptedGithubAccessToken: text('encrypted_github_access_token'),
 	autoCreatePrs: boolean('auto_create_prs'),
 	maxAutoPrsPerRun: integer('max_auto_prs_per_run'),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -1161,6 +1203,108 @@ export const contextRecommendationLinkedFeedback = pgTable(
 	],
 );
 
+export const testRun = pgTable(
+	'test_run',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		triggeredByUserId: text('triggered_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+		trigger: text('trigger', { enum: TEST_RUN_TRIGGERS }).notNull().default('manual'),
+		status: text('status', { enum: TEST_RUN_STATUSES }).notNull().default('queued'),
+		contextRef: text('context_ref'),
+		contextCommit: text('context_commit'),
+		contextChanges: jsonb('context_changes').$type<TestContextChange[]>(),
+		models: jsonb('models').$type<TestRunModels>().notNull(),
+		attempts: integer('attempts').notNull().default(1),
+		selection: jsonb('selection').$type<string[]>(),
+		totalAttempts: integer('total_attempts').notNull().default(0),
+		completedAttempts: integer('completed_attempts').notNull().default(0),
+		passedAttempts: integer('passed_attempts').notNull().default(0),
+		totalTokens: integer('total_tokens').notNull().default(0),
+		totalCost: doublePrecision('total_cost'),
+		errorMessage: text('error_message'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		startedAt: timestamp('started_at'),
+		completedAt: timestamp('completed_at'),
+		/** Refreshed by the process executing the run, so other processes can tell a run left behind by a restart. */
+		heartbeatAt: timestamp('heartbeat_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('test_run_projectId_idx').on(t.projectId),
+		index('test_run_status_idx').on(t.status),
+		uniqueIndex('test_run_active_project_idx')
+			.on(t.projectId)
+			.where(sql`${t.status} IN ('queued', 'running')`),
+	],
+);
+
+export const testRunResult = pgTable(
+	'test_run_result',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => testRun.id, { onDelete: 'cascade' }),
+		testPath: text('test_path').notNull(),
+		testName: text('test_name').notNull(),
+		testHash: text('test_hash').notNull(),
+		tags: jsonb('tags').$type<string[]>().notNull().default([]),
+		llmProvider: text('llm_provider').$type<LlmProvider>().notNull(),
+		llmModelId: text('llm_model_id').notNull(),
+		/** Null when the model ran at the reasoning effort configured for it. */
+		reasoningEffort: text('reasoning_effort').$type<ActiveEffort>(),
+		contextVariant: text('context_variant', { enum: TEST_CONTEXT_VARIANTS }).notNull().default('production'),
+		attempt: integer('attempt').notNull(),
+		passed: boolean('passed').notNull(),
+		message: text('message').notNull(),
+		errorMessage: text('error_message'),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'set null' }),
+		totalTokens: integer('total_tokens'),
+		totalCost: doublePrecision('total_cost'),
+		durationMs: integer('duration_ms'),
+		toolCallCount: integer('tool_call_count'),
+		details: jsonb('details').$type<TestRunResultDetails>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('test_run_result_runId_idx').on(t.runId),
+		index('test_run_result_chatId_idx').on(t.chatId),
+		index('test_run_result_testPath_idx').on(t.testPath),
+	],
+);
+
+/** File Explorer edits of a project without a context repository, kept per user until they are published. */
+export const contextDraftFile = pgTable(
+	'context_draft_file',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		path: text('path').notNull(),
+		content: text('content').notNull(),
+		/** Hash of the production file the draft started from, null when the draft adds the file. */
+		baseHash: text('base_hash'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.notNull()
+			.$onUpdate(() => /* @__PURE__ */ new Date()),
+	},
+	(t) => [uniqueIndex('context_draft_file_project_user_path_idx').on(t.projectId, t.userId, t.path)],
+);
+
 export const story = pgTable(
 	'story',
 	{
@@ -1216,6 +1360,9 @@ export const storyVersion = pgTable(
 		code: text('code').notNull(),
 		action: text('action', { enum: STORY_ACTIONS }).notNull(),
 		source: text('source', { enum: STORY_SOURCES }).notNull(),
+		origin: text('origin', { enum: STORY_VERSION_ORIGINS }),
+		authorId: text('author_id').references(() => user.id, { onDelete: 'set null' }),
+		sourceChatId: text('source_chat_id').references(() => chat.id, { onDelete: 'set null' }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
@@ -1287,6 +1434,23 @@ export const storyDraftFile = pgTable(
 	],
 );
 
+export const storyEditLock = pgTable(
+	'story_edit_lock',
+	{
+		storyId: text('story_id')
+			.primaryKey()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		chatId: text('chat_id').references(() => chat.id, { onDelete: 'cascade' }),
+		sessionId: text('session_id'),
+		expiresAt: timestamp('expires_at').notNull(),
+		acquiredAt: timestamp('acquired_at').defaultNow().notNull(),
+	},
+	(t) => [index('story_edit_lock_userId_idx').on(t.userId), index('story_edit_lock_chatId_idx').on(t.chatId)],
+);
+
 export const mcpQueryData = pgTable(
 	'mcp_query_data',
 	{
@@ -1345,6 +1509,20 @@ export const storyDataCache = pgTable('story_data_cache', {
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
+
+export const storyFilterOptionsCache = pgTable(
+	'story_filter_options_cache',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		cacheKey: text('cache_key').notNull(),
+		options: jsonb('options').$type<string[]>().notNull(),
+		isComplete: boolean('is_complete').notNull(),
+		cachedAt: timestamp('cached_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.cacheKey] })],
+);
 
 export const storyAppState = pgTable(
 	'story_app_state',

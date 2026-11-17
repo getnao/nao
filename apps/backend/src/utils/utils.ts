@@ -1,5 +1,6 @@
 import { IncomingHttpHeaders } from 'node:http';
 
+import { getDeploymentEnvVar } from './deployment-env';
 import { ManagedCreditsExhaustedError } from './error';
 
 /** Convert fastify headers to basic `Headers` for better-auth. */
@@ -183,21 +184,21 @@ export function resolveProviderId(ctx?: { params?: Record<string, string | undef
 	return ctx?.params?.id ?? ctx?.params?.providerId;
 }
 
-export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;
+export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[^A-Za-z0-9\s]).{8,}$/;
 
 export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, string> = {}) => {
 	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
 		if (Object.hasOwn(extraEnv, varName)) {
 			return extraEnv[varName];
 		}
-		return process.env[varName] || match;
+		return getDeploymentEnvVar(varName) || match;
 	});
 	return replaced;
 };
 
 /** Names whose effective value comes from the process environment because the project does not override them. */
 export const getProcessEnvSourcedVarNames = (names: string[], projectEnv: Record<string, string>): string[] => {
-	return names.filter((name) => !projectEnv[name] && !!process.env[name]);
+	return names.filter((name) => !Object.hasOwn(projectEnv, name) && !!getDeploymentEnvVar(name));
 };
 
 /** Truncate a string to a maximum length and add an ellipsis in the middle. */

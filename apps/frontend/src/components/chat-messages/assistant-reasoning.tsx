@@ -45,6 +45,7 @@ export const AssistantReasoning = memo(({ text, isStreaming }: AssistantReasonin
 						) : (
 							<Streamdown
 								linkSafety={markdownLinkSafety}
+								dir='auto'
 								isAnimating={isStreaming}
 								mode={isStreaming ? 'streaming' : 'static'}
 								plugins={markdownPlugins}

@@ -45,6 +45,7 @@ export const StreamingMarkdown = memo(
 					<Streamdown
 						linkSafety={markdownLinkSafety}
 						className='assistant-markdown'
+						dir='auto'
 						allowedTags={allowedTags}
 						components={components}
 						isAnimating
@@ -71,6 +72,7 @@ const StreamingMarkdownBlock = memo(
 			<Streamdown
 				linkSafety={markdownLinkSafety}
 				className='assistant-markdown'
+				dir='auto'
 				allowedTags={allowedTags}
 				components={components}
 				literalTagContent={literalTagContent}

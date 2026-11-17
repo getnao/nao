@@ -292,7 +292,7 @@ export function toRepoPath(repo: ResolvedContextRepo, projectPath: string): stri
 	return repo.projectPrefix ? `${repo.projectPrefix}/${normalized}` : normalized;
 }
 
-export function fromRepoPath(repo: ResolvedContextRepo, repoPath: string): string | null {
+export function fromRepoPath(repo: Pick<ResolvedContextRepo, 'projectPrefix'>, repoPath: string): string | null {
 	const normalized = repoPath.replaceAll('\\', '/');
 	if (!repo.projectPrefix) {
 		return normalized;

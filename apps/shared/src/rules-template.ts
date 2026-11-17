@@ -29,6 +29,20 @@ export function renderConditionalGroupBlocksWithSourceLines(
 	return renderRulesTemplate(source, access, (conditionalStack) => shouldInclude(conditionalStack));
 }
 
+/** The lines of the rendered rules showing source lines `start` to `end`, or null when none of them is rendered. */
+export function findRenderedRulesLines(
+	rendered: RenderedConditionalGroupBlocks,
+	{ start, end }: { start: number; end: number },
+): { start: number; end: number } | null {
+	const renderedLineNumbers = rendered.lines.flatMap(({ sourceLineNumber }, index) =>
+		sourceLineNumber >= start && sourceLineNumber <= end ? [index + 1] : [],
+	);
+	if (renderedLineNumbers.length === 0) {
+		return null;
+	}
+	return { start: renderedLineNumbers[0], end: renderedLineNumbers[renderedLineNumbers.length - 1] };
+}
+
 export function extractConditionalGroupContent(source: string, groupName: string): string {
 	return renderRulesTemplate(
 		source,

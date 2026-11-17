@@ -100,7 +100,7 @@ const costProducingTrpcPolicies = [
 	['chat-fork.routes.ts', 'fork', 'actor'],
 	['chat-fork.routes.ts', 'askSharedChat', 'actor'],
 	['chat-fork.routes.ts', 'askStory', 'actor'],
-	['chat-fork.routes.ts', 'forkStory', 'actor'],
+	['chat-fork.routes.ts', 'duplicateStory', 'actor'],
 	['context-recommendation.routes.ts', 'run', 'actor'],
 	['context-recommendation.routes.ts', 'createPullRequest', 'actor'],
 	['context-recommendation.routes.ts', 'createBatchPullRequest', 'actor'],

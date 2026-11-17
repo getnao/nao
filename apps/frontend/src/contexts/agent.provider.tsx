@@ -2,7 +2,7 @@ import { createContext, useContext, useLayoutEffect, useMemo, useState } from 'r
 import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/shim/with-selector';
 import type { UIMessage } from '@nao/backend/chat';
 
-import type { AgentHelpers, AgentMode } from '@/hooks/use-agent';
+import type { AgentHelpers, AgentMode, AgentRequestBodyGetter } from '@/hooks/use-agent';
 import { useAgent, useSyncMessages } from '@/hooks/use-agent';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useStreamEndSound } from '@/hooks/use-stream-end-sound';
@@ -39,10 +39,11 @@ export interface Props {
 	children: React.ReactNode;
 	disableNavigation?: boolean;
 	mode?: AgentMode;
+	getRequestBody?: AgentRequestBodyGetter;
 }
 
-export const AgentProvider = ({ children, disableNavigation, mode = 'default' }: Props) => {
-	const agent = useAgent({ disableNavigation, mode });
+export const AgentProvider = ({ children, disableNavigation, mode = 'default', getRequestBody }: Props) => {
+	const agent = useAgent({ disableNavigation, mode, getRequestBody });
 	const [messagesStore] = useState(() => createAgentMessagesStore(agent.messages));
 	const value = useMemo<AgentHelpers>(
 		() => ({

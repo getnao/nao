@@ -3,11 +3,15 @@ const MAX_PATH_BUFFER_LENGTH = 32_768;
 const EXTENDED_PATH_PREFIX = '\\\\?\\';
 const EXTENDED_UNC_PATH_PREFIX = '\\\\?\\UNC\\';
 
+/**
+ * Bun statically links its C runtime, so its descriptors are unknown to system CRTs like msvcrt.dll.
+ * The libuv export of the running Bun executable is the only lookup that shares Bun's descriptor table.
+ */
 export async function resolveWindowsDescriptorPath(descriptor: number): Promise<string> {
 	const bunFfiModule: string = 'bun:ffi';
 	const { dlopen } = (await import(bunFfiModule)) as typeof import('bun:ffi');
-	const cRuntime = dlopen('msvcrt.dll', {
-		_get_osfhandle: {
+	const bunRuntime = dlopen(process.execPath, {
+		uv_get_osfhandle: {
 			args: ['i32'],
 			returns: 'i64',
 		},
@@ -22,7 +26,7 @@ export async function resolveWindowsDescriptorPath(descriptor: number): Promise<
 		} as const);
 
 		try {
-			const handle = cRuntime.symbols._get_osfhandle(descriptor);
+			const handle = bunRuntime.symbols.uv_get_osfhandle(descriptor);
 			if (handle < 0n) {
 				throw new Error('Invalid Windows file handle');
 			}
@@ -33,7 +37,7 @@ export async function resolveWindowsDescriptorPath(descriptor: number): Promise<
 			windows.close();
 		}
 	} finally {
-		cRuntime.close();
+		bunRuntime.close();
 	}
 }
 

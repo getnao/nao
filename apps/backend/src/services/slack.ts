@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { basename } from 'node:path';
 
-import { cardToBlockKit, createSlackAdapter } from '@chat-adapter/slack';
+import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { stripAssistantTags } from '@nao/shared';
 import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
@@ -14,7 +14,7 @@ import {
 	WebClient,
 } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { Card, Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent, Thread, ThreadImpl } from 'chat';
+import { Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent, Thread, ThreadImpl } from 'chat';
 
 import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
@@ -58,14 +58,22 @@ import {
 	formatSlackMessageText,
 	isRecoverableSlackPayloadError,
 	renderMapImage,
+	resolveChatSqlOutput,
 	type SlackTableRenderState,
+	toSlackBlocks,
 	type TruncationNotice,
 } from '../utils/messaging-provider';
+import {
+	buildSlackNativeChart,
+	hasRoomForSlackNativeChart,
+	type SlackNativeChartInput,
+} from '../utils/slack-native-chart';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { isStoriesPath } from '../utils/story-mount';
 import { toStorageRelativePath } from '../utils/tools';
 import { isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { assertMessagingUserCloudBillingAccess, MESSAGING_SEATS_FULL_REPLY } from './cloud-billing-guard';
@@ -172,6 +180,7 @@ export class ProjectSlackBot {
 				slack: createSlackAdapter({
 					botToken: config.botToken,
 					signingSecret: this._adapterSigningSecret,
+					agentView: config.dmThreadsEnabled,
 				}),
 			},
 			state: createMemoryState(),
@@ -520,6 +529,7 @@ export class ProjectSlackBot {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
+			void triggerChatFeedbackAutomations({ messageId, vote: 'up' });
 			await this._updateCompletionCardVote(threadId, 'up');
 		});
 
@@ -560,11 +570,9 @@ export class ProjectSlackBot {
 				throw new Error(`You are not authorized to provide feedback on this message.`);
 			}
 
-			await feedbackQueries.upsertFeedback({
-				messageId,
-				vote: 'down',
-				explanation: event.values['explanation'] || undefined,
-			});
+			const explanation = event.values['explanation'] || undefined;
+			await feedbackQueries.upsertFeedback({ messageId, vote: 'down', explanation });
+			void triggerChatFeedbackAutomations({ messageId, submitterId: user.id, vote: 'down', explanation });
 			await this._updateCompletionCardVote(threadId, 'down');
 			return { action: 'close' };
 		});
@@ -677,13 +685,10 @@ export class ProjectSlackBot {
 		ctx: ConversationContext,
 		children: ConversationContext['blocks'],
 		finalDelivery = false,
-	): Promise<void> {
+	): Promise<boolean> {
 		const streamState = this._getSlackStreamState(ctx);
-		if (streamState.payloadRejected && !finalDelivery) {
-			return;
-		}
-		if (children.length === 0) {
-			return;
+		if ((streamState.payloadRejected && !finalDelivery) || children.length === 0) {
+			return false;
 		}
 
 		const slackChildren = finalDelivery ? children : [...children, createStopButtonActions()];
@@ -693,10 +698,11 @@ export class ProjectSlackBot {
 				const postedMessageTs = await this._postSlackCard(ctx, slackChildren);
 				streamState.messageTs = postedMessageTs;
 				streamState.lastDeliveredChildren = [...children];
+				return true;
 			} catch (error) {
 				if (isRecoverableSlackPayloadError(error)) {
 					await this._handleOversizedSlackPayload(ctx, finalDelivery);
-					return;
+					return false;
 				}
 				logger.warn(
 					`${finalDelivery ? 'Slack final card post failed' : 'Slack streaming card post failed'}: ${String(error)}`,
@@ -706,14 +712,14 @@ export class ProjectSlackBot {
 					},
 				);
 			}
-			return;
+			return false;
 		}
 
 		try {
 			const { channelId } = this._getSlackMessageDestination(ctx);
 			await this._updateSlackCard(channelId, messageTs, slackChildren);
 			streamState.lastDeliveredChildren = [...children];
-			return;
+			return true;
 		} catch (error) {
 			if (!isRecoverableSlackPayloadError(error)) {
 				logger.warn(
@@ -723,9 +729,10 @@ export class ProjectSlackBot {
 						context: { chatId: ctx.chatId, threadId: ctx.thread.id },
 					},
 				);
-				return;
+				return false;
 			}
 			await this._handleOversizedSlackPayload(ctx, finalDelivery);
+			return false;
 		}
 	}
 
@@ -762,7 +769,7 @@ export class ProjectSlackBot {
 			...(threadTs ? { thread_ts: threadTs } : {}),
 			text: buildSlackCardNotificationText(children, await getAppName()),
 		};
-		(args as { blocks?: unknown }).blocks = cardToBlockKit(Card({ children }));
+		(args as { blocks?: unknown }).blocks = toSlackBlocks(children);
 		const result = await this._slackClient.chat.postMessage(args);
 		if (!result.ok || !result.ts) {
 			throw new Error(result.error ?? 'Slack did not return a timestamp for the posted card.');
@@ -780,7 +787,7 @@ export class ProjectSlackBot {
 			ts: messageTs,
 			text: buildSlackCardNotificationText(children, await getAppName()),
 		};
-		(args as { blocks?: unknown }).blocks = cardToBlockKit(Card({ children }));
+		(args as { blocks?: unknown }).blocks = toSlackBlocks(children);
 		const result = await this._slackClient.chat.update(args);
 		if (!result.ok) {
 			throw new Error(result.error ?? 'Slack failed to update the card.');
@@ -1235,14 +1242,11 @@ export class ProjectSlackBot {
 			agent.stop();
 		}
 		await this._readStreamAndUpdateSlackMessage(stream, ctx, activeStream);
-
-		const previousCompletion = this._lastCompletionCard.get(ctx.thread.id);
-		if (previousCompletion) {
-			await this._slackClient.chat.delete({
-				channel: previousCompletion.channelId,
-				ts: previousCompletion.messageTs,
-			});
+		await this._deletePreviousCompletionCard(ctx.thread.id);
+		if (!this._getSlackStreamMessageTs(ctx)) {
+			return;
 		}
+
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		const { channelId } = this._getSlackMessageDestination(ctx);
 		const hiddenTables = countHiddenTableNotices(this._getSlackStreamState(ctx).lastDeliveredChildren);
@@ -1252,6 +1256,19 @@ export class ProjectSlackBot {
 			createCompletionCard(chatUrl, { hiddenTables, appName }).children,
 		);
 		this._lastCompletionCard.set(ctx.thread.id, { channelId, messageTs, chatUrl, hiddenTables });
+	}
+
+	/** Feedback buttons always rate the latest assistant message, so only the newest answer may carry them. */
+	private async _deletePreviousCompletionCard(threadId: string): Promise<void> {
+		const previousCompletion = this._lastCompletionCard.get(threadId);
+		if (!previousCompletion) {
+			return;
+		}
+		this._lastCompletionCard.delete(threadId);
+		await this._slackClient.chat.delete({
+			channel: previousCompletion.channelId,
+			ts: previousCompletion.messageTs,
+		});
 	}
 
 	private async _createAgentStream(
@@ -1290,6 +1307,7 @@ export class ProjectSlackBot {
 			toolGroupBlockIndex: -1,
 		};
 
+		const handledToolResultIds = new Set<string>();
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
 			const part = uiMessage.parts[uiMessage.parts.length - 1];
 			if (!part) {
@@ -1312,21 +1330,49 @@ export class ProjectSlackBot {
 					.map((messagePart) => messagePart.text)
 					.join('\n\n');
 				await this._handleTextPart(allText, state, ctx);
-			} else if (isQueryResultPart(part)) {
-				this._handleSqlPart(part, state);
-			} else if (part.type === 'tool-display_chart') {
-				await this._handleChartPart(part, state, ctx);
-			} else if (part.type === 'tool-display_map') {
-				await this._handleMapPart(part, state, ctx);
 			} else if (part.type === 'tool-clarification') {
 				await this._handleClarificationPart(part, state, ctx);
-			} else if (part.type === 'tool-write') {
-				await this._handleWritePart(part, state, ctx);
 			}
+			await this._handleNewToolResults(uiMessage.parts, handledToolResultIds, state, ctx);
 		}
 
 		await this._sendFinalText(ctx, activeStream);
 		return state;
+	}
+
+	/**
+	 * Parallel tool calls finish while a sibling is still the last part, so every part is scanned
+	 * and each finished result is handled once, in order (queries before the charts that use them).
+	 */
+	private async _handleNewToolResults(
+		parts: UIMessagePart[],
+		handledToolResultIds: Set<string>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<void> {
+		for (const part of parts) {
+			if (
+				!('toolCallId' in part) ||
+				part.state !== 'output-available' ||
+				handledToolResultIds.has(part.toolCallId)
+			) {
+				continue;
+			}
+			handledToolResultIds.add(part.toolCallId);
+			await this._handleToolResult(part, state, ctx);
+		}
+	}
+
+	private async _handleToolResult(part: UIMessagePart, state: StreamState, ctx: ConversationContext): Promise<void> {
+		if (isQueryResultPart(part)) {
+			this._handleSqlPart(part, state);
+		} else if (part.type === 'tool-display_chart') {
+			await this._handleChartPart(part, state, ctx);
+		} else if (part.type === 'tool-display_map') {
+			await this._handleMapPart(part, state, ctx);
+		} else if (part.type === 'tool-write') {
+			await this._handleWritePart(part, state, ctx);
+		}
 	}
 
 	private async _handleClarificationPart(
@@ -1375,17 +1421,18 @@ export class ProjectSlackBot {
 		if (displayChart.isTableInput(part.input)) {
 			return;
 		}
-		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		const sqlOutput = await resolveChatSqlOutput(state, ctx.chatId, part.input.query_id);
 		if (!sqlOutput) {
 			return;
 		}
 		try {
 			const displaySettings = await projectQueries.getDisplaySettings(this.projectId);
-			const png = generateChartImage({
-				config: part.input,
-				data: sqlOutput.rows,
-				dateFormat: displaySettings.dateFormat,
-			});
+			const chartInput = { config: part.input, data: sqlOutput.rows, dateFormat: displaySettings.dateFormat };
+			if (await this._pushNativeChart(chartInput, part.toolCallId, state, ctx)) {
+				return;
+			}
+
+			const png = generateChartImage(chartInput);
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
 			state.renderedToolCallIds.add(part.toolCallId);
 
@@ -1406,6 +1453,27 @@ export class ProjectSlackBot {
 		}
 	}
 
+	/** Posts a hoverable Slack chart; returns false when it does not fit or was not delivered, so the caller sends a PNG. */
+	private async _pushNativeChart(
+		chartInput: SlackNativeChartInput,
+		toolCallId: string,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<boolean> {
+		const nativeChart = hasRoomForSlackNativeChart(ctx.blocks) ? buildSlackNativeChart(chartInput) : null;
+		if (!nativeChart || this._getSlackStreamState(ctx).payloadRejected) {
+			return false;
+		}
+		this._closeCurrentTextRun(ctx);
+		ctx.blocks.push(nativeChart);
+		if (!(await this._editConversationCard(ctx, ctx.blocks))) {
+			ctx.blocks.splice(ctx.blocks.indexOf(nativeChart), 1);
+			return false;
+		}
+		state.renderedToolCallIds.add(toolCallId);
+		return true;
+	}
+
 	private async _handleMapPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 		state: StreamState,
@@ -1419,6 +1487,7 @@ export class ProjectSlackBot {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+		await resolveChatSqlOutput(state, ctx.chatId, part.input.query_id);
 		const png = await renderMapImage(part, state, this.projectId, {
 			chatId: ctx.chatId,
 			toolCallId: part.toolCallId,
@@ -1631,11 +1700,35 @@ export class ProjectSlackBot {
 				}
 			}
 		}
-		const finalBlocks =
-			ctx.blocks.length > 0
-				? ctx.blocks
-				: [createTextBlock(activeStream.stopRequested ? '_Generation stopped._' : '_No response._')];
-		await this._editConversationCard(ctx, finalBlocks, true);
+		if (ctx.blocks.length > 0) {
+			await this._editConversationCard(ctx, ctx.blocks, true);
+		} else if (activeStream.stopRequested) {
+			await this._editConversationCard(ctx, [createTextBlock('_Generation stopped._')], true);
+		} else {
+			await this._deleteConversationCard(ctx);
+		}
+	}
+
+	/**
+	 * An empty answer is a deliberate silence (e.g. a rule telling the agent not to reply), so leave no trace.
+	 * If Slack refuses the delete, settle the card instead so it never stays stuck on "answering".
+	 */
+	private async _deleteConversationCard(ctx: ConversationContext): Promise<void> {
+		const streamState = this._getSlackStreamState(ctx);
+		if (!streamState.messageTs) {
+			return;
+		}
+		const { channelId } = this._getSlackMessageDestination(ctx);
+		try {
+			await this._slackClient.chat.delete({ channel: channelId, ts: streamState.messageTs });
+		} catch (error) {
+			logger.warn(`Failed to delete Slack answering card after an empty answer: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, threadId: ctx.thread.id, messageTs: streamState.messageTs },
+			});
+			await this._editConversationCard(ctx, [createTextBlock('_No response._')], true);
+		}
+		streamState.messageTs = null;
 	}
 
 	private _updateTextBlock(
@@ -1841,6 +1934,7 @@ class SlackService {
 			previous.transportMode !== next.transportMode ||
 			previous.appToken !== next.appToken ||
 			previous.replyMode !== next.replyMode ||
+			previous.dmThreadsEnabled !== next.dmThreadsEnabled ||
 			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
 			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
 			previous.modelSelection?.provider !== next.modelSelection?.provider ||

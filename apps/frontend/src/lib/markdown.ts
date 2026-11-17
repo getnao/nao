@@ -44,6 +44,11 @@ export function parseMarkdownFrontmatter(content: string): ParsedMarkdown {
 	return { frontmatter: null, label: null, body: content };
 }
 
+/** The lines the frontmatter takes, before the body starts. */
+export function countFrontmatterLines({ frontmatter }: ParsedMarkdown): number {
+	return frontmatter ? frontmatter.split('\n').length - 1 : 0;
+}
+
 export function joinMarkdownFrontmatter(frontmatter: string | null, body: string): string {
 	if (!frontmatter) {
 		return body;

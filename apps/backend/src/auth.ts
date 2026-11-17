@@ -33,6 +33,7 @@ import {
 	rewriteRedirectIssuer,
 	sameOriginRedirectPath,
 } from './mcp/public-issuer';
+import { omitRedundantTokenExpiry } from './mcp/token-response';
 import { verifyJwtWithLocalJwks } from './mcp/verify-jwt';
 import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
@@ -317,6 +318,13 @@ async function createAuthInstance(baseURL: string) {
 		hooks: {
 			after: createAuthMiddleware(async (ctx) => {
 				const publicIssuerResponse = await applyPublicIssuer(ctx);
+				const returned = publicIssuerResponse ?? ctx.context.returned;
+				if (ctx.path === '/oauth2/token') {
+					const portableTokenResponse = omitRedundantTokenExpiry(returned);
+					if (portableTokenResponse !== returned) {
+						return portableTokenResponse;
+					}
+				}
 				if (publicIssuerResponse !== undefined) {
 					return publicIssuerResponse;
 				}
@@ -410,7 +418,7 @@ async function createAuthInstance(baseURL: string) {
 					before: async (user) => {
 						try {
 							const { cleanupContextWorktree } = await import('./services/context-explorer-git.service');
-							const projects = await projectQueries.listUserProjects(user.id);
+							const projects = await projectQueries.listUserProjects(user.id, { includeInactive: true });
 							for (const project of projects) {
 								if (project.path) {
 									await cleanupContextWorktree(project.id, project.path, user.id);

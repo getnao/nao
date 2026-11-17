@@ -15,6 +15,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import type {
 	CustomModelMetadata,
+	ModelInferenceSettings,
 	ModelRequest,
 	ModelSettingsMap,
 	ModelSource,
@@ -131,6 +132,7 @@ export async function resolveProviderModel(
 	modelId: string,
 	applyUserSettings = true,
 	usageContext?: ManagedAiUsageContext,
+	inferenceOverrides?: ModelInferenceSettings,
 ): Promise<ProviderModelResult | null> {
 	if (isProviderDisabled(provider)) {
 		return null;
@@ -141,6 +143,7 @@ export async function resolveProviderModel(
 		modelId,
 		applyUserSettings,
 		usageContext,
+		inferenceOverrides,
 	};
 	for (const source of getSourcesServing(provider)) {
 		const result = await source.resolveModel(request);
@@ -149,6 +152,23 @@ export async function resolveProviderModel(
 		}
 	}
 	return null;
+}
+
+/** The admin's settings of a model, from the same source that would serve it. */
+export async function resolveModelInferenceSettings(
+	projectId: string,
+	provider: LlmProvider,
+	modelId: string,
+): Promise<ModelInferenceSettings> {
+	for (const source of getSourcesServing(provider)) {
+		const settings = source.resolveModelSettings
+			? await source.resolveModelSettings(projectId, provider, modelId)
+			: {};
+		if (settings) {
+			return settings;
+		}
+	}
+	return {};
 }
 
 /** Read the `llm` block of the project's nao_config.yaml, if the project has one on disk. */
@@ -477,12 +497,17 @@ function credentialSource(source: CredentialSource): ModelSource {
 		async resolveSettings(projectId, provider) {
 			return (await source.findAccess(projectId, provider))?.settings ?? null;
 		},
-		async resolveModel({ projectId, provider, modelId, applyUserSettings }) {
+		async resolveModelSettings(projectId, provider, modelId) {
+			const access = await source.findAccess(projectId, provider);
+			return access ? (access.modelSettings?.[modelId] ?? {}) : null;
+		},
+		async resolveModel({ projectId, provider, modelId, applyUserSettings, inferenceOverrides }) {
 			const access = await source.findAccess(projectId, provider);
 			if (!access) {
 				return null;
 			}
-			const inferenceSettings = applyUserSettings ? access.modelSettings?.[modelId] : undefined;
+			const userSettings = applyUserSettings ? access.modelSettings?.[modelId] : undefined;
+			const inferenceSettings = inferenceOverrides ? { ...userSettings, ...inferenceOverrides } : userSettings;
 			return createProviderModel(provider, access.settings, modelId, inferenceSettings);
 		},
 	};

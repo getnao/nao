@@ -7,6 +7,7 @@ export interface StorySummary {
 	format: StoryFormat;
 	pinned: boolean;
 	certified: boolean;
+	editable: boolean;
 	updatedAt: string;
 }
 

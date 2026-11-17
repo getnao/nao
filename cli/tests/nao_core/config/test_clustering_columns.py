@@ -12,9 +12,7 @@ class TestSnowflakeClusteringColumns:
 
     def test_returns_parsed_clustering_key(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.fetchone.return_value = ("LINEAR(CUSTOMER_ID, CREATED_AT)",)
-        conn.raw_sql.return_value = cursor
+        conn.raw_sql.return_value.fetchone.return_value = ("LINEAR(CUSTOMER_ID, CREATED_AT)",)
 
         cols = ctx.clustering_columns()
 
@@ -22,9 +20,7 @@ class TestSnowflakeClusteringColumns:
 
     def test_returns_empty_when_no_clustering_key(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.fetchone.return_value = (None,)
-        conn.raw_sql.return_value = cursor
+        conn.raw_sql.return_value.fetchone.return_value = (None,)
 
         assert ctx.clustering_columns() == []
 
@@ -43,15 +39,9 @@ class TestDatabricksClusteringColumns:
 
     def test_returns_liquid_clustering_columns(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.description = [
-            ("format",),
-            ("id",),
-            ("clusteringColumns",),
-            ("numFiles",),
-        ]
-        cursor.fetchone.return_value = ("delta", "abc123", ["customer_id", "created_at"], 5)
-        conn.raw_sql.return_value = cursor
+        _stub_describe_detail(
+            conn, format="delta", id="abc123", clusteringColumns=["customer_id", "created_at"], numFiles=5
+        )
 
         cols = ctx.clustering_columns()
 
@@ -59,23 +49,13 @@ class TestDatabricksClusteringColumns:
 
     def test_returns_empty_when_no_liquid_clustering(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.description = [
-            ("format",),
-            ("id",),
-            ("clusteringColumns",),
-        ]
-        cursor.fetchone.return_value = ("delta", "abc123", [])
-        conn.raw_sql.return_value = cursor
+        _stub_describe_detail(conn, format="delta", id="abc123", clusteringColumns=[])
 
         assert ctx.clustering_columns() == []
 
     def test_returns_empty_when_column_not_in_describe_detail(self):
         ctx, conn = self._make_context()
-        cursor = MagicMock()
-        cursor.description = [("format",), ("id",)]
-        cursor.fetchone.return_value = ("delta", "abc123")
-        conn.raw_sql.return_value = cursor
+        _stub_describe_detail(conn, format="delta", id="abc123")
 
         assert ctx.clustering_columns() == []
 
@@ -84,3 +64,9 @@ class TestDatabricksClusteringColumns:
         conn.raw_sql.side_effect = Exception("table not found")
 
         assert ctx.clustering_columns() == []
+
+
+def _stub_describe_detail(conn: MagicMock, **detail: object) -> None:
+    cursor = conn.raw_sql.return_value
+    cursor.description = [(column,) for column in detail]
+    cursor.fetchone.return_value = tuple(detail.values())

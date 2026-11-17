@@ -143,7 +143,7 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.REQUESTY: "openai/gpt-4o-mini",
     LLMProvider.OLLAMA: "llama3.2",
     LLMProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
-    LLMProvider.VERTEX: "gemini-2.5-flash",
+    LLMProvider.VERTEX: "gemini-3.8-flash",
     LLMProvider.QWEN: "qwen3.7-flash",
     LLMProvider.MINIMAX: "MiniMax-M2.7",
     LLMProvider.MOONSHOT: "kimi-k2.5",

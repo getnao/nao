@@ -20,6 +20,7 @@ import { DangerZone } from '@/components/settings/danger-zone';
 import { SettingsMemories } from '@/components/settings/memories';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
+import { clearRequestAnswers } from '@/components/custom-story/story-request-answers';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/account')({
@@ -63,6 +64,7 @@ function GeneralPage() {
 
 	const handleSignOut = async () => {
 		queryClient.clear();
+		clearRequestAnswers();
 		await signOut({
 			fetchOptions: {
 				onSuccess: () => {

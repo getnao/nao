@@ -1,13 +1,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { RepoProvider } from '@nao/shared/types';
+import { isLlmProvider, type LlmSelectedModel, type RepoProvider } from '@nao/shared/types';
 import yaml from 'js-yaml';
+import { z } from 'zod/v4';
 
+import { getModelReasoningEfforts } from '../agents/provider-meta';
 import { parseGithubRemoteRepoFullName } from '../services/github';
 import { gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
+import type { ActiveEffort } from '../types/llm';
+import {
+	type ConfiguredTestSettings,
+	DEFAULT_TEST_COMPARISON_TOLERANCES,
+	testComparisonTolerancesSchema,
+	type TestModelSelection,
+} from '../types/test-run';
 import { logger } from './logger';
+import { resolveSecrets } from './nao-config-llm';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -22,6 +32,8 @@ export type ContextPresence = {
 };
 const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
 const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
+const TEST_MODEL_FORMAT = "'provider:model_id'";
+const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
 
 type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
@@ -68,8 +80,12 @@ function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>
 	}
 }
 
-export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo[] {
-	return configuredReposFrom(loadProjectConfig(projectFolder));
+/**
+ * Repository URLs written with `{{ env('NAME') }}` are resolved only when project variables are given, for server-side
+ * use: a resolved URL may hold secrets, so the URLs shown to users stay as written.
+ */
+export function extractConfiguredRepos(projectFolder: string, envVars?: Record<string, string>): LinkedContextRepo[] {
+	return configuredReposFrom(loadProjectConfig(projectFolder), envVars);
 }
 
 /** Returns configured database templates, falling back to the default when unavailable. */
@@ -101,7 +117,7 @@ export function extractContextPresence(projectFolder: string): ContextPresence {
 	};
 }
 
-function configuredReposFrom(config: unknown): LinkedContextRepo[] {
+function configuredReposFrom(config: unknown, envVars?: Record<string, string>): LinkedContextRepo[] {
 	if (!isRecord(config) || !Array.isArray(config.repos)) {
 		return [];
 	}
@@ -111,7 +127,7 @@ function configuredReposFrom(config: unknown): LinkedContextRepo[] {
 			return [];
 		}
 
-		const url = typeof repo.url === 'string' && repo.url.trim() !== '' ? repo.url.trim() : null;
+		const url = (envVars ? resolveSecrets(repo.url, envVars) : asString(repo.url))?.trim() || null;
 		const branch = typeof repo.branch === 'string' && repo.branch.trim() !== '' ? repo.branch.trim() : null;
 		const localPath =
 			typeof repo.local_path === 'string' && repo.local_path.trim() !== '' ? repo.local_path.trim() : null;
@@ -158,6 +174,22 @@ function configuredTemplatesFrom(config: unknown): string[] {
 
 	const resolvedTemplates = DATABASE_TEMPLATES.filter((template) => configuredTemplates.has(template));
 	return resolvedTemplates.length > 0 ? resolvedTemplates : [...DEFAULT_DATABASE_TEMPLATES];
+}
+
+/** The `repos` entry of `nao_config.yaml` as written, so that `nao sync` can run it with the same filters. */
+export function extractRawRepoConfig(projectFolder: string, repoName: string): Record<string, unknown> | null {
+	const config = loadProjectConfig(projectFolder);
+	if (!isRecord(config) || !Array.isArray(config.repos)) {
+		return null;
+	}
+	const repo = config.repos.find(
+		(entry) => isRecord(entry) && typeof entry.name === 'string' && entry.name.trim() === repoName,
+	);
+	return isRecord(repo) ? repo : null;
+}
+
+function asString(value: unknown): string | null {
+	return typeof value === 'string' ? value : null;
 }
 
 function loadProjectConfig(projectFolder: string): unknown {
@@ -257,6 +289,110 @@ export function extractConfiguredSemanticLayer(projectFolder: string): Configure
 		manifestPath,
 		database: normalizeString(semanticLayer.database),
 	};
+}
+
+/** The `test` section of nao_config.yaml, read with the same defaults and validation as `nao test`. */
+export function extractConfiguredTestSettings(projectFolder: string): ConfiguredTestSettings {
+	const config = loadProjectConfig(projectFolder);
+	const testConfig = isRecord(config) && isRecord(config.test) ? config.test : {};
+	const errors: string[] = [];
+
+	const models = parseTestModels(testConfig.models, errors);
+	const attempts = testConfig.k ?? 1;
+	const isValidAttempts = isPositiveInteger(attempts);
+	if (!isValidAttempts) {
+		errors.push(`test.k must be an integer of at least 1, got ${JSON.stringify(attempts)}.`);
+	}
+	const threads = testConfig.threads ?? null;
+	const isValidThreads = threads === null || isPositiveInteger(threads);
+	if (!isValidThreads) {
+		errors.push(`test.threads must be an integer of at least 1, got ${JSON.stringify(threads)}.`);
+	}
+	const tolerances = testComparisonTolerancesSchema.safeParse(testConfig.comparison ?? {});
+	if (!tolerances.success) {
+		errors.push(`test.comparison is invalid: ${z.prettifyError(tolerances.error)}`);
+	}
+
+	return {
+		models,
+		attempts: isValidAttempts ? attempts : 1,
+		threads: isValidThreads ? threads : null,
+		tolerances: tolerances.success ? tolerances.data : DEFAULT_TEST_COMPARISON_TOLERANCES,
+		errors,
+	};
+}
+
+function isPositiveInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+}
+
+function parseTestModels(models: unknown, errors: string[]): TestModelSelection[] | null {
+	if (models === undefined || models === null) {
+		return null;
+	}
+	if (!Array.isArray(models)) {
+		errors.push(`test.models must be a list of ${TEST_MODEL_FORMAT} or ${TEST_MODEL_OBJECT_FORMAT} entries.`);
+		return null;
+	}
+	const parsed = models.flatMap((model) => {
+		const selection = parseTestModelEntry(model);
+		if (typeof selection === 'string') {
+			errors.push(selection);
+			return [];
+		}
+		return [selection];
+	});
+	return parsed.length > 0 ? parsed : null;
+}
+
+/** A `provider:model_id` entry, or an object naming the model with the reasoning efforts to run it at, or `all`. */
+function parseTestModelEntry(entry: unknown): TestModelSelection | string {
+	const invalidEntry = `test.models has an invalid entry ${JSON.stringify(entry)}, expected`;
+	if (!isRecord(entry)) {
+		return parseTestModel(entry) ?? `${invalidEntry} ${TEST_MODEL_FORMAT}.`;
+	}
+	const model = parseTestModel(entry.model);
+	const unknownKeys = Object.keys(entry).filter((key) => key !== 'model' && key !== 'reasoning_efforts');
+	if (!model || unknownKeys.length > 0) {
+		return `${invalidEntry} ${TEST_MODEL_OBJECT_FORMAT}.`;
+	}
+	if (entry.reasoning_efforts === undefined || entry.reasoning_efforts === null) {
+		return model;
+	}
+	const reasoningEfforts = parseReasoningEfforts(model, entry.reasoning_efforts);
+	return typeof reasoningEfforts === 'string' ? reasoningEfforts : { ...model, reasoningEfforts };
+}
+
+function parseTestModel(model: unknown): LlmSelectedModel | null {
+	if (typeof model !== 'string') {
+		return null;
+	}
+	const separatorIndex = model.indexOf(':');
+	const provider = model.slice(0, separatorIndex);
+	const modelId = model.slice(separatorIndex + 1);
+	return separatorIndex > 0 && modelId && isLlmProvider(provider) ? { provider, modelId } : null;
+}
+
+/** The efforts listed for a model, from the lowest, or the error naming the ones it does not support. */
+function parseReasoningEfforts(model: LlmSelectedModel, efforts: unknown): ActiveEffort[] | string {
+	const label = `test.models reasoning_efforts of ${model.provider}:${model.modelId}`;
+	const supported = getModelReasoningEfforts(model.provider, model.modelId);
+	if (supported.length === 0) {
+		return `${label}: this model has no reasoning efforts to pick.`;
+	}
+	if (efforts === 'all') {
+		return supported;
+	}
+	if (!Array.isArray(efforts) || efforts.length === 0) {
+		return `${label} must be 'all' or a list of efforts among ${supported.join(', ')}.`;
+	}
+	const unsupported = efforts.filter((effort: unknown) => {
+		return !supported.some((candidate) => candidate === effort);
+	});
+	if (unsupported.length > 0) {
+		return `${label} has unsupported efforts ${unsupported.map((effort) => JSON.stringify(effort)).join(', ')}, expected some of ${supported.join(', ')}.`;
+	}
+	return supported.filter((effort) => efforts.includes(effort));
 }
 
 function deriveDatabaseNameFromPath(databasePath: string): string {

@@ -8,7 +8,8 @@ import {
 	choroplethOpacity,
 	choroplethOpacityExpression,
 	choroplethTooltipKeys,
-	choroplethValueDomain,
+	buildChoroplethLegend,
+	buildChoroplethScale,
 	computeMapBounds,
 	DEFAULT_MARKER_COLOR,
 	DEFAULT_MARKER_RADIUS,
@@ -30,6 +31,10 @@ import type { Ref } from 'react';
 import type { displayMap } from '@nao/shared/tools';
 import type {
 	ChoroplethEntry,
+	ChoroplethLegendClass,
+	ChoroplethLegendModel,
+	ChoroplethLegendTick,
+	ChoroplethScale,
 	CustomBoundarySet,
 	MapFeatureCollection as FeatureCollection,
 	MapGeometry,
@@ -37,6 +42,8 @@ import type {
 	NumericDomain,
 } from '@nao/shared';
 
+import { Skeleton } from '@/components/ui/skeleton';
+import { useMapSlot } from '@/hooks/use-map-slot';
 import { getMapStyle, isMapStyleDark, MAP_STYLE_LIGHT, resolveStyleUrl, useMapStyle } from '@/hooks/use-map-style';
 import { getActiveProjectId } from '@/lib/active-project';
 import { resolveCssVariableColor } from '@/lib/css-color';
@@ -49,6 +56,7 @@ const REGIONS_SOURCE_ID = 'query-regions';
 const REGIONS_FILL_ID = 'query-regions-fill';
 const REGIONS_LINE_ID = 'query-regions-line';
 const POINT_STROKE_WIDTH = 1;
+const NO_BOUNDARIES: CustomBoundarySet[] = [];
 
 export interface MapViewHandle {
 	captureImage: (type?: string) => Promise<string | null>;
@@ -65,6 +73,8 @@ interface MapViewProps {
 	boundaryProjectId?: string | null;
 }
 
+type MapCamera = Required<Pick<maplibregl.CameraOptions, 'center' | 'zoom' | 'bearing' | 'pitch'>>;
+
 export default memo(function MapView({
 	points,
 	config,
@@ -80,6 +90,9 @@ export default memo(function MapView({
 	const colorRef = useRef(DEFAULT_MARKER_COLOR);
 	const themeRef = useRef<MapSurfaceTheme | undefined>(undefined);
 	const styleUrlRef = useRef('');
+	const savedCameraRef = useRef<MapCamera | null>(null);
+	const [slotElement, setSlotElement] = useState<HTMLDivElement | null>(null);
+	const { isLive, isPaused, pause, resume } = useMapSlot(slotElement);
 	const [initFailed, setInitFailed] = useState(false);
 	const [color, setColor] = useState(DEFAULT_MARKER_COLOR);
 	const [surfaceTheme, setSurfaceTheme] = useState<MapSurfaceTheme>(() => resolveMapSurfaceTheme(null));
@@ -89,7 +102,7 @@ export default memo(function MapView({
 	const isChoropleth = config.map_type === 'choropleth';
 	const isBubble = config.map_type === 'scatter_bubble';
 
-	const { data: fetchedBoundaries = [] } = useQuery({
+	const { data: fetchedBoundaries = NO_BOUNDARIES } = useQuery({
 		...trpc.project.getMapBoundaries.queryOptions(),
 		enabled: injectedBoundaries === undefined,
 	});
@@ -135,7 +148,10 @@ export default memo(function MapView({
 		() => (isChoropleth ? buildChoroplethEntries(rows, config) : []),
 		[isChoropleth, rows, config],
 	);
-	const choroplethDomain = useMemo(() => choroplethValueDomain(choroplethEntries), [choroplethEntries]);
+	const choroplethScale = useMemo(
+		() => buildChoroplethScale(choroplethEntries, config.color_scale),
+		[choroplethEntries, config.color_scale],
+	);
 	const regions = useMemo<FeatureCollection>(
 		() =>
 			isChoropleth
@@ -143,11 +159,11 @@ export default memo(function MapView({
 						choroplethEntries,
 						config,
 						boundaries,
-						choroplethDomain,
+						choroplethScale,
 						resolvedBoundary?.joinProps,
 					)
 				: emptyCollection(),
-		[isChoropleth, choroplethEntries, config, boundaries, choroplethDomain, resolvedBoundary],
+		[isChoropleth, choroplethEntries, config, boundaries, choroplethScale, resolvedBoundary],
 	);
 	const sizeDomain = useMemo(
 		() =>
@@ -156,12 +172,12 @@ export default memo(function MapView({
 	);
 
 	const regionsRef = useRef(regions);
-	const choroplethDomainRef = useRef(choroplethDomain);
+	const choroplethScaleRef = useRef(choroplethScale);
 	const sizeDomainRef = useRef(sizeDomain);
 	configRef.current = config;
 	pointsRef.current = points;
 	regionsRef.current = regions;
-	choroplethDomainRef.current = choroplethDomain;
+	choroplethScaleRef.current = choroplethScale;
 	sizeDomainRef.current = sizeDomain;
 
 	useImperativeHandle(
@@ -173,7 +189,7 @@ export default memo(function MapView({
 					return null;
 				}
 				const currentConfig = configRef.current;
-				const domains = { choropleth: choroplethDomainRef.current, size: sizeDomainRef.current };
+				const domains = { choropleth: choroplethScaleRef.current, size: sizeDomainRef.current };
 				if (styleUrlRef.current === MAP_STYLE_LIGHT) {
 					map.redraw();
 					return composeLegendUrl(map.getCanvas(), currentConfig, domains, colorRef.current, type);
@@ -195,7 +211,7 @@ export default memo(function MapView({
 	);
 
 	useEffect(() => {
-		if (!containerRef.current) {
+		if (!isLive || !containerRef.current) {
 			return;
 		}
 
@@ -216,11 +232,16 @@ export default memo(function MapView({
 			return;
 		}
 		mapRef.current = map;
+		let hasLoadedStyle = false;
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 		map.on('resize', () => clampMinZoom(map));
+		map.on('webglcontextlost', pause);
 
 		map.on('style.load', () => {
+			hasLoadedStyle = true;
 			clampMinZoom(map);
+			const savedCamera = savedCameraRef.current;
+			savedCameraRef.current = null;
 			withMapStyleTheme(() => {
 				const resolved = resolveMarkerColor(configRef.current.color, containerRef.current);
 				colorRef.current = resolved;
@@ -230,16 +251,21 @@ export default memo(function MapView({
 						map,
 						resolved,
 						containerRef.current,
-						choroplethDomainRef.current,
+						choroplethScaleRef.current,
 						regionsRef.current,
 					);
-					fitToCollection(map, regionsRef.current);
 				} else {
 					const data = toGeoJsonPoints(pointsRef.current, configRef.current, sizeDomainRef.current);
 					setupPointLayers(map, resolved, containerRef.current, configRef.current, data);
-					fitToPoints(map, pointsRef.current);
 				}
 			});
+			if (savedCamera) {
+				map.jumpTo(savedCamera);
+			} else if (configRef.current.map_type === 'choropleth') {
+				fitToCollection(map, regionsRef.current);
+			} else {
+				fitToPoints(map, pointsRef.current);
+			}
 		});
 
 		setupTooltip(map, () => configRef.current, {
@@ -249,10 +275,13 @@ export default memo(function MapView({
 		});
 
 		return () => {
+			if (hasLoadedStyle) {
+				savedCameraRef.current = readCamera(map);
+			}
 			mapRef.current = null;
 			map.remove();
 		};
-	}, []);
+	}, [isLive, pause]);
 
 	useEffect(() => {
 		const map = mapRef.current;
@@ -276,6 +305,7 @@ export default memo(function MapView({
 	}, [isDark, styleId]);
 
 	useEffect(() => {
+		savedCameraRef.current = null;
 		const map = mapRef.current;
 		if (!map) {
 			return;
@@ -286,7 +316,7 @@ export default memo(function MapView({
 				return;
 			}
 			source.setData(regions);
-			applyChoroplethPaint(map, choroplethDomain);
+			applyChoroplethPaint(map, choroplethScale);
 			fitToCollection(map, regions);
 			return;
 		}
@@ -296,7 +326,7 @@ export default memo(function MapView({
 		}
 		source.setData(toGeoJsonPoints(points, config, sizeDomain));
 		fitToPoints(map, points);
-	}, [points, regions, isChoropleth, choroplethDomain, sizeDomain, config]);
+	}, [points, regions, isChoropleth, choroplethScale, sizeDomain, config]);
 
 	const { color: configColor, radius: configRadius } = config;
 	useEffect(() => {
@@ -338,10 +368,11 @@ export default memo(function MapView({
 	}
 
 	return (
-		<div className='relative'>
+		<div ref={setSlotElement} className='relative'>
 			<div ref={containerRef} className='w-full aspect-3/2 rounded-lg overflow-hidden' />
-			{isChoropleth && choroplethDomain && (
-				<ChoroplethLegend color={color} domain={choroplethDomain} theme={surfaceTheme} />
+			{!isLive && <MapPlaceholder isPaused={isPaused} onReload={resume} />}
+			{isChoropleth && choroplethScale && (
+				<ChoroplethLegend color={color} scale={choroplethScale} theme={surfaceTheme} />
 			)}
 			{isBubble && sizeDomain && (
 				<BubbleLegend
@@ -354,6 +385,25 @@ export default memo(function MapView({
 		</div>
 	);
 });
+
+function MapPlaceholder({ isPaused, onReload }: { isPaused: boolean; onReload: () => void }) {
+	if (!isPaused) {
+		return <Skeleton className='absolute inset-0' />;
+	}
+	return (
+		<button
+			type='button'
+			onClick={onReload}
+			className='absolute inset-0 flex items-center justify-center rounded-lg bg-accent text-sm text-foreground/60 hover:text-foreground'
+		>
+			Map paused, click to reload
+		</button>
+	);
+}
+
+function readCamera(map: maplibregl.Map): MapCamera {
+	return { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+}
 
 function setupPointLayers(
 	map: maplibregl.Map,
@@ -381,7 +431,7 @@ function setupRegionLayers(
 	map: maplibregl.Map,
 	color: string,
 	element: HTMLElement | null,
-	domain: NumericDomain | null,
+	scale: ChoroplethScale | null,
 	data: FeatureCollection,
 ) {
 	map.addSource(REGIONS_SOURCE_ID, { type: 'geojson', data });
@@ -391,7 +441,7 @@ function setupRegionLayers(
 		source: REGIONS_SOURCE_ID,
 		paint: {
 			'fill-color': color,
-			'fill-opacity': choroplethOpacityExpression(domain) as DataDrivenPropertyValueSpecification<number>,
+			'fill-opacity': choroplethOpacityExpression(scale) as DataDrivenPropertyValueSpecification<number>,
 		},
 	});
 	map.addLayer({
@@ -406,14 +456,14 @@ function setupRegionLayers(
 	});
 }
 
-function applyChoroplethPaint(map: maplibregl.Map, domain: NumericDomain | null) {
+function applyChoroplethPaint(map: maplibregl.Map, scale: ChoroplethScale | null) {
 	if (!map.getLayer(REGIONS_FILL_ID)) {
 		return;
 	}
 	map.setPaintProperty(
 		REGIONS_FILL_ID,
 		'fill-opacity',
-		choroplethOpacityExpression(domain) as DataDrivenPropertyValueSpecification<number>,
+		choroplethOpacityExpression(scale) as DataDrivenPropertyValueSpecification<number>,
 	);
 }
 
@@ -461,14 +511,14 @@ function buildRegionFeatures(
 	entries: ChoroplethEntry[],
 	config: displayMap.Input,
 	boundaries: FeatureCollection | null,
-	domain: NumericDomain | null,
+	scale: ChoroplethScale | null,
 	joinProps?: string[],
 ): FeatureCollection {
 	const features: FeatureCollection['features'] = [];
 	if (config.geometry_key) {
 		for (const entry of entries) {
 			if (entry.geometry && entry.value !== null) {
-				features.push(regionFeature(entry.geometry, entry, config, domain));
+				features.push(regionFeature(entry.geometry, entry, config, scale));
 			}
 		}
 		return { type: 'FeatureCollection', features };
@@ -481,7 +531,7 @@ function buildRegionFeatures(
 			}
 			const geometry = index.get(entry.region);
 			if (geometry) {
-				features.push(regionFeature(geometry, entry, config, domain));
+				features.push(regionFeature(geometry, entry, config, scale));
 			}
 		}
 	}
@@ -492,12 +542,12 @@ function regionFeature(
 	geometry: MapGeometry,
 	entry: ChoroplethEntry,
 	config: displayMap.Input,
-	domain: NumericDomain | null,
+	scale: ChoroplethScale | null,
 ) {
 	return {
 		type: 'Feature' as const,
 		geometry,
-		properties: { value: entry.value, tip: JSON.stringify(choroplethTooltipModel(entry, config, domain)) },
+		properties: { value: entry.value, tip: JSON.stringify(choroplethTooltipModel(entry, config, scale)) },
 	};
 }
 
@@ -510,7 +560,7 @@ interface TooltipModel {
 function choroplethTooltipModel(
 	entry: ChoroplethEntry,
 	config: displayMap.Input,
-	domain: NumericDomain | null,
+	scale: ChoroplethScale | null,
 ): TooltipModel {
 	const rows: { label: string; value: string }[] = [];
 	for (const key of choroplethTooltipKeys(config)) {
@@ -523,7 +573,7 @@ function choroplethTooltipModel(
 	return {
 		label: label != null ? String(label) : undefined,
 		rows,
-		swatchOpacity: choroplethOpacity(entry.value, domain),
+		swatchOpacity: choroplethOpacity(entry.value, scale),
 	};
 }
 
@@ -636,16 +686,16 @@ function buildTooltipElement(model: TooltipModel, color: string, theme: MapSurfa
 }
 
 type LegendModel =
-	| { kind: 'choropleth'; color: string; domain: NumericDomain }
+	| { kind: 'choropleth'; color: string; scale: ChoroplethLegendModel }
 	| { kind: 'bubble'; color: string; domain: NumericDomain; maxRadius: number };
 
 function legendModel(
 	config: displayMap.Input,
 	color: string,
-	domains: { choropleth: NumericDomain | null; size: NumericDomain | null },
+	domains: { choropleth: ChoroplethScale | null; size: NumericDomain | null },
 ): LegendModel | null {
 	if (config.map_type === 'choropleth' && domains.choropleth) {
-		return { kind: 'choropleth', color, domain: domains.choropleth };
+		return { kind: 'choropleth', color, scale: buildChoroplethLegend(domains.choropleth) };
 	}
 	if (config.map_type === 'scatter_bubble' && domains.size) {
 		return { kind: 'bubble', color, domain: domains.size, maxRadius: config.radius ?? BUBBLE_MAX_RADIUS };
@@ -663,7 +713,7 @@ const LEGEND_TEXT_HEIGHT = 12;
 function composeLegendUrl(
 	canvas: HTMLCanvasElement,
 	config: displayMap.Input,
-	domains: { choropleth: NumericDomain | null; size: NumericDomain | null },
+	domains: { choropleth: ChoroplethScale | null; size: NumericDomain | null },
 	color: string,
 	type: string,
 ): string {
@@ -675,7 +725,7 @@ function composeLegendUrl(
 interface LightSnapshotOptions {
 	live: maplibregl.Map;
 	config: displayMap.Input;
-	domains: { choropleth: NumericDomain | null; size: NumericDomain | null };
+	domains: { choropleth: ChoroplethScale | null; size: NumericDomain | null };
 	points: MapPoint[];
 	regions: FeatureCollection;
 	type: string;
@@ -815,6 +865,25 @@ function drawChoroplethLegend(
 	cssHeight: number,
 	legend: Extract<LegendModel, { kind: 'choropleth' }>,
 ) {
+	if (legend.scale.kind === 'classes') {
+		drawChoroplethClassesLegend(context, cssHeight, legend.color, legend.scale.classes);
+		return;
+	}
+	drawChoroplethGradientLegend(context, cssHeight, legend.color, legend.scale.ticks);
+}
+
+const CANVAS_TEXT_ALIGN: Record<ChoroplethLegendTick['align'], CanvasTextAlign> = {
+	start: 'left',
+	center: 'center',
+	end: 'right',
+};
+
+function drawChoroplethGradientLegend(
+	context: CanvasRenderingContext2D,
+	cssHeight: number,
+	color: string,
+	ticks: ChoroplethLegendTick[],
+) {
 	const barWidth = 96;
 	const barHeight = 8;
 	const gap = 4;
@@ -827,8 +896,8 @@ function drawChoroplethLegend(
 	const barX = boxX + LEGEND_PADDING_X;
 	const barY = boxY + LEGEND_PADDING_Y;
 	const gradient = context.createLinearGradient(barX, 0, barX + barWidth, 0);
-	gradient.addColorStop(0, withOpacity(legend.color, CHOROPLETH_MIN_OPACITY));
-	gradient.addColorStop(1, legend.color);
+	gradient.addColorStop(0, withOpacity(color, CHOROPLETH_MIN_OPACITY));
+	gradient.addColorStop(1, color);
 	context.beginPath();
 	context.roundRect(barX, barY, barWidth, barHeight, barHeight / 2);
 	context.fillStyle = gradient;
@@ -837,10 +906,40 @@ function drawChoroplethLegend(
 	const textY = barY + barHeight + gap + LEGEND_TEXT_HEIGHT / 2;
 	context.fillStyle = LEGEND_TEXT_COLOR;
 	context.textBaseline = 'middle';
+	for (const tick of ticks) {
+		context.textAlign = CANVAS_TEXT_ALIGN[tick.align];
+		context.fillText(tick.label, barX + tick.position * barWidth, textY);
+	}
+}
+
+function drawChoroplethClassesLegend(
+	context: CanvasRenderingContext2D,
+	cssHeight: number,
+	color: string,
+	classes: ChoroplethLegendClass[],
+) {
+	const swatchSize = 10;
+	const swatchGap = 6;
+	const rowGap = 2;
+	const labelWidth = Math.max(...classes.map((item) => context.measureText(item.label).width));
+	const boxWidth = LEGEND_PADDING_X * 2 + swatchSize + swatchGap + labelWidth;
+	const boxHeight = LEGEND_PADDING_Y * 2 + classes.length * LEGEND_TEXT_HEIGHT + (classes.length - 1) * rowGap;
+	const boxX = LEGEND_MARGIN;
+	const boxY = cssHeight - LEGEND_MARGIN - boxHeight;
+	drawLegendBox(context, boxX, boxY, boxWidth, boxHeight);
+
+	context.textBaseline = 'middle';
 	context.textAlign = 'left';
-	context.fillText(formatCompactNumber(legend.domain.min), barX, textY);
-	context.textAlign = 'right';
-	context.fillText(formatCompactNumber(legend.domain.max), barX + barWidth, textY);
+	classes.forEach((item, index) => {
+		const rowY = boxY + LEGEND_PADDING_Y + index * (LEGEND_TEXT_HEIGHT + rowGap);
+		const swatchX = boxX + LEGEND_PADDING_X;
+		context.beginPath();
+		context.roundRect(swatchX, rowY + (LEGEND_TEXT_HEIGHT - swatchSize) / 2, swatchSize, swatchSize, 2);
+		context.fillStyle = withOpacity(color, item.opacity);
+		context.fill();
+		context.fillStyle = LEGEND_TEXT_COLOR;
+		context.fillText(item.label, swatchX + swatchSize + swatchGap, rowY + LEGEND_TEXT_HEIGHT / 2);
+	});
 }
 
 function drawBubbleLegend(
@@ -881,22 +980,81 @@ function drawBubbleLegend(
 	}
 }
 
-function ChoroplethLegend({ color, domain, theme }: { color: string; domain: NumericDomain; theme: MapSurfaceTheme }) {
+function ChoroplethLegend({ color, scale, theme }: { color: string; scale: ChoroplethScale; theme: MapSurfaceTheme }) {
+	const legend = buildChoroplethLegend(scale);
 	return (
 		<div
 			className='absolute bottom-2 left-2 rounded-md border border-[1px] px-2 py-1.5 text-[10px] shadow-sm backdrop-blur'
 			style={{ borderColor: withOpacity(theme.border, 0.1), backgroundColor: withOpacity(theme.background, 0.9) }}
 		>
+			{legend.kind === 'classes' ? (
+				<ChoroplethClassesLegend color={color} classes={legend.classes} theme={theme} />
+			) : (
+				<ChoroplethGradientLegend color={color} ticks={legend.ticks} theme={theme} />
+			)}
+		</div>
+	);
+}
+
+function ChoroplethGradientLegend({
+	color,
+	ticks,
+	theme,
+}: {
+	color: string;
+	ticks: ChoroplethLegendTick[];
+	theme: MapSurfaceTheme;
+}) {
+	return (
+		<>
 			<div
 				className='h-2 w-24 rounded-full'
 				style={{
 					background: `linear-gradient(to right, ${withOpacity(color, CHOROPLETH_MIN_OPACITY)}, ${color})`,
 				}}
 			/>
-			<div className='mt-1 flex justify-between font-mono tabular-nums' style={{ color: theme.mutedForeground }}>
-				<span>{formatCompactNumber(domain.min)}</span>
-				<span>{formatCompactNumber(domain.max)}</span>
+			<div
+				className='relative mt-1 flex justify-between font-mono tabular-nums'
+				style={{ color: theme.mutedForeground }}
+			>
+				{ticks.map((tick) =>
+					tick.align === 'center' ? (
+						<span
+							key={tick.position}
+							className='absolute -translate-x-1/2'
+							style={{ left: `${tick.position * 100}%` }}
+						>
+							{tick.label}
+						</span>
+					) : (
+						<span key={tick.position}>{tick.label}</span>
+					),
+				)}
 			</div>
+		</>
+	);
+}
+
+function ChoroplethClassesLegend({
+	color,
+	classes,
+	theme,
+}: {
+	color: string;
+	classes: ChoroplethLegendClass[];
+	theme: MapSurfaceTheme;
+}) {
+	return (
+		<div className='grid gap-0.5 font-mono tabular-nums' style={{ color: theme.mutedForeground }}>
+			{classes.map((item) => (
+				<div key={item.label} className='flex items-center gap-1.5'>
+					<span
+						className='size-2.5 shrink-0 rounded-[2px]'
+						style={{ backgroundColor: withOpacity(color, item.opacity) }}
+					/>
+					<span>{item.label}</span>
+				</div>
+			))}
 		</div>
 	);
 }

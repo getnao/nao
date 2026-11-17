@@ -10,10 +10,10 @@ import type { TeamMember } from './types';
 beforeEach(() => {
 	vi.stubGlobal(
 		'ResizeObserver',
-		vi.fn(() => ({
-			observe: vi.fn(),
-			disconnect: vi.fn(),
-		})),
+		class {
+			observe = vi.fn();
+			disconnect = vi.fn();
+		},
 	);
 });
 

@@ -26,7 +26,9 @@
 - **JS/TS lint**: `npm run lint` (runs `tsc --noEmit && eslint` across backend, frontend, shared)
 - **Python lint**: `cd cli && make lint` (runs `ty check`, `ruff check`, `ruff format --check`)
 - **Backend tests**: `npm run -w @nao/backend test` (vitest)
-- **Frontend tests**: `npm run -w @nao/frontend test` (vitest — currently no test files)
+- **Frontend and shared tests**: `npm run -w @nao/frontend test` and `npm run -w @nao/shared test` (vitest)
+- **CLI tests**: `cd cli && uv run pytest`
+- Where tests go and how to keep the suite small is described under "Tests" in `CLAUDE.md`.
 - **Pre-commit hook** (`.husky/pre-commit`): runs `npm run lint`, `npm run format:check`, `npm run db:check-migrations -w @nao/backend`, and `npm run cli:check`
 
 ### Gotchas

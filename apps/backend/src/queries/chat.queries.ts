@@ -30,6 +30,8 @@ import { applyChatFilters, buildChatGroups, type EnrichedChat, type SourcePlatfo
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
 import * as executeSqlQueries from './execute-sql.queries';
+import { listLockedUserGroupIdsOfMember } from './locked-user-groups';
+import { sharedChatGrantsUser } from './shared-chat.queries';
 
 const chatCreatedAtMs =
 	dbConfig.dialect === Dialect.Postgres
@@ -116,7 +118,8 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 				eq(s.chat.userId, userId),
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
-				isNotQuickQuestionChat(),
+				isNotPageScopedChat(),
+				isNotTestChat(),
 			),
 		)
 		.orderBy(desc(s.chat.updatedAt))
@@ -125,6 +128,7 @@ async function listOwnChats(userId: string): Promise<EnrichedChat[]> {
 }
 
 async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const rows = await db
 		.select({
 			id: s.sharedChat.chatId,
@@ -145,15 +149,12 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 		.innerJoin(s.chat, eq(s.sharedChat.chatId, s.chat.id))
 		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
 		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
-		.leftJoin(
-			s.sharedChatAccess,
-			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
-		)
 		.where(
 			and(
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
+				isNotTestChat(),
 				ne(s.chat.userId, userId),
 				or(
 					and(
@@ -163,7 +164,7 @@ async function listSharedWithMeChats(userId: string): Promise<EnrichedChat[]> {
 							sql`exists(select 1 from ${s.orgMember} where ${s.orgMember.orgId} = ${s.project.orgId} and ${s.orgMember.userId} = ${userId})`,
 						),
 					),
-					and(eq(s.sharedChat.visibility, 'specific'), isNotNull(s.sharedChatAccess.userId)),
+					and(eq(s.sharedChat.visibility, 'specific'), sharedChatGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)
@@ -289,7 +290,7 @@ const aggregateChatMessagParts = (
 					feedback: row.message_feedback ?? undefined,
 					source: row.chat_message.source ?? undefined,
 					isForked: row.chat_message.isForked ?? undefined,
-					citation: row.chat_message.citation ?? undefined,
+					citations: row.chat_message.citations ?? undefined,
 					stopReason: row.chat_message.stopReason ?? undefined,
 					llmProvider: row.chat_message.llmProvider ?? undefined,
 					createdAt: row.chat_message.createdAt?.getTime(),
@@ -538,7 +539,7 @@ export const createChat = async (
 	newUserMessage: {
 		text: string;
 		source?: UIMessage['source'];
-		citation?: CitationData;
+		citations?: CitationData[];
 	},
 	additionalParts: UIMessagePart[] = [],
 ): Promise<[DBChat, DBChatMessage]> => {
@@ -554,7 +555,7 @@ export const createChat = async (
 				senderUserId: savedChat.userId,
 				role: 'user',
 				source: newUserMessage.source,
-				citation: newUserMessage.citation ?? null,
+				citations: newUserMessage.citations ?? null,
 				versionGroupId: messageId,
 			})
 			.returning()
@@ -582,6 +583,7 @@ export const createForkedChat = async (newChat: NewChat, messages: Array<Omit<UI
 			chatId: savedChat.id,
 			role: message.role,
 			isForked: true,
+			citations: message.citations ?? null,
 			createdAt: new Date(baseTime + i),
 		}));
 
@@ -640,7 +642,7 @@ export const upsertMessage = async (
 			llmModelId: message.llmModelId,
 			source: message.source,
 			isForked: message.isForked,
-			citation: message.citation ?? null,
+			citations: message.citations ?? null,
 			versionGroupId: message.versionGroupId ?? (message.role === 'user' ? messageId : undefined),
 			...message.tokenUsage,
 		};
@@ -929,7 +931,8 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
-				isNotQuickQuestionChat(),
+				isNotPageScopedChat(),
+				isNotTestChat(),
 				caseInsensitiveLike(s.chat.title, searchPattern),
 			),
 		)
@@ -957,7 +960,8 @@ export const searchUserChats = async (userId: string, query: string, limit = 10)
 				isNull(s.chat.deletedAt),
 				isNotAutomationRunChat(),
 				isNotOnboardingChat(),
-				isNotQuickQuestionChat(),
+				isNotPageScopedChat(),
+				isNotTestChat(),
 				caseInsensitiveLike(s.messagePart.text, searchPattern),
 			),
 		)
@@ -1010,11 +1014,85 @@ export const QUICK_QUESTION_FORK_TYPES = [
 	'chat_selection',
 ] as const;
 
-export const isNotQuickQuestionChat = () => {
+export function isQuickQuestionForkType(type: string | undefined): boolean {
+	return QUICK_QUESTION_FORK_TYPES.some((quickQuestionType) => quickQuestionType === type);
+}
+
+/** Automation editing chats live beside the form of their automation, not in the chat history. */
+export const AUTOMATION_EDIT_FORK_TYPE = 'automation_edit';
+
+/** Chats beside the Context Hub, which edit the context files of their user, live on that page. */
+export const CONTEXT_EDIT_FORK_TYPE = 'context_edit';
+
+/** Each model call a custom story makes is a chat of its own, kept under the story rather than in the history. */
+export const STORY_MODEL_FORK_TYPE = 'story_model';
+
+const PAGE_SCOPED_FORK_TYPES = [
+	...QUICK_QUESTION_FORK_TYPES,
+	AUTOMATION_EDIT_FORK_TYPE,
+	CONTEXT_EDIT_FORK_TYPE,
+	STORY_MODEL_FORK_TYPE,
+];
+
+/** Leaves out the chats that live on the page they were opened from: quick questions, editing chats, story model calls. */
+export const isNotPageScopedChat = () => {
 	return sql`coalesce(${forkMetadataField('type')}, '') not in (${sql.join(
-		QUICK_QUESTION_FORK_TYPES.map((type) => sql`${type}`),
+		PAGE_SCOPED_FORK_TYPES.map((type) => sql`${type}`),
 		sql`, `,
 	)})`;
+};
+
+export const getLatestAutomationEditChatId = async (userId: string, automationId: string): Promise<string | null> => {
+	const [row] = await db
+		.select({ chatId: s.chat.id })
+		.from(s.chat)
+		.where(
+			and(
+				eq(s.chat.userId, userId),
+				isNull(s.chat.deletedAt),
+				eq(forkMetadataField('type'), AUTOMATION_EDIT_FORK_TYPE),
+				eq(forkMetadataField('id'), automationId),
+			),
+		)
+		.orderBy(desc(s.chat.updatedAt))
+		.limit(1)
+		.execute();
+	return row?.chatId ?? null;
+};
+
+export const getLatestContextEditChatId = async (userId: string, projectId: string): Promise<string | null> => {
+	const [row] = await db
+		.select({ chatId: s.chat.id })
+		.from(s.chat)
+		.where(
+			and(
+				eq(s.chat.userId, userId),
+				eq(s.chat.projectId, projectId),
+				isNull(s.chat.deletedAt),
+				eq(forkMetadataField('type'), CONTEXT_EDIT_FORK_TYPE),
+			),
+		)
+		.orderBy(desc(s.chat.updatedAt))
+		.limit(1)
+		.execute();
+	return row?.chatId ?? null;
+};
+
+/** Moves the editing chat of a new automation under the automation once it is created. */
+export const linkAutomationEditChat = async (
+	chatId: string,
+	userId: string,
+	automation: { id: string; title: string },
+): Promise<void> => {
+	const forkMetadata = await getForkMetadata(chatId);
+	if (forkMetadata?.type !== AUTOMATION_EDIT_FORK_TYPE || forkMetadata.id) {
+		return;
+	}
+	await db
+		.update(s.chat)
+		.set({ forkMetadata: { ...forkMetadata, id: automation.id, title: automation.title }, title: automation.title })
+		.where(and(eq(s.chat.id, chatId), eq(s.chat.userId, userId)))
+		.execute();
 };
 
 export const listQuickQuestionChats = async (
@@ -1047,6 +1125,14 @@ const isNotOnboardingChat = () => {
 		select 1 from ${s.chatMessage}
 		where ${s.chatMessage.chatId} = ${s.chat.id}
 		and ${s.chatMessage.source} = 'onboarding'
+	)`;
+};
+
+export const isNotTestChat = () => {
+	return sql`not exists (
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} = 'test'
 	)`;
 };
 
@@ -1198,6 +1284,26 @@ function extractQueryResultFromToolOutput(
 	};
 }
 
+/** Chats of the user, soft-deleted included, that they started from the web chat. */
+export const countUserWebConversations = async (userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ total: count() })
+		.from(s.chat)
+		.where(and(eq(s.chat.userId, userId), isNotAutomationRunChat(), isNotPageScopedChat(), hasWebUserMessage()))
+		.execute();
+	return row?.total ?? 0;
+};
+
+/** Integration, MCP, context recommendation, onboarding and test chats record another source on their messages. */
+const hasWebUserMessage = () => {
+	return sql`exists (
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.role} = 'user'
+		and ${s.chatMessage.source} = 'web'
+	)`;
+};
+
 export async function getChatInfo(
 	chatId: string,
 ): Promise<{ projectId: string; userId: string; title: string } | null> {
@@ -1232,21 +1338,18 @@ export async function canUserAccessChat(chatId: string, userId: string): Promise
 		  and ${s.orgMember.userId} = ${userId}
 	)`;
 
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 	const [shared] = await db
 		.select({ id: s.sharedChat.id })
 		.from(s.sharedChat)
 		.innerJoin(s.chat, eq(s.chat.id, s.sharedChat.chatId))
 		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
-		.leftJoin(
-			s.sharedChatAccess,
-			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
-		)
 		.where(
 			and(
 				eq(s.sharedChat.chatId, chatId),
 				or(
 					and(eq(s.sharedChat.visibility, 'project'), or(isProjectMember, isOrgMember)),
-					and(eq(s.sharedChat.visibility, 'specific'), sql`${s.sharedChatAccess.userId} IS NOT NULL`),
+					and(eq(s.sharedChat.visibility, 'specific'), sharedChatGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)

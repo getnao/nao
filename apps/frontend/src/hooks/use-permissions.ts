@@ -32,6 +32,8 @@ export function usePermissions() {
 			canViewChatReplay: role === 'admin' || role === 'context_admin',
 			canViewRecommendations: role === 'admin' || role === 'context_admin',
 			canChatWithNaoData: !isSeatReadOnly && (role === 'admin' || role === 'context_admin'),
+			canManageTests: !isSeatReadOnly && (role === 'admin' || role === 'context_admin'),
+			canExploreContext: role === 'admin' || role === 'context_admin',
 			canStartNewChat: hasWriteAccess,
 			canViewSharedObjects: !!role,
 		}),

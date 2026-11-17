@@ -30,6 +30,7 @@ export function GitlabRepoList(props: GitlabRepoListProps) {
 				return {
 					data: projects.data && { items: projects.data.projects, hasMore: projects.data.hasMore },
 					isLoading: projects.isLoading,
+					isShowingPreviousResults: projects.isPlaceholderData,
 				};
 			}}
 			getKey={(project) => project.id}

@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from nao_core.config.databases.context import DEFAULT_PREVIEW_MAX_VALUE_LENGTH, MIN_PREVIEW_MAX_VALUE_LENGTH
 
 if TYPE_CHECKING:
+    from concurrent.futures import Executor
+
     import pandas as pd
     from ibis import BaseBackend
 
@@ -310,6 +312,9 @@ class DatabaseConfig(BaseModel, ABC):
         """Get the database name for this database type."""
         ...
 
+    def get_catalog_names(self) -> list[str]:
+        return [self.get_database_name()]
+
     def get_schemas(self, conn: BaseBackend) -> list[str]:
         """Return the list of schemas to sync. Override in subclasses for custom behavior."""
         # Prefer schemas (dataset-like) when available.
@@ -341,6 +346,17 @@ class DatabaseConfig(BaseModel, ABC):
             exclude_columns=self.exclude_columns,
             preview_max_value_length=self.preview_max_value_length,
         )
+
+    def prepare_sync_metadata(
+        self,
+        conn: BaseBackend,
+        schema_tables: dict[str, list[str]],
+        pool: Executor | None = None,
+    ) -> None:
+        """Preload metadata needed by table contexts. Backends can override this with a bulk path."""
+
+    def clear_sync_metadata(self) -> None:
+        """Discard metadata preloaded for one sync."""
 
     def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
         """Fetch semantic views for a schema. Override in subclasses that support semantic views."""

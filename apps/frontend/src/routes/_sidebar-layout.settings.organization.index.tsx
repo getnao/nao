@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { Github } from 'lucide-react';
 import { useState } from 'react';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 
+import GithubIcon from '@/components/icons/github-icon.svg';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
@@ -59,13 +59,13 @@ function OrganizationSettingsPage() {
 				{showGithubImport &&
 					(isGithubConnected ? (
 						<Button variant='secondary' size='sm' onClick={() => setRepoPickerOpen(true)}>
-							<Github className='size-3.5' />
+							<GithubIcon className='size-3.5' />
 							Import from GitHub
 						</Button>
 					) : (
 						<Button variant='secondary' size='sm' asChild>
 							<a href='/api/github/connect'>
-								<Github className='size-3.5' />
+								<GithubIcon className='size-3.5' />
 								Import from GitHub
 							</a>
 						</Button>

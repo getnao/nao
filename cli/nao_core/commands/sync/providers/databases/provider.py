@@ -352,6 +352,8 @@ def sync_database(
 
         selected_tables = [(schema, t) for schema, tables in schema_tables.items() for t in tables]
 
+        db_config.prepare_sync_metadata(conn, schema_tables, pool)
+
         usage_stats: dict[str, TableUsageStats] = {}
         if has_query_history and raw_queries and selected_tables:
             dialect = db_config.type if db_config.type != "duckdb" else None
@@ -455,6 +457,7 @@ def sync_database(
         for future in pending:
             future.cancel()
         wait(pending)
+        db_config.clear_sync_metadata()
         conn.disconnect()
 
 
@@ -653,10 +656,8 @@ class DatabaseSyncProvider(SyncProvider):
                         total_tables += state.tables_synced
                         total_render_errors += state.render_errors
                     except Exception as e:
-                        error = _fmt_error(e)
-                        database_name = escape(db.name)
-                        failures.append(f"{database_name}: {error}")
-                        UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+                        failures.append(f"{db.name}: {e}")
+                        UI.print(f"[bold red]✗[/bold red] Failed to sync {escape(db.name)}: {_fmt_error(e)}")
             else:
                 with (
                     ThreadPoolExecutor(max_workers=threads) as pool,
@@ -685,10 +686,8 @@ class DatabaseSyncProvider(SyncProvider):
                             total_tables += state.tables_synced
                             total_render_errors += state.render_errors
                         except Exception as e:
-                            error = _fmt_error(e)
-                            database_name = escape(db.name)
-                            failures.append(f"{database_name}: {error}")
-                            UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+                            failures.append(f"{db.name}: {e}")
+                            UI.print(f"[bold red]✗[/bold red] Failed to sync {escape(db.name)}: {_fmt_error(e)}")
 
         if not select:
             for state in sync_states:

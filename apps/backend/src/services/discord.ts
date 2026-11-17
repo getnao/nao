@@ -40,6 +40,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import { assertMessagingUserCloudBillingAccess } from './cloud-billing-guard';
@@ -961,6 +962,7 @@ class ProjectDiscordBot {
 		try {
 			if (feedback.action === 'upsert') {
 				await feedbackQueries.upsertFeedback({ messageId, vote: feedback.vote });
+				void triggerChatFeedbackAutomations({ messageId, vote: feedback.vote });
 			} else {
 				await feedbackQueries.deleteFeedbackVote(messageId, feedback.vote);
 			}
