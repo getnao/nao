@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
 	findMissingQueryIds: vi.fn(),
 	backfillMissingQueryData: vi.fn(),
 	generateText: vi.fn(),
-	getProjectModelProvider: vi.fn(),
+	resolveDefaultChatModel: vi.fn(),
 	resolveDefaultModelSelection: vi.fn(),
 	resolveProviderModel: vi.fn(),
 }));
@@ -39,10 +39,6 @@ vi.mock('../../src/queries/chat.queries', () => ({
 	getChatInfo: mocks.getChatInfo,
 	getChatOwnerId: mocks.getChatOwnerId,
 	getChatProjectId: mocks.getChatProjectId,
-}));
-
-vi.mock('../../src/queries/project-llm-config.queries', () => ({
-	getProjectModelProvider: mocks.getProjectModelProvider,
 }));
 
 vi.mock('../../src/queries/story.queries', () => ({
@@ -77,7 +73,7 @@ vi.mock('../../src/services/excluded-columns.service', () => ({
 }));
 
 vi.mock('../../src/utils/llm', () => ({
-	getDefaultModelId: vi.fn(),
+	resolveDefaultChatModel: mocks.resolveDefaultChatModel,
 	resolveDefaultModelSelection: mocks.resolveDefaultModelSelection,
 	resolveProviderModel: mocks.resolveProviderModel,
 }));
@@ -158,7 +154,7 @@ describe('live story SQL execution', () => {
 		mocks.upsertStoryDataCache.mockResolvedValue({});
 		mocks.updateLatestVersionCode.mockResolvedValue(undefined);
 		mocks.resolveDefaultModelSelection.mockResolvedValue(null);
-		mocks.getProjectModelProvider.mockResolvedValue(null);
+		mocks.resolveDefaultChatModel.mockResolvedValue(null);
 	});
 
 	afterEach(() => {
@@ -221,6 +217,47 @@ describe('live story SQL execution', () => {
 			},
 			{},
 		);
+	});
+
+	it.each([
+		{
+			case: 'the pinned live story model',
+			pinned: { provider: 'anthropic', modelId: 'claude-pinned' },
+			chatDefault: { provider: 'openrouter', modelId: 'openai/gpt-chat' },
+			expected: { provider: 'anthropic', modelId: 'claude-pinned' },
+		},
+		{
+			case: 'the default chat model when no live story model is pinned',
+			pinned: null,
+			chatDefault: { provider: 'openrouter', modelId: 'openai/gpt-chat' },
+			expected: { provider: 'openrouter', modelId: 'openai/gpt-chat' },
+		},
+	])('rewrites a dynamic story with $case', async ({ pinned, chatDefault, expected }) => {
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '<table query_id="query_admin" />',
+			title: 'Usage',
+			isLiveTextDynamic: true,
+			format: 'classic',
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT * FROM v_messages', adminMode: true },
+		});
+		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['chat_id'], rows: [], rowCount: 0 });
+		mocks.resolveDefaultModelSelection.mockResolvedValue(pinned);
+		mocks.resolveDefaultChatModel.mockResolvedValue(chatDefault);
+		mocks.resolveProviderModel.mockResolvedValue(null);
+
+		await refreshStoryData('chat-1', 'usage');
+
+		expect(mocks.resolveDefaultModelSelection).toHaveBeenCalledWith('project-1', 'live_story');
+		expect(mocks.resolveProviderModel).toHaveBeenCalledWith(
+			'project-1',
+			expected.provider,
+			expected.modelId,
+			true,
+			expect.objectContaining({ chatId: 'chat-1', category: 'story' }),
+		);
+		expect(mocks.generateText).not.toHaveBeenCalled();
 	});
 
 	it('refreshes a shared live story as its owner and writes the shared cache', async () => {
