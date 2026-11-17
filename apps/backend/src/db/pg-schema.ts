@@ -19,6 +19,7 @@ import type { SidebarMenu } from '@nao/shared/sidebar-menu';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
+import type { executeSemanticQuery } from '@nao/shared/tools';
 import type {
 	AnalyticsEventMetadata,
 	AutomationEventTriggers,
@@ -1482,6 +1483,27 @@ export const storyDataCache = pgTable('story_data_cache', {
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });
+
+export const storyQuery = pgTable(
+	'story_query',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		queryId: text('query_id').notNull(),
+		sqlQuery: text('sql_query').notNull(),
+		databaseId: text('database_id'),
+		dialect: text('dialect'),
+		adminMode: boolean('admin_mode').default(false).notNull(),
+		semanticQuery: jsonb('semantic_query').$type<executeSemanticQuery.SemanticQuery>(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.queryId] })],
+);
 
 export const storyFilterOptionsCache = pgTable(
 	'story_filter_options_cache',

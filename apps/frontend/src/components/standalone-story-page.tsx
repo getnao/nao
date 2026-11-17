@@ -1,14 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { TrpcRouter } from '@nao/backend/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
 
-import type { QueryDataMap } from '@/components/story-embeds';
+import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { ShareDialog } from '@/components/share-dialog';
+import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { useStoryViewerSharing } from '@/components/side-panel/hooks/use-story-viewer-sharing';
+import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { StoryAccessError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
@@ -25,6 +28,7 @@ import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
 import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useOnAskRequest } from '@/hooks/use-on-ask-request';
 import { useOpenStandaloneStoryInChat } from '@/hooks/use-open-standalone-story-in-chat';
+import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -55,8 +59,16 @@ export function StandaloneStoryPage({ storyId }: { storyId: string }) {
 
 function StandaloneStoryView({ storyId, story }: { storyId: string; story: StandaloneStory }) {
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 	const sharing = useStoryViewerSharing({ storyId });
+	const live = useStoryViewerLiveSettings({ storyId });
+	useRetryStaleStoryRefresh({
+		storyKey: storyId,
+		needsRefresh: story.needsRefresh,
+		isRefreshing: live.isRefreshing,
+		refresh: live.handleRefreshData,
+	});
 	const storyTheme = useStoryThemeForCurrentMode(story.theme);
 	const openInChat = useOpenStandaloneStoryInChat(storyId, story.slug);
 
@@ -121,15 +133,15 @@ function StandaloneStoryView({ storyId, story }: { storyId: string; story: Stand
 				download={{ storyId, isOwner: true, versionNumber: editor.versionNav.storedVersionNumber || undefined }}
 				storyId={storyId}
 				canRename
-				live={
-					story.isLive
-						? {
-								isLive: true,
-								cachedAt: story.cachedAt,
-								lastRefreshFailure: story.lastRefreshFailure,
-							}
-						: undefined
-				}
+				live={{
+					isLive: live.isLive,
+					cachedAt: story.cachedAt,
+					lastRefreshFailure: story.lastRefreshFailure,
+					isRefreshing: live.isRefreshing,
+					isUpdating: live.isUpdating,
+					onRefresh: live.handleRefreshData,
+					onOpenSettings: () => setIsLiveSettingsOpen(true),
+				}}
 				isShared={sharing.isShared}
 				onShare={() => sharing.setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
@@ -194,8 +206,11 @@ function StandaloneStoryView({ storyId, story }: { storyId: string; story: Stand
 										code={editor.code}
 										queryData={queryData}
 										theme={storyTheme}
+										storyId={storyId}
 										chatId={story.chatId}
 										storySlug={story.slug}
+										cacheSchedule={live.isLive ? live.cacheSchedule : null}
+										isViewingLatest={editor.versionNav.isViewingLatest}
 										filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
 										isDataPending={isQueryDataPending}
 									/>
@@ -220,6 +235,18 @@ function StandaloneStoryView({ storyId, story }: { storyId: string; story: Stand
 				assetType='story'
 				storyId={storyId}
 			/>
+
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				story={{ storyId }}
+				isLive={live.isLive}
+				isLiveTextDynamic={live.isLiveTextDynamic}
+				cacheSchedule={live.cacheSchedule}
+				cacheScheduleDescription={live.cacheScheduleDescription}
+				isUpdating={live.isUpdating}
+				onSaveSettings={live.handleSaveSettings}
+			/>
 		</div>
 	);
 }
@@ -228,20 +255,46 @@ function StandaloneStoryContent({
 	code,
 	queryData,
 	theme,
+	storyId,
 	chatId,
 	storySlug,
+	cacheSchedule,
+	isViewingLatest = true,
 	filtersEnabled = true,
 	isDataPending = false,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
 	theme: ReturnType<typeof useStoryThemeForCurrentMode>;
+	storyId: string;
 	chatId?: string | null;
 	storySlug?: string;
+	cacheSchedule?: string | null;
+	isViewingLatest?: boolean;
 	filtersEnabled?: boolean;
 	isDataPending?: boolean;
 }) {
-	const filterApi = filtersEnabled && chatId && storySlug ? { kind: 'owned' as const, chatId, storySlug } : null;
+	const useLiveUnfiltered = isViewingLatest && cacheSchedule === NO_CACHE_SCHEDULE;
+	const filterApi = useMemo(() => {
+		if (!filtersEnabled) {
+			return null;
+		}
+		return chatId && storySlug
+			? { kind: 'owned' as const, chatId, storySlug }
+			: { kind: 'standalone' as const, storyId };
+	}, [chatId, filtersEnabled, storyId, storySlug]);
+
+	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(() => {
+		if (!useLiveUnfiltered) {
+			return undefined;
+		}
+		return {
+			queryOptions: (queryId) =>
+				chatId && storySlug
+					? trpc.story.getLiveQueryData.queryOptions({ chatId, queryId, storySlug })
+					: trpc.story.getStandaloneLiveQueryData.queryOptions({ storyId, queryId }),
+		};
+	}, [chatId, storyId, storySlug, useLiveUnfiltered]);
 
 	const renderChart = useCallback(
 		(
@@ -258,13 +311,14 @@ function StandaloneStoryContent({
 		) => (
 			<StoryChartEmbed
 				chart={chart}
-				queryData={data}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
 			/>
 		),
-		[isDataPending],
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
 	);
 
 	const renderTable = useCallback(
@@ -278,13 +332,14 @@ function StandaloneStoryContent({
 		) => (
 			<StoryTableEmbed
 				table={table}
-				queryData={data}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
 			/>
 		),
-		[isDataPending],
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
 	);
 
 	const renderMap = useCallback(
@@ -298,14 +353,15 @@ function StandaloneStoryContent({
 		) => (
 			<StoryMapEmbed
 				map={map}
-				queryData={data}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
 				isDataPending={isDataPending}
 				allowExpand
 			/>
 		),
-		[isDataPending],
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
 	);
 
 	return (

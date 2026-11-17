@@ -15,6 +15,7 @@ import {
 } from '../utils/chat-message-story';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { publishCustomStoryDraft } from './custom-story-authoring';
+import { loadStorySqlQueries, type StoryQueryOrigin } from './story-sql-queries';
 
 export interface ForkableStory {
 	storyId: string;
@@ -37,7 +38,7 @@ export async function forkStoryIntoChat(story: ForkableStory, owner: ForkOwner):
 	const queryIds = story.format === 'custom' ? extractCustomStoryQueryIds(files) : extractQueryIds(story.code);
 	const [queryData, queries] = await Promise.all([
 		loadQueryData(story, queryIds),
-		loadStoryQuerySources(story.chatId, queryIds),
+		loadStoryQuerySources({ id: story.storyId, chatId: story.chatId }, queryIds),
 	]);
 
 	const chat = await chatQueries.createForkedChat(
@@ -82,14 +83,12 @@ async function loadQueryData(story: ForkableStory, queryIds: Set<string>): Promi
 	return Object.keys(queryData).length > 0 ? queryData : null;
 }
 
+/** The SQL saved with the story or run in its chat, so a fork of a standalone story keeps queries it can rerun. */
 export async function loadStoryQuerySources(
-	storyChatId: string | null,
+	story: StoryQueryOrigin,
 	queryIds: Set<string>,
 ): Promise<Record<string, StoryQuerySource>> {
-	if (!storyChatId || queryIds.size === 0) {
-		return {};
-	}
-	const queries = await executeSqlQueries.getLatestSqlQueriesByIds(storyChatId, queryIds);
+	const queries = await loadStorySqlQueries(story, queryIds);
 	return Object.fromEntries(Object.entries(queries).filter(([, query]) => !query.adminMode));
 }
 

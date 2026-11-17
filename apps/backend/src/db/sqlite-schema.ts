@@ -19,6 +19,7 @@ import type { SidebarMenu } from '@nao/shared/sidebar-menu';
 import { STORY_APP_KINDS, STORY_STATE_SCOPES } from '@nao/shared/story-app';
 import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { StoryThemeGeneration } from '@nao/shared/story-theme-generation';
+import type { executeSemanticQuery } from '@nao/shared/tools';
 import type {
 	AnalyticsEventMetadata,
 	AutomationEventTriggers,
@@ -1589,6 +1590,29 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),
 });
+
+export const storyQuery = sqliteTable(
+	'story_query',
+	{
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		queryId: text('query_id').notNull(),
+		sqlQuery: text('sql_query').notNull(),
+		databaseId: text('database_id'),
+		dialect: text('dialect'),
+		adminMode: integer('admin_mode', { mode: 'boolean' }).default(false).notNull(),
+		semanticQuery: text('semantic_query', { mode: 'json' }).$type<executeSemanticQuery.SemanticQuery>(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.storyId, t.queryId] })],
+);
 
 export const storyFilterOptionsCache = sqliteTable(
 	'story_filter_options_cache',

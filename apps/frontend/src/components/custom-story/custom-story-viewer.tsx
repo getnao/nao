@@ -260,8 +260,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
-				chatId={chatId}
-				storySlug={storySlug}
+				story={{ chatId, storySlug }}
 				isLive={live.isLive}
 				isLiveTextDynamic={live.isLiveTextDynamic}
 				cacheSchedule={live.cacheSchedule}

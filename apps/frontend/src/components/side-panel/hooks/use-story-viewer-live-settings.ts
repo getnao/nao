@@ -1,17 +1,29 @@
-import { useCallback } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useMemo } from 'react';
+import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useIsStoryRefreshing } from '@/hooks/use-is-story-refreshing';
 import { trpc } from '@/main';
 
-interface UseStoryViewerLiveSettingsParams {
-	chatId: string;
-	storySlug: string;
-	enabled?: boolean;
+export type LiveStoryTarget = { chatId: string; storySlug: string } | { storyId: string };
+
+type UseStoryViewerLiveSettingsParams = LiveStoryTarget & { enabled?: boolean };
+
+interface LiveSettings {
+	isLive: boolean;
+	isLiveTextDynamic: boolean;
+	cacheSchedule: string | null;
+	cacheScheduleDescription: string | null;
 }
 
-export const useStoryViewerLiveSettings = ({ chatId, storySlug, enabled = true }: UseStoryViewerLiveSettingsParams) => {
+export const useStoryViewerLiveSettings = (params: UseStoryViewerLiveSettingsParams) => {
+	const { enabled = true } = params;
+	const { chatStory, standaloneStory } = useLiveStoryTarget(params);
 	const queryClient = useQueryClient();
-	const { data } = useQuery({ ...trpc.story.listVersions.queryOptions({ chatId, storySlug }), enabled });
+	const chatSettingsQuery = useQuery({ ...trpc.story.listVersions.queryOptions(chatStory ?? skipToken), enabled });
+	const standaloneSettingsQuery = useQuery({
+		...trpc.story.getStandaloneLiveSettings.queryOptions(standaloneStory ?? skipToken),
+		enabled,
+	});
+	const data = chatStory ? chatSettingsQuery.data : standaloneSettingsQuery.data;
 
 	const storyId = data?.id ?? null;
 	const isLive = data?.isLive ?? false;
@@ -19,76 +31,83 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, enabled = true }
 	const cacheSchedule = data?.cacheSchedule ?? null;
 	const cacheScheduleDescription = data?.cacheScheduleDescription ?? null;
 
-	const invalidateCustomStory = () =>
-		Promise.all([
-			queryClient.invalidateQueries({ queryKey: trpc.story.getCustomVersion.queryKey({ chatId, storySlug }) }),
-			queryClient.invalidateQueries({
-				queryKey: trpc.story.getCustomStoryQueryData.queryKey({ chatId, storySlug }),
-			}),
-			queryClient.invalidateQueries({
-				queryKey: trpc.story.getCustomStoryNarratives.queryKey({ chatId, storySlug }),
-			}),
+	const invalidateChatStory = (input: { chatId: string; storySlug: string }) => {
+		return Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.story.listVersions.queryKey(input) }),
+			queryClient.invalidateQueries({ queryKey: trpc.story.getLatest.queryKey(input) }),
+			queryClient.invalidateQueries({ queryKey: trpc.story.getCustomVersion.queryKey(input) }),
+			queryClient.invalidateQueries({ queryKey: trpc.story.getCustomStoryQueryData.queryKey(input) }),
+			queryClient.invalidateQueries({ queryKey: trpc.story.getCustomStoryNarratives.queryKey(input) }),
 		]);
+	};
+
+	const invalidateStandaloneStory = (input: { storyId: string }) => {
+		return Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.story.getStandaloneLiveSettings.queryKey(input) }),
+			queryClient.invalidateQueries({ queryKey: trpc.story.getStandalone.queryKey(input) }),
+			queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneVersions.queryKey(input) }),
+			queryClient.invalidateQueries({ queryKey: trpc.story.getStandaloneVersionQueryData.queryKey(input) }),
+			queryClient.invalidateQueries({ queryKey: trpc.standaloneCustomStory.pathKey() }),
+		]);
+	};
+
+	const invalidateStory = () => {
+		if (chatStory) {
+			return invalidateChatStory(chatStory);
+		}
+		return standaloneStory ? invalidateStandaloneStory(standaloneStory) : Promise.resolve();
+	};
+
+	const invalidateRefreshedStory = () => {
+		const invalidations: Promise<unknown>[] = [
+			invalidateStory(),
+			queryClient.invalidateQueries({ queryKey: trpc.automation.feed.queryKey() }),
+		];
+		if (chatStory && storyId) {
+			invalidations.push(
+				queryClient.invalidateQueries({ queryKey: trpc.story.getStandalone.queryKey({ storyId }) }),
+			);
+		}
+		return Promise.all(invalidations);
+	};
 
 	const updateLiveSettingsMutation = useMutation(
-		trpc.story.updateLiveSettings.mutationOptions({
-			onSuccess: async () => {
-				await Promise.all([
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-					}),
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
-					}),
-					invalidateCustomStory(),
-				]);
-			},
-		}),
+		trpc.story.updateLiveSettings.mutationOptions({ onSuccess: invalidateStory }),
 	);
-
+	const updateStandaloneLiveSettingsMutation = useMutation(
+		trpc.story.updateStandaloneLiveSettings.mutationOptions({ onSuccess: invalidateStory }),
+	);
 	const refreshDataMutation = useMutation(
-		trpc.story.refreshData.mutationOptions({
-			onSettled: async () => {
-				const invalidations = [
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-					}),
-					queryClient.invalidateQueries({
-						queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
-					}),
-					queryClient.invalidateQueries({
-						queryKey: trpc.automation.feed.queryKey(),
-					}),
-					invalidateCustomStory(),
-				];
-				if (storyId) {
-					invalidations.push(
-						queryClient.invalidateQueries({
-							queryKey: trpc.story.getStandalone.queryKey({ storyId }),
-						}),
-					);
-				}
-				await Promise.all(invalidations);
-			},
-		}),
+		trpc.story.refreshData.mutationOptions({ onSettled: invalidateRefreshedStory }),
+	);
+	const refreshStandaloneDataMutation = useMutation(
+		trpc.story.refreshStandaloneData.mutationOptions({ onSettled: invalidateRefreshedStory }),
 	);
 
 	const handleSaveSettings = useCallback(
-		async (settings: {
-			isLive: boolean;
-			isLiveTextDynamic: boolean;
-			cacheSchedule: string | null;
-			cacheScheduleDescription: string | null;
-		}) => {
-			await updateLiveSettingsMutation.mutateAsync({ chatId, storySlug, ...settings });
+		async (settings: LiveSettings) => {
+			if (chatStory) {
+				await updateLiveSettingsMutation.mutateAsync({ ...chatStory, ...settings });
+			} else if (standaloneStory) {
+				await updateStandaloneLiveSettingsMutation.mutateAsync({ ...standaloneStory, ...settings });
+			}
 		},
-		[chatId, storySlug, updateLiveSettingsMutation],
+		[chatStory, standaloneStory, updateLiveSettingsMutation, updateStandaloneLiveSettingsMutation],
 	);
 
 	const handleRefreshData = useCallback(() => {
-		refreshDataMutation.mutate({ chatId, storySlug });
-	}, [chatId, storySlug, refreshDataMutation]);
-	const isRefreshing = useIsStoryRefreshing(trpc.story.refreshData.mutationKey(), { chatId, storySlug });
+		if (chatStory) {
+			refreshDataMutation.mutate(chatStory);
+		} else if (standaloneStory) {
+			refreshStandaloneDataMutation.mutate(standaloneStory);
+		}
+	}, [chatStory, standaloneStory, refreshDataMutation, refreshStandaloneDataMutation]);
+	const isChatStoryRefreshing = useIsStoryRefreshing(trpc.story.refreshData.mutationKey(), chatStory ?? {});
+	const isStandaloneStoryRefreshing = useIsStoryRefreshing(
+		trpc.story.refreshStandaloneData.mutationKey(),
+		standaloneStory ?? {},
+	);
+	const isRefreshing = chatStory ? isChatStoryRefreshing : isStandaloneStoryRefreshing;
 
 	return {
 		storyId,
@@ -96,9 +115,22 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, enabled = true }
 		isLiveTextDynamic,
 		cacheSchedule,
 		cacheScheduleDescription,
-		isUpdating: updateLiveSettingsMutation.isPending,
+		isUpdating: updateLiveSettingsMutation.isPending || updateStandaloneLiveSettingsMutation.isPending,
 		isRefreshing,
 		handleSaveSettings,
 		handleRefreshData,
 	};
 };
+
+function useLiveStoryTarget(target: LiveStoryTarget) {
+	const storyId = 'storyId' in target ? target.storyId : null;
+	const chatId = 'storyId' in target ? null : target.chatId;
+	const storySlug = 'storyId' in target ? null : target.storySlug;
+	return useMemo(
+		() => ({
+			chatStory: chatId !== null && storySlug !== null ? { chatId, storySlug } : null,
+			standaloneStory: storyId !== null ? { storyId } : null,
+		}),
+		[chatId, storySlug, storyId],
+	);
+}

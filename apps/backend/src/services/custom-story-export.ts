@@ -9,11 +9,10 @@ import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
 import { readStoryChartPluginSources } from './chart-plugin';
 import {
 	type CustomStoryVersionView,
-	getCustomStoryNarratives,
-	getCustomStoryVersion,
+	getLatestCustomStoryVersionByStoryId,
 	getStoredCustomStoryNarrativesByStoryId,
 } from './custom-story';
-import { getUnattendedCustomStoryState, getUnattendedCustomStoryStateByStoryId } from './custom-story-state';
+import { getUnattendedCustomStoryStateByStoryId } from './custom-story-state';
 import { readStoryMapBoundaries } from './story-map-boundary';
 
 interface StoryExportContext {
@@ -26,23 +25,11 @@ interface StoryExportContext {
 }
 
 export async function renderCustomStoryPdf(
-	chatId: string,
-	storySlug: string,
+	storyId: string,
 	queryData: Record<string, StoryQueryResult>,
 ): Promise<{ filename: string; buffer: Buffer }> {
-	const version = await getCustomStoryVersion(chatId, storySlug);
-	const [narratives, state, runtime, chartPlugins, mapBoundaries] = await Promise.all([
-		getCustomStoryNarratives(chatId, storySlug),
-		getUnattendedCustomStoryState(chatId, storySlug),
-		loadStandaloneStoryRuntime(),
-		readStoryChartPluginSources(version.storyId),
-		readStoryMapBoundaries(version.storyId, version.mapBoundaryKeys),
-	]);
-	const html = buildCustomStoryDocumentHtml(
-		version,
-		{ queryData, narratives, runtime, state, chartPlugins, mapBoundaries },
-		'light',
-	);
+	const version = await getLatestCustomStoryVersionByStoryId(storyId);
+	const html = await buildCustomStoryDocumentByStoryId(storyId, version, queryData, 'light');
 	const buffer = await renderStoryPdf(html, themeFontStylesheets(version.theme));
 	return { filename: formatDownloadFilename(version.title, 'pdf'), buffer };
 }
