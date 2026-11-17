@@ -6,11 +6,14 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+import requests
 
 from nao_core.commands.test.assertions import ToolCallAssertion
 from nao_core.commands.test.case import InvalidTestFileError
 from nao_core.commands.test.case import TestCase as NaoTestCase
 from nao_core.commands.test.client import (
+    REASONING_EFFORTS_TIMEOUT,
+    RUN_TEST_TIMEOUT,
     AgentClient,
     AgentClientError,
     TokenCost,
@@ -187,7 +190,9 @@ def test_client_lists_the_reasoning_efforts_of_a_model(monkeypatch):
 
     assert client.get_reasoning_efforts("openai", "gpt-5") == ["low", "high"]
     session.get.assert_called_once_with(
-        "http://backend/api/test/reasoning-efforts", params={"provider": "openai", "modelId": "gpt-5"}
+        "http://backend/api/test/reasoning-efforts",
+        params={"provider": "openai", "modelId": "gpt-5"},
+        timeout=REASONING_EFFORTS_TIMEOUT,
     )
 
 
@@ -428,16 +433,98 @@ def test_run_test_records_reference_sql_without_verification(monkeypatch):
     assert result.details.reference_sql == "select 1"
 
 
-def test_run_test_records_reference_sql_on_client_error(monkeypatch):
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (AgentClientError("backend unreachable"), "backend unreachable"),
+        (KeyError("verdict"), "KeyError: 'verdict'"),
+    ],
+)
+def test_run_test_records_an_errored_result_instead_of_raising(monkeypatch, error, message):
     client = _stub_client(monkeypatch)
-    client.run_test.side_effect = AgentClientError("backend unreachable")
+    client.run_test.side_effect = error
 
     result = run_test(_case("orders"), MODEL)
 
     assert result.passed is False
-    assert result.error == "backend unreachable"
+    assert result.error == message
     assert result.details is not None
     assert result.details.reference_sql == "select 1"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.ConnectionError("('Connection aborted.', RemoteDisconnected('Remote end closed connection'))"),
+        requests.Timeout("Read timed out."),
+    ],
+)
+def test_client_fails_a_dropped_or_timed_out_request_like_an_error_status(monkeypatch, error):
+    client, session = _client_answering(monkeypatch)
+    session.post.side_effect = error
+
+    with pytest.raises(AgentClientError, match="Request failed"):
+        client.run_test(_case("orders"))
+
+
+def test_client_fails_a_response_that_is_not_json(monkeypatch):
+    client, session = _client_answering(monkeypatch)
+    session.post.return_value.json.side_effect = requests.JSONDecodeError("Expecting value", "<html>", 0)
+
+    with pytest.raises(AgentClientError, match="not JSON"):
+        client.run_test(_case("orders"))
+
+
+def test_client_gives_up_on_a_test_request_that_hangs(monkeypatch):
+    client, session = _client_answering(monkeypatch)
+
+    client.run_test(_case("orders"))
+
+    assert session.post.call_args.kwargs["timeout"] == RUN_TEST_TIMEOUT
+
+
+def test_run_keeps_the_other_results_when_a_request_drops(tmp_path, monkeypatch):
+    client, session = _client_answering(monkeypatch)
+    answer = session.post.return_value
+
+    def post(url, json, timeout):
+        if json["prompt"] == "users":
+            raise requests.ConnectionError("Remote end closed connection")
+        return answer
+
+    session.post.side_effect = post
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+    cases = [
+        _case(name, prompt=name, sql=None, assertions=[ToolCallAssertion(tool="clarification")])
+        for name in ["orders", "users", "revenue"]
+    ]
+    saved: list[NaoTestRunResult] = []
+    _stub_command(monkeypatch, tmp_path, cases, saved)
+
+    with pytest.raises(SystemExit):
+        test_runner_module.test(threads=3)
+
+    assert [(result.name, result.error is not None) for result in saved] == [
+        ("orders", False),
+        ("users", True),
+        ("revenue", False),
+    ]
+
+
+def test_run_saves_the_finished_results_when_it_is_interrupted(tmp_path, monkeypatch):
+    def run(test_case, model, **kwargs):
+        if test_case.name == "users":
+            raise KeyboardInterrupt
+        return NaoTestRunResult(name=test_case.name, model=str(model), passed=True, message="match")
+
+    saved: list[NaoTestRunResult] = []
+    _stub_command(monkeypatch, tmp_path, [_case("orders"), _case("users"), _case("revenue")], saved)
+    monkeypatch.setattr(test_runner_module, "run_test", run)
+
+    with pytest.raises(KeyboardInterrupt):
+        test_runner_module.test()
+
+    assert [result.name for result in saved] == ["orders"]
 
 
 def test_run_test_assertion_only_passes_when_tool_called(monkeypatch):
@@ -1010,6 +1097,20 @@ def _client_answering(monkeypatch, **response_fields) -> tuple[AgentClient, Mock
     client = AgentClient(backend_url="http://backend")
     monkeypatch.setattr(client, "_get_session", lambda: (session, 0))
     return client, session
+
+
+def _stub_command(monkeypatch, tmp_path, cases: list[NaoTestCase], saved: list[NaoTestRunResult]) -> None:
+    def save(results, output_dir):
+        saved.extend(results)
+        return output_dir / "results.json"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        test_runner_module, "NaoConfig", Mock(try_load=Mock(return_value=NaoConfig(project_name="test-project")))
+    )
+    monkeypatch.setattr(test_runner_module, "discover_tests", lambda project_path: cases)
+    monkeypatch.setattr(test_runner_module, "save_results", save)
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda *args, **kwargs: None)
 
 
 def _capture_printed_tables(monkeypatch) -> list:

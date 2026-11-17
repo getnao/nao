@@ -1,7 +1,7 @@
 import json
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
@@ -362,15 +362,22 @@ def run_test(
         )
 
     except AgentClientError as e:
-        UI.error(str(e))
-        return TestRunResult(
-            name=test_case.name,
-            model=str(model),
-            passed=False,
-            message="error",
-            error=str(e),
-            details=TestRunDetails(reference_sql=test_case.sql),
-        )
+        return errored_result(test_case, model, str(e))
+    except Exception as e:
+        return errored_result(test_case, model, f"{type(e).__name__}: {e}")
+
+
+def errored_result(test_case: TestCase, model: ModelConfig, error: str) -> TestRunResult:
+    """One test that cannot finish fails on its own, so the run keeps the results of the others."""
+    UI.error(error)
+    return TestRunResult(
+        name=test_case.name,
+        model=str(model),
+        passed=False,
+        message="error",
+        error=error,
+        details=TestRunDetails(reference_sql=test_case.sql),
+    )
 
 
 def server_verdict_result(
@@ -415,6 +422,46 @@ def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | N
         return None
 
     return config.llm.costs(model.provider, model.model_id)
+
+
+def execute_test_runs(
+    test_runs: list[tuple[TestCase, ModelConfig, int]],
+    run_one: Callable[[TestCase, ModelConfig], TestRunResult],
+    thread_count: int,
+    completed: dict[int, TestRunResult],
+) -> None:
+    """Fills `completed` by submission index as each run finishes, so the summaries stay grouped by model."""
+    if thread_count == 1:
+        for index, (test_case, model, attempt) in enumerate(test_runs):
+            record_result(completed, index, attempt, run_one(test_case, model))
+        return
+
+    with ThreadPoolExecutor(max_workers=thread_count) as executor:
+        futures = {
+            executor.submit(run_one, test_case, model): (index, attempt)
+            for index, (test_case, model, attempt) in enumerate(test_runs)
+        }
+        for future in as_completed(futures):
+            index, attempt = futures[future]
+            record_result(completed, index, attempt, future.result())
+
+
+def record_result(completed: dict[int, TestRunResult], index: int, attempt: int, result: TestRunResult) -> None:
+    result.attempt = attempt
+    completed[index] = result
+    UI.print("")
+
+
+def ordered_results(completed: dict[int, TestRunResult]) -> list[TestRunResult]:
+    return [completed[index] for index in sorted(completed)]
+
+
+def save_interrupted_results(completed: dict[int, TestRunResult], total_runs: int, output_dir: Path) -> None:
+    """A run stopped early, such as with Ctrl+C, keeps the results of the tests that finished."""
+    if not completed:
+        return
+    output_file = save_results(ordered_results(completed), output_dir)
+    UI.warn(f"Run stopped after {len(completed)} of {total_runs} run(s). Their results are saved to: {output_file}")
 
 
 def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
@@ -760,50 +807,28 @@ def test(
         for attempt in range(1, k_count + 1)
     ]
 
-    results: list[TestRunResult] = []
-    if thread_count == 1:
-        for test_case, model, attempt in test_runs:
-            result = run_test(
-                test_case,
-                model,
-                email=email,
-                password=pwd,
-                api_key=key,
-                project_name=config.project_name,
-                costs=resolve_model_costs(config, model),
-                comparison=test_config.comparison,
-            )
-            result.attempt = attempt
-            results.append(result)
-            UI.print("")
-    else:
-        # Results are collected by submission order so the summaries stay grouped by model.
-        completed: dict[int, TestRunResult] = {}
-        with ThreadPoolExecutor(max_workers=thread_count) as executor:
-            futures = {
-                executor.submit(
-                    run_test,
-                    tc,
-                    m,
-                    email=email,
-                    password=pwd,
-                    api_key=key,
-                    project_name=config.project_name,
-                    costs=resolve_model_costs(config, m),
-                    comparison=test_config.comparison,
-                ): (index, attempt)
-                for index, (tc, m, attempt) in enumerate(test_runs)
-            }
-            for future in as_completed(futures):
-                index, attempt = futures[future]
-                result = future.result()
-                result.attempt = attempt
-                completed[index] = result
-                UI.print("")
-        results = [completed[index] for index in sorted(completed)]
+    def run_one(test_case: TestCase, model: ModelConfig) -> TestRunResult:
+        return run_test(
+            test_case,
+            model,
+            email=email,
+            password=pwd,
+            api_key=key,
+            project_name=config.project_name,
+            costs=resolve_model_costs(config, model),
+            comparison=test_config.comparison,
+        )
 
-    # Save results to JSON
-    output_file = save_results(results, project_path / TESTS_FOLDER / "outputs")
+    output_dir = project_path / TESTS_FOLDER / "outputs"
+    completed: dict[int, TestRunResult] = {}
+    try:
+        execute_test_runs(test_runs, run_one, thread_count, completed)
+    except BaseException:
+        save_interrupted_results(completed, total_runs, output_dir)
+        raise
+    results = ordered_results(completed)
+
+    output_file = save_results(results, output_dir)
     UI.print(f"[dim]Results saved to: {output_file}[/dim]\n")
 
     run_dicts = [asdict(r) for r in results]
