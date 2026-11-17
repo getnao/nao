@@ -205,6 +205,7 @@ defaults:
         default_density: detailed
         can_change: true
     show_all_settings: false
+    advanced_context_explorer: false
     project_sharing: inherit
     share_targets:
         include_own_group: true
@@ -234,6 +235,7 @@ defaults:
 
 all_users:
     show_all_settings: true
+    advanced_context_explorer: true
     database_access:
         mode: all
         strict: false
@@ -266,7 +268,7 @@ groups:
           patterns: []
 ```
 
-The final parser schema must cover the complete existing values for features, tool-call density, settings visibility, project sharing and targets, preloaded skills, budgets, database/docs/files/MCP/skills access, and row policies. Unknown fields and unsupported values fail validation rather than being ignored. The export, preview, apply, and administrator guide examples all use this same parser.
+The final parser schema must cover the complete existing values for features, tool-call density, settings visibility, advanced context exploration, project sharing and targets, preloaded skills, budgets, database/docs/files/MCP/skills access, and row policies. Unknown fields and unsupported values fail validation rather than being ignored. The export, preview, apply, and administrator guide examples all use this same parser.
 
 ## Persistence
 

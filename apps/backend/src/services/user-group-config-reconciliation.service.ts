@@ -431,6 +431,7 @@ function storedSettings(
 				includeOwnGroup: settings.shareTargets.includeOwnGroup,
 				groupIds: settings.shareTargets.groupKeys.map((key) => idsByKey.get(key)!),
 			},
+			settings.advancedContextExplorer,
 		),
 		contextGrants: serializeUserGroupContextAccess({
 			databaseAccess: settings.databaseAccess,

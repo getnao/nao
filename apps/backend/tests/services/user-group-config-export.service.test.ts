@@ -1,3 +1,5 @@
+import { DEFAULT_GROUP_SHARE_TARGETS, serializeUserGroupConfig } from '@nao/shared';
+import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/db/db', async () => {
@@ -20,12 +22,19 @@ describe('exportUserGroupsConfig', () => {
 			userGroupManagementMode: 'code',
 		});
 		await db.insert(s.userGroup).values([
-			{ id: 'export-all-users', projectId: 'export-project', name: 'All Users', isDefault: true },
+			{
+				id: 'export-all-users',
+				projectId: 'export-project',
+				name: 'All Users',
+				isDefault: true,
+				featureGrants: storedFeatureGrants(false),
+			},
 			{
 				id: 'export-finance',
 				projectId: 'export-project',
 				name: 'Finance',
 				configKey: 'finance',
+				featureGrants: storedFeatureGrants(true),
 			},
 		]);
 		await db.insert(s.userGroupConfigMember).values({
@@ -42,8 +51,33 @@ describe('exportUserGroupsConfig', () => {
 		const exported = parseUserGroupsConfig(await exportUserGroupsConfig('export-project'));
 
 		expect(exported.allUsers.budgetLimitUsd).toBe(50);
+		expect(exported.allUsers.advancedContextExplorer).toBe(false);
 		expect(exported.groups).toEqual([
-			expect.objectContaining({ key: 'finance', members: ['pending@example.com'] }),
+			expect.objectContaining({
+				key: 'finance',
+				members: ['pending@example.com'],
+				advancedContextExplorer: true,
+			}),
 		]);
+
+		await db
+			.update(s.projectMemberBudgetSettings)
+			.set({ defaultLimitUsd: 0 })
+			.where(eq(s.projectMemberBudgetSettings.projectId, 'export-project'));
+		expect(
+			parseUserGroupsConfig(await exportUserGroupsConfig('export-project')).allUsers.budgetLimitUsd,
+		).toBeNull();
 	});
 });
+
+function storedFeatureGrants(advancedContextExplorer: boolean) {
+	return serializeUserGroupConfig(
+		[],
+		{ defaultDensity: 'detailed', canChange: true },
+		'inherit',
+		false,
+		[],
+		DEFAULT_GROUP_SHARE_TARGETS,
+		advancedContextExplorer,
+	);
+}

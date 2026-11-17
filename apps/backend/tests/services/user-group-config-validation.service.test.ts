@@ -68,6 +68,17 @@ describe('validateUserGroupsConfig', () => {
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
+	it('treats zero and null All Users budgets as unchanged after licenses expire', async () => {
+		const current = parseUserGroupsConfig(readGuideExample());
+		const uploaded = parseUserGroupsConfig(
+			readGuideExample().replace('all_users:', 'all_users:\n    budget_limit_usd: 0'),
+		);
+
+		await expect(validateUserGroupsConfig('project-id', '/project', uploaded, current)).resolves.toBeUndefined();
+
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
 	it('rejects a membership change after the user-groups license expires', async () => {
 		const current = parseUserGroupsConfig(readGuideExample());
 		const changed = parseUserGroupsConfig(readGuideExample().replace('ceo@example.com', 'new-ceo@example.com'));

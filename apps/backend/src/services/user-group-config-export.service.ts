@@ -22,6 +22,7 @@ const EXPORT_DEFAULTS: NormalizedUserGroupSettings = {
 	features: [],
 	toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
 	showAllSettings: false,
+	advancedContextExplorer: false,
 	projectSharing: 'inherit',
 	shareTargets: { includeOwnGroup: true, groupKeys: [] },
 	preloadedSkills: [],
@@ -151,6 +152,7 @@ function toSettings(group: userGroupQueries.UserGroup, budgetLimitUsd: number | 
 		features: group.featureGrants,
 		toolCallDensityPolicy: group.toolCallDensityPolicy,
 		showAllSettings: group.showAllSettings,
+		advancedContextExplorer: group.advancedContextExplorer,
 		projectSharing: group.projectSharing,
 		shareTargets: { includeOwnGroup: group.shareTargets.includeOwnGroup, groupKeys: group.shareTargets.groupIds },
 		preloadedSkills: group.preloadedSkills,
@@ -175,6 +177,7 @@ function serializeSettings(
 			can_change: settings.toolCallDensityPolicy.canChange,
 		},
 		show_all_settings: settings.showAllSettings,
+		advanced_context_explorer: settings.advancedContextExplorer,
 		project_sharing: settings.projectSharing,
 		share_targets: {
 			include_own_group: settings.shareTargets.includeOwnGroup,

@@ -13,6 +13,7 @@ defaults:
     default_density: detailed
     can_change: true
   show_all_settings: false
+  advanced_context_explorer: false
   project_sharing: inherit
   share_targets:
     include_own_group: true
@@ -77,6 +78,7 @@ describe('parseUserGroupsConfig', () => {
 		const parsed = parseUserGroupsConfig(COMPLETE_CONFIG);
 
 		expect(parsed.allUsers.showAllSettings).toBe(true);
+		expect(parsed.allUsers.advancedContextExplorer).toBe(false);
 		expect(parsed.allUsers.databaseAccess).toEqual({ mode: 'all', strict: false });
 		expect(parsed.groups).toHaveLength(1);
 		expect(parsed.groups[0]).toMatchObject({
@@ -103,6 +105,14 @@ describe('parseUserGroupsConfig', () => {
 		expect(parseUserGroupsConfig(COMPLETE_CONFIG.replace('BOB@example.com', 'bob@example.com')).hash).toBe(
 			parsed.hash,
 		);
+	});
+
+	it('normalizes an All Users zero budget to the unlimited null representation', () => {
+		const unlimited = parseUserGroupsConfig(COMPLETE_CONFIG);
+		const zero = parseUserGroupsConfig(COMPLETE_CONFIG.replace('all_users:', 'all_users:\n  budget_limit_usd: 0'));
+
+		expect(zero.allUsers.budgetLimitUsd).toBeNull();
+		expect(zero.hash).toBe(unlimited.hash);
 	});
 
 	it('rejects unknown fields and incomplete defaults', () => {

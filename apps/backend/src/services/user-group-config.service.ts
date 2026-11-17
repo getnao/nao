@@ -188,6 +188,7 @@ const settingsShape = {
 	features: featureSchema,
 	tool_call_density: toolCallDensitySchema,
 	show_all_settings: z.boolean(),
+	advanced_context_explorer: z.boolean(),
 	project_sharing: z.enum(PROJECT_SHARING_PERMISSIONS),
 	share_targets: shareTargetsSchema,
 	preloaded_skills: z.array(skillNameSchema).max(MAX_PRELOADED_SKILLS),
@@ -221,6 +222,7 @@ export interface NormalizedUserGroupSettings {
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
 	projectSharing: ProjectSharingPermission;
 	shareTargets: { includeOwnGroup: boolean; groupKeys: string[] };
 	preloadedSkills: string[];
@@ -273,6 +275,7 @@ function normalizeUserGroupsConfig(parsed: z.infer<typeof fileSchema>): Normaliz
 	);
 	const groupKeys = new Set(parsed.groups.map((group) => group.key));
 	const allUsers = normalizeSettings({ ...parsed.defaults, ...parsed.all_users });
+	allUsers.budgetLimitUsd = allUsers.budgetLimitUsd === 0 ? null : allUsers.budgetLimitUsd;
 	const groups = parsed.groups
 		.map((group) => {
 			const { key, name, members, ...overrides } = group;
@@ -303,6 +306,7 @@ function normalizeSettings(settings: ParsedSettings): NormalizedUserGroupSetting
 			canChange: settings.tool_call_density.can_change,
 		},
 		showAllSettings: settings.show_all_settings,
+		advancedContextExplorer: settings.advanced_context_explorer,
 		projectSharing: settings.project_sharing,
 		shareTargets: {
 			includeOwnGroup: settings.share_targets.include_own_group,

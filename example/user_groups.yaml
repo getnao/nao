@@ -5,6 +5,7 @@ defaults:
     default_density: detailed
     can_change: true
   show_all_settings: false
+  advanced_context_explorer: false
   project_sharing: inherit
   share_targets:
     include_own_group: true
@@ -40,6 +41,7 @@ all_users:
     default_density: detailed
     can_change: true
   show_all_settings: true
+  advanced_context_explorer: true
   project_sharing: inherit
   share_targets:
     include_own_group: true
@@ -70,6 +72,7 @@ groups:
       default_density: detailed
       can_change: true
     show_all_settings: false
+    advanced_context_explorer: false
     project_sharing: inherit
     share_targets:
       include_own_group: true

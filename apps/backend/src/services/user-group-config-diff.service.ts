@@ -290,6 +290,7 @@ function sameGroupSettings(
 			features: current.featureGrants,
 			toolCallDensityPolicy: current.toolCallDensityPolicy,
 			showAllSettings: current.showAllSettings,
+			advancedContextExplorer: current.advancedContextExplorer,
 			projectSharing: current.projectSharing,
 			shareTargets: {
 				includeOwnGroup: current.shareTargets.includeOwnGroup,
@@ -313,6 +314,7 @@ function sameGroupSettings(
 			features: desired.features,
 			toolCallDensityPolicy: desired.toolCallDensityPolicy,
 			showAllSettings: desired.showAllSettings,
+			advancedContextExplorer: desired.advancedContextExplorer,
 			projectSharing: desired.projectSharing,
 			shareTargets: desired.shareTargets,
 			preloadedSkills: desired.preloadedSkills,
@@ -335,6 +337,7 @@ function sameAccessSettings(
 	return (
 		JSON.stringify({
 			features: current.featureGrants,
+			advancedContextExplorer: current.advancedContextExplorer,
 			projectSharing: current.projectSharing,
 			shareTargets: {
 				includeOwnGroup: current.shareTargets.includeOwnGroup,
@@ -355,6 +358,7 @@ function sameAccessSettings(
 		}) ===
 		JSON.stringify({
 			features: desired.features,
+			advancedContextExplorer: desired.advancedContextExplorer,
 			projectSharing: desired.projectSharing,
 			shareTargets: desired.shareTargets,
 			preloadedSkills: desired.preloadedSkills,

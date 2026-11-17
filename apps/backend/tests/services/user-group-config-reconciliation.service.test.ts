@@ -77,7 +77,18 @@ describe('user group config reconciliation', () => {
 		expect(enabled.shareRevocations).toEqual({ chats: 1, stories: 0 });
 		expect(await db.select().from(s.sharedChat)).toEqual([]);
 		expect(await projectMode()).toBe('code');
-		expect(await storedGroup()).toMatchObject({ id: GROUP_ID, configKey: 'finance', archivedAt: null });
+		expect(await storedGroup()).toMatchObject({
+			id: GROUP_ID,
+			configKey: 'finance',
+			archivedAt: null,
+			featureGrants: { advancedContextExplorer: true },
+		});
+		expect(
+			await db
+				.select({ featureGrants: s.userGroup.featureGrants })
+				.from(s.userGroup)
+				.where(eq(s.userGroup.id, 'all-users-group')),
+		).toEqual([{ featureGrants: expect.objectContaining({ advancedContextExplorer: false }) }]);
 		expect(await memberships(IMPLICIT_USER_ID)).toEqual([{ provider: 'config', active: true }]);
 		expect(await memberships()).toEqual([
 			{ provider: 'config', active: true },
@@ -164,6 +175,7 @@ defaults:
   features: []
   tool_call_density: { default_density: detailed, can_change: true }
   show_all_settings: false
+  advanced_context_explorer: false
   project_sharing: blocked
   share_targets: { include_own_group: true, group_keys: [] }
   preloaded_skills: []
@@ -177,6 +189,6 @@ defaults:
 all_users:
   budget_limit_usd: 25
 groups:
-${withFinance ? '  - key: finance\n    name: Finance\n    members: [admin@example.com, implicit@example.com]' : '  []'}
+${withFinance ? '  - key: finance\n    name: Finance\n    members: [admin@example.com, implicit@example.com]\n    advanced_context_explorer: true' : '  []'}
 `;
 }

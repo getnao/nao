@@ -42,6 +42,7 @@ defaults:
         default_density: detailed
         can_change: true
     show_all_settings: false
+    advanced_context_explorer: false
     project_sharing: inherit
     share_targets:
         include_own_group: true
@@ -131,6 +132,7 @@ Every setting below is required in `defaults` and optional as a whole-field over
 - `features`: unique values from `storyCreation`, `customStoryCreation`, and `automationCreation`.
 - `tool_call_density`: `default_density` is `compact` or `detailed`; `can_change` is a boolean.
 - `show_all_settings`: boolean.
+- `advanced_context_explorer`: boolean controlling whether context admins use the advanced File Explorer.
 - `project_sharing`: `inherit`, `allowed`, or `blocked`.
 - `share_targets`: `include_own_group` plus `group_keys`, which may reference existing custom-group keys but not the owning group's key.
 - `preloaded_skills`: up to the configured preloaded-skill limit; every name must exist in the project.
