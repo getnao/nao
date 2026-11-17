@@ -32,6 +32,7 @@ import { useChatActivity } from '@/hooks/use-chat-activity';
 import { useCitedElementFollower } from '@/hooks/use-cited-element-follower';
 import { useCodeRevealFollower } from '@/hooks/use-code-reveal';
 import { useOnAskRequest } from '@/hooks/use-on-ask-request';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -47,7 +48,10 @@ export function OwnedStoryPage({
 	storySlug: string;
 	isOwner: boolean;
 }) {
+	const { isSeatReadOnly } = usePermissions();
 	const { data: story } = useSuspenseQuery(trpc.story.getLatest.queryOptions({ chatId, storySlug }));
+	const isArchived = Boolean(story.archivedAt);
+	const canEditStory = !isArchived && !isSeatReadOnly;
 	const queryClient = useQueryClient();
 	const { running: isChatRunning } = useChatActivity(chatId);
 	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
@@ -68,7 +72,7 @@ export function OwnedStoryPage({
 	} = useStoryViewerLiveSettings({ chatId, storySlug });
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
-		needsRefresh: isOwner && story.needsRefresh,
+		needsRefresh: isOwner && !isSeatReadOnly && story.needsRefresh,
 		isRefreshing,
 		refresh: handleRefreshData,
 	});
@@ -84,6 +88,7 @@ export function OwnedStoryPage({
 		storyTitle: story.title,
 		latestCode: story.code,
 		isAgentRunning: isChatRunning,
+		canEdit: canEditStory,
 	});
 	useCodeRevealFollower(storySlug, () => editor.setViewMode('code'));
 	useCitedElementFollower(storySlug, () => {
@@ -108,8 +113,7 @@ export function OwnedStoryPage({
 		}),
 	);
 
-	const isArchived = Boolean(story.archivedAt);
-	const canEditCharts = !isArchived;
+	const canEditCharts = canEditStory;
 	const storyTheme = useStoryThemeForCurrentMode(story.theme);
 	const showAskBar = Boolean(storyId) && !isArchived;
 	const isAskInputHidden = editor.viewMode === 'edit';
@@ -146,8 +150,9 @@ export function OwnedStoryPage({
 		>
 			<StoryPageHeader
 				title={story.title}
-				storyChat={{ storyId, isOwner, canEdit: true, canChat: !isArchived }}
-				canDuplicate={!isArchived}
+				isReadOnly={isSeatReadOnly}
+				storyChat={{ storyId, isOwner, canEdit: !isSeatReadOnly, canChat: canEditStory }}
+				canDuplicate={canEditStory}
 				viewedVersionNumber={editor.versionNav.storedVersionNumber || undefined}
 				live={{
 					isLive,
@@ -155,19 +160,19 @@ export function OwnedStoryPage({
 					lastRefreshFailure: story.lastRefreshFailure,
 					isRefreshing,
 					isUpdating,
-					onRefresh: isOwner ? () => handleRefreshData() : undefined,
-					onOpenSettings: isOwner ? () => setIsLiveSettingsOpen(true) : undefined,
+					onRefresh: isOwner && !isSeatReadOnly ? () => handleRefreshData() : undefined,
+					onOpenSettings: isOwner && !isSeatReadOnly ? () => setIsLiveSettingsOpen(true) : undefined,
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
-				canRename={isOwner && presence.canEdit}
+				canRename={isOwner && !isSeatReadOnly && presence.canEdit}
 				isShared={isShared}
-				onShare={isOwner ? () => setIsShareDialogOpen(true) : undefined}
+				onShare={isOwner && !isSeatReadOnly ? () => setIsShareDialogOpen(true) : undefined}
 				onOpenAnalytics={isOwner ? () => setIsAnalyticsOpen(true) : undefined}
 				viewModeControls={{
 					viewMode: editor.viewMode,
 					onViewModeChange: editor.setViewMode,
-					canEdit: canEditCharts,
+					canEdit: canEditStory,
 					isAgentRunning: isChatRunning,
 					isCodeDirty: editor.isCodeDirty,
 					isCodeValid: editor.isCodeValid,
@@ -184,7 +189,7 @@ export function OwnedStoryPage({
 					isViewingLatest: editor.versionNav.isViewingLatest,
 					onSelectVersion: editor.versionNav.goToVersion,
 					onRestore: editor.handleRestore,
-					isRestoreDisabled: !presence.canEdit,
+					isRestoreDisabled: isSeatReadOnly || !presence.canEdit,
 				}}
 				elementSelection={
 					showAskBar
@@ -199,7 +204,7 @@ export function OwnedStoryPage({
 
 			<StoryEditPresenceBanner presence={presence} />
 
-			{story.archivedAt && isOwner && (
+			{story.archivedAt && isOwner && !isSeatReadOnly && (
 				<div className='flex items-center justify-between gap-3 border-b bg-muted/50 px-4 py-2 md:px-6'>
 					<span className='text-xs text-muted-foreground'>This story has been archived.</span>
 					<Button
@@ -221,7 +226,7 @@ export function OwnedStoryPage({
 						editor={editor}
 						queryData={queryData}
 						theme={storyTheme}
-						isReadOnly={!presence.canEdit}
+						isReadOnly={isSeatReadOnly || !presence.canEdit}
 						onAskAboutCode={showAskBar ? askAboutCode : undefined}
 						preview={
 							<>
@@ -251,7 +256,11 @@ export function OwnedStoryPage({
 											storySlug={storySlug}
 											liveQueryStoryId={isOwner ? null : storyId}
 											cacheSchedule={story.cacheSchedule}
-											filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
+											filtersEnabled={
+												!isSeatReadOnly &&
+												editor.versionNav.isViewingLatest &&
+												!editor.isCodeDirty
+											}
 											isDataPending={isQueryDataPending}
 											isViewingLatest={editor.versionNav.isViewingLatest}
 										/>,
@@ -262,31 +271,35 @@ export function OwnedStoryPage({
 					/>
 
 					{showAskBar && storyId && (
-						<StoryAskBar storyId={storyId} canEdit isInputHidden={isAskInputHidden} />
+						<StoryAskBar storyId={storyId} canEdit={!isSeatReadOnly} isInputHidden={isAskInputHidden} />
 					)}
 				</SelectionProvider>
 			</div>
 
 			{isOwner && (
 				<>
-					<LiveStorySettingsDialog
-						open={isLiveSettingsOpen}
-						onOpenChange={setIsLiveSettingsOpen}
-						chatId={chatId}
-						storySlug={storySlug}
-						isLive={isLive}
-						isLiveTextDynamic={isLiveTextDynamic}
-						cacheSchedule={liveCacheSchedule}
-						cacheScheduleDescription={cacheScheduleDescription}
-						isUpdating={isUpdating}
-						onSaveSettings={handleSaveSettings}
-					/>
+					{!isSeatReadOnly && (
+						<>
+							<LiveStorySettingsDialog
+								open={isLiveSettingsOpen}
+								onOpenChange={setIsLiveSettingsOpen}
+								chatId={chatId}
+								storySlug={storySlug}
+								isLive={isLive}
+								isLiveTextDynamic={isLiveTextDynamic}
+								cacheSchedule={liveCacheSchedule}
+								cacheScheduleDescription={cacheScheduleDescription}
+								isUpdating={isUpdating}
+								onSaveSettings={handleSaveSettings}
+							/>
 
-					<ShareDialog
-						open={isShareDialogOpen}
-						onOpenChange={setIsShareDialogOpen}
-						target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
-					/>
+							<ShareDialog
+								open={isShareDialogOpen}
+								onOpenChange={setIsShareDialogOpen}
+								target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
+							/>
+						</>
+					)}
 
 					<AssetAnalyticsDialog
 						open={isAnalyticsOpen}

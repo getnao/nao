@@ -76,6 +76,7 @@ import { agentService } from './agent';
 import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertMessagingUserCloudBillingAccess, MESSAGING_SEATS_FULL_REPLY } from './cloud-billing-guard';
 import { SlackSocketBridge } from './slack-socket-bridge';
 import { readUserFileBytes } from './storage/user-files';
 import { ensureMessagingProviderUser } from './team-member';
@@ -139,6 +140,7 @@ type SlackUserAuthorization =
 	| { status: 'authorized'; user: User; timezone: string | undefined }
 	| { status: 'no-email' }
 	| { status: 'user-not-found'; email: string }
+	| { status: 'seats-full' }
 	| { status: 'no-permission' };
 
 export class ProjectSlackBot {
@@ -629,7 +631,16 @@ export class ProjectSlackBot {
 			return;
 		}
 
-		await this._validateUserAccess(ctx);
+		if (!(await this._validateUserAccess(ctx))) {
+			return;
+		}
+		if (
+			!(await assertMessagingUserCloudBillingAccess(this.projectId, ctx.user!.id, (message) =>
+				ctx.thread.post(message),
+			))
+		) {
+			return;
+		}
 		const activeStream: SlackActiveStream = { agent: null, stopRequested: false };
 		this._activeStreamsByThread.set(ctx.thread.id, activeStream);
 
@@ -861,6 +872,13 @@ export class ProjectSlackBot {
 		if (!authorized) {
 			return;
 		}
+		if (
+			!(await assertMessagingUserCloudBillingAccess(this.projectId, authorized.id, (message) =>
+				event.channel.postEphemeral(event.user, message, ephemeralOpts),
+			))
+		) {
+			return;
+		}
 
 		const chatIds = await chatQueries.clearSlackMainThread(slackChannelId);
 		for (const chatId of chatIds) {
@@ -915,6 +933,9 @@ export class ProjectSlackBot {
 					ephemeralOpts,
 				);
 				return null;
+			case 'seats-full':
+				await event.channel.postEphemeral(event.user, MESSAGING_SEATS_FULL_REPLY, ephemeralOpts);
+				return null;
 			case 'no-permission':
 				await event.channel.postEphemeral(
 					event.user,
@@ -938,14 +959,17 @@ export class ProjectSlackBot {
 			const project = await projectQueries.getProjectById(this.projectId);
 			const projectName = project?.name ?? 'nao';
 			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
-			const user = await ensureMessagingProviderUser({
+			const provisioned = await ensureMessagingProviderUser({
 				email,
 				name: displayName,
 				projectId: this.projectId,
 				buildEmail: (user, temporaryPassword) =>
 					buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
 			});
-			return { status: 'authorized', user, timezone };
+			if (provisioned.role === 'viewer') {
+				return { status: 'seats-full' };
+			}
+			return { status: 'authorized', user: provisioned.user, timezone };
 		}
 
 		const user = await getUser({ email });
@@ -1017,7 +1041,7 @@ export class ProjectSlackBot {
 		await this._handleWorkFlow(thread, userMessage, { fetchUnseenMessages: false });
 	}
 
-	private async _validateUserAccess(ctx: ConversationContext): Promise<void> {
+	private async _validateUserAccess(ctx: ConversationContext): Promise<boolean> {
 		const slackUserId = ctx.userMessage.author.userId;
 		const slackUser = await this._getSlackUser(slackUserId);
 		const email = slackUser?.profile?.email?.toLowerCase() || null;
@@ -1032,18 +1056,24 @@ export class ProjectSlackBot {
 			const project = await projectQueries.getProjectById(this.projectId);
 			const projectName = project?.name ?? 'nao';
 			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
-			ctx.user = await ensureMessagingProviderUser({
+			const provisioned = await ensureMessagingProviderUser({
 				email,
 				name: displayName,
 				projectId: this.projectId,
 				buildEmail: (user, temporaryPassword) =>
 					buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
 			});
-			return;
+			if (provisioned.role === 'viewer') {
+				await ctx.thread.post(MESSAGING_SEATS_FULL_REPLY);
+				return false;
+			}
+			ctx.user = provisioned.user;
+			return true;
 		}
 
 		await this._resolveExistingUser(ctx, email);
 		await this._checkUserBelongsToProject(ctx);
+		return true;
 	}
 
 	private async _resolveExistingUser(ctx: ConversationContext, email: string): Promise<void> {

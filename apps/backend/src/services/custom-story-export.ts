@@ -9,7 +9,6 @@ import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
 import { readStoryChartPluginSources } from './chart-plugin';
 import {
 	type CustomStoryVersionView,
-	getCustomStoryNarratives,
 	getCustomStoryVersion,
 	getStoredCustomStoryNarrativesByStoryId,
 } from './custom-story';
@@ -32,7 +31,7 @@ export async function renderCustomStoryPdf(
 ): Promise<{ filename: string; buffer: Buffer }> {
 	const version = await getCustomStoryVersion(chatId, storySlug);
 	const [narratives, state, runtime, chartPlugins, mapBoundaries] = await Promise.all([
-		getCustomStoryNarratives(chatId, storySlug),
+		getStoredCustomStoryNarrativesByStoryId(version.storyId),
 		getUnattendedCustomStoryState(chatId, storySlug),
 		loadStandaloneStoryRuntime(),
 		readStoryChartPluginSources(version.storyId),

@@ -50,6 +50,7 @@ describe('runCustomStorySql', () => {
 			executionContext: { toolContext: VIEWER_CONTEXT, enforceExcludedColumns: true },
 			databaseId: 'warehouse',
 			billingAccessVerifiedProjectId: 'project-1',
+			principalUserId: 'viewer-1',
 		});
 		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
 	});

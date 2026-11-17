@@ -49,6 +49,7 @@ export async function executeStoryQueryWithInputs(
 			semanticBindings: toSemanticBindings(filterBindings, inputs),
 			executionContext,
 			billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
+			principalUserId: options.viewerId,
 		},
 	);
 	return queryData[queryId]!;

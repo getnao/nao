@@ -35,6 +35,7 @@ vi.mock('../../src/queries/chat.queries', () => ({
 	canUserAccessChat: mocks.canUserAccessChat,
 }));
 vi.mock('../../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async () => ({ id: 'project-1', orgId: null })),
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-1', name: 'Project' })),
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	listUsersWithProjectAccess: mocks.listUsersWithProjectAccess,

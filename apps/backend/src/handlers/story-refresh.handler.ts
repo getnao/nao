@@ -29,7 +29,9 @@ export async function storyRefreshHandler(payload: StoryRefreshJobPayload, _job?
 	await runScheduledStoryRefresh(storyId);
 }
 
-export async function resolveStoryRefreshProjectId(payload: StoryRefreshJobPayload): Promise<string> {
+export async function resolveStoryRefreshProjectPrincipal(
+	payload: StoryRefreshJobPayload,
+): Promise<{ projectId: string; principalUserId: string }> {
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
@@ -41,7 +43,11 @@ export async function resolveStoryRefreshProjectId(payload: StoryRefreshJobPaylo
 	if (!projectId) {
 		throw new Error(`Story ${payload.storyId} is missing a project; cannot schedule refresh.`);
 	}
-	return projectId;
+	const principalUserId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id));
+	if (!principalUserId) {
+		throw new Error(`Story ${payload.storyId} is missing an owner; cannot schedule refresh.`);
+	}
+	return { projectId, principalUserId };
 }
 
 /**
@@ -82,10 +88,11 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	try {
 		const { queryData } = await refreshStoryData(story.chatId, story.slug, {
 			billingAccessVerifiedProjectId: projectId,
+			principalUserId: userId,
 		});
 		const queriesRefreshed = Object.keys(queryData).length;
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
-		await warmFilterOptionsAfterRefresh(story.chatId, story.slug, projectId, storyId);
+		await warmFilterOptionsAfterRefresh(story.chatId, story.slug, projectId, storyId, userId);
 		await notifyStoryRefreshed({
 			projectId,
 			ownerId: userId,
@@ -150,11 +157,20 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	}
 }
 
-async function warmFilterOptionsAfterRefresh(chatId: string, slug: string, projectId: string, storyId: string) {
+async function warmFilterOptionsAfterRefresh(
+	chatId: string,
+	slug: string,
+	projectId: string,
+	storyId: string,
+	principalUserId: string,
+) {
 	if (!env.BETA_STORY_FILTERS_ENABLED) {
 		return;
 	}
-	await warmStoryFilterOptions(chatId, slug, { billingAccessVerifiedProjectId: projectId }).catch((error) => {
+	await warmStoryFilterOptions(chatId, slug, {
+		billingAccessVerifiedProjectId: projectId,
+		principalUserId,
+	}).catch((error) => {
 		logger.warn(`Failed to warm story filter options: ${String(error)}`, {
 			source: 'system',
 			projectId,

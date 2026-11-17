@@ -46,6 +46,7 @@ import { selectStoryEditorCode, useStoryEditBuffer } from '@/hooks/use-story-edi
 import { useStoryEditTransitions } from '@/hooks/use-story-edit-transitions';
 import { useStoryExitGuard } from '@/hooks/use-story-exit-guard';
 import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-edit-session';
+import { usePermissions } from '@/hooks/use-permissions';
 import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
@@ -166,6 +167,8 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	} = useSidePanel();
 	const citingChatId = conversationChatId ?? chatId;
 	const isReadonlyMode = isReplay ? contextReadonlyMode : (readonlyProp ?? contextReadonlyMode);
+	const { canSendMessages } = usePermissions();
+	const canWrite = !isReadonlyMode && canSendMessages;
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
 	const outerAgent = useOptionalAgentContext();
@@ -268,10 +271,11 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		viewMode,
 		setViewMode,
 		onVersionSaved: storyBuffer.markSaved,
+		canWrite,
 	});
 	const isDirty = storyBuffer.isDirty;
 	const presence = useStoryEditSession({
-		target: !isReadonlyMode && storyId ? { storyId, chatId, storySlug: resolvedStorySlug } : null,
+		target: canWrite && storyId ? { storyId, chatId, storySlug: resolvedStorySlug } : null,
 		isEditing: viewMode !== 'preview' || isCodeDirty,
 	});
 	useCloseWhenUneditable(presence.canEdit || isDirty, () => {
@@ -281,7 +285,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	});
 	const exitGuard = useStoryExitGuard({
 		isDirty,
-		canSave: viewMode !== 'code' || isCodeValid,
+		canSave: canWrite && (viewMode !== 'code' || isCodeValid),
 		save: saveCurrentVersion,
 		discard: storyBuffer.discard,
 	});
@@ -328,7 +332,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	}, [isCodeValid, isDirty, saveCurrentVersion, setViewMode, viewMode]);
 	useRegisterStoryBeforeAgentSend({
 		chatId,
-		enabled: !isReadonlyMode && isSidePanelVisible && currentStorySlug === resolvedStorySlug,
+		enabled: canWrite && isSidePanelVisible && currentStorySlug === resolvedStorySlug,
 		guard: handleBeforeAgentSend,
 	});
 	const { isShareDialogOpen, setIsShareDialogOpen, isShared } = useStoryViewerSharing({
@@ -348,7 +352,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	} = useStoryViewerLiveSettings({ chatId, storySlug: resolvedStorySlug });
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${resolvedStorySlug}`,
-		needsRefresh,
+		needsRefresh: canWrite && needsRefresh,
 		isRefreshing,
 		refresh: handleRefreshData,
 	});
@@ -467,7 +471,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				isEditLocked={!presence.canEdit}
 				isStoryUpdating={isStoryUpdating}
 				isSaving={isSaving}
-				isReadonlyMode={isReadonlyMode}
+				isReadonlyMode={!canWrite}
 				isReplay={isReplay}
 				isLive={isLive}
 				isLiveUpdating={isLiveUpdating}
@@ -496,7 +500,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{renderWithEditProvider(
-					!isReadonlyMode &&
+					canWrite &&
 						isViewingLatest &&
 						!archivedAt &&
 						!isAgentRunning &&
@@ -523,7 +527,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 								chatId={chatId}
 								storySlug={resolvedStorySlug}
 								versionKey={isViewingLatest ? undefined : currentVersionNumber}
-								filtersEnabled={isViewingLatest && !isAgentRunning}
+								filtersEnabled={canWrite && isViewingLatest && !isAgentRunning}
 								isStreaming={isStoryStreaming}
 								isDataPending={isVersionQueryDataPending}
 								isViewingLatest={isViewingLatest}
@@ -536,7 +540,10 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 								theme={storyTheme}
 								className='h-auto min-h-full bg-background text-foreground'
 							>
-								<div inert={!presence.canEdit} className={cn(!presence.canEdit && 'opacity-60')}>
+								<div
+									inert={!canWrite || !presence.canEdit}
+									className={cn((!canWrite || !presence.canEdit) && 'opacity-60')}
+								>
 									{isEditTabbedStory ? (
 										<StoryTabbedEditor
 											code={editCode}
@@ -562,12 +569,12 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 						<StoryCodeView
 							code={codeDraft}
 							storySlug={resolvedStorySlug}
-							readOnly={isReadonlyMode || !presence.canEdit}
+							readOnly={!canWrite || !presence.canEdit}
 							codeRef={codeViewRef}
-							onCodeChange={storyBuffer.handleCodeChange}
+							onCodeChange={canWrite ? storyBuffer.handleCodeChange : undefined}
 							onValidChange={setIsCodeValid}
-							onSave={handleSave}
-							onAskAboutCode={isReadonlyMode ? undefined : handleAskAboutCode}
+							onSave={canWrite ? handleSave : undefined}
+							onAskAboutCode={canWrite ? handleAskAboutCode : undefined}
 						/>
 					),
 				)}

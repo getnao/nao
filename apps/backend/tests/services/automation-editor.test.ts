@@ -6,6 +6,7 @@ import type * as ChatQueriesModule from '../../src/queries/chat.queries';
 
 const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 	assertUserGroupFeature: vi.fn(),
 	getAutomation: vi.fn(),
 	getAutomationRunHistory: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('../../src/env', async (importOriginal) => {
 vi.mock('../../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: mocks.assertProjectUserCloudBillingAccess,
 }));
 vi.mock('../../src/services/user-group-feature-access.service', async (importOriginal) => ({
 	...(await importOriginal<object>()),

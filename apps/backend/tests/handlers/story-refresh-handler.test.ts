@@ -65,6 +65,7 @@ describe('scheduled Story refresh principal', () => {
 
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
+			principalUserId: 'owner-1',
 		});
 	});
 
@@ -73,6 +74,7 @@ describe('scheduled Story refresh principal', () => {
 
 		expect(mocks.warmStoryFilterOptions).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
+			principalUserId: 'owner-1',
 		});
 	});
 

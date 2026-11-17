@@ -41,6 +41,8 @@ vi.mock('../../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertUserCloudBillingAccess: vi.fn(),
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
 }));
 vi.mock('../../src/services/context-pr.service', () => ({
 	ContextPullRequestInputError: class extends Error {},

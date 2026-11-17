@@ -173,7 +173,7 @@ describe('duplicateStory', () => {
 
 		await duplicateStory({ storyId: 'story-id' }, OWNER);
 
-		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-id', 'query_a');
+		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-id', 'query_a', { principalUserId: 'user-id' });
 		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith('copy-id', { query_a: rows('live') }, null);
 	});
 

@@ -102,7 +102,7 @@ describe('custom story background refresh', () => {
 		mockExpiredOrdersCache();
 
 		await expect(getOrdersQueryData()).resolves.toEqual(REFRESHED_ORDERS);
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
+		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', { deferRefresh: true });
 	});
 });
 

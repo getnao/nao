@@ -8,6 +8,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import { readCustomStoryChartPluginSources } from '../services/chart-plugin';
+import { assertProjectUserCloudBillingAccess, isProjectUserReadOnly } from '../services/cloud-billing-access.service';
 import {
 	assertCustomStoryExists,
 	getActiveThemeForProject,
@@ -90,8 +91,12 @@ export const customStoryViewerRoutes = {
 					ctx.viewer.chatId,
 					input.storySlug,
 					input.queryId,
+					{
+						cachedOnly: await isProjectUserReadOnly(ctx.viewer.projectId, ctx.user.id),
+						principalUserId: ctx.user.id,
+						rerun: { inputs: input.inputs, viewerId: ctx.user.id },
+					},
 					input.versionNumber,
-					{ inputs: input.inputs, viewerId: ctx.user.id },
 				);
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
@@ -150,6 +155,7 @@ export const customStoryViewerRoutes = {
 
 	setState: viewerProcedure.input(z.object({ change: storyStateChange })).mutation(async ({ ctx, input }) => {
 		try {
+			await assertProjectUserCloudBillingAccess(ctx.viewer.projectId, ctx.user.id);
 			await setCustomStoryState(ctx.viewer.chatId, input.storySlug, ctx.user.id, input.change);
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
@@ -158,7 +164,10 @@ export const customStoryViewerRoutes = {
 
 	getNarratives: viewerProcedure.query(async ({ ctx, input }) => {
 		try {
-			return await getCustomStoryNarratives(ctx.viewer.chatId, input.storySlug);
+			return await getCustomStoryNarratives(ctx.viewer.chatId, input.storySlug, {
+				cachedOnly: await isProjectUserReadOnly(ctx.viewer.projectId, ctx.user.id),
+				principalUserId: ctx.user.id,
+			});
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}

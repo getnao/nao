@@ -16,6 +16,7 @@ import { bindSemanticQuery, semanticBindingsFromCode } from './semantic-story-bi
 
 interface StoryFilterExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
+	principalUserId: string;
 }
 
 export function assertStoryFiltersEnabled() {
@@ -28,7 +29,7 @@ export async function getFilteredStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	selections: StoryFilterSelections,
-	executionOptions: StoryFilterExecutionOptions = {},
+	executionOptions: StoryFilterExecutionOptions,
 ): Promise<StoryQueryData> {
 	const [{ code, sqlQueries }, executionContext] = await Promise.all([
 		loadStoryCodeAndQueries(chatId, storySlug),
@@ -41,6 +42,7 @@ export async function getFilteredStoryQueryData(
 		renderSql: (sqlQuery) => renderStorySql(sqlQuery, selections, specs),
 		semanticBindings: semanticBindingsFromCode(code, selections),
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		principalUserId: executionOptions.principalUserId,
 	});
 }
 

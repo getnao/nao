@@ -17,6 +17,7 @@ interface UseStoryPageEditorParams {
 	isAgentRunning?: boolean;
 	isReadonlyMode?: boolean;
 	standaloneStoryId?: string;
+	canEdit?: boolean;
 }
 
 export function useStoryPageEditor({
@@ -27,6 +28,7 @@ export function useStoryPageEditor({
 	isAgentRunning = false,
 	isReadonlyMode = false,
 	standaloneStoryId,
+	canEdit = true,
 }: UseStoryPageEditorParams) {
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 	const {
@@ -66,11 +68,12 @@ export function useStoryPageEditor({
 		setViewMode,
 		onVersionSaved: storyBuffer.markSaved,
 		standaloneStoryId,
+		canWrite: canEdit,
 	});
 	const isDirty = storyBuffer.isDirty;
 	const exitGuard = useStoryExitGuard({
 		isDirty,
-		canSave: viewMode !== 'code' || isCodeValid,
+		canSave: canEdit && (viewMode !== 'code' || isCodeValid),
 		save: saveCurrentVersion,
 		discard: storyBuffer.discard,
 	});

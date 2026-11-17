@@ -5,7 +5,7 @@ import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from './types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,8 +23,15 @@ interface EditMemberDialogProps {
 	isAdmin: boolean;
 	roleScope: 'organization' | 'project';
 	availableRoles?: readonly UserRole[];
-	onSubmit: (data: { userId: string; name?: string; newRole?: UserRole }) => Promise<void>;
+	onSubmit: (data: EditMemberSubmission) => Promise<EditMemberResult | void>;
 }
+
+type EditMemberSubmission = { userId: string; name?: string; newRole?: UserRole };
+type EditMemberResult = {
+	outcome?: {
+		status: 'activated' | 'viewer_fallback' | 'promotion_rejected' | 'purchase_required';
+	} | null;
+};
 
 export function EditMemberDialog({
 	open,
@@ -51,11 +58,21 @@ export function EditMemberDialog({
 			}
 			setError('');
 			try {
-				await onSubmit({
+				const submission = {
 					userId: member.id,
 					name: value.name,
 					newRole: isRoleEditingDisabled ? undefined : value.role,
-				});
+				};
+				const result = await onSubmit(submission);
+				if (
+					result?.outcome?.status === 'promotion_rejected' ||
+					result?.outcome?.status === 'purchase_required'
+				) {
+					setError(
+						'No seat is available. This person remains a Viewer. Increase capacity in Billing → Seats.',
+					);
+					return;
+				}
 				onOpenChange(false);
 			} catch (err) {
 				setError(err instanceof Error ? err.message : String(err));
@@ -76,6 +93,7 @@ export function EditMemberDialog({
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Edit Profile</DialogTitle>
+					<DialogDescription>Update this member&apos;s name and role.</DialogDescription>
 				</DialogHeader>
 				<form
 					onSubmit={(e) => {
@@ -144,6 +162,11 @@ export function EditMemberDialog({
 					)}
 
 					{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
+					{member?.role !== 'viewer' && form.state.values.role === 'viewer' && (
+						<p className='text-sm text-muted-foreground'>
+							This frees capacity but does not reduce paid seat quantity.
+						</p>
+					)}
 					<div className='flex justify-end'>
 						<Button type='submit' variant='primary-gradient' className='rounded-full'>
 							Validate changes

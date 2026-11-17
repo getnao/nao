@@ -9,6 +9,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import { readStoryChartPluginSources } from '../services/chart-plugin';
+import { isProjectUserReadOnly } from '../services/cloud-billing-access.service';
 import {
 	assertCustomStoryExists,
 	getActiveThemeForProject,
@@ -142,6 +143,7 @@ export const sharedStoryRoutes = {
 					? await getStoryQueryData(shared.chatId, shared.slug, shared.code, isLive, cacheSchedule, {
 							deferRefresh: canRefresh && lastRefreshFailure !== null,
 							deferFirstRefresh: canRefresh,
+							principalUserId: ctx.user.id,
 						})
 					: await getStandaloneStoryQueryData(shared.storyId, shared.code);
 
@@ -232,8 +234,12 @@ export const sharedStoryRoutes = {
 							shared.chatId,
 							shared.slug,
 							input.queryId,
+							{
+								cachedOnly: await isProjectUserReadOnly(shared.projectId, ctx.user.id),
+								principalUserId: ctx.user.id,
+								rerun: { inputs: input.inputs, viewerId: ctx.user.id },
+							},
 							input.versionNumber,
-							{ inputs: input.inputs, viewerId: ctx.user.id },
 						)
 					: await getStandaloneCustomStoryQueryData(
 							shared.storyId,
@@ -296,7 +302,10 @@ export const sharedStoryRoutes = {
 		const shared = ctx.resource;
 		try {
 			return shared.chatId
-				? await getCustomStoryNarratives(shared.chatId, shared.slug)
+				? await getCustomStoryNarratives(shared.chatId, shared.slug, {
+						cachedOnly: await isProjectUserReadOnly(shared.projectId, ctx.user.id),
+						principalUserId: ctx.user.id,
+					})
 				: await getStandaloneCustomStoryNarratives(shared.storyId);
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
@@ -322,7 +331,7 @@ export const sharedStoryRoutes = {
 		}
 	}),
 
-	setCustomStoryState: shareAccessProcedure
+	setCustomStoryState: cloudBillingShareAccessProcedure
 		.input(z.object({ storyId: z.string(), change: storyStateChange }))
 		.mutation(async ({ input, ctx }) => {
 			const shared = ctx.resource;
@@ -392,6 +401,7 @@ export const sharedStoryRoutes = {
 			}
 			return executeLiveQuery(shared.chatId, input.queryId, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				principalUserId: ctx.user.id,
 				storyCode: shared.code,
 			});
 		}),
@@ -412,6 +422,7 @@ export const sharedStoryRoutes = {
 				{ search, parentSelection },
 				{
 					billingAccessVerifiedProjectId: shared.projectId,
+					principalUserId: ctx.user.id,
 				},
 			);
 		}),
@@ -431,6 +442,7 @@ export const sharedStoryRoutes = {
 			}
 			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, {
 				billingAccessVerifiedProjectId: shared.projectId,
+				principalUserId: ctx.user.id,
 			});
 		}),
 
@@ -477,6 +489,7 @@ export const sharedStoryRoutes = {
 			return await withKeyedLock(`story:${story.id}`, async () => {
 				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, {
 					billingAccessVerifiedProjectId: shared.projectId,
+					principalUserId: ctx.user.id,
 				});
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
@@ -617,6 +630,7 @@ export const sharedStoryRoutes = {
 						version.code,
 						version.isLive,
 						version.cacheSchedule,
+						{ deferRefresh: true, principalUserId: ctx.user.id },
 					)
 				: await getStandaloneStoryQueryData(shared.storyId, version.code);
 

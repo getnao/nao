@@ -124,6 +124,7 @@ export const sharedChatRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				{ deferRefresh: true, principalUserId: ctx.user.id },
 			);
 
 			logAnalyticsEvent({

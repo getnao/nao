@@ -153,6 +153,37 @@ describe('StoryPageHeader actions', () => {
 	});
 });
 
+describe('StoryPageHeader read-only mode', () => {
+	afterEach(cleanup);
+
+	it('keeps code view available without edit or restore actions', () => {
+		render(
+			<TooltipProvider>
+				<StoryPageHeader
+					title='Revenue'
+					isReadOnly
+					viewModeControls={{
+						viewMode: 'preview',
+						onViewModeChange: vi.fn(),
+						canEdit: true,
+					}}
+					versionControls={{
+						currentVersion: 1,
+						versions: [],
+						isViewingLatest: false,
+						onSelectVersion: vi.fn(),
+						onRestore: vi.fn(),
+					}}
+				/>
+			</TooltipProvider>,
+		);
+
+		expect(screen.getByRole('button', { name: 'Code' })).toBeDefined();
+		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+	});
+});
+
 describe('StoryPageHeader on an older version', () => {
 	afterEach(cleanup);
 

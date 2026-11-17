@@ -62,7 +62,9 @@ describe('embedded Story query data', () => {
 		await expect(loadEmbedStoryContent('story-1', 'token')).resolves.toMatchObject({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 		});
-		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', ORDERS_TABLE_CODE, false, undefined);
+		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', ORDERS_TABLE_CODE, false, undefined, {
+			principalUserId: 'owner-1',
+		});
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});
 
@@ -111,7 +113,9 @@ describe('embedded Story query data', () => {
 
 		await loadEmbedStoryContent('story-1', 'token');
 
-		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', ORDERS_TABLE_CODE, true, '0 * * * *');
+		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', ORDERS_TABLE_CODE, true, '0 * * * *', {
+			principalUserId: 'owner-1',
+		});
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});
 

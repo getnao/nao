@@ -6,6 +6,7 @@ import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { sessionOrApiKeyAuthMiddleware } from '../middleware/auth';
 import { getUserRoleInProject } from '../queries/project.queries';
+import { assertProjectActorCloudBillingAccess } from '../services/cloud-billing-guard';
 import { testAgentService } from '../services/test-agent.service';
 import { evaluateTestAttempt, type TestAttemptEvaluation } from '../services/test-evaluation.service';
 import { activeEffortSchema, customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
@@ -66,6 +67,7 @@ export const testRoutes = async (app: App) => {
 			if (!userRole || userRole === 'viewer') {
 				return reply.status(403).send({ error: 'Viewers cannot run tests' });
 			}
+			await assertProjectActorCloudBillingAccess(projectId, userId);
 			const unsupportedEffortError = describeUnsupportedEffort(model);
 			if (unsupportedEffortError) {
 				return reply.status(400).send({ error: unsupportedEffortError });

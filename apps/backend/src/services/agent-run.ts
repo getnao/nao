@@ -15,7 +15,7 @@ import { HandlerError } from '../utils/error';
 import { isOpenProject } from '../utils/open-projects';
 import { resolveEditedAutomationId } from './automation-editor.service';
 import { canRoleReceiveChatFeedback } from './automation-feedback-trigger.service';
-import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
+import { assertProjectActorCloudBillingAccess } from './cloud-billing-guard';
 import { assertCanEditContextFromChat } from './context-editor.service';
 import { authorizeExampleAgentRun, getExampleProjectForNewChat } from './example-agent-run';
 
@@ -92,7 +92,7 @@ async function authorizeMemberAgentRun({ userId, body, projectId }: AuthorizedAg
 	if (!userRole || userRole === 'viewer') {
 		throw new HandlerError('FORBIDDEN', 'Viewers cannot send messages');
 	}
-	await assertProjectCloudBillingAccess(projectId);
+	await assertProjectActorCloudBillingAccess(projectId, userId);
 	return {
 		projectId,
 		profile: await resolveMemberAgentProfile({ userId, body, projectId }, userRole),

@@ -9,7 +9,9 @@ type MessageHandler = (
 ) => Promise<void>;
 
 const teamsHarness = vi.hoisted(() => ({
+	assertMessagingUserCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 	createChat: vi.fn(),
 	createAgent: vi.fn(),
 	credentials: [] as Array<[string, string, string]>,
@@ -88,8 +90,18 @@ vi.mock('../../src/queries/user.queries', () => ({
 vi.mock('../../src/services/agent', () => ({
 	agentService: { create: teamsHarness.createAgent, get: vi.fn() },
 }));
+vi.mock('../../src/services/branding.service', () => ({
+	DEFAULT_APP_NAME: 'nao',
+	DEFAULT_BRAND_COLOR: '#522bff',
+	getAppName: vi.fn(async () => 'nao'),
+}));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: teamsHarness.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: teamsHarness.assertProjectUserCloudBillingAccess,
+	CloudBillingSeatRestrictedError: class CloudBillingSeatRestrictedError extends Error {},
+}));
+vi.mock('../../src/services/cloud-billing-guard', () => ({
+	assertMessagingUserCloudBillingAccess: teamsHarness.assertMessagingUserCloudBillingAccess,
 }));
 vi.mock('../../src/services/posthog', () => ({
 	PostHogEvent: { MessageSent: 'message_sent' },
@@ -119,6 +131,7 @@ describe('TeamsService', () => {
 			_redirectUrl: '',
 			_modelSelection: undefined,
 		});
+		teamsHarness.assertMessagingUserCloudBillingAccess.mockReset().mockResolvedValue(true);
 		teamsHarness.assertProjectCloudBillingAccess.mockReset().mockResolvedValue(undefined);
 		teamsHarness.createChat.mockReset();
 		teamsHarness.createAgent.mockReset().mockRejectedValue(new Error('stop after agent creation'));

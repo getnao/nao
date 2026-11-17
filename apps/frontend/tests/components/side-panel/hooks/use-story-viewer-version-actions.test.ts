@@ -254,6 +254,35 @@ describe('useStoryViewerVersionActions', () => {
 
 		expect(result.current.saveError).toMatch(/newer version/);
 	});
+
+	it('blocks saves and restores when writes are disabled', async () => {
+		const { result } = renderHook(() =>
+			useStoryViewerVersionActions({
+				chatId: 'chat-a',
+				storySlug: 'story-a',
+				storyTitle: 'Story A',
+				currentVersionCode: '# Story A',
+				currentVersionNumber: 1,
+				latestVersionNumber: 2,
+				hasUnsavedChanges: true,
+				isViewingLatest: false,
+				goToLatestVersion: vi.fn(),
+				codeViewRef,
+				getCurrentCode: () => '# Story A edit',
+				viewMode: 'code',
+				setViewMode: vi.fn(),
+				canWrite: false,
+			}),
+		);
+
+		await act(async () => {
+			expect(await result.current.saveCurrentVersion()).toBe('unavailable');
+		});
+		act(() => result.current.handleRestore());
+
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+		expect(mocks.mutate).not.toHaveBeenCalled();
+	});
 });
 
 function renderVersionActions(initialProps: HookProps) {
@@ -273,6 +302,7 @@ function renderVersionActions(initialProps: HookProps) {
 				viewMode: 'edit',
 				setViewMode: vi.fn(),
 				onVersionSaved: props.onVersionSaved,
+				canWrite: true,
 			}),
 		{ initialProps },
 	);
@@ -301,6 +331,7 @@ function renderVersionedHook(initialProps: VersionedHookProps) {
 				getCurrentCode: () => props.currentCode,
 				viewMode: 'edit',
 				setViewMode: vi.fn(),
+				canWrite: true,
 			}),
 		{ initialProps },
 	);

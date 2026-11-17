@@ -18,9 +18,9 @@ export const Route = createFileRoute('/_sidebar-layout/automations/')({
 });
 
 function AutomationsPage() {
-	const { isViewer } = usePermissions();
+	const { isSeatReadOnly, isViewer } = usePermissions();
 	const { automationCreationEnabled } = useEffectiveUserGroupFeatures();
-	const canCreateAutomation = automationCreationEnabled && !isViewer;
+	const canCreateAutomation = automationCreationEnabled && !isViewer && !isSeatReadOnly;
 	const automations = useQuery({ ...trpc.automation.list.queryOptions(), enabled: !isViewer });
 
 	return (

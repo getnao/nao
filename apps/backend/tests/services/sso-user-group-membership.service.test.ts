@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
 	env: {} as Record<string, string | undefined>,
 	hasFeature: vi.fn(),
 	hasSyncState: vi.fn(),
+	listRoleCandidates: vi.fn(),
+	addProjectMember: vi.fn(),
 	readClaims: vi.fn(),
 	reconcile: vi.fn(),
 	logger: {
@@ -23,7 +25,11 @@ vi.mock('../../src/services/license.service', () => ({
 }));
 vi.mock('../../src/queries/sso-user-group-membership.queries', () => ({
 	hasSsoUserGroupSyncState: mocks.hasSyncState,
+	listSsoProjectRoleCandidates: mocks.listRoleCandidates,
 	reconcileSsoUserGroupMemberships: mocks.reconcile,
+}));
+vi.mock('../../src/services/membership.service', () => ({
+	addProjectMember: mocks.addProjectMember,
 }));
 vi.mock('../../src/services/sso-group-mapping.service', () => ({
 	DEFAULT_GROUPS_CLAIM: 'groups',
@@ -43,6 +49,8 @@ beforeEach(() => {
 	mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = undefined;
 	mocks.hasFeature.mockReset().mockResolvedValue(true);
 	mocks.hasSyncState.mockReset().mockResolvedValue(true);
+	mocks.listRoleCandidates.mockReset().mockResolvedValue([]);
+	mocks.addProjectMember.mockReset();
 	mocks.readClaims.mockReset();
 	mocks.reconcile.mockReset().mockResolvedValue(undefined);
 	mocks.logger.error.mockReset();
@@ -75,7 +83,7 @@ describe('syncUserGroupsFromOidc', () => {
 		['no token', { status: 'no-token' }],
 	])('preserves memberships when the claim is %s', async (_name, token) => {
 		mocks.readClaims.mockResolvedValue(token);
-		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeUndefined();
+		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeNull();
 		expect(mocks.reconcile).not.toHaveBeenCalled();
 		expect(mocks.logger.warn).toHaveBeenCalledOnce();
 	});
@@ -121,7 +129,7 @@ describe('syncUserGroupsFromOidc', () => {
 
 	it('logs failures without rejecting login', async () => {
 		mocks.readClaims.mockRejectedValue(new Error('token read failed'));
-		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeUndefined();
+		await expect(syncUserGroupsFromOidc('user-1')).resolves.toBeNull();
 		expect(mocks.logger.error).toHaveBeenCalledWith('Failed to sync User Group memberships from OIDC', {
 			source: 'system',
 			context: { userId: 'user-1', error: { message: 'token read failed' } },

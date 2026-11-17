@@ -10,11 +10,10 @@ import * as discordLinkQueries from '../queries/project-discord-link.queries';
 import * as userQueries from '../queries/user.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import * as userPreferenceQueries from '../queries/user-preference.queries';
-import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { discordService } from '../services/discord';
 import { canUseDiscordInProject } from '../services/discord-helpers';
 import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services/github-star-prompt.service';
-import { addProjectMember } from '../services/membership.service';
+import { addProjectMember, putProjectMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
 import type { StoredUserPreferences } from '../types/usage';
@@ -77,20 +76,16 @@ export const userRoutes = {
 			}
 
 			if (input.newRole && input.newRole !== previousRole) {
-				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
-				const nextRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
-				if (
-					ctx.project.path &&
-					(previousRole === 'admin' || previousRole === 'context_admin') &&
-					nextRole !== 'admin' &&
-					nextRole !== 'context_admin'
-				) {
-					await cleanupContextWorktree(ctx.project.id, ctx.project.path, input.userId);
+				const membership = await putProjectMember(ctx.project.id, input.userId, input.newRole);
+				if (shouldRename) {
+					await userQueries.updateUser(input.userId, input.name!);
 				}
+				return membership;
 			}
 			if (shouldRename) {
 				await userQueries.updateUser(input.userId, input.name!);
 			}
+			return { userId: input.userId, role: previousRole, outcome: null };
 		}),
 
 	addUserToProject: adminProtectedProcedure
@@ -113,7 +108,7 @@ export const userRoutes = {
 				name: input.name,
 				checkExisting: async (userId) => !!(await projectQueries.getProjectMember(projectId, userId)),
 				addMember: async (userId) => {
-					await addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE }, groupIds);
+					return addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE }, groupIds);
 				},
 				buildEmail: (user, password) =>
 					buildUserAddedEmail(user, ctx.project.name, 'project', password, ctx.user.email),

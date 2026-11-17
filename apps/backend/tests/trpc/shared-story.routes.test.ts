@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as EnvModule from '../../src/env';
 import type { EffectiveUserGroupAccess } from '../../src/queries/user-group.queries';
 import { createTestCaller } from '../helpers/trpc-caller';
 
@@ -19,13 +20,23 @@ const mocks = vi.hoisted(() => ({
 	executeLiveQuery: vi.fn(),
 	getStoryQueryData: vi.fn(),
 	refreshStoryData: vi.fn(),
+	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertUserCloudBillingAccess: vi.fn(),
 	logAnalyticsEvent: vi.fn(),
 	resolveUserGroupAccess: vi.fn(),
 }));
 
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../../src/db/db', () => ({ db: {} }));
+vi.mock('../../src/env', async (importOriginal) => {
+	const actual = await importOriginal<typeof EnvModule>();
+	return {
+		...actual,
+		isCloudBillingEnabled: () => true,
+		isCloudFreeTierEnabled: () => false,
+	};
+});
 vi.mock('../../src/queries/activity.queries', () => ({
 	startStoryRefreshActivity: mocks.startStoryRefreshActivity,
 	completeActivity: mocks.completeActivity,
@@ -36,6 +47,7 @@ vi.mock('../../src/queries/chat.queries', () => ({
 	getChatInfo: vi.fn(),
 }));
 vi.mock('../../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async (projectId: string) => ({ id: projectId, orgId: 'org-1' })),
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-1', orgId: 'org-1', name: 'Project', path: null })),
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
@@ -54,8 +66,11 @@ vi.mock('../../src/queries/story.queries', () => ({
 vi.mock('../../src/queries/story-folder.queries', () => ({}));
 vi.mock('../../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
-	assertOrganizationCloudBillingAccess: vi.fn(),
+	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertUserCloudBillingAccess: mocks.assertUserCloudBillingAccess,
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
+	isUserReadOnlyInOrganization: vi.fn(async () => false),
 }));
 vi.mock('../../src/services/live-story', () => ({
 	executeLiveQuery: mocks.executeLiveQuery,
@@ -167,9 +182,11 @@ describe('storyShare.getLiveQueryData', () => {
 		await expect(
 			createCaller('recipient-1').storyShare.getLiveQueryData({ storyId: 'story-1', queryId: 'q_customers' }),
 		).resolves.toEqual({ data: [{ n: 100 }], columns: ['n'] });
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-1', undefined);
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('org-1', 'recipient-1', undefined);
 		expect(mocks.executeLiveQuery).toHaveBeenCalledWith('chat-1', 'q_customers', {
 			billingAccessVerifiedProjectId: 'project-1',
+			principalUserId: 'recipient-1',
 			storyCode: expect.any(String),
 		});
 	});
@@ -243,8 +260,8 @@ describe('shared Story manual refresh', () => {
 		['owner', 'owner-1', true],
 		['member', 'member-1', false],
 	] as const)(
-		'defers the refresh after a failure only when the %s can retry it',
-		async (_label, userId, expected) => {
+		'keeps the %s read path cached after a refresh failure',
+		async (_label, userId, expectedFirstRefresh) => {
 			mocks.getLatestStoryRefreshFailure.mockResolvedValue({
 				errorMessage: 'No output generated.',
 				failedAt: new Date('2026-09-12T10:00:00.000Z'),
@@ -253,8 +270,9 @@ describe('shared Story manual refresh', () => {
 			await createCaller(userId).storyShare.get({ storyId: 'story-1' });
 
 			expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
-				deferRefresh: expected,
-				deferFirstRefresh: expected,
+				deferRefresh: expectedFirstRefresh,
+				deferFirstRefresh: expectedFirstRefresh,
+				principalUserId: userId,
 			});
 		},
 	);
@@ -268,6 +286,7 @@ describe('shared Story manual refresh', () => {
 		expect(mocks.getStoryQueryData).toHaveBeenCalledWith('chat-1', 'orders', undefined, true, null, {
 			deferRefresh: false,
 			deferFirstRefresh: expected,
+			principalUserId: userId,
 		});
 	});
 
@@ -315,13 +334,15 @@ describe('shared Story manual refresh', () => {
 	});
 
 	it('rejects refresh when cloud billing access is restricted', async () => {
-		mocks.assertProjectCloudBillingAccess.mockRejectedValueOnce(new Error('Cloud billing access is restricted'));
+		mocks.assertOrganizationCloudBillingAccess.mockRejectedValueOnce(
+			new Error('Cloud billing access is restricted'),
+		);
 
 		await expect(createCaller('owner-1').storyShare.refreshData({ storyId: 'story-1' })).rejects.toThrow(
 			'Cloud billing access is restricted',
 		);
 
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertOrganizationCloudBillingAccess).toHaveBeenCalledWith('org-1', undefined);
 		expect(mocks.refreshStoryData).not.toHaveBeenCalled();
 		expect(mocks.startStoryRefreshActivity).not.toHaveBeenCalled();
 	});
@@ -329,9 +350,10 @@ describe('shared Story manual refresh', () => {
 	it('lets the owner refresh using the owner execution principal', async () => {
 		await createCaller('owner-1').storyShare.refreshData({ storyId: 'story-1' });
 
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('org-1', 'owner-1', undefined);
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
+			principalUserId: 'owner-1',
 		});
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith({
 			projectId: 'project-1',
@@ -344,12 +366,13 @@ describe('shared Story manual refresh', () => {
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'owner-1' }));
 	});
 
-	it('lets an admin trigger an owner-scoped refresh while recording the admin actor', async () => {
+	it('lets an admin refresh as the actor while attributing the activity to the owner', async () => {
 		await createCaller('admin-1').storyShare.refreshData({ storyId: 'story-1' });
 
-		expect(mocks.assertProjectCloudBillingAccess).toHaveBeenCalledWith('project-1');
+		expect(mocks.assertUserCloudBillingAccess).toHaveBeenCalledWith('org-1', 'admin-1', undefined);
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', {
 			billingAccessVerifiedProjectId: 'project-1',
+			principalUserId: 'admin-1',
 		});
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith(expect.objectContaining({ userId: 'owner-1' }));
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });

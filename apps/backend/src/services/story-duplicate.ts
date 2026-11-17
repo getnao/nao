@@ -78,7 +78,7 @@ async function loadSourceVersion(storyId: string, versionNumber?: number): Promi
 }
 
 async function copyClassicStory(source: DBStory, version: DBStoryVersion, copy: StoryCopy): Promise<string> {
-	const snapshot = await loadSnapshot(source, extractQueryIds(version.code));
+	const snapshot = await loadSnapshot(source, extractQueryIds(version.code), copy.owner.userId);
 	const created = await storyQueries.createStandaloneStory({
 		...copy.owner,
 		slug: copy.slug,
@@ -101,7 +101,7 @@ async function copyClassicStory(source: DBStory, version: DBStoryVersion, copy: 
 
 async function copyCustomStory(source: DBStory, version: DBStoryVersion, copy: StoryCopy): Promise<string> {
 	const files = await listVersionFileInputs(version.id);
-	const snapshot = await loadSnapshot(source, extractCustomStoryQueryIds(files));
+	const snapshot = await loadSnapshot(source, extractCustomStoryQueryIds(files), copy.owner.userId);
 	const { story } = await createCustomStoryDraft({ ...copy.owner, slug: copy.slug, title: copy.title, files });
 	try {
 		await saveSnapshot(story.id, snapshot);
@@ -126,7 +126,7 @@ async function listVersionFileInputs(versionId: string): Promise<StoryFileInput[
 }
 
 /** Reads the rows the source shows today: a live story reads its cache first, a chat story the queries of its chat. */
-async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<StorySnapshot> {
+async function loadSnapshot(source: DBStory, queryIds: Set<string>, principalUserId: string): Promise<StorySnapshot> {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(source.id);
 	const cached = pickQueryData((cache?.queryData as StoryQueryDataMap | null) ?? {}, queryIds);
 	if (!source.chatId) {
@@ -137,7 +137,7 @@ async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<Sto
 		return { queryData, narratives: cache?.analysisResults ?? null };
 	}
 
-	const queryData = await loadChatStoryQueryData(source, source.chatId, queryIds, cached);
+	const queryData = await loadChatStoryQueryData(source, source.chatId, queryIds, cached, principalUserId);
 	return {
 		queryData: Object.keys(queryData).length > 0 ? queryData : null,
 		narratives: pickShownNarratives(source, cache),
@@ -161,6 +161,7 @@ async function loadChatStoryQueryData(
 	chatId: string,
 	queryIds: Set<string>,
 	cached: StoryQueryDataMap,
+	principalUserId: string,
 ): Promise<StoryQueryDataMap> {
 	const fromChat = await getLatestSqlQueryDataByIds(chatId, queryIds).catch(() => ({}));
 	if (!source.isLive) {
@@ -169,14 +170,18 @@ async function loadChatStoryQueryData(
 	if (source.cacheSchedule !== NO_CACHE_SCHEDULE) {
 		return { ...fromChat, ...cached };
 	}
-	return { ...cached, ...fromChat, ...(await runLiveQueries(chatId, queryIds)) };
+	return { ...cached, ...fromChat, ...(await runLiveQueries(chatId, queryIds, principalUserId)) };
 }
 
-async function runLiveQueries(chatId: string, queryIds: Set<string>): Promise<StoryQueryDataMap> {
+async function runLiveQueries(
+	chatId: string,
+	queryIds: Set<string>,
+	principalUserId: string,
+): Promise<StoryQueryDataMap> {
 	const queryData: StoryQueryDataMap = {};
 	await Promise.all(
 		[...queryIds].map(async (queryId) => {
-			const result = await executeLiveQuery(chatId, queryId).catch(() => null);
+			const result = await executeLiveQuery(chatId, queryId, { principalUserId }).catch(() => null);
 			if (result) {
 				queryData[queryId] = result;
 			}

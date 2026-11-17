@@ -4,6 +4,7 @@ import { createTestCaller } from '../helpers/trpc-caller';
 
 const mocks = vi.hoisted(() => ({
 	assertProjectCloudBillingAccess: vi.fn(),
+	assertProjectUserCloudBillingAccess: vi.fn(),
 	claimStandaloneStoryChat: vi.fn(),
 	createCustomStory: vi.fn(),
 	createForkedChat: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('../../src/queries/chat.queries', () => ({
 	upsertMessage: mocks.upsertMessage,
 }));
 vi.mock('../../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async (projectId: string) => ({ id: projectId, orgId: 'org-1' })),
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project' })),
 	getUserRoleInProject: vi.fn(async () => 'user'),
 }));
@@ -89,7 +91,12 @@ vi.mock('../../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
 }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
+	assertOrganizationCloudBillingAccess: vi.fn(),
 	assertProjectCloudBillingAccess: mocks.assertProjectCloudBillingAccess,
+	assertProjectUserCloudBillingAccess: mocks.assertProjectUserCloudBillingAccess,
+	assertUserCloudBillingAccess: vi.fn(),
+	getOrganizationCloudEntitlement: vi.fn(async () => undefined),
+	isUserReadOnlyInOrganization: vi.fn(async () => false),
 }));
 vi.mock('../../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,

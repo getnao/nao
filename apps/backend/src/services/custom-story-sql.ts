@@ -58,6 +58,7 @@ export async function runCustomStorySql(
 			executionContext,
 			databaseId,
 			billingAccessVerifiedProjectId: target.projectId,
+			principalUserId: target.viewerId,
 		});
 		return { columns: result.columns, data: result.data };
 	} catch (error) {

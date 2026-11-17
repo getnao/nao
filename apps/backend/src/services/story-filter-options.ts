@@ -53,6 +53,7 @@ export interface FilterOptionsResult {
 
 interface FilterOptionsExecutionOptions {
 	billingAccessVerifiedProjectId?: string;
+	principalUserId: string;
 }
 
 interface StoryFilterContext {
@@ -84,8 +85,8 @@ export async function getStoryFilterOptions(
 	chatId: string,
 	storySlug: string,
 	filterId: string,
-	request: FilterOptionsRequest = {},
-	executionOptions: FilterOptionsExecutionOptions = {},
+	request: FilterOptionsRequest,
+	executionOptions: FilterOptionsExecutionOptions,
 ): Promise<FilterOptionsResult> {
 	const context = await loadStoryFilterContext(chatId, storySlug);
 	const filter = context.filters.find((candidate) => candidate.id === filterId);
@@ -111,7 +112,7 @@ export async function getStoryFilterOptions(
 export async function warmStoryFilterOptions(
 	chatId: string,
 	storySlug: string,
-	executionOptions: FilterOptionsExecutionOptions = {},
+	executionOptions: FilterOptionsExecutionOptions,
 ): Promise<void> {
 	const context = await loadStoryFilterContext(chatId, storySlug);
 	const topLevelFilters = context.filters.filter(
@@ -221,6 +222,7 @@ async function fetchWarehouseOptionValues(
 		executionContext,
 		databaseId: source.databaseId,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		principalUserId: executionOptions.principalUserId,
 	});
 	return result.data.map((row) => readOptionValue(row, 'value'));
 }
@@ -244,6 +246,7 @@ async function fetchDimensionValues(
 		executionContext,
 		databaseId: compiled.database_id,
 		billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
+		principalUserId: executionOptions.principalUserId,
 	});
 	return result.data.map((row) => readOptionValue(row, source.dimension));
 }

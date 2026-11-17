@@ -22,7 +22,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../../src/db/db', () => ({ db: {} }));
 vi.mock('../../src/queries/activity.queries', () => ({}));
-vi.mock('../../src/queries/project.queries', () => ({ getUserRoleInProject: mocks.getUserRoleInProject }));
+vi.mock('../../src/queries/project.queries', () => ({
+	getProjectById: vi.fn(async () => ({ id: 'project-1', orgId: null })),
+	getUserRoleInProject: mocks.getUserRoleInProject,
+}));
 vi.mock('../../src/queries/shared-story.queries', () => ({
 	getSharedStory: vi.fn(),
 	getSharedStoryByStoryId: mocks.getSharedStoryByStoryId,
@@ -140,7 +143,10 @@ describe('storyShare custom story readers', () => {
 		await caller.storyShare.getCustomStoryNarratives(STORY_INPUT);
 
 		expect(mocks.getCustomStoryVersion).toHaveBeenCalledWith('chat-1', 'revenue', undefined);
-		expect(mocks.getCustomStoryNarratives).toHaveBeenCalledWith('chat-1', 'revenue');
+		expect(mocks.getCustomStoryNarratives).toHaveBeenCalledWith('chat-1', 'revenue', {
+			cachedOnly: false,
+			principalUserId: 'viewer-1',
+		});
 		expect(mocks.getStandaloneCustomStoryVersion).not.toHaveBeenCalled();
 	});
 });

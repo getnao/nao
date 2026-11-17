@@ -88,9 +88,9 @@ export function StoryPageBody({
 					<StoryCodeView
 						code={codeDraft}
 						codeRef={editor.codeViewRef}
-						onCodeChange={editor.onCodeChange}
+						onCodeChange={isReadOnly ? undefined : editor.onCodeChange}
 						onValidChange={editor.setIsCodeValid}
-						onSave={editor.handleSave}
+						onSave={isReadOnly ? undefined : editor.handleSave}
 						onAskAboutCode={onAskAboutCode}
 						readOnly={isReadOnly}
 					/>

@@ -36,6 +36,7 @@ import { useCloseWhenUneditable, useStoryEditSession } from '@/hooks/use-story-e
 import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useOnAskRequest } from '@/hooks/use-on-ask-request';
 import { useOpenStandaloneStoryInChat } from '@/hooks/use-open-standalone-story-in-chat';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
@@ -52,6 +53,7 @@ interface CustomStoryPreviewPageProps {
 
 /** Full-page editable view of a custom story for its owner and its editors, with the same header as a classic story's page. */
 export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner }: CustomStoryPreviewPageProps) {
+	const { isSeatReadOnly } = usePermissions();
 	const story = useCustomStory(chatId, storySlug);
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const { content } = story;
@@ -61,7 +63,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 	const live = useStoryViewerLiveSettings({ chatId, storySlug });
 	useRetryStaleStoryRefresh({
 		storyKey: `${chatId}/${storySlug}`,
-		needsRefresh: isOwner && (content?.needsRefresh ?? false),
+		needsRefresh: isOwner && !isSeatReadOnly && (content?.needsRefresh ?? false),
 		isRefreshing: live.isRefreshing,
 		refresh: live.handleRefreshData,
 	});
@@ -78,7 +80,8 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 		target: storyId ? { storyId, chatId, storySlug } : null,
 		isEditing: editTarget !== null || tableFormatTarget !== null || hasFileChanges,
 	});
-	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && !story.isArchived && presence.canEdit;
+	const canEditStory = !story.isArchived && !isSeatReadOnly && presence.canEdit;
+	const canEditBlocks = story.isViewingLatest && !story.isAgentRunning && canEditStory;
 	useCloseWhenUneditable(canEditBlocks, () => {
 		setEditTarget(null);
 		setTableFormatTarget(null);
@@ -119,8 +122,14 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 			<StoryPageHeader
 				title={content?.title ?? story.versionsQuery.data?.title ?? storySlug}
 				authorName={authorName}
-				storyChat={{ storyId, isOwner, canEdit: true, canChat: !story.isArchived }}
-				canDuplicate={!story.isArchived && customStoryCreationEnabled}
+				isReadOnly={!canEditStory}
+				storyChat={{
+					storyId,
+					isOwner,
+					canEdit: !isSeatReadOnly,
+					canChat: !story.isArchived && !isSeatReadOnly,
+				}}
+				canDuplicate={!story.isArchived && !isSeatReadOnly && customStoryCreationEnabled}
 				viewedVersionNumber={story.viewedVersion ?? undefined}
 				live={{
 					isLive: live.isLive,
@@ -128,14 +137,14 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 					lastRefreshFailure: content?.lastRefreshFailure,
 					isRefreshing: live.isRefreshing,
 					isUpdating: live.isUpdating,
-					onRefresh: isOwner ? live.handleRefreshData : undefined,
-					onOpenSettings: isOwner ? () => setIsLiveSettingsOpen(true) : undefined,
+					onRefresh: isOwner && !isSeatReadOnly ? live.handleRefreshData : undefined,
+					onOpenSettings: isOwner && !isSeatReadOnly ? () => setIsLiveSettingsOpen(true) : undefined,
 				}}
 				download={{ chatId, storySlug, isOwner: true, onDownload: story.download }}
 				storyId={storyId}
-				canRename={isOwner && presence.canEdit}
+				canRename={isOwner && canEditStory}
 				isShared={sharing.isShared}
-				onShare={isOwner ? () => sharing.setIsShareDialogOpen(true) : undefined}
+				onShare={isOwner && !isSeatReadOnly ? () => sharing.setIsShareDialogOpen(true) : undefined}
 				onOpenAnalytics={isOwner ? () => setIsAnalyticsOpen(true) : undefined}
 				viewModeControls={{ viewMode, onViewModeChange: setViewMode }}
 				elementSelection={
@@ -150,7 +159,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 					isViewingLatest: story.isViewingLatest,
 					onSelectVersion: story.goToVersion,
 					onRestore: story.restore,
-					isRestoreDisabled: story.isRestoring || !presence.canEdit,
+					isRestoreDisabled: story.isRestoring || !canEditStory,
 				}}
 			/>
 
@@ -195,7 +204,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 						)
 					}
 				/>
-				{showAskBar && storyId && <StoryAskBar storyId={storyId} canEdit />}
+				{showAskBar && storyId && <StoryAskBar storyId={storyId} canEdit={!isSeatReadOnly} />}
 			</div>
 
 			<CustomStoryBlockEditDialog

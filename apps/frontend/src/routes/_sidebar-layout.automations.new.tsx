@@ -25,9 +25,9 @@ export const Route = createFileRoute('/_sidebar-layout/automations/new')({
 });
 
 function NewAutomationPage() {
-	const { isViewer } = usePermissions();
+	const { isSeatReadOnly, isViewer } = usePermissions();
 	const { automationCreationEnabled, isLoading } = useEffectiveUserGroupFeatures();
-	const canCreateAutomation = automationCreationEnabled && !isViewer;
+	const canCreateAutomation = automationCreationEnabled && !isViewer && !isSeatReadOnly;
 
 	if (isLoading) {
 		return null;

@@ -60,7 +60,7 @@ describe('getStoryFilterOptions', () => {
 	it('queries the warehouse on a cache miss and stores the result', async () => {
 		mocks.getFilterOptionsCache.mockResolvedValue(null);
 
-		const result = await getStoryFilterOptions('chat-1', 'story', 'category');
+		const result = await getOptions('category');
 
 		expect(result).toEqual({ options: ['Home', 'Sports'], isComplete: true });
 		expect(mocks.executeRawSql.mock.calls[0][0]).toBe(
@@ -77,7 +77,7 @@ describe('getStoryFilterOptions', () => {
 	it('serves fresh cached options without querying the warehouse', async () => {
 		mocks.getFilterOptionsCache.mockResolvedValue({ options: ['Cached'], isComplete: true, cachedAt: new Date() });
 
-		const result = await getStoryFilterOptions('chat-1', 'story', 'category');
+		const result = await getOptions('category');
 
 		expect(result).toEqual({ options: ['Cached'], isComplete: true });
 		expect(mocks.executeRawSql).not.toHaveBeenCalled();
@@ -87,7 +87,7 @@ describe('getStoryFilterOptions', () => {
 		const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
 		mocks.getFilterOptionsCache.mockResolvedValue({ options: ['Stale'], isComplete: true, cachedAt: twoHoursAgo });
 
-		const result = await getStoryFilterOptions('chat-1', 'story', 'category');
+		const result = await getOptions('category');
 
 		expect(result).toEqual({ options: ['Stale'], isComplete: true });
 		await vi.waitFor(() => expect(mocks.upsertFilterOptionsCache).toHaveBeenCalled());
@@ -96,7 +96,7 @@ describe('getStoryFilterOptions', () => {
 	it('narrows dependent filter options by the parent selection', async () => {
 		mocks.getFilterOptionsCache.mockResolvedValue(null);
 
-		await getStoryFilterOptions('chat-1', 'story', 'subcategory', { parentSelection: "Kid's" });
+		await getOptions('subcategory', { parentSelection: "Kid's" });
 
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain(
 			"WHERE subcategory IS NOT NULL AND category IN ('Kid''s')",
@@ -104,7 +104,7 @@ describe('getStoryFilterOptions', () => {
 	});
 
 	it('searches truncated lists on the server without caching the result', async () => {
-		await getStoryFilterOptions('chat-1', 'story', 'category', { search: ' Sp%o_ ' });
+		await getOptions('category', { search: ' Sp%o_ ' });
 
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(category AS STRING)) LIKE '%sp%o_%'");
 		expect(mocks.getFilterOptionsCache).not.toHaveBeenCalled();
@@ -117,7 +117,7 @@ describe('getStoryFilterOptions', () => {
 			code: '<filter id="company" type="multi_select" table="companies" column="name" database_id="warehouse" />',
 		});
 
-		await getStoryFilterOptions('chat-1', 'story', 'company', { search: 'fiver' });
+		await getOptions('company', { search: 'fiver' });
 
 		expect(mocks.resolveRawSqlDatabaseType).toHaveBeenCalledWith(expect.anything(), 'warehouse');
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(name AS NVARCHAR(MAX))) LIKE '%fiver%'");
@@ -126,7 +126,7 @@ describe('getStoryFilterOptions', () => {
 	it('casts to VARCHAR for database types without a dedicated string type', async () => {
 		mocks.resolveRawSqlDatabaseType.mockResolvedValue('duckdb');
 
-		await getStoryFilterOptions('chat-1', 'story', 'category', { search: 'sport' });
+		await getOptions('category', { search: 'sport' });
 
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LOWER(CAST(category AS VARCHAR)) LIKE '%sport%'");
 	});
@@ -140,7 +140,7 @@ describe('getStoryFilterOptions', () => {
 			].join('\n'),
 		});
 
-		await getStoryFilterOptions('chat-1', 'story', 'company', { parentSelection: ['cloud'], search: 'my_co.io' });
+		await getOptions('company', { parentSelection: ['cloud'], search: 'my_co.io' });
 
 		expect(mocks.executeRawSql.mock.calls[0][0]).toBe(
 			"SELECT DISTINCT company_name AS value FROM `nao-production`.prod_silver.kpis WHERE company_name IS NOT NULL AND deployment_type IN ('cloud') AND LOWER(CAST(company_name AS STRING)) LIKE '%my_co.io%' ORDER BY company_name LIMIT 101",
@@ -148,7 +148,7 @@ describe('getStoryFilterOptions', () => {
 	});
 
 	it('turns quotes and backslashes in searches into single-character wildcards', async () => {
-		await getStoryFilterOptions('chat-1', 'story', 'category', { search: "Kid's \\toys" });
+		await getOptions('category', { search: "Kid's \\toys" });
 
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain("LIKE '%kid_s _toys%'");
 	});
@@ -156,7 +156,7 @@ describe('getStoryFilterOptions', () => {
 	it('does not resolve the database type when listing options without a search', async () => {
 		mocks.getFilterOptionsCache.mockResolvedValue(null);
 
-		await getStoryFilterOptions('chat-1', 'story', 'category');
+		await getOptions('category');
 
 		expect(mocks.resolveRawSqlDatabaseType).not.toHaveBeenCalled();
 	});
@@ -166,14 +166,14 @@ describe('getStoryFilterOptions', () => {
 		const rows = Array.from({ length: 101 }, (_, index) => ({ value: `v${String(index).padStart(3, '0')}` }));
 		mocks.executeRawSql.mockResolvedValue({ data: rows, columns: ['value'] });
 
-		const result = await getStoryFilterOptions('chat-1', 'story', 'category');
+		const result = await getOptions('category');
 
 		expect(result.isComplete).toBe(false);
 		expect(result.options).toHaveLength(100);
 	});
 
 	it('returns hardcoded options without touching the warehouse or cache', async () => {
-		const result = await getStoryFilterOptions('chat-1', 'story', 'region');
+		const result = await getOptions('region');
 
 		expect(result).toEqual({ options: ['EU', 'US'], isComplete: true });
 		expect(mocks.getFilterOptionsCache).not.toHaveBeenCalled();
@@ -189,7 +189,7 @@ describe('warmStoryFilterOptions', () => {
 		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Home' }], columns: ['value'] });
 
-		await warmStoryFilterOptions('chat-1', 'story');
+		await warmStoryFilterOptions('chat-1', 'story', { principalUserId: 'user-1' });
 
 		expect(mocks.executeRawSql).toHaveBeenCalledTimes(1);
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain('SELECT DISTINCT category');
@@ -242,7 +242,7 @@ describe('getStoryFilterOptions for semantic layer dimensions', () => {
 	});
 
 	it('lists values through the semantic layer with a story metric that supports the dimension', async () => {
-		const result = await getStoryFilterOptions('chat-1', 'story', 'category');
+		const result = await getOptions('category');
 
 		expect(result).toEqual({ options: ['Books', 'Toys'], isComplete: true });
 		expect(mocks.compileSemanticQuery).toHaveBeenCalledWith(
@@ -256,14 +256,14 @@ describe('getStoryFilterOptions for semantic layer dimensions', () => {
 	});
 
 	it('uses the explicit metric of the filter tag', async () => {
-		await getStoryFilterOptions('chat-1', 'story', 'region');
+		await getOptions('region');
 
 		expect(mocks.compileSemanticQuery.mock.calls[0][0].metrics).toEqual(['orders']);
 		expect(mocks.describeSemanticLayer).not.toHaveBeenCalled();
 	});
 
 	it('narrows by the parent dimension and searches with the dimension expression', async () => {
-		await getStoryFilterOptions('chat-1', 'story', 'subcategory', { parentSelection: 'Toys', search: 'Lego' });
+		await getOptions('subcategory', { parentSelection: 'Toys', search: 'Lego' });
 
 		expect(mocks.compileSemanticQuery.mock.calls[0][0].where).toEqual([
 			"{{ Dimension('product__category') }} IN ('Toys')",
@@ -271,3 +271,7 @@ describe('getStoryFilterOptions for semantic layer dimensions', () => {
 		]);
 	});
 });
+
+function getOptions(filterId: string, request: Parameters<typeof getStoryFilterOptions>[3] = {}) {
+	return getStoryFilterOptions('chat-1', 'story', filterId, request, { principalUserId: 'user-1' });
+}

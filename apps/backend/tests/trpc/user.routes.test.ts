@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	hasFeature: vi.fn(),
 	isUserConfinedToOrganization: vi.fn(),
 	organizationRoleMappingActive: false,
+	putProjectMember: vi.fn(),
 	updateProjectMemberRole: vi.fn(),
 	updateUser: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
@@ -51,6 +52,7 @@ vi.mock('../../src/services/license.service', () => ({
 }));
 vi.mock('../../src/services/membership.service', () => ({
 	addProjectMember: mocks.addProjectMember,
+	putProjectMember: mocks.putProjectMember,
 }));
 vi.mock('../../src/services/team-member', () => ({ addTeamMember: mocks.addTeamMember }));
 vi.mock('../../src/services/user-group-availability.service', () => ({
@@ -178,7 +180,7 @@ describe('add user to project groups', () => {
 		mocks.organizationRoleMappingActive = true;
 
 		await expect(caller.modify({ userId: 'member-id', newRole: 'viewer' })).resolves.toBeUndefined();
-		expect(mocks.updateProjectMemberRole).toHaveBeenCalledWith('project-id', 'member-id', 'viewer');
+		expect(mocks.putProjectMember).toHaveBeenCalledWith('project-id', 'member-id', 'viewer');
 	});
 
 	it('rejects organization role changes through the editability helper when managed by the identity provider', async () => {

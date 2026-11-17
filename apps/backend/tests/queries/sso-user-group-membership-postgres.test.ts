@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 		ssoMappings: ReturnType<typeof ssoMappings>;
 		createdAt: Date;
 		projectMemberUserId: string | null;
+		projectMemberCapacityFallbackRole: null;
 		orgMemberUserId: string | null;
 	}>,
 	existingProviderProjectRows: [] as Array<{ projectId: string }>,
@@ -58,6 +59,7 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 				ssoMappings: ssoMappings(['claim-a']),
 				createdAt: new Date('2025-01-01'),
 				projectMemberUserId: 'user-1',
+				projectMemberCapacityFallbackRole: null,
 				orgMemberUserId: null,
 			},
 			{
@@ -68,6 +70,7 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 				ssoMappings: ssoMappings(['claim-c']),
 				createdAt: new Date('2025-01-01'),
 				projectMemberUserId: 'user-1',
+				projectMemberCapacityFallbackRole: null,
 				orgMemberUserId: null,
 			},
 		];

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { Clock3, Info, X } from 'lucide-react';
 import { useState } from 'react';
+import { FREE_TIER_SEAT_LIMIT } from '@nao/shared/billing';
 
 import type { CloudBillingAccess } from '@/lib/cloud-billing-access';
 import { Button } from '@/components/ui/button';
@@ -14,11 +15,13 @@ import { trpc } from '@/main';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TRIAL_WARNING_MS = 3 * DAY_MS;
 const dismissedTrialBannerStorage = createLocalStorage<string | string[]>('nao-dismissed-trial-banner', []);
+const dismissedSeatBannerStorage = createLocalStorage<string[]>('nao-dismissed-seat-banner', []);
 
 export function CloudBillingAccessBanner() {
 	const openOrganizationBilling = useOpenOrganizationBilling();
 	const pathname = useRouterState({ select: (state) => state.location.pathname });
 	const [dismissedTrials, setDismissedTrials] = useState(getDismissedTrialKeys);
+	const [dismissedSeatNotices, setDismissedSeatNotices] = useState(dismissedSeatBannerStorage.get);
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const access = useCloudBillingAccess({
 		enabled: config.data?.cloudBillingEnabled === true,
@@ -32,12 +35,17 @@ export function CloudBillingAccessBanner() {
 			: access.data.trialAvailable
 				? `${access.data.organizationId}:available`
 				: undefined);
+	const seatNoticeKey =
+		access.data && notice?.seatShortage
+			? `${access.data.organizationId}:${access.data.seatUserCount}:${access.data.seatLimit}`
+			: undefined;
 
 	if (
 		!notice ||
 		pathname === '/settings/organization/billing' ||
 		(notice.trial && pathname.startsWith('/settings')) ||
-		(notice.dismissible && trialKey && dismissedTrials.includes(trialKey))
+		(notice.dismissible && trialKey && dismissedTrials.includes(trialKey)) ||
+		(seatNoticeKey && dismissedSeatNotices.includes(seatNoticeKey))
 	) {
 		return null;
 	}
@@ -76,6 +84,20 @@ export function CloudBillingAccessBanner() {
 						<X />
 					</Button>
 				)}
+				{seatNoticeKey && (
+					<Button
+						variant='ghost'
+						size='icon-sm'
+						aria-label='Dismiss seat shortage banner'
+						onClick={() => {
+							const nextDismissedSeatNotices = [...new Set([...dismissedSeatNotices, seatNoticeKey])];
+							dismissedSeatBannerStorage.set(nextDismissedSeatNotices);
+							setDismissedSeatNotices(nextDismissedSeatNotices);
+						}}
+					>
+						<X />
+					</Button>
+				)}
 			</div>
 		</Callout>
 	);
@@ -92,6 +114,22 @@ function getAccessNotice(access: CloudBillingAccess | undefined, now = Date.now(
 	}
 	if (access.bypassBilling && !access.canManageBilling) {
 		return null;
+	}
+	if (access.freeTierEnabled && access.isReadOnly) {
+		return {
+			restricted: true,
+			title: 'Your organization has more people than seats.',
+			description: 'You have viewer access until an organization admin adds a seat.',
+		};
+	}
+	if (access.freeTierEnabled && access.overCapacity && access.canManageBilling && access.status !== 'trialing') {
+		const readOnlyCount = Math.max(0, access.seatUserCount - (access.seatLimit ?? 0));
+		return {
+			restricted: false,
+			seatShortage: true,
+			title: `${readOnlyCount} ${readOnlyCount === 1 ? 'person is' : 'people are'} read-only.`,
+			description: 'Add seats or change the seat selection to restore full access.',
+		};
 	}
 	if (access.trialAvailable) {
 		return {
@@ -136,13 +174,34 @@ function getAccessNotice(access: CloudBillingAccess | undefined, now = Date.now(
 		dismissible: !endingSoon,
 		title: endingSoon ? 'Your free trial ends soon.' : 'Your free trial has started.',
 		description: endingSoon
-			? `${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left. ${
-					access.requiresBillingAction
-						? access.canManageBilling
-							? 'Manage billing to keep access.'
-							: 'An organization admin must manage billing to keep access.'
-						: 'Your subscription will start automatically.'
-				}`
+			? access.freeTierEnabled
+				? getFreeTierTrialEndingDescription(access, remainingDays)
+				: `${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left. ${
+						access.requiresBillingAction
+							? access.canManageBilling
+								? 'Manage billing to keep access.'
+								: 'An organization admin must manage billing to keep access.'
+							: 'Your subscription will start automatically.'
+					}`
 			: `${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left. Only admins can see this banner.`,
 	};
+}
+
+function getFreeTierTrialEndingDescription(access: CloudBillingAccess, remainingDays: number): string {
+	const prefix = `${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left.`;
+	if (
+		access.billingPlan?.startsWith('cloud_team_') &&
+		access.seatQuantity !== null &&
+		access.seatUserCount > access.seatQuantity
+	) {
+		const count = access.seatUserCount - access.seatQuantity;
+		return `${prefix} ${count} ${count === 1 ? 'person' : 'people'} will be read-only when the trial ends. Add seats to keep everyone working.`;
+	}
+	if (access.paidPlanWillStart) {
+		return `${prefix} Your subscription will start automatically.`;
+	}
+	if (access.seatUserCount > FREE_TIER_SEAT_LIMIT) {
+		return `${prefix} You have ${access.seatUserCount} people with editing access; on Free only ${FREE_TIER_SEAT_LIMIT} keep it. Choose Team or Unlimited to keep everyone working.`;
+	}
+	return `${prefix} You’ll move to Free with up to ${FREE_TIER_SEAT_LIMIT} people with full access and unlimited viewers. Nothing to do.`;
 }

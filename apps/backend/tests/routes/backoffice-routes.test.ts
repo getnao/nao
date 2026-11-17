@@ -20,6 +20,11 @@ vi.mock('../../src/services/credit-grant.service', () => ({
 	recordOrganizationJoinCandidate: vi.fn(),
 	recordProjectJoinCandidate: vi.fn(),
 }));
+vi.mock('../../src/services/organization-seat.service', () => ({
+	clearSeatSelectionAndSync: vi.fn(),
+	syncOrganizationSeats: vi.fn(),
+	withOrganizationSeatLock: vi.fn((_orgId: string, operation: () => unknown) => operation()),
+}));
 
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import { and, eq } from 'drizzle-orm';
@@ -50,6 +55,7 @@ describe('cloud backoffice routes', () => {
 	beforeAll(async () => {
 		originalEnv = { ...process.env };
 		process.env.NAO_MODE = 'cloud';
+		process.env.CLOUD_BILLING_ENABLED = 'false';
 		process.env.NAO_BACKOFFICE_API_KEY = API_KEY;
 		process.env.CLOUD_GITHUB_PROJECT_ORG = 'test-org';
 		process.env.CLOUD_GITHUB_PROJECT_APP_ID = '123';
@@ -447,10 +453,14 @@ describe('cloud backoffice routes', () => {
 		expect(updatedUser.json()).toMatchObject({ name: 'Renamed Member', email: 'renamed@example.com' });
 
 		const orgMember = await request('PUT', `/organizations/${ORG_ID}/members/${MEMBER_ID}`, { role: 'viewer' });
-		expect(orgMember.json()).toEqual({ userId: MEMBER_ID, role: 'viewer' });
+		expect(orgMember.json()).toEqual({ userId: MEMBER_ID, role: 'viewer', outcome: null });
 
 		const projectMember = await request('PUT', `/projects/${PROJECT_ID}/members/${MEMBER_ID}`, { role: 'user' });
-		expect(projectMember.json()).toEqual({ userId: MEMBER_ID, role: 'user' });
+		expect(projectMember.json()).toEqual({
+			userId: MEMBER_ID,
+			role: 'user',
+			outcome: { status: 'activated', role: 'user', usedExistingSeat: false },
+		});
 
 		const removedProjectMember = await request('DELETE', `/projects/${PROJECT_ID}/members/${MEMBER_ID}`);
 		expect(removedProjectMember.statusCode).toBe(204);

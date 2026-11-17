@@ -24,6 +24,7 @@ interface UseStoryViewerVersionActionsParams {
 	onVersionSaved?: (code: string) => void;
 	/** A story outside any chat saves its versions by its id. */
 	standaloneStoryId?: string;
+	canWrite: boolean;
 }
 
 interface StoryVersionDraft {
@@ -53,6 +54,7 @@ export const useStoryViewerVersionActions = ({
 	setViewMode,
 	onVersionSaved,
 	standaloneStoryId,
+	canWrite,
 }: UseStoryViewerVersionActionsParams) => {
 	const queryClient = useQueryClient();
 	const identity = { chatId, storySlug };
@@ -68,6 +70,7 @@ export const useStoryViewerVersionActions = ({
 		getCurrentCode,
 		viewMode,
 		onVersionSaved,
+		canWrite,
 	});
 
 	currentIdentityRef.current = identity;
@@ -81,6 +84,7 @@ export const useStoryViewerVersionActions = ({
 		getCurrentCode,
 		viewMode,
 		onVersionSaved,
+		canWrite,
 	};
 
 	const { mutateAsync: createVersion, isPending: isCreatingVersion } = useMutation(
@@ -150,7 +154,7 @@ export const useStoryViewerVersionActions = ({
 			if (!isSameStoryIdentity(params.identity, saveIdentity)) {
 				return 'unavailable';
 			}
-			if (params.storyTitle === undefined || params.currentVersionCode === undefined) {
+			if (!params.canWrite || params.storyTitle === undefined || params.currentVersionCode === undefined) {
 				return 'unavailable';
 			}
 			if (params.viewMode === 'code') {
@@ -177,7 +181,7 @@ export const useStoryViewerVersionActions = ({
 				: Promise.resolve<StorySaveResult>('unavailable');
 		}
 
-		if (params.storyTitle === undefined || params.currentVersionCode === undefined) {
+		if (!params.canWrite || params.storyTitle === undefined || params.currentVersionCode === undefined) {
 			return Promise.resolve<StorySaveResult>('unavailable');
 		}
 
@@ -289,7 +293,7 @@ export const useStoryViewerVersionActions = ({
 	const handleRestore = useCallback(() => {
 		const hasVersionData =
 			storyTitle !== undefined && currentVersionCode !== undefined && latestVersionNumber !== undefined;
-		if (!hasVersionData || isViewingLatest || isPersistingVersion) {
+		if (!canWrite || !hasVersionData || isViewingLatest || isPersistingVersion) {
 			return;
 		}
 
@@ -307,6 +311,7 @@ export const useStoryViewerVersionActions = ({
 		storyTitle,
 		currentVersionCode,
 		latestVersionNumber,
+		canWrite,
 		isViewingLatest,
 		isPersistingVersion,
 		persistVersion,
