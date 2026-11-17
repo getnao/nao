@@ -46,7 +46,9 @@ interface Handover {
 export async function transferStory(storyId: string, recipientId: string, actor: ShareActor): Promise<void> {
 	const recipient = await findRecipient(actor, recipientId);
 	const story = await handOverStory(storyId, recipient, actor);
-	await notifyRecipient(actor, recipientId, [story]);
+	if (story) {
+		await notifyRecipient(actor, recipientId, [story]);
+	}
 }
 
 /** Hands every story a member owns in the project to another one, e.g. when they leave or are away for long. */
@@ -61,10 +63,15 @@ export async function transferAllStoriesOfUser(
 	}
 	const storyIds = await storyQueries.listOwnedStoryIdsInProject(fromUserId, actor.projectId);
 	const transferred: DBStory[] = [];
+	let failedCount = 0;
 	for (const storyId of storyIds) {
 		try {
-			transferred.push(await handOverStory(storyId, recipient, actor));
+			const story = await handOverStory(storyId, recipient, actor, fromUserId);
+			if (story) {
+				transferred.push(story);
+			}
 		} catch (error) {
+			failedCount++;
 			logger.warn(`Failed to transfer story: ${String(error)}`, {
 				source: 'system',
 				projectId: actor.projectId,
@@ -73,7 +80,7 @@ export async function transferAllStoriesOfUser(
 		}
 	}
 	await notifyRecipient(actor, recipientId, transferred, fromUserId);
-	return { transferredCount: transferred.length, failedCount: storyIds.length - transferred.length };
+	return { transferredCount: transferred.length, failedCount };
 }
 
 /** Members who can edit, and whom the actor could share with, can take a story over. */
@@ -95,7 +102,13 @@ export async function describeTransferredStory(
 	return { ownerName: transferred.ownerName, storyId: canOpen ? transferred.id : null };
 }
 
-async function handOverStory(storyId: string, recipient: StoryRecipient, actor: ShareActor): Promise<DBStory> {
+/** With `expectedOwnerId`, a story someone else took over meanwhile is left alone and `null` is returned. */
+async function handOverStory(
+	storyId: string,
+	recipient: StoryRecipient,
+	actor: ShareActor,
+	expectedOwnerId?: string,
+): Promise<DBStory | null> {
 	return withKeyedLock(`story:${storyId}`, async () => {
 		const story = await storyQueries.getStoryById(storyId);
 		if (!story) {
@@ -103,6 +116,9 @@ async function handOverStory(storyId: string, recipient: StoryRecipient, actor: 
 		}
 		await assertCanManageStoryShare(story, actor);
 		const previousOwnerId = await storyQueries.getStoryOwnerId(story.id);
+		if (expectedOwnerId && previousOwnerId !== expectedOwnerId) {
+			return null;
+		}
 		if (!previousOwnerId || previousOwnerId === recipient.id) {
 			throw new StoryTransferError('This member already owns the story.');
 		}
