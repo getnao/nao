@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 
 import type { RepoBranchList } from '@nao/shared/types';
 
+import { env } from '../env';
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import type { TestContextChange } from '../types/test-run';
 import { extractConfiguredRepos, extractRawRepoConfig } from '../utils/nao-config';
@@ -110,11 +111,17 @@ interface GitRemote {
 	secrets: string[];
 }
 
-/** Leaves the URLs out, as resolving them may fill in project variables the caller is not allowed to read. */
+/**
+ * Leaves the URLs out, as resolving them may fill in project variables the caller is not allowed to read. None are
+ * listed when NAO_CONTEXT_SYNCED_REPOS_ENABLED turns synced repos off.
+ */
 export async function listUpstreamRepos(
 	projectId: string,
 	projectFolder: string,
 ): Promise<Omit<UpstreamRepo, 'url'>[]> {
+	if (!env.NAO_CONTEXT_SYNCED_REPOS_ENABLED) {
+		return [];
+	}
 	const repos = extractConfiguredRepos(projectFolder, await getProjectRuntimeEnvVars(projectId));
 	return repos.flatMap((repo) => (repo.url ? [{ name: repo.name, branch: repo.branch }] : []));
 }
@@ -293,6 +300,9 @@ async function resolveGitRemote(input: {
 	repo: string;
 	userId: string;
 }): Promise<GitRemote> {
+	if (!env.NAO_CONTEXT_SYNCED_REPOS_ENABLED) {
+		throw new UpstreamContextError('Synced repos are turned off on this instance.');
+	}
 	const envVars = await getProjectRuntimeEnvVars(input.projectId);
 	const linkedRepo = extractConfiguredRepos(input.projectFolder, envVars).find((repo) => repo.name === input.repo);
 	if (!linkedRepo?.url) {

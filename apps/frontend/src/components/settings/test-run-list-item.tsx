@@ -215,17 +215,20 @@ function describeRunResult(run: RunListSource, tone: Tone, mainBranch: string): 
 }
 
 function describeComparisonResult(run: RunListSource, mainBranch: string): RunListItemView['result'] {
-	const before = findVariant(run, 'production');
 	const after = findVariant(run, 'draft');
-	if (!before || !after) {
+	if (!after) {
 		return null;
 	}
+	const before = findVariant(run, 'production') ?? { testCount: 0, passedTests: 0 };
 	if (after.testCount === 1) {
-		return describeSingleTestChange(before.passedTests === 1, after.passedTests === 1, mainBranch);
+		return before.testCount === 0
+			? { label: 'new', tooltip: `New test, not on ${mainBranch}` }
+			: describeSingleTestChange(before.passedTests === 1, after.passedTests === 1, mainBranch);
 	}
+	const afterCount = before.testCount === after.testCount ? '' : ` of ${after.testCount}`;
 	return {
 		label: `${before.passedTests} → ${after.passedTests}`,
-		tooltip: `${before.passedTests} of ${after.testCount} tests pass on ${mainBranch}, ${after.passedTests} with your changes`,
+		tooltip: `${before.passedTests} of ${before.testCount} tests pass on ${mainBranch}, ${after.passedTests}${afterCount} with your changes`,
 	};
 }
 

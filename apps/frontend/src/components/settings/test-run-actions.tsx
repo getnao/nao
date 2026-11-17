@@ -11,7 +11,6 @@ import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import type { UpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { TestModelPicker } from '@/components/settings/test-model-picker';
 import { BranchName, getMainBranch } from '@/components/settings/test-run-labels';
-import { getContextChanges } from '@/components/settings/test-run-types';
 import { TestUpstreamPicker } from '@/components/settings/test-upstream-picker';
 import { Button } from '@/components/ui/button';
 import {
@@ -159,7 +158,7 @@ export function TestFileRunActions({
 		activeRun,
 		onRunStarted,
 	});
-	const contextChangeCount = getContextChanges(draft).length;
+	const contextChangeCount = draft?.changes.length ?? 0;
 	const changes = testRun.upstream ? (
 		<ChangesName upstream={testRun.upstream} />
 	) : (

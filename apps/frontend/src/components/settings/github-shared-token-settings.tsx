@@ -16,6 +16,10 @@ export interface SharedTokenAccount {
 	avatarUrl: string;
 }
 
+export type SharedTokenSource = 'project' | 'environment';
+
+export const ENVIRONMENT_TOKEN_VARIABLE = 'GITHUB_ACCESS_TOKEN';
+
 export function GithubSharedTokenForm({ canEdit }: { canEdit: boolean }) {
 	const queryClient = useQueryClient();
 	const [token, setToken] = useState('');
@@ -84,10 +88,12 @@ export function GithubSharedTokenForm({ canEdit }: { canEdit: boolean }) {
 
 export function GithubSharedTokenSummary({
 	account,
+	source,
 	error,
 	canEdit,
 }: {
 	account: SharedTokenAccount | null;
+	source: SharedTokenSource;
 	error: string | null;
 	canEdit: boolean;
 }) {
@@ -107,7 +113,7 @@ export function GithubSharedTokenSummary({
 						<span className='truncate text-sm text-foreground'>{account.login}</span>
 					</div>
 				)}
-				{canEdit && (
+				{canEdit && source === 'project' && (
 					<Button
 						size='sm'
 						variant='secondary'
@@ -120,6 +126,15 @@ export function GithubSharedTokenSummary({
 					</Button>
 				)}
 			</div>
+			{source === 'environment' && (
+				<p className='text-xs text-muted-foreground'>
+					Set with{' '}
+					<code className='rounded bg-muted px-1 py-0.5 font-mono text-foreground'>
+						{ENVIRONMENT_TOKEN_VARIABLE}
+					</code>{' '}
+					on the server.
+				</p>
+			)}
 			{error && <p className='text-xs text-destructive'>{error}</p>}
 			{removeToken.error && <ErrorMessage message={removeToken.error.message} />}
 		</div>

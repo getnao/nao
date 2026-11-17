@@ -282,11 +282,15 @@ function ComparisonDetail({
 	return (
 		<ComparisonColumns
 			production={
-				<VariantOutcomeCell
-					side={mainBranch}
-					outcome={comparison.production}
-					attemptsPerVariant={attemptsPerVariant}
-				/>
+				comparison.change === 'new' ? (
+					<NotOnMainBranch mainBranch={mainBranch} />
+				) : (
+					<VariantOutcomeCell
+						side={mainBranch}
+						outcome={comparison.production}
+						attemptsPerVariant={attemptsPerVariant}
+					/>
+				)
 			}
 			draft={
 				<VariantOutcomeCell side='Yours' outcome={comparison.draft} attemptsPerVariant={attemptsPerVariant} />
@@ -297,6 +301,15 @@ function ComparisonDetail({
 				)
 			}
 		/>
+	);
+}
+
+function NotOnMainBranch({ mainBranch }: { mainBranch: string }) {
+	const title = `Not on ${mainBranch}`;
+	return (
+		<span title={title} aria-label={title} className='text-muted-foreground'>
+			—
+		</span>
 	);
 }
 
