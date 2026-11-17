@@ -81,6 +81,20 @@ export async function listStoryRecipients(actor: ShareActor, ownerId: string): P
 	return (await listEditingMembers(actor)).filter((member) => member.id !== ownerId);
 }
 
+/** Where a story that left this chat went, and whether the user can still open it there. */
+export async function describeTransferredStory(
+	chatId: string,
+	storySlug: string,
+	userId: string,
+): Promise<{ ownerName: string; storyId: string | null } | null> {
+	const transferred = await storyQueries.findStoryTransferredOutOfChat(chatId, storySlug);
+	if (!transferred) {
+		return null;
+	}
+	const canOpen = await storyQueries.canUserAccessStory(transferred.id, userId);
+	return { ownerName: transferred.ownerName, storyId: canOpen ? transferred.id : null };
+}
+
 async function handOverStory(storyId: string, recipient: StoryRecipient, actor: ShareActor): Promise<DBStory> {
 	return withKeyedLock(`story:${storyId}`, async () => {
 		const story = await storyQueries.getStoryById(storyId);

@@ -157,6 +157,7 @@ function useStoryFormat(
 	if (viewerAccess) {
 		return {
 			format: viewerQuery.isPending ? null : (viewerQuery.data?.format ?? 'classic'),
+			movedStory: viewerQuery.data?.movedStory,
 			error: null,
 			retry: () => void viewerQuery.refetch(),
 		};

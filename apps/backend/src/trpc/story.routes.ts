@@ -84,6 +84,7 @@ import {
 } from '../services/story-refresh.service';
 import { assertCanManageStoryShare, type ShareActor } from '../services/story-share-settings.service';
 import {
+	describeTransferredStory,
 	listStoryRecipients,
 	StoryTransferError,
 	transferAllStoriesOfUser,
@@ -528,7 +529,7 @@ export const storyRoutes = {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				return {
-					movedStory: await describeMovedStory(input.chatId, input.storySlug, ctx.user.id),
+					movedStory: await describeTransferredStory(input.chatId, input.storySlug, ctx.user.id),
 					id: null as string | null,
 					title: input.storySlug,
 					format: 'classic' as StoryFormat,
@@ -1577,20 +1578,6 @@ async function filterStoriesByProjectAccess(
 
 async function canAccessStoryProject(projectId: string, userId: string): Promise<boolean> {
 	return Boolean(await projectQueries.getUserRoleInProject(projectId, userId));
-}
-
-/** Where a story that left this chat went, and whether the user can still open it there. */
-async function describeMovedStory(
-	chatId: string,
-	storySlug: string,
-	userId: string,
-): Promise<{ ownerName: string; storyId: string | null } | null> {
-	const moved = await storyQueries.findStoryTransferredOutOfChat(chatId, storySlug);
-	if (!moved) {
-		return null;
-	}
-	const canOpen = await storyQueries.canUserAccessStory(moved.id, userId);
-	return { ownerName: moved.ownerName, storyId: canOpen ? moved.id : null };
 }
 
 async function assertBulkItemsOwnership(
