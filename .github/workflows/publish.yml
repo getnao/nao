@@ -113,6 +113,10 @@ jobs:
                   NODE_OPTIONS: --max-old-space-size=4096
                   PYTHONUTF8: '1'
 
+            - name: Boot the bundled server
+              working-directory: cli/nao_core/bin
+              run: ./nao-chat-server${{ matrix.platform == 'win' && '.exe' || '' }} --help
+
             - name: Rename wheel with platform tag
               working-directory: cli/dist
               run: |
