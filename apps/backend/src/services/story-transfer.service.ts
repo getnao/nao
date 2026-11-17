@@ -5,6 +5,7 @@ import { db, type DBTransaction } from '../db/db';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import type { StoryEditHolder } from '../queries/story-edit-lock.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import type { UserWithRole } from '../types/project';
@@ -15,7 +16,13 @@ import { agentService } from './agent';
 import { notifyStoryTransfer } from './notification.service';
 import { listShareableMembers } from './project-sharing.service';
 import { freeStandaloneSlug, loadSnapshot } from './story-duplicate';
-import { acquireStoryEditLock, releaseStoryEditLock, StoryEditLockedError } from './story-edit-lock.service';
+import {
+	acquireStoryEditLock,
+	releaseStoryEditLock,
+	renewStoryEditLock,
+	STORY_EDIT_LOCK_RENEW_MS,
+	StoryEditLockedError,
+} from './story-edit-lock.service';
 import { syncStoryScheduledJobs } from './story-refresh.service';
 import { assertCanManageStoryShare, type ShareActor } from './story-share-settings.service';
 import { copyStoryQueries } from './story-sql-queries';
@@ -124,19 +131,22 @@ async function handOverStory(
 		}
 
 		const handover = { storyId: story.id, previousOwnerId, recipientId: recipient.id, projectId: actor.projectId };
-		await whileNobodyEdits(story, actor.id, () => moveToRecipient(story, handover));
+		await whileNobodyEdits(story, actor.id, (lockHolder) => moveToRecipient(story, handover, lockHolder));
 		return story;
 	});
 }
 
-async function moveToRecipient(story: DBStory, handover: Handover): Promise<void> {
+async function moveToRecipient(story: DBStory, handover: Handover, lockHolder: StoryEditHolder): Promise<void> {
 	const owner = { userId: handover.recipientId, projectId: handover.projectId };
 	const queryIds = story.chatId ? await listStoryQueryIds(story) : null;
 	const snapshot = queryIds ? await loadSnapshot(story, queryIds) : null;
 	await withKeyedLock(`standalone-slugs:${owner.projectId}:${owner.userId}`, async () => {
 		const slug = await freeStandaloneSlug(owner, story.slug);
 		await db.transaction(async (tx) => {
-			if (!(await storyQueries.detachStoryToOwner(story, { ...owner, slug }, tx))) {
+			if (
+				!(await renewStoryEditLock(story.id, lockHolder, tx)) ||
+				!(await storyQueries.detachStoryToOwner(story, { ...owner, slug }, tx))
+			) {
 				throw new StoryTransferError('The story changed while it was being transferred. Try again.');
 			}
 			if (queryIds) {
@@ -198,8 +208,15 @@ async function listEditingMembers(actor: ShareActor): Promise<StoryRecipient[]> 
 	return members.filter((member) => member.role !== 'viewer').map(({ id, name, email }) => ({ id, name, email }));
 }
 
-/** Holds the story's edit lock while it changes hands, so no editor or agent saves it halfway through. */
-async function whileNobodyEdits<T>(story: DBStory, userId: string, run: () => Promise<T>): Promise<T> {
+/**
+ * Holds the story's edit lock while it changes hands, so no editor or agent saves it halfway through. Rerunning
+ * live queries can outlast the lock, so it is renewed until the transfer ends.
+ */
+async function whileNobodyEdits<T>(
+	story: DBStory,
+	userId: string,
+	run: (lockHolder: StoryEditHolder) => Promise<T>,
+): Promise<T> {
 	if (story.chatId && agentService.get(story.chatId)) {
 		throw new StoryTransferError('The agent is working on this story. Try again once it is done.');
 	}
@@ -209,9 +226,15 @@ async function whileNobodyEdits<T>(story: DBStory, userId: string, run: () => Pr
 	} catch (error) {
 		throw error instanceof StoryEditLockedError ? new StoryTransferError(error.message) : error;
 	}
+	const renewal = setInterval(
+		() => void renewStoryEditLock(story.id, holder).catch(() => false),
+		STORY_EDIT_LOCK_RENEW_MS,
+	);
+	renewal.unref();
 	try {
-		return await run();
+		return await run(holder);
 	} finally {
+		clearInterval(renewal);
 		await releaseStoryEditLock(story.id, holder);
 	}
 }
