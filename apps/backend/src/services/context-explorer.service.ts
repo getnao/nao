@@ -41,7 +41,7 @@ import {
 import type { ContextExplorerGitResolution } from './context-explorer-git.service';
 import { readCurrentBranch, readDefaultBranch } from './context-explorer-git/git-guards';
 import { isProductionOnly } from './draft-context.service';
-import { publishManagedGithubRepositoryUpdate } from './managed-github-repository';
+import { ManagedGithubPublishUncertainError, publishManagedGithubRepositoryUpdate } from './managed-github-repository';
 import { getRepoProviderDisplayName } from './review-request-provider';
 
 const SEARCH_TIMEOUT_MS = 5_000;
@@ -282,6 +282,9 @@ export async function createDraftFile(
 	if (isNaoDraftAccess(access)) {
 		return addNaoDraftFile(filePath, contentBuffer, access);
 	}
+	if (access.managedRepository) {
+		return createManagedFile(filePath, content, access, access.managedRepository);
+	}
 	if (access.git.status === 'unavailable') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
@@ -490,6 +493,60 @@ function assertEditability(editability: FileEditability): void {
 	});
 }
 
+async function createManagedFile(
+	filePath: string,
+	content: string,
+	access: ContextExplorerFileAccess,
+	managedRepository: { repoFullName: string; author: GitIdentity },
+): Promise<FileWriteResponse> {
+	const { realPath, root } = resolveAndValidatePath(filePath, access.projectFolder);
+	const sourceEditability = getSourceEditability(filePath, realPath);
+	if (sourceEditability) {
+		assertEditability(sourceEditability);
+	}
+	return withKeyedLock(`managed-context-write:${root}`, async () => {
+		assertFileDoesNotExist(realPath, filePath);
+		try {
+			fsSync.mkdirSync(path.dirname(realPath), { recursive: true });
+			writeFileAtomically({
+				beforeRename: () => assertFileDoesNotExist(realPath, filePath),
+				content,
+				displayPath: filePath,
+				root,
+				target: realPath,
+			});
+		} catch (error) {
+			throw toFileError(error, filePath);
+		}
+		const projectPath = normalizeProjectPath(filePath);
+		try {
+			await publishManagedGithubRepositoryUpdate({
+				projectDir: access.projectFolder,
+				repoFullName: managedRepository.repoFullName,
+				paths: [projectPath],
+				message: `Add ${projectPath}`,
+				author: managedRepository.author,
+			});
+		} catch (error) {
+			const isUncertain = error instanceof ManagedGithubPublishUncertainError;
+			if (!isUncertain) {
+				fsSync.rmSync(realPath, { force: true });
+			}
+			logger.error(`Failed to publish context file ${projectPath}`, {
+				source: 'system',
+				context: { repoFullName: managedRepository.repoFullName, error: serializeError(error) },
+			});
+			throw new TRPCError({
+				code: 'INTERNAL_SERVER_ERROR',
+				message: isUncertain
+					? 'GitHub did not confirm the publish. Your change is saved locally and will be included in the next publish.'
+					: 'Your change could not be published, so it was not saved. Please try again.',
+			});
+		}
+		return { hash: hashContent(Buffer.from(content, 'utf-8')) };
+	});
+}
+
 async function writeManagedFile(
 	filePath: string,
 	content: string,
@@ -520,14 +577,19 @@ async function writeManagedFile(
 				author: managedRepository.author,
 			});
 		} catch (error) {
-			writeContent(previousContent.toString('utf-8'));
+			const isUncertain = error instanceof ManagedGithubPublishUncertainError;
+			if (!isUncertain) {
+				writeContent(previousContent.toString('utf-8'));
+			}
 			logger.error(`Failed to publish context file ${projectPath}`, {
 				source: 'system',
 				context: { repoFullName: managedRepository.repoFullName, error: serializeError(error) },
 			});
 			throw new TRPCError({
 				code: 'INTERNAL_SERVER_ERROR',
-				message: 'Your change could not be published, so it was not saved. Please try again.',
+				message: isUncertain
+					? 'GitHub did not confirm the publish. Your change is saved locally and will be included in the next publish.'
+					: 'Your change could not be published, so it was not saved. Please try again.',
 			});
 		}
 		return { hash: hashContent(Buffer.from(content, 'utf-8')) };

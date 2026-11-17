@@ -50,6 +50,7 @@ import {
 	deleteManagedGithubRepository,
 	getManagedGithubRepositoryFullName,
 	ManagedGithubConfigurationError,
+	ManagedGithubPublishUncertainError,
 	provisionManagedGithubRepository,
 	publishManagedGithubRepositoryUpdate,
 	readManagedGithubRepositoryFullName,
@@ -175,6 +176,70 @@ describe('managed GitHub repository provisioning', () => {
 		expect(mocks.execFile).toHaveBeenCalledWith(
 			'git',
 			['reset', '--soft', 'old-commit'],
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
+	it('keeps the local commit when GitHub accepted a push whose response was lost', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
+		const previousCommit = 'a'.repeat(40);
+		const committedCommit = 'b'.repeat(40);
+		let revParseCalls = 0;
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				if (args[0] === 'rev-parse') {
+					callback(null, `${revParseCalls++ === 0 ? previousCommit : committedCommit}\n`, '');
+					return;
+				}
+				if (args[0] === 'diff') {
+					callback(null, 'context.md\n', '');
+					return;
+				}
+				if (args[0] === 'push') {
+					callback(new Error('connection closed before response'), '', '');
+					return;
+				}
+				if (args[0] === 'ls-remote') {
+					callback(null, `${committedCommit}\trefs/heads/main\n`, '');
+					return;
+				}
+				callback(null, '', '');
+			},
+		);
+
+		await expect(publishManagedGithubRepositoryUpdate(managedUpdate)).resolves.toBe(true);
+
+		expect(mocks.execFile).not.toHaveBeenCalledWith(
+			'git',
+			expect.arrayContaining(['reset']),
+			expect.any(Object),
+			expect.any(Function),
+		);
+	});
+
+	it('preserves the local commit when the remote push result cannot be verified', async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { token: 'installation-token' }));
+		mocks.execFile.mockImplementation(
+			(_command: string, args: string[], _options: unknown, callback: GitExecCallback) => {
+				if (args[0] === 'push' || args[0] === 'ls-remote') {
+					callback(new Error('network unavailable'), '', '');
+					return;
+				}
+				callback(
+					null,
+					args[0] === 'rev-parse' ? `${'a'.repeat(40)}\n` : args[0] === 'diff' ? 'context.md\n' : '',
+					'',
+				);
+			},
+		);
+
+		await expect(publishManagedGithubRepositoryUpdate(managedUpdate)).rejects.toThrow(
+			ManagedGithubPublishUncertainError,
+		);
+		expect(mocks.execFile).not.toHaveBeenCalledWith(
+			'git',
+			expect.arrayContaining(['reset']),
 			expect.any(Object),
 			expect.any(Function),
 		);

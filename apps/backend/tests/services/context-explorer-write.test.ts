@@ -35,6 +35,7 @@ import {
 	writeFileContent,
 } from '../../src/services/context-explorer.service';
 import { resolveContextExplorerGit } from '../../src/services/context-explorer-git.service';
+import { ManagedGithubPublishUncertainError } from '../../src/services/managed-github-repository';
 import { isIgnoredByNaoignore } from '../../src/utils/tools';
 import {
 	commitAll,
@@ -287,6 +288,50 @@ describe('context explorer worktree writes', () => {
 			code: 'INTERNAL_SERVER_ERROR',
 		});
 		expect(fs.readFileSync(path.join(managed.folder, 'context.md'), 'utf8')).toBe('managed content\n');
+	});
+
+	it('keeps a nao-managed edit locally when the push result is uncertain', async () => {
+		const managed = await createManagedAccess();
+		mocks.publishManagedGithubRepositoryUpdate.mockRejectedValueOnce(
+			new ManagedGithubPublishUncertainError('Could not verify the push'),
+		);
+		const original = await readFileContent('/context.md', managed.access);
+
+		await expect(writeFileContent('/context.md', 'edited\n', original.hash, managed.access)).rejects.toMatchObject({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: expect.stringContaining('saved locally'),
+		});
+
+		expect(fs.readFileSync(path.join(managed.folder, 'context.md'), 'utf8')).toBe('edited\n');
+	});
+
+	it('creates and publishes new files in nao-managed projects', async () => {
+		const managed = await createManagedAccess();
+		mocks.publishManagedGithubRepositoryUpdate.mockResolvedValueOnce(true);
+
+		const result = await createDraftFile('/agent/skills/revenue.md', '# Revenue\n', managed.access);
+
+		expect(fs.readFileSync(path.join(managed.folder, 'agent/skills/revenue.md'), 'utf8')).toBe('# Revenue\n');
+		expect(result.hash).toMatch(/^[a-f0-9]{64}$/);
+		expect(mocks.publishManagedGithubRepositoryUpdate).toHaveBeenCalledWith({
+			projectDir: managed.folder,
+			repoFullName: 'nao-org/nao-project',
+			paths: ['agent/skills/revenue.md'],
+			message: 'Add agent/skills/revenue.md',
+			author: { name: 'Test User', email: 'test@example.com' },
+		});
+	});
+
+	it('removes a new nao-managed file when publishing fails', async () => {
+		const managed = await createManagedAccess();
+		mocks.publishManagedGithubRepositoryUpdate.mockRejectedValueOnce(new Error('push rejected'));
+		const filePath = path.join(managed.folder, 'agent/skills/revenue.md');
+
+		await expect(createDraftFile('/agent/skills/revenue.md', '# Revenue\n', managed.access)).rejects.toMatchObject({
+			code: 'INTERNAL_SERVER_ERROR',
+		});
+
+		expect(fs.existsSync(filePath)).toBe(false);
 	});
 
 	async function createManagedAccess(): Promise<{ folder: string; access: ContextExplorerFileAccess }> {
