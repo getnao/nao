@@ -156,9 +156,8 @@ describe('ShareDialog', () => {
 		act(() => mocks.changeOwner?.(GRACE));
 
 		const confirmation = screen.getByRole('dialog', { name: 'Transfer ownership to Grace?' });
-		fireEvent.click(within(confirmation).getByRole('button', { name: 'Transfer' }));
 
-		expect(mocks.transfer).not.toHaveBeenCalled();
+		expect(within(confirmation).getByRole('button', { name: 'Transfer' }).hasAttribute('disabled')).toBe(true);
 		expect(within(confirmation).getByText(/Save or cancel your sharing changes first/)).toBeTruthy();
 	});
 

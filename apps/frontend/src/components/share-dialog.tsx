@@ -172,11 +172,10 @@ function ShareDialogBody({
 				<TransferOwnerConfirmation
 					newOwner={newOwner}
 					isPending={transfer.isPending}
+					isBlocked={hasEditedSharing}
 					error={hasEditedSharing ? UNSAVED_SHARING_ERROR : transfer.error?.message}
 					onCancel={() => chooseNewOwner(null)}
-					onConfirm={() =>
-						!hasEditedSharing && newOwner && transfer.mutate({ storyId, recipientId: newOwner.id })
-					}
+					onConfirm={() => newOwner && transfer.mutate({ storyId, recipientId: newOwner.id })}
 				/>
 			)}
 			{actions.error && (
@@ -365,12 +364,14 @@ function ShareActionError({
 function TransferOwnerConfirmation({
 	newOwner,
 	isPending,
+	isBlocked,
 	error,
 	onCancel,
 	onConfirm,
 }: {
 	newOwner: ShareOwner | null;
 	isPending: boolean;
+	isBlocked: boolean;
 	error?: string;
 	onCancel: () => void;
 	onConfirm: () => void;
@@ -385,6 +386,7 @@ function TransferOwnerConfirmation({
 			confirmVariant='default'
 			onConfirm={onConfirm}
 			isPending={isPending}
+			isConfirmDisabled={isBlocked}
 			error={error}
 			preventCloseWhilePending
 		/>
