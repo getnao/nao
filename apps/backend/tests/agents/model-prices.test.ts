@@ -42,6 +42,7 @@ describe('getBuiltInModelPrices', () => {
 	it.each([
 		{ provider: 'vertex', modelId: 'claude-sonnet-4-6', listedAs: ['vertex', 'claude-sonnet-4-6@default'] },
 		{ provider: 'requesty', modelId: 'anthropic/claude-sonnet-4-5', listedAs: ['requesty', 'claude-sonnet-4-5'] },
+		{ provider: 'requesty', modelId: 'moonshotai/kimi-k3.1-pro', listedAs: ['requesty', 'kimi-k3.1-pro'] },
 		{ provider: 'nao', modelId: 'gpt-6-luna', listedAs: ['openai', 'gpt-6-luna'] },
 		{
 			provider: 'bedrock/eu-prod',

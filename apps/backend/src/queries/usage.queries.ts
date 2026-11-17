@@ -2,6 +2,7 @@ import type { LlmProvider } from '@nao/shared/types';
 import { and, eq, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { resolveModelPrices } from '../agents/model-prices';
+import { PROVIDER_META } from '../agents/provider-meta';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
@@ -18,7 +19,7 @@ import {
 	type UserUsageBreakdown,
 } from '../types/usage';
 import { fillMissingDates, generateDateSeries, getLookbackTimestamp } from '../utils/date';
-import { getProjectDeclaredModels } from '../utils/llm';
+import { getProjectAvailableModels, getProjectDeclaredModels } from '../utils/llm';
 
 const COST_COLS = [
 	'provider',
@@ -637,12 +638,12 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 }
 
 async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
-	const [usedModels, declaredSources] = await Promise.all([
-		getProjectUsedModels(projectId),
+	const [availableModels, declaredSources] = await Promise.all([
+		getProjectAvailableModels(projectId),
 		getProjectDeclaredModels(projectId),
 	]);
 	const declaredPrices = new Map<string, ModelCosts | undefined>(
-		usedModels.map((model) => [costKey(model), undefined]),
+		[...getCatalogueModels(), ...availableModels].map((model) => [costKey(model), undefined]),
 	);
 	for (const { provider, models } of declaredSources) {
 		for (const model of models) {
@@ -658,23 +659,10 @@ async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]
 	return tuples.length > 0 ? tuples : [toCostLookupTuple('', '', {})];
 }
 
-/** Every model the project has answered with, including Bedrock geo ids missing from the price table. */
-async function getProjectUsedModels(projectId: string): Promise<Array<{ provider: LlmProvider; modelId: string }>> {
-	const [messageModels, inferenceModels] = await Promise.all([
-		db
-			.selectDistinct({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
-			.from(s.chatMessage)
-			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-			.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmModelId)))
-			.execute(),
-		db
-			.selectDistinct({ provider: s.llmInference.llmProvider, modelId: s.llmInference.llmModelId })
-			.from(s.llmInference)
-			.where(eq(s.llmInference.projectId, projectId))
-			.execute(),
-	]);
-	return [...messageModels, ...inferenceModels].filter(
-		(model): model is { provider: LlmProvider; modelId: string } => !!model.provider && !!model.modelId,
+/** Bounded on purpose: a project's whole message history is too costly to scan on every budget check. */
+function getCatalogueModels(): Array<{ provider: LlmProvider; modelId: string }> {
+	return Object.entries(PROVIDER_META).flatMap(([provider, meta]) =>
+		meta.models.map((model) => ({ provider: provider as LlmProvider, modelId: model.id })),
 	);
 }
 

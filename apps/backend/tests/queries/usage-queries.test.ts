@@ -25,8 +25,10 @@ vi.mock('../../src/db/db', async () => {
 	return { db: createInMemoryDb() };
 });
 
+const mocks = vi.hoisted(() => ({ getProjectLlmConfigs: vi.fn() }));
+
 vi.mock('../../src/queries/project-llm-config.queries', () => ({
-	getProjectLlmConfigs: async () => [],
+	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
 }));
 
 const PROJECT_ID = 'usage-project';
@@ -55,6 +57,7 @@ describe('usage query results', () => {
 	});
 
 	beforeEach(async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([]);
 		await db.delete(s.userPreference);
 		await db.delete(s.llmInference);
 		await db.delete(s.chatMessage);
@@ -411,7 +414,15 @@ describe('usage query results', () => {
 		]);
 	});
 
-	it('prices an unlisted Bedrock geo id the project used from its twin', async () => {
+	it('prices an unlisted Bedrock geo id the project enables from its twin', async () => {
+		mocks.getProjectLlmConfigs.mockResolvedValue([
+			{
+				provider: 'bedrock',
+				enabledModels: ['apac.anthropic.claude-sonnet-5-5'],
+				customModels: [],
+				baseUrl: null,
+			},
+		]);
 		await db.insert(s.chatMessage).values({
 			id: 'geo-twin-assistant',
 			chatId: CHAT_ID,

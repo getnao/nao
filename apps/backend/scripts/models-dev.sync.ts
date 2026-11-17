@@ -20,7 +20,7 @@ type ModelPrices = { inputNoCache?: number; inputCacheRead?: number; inputCacheW
 type PriceSource = {
 	provider: string;
 	/** The ids nao sends to the provider for a models.dev entry, when they differ from its models.dev id. */
-	modelIds?: (modelsDevId: string, model: ModelsDevModel) => string[];
+	modelIds?: (modelsDevId: string, model: ModelsDevModel, models: Record<string, ModelsDevModel>) => string[];
 };
 
 const PRICE_SOURCES: Record<LlmProviderKind, PriceSource[]> = {
@@ -76,7 +76,7 @@ function collectPrices(catalog: ModelsDevCatalog, sources: PriceSource[]): Recor
 				continue;
 			}
 			prices.set(modelsDevId, modelPrices);
-			for (const alias of source.modelIds?.(modelsDevId, model) ?? []) {
+			for (const alias of source.modelIds?.(modelsDevId, model, models) ?? []) {
 				if (!models[alias] && !prices.has(alias)) {
 					prices.set(alias, modelPrices);
 				}
@@ -103,9 +103,24 @@ function withoutDefaultVersion(modelsDevId: string): string[] {
 	return modelsDevId.endsWith('@default') ? [modelsDevId.slice(0, -'@default'.length)] : [];
 }
 
-/** Requesty routes `anthropic/claude-sonnet-4-5`, which models.dev lists as `claude-sonnet-4-5`. */
-function withCanonicalId(modelsDevId: string, model: ModelsDevModel): string[] {
-	return model.canonical_model_id && !modelsDevId.includes('@') ? [model.canonical_model_id] : [];
+/**
+ * Requesty routes `anthropic/claude-sonnet-4-5`, which models.dev lists as `claude-sonnet-4-5`. When variants share a
+ * canonical id (`kimi-k3.1-pro`, `kimi-k3.1-pro-highspeed`), only the one named like it lends its price, whatever the
+ * entry order.
+ */
+function withCanonicalId(modelsDevId: string, model: ModelsDevModel, models: Record<string, ModelsDevModel>): string[] {
+	const canonicalId = model.canonical_model_id;
+	if (!canonicalId || modelsDevId.includes('@')) {
+		return [];
+	}
+	const variants = Object.keys(models).filter(
+		(id) => !id.includes('@') && models[id].canonical_model_id === canonicalId,
+	);
+	const priceSource =
+		variants.length === 1
+			? variants[0]
+			: variants.find((id) => canonicalId.toLowerCase().endsWith(`/${id.toLowerCase()}`));
+	return priceSource === modelsDevId ? [canonicalId] : [];
 }
 
 /** One model per line, so a refresh reads as a short diff. */

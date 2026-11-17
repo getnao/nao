@@ -16,11 +16,32 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
             - name: Setup Bun
               uses: oven-sh/setup-bun@v2
 
+            - name: Use the pinned npm
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Refresh prices from models.dev
               run: bun scripts/models-dev.sync.ts
+              working-directory: apps/backend
+
+            # PRs opened with GITHUB_TOKEN start no other workflow, so the price tests run here.
+            - name: Test the new prices
+              id: price-tests
+              continue-on-error: true
+              run: npx vitest run tests/agents/model-prices.test.ts tests/queries/usage-queries.test.ts tests/utils/budget-cost-support.test.ts
               working-directory: apps/backend
 
             - name: Open a pull request with the new prices
@@ -31,6 +52,10 @@ jobs:
                   title: 'chore(backend): refresh model prices from models.dev'
                   body: |
                       Weekly refresh of `apps/backend/src/data/model-prices.json` from https://models.dev/api.json.
+
+                      Price tests: **${{ steps.price-tests.outcome }}** ([run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})). A failure usually means models.dev added or dropped a catalogue model: update `MODELS_DEV_UNLISTED` in `apps/backend/tests/agents/model-prices.test.ts`.
+
+                      This PR was opened with `GITHUB_TOKEN`, so CI does not start on it: close and reopen it to run the full checks.
 
                       Review the price changes before merging: they change the cost of chats, usage dashboards and budgets.
                   add-paths: apps/backend/src/data/model-prices.json

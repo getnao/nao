@@ -860,7 +860,7 @@
 		"moonshotai/kimi-k2.6": {"inputNoCache":0.95,"inputCacheRead":0.16,"output":4},
 		"moonshotai/kimi-k2.7-code": {"inputNoCache":0.95,"inputCacheRead":0.19,"output":4},
 		"moonshotai/kimi-k3": {"inputNoCache":3,"inputCacheRead":0.3,"output":15},
-		"moonshotai/kimi-k3.1-pro": {"inputNoCache":4,"inputCacheRead":0.2,"inputCacheWrite":4,"output":20},
+		"moonshotai/kimi-k3.1-pro": {"inputNoCache":2,"inputCacheRead":0.2,"inputCacheWrite":2,"output":10},
 		"muse-glimmer-30b": {"inputNoCache":0,"output":0},
 		"muse-spark-1.3": {"inputNoCache":1.25,"inputCacheRead":0.15,"output":4.25},
 		"muse-spark-open": {"inputNoCache":1.25,"inputCacheRead":0.15,"output":4.25},
