@@ -16,6 +16,7 @@ import { matchesResultFilter, TestResultFilterPills } from '@/components/setting
 import { TestRow } from '@/components/settings/test-row';
 import { BranchName, CHANGES_FALLBACK, ToneIcon } from '@/components/settings/test-run-labels';
 import { RunStatStrip } from '@/components/settings/test-run-stat-strip';
+import { hasTag, SelectedTagChip, TestTagBreakdown } from '@/components/settings/test-tag-breakdown';
 import {
 	ACTIVE_RUN_REFETCH_MS,
 	average,
@@ -81,9 +82,10 @@ function RunResults({
 	onOpenTest: (explorerPath: string) => void;
 }) {
 	const [filter, setFilter] = useState<TestResultFilter>('all');
+	const [selectedTag, setSelectedTag] = useState<string | null>(null);
 	const isActive = isActiveRun(run);
 	const hasSeveralModels = run.models.length > 1;
-	const tests = listRunTests(run);
+	const tests = filterTestsByTag(run, listRunTests(run), selectedTag);
 	const visibleTests = tests.filter((test) => matchesResultFilter(test.outcome, filter));
 	const openTest = (testPath: string) => onOpenTest(toExplorerTestPath(testPath));
 	return (
@@ -95,10 +97,17 @@ function RunResults({
 					onChange={setFilter}
 					hasSeveralModels={hasSeveralModels && !run.comparison}
 				/>
+				{selectedTag !== null && <SelectedTagChip tag={selectedTag} onClear={() => setSelectedTag(null)} />}
 				<RunDescription run={run} mainBranch={mainBranch} />
 			</PanelHeader>
 			<RunContextChanges run={run} />
 			<RunModelsOverview run={run} mainBranch={mainBranch} />
+			<TestTagBreakdown
+				run={run}
+				mainBranch={mainBranch}
+				selectedTag={selectedTag}
+				onSelectTag={setSelectedTag}
+			/>
 			{hasSeveralModels && !run.comparison ? (
 				<TestModelMatrix
 					run={run}
@@ -382,6 +391,14 @@ function listRunTests(run: TestRunWithResults): RunTest[] {
 		failure: findFailureReason(results),
 		comparison: null,
 	}));
+}
+
+function filterTestsByTag(run: TestRunWithResults, tests: RunTest[], tag: string | null): RunTest[] {
+	if (tag === null) {
+		return tests;
+	}
+	const resultsByTest = groupResultsByTest(run.results);
+	return tests.filter((test) => hasTag(resultsByTest.get(test.testPath) ?? [], tag));
 }
 
 function findFailureReason(results: TestResultOutcome[]): string | null {
