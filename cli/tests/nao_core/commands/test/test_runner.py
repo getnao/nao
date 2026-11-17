@@ -1,6 +1,7 @@
 import importlib
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -531,6 +532,41 @@ def test_parallel_run_drops_queued_tests_and_keeps_the_running_ones_when_interru
 
     assert "orders" in [result.name for result in saved]
     assert len(started) < 2 + len(queued)
+
+
+def test_a_second_interrupt_stops_waiting_for_the_running_tests(monkeypatch):
+    def interrupted_wait(futures):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(test_runner_module, "wait", interrupted_wait)
+    executor = ThreadPoolExecutor(max_workers=1)
+    running = executor.submit(time.sleep, 0.2)
+
+    with pytest.raises(test_runner_module.AbandonedTestRunsError):
+        test_runner_module.stop_test_runs(executor, [running])
+
+
+def test_run_saves_the_finished_results_then_exits_when_tests_are_abandoned(tmp_path, monkeypatch):
+    def abandon(test_runs, run_one, thread_count, completed):
+        completed[0] = NaoTestRunResult(name="orders", model="m", passed=True, message="match")
+        raise test_runner_module.AbandonedTestRunsError
+
+    exit_codes: list[int] = []
+
+    def exit_now(code):
+        exit_codes.append(code)
+        raise SystemExit(code)
+
+    saved: list[NaoTestRunResult] = []
+    _stub_command(monkeypatch, tmp_path, [_case("orders"), _case("users")], saved)
+    monkeypatch.setattr(test_runner_module, "execute_test_runs", abandon)
+    monkeypatch.setattr(test_runner_module, "exit_now", exit_now)
+
+    with pytest.raises(SystemExit):
+        test_runner_module.test(threads=2)
+
+    assert [result.name for result in saved] == ["orders"]
+    assert exit_codes == [130]
 
 
 def test_run_saves_the_finished_results_when_it_is_interrupted(tmp_path, monkeypatch):

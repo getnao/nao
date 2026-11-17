@@ -34,6 +34,13 @@ from .summary import (
 )
 
 
+INTERRUPTED_EXIT_CODE = 130
+
+
+class AbandonedTestRunsError(KeyboardInterrupt):
+    """Interrupted again while tests were still running: their requests cannot be stopped, only left behind."""
+
+
 @dataclass
 class ModelConfig:
     """Model configuration for testing."""
@@ -479,8 +486,8 @@ def stop_test_runs(executor: ThreadPoolExecutor, futures: list[Future[TestRunRes
     UI.warn(f"Stopping: waiting for {len(running)} running test(s) to finish. Press Ctrl+C again to stop now.")
     try:
         wait(running)
-    except KeyboardInterrupt:
-        return
+    except KeyboardInterrupt as error:
+        raise AbandonedTestRunsError from error
 
 
 def record_result(completed: dict[int, TestRunResult], index: int, attempt: int, result: TestRunResult) -> None:
@@ -491,6 +498,13 @@ def record_result(completed: dict[int, TestRunResult], index: int, attempt: int,
 
 def ordered_results(completed: dict[int, TestRunResult]) -> list[TestRunResult]:
     return [completed[index] for index in sorted(completed)]
+
+
+def exit_now(code: int) -> None:
+    """Exits without waiting for the test threads, whose requests may hang until their timeout."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 def save_interrupted_results(completed: dict[int, TestRunResult], total_runs: int, output_dir: Path) -> None:
@@ -860,8 +874,10 @@ def test(
     completed: dict[int, TestRunResult] = {}
     try:
         execute_test_runs(test_runs, run_one, thread_count, completed)
-    except BaseException:
+    except BaseException as error:
         save_interrupted_results(completed, total_runs, output_dir)
+        if isinstance(error, AbandonedTestRunsError):
+            exit_now(INTERRUPTED_EXIT_CODE)
         raise
     results = ordered_results(completed)
 
