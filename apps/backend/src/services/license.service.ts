@@ -9,7 +9,7 @@ import {
 	getOrganizationLicenseToken,
 	getProjectOrganizationLicenseToken,
 	type OrganizationLicenseToken,
-} from '../queries/organization.queries';
+} from '../queries/organization-license.queries';
 import {
 	LICENSE_ALL_FEATURES,
 	LICENSE_FEATURES,
