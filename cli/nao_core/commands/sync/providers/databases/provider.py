@@ -656,10 +656,8 @@ class DatabaseSyncProvider(SyncProvider):
                         total_tables += state.tables_synced
                         total_render_errors += state.render_errors
                     except Exception as e:
-                        error = _fmt_error(e)
-                        database_name = escape(db.name)
-                        failures.append(f"{database_name}: {error}")
-                        UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+                        failures.append(f"{db.name}: {e}")
+                        UI.print(f"[bold red]✗[/bold red] Failed to sync {escape(db.name)}: {_fmt_error(e)}")
             else:
                 with (
                     ThreadPoolExecutor(max_workers=threads) as pool,
@@ -688,10 +686,8 @@ class DatabaseSyncProvider(SyncProvider):
                             total_tables += state.tables_synced
                             total_render_errors += state.render_errors
                         except Exception as e:
-                            error = _fmt_error(e)
-                            database_name = escape(db.name)
-                            failures.append(f"{database_name}: {error}")
-                            UI.print(f"[bold red]✗[/bold red] Failed to sync {database_name}: {error}")
+                            failures.append(f"{db.name}: {e}")
+                            UI.print(f"[bold red]✗[/bold red] Failed to sync {escape(db.name)}: {_fmt_error(e)}")
 
         if not select:
             for state in sync_states:
