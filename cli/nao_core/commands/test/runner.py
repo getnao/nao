@@ -2,7 +2,7 @@ import json
 import os
 import sys
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -436,14 +436,51 @@ def execute_test_runs(
             record_result(completed, index, attempt, run_one(test_case, model))
         return
 
-    with ThreadPoolExecutor(max_workers=thread_count) as executor:
-        futures = {
-            executor.submit(run_one, test_case, model): (index, attempt)
-            for index, (test_case, model, attempt) in enumerate(test_runs)
-        }
+    executor = ThreadPoolExecutor(max_workers=thread_count)
+    futures = [
+        submit_test_run(executor, run_one, completed, index, test_case, model, attempt)
+        for index, (test_case, model, attempt) in enumerate(test_runs)
+    ]
+    try:
         for future in as_completed(futures):
-            index, attempt = futures[future]
-            record_result(completed, index, attempt, future.result())
+            future.result()
+    except BaseException:
+        stop_test_runs(executor, futures)
+        raise
+    executor.shutdown()
+
+
+def submit_test_run(
+    executor: ThreadPoolExecutor,
+    run_one: Callable[[TestCase, ModelConfig], TestRunResult],
+    completed: dict[int, TestRunResult],
+    index: int,
+    test_case: TestCase,
+    model: ModelConfig,
+    attempt: int,
+) -> Future[TestRunResult]:
+    """Records the result as soon as the run finishes, even while the run as a whole is stopping."""
+    future = executor.submit(run_one, test_case, model)
+
+    def record_when_done(done: Future[TestRunResult]) -> None:
+        if not done.cancelled() and done.exception() is None:
+            record_result(completed, index, attempt, done.result())
+
+    future.add_done_callback(record_when_done)
+    return future
+
+
+def stop_test_runs(executor: ThreadPoolExecutor, futures: list[Future[TestRunResult]]) -> None:
+    """Drops the queued runs and waits for the running ones, unless interrupted again, so their results are kept."""
+    executor.shutdown(wait=False, cancel_futures=True)
+    running = [future for future in futures if not future.done()]
+    if not running:
+        return
+    UI.warn(f"Stopping: waiting for {len(running)} running test(s) to finish. Press Ctrl+C again to stop now.")
+    try:
+        wait(running)
+    except KeyboardInterrupt:
+        return
 
 
 def record_result(completed: dict[int, TestRunResult], index: int, attempt: int, result: TestRunResult) -> None:

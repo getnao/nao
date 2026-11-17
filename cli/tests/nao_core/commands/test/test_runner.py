@@ -511,6 +511,28 @@ def test_run_keeps_the_other_results_when_a_request_drops(tmp_path, monkeypatch)
     ]
 
 
+def test_parallel_run_drops_queued_tests_and_keeps_the_running_ones_when_interrupted(tmp_path, monkeypatch):
+    started: list[str] = []
+
+    def run(test_case, model, **kwargs):
+        started.append(test_case.name)
+        if test_case.name == "users":
+            raise KeyboardInterrupt
+        time.sleep(0.3 if test_case.name == "orders" else 0.1)
+        return NaoTestRunResult(name=test_case.name, model=str(model), passed=True, message="match")
+
+    queued = [_case(f"queued_{index}") for index in range(6)]
+    saved: list[NaoTestRunResult] = []
+    _stub_command(monkeypatch, tmp_path, [_case("orders"), _case("users"), *queued], saved)
+    monkeypatch.setattr(test_runner_module, "run_test", run)
+
+    with pytest.raises(KeyboardInterrupt):
+        test_runner_module.test(threads=2)
+
+    assert "orders" in [result.name for result in saved]
+    assert len(started) < 2 + len(queued)
+
+
 def test_run_saves_the_finished_results_when_it_is_interrupted(tmp_path, monkeypatch):
     def run(test_case, model, **kwargs):
         if test_case.name == "users":
