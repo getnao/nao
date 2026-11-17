@@ -78,6 +78,11 @@ vi.mock('../../src/utils/llm', () => ({
 	resolveProviderModel: mocks.resolveProviderModel,
 }));
 
+vi.mock('../../src/utils/logger', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/utils/logger')>()),
+	logger: (await import('../helpers/logger-mock')).logger,
+}));
+
 vi.mock('../../src/utils/schedule-task', () => ({
 	scheduleSaveLlmInferenceRecord: vi.fn(),
 }));
@@ -96,6 +101,7 @@ import {
 	getStoryQueryData,
 	refreshStoryData,
 } from '../../src/services/live-story';
+import { logger } from '../../src/utils/logger';
 
 const WAREHOUSE_STORY_CODE = '<table query_id="query_warehouse" />';
 
@@ -258,6 +264,42 @@ describe('live story SQL execution', () => {
 			expect.objectContaining({ chatId: 'chat-1', category: 'story' }),
 		);
 		expect(mocks.generateText).not.toHaveBeenCalled();
+	});
+
+	it('keeps the current text and still caches the fresh data when the model fails to rewrite it', async () => {
+		const code = '<table query_id="query_admin" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code,
+			title: 'Usage',
+			isLiveTextDynamic: true,
+			format: 'classic',
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT * FROM v_messages', adminMode: true },
+		});
+		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['n'], rows: [{ n: 1 }], rowCount: 1 });
+		mocks.resolveDefaultModelSelection.mockResolvedValue({ provider: 'openrouter', modelId: 'some/model' });
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'some/model' } });
+		mocks.generateText.mockRejectedValue(new Error('No object generated: could not parse the response.'));
+
+		await expect(refreshStoryData('chat-1', 'usage')).resolves.toEqual({
+			queryData: { query_admin: { columns: ['n'], data: [{ n: 1 }] } },
+			narratives: {},
+		});
+
+		expect(mocks.generateText).toHaveBeenCalledOnce();
+		expect(mocks.updateLatestVersionCode).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryDataCache).toHaveBeenCalledWith(
+			'chat-1',
+			'usage',
+			{ query_admin: { columns: ['n'], data: [{ n: 1 }] } },
+			expect.anything(),
+			{},
+		);
+		expect(logger.warn).toHaveBeenCalledWith(
+			expect.stringContaining('could not parse the response'),
+			expect.objectContaining({ projectId: 'project-1' }),
+		);
 	});
 
 	it('refreshes a shared live story as its owner and writes the shared cache', async () => {

@@ -23,6 +23,7 @@ import type { StoryQuerySources } from '../types/story-cache';
 import type { QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
 import { resolveDefaultChatModel, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { describeError, logger } from '../utils/logger';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { referencedQueryIds } from '../utils/sql-file-paths';
 import type { StoryNarrativeSource } from '../utils/story-kit-narratives';
@@ -142,7 +143,11 @@ async function refreshStoryDataWithContext(
 	let refreshedCode = version.code;
 	const target = { projectId: chat.projectId, userId: chat.userId, chatId };
 	if (version.isLiveTextDynamic && version.format === 'classic') {
-		const newCode = await generateDynamicStoryCode(target, version.title, version.code, queryData);
+		const newCode = await keepCurrentTextOnFailure(
+			target,
+			() => generateDynamicStoryCode(target, version.title, version.code, queryData),
+			null,
+		);
 		if (newCode) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
 			refreshedCode = newCode;
@@ -151,7 +156,11 @@ async function refreshStoryDataWithContext(
 
 	const narratives =
 		version.isLiveTextDynamic && version.format === 'custom'
-			? await regenerateCustomStoryNarratives(target, version, queryData)
+			? await keepCurrentTextOnFailure(
+					target,
+					() => regenerateCustomStoryNarratives(target, version, queryData),
+					{},
+				)
 			: {};
 	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries), narratives);
 
@@ -507,26 +516,40 @@ async function generateDynamicStoryCode(
 		return null;
 	}
 
+	const querySummaries = buildQueryDataSummary(queryData);
+	const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
+
+	const output = await generateLiveStoryOutput(
+		target,
+		liveStoryModel,
+		systemPrompt,
+		'Refresh the story narrative with the latest query results.',
+		z.object({ code: z.string().min(1) }),
+	);
+
+	const candidate = stripCodeFence(output.code.trim());
+	if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
+		return null;
+	}
+
+	return candidate;
+}
+
+/** The fresh data is worth more than rewritten text: a model that fails to rewrite it must not fail the whole refresh. */
+async function keepCurrentTextOnFailure<T>(
+	target: StoryRefreshTarget,
+	rewriteText: () => Promise<T>,
+	currentText: T,
+): Promise<T> {
 	try {
-		const querySummaries = buildQueryDataSummary(queryData);
-		const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
-
-		const output = await generateLiveStoryOutput(
-			target,
-			liveStoryModel,
-			systemPrompt,
-			'Refresh the story narrative with the latest query results.',
-			z.object({ code: z.string().min(1) }),
-		);
-
-		const candidate = stripCodeFence(output.code.trim());
-		if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
-			return null;
-		}
-
-		return candidate;
+		return await rewriteText();
 	} catch (error) {
-		throw error instanceof Error ? error : new Error(String(error));
+		logger.warn(`Live story text refresh failed, keeping the current text: ${describeError(error)}`, {
+			source: 'system',
+			projectId: target.projectId,
+			context: { chatId: target.chatId },
+		});
+		return currentText;
 	}
 }
 
