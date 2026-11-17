@@ -1,6 +1,20 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo, type StoryVersionOrigin } from '@nao/shared/types';
-import { aliasedTable, and, asc, countDistinct, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import {
+	aliasedTable,
+	and,
+	asc,
+	countDistinct,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	max,
+	ne,
+	or,
+	type SQL,
+	sql,
+} from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
@@ -494,8 +508,9 @@ export async function claimStandaloneStoryChat(storyId: string, chatId: string):
 }
 
 /**
- * Hands a story to its new owner outside any chat, unless it left the chat it was in meanwhile.
- * The chat it leaves and its slug there are kept, so that chat can still tell where the story went.
+ * Hands a story to its new owner outside any chat, unless it left the chat it was in meanwhile. The chat it leaves
+ * and its slug there are kept, so that chat can still tell where the story went; a story that left the same chat
+ * under the same slug before no longer claims it.
  */
 export async function detachStoryToOwner(
 	story: Pick<DBStory, 'id' | 'chatId' | 'slug'>,
@@ -511,7 +526,23 @@ export async function detachStoryToOwner(
 		.where(and(eq(s.story.id, story.id), story.chatId ? eq(s.story.chatId, story.chatId) : isNull(s.story.chatId)))
 		.returning({ id: s.story.id })
 		.execute();
-	return detached.length > 0;
+	if (detached.length === 0) {
+		return false;
+	}
+	if (story.chatId) {
+		await executor
+			.update(s.story)
+			.set({ transferredFromChatId: null, transferredFromSlug: null })
+			.where(
+				and(
+					eq(s.story.transferredFromChatId, story.chatId),
+					eq(s.story.transferredFromSlug, story.slug),
+					ne(s.story.id, story.id),
+				),
+			)
+			.execute();
+	}
+	return true;
 }
 
 export interface TransferredStory {
