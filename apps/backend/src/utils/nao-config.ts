@@ -102,7 +102,7 @@ export function extractRequiredSyncEnvVars(projectFolder: string): string[] {
 		throw new Error('Cannot determine sync credentials because nao_config.yaml is not an object.');
 	}
 	const activeConfig: unknown[] = SYNC_CONFIG_SECTIONS.map((section) => config[section]);
-	if (syncUsesLlm(config.databases)) {
+	if (syncUsesLlm(config.databases, projectFolder)) {
 		activeConfig.push(config.llm);
 	}
 	const required = new Set<string>();
@@ -177,8 +177,21 @@ function listProjectTemplates(root: string, relativeDirectory = ''): string[] {
 	return templates;
 }
 
-export function syncUsesLlm(databases: unknown): boolean {
-	return containsValue(databases, 'ai_summary');
+export function syncUsesLlm(databases: unknown, projectFolder?: string): boolean {
+	if (containsValue(databases, 'ai_summary')) {
+		return true;
+	}
+	if (!projectFolder || !Array.isArray(databases) || !databases.some(isRecord)) {
+		return false;
+	}
+	return configuredTemplatesFromDatabases(databases).some((template) => {
+		const templatePath = path.join(projectFolder, 'templates', 'databases', `${template}.md.j2`);
+		if (!fs.existsSync(templatePath)) {
+			return false;
+		}
+		const contents = fs.readFileSync(templatePath, 'utf8');
+		return [...contents.matchAll(/{{[\s\S]*?}}|{%[\s\S]*?%}/g)].some(([block]) => /\bprompt\s*\(/.test(block));
+	});
 }
 
 function containsValue(value: unknown, expected: string): boolean {
@@ -282,9 +295,12 @@ function configuredTemplatesFrom(config: unknown): string[] {
 	if (!isRecord(config) || !Array.isArray(config.databases)) {
 		return [...DEFAULT_DATABASE_TEMPLATES];
 	}
+	return configuredTemplatesFromDatabases(config.databases);
+}
 
+function configuredTemplatesFromDatabases(databases: unknown[]): string[] {
 	const configuredTemplates = new Set<string>();
-	for (const database of config.databases) {
+	for (const database of databases) {
 		if (!isRecord(database)) {
 			continue;
 		}

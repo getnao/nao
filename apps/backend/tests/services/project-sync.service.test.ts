@@ -200,6 +200,35 @@ describe('project sync', () => {
 		expect(action).toHaveBeenCalledOnce();
 	});
 
+	it('returns an active sync before waiting for its worktree lock', async () => {
+		let finishFirstSync: () => void = () => undefined;
+		let commandRuns = 0;
+		vi.mocked(runNaoCommandInSandbox).mockImplementation(() => {
+			commandRuns += 1;
+			if (commandRuns > 1) {
+				return Promise.resolve();
+			}
+			return new Promise<void>((resolve) => {
+				finishFirstSync = resolve;
+			});
+		});
+		const firstRun = await startProjectSync(project, gitContext('user-1'));
+		await vi.waitFor(() => expect(runNaoCommandInSandbox).toHaveBeenCalledOnce());
+
+		const repeatedStart = startProjectSync(project, gitContext('user-1'));
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		const worktreeLockRequests = vi
+			.mocked(withKeyedLock)
+			.mock.calls.filter(([key]) => key === 'context-worktree-write:project-1:user-1').length;
+		finishFirstSync();
+
+		const repeatedRun = await repeatedStart;
+		await waitForStatus('user-1', 'succeeded');
+		expect(worktreeLockRequests).toBe(2);
+		expect(repeatedRun.id).toBe(firstRun.id);
+		expect(startProjectSyncActivity).toHaveBeenCalledOnce();
+	});
+
 	it('allows only one active sync per project', async () => {
 		vi.mocked(getRunningProjectSync).mockResolvedValue({ actorName: 'Maya' });
 

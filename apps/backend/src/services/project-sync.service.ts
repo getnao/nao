@@ -88,8 +88,13 @@ export async function startProjectSync(
 	gitContext: ContextExplorerGitContext,
 ): Promise<ProjectSyncRun> {
 	const runKey = getRunKey(project.id, gitContext.userId);
-	return withKeyedLock(`project-sync:start:${project.id}`, () =>
-		withContextWorktreeLock(gitContext, async () => {
+	return withKeyedLock(`project-sync:start:${project.id}`, async () => {
+		await activityQueries.failInterruptedProjectSyncActivities();
+		const current = await getUserRun(project.id, gitContext.userId);
+		if (current && isRunActive(current)) {
+			return current;
+		}
+		return withContextWorktreeLock(gitContext, async () => {
 			const target = await resolveSyncTarget(gitContext);
 			if ('unavailableReason' in target) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: target.unavailableReason });
@@ -141,8 +146,8 @@ export async function startProjectSync(
 					.finally(releaseLease);
 			});
 			return run;
-		}),
-	);
+		});
+	});
 }
 
 export async function cancelProjectSync(projectId: string, userId: string): Promise<void> {

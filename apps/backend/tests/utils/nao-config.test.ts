@@ -121,6 +121,26 @@ describe('extractRequiredSyncEnvVars', () => {
 			]),
 		);
 	});
+
+	it('includes LLM credentials when a selected template override calls prompt', () => {
+		const dir = createProject({
+			naoConfig: [
+				'project_name: demo',
+				'databases:',
+				'  - name: warehouse',
+				'    type: duckdb',
+				'    templates: [columns]',
+				'llm:',
+				'  provider: anthropic',
+				'  api_key: "{{ env(\'ANTHROPIC_API_KEY\') }}"',
+			],
+		});
+		const templateDirectory = path.join(dir, 'templates', 'databases');
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.writeFileSync(path.join(templateDirectory, 'columns.md.j2'), "{{ prompt('Summarize these columns') }}");
+
+		expect(extractRequiredSyncEnvVars(dir)).toContain('ANTHROPIC_API_KEY');
+	});
 });
 
 describe('extractConfiguredRepos', () => {

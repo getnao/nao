@@ -300,9 +300,33 @@ llm:
   provider: openaiCompatible/custom
   base_url: "{{ env('CUSTOM_LLM_BASE_URL') }}"
 `);
+		const templateDirectory = path.join(project, 'templates', 'databases');
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.writeFileSync(path.join(templateDirectory, 'preview.md.j2'), "{{ prompt('Summarize this preview') }}");
 
 		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
 			mode: 'disabled',
+		});
+	});
+
+	it('allows the LLM host when a selected template override calls prompt', async () => {
+		writeConfig(`
+project_name: sales
+databases:
+  - name: local
+    type: duckdb
+    templates: [columns]
+llm:
+  provider: openai
+  api_key: inline-key
+`);
+		const templateDirectory = path.join(project, 'templates', 'databases');
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.writeFileSync(path.join(templateDirectory, 'columns.md.j2'), "{{ prompt('Summarize these columns') }}");
+
+		await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
+			mode: 'enabled',
+			allowNet: ['api.openai.com'],
 		});
 	});
 

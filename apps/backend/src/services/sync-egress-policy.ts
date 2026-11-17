@@ -79,7 +79,7 @@ export async function resolveSyncOutboundPolicy(
 	addDatabaseHosts(hosts, privateWarehouseHosts, config.databases, projectEnvVars);
 	addRepositoryHosts(hosts, config.repos, projectEnvVars);
 	addIntegrationHosts(hosts, config, projectEnvVars);
-	if (syncUsesLlm(config.databases)) {
+	if (syncUsesLlm(config.databases, projectPath)) {
 		addLlmHosts(hosts, config.llm, projectEnvVars);
 	}
 	const allowNet = [...hosts].sort();
