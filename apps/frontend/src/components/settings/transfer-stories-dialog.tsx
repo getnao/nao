@@ -39,7 +39,11 @@ export function TransferStoriesDialog({ member, recipients, onOpenChange }: Tran
 				onOpenChange(nextOpen);
 			}}
 			title={`Transfer ${member?.name ?? ''}'s stories`}
-			description={describeOwnedStories(member?.name ?? '', storyCount)}
+			description={
+				ownedStories.isError
+					? 'Their stories could not be counted. Close this dialog and try again.'
+					: describeOwnedStories(member?.name ?? '', storyCount)
+			}
 			recipients={recipients}
 			canTransfer={!!storyCount}
 			isPending={transfer.isPending}
