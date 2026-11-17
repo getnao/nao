@@ -123,23 +123,40 @@ describe('extractRequiredSyncEnvVars', () => {
 	});
 
 	it('includes LLM credentials when a selected template override calls prompt', () => {
-		const dir = createProject({
-			naoConfig: [
-				'project_name: demo',
-				'databases:',
-				'  - name: warehouse',
-				'    type: duckdb',
-				'    templates: [columns]',
-				'llm:',
-				'  provider: anthropic',
-				'  api_key: "{{ env(\'ANTHROPIC_API_KEY\') }}"',
-			],
-		});
+		const dir = createSelectedTemplateProject();
 		const templateDirectory = path.join(dir, 'templates', 'databases');
 		fs.mkdirSync(templateDirectory, { recursive: true });
 		fs.writeFileSync(path.join(templateDirectory, 'columns.md.j2'), "{{ prompt('Summarize these columns') }}");
 
 		expect(extractRequiredSyncEnvVars(dir)).toContain('ANTHROPIC_API_KEY');
+	});
+
+	it('rejects a selected template override that is a symbolic link', () => {
+		const dir = createSelectedTemplateProject();
+		const templateDirectory = path.join(dir, 'templates', 'databases');
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.symlinkSync('/dev/zero', path.join(templateDirectory, 'columns.md.j2'));
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow('cannot contain symbolic links');
+	});
+
+	it('rejects symbolic links in a selected template override path', () => {
+		const dir = createSelectedTemplateProject();
+		const linkedDirectory = path.join(dir, 'linked-templates');
+		fs.mkdirSync(path.join(linkedDirectory, 'databases'), { recursive: true });
+		fs.writeFileSync(path.join(linkedDirectory, 'databases', 'columns.md.j2'), "{{ prompt('Summarize') }}");
+		fs.symlinkSync(linkedDirectory, path.join(dir, 'templates'));
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow('cannot contain symbolic links');
+	});
+
+	it('rejects an oversized selected template override', () => {
+		const dir = createSelectedTemplateProject();
+		const templateDirectory = path.join(dir, 'templates', 'databases');
+		fs.mkdirSync(templateDirectory, { recursive: true });
+		fs.writeFileSync(path.join(templateDirectory, 'columns.md.j2'), Buffer.alloc(1024 * 1024 + 1));
+
+		expect(() => extractRequiredSyncEnvVars(dir)).toThrow('exceeds the 1 MB size limit');
 	});
 });
 
@@ -255,4 +272,19 @@ function createProject({ naoConfig, mcpServers }: { naoConfig?: string[]; mcpSer
 		fs.writeFileSync(path.join(mcpDir, 'mcp.json'), JSON.stringify({ mcpServers }));
 	}
 	return dir;
+}
+
+function createSelectedTemplateProject(): string {
+	return createProject({
+		naoConfig: [
+			'project_name: demo',
+			'databases:',
+			'  - name: warehouse',
+			'    type: duckdb',
+			'    templates: [columns]',
+			'llm:',
+			'  provider: anthropic',
+			'  api_key: "{{ env(\'ANTHROPIC_API_KEY\') }}"',
+		],
+	});
 }

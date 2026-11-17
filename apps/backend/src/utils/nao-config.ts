@@ -22,6 +22,7 @@ import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
 const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
+const MAX_SYNC_TEMPLATE_SIZE = 1024 * 1024;
 const SYNC_CONFIG_SECTIONS = ['databases', 'repos', 'notion', 'confluence', 'obsidian', 'semantic_layer'] as const;
 const TEMPLATE_EXCLUDED_DIRECTORIES = new Set([
 	'templates',
@@ -185,13 +186,81 @@ export function syncUsesLlm(databases: unknown, projectFolder?: string): boolean
 		return false;
 	}
 	return configuredTemplatesFromDatabases(databases).some((template) => {
-		const templatePath = path.join(projectFolder, 'templates', 'databases', `${template}.md.j2`);
-		if (!fs.existsSync(templatePath)) {
+		const contents = readSyncTemplateOverride(projectFolder, template);
+		if (contents === null) {
 			return false;
 		}
-		const contents = fs.readFileSync(templatePath, 'utf8');
 		return [...contents.matchAll(/{{[\s\S]*?}}|{%[\s\S]*?%}/g)].some(([block]) => /\bprompt\s*\(/.test(block));
 	});
+}
+
+function readSyncTemplateOverride(projectFolder: string, template: string): string | null {
+	const root = fs.realpathSync(projectFolder);
+	const relativePath = path.join('templates', 'databases', `${template}.md.j2`);
+	const templatePath = path.join(root, relativePath);
+	if (!assertSafeTemplatePath(root, relativePath)) {
+		return null;
+	}
+
+	const descriptor = fs.openSync(
+		templatePath,
+		fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+	);
+	try {
+		const stat = fs.fstatSync(descriptor);
+		assertSafeTemplateFile(stat, relativePath);
+		const content = Buffer.alloc(stat.size);
+		let offset = 0;
+		while (offset < content.length) {
+			const bytesRead = fs.readSync(descriptor, content, offset, content.length - offset, offset);
+			if (bytesRead === 0) {
+				break;
+			}
+			offset += bytesRead;
+		}
+		const current = fs.fstatSync(descriptor);
+		if (offset !== stat.size || current.size !== stat.size) {
+			throw new Error(`Sync template "${relativePath}" changed while it was being inspected.`);
+		}
+		if (!assertSafeTemplatePath(root, relativePath)) {
+			throw new Error(`Sync template "${relativePath}" changed while it was being inspected.`);
+		}
+		const pathStat = fs.statSync(templatePath);
+		if (pathStat.dev !== stat.dev || pathStat.ino !== stat.ino) {
+			throw new Error(`Sync template "${relativePath}" changed while it was being inspected.`);
+		}
+		return content.toString('utf8');
+	} finally {
+		fs.closeSync(descriptor);
+	}
+}
+
+function assertSafeTemplatePath(root: string, relativePath: string): boolean {
+	const parts = relativePath.split(path.sep);
+	let current = root;
+	for (const [index, part] of parts.entries()) {
+		current = path.join(current, part);
+		const stat = fs.lstatSync(current, { throwIfNoEntry: false });
+		if (!stat) {
+			return false;
+		}
+		if (stat.isSymbolicLink()) {
+			throw new Error(`Sync template "${relativePath}" cannot contain symbolic links.`);
+		}
+		if (index < parts.length - 1 && !stat.isDirectory()) {
+			throw new Error(`Sync template "${relativePath}" has a non-directory path component.`);
+		}
+	}
+	return true;
+}
+
+function assertSafeTemplateFile(stat: fs.Stats, relativePath: string): void {
+	if (!stat.isFile()) {
+		throw new Error(`Sync template "${relativePath}" must be a regular file.`);
+	}
+	if (stat.size > MAX_SYNC_TEMPLATE_SIZE) {
+		throw new Error(`Sync template "${relativePath}" exceeds the 1 MB size limit.`);
+	}
 }
 
 function containsValue(value: unknown, expected: string): boolean {
