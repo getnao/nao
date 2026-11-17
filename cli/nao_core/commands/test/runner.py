@@ -33,7 +33,6 @@ from .summary import (
     summarize_pass_metrics,
 )
 
-
 INTERRUPTED_EXIT_CODE = 130
 
 

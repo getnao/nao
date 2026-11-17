@@ -539,8 +539,13 @@ def test_a_second_interrupt_stops_waiting_for_the_running_tests(monkeypatch):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(test_runner_module, "wait", interrupted_wait)
+
+    def slow_run() -> NaoTestRunResult:
+        time.sleep(0.2)
+        return NaoTestRunResult(name="orders", model="m", passed=True, message="match")
+
     executor = ThreadPoolExecutor(max_workers=1)
-    running = executor.submit(time.sleep, 0.2)
+    running = executor.submit(slow_run)
 
     with pytest.raises(test_runner_module.AbandonedTestRunsError):
         test_runner_module.stop_test_runs(executor, [running])
