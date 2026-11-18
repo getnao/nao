@@ -82,6 +82,14 @@ import {
 	unscheduleStoryRefreshJob,
 	updateStoryLiveSettings,
 } from '../services/story-refresh.service';
+import { assertCanManageStoryShare, type ShareActor } from '../services/story-share-settings.service';
+import {
+	describeTransferredStory,
+	listStoryRecipients,
+	StoryTransferError,
+	transferAllStoriesOfUser,
+	transferStory,
+} from '../services/story-transfer.service';
 import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
@@ -521,6 +529,7 @@ export const storyRoutes = {
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (!story) {
 				return {
+					movedStory: await describeTransferredStory(input.chatId, input.storySlug, ctx.user.id),
 					id: null as string | null,
 					title: input.storySlug,
 					format: 'classic' as StoryFormat,
@@ -538,6 +547,7 @@ export const storyRoutes = {
 				listStoryVersionChanges(story, ctx.user.id),
 			]);
 			return {
+				movedStory: null,
 				id: story.id as string | null,
 				title: story.title,
 				format: story.format,
@@ -918,6 +928,34 @@ export const storyRoutes = {
 			const certifiedAt = await storyQueries.setStoryCertification(story.id, certifiedBy);
 			return { certifiedAt };
 		}),
+
+	listTransferRecipients: canSendProcedure.input(z.object({ storyId: z.string() })).query(async ({ input, ctx }) => {
+		const story = await getStoryInProject(input.storyId, ctx.project.id);
+		const actor = toShareActor(ctx);
+		await assertCanManageStoryShare(story, actor);
+		const ownerId = (await storyQueries.getStoryOwnerId(story.id)) ?? ctx.user.id;
+		const recipients = await listStoryRecipients(actor, ownerId);
+		return recipients.map(({ id, name, email }) => ({ id, name, email }));
+	}),
+
+	transferOwnership: canSendProcedure
+		.input(z.object({ storyId: z.string(), recipientId: z.string() }))
+		.mutation(async ({ input, ctx }) => {
+			await withStoryTransferErrors(() => transferStory(input.storyId, input.recipientId, toShareActor(ctx)));
+		}),
+
+	countOwnedStories: adminProtectedProcedure.input(z.object({ userId: z.string() })).query(async ({ input, ctx }) => {
+		const storyIds = await storyQueries.listOwnedStoryIdsInProject(input.userId, ctx.project.id);
+		return { count: storyIds.length };
+	}),
+
+	transferAllFromUser: adminProtectedProcedure
+		.input(z.object({ fromUserId: z.string(), recipientId: z.string() }))
+		.mutation(({ input, ctx }) =>
+			withStoryTransferErrors(() =>
+				transferAllStoriesOfUser(input.fromUserId, input.recipientId, toShareActor(ctx)),
+			),
+		),
 
 	createVersion: storyEditorProcedure
 		.input(
@@ -1479,6 +1517,25 @@ async function getStandaloneHistoricalDownloadContent(storyId: string, versionNu
 	}
 	const { queryData } = await getStandaloneStoryQueryData(storyId, version.code);
 	return { title: version.title, code: version.code, queryData, versionNumber: version.version };
+}
+
+async function withStoryTransferErrors<T>(run: () => Promise<T>): Promise<T> {
+	try {
+		return await run();
+	} catch (error) {
+		if (error instanceof StoryTransferError) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: error.message });
+		}
+		throw error;
+	}
+}
+
+function toShareActor(ctx: {
+	user: { id: string; name: string };
+	userRole: UserRole | null;
+	project: { id: string };
+}): ShareActor {
+	return { id: ctx.user.id, name: ctx.user.name, role: ctx.userRole, projectId: ctx.project.id };
 }
 
 async function getStoryInProject(storyId: string, projectId: string) {

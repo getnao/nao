@@ -152,7 +152,7 @@ async function listVersionFileInputs(versionId: string): Promise<StoryFileInput[
 }
 
 /** Reads the rows the source shows today: a live story reads its cache first, a chat story the queries of its chat. */
-async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<StorySnapshot> {
+export async function loadSnapshot(source: DBStory, queryIds: Set<string>): Promise<StorySnapshot> {
 	const cache = await storyQueries.getStoryDataCacheByStoryId(source.id);
 	const cached = pickQueryData((cache?.queryData as StoryQueryDataMap | null) ?? {}, queryIds);
 	if (!source.chatId) {
@@ -267,7 +267,10 @@ async function nextCopyTitle(owner: StoryOwner, sourceTitle: string): Promise<st
 }
 
 async function nextStandaloneSlug(owner: StoryOwner, title: string): Promise<string> {
-	const baseSlug = generateStorySlug(title).slice(0, MAX_SLUG_LENGTH).replace(/-+$/, '');
+	return freeStandaloneSlug(owner, generateStorySlug(title).slice(0, MAX_SLUG_LENGTH).replace(/-+$/, ''));
+}
+
+export async function freeStandaloneSlug(owner: StoryOwner, baseSlug: string): Promise<string> {
 	const taken = new Set(await storyQueries.listStandaloneSlugsStartingWith(owner.userId, owner.projectId, baseSlug));
 	return firstFreeName(baseSlug, (count) => `${baseSlug}-${count}`, taken);
 }

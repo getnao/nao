@@ -97,6 +97,10 @@ vi.mock('@/main', () => ({
 			listAllUsersWithRoles: { queryKey: vi.fn(() => ['project-members']) },
 			removeProjectMember: { mutationOptions: vi.fn() },
 		},
+		story: {
+			countOwnedStories: { queryOptions: vi.fn(() => ({ queryKey: ['owned-stories'] })) },
+			transferAllFromUser: { mutationOptions: vi.fn() },
+		},
 		system: {
 			getPublicConfig: { queryOptions: vi.fn(() => ({ queryKey: ['system-config'] })) },
 		},

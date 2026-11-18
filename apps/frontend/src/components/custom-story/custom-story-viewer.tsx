@@ -248,6 +248,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				open={sharing.isShareDialogOpen}
 				onOpenChange={sharing.setIsShareDialogOpen}
 				target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
+				onStoryTransferred={close}
 			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}

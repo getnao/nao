@@ -17,6 +17,7 @@ import {
 	RemoveMemberDialog,
 } from '@/components/settings/team';
 import { ProjectUsersToolbar } from '@/components/settings/project-users-toolbar';
+import { TransferStoriesDialog } from '@/components/settings/transfer-stories-dialog';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { UserGroupTokenField } from '@/components/settings/user-group-token-field';
 import { Badge } from '@/components/ui/badge';
@@ -63,6 +64,7 @@ export interface AssignableUserGroup {
 
 interface ProjectMemberActions {
 	onEdit: (user: ProjectUser) => void;
+	onTransferStories: (user: ProjectUser) => void;
 	onRemove: (user: ProjectUser) => void;
 	onResetPassword?: (user: ProjectUser) => void;
 }
@@ -167,6 +169,7 @@ function ManagedProjectUsersTable({
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<ProjectUser | null>(null);
 	const [removeMember, setRemoveMember] = useState<ProjectUser | null>(null);
+	const [transferStoriesMember, setTransferStoriesMember] = useState<ProjectUser | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<ProjectUser | null>(null);
 	const [resetPasswordError, setResetPasswordError] = useState('');
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
@@ -276,6 +279,7 @@ function ManagedProjectUsersTable({
 		groupAccess: { groups, membershipKeys, ssoMembershipKeys },
 		memberActions: {
 			onEdit: setEditMember,
+			onTransferStories: setTransferStoriesMember,
 			onRemove: setRemoveMember,
 			onResetPassword: isCloud ? undefined : setResetPasswordMember,
 		},
@@ -349,6 +353,14 @@ function ManagedProjectUsersTable({
 				memberName={removeMember?.name ?? ''}
 				description='Are you sure you want to remove this user from the project?'
 				onConfirm={handleRemove}
+			/>
+
+			<TransferStoriesDialog
+				member={transferStoriesMember}
+				recipients={[...projectUsers, ...organizationUsers].filter(
+					(user) => user.id !== transferStoriesMember?.id && user.role !== 'viewer',
+				)}
+				onOpenChange={(open) => !open && setTransferStoriesMember(null)}
 			/>
 
 			<ConfirmationDialog
@@ -516,6 +528,7 @@ function UserAccessTableContent({
 							columnCount={columnCount}
 							currentUserId={currentUserId}
 							management={management}
+							showMemberActions
 						/>
 					)}
 				</TableBody>
@@ -664,8 +677,10 @@ function UserIdentity({ user, isCurrentUser, name }: { user: ProjectUser; isCurr
 	);
 }
 
+/** Organisation members are managed from the organisation, so here they only get their stories handed over. */
 function MemberRowActions({ user, actions }: { user: ProjectUser; actions: ProjectMemberActions }) {
-	const { onEdit, onRemove, onResetPassword } = actions;
+	const { onEdit, onTransferStories, onRemove, onResetPassword } = actions;
+	const isProjectMember = user.source !== 'organization';
 
 	return (
 		<DropdownMenu>
@@ -681,13 +696,16 @@ function MemberRowActions({ user, actions }: { user: ProjectUser; actions: Proje
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' onClick={(event) => event.stopPropagation()}>
 				<DropdownMenuGroup>
-					<DropdownMenuItem onSelect={() => onEdit(user)}>Edit user</DropdownMenuItem>
-					{onResetPassword && (
+					{isProjectMember && <DropdownMenuItem onSelect={() => onEdit(user)}>Edit user</DropdownMenuItem>}
+					{isProjectMember && onResetPassword && (
 						<DropdownMenuItem onSelect={() => onResetPassword(user)}>Reset password</DropdownMenuItem>
 					)}
-					<DropdownMenuItem className='text-destructive' onSelect={() => onRemove(user)}>
-						Remove
-					</DropdownMenuItem>
+					<DropdownMenuItem onSelect={() => onTransferStories(user)}>Transfer stories</DropdownMenuItem>
+					{isProjectMember && (
+						<DropdownMenuItem className='text-destructive' onSelect={() => onRemove(user)}>
+							Remove
+						</DropdownMenuItem>
+					)}
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>

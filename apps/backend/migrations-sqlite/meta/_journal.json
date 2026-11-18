@@ -743,6 +743,13 @@
       "when": 1794824544020,
       "tag": "0105_story_queries",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "6",
+      "when": 1794936824812,
+      "tag": "0106_story_transferred_from",
+      "breakpoints": true
     }
   ]
 }
