@@ -1620,6 +1620,21 @@ describe('UserGroupEditor', () => {
 		expect(customStories.getAttribute('aria-pressed')).toBe('false');
 	});
 
+	it('preserves an unrelated saved grant when another feature changes', async () => {
+		mocks.useCustomStoriesEnabled.mockReturnValue(true);
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor('features', vi.fn(), { ...analysts, featureGrants: ['customStoryCreation'] });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Automations\./ }));
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ featureGrants: ['customStoryCreation', 'automationCreation'] }),
+			),
+		);
+	});
+
 	it.each([
 		['new', 'new' as const],
 		['existing', analysts],

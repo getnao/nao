@@ -1359,11 +1359,22 @@ function toggleFeatureGrant(
 	selected: boolean,
 	inheritedGrants: UserGroupFeature[] = [],
 ): UserGroupFeature[] {
-	const nextGrants = selected ? [...new Set([...grants, feature])] : grants.filter((key) => key !== feature);
-	const effectiveGrants = new Set(
-		withSatisfiedFeatureDependencies([...new Set([...nextGrants, ...inheritedGrants])]),
+	if (selected) {
+		return [...new Set([...grants, feature])];
+	}
+
+	const nextGrants = grants.filter((key) => key !== feature);
+	const effectiveGrants = withSatisfiedFeatureDependencies([...new Set([...nextGrants, ...inheritedGrants])]);
+	if (effectiveGrants.includes(feature)) {
+		return nextGrants;
+	}
+
+	const dependentGrants = new Set(
+		USER_GROUP_FEATURE_DEFINITIONS.filter((definition) => definition.requires === feature).map(
+			(definition) => definition.key,
+		),
 	);
-	return nextGrants.filter((grant) => effectiveGrants.has(grant));
+	return nextGrants.filter((grant) => !dependentGrants.has(grant));
 }
 
 function missingPrerequisiteReason(
