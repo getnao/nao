@@ -65,6 +65,7 @@ import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { isTwoFactorSetupRequired, twoFactorPlugin } from './services/two-factor.service';
 import { CLOUD_WELCOME_EMAIL_JOB_NAME } from './types/email';
+import { isDisposableEmail } from './utils/disposable-email';
 import { buildAccountExistsEmail, buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { memoizeUntilRejected } from './utils/memoize-until-rejected';
@@ -381,6 +382,17 @@ async function createAuthInstance(baseURL: string) {
 				create: {
 					before: async (user, ctx) => {
 						const providerId = resolveProviderId(ctx);
+
+						if (isCloud && isDisposableEmail(user.email)) {
+							logger.warn('Blocked a signup with a disposable email', {
+								source: 'system',
+								context: { email: user.email, provider: providerId ?? 'email' },
+							});
+							throw new APIError('FORBIDDEN', {
+								message:
+									'We have encountered an error. Please contact support if the problem persists.',
+							});
+						}
 
 						if (providerId === 'google' && !isEmailDomainAllowed(user.email, googleAuthDomains)) {
 							throw new APIError('FORBIDDEN', {
