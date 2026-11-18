@@ -93,6 +93,13 @@ export function ContextGitPanel({
 		...trpc.contextExplorer.suggestBranchName.queryOptions(),
 		enabled: isGitAvailable && currentBranch === defaultBranch,
 	});
+	const projectSync = useQuery({
+		...trpc.projectSync.getStatus.queryOptions(),
+		enabled: isGitAvailable,
+	});
+	const syncStatus = projectSync.data?.run?.status;
+	const isProjectSyncing = syncStatus === 'queued' || syncStatus === 'running';
+	const syncPausedReason = isProjectSyncing ? 'Git actions are paused until the project sync finishes.' : null;
 	const latestRun = useLatestChangesRun(getOwnChangesSource({ isNaoDraft, isGitAvailable, currentBranch }));
 	const changedFileList = changedFiles.data ?? [];
 	const hasUncommittedChanges = changedFileList.length > 0;
@@ -305,6 +312,7 @@ export function ContextGitPanel({
 	const commitError =
 		commitChanges.error?.message ?? createBranchAndCommit.error?.message ?? generateCommitMessage.error?.message;
 	const branchChangeDisabled =
+		isProjectSyncing ||
 		changedFiles.isLoading ||
 		changedFiles.isError ||
 		hasUncommittedChanges ||
@@ -312,13 +320,16 @@ export function ContextGitPanel({
 		switchBranch.isPending ||
 		createBranch.isPending ||
 		commitPending;
-	const branchChangeReason = getBranchChangeReason({
-		hasUnsavedFileChanges,
-		isLoading: changedFiles.isLoading,
-		isError: changedFiles.isError,
-		hasUncommittedChanges,
-	});
+	const branchChangeReason =
+		syncPausedReason ??
+		getBranchChangeReason({
+			hasUnsavedFileChanges,
+			isLoading: changedFiles.isLoading,
+			isError: changedFiles.isError,
+			hasUncommittedChanges,
+		});
 	const canCommit =
+		!isProjectSyncing &&
 		selectedChangedPaths.length > 0 &&
 		commitMessage.trim().length > 0 &&
 		currentBranch !== null &&
@@ -336,9 +347,9 @@ export function ContextGitPanel({
 	const reviewRequest = pushedReviewRequest ?? openReviewRequest;
 	const reviewAbbreviation = status?.repo?.platform === 'gitlab' ? 'MR' : 'PR';
 	const reviewName = status?.repo?.platform === 'gitlab' ? 'merge request' : 'pull request';
-	const discardDisabledReason = hasUnsavedFileChanges
-		? 'Save or discard the open file before discarding saved changes.'
-		: null;
+	const discardDisabledReason =
+		syncPausedReason ??
+		(hasUnsavedFileChanges ? 'Save or discard the open file before discarding saved changes.' : null);
 	const apiRefusedNotice =
 		reviewRequest?.kind === 'link' && reviewRequest.apiRefused
 			? `Branch pushed. The git provider could not create the ${reviewName} automatically, so open it yourself.`
@@ -405,7 +416,11 @@ export function ContextGitPanel({
 							)}
 							{reviewRequestLink && <ReviewRequestLink link={reviewRequestLink} />}
 							{status?.fileExplorerUpdate?.updateNeeded === true && (
-								<UpdateButton branch={status.fileExplorerUpdate.branch} onUpdate={openUpdateDialog} />
+								<UpdateButton
+									branch={status.fileExplorerUpdate.branch}
+									disabledReason={syncPausedReason}
+									onUpdate={openUpdateDialog}
+								/>
 							)}
 						</PanelBar>
 						<div className='flex flex-col gap-1.5 empty:hidden'>
@@ -418,6 +433,7 @@ export function ContextGitPanel({
 									changedCount={changedFileList.length}
 									newBranchName={currentBranch === defaultBranch ? commitBranchName : null}
 									canCommit={canCommit}
+									isDisabled={isProjectSyncing}
 									isCommitting={commitPending || pushBranch.isPending}
 									isWritingMessage={generateCommitMessage.isPending}
 									onMessageChange={setCommitMessage}
@@ -436,7 +452,7 @@ export function ContextGitPanel({
 										size='sm'
 										className='mx-2 h-7 text-xs'
 										aria-label='Push commits'
-										disabled={pushBranch.isPending || undoLastCommit.isPending}
+										disabled={isProjectSyncing || pushBranch.isPending || undoLastCommit.isPending}
 										isLoading={pushBranch.isPending}
 										onClick={handlePush}
 									>
@@ -483,7 +499,7 @@ export function ContextGitPanel({
 						<OutgoingCommits
 							commits={branches.unpushedCommits}
 							isUndoing={undoLastCommit.isPending}
-							disabled={pushBranch.isPending || undoLastCommit.isPending}
+							disabled={isProjectSyncing || pushBranch.isPending || undoLastCommit.isPending}
 							onUndo={() => undoLastCommit.mutate()}
 						/>
 					</>
@@ -584,14 +600,23 @@ function PanelMessages({ errors, notice }: { errors: (string | undefined)[]; not
 }
 
 /** The live branch moved on since the File Explorer was set up, which the user brings in when ready. */
-function UpdateButton({ branch, onUpdate }: { branch: string; onUpdate: () => void }) {
+function UpdateButton({
+	branch,
+	disabledReason,
+	onUpdate,
+}: {
+	branch: string;
+	disabledReason: string | null;
+	onUpdate: () => void;
+}) {
 	return (
 		<Button
 			variant='ghost-muted'
 			size='icon-xs'
 			className='relative'
 			aria-label='Update File Explorer'
-			title={`${branch} has new changes. Update File Explorer`}
+			title={disabledReason ?? `${branch} has new changes. Update File Explorer`}
+			disabled={disabledReason !== null}
 			onClick={onUpdate}
 		>
 			<RefreshCw />

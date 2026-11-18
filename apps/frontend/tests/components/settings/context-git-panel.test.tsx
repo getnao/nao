@@ -11,6 +11,7 @@ import { ContextGitPanel } from '@/components/settings/context-git-panel';
 const mocks = vi.hoisted(() => ({
 	getChangedFiles: vi.fn(),
 	getRepositoryStatus: vi.fn(),
+	getSyncStatus: vi.fn(),
 	mutation: vi.fn(),
 	commitChanges: vi.fn(),
 	pushBranch: vi.fn(),
@@ -28,6 +29,14 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/main', () => ({
 	trpc: {
+		projectSync: {
+			getStatus: {
+				queryOptions: () => ({
+					queryKey: ['project-sync-status'],
+					queryFn: mocks.getSyncStatus,
+				}),
+			},
+		},
 		contextExplorer: {
 			getRepositoryStatus: {
 				queryOptions: () => ({
@@ -89,6 +98,7 @@ describe('ContextGitPanel', () => {
 		localStorage.clear();
 		mocks.getChangedFiles.mockResolvedValue([]);
 		mocks.getRepositoryStatus.mockResolvedValue(createRepositoryStatus(true));
+		mocks.getSyncStatus.mockResolvedValue({ available: true, unavailableReason: null, run: null });
 		mocks.suggestBranchName.mockResolvedValue('nao/context-edits');
 		mocks.updateWorktree.mockResolvedValue({ branch: 'main', commit: 'a'.repeat(40) });
 		mocks.commitChanges.mockResolvedValue({ commit: 'b'.repeat(40) });
@@ -108,6 +118,16 @@ describe('ContextGitPanel', () => {
 	});
 
 	afterEach(cleanup);
+
+	it('pauses Git actions while the project sync is running', async () => {
+		mocks.getSyncStatus.mockResolvedValue({ available: true, unavailableReason: null, run: { status: 'running' } });
+		renderPanel();
+
+		const updateButton = await screen.findByRole('button', { name: 'Update File Explorer' });
+
+		await waitFor(() => expect(updateButton.hasAttribute('disabled')).toBe(true));
+		expect(updateButton.getAttribute('title')).toBe('Git actions are paused until the project sync finishes.');
+	});
 
 	it('does not show the update action when File Explorer is current', async () => {
 		mocks.getRepositoryStatus.mockResolvedValue(createRepositoryStatus(false));

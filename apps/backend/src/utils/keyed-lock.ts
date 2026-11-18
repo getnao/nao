@@ -11,6 +11,10 @@ const EXPIRED_LOCKS_CLEANUP_INTERVAL_MS = 60 * 60_000;
 const inMemoryLocks = new Map<string, Promise<unknown>>();
 let lastExpiredLocksCleanupAt = 0;
 
+export function contextWorktreeLockKey(projectId: string, userId: string): string {
+	return `context-worktree-write:${projectId}:${userId}`;
+}
+
 export async function withKeyedLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	if (dbConfig.dialect !== Dialect.Postgres) {
 		return withInMemoryLock(key, fn);

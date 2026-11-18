@@ -11,6 +11,7 @@ import type { ContextExplorerSearch, TestDrawerSearch } from '@/lib/context-expl
 
 import { ContextFileRecommendations } from '@/components/context-hub/context-file-recommendations';
 import { ContextHubViewMenu } from '@/components/context-hub/context-hub-view-menu';
+import { CloudSyncPanel } from '@/components/settings/cloud-sync';
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { ContextSidebar } from '@/components/settings/context-sidebar';
@@ -39,7 +40,9 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useContextChanges } from '@/hooks/use-context-changes';
 import { useFileChangeMarks } from '@/hooks/use-file-change-marks';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { getTabShownAfterClosing, useOpenedTabs } from '@/hooks/use-opened-tabs';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
 	consumeHistoricalContextDiffSearch,
 	consumeOpenTestsSearch,
@@ -71,6 +74,8 @@ export function ContextFileTreeView({
 }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const isCloud = useIsCloud();
+	const { isAdmin } = usePermissions();
 	const {
 		path: initialPath,
 		from: historicalFrom,
@@ -548,6 +553,7 @@ export function ContextFileTreeView({
 									/>
 								) : undefined
 							}
+							sync={isCloud ? <CloudSyncPanel isAdmin={isAdmin} /> : undefined}
 							footer={
 								<FileHeaderProblems
 									selectedPath={shownFilePath}
@@ -611,6 +617,7 @@ export function ContextFileTreeView({
 											isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
 											isError={fileContent.isError && !fileContent.data}
 											isEditable={fileContent.data?.isEditable === true}
+											isManagedRepository={fileTree.data?.isManagedRepository === true}
 											editabilityGuidance={fileContent.data?.guidance ?? null}
 											searchQuery={shouldSearchContent ? debouncedSearch : ''}
 											sourceAutoOpenRequestId={

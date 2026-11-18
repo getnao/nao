@@ -18,6 +18,7 @@ interface CommitComposerProps {
 	/** The branch the commit creates when committing on the default branch. */
 	newBranchName: string | null;
 	canCommit: boolean;
+	isDisabled?: boolean;
 	isCommitting: boolean;
 	isWritingMessage: boolean;
 	onMessageChange: (message: string) => void;
@@ -32,6 +33,7 @@ export function CommitComposer({
 	changedCount,
 	newBranchName,
 	canCommit,
+	isDisabled = false,
 	isCommitting,
 	isWritingMessage,
 	onMessageChange,
@@ -39,7 +41,7 @@ export function CommitComposer({
 	onEditBranchName,
 	onCommit,
 }: CommitComposerProps) {
-	const isDisabled = !canCommit || isCommitting;
+	const isCommitDisabled = isDisabled || !canCommit || isCommitting;
 
 	return (
 		<div className='flex flex-col gap-1.5 px-2'>
@@ -55,7 +57,7 @@ export function CommitComposer({
 					}}
 					placeholder={`Message (${isMac ? '⌘↵' : 'Ctrl+↵'} to commit)`}
 					aria-label='Commit message'
-					disabled={isCommitting || isWritingMessage}
+					disabled={isDisabled || isCommitting || isWritingMessage}
 					rows={1}
 					className='max-h-32 min-h-0 resize-none border-0 bg-transparent px-2 py-1.5 text-xs shadow-none focus-visible:ring-0 md:text-xs dark:bg-transparent'
 				/>
@@ -66,7 +68,7 @@ export function CommitComposer({
 					className='m-0.5 shrink-0'
 					aria-label='Write it for me'
 					title='Write the message from the selected changes'
-					disabled={selectedCount === 0 || isCommitting || isWritingMessage}
+					disabled={isDisabled || selectedCount === 0 || isCommitting || isWritingMessage}
 					onClick={onWriteMessage}
 				>
 					{isWritingMessage ? <Loader2 className='animate-spin' /> : <Sparkles />}
@@ -77,7 +79,7 @@ export function CommitComposer({
 					size='sm'
 					className='h-7 flex-1 rounded-r-none text-xs'
 					title={newBranchName ? `Commits on a new branch, ${newBranchName}` : undefined}
-					disabled={isDisabled}
+					disabled={isCommitDisabled}
 					isLoading={isCommitting}
 					onClick={() => onCommit({ push: true })}
 				>
@@ -88,20 +90,20 @@ export function CommitComposer({
 						<Button
 							size='sm'
 							className='h-7 rounded-l-none border-l border-l-primary-foreground/25 px-1.5'
-							disabled={isCommitting}
+							disabled={isDisabled || isCommitting}
 							aria-label='More ways to commit'
 						>
 							<ChevronDown />
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align='end' className='w-56 text-xs'>
-						<DropdownMenuItem disabled={isDisabled} onSelect={() => onCommit({ push: false })}>
+						<DropdownMenuItem disabled={isCommitDisabled} onSelect={() => onCommit({ push: false })}>
 							Commit without pushing
 						</DropdownMenuItem>
 						{newBranchName && (
 							<>
 								<DropdownMenuSeparator />
-								<DropdownMenuItem onSelect={onEditBranchName}>
+								<DropdownMenuItem disabled={isDisabled} onSelect={onEditBranchName}>
 									<span className='min-w-0 truncate'>
 										Rename branch <span className='font-mono'>{newBranchName}</span>…
 									</span>

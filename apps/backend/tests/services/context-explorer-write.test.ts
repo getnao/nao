@@ -36,6 +36,8 @@ import {
 } from '../../src/services/context-explorer.service';
 import { resolveContextExplorerGit } from '../../src/services/context-explorer-git.service';
 import { ManagedGithubPublishUncertainError } from '../../src/services/managed-github-repository';
+import { getWorktreeProjectRoot } from '../../src/utils/context-repo';
+import { contextWorktreeLockKey, withKeyedLock } from '../../src/utils/keyed-lock';
 import { isIgnoredByNaoignore } from '../../src/utils/tools';
 import {
 	commitAll,
@@ -205,6 +207,7 @@ describe('context explorer worktree writes', () => {
 		const outside = path.join(fixture.root, 'outside.md');
 		fs.writeFileSync(outside, 'outside\n');
 		fs.symlinkSync(outside, path.join(worktreeProject, 'linked.md'));
+		fs.symlinkSync(fixture.root, path.join(worktreeProject, 'linked-dir'), 'dir');
 		fs.writeFileSync(path.join(worktreeProject, 'context.md'), Buffer.from([0xff, 0xfe]));
 
 		await expect(writeFileContent('../outside.md', 'changed\n', context.hash, access)).rejects.toMatchObject({
@@ -214,6 +217,10 @@ describe('context explorer worktree writes', () => {
 			code: 'FORBIDDEN',
 		});
 		await expect(
+			writeFileContent('/linked-dir/outside.md', 'changed\n', context.hash, access),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(readFileContent('/linked-dir/outside.md', access)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		await expect(
 			writeFileContent('/context.md', 'a'.repeat(MAX_CONTEXT_FILE_SIZE + 1), context.hash, access),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 		await expect(readFileContent('/context.md', access)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
@@ -221,15 +228,36 @@ describe('context explorer worktree writes', () => {
 		expectLiveUnchanged(fixture.live, liveSnapshot);
 	});
 
-	it('preserves file mode and permits only one concurrent atomic write', async () => {
+	it('waits for the worktree lock, preserves file mode, and permits only one concurrent write', async () => {
 		const repo = access.git.status === 'available' ? access.git.repo : null;
-		const target = path.join(repo!.worktreeRoot, 'context.md');
+		const worktreeRoot = getWorktreeProjectRoot(repo!);
+		const target = path.join(worktreeRoot, 'context.md');
 		fs.chmodSync(target, 0o600);
 		const original = await readFileContent('/context.md', access);
-		const results = await Promise.allSettled([
+		let releaseLock: () => void = () => undefined;
+		let lockAcquired: () => void = () => undefined;
+		const acquired = new Promise<void>((resolve) => {
+			lockAcquired = resolve;
+		});
+		const heldLock = withKeyedLock(contextWorktreeLockKey('project-id', 'user-1'), async () => {
+			lockAcquired();
+			await new Promise<void>((resolve) => {
+				releaseLock = resolve;
+			});
+		});
+		await acquired;
+		let writesSettled = false;
+		const writes = Promise.allSettled([
 			writeFileContent('/context.md', 'first\n', original.hash, access),
 			writeFileContent('/context.md', 'second\n', original.hash, access),
-		]);
+		]).finally(() => {
+			writesSettled = true;
+		});
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(writesSettled).toBe(false);
+		releaseLock();
+		await heldLock;
+		const results = await writes;
 
 		expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
 		expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);

@@ -25,7 +25,7 @@ import * as contextDraftQueries from '../queries/context-draft.queries';
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
 import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
 import type { GitIdentity } from '../utils/git-identity';
-import { withKeyedLock } from '../utils/keyed-lock';
+import { contextWorktreeLockKey, withKeyedLock } from '../utils/keyed-lock';
 import { logger, serializeError } from '../utils/logger';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
@@ -177,30 +177,33 @@ export async function writeFileContent(
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
 	const repo = access.git.repo;
-	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
-	const trackedPaths = getCommittedProjectPaths(repo);
-	await assertBranchEditable(repo, access);
-	assertFileEditable(filePath, livePath, access, repo, trackedPaths);
-	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
-	const currentContent = await readValidatedFile(realPath, filePath);
-	assertExpectedHash(currentContent, expectedHash);
+	const worktreeRoot = getWorktreeProjectRoot(repo);
+	return withKeyedLock(contextWorktreeLockKey(access.draftOwner.projectId, access.draftOwner.userId), async () => {
+		const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+		const trackedPaths = getCommittedProjectPaths(repo);
+		await assertBranchEditable(repo, access);
+		assertFileEditable(filePath, livePath, access, repo, trackedPaths);
+		const { realPath, root } = resolveAndValidatePath(filePath, worktreeRoot);
+		const currentContent = await readValidatedFile(realPath, filePath);
+		assertExpectedHash(currentContent, expectedHash);
 
-	try {
-		writeFileAtomically({
-			beforeRename: () => {
-				const latestContent = readValidatedContextFileSync(realPath, filePath);
-				assertExpectedHash(latestContent, expectedHash);
-			},
-			content,
-			displayPath: filePath,
-			root,
-			target: realPath,
-		});
-	} catch (error) {
-		throw toFileError(error, filePath);
-	}
+		try {
+			writeFileAtomically({
+				beforeRename: () => {
+					const latestContent = readValidatedContextFileSync(realPath, filePath);
+					assertExpectedHash(latestContent, expectedHash);
+				},
+				content,
+				displayPath: filePath,
+				root,
+				target: realPath,
+			});
+		} catch (error) {
+			throw toFileError(error, filePath);
+		}
 
-	return { hash: hashContent(contentBuffer) };
+		return { hash: hashContent(contentBuffer) };
+	});
 }
 
 export function getFileEditability(

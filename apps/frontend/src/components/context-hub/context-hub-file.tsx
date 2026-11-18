@@ -6,12 +6,13 @@ import { trpc } from '@/main';
 
 interface ContextHubFileProps {
 	path: string;
+	isManagedRepository: boolean;
 	onDirtyChange: (isDirty: boolean) => void;
 	onOpenFile: (path: string) => void;
 }
 
 /** A context file in the Context Hub, rendered as a document and editable when the user may change it. */
-export function ContextHubFile({ path, onDirtyChange, onOpenFile }: ContextHubFileProps) {
+export function ContextHubFile({ path, isManagedRepository, onDirtyChange, onOpenFile }: ContextHubFileProps) {
 	const navigate = useNavigate();
 	const fileContent = useQuery(trpc.contextExplorer.readFile.queryOptions({ path }));
 	const rulesPreviewGroups = useRulesPreviewGroupsState();
@@ -25,6 +26,7 @@ export function ContextHubFile({ path, onDirtyChange, onOpenFile }: ContextHubFi
 			isLoading={fileContent.isLoading}
 			isError={fileContent.isError && !fileContent.data}
 			isEditable={fileContent.data?.isEditable === true}
+			isManagedRepository={isManagedRepository}
 			editabilityGuidance={fileContent.data?.guidance ?? null}
 			searchQuery=''
 			sourceAutoOpenRequestId={null}

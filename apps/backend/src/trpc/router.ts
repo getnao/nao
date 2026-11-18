@@ -33,6 +33,7 @@ import { onboardingRoutes } from './onboarding.routes';
 import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
 import { projectRoutes } from './project.routes';
+import { projectSyncRoutes } from './project-sync.routes';
 import { sandboxSecretRoutes } from './sandbox-secret.routes';
 import { sharedChatRoutes } from './shared-chat.routes';
 import { sharedStoryRoutes } from './shared-story.routes';
@@ -83,6 +84,7 @@ export const trpcRouter = router({
 	log: logRoutes,
 	posthog: posthogRoutes,
 	project: projectRoutes,
+	projectSync: projectSyncRoutes,
 	storage: storageRoutes,
 	storyShare: sharedStoryRoutes,
 	story: storyRoutes,
