@@ -733,7 +733,7 @@ function ChatInputBase({
 			<form
 				onSubmit={handleSubmitMessage}
 				onKeyDown={handleKeyDown}
-				className={cn('mx-auto relative', isManagedCreditsBlocked && 'hidden')}
+				className={cn('@container mx-auto relative', isManagedCreditsBlocked && 'hidden')}
 			>
 				<InputGroup
 					htmlFor='chat-input'
@@ -811,7 +811,7 @@ function ChatInputBase({
 								</Button>
 							)}
 
-							<ContextWindowRing />
+							<ContextWindowRing className='@max-xs:hidden' />
 
 							{isTranscribeReady && isRecording && <RecordingTimer />}
 							{hasTranscribeProvider && (
@@ -819,6 +819,7 @@ function ChatInputBase({
 									state={isTranscribeReady ? transcribeState : 'idle'}
 									onClick={isTranscribeReady ? toggleRecording : showMicWarning}
 									disabled={isRunning && !allowQueueing}
+									className={isRecording || isTranscribing ? undefined : '@max-xs:hidden'}
 								/>
 							)}
 							{micWarning && <MicWarningBanner onDismiss={() => setMicWarning(false)} />}

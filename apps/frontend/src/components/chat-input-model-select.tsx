@@ -13,6 +13,7 @@ import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getShortcut, getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { matchesShortcut } from '@/lib/platform';
+import { cn } from '@/lib/utils';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
@@ -134,8 +135,10 @@ export function ChatInputModelSelect({
 					className='size-4 shrink-0'
 				/>
 			)}
-			<span className='truncate'>{selectedModelName}</span>
-			{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+			<span className={cn('flex min-w-0 items-center gap-2', selectedModel && '@max-xs:sr-only')}>
+				<span className='truncate'>{selectedModelName}</span>
+				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+			</span>
 		</>
 	);
 
@@ -177,14 +180,23 @@ export function ChatInputModelSelect({
 										className='size-4'
 									/>
 								)}
-								<span className={usesDefaultModel ? 'leading-none shrink-0' : 'truncate'}>
-									{selectedModelName}
+								<span
+									className={cn(
+										'flex min-w-0 items-center gap-2',
+										selectedModel && '@max-xs:sr-only',
+									)}
+								>
+									<span className={usesDefaultModel ? 'leading-none shrink-0' : 'truncate'}>
+										{selectedModelName}
+									</span>
+									{usesDefaultModel
+										? resolvedModelName && (
+												<span className='truncate text-muted-foreground'>
+													{resolvedModelName}
+												</span>
+											)
+										: selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
 								</span>
-								{usesDefaultModel
-									? resolvedModelName && (
-											<span className='truncate text-muted-foreground'>{resolvedModelName}</span>
-										)
-									: selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
 							</div>
 						</SelectValue>
 					</SelectTrigger>
@@ -247,7 +259,7 @@ function ExampleModel() {
 				<SelectValue>
 					<div className='flex items-center gap-2'>
 						<LlmProviderIcon provider='nao' className='size-4' />
-						<span className='leading-none'>{EXAMPLE_MODEL_NAME}</span>
+						<span className='leading-none @max-xs:sr-only'>{EXAMPLE_MODEL_NAME}</span>
 					</div>
 				</SelectValue>
 			</SelectTrigger>
