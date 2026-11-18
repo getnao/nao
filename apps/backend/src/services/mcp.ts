@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type {
 	McpAccess,
 	McpOAuthClientConfig,
@@ -33,7 +34,7 @@ import {
 } from '../queries/project.queries';
 import { logger } from '../utils/logger';
 import { replaceEnvVars } from '../utils/utils';
-import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError } from './mcp-oauth';
+import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError, mcpFetch } from './mcp-oauth';
 import { buildMcpOpenApiDocument, extractToolsFromOpenApi, type McpToolDefinition } from './mcp-openapi';
 
 const HTTP_TRANSPORTS = ['streamable-http', 'sse', 'http'];
@@ -509,6 +510,11 @@ export class McpService {
 			if (await this._ensureOAuthFlag(server, config)) {
 				return await this._callToolOAuth({ projectId, userId, server, tool, args, config, signal });
 			}
+			if (isCloud) {
+				return await this._withPublicHttpClient(server, config, (client) =>
+					client.callTool({ name: tool, arguments: args }, undefined, { signal }),
+				);
+			}
 			return await this._callToolMcporter(server, tool, args, signal);
 		} catch (error) {
 			if (error instanceof McpAuthRequiredError || signal?.aborted) {
@@ -809,6 +815,16 @@ export class McpService {
 			});
 		}
 
+		if (isCloud) {
+			return this._withPublicHttpClient(name, config, async (client) => {
+				const result = await client.listTools();
+				return result.tools.map((tool) => ({
+					name: tool.name,
+					description: tool.description,
+					inputSchema: tool.inputSchema,
+				}));
+			});
+		}
 		const runtime = await this._ensureRegistered(name);
 		const tools = await runtime.listTools(name, { includeSchema: true });
 		return tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
@@ -882,22 +898,43 @@ export class McpService {
 		});
 	}
 
+	/**
+	 * Cloud reaches HTTP servers through its own client rather than mcporter, which cannot be given
+	 * the public-only fetch, so a project cannot point a server at an internal address.
+	 */
+	private _withPublicHttpClient<T>(name: string, config: McpServerConfig, fn: (client: Client) => Promise<T>) {
+		this._assertTransportAllowed(name, config);
+		this._assertHeadersResolved(name, config);
+		return this._withHttpClient(config, config.headers ?? {}, fn);
+	}
+
 	private async _withHttpClient<T>(
 		config: McpServerConfig,
 		headers: Record<string, string>,
 		fn: (client: Client) => Promise<T>,
 	): Promise<T> {
-		const url = new URL(config.url!.toString());
-		const transport =
-			config.transport === 'sse'
-				? new SSEClientTransport(url, { requestInit: { headers } })
-				: new StreamableHTTPClientTransport(url, { requestInit: { headers } });
-		const client = new Client({ name: 'nao', version: '1.0.0' }, { capabilities: {} });
-		await client.connect(transport);
+		const client = await this._connectHttpClient(config, { headers });
 		try {
 			return await fn(client);
 		} finally {
 			await client.close().catch(() => undefined);
+		}
+	}
+
+	/** Like mcporter, falls back to SSE when a server refuses streamable HTTP for a reason other than auth. */
+	private async _connectHttpClient(config: McpServerConfig, requestInit: RequestInit): Promise<Client> {
+		const url = new URL(config.url!.toString());
+		const connectSse = () => connectClient(new SSEClientTransport(url, { requestInit, fetch: mcpFetch }));
+		if (config.transport === 'sse') {
+			return connectSse();
+		}
+		try {
+			return await connectClient(new StreamableHTTPClientTransport(url, { requestInit, fetch: mcpFetch }));
+		} catch (error) {
+			if (isUnauthorizedError(error)) {
+				throw error;
+			}
+			return connectSse();
 		}
 	}
 
@@ -1165,3 +1202,14 @@ export class McpService {
 }
 
 export const mcpService = new McpService();
+
+async function connectClient(transport: Transport): Promise<Client> {
+	const client = new Client({ name: 'nao', version: '1.0.0' }, { capabilities: {} });
+	try {
+		await client.connect(transport);
+	} catch (error) {
+		await transport.close().catch(() => undefined);
+		throw error;
+	}
+	return client;
+}
