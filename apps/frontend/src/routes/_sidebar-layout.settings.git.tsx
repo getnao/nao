@@ -6,11 +6,16 @@ import { useState } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ComponentType, ReactNode } from 'react';
 
+import type { SharedTokenSource } from '@/components/settings/github-shared-token-settings';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { DeploymentManagedGitSettings } from '@/components/settings/deployment-managed-git-settings';
 import { GithubRepoList } from '@/components/settings/github-repo-list';
-import { GithubSharedTokenForm, GithubSharedTokenSummary } from '@/components/settings/github-shared-token-settings';
+import {
+	ENVIRONMENT_TOKEN_VARIABLE,
+	GithubSharedTokenForm,
+	GithubSharedTokenSummary,
+} from '@/components/settings/github-shared-token-settings';
 import { GitlabRepoList } from '@/components/settings/gitlab-repo-list';
 import { LiveContextUpdateSettings } from '@/components/settings/live-context-update-settings';
 import { ManagedRepositorySettings } from '@/components/settings/managed-repository-settings';
@@ -127,6 +132,7 @@ function GitSettingsPage() {
 	const sharedToken = useQuery(trpc.github.getSharedAccessToken.queryOptions());
 	const sharedTokenConfigured = sharedToken.data?.configured === true;
 	const sharedTokenAccount = sharedToken.data?.configured ? sharedToken.data.account : null;
+	const sharedTokenSource = sharedToken.data?.configured ? sharedToken.data.source : 'project';
 	const selectedProvider =
 		selectedProviderOverride ??
 		getDefaultProvider(
@@ -379,6 +385,7 @@ function GitSettingsPage() {
 												usesSharedToken ? (
 													<GithubSharedTokenSummary
 														account={sharedTokenAccount}
+														source={sharedTokenSource}
 														error={null}
 														canEdit={isAdmin}
 													/>
@@ -396,11 +403,10 @@ function GitSettingsPage() {
 													{selectedProvider === 'github' && (
 														<GithubAccessMethodSelector
 															selectedMethod={githubAccessMethod}
-															switchBlockedReason={
-																sharedTokenConfigured
-																	? 'Remove the access token to use personal accounts instead.'
-																	: null
-															}
+															switchBlockedReason={getAccessMethodSwitchBlockedReason(
+																sharedTokenConfigured,
+																sharedTokenSource,
+															)}
 															onSelect={selectGithubAccessMethod}
 														/>
 													)}
@@ -412,11 +418,14 @@ function GitSettingsPage() {
 													{sharedToken.data?.configured && (
 														<GithubSharedTokenSummary
 															account={null}
+															source={sharedToken.data.source}
 															error={sharedToken.data.error}
 															canEdit={isAdmin}
 														/>
 													)}
-													<GithubSharedTokenForm canEdit={isAdmin} />
+													{sharedTokenSource === 'project' && (
+														<GithubSharedTokenForm canEdit={isAdmin} />
+													)}
 												</div>
 											)}
 											{!instanceReady && !usesSharedToken && (
@@ -985,6 +994,18 @@ async function invalidateProviderAccountQueries(queryClient: QueryClient, provid
 		queryClient.invalidateQueries({ queryKey: repositoriesQueryKey }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getRepositoryStatus.queryKey() }),
 	]);
+}
+
+function getAccessMethodSwitchBlockedReason(
+	sharedTokenConfigured: boolean,
+	sharedTokenSource: SharedTokenSource,
+): string | null {
+	if (!sharedTokenConfigured) {
+		return null;
+	}
+	return sharedTokenSource === 'environment'
+		? `Unset ${ENVIRONMENT_TOKEN_VARIABLE} on the server to use personal accounts instead.`
+		: 'Remove the access token to use personal accounts instead.';
 }
 
 function getDefaultGithubAccessMethod(oauthAvailable: boolean): GithubAccessMethod {

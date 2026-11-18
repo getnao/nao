@@ -16,14 +16,14 @@ import type { DBStoryDataCache } from '../db/abstractSchema';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFileQueries from '../queries/story-file.queries';
 import type { StoryQuerySources } from '../types/story-cache';
 import type { QueryResult, ToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
-import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { resolveDefaultChatModel, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { describeError, logger } from '../utils/logger';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { referencedQueryIds } from '../utils/sql-file-paths';
 import type { StoryNarrativeSource } from '../utils/story-kit-narratives';
@@ -143,7 +143,11 @@ async function refreshStoryDataWithContext(
 	let refreshedCode = version.code;
 	const target = { projectId: chat.projectId, userId: chat.userId, chatId };
 	if (version.isLiveTextDynamic && version.format === 'classic') {
-		const newCode = await generateDynamicStoryCode(target, version.title, version.code, queryData);
+		const newCode = await keepCurrentTextOnFailure(
+			target,
+			() => generateDynamicStoryCode(target, version.title, version.code, queryData),
+			async () => null,
+		);
 		if (newCode) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
 			refreshedCode = newCode;
@@ -152,7 +156,11 @@ async function refreshStoryDataWithContext(
 
 	const narratives =
 		version.isLiveTextDynamic && version.format === 'custom'
-			? await regenerateCustomStoryNarratives(target, version, queryData)
+			? await keepCurrentTextOnFailure(
+					target,
+					() => regenerateCustomStoryNarratives(target, version, queryData),
+					() => getCachedNarratives(chatId, slug),
+				)
 			: {};
 	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries), narratives);
 
@@ -508,27 +516,47 @@ async function generateDynamicStoryCode(
 		return null;
 	}
 
-	try {
-		const querySummaries = buildQueryDataSummary(queryData);
-		const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
+	const querySummaries = buildQueryDataSummary(queryData);
+	const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
 
-		const output = await generateLiveStoryOutput(
-			target,
-			liveStoryModel,
-			systemPrompt,
-			'Refresh the story narrative with the latest query results.',
-			z.object({ code: z.string().min(1) }),
-		);
+	const output = await generateLiveStoryOutput(
+		target,
+		liveStoryModel,
+		systemPrompt,
+		'Refresh the story narrative with the latest query results.',
+		z.object({ code: z.string().min(1) }),
+	);
 
-		const candidate = stripCodeFence(output.code.trim());
-		if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
-			return null;
-		}
-
-		return candidate;
-	} catch (error) {
-		throw error instanceof Error ? error : new Error(String(error));
+	const candidate = stripCodeFence(output.code.trim());
+	if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
+		return null;
 	}
+
+	return candidate;
+}
+
+/** The fresh data is worth more than rewritten text: a model that fails to rewrite it must not fail the whole refresh. */
+async function keepCurrentTextOnFailure<T>(
+	target: StoryRefreshTarget,
+	rewriteText: () => Promise<T>,
+	currentText: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await rewriteText();
+	} catch (error) {
+		logger.warn(`Live story text refresh failed, keeping the current text: ${describeError(error)}`, {
+			source: 'system',
+			projectId: target.projectId,
+			context: { chatId: target.chatId },
+		});
+		return currentText();
+	}
+}
+
+/** Narratives of the last successful refresh, which the cache upsert would otherwise replace. */
+async function getCachedNarratives(chatId: string, slug: string): Promise<StoryNarratives> {
+	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
+	return cache?.analysisResults ?? {};
 }
 
 /** Narratives are rewritten from the text in the published source, never from a previous refresh, so they cannot drift. */
@@ -577,21 +605,22 @@ function keepKnownNarratives(sources: StoryNarrativeSource[], rewritten: StoryNa
 
 type LiveStoryModel = NonNullable<Awaited<ReturnType<typeof resolveLiveStoryModel>>>;
 
+/** The pinned live story model, otherwise the project's default chat model, so a refresh never lands on a model the chat cannot use. */
 async function resolveLiveStoryModel(target: StoryRefreshTarget) {
-	const pinned = await resolveDefaultModelSelection(target.projectId, 'live_story');
-	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(target.projectId));
-	if (!provider) {
+	const selection =
+		(await resolveDefaultModelSelection(target.projectId, 'live_story')) ??
+		(await resolveDefaultChatModel(target.projectId));
+	if (!selection) {
 		return null;
 	}
 
-	const modelId = pinned?.modelId ?? getDefaultModelId(provider);
-	const model = await resolveProviderModel(target.projectId, provider, modelId, true, {
+	const model = await resolveProviderModel(target.projectId, selection.provider, selection.modelId, true, {
 		userId: target.userId,
 		projectId: target.projectId,
 		chatId: target.chatId,
 		category: 'story',
 	});
-	return model ? { provider, model } : null;
+	return model ? { provider: selection.provider, model } : null;
 }
 
 async function generateLiveStoryOutput<T>(

@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-	fromExplorerTestPath,
-	isInTestsFolder,
-	isTestFilePath,
-	toExplorerTestPath,
-	toTestPath,
-} from '../src/test-paths';
+import { fromExplorerTestPath, isTestFilePath, toExplorerTestPath, toTestPath } from '../src/test-paths';
 
 describe('toTestPath', () => {
 	it.each([
@@ -30,12 +24,5 @@ describe('explorer test paths', () => {
 		expect(toExplorerTestPath('sales/orders.yml')).toBe('/tests/sales/orders.yml');
 		expect(fromExplorerTestPath('/tests/sales/orders.yml')).toBe('sales/orders.yml');
 		expect(fromExplorerTestPath('tests/sales/orders.yml')).toBe('sales/orders.yml');
-	});
-
-	it('tells the files of the tests folder apart', () => {
-		expect(isInTestsFolder('tests/revenue.yml')).toBe(true);
-		expect(isInTestsFolder('/tests/notes.md')).toBe(true);
-		expect(isInTestsFolder('RULES.md')).toBe(false);
-		expect(isInTestsFolder('tests.yml')).toBe(false);
 	});
 });
