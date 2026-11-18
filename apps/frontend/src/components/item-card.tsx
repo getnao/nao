@@ -14,7 +14,7 @@ export const GRID_THUMBNAIL_CLASS =
 	'absolute top-0 left-0 right-0 bottom-12 pointer-events-none overflow-hidden bg-background dark:bg-background mx-1 mt-1 mb-2 rounded-lg';
 
 export const GRID_HOVER_ACTION_GRADIENT_CLASS =
-	'pointer-events-none absolute inset-x-0 top-0 z-[1] h-16 bg-gradient-to-b from-background/95 via-background/70 to-transparent opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 dark:from-background/95 dark:via-background/75';
+	'pointer-events-none absolute inset-x-0 top-0 z-[1] h-16 bg-gradient-to-b from-background/95 via-background/70 to-transparent opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 group-has-data-[state=open]:opacity-100 dark:from-background/95 dark:via-background/75';
 
 export function CardsSection({
 	title,
@@ -92,32 +92,12 @@ export function LiveBadge({ iconOnly = false }: { iconOnly?: boolean }) {
 	);
 }
 
-export function CertifiedBadge({
-	certifiedByName,
-	iconOnlyOnHover = false,
-}: {
-	certifiedByName?: string | null;
-	iconOnlyOnHover?: boolean;
-}) {
+export function CertifiedBadge({ certifiedByName }: { certifiedByName?: string | null }) {
 	return (
 		<SimpleTooltip content={certifiedByName ? `Certified by ${certifiedByName}` : 'Certified by an admin'}>
-			<span
-				className={cn(
-					'inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 shadow-xs dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300',
-					!iconOnlyOnHover && 'gap-1',
-				)}
-			>
+			<span className='inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-amber-700 shadow-xs dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'>
 				<ShieldCheck className='size-3' />
-				<span
-					className={cn(
-						'text-[11px] font-medium',
-						iconOnlyOnHover
-							? 'ml-1 max-w-16 overflow-hidden whitespace-nowrap transition-[max-width,margin,opacity] duration-200 ease-out group-hover:ml-0 group-hover:max-w-0 group-hover:opacity-0'
-							: 'truncate',
-					)}
-				>
-					Certified
-				</span>
+				<span className='text-[11px] font-medium truncate'>Certified</span>
 			</span>
 		</SimpleTooltip>
 	);
