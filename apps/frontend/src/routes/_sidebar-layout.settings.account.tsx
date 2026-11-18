@@ -9,6 +9,7 @@ import { NewsletterSubscribeInlineForm } from '@/components/newsletter-subscribe
 import { signOut, useSession } from '@/lib/auth-client';
 import { SettingsVersionInfo } from '@/components/settings/version-info';
 import { useAuthRoute } from '@/hooks/use-auth-route';
+import { clearLastSeen } from '@/hooks/use-last-seen';
 import { usePermissions } from '@/hooks/use-permissions';
 import { UserProfileCard } from '@/components/settings/profile-card';
 import { useLocalStorage } from '@/hooks/use-local-storage';
@@ -65,6 +66,7 @@ function GeneralPage() {
 
 	const handleSignOut = async () => {
 		queryClient.clear();
+		clearLastSeen();
 		clearRequestAnswers();
 		await signOut({
 			fetchOptions: {
