@@ -16,6 +16,7 @@ import {
 	testComparisonTolerancesSchema,
 	type TestModelSelection,
 } from '../types/test-run';
+import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 import { resolveSecrets } from './nao-config-llm';
 import { escapeRegExp } from './utils';
@@ -186,6 +187,25 @@ export function extractRawRepoConfig(projectFolder: string, repoName: string): R
 		(entry) => isRecord(entry) && typeof entry.name === 'string' && entry.name.trim() === repoName,
 	);
 	return isRecord(repo) ? repo : null;
+}
+
+/** Fills in the `{{ env('NAME') }}` references of a config value, leaving the `aws` and `k8s` ones to the CLI. */
+export function resolveEnvReferences<T>(value: T, envVars: Record<string, string>): T {
+	if (typeof value === 'string') {
+		return value.replace(
+			NAO_CONFIG_ENV_PATTERN,
+			(_reference, name: string) => envVars[name] || getDeploymentEnvVar(name) || '',
+		) as T;
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => resolveEnvReferences(item, envVars)) as T;
+	}
+	if (isRecord(value)) {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [key, resolveEnvReferences(item, envVars)]),
+		) as T;
+	}
+	return value;
 }
 
 function asString(value: unknown): string | null {
