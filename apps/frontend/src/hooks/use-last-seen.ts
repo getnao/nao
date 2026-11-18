@@ -25,10 +25,14 @@ export function useLastSeen<Value>(name: string, scope: string, value: Value | u
 }
 
 export function clearLastSeen() {
-	for (const key of Object.keys(localStorage)) {
-		if (key.startsWith(STORAGE_PREFIX)) {
-			localStorage.removeItem(key);
+	try {
+		for (const key of Object.keys(localStorage)) {
+			if (key.startsWith(STORAGE_PREFIX)) {
+				localStorage.removeItem(key);
+			}
 		}
+	} catch {
+		return;
 	}
 }
 
@@ -46,6 +50,14 @@ function writeLastSeen(name: string, entry: LastSeenEntry) {
 	try {
 		localStorage.setItem(STORAGE_PREFIX + name, superjson.stringify(entry));
 	} catch {
+		removeLastSeen(name);
+	}
+}
+
+function removeLastSeen(name: string) {
+	try {
 		localStorage.removeItem(STORAGE_PREFIX + name);
+	} catch {
+		return;
 	}
 }
