@@ -16,7 +16,7 @@ vi.mock('../../src/services/user-group-llm-access.service', () => ({
 	getAvailableModelsForUser: mocks.getAvailableModelsForUser,
 }));
 
-import { transcribeAudio } from '../../src/services/transcribe.service';
+import { listAvailableTranscribeModels, transcribeAudio } from '../../src/services/transcribe.service';
 
 describe('transcribeAudio', () => {
 	beforeEach(() => {
@@ -34,5 +34,39 @@ describe('transcribeAudio', () => {
 		expect(mocks.getAllowedLlmConfigIdsForUserModel).toHaveBeenCalledWith('project-1', 'user-1', 'whisper-1');
 		expect(mocks.resolveProviderSettings).not.toHaveBeenCalled();
 		expect(mocks.transcribe).not.toHaveBeenCalled();
+	});
+});
+
+describe('listAvailableTranscribeModels', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.getAllowedLlmConfigIdsForUserModel.mockResolvedValue([]);
+		mocks.getAvailableModelsForUser.mockResolvedValue([
+			{ provider: 'openai', modelId: 'gpt-4o', llmConfigId: 'chat-config' },
+		]);
+		mocks.resolveProviderSettings.mockResolvedValue({ apiKey: 'secret' });
+	});
+
+	it('does not advertise speech models when the user is only granted a chat model', async () => {
+		await expect(listAvailableTranscribeModels('project-1', 'user-1')).resolves.toEqual({
+			openai: { models: [], hasKey: false },
+		});
+
+		expect(mocks.resolveProviderSettings).not.toHaveBeenCalled();
+	});
+
+	it('advertises only speech models the user can run', async () => {
+		mocks.getAllowedLlmConfigIdsForUserModel.mockImplementation(async (_projectId, _userId, modelId) =>
+			modelId === 'whisper-1' ? ['speech-config'] : [],
+		);
+
+		await expect(listAvailableTranscribeModels('project-1', 'user-1')).resolves.toEqual({
+			openai: {
+				models: [{ id: 'whisper-1', name: 'Whisper', pricePerMinute: 0.006 }],
+				hasKey: true,
+			},
+		});
+
+		expect(mocks.resolveProviderSettings).toHaveBeenCalledWith('project-1', 'openai', 'speech-config');
 	});
 });

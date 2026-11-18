@@ -4,11 +4,11 @@ const mocks = vi.hoisted(() => ({
 	createAgent: vi.fn(),
 	createChat: vi.fn(),
 	getChat: vi.fn(),
-	getProjectAvailableModels: vi.fn(),
+	getAvailableModelsForUser: vi.fn(),
+	getDefaultChatModelForUser: vi.fn(),
 	getReferenceableStory: vi.fn(),
 	getStoryById: vi.fn(),
 	getUserRoleInProject: vi.fn(),
-	resolveDefaultChatModel: vi.fn(),
 	resolveModelSelection: vi.fn(),
 	streamToCompletion: vi.fn(),
 }));
@@ -16,9 +16,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/services/agent', () => ({
 	agentService: { create: mocks.createAgent, resolveModelSelection: mocks.resolveModelSelection },
 }));
-vi.mock('../../src/utils/llm', () => ({
-	getProjectAvailableModels: mocks.getProjectAvailableModels,
-	resolveDefaultChatModel: mocks.resolveDefaultChatModel,
+vi.mock('../../src/services/user-group-llm-access.service', () => ({
+	getAvailableModelsForUser: mocks.getAvailableModelsForUser,
+	getDefaultChatModelForUser: mocks.getDefaultChatModelForUser,
 }));
 vi.mock('../../src/queries/chat.queries', () => ({
 	STORY_MODEL_FORK_TYPE: 'story_model',
@@ -44,13 +44,17 @@ const AVAILABLE = [
 	{ provider: 'anthropic', modelId: 'claude-sonnet', name: 'Claude Sonnet', baseUrl: null },
 	{ provider: 'openai', modelId: 'gpt-5', name: 'GPT-5', baseUrl: null },
 ];
+const CREDENTIAL_MODELS = [
+	{ provider: 'openai', modelId: 'gpt-5', name: 'GPT-5 (A)', baseUrl: null, llmConfigId: 'config-a' },
+	{ provider: 'openai', modelId: 'gpt-5', name: 'GPT-5 (B)', baseUrl: null, llmConfigId: 'config-b' },
+];
 const USER_MESSAGE = { id: 'message-1', role: 'user', parts: [{ type: 'text', text: 'Summarize revenue' }] };
 
 describe('listCustomStoryModels', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.getProjectAvailableModels.mockResolvedValue(AVAILABLE);
-		mocks.resolveDefaultChatModel.mockResolvedValue({ provider: 'openai', modelId: 'gpt-5' });
+		mocks.getAvailableModelsForUser.mockResolvedValue(AVAILABLE);
+		mocks.getDefaultChatModelForUser.mockResolvedValue({ provider: 'openai', modelId: 'gpt-5' });
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 	});
 
@@ -68,6 +72,20 @@ describe('listCustomStoryModels', () => {
 		]);
 	});
 
+	it('gives each credential for the same model a distinct id', async () => {
+		mocks.getAvailableModelsForUser.mockResolvedValue(CREDENTIAL_MODELS);
+		mocks.getDefaultChatModelForUser.mockResolvedValue({
+			provider: 'openai',
+			modelId: 'gpt-5',
+			llmConfigId: 'config-b',
+		});
+
+		expect(await listCustomStoryModels('project-1', 'viewer-1')).toEqual([
+			expect.objectContaining({ id: 'openai:gpt-5:config-a', isDefault: false }),
+			expect.objectContaining({ id: 'openai:gpt-5:config-b', isDefault: true }),
+		]);
+	});
+
 	it('lists nothing for members who cannot chat', async () => {
 		mocks.getUserRoleInProject.mockResolvedValue('viewer');
 
@@ -78,7 +96,7 @@ describe('listCustomStoryModels', () => {
 describe('runCustomStoryModel', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.getProjectAvailableModels.mockResolvedValue(AVAILABLE);
+		mocks.getAvailableModelsForUser.mockResolvedValue(AVAILABLE);
 		mocks.getUserRoleInProject.mockResolvedValue('user');
 		mocks.resolveModelSelection.mockImplementation(async (_projectId, model) => model ?? AVAILABLE[0]);
 		mocks.getReferenceableStory.mockResolvedValue({ title: 'Revenue story', authorName: 'Ada' });
@@ -110,6 +128,11 @@ describe('runCustomStoryModel', () => {
 		const [chat, model, profile] = mocks.createAgent.mock.calls[0];
 		expect(chat).toMatchObject({ id: 'chat-9', projectId: 'project-1', userId: 'viewer-1' });
 		expect(model).toEqual({ provider: 'openai', modelId: 'gpt-5' });
+		expect(mocks.resolveModelSelection).toHaveBeenCalledWith(
+			'project-1',
+			{ provider: 'openai', modelId: 'gpt-5' },
+			'viewer-1',
+		);
 		expect(profile).toMatchObject({
 			source: 'storyModel',
 			usageCategory: 'story',
@@ -123,8 +146,26 @@ describe('runCustomStoryModel', () => {
 	it('uses the project default model when the request names none', async () => {
 		await runCustomStoryModel(TARGET, { kind: 'llm', prompt: 'Hi' });
 
-		expect(mocks.resolveModelSelection).toHaveBeenCalledWith('project-1', undefined);
+		expect(mocks.resolveModelSelection).toHaveBeenCalledWith('project-1', undefined, 'viewer-1');
 		expect(mocks.createAgent.mock.calls[0][1]).toEqual(AVAILABLE[0]);
+	});
+
+	it('carries the selected credential through model resolution', async () => {
+		mocks.getAvailableModelsForUser.mockResolvedValue(CREDENTIAL_MODELS);
+
+		await expect(
+			runCustomStoryModel(TARGET, {
+				kind: 'llm',
+				model: 'openai:gpt-5:config-b',
+				prompt: 'Hi',
+			}),
+		).resolves.toMatchObject({ model: 'openai:gpt-5:config-b' });
+
+		expect(mocks.resolveModelSelection).toHaveBeenCalledWith(
+			'project-1',
+			{ provider: 'openai', modelId: 'gpt-5', llmConfigId: 'config-b' },
+			'viewer-1',
+		);
 	});
 
 	it('asks the agent for a structured answer when a JSON schema is given', async () => {

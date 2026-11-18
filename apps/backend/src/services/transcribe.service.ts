@@ -8,7 +8,7 @@ import {
 } from '../agents/transcribe.providers';
 import * as projectQueries from '../queries/project.queries';
 import { resolveProviderSettings as resolveLlmProviderSettings } from '../utils/llm';
-import { getAllowedLlmConfigIdsForUserModel, getAvailableModelsForUser } from './user-group-llm-access.service';
+import { getAllowedLlmConfigIdsForUserModel } from './user-group-llm-access.service';
 
 export async function transcribeAudio(
 	projectId: string,
@@ -45,22 +45,28 @@ export async function listAvailableTranscribeModels(projectId: string, userId: s
 	> = {};
 
 	for (const [provider, config] of Object.entries(TRANSCRIBE_PROVIDERS)) {
-		const llmProvider = provider as 'openai';
-		const availableModel = (await getAvailableModelsForUser(projectId, userId)).find(
-			(model) => model.provider === llmProvider,
-		);
-		const settings = availableModel
-			? await resolveLlmProviderSettings(projectId, llmProvider, availableModel.llmConfigId)
-			: null;
+		const models = [];
+		for (const model of config.models) {
+			const settings = await resolveTranscribeProviderSettings(
+				projectId,
+				userId,
+				provider as TranscribeProvider,
+				model.id,
+			);
+			if (!settings.apiKey) {
+				continue;
+			}
+			models.push({
+				id: model.id,
+				name: model.name,
+				...(model.default && { default: model.default }),
+				...(model.pricePerMinute != null && { pricePerMinute: model.pricePerMinute }),
+			});
+		}
 
 		available[provider] = {
-			models: config.models.map((m) => ({
-				id: m.id,
-				name: m.name,
-				...(m.default && { default: m.default }),
-				...(m.pricePerMinute != null && { pricePerMinute: m.pricePerMinute }),
-			})),
-			hasKey: Boolean(settings?.apiKey),
+			models,
+			hasKey: models.length > 0,
 		};
 	}
 
