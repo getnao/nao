@@ -13,6 +13,7 @@ import {
 	ShieldCheck,
 	Star,
 } from 'lucide-react';
+import { useRef } from 'react';
 import type { DragEvent, MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 
@@ -256,14 +257,7 @@ export function StoryCard({
 							/>
 						)}
 						{!selectionActive && (
-							<>
-								<StoryActiveToggles item={item} />
-								<StoryActionsMenu
-									item={item}
-									showArchived={showArchived}
-									onMoveToFolder={moveHandler}
-								/>
-							</>
+							<StoryGridActions item={item} showArchived={showArchived} onMoveToFolder={moveHandler} />
 						)}
 					</div>
 				</div>
@@ -352,7 +346,7 @@ function StoryCheckbox({
 	);
 }
 
-function StoryActionsMenu({
+function StoryGridActions({
 	item,
 	showArchived,
 	onMoveToFolder,
@@ -361,15 +355,43 @@ function StoryActionsMenu({
 	showArchived: boolean;
 	onMoveToFolder?: (item: StoryItem) => void;
 }) {
+	const pin = useStoryPinToggle(item);
+
+	return (
+		<>
+			{item.isPinned && <StoryPinButton item={item} pin={pin} />}
+			{item.isFavorited && <StoryFavoriteButton item={item} />}
+			<StoryActionsMenu item={item} pin={pin} showArchived={showArchived} onMoveToFolder={onMoveToFolder} />
+		</>
+	);
+}
+
+function StoryActionsMenu({
+	item,
+	pin,
+	showArchived,
+	onMoveToFolder,
+}: {
+	item: StoryItem;
+	pin: StoryPinToggle;
+	showArchived: boolean;
+	onMoveToFolder?: (item: StoryItem) => void;
+}) {
 	const { isAdmin } = usePermissions();
 	const favorite = useToggleFavorite('story');
 	const certification = useToggleStoryCertification();
-	const pin = useStoryPinToggle(item);
 	const archive = useStoryArchiveToggle(item, showArchived);
+	const openedWithPointer = useRef(false);
 
 	function stop(e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
+	}
+
+	function skipFocusReturnAfterPointerOpen(e: Event) {
+		if (openedWithPointer.current) {
+			e.preventDefault();
+		}
 	}
 
 	return (
@@ -377,6 +399,12 @@ function StoryActionsMenu({
 			<DropdownMenuTrigger asChild>
 				<button
 					type='button'
+					onPointerDown={() => {
+						openedWithPointer.current = true;
+					}}
+					onKeyDown={() => {
+						openedWithPointer.current = false;
+					}}
 					onClick={stop}
 					aria-label='Story options'
 					className='inline-flex items-center justify-center h-5 rounded overflow-hidden transition-all duration-150 cursor-pointer text-muted-foreground hover:text-foreground w-0 opacity-0 group-hover:w-5 group-hover:opacity-100 data-[state=open]:w-5 data-[state=open]:opacity-100 data-[state=open]:text-foreground'
@@ -384,7 +412,7 @@ function StoryActionsMenu({
 					<MoreHorizontal className='size-3' />
 				</button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' onClick={stop} onCloseAutoFocus={(e) => e.preventDefault()}>
+			<DropdownMenuContent align='start' onClick={stop} onCloseAutoFocus={skipFocusReturnAfterPointerOpen}>
 				{isAdmin && (
 					<DropdownMenuItem
 						onSelect={() => certification.toggle(item.storyId)}
@@ -437,6 +465,7 @@ function StoryActions({
 }) {
 	const { isAdmin } = usePermissions();
 	const certification = useToggleStoryCertification();
+	const pin = useStoryPinToggle(item);
 	const archive = useStoryArchiveToggle(item, showArchived);
 
 	return (
@@ -456,7 +485,7 @@ function StoryActions({
 					<ShieldCheck className='size-3' />
 				</QuickActionButton>
 			)}
-			<StoryPinButton item={item} />
+			<StoryPinButton item={item} pin={pin} />
 			<StoryFavoriteButton item={item} />
 			<div className='flex items-center gap-0.5 max-w-0 overflow-hidden group-hover:max-w-[60px] transition-[max-width] duration-200 ease-out'>
 				{!showArchived && onMoveToFolder && (
@@ -488,18 +517,7 @@ function StoryActions({
 	);
 }
 
-function StoryActiveToggles({ item }: { item: StoryItem }) {
-	return (
-		<>
-			{item.isPinned && <StoryPinButton item={item} />}
-			{item.isFavorited && <StoryFavoriteButton item={item} />}
-		</>
-	);
-}
-
-function StoryPinButton({ item }: { item: StoryItem }) {
-	const pin = useStoryPinToggle(item);
-
+function StoryPinButton({ item, pin }: { item: StoryItem; pin: StoryPinToggle }) {
 	return (
 		<QuickActionButton
 			active={item.isPinned}
@@ -579,6 +597,8 @@ function QuickActionButton({
 		</SimpleTooltip>
 	);
 }
+
+type StoryPinToggle = ReturnType<typeof useStoryPinToggle>;
 
 function useStoryPinToggle(item: StoryItem) {
 	const queryClient = useQueryClient();
