@@ -1,8 +1,8 @@
-import '../src/env';
+import '../../src/env';
 
 import { describe, expect, it } from 'vitest';
 
-import { buildStoryToolDescription } from '../src/agents/tools/story';
+import { buildStoryToolDescription } from '../../src/agents/tools/story';
 
 describe('buildStoryToolDescription maps', () => {
 	it('lists the columns each map_type requires', () => {

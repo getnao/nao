@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseMapBlock } from '@nao/shared/story-segments';
-import { StoryMapEmbed } from './story-embeds';
+
+import { createTestQueryClient } from '../helpers/query-client';
+import { StoryMapEmbed } from '@/components/story-embeds';
 import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 
 vi.mock('@/main', () => ({ trpc: {} }));
@@ -23,7 +25,7 @@ function renderMapEmbed(attributes: string) {
 	const map = { ...parseMapBlock(attributes)!, rawTag: `<map ${attributes} />` };
 	const queryData = { q1: { data: [{ lat: 48.85, lng: 2.35 }], columns: ['lat', 'lng'] } };
 	render(
-		<QueryClientProvider client={new QueryClient()}>
+		<QueryClientProvider client={createTestQueryClient()}>
 			<EditorStoryMapEditProvider onReplaceTag={() => {}}>
 				<StoryMapEmbed map={map} queryData={queryData} />
 			</EditorStoryMapEditProvider>
