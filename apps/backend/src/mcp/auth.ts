@@ -17,6 +17,9 @@ export async function resolveUserId(fastifyRequest: {
 	const headers = convertHeaders(fastifyRequest.headers);
 
 	const session = await getSession(headers);
+	if (session?.twoFactorSetupRequired) {
+		return null;
+	}
 	const userId = session?.user.id ?? (await verifyBearerToken(headers.get('authorization')));
 	if (!userId || (await isUserDeactivated(userId))) {
 		return null;
