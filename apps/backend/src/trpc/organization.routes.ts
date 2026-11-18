@@ -10,8 +10,9 @@ import * as usageQueries from '../queries/usage.queries';
 import * as userQueries from '../queries/user.queries';
 import { emailService } from '../services/email';
 import { addOrganizationMember, putOrganizationMember, removeOrganizationMember } from '../services/membership.service';
+import { configureOrganizationSso, getOrganizationSso } from '../services/organization-sso.service';
 import { addTeamMember } from '../services/team-member';
-import { ORG_ROLES } from '../types/organization';
+import { ORG_ROLES, organizationSsoConfigInputSchema } from '../types/organization';
 import { LICENSE_ACTIVITY_WINDOW } from '../types/usage';
 import { buildResetPasswordEmail, buildUserAddedEmail } from '../utils/email-builders';
 import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
@@ -113,6 +114,12 @@ export const organizationRoutes = {
 			);
 			return { domains: requestedDomains };
 		}),
+
+	getSso: orgAdminOnlyProcedure.query(async ({ ctx }) => (isCloud ? getOrganizationSso(ctx.org.id) : null)),
+
+	configureSso: orgAdminOnlyProcedure
+		.input(organizationSsoConfigInputSchema)
+		.mutation(async ({ input, ctx }) => configureOrganizationSso(ctx.org.id, input)),
 
 	updateMemberRole: orgAdminOnlyProcedure
 		.input(z.object({ userId: z.string(), role: z.enum(ORG_ROLES) }))

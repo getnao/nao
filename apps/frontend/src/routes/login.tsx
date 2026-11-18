@@ -3,8 +3,10 @@ import { useForm } from '@tanstack/react-form';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ChallengeMethod } from '@/components/two-factor-challenge';
-import { sendVerificationEmail, signIn, twoFactor } from '@/lib/auth-client';
+import { handleSsoSignIn, sendVerificationEmail, signIn, twoFactor } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { EmailVerificationPending } from '@/components/email-verification-pending';
 import { TwoFactorChallenge } from '@/components/two-factor-challenge';
 import { useIsCloud } from '@/hooks/use-nao-mode';
@@ -40,6 +42,7 @@ export function Login() {
 	const [serverError, setServerError] = useState<string | undefined>(getSignInErrorMessage(oauthError));
 	const [pendingEmail, setPendingEmail] = useState<string>();
 	const [challengeMethod, setChallengeMethod] = useState<ChallengeMethod>();
+	const [isSsoMode, setIsSsoMode] = useState(false);
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isCloud = useIsCloud();
@@ -112,10 +115,18 @@ export function Login() {
 	return (
 		<AuthForm
 			form={form}
-			title={pendingEmail ? 'Check your inbox' : challengeMethod ? 'Two-factor authentication' : 'Log in'}
+			title={
+				pendingEmail
+					? 'Check your inbox'
+					: challengeMethod
+						? 'Two-factor authentication'
+						: isSsoMode
+							? 'Log in with SSO'
+							: 'Log in'
+			}
 			submitText='Log in'
 			serverError={serverError}
-			displaySocialProviders={isFirstStep}
+			displaySocialProviders={isFirstStep && !isSsoMode}
 			socialCallbackUrl={oauthAuthorizeUrl ?? safeRedirect ?? undefined}
 			displayEmailPasswordForm={isUserLoginEnabled}
 			emailPasswordDisabledMessage='Email and password login is disabled. Use a configured sign-in provider to continue.'
@@ -134,19 +145,24 @@ export function Login() {
 							setChallengeMethod(undefined);
 						}}
 					/>
+				) : isSsoMode ? (
+					<SsoSignInForm callbackURL={oauthAuthorizeUrl ?? safeRedirect ?? '/'} onError={setServerError} />
 				) : undefined
 			}
 			footer={
-				isFirstStep && isCloud && isUserSignupEnabled ? (
+				isFirstStep && isCloud ? (
 					<>
-						Don&apos;t have an account?{' '}
-						<Link
-							to='/signup'
-							search={{ error: undefined, redirect: safeRedirect ?? undefined }}
-							className='text-violet underline underline-offset-2'
+						<button
+							type='button'
+							onClick={() => {
+								setServerError(undefined);
+								setIsSsoMode(!isSsoMode);
+							}}
+							className='mb-3 block w-full underline underline-offset-2'
 						>
-							Create an account
-						</Link>
+							{isSsoMode ? 'Use another sign-in method' : 'Log in with SSO'}
+						</button>
+						{isUserSignupEnabled && <SignupLink redirect={safeRedirect} />}
 					</>
 				) : undefined
 			}
@@ -184,4 +200,52 @@ export function Login() {
 function readChallengeMethod(challenge: object): ChallengeMethod {
 	const methods = (challenge as { twoFactorMethods?: string[] }).twoFactorMethods;
 	return methods?.includes('totp') ? 'totp' : 'email';
+}
+
+function SignupLink({ redirect }: { redirect: string | null }) {
+	return (
+		<>
+			Don&apos;t have an account?{' '}
+			<Link
+				to='/signup'
+				search={{ error: undefined, redirect: redirect ?? undefined }}
+				className='text-violet underline underline-offset-2'
+			>
+				Create an account
+			</Link>
+		</>
+	);
+}
+
+function SsoSignInForm({ callbackURL, onError }: { callbackURL: string; onError: (error?: string) => void }) {
+	const [email, setEmail] = useState('');
+	const [isPending, setIsPending] = useState(false);
+
+	return (
+		<form
+			className='flex flex-col gap-3'
+			onSubmit={async (event) => {
+				event.preventDefault();
+				setIsPending(true);
+				onError(undefined);
+				const error = await handleSsoSignIn(email.trim(), callbackURL);
+				if (error) {
+					onError(error);
+					setIsPending(false);
+				}
+			}}
+		>
+			<Input
+				type='email'
+				required
+				autoFocus
+				placeholder='you@company.com'
+				value={email}
+				onChange={(event) => setEmail(event.target.value)}
+			/>
+			<Button type='submit' variant='primary-gradient' className='h-11 w-full rounded-full' isLoading={isPending}>
+				Continue with SSO
+			</Button>
+		</form>
+	);
 }

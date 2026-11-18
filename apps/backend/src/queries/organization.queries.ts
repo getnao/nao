@@ -7,7 +7,9 @@ import { env } from '../env';
 import { getActiveProjectPaths } from '../services/multi-project.service';
 import { OrgRole } from '../types/organization';
 import { getConfiguredProjectPaths, getProjectNameFromPath } from '../utils/project-paths';
+import { isDomainCoveredBy } from '../utils/utils';
 import * as projectQueries from './project.queries';
+import * as ssoProviderQueries from './sso-provider.queries';
 import * as userQueries from './user.queries';
 
 export const getOrganizationById = async (id: string): Promise<DBOrganization | null> => {
@@ -226,12 +228,29 @@ export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<
 	return domains;
 };
 
-/** Cloud mode: whether another organization has already claimed the given email domain. */
+/** Cloud mode: whether another organization has already claimed the given email domain, for Google or SSO sign-in. */
 export const isEmailDomainClaimedByAnotherOrg = async (domain: string, orgId: string): Promise<boolean> => {
 	const normalized = domain.trim().toLowerCase();
-	const orgs = await db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute();
-	return orgs.some((org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized));
+	const [orgs, ssoProviders] = await Promise.all([
+		db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute(),
+		ssoProviderQueries.listSsoProviderSummaries(),
+	]);
+	const claimedForGoogle = orgs.some(
+		(org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized),
+	);
+	const claimedForSso = ssoProviders.some(
+		(provider) =>
+			provider.organizationId !== orgId && areDomainsOverlapping(normalized, parseEmailDomains(provider.domain)),
+	);
+	return claimedForGoogle || claimedForSso;
 };
+
+function areDomainsOverlapping(domain: string, claimedDomains: string[]): boolean {
+	return (
+		isDomainCoveredBy(domain, claimedDomains) ||
+		claimedDomains.some((claimed) => isDomainCoveredBy(claimed, [domain]))
+	);
+}
 
 function parseEmailDomains(domains: string | null): string[] {
 	if (!domains) {
