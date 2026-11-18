@@ -54,42 +54,28 @@ describe('AgentStreamService', () => {
 		await vi.waitFor(async () => expect(await service.read('chat-1')).toBeNull());
 	});
 
-	it('brings a run back once the newer run of its chat that replaced it fails', async () => {
-		const reclaim = vi.fn(async () => {});
+	it('keeps the newer run of a chat readable once the run it replaced ends', async () => {
+		const endReplacedRun = vi.fn(async () => {});
 		const relay = {
-			publish: vi.fn(async () => ({ end: vi.fn(async () => {}), reclaim })),
+			publish: vi
+				.fn()
+				.mockResolvedValueOnce({ end: endReplacedRun })
+				.mockResolvedValue({ end: vi.fn(async () => {}) }),
 		} as unknown as AgentStreamRelay;
 		const service = new AgentStreamService(relay);
-		const firstAgentStream = controllableStream();
-		void Array.fromAsync(service.open('chat-1', 'user-1').start(firstAgentStream.stream));
-		firstAgentStream.push(START);
+		const replacedAgentStream = controllableStream();
+		void Array.fromAsync(service.open('chat-1', 'user-1').start(replacedAgentStream.stream));
+		const newerAgentStream = controllableStream();
+		void Array.fromAsync(service.open('chat-1', 'user-1').start(newerAgentStream.stream));
 
-		service.open('chat-1', 'user-1').fail();
+		replacedAgentStream.close();
+		await vi.waitFor(() => expect(endReplacedRun).toHaveBeenCalledOnce());
 
-		await vi.waitFor(() => expect(reclaim).toHaveBeenCalledOnce());
 		const reconnected = await service.read('chat-1');
-		firstAgentStream.push(FINISH);
-		firstAgentStream.close();
+		newerAgentStream.push(START);
+		newerAgentStream.push(FINISH);
+		newerAgentStream.close();
 		expect(await Array.fromAsync(reconnected!)).toEqual([START, FINISH]);
-	});
-
-	it('forgets a replaced run that ended before the run that replaced it', async () => {
-		const reclaim = vi.fn(async () => {});
-		const relay = {
-			publish: vi.fn(async () => ({ end: vi.fn(async () => {}), reclaim })),
-			read: vi.fn(async () => null),
-		} as unknown as AgentStreamRelay;
-		const service = new AgentStreamService(relay);
-		const firstAgentStream = controllableStream();
-		const firstReading = Array.fromAsync(service.open('chat-1', 'user-1').start(firstAgentStream.stream));
-		const newerRun = service.open('chat-1', 'user-1');
-		firstAgentStream.close();
-		await firstReading;
-
-		newerRun.fail();
-
-		await vi.waitFor(async () => expect(await service.read('chat-1')).toBeNull());
-		expect(reclaim).not.toHaveBeenCalled();
 	});
 
 	it('has no stream to read for a chat once its run ended', async () => {

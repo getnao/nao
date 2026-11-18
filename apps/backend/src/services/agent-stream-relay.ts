@@ -19,8 +19,6 @@ export interface AgentStreamRelayTimings {
 
 export interface PublishedAgentStream {
 	end(): Promise<void>;
-	/** Makes the run the chat's one again, unless another run took the chat meanwhile. */
-	reclaim(): Promise<void>;
 }
 
 interface PublishedStream {
@@ -105,7 +103,6 @@ export class AgentStreamRelay {
 					this._deleteChunksLater(streamId);
 				}
 			},
-			reclaim: () => agentStreamQueries.insertStreamRunIfAbsent(chatId, streamId),
 		};
 	}
 

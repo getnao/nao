@@ -686,7 +686,7 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 /** Agents that already read their chat's stream, by sending a message or by resuming, so they never resume again. */
 const agentsReadingServerStream = new WeakSet<Agent<UIMessage>>();
 
-const RESUME_ATTEMPTS = 8;
+const RESUME_ATTEMPTS = 2;
 const RESUME_RETRY_DELAY_MS = 1_000;
 
 /**
@@ -739,8 +739,9 @@ function useResumeRunningAnswer({
 }
 
 /**
- * Reconnects until the answer shows up. Right after the question is saved, the server may still be setting
- * the run up, and once the answer is complete it is in the saved messages, fetched again to show it.
+ * Reconnects to the running answer. When the server has no run, a complete answer is in the saved messages,
+ * fetched again to show it. A run that just started on another instance may not be announced yet, hence
+ * the second attempt.
  */
 async function followRunningAnswer(
 	agent: Agent<UIMessage>,

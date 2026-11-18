@@ -19,13 +19,6 @@ export async function upsertStreamRun(chatId: string, streamId: string): Promise
 		.onConflictDoUpdate({ target: s.agentStreamRun.chatId, set: { streamId, heartbeatAt: databaseNow } });
 }
 
-export async function insertStreamRunIfAbsent(chatId: string, streamId: string): Promise<void> {
-	await db
-		.insert(s.agentStreamRun)
-		.values({ chatId, streamId, heartbeatAt: databaseNow })
-		.onConflictDoNothing({ target: s.agentStreamRun.chatId });
-}
-
 export async function touchStreamRun(streamId: string): Promise<void> {
 	await db.update(s.agentStreamRun).set({ heartbeatAt: databaseNow }).where(eq(s.agentStreamRun.streamId, streamId));
 }

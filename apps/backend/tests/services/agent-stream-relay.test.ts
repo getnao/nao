@@ -38,7 +38,7 @@ describe('AgentStreamRelay', () => {
 		await db.insert(s.user).values({ id: 'user-1', name: 'User', email: 'user@example.com' });
 		await db.insert(s.project).values({ id: 'project-1', name: 'Project', type: 'local', path: '/tmp/project' });
 		await db.insert(s.chat).values(
-			['chat-relayed', 'chat-relay-failed', 'chat-reclaimed', 'chat-ended', 'chat-stale', 'chat-stopped'].map(
+			['chat-relayed', 'chat-relay-failed', 'chat-replaced', 'chat-ended', 'chat-stale', 'chat-stopped'].map(
 				(id) => ({
 					id,
 					projectId: 'project-1',
@@ -84,22 +84,18 @@ describe('AgentStreamRelay', () => {
 		expect(await reading).toEqual([START, TEXT, FINISH]);
 	});
 
-	it('gives the chat back to a replaced run only once no newer run holds it', async () => {
+	it('leaves the chat to its newer run when the run it replaced ends', async () => {
 		const { runningInstance } = createInstances();
 		const buffers = [new ChunkBuffer<UIMessageChunk>(), new ChunkBuffer<UIMessageChunk>()];
-		const replaced = await runningInstance.publish('chat-reclaimed', 'stream-replaced', buffers[0]);
-		const newer = await runningInstance.publish('chat-reclaimed', 'stream-newer', buffers[1]);
-
-		await replaced.reclaim();
-		expect(await getLiveStreamId('chat-reclaimed', TIMINGS.heartbeatTtlMs)).toBe('stream-newer');
-
-		buffers[1].close();
-		await newer.end();
-		await replaced.reclaim();
-		expect(await getLiveStreamId('chat-reclaimed', TIMINGS.heartbeatTtlMs)).toBe('stream-replaced');
+		const replaced = await runningInstance.publish('chat-replaced', 'stream-replaced', buffers[0]);
+		const newer = await runningInstance.publish('chat-replaced', 'stream-newer', buffers[1]);
 
 		buffers[0].close();
 		await replaced.end();
+		expect(await getLiveStreamId('chat-replaced', TIMINGS.heartbeatTtlMs)).toBe('stream-newer');
+
+		buffers[1].close();
+		await newer.end();
 	});
 
 	it('has no stream for a chat without a live run, including one whose run ended', async () => {

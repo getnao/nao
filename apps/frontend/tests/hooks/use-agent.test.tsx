@@ -162,7 +162,7 @@ describe('useAgent stream resume', () => {
 		);
 	});
 
-	it('reconnects again while the server is still setting the run up', async () => {
+	it('reconnects a second time when the run was not announced yet', async () => {
 		openChat('starting-chat', [question]);
 		fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
 		fetchMock.mockResolvedValueOnce(
