@@ -10,13 +10,7 @@ import { UserMessage } from './user-message';
 import type { UIMessage } from '@nao/backend/chat';
 import type { MessageGroup } from '@/types/ai';
 import type { Chat } from '@/queries/use-chat-query';
-import {
-	groupMessages,
-	checkIsLastMessageStreaming,
-	getLastFollowUpSuggestionsToolCall,
-	checkIsSomeToolsExecuting,
-	isOnboardingContextRequestMessage,
-} from '@/lib/ai';
+import { groupMessages, getLastFollowUpSuggestionsToolCall, isOnboardingContextRequestMessage } from '@/lib/ai';
 import {
 	Conversation,
 	ConversationContent,
@@ -66,14 +60,6 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 	});
 	const { data: isAutomationRunning = false } = useChatQuery({ chatId, select: selectIsAutomationRunning });
 	const effectiveIsRunning = isRunning || isAutomationRunning;
-	const isAgentGenerating = effectiveIsRunning && checkIsLastMessageStreaming(messages);
-	const someToolsExectuting = effectiveIsRunning && checkIsSomeToolsExecuting(messages);
-
-	// Debounce when the agent is running but not generating content yet to prevent flickering
-	const showThinkingLoader = useDebounceValue(effectiveIsRunning && !isAgentGenerating && !someToolsExectuting, {
-		delay: 50,
-		skipDebounce: (value) => !value, // Skip debounce if the value equals `false` to immediately remove the loader
-	});
 	const followUpSuggestionsToolCall = useMemo(() => getLastFollowUpSuggestionsToolCall(messages), [messages]);
 	const displayableMessages = useMemo(
 		() => messages.filter((message) => !isOnboardingContextRequestMessage(message)),
@@ -103,7 +89,7 @@ export const ChatMessagesContent = memo(function ChatMessagesContent() {
 							key={group.userMessage?.id ?? group.assistantMessages[0]?.id}
 							userMessage={group.userMessage}
 							assistantMessages={group.assistantMessages}
-							showLoader={showThinkingLoader && isLast(group, messageGroups)}
+							showLoader={effectiveIsRunning && isLast(group, messageGroups)}
 							showCatchUpLoader={showCatchUpLoader && isLast(group, messageGroups)}
 							lastMessageId={lastMessageId}
 							isRunning={effectiveIsRunning}
@@ -165,7 +151,6 @@ const MessageGroup = memo(
 					<MessageBlock
 						key={message.id}
 						message={message}
-						showLoader={showLoader}
 						isLastMessage={message.id === lastMessageId}
 						isRunning={isRunning}
 						storyIntroMessageId={storyIntroMessageId}
@@ -183,13 +168,11 @@ const MessageGroup = memo(
 const MessageBlock = memo(
 	({
 		message,
-		showLoader,
 		isLastMessage,
 		isRunning,
 		storyIntroMessageId,
 	}: {
 		message: UIMessage;
-		showLoader: boolean;
 		isLastMessage: boolean;
 		isRunning: boolean;
 		storyIntroMessageId: string | undefined;
@@ -216,7 +199,6 @@ const MessageBlock = memo(
 		return (
 			<AssistantMessage
 				message={message}
-				showLoader={showLoader && isLastMessage}
 				isSettled={!isLastMessage || !isRunning}
 				isRunning={isRunning}
 				isLastMessage={isLastMessage}
