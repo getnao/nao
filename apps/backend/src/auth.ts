@@ -385,7 +385,8 @@ async function createAuthInstance(baseURL: string) {
 
 						if (isCloud && isDisposableEmail(user.email)) {
 							throw new APIError('FORBIDDEN', {
-								message: 'We have encountered an error. Please contact support if the problem persists.',
+								message:
+									'We have encountered an error. Please contact support if the problem persists.',
 							});
 						}
 
