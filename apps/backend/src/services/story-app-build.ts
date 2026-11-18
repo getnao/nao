@@ -152,7 +152,7 @@ const WORKER_SOURCE = `(${storyBuildWorker.toString()})()`;
 
 function runBuildWorker(request: StoryBuildRequest): Promise<StoryBuildResponse> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(bunExecutable(), ['--smol', '-e', WORKER_SOURCE], {
+		const child = spawn(bunExecutable(), ['--smol', '--no-env-file', '-e', WORKER_SOURCE], {
 			env: buildWorkerEnvironment(),
 			stdio: ['pipe', 'pipe', 'pipe'],
 			timeout: BUILD_TIMEOUT_MS,
@@ -193,7 +193,10 @@ function runBuildWorker(request: StoryBuildRequest): Promise<StoryBuildResponse>
 	});
 }
 
-/** The worker bundles untrusted story code, so it gets what `bun` needs to start and none of the server's secrets. */
+/**
+ * The worker bundles untrusted story code, so it gets what `bun` needs to start and none of the server's secrets:
+ * `--no-env-file` keeps bun from loading them back from a `.env` file of the working directory.
+ */
 function buildWorkerEnvironment(): NodeJS.ProcessEnv {
 	const inherited = WORKER_INHERITED_ENV_NAMES.map((name) => [name, process.env[name]]);
 	return { ...Object.fromEntries(inherited), BUN_BE_BUN: '1', NODE_ENV: 'production' };
