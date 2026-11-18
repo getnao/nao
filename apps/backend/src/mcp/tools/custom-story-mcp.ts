@@ -2,7 +2,7 @@ import { STORY_APP_MANIFEST_PATH } from '@nao/shared/story-app';
 import { z } from 'zod';
 
 import { renderStoryKitGuide } from '../../components/ai/story-kit-guide';
-import type { DBStory } from '../../db/abstractSchema';
+import type { DBStory, DBStoryDataCache } from '../../db/abstractSchema';
 import * as storyQueries from '../../queries/story.queries';
 import type { StoryFileInput } from '../../queries/story-file.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
@@ -11,6 +11,20 @@ import {
 	createCustomStoryDraft,
 	publishCustomStoryDraft,
 } from '../../services/custom-story-authoring';
+import {
+	assertWriterAddsNoChatQueries,
+	CustomStoryQueryNotAllowedError,
+} from '../../services/custom-story-query-access';
+import {
+	acquireStoryEditLock,
+	assertStoryEditable,
+	getStoryEditLockState,
+	newMcpStoryEditHolder,
+	releaseStoryEditLock,
+	StoryEditLockedError,
+} from '../../services/story-edit-lock.service';
+import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
+import type { StoryQuerySources } from '../../types/story-cache';
 import { generateStorySlug, isValidStorySlug, STORY_SLUG_RULE } from '../../utils/story-mount';
 import {
 	backfillMissingQueryDataByIds,
@@ -44,6 +58,9 @@ export const UPDATE_CUSTOM_STORY_DESCRIPTION =
 
 const CHAT_QUERY_DATA_REFUSAL =
 	'`query_data` only applies to a standalone custom story: one attached to a chat reads the queries run in it.';
+
+const CONCURRENT_MCP_WRITE_REFUSAL =
+	'Another `update_story` call is still writing this story. Wait for it to finish, then call `update_story` again.';
 
 const STORY_FILES_INPUT = z
 	.array(
@@ -104,7 +121,7 @@ export async function createCustomStoryForMcp(
 		files: input.files ?? [],
 	});
 	if (!story.chatId) {
-		await saveStandaloneQueryData(story.id, input.queryData, ctx);
+		await saveStandaloneQueryData(story, input.queryData, ctx);
 	}
 	if (!input.files?.length) {
 		return draftResult(story);
@@ -125,14 +142,78 @@ export async function updateCustomStoryForMcp(
 	if (story.chatId && input.queryData) {
 		return errorResult(CHAT_QUERY_DATA_REFUSAL);
 	}
-	await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
-	if (input.title !== undefined && input.title !== story.title) {
-		await storyQueries.renameStory(story.id, input.title);
+	return withMcpStoryEditLock(story.id, ctx.userId, async () => {
+		const queryRefusal = await chatQueryRefusal(story, ctx.userId, input.files);
+		if (queryRefusal) {
+			return errorResult(queryRefusal);
+		}
+		await applyCustomStoryDraftChanges(story.id, { files: input.files, deletePaths: input.deletePaths });
+		if (input.title !== undefined && input.title !== story.title) {
+			await storyQueries.renameStory(story.id, input.title);
+		}
+		if (!story.chatId) {
+			await saveStandaloneQueryData(story, input.queryData, ctx);
+		}
+		return publishResult({ ...story, title: input.title ?? story.title }, ctx);
+	});
+}
+
+/** Holds the story for the whole MCP write, so no one else can start editing it halfway through. */
+export async function withMcpStoryEditLock(
+	storyId: string,
+	userId: string,
+	write: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+	const lockError = await storyEditLockRefusal(storyId, userId);
+	if (lockError) {
+		return errorResult(lockError);
 	}
-	if (!story.chatId) {
-		await saveStandaloneQueryData(story.id, input.queryData, ctx);
+	const lock = await getStoryEditLockState(storyId, { userId, chatId: null });
+	if (lock?.byMcp) {
+		return errorResult(CONCURRENT_MCP_WRITE_REFUSAL);
 	}
-	return publishResult({ ...story, title: input.title ?? story.title }, ctx);
+	if (lock?.isYou) {
+		return write();
+	}
+	const holder = newMcpStoryEditHolder(userId);
+	try {
+		await acquireStoryEditLock(storyId, holder);
+	} catch (error) {
+		if (error instanceof StoryEditLockedError) {
+			return errorResult(error.message);
+		}
+		throw error;
+	}
+	try {
+		return await write();
+	} finally {
+		await releaseStoryEditLock(storyId, holder);
+	}
+}
+
+async function chatQueryRefusal(story: DBStory, userId: string, files: StoryFileInput[]): Promise<string | null> {
+	try {
+		await assertWriterAddsNoChatQueries(story, userId, files);
+		return null;
+	} catch (error) {
+		if (error instanceof CustomStoryQueryNotAllowedError) {
+			return error.message;
+		}
+		throw error;
+	}
+}
+
+/** The reason an MCP client may not edit the story right now, or null when it may. */
+export async function storyEditLockRefusal(storyId: string, userId: string): Promise<string | null> {
+	try {
+		await assertStoryEditable(storyId, { userId, chatId: null });
+		return null;
+	} catch (error) {
+		if (error instanceof StoryEditLockedError) {
+			return error.message;
+		}
+		throw error;
+	}
 }
 
 export async function getCustomStoryForMcp(storyId: string, ctx: McpContext): Promise<ToolResult | null> {
@@ -191,27 +272,34 @@ async function draftResult(story: DBStory): Promise<ToolResult> {
 }
 
 /**
- * A standalone story has no chat to run its queries in, so the rows its draft references are saved with it at once:
- * like any story data, they are shared by its draft and its published versions.
+ * A standalone story has no chat to run its queries in, so the rows and SQL its draft references are saved with it at
+ * once: like any story data, they are shared by its draft and its published versions.
  */
 async function saveStandaloneQueryData(
-	storyId: string,
+	story: Pick<DBStory, 'id' | 'isLive'>,
 	queryData: StoryQueryDataMap | undefined,
 	ctx: McpContext,
 ): Promise<void> {
+	const storyId = story.id;
 	const [draft, cache] = await Promise.all([
 		storyFileQueries.listDraftFiles(storyId),
 		storyQueries.getStoryDataCacheByStoryId(storyId),
 	]);
+	const queryIds = extractCustomStoryQueryIds(draft);
 	const seeded = { ...((cache?.queryData as StoryQueryDataMap | undefined) ?? {}), ...(queryData ?? {}) };
-	const resolved = await backfillMissingQueryDataByIds(
-		extractCustomStoryQueryIds(draft),
-		Object.keys(seeded).length > 0 ? seeded : null,
-		{ projectId: ctx.projectId, userId: ctx.userId },
-	);
+	const resolved = await backfillMissingQueryDataByIds(queryIds, Object.keys(seeded).length > 0 ? seeded : null, {
+		projectId: ctx.projectId,
+		userId: ctx.userId,
+	});
 	if (resolved) {
-		await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolved);
+		await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolved, undefined, keptQuerySources(story, cache));
 	}
+	await copyMcpQueriesToStory(storyId, queryIds, ctx);
+}
+
+/** A live story keeps the sources of its last refresh, so its generated narratives are never taken for frozen ones. */
+function keptQuerySources(story: Pick<DBStory, 'isLive'>, cache: DBStoryDataCache | null): StoryQuerySources | null {
+	return story.isLive ? (cache?.querySources ?? null) : null;
 }
 
 function storyLinks(story: DBStory) {

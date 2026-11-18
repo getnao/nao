@@ -271,7 +271,7 @@ async function forkSharedStoryItem(
 		const [rawMessages, queryData, querySources] = await Promise.all([
 			chatQueries.getChatMessages(share.chatId!),
 			sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code),
-			loadStoryQuerySources(share.chatId, extractQueryIds(share.code)),
+			loadStoryQuerySources({ id: share.storyId, chatId: share.chatId }, extractQueryIds(share.code)),
 		]);
 		const seededMessages = compactionService.useLastCompaction(rawMessages);
 		const messages = [

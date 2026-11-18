@@ -1,6 +1,6 @@
 import z from 'zod/v3';
 
-import type { CustomBoundarySet } from '../map';
+import { BUILTIN_BOUNDARY_REGION_KEY_HINTS, type CustomBoundarySet } from '../map';
 
 export const MapTypeEnum = z.enum(['points', 'scatter_bubble', 'choropleth']);
 
@@ -24,7 +24,7 @@ export function buildInputObjectSchema(customSets?: CustomBoundarySet[]) {
 		` Omit when providing boundaries_url or geometry_key instead.`;
 
 	const regionKeyDescription =
-		`Column identifying each region for a "choropleth". For "world_countries" match an ISO 3166-1 alpha-3/alpha-2 code or country name; for "france_regions" match the region code or name.` +
+		`Column identifying each region for a "choropleth". For "world_countries" match ${BUILTIN_BOUNDARY_REGION_KEY_HINTS.world_countries}; for "france_regions" match ${BUILTIN_BOUNDARY_REGION_KEY_HINTS.france_regions}.` +
 		customGuidance;
 
 	return z.object({

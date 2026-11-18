@@ -110,7 +110,7 @@ const settingsNavGroups: NavGroup[] = [
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 			},
 			{
-				label: 'File Explorer',
+				label: 'Context Hub',
 				to: '/settings/context-explorer',
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 			},
@@ -127,6 +127,11 @@ const settingsNavGroups: NavGroup[] = [
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 				exact: true,
 				leavesSettings: true,
+			},
+			{
+				label: 'Monitoring',
+				to: '/settings/monitoring',
+				visible: ({ isAdmin, isAutomationsEnabled }) => isAdmin && isAutomationsEnabled,
 			},
 			{
 				label: 'Usage & Costs',

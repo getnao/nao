@@ -60,6 +60,9 @@ export type NewProjectLlmConfig = typeof sqliteSchema.projectLlmConfig.$inferIns
 export type DBOrganization = typeof sqliteSchema.organization.$inferSelect;
 export type NewOrganization = typeof sqliteSchema.organization.$inferInsert;
 
+export type DBSsoProvider = typeof sqliteSchema.ssoProvider.$inferSelect;
+export type NewSsoProvider = typeof sqliteSchema.ssoProvider.$inferInsert;
+
 export type DBOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferSelect;
 export type NewOrganizationBilling = typeof sqliteSchema.organizationBilling.$inferInsert;
 
@@ -113,6 +116,7 @@ export type NewStoryFile = typeof sqliteSchema.storyFile.$inferInsert;
 
 export type DBStoryDraftFile = typeof sqliteSchema.storyDraftFile.$inferSelect;
 export type NewStoryDraftFile = typeof sqliteSchema.storyDraftFile.$inferInsert;
+export type DBStoryEditLock = typeof sqliteSchema.storyEditLock.$inferSelect;
 
 export type DBStoryBundle = typeof sqliteSchema.storyBundle.$inferSelect;
 export type NewStoryBundle = typeof sqliteSchema.storyBundle.$inferInsert;

@@ -24,6 +24,8 @@ import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
+import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
+import { useStoryEditSession } from '@/hooks/use-story-edit-session';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 import { requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
@@ -39,7 +41,8 @@ export function SharedStoryPage({ storyId }: { storyId: string }) {
 function SharedCustomStory({ storyId }: { storyId: string }) {
 	const { data: session } = useSession();
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
-	const isOwner = useResolvedStory(storyId).data?.isOwner === true;
+	const resolvedStory = useResolvedStory(storyId).data;
+	const access = { isOwner: resolvedStory?.isOwner === true, canEdit: resolvedStory?.canEdit === true };
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -56,7 +59,7 @@ function SharedCustomStory({ storyId }: { storyId: string }) {
 			authorName={story.authorName}
 			isLive={story.isLive}
 			canRefresh={story.canRefresh}
-			storyChatHeader={toStoryChatHeader(storyId, story, isOwner)}
+			storyChatHeader={toStoryChatHeader(storyId, story, access)}
 		/>
 	);
 }
@@ -66,6 +69,7 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 	const queryClient = useQueryClient();
 
 	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
+	const presence = useStoryEditSession({ target: session?.user?.id ? { storyId } : null, isEditing: false });
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -91,8 +95,12 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 		refresh: handleRefresh,
 	});
 
-	const isOwner = useResolvedStory(storyId).data?.isOwner === true;
-	const storyChatHeader = toStoryChatHeader(storyId, story, isOwner);
+	const resolvedStory = useResolvedStory(storyId).data;
+	const isOwner = resolvedStory?.isOwner === true;
+	const storyChatHeader = toStoryChatHeader(storyId, story, {
+		isOwner,
+		canEdit: resolvedStory?.canEdit === true,
+	});
 	const canAsk = storyChatHeader.storyChat?.canChat === true;
 	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
 
@@ -152,6 +160,7 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 							: undefined
 					}
 				/>
+				<StoryEditPresenceBanner presence={presence} />
 
 				<SelectionProvider key={storyId}>
 					{canAsk && <HighlightBubble onAsk={requestAskAboutSelection} />}
@@ -182,7 +191,7 @@ function SharedClassicStoryPage({ storyId }: { storyId: string }) {
 									</StoryElementPicker>
 								}
 							/>
-							{canAsk && <StoryAskBar storyId={storyId} isOwner={isOwner} />}
+							{canAsk && <StoryAskBar storyId={storyId} canEdit={resolvedStory?.canEdit === true} />}
 						</div>
 
 						{sidePanel.content && (
@@ -318,10 +327,10 @@ function SharedStoryContent({
 function toStoryChatHeader(
 	storyId: string,
 	story: { userRole: string | null; canFork: boolean; isArchived: boolean },
-	isOwner: boolean,
+	access: { isOwner: boolean; canEdit: boolean },
 ): Pick<StoryPageHeaderProps, 'storyChat' | 'canDuplicate'> {
 	return {
-		storyChat: { storyId, isOwner, canChat: story.userRole !== 'viewer' && !story.isArchived },
+		storyChat: { storyId, ...access, canChat: story.userRole !== 'viewer' && !story.isArchived },
 		canDuplicate: story.canFork && !story.isArchived,
 	};
 }

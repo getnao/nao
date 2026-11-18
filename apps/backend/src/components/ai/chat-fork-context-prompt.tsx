@@ -76,7 +76,7 @@ function StoryQuestionContext({
 			)}
 			{linkedStory?.canEdit ? (
 				<Span>
-					{`Unlike other existing stories, this one is editable here: the user owns it and may ask to change it. Edit it with the story tool and the id ${JSON.stringify(linkedStory.storyId)}, it updates the story itself. New charts can use queries you run here.`}
+					{`Unlike other existing stories, this one is editable here: the user can edit it and may ask to change it. Edit it with the story tool and the id ${JSON.stringify(linkedStory.storyId)}, it updates the story itself. New charts can use queries you run here. Change only what the request is about, with targeted edits, and leave every other block exactly as it is, query_id included: the story's existing queries keep working without being run again.`}
 				</Span>
 			) : (
 				<Span>The story is read-only here: answer about it, never edit it.</Span>

@@ -1,6 +1,20 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo, type StoryVersionOrigin } from '@nao/shared/types';
-import { aliasedTable, and, asc, countDistinct, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
+import {
+	aliasedTable,
+	and,
+	asc,
+	countDistinct,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	max,
+	ne,
+	or,
+	type SQL,
+	sql,
+} from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
@@ -8,6 +22,7 @@ import type { StoryQuerySources } from '../types/story-cache';
 import { getOpenProjectIds } from '../utils/open-projects';
 import { isQuickQuestionForkType } from './chat.queries';
 import * as executeSqlQueries from './execute-sql.queries';
+import { listLockedUserGroupIdsOfMember } from './locked-user-groups';
 import { sharedStoryGrantsUser } from './shared-story.queries';
 
 export type UserStoryRow = Pick<
@@ -35,6 +50,7 @@ export type UserStoryRow = Pick<
 };
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
+const latestStoryVersion = aliasedTable(s.storyVersion, 'latest_story_version');
 
 export async function getStoryByChatAndSlug(
 	chatId: string,
@@ -114,6 +130,22 @@ export async function getStoryOwnerId(storyId: string): Promise<string | undefin
 		.execute();
 
 	return row?.chatUserId ?? row?.storyUserId ?? undefined;
+}
+
+export type StoryOwner = { id: string; name: string; email: string };
+
+export async function getStoryOwner(storyId: string): Promise<StoryOwner | null> {
+	const ownerId = await getStoryOwnerId(storyId);
+	if (!ownerId) {
+		return null;
+	}
+	const [row] = await db
+		.select({ id: s.user.id, name: s.user.name, email: s.user.email })
+		.from(s.user)
+		.where(eq(s.user.id, ownerId))
+		.limit(1)
+		.execute();
+	return row ?? null;
 }
 
 export async function getStoryByIdForUser(storyId: string, userId: string): Promise<UserStoryRow | null> {
@@ -291,6 +323,30 @@ export type VersionProvenance = {
 	sourceChatId: string | null;
 };
 
+const STORY_VERSION_UNIQUE_CONSTRAINT = 'story_version_story_version_unique';
+
+export class StoryVersionConflictError extends Error {
+	constructor(
+		message = 'Someone saved a newer version while you were editing. Copy your changes, then cancel to see the latest version.',
+	) {
+		super(message);
+		this.name = 'StoryVersionConflictError';
+	}
+}
+
+/** True when an insert lost the race for a story version number to a concurrent save. */
+export function isStoryVersionUniqueViolation(error: unknown): boolean {
+	const databaseError = error instanceof Error && error.cause ? error.cause : error;
+	if (!databaseError || typeof databaseError !== 'object') {
+		return false;
+	}
+	const { code, constraint_name: constraintName, message } = databaseError as Record<string, unknown>;
+	return (
+		(code === '23505' && constraintName === STORY_VERSION_UNIQUE_CONSTRAINT) ||
+		(typeof message === 'string' && message.includes('UNIQUE constraint failed: story_version'))
+	);
+}
+
 export async function createStoryVersion(
 	data: {
 		chatId: string;
@@ -299,6 +355,7 @@ export async function createStoryVersion(
 		code: string;
 		action: 'create' | 'update' | 'replace';
 		source: 'assistant' | 'user';
+		basedOnVersion?: number;
 	} & VersionProvenance,
 	executor: DBExecutor = db,
 ): Promise<DBStoryVersion & { title: string }> {
@@ -309,22 +366,31 @@ export async function createStoryVersion(
 		.from(s.storyVersion)
 		.where(eq(s.storyVersion.storyId, story.id));
 
-	const [created] = await executor
-		.insert(s.storyVersion)
-		.values({
-			storyId: story.id,
-			code: data.code,
-			action: data.action,
-			source: data.source,
-			origin: data.origin,
-			authorId: data.authorId,
-			sourceChatId: data.sourceChatId,
-			version: sql`(${nextVersion})`,
-		})
-		.returning()
-		.execute();
-
-	return { ...created, title: story.title };
+	if (data.basedOnVersion !== undefined) {
+		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, executor);
+	}
+	try {
+		const [created] = await executor
+			.insert(s.storyVersion)
+			.values({
+				storyId: story.id,
+				code: data.code,
+				action: data.action,
+				source: data.source,
+				origin: data.origin,
+				authorId: data.authorId,
+				sourceChatId: data.sourceChatId,
+				version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
+			})
+			.returning()
+			.execute();
+		return { ...created, title: story.title };
+	} catch (error) {
+		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
+			throw new StoryVersionConflictError();
+		}
+		throw error;
+	}
 }
 
 export async function createStandaloneVersion(data: {
@@ -336,6 +402,7 @@ export async function createStandaloneVersion(data: {
 	action: 'create' | 'update' | 'replace';
 	source: 'assistant' | 'user';
 	origin: StoryVersionOrigin;
+	basedOnVersion?: number;
 }): Promise<DBStoryVersion & { title: string }> {
 	const story = await getOrCreateStandaloneStory({
 		userId: data.userId,
@@ -349,21 +416,30 @@ export async function createStandaloneVersion(data: {
 		.from(s.storyVersion)
 		.where(eq(s.storyVersion.storyId, story.id));
 
-	const [created] = await db
-		.insert(s.storyVersion)
-		.values({
-			storyId: story.id,
-			code: data.code,
-			action: data.action,
-			source: data.source,
-			origin: data.origin,
-			authorId: data.userId,
-			version: sql`(${nextVersion})`,
-		})
-		.returning()
-		.execute();
-
-	return { ...created, title: story.title };
+	if (data.basedOnVersion !== undefined) {
+		await assertBasedOnLatestVersion(story.id, data.basedOnVersion, db);
+	}
+	try {
+		const [created] = await db
+			.insert(s.storyVersion)
+			.values({
+				storyId: story.id,
+				code: data.code,
+				action: data.action,
+				source: data.source,
+				origin: data.origin,
+				authorId: data.userId,
+				version: data.basedOnVersion === undefined ? sql`(${nextVersion})` : data.basedOnVersion + 1,
+			})
+			.returning()
+			.execute();
+		return { ...created, title: story.title };
+	} catch (error) {
+		if (data.basedOnVersion !== undefined && isStoryVersionUniqueViolation(error)) {
+			throw new StoryVersionConflictError();
+		}
+		throw error;
+	}
 }
 
 export async function createStandaloneStory(data: {
@@ -431,6 +507,75 @@ export async function claimStandaloneStoryChat(storyId: string, chatId: string):
 	return claimed.length > 0;
 }
 
+/**
+ * Hands a story to its new owner outside any chat, unless it left the chat it was in meanwhile. The chat it leaves
+ * and its slug there are kept, so that chat can still tell where the story went; a story that left the same chat
+ * under the same slug before no longer claims it.
+ */
+export async function detachStoryToOwner(
+	story: Pick<DBStory, 'id' | 'chatId' | 'slug'>,
+	owner: { userId: string; projectId: string; slug: string },
+	executor: DBExecutor = db,
+): Promise<boolean> {
+	const transferredFrom = story.chatId
+		? { transferredFromChatId: story.chatId, transferredFromSlug: story.slug }
+		: {};
+	const detached = await executor
+		.update(s.story)
+		.set({ ...owner, ...transferredFrom, chatId: null })
+		.where(and(eq(s.story.id, story.id), story.chatId ? eq(s.story.chatId, story.chatId) : isNull(s.story.chatId)))
+		.returning({ id: s.story.id })
+		.execute();
+	if (detached.length === 0) {
+		return false;
+	}
+	if (story.chatId) {
+		await executor
+			.update(s.story)
+			.set({ transferredFromChatId: null, transferredFromSlug: null })
+			.where(
+				and(
+					eq(s.story.transferredFromChatId, story.chatId),
+					eq(s.story.transferredFromSlug, story.slug),
+					ne(s.story.id, story.id),
+				),
+			)
+			.execute();
+	}
+	return true;
+}
+
+export interface TransferredStory {
+	id: string;
+	ownerName: string;
+}
+
+export async function findStoryTransferredOutOfChat(chatId: string, slug: string): Promise<TransferredStory | null> {
+	const [row] = await db
+		.select({ id: s.story.id, ownerName: s.user.name })
+		.from(s.story)
+		.innerJoin(s.user, eq(s.user.id, s.story.userId))
+		.where(and(eq(s.story.transferredFromChatId, chatId), eq(s.story.transferredFromSlug, slug)))
+		.limit(1)
+		.execute();
+	return row ?? null;
+}
+
+export async function listOwnedStoryIdsInProject(userId: string, projectId: string): Promise<string[]> {
+	const rows = await db
+		.select({ id: s.story.id })
+		.from(s.story)
+		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(
+			or(
+				and(eq(s.chat.userId, userId), eq(s.chat.projectId, projectId)),
+				and(isNull(s.story.chatId), eq(s.story.userId, userId), eq(s.story.projectId, projectId)),
+			),
+		)
+		.execute();
+	return rows.map((row) => row.id);
+}
+
 export async function archiveStory(chatId: string, slug: string): Promise<void> {
 	const matcher = and(eq(s.story.chatId, chatId), eq(s.story.slug, slug));
 	await db.update(s.story).set({ archivedAt: new Date() }).where(matcher).execute();
@@ -482,7 +627,7 @@ async function detachStoriesFromFolders(storyIds: string[]): Promise<void> {
 }
 
 /** Matches `story` rows the user owns or that are shared with them within the project. */
-export function storyVisibleToUser(userId: string, projectId: string): SQL {
+export function storyVisibleToUser(userId: string, projectId: string, lockedGroupIds: readonly string[]): SQL {
 	return sql`(
 		exists (
 			select 1 from ${s.chat}
@@ -496,7 +641,7 @@ export function storyVisibleToUser(userId: string, projectId: string): SQL {
 			  and (
 				${s.sharedStory.userId} = ${userId}
 				or ${s.sharedStory.visibility} = 'project'
-				or ${sharedStoryGrantsUser(userId)}
+				or ${sharedStoryGrantsUser(userId, lockedGroupIds)}
 			  )
 		)
 	)`;
@@ -532,6 +677,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 	)`;
 	const openProjectIds = getOpenProjectIds();
 	const isOpenProject = openProjectIds.length > 0 ? inArray(s.sharedStory.projectId, openProjectIds) : undefined;
+	const lockedGroupIds = await listLockedUserGroupIdsOfMember(userId);
 
 	const [shared] = await db
 		.select({ id: s.sharedStory.id })
@@ -543,7 +689,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 				or(
 					eq(s.sharedStory.userId, userId),
 					and(eq(s.sharedStory.visibility, 'project'), or(isProjectMember, isOrgMember, isOpenProject)),
-					and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId)),
+					and(eq(s.sharedStory.visibility, 'specific'), sharedStoryGrantsUser(userId, lockedGroupIds)),
 				),
 			),
 		)
@@ -554,8 +700,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 }
 
 export async function updateStoryLiveSettings(
-	chatId: string,
-	slug: string,
+	storyId: string,
 	settings: {
 		isLive: boolean;
 		isLiveTextDynamic: boolean;
@@ -563,11 +708,7 @@ export async function updateStoryLiveSettings(
 		cacheScheduleDescription: string | null;
 	},
 ): Promise<void> {
-	await db
-		.update(s.story)
-		.set(settings)
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-		.execute();
+	await db.update(s.story).set(settings).where(eq(s.story.id, storyId)).execute();
 }
 
 type StoryVersionWithStory = DBStoryVersion &
@@ -590,6 +731,20 @@ export function getLatestVersionByChatAndSlug(chatId: string, slug: string): Pro
 
 export function getLatestVersionByStoryId(storyId: string): Promise<StoryVersionWithStory | null> {
 	return getStoryVersion(eq(s.story.id, storyId), { latest: true });
+}
+
+export async function getLatestVersionStamp(
+	storyId: string,
+): Promise<{ version: number; authorName: string | null } | null> {
+	const [row] = await db
+		.select({ version: s.storyVersion.version, authorName: s.user.name })
+		.from(s.storyVersion)
+		.leftJoin(s.user, eq(s.user.id, s.storyVersion.authorId))
+		.where(eq(s.storyVersion.storyId, storyId))
+		.orderBy(desc(s.storyVersion.version))
+		.limit(1)
+		.execute();
+	return row ?? null;
 }
 
 export function getVersionByNumber(
@@ -712,17 +867,19 @@ export async function listStandaloneSlugsStartingWith(
 	return rows.map((row) => row.slug);
 }
 
-export async function updateLatestVersionCode(chatId: string, slug: string, code: string): Promise<void> {
-	const latest = await getLatestVersionByChatAndSlug(chatId, slug);
-	if (!latest) {
-		return;
-	}
-
-	await db
+/** Leaves the code alone once a newer version exists, so a rewrite of an older version never replaces it. */
+export async function updateVersionCodeIfLatest(storyId: string, versionId: string, code: string): Promise<boolean> {
+	const latestVersionNumber = db
+		.select({ version: max(latestStoryVersion.version) })
+		.from(latestStoryVersion)
+		.where(eq(latestStoryVersion.storyId, storyId));
+	const updated = await db
 		.update(s.storyVersion)
 		.set({ code })
-		.where(and(eq(s.storyVersion.storyId, latest.storyId), eq(s.storyVersion.version, latest.version)))
+		.where(and(eq(s.storyVersion.id, versionId), eq(s.storyVersion.version, latestVersionNumber)))
+		.returning({ id: s.storyVersion.id })
 		.execute();
+	return updated.length > 0;
 }
 
 export function getStoryDataCacheByChatAndSlug(chatId: string, slug: string): Promise<DBStoryDataCache | null> {
@@ -756,54 +913,20 @@ export async function getStoryQueryDataByStoryIds(
 	return new Map(rows.map((row) => [row.storyId, row.queryData]));
 }
 
-export async function upsertStoryDataCache(
-	chatId: string,
-	slug: string,
-	queryData: Record<string, { data: unknown[]; columns: string[] }>,
-	querySources: StoryQuerySources,
-	analysisResults?: Record<string, string> | null,
-): Promise<DBStoryDataCache> {
-	const story = await getStoryByChatAndSlug(chatId, slug);
-	if (!story) {
-		throw new Error(`Story not found: ${chatId}/${slug}`);
-	}
-
-	const [row] = await db
-		.insert(s.storyDataCache)
-		.values({
-			storyId: story.id,
-			queryData,
-			querySources,
-			analysisResults: analysisResults ?? null,
-			cachedAt: new Date(),
-		})
-		.onConflictDoUpdate({
-			target: s.storyDataCache.storyId,
-			set: {
-				queryData,
-				querySources,
-				analysisResults: analysisResults ?? null,
-				cachedAt: new Date(),
-			},
-		})
-		.returning()
-		.execute();
-
-	return row;
-}
-
 export async function upsertStoryDataCacheByStoryId(
 	storyId: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 	analysisResults?: Record<string, string> | null,
+	querySources: StoryQuerySources | null = null,
+	executor: DBExecutor = db,
 ): Promise<void> {
 	const narratives = analysisResults === undefined ? {} : { analysisResults };
-	await db
+	await executor
 		.insert(s.storyDataCache)
-		.values({ storyId, queryData, querySources: null, cachedAt: new Date(), ...narratives })
+		.values({ storyId, queryData, querySources, cachedAt: new Date(), ...narratives })
 		.onConflictDoUpdate({
 			target: s.storyDataCache.storyId,
-			set: { queryData, querySources: null, cachedAt: new Date(), ...narratives },
+			set: { queryData, querySources, cachedAt: new Date(), ...narratives },
 		})
 		.execute();
 }
@@ -914,6 +1037,23 @@ async function queryStoriesWithLatestVersion(
 		return query.limit(options.limit).execute();
 	}
 	return query.execute();
+}
+
+async function assertBasedOnLatestVersion(
+	storyId: string,
+	basedOnVersion: number,
+	executor: DBExecutor,
+): Promise<void> {
+	const [latest] = await executor
+		.select({ version: s.storyVersion.version })
+		.from(s.storyVersion)
+		.where(eq(s.storyVersion.storyId, storyId))
+		.orderBy(desc(s.storyVersion.version))
+		.limit(1)
+		.execute();
+	if ((latest?.version ?? 0) !== basedOnVersion) {
+		throw new StoryVersionConflictError();
+	}
 }
 
 async function getOrCreateStory(

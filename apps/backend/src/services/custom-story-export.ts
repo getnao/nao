@@ -1,4 +1,4 @@
-import type { StoryExportData, StoryQueryResult } from '@nao/shared/story-app';
+import type { StoryExportData, StoryMapBoundary, StoryQueryResult } from '@nao/shared/story-app';
 import { buildStoryExportDocument } from '@nao/shared/story-document';
 import { DEFAULT_STORY_THEME_PAIR, type StoryThemeMode } from '@nao/shared/story-theme';
 
@@ -9,11 +9,11 @@ import { loadStandaloneStoryRuntime } from '../utils/story-standalone-runtime';
 import { readStoryChartPluginSources } from './chart-plugin';
 import {
 	type CustomStoryVersionView,
-	getCustomStoryNarratives,
-	getCustomStoryVersion,
+	getLatestCustomStoryVersionByStoryId,
 	getStoredCustomStoryNarrativesByStoryId,
 } from './custom-story';
-import { getUnattendedCustomStoryState, getUnattendedCustomStoryStateByStoryId } from './custom-story-state';
+import { getUnattendedCustomStoryStateByStoryId } from './custom-story-state';
+import { readStoryMapBoundaries } from './story-map-boundary';
 
 interface StoryExportContext {
 	queryData: Record<string, StoryQueryResult>;
@@ -21,25 +21,15 @@ interface StoryExportContext {
 	runtime: string;
 	state?: StoryExportData['state'];
 	chartPlugins: Record<string, string>;
+	mapBoundaries: Record<string, StoryMapBoundary>;
 }
 
 export async function renderCustomStoryPdf(
-	chatId: string,
-	storySlug: string,
+	storyId: string,
 	queryData: Record<string, StoryQueryResult>,
 ): Promise<{ filename: string; buffer: Buffer }> {
-	const version = await getCustomStoryVersion(chatId, storySlug);
-	const [narratives, state, runtime, chartPlugins] = await Promise.all([
-		getCustomStoryNarratives(chatId, storySlug),
-		getUnattendedCustomStoryState(chatId, storySlug),
-		loadStandaloneStoryRuntime(),
-		readStoryChartPluginSources(version.storyId),
-	]);
-	const html = buildCustomStoryDocumentHtml(
-		version,
-		{ queryData, narratives, runtime, state, chartPlugins },
-		'light',
-	);
+	const version = await getLatestCustomStoryVersionByStoryId(storyId);
+	const html = await buildCustomStoryDocumentByStoryId(storyId, version, queryData, 'light');
 	const buffer = await renderStoryPdf(html, themeFontStylesheets(version.theme));
 	return { filename: formatDownloadFilename(version.title, 'pdf'), buffer };
 }
@@ -51,18 +41,23 @@ export async function buildCustomStoryDocumentByStoryId(
 	queryData: Record<string, StoryQueryResult>,
 	mode: StoryThemeMode,
 ): Promise<string> {
-	const [narratives, runtime, state, chartPlugins] = await Promise.all([
+	const [narratives, runtime, state, chartPlugins, mapBoundaries] = await Promise.all([
 		getStoredCustomStoryNarrativesByStoryId(storyId),
 		loadStandaloneStoryRuntime(),
 		getUnattendedCustomStoryStateByStoryId(storyId),
 		readStoryChartPluginSources(storyId),
+		readStoryMapBoundaries(storyId, version.mapBoundaryKeys),
 	]);
-	return buildCustomStoryDocumentHtml(version, { queryData, narratives, runtime, state, chartPlugins }, mode);
+	return buildCustomStoryDocumentHtml(
+		version,
+		{ queryData, narratives, runtime, state, chartPlugins, mapBoundaries },
+		mode,
+	);
 }
 
 function buildCustomStoryDocumentHtml(
 	version: CustomStoryVersionView,
-	{ queryData, narratives, runtime, state, chartPlugins }: StoryExportContext,
+	{ queryData, narratives, runtime, state, chartPlugins, mapBoundaries }: StoryExportContext,
 	mode: StoryThemeMode,
 ): string {
 	if (!version.app) {
@@ -74,6 +69,7 @@ function buildCustomStoryDocumentHtml(
 		narratives,
 		state,
 		chartPlugins,
+		mapBoundaries,
 	};
 	return buildStoryExportDocument({
 		title: version.title,

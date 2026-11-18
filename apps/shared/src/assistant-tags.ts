@@ -2,6 +2,10 @@ import { CITATION_TAG_REGEX, normalizeCitationMarkers } from './citation';
 
 export const SAVED_FILE_TAG_REGEX = /<\/?saved-file[^>]*>/g;
 
+/** A context file the Context Hub chat points at, opened in the hub when clicked, optionally at a range of lines. */
+export const CONTEXT_FILE_TAG = 'context-file';
+export const CONTEXT_FILE_TAG_REGEX = new RegExp(`</?${CONTEXT_FILE_TAG}[^>]*>`, 'g');
+
 export const STORY_REFERENCE_TAG = 'story-reference';
 export const STORY_REFERENCE_TAG_REGEX = new RegExp(`</?${STORY_REFERENCE_TAG}[^>]*>`, 'g');
 const STORY_REFERENCE_ELEMENT_REGEX = new RegExp(
@@ -13,6 +17,7 @@ export const stripAssistantTags = (text: string): string => {
 	return normalizeCitationMarkers(text)
 		.replace(CITATION_TAG_REGEX, '')
 		.replace(SAVED_FILE_TAG_REGEX, '')
+		.replace(CONTEXT_FILE_TAG_REGEX, '')
 		.replace(STORY_REFERENCE_TAG_REGEX, '');
 };
 

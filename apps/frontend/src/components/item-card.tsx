@@ -14,7 +14,7 @@ export const GRID_THUMBNAIL_CLASS =
 	'absolute top-0 left-0 right-0 bottom-12 pointer-events-none overflow-hidden bg-background dark:bg-background mx-1 mt-1 mb-2 rounded-lg';
 
 export const GRID_HOVER_ACTION_GRADIENT_CLASS =
-	'pointer-events-none absolute inset-x-0 top-0 z-[1] h-16 bg-gradient-to-b from-background/95 via-background/70 to-transparent opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 dark:from-background/95 dark:via-background/75';
+	'pointer-events-none absolute inset-x-0 top-0 z-[1] h-16 bg-gradient-to-b from-background/95 via-background/70 to-transparent opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 group-has-data-[state=open]:opacity-100 dark:from-background/95 dark:via-background/75';
 
 export function CardsSection({
 	title,

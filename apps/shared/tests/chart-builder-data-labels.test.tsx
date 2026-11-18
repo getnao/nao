@@ -1,33 +1,10 @@
-import React from 'react';
-import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { buildChart } from '../src/chart-builder';
 import { shouldReserveDataLabelHeadroom } from '../src/chart-data-labels';
 import { resolveBarYAxisDomain } from '../src/chart-domain';
 import { CHART_NUMBER_LOCALE, niceAxisMax } from '../src/chart-values';
-
-function renderChart(element: React.ReactElement) {
-	return renderToString(React.cloneElement(element, { width: 600, height: 400 }));
-}
-
-function renderChartAtSize(element: React.ReactElement, width: number, height: number) {
-	return renderToString(React.cloneElement(element, { width, height }));
-}
-
-function getYAxis(chart: React.ReactElement): React.ReactElement | undefined {
-	return flattenChildren(chart.props.children).find((child) => child.type.displayName === 'YAxis');
-}
-
-function flattenChildren(children: unknown): React.ReactElement[] {
-	if (Array.isArray(children)) {
-		return children.flatMap(flattenChildren);
-	}
-	if (React.isValidElement(children)) {
-		return [children];
-	}
-	return [];
-}
+import { findChartElement, renderChart } from './helpers/chart-elements';
 
 interface RenderedLabel {
 	x: number;
@@ -145,8 +122,11 @@ const EDGE_LABEL_DATA = [79, 604, 769, 1057, 1220, 1349, 1449].map((value, index
 	value,
 }));
 
-function renderEdgeLabelChart(chartType: 'area' | 'line', width = 980, height = 260) {
-	return renderChartAtSize(
+const EDGE_CHART_WIDTH = 980;
+const EDGE_CHART_HEIGHT = 260;
+
+function renderEdgeLabelChart(chartType: 'area' | 'line') {
+	return renderChart(
 		buildChart({
 			data: EDGE_LABEL_DATA,
 			chartType,
@@ -156,44 +136,38 @@ function renderEdgeLabelChart(chartType: 'area' | 'line', width = 980, height = 
 			showDataLabels: true,
 			margin: { top: 0, right: 0, bottom: 0, left: 0 },
 		}),
-		width,
-		height,
+		EDGE_CHART_WIDTH,
+		EDGE_CHART_HEIGHT,
 	);
 }
 
 describe('buildChart data labels', () => {
 	it('keeps the full last area label inside the chart', () => {
-		const width = 980;
-		const height = 260;
-		const labels = parseDataLabels(renderEdgeLabelChart('area', width, height));
+		const labels = parseDataLabels(renderEdgeLabelChart('area'));
 		const lastLabel = labels.find((label) => label.text === '1,449');
 
 		expect(lastLabel).toBeDefined();
 		expect(lastLabel!.textAnchor).toBe('end');
-		expectLabelsInsideSvg(labels, width, height);
+		expectLabelsInsideSvg(labels, EDGE_CHART_WIDTH, EDGE_CHART_HEIGHT);
 		expect(hasOverlap(labels)).toBe(false);
 	});
 
 	it('keeps the full last line label inside the chart', () => {
-		const width = 980;
-		const height = 260;
-		const labels = parseDataLabels(renderEdgeLabelChart('line', width, height));
+		const labels = parseDataLabels(renderEdgeLabelChart('line'));
 		const lastLabel = labels.find((label) => label.text === '1,449');
 
 		expect(lastLabel).toBeDefined();
 		expect(lastLabel!.textAnchor).toBe('end');
-		expectLabelsInsideSvg(labels, width, height);
+		expectLabelsInsideSvg(labels, EDGE_CHART_WIDTH, EDGE_CHART_HEIGHT);
 	});
 
 	it('keeps the first point label inside the left edge', () => {
-		const width = 980;
-		const height = 260;
-		const labels = parseDataLabels(renderEdgeLabelChart('area', width, height));
+		const labels = parseDataLabels(renderEdgeLabelChart('area'));
 		const firstLabel = labels.find((label) => label.text === '79');
 
 		expect(firstLabel).toBeDefined();
 		expect(firstLabel!.textAnchor).toBe('start');
-		expectLabelsInsideSvg([firstLabel!], width, height);
+		expectLabelsInsideSvg([firstLabel!], EDGE_CHART_WIDTH, EDGE_CHART_HEIGHT);
 	});
 
 	it('rounds axis max using nice tick steps', () => {
@@ -270,7 +244,7 @@ describe('buildChart data labels', () => {
 		const width = 600;
 		const height = 200;
 		expect(resolveBarYAxisDomain(undefined, undefined, [250, 500], true)).toEqual([0, 600]);
-		const html = renderChartAtSize(
+		const html = renderChart(
 			buildChart({
 				data: [
 					{ month: 'Jan', sales: 250 },
@@ -307,12 +281,13 @@ describe('buildChart data labels', () => {
 			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
 			showDataLabels: true,
 		};
-		const domainWithoutTotal = getYAxis(buildChart(props))?.props.domain;
-		const domainWithTotal = getYAxis(
+		const domainWithoutTotal = findChartElement(buildChart(props), 'YAxis')?.props.domain;
+		const domainWithTotal = findChartElement(
 			buildChart({
 				...props,
 				series: [...props.series, { data_key: 'total', is_total: true }],
 			}),
+			'YAxis',
 		)?.props.domain;
 
 		expect(domainWithoutTotal).toEqual([0, 400]);
@@ -341,12 +316,13 @@ describe('buildChart data labels', () => {
 			yAxisMin: 0,
 			showDataLabels: true,
 		};
-		const domainWithoutTotal = getYAxis(buildChart(props))?.props.domain;
-		const domainWithTotal = getYAxis(
+		const domainWithoutTotal = findChartElement(buildChart(props), 'YAxis')?.props.domain;
+		const domainWithTotal = findChartElement(
 			buildChart({
 				...props,
 				series: [...props.series, { data_key: 'total', is_total: true }],
 			}),
+			'YAxis',
 		)?.props.domain;
 
 		expect(domainWithoutTotal).toEqual([0, 300]);
@@ -387,8 +363,8 @@ describe('buildChart data labels', () => {
 			xAxisType: 'category' as const,
 			series: [{ data_key: 'sales' }],
 		};
-		const labelsOn = renderChartAtSize(buildChart({ ...props, showDataLabels: true }), 600, 200);
-		const labelsOff = renderChartAtSize(buildChart({ ...props, showDataLabels: false }), 600, 200);
+		const labelsOn = renderChart(buildChart({ ...props, showDataLabels: true }), 600, 200);
+		const labelsOff = renderChart(buildChart({ ...props, showDataLabels: false }), 600, 200);
 
 		expect(parsePlotRect(labelsOn)).toEqual(parsePlotRect(labelsOff));
 	});
@@ -411,7 +387,7 @@ describe('buildChart data labels', () => {
 			series: [{ data_key: 'sales' }],
 			showDataLabels: true,
 		};
-		const html = renderChartAtSize(buildChart(props), width, height);
+		const html = renderChart(buildChart(props), width, height);
 		const topLabel = parseDataLabels(html).find((label) => label.text === '780');
 
 		expect(shouldReserveDataLabelHeadroom(props)).toBe(true);
@@ -430,8 +406,8 @@ describe('buildChart data labels', () => {
 			xAxisType: 'category' as const,
 			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
 		};
-		const labelsOn = renderChartAtSize(buildChart({ ...props, showDataLabels: true }), 600, 200);
-		const labelsOff = renderChartAtSize(buildChart({ ...props, showDataLabels: false }), 600, 200);
+		const labelsOn = renderChart(buildChart({ ...props, showDataLabels: true }), 600, 200);
+		const labelsOff = renderChart(buildChart({ ...props, showDataLabels: false }), 600, 200);
 
 		expect(parseDataLabels(labelsOn).some((label) => label.text === '500')).toBe(true);
 		expect(parsePlotRect(labelsOn)).toEqual(parsePlotRect(labelsOff));
@@ -454,21 +430,6 @@ describe('buildChart data labels', () => {
 
 		expect(html).toContain('recharts-yAxis');
 		expect(html).toContain('recharts-xAxis');
-	});
-
-	it('renders point labels when enabled for bar charts', () => {
-		const html = renderChart(
-			buildChart({
-				data: [{ month: 'Jan', sales: 460 }],
-				chartType: 'bar',
-				xAxisKey: 'month',
-				xAxisType: 'category',
-				series: [{ data_key: 'sales' }],
-				showDataLabels: true,
-			}),
-		);
-
-		expect(html).toContain('460');
 	});
 
 	it('renders stacked labels from non-total series only', () => {
@@ -583,7 +544,7 @@ describe('buildChart data labels', () => {
 			{ category: 'Large', value: 6000 },
 			...Array.from({ length: 9 }, (_, index) => ({ category: `Small ${index + 1}`, value: 500 - index })),
 		];
-		const html = renderChartAtSize(
+		const html = renderChart(
 			buildChart({
 				data,
 				chartType,
@@ -621,7 +582,7 @@ describe('buildChart data labels', () => {
 				...Array.from({ length: 30 }, (_, index) => ({ day: `Day ${index + 1}`, value: index + 1 })),
 				{ day: 'Padding end', value: null },
 			];
-			const html = renderChartAtSize(
+			const html = renderChart(
 				buildChart({
 					data,
 					chartType,
@@ -652,7 +613,7 @@ describe('buildChart data labels', () => {
 			...values.map((value, index) => ({ day: `Day ${index + 1}`, value })),
 			{ day: 'Padding end', value: null },
 		];
-		const html = renderChartAtSize(
+		const html = renderChart(
 			buildChart({
 				data,
 				chartType,
@@ -683,7 +644,7 @@ describe('buildChart data labels', () => {
 			})),
 			{ day: 'Padding end', first: null, second: null },
 		];
-		const html = renderChartAtSize(
+		const html = renderChart(
 			buildChart({
 				data,
 				chartType,

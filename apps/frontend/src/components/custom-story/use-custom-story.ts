@@ -9,7 +9,7 @@ import { trpc, trpcClient } from '@/main';
 
 export function useCustomStory(chatId: string, storySlug: string) {
 	const queryClient = useQueryClient();
-	const { selectedVersion, setSelectedVersion } = useSelectedVersion(chatId, storySlug);
+	const { selectedVersion, setSelectedVersion } = useSelectedVersion(`${chatId}:${storySlug}`);
 	const isAgentRunning = useChatActivity(chatId).running;
 
 	const versionsQuery = useQuery(trpc.story.listVersions.queryOptions({ chatId, storySlug }));
@@ -31,9 +31,10 @@ export function useCustomStory(chatId: string, storySlug: string) {
 		...trpc.story.getCustomVersion.queryOptions({ chatId, storySlug, versionNumber: viewedVersion ?? undefined }),
 		enabled: viewedVersion !== null,
 	});
+	const olderVersionNumber = isViewingLatest ? undefined : (viewedVersion ?? undefined);
 	const dataSource = useMemo<CustomStoryFileSource>(
-		() => ({ kind: 'owner', chatId, storySlug }),
-		[chatId, storySlug],
+		() => ({ kind: 'owner', chatId, storySlug, versionNumber: olderVersionNumber }),
+		[chatId, storySlug, olderVersionNumber],
 	);
 
 	const goToVersion = useCallback(
@@ -105,8 +106,33 @@ export function useCustomStory(chatId: string, storySlug: string) {
 	};
 }
 
-function useSelectedVersion(chatId: string, storySlug: string) {
-	const storyKey = `${chatId}:${storySlug}`;
+/** The versions of a custom story outside any chat, and the one its owner views. */
+export function useStandaloneCustomStoryVersions(storyId: string) {
+	const { selectedVersion, setSelectedVersion } = useSelectedVersion(storyId);
+	const storyQuery = useQuery(trpc.standaloneCustomStory.listVersions.queryOptions({ storyId }));
+	const versions = useMemo(() => storyQuery.data?.versions ?? [], [storyQuery.data?.versions]);
+	const selectedIndex = versions.findIndex((version) => version.version === selectedVersion);
+	const viewedIndex = selectedIndex === -1 ? versions.length - 1 : selectedIndex;
+
+	const goToVersion = useCallback(
+		(position: number) => {
+			setSelectedVersion(position >= versions.length ? null : (versions[position - 1]?.version ?? null));
+		},
+		[setSelectedVersion, versions],
+	);
+
+	return {
+		storyQuery,
+		selectedVersion: selectedIndex === -1 ? null : selectedVersion,
+		currentVersion: viewedIndex + 1,
+		versions,
+		versionDate: versions[viewedIndex]?.createdAt,
+		isViewingLatest: selectedIndex === -1,
+		goToVersion,
+	};
+}
+
+function useSelectedVersion(storyKey: string) {
 	const [selection, setSelection] = useState<{ storyKey: string; version: number } | null>(null);
 	const selectedVersion = selection?.storyKey === storyKey ? selection.version : null;
 	const setSelectedVersion = useCallback(

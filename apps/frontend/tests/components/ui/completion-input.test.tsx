@@ -1,0 +1,193 @@
+// @vitest-environment jsdom
+
+import { useState } from 'react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { stubResizeObserver } from '../../helpers/browser-stubs';
+import type { FocusEvent } from 'react';
+import type { CompletionOption, CompletionOptions } from '@/components/ui/completion-input';
+import { CompletionInput } from '@/components/ui/completion-input';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+
+stubResizeObserver();
+
+const NAMES = ['orders', 'order_value', 'revenue'];
+
+afterEach(() => {
+	cleanup();
+});
+
+describe('CompletionInput', () => {
+	it('suggests completions for the text at the cursor once typing starts', () => {
+		render(<Harness />);
+
+		type('or');
+
+		expect(optionLabels()).toEqual(['orders', 'order_value']);
+		expect(input().getAttribute('aria-expanded')).toBe('true');
+	});
+
+	it('accepts the active completion with the keyboard', () => {
+		render(<Harness />);
+
+		type('or');
+		fireEvent.keyDown(input(), { key: 'ArrowDown' });
+		fireEvent.keyDown(input(), { key: 'Enter' });
+
+		expect(input().value).toBe('order_value');
+		expect(screen.queryByRole('listbox')).toBeNull();
+	});
+
+	it('accepts a completion on click', () => {
+		render(<Harness />);
+
+		type('rev');
+		fireEvent.click(screen.getByRole('option', { name: 'revenue' }));
+
+		expect(input().value).toBe('revenue');
+	});
+
+	it('leaves Enter alone when nothing matches', () => {
+		render(<Harness />);
+
+		type('xyz');
+		const enter = fireEvent.keyDown(input(), { key: 'Enter' });
+
+		expect(enter).toBe(true);
+		expect(input().value).toBe('xyz');
+	});
+
+	it('keeps its options under the pointer inside a modal dialog', () => {
+		render(
+			<Dialog open>
+				<DialogContent aria-describedby={undefined}>
+					<DialogTitle>Edit chart</DialogTitle>
+					<Harness />
+				</DialogContent>
+			</Dialog>,
+		);
+
+		type('or');
+
+		const options = screen.getByRole('listbox').closest<HTMLElement>('[data-slot=popover-content]');
+		expect(document.body.style.pointerEvents).toBe('none');
+		expect(options?.style.pointerEvents).toBe('auto');
+	});
+
+	it('closes on Escape', () => {
+		render(<Harness />);
+
+		type('or');
+		fireEvent.keyDown(input(), { key: 'Escape' });
+
+		expect(screen.queryByRole('listbox')).toBeNull();
+	});
+
+	it('returns focus to the input when Escape closes Add', () => {
+		render(<MultipleHarness onAccept={() => undefined} />);
+
+		type('or');
+		fireEvent.keyDown(input(), { key: 'Enter' });
+		fireEvent.keyDown(input(), { key: 'Tab' });
+		fireEvent.keyDown(screen.getByRole('button', { name: 'Add' }), { key: 'Escape' });
+
+		expect(screen.queryByRole('listbox')).toBeNull();
+		expect(input()).toBe(document.activeElement);
+	});
+
+	it('keeps checked completions when Tab moves to Add', () => {
+		const accepted: string[][] = [];
+		render(<MultipleHarness onAccept={(items) => accepted.push(items.map((item) => item.insertText))} />);
+
+		type('or');
+		fireEvent.keyDown(input(), { key: 'Enter' });
+		fireEvent.keyDown(input(), { key: 'Tab' });
+
+		const add = screen.getByRole('button', { name: 'Add' });
+		expect(add).toBe(document.activeElement);
+		expect(screen.getByRole('listbox')).toBeTruthy();
+
+		fireEvent.click(add);
+
+		expect(accepted).toEqual([['orders']]);
+	});
+
+	it('forwards an input blur when focus leaves Add', () => {
+		const targets: EventTarget[] = [];
+		render(<MultipleHarness onAccept={() => undefined} onBlur={(event) => targets.push(event.currentTarget)} />);
+
+		type('or');
+		fireEvent.keyDown(input(), { key: 'Enter' });
+		fireEvent.keyDown(input(), { key: 'Tab' });
+		fireEvent.blur(screen.getByRole('button', { name: 'Add' }), { relatedTarget: document.body });
+
+		expect(targets).toEqual([input()]);
+	});
+
+	it('accepts several checked completions at once and keeps the draft', () => {
+		const accepted: string[][] = [];
+		render(<MultipleHarness onAccept={(items) => accepted.push(items.map((item) => item.insertText))} />);
+
+		type('or');
+		fireEvent.click(screen.getByRole('option', { name: 'orders' }));
+		fireEvent.change(input(), { target: { value: 'rev', selectionStart: 3 } });
+		fireEvent.click(screen.getByRole('option', { name: 'revenue' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+		expect(accepted).toEqual([['orders', 'revenue']]);
+		expect(input().value).toBe('rev');
+		expect(screen.queryByRole('listbox')).toBeNull();
+	});
+});
+
+function Harness() {
+	const [value, setValue] = useState('');
+	return <CompletionInput aria-label='Metric' value={value} onValueChange={setValue} getCompletions={completeName} />;
+}
+
+function MultipleHarness({
+	onAccept,
+	onBlur,
+}: {
+	onAccept: (items: CompletionOption[]) => void;
+	onBlur?: (event: FocusEvent<HTMLInputElement>) => void;
+}) {
+	const [value, setValue] = useState('');
+	return (
+		<CompletionInput
+			multiple
+			aria-label='Metric'
+			value={value}
+			onValueChange={setValue}
+			getCompletions={completeName}
+			onAccept={onAccept}
+			onBlur={onBlur}
+		/>
+	);
+}
+
+function completeName(value: string, cursor: number): CompletionOptions {
+	const typed = value.slice(0, cursor);
+	return {
+		from: 0,
+		to: value.length,
+		items: NAMES.filter((name) => typed && name.startsWith(typed)).map((name) => ({
+			label: name,
+			insertText: name,
+		})),
+	};
+}
+
+function type(text: string) {
+	fireEvent.focus(input());
+	fireEvent.change(input(), { target: { value: text, selectionStart: text.length } });
+}
+
+function input(): HTMLInputElement {
+	return screen.getByRole('combobox', { name: 'Metric' });
+}
+
+function optionLabels(): string[] {
+	return screen.getAllByRole('option').map((option) => option.textContent ?? '');
+}

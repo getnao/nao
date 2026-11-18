@@ -33,13 +33,13 @@ export async function ensureStoryChat(story: DBStory, scope: EditableStoryScope)
 	const latest = await storyQueries.getLatestVersionByStoryId(story.id);
 	const { chatId } = await attachChatToStandaloneStory(
 		{ id: story.id, slug: story.slug, title: story.title, code: latest?.code ?? '', format: story.format },
-		{ userId: scope.userId, projectId: scope.projectId },
+		{ userId: story.userId ?? scope.userId, projectId: scope.projectId },
 	);
 	return chatId;
 }
 
 function readOnlyError(storyId: string): { error: string } {
-	return { error: `Story "${storyId}" is read-only here: only its owner can edit it.` };
+	return { error: `Story "${storyId}" is read-only here: only its owner and its editors can change it.` };
 }
 
 function notFoundError(storyId: string): { error: string } {

@@ -13,11 +13,14 @@ import * as backofficeQueries from '../queries/backoffice.queries';
 import * as eventQueries from '../queries/backoffice-events.queries';
 import * as statsQueries from '../queries/backoffice-stats.queries';
 import * as userQueries from '../queries/backoffice-user.queries';
+import { checkDatabaseConnection } from '../queries/health.queries';
 import * as backofficeService from '../services/backoffice.service';
 import * as billingService from '../services/backoffice-billing.service';
 import * as creditsService from '../services/backoffice-credits.service';
 import * as onboardingService from '../services/backoffice-onboarding.service';
+import * as ssoService from '../services/organization-sso.service';
 import { INSTANCE_LOG_SORT_KEYS, instanceLogFilterSchema } from '../types/backoffice';
+import { organizationSsoDomainsInputSchema } from '../types/organization';
 import { ORG_ROLES } from '../types/organization';
 import { HandlerError } from '../utils/error';
 
@@ -56,7 +59,7 @@ export const backofficeRoutes = async (app: App) => {
 	});
 
 	app.get('/health', async () => {
-		const connected = await backofficeQueries.checkDatabaseConnection();
+		const connected = await checkDatabaseConnection();
 		return {
 			status: connected ? 'ok' : 'degraded',
 			version: env.APP_VERSION,
@@ -129,6 +132,36 @@ export const backofficeRoutes = async (app: App) => {
 			return;
 		}
 		return runService(reply, () => backofficeService.updateOrganization(params.orgId, body));
+	});
+
+	app.get('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		return runService(reply, async () => ({ sso: await ssoService.getOrganizationSso(params.orgId) }));
+	});
+
+	app.put('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		const body = parse(organizationSsoDomainsInputSchema, request.body, reply);
+		if (!params || !body) {
+			return;
+		}
+		return runService(reply, async () => ({
+			sso: await ssoService.activateOrganizationSso(params.orgId, body.domains),
+		}));
+	});
+
+	app.delete('/organizations/:orgId/sso', async (request, reply) => {
+		const params = parse(idParamsSchema, request.params, reply);
+		if (!params) {
+			return;
+		}
+		const result = await runService(reply, () => ssoService.deactivateOrganizationSso(params.orgId));
+		if (result !== SERVICE_ERROR) {
+			return reply.status(204).send();
+		}
 	});
 
 	app.put('/organizations/:orgId/members/:userId', async (request, reply) => {

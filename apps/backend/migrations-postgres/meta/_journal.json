@@ -701,6 +701,76 @@
       "when": 1793965270432,
       "tag": "0099_story_filter_options_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1794262121434,
+      "tag": "0100_automation_event_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794297263754,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794307823056,
+      "tag": "0102_story_multi_editors",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794608573692,
+      "tag": "0103_project_menu_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794665362220,
+      "tag": "0104_shared_github_access_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1794824545395,
+      "tag": "0105_story_queries",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1794936825739,
+      "tag": "0106_story_transferred_from",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795005230933,
+      "tag": "0107_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795008907744,
+      "tag": "0108_sso_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1795027131609,
+      "tag": "0109_agent_stream_relay",
+      "breakpoints": true
     }
   ]
 }

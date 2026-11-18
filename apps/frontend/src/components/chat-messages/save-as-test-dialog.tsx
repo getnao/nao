@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { FormActions, TextareaField, TextField } from '@/components/ui/form-fields';
+import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
 interface SaveAsTestDialogProps {
@@ -39,11 +40,18 @@ export function SaveAsTestDialog({ draft, open, onOpenChange }: SaveAsTestDialog
 
 function SaveAsTestForm({ draft, onClose }: { draft: TestDraft; onClose: () => void }) {
 	const queryClient = useQueryClient();
+	const { data: session } = useSession();
 	const createTestFile = useMutation(
 		trpc.testRun.createTestFile.mutationOptions({ onSuccess: () => refreshTestFiles(queryClient) }),
 	);
 	const form = useForm({
-		defaultValues: { name: draft.name, prompt: draft.prompt, sql: draft.sql, tags: '' },
+		defaultValues: {
+			name: draft.name,
+			prompt: draft.prompt,
+			sql: draft.sql,
+			tags: '',
+			owner: session?.user.email ?? '',
+		},
 		onSubmit: async ({ value }) => {
 			await createTestFile.mutateAsync({
 				name: value.name,
@@ -51,6 +59,7 @@ function SaveAsTestForm({ draft, onClose }: { draft: TestDraft; onClose: () => v
 				sql: value.sql.trim() || undefined,
 				databaseId: draft.databaseId ?? undefined,
 				tags: parseTags(value.tags),
+				owner: value.owner.trim(),
 			});
 		},
 	});
@@ -70,7 +79,16 @@ function SaveAsTestForm({ draft, onClose }: { draft: TestDraft; onClose: () => v
 			<TextField form={form} name='name' label='Name' required />
 			<TextareaField form={form} name='prompt' label='Question' rows={3} required />
 			<TextareaField form={form} name='sql' label='Reference SQL' hint='(expected data)' rows={8} />
-			<TextField form={form} name='tags' label='Tags' hint='(comma-separated)' placeholder='finance, weekly' />
+			<div className='grid grid-cols-2 gap-4'>
+				<TextField
+					form={form}
+					name='tags'
+					label='Tags'
+					hint='(comma-separated)'
+					placeholder='finance, weekly'
+				/>
+				<TextField form={form} name='owner' label='Owner' placeholder='data-team@company.com' />
+			</div>
 			{createTestFile.error && <ErrorMessage message={createTestFile.error.message} />}
 			<FormActions form={form} submitText='Save test' onCancel={onClose} isPending={createTestFile.isPending} />
 		</form>

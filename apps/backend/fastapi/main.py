@@ -41,6 +41,7 @@ from api_models import (  # noqa: E402
     ValidateRowPredicateResponse,
     ValidateSQLResponse,
 )
+from nao_core.cloud import is_nao_cloud  # noqa: E402
 from nao_core.commands.sync.cleanup import get_database_folder_names  # noqa: E402
 from nao_core.config import NaoConfig, NaoConfigError  # noqa: E402
 from nao_core.config.databases.allow_listed_only_guard import (  # noqa: E402
@@ -343,14 +344,23 @@ def require_internal_secret(
 internal_only = [Depends(require_internal_secret)]
 
 
-def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
-    project_path = Path(request.nao_project_folder)
+def _load_project_config(
+    project_path: Path, env_vars: dict[str, str] | None
+) -> NaoConfig:
+    """On nao Cloud the config is a tenant's: it resolves from the project's variables, never from this process."""
     config = NaoConfig.try_load(
         project_path,
         raise_on_error=True,
-        extra_env=request.env_vars,
+        extra_env=env_vars,
+        process_env=not is_nao_cloud(),
     )
     assert config is not None
+    return config
+
+
+def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
+    project_path = Path(request.nao_project_folder)
+    config = _load_project_config(project_path, request.env_vars)
     db_config, database_folder = _resolve_database(config, request.database_id)
     if isinstance(db_config, BigQueryConfig):
         db_config.ensure_explicit_credentials_on_cloud()
@@ -482,27 +492,22 @@ def _active_row_security_policies(
     return policies
 
 
-def _is_azure_entra_id(db_config: Any) -> bool:
-    return getattr(getattr(db_config, "auth_mode", None), "value", None) == (
-        "azure_entra_id"
-    )
-
-
-def _assert_azure_request_can_validate(
+def _assert_token_request_can_validate(
     request: ExecuteSQLRequest,
     db_config: Any,
     group_allowed_tables: set[tuple[str, str]] | None,
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
 ) -> None:
-    if not _is_azure_entra_id(db_config):
+    if not db_config.requires_user_access_token():
         return
-    if not request.azure_access_token:
+    if not request.user_access_token:
         raise HTTPException(
             status_code=400,
             detail=(
-                "azure_access_token is required when the database auth_mode is "
-                "'azure_entra_id'. Runtime queries must use the end user's access "
-                "token; any configured user/password is only used by nao sync."
+                f"Database '{db_config.name}' runs queries as the signed-in user, "
+                "but nao has no access token for them. Sign in to nao with the "
+                "identity provider connected to the warehouse; the configured "
+                "credentials are only used by nao sync."
             ),
         )
 
@@ -514,19 +519,16 @@ def _assert_azure_request_can_validate(
     if (
         table_validation_enabled
         and query_references_base_tables(request.sql, db_config.type)
-        and (
-            not getattr(db_config, "user", None)
-            or not getattr(db_config, "password", None)
-        )
+        and not db_config.has_sync_credentials()
     ):
         raise HTTPException(
             status_code=400,
             detail=(
-                "Queries that reference tables require sync user and password "
-                "when table access validation is enabled with auth_mode "
-                "'azure_entra_id'. These credentials are used only to validate "
-                "the query against the live schema and context rules; the query "
-                "still executes with the end user's access token."
+                "Queries that reference tables require sync credentials when "
+                "table access validation is enabled on a database that runs "
+                "queries as the signed-in user. These credentials are used only "
+                "to validate the query against the live schema and context rules; "
+                "the query still executes with the end user's access token."
             ),
         )
 
@@ -539,7 +541,7 @@ def _validate_request(
     row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
 ) -> str:
-    _assert_azure_request_can_validate(
+    _assert_token_request_can_validate(
         request, db_config, group_allowed_tables, row_security_policies
     )
     return _validate_sql(
@@ -590,7 +592,7 @@ def execute_sql(request: ExecuteSQLRequest):
             request.row_security, db_config, database_folder
         )
         try:
-            if _is_azure_entra_id(db_config):
+            if db_config.requires_user_access_token():
                 validated_sql = _validate_request(
                     request,
                     db_config,
@@ -601,7 +603,7 @@ def execute_sql(request: ExecuteSQLRequest):
                 )
                 df = db_config.execute_sql_with_token(
                     validated_sql,
-                    request.azure_access_token,
+                    request.user_access_token,
                 )
             elif (
                 db_config.allow_listed_only
@@ -783,8 +785,7 @@ def describe_semantic_layer(request: SemanticLayerCatalogRequest):
 def _load_semantic_layer(project_folder: str, env_vars: dict[str, str] | None):
     """The project's semantic layer engine, rendering SQL for the database that runs semantic queries."""
     project_path = Path(project_folder)
-    config = NaoConfig.try_load(project_path, raise_on_error=True, extra_env=env_vars)
-    assert config is not None
+    config = _load_project_config(project_path, env_vars)
 
     semantic_layer = config.semantic_layer
     if semantic_layer is None:

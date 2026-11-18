@@ -2,6 +2,7 @@ import { stripAssistantTags } from '@nao/shared';
 import { isBuiltinChartType } from '@nao/shared/chart-types';
 import { Link } from '@tanstack/react-router';
 import {
+	ArrowRightLeft,
 	Bell,
 	BellPlus,
 	ChevronLeft,
@@ -29,8 +30,10 @@ import type {
 	NotificationCategory,
 	SharedItemLabel,
 	SharedNotificationPayload,
+	ShareRole,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
+	StoryTransferNotificationPayload,
 } from '@nao/shared/types';
 import type { ComponentType, ReactNode } from 'react';
 
@@ -339,7 +342,14 @@ function getNotificationPresentation(
 	}
 
 	if (notification.category === 'shared') {
-		const payload = notification.payload as SharedNotificationPayload | null;
+		const payload = notification.payload as SharedNotificationPayload | StoryTransferNotificationPayload | null;
+		if (payload?.kind === 'story_transfer') {
+			return {
+				Icon: ArrowRightLeft,
+				title: payload.storyTitle ?? notification.title,
+				description: <StoryTransferSentence payload={payload} />,
+			};
+		}
 		if (payload?.kind === 'shared') {
 			return {
 				Icon,
@@ -349,6 +359,8 @@ function getNotificationPresentation(
 						subjectLabel={payload.itemLabel}
 						actorName={payload.sharerName}
 						visibility={payload.visibility}
+						role={payload.role}
+						isRoleChange={payload.isRoleChange}
 					/>
 				),
 			};
@@ -362,11 +374,32 @@ function getNotificationPresentation(
 	};
 }
 
+function StoryTransferSentence({ payload }: { payload: StoryTransferNotificationPayload }) {
+	const sender = <span className='font-semibold'>{payload.senderName}</span>;
+	if (payload.storyId) {
+		return <p>{sender} made you the owner of this story.</p>;
+	}
+	const previousOwner = payload.previousOwnerName ? (
+		<>
+			{' '}
+			from <span className='font-semibold'>{payload.previousOwnerName}</span>
+		</>
+	) : null;
+	return (
+		<p>
+			{sender} made you the owner of {payload.storyCount} stories{previousOwner}.
+		</p>
+	);
+}
+
 function getSharedItemLabel(notification: NotificationFeedItem['notification']): SharedItemLabel | null {
 	if (notification.category !== 'shared') {
 		return null;
 	}
-	const payload = notification.payload as SharedNotificationPayload | null;
+	const payload = notification.payload as SharedNotificationPayload | StoryTransferNotificationPayload | null;
+	if (payload?.kind === 'story_transfer') {
+		return 'story';
+	}
 	return payload?.kind === 'shared' ? payload.itemLabel : null;
 }
 
@@ -592,17 +625,35 @@ function ShareSentence({
 	subjectLabel,
 	actorName,
 	visibility,
+	role,
+	isRoleChange = false,
 }: {
 	subjectLabel: 'story' | 'chat';
 	actorName: string | null;
 	visibility: ShareVisibility;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 }) {
-	const actor = actorName ?? 'Someone';
+	const actor = <span className='font-semibold'>{actorName ?? 'Someone'}</span>;
+	if (isRoleChange && role === 'viewer') {
+		return (
+			<p>
+				{actor} changed your access to this {subjectLabel} to <span className='font-semibold'>view only</span>.
+			</p>
+		);
+	}
+	if (isRoleChange) {
+		return (
+			<p>
+				{actor} gave you <span className='font-semibold'>edit rights</span> on this {subjectLabel}.
+			</p>
+		);
+	}
 	const target = visibility === 'project' ? 'the project' : 'you';
 	return (
 		<p>
-			<span className='font-semibold'>{actor}</span> shared this {subjectLabel} with{' '}
-			<span className='font-semibold'>{target}</span>.
+			{actor} shared this {subjectLabel} with <span className='font-semibold'>{target}</span>
+			{role === 'editor' && ', with edit rights'}.
 		</p>
 	);
 }
@@ -959,7 +1010,7 @@ function FeedEmptyState({
 				{hasAutomations
 					? 'Once your automations run or your live stories refresh, their output will show up here.'
 					: canCreateAutomation
-						? 'Create your first automation or refresh a live story to start seeing activity in this feed.'
+						? 'Create your first automation or refresh a live story to start seeing activity in your inbox.'
 						: 'Automation and live Story activity will appear here.'}
 			</p>
 		</div>

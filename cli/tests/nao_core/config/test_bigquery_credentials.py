@@ -12,21 +12,12 @@ def ibis_connect():
         yield connect
 
 
-def test_cloud_refuses_ambient_credentials_for_sso_connection(monkeypatch, ibis_connect):
+@pytest.mark.parametrize("sso", [True, False], ids=["sso connection", "without any credentials"])
+def test_cloud_refuses_ambient_credentials(monkeypatch, ibis_connect, sso):
     monkeypatch.setenv("NAO_MODE", "cloud")
-    config = BigQueryConfig(name="customer-bq", project_id="customer-project", sso=True)
+    config = BigQueryConfig(name="customer-bq", project_id="customer-project", sso=sso)
 
     with pytest.raises(BigQueryServiceAccountRequired, match="credentials_json"):
-        config.connect()
-
-    ibis_connect.assert_not_called()
-
-
-def test_cloud_refuses_ambient_credentials_without_any_credentials(monkeypatch, ibis_connect):
-    monkeypatch.setenv("NAO_MODE", "cloud")
-    config = BigQueryConfig(name="customer-bq", project_id="customer-project")
-
-    with pytest.raises(BigQueryServiceAccountRequired):
         config.connect()
 
     ibis_connect.assert_not_called()

@@ -1,8 +1,10 @@
+import { toTestPath } from '@nao/shared/test-paths';
+
 import type { DBTestRunResult } from '../db/abstractSchema';
-import type { TestContextVariant } from '../types/test-run';
+import type { TestContextChange, TestContextVariant } from '../types/test-run';
 import { type AttemptCounts, countAttemptsByTest, sumAttemptCounts, toAttemptCounts } from './test-run-totals';
 
-const TEST_COMPARISON_CHANGES = ['regressed', 'worsened', 'fixed', 'improved', 'unchanged', 'pending'] as const;
+const TEST_COMPARISON_CHANGES = ['regressed', 'worsened', 'fixed', 'improved', 'new', 'unchanged', 'pending'] as const;
 type TestComparisonChange = (typeof TEST_COMPARISON_CHANGES)[number];
 
 interface TestComparisonRow {
@@ -26,9 +28,14 @@ const NO_ATTEMPTS: AttemptCounts = { passedAttempts: 0, totalAttempts: 0 };
 
 /**
  * Compares, test by test, the attempts that ran against production with those that ran against the draft.
- * A test stays pending until both variants have all their attempts.
+ * A test stays pending until both variants have all their attempts, except a test the draft adds, which only runs
+ * against the draft and so stays out of the totals of both sides.
  */
-export function compareContextVariants(results: ComparedResult[], attemptsPerVariant: number): TestComparison {
+export function compareContextVariants(
+	results: ComparedResult[],
+	attemptsPerVariant: number,
+	addedTestPaths: ReadonlySet<string> = new Set(),
+): TestComparison {
 	const production = countVariantAttempts(results, 'production');
 	const draft = countVariantAttempts(results, 'draft');
 	const testNames = new Map(results.map((result) => [result.testPath, result.testName]));
@@ -39,18 +46,38 @@ export function compareContextVariants(results: ComparedResult[], attemptsPerVar
 				production: production.get(testPath) ?? NO_ATTEMPTS,
 				draft: draft.get(testPath) ?? NO_ATTEMPTS,
 			};
-			return { testPath, testName, ...outcomes, change: classifyChange(outcomes, attemptsPerVariant) };
+			const change = addedTestPaths.has(testPath) ? 'new' : classifyChange(outcomes, attemptsPerVariant);
+			return { testPath, testName, ...outcomes, change };
 		})
 		.sort(
 			(left, right) =>
 				TEST_COMPARISON_CHANGES.indexOf(left.change) - TEST_COMPARISON_CHANGES.indexOf(right.change) ||
 				left.testName.localeCompare(right.testName),
 		);
+	const comparedTests = tests.filter((test) => test.change !== 'new');
 	return {
-		production: sumAttemptCounts(tests.map((test) => test.production)),
-		draft: sumAttemptCounts(tests.map((test) => test.draft)),
+		production: sumAttemptCounts(comparedTests.map((test) => test.production)),
+		draft: sumAttemptCounts(comparedTests.map((test) => test.draft)),
 		tests,
 	};
+}
+
+/** The results of a comparison that both sides ran, leaving out the tests the changes add. */
+export function listComparedResults<Result extends Pick<DBTestRunResult, 'testPath'>>(
+	results: Result[],
+	addedTestPaths: ReadonlySet<string>,
+): Result[] {
+	return results.filter((result) => !addedTestPaths.has(result.testPath));
+}
+
+/** The tests a run's changes add, which production does not have, so they run with the changes only. */
+export function listAddedTestPaths(changes: TestContextChange[] | null): Set<string> {
+	return new Set(
+		(changes ?? []).flatMap((change) => {
+			const testPath = change.kind === 'added' ? toTestPath(change.path) : null;
+			return testPath ? [testPath] : [];
+		}),
+	);
 }
 
 function countVariantAttempts(results: ComparedResult[], variant: TestContextVariant): Map<string, AttemptCounts> {

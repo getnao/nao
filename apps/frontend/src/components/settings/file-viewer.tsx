@@ -1,15 +1,33 @@
-import { isRootRulesPath, renderConditionalGroupBlocks } from '@nao/shared/rules-template';
+import {
+	addContextFileHeader,
+	findContextTableFolder,
+	isSameContextFileOwner,
+	updateContextFileHeader,
+} from '@nao/shared/context-file-header';
+import {
+	findRenderedRulesLines,
+	isRootRulesPath,
+	renderConditionalGroupBlocks,
+	renderConditionalGroupBlocksWithSourceLines,
+} from '@nao/shared/rules-template';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Code, File, Loader2, Save } from 'lucide-react';
+import { ChevronRight, File, Lock } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 import { Streamdown } from 'streamdown';
+import type { ContextFileHeaderChanges } from '@nao/shared/context-file-header';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
-import type { FileEditabilityGuidance } from '@nao/shared/types';
+import type { FileEditabilityGuidance, StoryCodeLines } from '@nao/shared/types';
+import type { ReactNode } from 'react';
 
 import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
+import type { SegmentedControlOption } from '@/components/ui/segmented-control';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
+import { FileHeaderEditor, FileHeaderSourceBar } from '@/components/settings/file-header-editor';
+import { TableOwnerPrompt } from '@/components/settings/table-owner-prompt';
+import { FileSaveStatus } from '@/components/settings/file-save-status';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
+import { MarkdownFileEditor } from '@/components/settings/markdown-file-editor';
 import { UserGroupPicker } from '@/components/settings/user-group-picker';
 import {
 	AlertDialog,
@@ -24,16 +42,24 @@ import {
 import { Button } from '@/components/ui/button';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '@/components/ui/resizable';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useFileHeader } from '@/hooks/use-file-header';
 import { useLocalStorage } from '@/hooks/use-local-storage';
+import { useMarkdownLinesReveal } from '@/hooks/use-markdown-lines-reveal';
+import { useSaveShortcut } from '@/hooks/use-save-shortcut';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
+import { isMarkdownPath } from '@/lib/file-path';
 import { createLocalStorage } from '@/lib/local-storage';
-import { joinMarkdownFrontmatter, markdownPlugins, parseMarkdownFrontmatter } from '@/lib/markdown';
-import { isMac } from '@/lib/platform';
+import {
+	countFrontmatterLines,
+	joinMarkdownFrontmatter,
+	markdownPlugins,
+	parseMarkdownFrontmatter,
+} from '@/lib/markdown';
 import { isForbiddenError } from '@/lib/trpc-error';
-import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 import { markdownLinkSafety } from '@/components/external-link-dialog';
 
@@ -63,6 +89,8 @@ interface FileViewerProps {
 	editabilityGuidance: FileEditabilityGuidance | null;
 	searchQuery: string;
 	sourceAutoOpenRequestId: number | null;
+	/** False keeps markdown as a document, without the split and source views. Defaults to true. */
+	hasMarkdownSourceViews?: boolean;
 	onDirtyChange: (isDirty: boolean) => void;
 	/** Follows the content in the editor, saved or not. */
 	onDraftChange?: (path: string, content: string) => void;
@@ -76,7 +104,15 @@ interface FileSaveError {
 	isConflict: boolean;
 }
 
-const markdownSourceStorage = createLocalStorage<boolean>('nao-file-viewer-markdown-source-open', false);
+type MarkdownView = 'preview' | 'split' | 'source';
+
+const MARKDOWN_VIEWS: SegmentedControlOption<MarkdownView>[] = [
+	{ value: 'preview', label: 'Preview' },
+	{ value: 'split', label: 'Split' },
+	{ value: 'source', label: 'Source' },
+];
+
+const markdownViewStorage = createLocalStorage<MarkdownView>('nao-file-viewer-markdown-view', 'preview');
 
 export function FileViewer({
 	filePath,
@@ -88,6 +124,7 @@ export function FileViewer({
 	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
+	hasMarkdownSourceViews = true,
 	onDirtyChange,
 	onDraftChange,
 	onOpenGuidancePath,
@@ -129,6 +166,7 @@ export function FileViewer({
 			editabilityGuidance={editabilityGuidance}
 			searchQuery={searchQuery}
 			sourceAutoOpenRequestId={sourceAutoOpenRequestId}
+			hasMarkdownSourceViews={hasMarkdownSourceViews}
 			onDirtyChange={onDirtyChange}
 			onDraftChange={onDraftChange}
 			onOpenGuidancePath={onOpenGuidancePath}
@@ -146,6 +184,7 @@ function EditableFileViewer({
 	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
+	hasMarkdownSourceViews,
 	onDirtyChange,
 	onDraftChange,
 	onOpenGuidancePath,
@@ -160,6 +199,7 @@ function EditableFileViewer({
 	| 'editabilityGuidance'
 	| 'searchQuery'
 	| 'sourceAutoOpenRequestId'
+	| 'hasMarkdownSourceViews'
 	| 'onDirtyChange'
 	| 'onDraftChange'
 	| 'onOpenGuidancePath'
@@ -171,15 +211,17 @@ function EditableFileViewer({
 	hash: string;
 }) {
 	const queryClient = useQueryClient();
-	const [isSourceOpenPreference, setIsSourceOpenPreference] = useLocalStorage(markdownSourceStorage);
+	const [markdownViewPreference, setMarkdownViewPreference] = useLocalStorage(markdownViewStorage);
 	const [isSourceAutoOpened, setIsSourceAutoOpened] = useState(sourceAutoOpenRequestId !== null);
 	const [draft, setDraft] = useState(content);
 	const [savedContent, setSavedContent] = useState(content);
 	const [expectedHash, setExpectedHash] = useState(hash);
 	const [saveError, setSaveError] = useState<FileSaveError | null>(null);
+	const [savedAt, setSavedAt] = useState<number | null>(null);
 	const [isReloadDialogOpen, setIsReloadDialogOpen] = useState(false);
 	const [isReloading, setIsReloading] = useState(false);
 	const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+	const [changedOwner, setChangedOwner] = useState<{ owner: string | null } | null>(null);
 	const activePathRef = useRef(filePath);
 	const saveInProgressRef = useRef(false);
 	activePathRef.current = filePath;
@@ -187,10 +229,18 @@ function EditableFileViewer({
 	const saveMutation = useMutation(trpc.contextExplorer.writeFile.mutationOptions());
 	const isMarkdown = isMarkdownPath(filePath);
 	const isRootRules = isRootRulesPath(filePath);
-	const isSourceOpen = isSourceOpenPreference || isSourceAutoOpened;
+	const tableFolder = useMemo(() => findContextTableFolder(filePath), [filePath]);
 	const isDirty = isEditable && draft !== savedContent;
 	const debouncedPreview = useDebouncedValue(draft, 250);
 	const parsedMarkdownDraft = useMemo(() => parseMarkdownFrontmatter(draft), [draft]);
+	const fileHeaderState = useFileHeader(filePath, draft, isMarkdown);
+	const isPreviewEditable = useMemo(
+		() => isEditable && isMarkdown && (!isRootRules || !hasRulesTemplate(draft)),
+		[draft, isEditable, isMarkdown, isRootRules],
+	);
+	const markdownView = hasMarkdownSourceViews
+		? getPreferredMarkdownView(markdownViewPreference, isSourceAutoOpened)
+		: getDocumentMarkdownView(isEditable, isPreviewEditable);
 	const rulesGroupAccess = useMemo(
 		() => getRulesGroupAccess(isRootRules, rulesPreviewGroups, selectedGroupIds),
 		[isRootRules, rulesPreviewGroups, selectedGroupIds],
@@ -267,9 +317,13 @@ function EditableFileViewer({
 						setSavedContent(contentToSave);
 						setExpectedHash(result.hash);
 						setSaveError(null);
+						setSavedAt(Date.now());
 					}
 					void queryClient.invalidateQueries({
 						queryKey: trpc.contextExplorer.getChangedFiles.queryKey(),
+					});
+					void queryClient.invalidateQueries({
+						queryKey: trpc.contextExplorer.getFileHeaderProblems.queryKey(),
 					});
 				},
 				onError: (error) => {
@@ -290,6 +344,8 @@ function EditableFileViewer({
 			},
 		);
 	}, [draft, expectedHash, filePath, isDirty, isEditable, queryClient, saveMutation]);
+
+	useSaveShortcut(handleSave);
 
 	const handleReload = useCallback(async () => {
 		setIsReloading(true);
@@ -314,8 +370,8 @@ function EditableFileViewer({
 		}
 	}, [onReload]);
 
-	const handleSourceToggle = () => {
-		setIsSourceOpenPreference(!isSourceOpen);
+	const handleMarkdownViewChange = (view: MarkdownView) => {
+		setMarkdownViewPreference(view);
 		setIsSourceAutoOpened(false);
 	};
 
@@ -326,54 +382,118 @@ function EditableFileViewer({
 		[parsedMarkdownDraft.frontmatter],
 	);
 
-	const fileName = getFileName(filePath);
+	const handleHeaderChange = useCallback(
+		(changes: ContextFileHeaderChanges) => {
+			setDraft((current) => updateContextFileHeader(current, changes));
+			if (tableFolder && changes.owner !== undefined) {
+				setChangedOwner({ owner: changes.owner });
+			}
+		},
+		[tableFolder],
+	);
+
+	const draftOwner = fileHeaderState?.reading.header.owner ?? null;
 	const showRulesPreviewToolbar = isRootRules && rulesPreviewGroups.status === 'ready' && rulesPreviewGroups.enforced;
 	const rulesPreviewStatus =
 		isRootRules && rulesPreviewGroups.status !== 'ready' ? rulesPreviewGroups.status : undefined;
 
+	const fileHeader = fileHeaderState && (
+		<FileHeaderEditor
+			state={fileHeaderState}
+			isEditable={isEditable}
+			onChange={handleHeaderChange}
+			onSave={handleSave}
+		>
+			{tableFolder && changedOwner && isSameContextFileOwner(changedOwner.owner, draftOwner) && (
+				<TableOwnerPrompt
+					key={changedOwner.owner ?? ''}
+					filePath={filePath}
+					tableFolder={tableFolder}
+					owner={changedOwner.owner}
+					owners={fileHeaderState.owners}
+					onDismiss={() => setChangedOwner(null)}
+				/>
+			)}
+		</FileHeaderEditor>
+	);
+	const renderedMarkdown = (
+		<MarkdownPreview
+			content={preview.content}
+			toRenderedLines={preview.toRenderedLines}
+			filePath={filePath}
+			searchQuery={searchQuery}
+			error={preview.error}
+			status={rulesPreviewStatus}
+			header={fileHeader}
+		/>
+	);
+	const markdownSource = (
+		<div className='flex h-full min-h-0 flex-col'>
+			{fileHeaderState && (
+				<FileHeaderSourceBar
+					state={fileHeaderState}
+					isEditable={isEditable}
+					onAddHeader={() => setDraft((current) => addContextFileHeader(current, fileHeaderState.defaults))}
+				/>
+			)}
+			<div className='min-h-0 flex-1'>
+				<FileSourceEditor
+					key={isEditable ? 'editable' : 'read-only'}
+					filePath={filePath}
+					value={draft}
+					searchQuery={searchQuery}
+					readOnly={!isEditable}
+					onChange={setDraft}
+					onSave={isEditable ? handleSave : undefined}
+				/>
+			</div>
+		</div>
+	);
+	const markdownPreview = isPreviewEditable ? (
+		<MarkdownFileEditor
+			value={parsedMarkdownDraft.body}
+			lineOffset={countFrontmatterLines(parsedMarkdownDraft)}
+			filePath={filePath}
+			searchQuery={searchQuery}
+			onChange={handleMarkdownChange}
+			onSave={handleSave}
+			fallback={hasMarkdownSourceViews ? renderedMarkdown : markdownSource}
+			fallbackHint={hasMarkdownSourceViews ? undefined : DOCUMENT_FALLBACK_HINT}
+			header={fileHeader}
+		/>
+	) : (
+		renderedMarkdown
+	);
+
 	return (
 		<div className='flex flex-col h-full'>
-			<div className='flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4 py-1.5 text-sm text-muted-foreground'>
-				<div className='flex min-w-0 flex-1 items-start gap-2 overflow-hidden'>
-					<FileExplorerIcon name={fileName} type='file' path={filePath} className='mt-px' />
-					<div className='min-w-0 flex-1'>
-						<div className='flex min-w-0 items-center gap-2'>
-							<span className='min-w-0 truncate font-mono leading-4'>{fileName}</span>
-							{rulesPreviewStatus === undefined && <TokenEstimate count={estimatedTokenCount} />}
-						</div>
-						<span className='block truncate text-xs leading-4 opacity-60'>{filePath}</span>
-					</div>
-				</div>
-				{(isEditable || isMarkdown) && (
-					<div className='flex shrink-0 items-center gap-2'>
-						{isEditable && isDirty && (
-							<span className='flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400'>
-								<span className='size-1.5 rounded-full bg-current' />
-								Unsaved
-							</span>
-						)}
-						{isMarkdown && parsedMarkdownDraft.label !== null && (
-							<span className='shrink-0 text-xs text-muted-foreground'>{parsedMarkdownDraft.label}</span>
-						)}
-						{isMarkdown && <SourceToggle isOpen={isSourceOpen} onChange={handleSourceToggle} />}
-						{isEditable && (
-							<Button
-								type='button'
-								size='sm'
-								className='h-7 gap-1.5'
-								onClick={handleSave}
-								disabled={!isDirty || saveMutation.isPending}
-							>
-								{saveMutation.isPending ? (
-									<Loader2 className='size-3.5 animate-spin' />
-								) : (
-									<Save className='size-3.5' />
-								)}
-								Save
-								<kbd className='font-sans text-[10px] opacity-60'>{isMac ? '⌘S' : 'Ctrl+S'}</kbd>
-							</Button>
-						)}
-					</div>
+			<div className='flex h-8 shrink-0 items-center gap-2.5 border-b px-3 text-[11px] text-muted-foreground'>
+				<FilePathBreadcrumb filePath={filePath} />
+				{isEditable && (
+					<FileSaveStatus
+						isDirty={isDirty}
+						isSaving={saveMutation.isPending}
+						savedAt={savedAt}
+						onSave={handleSave}
+					/>
+				)}
+				{rulesPreviewStatus === undefined && <TokenEstimate count={estimatedTokenCount} />}
+				{isMarkdown && parsedMarkdownDraft.label !== null && (
+					<span className='shrink-0'>{parsedMarkdownDraft.label}</span>
+				)}
+				{isMarkdown && hasMarkdownSourceViews && (
+					<SegmentedControl
+						label='Markdown view'
+						options={MARKDOWN_VIEWS}
+						value={markdownView}
+						onChange={handleMarkdownViewChange}
+					/>
+				)}
+				{!isEditable && (
+					<span className='flex shrink-0 items-center gap-1.5'>
+						<Lock className='size-3' />
+						Read-only
+					</span>
 				)}
 			</div>
 			{showRulesPreviewToolbar && (
@@ -400,42 +520,24 @@ function EditableFileViewer({
 			)}
 			<div className='flex-1 min-h-0'>
 				{isMarkdown ? (
-					isSourceOpen ? (
+					markdownView === 'split' ? (
 						<ResizablePanelGroup
 							orientation='horizontal'
 							defaultLayout={defaultLayout ?? { preview: 1, source: 1 }}
 							onLayoutChanged={onLayoutChanged}
 						>
 							<ResizablePanel id='preview' minSize={180}>
-								<MarkdownPreview
-									content={preview.content}
-									filePath={filePath}
-									searchQuery={searchQuery}
-									error={preview.error}
-									status={rulesPreviewStatus}
-								/>
+								{markdownPreview}
 							</ResizablePanel>
 							<ResizableSeparator withHandle />
 							<ResizablePanel id='source' minSize={180}>
-								<FileSourceEditor
-									key={isEditable ? 'editable' : 'read-only'}
-									filePath={filePath}
-									value={parsedMarkdownDraft.body}
-									searchQuery={searchQuery}
-									readOnly={!isEditable}
-									onChange={handleMarkdownChange}
-									onSave={isEditable ? handleSave : undefined}
-								/>
+								{markdownSource}
 							</ResizablePanel>
 						</ResizablePanelGroup>
+					) : markdownView === 'source' ? (
+						markdownSource
 					) : (
-						<MarkdownPreview
-							content={preview.content}
-							filePath={filePath}
-							searchQuery={searchQuery}
-							error={preview.error}
-							status={rulesPreviewStatus}
-						/>
+						markdownPreview
 					)
 				) : (
 					<FileSourceEditor
@@ -477,6 +579,18 @@ function EditableFileViewer({
 	);
 }
 
+const DOCUMENT_FALLBACK_HINT =
+	'This file uses Markdown the visual editor cannot keep, like HTML or link definitions, so it opens as text.';
+
+function getPreferredMarkdownView(preference: MarkdownView, isSourceAutoOpened: boolean): MarkdownView {
+	return isSourceAutoOpened && preference === 'preview' ? 'split' : preference;
+}
+
+/** Without the source views, a file that can only be edited as text, like root rules with a template, opens as source. */
+function getDocumentMarkdownView(isEditable: boolean, isPreviewEditable: boolean): MarkdownView {
+	return isEditable && !isPreviewEditable ? 'source' : 'preview';
+}
+
 function ReadOnlyNote({
 	guidance,
 	onOpenPath,
@@ -509,25 +623,41 @@ function ReadOnlyNote({
 
 function MarkdownPreview({
 	content,
+	toRenderedLines,
 	filePath,
 	searchQuery,
 	error,
 	status,
+	header,
 }: {
 	content: string;
+	toRenderedLines?: (lines: StoryCodeLines) => StoryCodeLines | null;
 	filePath: string;
 	searchQuery: string;
 	error?: string;
 	status?: 'loading' | 'error';
+	header?: ReactNode;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const markdownRef = useRef<HTMLDivElement>(null);
 	const parsedMarkdown = useMemo(() => parseMarkdownFrontmatter(content), [content]);
 	usePreviewHighlights({ containerRef, content: parsedMarkdown.body, filePath, searchQuery });
+	const findBlocksRoot = useCallback(() => markdownRef.current?.firstElementChild ?? null, []);
+	const linesHighlight = useMarkdownLinesReveal({
+		filePath,
+		markdown: parsedMarkdown.body,
+		lineOffset: countFrontmatterLines(parsedMarkdown),
+		toRenderedLines,
+		containerRef,
+		findBlocksRoot,
+	});
 
 	return (
 		<section aria-label='Markdown preview' className='flex h-full min-h-0 flex-col'>
-			<div ref={containerRef} className='min-h-0 flex-1 overflow-auto'>
+			<div ref={containerRef} className='relative min-h-0 flex-1 overflow-auto'>
+				{linesHighlight}
 				<div className='max-w-3xl mx-auto px-8 py-6'>
+					{header}
 					{status === 'loading' ? (
 						<p className='text-sm text-muted-foreground'>Loading RULES.md preview access...</p>
 					) : status === 'error' ? (
@@ -535,14 +665,16 @@ function MarkdownPreview({
 					) : error ? (
 						<ErrorMessage message={error} />
 					) : (
-						<Streamdown
-							linkSafety={markdownLinkSafety}
-							mode='static'
-							controls={false}
-							plugins={markdownPlugins}
-						>
-							{parsedMarkdown.body}
-						</Streamdown>
+						<div ref={markdownRef}>
+							<Streamdown
+								linkSafety={markdownLinkSafety}
+								mode='static'
+								controls={false}
+								plugins={markdownPlugins}
+							>
+								{parsedMarkdown.body}
+							</Streamdown>
+						</div>
 					)}
 				</div>
 			</div>
@@ -576,38 +708,42 @@ function RulesPreviewToolbar({
 	);
 }
 
-function SourceToggle({ isOpen, onChange }: { isOpen: boolean; onChange: () => void }) {
+/** The path of the file as folders leading to it; folders shrink first when space runs out, so its name stays readable. */
+function FilePathBreadcrumb({ filePath }: { filePath: string }) {
+	const segments = filePath.replaceAll('\\', '/').split('/').filter(Boolean);
+	const fileName = segments.pop() ?? filePath;
+
 	return (
-		<SimpleTooltip content={isOpen ? 'Hide markdown source' : 'Show markdown source'}>
-			<Button
-				type='button'
-				variant='outline'
-				size='sm'
-				className={cn('h-7 gap-1.5', isOpen && 'bg-accent text-accent-foreground dark:bg-accent/50')}
-				onClick={onChange}
-				aria-pressed={isOpen}
-				aria-label={isOpen ? 'Hide markdown source' : 'Show markdown source'}
-			>
-				<Code className='size-3.5' />
-				Source
-			</Button>
-		</SimpleTooltip>
+		<nav aria-label='File path' title={filePath} className='flex min-w-0 flex-1 items-center gap-1 text-xs'>
+			<FileExplorerIcon name={fileName} type='file' path={filePath} className='mr-1 size-3 shrink-0' />
+			{segments.map((segment, index) => (
+				<span key={index} className='flex min-w-0 items-center gap-1'>
+					<span className='min-w-[3ch] truncate'>{segment}</span>
+					<ChevronRight className='size-3 shrink-0 opacity-60' />
+				</span>
+			))}
+			<span className='shrink-0 text-foreground'>{fileName}</span>
+		</nav>
 	);
 }
 
 function TokenEstimate({ count }: { count: number }) {
 	return (
 		<SimpleTooltip content="Estimated tokens this file uses in the agent's context. It is approximated from the character count, not counted exactly.">
-			<span className='shrink-0 whitespace-nowrap text-xs text-muted-foreground tabular-nums'>
+			<span className='shrink-0 whitespace-nowrap text-muted-foreground tabular-nums'>
 				{formatTokenCount(count)} tokens
 			</span>
 		</SimpleTooltip>
 	);
 }
 
-function isMarkdownPath(filePath: string): boolean {
-	const extension = filePath.split('.').pop()?.toLowerCase();
-	return extension === 'md' || extension === 'mdx' || extension === 'markdown';
+/** Whether RULES.md holds group conditions, even malformed ones, whose preview shows what a group sees rather than the file. */
+function hasRulesTemplate(content: string): boolean {
+	try {
+		return renderConditionalGroupBlocks(content, { enforced: false }) !== content;
+	} catch {
+		return true;
+	}
 }
 
 function getRulesGroupAccess(
@@ -632,11 +768,18 @@ function getRulesGroupAccess(
 	};
 }
 
+interface RulesPreview {
+	content: string;
+	/** Rules rendered for some groups drop lines, so the lines of the file move in the preview. */
+	toRenderedLines?: (lines: StoryCodeLines) => StoryCodeLines | null;
+	error?: string;
+}
+
 function renderRulesPreview(
 	content: string,
 	isRootRules: boolean,
 	groupAccess: UserRulesGroupAccess | null,
-): { content: string; error?: string } {
+): RulesPreview {
 	if (!isRootRules) {
 		return { content };
 	}
@@ -644,17 +787,17 @@ function renderRulesPreview(
 		return { content: '' };
 	}
 	try {
-		return { content: renderConditionalGroupBlocks(content, groupAccess) };
+		const rendered = renderConditionalGroupBlocksWithSourceLines(content, groupAccess);
+		return {
+			content: rendered.content,
+			toRenderedLines: (lines) => findRenderedRulesLines(rendered, lines),
+		};
 	} catch (error) {
 		return {
 			content: '',
 			error: error instanceof Error ? error.message : 'RULES.md preview could not be rendered.',
 		};
 	}
-}
-
-function getFileName(filePath: string): string {
-	return filePath.replaceAll('\\', '/').split('/').pop() ?? filePath;
 }
 
 function formatTokenCount(count: number): string {

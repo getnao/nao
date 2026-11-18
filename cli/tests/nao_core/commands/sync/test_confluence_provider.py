@@ -3,10 +3,17 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 import pytest
 import yaml
 
-from nao_core.commands.sync.providers.confluence.client import Ancestor, ConfluencePage, PageRef, extract_page_id
+from nao_core.commands.sync.providers.confluence.client import (
+    Ancestor,
+    ConfluenceClient,
+    ConfluencePage,
+    PageRef,
+    extract_page_id,
+)
 from nao_core.commands.sync.providers.confluence.provider import (
     ConfluenceSyncProvider,
     build_label_cql,
@@ -100,6 +107,101 @@ def test_extract_page_id_reads_ids_and_urls():
 def test_extract_page_id_rejects_a_title_only_url():
     with pytest.raises(ValueError):
         extract_page_id("https://confluence.acme.com/display/ENG/Runbook")
+
+
+GATEWAY_URL = "https://api.atlassian.com/ex/confluence/cloud-id/wiki"
+SITE_URL = "https://acme.atlassian.net/wiki"
+
+
+def search_result(page_id: str = "42", *, links: dict | None = None) -> dict:
+    return {
+        "id": page_id,
+        "type": "page",
+        "title": "Runbook",
+        "space": {"key": "ENG"},
+        "version": {"number": 7},
+        "body": {"export_view": {"value": "<p>body</p>"}},
+        "ancestors": [{"id": "1", "title": "Root"}],
+        "_links": links if links is not None else {"webui": f"/spaces/ENG/pages/{page_id}/Runbook"},
+    }
+
+
+def client_serving(payload: dict, requests: list[httpx.Request], *, base_url: str = GATEWAY_URL) -> ConfluenceClient:
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=payload)
+
+    config = cloud_config(pages=["42"]).model_copy(update={"base_url": base_url})
+    return ConfluenceClient(config, transport=httpx.MockTransport(respond))
+
+
+def test_get_page_reads_the_page_through_a_cql_search_on_its_id():
+    requests: list[httpx.Request] = []
+    payload = {"results": [search_result("42")], "_links": {"base": SITE_URL}}
+
+    with client_serving(payload, requests) as client:
+        fetched = client.get_page("42")
+
+    assert requests[0].url.path == "/ex/confluence/cloud-id/wiki/rest/api/content/search"
+    assert requests[0].url.params["cql"] == "id=42"
+    assert requests[0].url.params["expand"] == "body.export_view,version,space,ancestors"
+    assert fetched == ConfluencePage(
+        id="42",
+        title="Runbook",
+        space_key="ENG",
+        version=7,
+        html="<p>body</p>",
+        url=f"{SITE_URL}/spaces/ENG/pages/42/Runbook",
+        content_type="page",
+        ancestors=[Ancestor(id="1", title="Root")],
+    )
+
+
+def test_get_page_raises_a_clear_error_when_the_search_finds_nothing():
+    with (
+        client_serving({"results": [], "_links": {"base": SITE_URL}}, []) as client,
+        pytest.raises(LookupError, match="Confluence page 42 was not found"),
+    ):
+        client.get_page("42")
+
+
+def test_get_page_never_returns_a_different_page_than_the_one_asked_for():
+    with (
+        client_serving({"results": [search_result("7")]}, []) as client,
+        pytest.raises(LookupError, match="Confluence page 42 was not found"),
+    ):
+        client.get_page("42")
+
+
+def test_get_page_rejects_an_id_that_is_not_numeric_before_searching():
+    requests: list[httpx.Request] = []
+
+    with (
+        client_serving({"results": []}, requests) as client,
+        pytest.raises(ValueError, match="not a Confluence page ID"),
+    ):
+        client.get_page("42 or type=page")
+
+    assert requests == []
+
+
+def test_get_page_prefers_the_base_link_of_the_page_itself():
+    result = search_result("42", links={"base": "https://other.atlassian.net/wiki", "webui": "/pages/42"})
+
+    with client_serving({"results": [result], "_links": {"base": SITE_URL}}, []) as client:
+        assert client.get_page("42").url == "https://other.atlassian.net/wiki/pages/42"
+
+
+def test_get_page_falls_back_to_the_base_url_without_a_base_link():
+    with client_serving({"results": [search_result("42")]}, [], base_url=f"{SITE_URL}/") as client:
+        assert client.get_page("42").url == f"{SITE_URL}/spaces/ENG/pages/42/Runbook"
+
+
+def test_get_page_links_a_page_without_a_web_path_by_its_id_on_the_site():
+    result = search_result("42", links={})
+
+    with client_serving({"results": [result], "_links": {"base": SITE_URL}}, []) as client:
+        assert client.get_page("42").url == f"{SITE_URL}/pages/viewpage.action?pageId=42"
 
 
 def test_segment_always_carries_the_page_id():
@@ -225,32 +327,26 @@ def test_sync_pulls_pages_for_a_label(tmp_path: Path):
     assert result.items_synced == 1
 
 
-def test_sync_skips_a_page_unchanged_since_last_run(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("remote_version", "expected_fetched", "expected_details"),
+    [
+        (5, [], {"synced": 0, "unchanged": 1, "removed": 0}),
+        (6, ["100"], {"synced": 1, "unchanged": 0, "removed": 0}),
+    ],
+    ids=["skips_a_page_unchanged_since_last_run", "refetches_a_page_that_changed"],
+)
+def test_sync_compares_page_versions_with_last_run(tmp_path: Path, remote_version, expected_fetched, expected_details):
     provider = ConfluenceSyncProvider()
     existing = tmp_path / "space=ENG"
     existing.mkdir(parents=True)
     (existing / "page-100.md").write_text(render_document(page("100", version=5)), encoding="utf-8")
-    fake = FakeClient({"100": page("100", version=5)}, search=[PageRef("100", version=5)])
+    fake = FakeClient({"100": page("100", version=remote_version)}, search=[PageRef("100", version=remote_version)])
 
     with patched(fake):
         result = provider.sync([cloud_config(spaces=["ENG"])], tmp_path)
 
-    assert fake.fetched == []
-    assert result.details == {"synced": 0, "unchanged": 1, "removed": 0}
-
-
-def test_sync_refetches_a_page_that_changed(tmp_path: Path):
-    provider = ConfluenceSyncProvider()
-    existing = tmp_path / "space=ENG"
-    existing.mkdir(parents=True)
-    (existing / "page-100.md").write_text(render_document(page("100", version=5)), encoding="utf-8")
-    fake = FakeClient({"100": page("100", version=6)}, search=[PageRef("100", version=6)])
-
-    with patched(fake):
-        result = provider.sync([cloud_config(spaces=["ENG"])], tmp_path)
-
-    assert fake.fetched == ["100"]
-    assert result.details == {"synced": 1, "unchanged": 0, "removed": 0}
+    assert fake.fetched == expected_fetched
+    assert result.details == expected_details
 
 
 def test_sync_removes_stale_pages_and_prunes_empty_dirs(tmp_path: Path):

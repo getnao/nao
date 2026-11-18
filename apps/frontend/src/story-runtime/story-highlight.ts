@@ -1,4 +1,6 @@
-import { BLOCK_SELECTOR } from './story-elements';
+import { PART_SELECTOR, STORY_ELEMENT_BLOCK_KIND } from '@nao/shared/story-parts';
+import { findSameBlocks, readElementPart } from './story-elements';
+import type { StoryBlockPart } from '@nao/shared/story-parts';
 import type { StoryElementAsk } from '@nao/shared/story-app';
 import type { StoryBlockReference } from '@nao/shared/types';
 
@@ -10,9 +12,17 @@ const MAX_SEARCHED_QUOTE_LENGTH = 80;
 const MIN_QUOTE_START_WORDS = 3;
 const OUTLINE_DURATION_MS = 1800;
 const MAX_WAIT_MS = 8000;
+const PART_GRACE_MS = 1000;
 const TOP_LAYER_Z_INDEX = 2147483646;
+const PART_IDENTITY_FIELDS = ['label', 'series', 'category'] as const;
+const ELEMENT_IDENTITY_FIELDS = [...PART_IDENTITY_FIELDS, 'value'] as const;
 const OUTLINE_STYLE =
 	'position:fixed;box-sizing:border-box;pointer-events:none;border:2px solid var(--primary);border-radius:var(--story-block-radius, 6px);background:color-mix(in srgb, var(--primary) 8%, transparent);transition:opacity .3s';
+
+interface CitedElementSearch {
+	find: (settlesOnBlock: boolean) => Element | null;
+	isBlockAwaitingPart: () => boolean;
+}
 
 interface HighlightOptions {
 	root?: Element;
@@ -23,68 +33,137 @@ export function highlightStoryElement(
 	ask: StoryElementAsk,
 	{ root = document.body, zIndex = TOP_LAYER_Z_INDEX }: HighlightOptions = {},
 ): () => void {
-	const show = (element: HTMLElement) => {
+	const show = (element: Element) => {
 		if (!revealElement(element)) {
 			element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		}
 		outline(element, zIndex);
 	};
-	const element = findCitedElement(ask, root);
+	const element = findCitedElement(ask, root, false);
 	if (element) {
 		show(element);
 		return () => {};
 	}
-	return waitForElement(() => findCitedElement(ask, root), root, show);
+	return waitForElement(
+		{
+			find: (settlesOnBlock) => findCitedElement(ask, root, settlesOnBlock),
+			isBlockAwaitingPart: () => findBlockAwaitingPart(ask, root) !== null,
+		},
+		root,
+		show,
+	);
 }
 
-function findCitedElement({ block, text }: StoryElementAsk, root: ParentNode): HTMLElement | null {
-	return block.kind === 'text'
-		? findQuotedElement(text, root)
-		: (findBlock(block, root) ?? findQuotedElement(text, root));
+function findCitedElement({ block, text }: StoryElementAsk, root: ParentNode, settlesOnBlock: boolean): Element | null {
+	if (block.kind === 'text') {
+		return findQuotedElement(text, root);
+	}
+	if (block.kind === STORY_ELEMENT_BLOCK_KIND) {
+		return block.part ? findPart(block.part, root) : null;
+	}
+	const blockElement = findBlock(block, root);
+	if (!blockElement) {
+		return findQuotedElement(text, root);
+	}
+	if (!block.part) {
+		return blockElement;
+	}
+	return findPart(block.part, blockElement) ?? (settlesOnBlock ? blockElement : null);
 }
 
+function findBlockAwaitingPart({ block }: StoryElementAsk, root: ParentNode): Element | null {
+	if (block.kind === 'text' || block.kind === STORY_ELEMENT_BLOCK_KIND || !block.part) {
+		return null;
+	}
+	return findBlock(block, root);
+}
+
+/** The part's grace period starts once its block is shown, as a block renders its parts only after its data loads. */
 function waitForElement(
-	find: () => HTMLElement | null,
+	{ find, isBlockAwaitingPart }: CitedElementSearch,
 	root: Element,
-	onFound: (element: HTMLElement) => void,
+	onFound: (element: Element) => void,
 ): () => void {
 	let frame = 0;
+	let grace = 0;
+	let settlesOnBlock = false;
 	const stop = () => {
 		observer.disconnect();
 		cancelAnimationFrame(frame);
 		window.clearTimeout(timeout);
+		window.clearTimeout(grace);
+	};
+	const startGraceOnceBlockShown = () => {
+		if (!grace && isBlockAwaitingPart()) {
+			grace = window.setTimeout(settleOnBlock, PART_GRACE_MS);
+		}
 	};
 	const search = () => {
 		frame = 0;
-		const element = find();
+		const element = find(settlesOnBlock);
 		if (element) {
 			stop();
 			onFound(element);
+			return;
 		}
+		startGraceOnceBlockShown();
+	};
+	const settleOnBlock = () => {
+		settlesOnBlock = true;
+		cancelAnimationFrame(frame);
+		search();
 	};
 	const observer = new MutationObserver(() => {
 		if (!frame) {
 			frame = requestAnimationFrame(search);
 		}
 	});
-	const timeout = window.setTimeout(stop, MAX_WAIT_MS);
+	const giveUp = () => {
+		if (grace) {
+			settleOnBlock();
+		}
+		stop();
+	};
+	const timeout = window.setTimeout(giveUp, MAX_WAIT_MS);
 	observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true });
+	startGraceOnceBlockShown();
 	return stop;
 }
 
 /** Whether a container brought the element into view itself, so it needs no scrolling. */
-function revealElement(element: HTMLElement): boolean {
+function revealElement(element: Element): boolean {
 	return !element.dispatchEvent(new Event(STORY_REVEAL_EVENT, { bubbles: true, cancelable: true }));
 }
 
-function findBlock({ kind, title, queryId }: StoryBlockReference, root: ParentNode): HTMLElement | null {
-	const blocks = [...root.querySelectorAll<HTMLElement>(BLOCK_SELECTOR)];
+function findPart(cited: StoryBlockPart, block: ParentNode): Element | null {
+	const parts = [...block.querySelectorAll(PART_SELECTOR)].map((element) => ({
+		element,
+		part: readElementPart(element),
+	}));
+	const exact = parts.find(({ part }) => isSamePart(cited, part, identityFields(cited)));
+	const sameCell =
+		cited.kind === 'cell' ? parts.find(({ part }) => isSamePart(cited, part, PART_IDENTITY_FIELDS)) : undefined;
+	return (exact ?? sameCell)?.element ?? null;
+}
+
+function identityFields(cited: StoryBlockPart): readonly (keyof StoryBlockPart)[] {
+	return cited.kind === 'element' || cited.kind === 'cell' ? ELEMENT_IDENTITY_FIELDS : PART_IDENTITY_FIELDS;
+}
+
+function isSamePart(
+	cited: StoryBlockPart,
+	found: StoryBlockPart | null,
+	fields: readonly (keyof StoryBlockPart)[],
+): boolean {
 	return (
-		blocks.find(
-			({ dataset }) =>
-				dataset.naoBlockKind === kind && dataset.naoBlockTitle === title && dataset.naoBlockQuery === queryId,
-		) ?? null
+		found !== null &&
+		found.kind === cited.kind &&
+		fields.every((field) => cited[field] === undefined || cited[field] === found[field])
 	);
+}
+
+function findBlock(block: StoryBlockReference, root: ParentNode): HTMLElement | null {
+	return findSameBlocks(block, root)[block.occurrence ?? 0] ?? null;
 }
 
 /** The starts of a quote searched for it, longest first, as a passage may be cut by markup the quote lost. */
@@ -121,7 +200,7 @@ function findSmallestElementHolding(root: ParentNode, holdsQuote: (content: stri
 }
 
 /** Follows the element while it scrolls into view, then fades out. */
-function outline(element: HTMLElement, zIndex: number): void {
+function outline(element: Element, zIndex: number): void {
 	const box = document.createElement('div');
 	box.setAttribute('style', OUTLINE_STYLE);
 	box.style.zIndex = String(zIndex);

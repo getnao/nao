@@ -1,5 +1,6 @@
 import { IncomingHttpHeaders } from 'node:http';
 
+import { getDeploymentEnvVar } from './deployment-env';
 import { ManagedCreditsExhaustedError } from './error';
 
 /** Convert fastify headers to basic `Headers` for better-auth. */
@@ -123,6 +124,12 @@ export const getEmailDomain = (email: string): string | null => {
 	return email.split('@').at(1)?.trim().toLowerCase() || null;
 };
 
+/** Whether `domain` is one of `claimedDomains` or a subdomain of one, as the SSO plugin matches emails. */
+export const isDomainCoveredBy = (domain: string, claimedDomains: string[]): boolean => {
+	const search = domain.trim().toLowerCase();
+	return claimedDomains.some((claimed) => search === claimed || search.endsWith(`.${claimed}`));
+};
+
 /**
  * Free / consumer email providers. These can never be claimed for organization
  * sign-in routing, since anyone can hold an address on them.
@@ -190,14 +197,14 @@ export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, str
 		if (Object.hasOwn(extraEnv, varName)) {
 			return extraEnv[varName];
 		}
-		return process.env[varName] || match;
+		return getDeploymentEnvVar(varName) || match;
 	});
 	return replaced;
 };
 
 /** Names whose effective value comes from the process environment because the project does not override them. */
 export const getProcessEnvSourcedVarNames = (names: string[], projectEnv: Record<string, string>): string[] => {
-	return names.filter((name) => !Object.hasOwn(projectEnv, name) && !!process.env[name]);
+	return names.filter((name) => !Object.hasOwn(projectEnv, name) && !!getDeploymentEnvVar(name));
 };
 
 /** Truncate a string to a maximum length and add an ellipsis in the middle. */

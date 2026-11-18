@@ -6,6 +6,7 @@ import {
 	useSeriesVisibility,
 } from '@nao/shared/chart-series';
 import { isBuiltinChartType, isComboChart, isPercentStackedChartType, isPieChart } from '@nao/shared/chart-types';
+import { partAttributes } from '@nao/shared/story-parts';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -769,7 +770,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const inlineHeader = useInlineHeader ? (
 		<div className='mb-6 flex w-full min-w-0 items-center gap-3'>
 			<div className={showInlineLegend ? 'min-h-11 shrink-0' : 'shrink-0'}>
-				<span className='nao-chart-title block text-[15px] font-semibold'>{title}</span>
+				<span
+					className='nao-chart-title block text-[15px] font-semibold'
+					{...partAttributes({ kind: 'title' })}
+				>
+					{title}
+				</span>
 				{titleAccessory}
 			</div>
 			{showInlineLegend && canScrollLeft && (

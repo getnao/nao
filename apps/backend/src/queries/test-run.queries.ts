@@ -160,6 +160,7 @@ export async function listResultOutcomes(runId: string) {
 			id: s.testRunResult.id,
 			testPath: s.testRunResult.testPath,
 			testName: s.testRunResult.testName,
+			tags: s.testRunResult.tags,
 			llmProvider: s.testRunResult.llmProvider,
 			llmModelId: s.testRunResult.llmModelId,
 			reasoningEffort: s.testRunResult.reasoningEffort,

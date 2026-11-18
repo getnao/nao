@@ -19,16 +19,24 @@ function StoryPage() {
 	const { storyId } = Route.useParams();
 	const { data: story } = useSuspenseQuery(trpc.story.resolve.queryOptions({ storyId }));
 
+	const editableChatId = editableStoryChatId(story);
+	if (editableChatId && story.format === 'custom') {
+		return (
+			<CustomStoryPreviewPage
+				key={storyId}
+				chatId={editableChatId}
+				storySlug={story.slug}
+				isOwner={story.isOwner}
+			/>
+		);
+	}
+
+	if (editableChatId) {
+		return <OwnedStoryPage key={storyId} chatId={editableChatId} storySlug={story.slug} isOwner={story.isOwner} />;
+	}
+
 	if (!story.isOwner) {
 		return <SharedStoryPage key={storyId} storyId={storyId} />;
-	}
-
-	if (story.chatId && story.format === 'custom') {
-		return <CustomStoryPreviewPage key={storyId} chatId={story.chatId} storySlug={story.slug} />;
-	}
-
-	if (story.chatId) {
-		return <OwnedStoryPage key={storyId} chatId={story.chatId} storySlug={story.slug} />;
 	}
 
 	if (story.format === 'custom') {
@@ -36,4 +44,16 @@ function StoryPage() {
 	}
 
 	return <StandaloneStoryPage key={storyId} storyId={storyId} />;
+}
+
+function editableStoryChatId(story: {
+	chatId: string | null;
+	canEdit: boolean;
+	isOwner: boolean;
+	isArchived: boolean;
+}) {
+	if (!story.chatId || !story.canEdit) {
+		return null;
+	}
+	return story.isOwner || !story.isArchived ? story.chatId : null;
 }
