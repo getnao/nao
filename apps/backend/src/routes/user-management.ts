@@ -71,6 +71,7 @@ export const userManagementRoutes = async (app: App) => {
 			return reply.status(rejection.statusCode).send({ error: rejection.error });
 		}
 		(request as ApiKeyRequest).apiKeyOrg = check.org;
+		request.actorUserId = check.createdBy;
 	});
 
 	app.get('/user-management/users', async (request, reply) => {

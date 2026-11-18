@@ -94,9 +94,13 @@ const auth = (key: string = USER_MANAGEMENT_KEY) => ({ authorization: `Bearer ${
 
 describe('user management API', () => {
 	let app: FastifyInstance;
+	let requestActorUserId: string | undefined;
 
 	beforeAll(async () => {
 		app = Fastify();
+		app.addHook('preHandler', async (request) => {
+			requestActorUserId = request.actorUserId;
+		});
 		await app.register(userManagementRoutes as never, { prefix: '/api' });
 		await app.ready();
 	});
@@ -144,6 +148,14 @@ describe('user management API', () => {
 		expect(await checkApiKey(DEPLOY_KEY, 'user_management')).toEqual({ status: 'scope_mismatch' });
 		expect(await checkApiKey(USER_MANAGEMENT_KEY, 'deploy')).toEqual({ status: 'scope_mismatch' });
 		expect((await checkApiKey(USER_MANAGEMENT_KEY, 'user_management')).status).toBe('ok');
+	});
+
+	it('records the key owner as the request actor for the HTTP log', async () => {
+		requestActorUserId = undefined;
+
+		await get('/user-management/users');
+
+		expect(requestActorUserId).toBe(ADMIN_ID);
 	});
 
 	it('only reaches the organization that owns the key', async () => {

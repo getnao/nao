@@ -45,13 +45,13 @@ export async function addOrganizationMemberWithGroups(member: NewOrgMember, grou
 				transaction.insert(s.userGroupMember).values(groupMemberships).onConflictDoNothing().run();
 			}
 		});
-		return;
+	} else {
+		await db.transaction(async (transaction) => {
+			await orgQueries.addOrgMember(member, transaction);
+			await userGroupQueries.addUserGroupMemberships(uniqueGroupIds, member.userId, transaction);
+		});
 	}
-
-	await db.transaction(async (transaction) => {
-		await orgQueries.addOrgMember(member, transaction);
-		await userGroupQueries.addUserGroupMemberships(uniqueGroupIds, member.userId, transaction);
-	});
+	await recordOrganizationJoinCandidate(member.orgId, member.userId);
 }
 
 export async function addProjectMember(member: NewProjectMember, groupIds: string[] = []): Promise<DBProjectMember> {
