@@ -86,6 +86,7 @@ interface FileViewerProps {
 	isLoading: boolean;
 	isError: boolean;
 	isEditable: boolean;
+	isManagedRepository: boolean;
 	editabilityGuidance: FileEditabilityGuidance | null;
 	searchQuery: string;
 	sourceAutoOpenRequestId: number | null;
@@ -121,6 +122,7 @@ export function FileViewer({
 	isLoading,
 	isError,
 	isEditable,
+	isManagedRepository,
 	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
@@ -163,6 +165,7 @@ export function FileViewer({
 			content={content}
 			hash={hash}
 			isEditable={isEditable}
+			isManagedRepository={isManagedRepository}
 			editabilityGuidance={editabilityGuidance}
 			searchQuery={searchQuery}
 			sourceAutoOpenRequestId={sourceAutoOpenRequestId}
@@ -181,6 +184,7 @@ function EditableFileViewer({
 	content,
 	hash,
 	isEditable,
+	isManagedRepository,
 	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
@@ -196,6 +200,7 @@ function EditableFileViewer({
 	| 'content'
 	| 'hash'
 	| 'isEditable'
+	| 'isManagedRepository'
 	| 'editabilityGuidance'
 	| 'searchQuery'
 	| 'sourceAutoOpenRequestId'
@@ -230,7 +235,9 @@ function EditableFileViewer({
 	const syncState = useQuery({ ...trpc.projectSync.getStatus.queryOptions(), enabled: isEditable });
 	const syncRunStatus = syncState.data?.run?.status;
 	const isSyncWritingFiles =
-		syncRunStatus === 'queued' || syncRunStatus === 'running' || Boolean(syncState.data?.syncingBy);
+		syncRunStatus === 'queued' ||
+		syncRunStatus === 'running' ||
+		(isManagedRepository && Boolean(syncState.data?.syncingBy));
 	const isMarkdown = isMarkdownPath(filePath);
 	const isRootRules = isRootRulesPath(filePath);
 	const tableFolder = useMemo(() => findContextTableFolder(filePath), [filePath]);

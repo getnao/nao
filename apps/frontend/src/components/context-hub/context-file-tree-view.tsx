@@ -617,6 +617,7 @@ export function ContextFileTreeView({
 											isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
 											isError={fileContent.isError && !fileContent.data}
 											isEditable={fileContent.data?.isEditable === true}
+											isManagedRepository={fileTree.data?.isManagedRepository === true}
 											editabilityGuidance={fileContent.data?.guidance ?? null}
 											searchQuery={shouldSearchContent ? debouncedSearch : ''}
 											sourceAutoOpenRequestId={

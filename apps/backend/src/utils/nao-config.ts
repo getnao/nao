@@ -51,6 +51,7 @@ const GCP_SYNC_ENV_VARS = [
 	'VERTEX_GOOGLE_APPLICATION_CREDENTIALS',
 ] as const;
 const K8S_SYNC_ENV_VARS = ['KUBERNETES_SERVICE_HOST', 'KUBERNETES_SERVICE_PORT'] as const;
+const MOTHERDUCK_SYNC_ENV_VARS = ['MOTHERDUCK_TOKEN', 'motherduck_token'] as const;
 
 export type ContextPresence = {
 	rules: boolean;
@@ -133,7 +134,24 @@ export function extractRequiredSyncEnvVars(projectFolder: string): string[] {
 	if (protocols.has('k8s')) {
 		K8S_SYNC_ENV_VARS.forEach((name) => required.add(name));
 	}
+	if (usesAmbientMotherDuckToken(config.databases)) {
+		MOTHERDUCK_SYNC_ENV_VARS.forEach((name) => required.add(name));
+	}
 	return [...required].sort();
+}
+
+function usesAmbientMotherDuckToken(databases: unknown): boolean {
+	return (
+		Array.isArray(databases) &&
+		databases.some(
+			(database) =>
+				isRecord(database) &&
+				database.type === 'motherduck' &&
+				(database.token === undefined ||
+					database.token === null ||
+					(typeof database.token === 'string' && database.token.trim() === '')),
+		)
+	);
 }
 
 function collectReferencedSecrets(

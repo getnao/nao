@@ -96,17 +96,31 @@ afterEach(() => {
 
 describe('FileViewer saving', () => {
 	it.each([
-		{ name: 'their own sync is running', run: { status: 'running' }, syncingBy: null },
-		{ name: 'another admin is syncing a nao-managed project', run: null, syncingBy: 'Marie' },
-	])('pauses saving while $name', ({ run, syncingBy }) => {
+		{ name: 'their own sync is running', run: { status: 'running' }, syncingBy: null, isManagedRepository: false },
+		{
+			name: 'another admin is syncing a nao-managed project',
+			run: null,
+			syncingBy: 'Marie',
+			isManagedRepository: true,
+		},
+	])('pauses saving while $name', ({ run, syncingBy, isManagedRepository }) => {
 		mocks.syncStatus.data = { run, syncingBy };
-		renderViewer({ filePath: '/databases/sales.yaml', content: 'name: sales\n' });
+		renderViewer({ filePath: '/databases/sales.yaml', content: 'name: sales\n', isManagedRepository });
 
 		fireEvent.change(screen.getByLabelText('File source'), { target: { value: 'name: edited\n' } });
 
 		const saveButton = screen.getByRole('button', { name: /Save/ });
 		expect(saveButton.hasAttribute('disabled')).toBe(true);
 		expect(saveButton.getAttribute('title')).toBe('Saving is paused until the project sync finishes.');
+	});
+
+	it("allows saving in a Git worktree while another admin's sync is running", () => {
+		mocks.syncStatus.data = { run: null, syncingBy: 'Marie' };
+		renderViewer({ filePath: '/databases/sales.yaml', content: 'name: sales\n', isManagedRepository: false });
+
+		fireEvent.change(screen.getByLabelText('File source'), { target: { value: 'name: edited\n' } });
+
+		expect(screen.getByRole('button', { name: /Save/ }).hasAttribute('disabled')).toBe(false);
 	});
 });
 
@@ -458,12 +472,14 @@ function renderViewer({
 	content,
 	rulesPreviewGroups = groups,
 	isEditable = true,
+	isManagedRepository = false,
 	hasMarkdownSourceViews,
 	onDraftChange,
 }: {
 	filePath: string;
 	content: string;
 	isEditable?: boolean;
+	isManagedRepository?: boolean;
 	hasMarkdownSourceViews?: boolean;
 	onDraftChange?: (path: string, content: string) => void;
 	rulesPreviewGroups?:
@@ -480,6 +496,7 @@ function renderViewer({
 			isLoading={false}
 			isError={false}
 			isEditable={isEditable}
+			isManagedRepository={isManagedRepository}
 			editabilityGuidance={null}
 			searchQuery=''
 			sourceAutoOpenRequestId={null}

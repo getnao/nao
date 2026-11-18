@@ -112,6 +112,16 @@ export const getLatestUserProjectSync = async (projectId: string, userId: string
 	return latest ?? null;
 };
 
+export const getActivityStatus = async (activityId: string): Promise<DBActivity['status'] | null> => {
+	const [activity] = await db
+		.select({ status: s.activity.status })
+		.from(s.activity)
+		.where(eq(s.activity.id, activityId))
+		.limit(1)
+		.execute();
+	return activity?.status ?? null;
+};
+
 export const getRunningProjectSync = async (
 	projectId: string,
 	excludedUserId: string,
@@ -131,6 +141,16 @@ export const getRunningProjectSync = async (
 		.limit(1)
 		.execute();
 	return running ?? null;
+};
+
+export const requestProjectSyncCancellation = async (activityId: string): Promise<boolean> => {
+	const rows = await db
+		.update(s.activity)
+		.set({ status: 'cancelled', completedAt: new Date() })
+		.where(and(eq(s.activity.id, activityId), eq(s.activity.status, 'running')))
+		.returning({ id: s.activity.id })
+		.execute();
+	return rows.length > 0;
 };
 
 export const cancelActivity = async (activityId: string, payload?: Record<string, unknown> | null): Promise<void> => {

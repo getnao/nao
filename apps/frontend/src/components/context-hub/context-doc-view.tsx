@@ -223,6 +223,7 @@ export function ContextDocView({
 									path={openPath}
 									diffPath={diffPath}
 									isDirty={isDirty}
+									isManagedRepository={fileTree.data?.isManagedRepository === true}
 									onOpenFile={openFile}
 									onDirtyChange={setIsDirty}
 								/>

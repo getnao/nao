@@ -185,14 +185,18 @@ function addSpecialDatabaseHosts(
 			hosts.add('oauth2.googleapis.com');
 			hosts.add('accounts.google.com');
 			return;
-		case 'duckdb':
+		case 'duckdb': {
+			const databasePath = resolvedString(database.path, envVars, 'duckdb.path');
+			if (/^(?:md|motherduck):/i.test(databasePath)) {
+				addMotherDuckHosts(hosts);
+			}
 			return;
+		}
 		case 'ducklake':
 			addDuckLakeHosts(hosts, privateWarehouseHosts, database, envVars);
 			return;
 		case 'motherduck':
-			hosts.add('api.motherduck.com');
-			hosts.add('extensions.duckdb.org');
+			addMotherDuckHosts(hosts);
 			return;
 		case 'snowflake':
 			addSnowflakeHosts(hosts, privateWarehouseHosts, database.account_id, envVars);
@@ -200,6 +204,11 @@ function addSpecialDatabaseHosts(
 		default:
 			throw new Error(`Cannot determine sync network access for unsupported database type "${type}".`);
 	}
+}
+
+function addMotherDuckHosts(hosts: Set<string>): void {
+	hosts.add('api.motherduck.com');
+	hosts.add('extensions.duckdb.org');
 }
 
 function addDuckLakeHosts(

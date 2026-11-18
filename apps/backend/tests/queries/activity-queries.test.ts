@@ -8,10 +8,12 @@ import { db } from '../../src/db/db';
 import {
 	failInterruptedProjectSyncActivities,
 	failStaleActivities,
+	getActivityStatus,
 	getLatestCompletedProjectSync,
 	getLatestUserProjectSync,
 	listContextPullActivities,
 	PROJECT_SYNC_LEASE_KEY_PREFIX,
+	requestProjectSyncCancellation,
 } from '../../src/queries/activity.queries';
 
 vi.mock('../../src/db/db', async () => {
@@ -191,6 +193,31 @@ describe('context pull activity queries', () => {
 
 		await expect(getLatestUserProjectSync(PROJECT_ID, USER_ID)).resolves.toMatchObject({ id: 'newest' });
 		await expect(getLatestUserProjectSync(PROJECT_ID, 'nobody')).resolves.toBeNull();
+	});
+
+	it('records cancellation only while a project sync is running', async () => {
+		await db.insert(s.activity).values([
+			{
+				id: 'running-sync',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'project.synced',
+				status: 'running',
+			},
+			{
+				id: 'completed-sync',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				type: 'project.synced',
+				status: 'completed',
+			},
+		]);
+
+		await expect(requestProjectSyncCancellation('running-sync')).resolves.toBe(true);
+		await expect(requestProjectSyncCancellation('completed-sync')).resolves.toBe(false);
+		await expect(getActivityStatus('running-sync')).resolves.toBe('cancelled');
+		await expect(getActivityStatus('completed-sync')).resolves.toBe('completed');
+		await expect(getActivityStatus('missing-sync')).resolves.toBeNull();
 	});
 });
 

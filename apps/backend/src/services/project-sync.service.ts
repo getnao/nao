@@ -45,6 +45,7 @@ interface SyncTarget {
 }
 
 const SYNC_LEASE_RENEW_MS = 30_000;
+const SYNC_CANCELLATION_POLL_MS = 1_000;
 const RUN_STATUS_BY_ACTIVITY_STATUS: Record<DBActivity['status'], ProjectSyncStatus> = {
 	running: 'running',
 	completed: 'succeeded',
@@ -114,8 +115,10 @@ export async function startProjectSync(
 
 			const activity = await activityQueries.startProjectSyncActivity(project.id, gitContext.userId);
 			const controller = new AbortController();
-			const releaseLease = await holdSyncLease(activity.id, () =>
-				controller.abort(new ProjectSyncLeaseLostError()),
+			const releaseLease = await holdSyncLease(
+				activity.id,
+				() => controller.abort(new ProjectSyncLeaseLostError()),
+				() => controller.abort(),
 			);
 			const run: ProjectSyncRun = {
 				id: activity.id,
@@ -151,18 +154,16 @@ export async function startProjectSync(
 }
 
 export async function cancelProjectSync(projectId: string, userId: string): Promise<void> {
-	const controller = controllers.get(getRunKey(projectId, userId));
-	if (controller) {
-		controller.abort();
+	const runKey = getRunKey(projectId, userId);
+	const run = await getUserRun(projectId, userId);
+	if (!run || !isRunActive(run)) {
 		return;
 	}
-	const run = await getUserRun(projectId, userId);
-	if (run && isRunActive(run)) {
-		throw new TRPCError({
-			code: 'CONFLICT',
-			message: 'This sync started before nao was updated, so it can only finish. Try again in a moment.',
-		});
+	const cancellationRequested = await activityQueries.requestProjectSyncCancellation(run.id);
+	if (!cancellationRequested) {
+		return;
 	}
+	controllers.get(runKey)?.abort();
 }
 
 /** Sync writes into the user's worktree, so Git actions there wait until it finishes. */
@@ -294,6 +295,10 @@ async function runProjectSync(
 					appendRunLog(runKey, runId, 'The sync had already finished, so it could not be stopped.');
 				}
 				await activityQueries.completeActivity(runId, { logs: runs.get(runKey)?.logs ?? '' });
+				if ((await activityQueries.getActivityStatus(runId)) === 'cancelled') {
+					await finishCancelledRun(runKey, runId);
+					return;
+				}
 				updateRun(runKey, runId, {
 					status: 'succeeded',
 					error: null,
@@ -302,9 +307,7 @@ async function runProjectSync(
 			} catch (error) {
 				const leaseLost = signal?.reason instanceof ProjectSyncLeaseLostError;
 				if (signal?.aborted && !leaseLost) {
-					appendRunLog(runKey, runId, 'Sync cancelled');
-					await activityQueries.cancelActivity(runId, { logs: runs.get(runKey)?.logs ?? '' });
-					updateRun(runKey, runId, { status: 'cancelled', finishedAt: new Date() });
+					await finishCancelledRun(runKey, runId);
 					return;
 				}
 				const failure = leaseLost ? signal.reason : error;
@@ -348,15 +351,20 @@ function withContextWorktreeLock<T>(gitContext: ContextExplorerGitContext, actio
 }
 
 /** Other servers fail a running sync once this lease expires, so it is renewed until the sync settles. */
-async function holdSyncLease(activityId: string, onLost: () => void): Promise<() => Promise<void>> {
+async function holdSyncLease(
+	activityId: string,
+	onLost: () => void,
+	onCancellationRequested: () => void,
+): Promise<() => Promise<void>> {
 	const key = `${activityQueries.PROJECT_SYNC_LEASE_KEY_PREFIX}${activityId}`;
 	const owner = crypto.randomUUID();
 	await keyedLockQueries.tryAcquireLock(key, owner, activityQueries.SYNC_LEASE_MS);
+	let stopped = false;
 	const renewal = setInterval(() => {
 		void keyedLockQueries
 			.renewLock(key, owner, activityQueries.SYNC_LEASE_MS)
 			.then((renewed) => {
-				if (!renewed) {
+				if (!stopped && !renewed) {
 					clearInterval(renewal);
 					onLost();
 				}
@@ -365,9 +373,27 @@ async function holdSyncLease(activityId: string, onLost: () => void): Promise<()
 				logger.warn(`Could not renew the project sync lease: ${String(error)}`, { source: 'system' });
 			});
 	}, SYNC_LEASE_RENEW_MS);
+	const cancellationPolling = setInterval(() => {
+		void activityQueries
+			.getActivityStatus(activityId)
+			.then((status) => {
+				if (!stopped && status === 'cancelled') {
+					clearInterval(cancellationPolling);
+					onCancellationRequested();
+				}
+			})
+			.catch((error) => {
+				logger.warn(`Could not check whether project sync was cancelled: ${String(error)}`, {
+					source: 'system',
+				});
+			});
+	}, SYNC_CANCELLATION_POLL_MS);
 	renewal.unref?.();
+	cancellationPolling.unref?.();
 	return async () => {
+		stopped = true;
 		clearInterval(renewal);
+		clearInterval(cancellationPolling);
 		await keyedLockQueries.releaseLock(key, owner).catch(() => undefined);
 	};
 }
@@ -457,6 +483,12 @@ async function isUserSyncActive(projectId: string, userId: string): Promise<bool
 	await activityQueries.failInterruptedProjectSyncActivities();
 	const run = await getUserRun(projectId, userId);
 	return run !== null && isRunActive(run);
+}
+
+async function finishCancelledRun(runKey: string, runId: string): Promise<void> {
+	appendRunLog(runKey, runId, 'Sync cancelled');
+	await activityQueries.cancelActivity(runId, { logs: runs.get(runKey)?.logs ?? '' });
+	updateRun(runKey, runId, { status: 'cancelled', finishedAt: new Date() });
 }
 
 function appendRunLog(runKey: string, runId: string, message: string): void {

@@ -27,6 +27,24 @@ describe('resolveSyncOutboundPolicy', () => {
 		});
 	});
 
+	it.each(['md:analytics', 'motherduck:analytics'])(
+		'allows MotherDuck hosts for a legacy DuckDB path %s',
+		async (databasePath) => {
+			writeConfig(`
+project_name: sales
+databases:
+  - name: analytics
+    type: duckdb
+    path: ${databasePath}
+`);
+
+			await expect(resolveSyncOutboundPolicy(project, {}, { resolveAddresses: publicDns })).resolves.toEqual({
+				mode: 'enabled',
+				allowNet: ['api.motherduck.com', 'extensions.duckdb.org'],
+			});
+		},
+	);
+
 	it('allows only exact hosts required by configured sync providers', async () => {
 		writeConfig(`
 project_name: sales

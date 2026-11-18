@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sandbox = vi.hoisted(() => ({ isAvailable: true }));
 const lockState = vi.hoisted(() => ({ locks: new Map<string, Promise<unknown>>() }));
+const activityState = vi.hoisted(() => ({ status: 'running' as 'running' | 'cancelled' }));
 
 vi.mock('../../src/env', () => ({ env: { NAO_MODE: 'cloud' } }));
 vi.mock('../../src/services/sandbox-runtime', () => ({
@@ -21,6 +22,14 @@ vi.mock('../../src/queries/activity.queries', () => ({
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
 	cancelActivity: vi.fn(),
+	getActivityStatus: vi.fn(async () => activityState.status),
+	requestProjectSyncCancellation: vi.fn(async () => {
+		if (activityState.status !== 'running') {
+			return false;
+		}
+		activityState.status = 'cancelled';
+		return true;
+	}),
 	getLatestCompletedProjectSync: vi.fn(async () => null),
 	getRunningProjectSync: vi.fn(async () => null),
 	getLatestUserProjectSync: vi.fn(async () => null),
@@ -69,9 +78,11 @@ import {
 	cancelActivity,
 	completeActivity,
 	failActivity,
+	getActivityStatus,
 	getLatestCompletedProjectSync,
 	getLatestUserProjectSync,
 	getRunningProjectSync,
+	requestProjectSyncCancellation,
 	startProjectSyncActivity,
 } from '../../src/queries/activity.queries';
 import { releaseLock, renewLock, tryAcquireLock } from '../../src/queries/keyed-lock.queries';
@@ -103,6 +114,7 @@ let worktreeRoot: string;
 beforeEach(() => {
 	vi.clearAllMocks();
 	lockState.locks.clear();
+	activityState.status = 'running';
 	__resetProjectSyncRunsForTesting();
 	worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-sync-test-'));
 	fs.writeFileSync(path.join(worktreeRoot, 'nao_config.yaml'), 'project_name: edited in the editor\n');
@@ -321,6 +333,30 @@ describe('project sync', () => {
 		expect(publishManagedGithubRepositoryUpdate).not.toHaveBeenCalled();
 	});
 
+	it('stops a sync when another backend instance records its cancellation', async () => {
+		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+		vi.mocked(runNaoCommandInSandbox).mockImplementation(
+			async (_args, _cwd, _env, _onOutput, signal) =>
+				new Promise<void>((_resolve, reject) => {
+					const cancel = () => reject(new Error('nao sync was cancelled.'));
+					if (signal?.aborted) {
+						cancel();
+					}
+					signal?.addEventListener('abort', cancel);
+				}),
+		);
+
+		const run = await startProjectSync(project, gitContext('user-1'));
+		await vi.waitFor(() => expect(runNaoCommandInSandbox).toHaveBeenCalled());
+		activityState.status = 'cancelled';
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		await vi.waitFor(async () => {
+			expect((await getProjectSyncState(project, gitContext('user-1'))).run?.status).toBe('cancelled');
+		});
+		expect(getActivityStatus).toHaveBeenCalledWith(run.id);
+	});
+
 	it('keeps what synced and completes with errors when one source fails, like the CLI', async () => {
 		vi.mocked(runNaoCommandInSandbox).mockImplementation(async (_args, cwd) => {
 			fs.writeFileSync(path.join(cwd, 'sales.md'), 'synced');
@@ -441,7 +477,7 @@ describe('project sync', () => {
 		).toHaveLength(1);
 	});
 
-	it('shows, never duplicates, and waits for a sync that the previous deployment is still running', async () => {
+	it('shows, never duplicates, and cancels a sync that the previous deployment is still running', async () => {
 		vi.mocked(getLatestUserProjectSync).mockImplementation(async (_projectId, userId) =>
 			userId === 'user-1' ? syncActivity({ id: 'old-deployment-run', status: 'running' }) : null,
 		);
@@ -456,7 +492,8 @@ describe('project sync', () => {
 		expect(run.id).toBe('old-deployment-run');
 		expect(startProjectSyncActivity).not.toHaveBeenCalled();
 		expect(runNaoCommandInSandbox).not.toHaveBeenCalled();
-		await expect(cancelProjectSync(project.id, 'user-1')).rejects.toThrow('can only finish');
+		await expect(cancelProjectSync(project.id, 'user-1')).resolves.toBeUndefined();
+		expect(requestProjectSyncCancellation).toHaveBeenCalledWith('old-deployment-run');
 		await expect(assertNoProjectSyncRunning(project.id, 'user-1')).rejects.toThrow('before using Git');
 		await expect(assertNoProjectSyncWritingFiles(project.id, 'user-1', false)).rejects.toThrow('before saving');
 		await expect(assertNoProjectSyncWritingFiles(project.id, 'user-2', false)).resolves.toBeUndefined();

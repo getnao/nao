@@ -122,6 +122,24 @@ describe('extractRequiredSyncEnvVars', () => {
 		);
 	});
 
+	it.each([
+		{ token: undefined, expected: ['MOTHERDUCK_TOKEN', 'motherduck_token'] },
+		{ token: 'configured-token', expected: [] },
+	])('includes ambient MotherDuck tokens only when token is omitted', ({ token, expected }) => {
+		const dir = createProject({
+			naoConfig: [
+				'project_name: demo',
+				'databases:',
+				'  - name: analytics',
+				'    type: motherduck',
+				'    database: production',
+				...(token ? [`    token: ${token}`] : []),
+			],
+		});
+
+		expect(extractRequiredSyncEnvVars(dir)).toEqual(expected);
+	});
+
 	it('includes LLM credentials when a selected template override calls prompt', () => {
 		const dir = createSelectedTemplateProject();
 		const templateDirectory = path.join(dir, 'templates', 'databases');
