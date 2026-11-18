@@ -37,6 +37,7 @@ No individual endpoint configuration is needed.
 | `OIDC_SCOPES`                  | No       | `openid,profile,email` | Comma-separated list of OAuth scopes                                                  |
 | `OIDC_AUTH_DOMAINS`            | No       | —                      | Comma-separated email domain allowlist                                                |
 | `OIDC_PKCE`                    | No       | `true`                 | Enable PKCE (Proof Key for Code Exchange)                                             |
+| `OIDC_PROMPT`                  | No       | `select_account`       | `prompt` sent to the provider: `select_account`, `login`, `consent`, `none` or `omit` |
 | `OIDC_GROUPS_CLAIM`            | No       | `groups`               | Name of the ID token claim holding the user's groups                                  |
 | `OIDC_GROUP_NAO_ROLE_MAPPING`  | No       | —                      | Maps IdP groups to organization roles — see [Group role mapping](#group-role-mapping) |
 | `OIDC_GROUP_NAO_GROUP_MAPPING` | No       | —                      | Maps OIDC groups to nao User Groups by stable project ID                              |
@@ -314,6 +315,7 @@ The limit is measured from the session's creation time and is not extended by ac
 | 404 on discovery URL                               | Incorrect discovery URL — verify it returns JSON when opened in a browser                                                                        |
 | "redirect_uri_mismatch" error                      | The redirect URI registered in your IdP does not match `https://<host>/api/auth/oauth2/callback/{OIDC_PROVIDER_ID}` exactly                      |
 | "invalid_scope" error                              | Your provider doesn't support one of the requested scopes — check `OIDC_SCOPES`                                                                  |
+| "invalid_request" error mentioning `prompt`        | Your provider rejects `prompt=select_account` (Cloudflare Access does) — set `OIDC_PROMPT=login`, or `OIDC_PROMPT=omit` to send no prompt        |
 | "This email domain is not authorized"              | The user's email domain is not in `OIDC_AUTH_DOMAINS`                                                                                            |
 | "not assigned to any nao access group"             | The groups claim is present, but none of the user's groups appear in `OIDC_GROUP_NAO_ROLE_MAPPING`                                               |
 | App tile lands on the login page                   | Initiate login URI is not set to `https://<host>/api/sso/start`                                                                                  |
