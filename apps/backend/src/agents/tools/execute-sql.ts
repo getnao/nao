@@ -84,7 +84,7 @@ export async function executeQuery(
 		projectFolder: context.projectFolder,
 		databaseId: database_id,
 		envVars: context.envVars,
-		azureAccessToken: context.azureAccessToken,
+		warehouseAccessToken: context.warehouseAccessToken,
 		enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },

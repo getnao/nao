@@ -8,7 +8,6 @@ import type { DraftContext, TestRunSummary } from '@/components/settings/test-ru
 import type { TestRunSettings } from '@/hooks/use-test-run-settings';
 import type { UpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { getMainBranch } from '@/components/settings/test-run-labels';
-import { getContextChanges } from '@/components/settings/test-run-types';
 import { formatUpstreamRef, useUpstreamTestSource } from '@/hooks/use-upstream-test-source';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
@@ -51,7 +50,7 @@ export function useTestRunStart({
 	const runStart = useMutation(trpc.testRun.startRun.mutationOptions({ onSuccess: onRunStarted }));
 	const [contextRunMode] = useContextRunMode();
 	const [upstream, , isCheckingUpstream] = useUpstreamTestSource();
-	const hasContextChanges = upstream !== null || getContextChanges(draft).length > 0;
+	const hasContextChanges = upstream !== null || (draft?.changes.length ?? 0) > 0;
 	const mode: ContextRunMode = hasContextChanges ? contextRunMode : 'production';
 	const isStarting = runStart.isPending;
 

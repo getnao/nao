@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 	getStandaloneCustomStoryVersion: vi.fn(),
 	getSharedCustomStoryQueryData: vi.fn(),
 	getSharedCustomStoryQuerySql: vi.fn(),
+	getStandaloneCustomStoryQuerySql: vi.fn(),
 	getStandaloneCustomStoryQueryData: vi.fn(),
 	getCustomStoryNarratives: vi.fn(),
 	getStandaloneCustomStoryNarratives: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('../../src/services/custom-story', () => ({
 	getStandaloneCustomStoryVersion: mocks.getStandaloneCustomStoryVersion,
 	getSharedCustomStoryQueryData: mocks.getSharedCustomStoryQueryData,
 	getSharedCustomStoryQuerySql: mocks.getSharedCustomStoryQuerySql,
+	getStandaloneCustomStoryQuerySql: mocks.getStandaloneCustomStoryQuerySql,
 	getStandaloneCustomStoryQueryData: mocks.getStandaloneCustomStoryQueryData,
 	getCustomStoryNarratives: mocks.getCustomStoryNarratives,
 	getStandaloneCustomStoryNarratives: mocks.getStandaloneCustomStoryNarratives,
@@ -107,12 +109,9 @@ describe('storyShare custom story readers', () => {
 		await caller.storyShare.getCustomStoryQueryData({ ...STORY_INPUT, queryId: 'q_revenue' });
 		await caller.storyShare.getCustomStoryNarratives(STORY_INPUT);
 
-		expect(mocks.getStandaloneCustomStoryQueryData).toHaveBeenCalledWith(
-			'story-1',
-			'q_revenue',
-			undefined,
-			undefined,
-		);
+		expect(mocks.getStandaloneCustomStoryQueryData).toHaveBeenCalledWith('story-1', 'q_revenue', undefined, {
+			rerun: { inputs: undefined, viewerId: 'viewer-1' },
+		});
 		expect(mocks.getStandaloneCustomStoryNarratives).toHaveBeenCalledWith('story-1');
 	});
 
@@ -126,10 +125,17 @@ describe('storyShare custom story readers', () => {
 		expect(mocks.setCustomStoryStateByStoryId).toHaveBeenCalledWith('story-1', 'viewer-1', change);
 	});
 
-	it('has no SQL to show for a standalone story', async () => {
+	it('shows the SQL saved with a standalone story', async () => {
+		mocks.getStandaloneCustomStoryQuerySql.mockResolvedValue('SELECT 1');
+
 		await expect(
 			caller.storyShare.getCustomStoryQuerySql({ ...STORY_INPUT, queryId: 'q_revenue' }),
-		).rejects.toMatchObject({ code: 'NOT_FOUND' });
+		).resolves.toEqual({ sqlQuery: 'SELECT 1' });
+		expect(mocks.getStandaloneCustomStoryQuerySql).toHaveBeenCalledWith(
+			STORY_INPUT.storyId,
+			'q_revenue',
+			undefined,
+		);
 		expect(mocks.getSharedCustomStoryQuerySql).not.toHaveBeenCalled();
 	});
 

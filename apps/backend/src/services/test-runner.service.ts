@@ -27,6 +27,7 @@ import {
 import { getProjectAvailableModels, resolveDefaultChatModel, resolveModelInferenceSettings } from '../utils/llm';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
+import { listAddedTestPaths } from '../utils/test-comparison';
 import { comparedColumns, orderRecordsForComparison } from '../utils/test-data-comparison';
 import type { AgentRunResult } from './agent';
 import {
@@ -62,7 +63,7 @@ export class TestRunConflictError extends Error {
 	}
 }
 
-interface StartTestRunInput {
+export interface StartTestRunInput {
 	projectId: string;
 	userId: string;
 	paths?: string[];
@@ -105,6 +106,8 @@ interface TestSuitePlan {
 interface TestRunPlan extends TestSuitePlan {
 	variants: TestContextVariant[];
 	draftFolder: string | null;
+	/** Tests the changes add, which only run against the draft, as production does not have them. */
+	addedTestPaths: ReadonlySet<string>;
 }
 
 type TestRunContext = Pick<NewTestRun, 'trigger' | 'contextRef' | 'contextCommit' | 'contextChanges'>;
@@ -125,7 +128,7 @@ export async function startTestRun(input: StartTestRunInput): Promise<DBTestRun>
 	const plan = await planTestRun(input, projectFolder, suite);
 	return createAndExecuteRun(
 		input,
-		{ ...plan, variants: ['production'], draftFolder: null },
+		{ ...plan, variants: ['production'], draftFolder: null, addedTestPaths: new Set() },
 		{ trigger: input.tests ? 'draft' : 'manual' },
 	);
 }
@@ -165,7 +168,7 @@ async function startDraftContextRun(
 		const plan = await planTestRun(input, projectFolder, suite);
 		run = await createAndExecuteRun(
 			input,
-			{ ...plan, variants, draftFolder: snapshot.folder },
+			{ ...plan, variants, draftFolder: snapshot.folder, addedTestPaths: listAddedTestPaths(snapshot.changes) },
 			{
 				trigger,
 				contextRef: snapshot.ref,
@@ -238,7 +241,7 @@ async function createAndExecuteRun(
 		models: plan.models,
 		attempts: plan.attempts,
 		selection: plan.tests.map((test) => test.path),
-		totalAttempts: plan.tests.length * plan.models.length * plan.attempts * plan.variants.length,
+		totalAttempts: buildAttemptJobs(plan).length,
 	});
 	if (!run) {
 		throw new TestRunConflictError();
@@ -414,10 +417,14 @@ function buildAttemptJobs(plan: TestRunPlan): TestAttemptJob[] {
 	return plan.tests.flatMap((test) =>
 		plan.models.flatMap((model) =>
 			Array.from({ length: plan.attempts }, (_, index) => index + 1).flatMap((attempt) =>
-				plan.variants.map((variant) => ({ test, model, attempt, variant })),
+				listTestVariants(test, plan).map((variant) => ({ test, model, attempt, variant })),
 			),
 		),
 	);
+}
+
+function listTestVariants(test: TestDefinition, plan: TestRunPlan): TestContextVariant[] {
+	return plan.addedTestPaths.has(test.path) ? plan.variants.filter((variant) => variant === 'draft') : plan.variants;
 }
 
 async function runAttemptUnlessCancelled(

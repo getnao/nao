@@ -60,10 +60,18 @@ describe('TestSuitePanel', () => {
 			modelSummaries: [],
 			previousModelSummaries: [],
 			results: [
-				{ testPath: 'revenue.yml', testName: 'revenue', passed: true, message: 'match', errorMessage: null },
+				{
+					testPath: 'revenue.yml',
+					testName: 'revenue',
+					tags: [],
+					passed: true,
+					message: 'match',
+					errorMessage: null,
+				},
 				{
 					testPath: 'churn.yml',
 					testName: 'churn',
+					tags: [],
 					passed: false,
 					message: 'values differ',
 					errorMessage: null,
@@ -371,6 +379,7 @@ function multiModelRun(results: [testPath: string, modelId: string, passed: bool
 			id: `result-${index}`,
 			testPath,
 			testName: testPath.replace('.yml', ''),
+			tags: [],
 			llmProvider: 'anthropic',
 			llmModelId: modelId,
 			contextVariant: 'production',

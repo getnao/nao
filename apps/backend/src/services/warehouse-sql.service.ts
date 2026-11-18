@@ -7,7 +7,7 @@ interface WarehouseSqlOptions {
 	projectFolder: string;
 	databaseId?: string;
 	envVars?: Record<string, string>;
-	azureAccessToken?: string | null;
+	warehouseAccessToken?: string | null;
 	enforceExcludedColumns: boolean;
 	tableAccess: WarehouseTableAccess;
 	rowSecurity: WarehouseRowSecurity;
@@ -90,7 +90,7 @@ async function requestWarehouseSql<T>(
 			row_security: serializeRowSecurity(options.rowSecurity),
 			...(options.databaseId && { database_id: options.databaseId }),
 			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
-			...(options.azureAccessToken && { azure_access_token: options.azureAccessToken }),
+			...(options.warehouseAccessToken && { user_access_token: options.warehouseAccessToken }),
 		}),
 	});
 

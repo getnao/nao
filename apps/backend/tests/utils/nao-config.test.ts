@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { extractConfiguredRepos, extractRequiredEnvVars } from '../../src/utils/nao-config';
+import { extractConfiguredRepos, extractRequiredEnvVars, resolveEnvReferences } from '../../src/utils/nao-config';
 import { restoreProcessEnvAfterEach } from '../helpers/process-env-snapshot';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
@@ -66,6 +66,24 @@ describe('extractRequiredEnvVars', () => {
 		fs.mkdirSync(path.join(dir, 'agent', 'mcps', 'mcp.json'), { recursive: true });
 
 		expect(extractRequiredEnvVars(dir)).toEqual([]);
+	});
+});
+
+describe('resolveEnvReferences', () => {
+	it.each([
+		['leaves an aws reference to the CLI', "{{ aws('prod/git/token') }}", "{{ aws('prod/git/token') }}"],
+		[
+			'fills in a reference written with spaces',
+			"https://{{ env( 'GIT_TOKEN' ) }}@git.example/repo.git",
+			'https://abc@git.example/repo.git',
+		],
+		[
+			'empties a reference to an unknown variable',
+			"https://{{ env('MISSING_GIT_TOKEN') }}@git.example/repo.git",
+			'https://@git.example/repo.git',
+		],
+	])('%s', (_name, url, expected) => {
+		expect(resolveEnvReferences({ url }, { GIT_TOKEN: 'abc' })).toEqual({ url: expected });
 	});
 });
 

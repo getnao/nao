@@ -6,9 +6,10 @@ import { promisify } from 'node:util';
 
 import type { RepoBranchList } from '@nao/shared/types';
 
+import { env } from '../env';
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import type { TestContextChange } from '../types/test-run';
-import { extractConfiguredRepos, extractRawRepoConfig } from '../utils/nao-config';
+import { extractConfiguredRepos, extractRawRepoConfig, resolveEnvReferences } from '../utils/nao-config';
 import {
 	copyProductionContext,
 	getSnapshotsRoot,
@@ -41,6 +42,7 @@ const INHERITED_ENV_NAMES = [
 	'HTTPS_PROXY',
 	'HTTP_PROXY',
 	'NO_PROXY',
+	'NAO_MODE',
 ];
 
 export interface UpstreamRepo {
@@ -106,15 +108,23 @@ interface GitRemote {
 	repo: UpstreamRepo;
 	linkedRepo: LinkedContextRepo;
 	env: NodeJS.ProcessEnv;
+	/** Fill in the repository settings before `nao sync` reads them, as its environment holds none of them. */
+	projectVariables: Record<string, string>;
 	/** Removed from command output, as git may print the authenticated URL or a URL holding project variables. */
 	secrets: string[];
 }
 
-/** Leaves the URLs out, as resolving them may fill in project variables the caller is not allowed to read. */
+/**
+ * Leaves the URLs out, as resolving them may fill in project variables the caller is not allowed to read. None are
+ * listed when NAO_CONTEXT_SYNCED_REPOS_ENABLED turns synced repos off.
+ */
 export async function listUpstreamRepos(
 	projectId: string,
 	projectFolder: string,
 ): Promise<Omit<UpstreamRepo, 'url'>[]> {
+	if (!env.NAO_CONTEXT_SYNCED_REPOS_ENABLED) {
+		return [];
+	}
 	const repos = extractConfiguredRepos(projectFolder, await getProjectRuntimeEnvVars(projectId));
 	return repos.flatMap((repo) => (repo.url ? [{ name: repo.name, branch: repo.branch }] : []));
 }
@@ -293,6 +303,9 @@ async function resolveGitRemote(input: {
 	repo: string;
 	userId: string;
 }): Promise<GitRemote> {
+	if (!env.NAO_CONTEXT_SYNCED_REPOS_ENABLED) {
+		throw new UpstreamContextError('Synced repos are turned off on this instance.');
+	}
 	const envVars = await getProjectRuntimeEnvVars(input.projectId);
 	const linkedRepo = extractConfiguredRepos(input.projectFolder, envVars).find((repo) => repo.name === input.repo);
 	if (!linkedRepo?.url) {
@@ -304,7 +317,8 @@ async function resolveGitRemote(input: {
 	return {
 		repo,
 		linkedRepo,
-		env: createGitEnvironment(repo.url, authenticatedUrl, envVars),
+		env: createGitEnvironment(repo.url, authenticatedUrl),
+		projectVariables: envVars,
 		secrets: [authenticatedUrl, writtenUrl === repo.url ? null : repo.url].filter((secret) => secret !== null),
 	};
 }
@@ -336,14 +350,10 @@ async function resolveAuthenticatedUrl(repo: LinkedContextRepo, user: Repository
 
 /**
  * Git reads the URL rewrite from the environment, so the token reaches `nao sync` without being written to disk. The
- * project's variables go along, for `nao sync` to resolve the repository settings as in production.
+ * project's variables stay out of it: the project picks their names, and git, Python and the loader act on some names.
  */
-function createGitEnvironment(
-	url: string,
-	authenticatedUrl: string | null,
-	envVars: Record<string, string>,
-): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...envVars, GIT_TERMINAL_PROMPT: '0' };
+function createGitEnvironment(url: string, authenticatedUrl: string | null): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: '0' };
 	for (const name of INHERITED_ENV_NAMES) {
 		if (process.env[name] !== undefined) {
 			env[name] = process.env[name];
@@ -379,12 +389,17 @@ function sortProductionBranchFirst(branches: UpstreamBranch[], productionBranch:
 	});
 }
 
-/** Runs `nao sync` on a project holding only this repository, so no database or template of production is touched. */
+/**
+ * Runs `nao sync` on a project holding only this repository, so no database or template of production is touched.
+ * Its settings are written with the project's variables filled in, to resolve as in production.
+ */
 async function syncRepo(remote: GitRemote, repoConfig: Record<string, unknown>, syncFolder: string): Promise<string> {
+	const resolvedRepoConfig = resolveEnvReferences(repoConfig, remote.projectVariables);
 	fs.mkdirSync(syncFolder, { recursive: true });
 	fs.writeFileSync(
 		path.join(syncFolder, 'nao_config.yaml'),
-		JSON.stringify({ project_name: SYNC_PROJECT_NAME, repos: [repoConfig] }, null, 2),
+		JSON.stringify({ project_name: SYNC_PROJECT_NAME, repos: [resolvedRepoConfig] }, null, 2),
+		{ mode: 0o600 },
 	);
 	await runCommand(remote, 'nao', ['sync', '--provider', `repos:${remote.repo.name}`], {
 		cwd: syncFolder,

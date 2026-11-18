@@ -248,6 +248,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 				open={sharing.isShareDialogOpen}
 				onOpenChange={sharing.setIsShareDialogOpen}
 				target={{ kind: 'story', chatId: chatId, storySlug: storySlug }}
+				onStoryTransferred={close}
 			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
@@ -260,8 +261,7 @@ export function CustomStoryViewer({ chatId, storySlug }: CustomStoryViewerProps)
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
-				chatId={chatId}
-				storySlug={storySlug}
+				story={{ chatId, storySlug }}
 				isLive={live.isLive}
 				isLiveTextDynamic={live.isLiveTextDynamic}
 				cacheSchedule={live.cacheSchedule}

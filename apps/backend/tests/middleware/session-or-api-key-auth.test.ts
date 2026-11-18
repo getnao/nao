@@ -125,6 +125,15 @@ describe('sessionOrApiKeyAuthMiddleware', () => {
 		expect(reply.status).not.toHaveBeenCalled();
 	});
 
+	it('rejects a session whose user must set up two-factor authentication first', async () => {
+		mocks.getSession.mockResolvedValue({ user: { id: 'session-user-id' }, twoFactorSetupRequired: true });
+
+		const { request, reply } = await authenticate({});
+
+		expect(reply.status).toHaveBeenCalledWith(403);
+		expect(request.user).toBeUndefined();
+	});
+
 	it('rejects requests with neither an API key nor a session', async () => {
 		mocks.getSession.mockResolvedValue(null);
 

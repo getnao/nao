@@ -103,7 +103,7 @@ class ExecuteSQLRequest(StrictRequestModel):
     row_security: RowSecurity
     database_id: str | None = None
     env_vars: dict[str, str] | None = None
-    azure_access_token: str | None = None
+    user_access_token: str | None = None
     enforce_excluded_columns: bool = False
 
     @field_validator("table_access", mode="before")

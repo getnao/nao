@@ -317,10 +317,10 @@ export async function getLatestSqlQueriesByChats(
 			continue;
 		}
 		const { sqlQuery, databaseId, semanticQuery } = readStoredSql(part.toolName, part.toolInput, part.toolOutput);
-		if (sqlQuery) {
+		if (sqlQuery || semanticQuery) {
 			const chatQueries = queriesByChat.get(part.chatId) ?? {};
 			chatQueries[output.id] = {
-				sqlQuery,
+				sqlQuery: sqlQuery ?? '',
 				...(databaseId && { databaseId }),
 				...(output.dialect && { dialect: output.dialect }),
 				adminMode: part.messageSource === 'admin',

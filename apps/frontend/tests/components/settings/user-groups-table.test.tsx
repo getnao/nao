@@ -84,6 +84,10 @@ vi.mock('@/main', () => ({
 		account: {
 			resetPassword: { mutationOptions: vi.fn() },
 		},
+		automation: {
+			countOwnedByUser: { queryOptions: vi.fn(() => ({ queryKey: ['owned-automations'] })) },
+			transferAllFromUser: { mutationOptions: vi.fn() },
+		},
 		authConfig: {
 			microsoft: { isSetup: { queryOptions: vi.fn(() => ({ queryKey: ['microsoft-config'] })) } },
 			oidc: { getConfig: { queryOptions: vi.fn(() => ({ queryKey: ['oidc-config'] })) } },
@@ -96,6 +100,10 @@ vi.mock('@/main', () => ({
 			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
 			listAllUsersWithRoles: { queryKey: vi.fn(() => ['project-members']) },
 			removeProjectMember: { mutationOptions: vi.fn() },
+		},
+		story: {
+			countOwnedStories: { queryOptions: vi.fn(() => ({ queryKey: ['owned-stories'] })) },
+			transferAllFromUser: { mutationOptions: vi.fn() },
 		},
 		system: {
 			getPublicConfig: { queryOptions: vi.fn(() => ({ queryKey: ['system-config'] })) },

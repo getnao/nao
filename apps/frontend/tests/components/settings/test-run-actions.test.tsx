@@ -106,7 +106,7 @@ describe('TestFileRunActions', () => {
 		renderWithProviders(
 			<TestFileRunActions
 				settings={settings()}
-				draft={draftWith(['tests/revenue.yml'])}
+				draft={draftWith([])}
 				activeRun={undefined}
 				testFile={TEST_FILE}
 				validation={VALID}
@@ -127,11 +127,14 @@ describe('TestFileRunActions', () => {
 		expect(screen.getByRole('button', { name: 'Models to test' }).textContent).toBe('2 models · ×3');
 	});
 
-	it('compares the edited test with the default branch when the context changed', async () => {
+	it.each([
+		['the context', 'RULES.md'],
+		['only a test', 'tests/margin.yml'],
+	])('compares the edited test with the default branch when %s changed', async (_changed, changedPath) => {
 		renderWithProviders(
 			<TestFileRunActions
 				settings={settings()}
-				draft={draftWith(['RULES.md'])}
+				draft={draftWith([changedPath])}
 				activeRun={undefined}
 				testFile={TEST_FILE}
 				validation={VALID}
@@ -336,6 +339,30 @@ describe('SuiteRunActions', () => {
 		await waitFor(() => expect(onRepositoryChanged).toHaveBeenCalled());
 		expect(mocks.switchBranch.mock.calls[0][0]).toEqual({ branch: 'alice/orders' });
 		expect(localStorage.getItem('nao-test-upstream-source')).toBe('null');
+	});
+
+	it('offers the branches of the context repo when no repository is synced', async () => {
+		mocks.listUpstreamRepos.mockResolvedValue([]);
+		mocks.getRepositoryStatus.mockResolvedValue({
+			gitUnavailableReason: null,
+			branches: { currentBranch: 'main', defaultBranch: 'main' },
+		});
+		renderWithProviders(
+			<FileExplorerWorktreeProvider value={{ hasUnsavedFileChanges: false, onRepositoryChanged: vi.fn() }}>
+				<SuiteRunActions
+					settings={settings()}
+					draft={null}
+					activeRun={undefined}
+					scope={{ paths: undefined, testCount: 6, label: '6 tests' }}
+					onRunStarted={vi.fn()}
+				/>
+			</FileExplorerWorktreeProvider>,
+		);
+
+		openDropdownMenu(await screen.findByRole('button', { name: 'Changes to test against production' }));
+
+		expect(await screen.findByRole('menuitem', { name: /File Explorer branch/ })).toBeTruthy();
+		expect(screen.queryByText('A branch of a synced repo')).toBeNull();
 	});
 
 	it('waits for the synced repositories before running a saved branch', async () => {

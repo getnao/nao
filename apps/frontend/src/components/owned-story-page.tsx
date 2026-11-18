@@ -272,8 +272,7 @@ export function OwnedStoryPage({
 					<LiveStorySettingsDialog
 						open={isLiveSettingsOpen}
 						onOpenChange={setIsLiveSettingsOpen}
-						chatId={chatId}
-						storySlug={storySlug}
+						story={{ chatId, storySlug }}
 						isLive={isLive}
 						isLiveTextDynamic={isLiveTextDynamic}
 						cacheSchedule={liveCacheSchedule}

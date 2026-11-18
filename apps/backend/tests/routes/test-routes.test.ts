@@ -4,10 +4,9 @@ const mocks = vi.hoisted(() => ({
 	executeQuery: vi.fn(),
 	extractToolCalls: vi.fn(() => []),
 	getAgentSettings: vi.fn(),
-	getAzureAccessTokenForUser: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	getProjectRuntimeEnvVars: vi.fn(),
-	hasFeature: vi.fn(),
+	getWarehouseAccessTokenForUser: vi.fn(),
 	resolveProjectContextAccess: vi.fn(),
 	resolveSemanticLayerMode: vi.fn(),
 	retrieveProjectById: vi.fn(),
@@ -26,12 +25,8 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
 	retrieveProjectById: mocks.retrieveProjectById,
 }));
-vi.mock('../../src/services/license.service', () => ({
-	hasFeature: mocks.hasFeature,
-	LICENSE_FEATURES: { sso: 'sso' },
-}));
-vi.mock('../../src/services/microsoft-auth.service', () => ({
-	getAzureAccessTokenForUser: mocks.getAzureAccessTokenForUser,
+vi.mock('../../src/services/warehouse-access-token.service', () => ({
+	getWarehouseAccessTokenForUser: mocks.getWarehouseAccessTokenForUser,
 }));
 vi.mock('../../src/services/project-runtime-env', () => ({
 	getProjectRuntimeEnvVars: mocks.getProjectRuntimeEnvVars,
@@ -74,8 +69,7 @@ describe('test routes', () => {
 			WAREHOUSE_HOST: 'warehouse.example.com',
 			WAREHOUSE_PASSWORD: 'encrypted-storage-secret',
 		});
-		mocks.hasFeature.mockResolvedValue(true);
-		mocks.getAzureAccessTokenForUser.mockResolvedValue('azure-access-token');
+		mocks.getWarehouseAccessTokenForUser.mockResolvedValue('warehouse-access-token');
 		mocks.executeQuery.mockResolvedValue({ data: [], columns: [] });
 		mocks.runTest.mockResolvedValue({
 			text: 'answer',
@@ -134,8 +128,7 @@ describe('test routes', () => {
 
 		expect(mocks.retrieveProjectById).toHaveBeenCalledWith('project-id');
 		expect(mocks.getProjectRuntimeEnvVars).toHaveBeenCalledWith('project-id');
-		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
-		expect(mocks.getAzureAccessTokenForUser).toHaveBeenCalledWith('user-id');
+		expect(mocks.getWarehouseAccessTokenForUser).toHaveBeenCalledWith('user-id');
 		expect(mocks.resolveProjectContextAccess).toHaveBeenCalledWith('project-id', 'user-id', '/project');
 		expect(mocks.executeQuery).toHaveBeenCalledWith(
 			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
@@ -152,7 +145,7 @@ describe('test routes', () => {
 					WAREHOUSE_HOST: 'warehouse.example.com',
 					WAREHOUSE_PASSWORD: 'encrypted-storage-secret',
 				},
-				azureAccessToken: 'azure-access-token',
+				warehouseAccessToken: 'warehouse-access-token',
 				warehouseTableAccess: { enforced: true },
 				warehouseRowSecurity: { enforced: false },
 				docsContextAccess: { enforced: false },
@@ -188,18 +181,6 @@ describe('test routes', () => {
 		expect(mocks.executeQuery).toHaveBeenCalledWith(
 			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
 			expect.objectContaining({ semanticLayerMode: null }),
-		);
-	});
-
-	it('does not load Azure credentials without an SSO license', async () => {
-		mocks.hasFeature.mockResolvedValue(false);
-
-		await runExpectedQuery();
-
-		expect(mocks.getAzureAccessTokenForUser).not.toHaveBeenCalled();
-		expect(mocks.executeQuery).toHaveBeenCalledWith(
-			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
-			expect.objectContaining({ azureAccessToken: null }),
 		);
 	});
 

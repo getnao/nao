@@ -98,6 +98,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/account',
 		pageLabel: 'Account',
+		title: 'Two-factor authentication',
+		description: 'Require a code from an authenticator app or your email after your password.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'authenticator', 'backup codes', 'security'],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
 		title: 'Danger Zone',
 		description: 'Delete your account or perform other destructive actions.',
 		keywords: ['delete account', 'remove'],
@@ -190,6 +197,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/organization',
 		pageLabel: 'Organization Settings',
+		title: 'Single sign-on (Okta)',
+		description:
+			'Connect your Okta or other OIDC identity provider once nao has activated SSO for your organization.',
+		keywords: ['sso', 'okta', 'oidc', 'identity provider', 'idp', 'saml', 'issuer', 'client id'],
+		orgAdminOnly: true,
+		cloudOnly: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
 		title: 'Organization API Keys',
 		description: 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 		keywords: ['api key', 'deploy key', 'token', 'credentials'],
@@ -259,6 +276,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['google', 'bigquery', 'service account', 'gcp', 'sso', 'client id', 'auth domain'],
 		orgAdminOnly: true,
 		cloudHidden: true,
+	},
+
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Two-factor authentication',
+		title: 'Require two-factor authentication',
+		description: 'Require a second step from members who log in with a password, and allow or forbid email codes.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'authenticator', 'email code', 'enforce', 'mandatory', 'security'],
+		orgAdminOnly: true,
 	},
 
 	// ── Project Settings ─────────────────────────────────────
@@ -697,6 +724,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'shared token',
 			'co-author',
 			'pull request author',
+			'GITHUB_ACCESS_TOKEN',
+			'environment variable',
 		],
 		adminOrContextAdmin: true,
 	},
@@ -1067,6 +1096,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'bulk assign',
 			'add to group',
 			'filter users',
+			'transfer stories',
+			'story ownership',
+			'offboarding',
 		],
 	},
 	{
