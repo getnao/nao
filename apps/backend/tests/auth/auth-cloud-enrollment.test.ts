@@ -132,6 +132,7 @@ interface CapturedAuthOptions {
 	databaseHooks: {
 		user: {
 			create: {
+				before: (user: { email: string }, context: { params: { id: string } }) => Promise<unknown>;
 				after: (user: { id: string; email: string }, context: { params: { id: string } }) => Promise<void>;
 			};
 		};
@@ -313,6 +314,23 @@ describe('Cloud Google organization enrollment', () => {
 		});
 		expect(mocks.emailSend).toHaveBeenCalledTimes(2);
 		expect(mocks.emailSend).toHaveBeenCalledWith('known@example.com', { subject: 'Exists', html: '<p>Exists</p>' });
+	});
+
+	it.each([
+		['rejects a disposable email on cloud', 'cloud', 'probe@maildrop.cc', false],
+		['accepts a permanent email on cloud', 'cloud', 'someone@getnao.io', true],
+		['accepts a disposable email when self-hosted', 'self-hosted', 'probe@maildrop.cc', true],
+	])('%s', async (_name, mode, email, accepted) => {
+		mocks.env.NAO_MODE = mode;
+		const options = await getAuthOptions();
+
+		const creation = options.databaseHooks.user.create.before({ email }, { params: { id: 'credential' } });
+
+		if (accepted) {
+			await expect(creation).resolves.toBe(true);
+		} else {
+			await expect(creation).rejects.toThrow('FORBIDDEN');
+		}
 	});
 
 	it('leaves self-hosted email authentication unchanged', async () => {
