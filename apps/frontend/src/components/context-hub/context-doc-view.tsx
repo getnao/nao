@@ -190,16 +190,18 @@ export function ContextDocView({
 								)
 							}
 							changes={
-								<ContextGitPanel
-									selectedDiffPath={diffPath}
-									selectedUpstreamDiffPath={null}
-									hasUnsavedFileChanges={isDirty}
-									onViewDiff={(path) => requestTarget({ type: 'diff', path })}
-									onCommitted={refreshChanges}
-									onDiscarded={refreshChanges}
-									onDiscardAll={refreshChanges}
-									onRepositoryChanged={handleRepositoryChanged}
-								/>
+								!fileTree.data?.isManagedRepository ? (
+									<ContextGitPanel
+										selectedDiffPath={diffPath}
+										selectedUpstreamDiffPath={null}
+										hasUnsavedFileChanges={isDirty}
+										onViewDiff={(path) => requestTarget({ type: 'diff', path })}
+										onCommitted={refreshChanges}
+										onDiscarded={refreshChanges}
+										onDiscardAll={refreshChanges}
+										onRepositoryChanged={handleRepositoryChanged}
+									/>
+								) : undefined
 							}
 						/>
 					</ResizablePanel>

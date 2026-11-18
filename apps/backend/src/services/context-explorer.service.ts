@@ -24,6 +24,9 @@ import type { DraftOwner } from '../queries/context-draft.queries';
 import * as contextDraftQueries from '../queries/context-draft.queries';
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
 import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
+import type { GitIdentity } from '../utils/git-identity';
+import { withKeyedLock } from '../utils/keyed-lock';
+import { logger, serializeError } from '../utils/logger';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
@@ -38,6 +41,7 @@ import {
 import type { ContextExplorerGitResolution } from './context-explorer-git.service';
 import { readCurrentBranch, readDefaultBranch } from './context-explorer-git/git-guards';
 import { isProductionOnly } from './draft-context.service';
+import { ManagedGithubPublishUncertainError, publishManagedGithubRepositoryUpdate } from './managed-github-repository';
 import { getRepoProviderDisplayName } from './review-request-provider';
 
 const SEARCH_TIMEOUT_MS = 5_000;
@@ -61,6 +65,8 @@ export interface ContextExplorerFileAccess {
 	git: ContextExplorerGitResolution;
 	/** Whose nao draft receives the edits when the project has no context repository. */
 	draftOwner: DraftOwner;
+	/** Projects in nao's GitHub org are edited in place and every save is pushed straight to main. */
+	managedRepository?: { repoFullName: string; author: GitIdentity } | null;
 }
 
 type RipgrepMatchEntry = {
@@ -73,8 +79,18 @@ type RipgrepMatchEntry = {
 	};
 };
 
-export async function getFileTree(projectFolder: string): Promise<FileTreeEntry[]> {
-	return readDirectoryRecursive(projectFolder, projectFolder);
+export async function getFileTree(access: ContextExplorerFileAccess | string): Promise<FileTreeEntry[]> {
+	if (typeof access === 'string') {
+		return readDirectoryRecursive(access, access);
+	}
+	const liveEntries = await readDirectoryRecursive(access.projectFolder, access.projectFolder);
+	const repo = availableRepo(access.git);
+	if (!repo) {
+		return liveEntries;
+	}
+	const worktreeRoot = getWorktreeProjectRoot(repo);
+	const worktreeEntries = await readDirectoryRecursive(worktreeRoot, worktreeRoot);
+	return mergeFileTrees(worktreeEntries, withoutTrackedFiles(liveEntries, getCommittedProjectPaths(repo)));
 }
 
 export async function readFileContent(
@@ -97,7 +113,11 @@ export async function readFileContent(
 	}
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const repo = availableRepo(access.git);
-	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
+	const trackedPaths = repo
+		? getCommittedProjectPaths(repo)
+		: access.managedRepository
+			? getLiveCommittedPaths(access.projectFolder)
+			: new Set<string>();
 	const editability =
 		(repo && (await readBranchEditability(repo, access))) ??
 		getFileEditability(filePath, livePath, access, repo, trackedPaths);
@@ -150,6 +170,9 @@ export async function writeFileContent(
 	if (isNaoDraftAccess(access)) {
 		return writeNaoDraftFile(filePath, contentBuffer, expectedHash, access);
 	}
+	if (access.managedRepository) {
+		return writeManagedFile(filePath, content, expectedHash, access, access.managedRepository);
+	}
 	if (access.git.status === 'unavailable') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
@@ -187,14 +210,15 @@ export function getFileEditability(
 	repo: ResolvedContextRepo | null,
 	trackedPaths: Set<string>,
 ): FileEditability {
-	if (access.git.status === 'unavailable') {
+	if (access.git.status === 'unavailable' && !access.managedRepository) {
 		return unavailableGitEditability(access.git.reason, access.git.message, access.git.repo?.provider);
 	}
 	const sourceEditability = getSourceEditability(filePath, realPath);
 	if (sourceEditability) {
 		return sourceEditability;
 	}
-	if (!repo || (!trackedPaths.has(normalizeProjectPath(filePath)) && !isWorktreeDraft(filePath, realPath, repo))) {
+	const projectPath = normalizeProjectPath(filePath);
+	if (!trackedPaths.has(projectPath) && (!repo || !isWorktreeDraft(filePath, realPath, repo))) {
 		return readOnly('not-tracked', guidanceForReason('not-tracked'));
 	}
 	return EDITABLE;
@@ -258,6 +282,9 @@ export async function createDraftFile(
 	if (isNaoDraftAccess(access)) {
 		return addNaoDraftFile(filePath, contentBuffer, access);
 	}
+	if (access.managedRepository) {
+		return createManagedFile(filePath, content, access, access.managedRepository);
+	}
 	if (access.git.status === 'unavailable') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
@@ -285,7 +312,7 @@ export async function createDraftFile(
 }
 
 function isNaoDraftAccess(access: ContextExplorerFileAccess): boolean {
-	return access.git.status === 'unavailable' && access.git.reason === 'no-repo';
+	return !access.managedRepository && access.git.status === 'unavailable' && access.git.reason === 'no-repo';
 }
 
 async function readNaoDraftFileContent(
@@ -385,9 +412,17 @@ function getReadPath(
 	repo: ResolvedContextRepo | null,
 	trackedPaths: Set<string>,
 ): string {
-	return repo && (trackedPaths.has(normalizeProjectPath(filePath)) || isWorktreeDraft(filePath, livePath, repo))
+	return repo && shouldReadFromWorktree(filePath, repo, trackedPaths)
 		? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
 		: livePath;
+}
+
+function shouldReadFromWorktree(filePath: string, repo: ResolvedContextRepo, trackedPaths: Set<string>): boolean {
+	if (trackedPaths.has(normalizeProjectPath(filePath))) {
+		return true;
+	}
+	const worktreePath = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath;
+	return fsSync.lstatSync(worktreePath, { throwIfNoEntry: false })?.isFile() ?? false;
 }
 
 function readHeadAt(
@@ -466,12 +501,148 @@ function assertEditability(editability: FileEditability): void {
 	});
 }
 
+async function createManagedFile(
+	filePath: string,
+	content: string,
+	access: ContextExplorerFileAccess,
+	managedRepository: { repoFullName: string; author: GitIdentity },
+): Promise<FileWriteResponse> {
+	const { realPath, root } = resolveAndValidatePath(filePath, access.projectFolder);
+	const sourceEditability = getSourceEditability(filePath, realPath);
+	if (sourceEditability) {
+		assertEditability(sourceEditability);
+	}
+	return withKeyedLock(`managed-context-write:${root}`, async () => {
+		assertFileDoesNotExist(realPath, filePath);
+		try {
+			fsSync.mkdirSync(path.dirname(realPath), { recursive: true });
+			writeFileAtomically({
+				beforeRename: () => assertFileDoesNotExist(realPath, filePath),
+				content,
+				displayPath: filePath,
+				root,
+				target: realPath,
+			});
+		} catch (error) {
+			throw toFileError(error, filePath);
+		}
+		const projectPath = normalizeProjectPath(filePath);
+		try {
+			await publishManagedGithubRepositoryUpdate({
+				projectDir: access.projectFolder,
+				repoFullName: managedRepository.repoFullName,
+				paths: [projectPath],
+				message: `Add ${projectPath}`,
+				author: managedRepository.author,
+			});
+		} catch (error) {
+			const isUncertain = error instanceof ManagedGithubPublishUncertainError;
+			if (!isUncertain) {
+				fsSync.rmSync(realPath, { force: true });
+			}
+			logger.error(`Failed to publish context file ${projectPath}`, {
+				source: 'system',
+				context: { repoFullName: managedRepository.repoFullName, error: serializeError(error) },
+			});
+			throw new TRPCError({
+				code: 'INTERNAL_SERVER_ERROR',
+				message: isUncertain
+					? 'GitHub did not confirm the publish. Your change is saved locally and will be included in the next publish.'
+					: 'Your change could not be published, so it was not saved. Please try again.',
+			});
+		}
+		return { hash: hashContent(Buffer.from(content, 'utf-8')) };
+	});
+}
+
+async function writeManagedFile(
+	filePath: string,
+	content: string,
+	expectedHash: string,
+	access: ContextExplorerFileAccess,
+	managedRepository: { repoFullName: string; author: GitIdentity },
+): Promise<FileWriteResponse> {
+	const { realPath, root } = resolveAndValidatePath(filePath, access.projectFolder);
+	assertFileEditable(filePath, realPath, access, null, getLiveCommittedPaths(access.projectFolder));
+	return withKeyedLock(`managed-context-write:${root}`, async () => {
+		const previousContent = await readValidatedFile(realPath, filePath);
+		assertExpectedHash(previousContent, expectedHash);
+		const writeContent = (nextContent: string) => {
+			writeFileAtomically({ content: nextContent, displayPath: filePath, root, target: realPath });
+		};
+		try {
+			writeContent(content);
+		} catch (error) {
+			throw toFileError(error, filePath);
+		}
+		const projectPath = normalizeProjectPath(filePath);
+		try {
+			await publishManagedGithubRepositoryUpdate({
+				projectDir: access.projectFolder,
+				repoFullName: managedRepository.repoFullName,
+				paths: [projectPath],
+				message: `Update ${projectPath}`,
+				author: managedRepository.author,
+			});
+		} catch (error) {
+			const isUncertain = error instanceof ManagedGithubPublishUncertainError;
+			if (!isUncertain) {
+				writeContent(previousContent.toString('utf-8'));
+			}
+			logger.error(`Failed to publish context file ${projectPath}`, {
+				source: 'system',
+				context: { repoFullName: managedRepository.repoFullName, error: serializeError(error) },
+			});
+			throw new TRPCError({
+				code: 'INTERNAL_SERVER_ERROR',
+				message: isUncertain
+					? 'GitHub did not confirm the publish. Your change is saved locally and will be included in the next publish.'
+					: 'Your change could not be published, so it was not saved. Please try again.',
+			});
+		}
+		return { hash: hashContent(Buffer.from(content, 'utf-8')) };
+	});
+}
+
+function getLiveCommittedPaths(projectFolder: string): Set<string> {
+	return getCommittedProjectPaths({ worktreeRoot: projectFolder, projectPrefix: '' });
+}
+
 /**
  * Searches the context with its `.naoignore` rules, then each exempt folder without them, so search
  * shows the same files as the explorer tree. An exempt folder is searched from the project root and
  * narrowed by a glob: ripgrep follows a symlink given as the search path, never one it walks into.
  */
-export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {
+export async function searchFileContents(
+	query: string,
+	access: ContextExplorerFileAccess | string,
+): Promise<FileContentSearchResponse> {
+	if (typeof access === 'string') {
+		return searchFolder(query, access);
+	}
+	const repo = availableRepo(access.git);
+	if (!repo) {
+		return searchFolder(query, access.projectFolder);
+	}
+	const worktreeRoot = getWorktreeProjectRoot(repo);
+	const trackedPaths = getCommittedProjectPaths(repo);
+	const isLiveOnly = (virtualPath: string) => !shouldReadFromWorktree(virtualPath, repo, trackedPaths);
+	const [worktree, live] = await Promise.all([
+		searchFolder(query, worktreeRoot),
+		searchFolder(query, access.projectFolder, isLiveOnly),
+	]);
+	const results = [...worktree.results, ...live.results];
+	return {
+		results: results.slice(0, MAX_SEARCH_FILES),
+		truncated: worktree.truncated || live.truncated || results.length > MAX_SEARCH_FILES,
+	};
+}
+
+async function searchFolder(
+	query: string,
+	projectFolder: string,
+	includePath: (virtualPath: string) => boolean = () => true,
+): Promise<FileContentSearchResponse> {
 	const exemptFolders = (EXPLORER_NAOIGNORE_OPTIONS.naoignoreExemptFolders ?? []).filter((folder) =>
 		fsSync.existsSync(path.join(projectFolder, folder)),
 	);
@@ -480,9 +651,15 @@ export async function searchFileContents(query: string, projectFolder: string): 
 			getRipgrepPath(),
 			buildSearchArguments(query, projectFolder, loadNaoignorePatterns(projectFolder)),
 			projectFolder,
+			includePath,
 		),
 		...exemptFolders.map((folder) =>
-			runContentSearch(getRipgrepPath(), buildSearchArguments(query, '.', [], folder), projectFolder),
+			runContentSearch(
+				getRipgrepPath(),
+				buildSearchArguments(query, '.', [], folder),
+				projectFolder,
+				includePath,
+			),
 		),
 	]);
 	const results = [
@@ -547,6 +724,7 @@ function runContentSearch(
 	ripgrepPath: string,
 	args: string[],
 	projectFolder: string,
+	includePath: (virtualPath: string) => boolean,
 ): Promise<FileContentSearchResponse> {
 	return new Promise((resolve, reject) => {
 		const results = new Map<string, FileContentSearchResult>();
@@ -594,6 +772,9 @@ function runContentSearch(
 				}
 
 				const virtualPath = toVirtualPath(filePath, projectFolder, EXPLORER_NAOIGNORE_OPTIONS);
+				if (!includePath(virtualPath)) {
+					return;
+				}
 				const existing = results.get(virtualPath);
 				if (existing) {
 					existing.count += entry.data.submatches.length;
@@ -692,6 +873,32 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 	return entries;
 }
 
+function mergeFileTrees(primary: FileTreeEntry[], secondary: FileTreeEntry[]): FileTreeEntry[] {
+	const merged = new Map(primary.map((entry) => [entry.path, entry]));
+	for (const entry of secondary) {
+		const existing = merged.get(entry.path);
+		if (!existing) {
+			merged.set(entry.path, entry);
+		} else if (existing.type === 'directory' && entry.type === 'directory') {
+			merged.set(entry.path, {
+				...existing,
+				children: mergeFileTrees(existing.children ?? [], entry.children ?? []),
+			});
+		}
+	}
+	return [...merged.values()].sort(compareTreeEntries);
+}
+
+function withoutTrackedFiles(entries: FileTreeEntry[], trackedPaths: Set<string>): FileTreeEntry[] {
+	return entries.flatMap((entry) => {
+		if (entry.type === 'file') {
+			return trackedPaths.has(normalizeProjectPath(entry.path)) ? [] : [entry];
+		}
+		const children = withoutTrackedFiles(entry.children ?? [], trackedPaths);
+		return children.length > 0 ? [{ ...entry, children }] : [];
+	});
+}
+
 export function compareTreeEntries(a: FileTreeEntry, b: FileTreeEntry): number {
 	if (a.type === b.type) {
 		return a.name.localeCompare(b.name);
@@ -699,10 +906,18 @@ export function compareTreeEntries(a: FileTreeEntry, b: FileTreeEntry): number {
 	return a.type === 'directory' ? -1 : 1;
 }
 
-export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
+export function resolveAndValidatePath(
+	virtualPath: string,
+	projectFolder: string,
+	options: { allowGeneratedMetadata?: boolean } = {},
+): { realPath: string; root: string } {
 	try {
 		const root = canonicalizeWriteRoot(projectFolder);
-		const realPath = toRealPath(virtualPath, root, { ...EXPLORER_NAOIGNORE_OPTIONS, resolveSymlinks: false });
+		const realPath = toRealPath(virtualPath, root, {
+			...EXPLORER_NAOIGNORE_OPTIONS,
+			...options,
+			resolveSymlinks: false,
+		});
 		assertNoSymlinkInWritePath(root, realPath, virtualPath);
 		return { realPath, root };
 	} catch (error) {

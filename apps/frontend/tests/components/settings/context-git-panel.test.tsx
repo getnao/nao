@@ -282,7 +282,7 @@ describe('ContextGitPanel', () => {
 		await waitFor(() => expect(mocks.pushBranch).toHaveBeenCalledOnce());
 		expect(mocks.generateCommitMessage.mock.calls[0]?.[0]).toEqual({ paths: ['/context.md'] });
 		expect(mocks.commitChanges.mock.calls[0]?.[0]).toEqual({
-			paths: ['/context.md'],
+			paths: 'all',
 			message: 'Document net revenue on orders',
 		});
 		expect(onCommitted).toHaveBeenCalledWith(['/context.md']);

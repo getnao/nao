@@ -166,7 +166,7 @@ export function ContextGitPanel({
 	const commitChanges = useMutation(
 		trpc.contextExplorer.commitChanges.mutationOptions({
 			onSuccess: async (_result, variables) => {
-				await handleCommitSuccess(variables.paths, currentBranch, false);
+				await handleCommitSuccess(toCommittedPaths(variables.paths), currentBranch, false);
 				await refreshExplorer(false);
 			},
 		}),
@@ -175,7 +175,7 @@ export function ContextGitPanel({
 	const createBranchAndCommit = useMutation(
 		trpc.contextExplorer.createBranchAndCommit.mutationOptions({
 			onSuccess: async (result, variables) => {
-				await handleCommitSuccess(variables.paths, result.branch, result.usedFallbackBase);
+				await handleCommitSuccess(toCommittedPaths(variables.paths), result.branch, result.usedFallbackBase);
 				await refreshExplorer(false);
 			},
 		}),
@@ -236,11 +236,16 @@ export function ContextGitPanel({
 		.filter((file) => selectedPaths.has(file.path))
 		.map((file) => file.path);
 
+	const toCommittedPaths = (paths: string[] | 'all') => {
+		return paths === 'all' ? changedFileList.map((file) => file.path) : paths;
+	};
+
 	const handleCommit = async ({ push }: { push: boolean }) => {
 		const message = commitMessage.trim();
 		if (!message || selectedChangedPaths.length === 0 || !currentBranch || !defaultBranch) {
 			return;
 		}
+		const paths = selectedChangedPaths.length === changedFileList.length ? 'all' : selectedChangedPaths;
 		setFallbackBaseNotice(false);
 		commitChanges.reset();
 		createBranchAndCommit.reset();
@@ -248,11 +253,11 @@ export function ContextGitPanel({
 			if (currentBranch === defaultBranch) {
 				await createBranchAndCommit.mutateAsync({
 					branch: commitBranchName || undefined,
-					paths: selectedChangedPaths,
+					paths,
 					message,
 				});
 			} else {
-				await commitChanges.mutateAsync({ paths: selectedChangedPaths, message });
+				await commitChanges.mutateAsync({ paths, message });
 			}
 		} catch {
 			return;

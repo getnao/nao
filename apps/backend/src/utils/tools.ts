@@ -322,6 +322,8 @@ export type NaoignoreOptions = {
 type ToRealPathOptions = NaoignoreOptions & {
 	/** Set to false when the caller applies its own symlink policy (e.g. `assertNoSymlinkInWritePath`). */
 	resolveSymlinks?: boolean;
+	/** Git actions (commit, diff, discard) may touch generated `.meta` files that stay hidden from file tools. */
+	allowGeneratedMetadata?: boolean;
 };
 
 /**
@@ -362,7 +364,7 @@ const assertAllowedProjectPath = (
 	absolutePath: string,
 	projectFolder: string,
 	virtualPath: string,
-	options: NaoignoreOptions,
+	options: ToRealPathOptions,
 ): void => {
 	const withinFolder = absolutePath === projectFolder || absolutePath.startsWith(projectFolder + path.sep);
 	if (!withinFolder) {
@@ -379,7 +381,7 @@ const assertAllowedProjectPath = (
 		throw new Error(`Access denied: path '${virtualPath}' targets a protected environment file`);
 	}
 
-	if (isInExcludedDir(absolutePath)) {
+	if (!options.allowGeneratedMetadata && isInExcludedDir(absolutePath)) {
 		throw new Error(`Access denied: path '${virtualPath}' is in an excluded directory`);
 	}
 

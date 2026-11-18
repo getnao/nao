@@ -50,6 +50,7 @@ import {
 } from '../services/context-file-header.service';
 import { getMostReadContextFiles } from '../services/context-file-reads.service';
 import { listRecentContextChanges } from '../services/context-recent-changes.service';
+import { assertRepositoryEditable, readManagedGithubRepositoryFullName } from '../services/managed-github-repository';
 import {
 	discardAllNaoDraftFiles,
 	discardNaoDraftFile,
@@ -69,6 +70,7 @@ import { cloudBillingAdminProcedure, cloudBillingContextAdminProcedure, contextA
 
 const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
+const commitPathsSchema = z.union([pathsSchema, z.literal('all')]);
 const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
 const fileOwnerSchema = z.string().trim().min(1).max(320).nullable();
 const MAX_PULL_HISTORY_FILES = 1_000;
@@ -106,7 +108,12 @@ const pullPayloadSchema = z.object({
 
 export const contextExplorerRoutes = {
 	getRepositoryStatus: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		return getContextRepositoryStatus(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		const context = await createGitContext(ctx.project.id, ctx.project.path, ctx.user);
+		const status = await getContextRepositoryStatus(context);
+		const isManagedRepository =
+			status.gitUnavailableReason === 'no-repo' &&
+			(await readManagedGithubRepositoryFullName(context.projectFolder)) !== null;
+		return { ...status, isManagedRepository };
 	}),
 
 	getLiveContextPullHistory: contextAdminProtectedProcedure.query(async ({ ctx }) => {
@@ -179,6 +186,7 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await assertRepositoryEditable(ctx.project.path);
 			const projectFolder = requireProjectPath(ctx.project.path);
 			const provider = await resolveRepositoryProvider(ctx.project.id, input.provider);
 			const context: ContextExplorerGitContext = {
@@ -199,6 +207,7 @@ export const contextExplorerRoutes = {
 		}),
 
 	disconnectRepository: cloudBillingContextAdminProcedure.mutation(async ({ ctx }) => {
+		await assertRepositoryEditable(ctx.project.path);
 		return disconnectContextRepository({
 			projectId: ctx.project.id,
 			projectFolder: requireProjectPath(ctx.project.path),
@@ -208,10 +217,14 @@ export const contextExplorerRoutes = {
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const projectFolder = requireProjectPath(ctx.project.path);
-		const entries = (await hasContextRepository(ctx.project.id))
-			? await getFileTree(projectFolder)
-			: await getNaoDraftFileTree(draftOwnerOf(ctx), projectFolder);
-		return { entries };
+		const hasRepository = await hasContextRepository(ctx.project.id);
+		const managedRepository = hasRepository ? null : await readManagedGithubRepositoryFullName(projectFolder);
+		const entries = hasRepository
+			? await getFileTree(await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user))
+			: managedRepository
+				? await getFileTree(projectFolder)
+				: await getNaoDraftFileTree(draftOwnerOf(ctx), projectFolder);
+		return { entries, isManagedRepository: managedRepository !== null };
 	}),
 
 	getRulesPreviewGroups: contextAdminProtectedProcedure.query(async ({ ctx }) => {
@@ -294,7 +307,13 @@ export const contextExplorerRoutes = {
 		.input(z.object({ query: z.string().min(2).max(200) }))
 		.query(async ({ ctx, input }) => {
 			const projectFolder = requireProjectPath(ctx.project.path);
-			return (await hasContextRepository(ctx.project.id))
+			if (await hasContextRepository(ctx.project.id)) {
+				return searchFileContents(
+					input.query,
+					await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user),
+				);
+			}
+			return (await readManagedGithubRepositoryFullName(projectFolder))
 				? searchFileContents(input.query, projectFolder)
 				: searchNaoDraftContents(draftOwnerOf(ctx), projectFolder, input.query);
 		}),
@@ -366,7 +385,7 @@ export const contextExplorerRoutes = {
 		.input(
 			z.object({
 				branch: branchSchema.optional(),
-				paths: pathsSchema,
+				paths: commitPathsSchema,
 				message: z.string().trim().min(1).max(500),
 			}),
 		)
@@ -378,7 +397,7 @@ export const contextExplorerRoutes = {
 		}),
 
 	commitChanges: cloudBillingContextAdminProcedure
-		.input(z.object({ paths: pathsSchema, message: z.string().trim().min(1).max(500) }))
+		.input(z.object({ paths: commitPathsSchema, message: z.string().trim().min(1).max(500) }))
 		.mutation(async ({ ctx, input }) => {
 			return commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
 		}),
