@@ -10,7 +10,12 @@ import { StoryFilterBar } from '@/components/story-filter-bar';
 
 vi.mock('@/main', () => ({
 	trpc: {
-		story: { getFilterOptions: { queryOptions: () => ({ queryKey: ['options'], queryFn: vi.fn() }) } },
+		story: {
+			getFilterOptions: { queryOptions: () => ({ queryKey: ['options'], queryFn: vi.fn() }) },
+			getStandaloneFilterOptions: {
+				queryOptions: () => ({ queryKey: ['standalone-options'], queryFn: vi.fn() }),
+			},
+		},
 		storyShare: { getFilterOptions: { queryOptions: () => ({ queryKey: ['shared-options'], queryFn: vi.fn() }) } },
 	},
 }));

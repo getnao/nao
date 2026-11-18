@@ -6,6 +6,7 @@ import zodV3 from 'zod/v3';
 
 import displayChartTool from '../../agents/tools/display-chart';
 import * as storyQueries from '../../queries/story.queries';
+import { unscheduleStoryRefreshJob } from '../../services/story-refresh.service';
 import {
 	buildAgentRenderedChartText,
 	CHART_DATA_MODE_DISPLAY_CHART_ADDENDUM,
@@ -363,6 +364,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
 			await storyQueries.archiveByStoryId(story.id);
+			await unscheduleStoryRefreshJob(story.id);
 			const output = { id: story.id, archived: true as const };
 			return {
 				content: [{ type: 'text' as const, text: JSON.stringify(output) }],
@@ -382,6 +384,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		},
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
+			await unscheduleStoryRefreshJob(story.id);
 			await storyQueries.deleteStory(story.id);
 			const output = { id: story.id, deleted: true as const };
 			return {

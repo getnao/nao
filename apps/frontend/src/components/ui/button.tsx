@@ -120,10 +120,12 @@ function MicButton({
 	state,
 	onClick,
 	disabled,
+	className,
 }: {
 	state: 'idle' | 'recording' | 'transcribing';
 	onClick: () => void;
 	disabled?: boolean;
+	className?: string;
 }) {
 	const isRecording = state === 'recording';
 	const isTranscribing = state === 'transcribing';
@@ -134,11 +136,12 @@ function MicButton({
 			onClick={onClick}
 			disabled={disabled || isTranscribing}
 			aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
-			className={`
-				inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer
-				disabled:pointer-events-none disabled:opacity-50
-				${isRecording ? 'bg-violet/30 animate-pulse' : 'text-foreground hover:text-foreground hover:bg-accent'}
-			`}
+			className={cn(
+				'inline-flex items-center justify-center rounded-full size-7 transition-all cursor-pointer',
+				'disabled:pointer-events-none disabled:opacity-50',
+				isRecording ? 'bg-violet/30 animate-pulse' : 'text-foreground hover:text-foreground hover:bg-accent',
+				className,
+			)}
 		>
 			{isTranscribing ? <Loader2 className='size-3.5 animate-spin' /> : <Mic className='size-3.5' />}
 		</button>

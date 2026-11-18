@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TeamsConfig } from '../../src/queries/project-teams-config.queries';
+import type * as BrandingService from '../../src/services/branding.service';
 import { teamsService } from '../../src/services/teams';
 
 type MessageHandler = (
@@ -87,6 +88,10 @@ vi.mock('../../src/queries/user.queries', () => ({
 }));
 vi.mock('../../src/services/agent', () => ({
 	agentService: { create: teamsHarness.createAgent, get: vi.fn() },
+}));
+vi.mock('../../src/services/branding.service', async (importOriginal) => ({
+	...(await importOriginal<typeof BrandingService>()),
+	getAppName: vi.fn(async () => 'nao'),
 }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertProjectCloudBillingAccess: teamsHarness.assertProjectCloudBillingAccess,

@@ -45,6 +45,9 @@ export enum PostHogEvent {
 
 	McpToolCalled = 'mcp_tool_called',
 	McpEndpointSettingsUpdated = 'mcp_endpoint_settings_updated',
+
+	GithubStarClicked = 'github_star_clicked',
+	GithubStarPromptDismissed = 'github_star_prompt_dismissed',
 }
 
 /**

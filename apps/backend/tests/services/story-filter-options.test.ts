@@ -4,10 +4,13 @@ const mocks = vi.hoisted(() => ({
 	getStoryByChatAndSlug: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
 	getSqlQueriesFromCode: vi.fn(),
+	getStoryById: vi.fn(),
+	getLatestVersionByStoryId: vi.fn(),
 	getFilterOptionsCache: vi.fn(),
 	upsertFilterOptionsCache: vi.fn(),
 	deleteFilterOptionsCacheOlderThan: vi.fn(),
 	createStoryExecutionContext: vi.fn(),
+	createOwnerExecutionContext: vi.fn(),
 	executeRawSql: vi.fn(),
 	compileSemanticQuery: vi.fn(),
 	describeSemanticLayer: vi.fn(),
@@ -19,6 +22,8 @@ vi.mock('../../src/queries/story.queries', () => ({
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
 	getSqlQueriesFromCode: mocks.getSqlQueriesFromCode,
+	getStoryById: mocks.getStoryById,
+	getLatestVersionByStoryId: mocks.getLatestVersionByStoryId,
 }));
 vi.mock('../../src/queries/story-filter-options-cache.queries', () => ({
 	getFilterOptionsCache: mocks.getFilterOptionsCache,
@@ -31,12 +36,14 @@ vi.mock('../../src/services/semantic-layer.service', () => ({
 }));
 vi.mock('../../src/services/live-story', () => ({
 	createStoryExecutionContext: mocks.createStoryExecutionContext,
+	createOwnerExecutionContext: mocks.createOwnerExecutionContext,
+	resolveStoryQueryScope: vi.fn(),
 	executeRawSql: mocks.executeRawSql,
 	resolveRawSqlDatabaseType: mocks.resolveRawSqlDatabaseType,
 	isCacheExpired: () => false,
 }));
 
-import { getStoryFilterOptions, warmStoryFilterOptions } from '../../src/services/story-filter-options';
+import { getStoryFilterOptions, warmStoryFilterOptionsByStoryId } from '../../src/services/story-filter-options';
 
 const STORY_CODE = [
 	'<filter id="category" type="select" table="products" column="category" />',
@@ -180,16 +187,20 @@ describe('getStoryFilterOptions', () => {
 	});
 });
 
-describe('warmStoryFilterOptions', () => {
+describe('warmStoryFilterOptionsByStoryId', () => {
 	it('refreshes only top-level table filters and prunes old cache entries', async () => {
 		vi.clearAllMocks();
-		mocks.getStoryByChatAndSlug.mockResolvedValue({ id: 'story-1', projectId: 'project-1', cacheSchedule: null });
-		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({ code: STORY_CODE });
-		mocks.getSqlQueriesFromCode.mockResolvedValue({});
-		mocks.createStoryExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
+		mocks.getStoryById.mockResolvedValue({
+			id: 'story-1',
+			chatId: null,
+			projectId: 'project-1',
+			cacheSchedule: null,
+		});
+		mocks.getLatestVersionByStoryId.mockResolvedValue({ code: STORY_CODE });
+		mocks.createOwnerExecutionContext.mockResolvedValue({ toolContext: { projectFolder: '/project' } });
 		mocks.executeRawSql.mockResolvedValue({ data: [{ value: 'Home' }], columns: ['value'] });
 
-		await warmStoryFilterOptions('chat-1', 'story');
+		await warmStoryFilterOptionsByStoryId('story-1');
 
 		expect(mocks.executeRawSql).toHaveBeenCalledTimes(1);
 		expect(mocks.executeRawSql.mock.calls[0][0]).toContain('SELECT DISTINCT category');

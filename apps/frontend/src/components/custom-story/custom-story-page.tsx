@@ -224,8 +224,7 @@ export function CustomStoryPreviewPage({ chatId, storySlug, authorName, isOwner 
 					<LiveStorySettingsDialog
 						open={isLiveSettingsOpen}
 						onOpenChange={setIsLiveSettingsOpen}
-						chatId={chatId}
-						storySlug={storySlug}
+						story={{ chatId, storySlug }}
 						isLive={live.isLive}
 						isLiveTextDynamic={live.isLiveTextDynamic}
 						cacheSchedule={live.cacheSchedule}
@@ -258,9 +257,17 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 	);
 	const openInChat = useOpenStandaloneStoryInChat(storyId, story?.slug);
 	const sharing = useStoryViewerSharing({ storyId });
+	const live = useStoryViewerLiveSettings({ storyId });
+	useRetryStaleStoryRefresh({
+		storyKey: storyId,
+		needsRefresh: content?.needsRefresh ?? false,
+		isRefreshing: live.isRefreshing,
+		refresh: live.handleRefreshData,
+	});
 	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
 	const [viewMode, setViewMode] = useState<CustomStoryViewMode>('app');
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
+	const [isLiveSettingsOpen, setIsLiveSettingsOpen] = useState(false);
 	const renderExport = useCallback(
 		(format: DownloadFormat, html: string) =>
 			trpcClient.standaloneCustomStory.download.mutate({ storyId, format, html, versionNumber }),
@@ -296,6 +303,15 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				}}
 				canDuplicate={!isArchived && customStoryCreationEnabled}
 				viewedVersionNumber={versionNumber}
+				live={{
+					isLive: live.isLive,
+					cachedAt: content?.cachedAt,
+					lastRefreshFailure: content?.lastRefreshFailure,
+					isRefreshing: live.isRefreshing,
+					isUpdating: live.isUpdating,
+					onRefresh: live.handleRefreshData,
+					onOpenSettings: () => setIsLiveSettingsOpen(true),
+				}}
 				download={{ storyId, isOwner: true, onDownload: download }}
 				storyId={storyId}
 				canRename
@@ -354,6 +370,17 @@ export function StandaloneCustomStoryPage({ storyId }: { storyId: string }) {
 				onOpenChange={setIsAnalyticsOpen}
 				assetType='story'
 				storyId={storyId}
+			/>
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				story={{ storyId }}
+				isLive={live.isLive}
+				isLiveTextDynamic={live.isLiveTextDynamic}
+				cacheSchedule={live.cacheSchedule}
+				cacheScheduleDescription={live.cacheScheduleDescription}
+				isUpdating={live.isUpdating}
+				onSaveSettings={live.handleSaveSettings}
 			/>
 		</div>
 	);

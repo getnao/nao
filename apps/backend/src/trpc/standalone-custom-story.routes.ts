@@ -10,6 +10,7 @@ import {
 	getStandaloneCustomStoryFile,
 	getStandaloneCustomStoryNarratives,
 	getStandaloneCustomStoryQueryData,
+	getStandaloneCustomStoryQuerySql,
 	getStandaloneCustomStoryVersion,
 } from '../services/custom-story';
 import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
@@ -19,7 +20,6 @@ import { listStoryVersionChanges } from '../services/story-version-history';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
-	STANDALONE_QUERY_SQL_UNAVAILABLE,
 	storyModelRequest,
 	storyQueryInputs,
 	storySnapshotHtml,
@@ -92,12 +92,10 @@ export const standaloneCustomStoryRoutes = {
 		.input(z.object({ queryId: z.string(), versionNumber, inputs: storyQueryInputs }))
 		.query(async ({ ctx, input }) => {
 			try {
-				return await getStandaloneCustomStoryQueryData(
-					ctx.story.id,
-					input.queryId,
-					input.versionNumber,
-					input.inputs,
-				);
+				return await getStandaloneCustomStoryQueryData(ctx.story.id, input.queryId, input.versionNumber, {
+					deferRefresh: true,
+					rerun: { inputs: input.inputs, viewerId: ctx.user.id },
+				});
 			} catch (error) {
 				throw toCustomStoryQueryTrpcError(error);
 			}
@@ -118,13 +116,21 @@ export const standaloneCustomStoryRoutes = {
 			}
 		}),
 
-	getQuerySql: standaloneOwnerProcedure.input(z.object({ queryId: z.string() })).query((): { sqlQuery: string } => {
-		throw new TRPCError({ code: 'NOT_FOUND', message: STANDALONE_QUERY_SQL_UNAVAILABLE });
-	}),
+	getQuerySql: standaloneOwnerProcedure
+		.input(z.object({ queryId: z.string(), versionNumber }))
+		.query(async ({ ctx, input }) => {
+			try {
+				return {
+					sqlQuery: await getStandaloneCustomStoryQuerySql(ctx.story.id, input.queryId, input.versionNumber),
+				};
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
 
 	getNarratives: standaloneOwnerProcedure.query(async ({ ctx }) => {
 		try {
-			return await getStandaloneCustomStoryNarratives(ctx.story.id);
+			return await getStandaloneCustomStoryNarratives(ctx.story.id, { deferRefresh: true });
 		} catch (error) {
 			throw toCustomStoryTrpcError(error);
 		}

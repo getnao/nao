@@ -13,8 +13,8 @@ vi.mock('@tanstack/react-query', async (importOriginal) => ({
 	useQuery: vi.fn(() => ({ data: undefined })),
 }));
 
-vi.mock('@/hooks/use-llm-providers');
-vi.mock('@/hooks/use-permissions');
+vi.mock('@/hooks/use-llm-providers', () => ({ useLlmProviders: vi.fn() }));
+vi.mock('@/hooks/use-permissions', () => ({ usePermissions: vi.fn() }));
 vi.mock('@/main', () => ({
 	trpc: {
 		account: {

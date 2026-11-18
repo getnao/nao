@@ -1079,6 +1079,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'bulk assign',
 			'add to group',
 			'filter users',
+			'transfer stories',
+			'story ownership',
+			'offboarding',
 		],
 	},
 	{

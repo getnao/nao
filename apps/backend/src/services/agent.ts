@@ -73,7 +73,7 @@ import {
 } from '../types/chat';
 import type { ModelCosts, ModelInferenceSettings } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
-import { McpToolContext, QueryResult, ToolContext } from '../types/tools';
+import { ChatlessToolContext, McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
 	convertToCost,
 	convertToTokenUsage,
@@ -237,6 +237,14 @@ export async function buildToolContext(opts: {
 		...(opts.usageRunId && { usageRunId: opts.usageRunId }),
 		...(opts.managedAiBillingMode && { managedAiBillingMode: opts.managedAiBillingMode }),
 	};
+}
+
+export async function buildChatlessToolContext(opts: {
+	projectId: string;
+	userId: string;
+}): Promise<ChatlessToolContext> {
+	const base = await _buildContextBase(opts);
+	return { ...base, chatId: null, adminMode: false };
 }
 
 export async function buildMcpToolContext(opts: {
