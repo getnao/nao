@@ -24,8 +24,8 @@ const mocks = vi.hoisted(() => ({
 	},
 	findOrganizationByEmailDomain: vi.fn(),
 	getUser: vi.fn(),
+	loggerWarn: vi.fn(),
 	markEmailVerified: vi.fn(),
-	posthogCapture: vi.fn(),
 }));
 
 vi.mock('better-auth', () => ({
@@ -108,10 +108,6 @@ vi.mock('../../src/services/oidc-auth.service', () => ({
 	getOidcProviderId: vi.fn(() => 'oidc'),
 	getTrustedProvidersForOidc: vi.fn(() => []),
 }));
-vi.mock('../../src/services/posthog', () => ({
-	posthog: { capture: mocks.posthogCapture },
-	PostHogEvent: { SignupBlocked: 'signup_blocked' },
-}));
 vi.mock('../../src/services/scheduler.service', () => ({ enqueueOnce: mocks.enqueueOnce }));
 vi.mock('../../src/services/sso-login-sync.service', () => ({ syncSsoLoginGroups: vi.fn() }));
 vi.mock('../../src/services/sso-session.service', () => ({ shouldExpireSsoSession: vi.fn() }));
@@ -121,7 +117,7 @@ vi.mock('../../src/utils/email-builders', () => ({
 	buildVerifyEmail: mocks.buildVerifyEmail,
 }));
 vi.mock('../../src/utils/logger', () => ({
-	logger: { error: vi.fn(), warn: vi.fn() },
+	logger: { error: vi.fn(), warn: mocks.loggerWarn },
 	serializeError: vi.fn(),
 }));
 
@@ -187,7 +183,7 @@ describe('Cloud Google organization enrollment', () => {
 			requiresPasswordReset: false,
 		}));
 		mocks.markEmailVerified.mockReset().mockResolvedValue(true);
-		mocks.posthogCapture.mockReset();
+		mocks.loggerWarn.mockReset();
 	});
 
 	it('adds a matched organization member and queues a welcome for a verified social user', async () => {
@@ -323,7 +319,7 @@ describe('Cloud Google organization enrollment', () => {
 	});
 
 	it.each([
-		['rejects and reports a disposable email on cloud', 'cloud', 'probe@maildrop.cc', false],
+		['rejects and logs a disposable email on cloud', 'cloud', 'probe@maildrop.cc', false],
 		['accepts a permanent email on cloud', 'cloud', 'someone@getnao.io', true],
 		['accepts a disposable email when self-hosted', 'self-hosted', 'probe@maildrop.cc', true],
 	])('%s', async (_name, mode, email, accepted) => {
@@ -334,13 +330,12 @@ describe('Cloud Google organization enrollment', () => {
 
 		if (accepted) {
 			await expect(creation).resolves.toBe(true);
-			expect(mocks.posthogCapture).not.toHaveBeenCalled();
+			expect(mocks.loggerWarn).not.toHaveBeenCalled();
 		} else {
 			await expect(creation).rejects.toThrow('FORBIDDEN');
-			expect(mocks.posthogCapture).toHaveBeenCalledExactlyOnceWith(undefined, 'signup_blocked', {
-				reason: 'disposable_email',
-				email_domain: 'maildrop.cc',
-				provider: 'google',
+			expect(mocks.loggerWarn).toHaveBeenCalledExactlyOnceWith('Blocked a signup with a disposable email', {
+				source: 'system',
+				context: { email: 'probe@maildrop.cc', provider: 'google' },
 			});
 		}
 	});
