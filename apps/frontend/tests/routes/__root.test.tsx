@@ -18,6 +18,7 @@ vi.mock('@/hooks/use-session-or-navigate-to-index-page', () => ({
 	useSessionOrNavigateToIndexPage: () => ({ isPending: mocks.isSessionPending }),
 }));
 vi.mock('@/hooks/use-agent', () => ({ useDisposeInactiveAgents: vi.fn() }));
+vi.mock('@/hooks/use-server-running-chats', () => ({ useServerRunningChats: vi.fn() }));
 vi.mock('@/hooks/use-identify-posthog', () => ({ useIdentifyPostHog: vi.fn() }));
 vi.mock('@/hooks/useNavigateToResetPasswordPageIfNeeded', () => ({
 	useNavigateToResetPasswordPageIfNeeded: () => false,

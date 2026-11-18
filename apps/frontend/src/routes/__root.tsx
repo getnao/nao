@@ -6,6 +6,7 @@ import { ModifyPassword } from '../components/modify-password';
 import { TwoFactorGate } from '../components/two-factor-gate';
 import { Spinner } from '@/components/ui/spinner';
 import { useDisposeInactiveAgents } from '@/hooks/use-agent';
+import { useServerRunningChats } from '@/hooks/use-server-running-chats';
 import { useSessionOrNavigateToIndexPage } from '@/hooks/use-session-or-navigate-to-index-page';
 import { useNavigateToResetPasswordPageIfNeeded } from '@/hooks/useNavigateToResetPasswordPageIfNeeded';
 import { useIdentifyPostHog } from '@/hooks/use-identify-posthog';
@@ -29,6 +30,7 @@ function AuthenticatedRoot() {
 	const session = useSessionOrNavigateToIndexPage();
 	const hasLoadedSession = useHasLoadedOnce(session.isPending);
 	useDisposeInactiveAgents();
+	useServerRunningChats(!!session.data);
 	useIdentifyPostHog();
 
 	if (useNavigateToResetPasswordPageIfNeeded()) {

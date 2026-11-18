@@ -23,6 +23,7 @@ interface HandleAgentMessageInput extends Omit<AgentRequest, 'mode' | 'adminMode
 	billingAccessVerifiedProjectId?: string;
 	domainHost: string | undefined;
 	unbilledManagedAiUsage?: boolean;
+	onUserMessageSaved?: (chatId: string) => void;
 }
 
 interface HandleAgentMessageResult {
@@ -65,6 +66,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		messageToEditId,
 		source: profile.source,
 	});
+	opts.onUserMessageSaved?.(chatId);
 
 	if (isNewChat && profile.source === 'web') {
 		await recordWebConversationStarted(userId).catch((error) => logRecordingFailure(error, projectId));
