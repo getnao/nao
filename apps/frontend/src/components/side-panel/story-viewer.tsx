@@ -591,8 +591,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
-				chatId={chatId}
-				storySlug={resolvedStorySlug}
+				story={{ chatId, storySlug: resolvedStorySlug }}
 				isLive={isLive}
 				isLiveTextDynamic={isLiveTextDynamic}
 				cacheSchedule={cacheSchedule}

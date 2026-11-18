@@ -1,16 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	getStoryById: vi.fn(async () => ({
-		id: 'story-id',
-		archivedAt: null,
-		chatId: 'chat-id',
-		projectId: 'project-id',
-		slug: 'story-slug',
-		userId: 'user-id',
-	})),
+	getStoryById: vi.fn(),
 	notifyUsers: vi.fn(),
-	refreshStoryData: vi.fn(),
+	refreshStoryById: vi.fn(),
 	updateJobPayload: vi.fn(),
 }));
 
@@ -24,7 +17,7 @@ vi.mock('../../src/queries/shared-story.queries', () => ({
 }));
 vi.mock('../../src/queries/story.queries', () => ({
 	getStoryById: mocks.getStoryById,
-	getLatestVersionByChatAndSlug: vi.fn(async () => ({
+	getLatestVersionByStoryId: vi.fn(async () => ({
 		code: 'export default {}',
 		title: 'Story title',
 	})),
@@ -35,7 +28,7 @@ vi.mock('../../src/queries/story-delivery.queries', () => ({
 vi.mock('../../src/queries/user.queries', () => ({
 	getUserName: vi.fn(async () => 'Story owner'),
 }));
-vi.mock('../../src/services/live-story', () => ({ refreshStoryData: mocks.refreshStoryData }));
+vi.mock('../../src/services/live-story', () => ({ refreshStoryById: mocks.refreshStoryById }));
 vi.mock('../../src/services/notification.service', () => ({
 	NotificationChannelDeliveryError: class extends Error {
 		constructor(
@@ -69,15 +62,30 @@ import {
 } from '../../src/handlers/story-delivery.handler';
 import { NotificationChannelDeliveryError } from '../../src/services/notification.service';
 
+const STORY = {
+	id: 'story-id',
+	archivedAt: null,
+	chatId: 'chat-id',
+	projectId: 'project-id',
+	slug: 'story-slug',
+	userId: 'user-id',
+};
+
 beforeEach(() => {
 	vi.clearAllMocks();
-	mocks.refreshStoryData.mockResolvedValue({ queryData: {} });
+	mocks.getStoryById.mockResolvedValue(STORY);
+	mocks.refreshStoryById.mockResolvedValue({ queryData: {} });
 });
 
-it('delivers the refreshed story with scheduler-verified billing access', async () => {
+it.each([
+	['in a chat', 'chat-id'],
+	['standalone', null],
+])('delivers the refreshed story %s with scheduler-verified billing access', async (_case, chatId) => {
+	mocks.getStoryById.mockResolvedValue({ ...STORY, chatId });
+
 	await runScheduledStoryDelivery('story-id');
 
-	expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-id', 'story-slug', {
+	expect(mocks.refreshStoryById).toHaveBeenCalledWith('story-id', {
 		billingAccessVerifiedProjectId: 'project-id',
 	});
 	expect(mocks.notifyUsers).toHaveBeenCalledOnce();

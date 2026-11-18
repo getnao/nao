@@ -79,8 +79,11 @@ export interface ToolContext {
 	linkedStory?: LinkedStory;
 }
 
-export type McpToolContext = Omit<ToolContext, 'chatId'> & {
+export type ChatlessToolContext = Omit<ToolContext, 'chatId'> & {
 	chatId: null;
+};
+
+export type McpToolContext = ChatlessToolContext & {
 	storyCreationEnabled?: boolean;
 };
 

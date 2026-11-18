@@ -36,6 +36,7 @@ export type UserStoryRow = Pick<
 };
 
 const storyCertifier = aliasedTable(s.user, 'story_certifier');
+const latestStoryVersion = aliasedTable(s.storyVersion, 'latest_story_version');
 
 export async function getStoryByChatAndSlug(
 	chatId: string,
@@ -616,8 +617,7 @@ export async function canUserAccessStory(storyId: string, userId: string): Promi
 }
 
 export async function updateStoryLiveSettings(
-	chatId: string,
-	slug: string,
+	storyId: string,
 	settings: {
 		isLive: boolean;
 		isLiveTextDynamic: boolean;
@@ -625,11 +625,7 @@ export async function updateStoryLiveSettings(
 		cacheScheduleDescription: string | null;
 	},
 ): Promise<void> {
-	await db
-		.update(s.story)
-		.set(settings)
-		.where(and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)))
-		.execute();
+	await db.update(s.story).set(settings).where(eq(s.story.id, storyId)).execute();
 }
 
 type StoryVersionWithStory = DBStoryVersion &
@@ -788,17 +784,19 @@ export async function listStandaloneSlugsStartingWith(
 	return rows.map((row) => row.slug);
 }
 
-export async function updateLatestVersionCode(chatId: string, slug: string, code: string): Promise<void> {
-	const latest = await getLatestVersionByChatAndSlug(chatId, slug);
-	if (!latest) {
-		return;
-	}
-
-	await db
+/** Leaves the code alone once a newer version exists, so a rewrite of an older version never replaces it. */
+export async function updateVersionCodeIfLatest(storyId: string, versionId: string, code: string): Promise<boolean> {
+	const latestVersionNumber = db
+		.select({ version: max(latestStoryVersion.version) })
+		.from(latestStoryVersion)
+		.where(eq(latestStoryVersion.storyId, storyId));
+	const updated = await db
 		.update(s.storyVersion)
 		.set({ code })
-		.where(and(eq(s.storyVersion.storyId, latest.storyId), eq(s.storyVersion.version, latest.version)))
+		.where(and(eq(s.storyVersion.id, versionId), eq(s.storyVersion.version, latestVersionNumber)))
+		.returning({ id: s.storyVersion.id })
 		.execute();
+	return updated.length > 0;
 }
 
 export function getStoryDataCacheByChatAndSlug(chatId: string, slug: string): Promise<DBStoryDataCache | null> {
@@ -832,54 +830,19 @@ export async function getStoryQueryDataByStoryIds(
 	return new Map(rows.map((row) => [row.storyId, row.queryData]));
 }
 
-export async function upsertStoryDataCache(
-	chatId: string,
-	slug: string,
-	queryData: Record<string, { data: unknown[]; columns: string[] }>,
-	querySources: StoryQuerySources,
-	analysisResults?: Record<string, string> | null,
-): Promise<DBStoryDataCache> {
-	const story = await getStoryByChatAndSlug(chatId, slug);
-	if (!story) {
-		throw new Error(`Story not found: ${chatId}/${slug}`);
-	}
-
-	const [row] = await db
-		.insert(s.storyDataCache)
-		.values({
-			storyId: story.id,
-			queryData,
-			querySources,
-			analysisResults: analysisResults ?? null,
-			cachedAt: new Date(),
-		})
-		.onConflictDoUpdate({
-			target: s.storyDataCache.storyId,
-			set: {
-				queryData,
-				querySources,
-				analysisResults: analysisResults ?? null,
-				cachedAt: new Date(),
-			},
-		})
-		.returning()
-		.execute();
-
-	return row;
-}
-
 export async function upsertStoryDataCacheByStoryId(
 	storyId: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 	analysisResults?: Record<string, string> | null,
+	querySources: StoryQuerySources | null = null,
 ): Promise<void> {
 	const narratives = analysisResults === undefined ? {} : { analysisResults };
 	await db
 		.insert(s.storyDataCache)
-		.values({ storyId, queryData, querySources: null, cachedAt: new Date(), ...narratives })
+		.values({ storyId, queryData, querySources, cachedAt: new Date(), ...narratives })
 		.onConflictDoUpdate({
 			target: s.storyDataCache.storyId,
-			set: { queryData, querySources: null, cachedAt: new Date(), ...narratives },
+			set: { queryData, querySources, cachedAt: new Date(), ...narratives },
 		})
 		.execute();
 }

@@ -13,7 +13,10 @@ import type { QueryDataMap } from '@/components/story-embeds';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { trpc } from '@/main';
 
-export type StoryFilterApi = { kind: 'owned'; chatId: string; storySlug: string } | { kind: 'shared'; storyId: string };
+export type StoryFilterApi =
+	| { kind: 'owned'; chatId: string; storySlug: string }
+	| { kind: 'shared'; storyId: string }
+	| { kind: 'standalone'; storyId: string };
 
 const FILTER_PARAM_PREFIX = 'story_filter_';
 const NO_SELECTIONS: StoryFilterSelections = {};
@@ -126,7 +129,16 @@ export function useStoryFilters({
 		placeholderData: keepPreviousData,
 	});
 
-	const activeQuery = api?.kind === 'shared' ? sharedQuery : ownedQuery;
+	const standaloneQuery = useQuery({
+		...trpc.story.getStandaloneFilteredQueryData.queryOptions({
+			storyId: api?.kind === 'standalone' ? api.storyId : '',
+			selections: debouncedSelections,
+		}),
+		enabled: Boolean(filtersEnabled && api?.kind === 'standalone' && debouncedHasActive),
+		placeholderData: keepPreviousData,
+	});
+
+	const activeQuery = { owned: ownedQuery, shared: sharedQuery, standalone: standaloneQuery }[api?.kind ?? 'owned'];
 	const filteredQueryData = activeQuery.data as FilteredQueryDataMap | undefined;
 	const isFetching = activeQuery.isFetching;
 	const displayedSelections = useDisplayedSelections({
@@ -158,11 +170,24 @@ export function useStoryFilters({
 		clearSelections,
 		hasActiveFilters,
 		isFiltering,
-		queryData: debouncedHasActive ? (filteredQueryData ?? baselineQueryData ?? null) : (baselineQueryData ?? null),
+		queryData: debouncedHasActive
+			? withFilteredRows(baselineQueryData, filteredQueryData)
+			: (baselineQueryData ?? null),
 	};
 }
 
 type FilteredQueryDataMap = Record<string, QueryDataMap[string] & { skippedFilterIds?: string[] }>;
+
+/** Queries a filter could not rerun, e.g. rows saved without their SQL, keep showing their unfiltered rows. */
+function withFilteredRows(
+	baselineQueryData: QueryDataMap | null | undefined,
+	filteredQueryData: FilteredQueryDataMap | undefined,
+): QueryDataMap | null {
+	if (!filteredQueryData) {
+		return baselineQueryData ?? null;
+	}
+	return { ...baselineQueryData, ...filteredQueryData };
+}
 
 /**
  * The selections behind the data on screen: while new filtered data loads, the previous data stays
