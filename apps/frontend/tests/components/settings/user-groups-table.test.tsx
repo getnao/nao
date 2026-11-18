@@ -1008,6 +1008,19 @@ describe('UserGroupEditor', () => {
 		);
 	});
 
+	it('leaves LLM access out of full updates for existing groups', async () => {
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor();
+
+		renameGroup('Updated analysts');
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalled());
+		const update = mocks.mutateAsync.mock.calls[0]?.[0];
+		expect(update).not.toHaveProperty('llmConfigIds');
+		expect(update).not.toHaveProperty('llmModelIdsByConfig');
+	});
+
 	it('keeps credential assignments in the draft for a new group', () => {
 		renderEditor('llm-access', vi.fn(), 'new');
 

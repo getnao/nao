@@ -3,8 +3,8 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { LlmProvidersSection } from './llm-providers-section';
 import type * as ReactQuery from '@tanstack/react-query';
+import { LlmProvidersSection } from '@/components/settings/llm-providers-section';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -23,7 +23,7 @@ vi.mock('@/main', () => ({
 		},
 	},
 }));
-vi.mock('./llm-access-mode-control', () => ({
+vi.mock('@/components/settings/llm-access-mode-control', () => ({
 	LlmAccessModeControl: () => null,
 }));
 

@@ -8,21 +8,21 @@ const mocks = vi.hoisted(() => ({
 	getProjectConfigLlm: vi.fn(),
 }));
 
-vi.mock('../src/queries/project.queries', () => ({
+vi.mock('../../src/queries/project.queries', () => ({
 	listProjectIds: mocks.listProjectIds,
 }));
 
-vi.mock('../src/queries/project-llm-config.queries', () => ({
+vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	getAllProjectLlmConfigs: mocks.getAllProjectLlmConfigs,
 	createEnvProjectLlmConfig: mocks.createEnvProjectLlmConfig,
 }));
 
-vi.mock('../src/utils/llm', () => ({
+vi.mock('../../src/utils/llm', () => ({
 	getEnvProviders: mocks.getEnvProviders,
 	getProjectConfigLlm: mocks.getProjectConfigLlm,
 }));
 
-import { registerEnvLlmConfigs, registerEnvLlmConfigsForAllProjects } from '../src/services/env-llm-config.service';
+import { registerEnvLlmConfigs, registerEnvLlmConfigsForAllProjects } from '../../src/services/env-llm-config.service';
 
 describe('environment LLM credential registration', () => {
 	beforeEach(() => {

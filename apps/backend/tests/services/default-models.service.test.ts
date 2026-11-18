@@ -1,7 +1,7 @@
 import { isSameModel } from '@nao/shared/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { updateIntegrationModel } from '../src/services/default-models.service';
+import { updateIntegrationModel } from '../../src/services/default-models.service';
 
 const mocks = vi.hoisted(() => ({
 	getProjectAvailableModels: vi.fn(),
@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 	updateProjectTeamsModel: vi.fn(),
 }));
 
-vi.mock('../src/utils/llm', () => ({
+vi.mock('../../src/utils/llm', () => ({
 	getDefaultModelId: vi.fn(),
 	getProjectAvailableModels: mocks.getProjectAvailableModels,
 	resolveAnnotationModelId: vi.fn(),
@@ -17,13 +17,13 @@ vi.mock('../src/utils/llm', () => ({
 	selectDefaultChatModel: vi.fn(),
 }));
 
-vi.mock('../src/queries/project-teams-config.queries', () => ({
+vi.mock('../../src/queries/project-teams-config.queries', () => ({
 	updateProjectTeamsModel: mocks.updateProjectTeamsModel,
 }));
 
-vi.mock('../src/services/discord', () => ({ discordService: {} }));
-vi.mock('../src/services/mattermost', () => ({ mattermostService: {} }));
-vi.mock('../src/services/slack', () => ({ slackService: {} }));
+vi.mock('../../src/services/discord', () => ({ discordService: {} }));
+vi.mock('../../src/services/mattermost', () => ({ mattermostService: {} }));
+vi.mock('../../src/services/slack', () => ({ slackService: {} }));
 
 const availableModel = {
 	provider: 'openai' as const,

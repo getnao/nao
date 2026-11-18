@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { LlmAccessModeControl } from './llm-access-mode-control';
+import { LlmAccessModeControl } from '@/components/settings/llm-access-mode-control';
 
 const mocks = vi.hoisted(() => ({
 	invalidateQueries: vi.fn(),

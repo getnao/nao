@@ -7,7 +7,7 @@ import {
 	resolveUserBackgroundModelId,
 	resolveUserBackgroundModelSelection,
 	resolveUserModelSelection,
-} from '../src/services/user-group-llm-access.service';
+} from '../../src/services/user-group-llm-access.service';
 
 const mocks = vi.hoisted(() => ({
 	getProjectById: vi.fn(),
@@ -20,25 +20,25 @@ const mocks = vi.hoisted(() => ({
 	listProjectAutomationModelSelections: vi.fn(),
 }));
 
-vi.mock('../src/queries/project.queries', () => ({
+vi.mock('../../src/queries/project.queries', () => ({
 	getProjectById: mocks.getProjectById,
 	getDefaultModelSettings: mocks.getDefaultModelSettings,
 }));
 
-vi.mock('../src/queries/project-llm-config.queries', () => ({
+vi.mock('../../src/queries/project-llm-config.queries', () => ({
 	getProjectLlmConfigs: mocks.getProjectLlmConfigs,
 }));
 
-vi.mock('../src/queries/automation.queries', () => ({
+vi.mock('../../src/queries/automation.queries', () => ({
 	listProjectAutomationModelSelections: mocks.listProjectAutomationModelSelections,
 }));
 
-vi.mock('../src/services/user-group-availability.service', () => ({
+vi.mock('../../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveAvailableUserGroupAccess,
 	getAvailableUserGroupOverview: mocks.getAvailableUserGroupOverview,
 }));
 
-vi.mock('../src/utils/llm', () => ({
+vi.mock('../../src/utils/llm', () => ({
 	filterModelsByConfigAccess: (
 		models: (typeof clientAModel)[],
 		configIds: string[],

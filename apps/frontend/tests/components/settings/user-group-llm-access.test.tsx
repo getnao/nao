@@ -3,8 +3,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { UserGroupLlmAccess } from './user-group-llm-access';
 import type { ReactNode } from 'react';
+import { UserGroupLlmAccess } from '@/components/settings/user-group-llm-access';
 
 const mocks = vi.hoisted(() => ({
 	useQuery: vi.fn(),

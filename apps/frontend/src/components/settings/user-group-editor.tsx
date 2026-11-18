@@ -567,7 +567,6 @@ export function UserGroupEditor({
 					mcpAccess,
 					skillsAccess,
 					ssoMappings,
-					...(hasUserGroupsLicense ? { llmConfigIds, llmModelIdsByConfig } : {}),
 					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 					...budgetInput,
 				});
