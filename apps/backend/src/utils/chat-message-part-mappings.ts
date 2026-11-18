@@ -4,6 +4,7 @@ import { getToolName, isToolUIPart } from 'ai';
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
 import { UIMessagePart, UIToolPart } from '../types/chat';
 import { buildImageUrl } from './image';
+import { toQueryPartColumns } from './query-result-preview';
 import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from './tools';
 
 const PROVIDER_EXECUTED_TOOLS = new Set(['web_search', 'web_fetch', 'google_search']);
@@ -26,16 +27,18 @@ export const convertUIPartToDBPart = (
 	order: number,
 ): NewMessagePart | undefined => {
 	if (isToolUIPart(part)) {
+		const toolName = getToolName(part);
 		return {
 			messageId,
 			order,
-			toolName: getToolName(part),
+			toolName,
 			type: part.type,
 			toolCallId: part.toolCallId,
 			toolState: part.state,
 			toolInput: part.input,
 			toolRawInput: (part as any).rawInput,
 			toolOutput: part.output,
+			...toQueryPartColumns(toolName, part.output),
 			toolErrorText: part.errorText,
 			toolApprovalApproved: part.approval?.approved,
 			toolApprovalReason: part.approval?.reason,

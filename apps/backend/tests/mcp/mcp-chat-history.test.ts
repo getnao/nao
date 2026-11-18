@@ -127,7 +127,7 @@ describe('MCP get_chat', () => {
 
 		const result = await client.callTool({ name: 'get_chat', arguments: { chat_id: 'chat-1' } });
 
-		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true });
+		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true, queryResultPreviews: true });
 		expect(result.structuredContent).toMatchObject({
 			id: 'chat-1',
 			author: { id: 'user-2', name: 'Alice' },

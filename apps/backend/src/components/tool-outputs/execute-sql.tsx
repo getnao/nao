@@ -42,7 +42,7 @@ export const ExecuteSqlOutput = ({
 
 	const isTruncated = output.data.length > maxRows;
 	const visibleRows = isTruncated ? output.data.slice(0, maxRows) : output.data;
-	const remainingRows = isTruncated ? output.data.length - maxRows : 0;
+	const remainingRows = isTruncated ? output.row_count - maxRows : 0;
 
 	const isLimitReached =
 		output.applied_limit !== undefined && output.row_count >= output.applied_limit && output.row_count > 0;
