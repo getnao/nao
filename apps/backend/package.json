@@ -38,6 +38,7 @@
 		"db:reset": "rm db.sqlite",
 		"db:seed": "bun scripts/db.seed.ts",
 		"db:seed:cloud": "bun scripts/db.seed-cloud.ts",
+		"models:sync": "bun scripts/models-dev.sync.ts",
 		"db:check-migrations": "bun scripts/db.check-migrations.ts",
 		"format": "prettier --write .",
 		"test:tool-outputs": "PRINT_OUTPUT=true vitest run tests/components/tool-outputs/"

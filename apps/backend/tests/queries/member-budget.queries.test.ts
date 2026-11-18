@@ -12,6 +12,7 @@ vi.mock('../../src/db/db', async () => {
 });
 
 vi.mock('../../src/utils/llm', () => ({
+	getProjectAvailableModels: async () => [],
 	getProjectDeclaredModels: async () => [
 		{
 			provider: 'openaiCompatible/litellm',
