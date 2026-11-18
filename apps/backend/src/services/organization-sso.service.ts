@@ -13,6 +13,7 @@ import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 
 const SCOPES = ['openid', 'profile', 'email'];
+const NOT_ACTIVATED_MESSAGE = 'SSO is not activated for this organization. Contact nao.';
 const DOMAIN_PATTERN = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
 export async function getOrganizationSso(orgId: string): Promise<OrganizationSso | null> {
@@ -53,21 +54,20 @@ export async function configureOrganizationSso(
 ): Promise<OrganizationSso> {
 	const existing = await ssoProviderQueries.getSsoProviderByOrganizationId(orgId);
 	if (!existing) {
-		throw new HandlerError('FORBIDDEN', 'SSO is not activated for this organization. Contact nao.');
+		throw new HandlerError('FORBIDDEN', NOT_ACTIVATED_MESSAGE);
 	}
 	const clientSecret = input.clientSecret ?? readOidcConfig(existing)?.clientSecret;
 	if (!clientSecret) {
 		throw new HandlerError('BAD_REQUEST', 'A client secret is required.');
 	}
 	const oidcConfig = await buildOidcConfig(input, clientSecret);
-	const saved = await ssoProviderQueries.upsertSsoProvider({
-		organizationId: orgId,
-		providerId: existing.providerId,
+	const saved = await ssoProviderQueries.updateSsoProviderConnection(orgId, {
 		issuer: oidcConfig.issuer,
-		domain: existing.domain,
-		domainVerified: true,
 		oidcConfig: JSON.stringify(oidcConfig),
 	});
+	if (!saved) {
+		throw new HandlerError('FORBIDDEN', NOT_ACTIVATED_MESSAGE);
+	}
 	logger.info('Organization SSO configured', { source: 'system', context: { orgId, issuer: oidcConfig.issuer } });
 	return toOrganizationSso(saved);
 }
@@ -91,7 +91,7 @@ async function assertDomainsClaimable(orgId: string, domains: string[]): Promise
 		if (isPublicEmailDomain(domain)) {
 			throw new HandlerError('BAD_REQUEST', `"${domain}" is a public email provider and can't be used for SSO.`);
 		}
-		if (await orgQueries.isEmailDomainClaimedByAnotherOrg(domain, orgId)) {
+		if (await orgQueries.isEmailDomainClaimedByAnotherOrg(domain, orgId, { includeSubdomains: true })) {
 			throw new HandlerError('CONFLICT', `"${domain}" is already claimed by another organization.`);
 		}
 	}

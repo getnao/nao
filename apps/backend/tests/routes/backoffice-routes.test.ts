@@ -461,6 +461,7 @@ describe('cloud backoffice routes', () => {
 		{ domain: 'not a domain', status: 400, error: '"not a domain" is not a valid email domain.' },
 		{ domain: 'claimed-by-google.com', status: 409, error: 'already claimed by another organization' },
 		{ domain: 'eu.claimed-by-sso.com', status: 409, error: 'already claimed by another organization' },
+		{ domain: 'parent-of-google.com', status: 409, error: 'already claimed by another organization' },
 	])('refuses to route $domain to an organization SSO provider', async ({ domain, status, error }) => {
 		await seedOtherOrganizationClaimingDomains();
 
@@ -753,9 +754,12 @@ async function clearData() {
 }
 
 async function seedOtherOrganizationClaimingDomains() {
-	await db
-		.insert(s.organization)
-		.values({ id: 'org-other', name: 'Other', slug: 'other', googleAuthDomains: 'claimed-by-google.com' });
+	await db.insert(s.organization).values({
+		id: 'org-other',
+		name: 'Other',
+		slug: 'other',
+		googleAuthDomains: 'claimed-by-google.com,eu.parent-of-google.com',
+	});
 	await db.insert(s.ssoProvider).values({
 		organizationId: 'org-other',
 		providerId: 'sso-other',

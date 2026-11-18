@@ -42,6 +42,20 @@ export const upsertSsoProvider = async (provider: NewSsoProvider): Promise<DBSso
 	return saved;
 };
 
+/** Updates only the IdP connection, so it never restores domains or a provider that staff changed meanwhile. */
+export const updateSsoProviderConnection = async (
+	organizationId: string,
+	connection: Pick<DBSsoProvider, 'issuer' | 'oidcConfig'>,
+): Promise<DBSsoProvider | null> => {
+	const [updated] = await db
+		.update(s.ssoProvider)
+		.set(connection)
+		.where(eq(s.ssoProvider.organizationId, organizationId))
+		.returning()
+		.execute();
+	return updated ?? null;
+};
+
 export const deleteSsoProviderByOrganizationId = async (organizationId: string): Promise<boolean> => {
 	const deleted = await db
 		.delete(s.ssoProvider)

@@ -23,7 +23,11 @@ import { DiscoveryError } from '@better-auth/sso';
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
 import * as ssoProviderQueries from '../../src/queries/sso-provider.queries';
-import { activateOrganizationSso, configureOrganizationSso } from '../../src/services/organization-sso.service';
+import {
+	activateOrganizationSso,
+	configureOrganizationSso,
+	deactivateOrganizationSso,
+} from '../../src/services/organization-sso.service';
 
 const ORG_ID = 'org-acme';
 const OKTA = { issuer: 'https://acme.okta.com', clientId: 'okta-client', clientSecret: 'okta-secret' };
@@ -68,6 +72,23 @@ describe('organization SSO configured by an organization admin', () => {
 		});
 	});
 
+	it('keeps what nao staff change while the IdP is being discovered', async () => {
+		await activateOrganizationSso(ORG_ID, ['acme.com', 'acme.io']);
+		holdDiscoveryWhile(() => activateOrganizationSso(ORG_ID, ['acme.io']));
+
+		const configured = await configureOrganizationSso(ORG_ID, OKTA);
+
+		expect(configured).toMatchObject({ issuer: OKTA.issuer, domains: ['acme.io'] });
+	});
+
+	it('refuses to recreate SSO that nao staff deactivated while the IdP was being discovered', async () => {
+		await activateOrganizationSso(ORG_ID, ['acme.com']);
+		holdDiscoveryWhile(() => deactivateOrganizationSso(ORG_ID));
+
+		await expect(configureOrganizationSso(ORG_ID, OKTA)).rejects.toMatchObject({ codeMessage: 'FORBIDDEN' });
+		expect(await ssoProviderQueries.getSsoProviderByOrganizationId(ORG_ID)).toBeNull();
+	});
+
 	it.each([
 		{
 			name: 'an issuer that cannot be discovered',
@@ -92,6 +113,15 @@ describe('organization SSO configured by an organization admin', () => {
 		expect((await ssoProviderQueries.getSsoProviderByOrganizationId(ORG_ID))?.oidcConfig).toBeNull();
 	});
 });
+
+/** Runs a staff change while discovery is in flight, then lets discovery answer as usual. */
+function holdDiscoveryWhile(staffChange: () => Promise<unknown>): void {
+	const discover = mocks.discoverOIDCConfig.getMockImplementation();
+	mocks.discoverOIDCConfig.mockImplementationOnce(async (options: { issuer: string }) => {
+		await staffChange();
+		return discover?.(options);
+	});
+}
 
 async function clearData(): Promise<void> {
 	await db.delete(s.ssoProvider);

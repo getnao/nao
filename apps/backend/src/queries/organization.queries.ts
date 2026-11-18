@@ -228,15 +228,26 @@ export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<
 	return domains;
 };
 
-/** Cloud mode: whether another organization has already claimed the given email domain, for Google or SSO sign-in. */
-export const isEmailDomainClaimedByAnotherOrg = async (domain: string, orgId: string): Promise<boolean> => {
+/**
+ * Cloud mode: whether another organization has already claimed the given email domain, for Google or SSO sign-in.
+ * An SSO claim also covers subdomains, so it conflicts with Google claims on them.
+ */
+export const isEmailDomainClaimedByAnotherOrg = async (
+	domain: string,
+	orgId: string,
+	{ includeSubdomains = false }: { includeSubdomains?: boolean } = {},
+): Promise<boolean> => {
 	const normalized = domain.trim().toLowerCase();
 	const [orgs, ssoProviders] = await Promise.all([
 		db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute(),
 		ssoProviderQueries.listSsoProviderSummaries(),
 	]);
 	const claimedForGoogle = orgs.some(
-		(org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized),
+		(org) =>
+			org.id !== orgId &&
+			parseEmailDomains(org.googleAuthDomains).some((claimed) =>
+				includeSubdomains ? isDomainCoveredBy(claimed, [normalized]) : claimed === normalized,
+			),
 	);
 	const claimedForSso = ssoProviders.some(
 		(provider) =>
