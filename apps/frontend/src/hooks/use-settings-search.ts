@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
 import { settingsSearchIndex } from '@/components/settings-search-index';
 import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings';
+import { useCanUseAdvancedContextExplorer } from '@/hooks/use-can-use-advanced-context-explorer';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -54,6 +55,7 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 	const { canViewUsage, isAdmin, isContextAdmin, isOrgAdmin } = usePermissions();
 	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
+	const canUseAdvancedContextExplorer = useCanUseAdvancedContextExplorer();
 	const isCloud = useIsCloud();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const betaSubagentsEnabled = config.data?.betaSubagentsEnabled === true;
@@ -72,6 +74,7 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.licenseFeature || enabledLicenseFeatures?.[entry.licenseFeature] === true) &&
 						(!entry.orgAdminOnly || isOrgAdmin) &&
 						(!entry.adminOrContextAdmin || isAdmin || isContextAdmin) &&
+						(!entry.requiresAdvancedContextExplorer || canUseAdvancedContextExplorer) &&
 						(!entry.requiresUsageAccess || canViewUsage) &&
 						(!entry.cloudHidden || !isCloud) &&
 						(!entry.cloudOnly || isCloud) &&
@@ -85,6 +88,7 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 			betaSubagentsEnabled,
 			canViewUsage,
 			canSeeAdvancedSettings,
+			canUseAdvancedContextExplorer,
 			cloudBillingEnabled,
 			enabledLicenseFeatures,
 			isAdmin,

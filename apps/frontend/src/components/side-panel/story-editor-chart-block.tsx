@@ -9,7 +9,7 @@ import { SelectedBlockPositionsContext } from './story-block-selection-context';
 import { StoryEditorParametersContext } from './story-editor-parameters-context';
 import { decodeFromAttr } from './story-editor-utils';
 import type { ReactNodeViewProps } from '@tiptap/react';
-import { StoryBlock } from '@/components/story-block';
+import { chartBlockReference, StoryBlock } from '@/components/story-block';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 
 function ChartBlockView({ node, editor, getPos, updateAttributes }: ReactNodeViewProps) {
@@ -52,7 +52,7 @@ function ChartBlockView({ node, editor, getPos, updateAttributes }: ReactNodeVie
 					<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />
 				</div>
 				<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
-					<StoryBlock>
+					<StoryBlock block={chartBlockReference(chart)}>
 						<StoryChartEmbed chart={chart} isSelected={isSelected} />
 					</StoryBlock>
 				</EditorStoryChartEditProvider>

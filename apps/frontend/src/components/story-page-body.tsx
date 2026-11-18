@@ -13,6 +13,7 @@ import { StoryTabbedEditor } from '@/components/side-panel/story-tabbed-editor';
 import { StoryUnsavedChangesDialog } from '@/components/story-unsaved-changes-dialog';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
+import { cn } from '@/lib/utils';
 
 interface StoryPageBodyProps {
 	editor: ReturnType<typeof useStoryPageEditor>;
@@ -20,9 +21,17 @@ interface StoryPageBodyProps {
 	queryData?: QueryDataMap | null;
 	theme?: StoryTheme | null;
 	onAskAboutCode?: (selection: CodeSelection) => void;
+	isReadOnly?: boolean;
 }
 
-export function StoryPageBody({ editor, preview, queryData, theme, onAskAboutCode }: StoryPageBodyProps) {
+export function StoryPageBody({
+	editor,
+	preview,
+	queryData,
+	theme,
+	onAskAboutCode,
+	isReadOnly = false,
+}: StoryPageBodyProps) {
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	useDragAutoScroll(scrollContainerRef);
 	const unsavedChangesDialog = <StoryUnsavedChangesDialog {...editor.exitDialog} />;
@@ -38,7 +47,11 @@ export function StoryPageBody({ editor, preview, queryData, theme, onAskAboutCod
 						theme={theme ?? null}
 						className='flex flex-1 min-h-0 flex-col bg-background text-foreground'
 					>
-						<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
+						<div
+							ref={scrollContainerRef}
+							inert={isReadOnly}
+							className={cn('flex-1 min-h-0 overflow-auto', isReadOnly && 'opacity-60')}
+						>
 							{isTabbed ? (
 								<StoryTabbedEditor
 									code={editCode}
@@ -79,6 +92,7 @@ export function StoryPageBody({ editor, preview, queryData, theme, onAskAboutCod
 						onValidChange={editor.setIsCodeValid}
 						onSave={editor.handleSave}
 						onAskAboutCode={onAskAboutCode}
+						readOnly={isReadOnly}
 					/>
 				</div>
 				{unsavedChangesDialog}

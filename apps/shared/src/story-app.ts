@@ -1,6 +1,9 @@
 import type { ChartType } from './chart-types';
 import type { ColumnConditionalFormats } from './conditional-formatting';
 import type { KeydownSnapshot, Shortcut } from './keyboard-shortcut';
+import type { MapFeatureCollection } from './map';
+import type { StoryModel, StoryModelRequest, StoryModelResult } from './story-models';
+import type { StoryQueryFilters, StoryQueryInputs } from './story-query-inputs';
 import type { StoryTheme } from './story-theme';
 import type { displayChart } from './tools';
 import type { StoryBlockReference, StoryCitationIntent } from './types';
@@ -39,15 +42,40 @@ export const STORY_DOCUMENT_SLOTS = { head: '<!--nao:head-->', body: '<!--nao:bo
 export const STORY_HTML_API_GLOBAL = 'nao';
 
 export interface StoryHtmlApi {
-	query(queryId: string, options?: { fresh?: boolean }): Promise<StoryQueryResult>;
+	query(queryId: string, options?: StoryQueryRequestOptions): Promise<StoryQueryResult>;
+	sql(sql: string, options?: StorySqlRequestOptions): Promise<StoryQueryResult>;
+	/** The models the viewer can call, e.g. the project's LLMs. */
+	models(): Promise<StoryModel[]>;
+	model(request: StoryModelRequest, options?: { fresh?: boolean }): Promise<StoryModelResult>;
 	querySql(queryId: string): Promise<string>;
 	narratives(): Promise<StoryNarratives>;
+	mapBoundary(key: string): Promise<StoryMapBoundary>;
 	theme(): StoryTheme | null;
 	onTheme(listener: (theme: StoryTheme) => void): () => void;
 	isExport(): boolean;
 	isPrint(): boolean;
 	state: StoryHtmlStateApi;
 	sharedState: StoryHtmlStateApi;
+}
+
+export interface StoryQueryRequestOptions extends StoryQueryInputs {
+	fresh?: boolean;
+}
+
+export interface StorySqlRequestOptions {
+	databaseId?: string;
+	filters?: StoryQueryFilters;
+	fresh?: boolean;
+}
+
+/**
+ * SQL a story runs itself, as its viewer: read-only and limited to what nao lets that viewer query.
+ * Its `{% filter %}` blocks render with `filters`, quoted on the server like those of saved queries.
+ */
+export interface StorySqlRequest {
+	sql: string;
+	databaseId?: string;
+	filters?: StoryQueryFilters;
 }
 
 export interface StoryHtmlStateApi {
@@ -97,11 +125,52 @@ export interface StoryQueryResult {
 /** Narrative id → text regenerated from the latest data */
 export type StoryNarratives = Record<string, string>;
 
+export interface StoryMapBoundary {
+	geojson: MapFeatureCollection;
+	joinProperties: string[];
+}
+
+/** Boundary keys a story's sources load, found by name so a downloaded story carries only the sets it uses. */
+const STORY_MAP_BOUNDARY_CALL_PATTERN = /\b(?:useMapBoundary|mapBoundary)\s*\(\s*(['"`])([a-z0-9_]+)\1/g;
+
+export const extractStoryMapBoundaryKeys = (sources: string[]): string[] => {
+	const keys = new Set<string>();
+	for (const source of sources) {
+		for (const match of source.matchAll(STORY_MAP_BOUNDARY_CALL_PATTERN)) {
+			keys.add(match[2]);
+		}
+	}
+	return [...keys];
+};
+
+/** The boundary sets a downloaded story may carry in total, leaving room for the rest of a download capped at 24 MB. */
+export const MAX_STORY_EXPORT_BOUNDARY_BYTES = 12 * 1024 * 1024;
+
+/** Keeps sets in order while they fit the download budget, so a story using several large sets still downloads. */
+export const fitMapBoundariesInExport = (
+	boundaries: [string, StoryMapBoundary][],
+): Record<string, StoryMapBoundary> => {
+	const encoder = new TextEncoder();
+	let remainingBytes = MAX_STORY_EXPORT_BOUNDARY_BYTES;
+	const kept = boundaries.filter(([, boundary]) => {
+		const bytes = encoder.encode(JSON.stringify(boundary)).byteLength;
+		if (bytes > remainingBytes) {
+			return false;
+		}
+		remainingBytes -= bytes;
+		return true;
+	});
+	return Object.fromEntries(kept);
+};
+
 export interface StoryExportData {
 	queries: Record<string, StoryQueryResult>;
+	/** Rows of the filtered queries and story SQL the viewer saw, by request key, so a download shows the same. */
+	requests?: Record<string, StoryQueryResult>;
 	narratives: StoryNarratives;
 	state?: StoryStateSnapshot;
 	chartPlugins?: Record<string, string>;
+	mapBoundaries?: Record<string, StoryMapBoundary>;
 }
 
 /** `user` rows are each viewer's own state; `project` rows are the state every viewer reads and writes together. */
@@ -209,7 +278,10 @@ export const isStoryKitEditableBlock = (value: string): value is StoryKitEditabl
 /** Frame → host. */
 export type StoryFrameMessage =
 	| { type: 'nao-story:ready' }
-	| { type: 'nao-story:query'; requestId: string; queryId: string; fresh?: boolean }
+	| { type: 'nao-story:query'; requestId: string; queryId: string; fresh?: boolean; inputs?: StoryQueryInputs }
+	| ({ type: 'nao-story:sql'; requestId: string; fresh?: boolean } & StorySqlRequest)
+	| { type: 'nao-story:models'; requestId: string }
+	| { type: 'nao-story:model'; requestId: string; request: StoryModelRequest; fresh?: boolean }
 	| { type: 'nao-story:narratives'; requestId: string }
 	| { type: 'nao-story:error'; message: string; stack?: string }
 	| { type: 'nao-story:copy-table'; columns: string[]; rows: Record<string, unknown>[] }
@@ -224,6 +296,7 @@ export type StoryFrameMessage =
 	| ({ type: 'nao-story:edit-table-format' } & StoryTableFormatEditRequest)
 	| { type: 'nao-story:query-sql'; requestId: string; queryId: string }
 	| { type: 'nao-story:chart-plugin'; requestId: string; chartType: string }
+	| { type: 'nao-story:map-boundary'; requestId: string; key: string }
 	| ({ type: 'nao-story:set-state' } & StoryStateChange)
 	| { type: 'nao-story:ask-block'; block: StoryBlockReference }
 	| ({ type: 'nao-story:ask' } & StoryElementAsk)
@@ -247,8 +320,14 @@ export type StoryHostMessage =
 	| { type: 'nao-story:query-error'; requestId: string; message: string }
 	| { type: 'nao-story:query-sql-result'; requestId: string; sqlQuery: string }
 	| { type: 'nao-story:query-sql-error'; requestId: string; message: string }
+	| { type: 'nao-story:models-result'; requestId: string; models: StoryModel[] }
+	| { type: 'nao-story:models-error'; requestId: string; message: string }
+	| { type: 'nao-story:model-result'; requestId: string; result: StoryModelResult }
+	| { type: 'nao-story:model-error'; requestId: string; message: string }
 	| { type: 'nao-story:chart-plugin-result'; requestId: string; source: string }
 	| { type: 'nao-story:chart-plugin-error'; requestId: string; message: string }
+	| { type: 'nao-story:map-boundary-result'; requestId: string; boundary: StoryMapBoundary }
+	| { type: 'nao-story:map-boundary-error'; requestId: string; message: string }
 	| { type: 'nao-story:narratives-result'; requestId: string; narratives: StoryNarratives }
 	| { type: 'nao-story:editing'; enabled: boolean }
 	| { type: 'nao-story:inspector'; enabled: boolean; selectsElements: boolean }
@@ -281,6 +360,9 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 		[
 			'nao-story:ready',
 			'nao-story:query',
+			'nao-story:sql',
+			'nao-story:models',
+			'nao-story:model',
 			'nao-story:narratives',
 			'nao-story:error',
 			'nao-story:copy-table',
@@ -289,6 +371,7 @@ export const isStoryFrameMessage = (value: unknown): value is StoryFrameMessage 
 			'nao-story:edit-table-format',
 			'nao-story:query-sql',
 			'nao-story:chart-plugin',
+			'nao-story:map-boundary',
 			'nao-story:set-state',
 			'nao-story:ask-block',
 			'nao-story:ask',
@@ -305,8 +388,14 @@ export const isStoryHostMessage = (value: unknown): value is StoryHostMessage =>
 			'nao-story:query-error',
 			'nao-story:query-sql-result',
 			'nao-story:query-sql-error',
+			'nao-story:models-result',
+			'nao-story:models-error',
+			'nao-story:model-result',
+			'nao-story:model-error',
 			'nao-story:chart-plugin-result',
 			'nao-story:chart-plugin-error',
+			'nao-story:map-boundary-result',
+			'nao-story:map-boundary-error',
 			'nao-story:narratives-result',
 			'nao-story:editing',
 			'nao-story:inspector',

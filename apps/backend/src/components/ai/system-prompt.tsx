@@ -1,4 +1,10 @@
-import { type ChartPluginManifestEntry, STORY_REFERENCE_TAG } from '@nao/shared';
+import {
+	BUILTIN_BOUNDARY_LABELS,
+	BUILTIN_BOUNDARY_REGION_KEY_HINTS,
+	type ChartPluginManifestEntry,
+	type CustomBoundarySet,
+	STORY_REFERENCE_TAG,
+} from '@nao/shared';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 
@@ -21,7 +27,7 @@ import {
 } from '../../utils/story-library';
 import { groupBy } from '../../utils/utils';
 import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
-import { NaoContextStructure } from './nao-context-structure';
+import { NaoContextStructure, UserRulesSection } from './nao-context-structure';
 import { storyKitGuideItems } from './story-kit-guide';
 
 type Connection = {
@@ -40,6 +46,8 @@ type SystemPromptProps = {
 	/** Defaults to every skill nao ships; only tests pass this. */
 	internalSkills?: InternalSkill[];
 	customCharts?: ChartPluginManifestEntry[];
+	/** GeoJSON boundary sets the project admin added; only their description is listed, never the geometry. */
+	mapBoundaries?: CustomBoundarySet[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
 	/** Secrets the user made available to sandboxes as environment variables — names and purposes only, never values. */
@@ -52,6 +60,8 @@ type SystemPromptProps = {
 	repoNames?: string[];
 	contextPresence?: ContextPresence;
 	timezone?: string;
+	/** Replaces the analyst introduction, for profiles with another purpose that keep the rest of the prompt. */
+	role?: string;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
 	toolNames?: string[];
 	options?: SystemPromptOptions;
@@ -69,6 +79,8 @@ type SystemPromptOptions = {
 
 export const MEMORY_TOKEN_LIMIT = 1000;
 
+const ANALYST_ROLE = 'You are nao, an expert AI data analyst tailored for people doing analytics.';
+
 export function SystemPrompt({
 	memories = [],
 	userRules,
@@ -78,6 +90,7 @@ export function SystemPrompt({
 	preloadedSkills = [],
 	internalSkills = listInternalSkills(),
 	customCharts = [],
+	mapBoundaries = [],
 	mcpServers = [],
 	sandboxSecrets = [],
 	trustedStories = [],
@@ -86,6 +99,7 @@ export function SystemPrompt({
 	repoNames = [],
 	contextPresence,
 	timezone,
+	role = ANALYST_ROLE,
 	toolNames,
 	options = {},
 }: SystemPromptProps) {
@@ -103,8 +117,8 @@ export function SystemPrompt({
 		<Block>
 			<Title>Instructions</Title>
 			<Span>
-				You are nao, an expert AI data analyst tailored for people doing analytics, you are integrated into an
-				agentic workflow made by nao Labs (<Link href='https://getnao.io' text='https://getnao.io' />
+				{role} You are integrated into an agentic workflow made by nao Labs (
+				<Link href='https://getnao.io' text='https://getnao.io' />
 				).
 				<Br />
 				Today's date is <Bold>{formatCurrentDate(timezone)}</Bold>.
@@ -120,7 +134,12 @@ export function SystemPrompt({
 				<Br />
 				Skills can be mentioned using the / trigger.
 			</Span>
-			<NaoContextStructure templates={templates} repoNames={repoNames} contextPresence={contextPresence} />
+			<NaoContextStructure
+				templates={templates}
+				repoNames={repoNames}
+				contextPresence={contextPresence}
+				rulesInPrompt={Boolean(userRules)}
+			/>
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>
@@ -348,12 +367,7 @@ export function SystemPrompt({
 				</ListItem>
 			</List>
 			<Block separator={'\n\n---\n\n'}>
-				{userRules && (
-					<Block>
-						<Title level={2}>User Rules</Title>
-						{userRules}
-					</Block>
-				)}
+				{userRules && <UserRulesSection rules={userRules} />}
 
 				{connections.length > 0 && (
 					<Block>
@@ -402,6 +416,14 @@ export function SystemPrompt({
 				{hasTool('load_skill') && builtInSkills.length > 0 && <BuiltInSkillsBlock skills={builtInSkills} />}
 
 				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
+
+				{mapBoundaries.length > 0 && (
+					<MapBoundariesBlock
+						sets={mapBoundaries}
+						hasDisplayMap={hasTool('display_map')}
+						customStoriesEnabled={customStoriesEnabled}
+					/>
+				)}
 
 				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} canUseCodemode={hasTool('codemode')} />}
 
@@ -892,6 +914,48 @@ function CustomChartsBlock({ charts }: { charts: ChartPluginManifestEntry[] }) {
 			)}
 		</Block>
 	);
+}
+
+function MapBoundariesBlock({
+	sets,
+	hasDisplayMap,
+	customStoriesEnabled,
+}: {
+	sets: CustomBoundarySet[];
+	hasDisplayMap: boolean;
+	customStoriesEnabled: boolean;
+}) {
+	const builtinKeys = Object.keys(BUILTIN_BOUNDARY_LABELS) as (keyof typeof BUILTIN_BOUNDARY_LABELS)[];
+	return (
+		<Block>
+			<Title level={2}>Map boundaries</Title>
+			<Span>
+				GeoJSON boundary sets available for choropleth maps. Pass a key as <Bold>region_boundaries</Bold> in{' '}
+				{hasDisplayMap && 'display_map or in '}a classic story map
+				{customStoriesEnabled && <>, or load it in a custom story with {'useMapBoundary("key")'}</>}, and make
+				region_key match the set's region key.
+			</Span>
+			<List>
+				{builtinKeys.map((key) => (
+					<ListItem key={key}>
+						<Bold>{key}</Bold> (built-in): {BUILTIN_BOUNDARY_LABELS[key]}. Region key:{' '}
+						{BUILTIN_BOUNDARY_REGION_KEY_HINTS[key]}.
+					</ListItem>
+				))}
+				{sets.map((set) => (
+					<ListItem key={set.key}>
+						<Bold>{set.key}</Bold> ({describeBoundarySetSource(set)}): {set.label}. Join property:{' '}
+						{set.joinProperty}. Region key: {set.regionKeyHint}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
+function describeBoundarySetSource(set: CustomBoundarySet): string {
+	const source = set.file ? 'uploaded' : 'from a URL';
+	return set.featureCount === undefined ? source : `${source}, ${set.featureCount} features`;
 }
 
 function truncateChartDescription(description: string): string {

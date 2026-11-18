@@ -16,6 +16,13 @@ export interface SqlAllowlistOptions {
 }
 
 /**
+ * The parser reads a backslash inside a quoted string as an escape, while PostgreSQL and SQLite read it as a plain
+ * character. They would then disagree on where the string ends, and so on which tables the query reads.
+ */
+const BACKSLASH_REJECTION =
+	'Backslashes are not supported. Write regular expressions with bracket classes such as [0-9] or [[:space:]], and match literal % or _ without an ESCAPE clause.';
+
+/**
  * Validates untrusted SQL against a read-only, table-allowlisted policy:
  * only SELECT/WITH statements that reference the allowed tables (and, when given, call only the allowed functions) pass.
  */
@@ -23,6 +30,10 @@ export async function validateReadOnlyAllowlistedSql(
 	sql: string,
 	{ allowedTables, allowedFunctions, parserDialect, dialectName }: SqlAllowlistOptions,
 ): Promise<SqlValidationResult> {
+	if (sql.includes('\\')) {
+		return { ok: false, reason: BACKSLASH_REJECTION };
+	}
+
 	if (!(await isReadOnlySqlQuery(sql))) {
 		return { ok: false, reason: 'Only read-only SELECT/WITH queries are allowed.' };
 	}

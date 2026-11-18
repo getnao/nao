@@ -264,7 +264,7 @@ function readTextSelection(): { ask: StoryElementAsk; range: Range } | null {
 	const range = selection.getRangeAt(0);
 	const container = range.commonAncestorContainer;
 	const block = (container instanceof Element ? container : container.parentElement)?.closest(BLOCK_SELECTOR);
-	const reference = block ? readBlockReference(block as HTMLElement) : TEXT_REFERENCE;
+	const reference = block ? readBlockReference(block) : TEXT_REFERENCE;
 	return { ask: { block: reference, text }, range };
 }
 

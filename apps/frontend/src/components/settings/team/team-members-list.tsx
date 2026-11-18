@@ -60,6 +60,11 @@ export function TeamMembersList({
 										Invited
 									</Badge>
 								)}
+								{member.twoFactorEnabled && (
+									<Badge variant='success' className='ml-2'>
+										2FA
+									</Badge>
+								)}
 							</TableCell>
 							<TableCell className='font-mono text-muted-foreground'>{member.email}</TableCell>
 							<TableCell>

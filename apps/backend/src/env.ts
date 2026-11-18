@@ -21,6 +21,13 @@ const optionalNonEmptyString = z
 	.optional()
 	.transform((value) => value?.trim() || undefined);
 
+function parseCommaSeparatedList(value: string | undefined): string[] {
+	return (value ?? '')
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+}
+
 function blankToUndefined(value: unknown): unknown {
 	return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
@@ -129,6 +136,11 @@ const baseRawEnvSchema = z.object({
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
+	/**
+	 * GitHub access token every project commits, pushes and opens pull requests with, as when an admin saves one in
+	 * Settings > Git. It takes over from a saved token, and nao Cloud ignores it, as each project saves its own.
+	 */
+	GITHUB_ACCESS_TOKEN: optionalNonEmptyString,
 	GITHUB_SSO: z
 		.enum(['true', 'false'])
 		.optional()
@@ -209,6 +221,10 @@ const baseRawEnvSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_PROMPT: z.preprocess(
+		blankToUndefined,
+		z.enum(['select_account', 'login', 'consent', 'none', 'omit']).optional(),
+	),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
 	OIDC_GROUP_NAO_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
@@ -264,6 +280,14 @@ const baseRawEnvSchema = z.object({
 	APP_BUILD_DATE: z.string().default(''),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
+	/**
+	 * Comma-separated project paths a self-hosted instance starts with, shown in the project selector.
+	 * Loading more than one project requires the Enterprise `multi-project` feature.
+	 */
+	NAO_PROJECT_PATHS: z
+		.string()
+		.optional()
+		.transform((val) => parseCommaSeparatedList(val)),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	/** Enables the internal cloud backoffice API and is only honoured when NAO_MODE=cloud. */
@@ -281,6 +305,15 @@ const baseRawEnvSchema = z.object({
 	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
 	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
+	/**
+	 * Set to false to turn off branch management of the repositories `nao sync` copies into the context: their branches
+	 * can no longer be picked in the Context Hub changes or tested. Their files stay in the context.
+	 */
+	NAO_CONTEXT_SYNCED_REPOS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
 
 	CLOUD_BILLING_ENABLED: z
 		.enum(['true', 'false'])
@@ -442,12 +475,7 @@ const baseRawEnvSchema = z.object({
 	DISABLED_PROVIDERS: z
 		.string()
 		.optional()
-		.transform((val) =>
-			(val ?? '')
-				.split(',')
-				.map((entry) => entry.trim())
-				.filter(Boolean),
-		)
+		.transform((val) => parseCommaSeparatedList(val))
 		.refine((providers) => providers.every(isLlmProvider), {
 			message: `DISABLED_PROVIDERS must be a comma-separated list of provider kinds (${LLM_PROVIDERS.join(', ')}) or named instances (${NAMED_PROVIDER_KIND}/<name>)`,
 		}),
@@ -596,6 +624,11 @@ if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 	process.exit(1);
 }
 
+if (result.data.NAO_PROJECT_PATHS.length > 0 && result.data.NAO_MODE === 'cloud') {
+	console.error('NAO_PROJECT_PATHS and NAO_MODE=cloud cannot be set at the same time.');
+	process.exit(1);
+}
+
 if (result.data.NAO_CONTEXT_SOURCE === 'git' && result.data.NAO_MODE === 'cloud') {
 	console.error('NAO_CONTEXT_SOURCE=git cannot be set when NAO_MODE=cloud.');
 	process.exit(1);
@@ -686,5 +719,5 @@ export function isMcpPublicHost(requestHost: string | undefined): boolean {
 export function noProjectMessage(): string {
 	return isCloud
 		? 'No project configured. Create a project or ask your organization admin to add you to one.'
-		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.';
+		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH or NAO_PROJECT_PATHS environment variable.';
 }

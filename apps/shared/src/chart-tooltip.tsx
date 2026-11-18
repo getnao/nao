@@ -5,6 +5,7 @@ import type { Payload } from 'recharts/types/component/DefaultLegendContent';
 import { formatPercentShare, sumPercentStackBase } from './chart-builder';
 import { CHART_NUMBER_LOCALE, formatChartValue } from './chart-values';
 import { type ClassNameMerger, joinClassNames } from './class-names';
+import { partAttributes } from './story-parts';
 import type * as displayChart from './tools/display-chart';
 
 export const CHART_THEMES = { light: '', dark: '.dark' } as const;
@@ -281,6 +282,11 @@ export function ChartLegendContent({
 								item.isHidden && 'nao-chart-legend__item--hidden opacity-40',
 							)}
 							onClick={() => onItemClick?.(dataKey)}
+							{...partAttributes({
+								kind: 'legend-item',
+								series: dataKey,
+								label: typeof itemConfig?.label === 'string' ? itemConfig.label : dataKey,
+							})}
 						>
 							{itemConfig?.icon && !hideIcon ? (
 								<itemConfig.icon />

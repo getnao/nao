@@ -1,8 +1,10 @@
 import type {
 	SharedItemLabel,
 	SharedNotificationPayload,
+	ShareRole,
 	StoryRefreshNotificationPayload,
 	StorySubscriptionNotificationPayload,
+	StoryTransferNotificationPayload,
 	Visibility,
 } from '@nao/shared/types';
 
@@ -41,7 +43,7 @@ const sharedItemAcl: Record<SharedItemLabel, (itemId: string, projectId: string)
 			}
 			const visibility = share.visibility as Visibility;
 			const allowedUserIds =
-				visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(shareId) : [];
+				visibility === 'specific' ? await sharedChatQueries.getSharedChatRecipientUserIds(shareId) : [];
 			return { visibility, allowedUserIds };
 		},
 	};
@@ -117,6 +119,39 @@ export async function notifyStorySubscriptionAdded(params: {
 		projectId: params.projectId,
 		payload,
 		channels: ['in_app'],
+	});
+}
+
+export async function notifyStoryTransfer(params: {
+	projectId: string;
+	recipientId: string;
+	senderName: string;
+	stories: Array<{ id: string; title: string }>;
+	previousOwnerId?: string;
+}): Promise<void> {
+	const [story] = params.stories;
+	const isSingleStory = params.stories.length === 1;
+	const payload: StoryTransferNotificationPayload = {
+		kind: 'story_transfer',
+		senderName: params.senderName,
+		storyCount: params.stories.length,
+		storyId: isSingleStory ? story.id : null,
+		storyTitle: isSingleStory ? story.title : null,
+		previousOwnerName: params.previousOwnerId ? ((await resolveOwnerName(params.previousOwnerId)) ?? null) : null,
+	};
+
+	await notify({
+		userId: params.recipientId,
+		projectId: params.projectId,
+		category: 'shared',
+		title: isSingleStory ? story.title : `${params.stories.length} stories`,
+		body: isSingleStory
+			? `${params.senderName} made you the owner of this story.`
+			: `${params.senderName} made you the owner of ${params.stories.length} stories.`,
+		linkUrl: isSingleStory ? storyPath(story.id) : '/stories',
+		ctaLabel: isSingleStory ? 'Open story' : 'Open stories',
+		payload,
+		channels: ['in_app', 'email'],
 	});
 }
 
@@ -201,6 +236,8 @@ export async function notifySharedItem(params: {
 	visibility: Visibility;
 	allowedUserIds?: string[];
 	deliverExternally?: boolean;
+	role?: ShareRole;
+	isRoleChange?: boolean;
 }): Promise<void> {
 	const recipientIds = await resolveSharedItemRecipientIds(params);
 	if (recipientIds.length === 0) {
@@ -216,27 +253,47 @@ export async function notifySharedItem(params: {
 		itemLabel: params.itemLabel,
 		itemTitle: params.itemTitle,
 		visibility: params.visibility,
+		...(params.role && { role: params.role }),
+		...(params.isRoleChange && { isRoleChange: true }),
 	};
 
 	await notifyUsers(recipientIds, {
 		category: 'shared',
-		title: `${params.sharerName} shared a ${params.itemLabel} with you`,
+		title: describeSharedItemTitle(params),
 		body: `"${params.itemTitle}"`,
 		linkUrl,
 		ctaLabel: `Open ${params.itemLabel}`,
 		projectId: params.projectId,
 		payload,
-		channels: params.deliverExternally === false ? ['in_app'] : ['in_app', 'email'],
+		channels: params.deliverExternally === false || params.isRoleChange ? ['in_app'] : ['in_app', 'email'],
 		emailOverride: (recipient, unsubscribeUrl) =>
 			buildSharedItemEmail(
 				recipient,
-				params.sharerName,
-				params.itemLabel,
-				params.itemTitle,
-				itemUrl,
+				{
+					sharerName: params.sharerName,
+					itemLabel: params.itemLabel,
+					itemTitle: params.itemTitle,
+					itemUrl,
+					role: params.role,
+				},
 				unsubscribeUrl,
 			),
 	});
+}
+
+function describeSharedItemTitle(params: {
+	sharerName: string;
+	itemLabel: SharedItemLabel;
+	role?: ShareRole;
+	isRoleChange?: boolean;
+}): string {
+	if (params.isRoleChange) {
+		return params.role === 'viewer'
+			? `${params.sharerName} changed your access to a ${params.itemLabel} to view only`
+			: `${params.sharerName} gave you edit rights on a ${params.itemLabel}`;
+	}
+	const rights = params.role === 'editor' ? ', with edit rights' : '';
+	return `${params.sharerName} shared a ${params.itemLabel} with you${rights}`;
 }
 
 async function resolveOwnerName(ownerId: string): Promise<string | undefined> {

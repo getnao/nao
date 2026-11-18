@@ -33,12 +33,12 @@ export function StoryElementPicker({ isPicking, storySlug, onPick, children }: S
 	/** A click picks the element instead of reaching the story's own handlers, such as links or chart legends. */
 	const handleClickCapture = (event: MouseEvent) => {
 		const element = isPicking && !hasTextSelection() ? findPickable(event.target) : null;
-		if (!element) {
+		if (!element || !containerRef.current) {
 			return;
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		onPick(describeElement(element));
+		onPick(describeElement(element, containerRef.current));
 	};
 
 	return (

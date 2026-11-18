@@ -33,6 +33,10 @@ export function PluginChartBlock({
 	chartType,
 	queryId,
 	data,
+	sql,
+	databaseId,
+	filters,
+	params,
 	height = DEFAULT_CHART_HEIGHT,
 	title,
 	description,
@@ -40,7 +44,7 @@ export function PluginChartBlock({
 	style,
 	...options
 }: PluginChartBlockProps) {
-	const source = useBlockData({ queryId, data });
+	const source = useBlockData({ queryId, data, sql, databaseId, filters, params });
 	const resolved = source.status === 'ready' ? resolveChart(source.rows, source.columns, options) : null;
 
 	return (

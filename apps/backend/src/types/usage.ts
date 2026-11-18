@@ -86,6 +86,8 @@ export interface UserProjectPreferences {
 export interface StoredUserPreferences extends UserPreferences {
 	projectPreferences?: Record<string, UserProjectPreferences>;
 	supportRequestSentAt?: number;
+	githubStarPromptDismissedAt?: number;
+	webConversationsStarted?: number;
 }
 
 export function resolveUsagePeriod(
@@ -201,6 +203,9 @@ export interface UsageRecord {
 	date: string;
 	messageCount: number;
 	webMessageCount: number;
+	automationEditorMessageCount: number;
+	contextEditorMessageCount: number;
+	automationMessageCount: number;
 	slackMessageCount: number;
 	teamsMessageCount: number;
 	telegramMessageCount: number;

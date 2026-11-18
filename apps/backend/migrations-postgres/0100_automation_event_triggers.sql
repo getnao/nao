@@ -1,0 +1,1 @@
+ALTER TABLE "automation" ADD COLUMN "event_triggers" jsonb DEFAULT '{}'::jsonb NOT NULL;

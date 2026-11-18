@@ -16,7 +16,9 @@ import {
 	testComparisonTolerancesSchema,
 	type TestModelSelection,
 } from '../types/test-run';
+import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
+import { resolveSecrets } from './nao-config-llm';
 import { escapeRegExp } from './utils';
 
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
@@ -29,7 +31,8 @@ export type ContextPresence = {
 	notionDocs: boolean;
 	databases: boolean;
 };
-const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+/** Accepts the same spacing as the CLI, which resolves a reference left unfilled here to an empty string. */
+const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(\s*['"]([^'"]+)['"]\s*\)\s*\}\}/g;
 const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const TEST_MODEL_FORMAT = "'provider:model_id'";
 const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";
@@ -79,8 +82,12 @@ function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>
 	}
 }
 
-export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo[] {
-	return configuredReposFrom(loadProjectConfig(projectFolder));
+/**
+ * Repository URLs written with `{{ env('NAME') }}` are resolved only when project variables are given, for server-side
+ * use: a resolved URL may hold secrets, so the URLs shown to users stay as written.
+ */
+export function extractConfiguredRepos(projectFolder: string, envVars?: Record<string, string>): LinkedContextRepo[] {
+	return configuredReposFrom(loadProjectConfig(projectFolder), envVars);
 }
 
 /** Returns configured database templates, falling back to the default when unavailable. */
@@ -112,7 +119,7 @@ export function extractContextPresence(projectFolder: string): ContextPresence {
 	};
 }
 
-function configuredReposFrom(config: unknown): LinkedContextRepo[] {
+function configuredReposFrom(config: unknown, envVars?: Record<string, string>): LinkedContextRepo[] {
 	if (!isRecord(config) || !Array.isArray(config.repos)) {
 		return [];
 	}
@@ -122,7 +129,7 @@ function configuredReposFrom(config: unknown): LinkedContextRepo[] {
 			return [];
 		}
 
-		const url = typeof repo.url === 'string' && repo.url.trim() !== '' ? repo.url.trim() : null;
+		const url = (envVars ? resolveSecrets(repo.url, envVars) : asString(repo.url))?.trim() || null;
 		const branch = typeof repo.branch === 'string' && repo.branch.trim() !== '' ? repo.branch.trim() : null;
 		const localPath =
 			typeof repo.local_path === 'string' && repo.local_path.trim() !== '' ? repo.local_path.trim() : null;
@@ -169,6 +176,41 @@ function configuredTemplatesFrom(config: unknown): string[] {
 
 	const resolvedTemplates = DATABASE_TEMPLATES.filter((template) => configuredTemplates.has(template));
 	return resolvedTemplates.length > 0 ? resolvedTemplates : [...DEFAULT_DATABASE_TEMPLATES];
+}
+
+/** The `repos` entry of `nao_config.yaml` as written, so that `nao sync` can run it with the same filters. */
+export function extractRawRepoConfig(projectFolder: string, repoName: string): Record<string, unknown> | null {
+	const config = loadProjectConfig(projectFolder);
+	if (!isRecord(config) || !Array.isArray(config.repos)) {
+		return null;
+	}
+	const repo = config.repos.find(
+		(entry) => isRecord(entry) && typeof entry.name === 'string' && entry.name.trim() === repoName,
+	);
+	return isRecord(repo) ? repo : null;
+}
+
+/** Fills in the `{{ env('NAME') }}` references of a config value, leaving the `aws` and `k8s` ones to the CLI. */
+export function resolveEnvReferences<T>(value: T, envVars: Record<string, string>): T {
+	if (typeof value === 'string') {
+		return value.replace(
+			NAO_CONFIG_ENV_PATTERN,
+			(_reference, name: string) => envVars[name] || getDeploymentEnvVar(name) || '',
+		) as T;
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => resolveEnvReferences(item, envVars)) as T;
+	}
+	if (isRecord(value)) {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [key, resolveEnvReferences(item, envVars)]),
+		) as T;
+	}
+	return value;
+}
+
+function asString(value: unknown): string | null {
+	return typeof value === 'string' ? value : null;
 }
 
 function loadProjectConfig(projectFolder: string): unknown {

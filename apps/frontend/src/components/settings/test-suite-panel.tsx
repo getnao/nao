@@ -1,11 +1,13 @@
 import { pluralize } from '@nao/shared';
 import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import { useQuery } from '@tanstack/react-query';
-import { CircleAlert, CircleDashed, History, Search, X } from 'lucide-react';
+import { CircleAlert, CircleDashed, History, Search, User, X } from 'lucide-react';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 
 import type { SuiteRunScope } from '@/components/settings/test-run-actions';
 import type { RunFilters } from '@/components/settings/test-run-filter-menu';
+import type { TestFilters } from '@/components/settings/test-suite-filter-menu';
 import type {
 	DraftContext,
 	LatestTestOutcome,
@@ -22,6 +24,11 @@ import { ALL_RUNS, matchesRunFilters } from '@/components/settings/test-run-filt
 import { getMainBranch, ToneIcon } from '@/components/settings/test-run-labels';
 import { describeRunListItem, RunListItem } from '@/components/settings/test-run-list-item';
 import { TestRunResults } from '@/components/settings/test-run-results';
+import {
+	ActiveTestFilters,
+	matchesTestFilters,
+	TestSuiteFilterMenu,
+} from '@/components/settings/test-suite-filter-menu';
 import { formatTestModel, getTestModelColorAt, testModelKey } from '@/components/settings/test-run-types';
 import { outcomeTone } from '@/components/settings/test-run-verdict';
 import { Badge } from '@/components/ui/badge';
@@ -33,14 +40,15 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 const MAX_LISTED_RUNS = 10;
+const MAX_ROW_TAGS = 2;
 
 /** The tests picked in the suite, which the Run button of the drawer runs. */
 interface SuiteSelection {
 	selectedPaths: Set<string>;
 	onSelectedPathsChange: (paths: Set<string>) => void;
-	selectedTags: string[];
-	onSelectedTagsChange: (tags: string[]) => void;
-	/** Shows only the tests whose name or path holds it. */
+	filters: TestFilters;
+	onFiltersChange: (filters: TestFilters) => void;
+	/** Shows only the tests whose name, path, owner or one of whose tags holds it. */
 	search: string;
 	onSearchChange: (search: string) => void;
 }
@@ -117,7 +125,7 @@ export function TestSuitePanel({
 	);
 }
 
-/** What the drawer's Run button runs: the picked tests, else those of the picked tags, else the whole suite. */
+/** What the drawer's Run button runs: the picked tests, else the filtered ones, else the whole suite. */
 export function getSuiteRunScope(tests: TestDefinition[], selection: SuiteSelection): SuiteRunScope {
 	if (selection.selectedPaths.size > 0) {
 		return {
@@ -234,15 +242,11 @@ function SuiteTestsHeader({
 	visibleTests: TestDefinition[];
 	selection: SuiteSelection;
 }) {
-	const tags = [...new Set(tests.flatMap((test) => test.tags))].sort();
 	const selectedCount = selection.selectedPaths.size;
 	const allSelected = visibleTests.length > 0 && visibleTests.every((test) => selection.selectedPaths.has(test.path));
 
-	const toggleTag = (tag: string) => {
-		const selectedTags = selection.selectedTags.includes(tag)
-			? selection.selectedTags.filter((selected) => selected !== tag)
-			: [...selection.selectedTags, tag];
-		selection.onSelectedTagsChange(selectedTags);
+	const changeFilters = (filters: TestFilters) => {
+		selection.onFiltersChange(filters);
 		selection.onSelectedPathsChange(new Set());
 	};
 
@@ -252,7 +256,7 @@ function SuiteTestsHeader({
 	};
 
 	return (
-		<PanelHeader className='gap-2.5'>
+		<PanelHeader className='h-9 flex-nowrap gap-2.5'>
 			<Checkbox
 				aria-label='Select the shown tests'
 				checked={allSelected ? true : selectedCount > 0 ? 'indeterminate' : false}
@@ -262,30 +266,11 @@ function SuiteTestsHeader({
 					)
 				}
 			/>
-			<span className={cn(selectedCount > 0 && 'font-medium text-foreground')}>
+			<span className={cn('shrink-0 whitespace-nowrap', selectedCount > 0 && 'font-medium text-foreground')}>
 				{selectedCount > 0 ? `${selectedCount} selected` : countTests(visibleTests.length)}
 			</span>
-			{tags.length > 0 && (
-				<div className='flex min-w-0 flex-wrap items-center gap-1' aria-label='Filter by tag'>
-					{tags.map((tag) => (
-						<Badge
-							key={tag}
-							variant={selection.selectedTags.includes(tag) ? 'default' : 'outline'}
-							className='h-5 text-[11px]'
-							asChild
-						>
-							<button
-								type='button'
-								aria-pressed={selection.selectedTags.includes(tag)}
-								onClick={() => toggleTag(tag)}
-								className='cursor-pointer'
-							>
-								{tag}
-							</button>
-						</Badge>
-					))}
-				</div>
-			)}
+			<TestSuiteFilterMenu tests={tests} filters={selection.filters} onChange={changeFilters} />
+			<ActiveTestFilters filters={selection.filters} onChange={changeFilters} />
 			<TestSearchInput value={selection.search} onChange={changeSearch} />
 		</PanelHeader>
 	);
@@ -293,7 +278,7 @@ function SuiteTestsHeader({
 
 function TestSearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
 	return (
-		<label className='ml-auto flex h-6 w-56 shrink-0 items-center gap-1.5 rounded-md border bg-background px-2 focus-within:border-ring'>
+		<label className='ml-auto flex h-6 w-56 min-w-36 shrink items-center gap-1.5 rounded-md border bg-background px-2 focus-within:border-ring'>
 			<Search className='size-3 shrink-0' />
 			<input
 				type='search'
@@ -304,7 +289,7 @@ function TestSearchInput({ value, onChange }: { value: string; onChange: (value:
 						onChange('');
 					}
 				}}
-				placeholder='Search tests'
+				placeholder='Search tests, tags or owners'
 				aria-label='Search tests'
 				className='min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden'
 			/>
@@ -349,6 +334,7 @@ function SuiteTestRow({
 				icon={<CircleDashed className='size-3.5 shrink-0 text-muted-foreground' />}
 				name={test.name}
 				path={test.path}
+				meta={<TestOwnership test={test} />}
 				detail={<span className='text-muted-foreground'>Never run</span>}
 				onOpen={onOpen}
 			/>
@@ -366,6 +352,7 @@ function SuiteTestRow({
 			}
 			name={test.name}
 			path={test.path}
+			meta={<TestOwnership test={test} />}
 			detail={
 				<span
 					className='flex items-center gap-3 text-muted-foreground'
@@ -384,6 +371,37 @@ function SuiteTestRow({
 			}
 			onOpen={onOpen}
 		/>
+	);
+}
+
+/** The owner and the first tags of a test, the others counted, so a test with many tags keeps its row readable. */
+function TestOwnership({ test }: { test: TestDefinition }) {
+	if (!test.owner && test.tags.length === 0) {
+		return null;
+	}
+	const shownTags = test.tags.slice(0, MAX_ROW_TAGS);
+	const hiddenTags = test.tags.slice(MAX_ROW_TAGS);
+	return (
+		<span className='flex shrink-0 items-center gap-1.5'>
+			{test.owner && (
+				<span className='flex min-w-0 items-center gap-0.5' title={`Owner: ${test.owner}`}>
+					<User className='size-3 shrink-0' />
+					<span className='max-w-40 truncate'>{test.owner}</span>
+				</span>
+			)}
+			{shownTags.map((tag) => (
+				<RowTag key={tag}>{tag}</RowTag>
+			))}
+			{hiddenTags.length > 0 && <RowTag title={hiddenTags.join(', ')}>+{hiddenTags.length}</RowTag>}
+		</span>
+	);
+}
+
+function RowTag({ title, children }: { title?: string; children: ReactNode }) {
+	return (
+		<Badge variant='outline' title={title} className='h-4 px-1 text-[10px] font-normal text-muted-foreground'>
+			{children}
+		</Badge>
 	);
 }
 
@@ -409,18 +427,17 @@ function ModelOutcomes({ models }: { models: TestModelOutcome[] }) {
 	);
 }
 
-/** The tests of the picked tags, else all of them, whose name or path holds the search. */
-function filterTests(tests: TestDefinition[], selection: Pick<SuiteSelection, 'selectedTags' | 'search'>) {
+function filterTests(tests: TestDefinition[], selection: Pick<SuiteSelection, 'filters' | 'search'>) {
 	const search = selection.search.trim().toLowerCase();
-	return tests.filter((test) => hasPickedTag(test, selection.selectedTags) && matchesSearch(test, search));
-}
-
-function hasPickedTag(test: TestDefinition, tags: string[]): boolean {
-	return tags.length === 0 || test.tags.some((tag) => tags.includes(tag));
+	return tests.filter((test) => matchesTestFilters(test, selection.filters) && matchesSearch(test, search));
 }
 
 function matchesSearch(test: TestDefinition, search: string): boolean {
-	return !search || test.name.toLowerCase().includes(search) || test.path.toLowerCase().includes(search);
+	if (!search) {
+		return true;
+	}
+	const fields = [test.name, test.path, test.owner ?? '', ...test.tags];
+	return fields.some((field) => field.toLowerCase().includes(search));
 }
 
 function countTests(count: number): string {

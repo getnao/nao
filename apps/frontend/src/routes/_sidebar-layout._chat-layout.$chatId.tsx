@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
+import { ArrowRight, Folder, GitFork, Info, TimerIcon, Upload } from 'lucide-react';
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
@@ -31,7 +31,7 @@ import { EditableChatTitle } from '@/components/editable-chat-title';
 import { useChatQuery } from '@/queries/use-chat-query';
 import { useHeight } from '@/hooks/use-height';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
-import { ShareChatDialog } from '@/components/share-dialog.chat';
+import { ShareDialog } from '@/components/share-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { SelectionProvider } from '@/contexts/text-selection';
@@ -40,6 +40,7 @@ import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
 import { findStories } from '@/lib/story.utils';
 import { isForbiddenError, shouldShowChatAccessError } from '@/lib/trpc-error';
+import { cn } from '@/lib/utils';
 
 const SELECTION_FORK_TYPES: ForkMetadata['type'][] = ['chat_selection', 'chat_question', 'story_selection'];
 
@@ -93,10 +94,10 @@ function ChatPage() {
 
 	const isOnboardingChat = chat.data?.isOnboarding === true;
 	const shareQuery = useQuery({
-		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
+		...trpc.sharedChat.getShareSettings.queryOptions({ chatId }),
 		enabled: !!chat.data && !shouldShowChatError && !isOnboardingChat,
 	});
-	const isShared = !!shareQuery.data?.shareId;
+	const isChatShared = !isRunning && !!shareQuery.data?.shareId;
 	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const { complete: onboardingComplete } = useOnboardingCompletion(chatId, isOnboardingChat);
@@ -185,7 +186,7 @@ function ChatPage() {
 							showExampleProjectInfo={isExampleChat && !chat.data?.isOnboarding}
 						/>
 
-						<div className='group/header absolute flex items-center justify-between top-3 inset-x-4 z-20 max-md:hidden'>
+						<div className='group/header @container/chat-header absolute flex items-center justify-between top-3 inset-x-4 z-20 max-md:hidden'>
 							<div className='min-w-0 max-w-[60%] flex flex-row gap-4'>
 								{title && (
 									<EditableChatTitle
@@ -195,7 +196,10 @@ function ChatPage() {
 									/>
 								)}
 								{chatProject && (
-									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
+									<Badge
+										variant='outline'
+										className='gap-1 text-muted-foreground w-fit min-w-0 shrink'
+									>
 										<Folder />
 										<span className='truncate'>{chatProject.name}</span>
 									</Badge>
@@ -215,7 +219,10 @@ function ChatPage() {
 									</Badge>
 								)}
 								{chat.data?.forkMetadata && (
-									<Badge variant='outline' className='gap-1 text-muted-foreground w-fit'>
+									<Badge
+										variant='outline'
+										className='gap-1 text-muted-foreground w-fit min-w-0 shrink'
+									>
 										<GitFork />
 										<span className='truncate'>
 											{chat.data.forkMetadata.type === 'story' ||
@@ -236,7 +243,7 @@ function ChatPage() {
 									</Badge>
 								)}
 							</div>
-							<div className='flex items-center justify-end gap-2'>
+							<div className='flex shrink-0 items-center justify-end gap-2'>
 								{isExampleChat && !chat.data?.isOnboarding && <ExampleProjectInfoCard compact />}
 								<Button
 									variant='ghost'
@@ -256,23 +263,20 @@ function ChatPage() {
 									disabled={isRunning}
 									aria-label='Share Chat'
 								>
-									{!isRunning && isShared ? (
-										<>
-											<Globe className='size-3 text-primary' />
-											<span className='text-xs'>Chat shared</span>
-										</>
-									) : (
-										<>
-											<Upload className='size-3' strokeWidth={2.25} />
-											<span className='text-xs'>Share chat</span>
-										</>
-									)}
+									<Upload
+										className={cn('size-3', isChatShared && 'text-primary')}
+										strokeWidth={2.25}
+									/>
+									<span className='text-xs @max-md/chat-header:hidden'>
+										{isChatShared ? 'Chat shared' : 'Share chat'}
+									</span>
 								</Button>
 								<ChatArtifactsMenu
 									key={chatId}
 									chatId={chatId}
 									chatColumnRef={chatColumnRef}
 									panelClassName='right-0 mt-2'
+									labelClassName='@max-md/chat-header:hidden'
 								/>
 							</div>
 						</div>
@@ -339,7 +343,11 @@ function ChatPage() {
 					)}
 				</div>
 			</SelectionProvider>
-			<ShareChatDialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} chatId={chatId} />
+			<ShareDialog
+				open={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				target={{ kind: 'chat', chatId }}
+			/>
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
 				onOpenChange={setIsAnalyticsOpen}

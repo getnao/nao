@@ -139,6 +139,15 @@ export function pickQueryData(queryData: StoryQueryDataMap, queryIds: Set<string
 	return Object.fromEntries(Object.entries(queryData).filter(([id]) => queryIds.has(id)));
 }
 
+/** A standalone story has no chat to run its queries in: it shows the rows saved for the queries its code uses. */
+export async function getStandaloneStoryQueryData(storyId: string, code: string) {
+	const cache = await storyQueries.getStoryDataCacheByStoryId(storyId);
+	const queryData = cache?.queryData
+		? pickQueryData(cache.queryData as StoryQueryDataMap, extractQueryIds(code))
+		: null;
+	return { queryData, cachedAt: cache?.cachedAt ?? null, code, needsRefresh: false };
+}
+
 function latestRowOnly(queryData: StoryQueryDataMap): StoryQueryDataMap | null {
 	const entries = Object.entries(queryData).map(([id, result]) => [
 		id,

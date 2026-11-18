@@ -1,3 +1,4 @@
+import { partAttributes } from '@nao/shared/story-parts';
 import { memo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Copy, Download, Maximize2 } from 'lucide-react';
@@ -68,7 +69,11 @@ export const DataTableCard = memo(
 					{title || leadingHeader ? (
 						<div className='flex min-w-0 items-center gap-1'>
 							{leadingHeader}
-							{title ? <span className='text-sm font-medium truncate'>{title}</span> : null}
+							{title ? (
+								<span className='text-sm font-medium truncate' {...partAttributes({ kind: 'title' })}>
+									{title}
+								</span>
+							) : null}
 						</div>
 					) : null}
 					<div className='flex items-center gap-1'>

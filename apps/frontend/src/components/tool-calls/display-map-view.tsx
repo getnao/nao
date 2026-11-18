@@ -42,6 +42,8 @@ import type {
 	NumericDomain,
 } from '@nao/shared';
 
+import { Skeleton } from '@/components/ui/skeleton';
+import { useMapSlot } from '@/hooks/use-map-slot';
 import { getMapStyle, isMapStyleDark, MAP_STYLE_LIGHT, resolveStyleUrl, useMapStyle } from '@/hooks/use-map-style';
 import { getActiveProjectId } from '@/lib/active-project';
 import { resolveCssVariableColor } from '@/lib/css-color';
@@ -54,6 +56,7 @@ const REGIONS_SOURCE_ID = 'query-regions';
 const REGIONS_FILL_ID = 'query-regions-fill';
 const REGIONS_LINE_ID = 'query-regions-line';
 const POINT_STROKE_WIDTH = 1;
+const NO_BOUNDARIES: CustomBoundarySet[] = [];
 
 export interface MapViewHandle {
 	captureImage: (type?: string) => Promise<string | null>;
@@ -70,6 +73,8 @@ interface MapViewProps {
 	boundaryProjectId?: string | null;
 }
 
+type MapCamera = Required<Pick<maplibregl.CameraOptions, 'center' | 'zoom' | 'bearing' | 'pitch'>>;
+
 export default memo(function MapView({
 	points,
 	config,
@@ -85,6 +90,9 @@ export default memo(function MapView({
 	const colorRef = useRef(DEFAULT_MARKER_COLOR);
 	const themeRef = useRef<MapSurfaceTheme | undefined>(undefined);
 	const styleUrlRef = useRef('');
+	const savedCameraRef = useRef<MapCamera | null>(null);
+	const [slotElement, setSlotElement] = useState<HTMLDivElement | null>(null);
+	const { isLive, isPaused, pause, resume } = useMapSlot(slotElement);
 	const [initFailed, setInitFailed] = useState(false);
 	const [color, setColor] = useState(DEFAULT_MARKER_COLOR);
 	const [surfaceTheme, setSurfaceTheme] = useState<MapSurfaceTheme>(() => resolveMapSurfaceTheme(null));
@@ -94,7 +102,7 @@ export default memo(function MapView({
 	const isChoropleth = config.map_type === 'choropleth';
 	const isBubble = config.map_type === 'scatter_bubble';
 
-	const { data: fetchedBoundaries = [] } = useQuery({
+	const { data: fetchedBoundaries = NO_BOUNDARIES } = useQuery({
 		...trpc.project.getMapBoundaries.queryOptions(),
 		enabled: injectedBoundaries === undefined,
 	});
@@ -203,7 +211,7 @@ export default memo(function MapView({
 	);
 
 	useEffect(() => {
-		if (!containerRef.current) {
+		if (!isLive || !containerRef.current) {
 			return;
 		}
 
@@ -224,11 +232,16 @@ export default memo(function MapView({
 			return;
 		}
 		mapRef.current = map;
+		let hasLoadedStyle = false;
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 		map.on('resize', () => clampMinZoom(map));
+		map.on('webglcontextlost', pause);
 
 		map.on('style.load', () => {
+			hasLoadedStyle = true;
 			clampMinZoom(map);
+			const savedCamera = savedCameraRef.current;
+			savedCameraRef.current = null;
 			withMapStyleTheme(() => {
 				const resolved = resolveMarkerColor(configRef.current.color, containerRef.current);
 				colorRef.current = resolved;
@@ -241,13 +254,18 @@ export default memo(function MapView({
 						choroplethScaleRef.current,
 						regionsRef.current,
 					);
-					fitToCollection(map, regionsRef.current);
 				} else {
 					const data = toGeoJsonPoints(pointsRef.current, configRef.current, sizeDomainRef.current);
 					setupPointLayers(map, resolved, containerRef.current, configRef.current, data);
-					fitToPoints(map, pointsRef.current);
 				}
 			});
+			if (savedCamera) {
+				map.jumpTo(savedCamera);
+			} else if (configRef.current.map_type === 'choropleth') {
+				fitToCollection(map, regionsRef.current);
+			} else {
+				fitToPoints(map, pointsRef.current);
+			}
 		});
 
 		setupTooltip(map, () => configRef.current, {
@@ -257,10 +275,13 @@ export default memo(function MapView({
 		});
 
 		return () => {
+			if (hasLoadedStyle) {
+				savedCameraRef.current = readCamera(map);
+			}
 			mapRef.current = null;
 			map.remove();
 		};
-	}, []);
+	}, [isLive, pause]);
 
 	useEffect(() => {
 		const map = mapRef.current;
@@ -284,6 +305,7 @@ export default memo(function MapView({
 	}, [isDark, styleId]);
 
 	useEffect(() => {
+		savedCameraRef.current = null;
 		const map = mapRef.current;
 		if (!map) {
 			return;
@@ -346,8 +368,9 @@ export default memo(function MapView({
 	}
 
 	return (
-		<div className='relative'>
+		<div ref={setSlotElement} className='relative'>
 			<div ref={containerRef} className='w-full aspect-3/2 rounded-lg overflow-hidden' />
+			{!isLive && <MapPlaceholder isPaused={isPaused} onReload={resume} />}
 			{isChoropleth && choroplethScale && (
 				<ChoroplethLegend color={color} scale={choroplethScale} theme={surfaceTheme} />
 			)}
@@ -362,6 +385,25 @@ export default memo(function MapView({
 		</div>
 	);
 });
+
+function MapPlaceholder({ isPaused, onReload }: { isPaused: boolean; onReload: () => void }) {
+	if (!isPaused) {
+		return <Skeleton className='absolute inset-0' />;
+	}
+	return (
+		<button
+			type='button'
+			onClick={onReload}
+			className='absolute inset-0 flex items-center justify-center rounded-lg bg-accent text-sm text-foreground/60 hover:text-foreground'
+		>
+			Map paused, click to reload
+		</button>
+	);
+}
+
+function readCamera(map: maplibregl.Map): MapCamera {
+	return { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+}
 
 function setupPointLayers(
 	map: maplibregl.Map,

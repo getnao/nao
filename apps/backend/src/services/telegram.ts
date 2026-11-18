@@ -30,6 +30,7 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
 import { getAppName } from './branding.service';
 import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 const UPDATE_INTERVAL_MS = 200;
@@ -108,6 +109,7 @@ class TelegramService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
+			void triggerChatFeedbackAutomations({ messageId, vote: 'up' });
 			await this._updateCompletionCardVote(event.thread?.id || '', 'up');
 		});
 
@@ -117,6 +119,7 @@ class TelegramService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'down' });
+			void triggerChatFeedbackAutomations({ messageId, vote: 'down' });
 			await this._updateCompletionCardVote(event.thread?.id || '', 'down');
 		});
 	}

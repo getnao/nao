@@ -1,0 +1,137 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { WarehouseCredentialsFormValues } from '@/components/tool-calls/warehouse-credentials';
+import { getWarehouseCredentialsDefaults } from '@/components/tool-calls/warehouse-credentials';
+import { WarehouseCredentialsForm } from '@/components/tool-calls/warehouse-credentials-form';
+
+afterEach(cleanup);
+
+describe('WarehouseCredentialsForm', () => {
+	it('submits the credentials in a single step', async () => {
+		const onSubmit = vi.fn().mockResolvedValue(undefined);
+		render(
+			<WarehouseCredentialsForm
+				provider='motherduck'
+				onSubmit={onSubmit}
+				isValidating={false}
+				isPending={false}
+				error={null}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText(/Access Token/), { target: { value: 'token' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+		await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+		expect(onSubmit.mock.calls[0][0]).toMatchObject({ accessToken: 'token' });
+		expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+	});
+
+	it('locks the fields while the connection is checked', () => {
+		render(
+			<WarehouseCredentialsForm
+				provider='motherduck'
+				onSubmit={vi.fn()}
+				isValidating={true}
+				isPending={false}
+				error={null}
+			/>,
+		);
+
+		expect((screen.getByLabelText(/Access Token/).closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true);
+		expect(screen.getByRole('button', { name: /Checking connection/ })).toBeTruthy();
+	});
+
+	it('submits a Snowflake private key after switching authentication', async () => {
+		const onSubmit = vi.fn().mockResolvedValue(undefined);
+		const { container } = render(
+			<WarehouseCredentialsForm
+				provider='snowflake'
+				onSubmit={onSubmit}
+				isValidating={false}
+				isPending={false}
+				error={null}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'secret' } });
+		fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: '' } });
+		await screen.findByText('Required');
+		fireEvent.change(container.querySelector('select') as HTMLSelectElement, {
+			target: { value: 'private_key' },
+		});
+
+		expect(screen.queryByLabelText(/^Password/)).toBeNull();
+		fireEvent.change(screen.getByLabelText(/Database Name/), { target: { value: 'analytics' } });
+		fireEvent.change(screen.getByLabelText(/Username/), { target: { value: 'nao' } });
+		fireEvent.change(screen.getByLabelText(/Account Identifier/), { target: { value: 'xy12345' } });
+		fireEvent.change(screen.getByLabelText(/^Private Key$/), { target: { value: '-----BEGIN PRIVATE KEY-----' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+		await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+		expect(onSubmit.mock.calls[0][0]).toMatchObject({
+			authMode: 'private_key',
+			privateKey: '-----BEGIN PRIVATE KEY-----',
+		});
+	});
+
+	it('shows the programmatic access token field for Snowflake PAT authentication', () => {
+		render(
+			<WarehouseCredentialsForm
+				provider='snowflake'
+				onSubmit={vi.fn()}
+				isValidating={false}
+				isPending={false}
+				error={null}
+				initialValues={{
+					...getWarehouseCredentialsDefaults('snowflake'),
+					authMode: 'programmatic_access_token',
+				}}
+			/>,
+		);
+
+		expect(screen.getByLabelText(/Programmatic Access Token/)).toBeTruthy();
+		expect(screen.queryByLabelText(/^Private Key$/)).toBeNull();
+		expect(screen.queryByLabelText(/^Password/)).toBeNull();
+	});
+
+	it('restores entered credentials after being closed', () => {
+		render(<PersistedForm />);
+
+		fireEvent.change(screen.getByLabelText(/Access Token/), { target: { value: 'saved-token' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Open form' }));
+
+		expect((screen.getByLabelText(/Access Token/) as HTMLInputElement).value).toBe('saved-token');
+		expect(screen.getByText('Check Access Token.')).toBeTruthy();
+	});
+});
+
+function PersistedForm() {
+	const [open, setOpen] = useState(true);
+	const [values, setValues] = useState<WarehouseCredentialsFormValues>();
+
+	if (!open) {
+		return (
+			<button type='button' onClick={() => setOpen(true)}>
+				Open form
+			</button>
+		);
+	}
+	return (
+		<WarehouseCredentialsForm
+			provider='motherduck'
+			onSubmit={vi.fn().mockResolvedValue(undefined)}
+			onCancel={() => setOpen(false)}
+			isValidating={false}
+			isPending={false}
+			error={{ message: 'Check Access Token.' }}
+			initialValues={values}
+			onValuesChange={setValues}
+		/>
+	);
+}

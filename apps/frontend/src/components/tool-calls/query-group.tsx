@@ -10,6 +10,7 @@ import { isReasoningPart, isQueryToolPart } from '@/lib/ai';
 import { getLatestToolActivityLabel } from '@/lib/tool-activity';
 import { useThrottledValue } from '@/hooks/use-throttled-value';
 import { MIN_TITLE_DISPLAY_MS } from '@/hooks/use-tool-group-summary-title';
+import { getToolCallIds, useExpandOnToolCallReveal } from '@/hooks/use-tool-call-reveal';
 
 interface Props {
 	parts: GroupablePart[];
@@ -27,6 +28,8 @@ export const QueryGroup = memo(({ parts, isSettled }: Props) => {
 	useEffect(() => {
 		setIsExpanded(isLoading || shouldStayOpenOnError);
 	}, [isLoading, shouldStayOpenOnError]);
+
+	useExpandOnToolCallReveal(getToolCallIds(parts), setIsExpanded);
 
 	const queryParts = useMemo(() => {
 		return parts.filter(isQueryToolPart);

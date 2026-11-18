@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowUp, ChevronDown, ChevronUp, Loader2, Maximize2, MessageCircle, X } from 'lucide-react';
+import { ArrowUp, ChevronDown, ChevronUp, Loader2, Maximize2, MessageCircle, Square, X } from 'lucide-react';
 import { MAX_CITATIONS_PER_MESSAGE } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
-import type { MentionOption, PromptHandle } from 'prompt-mentions';
+import type { PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { UIMessage } from '@nao/backend/chat';
 
 import type { CitationData } from '@nao/shared/types';
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { AskQuestion, AskSelection } from '@/stores/ask-bar';
 import type { PendingCitation } from '@/stores/chat-pending-citation';
+import type { SubmittedMessage } from '@/hooks/use-agent';
 import { ChatInputAnimatedBorder } from '@/components/chat-input-animated-border';
 import { ChatPrompt } from '@/components/chat-input-prompt';
 import { ChatMessagesContent } from '@/components/chat-messages/chat-messages';
@@ -34,16 +35,14 @@ type AskSession = {
 	chatId: string | null;
 	/** What the next message quotes: each Ask on the page or in the answers adds one, as a pill in the input. */
 	citations: PendingCitation[];
-	pendingText?: string;
-	pendingCitations?: CitationData[];
-	pendingMentions?: MentionOption[];
+	pendingMessage?: AskMessage;
 	isPanelOpen: boolean;
 };
 
-interface AskMessage {
+export interface AskMessage {
 	text: string;
 	citations: CitationData[];
-	mentions: MentionOption[];
+	mentions: SelectedMention[];
 }
 
 const NO_SESSION: AskSession = { chatId: null, citations: [], isPanelOpen: false };
@@ -82,6 +81,7 @@ export function AskBar({
 	const request = useAskRequest();
 	const requestIdAtMount = useRef(request?.id);
 	const isFocusRequested = useRef(false);
+	const [highlightId, setHighlightId] = useState<number>();
 
 	const cite = (selection: AskSelection) => setSession((current) => withCitation(current, toAskCitation(selection)));
 
@@ -104,6 +104,9 @@ export function AskBar({
 		}
 		isFocusRequested.current = false;
 		inputRef.current?.focus();
+		if (request?.shouldHighlight) {
+			setHighlightId(request.id);
+		}
 	}, [request, isInputHidden]);
 
 	const startSession = async (message: AskMessage) => {
@@ -112,9 +115,7 @@ export function AskBar({
 		setSession((current) => ({
 			...current,
 			chatId,
-			pendingText: message.text,
-			pendingCitations: message.citations,
-			pendingMentions: message.mentions,
+			pendingMessage: message,
 			citations: withoutCitations(current.citations, submittedCitations),
 			isPanelOpen: true,
 		}));
@@ -144,6 +145,7 @@ export function AskBar({
 					placeholder={placeholder}
 					citations={session.citations}
 					isSending={isAsking}
+					highlightId={highlightId}
 					error={hasAskFailed ? ASK_ERROR_MESSAGE : undefined}
 					onRemoveCitation={removeCitation}
 					onSubmit={startSession}
@@ -157,23 +159,15 @@ export function AskBar({
 			<SetChatInputCallbackProvider>
 				<AgentProvider disableNavigation>
 					<PendingMessageSender
-						pendingText={session.pendingText}
-						pendingCitations={session.pendingCitations}
-						pendingMentions={session.pendingMentions}
-						onSent={() =>
-							setSession((current) => ({
-								...current,
-								pendingText: undefined,
-								pendingCitations: undefined,
-								pendingMentions: undefined,
-							}))
-						}
+						message={session.pendingMessage}
+						onSent={() => setSession((current) => ({ ...current, pendingMessage: undefined }))}
 					/>
 					{children}
 					{session.isPanelOpen ? (
 						<AskPanel
 							{...citationControls}
 							placeholder={placeholder}
+							highlightId={highlightId}
 							onCite={cite}
 							onCollapse={() => setPanelOpen(false)}
 							onClose={endSession}
@@ -181,7 +175,12 @@ export function AskBar({
 					) : (
 						<FloatingBar isHidden={isInputHidden}>
 							<AskStatus onOpen={() => setPanelOpen(true)} onClose={endSession} />
-							<SessionInput {...citationControls} promptRef={inputRef} placeholder={placeholder} />
+							<SessionInput
+								{...citationControls}
+								promptRef={inputRef}
+								placeholder={placeholder}
+								highlightId={highlightId}
+							/>
 						</FloatingBar>
 					)}
 				</AgentProvider>
@@ -204,30 +203,20 @@ function FloatingBar({ isHidden, children }: { isHidden: boolean; children: Reac
 	);
 }
 
-/** Sends the first message once the new quick question is mounted. */
-function PendingMessageSender({
-	pendingText,
-	pendingCitations,
-	pendingMentions,
-	onSent,
-}: {
-	pendingText?: string;
-	pendingCitations?: CitationData[];
-	pendingMentions?: MentionOption[];
-	onSent: () => void;
-}) {
+/** Sends the first message once the new conversation is mounted. */
+export function PendingMessageSender({ message, onSent }: { message?: SubmittedMessage; onSent: () => void }) {
 	const { queueOrSendMessage, setMentions } = useAgentContext();
-	const sentText = useRef<string | null>(null);
+	const sentMessage = useRef<SubmittedMessage | null>(null);
 
 	useEffect(() => {
-		if (!pendingText || sentText.current === pendingText) {
+		if (!message || sentMessage.current === message) {
 			return;
 		}
-		sentText.current = pendingText;
+		sentMessage.current = message;
 		onSent();
-		setMentions(pendingMentions ?? []);
-		void queueOrSendMessage({ text: pendingText, citations: nonEmpty(pendingCitations) });
-	}, [pendingText, pendingCitations, pendingMentions, onSent, queueOrSendMessage, setMentions]);
+		setMentions(message.mentions);
+		void queueOrSendMessage({ ...message, citations: nonEmpty(message.citations) });
+	}, [message, onSent, queueOrSendMessage, setMentions]);
 
 	return null;
 }
@@ -277,11 +266,13 @@ function SessionInput({
 	promptRef,
 	placeholder,
 	citations,
+	highlightId,
 	onRemoveCitation,
 	onCitationsSent,
 }: CitationControls & {
 	promptRef: RefObject<PromptHandle | null>;
 	placeholder: string;
+	highlightId?: number;
 }) {
 	const { isRunning } = useAgentContext();
 	const send = useSendWithCitations(onCitationsSent);
@@ -291,6 +282,7 @@ function SessionInput({
 			placeholder={placeholder}
 			citations={citations}
 			isSending={isRunning}
+			highlightId={highlightId}
 			onRemoveCitation={onRemoveCitation}
 			onSubmit={send}
 		/>
@@ -316,11 +308,13 @@ function AskPanel({
 	citations,
 	onRemoveCitation,
 	onCitationsSent,
+	highlightId,
 	onCite,
 	onCollapse,
 	onClose,
 }: CitationControls & {
 	placeholder: string;
+	highlightId?: number;
 	onCite: (selection: AskSelection) => void;
 	onCollapse: () => void;
 	onClose: () => void;
@@ -331,7 +325,7 @@ function AskPanel({
 
 	useEffect(() => {
 		panelInputRef.current?.focus();
-	}, []);
+	}, [highlightId]);
 
 	return (
 		<AskPanelFrame onCollapse={onCollapse} onClose={onClose}>
@@ -349,6 +343,7 @@ function AskPanel({
 						placeholder={placeholder}
 						citations={citations}
 						isSending={isRunning}
+						highlightId={highlightId}
 						fillsFromFollowUps
 						onRemoveCitation={onRemoveCitation}
 						onSubmit={send}
@@ -426,29 +421,36 @@ function AskPanelHeader({ onCollapse, onClose }: { onCollapse?: () => void; onCl
 	);
 }
 
-function AskInput({
+export function AskInput({
 	promptRef,
 	placeholder,
 	citations,
 	isSending,
+	highlightId,
 	fillsFromFollowUps = false,
 	error,
 	onRemoveCitation,
 	onSubmit,
+	onStop,
 }: {
 	promptRef: RefObject<PromptHandle | null>;
 	placeholder: string;
 	citations: PendingCitation[];
 	isSending: boolean;
+	/** Each id newer than the one at mount draws the border in again, as the chat input does, to show where to type. */
+	highlightId?: number;
 	/** Follow-up suggestions of the conversation fill the input, as they do in a chat. */
 	fillsFromFollowUps?: boolean;
 	error?: string;
 	onRemoveCitation: (id: string) => void;
 	/** The input keeps the text when the submit fails, so the question can be sent again. */
 	onSubmit: (message: AskMessage) => void | Promise<void>;
+	/** Turns the send button into a stop button while the answer is being written. */
+	onStop?: () => void;
 }) {
 	const formRef = useRef<HTMLFormElement>(null);
 	const [value, setValue] = useState('');
+	const [highlightIdAtMount] = useState(highlightId);
 	const citationPills = useCitationPills({
 		promptRef,
 		containerRef: formRef,
@@ -496,7 +498,7 @@ function AskInput({
 				citations.length > 0 || isMultiline ? 'rounded-2xl' : 'rounded-full',
 			)}
 		>
-			<ChatInputAnimatedBorder isStatic />
+			<ChatInputAnimatedBorder key={highlightId} isStatic isDrawnIn={highlightId !== highlightIdAtMount} />
 			{fillsFromFollowUps && <FollowUpFiller onFill={fill} />}
 			<CitationPillPreview containerRef={formRef} findCitation={findCitation} onOpen={openCitation} />
 			<div className='flex min-w-0 flex-1 items-end gap-2'>
@@ -510,15 +512,27 @@ function AskInput({
 					onEnter={() => submit()}
 					onMentionDeleted={citationPills.handleMentionDeleted}
 				/>
-				<Button
-					type='submit'
-					size='icon-sm'
-					className={cn('mb-0.75 shrink-0 rounded-full', !hasText && 'opacity-50')}
-					disabled={!hasText || isSending}
-					aria-label='Send'
-				>
-					{isSending ? <Loader2 className='animate-spin' /> : <ArrowUp />}
-				</Button>
+				{isSending && onStop ? (
+					<Button
+						type='button'
+						size='icon-sm'
+						className='mb-0.75 shrink-0 rounded-full'
+						onClick={onStop}
+						aria-label='Stop'
+					>
+						<Square className='fill-current' />
+					</Button>
+				) : (
+					<Button
+						type='submit'
+						size='icon-sm'
+						className={cn('mb-0.75 shrink-0 rounded-full', !hasText && 'opacity-50')}
+						disabled={!hasText || isSending}
+						aria-label='Send'
+					>
+						{isSending ? <Loader2 className='animate-spin' /> : <ArrowUp />}
+					</Button>
+				)}
 			</div>
 			{error && (
 				<p role='alert' className='px-2 text-xs text-destructive'>

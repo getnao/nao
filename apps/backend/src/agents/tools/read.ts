@@ -15,6 +15,7 @@ import { toProjectPathError } from '../../services/project-path-error.service';
 import { readUserFile } from '../../services/storage/user-files';
 import { readStoryLibraryFile } from '../../services/story-library';
 import { readStoryMountFile } from '../../services/story-mount';
+import { findTableAnnotations } from '../../services/table-annotations.service';
 import type { ToolContext } from '../../types/tools';
 import { isStoryLibraryPath } from '../../utils/story-library';
 import { isStoriesPath } from '../../utils/story-mount';
@@ -27,11 +28,15 @@ export default createTool<readFile.Input, readFile.Output>({
 	outputSchema: readFile.OutputSchema,
 	execute: async ({ file_path }, context) => {
 		const content = await readAnywhere(file_path, context);
+		const annotations = await findTableAnnotations(file_path, (siblingPath) =>
+			readProjectFile(siblingPath, context),
+		);
 
 		return {
 			_version: '1' as const,
 			content,
 			numberOfTotalLines: content.split('\n').length,
+			...(annotations && { annotations }),
 		};
 	},
 

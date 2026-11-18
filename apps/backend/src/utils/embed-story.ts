@@ -4,7 +4,7 @@ import type { StoryThemePair } from '@nao/shared/story-theme';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import { getActiveThemeForProject } from '../services/custom-story';
-import { getStoryQueryData } from '../services/live-story';
+import { getStandaloneStoryLiveQueryData, getStoryQueryData } from '../services/live-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from './embed-token';
 import { HandlerError } from './error';
 import { backfillMissingQueryDataForSandbox, type StoryQueryDataMap } from './story-query-data';
@@ -72,6 +72,15 @@ async function loadEmbedStoryData(
 ): Promise<{ code: string; queryData: StoryQueryDataMap | null }> {
 	if (!version) {
 		throw new HandlerError('NOT_FOUND', 'Story not found.');
+	}
+	if (!version.chatId && version.isLive) {
+		const live = await getStandaloneStoryLiveQueryData(
+			version.storyId,
+			version.code,
+			version.isLive,
+			version.cacheSchedule,
+		);
+		return { code: live.code, queryData: live.queryData };
 	}
 	if (!version.chatId) {
 		return {

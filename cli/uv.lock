@@ -2764,6 +2764,7 @@ mistral = [
     { name = "mistralai" },
 ]
 mssql = [
+    { name = "azure-identity" },
     { name = "ibis-framework", extra = ["mssql"] },
 ]
 mysql = [
@@ -2815,6 +2816,7 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.76.0" },
     { name = "apscheduler", specifier = ">=3.10.0" },
     { name = "azure-identity", marker = "extra == 'fabric'", specifier = ">=1.19.0" },
+    { name = "azure-identity", marker = "extra == 'mssql'", specifier = ">=1.19.0" },
     { name = "boto3", marker = "extra == 'aws-secrets'", specifier = ">=1.34.0" },
     { name = "certifi", marker = "extra == 'databricks'", specifier = ">=2024.0.0" },
     { name = "clickhouse-driver", marker = "extra == 'clickhouse'", specifier = ">=0.2.9" },

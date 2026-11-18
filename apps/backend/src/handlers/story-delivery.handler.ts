@@ -11,7 +11,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as userQueries from '../queries/user.queries';
 import { renderCustomStoryPdf } from '../services/custom-story-export';
-import { refreshStoryData } from '../services/live-story';
+import { refreshStoryById } from '../services/live-story';
 import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
 import type { EmailAttachment } from '../types/email';
@@ -80,7 +80,7 @@ export async function runScheduledStoryDelivery(
 		if (!context) {
 			return;
 		}
-		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug, {
+		const { queryData } = await refreshStoryById(storyId, {
 			billingAccessVerifiedProjectId: context.projectId,
 		});
 		await deliver(context, queryData, skipDeliveries);
@@ -117,9 +117,6 @@ async function loadDeliveryContext(storyId: string): Promise<DeliveryContext | n
 	if (!story || story.archivedAt) {
 		return null;
 	}
-	if (!story.chatId) {
-		throw new Error(`Story ${storyId} has no chat to regenerate for delivery.`);
-	}
 
 	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(storyId));
 	if (!projectId) {
@@ -141,7 +138,7 @@ async function deliver(
 ): Promise<void> {
 	const { delivery, story, projectId, recipientUserIds } = context;
 
-	const version = await storyQueries.getLatestVersionByChatAndSlug(story.chatId!, story.slug);
+	const version = await storyQueries.getLatestVersionByStoryId(story.id);
 	if (!version) {
 		throw new Error(`Story ${story.id} has no version to deliver.`);
 	}
@@ -198,7 +195,7 @@ async function buildCustomStoryPdfAttachment(
 	projectId: string,
 ): Promise<EmailAttachment[]> {
 	try {
-		const { filename, buffer } = await renderCustomStoryPdf(story.chatId!, story.slug, queryData);
+		const { filename, buffer } = await renderCustomStoryPdf(story.id, queryData);
 		return [{ filename, content: buffer, contentType: 'application/pdf' }];
 	} catch (error) {
 		logger.error(`Failed to build custom story PDF attachment: ${String(error)}`, {
