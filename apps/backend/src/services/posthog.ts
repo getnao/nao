@@ -48,6 +48,8 @@ export enum PostHogEvent {
 
 	GithubStarClicked = 'github_star_clicked',
 	GithubStarPromptDismissed = 'github_star_prompt_dismissed',
+
+	SignupBlocked = 'signup_blocked',
 }
 
 /**

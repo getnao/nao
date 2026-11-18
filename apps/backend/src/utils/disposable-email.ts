@@ -6,8 +6,11 @@ const RESERVED_DOMAINS = ['example.com', 'example.net', 'example.org', 'example'
 const BLOCKED_DOMAINS = new Set([...DISPOSABLE_EMAIL_DOMAINS, ...RESERVED_DOMAINS]);
 
 export function isDisposableEmail(email: string): boolean {
-	const domain = email.split('@').at(-1)?.trim().toLowerCase() ?? '';
-	return listDomainAndParents(domain).some((candidate) => BLOCKED_DOMAINS.has(candidate));
+	return listDomainAndParents(getEmailDomain(email)).some((candidate) => BLOCKED_DOMAINS.has(candidate));
+}
+
+export function getEmailDomain(email: string): string {
+	return email.split('@').at(-1)?.trim().toLowerCase() ?? '';
 }
 
 function listDomainAndParents(domain: string): string[] {

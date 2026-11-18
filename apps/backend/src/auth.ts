@@ -60,12 +60,13 @@ import {
 	getTrustedProvidersForMicrosoft,
 } from './services/microsoft-auth.service';
 import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc } from './services/oidc-auth.service';
+import { posthog, PostHogEvent } from './services/posthog';
 import { enqueueOnce } from './services/scheduler.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { isTwoFactorSetupRequired, twoFactorPlugin } from './services/two-factor.service';
 import { CLOUD_WELCOME_EMAIL_JOB_NAME } from './types/email';
-import { isDisposableEmail } from './utils/disposable-email';
+import { getEmailDomain, isDisposableEmail } from './utils/disposable-email';
 import { buildAccountExistsEmail, buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { memoizeUntilRejected } from './utils/memoize-until-rejected';
@@ -384,6 +385,11 @@ async function createAuthInstance(baseURL: string) {
 						const providerId = resolveProviderId(ctx);
 
 						if (isCloud && isDisposableEmail(user.email)) {
+							posthog.capture(undefined, PostHogEvent.SignupBlocked, {
+								reason: 'disposable_email',
+								email_domain: getEmailDomain(user.email),
+								provider: providerId ?? 'email',
+							});
 							throw new APIError('FORBIDDEN', {
 								message:
 									'We have encountered an error. Please contact support if the problem persists.',
