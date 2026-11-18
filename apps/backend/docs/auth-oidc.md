@@ -239,6 +239,63 @@ After sign-in, Entra group overage for User Group synchronization is resolved wi
 
 Generic OIDC variables affect only generic OIDC logins, and `AZURE_AD_*` mappings affect only Microsoft logins.
 
+## Running warehouse queries as the signed-in user
+
+By default, every chat query runs with the credentials in `nao_config.yaml`. A Snowflake connection can instead run each query as the person asking, with the access token of their OIDC sign-in (Snowflake [External OAuth](https://docs.snowflake.com/en/user-guide/oauth-ext-overview)). Snowflake then applies that user's own roles, grants, row access policies and masking policies, and its query history shows who ran each query.
+
+The OIDC access token must be one Snowflake accepts, so sign-in and Snowflake have to share an authorization server. With Okta:
+
+1. **Create a custom authorization server** (**Security** → **API** → **Authorization Servers**). Set its **Audience** to your Snowflake account URL, e.g. `https://xy12345.us-east-1.snowflakecomputing.com`. Add the scope `session:role-any`, or `session:role:<ROLE>` to pin a single Snowflake role.
+2. **Point nao at that server** and request a refresh token, so nao can keep querying after the access token expires:
+
+    ```env
+    OIDC_DISCOVERY_URL=https://acme.okta.com/oauth2/<authorization-server-id>/.well-known/openid-configuration
+    OIDC_SCOPES=openid,profile,email,offline_access,session:role-any
+    ```
+
+    Allow the **Refresh Token** grant type on the Okta app.
+
+3. **Create the security integration in Snowflake**, as an `ACCOUNTADMIN`:
+
+    ```sql
+    CREATE SECURITY INTEGRATION okta_nao
+      TYPE = EXTERNAL_OAUTH
+      ENABLED = TRUE
+      EXTERNAL_OAUTH_TYPE = OKTA
+      EXTERNAL_OAUTH_ISSUER = 'https://acme.okta.com/oauth2/<authorization-server-id>'
+      EXTERNAL_OAUTH_JWS_KEYS_URL = 'https://acme.okta.com/oauth2/<authorization-server-id>/v1/keys'
+      EXTERNAL_OAUTH_AUDIENCE_LIST = ('https://xy12345.us-east-1.snowflakecomputing.com')
+      EXTERNAL_OAUTH_TOKEN_USER_MAPPING_CLAIM = 'sub'
+      EXTERNAL_OAUTH_SNOWFLAKE_USER_MAPPING_ATTRIBUTE = 'LOGIN_NAME'
+      EXTERNAL_OAUTH_ANY_ROLE_MODE = 'ENABLE';
+    ```
+
+    Every nao user needs a Snowflake user whose `LOGIN_NAME` matches their Okta `sub`, which is usually their Okta username. Provisioning users from Okta with SCIM keeps the two in sync.
+
+4. **Switch the connection to `external_oauth`** in `nao_config.yaml`:
+
+    ```yaml
+    databases:
+        - name: snowflake-prod
+          type: snowflake
+          auth_mode: external_oauth
+          account_id: xy12345.us-east-1
+          database: ANALYTICS
+          warehouse: COMPUTE_WH
+          username: NAO_SYNC
+          private_key_path: ./keys/nao_sync.p8
+    ```
+
+    The configured account (`NAO_SYNC` here) is still used by `nao sync` to read metadata, and to validate queries when `allow_listed_only`, table access or row security rules are on. It never runs chat queries.
+
+### Behaviour
+
+- Each query gets the access token stored at the user's last sign-in. nao refreshes it with the refresh token when it has less than five minutes left, and saves the new refresh token when Okta rotates it.
+- Users who did not sign in with OIDC, such as email/password accounts, have no token. Their queries on an `external_oauth` connection fail with an error asking them to sign in with the identity provider.
+- Slack, Teams, MCP, test runs and live stories also query as the user. They keep working for as long as the refresh token is valid, which Okta's refresh token lifetime and idle policy decide.
+- nao's own table access and row security rules still apply on top of Snowflake's grants.
+- When a user has signed in with both Microsoft and OIDC, the Microsoft token is forwarded.
+
 ## Session lifetime
 
 Set `SSO_SESSION_MAX_AGE` to force OIDC users to authenticate with the identity provider again after a fixed number of seconds:

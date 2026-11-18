@@ -147,7 +147,7 @@ describe('live story SQL execution', () => {
 			chatId: 'chat-1',
 			queryResults: new Map(),
 			envVars: { TOKEN: 'secret' },
-			azureAccessToken: 'owner-token',
+			warehouseAccessToken: 'owner-token',
 			agentSettings: null,
 			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 			warehouseRowSecurity: {
@@ -387,7 +387,7 @@ describe('live story SQL execution', () => {
 			chatId: 'chat-1',
 		});
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
-			azure_access_token: 'owner-token',
+			user_access_token: 'owner-token',
 			table_access: { enforced: true, tables: [] },
 			row_security: {
 				enforced: true,
