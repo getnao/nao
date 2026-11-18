@@ -43,7 +43,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog, getFilesContextCatalog } from '../services/file-tree-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
-import { setGroupBudget } from '../services/member-budget.service';
+import { setGroupBudget, setGroupSharedBudget } from '../services/member-budget.service';
 import {
 	getShareAudience,
 	previewProjectWideShareRevocation,
@@ -347,10 +347,11 @@ export const userGroupRoutes = {
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
+				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+			await assertGroupBudgetEditable(ctx.project.id, input);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeFileTreeAccess(input.docsAccess);
 			const filesAccess = normalizeFileTreeAccess(input.filesAccess);
@@ -392,7 +393,7 @@ export const userGroupRoutes = {
 				] as const;
 				return createUserGroup(...values);
 			});
-			await saveGroupBudget(ctx.project.id, group.id, input.budgetLimitUsd);
+			await saveGroupBudget(ctx.project.id, group.id, input);
 			return group;
 		}),
 
@@ -416,11 +417,12 @@ export const userGroupRoutes = {
 				ssoMappings: ssoMappingsSchema.optional(),
 				rowPolicies: userGroupRowPoliciesSchema.optional(),
 				budgetLimitUsd: budgetLimitUsdSchema.optional(),
+				sharedBudgetLimitUsd: budgetLimitUsdSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
-			await assertGroupBudgetEditable(ctx.project.id, input.budgetLimitUsd);
+			await assertGroupBudgetEditable(ctx.project.id, input);
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = input.docsAccess === undefined ? undefined : normalizeFileTreeAccess(input.docsAccess);
@@ -475,7 +477,7 @@ export const userGroupRoutes = {
 					...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
 				}),
 			);
-			await saveGroupBudget(ctx.project.id, input.groupId, input.budgetLimitUsd);
+			await saveGroupBudget(ctx.project.id, input.groupId, input);
 			await revokeUnauthorizedProjectWideShares(ctx.project.id);
 			return group;
 		}),
@@ -519,19 +521,23 @@ export const userGroupRoutes = {
 		}),
 };
 
-async function assertGroupBudgetEditable(projectId: string, budgetLimitUsd: number | null | undefined): Promise<void> {
-	if (budgetLimitUsd !== undefined) {
+interface GroupBudgetsInput {
+	budgetLimitUsd?: number | null;
+	sharedBudgetLimitUsd?: number | null;
+}
+
+async function assertGroupBudgetEditable(projectId: string, input: GroupBudgetsInput): Promise<void> {
+	if (input.budgetLimitUsd !== undefined || input.sharedBudgetLimitUsd !== undefined) {
 		await assertMemberBudgetLicensed(projectId);
 	}
 }
 
-async function saveGroupBudget(
-	projectId: string,
-	groupId: string,
-	budgetLimitUsd: number | null | undefined,
-): Promise<void> {
-	if (budgetLimitUsd !== undefined) {
-		await setGroupBudget(projectId, groupId, budgetLimitUsd);
+async function saveGroupBudget(projectId: string, groupId: string, input: GroupBudgetsInput): Promise<void> {
+	if (input.budgetLimitUsd !== undefined) {
+		await setGroupBudget(projectId, groupId, input.budgetLimitUsd);
+	}
+	if (input.sharedBudgetLimitUsd !== undefined) {
+		await setGroupSharedBudget(projectId, groupId, input.sharedBudgetLimitUsd);
 	}
 }
 

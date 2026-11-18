@@ -4,7 +4,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { getPeriodCostsByUser, getUserPeriodCost } from '../../src/queries/member-budget.queries';
+import {
+	getPeriodCostsByUser,
+	getUserPeriodCost,
+	listGroupSharedBudgetsForMember,
+	setGroupSharedBudget,
+} from '../../src/queries/member-budget.queries';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
@@ -81,7 +86,30 @@ describe('member budget spend', () => {
 		});
 	});
 
+	it('only sums the spend of the requested members', async () => {
+		await expect(getPeriodCostsByUser(PROJECT_ID, 'month', [NAMED_PROVIDER_USER_ID])).resolves.toEqual({
+			[NAMED_PROVIDER_USER_ID]: 2,
+		});
+	});
+
 	it('enforces the member budget against named provider spend', async () => {
 		await expect(getUserPeriodCost(PROJECT_ID, NAMED_PROVIDER_USER_ID, 'month')).resolves.toBe(2);
+	});
+
+	it('finds the shared budget of a member synced from SSO, and drops it once set to 0', async () => {
+		await db.insert(s.userGroup).values({ id: 'analysts', projectId: PROJECT_ID, name: 'Analysts' });
+		await db.insert(s.userGroupMember).values([
+			{ groupId: 'analysts', userId: BUILT_IN_USER_ID, provider: 'manual' },
+			{ groupId: 'analysts', userId: BUILT_IN_USER_ID, provider: 'oidc' },
+		]);
+		await setGroupSharedBudget(PROJECT_ID, 'analysts', 500);
+
+		await expect(listGroupSharedBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([
+			{ groupId: 'analysts', groupName: 'Analysts', limitUsd: 500 },
+		]);
+
+		await setGroupSharedBudget(PROJECT_ID, 'analysts', 0);
+
+		await expect(listGroupSharedBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([]);
 	});
 });

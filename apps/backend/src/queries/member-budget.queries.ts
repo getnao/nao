@@ -3,9 +3,14 @@
 import { getCurrentPeriodStart } from '@nao/shared/date';
 import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
 import type { MemberBudgetPeriod } from '@nao/shared/types';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
-import s, { DBProjectGroupBudget, DBProjectMemberBudget, DBProjectMemberBudgetSettings } from '../db/abstractSchema';
+import s, {
+	DBProjectGroupBudget,
+	DBProjectGroupSharedBudget,
+	DBProjectMemberBudget,
+	DBProjectMemberBudgetSettings,
+} from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { SetMemberBudgetsInput } from '../types/member-budget';
@@ -52,12 +57,57 @@ export const listGroupBudgetsForMember = async (
 		.execute();
 };
 
+export const listGroupSharedBudgets = async (projectId: string): Promise<DBProjectGroupSharedBudget[]> => {
+	return db
+		.select()
+		.from(s.projectGroupSharedBudget)
+		.where(eq(s.projectGroupSharedBudget.projectId, projectId))
+		.execute();
+};
+
+export const listGroupSharedBudgetsForMember = async (
+	projectId: string,
+	userId: string,
+): Promise<Array<{ groupId: string; groupName: string; limitUsd: number }>> => {
+	return db
+		.selectDistinct({
+			groupId: s.projectGroupSharedBudget.groupId,
+			groupName: s.userGroup.name,
+			limitUsd: s.projectGroupSharedBudget.limitUsd,
+		})
+		.from(s.projectGroupSharedBudget)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.projectGroupSharedBudget.groupId))
+		.innerJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.projectGroupSharedBudget.groupId))
+		.where(and(eq(s.projectGroupSharedBudget.projectId, projectId), eq(s.userGroupMember.userId, userId)))
+		.execute();
+};
+
+/** Every member of the groups, whether added by hand or synced from SSO. */
+export const listGroupMemberships = async (groupIds: string[]): Promise<Array<{ groupId: string; userId: string }>> => {
+	if (groupIds.length === 0) {
+		return [];
+	}
+	return db
+		.selectDistinct({ groupId: s.userGroupMember.groupId, userId: s.userGroupMember.userId })
+		.from(s.userGroupMember)
+		.where(inArray(s.userGroupMember.groupId, groupIds))
+		.execute();
+};
+
 export const setPersonalBudget = async (projectId: string, userId: string, limitUsd: number | null): Promise<void> => {
 	await writePersonalBudget(db, projectId, userId, limitUsd).execute();
 };
 
 export const setGroupBudget = async (projectId: string, groupId: string, limitUsd: number | null): Promise<void> => {
 	await writeGroupBudget(db, projectId, groupId, limitUsd).execute();
+};
+
+export const setGroupSharedBudget = async (
+	projectId: string,
+	groupId: string,
+	limitUsd: number | null,
+): Promise<void> => {
+	await writeGroupSharedBudget(db, projectId, groupId, limitUsd).execute();
 };
 
 export const setDefaultMemberBudgetLimit = async (projectId: string, defaultLimitUsd: number): Promise<void> => {
@@ -88,12 +138,13 @@ export const saveMemberBudgets = async (projectId: string, input: SetMemberBudge
 	});
 };
 
-/** Spend of every project member across all providers over the current `period`, keyed by user id. */
+/** Spend of every project member, or only of `userIds`, across all providers over the current `period`, keyed by user id. */
 export const getPeriodCostsByUser = async (
 	projectId: string,
 	period: MemberBudgetPeriod,
+	userIds?: string[],
 ): Promise<Record<string, number>> => {
-	const rows = await queryAllProviderCosts(projectId, period);
+	const rows = await queryAllProviderCosts(projectId, period, { userIds });
 	const costByUser: Record<string, number> = {};
 	for (const row of rows) {
 		if (row.userId) {
@@ -111,7 +162,7 @@ export const getUserPeriodCost = async (
 	userId: string,
 	period: MemberBudgetPeriod,
 ): Promise<number> => {
-	const rows = await queryAllProviderCosts(projectId, period, userId);
+	const rows = await queryAllProviderCosts(projectId, period, { userId });
 	return roundCost(rows.reduce((total, row) => total + Number(row.totalCost ?? 0), 0));
 };
 
@@ -147,6 +198,39 @@ export const releaseMemberBudgetNotification = async (
 		.execute();
 };
 
+/** Records a member's notice that a group's shared budget is used up; returns false when it was already recorded. */
+export const claimGroupBudgetNotification = async (
+	projectId: string,
+	groupId: string,
+	userId: string,
+	periodStart: Date,
+): Promise<boolean> => {
+	const rows = await db
+		.insert(s.groupBudgetNotification)
+		.values({ projectId, groupId, userId, periodStart })
+		.onConflictDoNothing()
+		.returning({ id: s.groupBudgetNotification.id })
+		.execute();
+	return rows.length > 0;
+};
+
+export const releaseGroupBudgetNotification = async (
+	groupId: string,
+	userId: string,
+	periodStart: Date,
+): Promise<void> => {
+	await db
+		.delete(s.groupBudgetNotification)
+		.where(
+			and(
+				eq(s.groupBudgetNotification.groupId, groupId),
+				eq(s.groupBudgetNotification.userId, userId),
+				eq(s.groupBudgetNotification.periodStart, periodStart),
+			),
+		)
+		.execute();
+};
+
 function buildMemberBudgetWrites(executor: DBExecutor, projectId: string, input: SetMemberBudgetsInput): Executable[] {
 	return [
 		executor
@@ -160,6 +244,9 @@ function buildMemberBudgetWrites(executor: DBExecutor, projectId: string, input:
 			writePersonalBudget(executor, projectId, userId, limitUsd),
 		),
 		...input.groupBudgets.map(({ groupId, limitUsd }) => writeGroupBudget(executor, projectId, groupId, limitUsd)),
+		...input.groupSharedBudgets.map(({ groupId, limitUsd }) =>
+			writeGroupSharedBudget(executor, projectId, groupId, limitUsd),
+		),
 	];
 }
 
@@ -195,7 +282,32 @@ function writeGroupBudget(executor: DBExecutor, projectId: string, groupId: stri
 		});
 }
 
+/** Upserts the shared budget, or deletes it when `limitUsd` is null or 0 since a shared budget of 0 caps nothing. */
+function writeGroupSharedBudget(executor: DBExecutor, projectId: string, groupId: string, limitUsd: number | null) {
+	if (!limitUsd) {
+		return executor
+			.delete(s.projectGroupSharedBudget)
+			.where(
+				and(
+					eq(s.projectGroupSharedBudget.projectId, projectId),
+					eq(s.projectGroupSharedBudget.groupId, groupId),
+				),
+			);
+	}
+	return executor
+		.insert(s.projectGroupSharedBudget)
+		.values({ projectId, groupId, limitUsd })
+		.onConflictDoUpdate({
+			target: s.projectGroupSharedBudget.groupId,
+			set: { limitUsd, updatedAt: new Date() },
+		});
+}
+
 /** Member budgets span every provider, named instances included, over the member budget's period. */
-function queryAllProviderCosts(projectId: string, period: MemberBudgetPeriod, userId?: string) {
-	return queryAllProvidersCostsSince(projectId, getCurrentPeriodStart(period), { userId });
+function queryAllProviderCosts(
+	projectId: string,
+	period: MemberBudgetPeriod,
+	senders: { userId?: string; userIds?: string[] },
+) {
+	return queryAllProvidersCostsSince(projectId, getCurrentPeriodStart(period), senders);
 }
