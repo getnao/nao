@@ -2,9 +2,11 @@ import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-r
 import { useForm } from '@tanstack/react-form';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { sendVerificationEmail, signIn } from '@/lib/auth-client';
+import type { ChallengeMethod } from '@/components/two-factor-challenge';
+import { sendVerificationEmail, signIn, twoFactor } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
 import { EmailVerificationPending } from '@/components/email-verification-pending';
+import { TwoFactorChallenge } from '@/components/two-factor-challenge';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import {
 	buildEmailVerificationCallbackUrl,
@@ -37,6 +39,7 @@ export function Login() {
 	const { error: oauthError, redirect } = Route.useSearch();
 	const [serverError, setServerError] = useState<string | undefined>(getSignInErrorMessage(oauthError));
 	const [pendingEmail, setPendingEmail] = useState<string>();
+	const [challengeMethod, setChallengeMethod] = useState<ChallengeMethod>();
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isCloud = useIsCloud();
@@ -47,6 +50,17 @@ export function Login() {
 	const safeRedirect = getSafeRedirectPath(redirect);
 	const verificationCallbackURL = buildEmailVerificationCallbackUrl(oauthAuthorizeUrl ?? safeRedirect);
 
+	const redirectAfterSignIn = () => {
+		rememberSignInMethod('email');
+		if (oauthAuthorizeUrl) {
+			window.location.href = oauthAuthorizeUrl;
+		} else if (safeRedirect) {
+			router.history.push(safeRedirect);
+		} else {
+			navigate({ to: '/' });
+		}
+	};
+
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
 		onSubmit: async ({ value }) => {
@@ -54,7 +68,7 @@ export function Login() {
 				return;
 			}
 			setServerError(undefined);
-			const { error } = await signIn.email(value);
+			const { data, error } = await signIn.email(value);
 			if (error) {
 				if (isEmailNotVerifiedError(error)) {
 					try {
@@ -81,24 +95,27 @@ export function Login() {
 				return;
 			}
 
-			rememberSignInMethod('email');
-			if (oauthAuthorizeUrl) {
-				window.location.href = oauthAuthorizeUrl;
-			} else if (safeRedirect) {
-				router.history.push(safeRedirect);
-			} else {
-				navigate({ to: '/' });
+			if (data && 'twoFactorRedirect' in data) {
+				const method = readChallengeMethod(data);
+				if (method === 'email') {
+					await twoFactor.sendOtp();
+				}
+				setChallengeMethod(method);
+				return;
 			}
+
+			redirectAfterSignIn();
 		},
 	});
+	const isFirstStep = !pendingEmail && !challengeMethod;
 
 	return (
 		<AuthForm
 			form={form}
-			title={pendingEmail ? 'Check your inbox' : 'Log in'}
+			title={pendingEmail ? 'Check your inbox' : challengeMethod ? 'Two-factor authentication' : 'Log in'}
 			submitText='Log in'
 			serverError={serverError}
-			displaySocialProviders={!pendingEmail}
+			displaySocialProviders={isFirstStep}
 			socialCallbackUrl={oauthAuthorizeUrl ?? safeRedirect ?? undefined}
 			displayEmailPasswordForm={isUserLoginEnabled}
 			emailPasswordDisabledMessage='Email and password login is disabled. Use a configured sign-in provider to continue.'
@@ -109,10 +126,18 @@ export function Login() {
 						callbackURL={verificationCallbackURL}
 						onChangeEmail={() => setPendingEmail(undefined)}
 					/>
+				) : challengeMethod ? (
+					<TwoFactorChallenge
+						method={challengeMethod}
+						onVerified={redirectAfterSignIn}
+						onCancel={() => {
+							setChallengeMethod(undefined);
+						}}
+					/>
 				) : undefined
 			}
 			footer={
-				!pendingEmail && isCloud && isUserSignupEnabled ? (
+				isFirstStep && isCloud && isUserSignupEnabled ? (
 					<>
 						Don&apos;t have an account?{' '}
 						<Link
@@ -153,4 +178,10 @@ export function Login() {
 			)}
 		</AuthForm>
 	);
+}
+
+/** The sign-in answer lists `totp` only for accounts set up with an authenticator app. */
+function readChallengeMethod(challenge: object): ChallengeMethod {
+	const methods = (challenge as { twoFactorMethods?: string[] }).twoFactorMethods;
+	return methods?.includes('totp') ? 'totp' : 'email';
 }

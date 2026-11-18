@@ -2,6 +2,7 @@ import { createRootRoute, Outlet, useRouterState } from '@tanstack/react-router'
 import { BrandColor } from '../components/brand-color';
 import { BrandingHead } from '../components/branding-head';
 import { ModifyPassword } from '../components/modify-password';
+import { TwoFactorGate } from '../components/two-factor-gate';
 import { Spinner } from '@/components/ui/spinner';
 import { useDisposeInactiveAgents } from '@/hooks/use-agent';
 import { useSessionOrNavigateToIndexPage } from '@/hooks/use-session-or-navigate-to-index-page';
@@ -39,7 +40,9 @@ function AuthenticatedRoot() {
 		<div className='flex h-screen'>
 			<BrandingHead />
 			<BrandColor />
-			<Outlet />
+			<TwoFactorGate>
+				<Outlet />
+			</TwoFactorGate>
 		</div>
 	);
 }

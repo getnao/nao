@@ -55,6 +55,7 @@ import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc }
 import { enqueueOnce } from './services/scheduler.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
+import { isTwoFactorSetupRequired, twoFactorPlugin } from './services/two-factor.service';
 import { CLOUD_WELCOME_EMAIL_JOB_NAME } from './types/email';
 import { buildAccountExistsEmail, buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
@@ -83,13 +84,16 @@ export const getAuth = () => defaultAuth.get();
 export const getSession = async (headers: Headers) => {
 	const auth = await getAuth();
 	const session = await auth.api.getSession({ headers });
-	if (!session?.session || !(await shouldExpireSsoSession(session.session))) {
-		return session;
+	if (!session) {
+		return null;
+	}
+	if (await shouldExpireSsoSession(session.session)) {
+		const context = await auth.$context;
+		await context.internalAdapter.deleteSession(session.session.token);
+		return null;
 	}
 
-	const context = await auth.$context;
-	await context.internalAdapter.deleteSession(session.session.token);
-	return null;
+	return { ...session, twoFactorSetupRequired: await isTwoFactorSetupRequired(session.user) };
 };
 
 export function updateAuth() {
@@ -263,6 +267,7 @@ async function createAuthInstance(baseURL: string) {
 				allowUnauthenticatedClientRegistration: env.ALLOW_UNAUTHENTICATED_DCR,
 				validAudiences: MCP_VALID_AUDIENCES,
 			}),
+			twoFactorPlugin(),
 			...ssoPlugins,
 		],
 		trustedOrigins: baseURL ? [baseURL, ...(env.MODE === 'dev' ? ['http://localhost:3000'] : [])] : undefined,

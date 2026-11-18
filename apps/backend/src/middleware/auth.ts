@@ -22,6 +22,9 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 	if (!session?.user) {
 		return reply.status(401).send({ error: 'Unauthorized' });
 	}
+	if (session.twoFactorSetupRequired) {
+		return reply.status(403).send({ error: 'Set up two-factor authentication to continue.' });
+	}
 
 	request.user = session.user;
 	request.session = session.session;

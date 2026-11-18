@@ -750,6 +750,13 @@
       "when": 1794936824812,
       "tag": "0106_story_transferred_from",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "6",
+      "when": 1795005229836,
+      "tag": "0107_two_factor",
+      "breakpoints": true
     }
   ]
 }
