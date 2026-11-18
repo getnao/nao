@@ -8,6 +8,8 @@ def clean_env(monkeypatch):
     """Remove environment variables that interfere with chat command tests."""
     monkeypatch.delenv("BETTER_AUTH_SECRET", raising=False)
     monkeypatch.delenv("NAO_DEFAULT_PROJECT_PATH", raising=False)
+    monkeypatch.delenv("SERVER_PORT", raising=False)
+    monkeypatch.delenv("FASTAPI_PORT", raising=False)
 
 
 @pytest.fixture

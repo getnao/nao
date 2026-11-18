@@ -1,4 +1,12 @@
-import { buildChart, bucketPieData, buildStoryChartBlock, labelize, resolveDataKey } from '@nao/shared';
+import { bucketPieData, buildChart, buildStoryChartBlock, labelize, resolveDataKey, useChartStyle } from '@nao/shared';
+import {
+	buildSeriesChartConfig,
+	buildSeriesLegendPayload,
+	seriesColorAt,
+	useSeriesVisibility,
+} from '@nao/shared/chart-series';
+import { isBuiltinChartType, isComboChart, isPercentStackedChartType, isPieChart } from '@nao/shared/chart-types';
+import { partAttributes } from '@nao/shared/story-parts';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -14,22 +22,20 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Customized } from 'recharts';
-
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
-import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { Button } from '../ui/button';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '../ui/chart';
-import { Skeleton } from '../ui/skeleton';
-import { TextShimmer } from '../ui/text-shimmer';
 import { DisplayChartEditDialog } from './display-chart-edit-dialog';
 import { DisplayChartTable } from './display-chart-table';
 import { ChartRangeSelector } from './display-chart-range-selector';
 import { CustomChart } from './custom-chart';
 import { SqlQueryDisplay } from './sql-query-display';
 import { SqlResultDisplay } from './sql-result-display';
+import { VisualizationSkeleton } from './visualization-skeleton';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import type { ChartConfig } from '@nao/shared/chart-tooltip';
+import type { ChartType } from '@nao/shared/chart-types';
 import type { ToolCallComponentProps } from '.';
-import type { ChartConfig } from '../ui/chart';
 import type { DateRange } from '@/lib/charts.utils';
 import type { DataExportFormat } from '@/components/export-data-menu';
 import { trpc } from '@/main';
@@ -50,10 +56,10 @@ import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { cn } from '@/lib/utils';
 import { ExportDataMenu } from '@/components/export-data-menu';
 import { useSourceQuery } from '@/hooks/use-source-query';
+import { useAppendCustomStoryBlock } from '@/hooks/use-append-custom-story-block';
+import { kitBlockFromConfig } from '@/story-runtime/story-kit/block-config';
 
-const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const LEGEND_SCROLL_OFFSET = 120;
-const PIE_LEGEND_BREAKPOINT = 280;
 const HORIZONTAL_LABEL_GAP = 12;
 const DIAGONAL_LABEL_GAP = 8;
 const CHAR_WIDTH_RATIO = 0.6;
@@ -76,7 +82,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 	const chartConfig = config && displayChart.isChartInput(config) ? config : undefined;
 	const tableConfig = config && displayChart.isTableInput(config) ? config : undefined;
 	const isTableVariant = input?.chart_type === 'table';
-	const isBuiltinChart = chartConfig ? displayChart.isBuiltinChartType(chartConfig.chart_type) : false;
+	const isBuiltinChart = chartConfig ? isBuiltinChartType(chartConfig.chart_type) : false;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const [viewMode, setViewMode] = useState<ViewMode>('chart');
 	const storyIds = useStoryIds();
@@ -103,11 +109,14 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		}),
 	);
 
+	const { mutate: addToCustomStory, error: addToCustomStoryError } = useAppendCustomStoryBlock();
+
 	const [isDownloading, setIsDownloading] = useState(false);
+	const [classicStoryError, setClassicStoryError] = useState<string | null>(null);
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning && isBuiltinChart);
 
-	const { sourceQuery, sourceData } = useSourceQuery(chartConfig?.query_id);
+	const { sourceQuery, sourceData, isLoadingRows } = useSourceQuery(chartConfig?.query_id);
 	const sqlQuery = sourceQuery?.input?.sql_query;
 
 	const handleDownloadPng = async () => {
@@ -177,15 +186,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		if (state !== 'input-streaming' || isSettled) {
 			return null;
 		}
-		return (
-			<div className='my-4 flex flex-col gap-2 items-center aspect-3/2'>
-				<Skeleton className='w-1/2 h-4' />
-				<Skeleton className='w-full flex-1 flex flex-col items-center justify-center gap-3'>
-					<GraphLoaderAnimated className='w-96 h-64 text-muted-foreground' />
-					<TextShimmer text='Loading chart' />
-				</Skeleton>
-			</div>
-		);
+		return <VisualizationSkeleton label='Loading chart' />;
 	}
 
 	if (chartConfig.series.length === 0) {
@@ -194,6 +195,10 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				Could not display the chart because no series are configured.
 			</div>
 		);
+	}
+
+	if (isLoadingRows) {
+		return <VisualizationSkeleton label='Loading chart data' />;
 	}
 
 	if (!sourceData) {
@@ -219,6 +224,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		if (!targetId || !chartConfig || !chatId) {
 			return;
 		}
+		setClassicStoryError(null);
 
 		const data = await queryClient.fetchQuery({
 			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
@@ -226,6 +232,25 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		});
 		const latest = data.versions.at(-1);
 		if (!latest) {
+			return;
+		}
+
+		if (data.format === 'custom') {
+			const { component, props } = kitBlockFromConfig(chartConfig);
+			addToCustomStory({
+				chatId,
+				storySlug: targetId,
+				versionNumber: latest.version,
+				block: { component, props: { queryId: chartConfig.query_id, ...props } },
+			});
+			if (!usingVisibleStory) {
+				openSidePanel(<StoryViewer chatId={chatId} storySlug={targetId} />, targetId);
+			}
+			return;
+		}
+
+		if (!isBuiltinChart) {
+			setClassicStoryError('Custom charts can only be added to custom stories.');
 			return;
 		}
 
@@ -257,7 +282,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		<div
 			className={cn(
 				'group/chart relative flex flex-col items-stretch my-4 -mx-3',
-				'border transition-colors duration-150 rounded-lg overflow-hidden bg-backgroundSecondary/30',
+				'border transition-colors duration-150 rounded-lg overflow-clip bg-backgroundSecondary/30',
 				viewMode === 'chart' ? 'border-transparent hover:border-border' : 'border-border',
 				viewMode === 'chart' ? 'gap-2 px-3' : 'gap-0',
 				isKpiChartView ? 'py-3' : '',
@@ -266,16 +291,18 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 		>
 			<div
 				className={cn(
-					'flex items-center py-2',
+					'flex flex-wrap items-center gap-y-1 py-2',
 					isKpiChartView ? 'absolute top-0 right-0 z-10 gap-1 px-3' : 'w-full justify-between',
 					!isKpiChartView && (viewMode === 'chart' ? 'gap-2' : 'gap-0 px-3 border-b border-border'),
 				)}
 			>
 				{chartConfig.chart_type != 'kpi_card' ? (
-					<div className='flex items-center gap-1'>
-						<span className='text-sm font-medium text-foreground flex-1'>{chartConfig.title}</span>
+					<div className='flex min-w-0 flex-1 basis-48 flex-wrap items-center gap-1'>
+						<span className='nao-chart-title min-w-0 grow basis-40 text-sm font-medium text-foreground'>
+							{chartConfig.title}
+						</span>
 						{viewMode === 'chart' &&
-							!displayChart.isPieChart(chartConfig.chart_type) &&
+							!isPieChart(chartConfig.chart_type) &&
 							chartConfig.x_axis_type === 'date' && (
 								<ChartRangeSelector
 									options={DATE_RANGE_OPTIONS}
@@ -287,7 +314,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				) : (
 					<div></div>
 				)}
-				<div className='flex items-center gap-1 shrink-0'>
+				<div className='ml-auto flex items-center gap-1 shrink-0'>
 					<div className='flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/chart:opacity-100 focus-within:opacity-100'>
 						<Button
 							variant='ghost-muted'
@@ -324,7 +351,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 								<Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
 							</Button>
 						)}
-						{storyIds.length > 0 && isBuiltinChart && (
+						{storyIds.length > 0 && (
 							<Button
 								variant='ghost-muted'
 								size='icon-xs'
@@ -382,7 +409,13 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				</div>
 			</div>
 
-			{isEditable && displayChart.isBuiltinChartType(chartConfig.chart_type) && (
+			{(classicStoryError || addToCustomStoryError) && (
+				<div className='text-xs text-red-400' role='alert'>
+					Could not add the chart to the story: {classicStoryError ?? addToCustomStoryError?.message}
+				</div>
+			)}
+
+			{isEditable && isBuiltinChartType(chartConfig.chart_type) && (
 				<DisplayChartEditDialog
 					open={isEditOpen}
 					onOpenChange={setIsEditOpen}
@@ -390,6 +423,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					config={{ ...chartConfig, chart_type: chartConfig.chart_type }}
 					availableColumns={sourceData.columns ?? []}
 					data={sourceData.data ?? []}
+					sourceQuery={sourceQuery ?? undefined}
 				/>
 			)}
 
@@ -397,7 +431,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				<SqlResultDisplay output={sourceData} />
 			) : viewMode === 'query' && sqlQuery ? (
 				<SqlQueryDisplay query={sqlQuery} />
-			) : !displayChart.isBuiltinChartType(chartConfig.chart_type) ? (
+			) : !isBuiltinChartType(chartConfig.chart_type) ? (
 				<CustomChart config={customChartConfig} data={filteredData} />
 			) : (
 				<ChartDisplay
@@ -415,8 +449,11 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					yAxisRightMax={chartConfig.y_axis_right_max}
 					yAxisRightLabel={chartConfig.y_axis_right_label}
 					showDataLabels={chartConfig.show_data_labels}
+					showLegend={chartConfig.show_legend}
 					comparisonMode={'comparison_mode' in chartConfig ? chartConfig.comparison_mode : undefined}
 					hideTotal={chartConfig.hide_total}
+					className={isPieChart(chartConfig.chart_type) ? 'flex-1 justify-center' : undefined}
+					chartContentClassName={isPieChart(chartConfig.chart_type) ? 'aspect-4/3' : undefined}
 				/>
 			)}
 		</div>
@@ -425,7 +462,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 
 export interface ChartDisplayProps {
 	data: Record<string, unknown>[];
-	chartType: displayChart.ChartType;
+	chartType: ChartType;
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
 	xAxisLabel?: string;
@@ -505,11 +542,10 @@ export const ChartDisplay = memo(function ChartDisplay({
 	);
 
 	const { visibleSeries, hiddenSeriesKeys, handleToggleSeriesVisibility } = useSeriesVisibility(series);
-	const isPercentStacked = displayChart.isPercentStackedChartType(chartType);
+	const isPercentStacked = isPercentStackedChartType(chartType);
 
-	const isPie = displayChart.isPieChart(chartType);
-	const compactPieLegend = isPie && width > 0 && width < PIE_LEGEND_BREAKPOINT;
-	const pieCenteringClass = isPie && !compactPieLegend ? 'mx-auto max-w-[480px]' : '';
+	const isPie = isPieChart(chartType);
+	const pieCenteringClass = isPie ? 'mx-auto max-w-[480px]' : '';
 	const pieValueKey = series[0]?.data_key ?? '';
 	const pieData = useMemo(
 		() => (isPie ? bucketPieData(data, xAxisKey, pieValueKey) : data),
@@ -526,7 +562,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 					const category = String(item[xAxisKey]);
 					acc[toKey(category)] = {
 						label: labelize(category, dateFormat),
-						color: Colors[index % Colors.length],
+						color: seriesColorAt(index),
 					};
 					return acc;
 				},
@@ -541,15 +577,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			);
 		}
 
-		return series.reduce((acc, s, idx) => {
-			acc[s.data_key] = {
-				label: s.label || labelize(s.data_key, dateFormat),
-				color: s.color || Colors[idx % Colors.length],
-				isTotal: s.is_total,
-				valueFormat: s.value_format,
-			};
-			return acc;
-		}, {} as ChartConfig);
+		return buildSeriesChartConfig(series, (dataKey) => labelize(dataKey, dateFormat));
 	}, [series, xAxisKey, pieValueKey, pieData, isPie, dateFormat]);
 
 	const colorFor = useMemo(
@@ -567,17 +595,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 				return {
 					value: category,
 					dataKey: toKey(category),
-					color: Colors[index % Colors.length],
+					color: seriesColorAt(index),
 					isHidden: false,
 				};
 			});
 		}
-		return series.map((s, idx) => ({
-			value: s.label || labelize(s.data_key, dateFormat),
-			dataKey: s.data_key,
-			color: s.color || Colors[idx % Colors.length],
-			isHidden: hiddenSeriesKeys.has(s.data_key),
-		}));
+		return buildSeriesLegendPayload(series, hiddenSeriesKeys, (dataKey) => labelize(dataKey, dateFormat));
 	}, [isPie, pieData, xAxisKey, series, hiddenSeriesKeys, dateFormat]);
 
 	const labelFormatter = useMemo(
@@ -625,11 +648,13 @@ export const ChartDisplay = memo(function ChartDisplay({
 		[isPie, dateFormat],
 	);
 
-	const isDualAxis = displayChart.isComboChart(chartType) && displayChart.hasRightAxisSeries(visibleSeries);
+	const isDualAxis = isComboChart(chartType) && displayChart.hasRightAxisSeries(visibleSeries);
+	const chartStyle = useChartStyle();
 
 	const chartElement = useMemo(
 		() =>
 			buildChart({
+				chartStyle,
 				data: pieData,
 				chartType,
 				xAxisKey,
@@ -684,13 +709,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 						<ChartLegend
 							key='legend'
 							payload={legendPayload}
-							layout={isPie && !compactPieLegend ? 'vertical' : 'horizontal'}
-							align={isPie && !compactPieLegend ? 'right' : 'center'}
-							verticalAlign={isPie && !compactPieLegend ? 'middle' : 'bottom'}
+							layout='horizontal'
+							align='center'
+							verticalAlign='bottom'
 							content={
 								<ChartLegendContent
-									layout={isPie && !compactPieLegend ? 'vertical' : 'horizontal'}
-									className={compactPieLegend ? 'flex-wrap' : undefined}
+									className={isPie ? 'flex-wrap' : undefined}
 									onItemClick={isPie ? undefined : handleToggleSeriesVisibility}
 								/>
 							}
@@ -704,7 +728,6 @@ export const ChartDisplay = memo(function ChartDisplay({
 			pieData,
 			chartType,
 			isPie,
-			compactPieLegend,
 			compactXAxis,
 			compactXAxisInterval,
 			xAxisTickFontSize,
@@ -740,13 +763,19 @@ export const ChartDisplay = memo(function ChartDisplay({
 			showLegend,
 			useInlineHeader,
 			disableTooltip,
+			chartStyle,
 		],
 	);
 
 	const inlineHeader = useInlineHeader ? (
 		<div className='mb-6 flex w-full min-w-0 items-center gap-3'>
 			<div className={showInlineLegend ? 'min-h-11 shrink-0' : 'shrink-0'}>
-				<span className='block text-[15px] font-semibold'>{title}</span>
+				<span
+					className='nao-chart-title block text-[15px] font-semibold'
+					{...partAttributes({ kind: 'title' })}
+				>
+					{title}
+				</span>
 				{titleAccessory}
 			</div>
 			{showInlineLegend && canScrollLeft && (
@@ -889,33 +918,5 @@ const useHorizontalScrollControls = () => {
 		...scrollState,
 		scrollRef,
 		scrollLegend,
-	};
-};
-
-/** Manages which series are visible and hidden */
-const useSeriesVisibility = (series: displayChart.SeriesConfig[]) => {
-	const [hiddenSeriesKeys, setHiddenSeriesKeys] = useState<Set<string>>(new Set());
-
-	const visibleSeries = useMemo(
-		() => series.filter((s) => !hiddenSeriesKeys.has(s.data_key)),
-		[series, hiddenSeriesKeys],
-	);
-
-	const handleToggleSeriesVisibility = useCallback((dataKey: string) => {
-		setHiddenSeriesKeys((prev) => {
-			const copy = new Set(prev);
-			if (copy.has(dataKey)) {
-				copy.delete(dataKey);
-			} else {
-				copy.add(dataKey);
-			}
-			return copy;
-		});
-	}, []);
-
-	return {
-		visibleSeries,
-		hiddenSeriesKeys,
-		handleToggleSeriesVisibility,
 	};
 };

@@ -22,6 +22,7 @@ import {
 	modelInferenceSettingsSchema,
 	type ModelSettingsMap,
 } from '../types/llm';
+import { getDeploymentEnvVar } from './deployment-env';
 import { logger } from './logger';
 
 export type ConfigProviderBudget = {
@@ -292,7 +293,7 @@ function toModelSettings(models: z.infer<typeof modelSchema>[]): ModelSettingsMa
  * the file. `aws(...)` and `k8s(...)` are resolved by the CLI only, so a value that still needs
  * them is dropped in favour of the environment.
  */
-function resolveSecrets(value: unknown, extraEnv: Record<string, string>): string | null {
+export function resolveSecrets(value: unknown, extraEnv: Record<string, string>): string | null {
 	if (typeof value !== 'string') {
 		return null;
 	}
@@ -303,7 +304,7 @@ function resolveSecrets(value: unknown, extraEnv: Record<string, string>): strin
 			resolvable = false;
 			return '';
 		}
-		return extraEnv[identifier] || process.env[identifier] || '';
+		return extraEnv[identifier] || getDeploymentEnvVar(identifier) || '';
 	});
 
 	return resolvable && resolved.trim() ? resolved : null;

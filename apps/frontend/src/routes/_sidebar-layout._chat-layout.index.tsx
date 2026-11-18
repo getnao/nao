@@ -1,31 +1,37 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
-import { PlusIcon, Settings } from 'lucide-react';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { ArrowRight, PlusIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
+import type { UIMessage } from '@nao/backend/chat';
 import type { StoryItem } from '@/lib/stories-page';
-import { buildStoryItems } from '@/lib/stories-page';
-import { useSession } from '@/lib/auth-client';
-import { capitalize, cn } from '@/lib/utils';
+
+import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
+import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
+import { MobileHeader } from '@/components/mobile-header';
 import { ProjectSwitcher } from '@/components/project-selector';
+import { StoryCard } from '@/components/stories-groups';
 import { ViewerHome } from '@/components/viewer-home';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
+import { useIsDarkMode } from '@/contexts/theme.provider';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
+import { useMultiProject } from '@/hooks/use-multi-project';
+import { useLastSeen } from '@/hooks/use-last-seen';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
-import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
-import { ChatInput } from '@/components/chat-input';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { MobileHeader } from '@/components/mobile-header';
-import { trpc } from '@/main';
-import { useTheme } from '@/contexts/theme.provider';
-import { StoryCard } from '@/components/stories-groups';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
-import { useMultiProject } from '@/hooks/use-multi-project';
+import { useSession } from '@/lib/auth-client';
+import { buildStoryItems } from '@/lib/stories-page';
+import { capitalize, cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/')({
-	validateSearch: (search: Record<string, unknown>): { admin?: boolean } => ({
+	validateSearch: (search: Record<string, unknown>): { admin?: boolean; example?: boolean } => ({
 		admin: search.admin === true || search.admin === 'true' ? true : undefined,
+		example: search.example === true || search.example === 'true' ? true : undefined,
 	}),
 	component: RouteComponent,
 });
@@ -42,9 +48,9 @@ function HomePage() {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
 	const { setAdminMode } = useAgentContext();
-	const messages = useAgentMessages();
+	const isEmptyState = useAgentMessagesSelector(checkHasNoMessages);
 	const { canChatWithNaoData } = usePermissions();
-	const { admin: adminSearch } = Route.useSearch();
+	const { admin: adminSearch, example: exampleSearch } = Route.useSearch();
 	const navigate = useNavigate();
 
 	useEffect(() => {
@@ -56,33 +62,38 @@ function HomePage() {
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const { limbo, resolving } = useCloudSetupState();
 	const switchProject = useProjectSwitch(project.data?.id);
 	const multiProjectMode = useMultiProject();
+	const isCloud = useIsCloud();
 	const showProjectSetupCue = project.isSuccess && project.data === null;
+	const showExampleProject = isCloud && (showProjectSetupCue || exampleSearch === true || limbo || resolving);
+	const storiesProjectId = showExampleProject ? SYSTEM_EXAMPLE_PROJECT_ID : project.data?.id;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
-	const theme = useTheme();
-	const isEmptyState = messages.length === 0;
-	const stories = useQuery({ ...trpc.story.listAll.queryOptions(), enabled: isEmptyState });
-	const sharedStories = useQuery({
-		...trpc.storyShare.list.queryOptions({ projectId: project.data?.id ?? '' }),
-		enabled: isEmptyState && !!project.data?.id,
+	const isDark = useIsDarkMode();
+	const hasProject = !!project.data?.id;
+	const stories = useQuery({
+		...trpc.story.listAll.queryOptions({ projectId: storiesProjectId }),
+		enabled: isEmptyState && !!storiesProjectId,
 	});
-	const favorites = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: isEmptyState });
-	const folderItems = useQuery({ ...trpc.storyFolder.listItems.queryOptions(), enabled: isEmptyState });
+	const sharedStories = useQuery({
+		...trpc.storyShare.list.queryOptions({ projectId: storiesProjectId ?? '' }),
+		enabled: isEmptyState && !!storiesProjectId,
+	});
+	const favorites = useQuery({
+		...trpc.favorite.list.queryOptions(),
+		enabled: isEmptyState && hasProject,
+	});
+	const folderItems = useQuery({
+		...trpc.storyFolder.listItems.queryOptions(),
+		enabled: isEmptyState && hasProject,
+	});
 	const folderTree = useQuery({
 		...trpc.storyFolder.listTree.queryOptions({ archived: false }),
-		enabled: isEmptyState,
+		enabled: isEmptyState && hasProject,
 	});
 	const storiesGridRef = useRef<HTMLDivElement>(null);
 	const [storyCols, setStoryCols] = useState(STORY_CARD_MAX_COLS);
-	const hasStories = (stories.data?.length ?? 0) > 0;
-	useResizeObserver(
-		storiesGridRef,
-		(el) => {
-			setStoryCols(computeStoryCols(el.getBoundingClientRect().width));
-		},
-		[hasStories],
-	);
 	const folderItemMap = useMemo(() => {
 		const map = new Map<string, string>();
 		for (const item of folderItems.data ?? []) {
@@ -90,46 +101,97 @@ function HomePage() {
 		}
 		return map;
 	}, [folderItems.data]);
-	const latestStoryItems = useMemo(() => {
+	const areStoriesLoaded =
+		stories.isSuccess &&
+		sharedStories.isSuccess &&
+		(!hasProject || [favorites, folderItems, folderTree].every((query) => query.isSuccess || query.isError));
+	const loadedRecentStories = useMemo(() => {
+		if (!areStoriesLoaded) {
+			return undefined;
+		}
 		const items = buildStoryItems({
-			userStories: stories.data ?? [],
-			sharedStories: sharedStories.data ?? [],
+			userStories: stories.data,
+			sharedStories: sharedStories.data,
 			currentUserName: session?.user?.name ?? username ?? '',
 			favoriteStoryIds: favorites.data?.storyIds,
 			folderItemMap,
 			folders: folderTree.data ?? [],
 		});
-		return [...items]
-			.sort((a, b) => {
-				const rankDiff = storyPriorityRank(a) - storyPriorityRank(b);
-				if (rankDiff !== 0) {
-					return rankDiff;
-				}
-				return b.createdAt.getTime() - a.createdAt.getTime();
-			})
-			.slice(0, storyCols);
+		return {
+			items: rankRecentStories(items).slice(0, STORY_CARD_MAX_COLS),
+			count: stories.data.length + sharedStories.data.length,
+		};
 	}, [
+		areStoriesLoaded,
 		stories.data,
 		sharedStories.data,
 		session?.user?.name,
-		storyCols,
 		username,
 		favorites.data,
 		folderItemMap,
 		folderTree.data,
 	]);
+	const recentStories = useLastSeen(
+		'home-stories',
+		JSON.stringify([session?.user?.id, storiesProjectId]),
+		loadedRecentStories,
+	);
+	const storyCount = recentStories?.count ?? 0;
+	const hasStories = storyCount > 0;
+	useResizeObserver(
+		storiesGridRef,
+		(el) => {
+			setStoryCols(computeStoryCols(el.getBoundingClientRect().width));
+		},
+		[hasStories],
+	);
+	const latestStoryItems = useMemo(() => recentStories?.items.slice(0, storyCols) ?? [], [recentStories, storyCols]);
 	const storyGroups = useMemo(() => buildStoryGroups(latestStoryItems), [latestStoryItems]);
-	const hasMoreStories = (stories.data?.length ?? 0) > storyCols;
+	const hasMoreStories = storyCount > storyCols;
+	const storiesGrid =
+		latestStoryItems.length > 0 ? (
+			<div className='flex flex-col gap-3 w-full px-4 py-6 max-w-3xl mx-auto'>
+				<div
+					ref={storiesGridRef}
+					className='grid gap-x-5 gap-y-2'
+					style={{
+						gridTemplateColumns: `repeat(${storyCols}, minmax(0, 1fr))`,
+					}}
+				>
+					{renderStoryGroupHeaders(storyGroups)}
+					{latestStoryItems.map((item, index) => (
+						<div key={item.storyId} style={{ gridColumn: index + 1, gridRow: 2 }}>
+							<StoryCard item={item} displayMode='grid' showArchived={false} />
+						</div>
+					))}
+				</div>
+				{!showExampleProject && hasMoreStories && (
+					<button
+						type='button'
+						onClick={() => navigate({ to: '/stories', search: { folderId: null } })}
+						className={cn(
+							'h-9 rounded-lg border border-dashed border-muted-foreground/20 px-3',
+							'flex items-center gap-2 text-muted-foreground/50 bg-sidebar dark:bg-background',
+							'hover:border-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer',
+						)}
+					>
+						<div className='flex items-center justify-center gap-2 flex-1 min-w-0 pl-1.5'>
+							<PlusIcon className='size-3 shrink-0' />
+							<span className='text-xs truncate'>Show more</span>
+						</div>
+					</button>
+				)}
+			</div>
+		) : null;
 
-	const isDark =
-		theme.theme === 'dark' ||
-		(theme.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 	const logoSrc = isDark ? '/darkLogo.svg' : '/lightLogo.svg';
+	const cardLogoSrc = isDark ? '/dark-card-logo.svg' : '/light-card-logo.svg';
 
 	return (
 		<div className='relative flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
-			<MobileHeader />
-			{messages.length === 0 &&
+			<MobileHeader showExampleProjectInfo={showExampleProject} />
+			{isEmptyState &&
+				!showExampleProject &&
 				multiProjectMode === 'switch' &&
 				project.data &&
 				(projects.data?.length ?? 0) > 1 && (
@@ -142,7 +204,7 @@ function HomePage() {
 						/>
 					</div>
 				)}
-			{messages.length ? (
+			{!isEmptyState ? (
 				<>
 					<ChatMessages />
 					<ChatInput />
@@ -152,30 +214,40 @@ function HomePage() {
 					<div
 						className={cn(
 							'relative flex flex-col items-center justify-center gap-4 p-4 w-full flex-1',
-							showProjectSetupCue ? '' : latestStoryItems.length > 0 ? 'mt-30' : '-mt-30',
+							showExampleProject || showProjectSetupCue
+								? ''
+								: latestStoryItems.length > 0
+									? 'mt-30'
+									: '-mt-30',
 						)}
 					>
-						{showProjectSetupCue ? (
-							<Card className='w-full max-w-xl border shadow-none'>
-								<CardContent className='flex flex-col gap-4 px-5 py-5'>
-									<div className='flex flex-col items-center gap-8 text-left'>
-										<div className='mt-0.5 rounded-full bg-amber-500/10 p-6 text-amber-600 dark:text-amber-400'>
-											<Settings className='size-8' strokeWidth={1.5} />
-										</div>
-										<div className='gap-3 flex flex-col items-center'>
-											<p className='font-medium text-foreground'>
-												Set up a project to start analyzing data
-											</p>
-											<p className='text-sm text-foreground'>
-												Open project settings to connect a project before starting a chat.
-											</p>
-										</div>
-										<Button asChild variant='ghost' className='border rounded-full bg-panel/50'>
-											<Link to='/settings/project'>Get started</Link>
-										</Button>
-									</div>
-								</CardContent>
-							</Card>
+						{showExampleProject ? (
+							<>
+								<div className='relative z-10 mb-6 max-w-2xl space-y-2 px-6 text-center'>
+									<h1 className='font-borna text-xl tracking-tight md:text-3xl'>{stateTitle}</h1>
+								</div>
+								<div className='relative mt-6 flex w-full max-w-3xl mx-auto flex-col gap-4 md:mt-10'>
+									<img
+										src={logoSrc}
+										alt=''
+										aria-hidden
+										className='pointer-events-none absolute -top-60 left-1/2 -translate-x-1/2 w-full max-w-2xl select-none -z-10'
+									/>
+									<ChatInput />
+									<SavedPromptSuggestions projectId={SYSTEM_EXAMPLE_PROJECT_ID} />
+								</div>
+								{storiesGrid}
+							</>
+						) : showProjectSetupCue ? (
+							<div className='flex w-full max-w-3xl justify-center px-4 py-6'>
+								<HomeLinkCard
+									to='/settings/project'
+									label='Project required'
+									title='Configure your nao project'
+									subtitle='Set NAO_DEFAULT_PROJECT_PATH to start chatting'
+									logoSrc={cardLogoSrc}
+								/>
+							</div>
 						) : (
 							<>
 								<div className='font-borna relative z-10 text-xl md:text-3xl tracking-tight text-center px-6 mb-6'>
@@ -188,43 +260,10 @@ function HomePage() {
 										aria-hidden
 										className='pointer-events-none absolute -top-60 left-1/2 -translate-x-1/2 w-full max-w-2xl select-none -z-10'
 									/>
-									<ChatInput />
+									<ChatInput acceptsPendingStoryReferences />
 									<SavedPromptSuggestions />
 								</div>
-								{latestStoryItems.length > 0 && (
-									<div className='flex flex-col gap-3 w-full px-4 py-6 max-w-3xl mx-auto'>
-										<div
-											ref={storiesGridRef}
-											className='grid gap-x-5 gap-y-2'
-											style={{
-												gridTemplateColumns: `repeat(${storyCols}, minmax(0, 1fr))`,
-											}}
-										>
-											{renderStoryGroupHeaders(storyGroups)}
-											{latestStoryItems.map((item, index) => (
-												<div key={item.id} style={{ gridColumn: index + 1, gridRow: 2 }}>
-													<StoryCard item={item} displayMode='grid' showArchived={false} />
-												</div>
-											))}
-										</div>
-										{hasMoreStories && (
-											<button
-												type='button'
-												onClick={() => navigate({ to: '/stories', search: { folderId: null } })}
-												className={cn(
-													'h-9 rounded-lg border border-dashed border-muted-foreground/20 px-3',
-													'flex items-center gap-2 text-muted-foreground/50 bg-sidebar dark:bg-background',
-													'hover:border-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer',
-												)}
-											>
-												<div className='flex items-center justify-center gap-2 flex-1 min-w-0 pl-1.5'>
-													<PlusIcon className='size-3 shrink-0' />
-													<span className='text-xs truncate'>Show more</span>
-												</div>
-											</button>
-										)}
-									</div>
-								)}
+								{storiesGrid}
 							</>
 						)}
 					</div>
@@ -234,11 +273,64 @@ function HomePage() {
 	);
 }
 
+function HomeLinkCard({
+	to,
+	label,
+	title,
+	subtitle,
+	logoSrc,
+}: {
+	to: '/onboarding' | '/settings/project';
+	label: string;
+	title: string;
+	subtitle: string;
+	logoSrc: string;
+}) {
+	return (
+		<Link
+			to={to}
+			className={cn(
+				'group relative flex min-h-36 w-full max-w-md items-end gap-6 overflow-hidden rounded-xl border border-violet/20 bg-background p-5 text-left shadow-xs',
+				'transition-colors duration-200 hover:border-violet/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+			)}
+		>
+			<img
+				src={logoSrc}
+				alt=''
+				aria-hidden
+				className='pointer-events-none absolute left-1/2 top-1/2 w-full -translate-x-1/2 -translate-y-1/2 scale-150 select-none'
+			/>
+			<div className='relative z-10 flex min-h-24 min-w-0 flex-1 flex-col justify-between'>
+				<span className='block text-[10px] font-semibold uppercase tracking-[0.16em] text-primary'>
+					{label}
+				</span>
+				<div className='max-w-72'>
+					<span className='font-borna block text-lg font-medium tracking-tight text-foreground'>{title}</span>
+					<span className='mt-1 block text-xs leading-relaxed text-muted-foreground'>{subtitle}</span>
+				</div>
+			</div>
+			<div className='bg-brand-gradient-border group-hover:bg-brand-gradient-border-hover relative z-10 flex size-9 shrink-0 self-center items-center justify-center rounded-full border border-transparent text-[oklch(1_0_0)] transition-colors'>
+				<ArrowRight className='size-4' />
+			</div>
+		</Link>
+	);
+}
+
 const STORY_CARD_MIN_WIDTH = 170;
 const STORY_CARD_GAP = 20;
 const STORY_CARD_MAX_COLS = 3;
 
 type StoryGroup = { key: 'favorites' | 'pinned' | 'latest'; label: string; items: StoryItem[] };
+
+function rankRecentStories(items: StoryItem[]): StoryItem[] {
+	return [...items].sort((a, b) => {
+		const rankDiff = storyPriorityRank(a) - storyPriorityRank(b);
+		if (rankDiff !== 0) {
+			return rankDiff;
+		}
+		return b.createdAt.getTime() - a.createdAt.getTime();
+	});
+}
 
 function storyPriorityRank(item: StoryItem): number {
 	if (item.isFavorited) {
@@ -290,6 +382,10 @@ function computeStoryCols(containerWidth: number) {
 
 function isPinnedStory(item: StoryItem): boolean {
 	return item.isPinned || (item.sharing?.isPinned ?? false);
+}
+
+function checkHasNoMessages(messages: UIMessage[]): boolean {
+	return messages.length === 0;
 }
 
 function pluralize(singular: string, plural: string, count: number): string {

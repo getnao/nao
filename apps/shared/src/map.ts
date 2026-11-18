@@ -1,15 +1,30 @@
 import type { FeatureCollection, Geometry } from 'geojson';
 
+import { CHART_NUMBER_LOCALE, formatCompactNumber } from './chart-values';
 import type * as displayMap from './tools/display-map';
 
 export interface CustomBoundarySet {
 	key: string;
 	label: string;
-	url: string;
+	/** Public GeoJSON fetched on demand. Absent when the GeoJSON was uploaded instead. */
+	url?: string;
+	/** Uploaded GeoJSON kept in permanent storage. */
+	file?: UploadedBoundaryFile;
 	joinProperty: string;
 	regionKeyHint: string;
 	featureCount?: number;
 }
+
+export interface UploadedBoundaryFile {
+	name: string;
+	size: number;
+	storageKey: string;
+}
+
+/** Per file, and below a story download's boundary budget, so one uploaded set always fits in a download. */
+export const MAX_BOUNDARY_FILE_BYTES = 10 * 1024 * 1024;
+
+export const BOUNDARY_FILE_SIMPLIFY_HINT = 'Simplify its shapes, for example with mapshaper.org, to make it smaller.';
 
 export interface MapSettings {
 	customBoundaries?: CustomBoundarySet[];
@@ -67,7 +82,10 @@ export function resolveMapConfig(rows: Record<string, unknown>[], config: displa
 	};
 }
 
-export function buildMapPoints(rows: Record<string, unknown>[], config: displayMap.Input): MapPoint[] {
+export function buildMapPoints(
+	rows: Record<string, unknown>[],
+	config: Pick<displayMap.Input, 'latitude_key' | 'longitude_key'>,
+): MapPoint[] {
 	const latitudeKey = config.latitude_key ?? '';
 	const longitudeKey = config.longitude_key ?? '';
 	return rows
@@ -202,9 +220,7 @@ export function buildChoroplethEntries(rows: Record<string, unknown>[], config: 
 }
 
 export function choroplethValueDomain(entries: ChoroplethEntry[]): NumericDomain | null {
-	return numericDomain(
-		entries.filter((entry) => entry.geometry !== null || entry.region !== null).map((entry) => entry.value),
-	);
+	return numericDomain(choroplethValues(entries));
 }
 
 /** Lowercased, trimmed region identifier, or null when empty — used on both sides of the boundary join. */
@@ -249,6 +265,89 @@ function isMapGeometry(value: unknown): value is MapGeometry {
 	return typeof record.type === 'string' && (record.coordinates !== undefined || record.geometries !== undefined);
 }
 
+export interface GeoJsonValidationResult {
+	geojson: MapFeatureCollection;
+	propertyKeys: string[];
+	featureCount: number;
+}
+
+const GEOJSON_GEOMETRY_TYPES = [
+	'Point',
+	'MultiPoint',
+	'LineString',
+	'MultiLineString',
+	'Polygon',
+	'MultiPolygon',
+	'GeometryCollection',
+];
+
+/** Wraps a parsed GeoJSON FeatureCollection, Feature or Geometry into a FeatureCollection and lists its feature properties. */
+export function validateGeoJson(value: unknown): GeoJsonValidationResult {
+	const geojson = normalizeToFeatureCollection(value);
+	const propertyKeys = new Set<string>();
+	for (const [index, feature] of geojson.features.entries()) {
+		const problem = describeInvalidFeature(feature);
+		if (problem) {
+			throw new Error(`Feature ${index + 1} is not valid GeoJSON: ${problem}.`);
+		}
+		for (const key of Object.keys(feature.properties ?? {})) {
+			propertyKeys.add(key);
+		}
+	}
+	return { geojson, propertyKeys: [...propertyKeys].sort(), featureCount: geojson.features.length };
+}
+
+function normalizeToFeatureCollection(value: unknown): MapFeatureCollection {
+	if (typeof value !== 'object' || value === null) {
+		throw new Error('GeoJSON must be an object.');
+	}
+	const record = value as Record<string, unknown>;
+	if (record.type === 'FeatureCollection') {
+		if (!Array.isArray(record.features)) {
+			throw new Error('FeatureCollection must have a features array.');
+		}
+		return value as MapFeatureCollection;
+	}
+	if (record.type === 'Feature') {
+		return { type: 'FeatureCollection', features: [value as MapFeatureCollection['features'][number]] };
+	}
+	if (typeof record.type === 'string' && GEOJSON_GEOMETRY_TYPES.includes(record.type)) {
+		return {
+			type: 'FeatureCollection',
+			features: [{ type: 'Feature', geometry: value as MapGeometry, properties: {} }],
+		};
+	}
+	throw new Error('Not a valid GeoJSON FeatureCollection, Feature, or Geometry.');
+}
+
+/** Checks each feature's shape without walking its coordinates, so large files stay quick to validate. */
+function describeInvalidFeature(feature: unknown): string | null {
+	if (!isPlainObject(feature) || feature.type !== 'Feature') {
+		return 'it is not a Feature object';
+	}
+	if (feature.properties != null && !isPlainObject(feature.properties)) {
+		return 'its properties must be an object';
+	}
+	return feature.geometry === null ? null : describeInvalidGeometry(feature.geometry);
+}
+
+function describeInvalidGeometry(geometry: unknown): string | null {
+	if (!isPlainObject(geometry) || typeof geometry.type !== 'string') {
+		return 'its geometry has no type';
+	}
+	if (!GEOJSON_GEOMETRY_TYPES.includes(geometry.type)) {
+		return `"${geometry.type}" is not a geometry type`;
+	}
+	if (geometry.type === 'GeometryCollection') {
+		return Array.isArray(geometry.geometries) ? null : 'its GeometryCollection has no geometries list';
+	}
+	return Array.isArray(geometry.coordinates) ? null : 'its geometry has no coordinates list';
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 type BuiltinRegionBoundaries = 'world_countries' | 'france_regions';
 
 export const MAP_BOUNDARY_URLS: Record<BuiltinRegionBoundaries, string> = {
@@ -278,6 +377,12 @@ export const BOUNDARY_JOIN_PROPS: Record<BuiltinRegionBoundaries, string[]> = {
 export const BUILTIN_BOUNDARY_LABELS: Record<BuiltinRegionBoundaries, string> = {
 	world_countries: 'World countries',
 	france_regions: 'France regions',
+};
+
+/** What a region_key value must match for each built-in boundary set. */
+export const BUILTIN_BOUNDARY_REGION_KEY_HINTS: Record<BuiltinRegionBoundaries, string> = {
+	world_countries: 'an ISO 3166-1 alpha-3/alpha-2 code or country name',
+	france_regions: 'the region code or name',
 };
 
 export interface BoundarySource {
@@ -335,7 +440,7 @@ export function indexBoundaries(boundaries: MapFeatureCollection, joinProps?: st
 export function resolveBoundary(
 	key: string,
 	customSets?: CustomBoundarySet[],
-): { url: string; joinProps: string[] } | null {
+): { url?: string; joinProps: string[] } | null {
 	const custom = customSets?.find((s) => s.key === key);
 	if (custom) {
 		return { url: custom.url, joinProps: [custom.joinProperty] };
@@ -353,28 +458,256 @@ export function resolveBoundary(
 export const CHOROPLETH_MIN_OPACITY = 0.15;
 export const CHOROPLETH_MAX_OPACITY = 0.85;
 
-export function choroplethOpacity(value: number | null, domain: NumericDomain | null): number {
-	if (!domain || domain.min === domain.max) {
-		return (CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2;
-	}
-	const numeric = value ?? domain.min;
-	const ratio = Math.max(0, Math.min(1, (numeric - domain.min) / (domain.max - domain.min)));
-	return CHOROPLETH_MIN_OPACITY + (CHOROPLETH_MAX_OPACITY - CHOROPLETH_MIN_OPACITY) * ratio;
+const CHOROPLETH_MID_OPACITY = (CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2;
+
+export const CHOROPLETH_QUANTILE_CLASS_COUNT = 5;
+
+/** Every renderer draws the gradient legend bar 96px wide, with 10px monospace labels about 6.1px per character. */
+const LEGEND_BAR_WIDTH = 96;
+const LEGEND_CHAR_WIDTH = 6.1;
+const LEGEND_LABEL_MIN_GAP = 4;
+
+/**
+ * How choropleth values map to shades. A plain {@link NumericDomain} reads as a linear scale. The log domain only
+ * spans the positive values. Quantile thresholds are the lower bounds of every class after the first.
+ */
+export type ChoroplethScale =
+	| (NumericDomain & { type?: 'linear' })
+	| (NumericDomain & { type: 'log' })
+	| (NumericDomain & { type: 'quantile'; thresholds: number[]; classes: NumericDomain[] });
+
+export interface ChoroplethLegendTick {
+	label: string;
+	position: number;
+	align: 'start' | 'center' | 'end';
 }
 
-export function choroplethOpacityExpression(domain: NumericDomain | null): number | unknown[] {
-	if (!domain || domain.min === domain.max) {
-		return (CHOROPLETH_MIN_OPACITY + CHOROPLETH_MAX_OPACITY) / 2;
+export interface ChoroplethLegendClass {
+	label: string;
+	opacity: number;
+}
+
+export type ChoroplethLegendModel =
+	| { kind: 'gradient'; ticks: ChoroplethLegendTick[] }
+	| { kind: 'classes'; classes: ChoroplethLegendClass[] };
+
+export function buildChoroplethScale(
+	entries: ChoroplethEntry[],
+	colorScale: displayMap.ColorScale = 'linear',
+): ChoroplethScale | null {
+	const values = choroplethValues(entries);
+	if (colorScale === 'log') {
+		return buildLogScale(values);
+	}
+	if (colorScale === 'quantile') {
+		return buildQuantileScale(values);
+	}
+	return buildLinearScale(values);
+}
+
+export function choroplethOpacity(value: number | null, scale: ChoroplethScale | null): number {
+	if (scale?.type === 'log' && value !== null && value <= 0) {
+		return CHOROPLETH_MIN_OPACITY;
+	}
+	if (!scale || scale.min === scale.max) {
+		return CHOROPLETH_MID_OPACITY;
+	}
+	return opacityAt(choroplethRatio(value ?? scale.min, scale));
+}
+
+/** MapLibre `fill-opacity` expression reading each feature's `value` property. */
+export function choroplethOpacityExpression(scale: ChoroplethScale | null): number | unknown[] {
+	if (!scale) {
+		return CHOROPLETH_MID_OPACITY;
+	}
+	const value = ['coalesce', ['get', 'value'], scale.min];
+	if (scale.type === 'log') {
+		return logOpacityExpression(value, scale);
+	}
+	if (scale.min === scale.max) {
+		return CHOROPLETH_MID_OPACITY;
+	}
+	if (scale.type === 'quantile') {
+		const steps = scale.thresholds.flatMap((threshold, index) => [
+			threshold,
+			opacityAt((index + 1) / scale.thresholds.length),
+		]);
+		return ['step', value, CHOROPLETH_MIN_OPACITY, ...steps];
+	}
+	return ['interpolate', ['linear'], value, scale.min, CHOROPLETH_MIN_OPACITY, scale.max, CHOROPLETH_MAX_OPACITY];
+}
+
+/** Legend shared by every renderer: a gradient with labelled ticks, or one swatch per quantile class. */
+export function buildChoroplethLegend(scale: ChoroplethScale): ChoroplethLegendModel {
+	if (scale.type === 'quantile') {
+		const labels = quantileClassLabels(scale.classes);
+		return {
+			kind: 'classes',
+			classes: scale.classes.map((range, index) => ({
+				label: labels[index],
+				opacity: choroplethOpacity(range.min, scale),
+			})),
+		};
+	}
+	if (scale.type === 'log' && scale.min !== scale.max) {
+		return { kind: 'gradient', ticks: logLegendTicks(scale) };
+	}
+	return { kind: 'gradient', ticks: [legendTick(scale.min, 0), legendTick(scale.max, 1)] };
+}
+
+function choroplethValues(entries: ChoroplethEntry[]): (number | null)[] {
+	return entries.filter((entry) => entry.geometry !== null || entry.region !== null).map((entry) => entry.value);
+}
+
+function buildLinearScale(values: (number | null)[]): ChoroplethScale | null {
+	const domain = numericDomain(values);
+	return domain && { type: 'linear', ...domain };
+}
+
+/** Falls back to a linear scale when no value is positive, since log10 is undefined there. */
+function buildLogScale(values: (number | null)[]): ChoroplethScale | null {
+	const positiveDomain = numericDomain(values.filter((value) => value !== null && value > 0));
+	return positiveDomain ? { type: 'log', ...positiveDomain } : buildLinearScale(values);
+}
+
+function buildQuantileScale(values: (number | null)[]): ChoroplethScale | null {
+	const sorted = values
+		.filter((value): value is number => value !== null && Number.isFinite(value))
+		.sort((a, b) => a - b);
+	if (sorted.length === 0) {
+		return null;
+	}
+	const thresholds = quantileThresholds(sorted, CHOROPLETH_QUANTILE_CLASS_COUNT);
+	return {
+		type: 'quantile',
+		min: sorted[0],
+		max: sorted[sorted.length - 1],
+		thresholds,
+		classes: quantileClasses(sorted, thresholds),
+	};
+}
+
+/**
+ * Picks the thresholds among the data values so every class holds at least one value. A threshold that ties with
+ * the previous one moves up to the next distinct value, so data with few distinct values gets fewer classes.
+ */
+function quantileThresholds(sorted: number[], classCount: number): number[] {
+	const thresholds: number[] = [];
+	let lowerBound = sorted[0];
+	for (let index = 1; index < classCount; index++) {
+		const candidate = sorted[Math.floor((index * sorted.length) / classCount)];
+		const threshold = candidate > lowerBound ? candidate : sorted.find((value) => value > lowerBound);
+		if (threshold === undefined) {
+			break;
+		}
+		thresholds.push(threshold);
+		lowerBound = threshold;
+	}
+	return thresholds;
+}
+
+function quantileClasses(sorted: number[], thresholds: number[]): NumericDomain[] {
+	const classes: NumericDomain[] = [];
+	for (const value of sorted) {
+		const index = quantileClassIndex(value, thresholds);
+		classes[index] = { min: classes[index]?.min ?? value, max: value };
+	}
+	return classes;
+}
+
+function quantileClassIndex(value: number, thresholds: number[]): number {
+	return thresholds.filter((threshold) => value >= threshold).length;
+}
+
+/** Values ≤ 0 have no log10, so they take the lightest shade, even when a single positive value fixes the domain. */
+function logOpacityExpression(value: unknown[], scale: NumericDomain): unknown[] {
+	if (scale.min === scale.max) {
+		return ['case', ['<=', value, 0], CHOROPLETH_MIN_OPACITY, CHOROPLETH_MID_OPACITY];
 	}
 	return [
 		'interpolate',
 		['linear'],
-		['coalesce', ['get', 'value'], domain.min],
-		domain.min,
+		['log10', ['max', value, scale.min]],
+		Math.log10(scale.min),
 		CHOROPLETH_MIN_OPACITY,
-		domain.max,
+		Math.log10(scale.max),
 		CHOROPLETH_MAX_OPACITY,
 	];
+}
+
+function choroplethRatio(value: number, scale: ChoroplethScale): number {
+	if (scale.type === 'log') {
+		const low = Math.log10(scale.min);
+		return clampRatio((Math.log10(value) - low) / (Math.log10(scale.max) - low));
+	}
+	if (scale.type === 'quantile') {
+		return quantileClassIndex(value, scale.thresholds) / scale.thresholds.length;
+	}
+	return clampRatio((value - scale.min) / (scale.max - scale.min));
+}
+
+function opacityAt(ratio: number): number {
+	return CHOROPLETH_MIN_OPACITY + (CHOROPLETH_MAX_OPACITY - CHOROPLETH_MIN_OPACITY) * ratio;
+}
+
+function clampRatio(ratio: number): number {
+	return Math.max(0, Math.min(1, ratio));
+}
+
+/** Min, max and the powers of 10 between them, skipping powers whose label would touch a neighbour's. */
+function logLegendTicks(scale: NumericDomain): ChoroplethLegendTick[] {
+	const low = Math.log10(scale.min);
+	const high = Math.log10(scale.max);
+	const ticks = [legendTick(scale.min, 0)];
+	const lastTick = legendTick(scale.max, 1);
+	for (let exponent = Math.ceil(low); exponent <= Math.floor(high); exponent++) {
+		const tick = legendTick(10 ** exponent, (exponent - low) / (high - low));
+		if (labelsFit(ticks[ticks.length - 1], tick) && labelsFit(tick, lastTick)) {
+			ticks.push(tick);
+		}
+	}
+	ticks.push(lastTick);
+	return ticks;
+}
+
+function legendTick(value: number, position: number): ChoroplethLegendTick {
+	const align = position === 0 ? 'start' : position === 1 ? 'end' : 'center';
+	return { label: formatCompactNumber(value), position, align };
+}
+
+function labelsFit(left: ChoroplethLegendTick, right: ChoroplethLegendTick): boolean {
+	return labelExtent(right).start - labelExtent(left).end >= LEGEND_LABEL_MIN_GAP;
+}
+
+function labelExtent(tick: ChoroplethLegendTick): { start: number; end: number } {
+	const anchor = tick.position * LEGEND_BAR_WIDTH;
+	const width = tick.label.length * LEGEND_CHAR_WIDTH;
+	if (tick.align === 'start') {
+		return { start: anchor, end: anchor + width };
+	}
+	if (tick.align === 'end') {
+		return { start: anchor - width, end: anchor };
+	}
+	return { start: anchor - width / 2, end: anchor + width / 2 };
+}
+
+/** Compact labels, unless compacting gives two classes the same label: then every label shows full precision. */
+function quantileClassLabels(classes: NumericDomain[]): string[] {
+	const compactLabels = classes.map((range) => formatValueRange(range, formatCompactNumber));
+	if (new Set(compactLabels).size === compactLabels.length) {
+		return compactLabels;
+	}
+	return classes.map((range) => formatValueRange(range, formatFullNumber));
+}
+
+function formatValueRange(range: NumericDomain, format: (value: number) => string): string {
+	const min = format(range.min);
+	const max = format(range.max);
+	return min === max ? min : `${min}–${max}`;
+}
+
+function formatFullNumber(value: number): string {
+	return value.toLocaleString(CHART_NUMBER_LOCALE);
 }
 
 export function withOpacity(color: string, opacity: number): string {

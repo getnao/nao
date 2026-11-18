@@ -4,8 +4,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { devtools } from '@tanstack/devtools-vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import viteReact from '@vitejs/plugin-react';
-import svgr from 'vite-plugin-svgr';
 import { defineConfig } from 'vite';
+import svgr from 'vite-plugin-svgr';
+
+import { STORY_RUNTIME_SOURCES, storyRuntime } from './vite/story-runtime-plugin';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -19,12 +21,13 @@ export default defineConfig({
 			target: 'react',
 			autoCodeSplitting: false,
 		}),
-		viteReact(),
+		viteReact({ exclude: [/\/node_modules\//, STORY_RUNTIME_SOURCES] }),
 		svgr({
 			include: '**/*.svg',
 			svgrOptions: { exportType: 'default' },
 		}),
 		tailwindcss(),
+		storyRuntime(),
 	],
 	resolve: {
 		alias: {

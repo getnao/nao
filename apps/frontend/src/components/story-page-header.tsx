@@ -1,30 +1,43 @@
 import {
 	Activity,
 	CircleAlert,
-	ChevronLeft,
-	ChevronRight,
 	Code,
-	Copy,
 	Ellipsis,
 	Eye,
-	Globe,
+	Info,
 	Loader2,
-	MessageSquare,
+	Mail,
 	Pencil,
 	RefreshCw,
 	RotateCcw,
 	Save,
-	ScanText,
-	Star,
-	Upload,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
+import type { StoryDownloadOptions } from '@/components/story-download';
+import type {
+	CustomStoryElementSelection,
+	CustomStoryViewModeControls,
+} from '@/components/custom-story/custom-story-view-mode';
+import type { StoryChatControls } from '@/components/story-chat-button';
+import type { StoryVersionEntry } from '@/components/story-version-nav';
+import {
+	ElementSelectionToggle,
+	CustomStoryViewModeToggle,
+	isCustomStoryViewMode,
+} from '@/components/custom-story/custom-story-view-mode';
 import { EditableStoryTitle } from '@/components/editable-story-title';
-import { useTimeAgo } from '@/hooks/use-time-ago';
-import { StoryDownload } from '@/components/story-download';
-import { useStoryCopy } from '@/hooks/use-story-copy';
+import { StoryChatButton } from '@/components/story-chat-button';
+import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
+import {
+	ShareButton,
+	StoryCertifyMenuItem,
+	StoryDuplicateMenuItem,
+	StoryFavoriteMenuItem,
+	StoryFavoritedButton,
+	StoryFeedbackButtons,
+} from '@/components/story-header-actions';
+import { describeViewedVersion, StoryVersionNav } from '@/components/story-version-nav';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -34,21 +47,23 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
-import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
-import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
-import { trpc } from '@/main';
+import { requestAsk } from '@/stores/ask-bar';
 
 interface LiveControls {
 	isLive: boolean;
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
 	isRefreshing?: boolean;
+	canRefresh?: boolean;
 	isUpdating?: boolean;
 	onRefresh?: () => void;
-	/** When provided, the live state can be toggled (owner). Otherwise the badge is read-only. */
+	/** When provided, clicking the badge opens settings. Otherwise the badge is read-only. */
 	onOpenSettings?: () => void;
+	/** Viewers of a shared story get the live actions in the actions menu instead of the header badge. */
+	isInActionsMenu?: boolean;
+	onManageNotifications?: () => void;
 }
 
 export interface StoryRefreshFailure {
@@ -56,16 +71,7 @@ export interface StoryRefreshFailure {
 	failedAt: string | Date;
 }
 
-interface DownloadConfig {
-	chatId?: string;
-	storySlug?: string;
-	storyId?: string;
-	shareId?: string;
-	isOwner?: boolean;
-	versionNumber?: number;
-}
-
-interface ViewModeControls {
+interface ClassicViewModeControls {
 	viewMode: StoryViewMode;
 	onViewModeChange: (mode: StoryViewMode) => void;
 	canEdit?: boolean;
@@ -75,25 +81,32 @@ interface ViewModeControls {
 	onSave?: () => void;
 	onCancel?: () => void;
 	isSaving?: boolean;
+	saveError?: string | null;
+	isEditLocked?: boolean;
 }
+
+type ViewModeControls = ClassicViewModeControls | CustomStoryViewModeControls;
 
 interface VersionControls {
 	currentVersion: number;
-	totalVersions: number;
+	versions: StoryVersionEntry[];
+	versionDate?: string | Date | null;
 	isViewingLatest: boolean;
-	onPrevious: () => void;
-	onNext: () => void;
-	onRestore: () => void;
+	onSelectVersion: (version: number) => void;
+	onRestore?: () => void;
+	isRestoreDisabled?: boolean;
 }
 
 export interface StoryPageHeaderProps {
 	title: string;
 	authorName?: string;
-	openChatLabel?: string;
-	onOpenChat?: () => void;
-	isOpeningChat?: boolean;
+	storyChat?: StoryChatControls;
+	/** Offers to copy the story into a new standalone story of the user. */
+	canDuplicate?: boolean;
+	/** The version the copy is made from; the latest one when omitted. */
+	viewedVersionNumber?: number;
 	live?: LiveControls;
-	download?: DownloadConfig;
+	download?: StoryDownloadOptions;
 	storyId?: string | null;
 	canRename?: boolean;
 	isShared?: boolean;
@@ -101,14 +114,15 @@ export interface StoryPageHeaderProps {
 	onOpenAnalytics?: () => void;
 	viewModeControls?: ViewModeControls;
 	versionControls?: VersionControls;
+	elementSelection?: CustomStoryElementSelection;
 }
 
 export function StoryPageHeader({
 	title,
 	authorName,
-	openChatLabel = 'Open chat',
-	onOpenChat,
-	isOpeningChat = false,
+	storyChat,
+	canDuplicate = false,
+	viewedVersionNumber,
 	live,
 	download,
 	storyId,
@@ -118,13 +132,11 @@ export function StoryPageHeader({
 	onOpenAnalytics,
 	viewModeControls,
 	versionControls,
+	elementSelection,
 }: StoryPageHeaderProps) {
-	useKeyboardShortcuts({
-		'toggle-story-chat': onOpenChat && !isOpeningChat ? onOpenChat : undefined,
-	});
+	const liveMenu = live?.isLive && live.isInActionsMenu ? live : undefined;
+	const showActionsMenu = (download && canDownloadStory(download)) || !!storyId || !!onOpenAnalytics || !!liveMenu;
 
-	const { canCopy, copyStory, isCopying, error: copyError } = useStoryCopy(download ?? { isOwner: false });
-	const showCopy = !!download && canCopy;
 	return (
 		<div className='shrink-0'>
 			<header className='flex items-center gap-2 border-b bg-background px-4 py-2.5 md:px-6'>
@@ -133,149 +145,101 @@ export function StoryPageHeader({
 					title={title}
 					canEdit={canRename}
 					heading='h1'
-					className='min-w-0 max-w-full truncate text-base font-medium'
+					className='min-w-20 max-w-full truncate text-base font-medium'
 					inputClassName='text-base font-medium'
 				/>
-				{authorName && <span className='shrink-0 text-sm text-muted-foreground'>by {authorName}</span>}
-
-				{versionControls && <VersionNav controls={versionControls} />}
+				{authorName && (
+					<span className='hidden shrink-0 text-sm text-muted-foreground sm:inline'>by {authorName}</span>
+				)}
 
 				<div className='ml-auto flex shrink-0 items-center gap-2'>
+					{versionControls && (
+						<StoryVersionNav
+							storyId={storyId}
+							currentVersion={versionControls.currentVersion}
+							versions={versionControls.versions}
+							onSelectVersion={versionControls.onSelectVersion}
+							onOpenQuickQuestion={storyChat?.canChat ? (chatId) => requestAsk({ chatId }) : undefined}
+						/>
+					)}
 					{viewModeControls && <ViewModeToggle controls={viewModeControls} />}
 
-					{onOpenChat && (
-						<Tooltip>
-							<TooltipTrigger asChild>
+					{storyChat && <StoryChatButton {...storyChat} />}
+
+					{live && !live.isInActionsMenu && <LiveStoryControls live={live} />}
+					{liveMenu?.cachedAt && <LiveStoryTimestamp cachedAt={liveMenu.cachedAt} />}
+
+					{storyId && <StoryFeedbackButtons storyId={storyId} />}
+
+					{storyId && <StoryFavoritedButton storyId={storyId} />}
+
+					{onShare && <ShareButton isShared={isShared} onShare={onShare} />}
+
+					{elementSelection && <ElementSelectionToggle {...elementSelection} />}
+
+					{showActionsMenu && (
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
 								<Button
-									variant='outline'
-									size='sm'
-									className='gap-1.5 rounded-full text-xs'
-									onClick={onOpenChat}
-									disabled={isOpeningChat}
+									variant='ghost'
+									size='icon-sm'
+									className='hover:rounded-full'
+									aria-label='More actions'
 								>
-									{isOpeningChat ? (
-										<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-									) : (
-										<MessageSquare className='size-3.5' strokeWidth={2.25} />
-									)}
-									<span>{openChatLabel}</span>
+									<Ellipsis className='size-3.5' strokeWidth={2.25} />
 								</Button>
-							</TooltipTrigger>
-							<TooltipContent>
-								<span className='flex items-center gap-2'>
-									{openChatLabel}
-									<kbd className='text-[10px] opacity-60 font-sans'>
-										{getShortcutLabel('toggle-story-chat')}
-									</kbd>
-								</span>
-							</TooltipContent>
-						</Tooltip>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align='end' className='w-auto min-w-20'>
+								{download && <StoryDownloadMenu {...download} />}
+								{storyId && <StoryCertifyMenuItem storyId={storyId} />}
+								{storyId && <StoryFavoriteMenuItem storyId={storyId} />}
+								{onOpenAnalytics && (
+									<DropdownMenuItem onSelect={onOpenAnalytics}>
+										<Info strokeWidth={2.25} />
+										<span>Analytics</span>
+									</DropdownMenuItem>
+								)}
+								{liveMenu && <LiveStoryMenuItems live={liveMenu} />}
+								{canDuplicate && storyId && (
+									<StoryDuplicateMenuItem storyId={storyId} versionNumber={viewedVersionNumber} />
+								)}
+							</DropdownMenuContent>
+						</DropdownMenu>
 					)}
-
-					{live && <LiveStoryControls live={live} />}
-
-					<div>
-						{download && <StoryDownload iconOnly {...download} />}
-
-						{storyId && <FavoriteButton storyId={storyId} />}
-
-						{(onShare || showCopy || onOpenAnalytics) && (
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<Button
-										variant='ghost'
-										size='icon-sm'
-										className='hover:rounded-full'
-										aria-label='More actions'
-									>
-										<Ellipsis className='size-3.5' strokeWidth={2.25} />
-									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align='end' className='w-auto min-w-20'>
-									{onShare && (
-										<DropdownMenuItem onSelect={onShare}>
-											{isShared ? (
-												<Globe className='text-primary' strokeWidth={2.25} />
-											) : (
-												<Upload strokeWidth={2.25} />
-											)}
-											<span>Share</span>
-										</DropdownMenuItem>
-									)}
-									{showCopy && (
-										<DropdownMenuItem onSelect={() => void copyStory()} disabled={isCopying}>
-											<Copy strokeWidth={2.25} />
-											<span>Copy</span>
-										</DropdownMenuItem>
-									)}
-
-									{onOpenAnalytics && (
-										<DropdownMenuItem onSelect={onOpenAnalytics}>
-											<ScanText className='size-3' />
-											<span>Analytics</span>
-										</DropdownMenuItem>
-									)}
-								</DropdownMenuContent>
-							</DropdownMenu>
-						)}
-					</div>
 				</div>
 			</header>
 
-			{copyError && (
-				<p role='alert' className='border-b bg-destructive/10 px-4 py-2 text-xs text-destructive'>
-					{copyError}
-				</p>
+			{live?.lastRefreshFailure && (
+				<StoryRefreshFailureBanner failure={live.lastRefreshFailure} isRetrying={live.isRefreshing} />
 			)}
-			{live?.lastRefreshFailure && <StoryRefreshFailureBanner failure={live.lastRefreshFailure} />}
 			<StorySubHeader viewModeControls={viewModeControls} versionControls={versionControls} />
 		</div>
 	);
 }
 
-function VersionNav({ controls }: { controls: VersionControls }) {
-	if (controls.totalVersions <= 1) {
-		return null;
+function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
+	if (isCustomStoryViewModeControls(controls)) {
+		return <CustomStoryViewModeToggle {...controls} />;
 	}
 
-	return (
-		<div className='flex shrink-0 items-center gap-1'>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full'
-				onClick={controls.onPrevious}
-				disabled={controls.currentVersion <= 1}
-				aria-label='Previous version'
-			>
-				<ChevronLeft className='size-3' strokeWidth={2.25} />
-			</Button>
-			<span className='min-w-6 text-center text-xs text-muted-foreground tabular-nums'>
-				{controls.currentVersion}/{controls.totalVersions}
-			</span>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full'
-				onClick={controls.onNext}
-				disabled={controls.currentVersion >= controls.totalVersions}
-				aria-label='Next version'
-			>
-				<ChevronRight className='size-3' strokeWidth={2.25} />
-			</Button>
-		</div>
-	);
-}
-
-function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
-	const { viewMode, onViewModeChange, canEdit = false, isAgentRunning = false, isSaving = false } = controls;
+	const {
+		viewMode,
+		onViewModeChange,
+		canEdit = false,
+		isAgentRunning = false,
+		isSaving = false,
+		isEditLocked = false,
+	} = controls;
 
 	return (
 		<div className='flex items-center gap-1.5 rounded-full border p-0.5'>
 			<Button
 				variant='ghost'
-				size='icon-xs'
-				className={cn(viewMode === 'preview' && 'bg-accent rounded-full', 'hover:rounded-full')}
+				className={cn(
+					'size-5.5 px-2',
+					viewMode === 'preview' && 'bg-accent rounded-full',
+					'hover:rounded-full',
+				)}
 				onClick={() => onViewModeChange('preview')}
 				disabled={isSaving}
 				aria-label='Preview'
@@ -285,10 +249,13 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 			{canEdit && (
 				<Button
 					variant='ghost'
-					size='icon-xs'
-					className={cn(viewMode === 'edit' && 'bg-accent rounded-full', 'hover:rounded-full')}
+					className={cn(
+						'size-5.5 px-2',
+						viewMode === 'edit' && 'bg-accent rounded-full',
+						'hover:rounded-full',
+					)}
 					onClick={() => onViewModeChange('edit')}
-					disabled={isAgentRunning || isSaving}
+					disabled={isAgentRunning || isSaving || isEditLocked}
 					aria-label='Edit'
 				>
 					<Pencil className='size-3' strokeWidth={2.25} />
@@ -296,8 +263,7 @@ function ViewModeToggle({ controls }: { controls: ViewModeControls }) {
 			)}
 			<Button
 				variant='ghost'
-				size='icon-xs'
-				className={cn(viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
+				className={cn('size-5.5 px-2', viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
 				onClick={() => onViewModeChange('code')}
 				disabled={isSaving}
 				aria-label='Code'
@@ -315,18 +281,28 @@ function StorySubHeader({
 	viewModeControls?: ViewModeControls;
 	versionControls?: VersionControls;
 }) {
-	const viewMode = viewModeControls?.viewMode ?? 'preview';
-	const isCodeDirty = viewModeControls?.isCodeDirty ?? false;
+	const classicControls =
+		viewModeControls && !isCustomStoryViewModeControls(viewModeControls) ? viewModeControls : undefined;
+	const viewMode = classicControls?.viewMode ?? 'preview';
+	const isCodeDirty = classicControls?.isCodeDirty ?? false;
 	const isEditing = viewMode === 'edit' || (viewMode === 'code' && isCodeDirty);
 
-	if (viewModeControls && isEditing) {
-		const { onViewModeChange, onCancel, isCodeValid = true, onSave, isSaving = false } = viewModeControls;
+	if (classicControls && isEditing) {
+		const { onViewModeChange, onCancel, isCodeValid = true, onSave, isSaving = false, saveError } = classicControls;
 		const isEditingCode = viewMode === 'code' && isCodeDirty;
 		return (
-			<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2 md:px-6'>
-				<span className='text-xs text-muted-foreground'>
-					{viewMode === 'edit' ? 'Editing' : isCodeValid ? 'Editing code' : 'Fix validation errors to save'}
-				</span>
+			<div className='flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2 md:px-6'>
+				{saveError ? (
+					<SaveErrorAlert message={saveError} />
+				) : (
+					<span className='text-xs text-muted-foreground'>
+						{viewMode === 'edit'
+							? 'Editing'
+							: isCodeValid
+								? 'Editing code'
+								: 'Fix validation errors to save'}
+					</span>
+				)}
 				<div className='flex items-center gap-2'>
 					<Button
 						variant='outline'
@@ -354,15 +330,28 @@ function StorySubHeader({
 	}
 
 	if (versionControls && !versionControls.isViewingLatest) {
+		const restoreError = classicControls?.saveError;
 		return (
 			<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2 md:px-6'>
-				<span className='text-xs text-muted-foreground'>
-					Viewing v{versionControls.currentVersion} of {versionControls.totalVersions}
-				</span>
-				<Button variant='outline' size='sm' onClick={versionControls.onRestore} className='gap-1.5'>
-					<RotateCcw className='size-3' strokeWidth={2.25} />
-					<span>Restore</span>
-				</Button>
+				{restoreError ? (
+					<SaveErrorAlert message={restoreError} />
+				) : (
+					<span className='text-xs text-muted-foreground'>
+						{describeViewedVersion(versionControls.versionDate, versionControls.currentVersion)}
+					</span>
+				)}
+				{versionControls.onRestore && (
+					<Button
+						variant='outline'
+						size='sm'
+						onClick={versionControls.onRestore}
+						disabled={versionControls.isRestoreDisabled}
+						className='gap-1.5 rounded-full'
+					>
+						<RotateCcw className='size-3' strokeWidth={2.25} />
+						<span>Restore</span>
+					</Button>
+				)}
 			</div>
 		);
 	}
@@ -370,8 +359,29 @@ function StorySubHeader({
 	return null;
 }
 
+function SaveErrorAlert({ message }: { message: string }) {
+	return (
+		<span role='alert' className='flex items-center gap-1.5 text-xs text-destructive'>
+			<CircleAlert className='size-3.5 shrink-0' />
+			{message}
+		</span>
+	);
+}
+
+function isCustomStoryViewModeControls(controls: ViewModeControls): controls is CustomStoryViewModeControls {
+	return isCustomStoryViewMode(controls.viewMode);
+}
+
 function LiveStoryControls({ live }: { live: LiveControls }) {
-	const { isLive, cachedAt, isRefreshing = false, isUpdating = false, onRefresh, onOpenSettings } = live;
+	const {
+		isLive,
+		cachedAt,
+		isRefreshing = false,
+		canRefresh = Boolean(live.onRefresh),
+		isUpdating = false,
+		onRefresh,
+		onOpenSettings,
+	} = live;
 
 	if (!onOpenSettings) {
 		if (!isLive) {
@@ -390,7 +400,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					<TooltipContent>Live story</TooltipContent>
 				</Tooltip>
 				{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-				{onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+				{canRefresh && onRefresh && <StoryRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 			</>
 		);
 	}
@@ -422,25 +432,53 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					</span>
 				</TooltipTrigger>
 				<TooltipContent>
-					{isUpdating ? 'Updating...' : isLive ? 'Live story settings' : 'Enable live mode'}
+					{isLive ? (isUpdating ? 'Updating...' : 'Live story settings') : 'Enable live mode'}
 				</TooltipContent>
 			</Tooltip>
 			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-			{isLive && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+			{isLive && canRefresh && onRefresh && (
+				<StoryRefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />
+			)}
 		</>
 	);
 }
 
-function RefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onRefresh: () => void }) {
+function LiveStoryMenuItems({ live }: { live: LiveControls }) {
+	const { isRefreshing = false, canRefresh = Boolean(live.onRefresh), onRefresh, onManageNotifications } = live;
+
+	return (
+		<>
+			{onManageNotifications && (
+				<DropdownMenuItem onSelect={onManageNotifications}>
+					<Mail strokeWidth={2.25} />
+					<span>Notifications</span>
+				</DropdownMenuItem>
+			)}
+			{canRefresh && onRefresh && (
+				<DropdownMenuItem onSelect={onRefresh} disabled={isRefreshing}>
+					{isRefreshing ? (
+						<Loader2 className='animate-spin' strokeWidth={2.25} />
+					) : (
+						<RefreshCw strokeWidth={2.25} />
+					)}
+					<span>{isRefreshing ? 'Refreshing…' : 'Refresh data'}</span>
+				</DropdownMenuItem>
+			)}
+		</>
+	);
+}
+
+/** Stays hoverable while refreshing (no `disabled`) so its tooltip can say the refresh is in progress. */
+export function StoryRefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onRefresh: () => void }) {
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<Button
 					variant='ghost'
 					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={onRefresh}
-					disabled={isRefreshing}
+					className='hover:rounded-full aria-disabled:cursor-default'
+					onClick={isRefreshing ? undefined : onRefresh}
+					aria-disabled={isRefreshing}
 					aria-label='Refresh data'
 				>
 					{isRefreshing ? (
@@ -450,34 +488,7 @@ function RefreshButton({ isRefreshing, onRefresh }: { isRefreshing: boolean; onR
 					)}
 				</Button>
 			</TooltipTrigger>
-			<TooltipContent>Refresh data</TooltipContent>
-		</Tooltip>
-	);
-}
-
-function FavoriteButton({ storyId }: { storyId: string }) {
-	const { toggle: toggleFavorite, isPending } = useToggleFavorite('story');
-	const { data: favorites } = useQuery(trpc.favorite.list.queryOptions());
-	const isFavorited = favorites?.storyIds.includes(storyId) ?? false;
-
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={() => toggleFavorite(storyId)}
-					disabled={isPending}
-					aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-				>
-					<Star
-						className={cn('size-3.5', isFavorited && 'fill-foreground text-foreground')}
-						strokeWidth={2.25}
-					/>
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</TooltipContent>
+			<TooltipContent>{isRefreshing ? 'Story is refreshing' : 'Refresh data'}</TooltipContent>
 		</Tooltip>
 	);
 }
@@ -498,18 +509,30 @@ export function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
 	);
 }
 
-export function StoryRefreshFailureBanner({ failure }: { failure: StoryRefreshFailure }) {
+export function StoryRefreshFailureBanner({
+	failure,
+	isRetrying = false,
+}: {
+	failure: StoryRefreshFailure;
+	isRetrying?: boolean;
+}) {
 	const failedAt = new Date(failure.failedAt);
 	const timeAgo = useTimeAgo(failedAt.getTime());
 
 	return (
 		<div
-			role='alert'
+			role={isRetrying ? 'status' : 'alert'}
 			className='flex items-start gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive md:px-6'
 		>
-			<CircleAlert className='mt-0.5 size-3.5 shrink-0' />
+			{isRetrying ? (
+				<Loader2 className='mt-0.5 size-3.5 shrink-0 animate-spin' />
+			) : (
+				<CircleAlert className='mt-0.5 size-3.5 shrink-0' />
+			)}
 			<div className='min-w-0'>
-				<span className='font-medium'>Story refresh failed.</span>{' '}
+				<span className='font-medium'>
+					{isRetrying ? 'Retrying story refresh… Last attempt failed:' : 'Story refresh failed.'}
+				</span>{' '}
 				<span className='break-words'>{failure.errorMessage}</span>
 				<span className='ml-1 opacity-70' title={failedAt.toLocaleString()}>
 					{timeAgo.humanReadable}

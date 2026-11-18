@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from cyclopts import Parameter
 from rich.console import Console
+from rich.markup import escape
 
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.templates.render import render_all_templates
@@ -72,7 +73,11 @@ def sync(
     """
     console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
 
-    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
+    # Sync only reads the provider sections it runs (databases, repos, notion,
+    # confluence, obsidian): an integration block that fails validation — typically an unset
+    # env('...') secret for llm or slack — is dropped with a warning instead of
+    # failing a run that never touches it.
+    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True, drop_invalid_optional_sections=True)
     assert config is not None  # Help type checker after exit_on_error=True
 
     project_path = Path.cwd()
@@ -90,7 +95,7 @@ def sync(
         try:
             active_providers = get_providers_by_names(provider)
         except ValueError as e:
-            console.print(f"[red]Error:[/red] {e}")
+            console.print(f"[red]Error:[/red] {escape(str(e))}")
             sys.exit(1)
     elif _providers is not None:
         active_providers = _providers
@@ -137,7 +142,9 @@ def sync(
         except Exception as e:
             # Capture error but continue with other providers
             results.append(SyncResult.from_error(sync_provider.name, e))
-            console.print(f"  [yellow]⚠[/yellow] {sync_provider.emoji} {sync_provider.name}: [red]{e}[/red]")
+            console.print(
+                f"  [yellow]⚠[/yellow] {sync_provider.emoji} {sync_provider.name}: [red]{escape(str(e))}[/red]"
+            )
 
     # Render user Jinja templates
     template_result = None
@@ -176,7 +183,7 @@ def sync(
         has_results = True
         console.print("\n  [bold red]Errors:[/bold red]")
         for result in failed_results:
-            console.print(f"    [red]•[/red] {result.provider_name}: {result.error}")
+            console.print(f"    [red]•[/red] {result.provider_name}: {escape(result.error or '')}")
 
     if not has_results:
         console.print("  [dim]Nothing to sync[/dim]")

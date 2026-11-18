@@ -4,6 +4,7 @@ layer(base);
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './styles.animations.css';
+@import './styles.custom-story-thumbnail.css';
 @source "../../../node_modules/streamdown/dist/*.js";
 @source "../../../node_modules/@streamdown/math/dist/*.js";
 @source "../../../node_modules/@streamdown/code/dist/*.js";
@@ -80,6 +81,16 @@ body {
 	@apply m-0 h-full overflow-hidden;
 }
 
+/* Menus and dialogs lock scrolling by making the body relative; when it only becomes so then, Safari redraws the page and icons on fractional pixels shift. */
+body {
+	position: relative;
+}
+
+/* Safari clips icon strokes that touch the viewBox edge when the icon lands on a fractional pixel. */
+svg.lucide {
+	overflow: visible;
+}
+
 html.nao-embed {
 	color-scheme: light;
 	background-color: var(--panel);
@@ -138,6 +149,11 @@ body {
 	-moz-osx-font-smoothing: grayscale;
 }
 
+/* Recharts sizes axis ticks with this span; an inherited body line-height makes labels look taller and get skipped. */
+#recharts_measurement_span {
+	line-height: normal;
+}
+
 code {
 	font-family: var(--font-mono);
 	font-size: 0.75rem;
@@ -187,6 +203,10 @@ code.dollar:before {
 	--color-chart-6: var(--chart-6);
 	--color-chart-7: var(--chart-7);
 	--color-chart-8: var(--chart-8);
+	--color-chart-9: var(--chart-9);
+	--color-chart-10: var(--chart-10);
+	--color-chart-11: var(--chart-11);
+	--color-chart-12: var(--chart-12);
 	--color-sidebar: var(--sidebar);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar-primary: var(--sidebar-primary);
@@ -242,6 +262,10 @@ code.dollar:before {
 	--chart-6: oklch(0.704 0.191 22.216);
 	--chart-7: oklch(0.58 0.22 295);
 	--chart-8: oklch(0.52 0.18 265);
+	--chart-9: oklch(0.62 0.18 145);
+	--chart-10: oklch(0.65 0.19 335);
+	--chart-11: oklch(0.68 0.15 210);
+	--chart-12: oklch(0.6 0.15 115);
 
 	--sidebar: oklch(0.99 0 0);
 	--sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -292,6 +316,10 @@ code.dollar:before {
 	--chart-6: oklch(0.76 0.19 22.216);
 	--chart-7: oklch(0.72 0.22 295);
 	--chart-8: oklch(0.68 0.18 265);
+	--chart-9: oklch(0.72 0.18 145);
+	--chart-10: oklch(0.74 0.18 335);
+	--chart-11: oklch(0.78 0.14 210);
+	--chart-12: oklch(0.76 0.15 115);
 }
 
 @layer base {
@@ -447,12 +475,159 @@ code.dollar:before {
 	background-color: rgb(250 204 21 / 20%);
 }
 
+.cited-code-lines {
+	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.cited-markdown-lines {
+	background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+	animation: cited-markdown-lines-fade 2s ease-in forwards;
+}
+
+@keyframes cited-markdown-lines-fade {
+	0%,
+	70% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+.code-query-link {
+	text-decoration: underline;
+	cursor: pointer;
+}
+
 ::highlight(nao-file-preview-search-match) {
 	background-color: rgb(245 158 11 / 18%);
 }
 
 .dark ::highlight(nao-file-preview-search-match) {
 	background-color: rgb(250 204 21 / 20%);
+}
+
+/* Markdown file editor: matches the read-only Markdown preview */
+
+.markdown-file-editor .tiptap {
+	@apply min-h-full text-sm leading-relaxed outline-none;
+}
+
+.markdown-file-editor .tiptap > * + * {
+	margin-top: 0.75em;
+}
+
+.markdown-file-editor .tiptap h1,
+.markdown-file-editor .tiptap h2 {
+	@apply mt-6 mb-2 font-semibold;
+	font-size: 20px;
+}
+
+.markdown-file-editor .tiptap h3,
+.markdown-file-editor .tiptap h4,
+.markdown-file-editor .tiptap h5,
+.markdown-file-editor .tiptap h6 {
+	@apply mt-6 mb-2 font-semibold;
+	font-size: 18px;
+}
+
+.markdown-file-editor .tiptap > :first-child {
+	margin-top: 0;
+}
+
+.markdown-file-editor .tiptap ul {
+	@apply list-disc pl-6;
+}
+
+.markdown-file-editor .tiptap ol {
+	@apply list-decimal pl-6;
+}
+
+.markdown-file-editor .tiptap li > p {
+	margin-top: 0;
+}
+
+.markdown-file-editor .tiptap blockquote {
+	@apply border-l-4 pl-4 italic text-muted-foreground;
+}
+
+.markdown-file-editor .tiptap code {
+	@apply rounded bg-muted px-1.5 py-0.5 font-mono text-sm;
+}
+
+.markdown-file-editor .tiptap pre {
+	@apply overflow-x-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs;
+}
+
+.markdown-file-editor .tiptap pre code {
+	@apply bg-transparent p-0;
+}
+
+.markdown-file-editor .tiptap hr {
+	@apply my-6 border-border;
+}
+
+.markdown-file-editor .tiptap strong {
+	@apply font-semibold;
+}
+
+.markdown-file-editor .tiptap a {
+	@apply text-primary underline underline-offset-2;
+}
+
+.markdown-file-editor .tiptap table {
+	@apply w-full border-collapse border border-border;
+}
+
+.markdown-file-editor .tiptap th,
+.markdown-file-editor .tiptap td {
+	@apply border border-border px-3 py-1.5 text-left align-top;
+}
+
+.markdown-file-editor .tiptap th {
+	@apply bg-muted/40 font-semibold;
+}
+
+.markdown-file-editor .tiptap .selectedCell {
+	@apply bg-primary/10;
+}
+
+/* Rendered Markdown diff */
+
+.markdown-rendered-diff .markdown-diff-added {
+	background-color: color-mix(in oklab, var(--color-emerald-500) 22%, transparent);
+	border-radius: 2px;
+}
+
+.markdown-rendered-diff .markdown-diff-added-block {
+	background-color: color-mix(in oklab, var(--color-emerald-500) 8%, transparent);
+	box-shadow: inset 3px 0 var(--color-emerald-500);
+	padding-left: 0.75rem;
+	border-radius: 2px;
+}
+
+.markdown-rendered-diff .markdown-diff-added-block .markdown-diff-added {
+	background-color: transparent;
+}
+
+.markdown-rendered-diff .markdown-diff-removed {
+	background-color: color-mix(in oklab, var(--color-red-500) 18%, transparent);
+	color: var(--color-red-700);
+	text-decoration-color: color-mix(in oklab, var(--color-red-500) 70%, transparent);
+	border-radius: 2px;
+	white-space: pre-wrap;
+}
+
+.dark .markdown-rendered-diff .markdown-diff-removed {
+	color: var(--color-red-300);
+}
+
+.markdown-rendered-diff .markdown-diff-removed-block {
+	display: block;
+	margin-top: 0.75em;
+	padding: 0.25rem 0.75rem;
+	background-color: color-mix(in oklab, var(--color-red-500) 8%, transparent);
+	box-shadow: inset 3px 0 var(--color-red-500);
 }
 
 /* Tiptap story editor */
@@ -581,6 +756,17 @@ code.dollar:before {
 	overscroll-behavior: contain;
 }
 
+.prompt-input,
+.message-content {
+	unicode-bidi: plaintext;
+	text-align: start;
+}
+
+.nao-input-grow .prompt-input {
+	min-height: var(--prompt-min-height);
+	max-height: var(--prompt-max-height, none);
+}
+
 /* Mention pills: outlined chip, matching the "Share chat" button */
 .prompt-container .mention-pill,
 .message-container .mention-pill {
@@ -593,6 +779,13 @@ code.dollar:before {
 	box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
+/* The library fades a hovered pill, which promotes it to its own layer and makes the input border redraw */
+.prompt-container .mention-pill:hover,
+.message-container .mention-pill:hover {
+	opacity: 1;
+	background: var(--accent);
+}
+
 .prompt-container .mention-pill-with-icon,
 .message-container .mention-pill-with-icon {
 	padding-left: 1.75rem;
@@ -603,6 +796,21 @@ code.dollar:before {
 	left: 0.5rem;
 	width: 0.75rem;
 	height: 0.75rem;
+}
+
+/* The icon and the delete cross swap in place on hover, so both take the exact box of the icon */
+.prompt-container .mention-pill-icon-original,
+.message-container .mention-pill-icon-original,
+.prompt-container .mention-pill .mention-pill-icon svg,
+.message-container .mention-pill .mention-pill-icon svg {
+	width: 0.75rem;
+	height: 0.75rem;
+}
+
+/* Fading the icons promotes them to their own layer, which rounds them to other pixels and makes them jump */
+.prompt-container .mention-pill-icon-original,
+.prompt-container .mention-pill-icon-delete {
+	transition: none;
 }
 
 .dark .mention-pill {
@@ -629,6 +837,15 @@ code.dollar:before {
 	align-items: center;
 	column-gap: calc(var(--spacing) * 1.5);
 	row-gap: calc(var(--spacing) * 0.25);
+}
+
+.mention-menu .mention-menu-item-has-children {
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-areas: 'icon label chevron';
+}
+
+.mention-menu .mention-menu-chevron {
+	grid-area: chevron;
 }
 
 .mention-menu .mention-menu-item-icon {
@@ -665,6 +882,18 @@ code.dollar:before {
 	outline: 2px solid var(--primary);
 	outline-offset: 2px;
 	animation: replay-highlight-pulse 2s ease-out forwards;
+}
+
+.chat-artifact-reveal-highlight {
+	@apply rounded-lg;
+	outline: 1px solid var(--primary);
+	outline-offset: 2px;
+	animation: replay-highlight-pulse 2s ease-out forwards;
+}
+
+/* A collapsible clips what overflows it, so the outline is drawn on the tool call's own edge there. */
+[data-slot='accordion-content'] .chat-artifact-reveal-highlight {
+	outline-offset: -1px;
 }
 
 @keyframes replay-highlight-pulse {
@@ -902,4 +1131,135 @@ code.dollar:before {
 		stroke-dasharray: none;
 		stroke-dashoffset: 0;
 	}
+}
+
+.sql-query-display code,
+.assistant-markdown [data-streamdown='code-block-body'] code {
+	background: transparent;
+	border-radius: 0;
+	padding: 0;
+}
+
+/* Right-to-left messages (Hebrew, Arabic…): mirror Streamdown's physical spacing, keep code left-to-right. */
+[dir='rtl'] [data-streamdown='blockquote'] {
+	border-left-width: 0;
+	border-right-width: 4px;
+	padding-left: 0;
+	padding-right: calc(var(--spacing) * 4);
+}
+
+[dir='rtl'] [data-streamdown='list-item'] :is([data-streamdown='ordered-list'], [data-streamdown='unordered-list']) {
+	padding-left: 0;
+	padding-right: calc(var(--spacing) * 6);
+}
+
+[dir='rtl'] [data-streamdown='table-header-cell'] {
+	text-align: right;
+}
+
+[dir='rtl'] :is([data-streamdown='code-block'], [data-streamdown='mermaid-block'], .katex-display) {
+	direction: ltr;
+}
+
+/*
+ * Custom story theme. Most slots land through the existing tokens that
+ * StoryThemeProvider overrides on its wrapper; these rules cover the slots
+ * with no token to ride on. Scoped to the wrapper, so nothing outside a
+ * themed custom story is affected.
+ */
+[data-story-themed='true'] {
+	font-family: var(--font-sans);
+	color: var(--foreground);
+}
+
+/* Type voice per role (faces, weights, case, sizes) comes from the brand styles StoryThemeProvider injects. */
+[data-story-themed='true'] :is(p, li) {
+	color: var(--story-body-color, var(--foreground));
+	line-height: var(--story-line-height, 1.6);
+}
+
+[data-story-themed='true'] :is(table, th, td) {
+	font-family: var(--font-sans);
+}
+
+[data-story-themed='true'] .recharts-cartesian-grid line[stroke='#ccc'] {
+	stroke: var(--chart-grid);
+}
+
+[data-story-themed='true'] .story-block {
+	background: var(--card);
+	border: var(--story-block-border-width, 0px) solid var(--border);
+	border-radius: var(--story-block-radius, var(--radius));
+	padding: 1rem;
+	overflow: hidden;
+}
+
+[data-story-themed='true'] .story-block.story-map-block {
+	overflow: visible;
+}
+
+/* Tables ride on the background / panel / border tokens, re-pointed to the table slots inside the frame. */
+[data-story-themed='true'] .story-table {
+	--background: var(--story-table-bg);
+	--panel: var(--story-table-header-bg);
+	--border: var(--story-table-border);
+}
+
+[data-story-themed='true'] .story-table [data-slot='data-table-card'] {
+	background: var(--background);
+	border-width: var(--story-table-border-width, 1px);
+	border-radius: var(--story-block-radius, var(--radius));
+}
+
+[data-story-themed='true'] .story-table thead th {
+	color: var(--story-table-header-fg);
+}
+
+[data-story-table-striped='true'] .story-table tbody tr:nth-child(even) {
+	background: color-mix(in srgb, var(--story-table-header-bg) 50%, var(--story-table-bg));
+}
+
+/* Chart editor source table: a flat header on the page background so highlighted columns read as one band. */
+.chart-editor-table .nao-table-display__scroll {
+	border-top: 0;
+}
+
+.chart-editor-table thead {
+	background: var(--background);
+	border-bottom: 0;
+}
+
+.chart-editor-table th {
+	color: var(--muted-foreground);
+	box-shadow: inset 0 -1px 0 0 var(--border);
+}
+
+.chart-editor-table td {
+	box-shadow: none;
+}
+
+.chart-editor-table th[aria-sort='ascending'],
+.chart-editor-table th[aria-sort='descending'] {
+	color: var(--foreground);
+}
+
+.chart-editor-table .nao-table-display__index {
+	background: var(--background);
+}
+
+.chart-editor-table td.nao-table-display__index span {
+	color: var(--muted-foreground);
+	font-weight: 400;
+}
+
+.chart-editor-table .nao-table-display__sort {
+	opacity: 0;
+	transition: opacity 150ms;
+}
+
+.chart-editor-table th:hover .nao-table-display__sort,
+.chart-editor-table th:focus-within .nao-table-display__sort,
+.chart-editor-table th[aria-sort='ascending'] .nao-table-display__sort,
+.chart-editor-table th[aria-sort='descending'] .nao-table-display__sort {
+	opacity: 1;
 }

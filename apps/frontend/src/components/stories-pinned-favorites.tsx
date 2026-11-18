@@ -240,7 +240,7 @@ function PromotedItem({
 }
 
 function entryKey(entry: FavoriteEntry): string {
-	return entry.kind === 'story' ? `story-${entry.story.id}` : `folder-${entry.folder.id}`;
+	return entry.kind === 'story' ? `story-${entry.story.storyId}` : `folder-${entry.folder.id}`;
 }
 
 function SectionHeader({ label, collapsed, onToggle }: { label: string; collapsed: boolean; onToggle: () => void }) {

@@ -1,0 +1,1 @@
+ALTER TABLE `organization` ADD `bypass_billing` integer DEFAULT false NOT NULL;

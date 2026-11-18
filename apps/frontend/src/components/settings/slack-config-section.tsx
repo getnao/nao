@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil, Trash2 } from 'lucide-react';
 import { SlackForm } from './slack-form';
 import { Button } from '@/components/ui/button';
+import { Callout } from '@/components/ui/callout';
 import { CopyableUrl } from '@/components/ui/copyable-url';
 import { FormError } from '@/components/ui/form-fields';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -31,6 +32,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
 	const transportMode = projectConfig?.transportMode ?? 'webhook';
 	const replyMode = projectConfig?.replyMode ?? 'thread';
+	const dmThreadsEnabled = projectConfig?.dmThreadsEnabled ?? false;
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -46,6 +48,7 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 	const upsertSlackConfig = useMutation(trpc.project.upsertSlackConfig.mutationOptions());
 	const updateSlackModel = useMutation(trpc.project.updateSlackModelConfig.mutationOptions());
 	const updateSlackReplyMode = useMutation(trpc.project.updateSlackReplyMode.mutationOptions());
+	const updateSlackDmThreads = useMutation(trpc.project.updateSlackDmThreads.mutationOptions());
 	const deleteSlackConfig = useMutation(trpc.project.deleteSlackConfig.mutationOptions());
 
 	const handleSubmit = async (values: {
@@ -112,6 +115,17 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 		[queryClient, updateSlackReplyMode],
 	);
 
+	const handleDmThreadsChange = (enabled: boolean) => {
+		updateSlackDmThreads.mutate(
+			{ enabled },
+			{
+				onSuccess: () => {
+					void queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+				},
+			},
+		);
+	};
+
 	if (!isAdmin) {
 		return (
 			<SettingsCard title='Connection' description='Your Slack app credentials'>
@@ -165,6 +179,21 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 
 	return (
 		<div className='flex flex-col gap-6'>
+			{projectConfig.dmScopeMissing && (
+				<Callout variant='warning'>
+					The Slack app needs to be reinstalled to apply new permissions, then update the bot token above.{' '}
+					<a
+						href='https://api.slack.com/apps'
+						target='_blank'
+						rel='noopener noreferrer'
+						className='inline-flex items-center gap-1 underline hover:text-foreground'
+					>
+						Reinstall the app
+						<ExternalLink className='size-3' />
+					</a>
+				</Callout>
+			)}
+
 			<SettingsCard title='Connection' description='Your Slack app credentials'>
 				<div className='flex items-center gap-4'>
 					<div className='flex-1 grid gap-1'>
@@ -237,6 +266,19 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 								checked={replyMode === 'mention'}
 								onCheckedChange={handleReplyModeChange}
 								disabled={updateSlackReplyMode.isPending}
+							/>
+						}
+					/>
+					<SettingsControlRow
+						id='slack-dm-threads'
+						label='Start a new thread for each direct message'
+						description='When enabled, every message sent to nao in a direct message starts its own chat and nao answers in a thread, like in channels.'
+						control={
+							<Switch
+								id='slack-dm-threads'
+								checked={dmThreadsEnabled}
+								onCheckedChange={handleDmThreadsChange}
+								disabled={updateSlackDmThreads.isPending}
 							/>
 						}
 					/>

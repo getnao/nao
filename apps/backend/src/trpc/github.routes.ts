@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import * as githubService from '../services/github';
@@ -13,8 +12,21 @@ import {
 	getProjectNameFromPath,
 	readProjectNameFromConfig,
 	replaceExistingProject,
-} from '../utils/project-import.utils';
-import { adminProtectedProcedure, contextAdminProtectedProcedure, protectedProcedure } from './trpc';
+} from '../services/project-import.service';
+import {
+	getSharedGithubTokenStatus,
+	readSharedGithubToken,
+	removeSharedGithubToken,
+	saveSharedGithubToken,
+} from '../services/shared-github-token.service';
+import {
+	cloudBillingAdminProcedure,
+	cloudBillingProjectImportProcedure,
+	contextAdminProtectedProcedure,
+	protectedProcedure,
+} from './trpc';
+
+const repositoryPageSchema = z.object({ page: z.number().default(1), search: z.string().optional() });
 
 export const githubRoutes = {
 	isAvailable: protectedProcedure.query(() => {
@@ -39,25 +51,39 @@ export const githubRoutes = {
 		await userQueries.updateGithubToken(ctx.user.id, null);
 	}),
 
-	listRepos: protectedProcedure
-		.input(z.object({ page: z.number().default(1), search: z.string().optional() }))
-		.query(async ({ ctx, input }) => {
-			const token = await userQueries.getGithubToken(ctx.user.id);
-			if (!token) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub is not connected' });
-			}
+	listRepos: protectedProcedure.input(repositoryPageSchema).query(async ({ ctx, input }) => {
+		const token = await userQueries.getGithubToken(ctx.user.id);
+		if (!token) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub is not connected' });
+		}
+		return listRepositoryPage(token, input);
+	}),
 
-			try {
-				return await githubService.listRepos(token, { page: input.page, search: input.search });
-			} catch (err) {
-				throw new TRPCError({
-					code: 'INTERNAL_SERVER_ERROR',
-					message: err instanceof Error ? err.message : 'Failed to list repos',
-				});
-			}
+	getSharedAccessToken: contextAdminProtectedProcedure.query(({ ctx }) => {
+		return getSharedGithubTokenStatus(ctx.project.id);
+	}),
+
+	saveSharedAccessToken: cloudBillingAdminProcedure
+		.input(z.object({ token: z.string().trim().min(1, 'Paste an access token.') }))
+		.mutation(({ ctx, input }) => {
+			return saveSharedGithubToken(ctx.project.id, input.token);
 		}),
 
-	createProjectFromRepo: protectedProcedure
+	removeSharedAccessToken: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
+		await removeSharedGithubToken(ctx.project.id);
+	}),
+
+	listSharedAccessTokenRepos: contextAdminProtectedProcedure
+		.input(repositoryPageSchema)
+		.query(async ({ ctx, input }) => {
+			const token = await readSharedGithubToken(ctx.project.id);
+			if (!token) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No shared GitHub access token is saved.' });
+			}
+			return listRepositoryPage(token, input);
+		}),
+
+	createProjectFromRepo: cloudBillingProjectImportProcedure
 		.input(
 			z.object({
 				repoFullName: z.string(),
@@ -71,11 +97,6 @@ export const githubRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub is not connected' });
 			}
 
-			const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
-			if (!membership) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
-			}
-
 			const cloneDir = createTempProjectDir('github-import');
 			try {
 				try {
@@ -87,7 +108,7 @@ export const githubRoutes = {
 					});
 				}
 
-				const orgId = membership.orgId;
+				const orgId = ctx.organization.id;
 				const projectName =
 					input.projectName ||
 					readProjectNameFromConfig(cloneDir) ||
@@ -106,6 +127,7 @@ export const githubRoutes = {
 						sourceDir: cloneDir,
 						project: existing,
 						projectName,
+						userId: ctx.user.id,
 					});
 				}
 
@@ -113,6 +135,7 @@ export const githubRoutes = {
 					sourceDir: cloneDir,
 					projectName,
 					orgId,
+					userId: ctx.user.id,
 				});
 			} finally {
 				try {
@@ -130,7 +153,7 @@ export const githubRoutes = {
 		return githubService.getGitInfo(ctx.project.path);
 	}),
 
-	unlinkProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
+	unlinkProject: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
 		}
@@ -151,3 +174,14 @@ export const githubRoutes = {
 		}
 	}),
 };
+
+async function listRepositoryPage(token: string, input: z.infer<typeof repositoryPageSchema>) {
+	try {
+		return await githubService.listRepos(token, { page: input.page, search: input.search });
+	} catch (err) {
+		throw new TRPCError({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: err instanceof Error ? err.message : 'Failed to list repos',
+		});
+	}
+}

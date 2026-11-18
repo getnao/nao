@@ -18,8 +18,8 @@ const SSO_OPTIONS = [
 		description: 'Let users sign in with their Microsoft work account.',
 	},
 	{
-		label: 'Roles managed by your identity provider',
-		description: 'Assign nao roles from groups in your identity provider.',
+		label: 'Organization roles managed by your identity provider',
+		description: 'Assign organization roles from groups in your identity provider.',
 	},
 ] as const;
 
@@ -32,6 +32,10 @@ export function SsoSettingsSection() {
 	});
 	const microsoftSetup = useQuery({
 		...trpc.authConfig.microsoft.isSetup.queryOptions(),
+		enabled: isSsoEnabled,
+	});
+	const ssoStatus = useQuery({
+		...trpc.authConfig.sso.getStatus.queryOptions(),
 		enabled: isSsoEnabled,
 	});
 
@@ -79,10 +83,12 @@ export function SsoSettingsSection() {
 							description={SSO_OPTIONS[2].description}
 							control={
 								<QueryStatusBadge
-									active={oidcConfig.data?.rolesManagedByIdp === true}
-									isLoading={oidcConfig.isLoading}
-									isError={oidcConfig.isError}
-									inactiveLabel={oidcConfig.data ? 'Not enabled' : 'Not configured'}
+									active={ssoStatus.data?.organizationRolesManagedByIdp === true}
+									isLoading={ssoStatus.isLoading}
+									isError={ssoStatus.isError}
+									inactiveLabel={
+										oidcConfig.data || microsoftSetup.data ? 'Not enabled' : 'Not configured'
+									}
 								/>
 							}
 						/>

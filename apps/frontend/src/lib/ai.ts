@@ -10,15 +10,27 @@ import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
 import type { ImageUploadData } from '@nao/shared/attachments';
 import type { ToolCallDensity } from '@nao/shared/types';
-import type { GroupablePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
+import type {
+	GroupablePart,
+	ToolGroupPart,
+	QueryGroupPart,
+	StoryStatusPart,
+	StoryQueryGroupPart,
+	GroupedMessagePart,
+	MessageGroup,
+} from '@/types/ai';
 import type { DynamicToolName } from '@/components/tool-calls';
+import { getStoryToolPartSlug } from '@/lib/story.utils';
 
 /** The ID used for new chats not yet persisted to the db. */
 export const NEW_CHAT_ID = 'new-chat';
 
-/** Check if a tool has reached its final state (no more actions needed). */
-export const isToolSettled = ({ state }: UIToolPart) => {
-	return state === 'output-available' || state === 'output-denied' || state === 'output-error';
+/** Check if a tool has reached its final state (no more actions needed). A preliminary output is streamed progress, not a final state. */
+export const isToolSettled = (part: UIToolPart) => {
+	if (part.state === 'output-available') {
+		return part.preliminary !== true;
+	}
+	return part.state === 'output-denied' || part.state === 'output-error';
 };
 
 /** Check if a message part is a tool part (static or dynamic). */
@@ -58,7 +70,11 @@ export const checkIsSomeToolsExecuting = (messages: UIMessage[]) => {
 	if (!lastMessage) {
 		return false;
 	}
-	return lastMessage.parts.some((part) => isToolUIPart(part) && part.state === 'input-available');
+	return lastMessage.parts.some((part) => isToolUIPart(part) && isToolExecuting(part));
+};
+
+const isToolExecuting = (part: UIToolPart) => {
+	return part.state === 'input-available' || (part.state === 'output-available' && part.preliminary === true);
 };
 
 export const isMessageStreaming = (message: UIMessage) => {
@@ -75,35 +91,112 @@ export const checkIsAgentRunning = (agent: Pick<UseChatHelpers<UIMessage>, 'stat
 
 /** Tools that should NOT be collapsed (important UI elements), per density setting. */
 const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName | DynamicToolName)[]> = {
-	compact: ['story', 'display_chart', 'display_map', 'suggest_follow_ups', 'clarification'],
+	compact: [
+		'story',
+		'display_chart',
+		'display_map',
+		'suggest_follow_ups',
+		'clarification',
+		'onboarding_agent_prompt',
+		'onboarding_command',
+		'request_warehouse_credentials',
+		'request_warehouse_selection',
+		'wait_for_warehouse_setup',
+		'retry_warehouse_setup',
+		'generate_onboarding_rules',
+		'restart_onboarding',
+	],
 	detailed: [
 		'story',
+		'task',
 		'execute_sql',
+		'execute_semantic_query',
 		'query_app_db',
 		'record_recommendation',
 		'display_chart',
 		'display_map',
 		'suggest_follow_ups',
 		'clarification',
-		'execute_python',
+		'onboarding_agent_prompt',
+		'onboarding_command',
+		'codemode',
 		'execute_sandboxed_code',
+		'request_warehouse_credentials',
+		'request_warehouse_selection',
+		'wait_for_warehouse_setup',
+		'retry_warehouse_setup',
+		'generate_onboarding_rules',
+		'restart_onboarding',
 	],
 };
 
 /** Check if a part is a reasoning part */
-export const isReasoningPart = (part: UIMessagePart): part is ReasoningUIPart => {
+export const isReasoningPart = (part: GroupedMessagePart): part is ReasoningUIPart => {
 	return part.type === 'reasoning';
+};
+
+const QUERY_TOOL_NAMES: string[] = ['execute_sql', 'execute_semantic_query'];
+
+export const isQueryToolPart = (part: GroupedMessagePart): part is UIToolPart => {
+	return isMessagePart(part) && isToolUIPart(part) && QUERY_TOOL_NAMES.includes(getToolName(part));
+};
+
+const isStoryToolPart = (part: GroupedMessagePart): part is UIToolPart<'story'> => {
+	return part.type === 'tool-story';
+};
+
+/** Claude returns the note it writes before a tool call as a reasoning part; the backend tags it so it counts as readable content. */
+export const isProgressUpdatePart = (part: UIMessagePart): part is ReasoningUIPart => {
+	return isReasoningPart(part) && part.providerMetadata?.anthropic?.progressUpdate === true;
 };
 
 export const isToolGroupPart = (part: GroupedMessagePart): part is ToolGroupPart => {
 	return part.type === 'tool-group';
 };
 
+export const isQueryGroupPart = (part: GroupedMessagePart): part is QueryGroupPart => {
+	return part.type === 'query-group';
+};
+
+export const isStoryStatusPart = (part: GroupedMessagePart): part is StoryStatusPart => {
+	return part.type === 'story-status';
+};
+
+export const isStoryQueryGroupPart = (part: GroupedMessagePart): part is StoryQueryGroupPart => {
+	return part.type === 'story-query-group';
+};
+
+const isGroupPart = (part: GroupedMessagePart): part is ToolGroupPart | QueryGroupPart | StoryQueryGroupPart => {
+	return isToolGroupPart(part) || isQueryGroupPart(part) || isStoryQueryGroupPart(part);
+};
+
+/** A part the message carries as-is, rather than one derived while grouping. */
+const isMessagePart = (part: GroupedMessagePart): part is UIMessagePart => {
+	return !isGroupPart(part) && !isStoryStatusPart(part);
+};
+
 export const areGroupedMessagePartsEqual = (left: GroupedMessagePart, right: GroupedMessagePart): boolean => {
-	if (isToolGroupPart(left) || isToolGroupPart(right)) {
+	if (isStoryQueryGroupPart(left) || isStoryQueryGroupPart(right)) {
 		return (
-			isToolGroupPart(left) && isToolGroupPart(right) && areGroupedMessagePartArraysEqual(left.parts, right.parts)
+			isStoryQueryGroupPart(left) &&
+			isStoryQueryGroupPart(right) &&
+			areGroupedMessagePartArraysEqual(left.parts, right.parts)
 		);
+	}
+
+	if (isGroupPart(left) || isGroupPart(right)) {
+		return (
+			isGroupPart(left) &&
+			isGroupPart(right) &&
+			left.type === right.type &&
+			'parts' in left &&
+			'parts' in right &&
+			areGroupedMessagePartArraysEqual(left.parts, right.parts)
+		);
+	}
+
+	if (isStoryStatusPart(left) || isStoryStatusPart(right)) {
+		return isStoryStatusPart(left) && isStoryStatusPart(right) && areToolPartsEqual(left.part, right.part);
 	}
 
 	if (isToolUIPart(left) || isToolUIPart(right)) {
@@ -149,7 +242,10 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 		}
 	};
 
-	for (const part of parts) {
+	for (const [index, part] of parts.entries()) {
+		if (isSettledEmptyReasoning(part) || isProgressUpdateShownAsText(part, parts[index + 1])) {
+			continue;
+		}
 		if (isPartGroupable(part, density)) {
 			currentGroup.push(part);
 		} else if (
@@ -164,7 +260,183 @@ export const groupToolCalls = (parts: UIMessagePart[], density: ToolCallDensity 
 	}
 
 	flushGroup();
+	return groupAdjacentStoryQueries(collapseSupersededStoryActions(groupConsecutiveQueries(result)));
+};
+
+/** Several queries in a row read as one step rather than a stack of cards. */
+const groupConsecutiveQueries = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
+	const result: GroupedMessagePart[] = [];
+	let index = 0;
+
+	while (index < parts.length) {
+		const part = parts[index];
+		if (!isQueryToolPart(part)) {
+			result.push(part);
+			index++;
+			continue;
+		}
+
+		const { run, end } = collectQueryRun(parts, index);
+		if (run.filter(isQueryToolPart).length > 1) {
+			result.push({ type: 'query-group', parts: run });
+		} else {
+			result.push(...run);
+		}
+		index = end;
+	}
+
 	return result;
+};
+
+const collectQueryRun = (parts: GroupedMessagePart[], start: number): { run: GroupablePart[]; end: number } => {
+	const run: GroupablePart[] = [];
+	let pendingReasoning: ReasoningUIPart[] = [];
+	let end = start;
+
+	for (let index = start; index < parts.length; index++) {
+		const part = parts[index];
+		const reasoningParts = getReasoningParts(part);
+		if (isQueryToolPart(part)) {
+			run.push(...pendingReasoning, part);
+			pendingReasoning = [];
+			end = index + 1;
+		} else if (reasoningParts) {
+			pendingReasoning.push(...reasoningParts);
+		} else {
+			break;
+		}
+	}
+
+	return { run, end };
+};
+
+/** Several notes in a row arrive already wrapped in a tool group, which should not break a run of queries. */
+const getReasoningParts = (part: GroupedMessagePart): ReasoningUIPart[] | null => {
+	if (isReasoningPart(part)) {
+		return [part];
+	}
+	if (isToolGroupPart(part) && part.parts.every(isReasoningPart)) {
+		return part.parts.filter(isReasoningPart);
+	}
+	return null;
+};
+
+/** Several actions on one story read as one artifact: only the latest keeps its card, earlier ones become status lines. */
+const collapseSupersededStoryActions = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
+	const storyKeys = getStoryKeys(parts);
+	const latestIndexByStory = new Map<string, number>();
+	for (const [index, storyKey] of storyKeys.entries()) {
+		if (storyKey) {
+			latestIndexByStory.set(storyKey, index);
+		}
+	}
+
+	return parts.map((part, index) => {
+		const storyKey = storyKeys[index];
+		if (!isStoryToolPart(part) || !storyKey || latestIndexByStory.get(storyKey) === index) {
+			return part;
+		}
+		return { type: 'story-status', part };
+	});
+};
+
+/**
+ * Stories of other chats may share a slug, so story calls are told apart by story id.
+ * A call that reached no story, such as a failed create, falls back on its slug.
+ */
+const getStoryKeys = (parts: GroupedMessagePart[]): (string | undefined)[] => {
+	const storyIdBySlug = new Map<string, string>();
+	for (const part of parts) {
+		if (isStoryToolPart(part) && part.output?.story_id) {
+			storyIdBySlug.set(part.output.id, part.output.story_id);
+		}
+	}
+
+	return parts.map((part) => {
+		if (!isStoryToolPart(part)) {
+			return undefined;
+		}
+		const slug = getStoryToolPartSlug(part);
+		return part.output?.story_id ?? (slug && (storyIdBySlug.get(slug) ?? slug));
+	});
+};
+
+const groupAdjacentStoryQueries = (parts: GroupedMessagePart[]): GroupedMessagePart[] => {
+	const result: GroupedMessagePart[] = [];
+	let index = 0;
+
+	while (index < parts.length) {
+		const part = parts[index];
+		if (isStoryActivityPart(part)) {
+			const { run, end, hasStoryStatus, queryCount } = collectStoryActivityRun(parts, index);
+			const storyStatusCount = run.filter(isStoryStatusPart).length;
+			if (hasStoryStatus && (queryCount > 0 || storyStatusCount > 1)) {
+				result.push({ type: 'story-query-group', parts: run });
+			} else {
+				result.push(...parts.slice(index, end));
+			}
+			index = end;
+			continue;
+		}
+
+		result.push(part);
+		index++;
+	}
+
+	return result;
+};
+
+const collectStoryActivityRun = (
+	parts: GroupedMessagePart[],
+	start: number,
+): { run: (GroupablePart | StoryStatusPart)[]; end: number; hasStoryStatus: boolean; queryCount: number } => {
+	const run: (GroupablePart | StoryStatusPart)[] = [];
+	let hasStoryStatus = false;
+	let queryCount = 0;
+	let end = start;
+
+	for (let index = start; index < parts.length; index++) {
+		const part = parts[index];
+		if (!isStoryActivityPart(part)) {
+			break;
+		}
+
+		if (isStoryStatusPart(part)) {
+			run.push(part);
+			hasStoryStatus = true;
+		} else {
+			const queryParts = getQueryCollectionParts(part);
+			run.push(...queryParts);
+			queryCount += queryParts.filter(isQueryToolPart).length;
+		}
+		end = index + 1;
+	}
+
+	return { run, end, hasStoryStatus, queryCount };
+};
+
+const isStoryActivityPart = (
+	part: GroupedMessagePart | undefined,
+): part is StoryStatusPart | QueryGroupPart | UIToolPart => {
+	return !!part && (isStoryStatusPart(part) || isQueryCollectionPart(part));
+};
+
+const isQueryCollectionPart = (part: GroupedMessagePart | undefined): part is QueryGroupPart | UIToolPart => {
+	return !!part && (isQueryGroupPart(part) || isQueryToolPart(part));
+};
+
+const getQueryCollectionParts = (part: QueryGroupPart | UIToolPart): GroupablePart[] => {
+	return isQueryGroupPart(part) ? part.parts : [part];
+};
+
+/** Some providers emit reasoning parts without any readable text (redacted or encrypted reasoning). */
+const isSettledEmptyReasoning = (part: UIMessagePart): boolean => {
+	return isReasoningPart(part) && part.state !== 'streaming' && part.text.trim() === '';
+};
+
+/** Older messages repeat the note Claude wrote before `suggest_follow_ups` as the visible answer, which makes the note redundant. */
+const isProgressUpdateShownAsText = (part: UIMessagePart, next: UIMessagePart | undefined): boolean => {
+	return isProgressUpdatePart(part) && next?.type === 'text' && next.text.trim() === part.text.trim();
 };
 
 /** Check if a message part should be collapsed (tool or reasoning) */
@@ -275,7 +547,8 @@ const isPlainObject = (value: object): value is Record<string, unknown> => {
 export const getLastFollowUpSuggestionsToolCall = (
 	messages: UIMessage[],
 ): UIToolPart<'suggest_follow_ups'> | undefined => {
-	const followUpSuggestionsToolCallPart = messages.at(-1)?.parts.find((p) => p.type === 'tool-suggest_follow_ups');
+	const lastMessageParts = [...(messages.at(-1)?.parts ?? [])].reverse();
+	const followUpSuggestionsToolCallPart = lastMessageParts.find((p) => p.type === 'tool-suggest_follow_ups');
 	if (!followUpSuggestionsToolCallPart) {
 		return undefined;
 	}
@@ -287,6 +560,12 @@ export const getMessageText = (message: UIMessage): string => {
 		.filter((part) => part.type === 'text')
 		.map((part) => part.text)
 		.join('\n');
+};
+
+export const ONBOARDING_CONTEXT_REQUEST_PREFIX = '[internal:onboarding-context-request]';
+
+export const isOnboardingContextRequestMessage = (message: UIMessage): boolean => {
+	return message.role === 'user' && getMessageText(message).startsWith(ONBOARDING_CONTEXT_REQUEST_PREFIX);
 };
 
 export const getMessageImages = (message: UIMessage): { url: string; mediaType: string }[] => {
@@ -442,19 +721,86 @@ export const checkAssistantMessageHasContent = (message: UIMessage): boolean => 
 		(part) =>
 			part.type !== 'step-start' &&
 			part.type !== 'tool-suggest_follow_ups' &&
-			part.type !== 'reasoning' &&
+			(part.type !== 'reasoning' || isProgressUpdatePart(part)) &&
 			part.type !== 'data-newChat' &&
 			part.type !== 'data-newUserMessage',
 	);
 };
 
 export function parseBudgetError(error: Error | undefined): string | null {
+	return parseCodedError(error, 'BUDGET_EXCEEDED');
+}
+
+type ManagedCreditsError = {
+	message: string;
+	requiredBalanceMicroUsd: number;
+};
+
+export function parseManagedCreditsError(error: Error | undefined): ManagedCreditsError | null {
+	const message = parseCodedError(error, 'MANAGED_CREDITS_EXHAUSTED');
+	const payload = parseErrorPayload(error);
+	if (
+		!message ||
+		!payload ||
+		!Number.isSafeInteger(payload.requiredBalanceMicroUsd) ||
+		(payload.requiredBalanceMicroUsd as number) <= 0
+	) {
+		return null;
+	}
+	return {
+		message,
+		requiredBalanceMicroUsd: payload.requiredBalanceMicroUsd as number,
+	};
+}
+
+export function hasManagedCreditsForRequest(
+	balanceMicroUsd: number | undefined,
+	requiredBalanceMicroUsd: number,
+): boolean {
+	return balanceMicroUsd !== undefined && balanceMicroUsd >= requiredBalanceMicroUsd;
+}
+
+export type ChatAllowanceExhaustedScope = 'example' | 'onboarding';
+
+export function parseChatAllowanceExhaustedError(error: Error | undefined): ChatAllowanceExhaustedScope | null {
+	if (parseCodedError(error, 'EXAMPLE_CHAT_ALLOWANCE_EXHAUSTED')) {
+		return 'example';
+	}
+	if (parseCodedError(error, 'ONBOARDING_CHAT_ALLOWANCE_EXHAUSTED')) {
+		return 'onboarding';
+	}
+	return null;
+}
+
+export function usesChatAllowance(hasProject: boolean, mode: string | undefined): boolean {
+	return !hasProject || mode === 'example' || mode === 'onboarding';
+}
+
+const ONBOARDING_COMPLETE_ERROR = 'Onboarding conversations are unavailable after project setup';
+
+export function isOnboardingCompleteError(error: Error | undefined): boolean {
+	return error?.message.includes(ONBOARDING_COMPLETE_ERROR) === true;
+}
+
+function parseCodedError(error: Error | undefined, code: string): string | null {
+	const parsed = parseErrorPayload(error);
+	if (!error || parsed?.code !== code) {
+		return null;
+	}
+	return typeof parsed.error === 'string'
+		? parsed.error
+		: typeof parsed.message === 'string'
+			? parsed.message
+			: error.message;
+}
+
+function parseErrorPayload(error: Error | undefined): Record<string, unknown> | null {
 	if (!error) {
 		return null;
 	}
 	try {
-		const parsed = JSON.parse(error.message);
-		return parsed.code === 'BUDGET_EXCEEDED' ? (parsed.error ?? parsed.message ?? error.message) : null;
+		const parsed: unknown = JSON.parse(error.message);
+		return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
 	} catch {
 		return null;
 	}

@@ -44,6 +44,18 @@ export const saveImages = async (
 		.execute();
 };
 
+export const listChatsReferencingImage = async (
+	imageId: string,
+): Promise<Array<{ chatId: string; projectId: string }>> => {
+	return db
+		.selectDistinct({ chatId: s.chat.id, projectId: s.chat.projectId })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(and(eq(s.messagePart.imageId, imageId), isNull(s.chat.deletedAt)))
+		.execute();
+};
+
 export const getImageById = async (id: string): Promise<{ data: string; mediaType: string } | undefined> => {
 	const [row] = await db
 		.select({ data: s.messageImage.data, mediaType: s.messageImage.mediaType })

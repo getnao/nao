@@ -3,8 +3,19 @@ import { CronExpressionParser } from 'cron-parser';
 import type { DBScheduledJob } from '../db/abstractSchema';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import { logger, serializeError } from '../utils/logger';
+import { hasProjectCloudBillingAccess } from './cloud-billing-access.service';
 
 export type JobHandler<T = unknown> = (payload: T, job: DBScheduledJob) => Promise<void>;
+export type ProjectIdResolver<T = unknown> = (payload: T) => string | null | Promise<string | null>;
+
+interface JobRegistration<T = unknown> {
+	handler: JobHandler<T>;
+	resolveProjectId?: ProjectIdResolver<T>;
+}
+
+interface RegisterJobOptions<T> {
+	resolveProjectId?: ProjectIdResolver<T>;
+}
 
 const POLL_INTERVAL_MS = 30_000;
 const RECLAIM_INTERVAL_MS = 60_000;
@@ -12,15 +23,22 @@ const LEASE_DURATION_MS = 10 * 60_000;
 const CLAIM_BATCH_SIZE = 10;
 const RETRY_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
-const handlers = new Map<string, JobHandler>();
+const handlers = new Map<string, JobRegistration>();
 const instanceId = `worker-${crypto.randomUUID().slice(0, 8)}`;
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let reclaimTimer: ReturnType<typeof setInterval> | null = null;
-let pollInFlight = false;
+let activePoll: Promise<void> | null = null;
 
-export function registerJob<T = unknown>(name: string, handler: JobHandler<T>): void {
-	handlers.set(name, handler as JobHandler);
+export function registerJob<T = unknown>(
+	name: string,
+	handler: JobHandler<T>,
+	options: RegisterJobOptions<T> = {},
+): void {
+	handlers.set(name, {
+		handler: handler as JobHandler,
+		resolveProjectId: options.resolveProjectId as ProjectIdResolver | undefined,
+	});
 }
 
 export interface EnsureRecurringInput {
@@ -90,18 +108,27 @@ export function stopScheduler(): void {
 	}
 }
 
-async function runPoll(): Promise<void> {
-	if (pollInFlight) {
-		return;
+export async function __resetSchedulerForTesting(): Promise<void> {
+	stopScheduler();
+	await activePoll;
+	handlers.clear();
+}
+
+function runPoll(): Promise<void> {
+	if (!activePoll) {
+		activePoll = executePoll().finally(() => {
+			activePoll = null;
+		});
 	}
-	pollInFlight = true;
+	return activePoll;
+}
+
+async function executePoll(): Promise<void> {
 	try {
 		const jobs = await scheduledJobQueries.claimDueJobs(new Date(), CLAIM_BATCH_SIZE, instanceId);
 		await Promise.all(jobs.map((job) => executeJob(job)));
 	} catch (err) {
 		logger.error('Scheduler poll failed', { source: 'system', context: serializeError(err) });
-	} finally {
-		pollInFlight = false;
 	}
 }
 
@@ -117,10 +144,15 @@ async function runReclaim(): Promise<void> {
 }
 
 async function executeJob(job: DBScheduledJob): Promise<void> {
-	const handler = handlers.get(job.name);
-	if (!handler) {
-		await scheduledJobQueries.markJobFailed(job.id, `No handler registered for '${job.name}'`, null);
-		logger.error(`Scheduler dropped job '${job.name}': no handler registered`, {
+	const registration = handlers.get(job.name);
+	if (!registration) {
+		const canRetry = job.attempts < job.maxAttempts;
+		await scheduledJobQueries.markJobFailed(
+			job.id,
+			`No handler registered for '${job.name}'`,
+			canRetry ? new Date(Date.now() + RECLAIM_INTERVAL_MS) : null,
+		);
+		logger.warn(`Scheduler ${canRetry ? 'deferred' : 'dropped'} job '${job.name}': no handler registered`, {
 			source: 'system',
 			context: { jobId: job.id, name: job.name },
 		});
@@ -128,7 +160,17 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 	}
 
 	try {
-		await handler(job.payload ?? {}, job);
+		const payload = job.payload ?? {};
+		const projectId = await registration.resolveProjectId?.(payload);
+		if (projectId && !(await hasProjectCloudBillingAccess(projectId))) {
+			logger.info(`Scheduler skipped job '${job.name}': cloud billing access is restricted`, {
+				source: 'system',
+				context: { jobId: job.id, name: job.name, projectId },
+			});
+			await onJobSuccess(job);
+			return;
+		}
+		await registration.handler(payload, job);
 		await onJobSuccess(job);
 	} catch (err) {
 		await onJobFailure(job, err);
@@ -136,16 +178,19 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 }
 
 async function onJobSuccess(job: DBScheduledJob): Promise<void> {
-	if (!job.cron) {
-		await scheduledJobQueries.deleteJob(job.id);
+	// Re-read the row: the cron may have been edited (or the job promoted to one-off)
+	// while it was running, and the next run must reflect the current definition.
+	const current = (await scheduledJobQueries.getJobById(job.id)) ?? job;
+	if (!current.cron) {
+		await scheduledJobQueries.deleteJob(current.id);
 		return;
 	}
-	const next = nextCronTick(job.cron, new Date());
+	const next = nextCronTick(current.cron, new Date());
 	if (!next) {
-		await scheduledJobQueries.markJobFailed(job.id, `Cron expression became invalid: ${job.cron}`, null);
+		await scheduledJobQueries.markJobFailed(current.id, `Cron expression became invalid: ${current.cron}`, null);
 		return;
 	}
-	await scheduledJobQueries.rescheduleJob(job.id, next);
+	await scheduledJobQueries.rescheduleJob(current.id, next);
 }
 
 async function onJobFailure(job: DBScheduledJob, err: unknown): Promise<void> {
@@ -156,8 +201,9 @@ async function onJobFailure(job: DBScheduledJob, err: unknown): Promise<void> {
 	});
 
 	if (job.attempts >= job.maxAttempts) {
-		if (job.cron) {
-			const next = nextCronTick(job.cron, new Date());
+		const cron = (await scheduledJobQueries.getJobById(job.id))?.cron ?? job.cron;
+		if (cron) {
+			const next = nextCronTick(cron, new Date());
 			if (next) {
 				await scheduledJobQueries.rescheduleJob(job.id, next);
 				return;

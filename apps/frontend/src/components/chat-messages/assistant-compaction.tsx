@@ -5,6 +5,7 @@ import { ErrorMessage } from '../ui/error-message';
 import { TextShimmer } from '../ui/text-shimmer';
 import type { CompactionPart } from '@nao/backend/chat';
 import { Expandable } from '@/components/ui/expandable';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export const AssistantCompaction = memo(({ part }: { part?: CompactionPart }) => {
 	const [isExpanded, setIsExpanded] = useState(false);
@@ -19,11 +20,13 @@ export const AssistantCompaction = memo(({ part }: { part?: CompactionPart }) =>
 		<Expandable title={title} expanded={isExpanded} onExpandedChange={setIsExpanded}>
 			<div className='text-muted-foreground markdown-small'>
 				<Conversation className='p-0'>
-					<ConversationContent className='p-0 max-h-[200px]'>
+					<ConversationContent className='p-0' scrollClassName='max-h-[200px]'>
 						{part.error ? (
 							<ErrorMessage message={part.error} />
 						) : (
-							<Streamdown mode='static'>{part.summary}</Streamdown>
+							<Streamdown linkSafety={markdownLinkSafety} dir='auto' mode='static'>
+								{part.summary}
+							</Streamdown>
 						)}
 					</ConversationContent>
 				</Conversation>

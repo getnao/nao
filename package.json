@@ -6,7 +6,7 @@
 	],
 	"packageManager": "npm@11.10.1",
 	"engines": {
-		"node": ">=22.14.0 <23",
+		"node": ">=22.23.4 <23",
 		"npm": "11.10.1"
 	},
 	"scripts": {
@@ -46,10 +46,9 @@
 		"typescript-eslint": "^8.51.0"
 	},
 	"dependencies": {
-		"@boxlite-ai/boxlite": "^0.3.0",
+		"@boxlite-ai/boxlite": "^0.10.0",
 		"@emnapi/core": "^1.9.2",
 		"@emnapi/runtime": "^1.9.2",
-		"@pydantic/monty": "^0.0.7",
 		"@streamdown/code": "^1.1.1",
 		"depd": "^2.0.0"
 	}

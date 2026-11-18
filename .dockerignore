@@ -17,6 +17,8 @@ cli/dist
 .env.*
 *.md
 !cli/README.md
+!skills/write-context-rules/SKILL.md
+!skills/write-context-rules/templates/RULES.md
 
 # IDE
 .vscode

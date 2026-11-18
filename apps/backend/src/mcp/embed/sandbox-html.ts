@@ -1,5 +1,6 @@
 import type { CustomBoundarySet } from '@nao/shared';
 
+import { getActiveThemeForProject } from '../../services/custom-story';
 import type { QueryDataMap } from '../../utils/story-download';
 import { generateStoryHtml } from '../../utils/story-html';
 import { backfillMissingQueryDataForSandbox } from '../../utils/story-query-data';
@@ -30,21 +31,22 @@ export async function buildStorySandboxHtml(params: {
 	chatId?: string | null;
 	userId?: string;
 }): Promise<string | null> {
-	const queryData = await backfillMissingQueryDataForSandbox(params.code, {
-		storyId: params.storyId,
-		chatId: params.chatId,
-		projectId: params.projectId,
-		userId: params.userId,
-	});
+	const [queryData, theme] = await Promise.all([
+		backfillMissingQueryDataForSandbox(params.code, {
+			storyId: params.storyId,
+			chatId: params.chatId,
+			projectId: params.projectId,
+			userId: params.userId,
+		}),
+		getActiveThemeForProject(params.projectId),
+	]);
 	const inner = wrapStoryBodyForMcpHeightMeasure(
 		await generateStoryHtml(
 			{ title: params.title, code: params.code },
 			(queryData as QueryDataMap | null) ?? null,
 			null,
 			undefined,
-			{
-				staticMaps: true,
-			},
+			{ staticMaps: true, theme },
 		),
 	);
 	const withEmbedStyle = injectMcpEmbedRootStyles(inner);

@@ -7,7 +7,9 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import type { BoundarySource } from '@nao/shared';
+import { resolveCssVariableColorHex } from '@/lib/css-color';
 
 interface MapConfigEditDialogProps {
 	open: boolean;
@@ -59,6 +61,10 @@ export function MapConfigEditDialog({
 	const updateRadius = (value: string) => {
 		const parsed = value.trim() === '' ? undefined : Number(value);
 		setDraft((prev) => ({ ...prev, radius: Number.isFinite(parsed) ? parsed : undefined }));
+	};
+
+	const updateColorScale = (scale: displayMap.ColorScale) => {
+		setDraft((prev) => ({ ...prev, color_scale: scale === 'linear' ? undefined : scale }));
 	};
 
 	const isBubble = draft.map_type === 'scatter_bubble';
@@ -162,6 +168,27 @@ export function MapConfigEditDialog({
 						</div>
 					</div>
 
+					{isChoropleth && (
+						<div className='grid gap-2'>
+							<span className='text-sm font-semibold text-foreground'>Scale</span>
+							<Select
+								value={draft.color_scale ?? 'linear'}
+								onValueChange={(value) => updateColorScale(value as displayMap.ColorScale)}
+							>
+								<SelectTrigger size='input' aria-label='Color scale' className='bg-panel'>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{displayMap.ColorScaleEnum.options.map((scale) => (
+										<SelectItem key={scale} value={scale}>
+											{COLOR_SCALE_LABELS[scale]}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					)}
+
 					{error && <p className='text-xs text-destructive'>{error}</p>}
 
 					<DialogFooter>
@@ -188,6 +215,12 @@ export function MapConfigEditDialog({
 		</Dialog>
 	);
 }
+
+const COLOR_SCALE_LABELS: Record<displayMap.ColorScale, string> = {
+	linear: 'Linear',
+	log: 'Logarithmic',
+	quantile: 'Quantile (5 classes)',
+};
 
 const BOUNDARY_KIND_LABELS: Record<BoundarySource['kind'], string> = {
 	builtin: 'Built-in',
@@ -217,25 +250,6 @@ function MarkerPreview({ color, radius }: { color: string; radius: number }) {
 	);
 }
 
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-
 function resolvePrimaryHex(): string {
-	if (typeof document === 'undefined') {
-		return DEFAULT_MARKER_COLOR;
-	}
-	const context = document.createElement('canvas').getContext('2d');
-	const value = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
-	if (!value || !context) {
-		return DEFAULT_MARKER_COLOR;
-	}
-	const sentinel = '#010203';
-	context.fillStyle = sentinel;
-	context.fillStyle = value;
-	if (context.fillStyle === sentinel && value.toLowerCase() !== sentinel) {
-		return DEFAULT_MARKER_COLOR;
-	}
-	context.fillRect(0, 0, 1, 1);
-	const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
-	const hex = `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
-	return HEX_RE.test(hex) ? hex : DEFAULT_MARKER_COLOR;
+	return resolveCssVariableColorHex('--primary', DEFAULT_MARKER_COLOR);
 }

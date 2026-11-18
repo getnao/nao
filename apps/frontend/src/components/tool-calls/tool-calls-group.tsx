@@ -9,6 +9,7 @@ import { ToolGroupProvider } from '@/contexts/tool-group';
 import { isReasoningPart } from '@/lib/ai';
 import { groupMcpToolCalls } from '@/lib/mcp';
 import { useToolGroupSummaryTitle } from '@/hooks/use-tool-group-summary-title';
+import { getToolCallIds, useExpandOnToolCallReveal } from '@/hooks/use-tool-call-reveal';
 
 interface Props {
 	parts: GroupablePart[];
@@ -19,15 +20,17 @@ export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
 	const isLoading = !isSettled;
 	const hasError = parts.some((p) => !isReasoningPart(p) && p.state === 'output-error');
 	const { expandOnError } = useChatView();
-	const [isExpanded, setIsExpanded] = useState(isLoading || (expandOnError && hasError));
+	const [isExpanded, setIsExpanded] = useState(expandOnError && hasError);
 
 	useEffect(() => {
-		if (isLoading || (expandOnError && hasError)) {
+		if (expandOnError && hasError) {
 			setIsExpanded(true);
 		}
-	}, [isLoading, expandOnError, hasError]);
+	}, [expandOnError, hasError]);
 
-	const title = useToolGroupSummaryTitle({ parts, isLoading });
+	useExpandOnToolCallReveal(getToolCallIds(parts), setIsExpanded);
+
+	const title = useToolGroupSummaryTitle({ parts, isLoading, isExpanded });
 	const groupedParts = useMemo(() => groupMcpToolCalls(parts), [parts]);
 
 	return (

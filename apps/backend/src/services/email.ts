@@ -23,8 +23,8 @@ class EmailService {
 		try {
 			this.transporter = nodemailer.createTransport({
 				host: SMTP_HOST,
-				port: Number(SMTP_PORT) || 587,
-				secure: SMTP_SSL === 'true',
+				port: SMTP_PORT,
+				secure: SMTP_SSL,
 				auth: {
 					user: SMTP_USER || SMTP_MAIL_FROM,
 					pass: SMTP_PASSWORD,
@@ -42,7 +42,7 @@ class EmailService {
 		return this.enabled;
 	}
 
-	public async sendEmail(to: string, email: CreatedEmail): Promise<void> {
+	public async sendEmail(to: string, email: CreatedEmail, options: { throwOnError?: boolean } = {}): Promise<void> {
 		if (!this.isEnabled() || !this.transporter) {
 			return;
 		}
@@ -51,12 +51,16 @@ class EmailService {
 			await this.transporter.sendMail({
 				from: env.SMTP_MAIL_FROM,
 				to,
+				replyTo: email.replyTo,
 				subject: email.subject,
 				html: email.html,
 				attachments: email.attachments,
 			});
 		} catch (error) {
 			logger.error(`Failed to send email to ${to}: ${String(error)}`, { source: 'system', context: { to } });
+			if (options.throwOnError) {
+				throw error;
+			}
 		}
 	}
 }

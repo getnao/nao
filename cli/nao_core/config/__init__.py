@@ -25,8 +25,11 @@ from .llm import (
     ProviderAuthConfig,
     ProviderConfig,
 )
+from .metabase import MetabaseConfig
+from .obsidian import ObsidianConfig
 from .slack import SlackConfig
-from .test import ComparisonConfig, TestConfig
+from .tableau import TableauConfig
+from .test import ComparisonConfig, TestConfig, TestModelConfig
 
 __all__ = [
     "NaoConfig",
@@ -52,9 +55,13 @@ __all__ = [
     "ProviderAuthConfig",
     "ProviderConfig",
     "SlackConfig",
+    "MetabaseConfig",
+    "TableauConfig",
     "ConfluenceConfig",
+    "ObsidianConfig",
     "ComparisonConfig",
     "TestConfig",
+    "TestModelConfig",
     "InitError",
     "resolve_project_path",
 ]

@@ -1,0 +1,1 @@
+ALTER TABLE "story_delivery" ADD COLUMN "recipient_group_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;

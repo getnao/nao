@@ -1,21 +1,18 @@
+import { isQueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart, executeSql } from '@nao/shared/tools';
-import { and, asc, desc, eq, inArray, isNull, lte, ne } from 'drizzle-orm';
+import type { NaoEventType } from '@nao/shared/types';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lte, max, ne, type SQL } from 'drizzle-orm';
 
 import s, {
-	type ActivityTrigger,
-	type ChatVisibility,
-	type DBActivity,
 	type DBAutomation,
 	type DBAutomationRun,
 	type DBMessagePart,
 	type DBScheduledJob,
 	type NewAutomation,
 	type NewAutomationRun,
-	type StoryVisibility,
 } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBTransaction } from '../db/db';
 import type { AutomationIntegrationResult } from '../types/automation';
-import { type ListActivityRow, listRecentActivities, type StoryOpenLink } from './activity.queries';
 
 export const automationJobUniqueKey = (automationId: string): string => `automation:${automationId}`;
 const AUTOMATION_RUN_STALE_MS = 30 * 60 * 1_000;
@@ -51,6 +48,83 @@ export const listAutomations = async (projectId: string, userId: string): Promis
 	);
 };
 
+export type AutomationOwner = { id: string; name: string; email: string };
+
+type LatestRunSummary = Pick<AutomationListItem, 'lastRunStatus' | 'lastRunStartedAt'>;
+
+export type ProjectAutomationSummary = Pick<
+	DBAutomation,
+	'id' | 'title' | 'scheduleDescription' | 'webhookEnabled' | 'eventTriggers'
+> &
+	Pick<AutomationWithSchedule, 'cron' | 'enabled'> &
+	LatestRunSummary & {
+		owner: AutomationOwner | null;
+	};
+
+export const listProjectAutomations = async (projectId: string): Promise<ProjectAutomationSummary[]> => {
+	await failStaleAutomationRuns();
+	const rows = await db
+		.select({
+			id: s.automation.id,
+			title: s.automation.title,
+			scheduleDescription: s.automation.scheduleDescription,
+			webhookEnabled: s.automation.webhookEnabled,
+			eventTriggers: s.automation.eventTriggers,
+			cron: s.scheduledJob.cron,
+			scheduledJobStatus: s.scheduledJob.status,
+			owner: { id: s.user.id, name: s.user.name, email: s.user.email },
+		})
+		.from(s.automation)
+		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
+		.leftJoin(s.user, eq(s.user.id, s.automation.userId))
+		.where(eq(s.automation.projectId, projectId))
+		.orderBy(desc(s.automation.updatedAt))
+		.execute();
+
+	const latestRuns = await getLatestRunSummaries(rows.map((row) => row.id));
+	return rows.map(({ cron, scheduledJobStatus, ...row }) => ({
+		...row,
+		cron: cron ?? '',
+		enabled: scheduledJobStatus !== null && scheduledJobStatus !== 'paused',
+		...(latestRuns.get(row.id) ?? { lastRunStatus: null, lastRunStartedAt: null }),
+	}));
+};
+
+async function getLatestRunSummaries(automationIds: string[]): Promise<Map<string, LatestRunSummary>> {
+	if (automationIds.length === 0) {
+		return new Map();
+	}
+	const latestRunStarts = db
+		.select({
+			automationId: s.automationRun.automationId,
+			startedAt: max(s.automationRun.startedAt).as('latest_started_at'),
+		})
+		.from(s.automationRun)
+		.where(inArray(s.automationRun.automationId, automationIds))
+		.groupBy(s.automationRun.automationId)
+		.as('latest_run_starts');
+
+	const runs = await db
+		.select({
+			automationId: s.automationRun.automationId,
+			status: s.automationRun.status,
+			startedAt: s.automationRun.startedAt,
+		})
+		.from(s.automationRun)
+		.innerJoin(
+			latestRunStarts,
+			and(
+				eq(s.automationRun.automationId, latestRunStarts.automationId),
+				eq(s.automationRun.startedAt, latestRunStarts.startedAt),
+			),
+		)
+		.execute();
+
+	return new Map(
+		runs.map((run) => [run.automationId, { lastRunStatus: run.status, lastRunStartedAt: run.startedAt }]),
+	);
+}
+
 async function getLatestRunSummary(
 	automationId: string,
 ): Promise<Pick<AutomationListItem, 'lastRunStatus' | 'lastRunStartedAt'>> {
@@ -85,6 +159,16 @@ export const getAutomation = async (
 	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
 };
 
+export const getProjectAutomation = async (projectId: string, id: string): Promise<AutomationWithSchedule | null> => {
+	const [row] = await db
+		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
+		.from(s.automation)
+		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
+		.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId)))
+		.execute();
+	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
+};
+
 export const getAutomationById = async (id: string): Promise<AutomationWithSchedule | null> => {
 	const [row] = await db
 		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
@@ -93,6 +177,22 @@ export const getAutomationById = async (id: string): Promise<AutomationWithSched
 		.where(eq(s.automation.id, id))
 		.execute();
 	return row ? mapAutomationWithSchedule(row.automation, row.scheduledJob) : null;
+};
+
+/** Event triggers are stored as JSON, so they are filtered here to stay portable across SQLite and Postgres. */
+export const listEventTriggeredAutomations = async (
+	projectId: string,
+	eventType: NaoEventType,
+): Promise<AutomationWithSchedule[]> => {
+	const rows = await db
+		.select({ automation: s.automation, scheduledJob: s.scheduledJob })
+		.from(s.automation)
+		.leftJoin(s.scheduledJob, eq(s.scheduledJob.id, s.automation.scheduledJobId))
+		.where(eq(s.automation.projectId, projectId))
+		.execute();
+	return rows
+		.filter((row) => row.automation.eventTriggers[eventType]?.enabled)
+		.map((row) => mapAutomationWithSchedule(row.automation, row.scheduledJob));
 };
 
 export const createAutomation = async (data: NewAutomation): Promise<DBAutomation> => {
@@ -121,6 +221,7 @@ export const updateAutomation = async (
 			| 'mcpServers'
 			| 'integrations'
 			| 'webhookEnabled'
+			| 'eventTriggers'
 		>
 	>,
 ): Promise<DBAutomation | null> => {
@@ -133,13 +234,53 @@ export const updateAutomation = async (
 	return updated ?? null;
 };
 
+export const setAutomationEventTriggers = async (
+	id: string,
+	triggers: Pick<NewAutomation, 'webhookEnabled' | 'eventTriggers'>,
+): Promise<void> => {
+	await db.update(s.automation).set(triggers).where(eq(s.automation.id, id)).execute();
+};
+
+/** Also hands over the chats of past runs so the new owner can open the run history. */
+export const transferAutomationOwnership = async (id: string, newOwnerId: string): Promise<void> => {
+	await db.transaction((tx) => moveAutomationsToOwner(tx, eq(s.automation.id, id), newOwnerId));
+};
+
+export const transferProjectAutomationsOfUser = async (
+	projectId: string,
+	fromUserId: string,
+	newOwnerId: string,
+): Promise<number> => {
+	const ownedByUser = and(eq(s.automation.projectId, projectId), eq(s.automation.userId, fromUserId));
+	return db.transaction((tx) => moveAutomationsToOwner(tx, ownedByUser, newOwnerId));
+};
+
+export const countProjectAutomationsOfUser = async (projectId: string, userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ count: count() })
+		.from(s.automation)
+		.where(and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.execute();
+	return row?.count ?? 0;
+};
+
 export const deleteAutomation = async (projectId: string, userId: string, id: string): Promise<void> => {
+	await deleteAutomationMatching(
+		and(eq(s.automation.id, id), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)),
+	);
+};
+
+export const deleteProjectAutomation = async (projectId: string, id: string): Promise<void> => {
+	await deleteAutomationMatching(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId)));
+};
+
+async function deleteAutomationMatching(condition: SQL | undefined): Promise<void> {
 	await db.transaction(async (tx) => {
 		const runChats = await tx
 			.select({ chatId: s.automationRun.chatId })
 			.from(s.automationRun)
 			.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
-			.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+			.where(condition)
 			.execute();
 
 		for (const { chatId } of runChats) {
@@ -148,12 +289,9 @@ export const deleteAutomation = async (projectId: string, userId: string, id: st
 			}
 		}
 
-		await tx
-			.delete(s.automation)
-			.where(and(eq(s.automation.id, id), eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
-			.execute();
+		await tx.delete(s.automation).where(condition).execute();
 	});
-};
+}
 
 export const listAutomationRuns = async (
 	projectId: string,
@@ -266,6 +404,42 @@ export const failAutomationRun = async (runId: string, errorMessage: string): Pr
 		.execute();
 };
 
+export const markAutomationRunRead = async (projectId: string, userId: string, runId: string): Promise<boolean> => {
+	const run = await getAutomationRunForUser(projectId, userId, runId);
+	if (!run) {
+		return false;
+	}
+	if (run.readAt) {
+		return true;
+	}
+	await db.update(s.automationRun).set({ readAt: new Date() }).where(eq(s.automationRun.id, runId)).execute();
+	return true;
+};
+
+export const countUnreadAutomationRuns = async (projectId: string, userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ value: count() })
+		.from(s.automationRun)
+		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
+		.where(
+			and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId), isNull(s.automationRun.readAt)),
+		)
+		.execute();
+	return row?.value ?? 0;
+};
+
+export const markAllAutomationRunsRead = async (projectId: string, userId: string): Promise<void> => {
+	const automationIds = db
+		.select({ id: s.automation.id })
+		.from(s.automation)
+		.where(and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)));
+	await db
+		.update(s.automationRun)
+		.set({ readAt: new Date() })
+		.where(and(inArray(s.automationRun.automationId, automationIds), isNull(s.automationRun.readAt)))
+		.execute();
+};
+
 export const getAutomationRunForUser = async (
 	projectId: string,
 	userId: string,
@@ -345,95 +519,22 @@ export type AutomationFeedAutomationItem = {
 		| 'errorMessage'
 		| 'chatId'
 		| 'integrationResults'
+		| 'readAt'
 	>;
 	automation: Pick<DBAutomation, 'id' | 'title' | 'scheduleDescription'> & { cron: string };
 	output: AutomationFeedOutput;
 };
 
-type BaseActivityFields = {
-	id: string;
-	status: DBActivity['status'];
-	trigger: ActivityTrigger;
-	startedAt: Date;
-	completedAt: Date | null;
-	errorMessage: string | null;
-};
-
-export type ActivityFeedStoryRefreshItem = {
-	kind: 'activity';
-	id: string;
-	startedAt: Date;
-	activity: BaseActivityFields & {
-		type: 'story.refreshed';
-		queriesRefreshed: number;
-	};
-	story: {
-		id: string;
-		slug: string;
-		title: string;
-		chatId: string | null;
-		cacheSchedule: string | null;
-		cacheScheduleDescription: string | null;
-	};
-	link: StoryOpenLink | null;
-};
-
-export type ActivityFeedStorySharedItem = {
-	kind: 'activity';
-	id: string;
-	startedAt: Date;
-	activity: BaseActivityFields & {
-		type: 'story.shared';
-	};
-	story: {
-		id: string;
-		slug: string;
-		title: string;
-		chatId: string | null;
-	};
-	share: {
-		id: string;
-		visibility: StoryVisibility;
-	};
-	link: StoryOpenLink | null;
-	actorName: string | null;
-};
-
-export type ActivityFeedChatSharedItem = {
-	kind: 'activity';
-	id: string;
-	startedAt: Date;
-	activity: BaseActivityFields & {
-		type: 'chat.shared';
-	};
-	chat: {
-		id: string;
-		title: string;
-	};
-	share: {
-		id: string;
-		visibility: ChatVisibility;
-	};
-	actorName: string | null;
-};
-
-export type ActivityFeedItem = ActivityFeedStoryRefreshItem | ActivityFeedStorySharedItem | ActivityFeedChatSharedItem;
-
-export type AutomationFeedItem = AutomationFeedAutomationItem | ActivityFeedItem;
+export type AutomationFeedItem = AutomationFeedAutomationItem;
 
 export const listAutomationFeedRuns = async (
 	projectId: string,
 	userId: string,
 	limit: number,
 ): Promise<AutomationFeedItem[]> => {
-	const [automationItems, activityItems] = await Promise.all([
-		listAutomationRunFeedItems(projectId, userId, limit),
-		listActivityFeedItems(projectId, userId, limit),
-	]);
-
-	const merged: AutomationFeedItem[] = [...automationItems, ...activityItems];
-	merged.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
-	return merged.slice(0, limit);
+	const automationItems = await listAutomationRunFeedItems(projectId, userId, limit);
+	automationItems.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+	return automationItems.slice(0, limit);
 };
 
 async function listAutomationRunFeedItems(
@@ -467,86 +568,6 @@ async function listAutomationRunFeedItems(
 	);
 }
 
-async function listActivityFeedItems(projectId: string, userId: string, limit: number): Promise<ActivityFeedItem[]> {
-	const rows = await listRecentActivities(projectId, userId, limit, [
-		'story.refreshed',
-		'story.shared',
-		'chat.shared',
-	]);
-	return rows.map((row) => buildActivityFeedItem(row)).filter((item): item is ActivityFeedItem => item !== null);
-}
-
-function buildActivityFeedItem(row: ListActivityRow): ActivityFeedItem | null {
-	const base = {
-		id: row.activity.id,
-		status: row.activity.status,
-		trigger: row.activity.trigger,
-		startedAt: row.activity.startedAt,
-		completedAt: row.activity.completedAt,
-		errorMessage: row.activity.errorMessage,
-	};
-	if (row.activity.type === 'story.refreshed') {
-		if (!row.story) {
-			return null;
-		}
-		return {
-			kind: 'activity',
-			id: row.activity.id,
-			startedAt: row.activity.startedAt,
-			activity: {
-				...base,
-				type: 'story.refreshed',
-				queriesRefreshed: readNumber(row.activity.payload, 'queriesRefreshed') ?? 0,
-			},
-			story: row.story,
-			link: row.storyLink,
-		};
-	}
-	if (row.activity.type === 'story.shared') {
-		if (!row.story || !row.storyShare) {
-			return null;
-		}
-		return {
-			kind: 'activity',
-			id: row.activity.id,
-			startedAt: row.activity.startedAt,
-			activity: { ...base, type: 'story.shared' },
-			story: {
-				id: row.story.id,
-				slug: row.story.slug,
-				title: row.story.title,
-				chatId: row.story.chatId,
-			},
-			share: row.storyShare,
-			link: row.storyLink,
-			actorName: row.actorName,
-		};
-	}
-	if (row.activity.type === 'chat.shared') {
-		if (!row.chat || !row.chatShare) {
-			return null;
-		}
-		return {
-			kind: 'activity',
-			id: row.activity.id,
-			startedAt: row.activity.startedAt,
-			activity: { ...base, type: 'chat.shared' },
-			chat: row.chat,
-			share: row.chatShare,
-			actorName: row.actorName,
-		};
-	}
-	return null;
-}
-
-function readNumber(payload: Record<string, unknown> | null, key: string): number | null {
-	if (!payload) {
-		return null;
-	}
-	const value = payload[key];
-	return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
 function buildAutomationFeedItem(
 	run: DBAutomationRun,
 	automation: DBAutomation,
@@ -566,6 +587,7 @@ function buildAutomationFeedItem(
 			errorMessage: run.errorMessage,
 			chatId: run.chatId,
 			integrationResults: run.integrationResults,
+			readAt: run.readAt,
 		},
 		automation: {
 			id: automation.id,
@@ -674,7 +696,7 @@ function collectChartsFromParts(parts: DBMessagePart[]): AutomationFeedChart[] {
 function indexSqlOutputsByQueryId(parts: DBMessagePart[]): Map<string, executeSql.Output> {
 	const outputs = new Map<string, executeSql.Output>();
 	for (const part of parts) {
-		if (part.type !== 'tool-execute_sql' || part.toolState !== 'output-available' || !part.toolOutput) {
+		if (!isQueryResultPartType(part.type) || part.toolState !== 'output-available' || !part.toolOutput) {
 			continue;
 		}
 		const parsed = executeSql.OutputSchema.safeParse(part.toolOutput);
@@ -705,4 +727,32 @@ function parseChartPart(
 		config: config.data,
 		data: sqlOutput.data,
 	};
+}
+
+/** The new owner also gets the chats of past runs, so they can read them. */
+async function moveAutomationsToOwner(tx: DBTransaction, where: SQL | undefined, newOwnerId: string): Promise<number> {
+	const moved = await tx
+		.update(s.automation)
+		.set({ userId: newOwnerId })
+		.where(where)
+		.returning({ id: s.automation.id })
+		.execute();
+	if (moved.length === 0) {
+		return 0;
+	}
+
+	const runChatIds = tx
+		.select({ chatId: s.automationRun.chatId })
+		.from(s.automationRun)
+		.where(
+			and(
+				inArray(
+					s.automationRun.automationId,
+					moved.map((automation) => automation.id),
+				),
+				isNotNull(s.automationRun.chatId),
+			),
+		);
+	await tx.update(s.chat).set({ userId: newOwnerId }).where(inArray(s.chat.id, runChatIds)).execute();
+	return moved.length;
 }

@@ -1,53 +1,111 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import type { ShareCandidate } from '@/lib/share-access';
+import { useActiveProjectId } from '@/lib/active-project';
+import { formatMemberCount, shareSubjectKey } from '@/lib/share-access';
 import { trpc } from '@/main';
 
-export function useMemberPicker(currentUserId: string | undefined, initialIds: string[] | undefined, chatId: string) {
-	const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set(initialIds));
-	const [search, setSearch] = useState('');
-
-	const membersQuery = useQuery(trpc.project.getProjectMembersByChatId.queryOptions({ chatId }));
-
-	const otherMembers = useMemo(() => {
-		return (membersQuery.data ?? []).filter((m) => m.id !== currentUserId);
-	}, [membersQuery.data, currentUserId]);
-
-	const filteredMembers = useMemo(() => {
-		if (!search.trim()) {
-			return otherMembers;
-		}
-		const q = search.toLowerCase();
-		return otherMembers.filter((m) => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
-	}, [otherMembers, search]);
-
-	const toggleUser = useCallback((userId: string) => {
-		setSelectedUserIds((prev) => {
-			const next = new Set(prev);
-			if (next.has(userId)) {
-				next.delete(userId);
-			} else {
-				next.add(userId);
-			}
-			return next;
-		});
-	}, []);
-
-	const reset = useCallback((ids?: string[]) => {
-		setSelectedUserIds(new Set(ids));
-		setSearch('');
-	}, []);
-
+export function useShareAudience() {
+	const activeProjectId = useActiveProjectId();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projectId = project.data?.id;
+	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
+	const access = useQuery({
+		...trpc.userGroup.projectSharingAccess.queryOptions(),
+		enabled: hasProject,
+	});
+	const canShareToProject = hasProject && !access.isFetching && access.data?.canShareToProject === true;
 	return {
-		selectedUserIds,
-		setSelectedUserIds,
-		search,
-		setSearch,
-		otherMembers,
-		filteredMembers,
-		toggleUser,
-		membersQuery,
-		reset,
+		canShareToProject,
+		isLoading: project.isLoading || access.isLoading,
+		emptyMessage: canShareToProject ? undefined : 'No other members in your groups',
 	};
+}
+
+export function useShareCandidates({
+	source,
+	withGroups,
+	excludedKeys,
+	enabled,
+}: {
+	source: { chatId: string } | { storyId: string };
+	withGroups: boolean;
+	excludedKeys: Set<string>;
+	enabled: boolean;
+}) {
+	const activeProjectId = useActiveProjectId();
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
+	const projectId = project.data?.id;
+	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
+	const storyId = 'storyId' in source ? source.storyId : null;
+	const chatMembersQuery = useQuery({
+		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId: 'chatId' in source ? source.chatId : '' }),
+		enabled: enabled && hasProject && storyId === null,
+	});
+	const storyMembersQuery = useQuery({
+		...trpc.project.getProjectMembersByStoryId.queryOptions({ storyId: storyId ?? '' }),
+		enabled: enabled && hasProject && storyId !== null,
+	});
+	const membersQuery = storyId === null ? chatMembersQuery : storyMembersQuery;
+	const groupsQuery = useQuery({
+		...trpc.storyShare.listShareableGroups.queryOptions(),
+		enabled: enabled && withGroups && hasProject,
+	});
+	const showsGroups = withGroups && hasProject && !groupsQuery.isFetching;
+
+	const candidates = useMemo<ShareCandidate[]>(() => {
+		const groups = showsGroups
+			? (groupsQuery.data ?? []).map((group) => ({
+					key: shareSubjectKey('group', group.id),
+					kind: 'group' as const,
+					id: group.id,
+					name: group.name,
+					detail: formatMemberCount(group.memberCount),
+				}))
+			: [];
+		const members = hasProject && !membersQuery.isFetching ? (membersQuery.data ?? []) : [];
+		const people = members.map((member) => ({
+			key: shareSubjectKey('user', member.id),
+			kind: 'user' as const,
+			id: member.id,
+			name: member.name,
+			detail: member.email,
+		}));
+		return [...groups, ...people].filter((candidate) => !excludedKeys.has(candidate.key));
+	}, [showsGroups, groupsQuery.data, hasProject, membersQuery.isFetching, membersQuery.data, excludedKeys]);
+
+	return { candidates, isLoading: membersQuery.isFetching || (withGroups && groupsQuery.isFetching) };
+}
+
+/** Runs one sharing change at a time and keeps the last failed one so it can be retried. */
+export function useShareActionRunner(onSettled: () => Promise<unknown>) {
+	const [isPending, setIsPending] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const run = useCallback(
+		async (action: () => Promise<unknown>): Promise<boolean> => {
+			setIsPending(true);
+			setError(null);
+			try {
+				await action();
+				return true;
+			} catch (caught) {
+				setError(caught instanceof Error ? caught.message : 'Something went wrong.');
+				return false;
+			} finally {
+				await onSettled();
+				setIsPending(false);
+			}
+		},
+		[onSettled],
+	);
+
+	const dismissError = useCallback(() => {
+		setError(null);
+	}, []);
+
+	return { run, dismissError, isPending, error };
 }
 
 export function useCopyWithFeedback(delay = 1500) {

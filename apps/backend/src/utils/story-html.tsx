@@ -3,18 +3,18 @@ import {
 	bubbleLegendValues,
 	bucketPieData,
 	buildChoroplethEntries,
+	buildChoroplethLegend,
+	buildChoroplethScale,
 	buildMapPoints,
-	CHOROPLETH_MAX_OPACITY,
 	CHOROPLETH_MIN_OPACITY,
+	type ChoroplethLegendModel,
 	choroplethOpacity,
+	choroplethOpacityExpression,
 	choroplethTooltipKeys,
-	choroplethValueDomain,
 	computeKpiComparison,
 	type CustomBoundarySet,
-	DEFAULT_COLORS,
 	DEFAULT_MARKER_COLOR,
 	DEFAULT_MARKER_RADIUS,
-	defaultColorFor,
 	formatChartValue,
 	formatCompactNumber,
 	indexBoundaries,
@@ -35,23 +35,34 @@ import {
 	scaleBubbleRadius,
 	withOpacity,
 } from '@nao/shared';
+import type { ChartType } from '@nao/shared/chart-types';
 import {
 	type DateFormatSettings,
 	DEFAULT_DATE_FORMAT_SETTINGS,
 	formatDateValue,
 	resolveDateFormatPattern,
 } from '@nao/shared/date';
+import { STORY_MAP_TILE_LAYERS } from '@nao/shared/story-map-tiles';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
-import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
+import {
+	collectMapBlocks,
+	incompleteMapMessage,
+	mapBlockToInput,
+	splitCodeIntoSegments,
+} from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
+import type { StoryThemePair } from '@nao/shared/story-theme';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 import { marked, Renderer } from 'marked';
 import React, { createContext, useContext } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { renderChartToSvg } from '../components/generate-chart';
+import { generateChartImage, renderChartToSvg } from '../components/generate-chart';
+import type { EmailAttachment } from '../types/email';
+import { svgToPng } from './generate-chart';
 import { getCachedBoundary, setCachedBoundary } from './map-boundary-cache';
+import { loadBoundarySet } from './map-boundary-resolve';
 import { parseAndValidateGeoJson, safeFetch } from './safe-fetch';
 import { type Basemap, basemapByteBudgetForCount, buildBasemapTiles } from './static-map-basemap';
 import {
@@ -60,11 +71,19 @@ import {
 	collectPoints,
 	computeFit,
 	type Fit,
+	longitudeUnwrapper,
 	type MapTip,
 	project,
 	simplifyGeometry,
+	VIEW_WIDTH,
 } from './static-map-svg';
 import type { QueryDataMap, StoryInput } from './story-download';
+import {
+	DEFAULT_EXPORT_PALETTE,
+	exportSeriesColor,
+	type StoryExportPalette,
+	storyExportPalette,
+} from './story-export-palette';
 
 const WORLD_BACKDROP_KEY = 'world_countries';
 
@@ -75,8 +94,11 @@ const DOC_HORIZ_PADDING = 24;
 const CHART_WIDTH = DOC_MAX_WIDTH - DOC_HORIZ_PADDING * 2;
 const CHART_HEIGHT = Math.round((CHART_WIDTH * 9) / 16);
 
-const MAPLIBRE_VERSION = '5.24.0';
-export const MAPLIBRE_JS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+const MAPLIBRE_VERSION = '6.14.0';
+const MAPLIBRE_ESM_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.mjs`;
+// Off http(s) (about:blank PNG/PDF renders, file:// downloads) MapLibre's blob: worker cannot start and
+// `setWorkerUrl` cannot fix file://, so the map script replaces `Worker` with a data: module importing this URL.
+const MAPLIBRE_WORKER_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl-worker.mjs`;
 export const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
 export const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
 const MAP_HEIGHT = 568;
@@ -86,66 +108,146 @@ const MAP_HEIGHT = 568;
 const LEAFLET_VERSION = '1.9.4';
 const LEAFLET_JS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`;
 const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`;
-const RASTER_TILE_URL =
-	process.env.NAO_STORY_MAP_RASTER_URL || 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-const RASTER_TILE_ATTRIBUTION = process.env.NAO_STORY_MAP_RASTER_ATTRIBUTION || '&copy; OpenStreetMap &copy; CARTO';
+const RASTER_TILE_URL = process.env.NAO_STORY_MAP_RASTER_URL || STORY_MAP_TILE_LAYERS.light.url;
+const RASTER_TILE_ATTRIBUTION = process.env.NAO_STORY_MAP_RASTER_ATTRIBUTION || STORY_MAP_TILE_LAYERS.light.attribution;
 const RASTER_TILE_SUBDOMAINS = process.env.NAO_STORY_MAP_RASTER_SUBDOMAINS || 'abcd';
+const RASTER_TILE_MAX_ZOOM =
+	Number(process.env.NAO_STORY_MAP_RASTER_MAX_ZOOM) ||
+	(process.env.NAO_STORY_MAP_RASTER_URL ? 19 : STORY_MAP_TILE_LAYERS.light.maxZoom);
 
 type InlinedBoundaries = Map<string, { geojson: unknown; joinProps: string[] | null }>;
 type Basemaps = Map<string, Basemap>;
 
 const DateFormatContext = createContext<DateFormatSettings>({ ...DEFAULT_DATE_FORMAT_SETTINGS });
+const PaletteContext = createContext<StoryExportPalette>(DEFAULT_EXPORT_PALETTE);
 const InlinedBoundariesContext = createContext<InlinedBoundaries>(new Map());
 const BasemapContext = createContext<Basemaps>(new Map());
 
 /** When true, maps render as inline SVG server-side instead of client-side MapLibre — required for sandboxed embeds that block WebGL/web-workers. */
 const StaticMapsContext = createContext<boolean>(false);
 
+interface EmailImageSink {
+	images: EmailAttachment[];
+	add(png: Buffer): string;
+}
+
+function createEmailImageSink(): EmailImageSink {
+	const images: EmailAttachment[] = [];
+	return {
+		images,
+		add(png: Buffer): string {
+			const cid = `story-img-${images.length}`;
+			images.push({ filename: `${cid}.png`, content: png, contentType: 'image/png', cid });
+			return cid;
+		},
+	};
+}
+
+const EmailImageSinkContext = createContext<EmailImageSink | null>(null);
+
 export async function generateStoryHtml(
 	story: StoryInput,
 	queryData: QueryDataMap | null,
 	dateFormat?: DateFormatSettings | null,
 	customBoundaries?: CustomBoundarySet[],
-	options?: { staticMaps?: boolean },
+	options?: { staticMaps?: boolean; theme?: StoryThemePair | null },
 ): Promise<string> {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
 	const staticMaps = options?.staticMaps ?? false;
+	const palette = storyExportPalette(options?.theme);
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
-	const hasMap = segmentsIncludeMap(segments);
-	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], staticMaps);
+	const maps = collectRenderableMaps(segments);
+	const hasMap = maps.length > 0;
+	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], staticMaps);
 	const basemaps = staticMaps
-		? await prefetchBasemaps(segments, queryData, inlinedBoundaries)
+		? await prefetchBasemaps(maps, queryData, inlinedBoundaries)
 		: new Map<string, Basemap>();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
-			<StaticMapsContext.Provider value={staticMaps}>
-				<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
-					<BasemapContext.Provider value={basemaps}>
-						<StoryDocument
-							title={story.title}
-							loadMapLibre={hasMap && !staticMaps}
-							loadLeaflet={hasMap && staticMaps}
-						>
-							{segments.map((seg, i) => (
-								<StorySegment key={i} segment={seg} queryData={queryData} />
-							))}
-							<StoryFooter />
-						</StoryDocument>
-					</BasemapContext.Provider>
-				</InlinedBoundariesContext.Provider>
-			</StaticMapsContext.Provider>
+			<PaletteContext.Provider value={palette}>
+				<StaticMapsContext.Provider value={staticMaps}>
+					<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
+						<BasemapContext.Provider value={basemaps}>
+							<StoryDocument
+								title={story.title}
+								loadMapLibre={hasMap && !staticMaps}
+								loadLeaflet={hasMap && staticMaps}
+							>
+								{segments.map((seg, i) => (
+									<StorySegment key={i} segment={seg} queryData={queryData} />
+								))}
+								<StoryFooter />
+							</StoryDocument>
+						</BasemapContext.Provider>
+					</InlinedBoundariesContext.Provider>
+				</StaticMapsContext.Provider>
+			</PaletteContext.Provider>
 		</DateFormatContext.Provider>,
 	);
 	return `<!DOCTYPE html>\n${markup}`;
 }
 
-function segmentsIncludeMap(segments: Segment[]): boolean {
-	return segments.some((seg) => seg.type === 'map' || (seg.type === 'grid' && segmentsIncludeMap(seg.children)));
+export interface StoryEmailHtml {
+	html: string;
+	images: EmailAttachment[];
+}
+
+export async function generateStoryEmailHtml(
+	story: StoryInput,
+	queryData: QueryDataMap | null,
+	dateFormat?: DateFormatSettings | null,
+	customBoundaries?: CustomBoundarySet[],
+	theme?: StoryThemePair | null,
+): Promise<StoryEmailHtml> {
+	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
+	const palette = storyExportPalette(theme);
+	const flattened = flattenStoryTabs(story.code);
+	const segments = splitCodeIntoSegments(flattened);
+	const maps = collectRenderableMaps(segments);
+	const inlinedBoundaries = await prefetchCustomBoundaries(maps, customBoundaries ?? [], true);
+	const basemaps = await prefetchBasemaps(maps, queryData, inlinedBoundaries);
+	const sink = createEmailImageSink();
+	const markup = renderToStaticMarkup(
+		<DateFormatContext.Provider value={resolvedDateFormat}>
+			<PaletteContext.Provider value={palette}>
+				<StaticMapsContext.Provider value={true}>
+					<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
+						<BasemapContext.Provider value={basemaps}>
+							<EmailImageSinkContext.Provider value={sink}>
+								<div style={emailContainerStyle(palette)}>
+									{segments.map((seg, i) => (
+										<StorySegment key={i} segment={seg} queryData={queryData} />
+									))}
+									<StoryFooter />
+								</div>
+							</EmailImageSinkContext.Provider>
+						</BasemapContext.Provider>
+					</InlinedBoundariesContext.Provider>
+				</StaticMapsContext.Provider>
+			</PaletteContext.Provider>
+		</DateFormatContext.Provider>,
+	);
+	return { html: markup, images: sink.images };
+}
+
+function emailContainerStyle(palette: StoryExportPalette): React.CSSProperties {
+	return {
+		fontFamily: palette.bodyFont,
+		lineHeight: 1.6,
+		color: palette.body,
+		background: palette.page,
+		padding: '8px 24px 24px',
+	};
+}
+
+/** Maps missing their columns render a placeholder, so they need no boundaries, basemap or map library. */
+function collectRenderableMaps(segments: Segment[]): ParsedMapBlock[] {
+	return collectMapBlocks(segments).filter((map) => !map.missingAttributes);
 }
 
 async function prefetchCustomBoundaries(
-	segments: Segment[],
+	maps: ParsedMapBlock[],
 	customBoundaries: CustomBoundarySet[],
 	staticMaps: boolean,
 ): Promise<InlinedBoundaries> {
@@ -154,48 +256,26 @@ async function prefetchCustomBoundaries(
 	const customKeysNeeded = new Set<string>();
 	const boundaryUrlsNeeded = new Set<string>();
 
-	const collect = (segs: Segment[]) => {
-		for (const seg of segs) {
-			if (seg.type === 'map') {
-				// Static rendering resolves region geometry server-side, so it needs the built-in
-				// boundary sets inlined too — not just custom ones.
-				if (seg.map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
-					customKeysNeeded.add(seg.map.regionBoundaries);
-				}
-				if (seg.map.boundariesUrl) {
-					boundaryUrlsNeeded.add(seg.map.boundariesUrl);
-				}
-				const isPointMap = seg.map.mapType === 'points' || seg.map.mapType === 'scatter_bubble';
-				if (staticMaps && isPointMap) {
-					customKeysNeeded.add(WORLD_BACKDROP_KEY);
-				}
-			} else if (seg.type === 'grid') {
-				collect(seg.children);
-			}
+	for (const map of maps) {
+		// Static rendering resolves region geometry server-side, so it needs the built-in
+		// boundary sets inlined too — not just custom ones.
+		if (map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
+			customKeysNeeded.add(map.regionBoundaries);
 		}
-	};
-	collect(segments);
+		if (map.boundariesUrl) {
+			boundaryUrlsNeeded.add(map.boundariesUrl);
+		}
+		const isPointMap = map.mapType === 'points' || map.mapType === 'scatter_bubble';
+		if (staticMaps && isPointMap) {
+			customKeysNeeded.add(WORLD_BACKDROP_KEY);
+		}
+	}
 
 	await Promise.all([
 		...[...customKeysNeeded].map(async (key) => {
-			const resolved = resolveBoundary(key, customBoundaries);
-			if (!resolved) {
-				return;
-			}
-			const isCustom = customBoundaries.some((set) => set.key === key);
-			const url = isCustom ? resolved.url : builtinBoundaryUrl(key) || resolved.url;
-			const cached = getCachedBoundary(url);
-			if (cached) {
-				result.set(key, { geojson: cached, joinProps: resolved.joinProps });
-				return;
-			}
-			try {
-				const text = await safeFetch(url);
-				const { geojson } = parseAndValidateGeoJson(text);
-				setCachedBoundary(url, geojson);
-				result.set(key, { geojson, joinProps: resolved.joinProps });
-			} catch {
-				// silently skip — the map will render without region fills
+			const boundary = await loadBoundarySet(key, customBoundaries);
+			if (boundary) {
+				result.set(key, boundary);
 			}
 		}),
 		// Boundary GeoJSON depends only on the URL, so it is shared across maps. The join property is
@@ -221,23 +301,11 @@ async function prefetchCustomBoundaries(
 }
 
 async function prefetchBasemaps(
-	segments: Segment[],
+	maps: ParsedMapBlock[],
 	queryData: QueryDataMap | null,
 	inlinedBoundaries: InlinedBoundaries,
 ): Promise<Basemaps> {
 	const result: Basemaps = new Map();
-	const maps: ParsedMapBlock[] = [];
-	const collect = (segs: Segment[]) => {
-		for (const seg of segs) {
-			if (seg.type === 'map') {
-				maps.push(seg.map);
-			} else if (seg.type === 'grid') {
-				collect(seg.children);
-			}
-		}
-	};
-	collect(segments);
-
 	const byteBudget = basemapByteBudgetForCount(new Set(maps.map(mapBasemapKey)).size);
 	await Promise.all(
 		maps.map(async (map) => {
@@ -284,7 +352,8 @@ function computeMapFit(
 	if (points.length === 0) {
 		return null;
 	}
-	return computeFit(points.map((point) => project(point.longitude, point.latitude)));
+	const unwrapLng = longitudeUnwrapper(points.map((point) => point.longitude));
+	return computeFit(points.map((point) => project(unwrapLng(point.longitude), point.latitude)));
 }
 
 function StoryDocument({
@@ -299,8 +368,9 @@ function StoryDocument({
 	children: React.ReactNode;
 }) {
 	const dateFormat = useContext(DateFormatContext);
+	const palette = useContext(PaletteContext);
 	const pattern = resolveDateFormatPattern(dateFormat);
-	const tooltipScript = renderTooltipScript(pattern);
+	const tooltipScript = renderTooltipScript(pattern, palette.series);
 	return (
 		<html lang='en'>
 			<head>
@@ -309,12 +379,14 @@ function StoryDocument({
 				<title>{title}</title>
 				{loadMapLibre && <link rel='stylesheet' href={MAPLIBRE_CSS_URL} />}
 				{loadLeaflet && <link rel='stylesheet' href={LEAFLET_CSS_URL} />}
-				<style dangerouslySetInnerHTML={{ __html: DOCUMENT_STYLES }} />
+				{palette.fontStylesheets.map((href) => (
+					<link key={href} rel='stylesheet' href={href} />
+				))}
+				<style dangerouslySetInnerHTML={{ __html: documentStyles(palette) }} />
 			</head>
 			<body>
 				{children}
 				<script dangerouslySetInnerHTML={{ __html: tooltipScript }} />
-				{loadMapLibre && <script src={MAPLIBRE_JS_URL} />}
 				{loadMapLibre && <script dangerouslySetInnerHTML={{ __html: renderMapScript() }} />}
 				{loadLeaflet && <script dangerouslySetInnerHTML={{ __html: STATIC_SVG_SCRIPT_TEMPLATE }} />}
 				{loadLeaflet && <script src={LEAFLET_JS_URL} />}
@@ -326,11 +398,18 @@ function StoryDocument({
 
 function StoryFooter() {
 	const dateFormat = useContext(DateFormatContext);
+	const palette = useContext(PaletteContext);
 	const today = new Date().toISOString().slice(0, 10);
 	const date = formatDateValue(today, dateFormat);
 	return (
 		<footer
-			style={{ marginTop: 48, paddingTop: 16, borderTop: '1px solid #e5e7eb', fontSize: 12, color: '#9ca3af' }}
+			style={{
+				marginTop: 48,
+				paddingTop: 16,
+				borderTop: `1px solid ${palette.border}`,
+				fontSize: 12,
+				color: palette.faint,
+			}}
 		>
 			Generated on {date}
 		</footer>
@@ -358,8 +437,43 @@ const safeRenderer = new Renderer();
 safeRenderer.html = () => '';
 
 function MarkdownBlock({ content }: { content: string }) {
+	const emailSink = useContext(EmailImageSinkContext);
+	const palette = useContext(PaletteContext);
 	const html = marked.parse(content, { async: false, renderer: safeRenderer }) as string;
+	if (emailSink) {
+		return <div dangerouslySetInnerHTML={{ __html: inlineMarkdownStyles(html, palette) }} />;
+	}
 	return <div className='nao-md' dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function markdownEmailStyles(palette: StoryExportPalette): Record<string, string> {
+	const monospace = 'font-family:source-code-pro,Menlo,Monaco,Consolas,monospace';
+	return {
+		h1: `font-size:20px;font-weight:700;margin:0 0 24px;color:${palette.heading};font-family:${palette.headingFont}`,
+		h2: `font-size:20px;font-weight:600;margin:32px 0 12px;color:${palette.heading};font-family:${palette.headingFont}`,
+		h3: `font-size:18px;font-weight:600;margin:24px 0 8px;color:${palette.subheading};font-family:${palette.headingFont}`,
+		h4: `font-size:16px;font-weight:600;margin:16px 0 8px;color:${palette.subheading};font-family:${palette.headingFont}`,
+		p: 'margin:8px 0;font-size:14px',
+		ul: 'padding-left:24px;margin:8px 0;font-size:14px',
+		ol: 'padding-left:24px;margin:8px 0;font-size:14px',
+		li: 'margin:4px 0',
+		blockquote: `border-left:3px solid ${palette.strongBorder};padding-left:16px;margin:12px 0;color:${palette.muted}`,
+		pre: `background:${palette.sunken};padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;${monospace}`,
+		code: `background:${palette.sunken};padding:2px 6px;border-radius:4px;font-size:12px;${monospace}`,
+		table: `width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;border:${palette.tableBorderWidth}px solid ${palette.tableBorder};background:${palette.tableBackground}`,
+		th: `padding:8px 12px;text-align:left;font-weight:500;color:${palette.tableHeaderText};border-bottom:1px solid ${palette.tableBorder};background:${palette.tableHeaderBackground}`,
+		td: `padding:4px 12px;font-size:11px;line-height:20px;border-bottom:1px solid ${palette.tableDivider}`,
+		a: `color:${palette.link}`,
+	};
+}
+
+/** Inlines styles into marked's HTML so markdown keeps the story look in clients that strip `<style>`. */
+function inlineMarkdownStyles(html: string, palette: StoryExportPalette): string {
+	let out = html;
+	for (const [tag, style] of Object.entries(markdownEmailStyles(palette))) {
+		out = out.replace(new RegExp(`<${tag}(?=[\\s>])`, 'g'), `<${tag} style="${style}"`);
+	}
+	return out;
 }
 
 function GridBlock({
@@ -395,6 +509,8 @@ function GridBlock({
 
 function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
+	const emailSink = useContext(EmailImageSinkContext);
+	const palette = useContext(PaletteContext);
 	const rows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
 		return <Placeholder label={rawChart.title || 'Chart'} message='Data unavailable' />;
@@ -408,9 +524,22 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
 	const isHorizontalBar = chart.chartType === 'horizontal_bar' || chart.chartType === 'horizontal_bar_100';
-	const showLegend = !isPie && (!isHorizontalBar || chart.series.length >= 2);
+	const showLegend = !isPie && (chart.showLegend ?? (!isHorizontalBar || chart.series.length >= 2));
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
+
+	if (emailSink) {
+		return (
+			<EmailChart
+				chart={chart}
+				rows={rows}
+				isPie={isPie}
+				dateFormat={dateFormat}
+				palette={palette}
+				sink={emailSink}
+			/>
+		);
+	}
 
 	try {
 		// Pie/donut render their legend to the right, baked into the SVG; other
@@ -423,6 +552,7 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 			margin: { top: 0, right: 0, bottom: 0, left: 0 },
 			includeLegend: isPie,
 			dateFormat,
+			palette,
 		});
 		const chartData = JSON.stringify({
 			data: chartRows,
@@ -463,16 +593,59 @@ function resolveChartKeys(chart: ParsedChartBlock, rows: Record<string, unknown>
 	};
 }
 
+function EmailChart({
+	chart,
+	rows,
+	isPie,
+	dateFormat,
+	palette,
+	sink,
+}: {
+	chart: ParsedChartBlock;
+	rows: Record<string, unknown>[];
+	isPie: boolean;
+	dateFormat: DateFormatSettings;
+	palette: StoryExportPalette;
+	sink: EmailImageSink;
+}) {
+	try {
+		const png = generateChartImage({
+			config: toChartConfig(chart),
+			data: rows,
+			width: CHART_WIDTH,
+			height: CHART_HEIGHT,
+			margin: { top: 0, right: 0, bottom: 0, left: 0 },
+			includeLegend: isPie,
+			dateFormat,
+			palette,
+		});
+		const cid = sink.add(png);
+		return (
+			<div style={{ margin: '16px 0' }}>
+				<img
+					src={`cid:${cid}`}
+					alt={chart.title || 'Chart'}
+					style={{ display: 'block', width: '100%', maxWidth: CHART_WIDTH, height: 'auto' }}
+				/>
+				{!isPie && chart.showLegend !== false && <ChartLegend series={chart.series} />}
+			</div>
+		);
+	} catch {
+		return <Placeholder label={chart.title || 'Chart'} message='Could not render chart' />;
+	}
+}
+
 function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 	const dateFormat = useContext(DateFormatContext);
+	const palette = useContext(PaletteContext);
 	return (
 		<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, paddingTop: 12 }}>
 			{series.map((s, i) => {
-				const color = s.color || defaultColorFor(s.data_key, i);
+				const color = s.color || exportSeriesColor(palette, i);
 				return (
 					<div
 						key={s.data_key}
-						style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#6b7280', fontSize: 12 }}
+						style={{ display: 'flex', alignItems: 'center', gap: 6, color: palette.muted, fontSize: 12 }}
 					>
 						<div style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: color }} />
 						{s.label || labelize(s.data_key, dateFormat)}
@@ -484,6 +657,7 @@ function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
 }
 
 function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<string, unknown>[] }) {
+	const palette = useContext(PaletteContext);
 	const sortedRows = [...rows].sort((a, b) => {
 		const av = a[chart.xAxisKey];
 		const bv = b[chart.xAxisKey];
@@ -511,12 +685,13 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 				const comparison = computeKpiComparison(sortedRows, chart.xAxisKey, s.data_key, chart.comparisonMode);
 				return (
 					<div key={s.data_key} style={{ minWidth: 160 }}>
-						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: '#1f2937' }}>{label}</div>
+						<div style={{ fontSize: 18, letterSpacing: '0.025em', color: palette.body }}>{label}</div>
 						<div
 							style={{
 								fontSize: 30,
 								fontWeight: 500,
-								color: '#111827',
+								color: palette.heading,
+								fontFamily: palette.headingFont,
 								fontVariantNumeric: 'tabular-nums',
 							}}
 						>
@@ -529,7 +704,7 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 									? comparison.direction === 'up'
 										? '#16a34a'
 										: '#dc2626'
-									: '#6b7280';
+									: palette.muted;
 								return (
 									<div
 										style={{
@@ -577,6 +752,7 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 }
 
 function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: QueryDataMap | null }) {
+	const palette = useContext(PaletteContext);
 	const qd = queryData?.[table.queryId];
 	if (!qd?.data.length) {
 		return <Placeholder label={table.title || 'Table'} message='Data unavailable' />;
@@ -593,8 +769,8 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 		textAlign: numericCols.has(col) ? 'right' : 'left',
 		fontWeight: 500,
 		whiteSpace: 'nowrap',
-		color: 'rgba(0,0,0,0.5)',
-		borderBottom: '1px solid #e5e7eb',
+		color: palette.tableHeaderText,
+		borderBottom: `1px solid ${palette.tableBorder}`,
 	});
 
 	const tdStyle = (col: string): React.CSSProperties => ({
@@ -618,12 +794,12 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 				style={{
 					overflow: 'auto',
 					borderRadius: 8,
-					border: '1px solid #e5e7eb',
-					background: 'rgba(255,255,255,0.5)',
+					border: `${palette.tableBorderWidth}px solid ${palette.tableBorder}`,
+					background: palette.tableBackground,
 				}}
 			>
 				<table style={{ width: '100%', borderCollapse: 'collapse', borderSpacing: 0, fontSize: 12 }}>
-					<thead style={{ background: '#fafafa' }}>
+					<thead style={{ background: palette.tableHeaderBackground }}>
 						<tr>
 							{columns.map((col) => (
 								<th key={col} style={thStyle(col)}>
@@ -634,7 +810,7 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 					</thead>
 					<tbody>
 						{rows.map((row, i) => (
-							<tr key={i} style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+							<tr key={i} style={{ borderBottom: `1px solid ${palette.tableDivider}` }}>
 								{columns.map((col) => (
 									<td key={col} style={tdStyle(col)}>
 										<CellValue value={row[col]} />
@@ -645,15 +821,16 @@ function TableBlock({ table, queryData }: { table: ParsedTableBlock; queryData: 
 					</tbody>
 				</table>
 			</div>
-			<div style={{ textAlign: 'right', padding: '4px 8px', fontSize: 14, color: 'rgba(0,0,0,0.5)' }}>
-				{rowCount}
-			</div>
+			<div style={{ textAlign: 'right', padding: '4px 8px', fontSize: 14, color: palette.muted }}>{rowCount}</div>
 		</div>
 	);
 }
 
 function MapBlock({ map, queryData }: { map: ParsedMapBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
+	if (map.missingAttributes) {
+		return <Placeholder label={map.title || 'Map'} message={incompleteMapMessage(map)} />;
+	}
 	const rows = queryData?.[map.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
 		return <Placeholder label={map.title || 'Map'} message='Data unavailable' />;
@@ -714,6 +891,7 @@ function StaticPointMap({
 	inlinedBoundaries: InlinedBoundaries;
 	legend: React.ReactNode;
 }) {
+	const emailSink = useContext(EmailImageSinkContext);
 	const basemap = useContext(BasemapContext).get(mapBasemapKey(map));
 	const world = basemap
 		? undefined
@@ -730,6 +908,22 @@ function StaticPointMap({
 	});
 	if (!svg) {
 		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
+	}
+	if (emailSink) {
+		const circleFill = escapeSvgAttr(payload.color);
+		const shapes = svg.circles
+			.map(
+				(circle) =>
+					`<circle cx="${circle.cx}" cy="${circle.cy}" r="${circle.r}" fill="${circleFill}" fill-opacity="0.9" stroke="#ffffff" stroke-width="0.75"/>`,
+			)
+			.join('');
+		return (
+			<EmailMapImage
+				title={map.title}
+				svg={buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes)}
+				sink={emailSink}
+			/>
+		);
 	}
 	const leafletPayload: LeafletPayload = {
 		type: 'points',
@@ -817,6 +1011,47 @@ function resolveChoroplethGeometries(payload: ChoroplethPayload): ResolvedChorop
 	return resolved;
 }
 
+/** Assembles a standalone, self-contained SVG (basemap tiles, land backdrop, shapes) for rasterising. */
+function buildStaticMapSvg(viewBox: string, backdrop: string[], basemap: Basemap | undefined, shapes: string): string {
+	const [, , width, height] = viewBox.split(/\s+/).map(Number);
+	const tiles = (basemap?.tiles ?? [])
+		.map(
+			(tile) =>
+				`<image href="${escapeSvgAttr(tile.href)}" x="${tile.x}" y="${tile.y}" width="${tile.size}" height="${tile.size}" preserveAspectRatio="none"/>`,
+		)
+		.join('');
+	const backdropPaths = backdrop
+		.map((path) => `<path d="${path}" fill="#d8dee8" stroke="#eef1f5" stroke-width="0.5" fill-rule="evenodd"/>`)
+		.join('');
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}"><rect width="${width}" height="${height}" fill="#eef1f5"/>${tiles}${backdropPaths}${shapes}</svg>`;
+}
+
+function escapeSvgAttr(value: string): string {
+	return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+function EmailMapImage({ title, svg, sink }: { title: string | undefined; svg: string; sink: EmailImageSink }) {
+	const palette = useContext(PaletteContext);
+	const cid = sink.add(svgToPng(svg));
+	return (
+		<div style={{ margin: '16px 0' }}>
+			{title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{title}</div>}
+			<img
+				src={`cid:${cid}`}
+				alt={title || 'Map'}
+				style={{
+					display: 'block',
+					width: '100%',
+					maxWidth: VIEW_WIDTH,
+					height: 'auto',
+					borderRadius: 8,
+					border: `1px solid ${palette.border}`,
+				}}
+			/>
+		</div>
+	);
+}
+
 function StaticMapShell({
 	title,
 	viewBox,
@@ -834,6 +1069,7 @@ function StaticMapShell({
 	leafletPayload: LeafletPayload;
 	children: React.ReactNode;
 }) {
+	const palette = useContext(PaletteContext);
 	return (
 		<div style={{ margin: '16px 0' }}>
 			{title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{title}</div>}
@@ -846,7 +1082,7 @@ function StaticMapShell({
 					height: MAP_HEIGHT,
 					borderRadius: 8,
 					overflow: 'hidden',
-					border: '1px solid #e5e7eb',
+					border: `1px solid ${palette.border}`,
 				}}
 			>
 				<div className='nao-map-fallback' style={{ width: '100%', height: '100%' }}>
@@ -913,7 +1149,7 @@ function ChoroplethMapBlock({
 	if (payload.regions.length === 0) {
 		return <Placeholder label={map.title || 'Map'} message='No regions to shade' />;
 	}
-	const legend = payload.domain ? <ChoroplethLegendOverlay color={payload.color} domain={payload.domain} /> : null;
+	const legend = payload.legend ? <ChoroplethLegendOverlay color={payload.color} legend={payload.legend} /> : null;
 	if (staticMaps) {
 		return <StaticChoroplethMap map={map} payload={payload} legend={legend} />;
 	}
@@ -929,6 +1165,7 @@ function StaticChoroplethMap({
 	payload: ChoroplethPayload;
 	legend: React.ReactNode;
 }) {
+	const emailSink = useContext(EmailImageSinkContext);
 	const basemap = useContext(BasemapContext).get(mapBasemapKey(map));
 	const resolved = resolveChoroplethGeometries(payload);
 	const regions = resolved.map(({ geometry, source }) => ({
@@ -947,6 +1184,21 @@ function StaticChoroplethMap({
 	const svg = buildChoroplethSvg({ regions, backdrop });
 	if (!svg) {
 		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
+	}
+	if (emailSink) {
+		const shapes = svg.regions
+			.map(
+				(region) =>
+					`<path d="${region.d}" fill="${escapeSvgAttr(region.fill)}" stroke="#ffffff" stroke-width="0.4" stroke-opacity="0.6" fill-rule="evenodd"/>`,
+			)
+			.join('');
+		return (
+			<EmailMapImage
+				title={map.title}
+				svg={buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes)}
+				sink={emailSink}
+			/>
+		);
 	}
 	const leafletPayload: LeafletPayload = { type: 'choropleth', color: payload.color, regions: leafletRegions };
 	return (
@@ -983,6 +1235,7 @@ function MapShell({
 	payload: PointPayload | ChoroplethPayload;
 	legend: React.ReactNode;
 }) {
+	const palette = useContext(PaletteContext);
 	return (
 		<div style={{ margin: '16px 0' }}>
 			{title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{title}</div>}
@@ -995,7 +1248,7 @@ function MapShell({
 						height: '100%',
 						borderRadius: 8,
 						overflow: 'hidden',
-						border: '1px solid #e5e7eb',
+						border: `1px solid ${palette.border}`,
 						background: '#eef1f5',
 					}}
 				/>
@@ -1016,7 +1269,8 @@ interface PointPayload {
 interface ChoroplethPayload {
 	type: 'choropleth';
 	color: string;
-	domain: NumericDomain | null;
+	legend: ChoroplethLegendModel | null;
+	fillOpacity: number | unknown[];
 	boundaryUrl: string | null;
 	joinProps: string[] | null;
 	inlineGeoJson?: unknown;
@@ -1091,9 +1345,9 @@ function buildChoroplethPayload(
 		});
 	}
 	const color = config.color?.trim() || DEFAULT_MARKER_COLOR;
-	const domain = choroplethValueDomain(entries);
+	const scale = buildChoroplethScale(entries, config.color_scale);
 	for (const region of regions) {
-		region.dot = withOpacity(color, choroplethOpacity(region.value, domain));
+		region.dot = withOpacity(color, choroplethOpacity(region.value, scale));
 	}
 	const regionBoundaries = config.region_boundaries;
 	const inlinedByKey = regionBoundaries ? inlinedBoundaries?.get(regionBoundaries) : undefined;
@@ -1125,7 +1379,8 @@ function buildChoroplethPayload(
 	return {
 		type: 'choropleth',
 		color,
-		domain,
+		legend: scale && buildChoroplethLegend(scale),
+		fillOpacity: choroplethOpacityExpression(scale),
 		boundaryUrl,
 		joinProps,
 		...(inlineGeoJson !== undefined && { inlineGeoJson }),
@@ -1143,7 +1398,26 @@ function builtinBoundaryUrl(set: string): string {
 	return '';
 }
 
-function ChoroplethLegendOverlay({ color, domain }: { color: string; domain: NumericDomain }) {
+function ChoroplethLegendOverlay({ color, legend }: { color: string; legend: ChoroplethLegendModel }) {
+	if (legend.kind === 'classes') {
+		return (
+			<div style={{ ...LEGEND_BOX_STYLE, display: 'grid', gap: 2, color: '#6b7280' }}>
+				{legend.classes.map((item) => (
+					<div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+						<span
+							style={{
+								width: 10,
+								height: 10,
+								borderRadius: 2,
+								background: withOpacity(color, item.opacity),
+							}}
+						/>
+						<span>{item.label}</span>
+					</div>
+				))}
+			</div>
+		);
+	}
 	return (
 		<div style={LEGEND_BOX_STYLE}>
 			<div
@@ -1154,9 +1428,31 @@ function ChoroplethLegendOverlay({ color, domain }: { color: string; domain: Num
 					background: `linear-gradient(to right, ${withOpacity(color, CHOROPLETH_MIN_OPACITY)}, ${color})`,
 				}}
 			/>
-			<div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, color: '#6b7280' }}>
-				<span>{formatCompactNumber(domain.min)}</span>
-				<span>{formatCompactNumber(domain.max)}</span>
+			<div
+				style={{
+					position: 'relative',
+					display: 'flex',
+					justifyContent: 'space-between',
+					marginTop: 4,
+					color: '#6b7280',
+				}}
+			>
+				{legend.ticks.map((tick) =>
+					tick.align === 'center' ? (
+						<span
+							key={tick.position}
+							style={{
+								position: 'absolute',
+								left: `${tick.position * 100}%`,
+								transform: 'translateX(-50%)',
+							}}
+						>
+							{tick.label}
+						</span>
+					) : (
+						<span key={tick.position}>{tick.label}</span>
+					),
+				)}
 			</div>
 		</div>
 	);
@@ -1213,22 +1509,24 @@ const LEGEND_BOX_STYLE: React.CSSProperties = {
 
 function CellValue({ value }: { value: unknown }) {
 	const dateFormat = useContext(DateFormatContext);
+	const palette = useContext(PaletteContext);
 	if (value === null || value === undefined) {
-		return <span style={{ fontStyle: 'italic', color: 'rgba(0,0,0,0.3)' }}>NULL</span>;
+		return <span style={{ fontStyle: 'italic', color: palette.faint }}>NULL</span>;
 	}
 	return <>{formatCellValue(value, dateFormat)}</>;
 }
 
 function Placeholder({ label, message }: { label: string; message: string }) {
+	const palette = useContext(PaletteContext);
 	return (
 		<div
 			style={{
 				margin: '16px 0',
 				padding: 24,
-				border: '1px dashed #d1d5db',
+				border: `1px dashed ${palette.strongBorder}`,
 				borderRadius: 8,
 				textAlign: 'center',
-				color: '#9ca3af',
+				color: palette.faint,
 				fontSize: 13,
 			}}
 		>
@@ -1240,7 +1538,7 @@ function Placeholder({ label, message }: { label: string; message: string }) {
 
 function toChartConfig(chart: ParsedChartBlock) {
 	return {
-		chart_type: chart.chartType as displayChart.ChartType,
+		chart_type: chart.chartType as ChartType,
 		x_axis_key: chart.xAxisKey,
 		x_axis_type: chart.xAxisType as displayChart.XAxisType | null,
 		x_axis_label: chart.xAxisLabel,
@@ -1253,24 +1551,29 @@ function toChartConfig(chart: ParsedChartBlock) {
 		y_axis_right_label: chart.yAxisRightLabel,
 		title: chart.title,
 		show_data_labels: chart.showDataLabels,
+		show_legend: chart.showLegend,
 	};
 }
 
-const DOCUMENT_STYLES = `
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:rgba(0,0,0,0.85);max-width:900px;margin:0 auto;padding:32px 24px}
-h1{font-size:20px;font-weight:700;margin:0 0 24px;color:#111827}
-h2{font-size:20px;font-weight:600;margin:32px 0 12px;color:#111827}
-h3{font-size:18px;font-weight:600;margin:24px 0 8px;color:#374151}
+function documentStyles(palette: StoryExportPalette): string {
+	return `:root{${cssVariableDeclarations(palette.cssVariables)}}
+@page{background:${palette.page}}
+html{background:${palette.page}}
+body{font-family:${palette.bodyFont};line-height:1.6;color:${palette.body};background:${palette.page};max-width:900px;margin:0 auto;padding:32px 24px}
+h1{font-size:20px;font-weight:700;margin:0 0 24px;color:${palette.heading};font-family:${palette.headingFont}}
+h2{font-size:20px;font-weight:600;margin:32px 0 12px;color:${palette.heading};font-family:${palette.headingFont}}
+h3{font-size:18px;font-weight:600;margin:24px 0 8px;color:${palette.subheading};font-family:${palette.headingFont}}
 p{margin:8px 0;font-size:14px}
 ul,ol{padding-left:24px;margin:8px 0;font-size:14px}
 li{margin:4px 0}
-code{background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
-pre{background:#f3f4f6;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
-blockquote{border-left:3px solid #d1d5db;padding-left:16px;margin:12px 0;color:#6b7280}
-.nao-md table{width:100%;border-collapse:separate;border-spacing:0;margin:8px 0;font-size:12px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.5)}
-.nao-md thead{background:#fafafa}
-.nao-md th{padding:8px 12px;text-align:left;font-weight:500;white-space:nowrap;color:rgba(0,0,0,0.5);border-bottom:1px solid #e5e7eb}
-.nao-md td{padding:4px 12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace;font-size:11px;line-height:20px;white-space:nowrap;border-bottom:1px solid rgba(0,0,0,0.05)}
+code{background:${palette.sunken};padding:2px 6px;border-radius:4px;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
+pre{background:${palette.sunken};padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace}
+blockquote{border-left:3px solid ${palette.strongBorder};padding-left:16px;margin:12px 0;color:${palette.muted}}
+a{color:${palette.link}}
+.nao-md table{width:100%;border-collapse:separate;border-spacing:0;margin:8px 0;font-size:12px;border:${palette.tableBorderWidth}px solid ${palette.tableBorder};border-radius:8px;overflow:hidden;background:${palette.tableBackground}}
+.nao-md thead{background:${palette.tableHeaderBackground}}
+.nao-md th{padding:8px 12px;text-align:left;font-weight:500;white-space:nowrap;color:${palette.tableHeaderText};border-bottom:1px solid ${palette.tableBorder}}
+.nao-md td{padding:4px 12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace;font-size:11px;line-height:20px;white-space:nowrap;border-bottom:1px solid ${palette.tableDivider}}
 .nao-md tr:last-child td{border-bottom:none}
 svg{max-width:100%;height:auto}
 img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
@@ -1292,27 +1595,34 @@ img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
 .maplibregl-popup.map-tooltip{pointer-events:none}
 .maplibregl-popup.map-tooltip .maplibregl-popup-content{padding:0;background:transparent;box-shadow:none;border-radius:0}
 .maplibregl-popup.map-tooltip .maplibregl-popup-tip{display:none}
-.nao-map-pop{display:grid;align-items:start;gap:6px;min-width:128px;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-.nao-map-pop-title{display:flex;align-items:center;gap:8px;font-weight:500;color:#111827}
+.nao-map-pop{display:grid;align-items:start;gap:6px;min-width:128px;background:${palette.popover};border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.nao-map-pop-title{display:flex;align-items:center;gap:8px;font-weight:500;color:${palette.heading}}
 .nao-map-pop-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
 .nao-map-pop-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;line-height:1.25}
-.nao-map-pop-name{color:rgba(0,0,0,0.5)}
-.nao-map-pop-val{color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
-.nao-tooltip{position:absolute;pointer-events:none;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:10;opacity:0;transition:opacity .15s;min-width:128px;display:grid;gap:6px}
+.nao-map-pop-name{color:${palette.muted}}
+.nao-map-pop-val{color:${palette.heading};font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
+.nao-tooltip{position:absolute;pointer-events:none;background:${palette.popover};border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:10;opacity:0;transition:opacity .15s;min-width:128px;display:grid;gap:6px}
 .nao-tooltip.visible{opacity:1}
-.nao-tooltip-label{font-weight:500;color:#111827;text-align:left}
+.nao-tooltip-label{font-weight:500;color:${palette.heading};text-align:left}
 .nao-tooltip-rows{display:grid;gap:6px}
 .nao-tooltip-row{display:flex;align-items:center;gap:8px;width:100%}
 .nao-tooltip-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0}
-.nao-tooltip-name{color:rgba(0,0,0,0.5);flex:1;text-align:left}
-.nao-tooltip-value{color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;margin-left:auto}
+.nao-tooltip-name{color:${palette.muted};flex:1;text-align:left}
+.nao-tooltip-value{color:${palette.heading};font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;margin-left:auto}
 .nao-tooltip-total{display:flex;align-items:center;gap:8px;width:100%;border-top:1px solid rgba(0,0,0,0.08);padding-top:6px;margin-top:2px}
 .nao-tooltip-total .nao-tooltip-name{font-weight:500}
 .nao-tooltip-total .nao-tooltip-value{font-weight:500}
 @media print{body{padding:0;max-width:none}.nao-tooltip{display:none}.nao-chart{break-inside:avoid}.nao-map{break-inside:avoid}.maplibregl-ctrl{display:none!important}table{break-inside:avoid}div[style*="display:flex"]{break-inside:avoid}h1,h2,h3{break-after:avoid}svg{max-width:100%!important;height:auto!important}footer{break-inside:avoid}}
 `;
+}
 
-function renderTooltipScript(datePattern: string): string {
+function cssVariableDeclarations(cssVariables: Record<string, string>): string {
+	return Object.entries(cssVariables)
+		.map(([name, value]) => `${name}:${value}`)
+		.join(';');
+}
+
+function renderTooltipScript(datePattern: string, seriesColors: string[]): string {
 	// Inside a `<script>` block, an HTML parser will close the script tag on a
 	// raw `</script>` regardless of JS string quoting. Escape `<` (and the
 	// equally hazardous `--` / `]]>`) so a user-supplied custom pattern can
@@ -1323,17 +1633,23 @@ function renderTooltipScript(datePattern: string): string {
 		.replace(/&/g, '\\u0026')
 		.replace(/\u2028/g, '\\u2028')
 		.replace(/\u2029/g, '\\u2029');
-	return TOOLTIP_SCRIPT_TEMPLATE.replace('__DATE_PATTERN__', escapedPattern);
+	return TOOLTIP_SCRIPT_TEMPLATE.replace('__DATE_PATTERN__', escapedPattern).replace(
+		'__PIE_COLORS__',
+		JSON.stringify(seriesColors),
+	);
 }
 
 export function renderMapScript(): string {
-	return MAP_INIT_SCRIPT_TEMPLATE.replace('__MAP_STYLE_URL__', JSON.stringify(MAP_STYLE_URL));
+	return MAP_INIT_SCRIPT_TEMPLATE.replace('__MAP_STYLE_URL__', JSON.stringify(MAP_STYLE_URL))
+		.replace('__MAPLIBRE_ESM_URL__', JSON.stringify(MAPLIBRE_ESM_URL))
+		.replace('__MAPLIBRE_WORKER_URL__', JSON.stringify(MAPLIBRE_WORKER_URL));
 }
 
 function renderStaticMapScript(): string {
 	return LEAFLET_MAP_SCRIPT_TEMPLATE.replace('__TILE_URL__', JSON.stringify(RASTER_TILE_URL))
 		.replace('__TILE_ATTRIBUTION__', JSON.stringify(RASTER_TILE_ATTRIBUTION))
-		.replace('__TILE_SUBDOMAINS__', JSON.stringify(RASTER_TILE_SUBDOMAINS));
+		.replace('__TILE_SUBDOMAINS__', JSON.stringify(RASTER_TILE_SUBDOMAINS))
+		.replace('__TILE_MAX_ZOOM__', String(RASTER_TILE_MAX_ZOOM));
 }
 
 /**
@@ -1418,7 +1734,7 @@ const STATIC_SVG_SCRIPT_TEMPLATE = `
 const LEAFLET_MAP_SCRIPT_TEMPLATE = `
 (function(){
 	if(typeof L==='undefined')return;
-	var TILE_URL=__TILE_URL__,TILE_ATTRIBUTION=__TILE_ATTRIBUTION__,TILE_SUBDOMAINS=__TILE_SUBDOMAINS__;
+	var TILE_URL=__TILE_URL__,TILE_ATTRIBUTION=__TILE_ATTRIBUTION__,TILE_SUBDOMAINS=__TILE_SUBDOMAINS__,TILE_MAX_ZOOM=__TILE_MAX_ZOOM__;
 	function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 	function tooltipHtml(label,rows){
 		var parts=[];
@@ -1439,7 +1755,7 @@ const LEAFLET_MAP_SCRIPT_TEMPLATE = `
 		container.insertBefore(canvas,container.firstChild);
 		var map;
 		try{map=L.map(canvas,{attributionControl:true,scrollWheelZoom:false,zoomControl:true});}catch(e){canvas.remove();return;}
-		L.tileLayer(TILE_URL,{subdomains:TILE_SUBDOMAINS,attribution:TILE_ATTRIBUTION,maxZoom:19}).addTo(map);
+		L.tileLayer(TILE_URL,{subdomains:TILE_SUBDOMAINS,attribution:TILE_ATTRIBUTION,maxZoom:TILE_MAX_ZOOM}).addTo(map);
 		var layers=[];
 		if(cfg.type==='choropleth'){
 			(cfg.regions||[]).forEach(function(region){
@@ -1469,7 +1785,7 @@ const LEAFLET_MAP_SCRIPT_TEMPLATE = `
 
 const TOOLTIP_SCRIPT_TEMPLATE = `
 (function(){
-	var PIE_COLORS=${JSON.stringify(DEFAULT_COLORS)};
+	var PIE_COLORS=__PIE_COLORS__;
 	var DATE_PATTERN=__DATE_PATTERN__;
 	var MONTHS_LONG=['January','February','March','April','May','June','July','August','September','October','November','December'];
 	var MONTHS_SHORT=MONTHS_LONG.map(function(m){return m.slice(0,3)});
@@ -1500,7 +1816,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 	function labelize(s){
 		var str=String(s);
 		if(/^\\d{4}-\\d{2}-\\d{2}/.test(str)){var d=new Date(str);if(!isNaN(d.getTime()))return escHtml(formatDate(d))}
-		return escHtml(str.replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()}))
+		return escHtml(str.replace(/_/g,' ').replace(/(^|[^\\p{L}\\p{M}\\p{N}_])(\\p{L})/gu,function(m,sep,letter){return sep+letter.toUpperCase()}))
 	}
 	function formatCompact(v){var a=Math.abs(v);if(a>=1e9)return (v/1e9).toFixed(1).replace(/[.]0$/,'')+'B';if(a>=1e6)return (v/1e6).toFixed(1).replace(/[.]0$/,'')+'M';if(a>=1e4)return (v/1e3).toFixed(1).replace(/[.]0$/,'')+'K';return v.toLocaleString('en-US')}
 	// Faithful port of d3-format's SI-prefix formatting so exported values match the chart.
@@ -1685,16 +2001,10 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 `;
 
 const MAP_INIT_SCRIPT_TEMPLATE = `
-(function(){
+function naoInitMaps(maplibregl){
 	var STYLE_URL=__MAP_STYLE_URL__;
-	var MIN_OPACITY=${CHOROPLETH_MIN_OPACITY};
-	var MAX_OPACITY=${CHOROPLETH_MAX_OPACITY};
-	function fillOpacity(domain){
-		if(!domain||domain.min===domain.max)return (MIN_OPACITY+MAX_OPACITY)/2;
-		return ['interpolate',['linear'],['coalesce',['get','value'],domain.min],domain.min,MIN_OPACITY,domain.max,MAX_OPACITY];
-	}
 	var containers=document.querySelectorAll('.nao-map');
-	if(!containers.length||typeof maplibregl==='undefined'){window.__naoMapsReady=true;window.__naoMapsRendered=0;return;}
+	if(!containers.length){window.__naoMapsReady=true;window.__naoMapsRendered=0;return;}
 	var pending=containers.length;
 	var rendered=0;
 	window.__naoMapsRendered=0;
@@ -1761,7 +2071,7 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 			features.push({type:'Feature',geometry:geometry,properties:{value:region.value,tip:JSON.stringify({label:region.label,rows:region.rows,dot:region.dot})}});
 		});
 		map.addSource('query-regions',{type:'geojson',data:{type:'FeatureCollection',features:features}});
-		map.addLayer({id:'query-regions-fill',type:'fill',source:'query-regions',paint:{'fill-color':cfg.color,'fill-opacity':fillOpacity(cfg.domain)}});
+		map.addLayer({id:'query-regions-fill',type:'fill',source:'query-regions',paint:{'fill-color':cfg.color,'fill-opacity':cfg.fillOpacity}});
 		map.addLayer({id:'query-regions-line',type:'line',source:'query-regions',paint:{'line-color':'#ffffff','line-width':0.75,'line-opacity':0.6}});
 		var bounds=new maplibregl.LngLatBounds();
 		features.forEach(function(f){extendBounds(bounds,f.geometry.coordinates);});
@@ -1800,6 +2110,16 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 			}
 		});
 	});
+}
+(function(){
 	setTimeout(function(){window.__naoMapsReady=true;},12000);
+	function unavailable(){window.__naoMapsReady=true;window.__naoMapsRendered=0;}
+	if(!document.querySelector('.nao-map')){unavailable();return;}
+	if(!/^https?:$/.test(location.protocol)){
+		var NativeWorker=window.Worker;
+		var workerUrl='data:text/javascript,'+encodeURIComponent('import '+JSON.stringify(__MAPLIBRE_WORKER_URL__));
+		window.Worker=function(url,options){return new NativeWorker(workerUrl,options);};
+	}
+	import(__MAPLIBRE_ESM_URL__).then(naoInitMaps,unavailable);
 })();
 `;

@@ -17,14 +17,18 @@ from nao_core.ui import UI, ask_confirm, ask_select
 
 from .confluence import ConfluenceConfig
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
-from .error_handler import format_all_validation_errors
+from .error_handler import format_all_validation_errors, format_validation_error
 from .llm import LLMConfig
 from .mcp import McpConfig
+from .metabase import MetabaseConfig
 from .notion import NotionConfig
+from .obsidian import ObsidianConfig
 from .repos import RepoConfig
 from .secrets import process_secrets
+from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
 from .slack import SlackConfig
+from .tableau import TableauConfig
 from .test import TestConfig
 
 
@@ -32,6 +36,25 @@ class NaoConfigError(Exception):
     """Raised when nao config loading fails."""
 
     pass
+
+
+# Integration blocks a command can run without. Commands that only read part of the
+# config (e.g. `nao sync` with the databases provider) can load with
+# drop_invalid_optional_sections=True so an unresolvable block here — typically an
+# unset env('...') secret — is ignored with a warning instead of failing the run.
+OPTIONAL_SECTIONS = (
+    "llm",
+    "slack",
+    "notion",
+    "confluence",
+    "obsidian",
+    "mcp",
+    "metabase",
+    "skills",
+    "test",
+    "semantic_layer",
+    "tableau",
+)
 
 
 class NaoConfig(BaseModel):
@@ -43,11 +66,17 @@ class NaoConfig(BaseModel):
     repos: list[RepoConfig] = Field(default_factory=list, description="The repositories to use")
     notion: NotionConfig | None = Field(default=None, description="The Notion configurations")
     confluence: ConfluenceConfig | None = Field(default=None, description="The Confluence configuration")
+    obsidian: ObsidianConfig | None = Field(default=None, description="The Obsidian configuration")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
+    metabase: MetabaseConfig | None = Field(default=None, description="The Metabase configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
     test: TestConfig | None = Field(default=None, description="The defaults used by `nao test`")
+    semantic_layer: SemanticLayerConfig | None = Field(
+        default=None, description="The semantic layer (dbt MetricFlow) the agent can query"
+    )
+    tableau: TableauConfig | None = Field(default=None, description="The Tableau connection")
 
     _missing_secrets: dict[str, None] = {}
 
@@ -100,12 +129,16 @@ class NaoConfig(BaseModel):
             UI.print("  Notion: configured")
         if existing.confluence:
             UI.print("  Confluence: configured")
+        if existing.obsidian:
+            UI.print("  Obsidian: configured")
         if existing.mcp:
             UI.print("  MCP: configured")
         if existing.skills:
             UI.print("  Skills: configured")
         if existing.test:
             UI.print("  Test: configured")
+        if existing.semantic_layer:
+            UI.print("  Semantic layer: configured")
         UI.print()
 
         new_databases = cls._prompt_databases(has_existing=bool(existing.databases))
@@ -172,13 +205,16 @@ class NaoConfig(BaseModel):
     def save(self, path: Path) -> None:
         """Save the configuration to a YAML file."""
         config_file = path / "nao_config.yaml"
+        serialized_config = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if self.metabase is not None:
+            serialized_config["metabase"]["api_key"] = self.metabase.api_key.get_secret_value()
         with config_file.open("w") as f:
             # Documentation Link
             f.write("# Configuration documentation:\n")
             f.write("# https://docs.getnao.io/nao-agent/context-builder/configuration#nao_config-yaml\n\n")
 
             yaml.dump(
-                self.model_dump(mode="json", by_alias=True, exclude_none=True),
+                serialized_config,
                 f,
                 default_flow_style=False,
                 sort_keys=False,
@@ -190,15 +226,52 @@ class NaoConfig(BaseModel):
         cls,
         path: Path,
         extra_env: dict[str, str] | None = None,
+        drop_invalid_optional_sections: bool = False,
+        process_env: bool = True,
     ) -> "NaoConfig":
-        """Load the configuration from a YAML file."""
+        """Load the configuration from a YAML file.
+
+        With drop_invalid_optional_sections=True, a section from OPTIONAL_SECTIONS that
+        fails validation is replaced by None and reported as a warning, so commands that
+        do not use it can still run. Errors anywhere else fail the load as usual.
+
+        With process_env=False, env references resolve from extra_env only.
+        """
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
-        processed_content, missing = process_secrets(content, extra_env=extra_env)
+        processed_content, missing = process_secrets(content, extra_env=extra_env, process_env=process_env)
         cls._missing_secrets = {k: None for k, v in missing.items() if v is None}
         data = yaml.safe_load(processed_content)
         cls._warn_on_legacy_llm(data)
-        return cls.model_validate(data)
+        if not drop_invalid_optional_sections:
+            return cls.model_validate(data)
+        return cls._validate_dropping_optional_sections(data)
+
+    @classmethod
+    def _validate_dropping_optional_sections(cls, data: Any) -> "NaoConfig":
+        try:
+            return cls.model_validate(data)
+        except ValidationError as e:
+            if not isinstance(data, dict):
+                raise
+
+            dropped: dict[str, list[str]] = {}
+            for error in e.errors():
+                section = error["loc"][0] if error["loc"] else None
+                if not isinstance(section, str) or section not in OPTIONAL_SECTIONS:
+                    raise
+                dropped.setdefault(section, []).append(format_validation_error(error, cls))
+
+            config = cls.model_validate({**data, **{section: None for section in dropped}})
+            for section, reasons in dropped.items():
+                hint = ""
+                if cls._missing_secrets:
+                    hint = f" (unset environment variables: {', '.join(cls._missing_secrets)})"
+                UI.warn(
+                    f"Ignoring invalid `{section}` config for this command: {'; '.join(reasons)}{hint}. "
+                    f"Commands that use `{section}` will keep failing until it validates."
+                )
+            return config
 
     @staticmethod
     def _warn_on_legacy_llm(data: Any) -> None:
@@ -209,7 +282,7 @@ class NaoConfig(BaseModel):
         UI.warn(
             "nao_config.yaml declares a single inline `llm` provider, which is deprecated. Move it "
             "under `llm.providers` to configure several providers, the models each one exposes and "
-            "their costs. Run `nao migrate` to rewrite it automatically."
+            "their costs."
         )
 
     def get_connection(self, name: str) -> BaseBackend:
@@ -231,6 +304,8 @@ class NaoConfig(BaseModel):
         exit_on_error: bool = False,
         raise_on_error: bool = False,
         extra_env: dict[str, str] | None = None,
+        drop_invalid_optional_sections: bool = False,
+        process_env: bool = True,
     ) -> "NaoConfig | None":
         """Try to load config from path.
 
@@ -239,6 +314,10 @@ class NaoConfig(BaseModel):
             exit_on_error: If True, prints error message and calls sys.exit(1) on failure.
             raise_on_error: If True, raises NaoConfigError on failure.
             extra_env: Optional env vars that take precedence over os.environ during template resolution.
+            drop_invalid_optional_sections: If True, an invalid OPTIONAL_SECTIONS block is
+                nulled with a warning instead of failing the load (see `load`).
+            process_env: If False, env references resolve from extra_env only. A server that loads
+                a tenant's config sets it, so its own environment never leaks into that config.
         Returns:
             NaoConfig if loaded successfully, None if failed and both flags are False.
         """
@@ -259,7 +338,12 @@ class NaoConfig(BaseModel):
 
         try:
             os.chdir(path)
-            return cls.load(path, extra_env=extra_env)
+            return cls.load(
+                path,
+                extra_env=extra_env,
+                drop_invalid_optional_sections=drop_invalid_optional_sections,
+                process_env=process_env,
+            )
         except yaml.YAMLError as e:
             handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")
             return None

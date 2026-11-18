@@ -1,0 +1,24 @@
+name: net_revenue_growth_by_month
+prompt: >-
+  What is our net revenue per month, excluding orders that were returned or are
+  pending a return? Also show the month-over-month growth as a percentage rounded
+  to 1 decimal (empty for the first month).
+sql: |
+  WITH monthly AS (
+    SELECT
+      DATE_TRUNC('month', order_date) AS order_month,
+      SUM(amount) AS net_revenue
+    FROM orders
+    WHERE status NOT IN ('returned', 'return_pending')
+    GROUP BY order_month
+  )
+  SELECT
+    order_month,
+    net_revenue,
+    ROUND(100.0 * (net_revenue - LAG(net_revenue) OVER (ORDER BY order_month))
+      / LAG(net_revenue) OVER (ORDER BY order_month), 1) AS growth_pct
+  FROM monthly
+  ORDER BY order_month
+assertions:
+  - type: tool_call
+    tool: execute_sql

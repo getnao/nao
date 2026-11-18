@@ -23,11 +23,13 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "cli"))
 
 from nao_core.config import NaoConfig  # noqa: E402
+from nao_core.config.confluence import ConfluenceConfig  # noqa: E402
 from nao_core.config.databases import (  # noqa: E402
     AthenaConfig,
     BigQueryConfig,
     DatabricksConfig,
     DuckDBConfig,
+    DuckLakeConfig,
     MotherDuckConfig,
     MssqlConfig,
     PostgresConfig,
@@ -45,9 +47,9 @@ from nao_core.config.llm import (  # noqa: E402
     LLMConfig,
     LLMProvider,
 )
-from nao_core.config.confluence import ConfluenceConfig  # noqa: E402
 from nao_core.config.mcp import McpConfig  # noqa: E402
 from nao_core.config.notion import NotionConfig  # noqa: E402
+from nao_core.config.obsidian import ObsidianConfig  # noqa: E402
 from nao_core.config.repos.base import RepoConfig  # noqa: E402
 from nao_core.config.skills import SkillsConfig  # noqa: E402
 from nao_core.config.slack import SlackConfig  # noqa: E402
@@ -163,6 +165,7 @@ DATABASE_CONFIGS: list[tuple[str, str, type[DatabaseConfig]]] = [
     ("Snowflake", "snowflake", SnowflakeConfig),
     ("BigQuery", "bigquery", BigQueryConfig),
     ("DuckDB", "duckdb", DuckDBConfig),
+    ("DuckLake", "ducklake", DuckLakeConfig),
     ("MotherDuck", "motherduck", MotherDuckConfig),
     ("Databricks", "databricks", DatabricksConfig),
     ("Microsoft SQL Server", "mssql", MssqlConfig),
@@ -171,7 +174,14 @@ DATABASE_CONFIGS: list[tuple[str, str, type[DatabaseConfig]]] = [
     ("Amazon Athena", "athena", AthenaConfig),
 ]
 
-BASE_DB_FIELDS = {"type", "name", "include", "exclude", "accessors"}
+BASE_DB_FIELDS = {
+    "type",
+    "name",
+    "include",
+    "exclude",
+    "allow_listed_only",
+    "accessors",
+}
 
 
 def _section_databases() -> str:
@@ -251,6 +261,14 @@ def _section_confluence() -> str:
     parts: list[str] = []
     parts.append("## Confluence\n")
     parts.append(_fields_table(ConfluenceConfig))
+    parts.append("")
+    return "\n".join(parts)
+
+
+def _section_obsidian() -> str:
+    parts: list[str] = []
+    parts.append("## Obsidian\n")
+    parts.append(_fields_table(ObsidianConfig))
     parts.append("")
     return "\n".join(parts)
 
@@ -338,6 +356,9 @@ confluence:
   spaces:
     - DATA
 
+obsidian:
+  path: ~/Documents/Knowledge
+
 slack:
   bot_token: ${{ env('SLACK_BOT_TOKEN') }}
   signing_secret: ${{ env('SLACK_SIGNING_SECRET') }}
@@ -375,6 +396,7 @@ def generate_markdown() -> str:
                 "repos": "[RepoConfig[]](#repos)",
                 "notion": "[NotionConfig](#notion)",
                 "confluence": "[ConfluenceConfig](#confluence)",
+                "obsidian": "[ObsidianConfig](#obsidian)",
                 "llm": "[LLMConfig](#llm)",
                 "slack": "[SlackConfig](#slack)",
                 "mcp": "[McpConfig](#mcp)",
@@ -389,6 +411,7 @@ def generate_markdown() -> str:
     parts.append(_section_repos())
     parts.append(_section_notion())
     parts.append(_section_confluence())
+    parts.append(_section_obsidian())
     parts.append(_section_slack())
     parts.append(_section_mcp())
     parts.append(_section_skills())

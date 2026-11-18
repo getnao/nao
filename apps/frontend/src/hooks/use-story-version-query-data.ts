@@ -9,7 +9,8 @@ interface UseStoryVersionQueryDataParams {
 	versionNumber: number;
 	isViewingLatest: boolean;
 	latestQueryData: QueryDataMap | null;
-	shareId?: string;
+	sharedStoryId?: string;
+	standaloneStoryId?: string;
 }
 
 export function useStoryVersionQueryData({
@@ -18,24 +19,33 @@ export function useStoryVersionQueryData({
 	versionNumber,
 	isViewingLatest,
 	latestQueryData,
-	shareId,
+	sharedStoryId,
+	standaloneStoryId,
 }: UseStoryVersionQueryDataParams): { queryData: QueryDataMap | null; isPending: boolean } {
 	const hasVersionNumber = Number.isInteger(versionNumber) && versionNumber > 0;
 	const shouldFetchHistoricalData = !isViewingLatest && hasVersionNumber;
 	const ownedVersionQuery = useQuery({
 		...trpc.story.getVersionQueryData.queryOptions({ chatId, storySlug, versionNumber }),
-		enabled: shouldFetchHistoricalData && !shareId,
+		enabled: shouldFetchHistoricalData && !sharedStoryId && !standaloneStoryId,
 	});
 	const sharedVersionQuery = useQuery({
-		...trpc.storyShare.getVersionQueryData.queryOptions({ shareId: shareId ?? '', versionNumber }),
-		enabled: shouldFetchHistoricalData && Boolean(shareId),
+		...trpc.storyShare.getVersionQueryData.queryOptions({ storyId: sharedStoryId ?? '', versionNumber }),
+		enabled: shouldFetchHistoricalData && Boolean(sharedStoryId),
+	});
+	const standaloneVersionQuery = useQuery({
+		...trpc.story.getStandaloneVersionQueryData.queryOptions({ storyId: standaloneStoryId ?? '', versionNumber }),
+		enabled: shouldFetchHistoricalData && Boolean(standaloneStoryId),
 	});
 
 	if (isViewingLatest) {
 		return { queryData: latestQueryData, isPending: false };
 	}
 
-	const historicalVersionQuery = shareId ? sharedVersionQuery : ownedVersionQuery;
+	const historicalVersionQuery = sharedStoryId
+		? sharedVersionQuery
+		: standaloneStoryId
+			? standaloneVersionQuery
+			: ownedVersionQuery;
 	return {
 		queryData: (historicalVersionQuery.data?.queryData as QueryDataMap | null | undefined) ?? null,
 		isPending: !hasVersionNumber || historicalVersionQuery.isPending,

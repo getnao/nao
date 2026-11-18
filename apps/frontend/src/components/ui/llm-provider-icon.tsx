@@ -7,12 +7,15 @@ import GoogleIcon from '@/components/icons/google.svg';
 import MistralIcon from '@/components/icons/mistral.svg';
 import OpenAIIcon from '@/components/icons/openai.svg';
 import OpenRouterIcon from '@/components/icons/openrouter.svg';
+import RequestyIcon from '@/components/icons/requesty.svg';
 import OllamaIcon from '@/components/icons/ollama.svg';
 import BedrockIcon from '@/components/icons/bedrock.svg';
 import GoogleVertexIcon from '@/components/icons/google-vertex.svg';
 import QwenIcon from '@/components/icons/qwen.svg';
 import MinimaxIcon from '@/components/icons/minimax.svg';
 import MoonshotIcon from '@/components/icons/moonshot.svg';
+import NaoIcon from '@/components/icons/nao-logo-greyscale.svg';
+import MetaIcon from '@/components/icons/meta.svg';
 
 import { Favicon } from '@/components/ui/favicon';
 import { cn } from '@/lib/utils';
@@ -27,6 +30,8 @@ interface LlmProviderIconProps {
 export function LlmProviderIcon({ provider, baseUrl, className: customClassName }: LlmProviderIconProps) {
 	const className = cn('text-foreground opacity-50', customClassName);
 	switch (providerKind(provider as LlmProvider)) {
+		case 'nao':
+			return <NaoIcon className={className} />;
 		case 'anthropic':
 			return <ClaudeIcon className={className} />;
 		case 'openai':
@@ -37,6 +42,8 @@ export function LlmProviderIcon({ provider, baseUrl, className: customClassName 
 			return <GoogleIcon className={className} />;
 		case 'openrouter':
 			return <OpenRouterIcon className={className} />;
+		case 'requesty':
+			return <RequestyIcon className={className} />;
 		case 'ollama':
 			return <OllamaIcon className={className} />;
 		case 'bedrock':
@@ -51,6 +58,8 @@ export function LlmProviderIcon({ provider, baseUrl, className: customClassName 
 			return <MinimaxIcon className={className} />;
 		case 'moonshot':
 			return <MoonshotIcon className={className} />;
+		case 'meta':
+			return <MetaIcon className={className} />;
 		case 'openaiCompatible':
 			return (
 				<Favicon

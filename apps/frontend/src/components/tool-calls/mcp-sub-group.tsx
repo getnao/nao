@@ -8,6 +8,7 @@ import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoni
 import { useChatView } from '@/contexts/chat-view';
 import { isToolSettled, isReasoningPart } from '@/lib/ai';
 import { isMcpCallPart } from '@/lib/mcp';
+import { getToolCallIds, useExpandOnToolCallReveal } from '@/hooks/use-tool-call-reveal';
 
 export const McpToolCallsSubGroup = ({ group, isSettled }: { group: McpSubGroupPart; isSettled: boolean }) => {
 	const isLoading = !isSettled && group.parts.some((part) => !isReasoningPart(part) && !isToolSettled(part));
@@ -20,6 +21,8 @@ export const McpToolCallsSubGroup = ({ group, isSettled }: { group: McpSubGroupP
 			setIsExpanded(true);
 		}
 	}, [isLoading, expandOnError, hasError]);
+
+	useExpandOnToolCallReveal(getToolCallIds(group.parts), setIsExpanded);
 
 	const hasMcpCall = group.parts.some(isMcpCallPart);
 	const titleText = getTitleText({

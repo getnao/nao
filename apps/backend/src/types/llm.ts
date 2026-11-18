@@ -11,7 +11,8 @@ import type { JSONValue } from 'ai';
 import type { OllamaChatProviderOptions } from 'ai-sdk-ollama';
 import { z } from 'zod/v4';
 
-import { TokenCost } from './chat';
+import type { ManagedAiUsageContext } from '../agents/managed-ai';
+import type { ProviderModelResult } from '../agents/providers';
 
 export const llmProviderSchema = z.custom<LlmProvider>((value) => typeof value === 'string' && isLlmProvider(value), {
 	message: 'Unknown LLM provider',
@@ -44,7 +45,12 @@ export const reasoningEffortSchema = z.enum(['off', 'minimal', 'low', 'medium', 
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
 /** Every effort level that is actually sent to a provider (`off` means "leave it to the model"). */
+export const activeEffortSchema = reasoningEffortSchema.exclude(['off']);
 export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
+
+/** What Claude returns in its thinking blocks: nothing, the notes written between tool calls, or everything summarized. */
+export const thinkingDisplaySchema = z.enum(['omitted', 'updates', 'summarized']);
+export type ThinkingDisplay = z.infer<typeof thinkingDisplaySchema>;
 
 export const serviceTierSchema = z.enum(['auto', 'default', 'standard', 'flex', 'priority', 'reserved']);
 export type ServiceTier = z.infer<typeof serviceTierSchema>;
@@ -77,6 +83,7 @@ export const modelInferenceSettingsSchema = z.object({
 	maxOutputTokens: z.number().int().min(1).optional(),
 	reasoningEffort: reasoningEffortSchema.optional(),
 	thinkingBudgetTokens: z.number().int().min(1024).optional(),
+	thinkingDisplay: thinkingDisplaySchema.optional(),
 	textVerbosity: z.enum(['low', 'medium', 'high']).optional(),
 	reasoningSummary: z.enum(['auto', 'detailed']).optional(),
 	parallelToolCalls: z.boolean().optional(),
@@ -96,6 +103,39 @@ export type ModelInferenceSettings = z.infer<typeof modelInferenceSettingsSchema
 
 export const modelSettingsMapSchema = z.record(z.string(), modelInferenceSettingsSchema);
 export type ModelSettingsMap = z.infer<typeof modelSettingsMapSchema>;
+
+/** Where a project's models and their credentials come from: its database config, nao_config.yaml, the environment, or nao. */
+export type ModelSource = {
+	/** Serves the providers nao runs on its own keys. */
+	readonly managed?: boolean;
+	listProviders(projectId: string): Promise<ProviderModelSource[]>;
+	resolveModel(request: ModelRequest): Promise<ProviderModelResult | null>;
+	/** The admin's settings of a model, or null when the source has no access to its provider. */
+	resolveModelSettings?(
+		projectId: string,
+		provider: LlmProvider,
+		modelId: string,
+	): Promise<ModelInferenceSettings | null>;
+	/** Credentials for calling the provider directly. A source that must wrap every call leaves it out. */
+	resolveSettings?(projectId: string, provider: LlmProvider): Promise<ProviderSettings | null>;
+};
+
+export type ProviderModelSource = {
+	provider: LlmProvider;
+	enabledModels: string[];
+	customModels: CustomModelMetadata[];
+	baseUrl: string | null;
+};
+
+export type ModelRequest = {
+	projectId: string;
+	provider: LlmProvider;
+	modelId: string;
+	applyUserSettings: boolean;
+	usageContext?: ManagedAiUsageContext;
+	/** Settings that win over the ones configured for the model, such as the reasoning effort a test runs at. */
+	inferenceOverrides?: ModelInferenceSettings;
+};
 
 /** How a model exposes "thinking"/reasoning control, if at all. */
 export type ModelThinkingMode = 'adaptive' | 'budget' | 'none';
@@ -137,11 +177,17 @@ export type ModelCapabilities = {
 	/** Effort vocabulary of this model, when it differs from its provider's default translation. */
 	effortMap?: Record<ActiveEffort, string>;
 	temperatureMax?: number;
+	/** Lowest Top P the API accepts, for models that reject 0. */
+	topPMin?: number;
 	extraParams?: ExtraParamKey[];
 	serviceTierOptions?: ServiceTier[];
 	/** Provider physical max output tokens; budget-thinking Claude clamps budgets under this since the SDK sends max_tokens = maxOutputTokens + budgetTokens. */
 	maxOutputCap?: number;
 	thinkingBudgetRange?: { min: number; max: number };
+	/** Thinking display sent when the admin has not picked one; Claude 4.7+ otherwise returns every thinking block empty. */
+	thinkingDisplay?: ThinkingDisplay;
+	/** Thinking runs even without a configured effort (Claude 5+), so the display setting must be sent on every request. */
+	thinkingAlwaysOn?: boolean;
 };
 
 /** A single editable inference-parameter control, derived from a model's capabilities. */
@@ -198,13 +244,14 @@ type Flatten<T> = { [K in keyof T]: T[K] };
 export type OpenAICompatibleOptions = OpenAICompatibleProviderOptions & Record<string, JSONValue>;
 
 /** Providers served through a plain OpenAI-compatible chat endpoint rather than a dedicated SDK. */
-export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'openaiCompatible';
+export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'meta' | 'requesty' | 'openaiCompatible';
 
 /** Map each provider kind to its specific config type */
 export type ProviderConfigMap = {
+	nao: OpenAIResponsesProviderOptions;
 	google: GoogleGenerativeAIProviderOptions;
 	openai: OpenAIResponsesProviderOptions;
-	anthropic: AnthropicProviderOptions;
+	anthropic: Omit<AnthropicProviderOptions, 'fallbacks'>;
 	mistral: MistralLanguageModelOptions;
 	openrouter: OpenRouterProviderOptions;
 	ollama: Flatten<OllamaChatProviderOptions>;
@@ -214,6 +261,8 @@ export type ProviderConfigMap = {
 	qwen: OpenAICompatibleOptions;
 	minimax: OpenAICompatibleOptions;
 	moonshot: OpenAICompatibleOptions;
+	meta: OpenAICompatibleOptions;
+	requesty: OpenAICompatibleOptions;
 	openaiCompatible: OpenAICompatibleOptions;
 };
 
@@ -224,7 +273,6 @@ type ProviderModel<P extends LlmProviderKind> = {
 	default?: boolean;
 	contextWindow?: number;
 	config?: ProviderConfigMap[P];
-	costPerM?: TokenCost;
 	/** Tunable inference parameters this model supports. Omit to expose no tunable parameters. */
 	capabilities?: ModelCapabilities;
 };
@@ -258,12 +306,14 @@ export type ProviderAuth = {
 /** Data-only provider config (no SDK imports, safe for frontend) */
 export type ProviderMeta<P extends LlmProviderKind> = {
 	auth: ProviderAuth;
-	envVar: string;
+	envVar?: string;
 	baseUrlEnvVar?: string;
 	/** Endpoint used when neither the config nor the environment sets a base URL. */
 	defaultBaseUrl?: string;
 	/** Set when the provider has no vendor endpoint to fall back on, so a base URL must be supplied. */
 	requiresBaseUrl?: boolean;
+	/** Set when nao runs the provider on its own keys and bills it through credits, so projects cannot configure it. */
+	managed?: boolean;
 	models: readonly ProviderModel<P>[];
 	extractorModelId: string;
 	summaryModelId: string;
@@ -289,5 +339,7 @@ export const LLM_INFERENCE_TYPES = [
 	'compaction',
 	'title_generation',
 	'live_story_refresh',
+	'subagent',
+	'story_theme_generation',
 ] as const;
 export type LlmInferenceType = (typeof LLM_INFERENCE_TYPES)[number];

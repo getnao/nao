@@ -16,6 +16,8 @@ export interface StoryChartEditHandlers {
 	isSaving: boolean;
 	/** Human-readable hint describing how the edit is persisted, shown in the edit dialog. */
 	saveDescription: string;
+	/** The saved story being edited, used to load chart SQL when the chat is not loaded. */
+	story?: { chatId: string; storySlug: string };
 }
 
 const VERSION_SAVE_DESCRIPTION = 'Tweak the chart parameters. Changes are saved to the story as a new version.';
@@ -55,6 +57,7 @@ interface StoryChartEditProviderProps {
 	storySlug: string;
 	storyTitle: string;
 	storyCode: string;
+	storyVersion?: number;
 	children: React.ReactNode;
 }
 
@@ -63,9 +66,16 @@ export function StoryChartEditProvider({
 	storySlug,
 	storyTitle,
 	storyCode,
+	storyVersion,
 	children,
 }: StoryChartEditProviderProps) {
-	const { replaceBlock, isSaving } = useStoryBlockEdit({ chatId, storySlug, storyTitle, storyCode });
+	const { replaceBlock, isSaving } = useStoryBlockEdit({
+		chatId,
+		storySlug,
+		storyTitle,
+		storyCode,
+		storyVersion,
+	});
 
 	const saveChart = useCallback(
 		(rawTag: string, config: EditableChartInput) => replaceBlock(rawTag, buildStoryChartBlock(config)),
@@ -73,8 +83,8 @@ export function StoryChartEditProvider({
 	);
 
 	const value = useMemo<StoryChartEditHandlers>(
-		() => ({ saveChart, isSaving, saveDescription: VERSION_SAVE_DESCRIPTION }),
-		[saveChart, isSaving],
+		() => ({ saveChart, isSaving, saveDescription: VERSION_SAVE_DESCRIPTION, story: { chatId, storySlug } }),
+		[saveChart, isSaving, chatId, storySlug],
 	);
 
 	return <StoryChartEditContext.Provider value={value}>{children}</StoryChartEditContext.Provider>;

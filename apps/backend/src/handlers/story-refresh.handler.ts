@@ -1,9 +1,19 @@
 import type { DBScheduledJob } from '../db/abstractSchema';
+import { env } from '../env';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
-import { refreshStoryData } from '../services/live-story';
+import { refreshStoryById } from '../services/live-story';
+import {
+	NotificationChannelDeliveryError,
+	notifyStoryRefreshed,
+	notifyStoryRefreshFailed,
+} from '../services/notification.service';
+import { enqueueOnce } from '../services/scheduler.service';
+import { warmStoryFilterOptionsByStoryId } from '../services/story-filter-options';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
+import { deliverStoryOnRefresh, STORY_DELIVERY_JOB_NAME } from './story-delivery.handler';
 
 export const STORY_REFRESH_JOB_NAME = 'story.refresh';
 
@@ -19,17 +29,35 @@ export async function storyRefreshHandler(payload: StoryRefreshJobPayload, _job?
 	await runScheduledStoryRefresh(storyId);
 }
 
+export async function resolveStoryRefreshProjectId(payload: StoryRefreshJobPayload): Promise<string> {
+	if (!payload.storyId) {
+		throw new Error('storyId is required.');
+	}
+	const story = await storyQueries.getStoryById(payload.storyId);
+	if (!story) {
+		throw new Error(`Story not found: ${payload.storyId}`);
+	}
+	const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+	if (!projectId) {
+		throw new Error(`Story ${payload.storyId} is missing a project; cannot schedule refresh.`);
+	}
+	return projectId;
+}
+
 /**
  * Runs a scheduled refresh for a live story and records the outcome as an
  * `activity` row so it surfaces in the activity feed.
  */
 export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
+	await withKeyedLock(`story:${storyId}`, async () => {
+		await runLockedScheduledStoryRefresh(storyId);
+	});
+}
+
+async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	const story = await storyQueries.getStoryById(storyId);
 	if (!story) {
 		throw new Error(`Story not found: ${storyId}`);
-	}
-	if (!story.chatId) {
-		throw new Error(`Story has no chat to refresh: ${storyId}`);
 	}
 	if (!story.isLive || story.archivedAt) {
 		return;
@@ -40,7 +68,6 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 	if (!projectId || !userId) {
 		throw new Error(`Story ${storyId} is missing project or user ownership; cannot schedule refresh.`);
 	}
-
 	const activity = await activityQueries.startStoryRefreshActivity({
 		projectId,
 		userId,
@@ -50,8 +77,27 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 	});
 
 	try {
-		const { queryData } = await refreshStoryData(story.chatId, story.slug);
-		await activityQueries.completeActivity(activity.id, { queriesRefreshed: Object.keys(queryData).length });
+		const { queryData, queriesRefreshed } = await refreshStoryById(storyId, {
+			billingAccessVerifiedProjectId: projectId,
+		});
+		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
+		await warmFilterOptionsAfterRefresh(projectId, storyId);
+		if (queriesRefreshed > 0) {
+			await notifyStoryRefreshed({
+				projectId,
+				ownerId: userId,
+				storyId,
+				storyTitle: story.title,
+				queriesRefreshed,
+				trigger: 'schedule',
+			}).catch((notifyError) => {
+				logger.error(`Failed to notify story refresh: ${String(notifyError)}`, {
+					source: 'system',
+					projectId,
+					context: { storyId },
+				});
+			});
+		}
 		logAnalyticsEvent({
 			projectId,
 			type: 'refresh',
@@ -59,7 +105,22 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 			actorUserId: userId,
 			storyId,
 			chatId: story.chatId,
-			metadata: { type: 'refresh', trigger: 'scheduled', queriesRefreshed: Object.keys(queryData).length },
+			metadata: { type: 'refresh', trigger: 'scheduled', queriesRefreshed },
+		});
+		await deliverStoryOnRefresh(storyId, story.cacheSchedule, queryData).catch(async (error) => {
+			logger.error(`Story delivery after scheduled refresh failed; enqueuing retry: ${String(error)}`, {
+				source: 'system',
+				projectId,
+				context: { storyId },
+			});
+			await enqueueOnce({
+				name: STORY_DELIVERY_JOB_NAME,
+				payload: {
+					storyId,
+					skipDeliveries: error instanceof NotificationChannelDeliveryError ? error.succeeded : [],
+				},
+				uniqueKey: `story-delivery-retry:${activity.id}`,
+			});
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -69,6 +130,33 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 			context: { storyId, activityId: activity.id },
 		});
 		await activityQueries.failActivity(activity.id, message);
+		await notifyStoryRefreshFailed({
+			projectId,
+			ownerId: userId,
+			storyId,
+			storyTitle: story.title,
+			errorMessage: message,
+			trigger: 'schedule',
+		}).catch((notifyError) => {
+			logger.error(`Failed to notify owner of refresh failure: ${String(notifyError)}`, {
+				source: 'system',
+				projectId,
+				context: { storyId },
+			});
+		});
 		throw err;
 	}
+}
+
+async function warmFilterOptionsAfterRefresh(projectId: string, storyId: string) {
+	if (!env.BETA_STORY_FILTERS_ENABLED) {
+		return;
+	}
+	await warmStoryFilterOptionsByStoryId(storyId, { billingAccessVerifiedProjectId: projectId }).catch((error) => {
+		logger.warn(`Failed to warm story filter options: ${String(error)}`, {
+			source: 'system',
+			projectId,
+			context: { storyId },
+		});
+	});
 }

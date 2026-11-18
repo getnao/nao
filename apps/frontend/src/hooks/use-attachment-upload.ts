@@ -34,10 +34,18 @@ export interface AttachmentPayload {
 interface UseAttachmentUploadOptions {
 	/** Off when the instance has no permanent storage, which is where documents are kept. */
 	documentsEnabled: boolean | undefined;
+	/** Shown instead of the storage message when documents are off for another reason. */
+	documentsDisabledReason?: string;
 	maxDocumentSizeMb: number;
+	disabled?: boolean;
 }
 
-export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: UseAttachmentUploadOptions) {
+export function useAttachmentUpload({
+	documentsEnabled,
+	documentsDisabledReason,
+	maxDocumentSizeMb,
+	disabled = false,
+}: UseAttachmentUploadOptions) {
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [rejection, setRejection] = useState<string | undefined>(undefined);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,14 +53,18 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 	const addFiles = useCallback(
 		async (files: FileList | File[]) => {
 			const candidates = Array.from(files);
-			if (candidates.length === 0) {
+			if (disabled || candidates.length === 0) {
 				return;
 			}
 
 			setRejection(undefined);
 			const accepted: File[] = [];
 			for (const file of candidates) {
-				const problem = describeRejection(file, { documentsEnabled, maxDocumentSizeMb });
+				const problem = describeRejection(file, {
+					documentsEnabled,
+					documentsDisabledReason,
+					maxDocumentSizeMb,
+				});
 				if (problem) {
 					setRejection(problem);
 				} else {
@@ -77,7 +89,7 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 				added.map((attachment, index) => prepare(attachment, withinLimit[index], setAttachments)),
 			);
 		},
-		[attachments.length, documentsEnabled, maxDocumentSizeMb],
+		[attachments.length, disabled, documentsEnabled, documentsDisabledReason, maxDocumentSizeMb],
 	);
 
 	const removeAttachment = useCallback((id: string) => {
@@ -89,22 +101,31 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 		setRejection(undefined);
 	}, []);
 
-	const restoreDocuments = useCallback((documents: DocumentAttachment[]) => {
-		setAttachments((previous) => [
-			...previous,
-			...documents.map((document) => ({
-				id: crypto.randomUUID(),
-				kind: 'document' as const,
-				name: document.filename,
-				mediaType: document.mediaType,
-				path: document.path,
-			})),
-		]);
-	}, []);
+	const restoreDocuments = useCallback(
+		(documents: DocumentAttachment[]) => {
+			if (disabled) {
+				return;
+			}
+			setAttachments((previous) => [
+				...previous,
+				...documents.map((document) => ({
+					id: crypto.randomUUID(),
+					kind: 'document' as const,
+					name: document.filename,
+					mediaType: document.mediaType,
+					path: document.path,
+				})),
+			]);
+		},
+		[disabled],
+	);
 
 	const openFilePicker = useCallback(() => {
+		if (disabled) {
+			return;
+		}
 		fileInputRef.current?.click();
-	}, []);
+	}, [disabled]);
 
 	const handleFileInputChange = useCallback(
 		(e: React.ChangeEvent<HTMLInputElement>) => {
@@ -118,6 +139,9 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 
 	const handlePaste = useCallback(
 		(e: ClipboardEvent) => {
+			if (disabled) {
+				return;
+			}
 			const pasted = Array.from(e.clipboardData?.items ?? [])
 				.filter((item) => item.kind === 'file')
 				.map((item) => item.getAsFile())
@@ -128,7 +152,7 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 				addFiles(pasted);
 			}
 		},
-		[addFiles],
+		[addFiles, disabled],
 	);
 
 	const getPayload = useCallback((): AttachmentPayload => {
@@ -212,7 +236,7 @@ const prepare = async (
 
 const describeRejection = (
 	file: File,
-	{ documentsEnabled, maxDocumentSizeMb }: UseAttachmentUploadOptions,
+	{ documentsEnabled, documentsDisabledReason, maxDocumentSizeMb }: UseAttachmentUploadOptions,
 ): string | undefined => {
 	if (isImageMediaType(file.type)) {
 		return file.size === 0
@@ -229,7 +253,9 @@ const describeRejection = (
 		return 'Storage configuration is still loading. Try attaching the document again in a moment.';
 	}
 	if (!documentsEnabled) {
-		return 'Attaching files needs permanent storage, which is turned off on this instance.';
+		return (
+			documentsDisabledReason ?? 'Attaching files needs permanent storage, which is turned off on this instance.'
+		);
 	}
 	if (file.size > maxDocumentSizeMb * 1024 * 1024) {
 		return `${file.name} is over the ${maxDocumentSizeMb} MB upload limit.`;

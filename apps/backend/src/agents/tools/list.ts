@@ -1,20 +1,30 @@
 import { list } from '@nao/shared/tools';
+import type { Dirent } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 
 import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
+import {
+	assertProjectContextPathAllowed,
+	isDocsProjectPath,
+	isProjectContextPathAllowed,
+} from '../../services/project-context-path-access.service';
+import { toProjectPathError } from '../../services/project-path-error.service';
 import { isStorageEnabled } from '../../services/storage';
 import { listUserDirectory } from '../../services/storage/user-files';
+import { listStoryLibrary } from '../../services/story-library';
+import { isCustomStoriesEnabled, listStoryMount } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
+import { isStoryLibraryPath, STORY_LIBRARY_MOUNT, toStoryLibraryVirtualPath } from '../../utils/story-library';
+import { isStoriesPath, STORIES_MOUNT, toStoriesVirtualPath } from '../../utils/story-mount';
 import {
 	isStoragePath,
+	resolveCanonicalProjectPath,
 	shouldExcludeEntry,
 	STORAGE_MOUNT,
-	toRealPath,
 	toStorageRelativePath,
 	toStorageScope,
 	toStorageVirtualPath,
-	toVirtualPath,
 } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
@@ -23,15 +33,24 @@ export default createTool<list.Input, list.Output>({
 	inputSchema: list.InputSchema,
 	outputSchema: list.OutputSchema,
 	execute: async ({ path: filePath }, context) => {
-		const entries = isStoragePath(filePath)
-			? await listStorage(filePath, context)
-			: await listProjectFolder(filePath, context);
-
-		return { _version: '1' as const, entries };
+		return { _version: '1' as const, entries: await listAnywhere(filePath, context) };
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(ListOutput({ output }), output),
 });
+
+const listAnywhere = (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
+	if (isStoriesPath(virtualPath)) {
+		return listStoryMount(context, virtualPath);
+	}
+	if (isStoryLibraryPath(virtualPath)) {
+		return listStoryLibrary(context, virtualPath);
+	}
+	if (isStoragePath(virtualPath)) {
+		return listStorage(virtualPath, context);
+	}
+	return listProjectFolder(virtualPath, context);
+};
 
 const listStorage = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	const entries = await listUserDirectory(toStorageScope(context), toStorageRelativePath(virtualPath));
@@ -47,17 +66,24 @@ const listStorage = async (virtualPath: string, context: ToolContext): Promise<l
 
 const listProjectFolder = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	const projectFolder = context.projectFolder;
-	const realPath = toRealPath(virtualPath, projectFolder);
+	const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
+	assertProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory');
+	const realPath = canonical.realPath;
 
 	// Get the relative path of the parent directory for naoignore matching
-	const parentRelativePath = path.relative(projectFolder, realPath);
+	const parentRelativePath = canonical.virtualPath.replace(/^\/+/, '');
 
-	const dirEntries = await fs.readdir(realPath, { withFileTypes: true });
+	const dirEntries = await readProjectDirectory(realPath, virtualPath, context);
 
 	// Filter out excluded entries (including .naoignore patterns)
-	const filteredEntries = dirEntries.filter(
-		(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder),
-	);
+	const filteredEntries = dirEntries.filter((entry) => {
+		const childPath = path.posix.join(canonical.virtualPath, entry.name);
+		return (
+			!shouldExcludeEntry(entry.name, parentRelativePath, projectFolder) &&
+			!(entry.isSymbolicLink() && isDocsProjectPath(childPath)) &&
+			isAllowedProjectEntry(childPath, context, entry.isDirectory() ? 'directory' : 'file')
+		);
+	});
 
 	const entries = await Promise.all(
 		filteredEntries.map(async (entry) => {
@@ -75,15 +101,23 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 			let itemCount: number | undefined;
 			if (type === 'directory') {
 				try {
-					const subEntries = await fs.readdir(fullRealPath);
-					itemCount = subEntries.length;
+					const subEntries = await fs.readdir(fullRealPath, { withFileTypes: true });
+					const childParentPath = path.posix.join(parentRelativePath, entry.name);
+					itemCount = subEntries.filter((subEntry) => {
+						const childPath = path.posix.join(canonical.virtualPath, entry.name, subEntry.name);
+						return (
+							!shouldExcludeEntry(subEntry.name, childParentPath, projectFolder) &&
+							!(subEntry.isSymbolicLink() && isDocsProjectPath(childPath)) &&
+							isAllowedProjectEntry(childPath, context, subEntry.isDirectory() ? 'directory' : 'file')
+						);
+					}).length;
 				} catch {
 					// If we can't read the directory, leave itemCount undefined
 				}
 			}
 
 			return {
-				path: toVirtualPath(fullRealPath, projectFolder),
+				path: path.posix.join(canonical.virtualPath, entry.name),
 				name: entry.name,
 				type,
 				size,
@@ -93,14 +127,35 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	);
 
 	const isRoot = parentRelativePath === '';
-	return isRoot && isStorageEnabled() ? [...entries, storageMountEntry()] : entries;
+	return isRoot ? [...entries, ...mountEntries()] : entries;
 };
 
-/** Permanent storage shows up as an ordinary folder at the root of the tree. */
-const storageMountEntry = (): list.Entry => {
-	return {
-		path: toStorageVirtualPath(''),
-		name: STORAGE_MOUNT,
-		type: 'directory' as const,
-	};
+async function readProjectDirectory(realPath: string, virtualPath: string, context: ToolContext): Promise<Dirent[]> {
+	try {
+		return await fs.readdir(realPath, { withFileTypes: true });
+	} catch (error) {
+		throw toProjectPathError(error, virtualPath, 'directory', context);
+	}
+}
+
+function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 'file' | 'directory'): boolean {
+	try {
+		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, kind);
+	} catch {
+		return false;
+	}
+}
+
+/** Permanent storage, custom stories's files and story library show up as ordinary folders at the root of the tree. */
+const mountEntries = (): list.Entry[] => {
+	return [
+		...(isStorageEnabled()
+			? [{ path: toStorageVirtualPath(''), name: STORAGE_MOUNT, type: 'directory' as const }]
+			: []),
+		...(isCustomStoriesEnabled()
+			? [{ path: toStoriesVirtualPath(), name: STORIES_MOUNT, type: 'directory' as const }]
+			: []),
+		{ path: toStoryLibraryVirtualPath(), name: STORY_LIBRARY_MOUNT, type: 'directory' as const },
+	];
 };

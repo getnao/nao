@@ -4,8 +4,11 @@ import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { UserMessageBubble } from './user-message';
 import type { StickToBottomContext } from 'use-stick-to-bottom';
-import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
-import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
+import type { ForkMetadata, MessageModel, UIMessage } from '@nao/backend/chat';
+import type { CitationData } from '@nao/shared/types';
+import { CitationPill } from '@/components/citation-pill';
+import { MessageModelLabel } from '@/components/chat-messages/message-model-label';
+import { AnswerDuration, MessageDateTime } from '@/components/chat-messages/message-timing';
 import { checkAssistantMessageHasContent, groupMessages, groupToolCalls } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import {
@@ -20,6 +23,7 @@ import { MessageParts } from '@/components/chat-messages/assistant-message';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 
 export type FeedbackRecommendationMap = Record<string, { id: string; title: string; status: string }>;
+export type MessageModelMap = Record<string, MessageModel>;
 
 function recommendationTabForStatus(status: string): 'recommendations' | 'applied' | 'dismissed' {
 	if (status === 'applied') {
@@ -34,15 +38,21 @@ function recommendationTabForStatus(status: string): 'recommendations' | 'applie
 export function ChatMessagesReadonly({
 	messages,
 	className,
+	contentClassName,
 	forkMetadata,
 	conversationContextRef,
 	feedbackRecommendations,
+	messageModels,
+	showTimestamps = false,
 }: {
 	messages: UIMessage[];
 	className?: string;
+	contentClassName?: string;
 	forkMetadata?: ForkMetadata;
 	conversationContextRef?: React.Ref<StickToBottomContext>;
 	feedbackRecommendations?: FeedbackRecommendationMap;
+	messageModels?: MessageModelMap;
+	showTimestamps?: boolean;
 }) {
 	const messageGroups = useMemo(() => groupMessages(filterSupersededExecuteSqlParts(messages)), [messages]);
 
@@ -54,16 +64,21 @@ export function ChatMessagesReadonly({
 		if (!isForkedMessage) {
 			return null;
 		}
-		const rawText = forkMetadata.selectionText;
-		const text = rawText.length > 200 ? `${rawText.slice(0, 200)}\u2026` : rawText;
-		const citationLabel = `@chars ${forkMetadata.selectionStart}–${forkMetadata.selectionEnd}`;
-		return { id: isForkedMessage.id, citation: citationLabel, text };
+		return {
+			id: isForkedMessage.id,
+			start: forkMetadata.selectionStart,
+			end: forkMetadata.selectionEnd,
+			text: forkMetadata.selectionText,
+		};
 	}, [messages, forkMetadata]);
 
 	return (
 		<div className={cn('h-full min-h-0 flex', className)}>
 			<Conversation contextRef={conversationContextRef}>
-				<ConversationContent className='max-w-3xl mx-auto gap-0' data-selection-container>
+				<ConversationContent
+					className={cn('max-w-3xl mx-auto gap-0', contentClassName)}
+					data-selection-container
+				>
 					{messageGroups.length === 0 ? (
 						<ConversationEmptyState title='No messages' description='' />
 					) : (
@@ -74,6 +89,8 @@ export function ChatMessagesReadonly({
 								assistantMessages={group.assistantMessages}
 								citation={citation}
 								feedbackRecommendations={feedbackRecommendations}
+								messageModels={messageModels}
+								showTimestamps={showTimestamps}
 							/>
 						))
 					)}
@@ -90,21 +107,28 @@ const MessageGroupReadonly = ({
 	assistantMessages,
 	citation,
 	feedbackRecommendations,
+	messageModels,
+	showTimestamps,
 }: {
 	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
-	citation: { id: string; citation: string; text: string } | null;
+	citation: ForkCitation | null;
 	feedbackRecommendations?: FeedbackRecommendationMap;
+	messageModels?: MessageModelMap;
+	showTimestamps: boolean;
 }) => {
 	const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 	return (
 		<div className='flex flex-col gap-4 last:mb-4'>
-			{messages.map((message) => (
+			{messages.map((message, index) => (
 				<MessageBlockReadonly
 					key={message.id}
 					message={message}
+					previousMessage={messages[index - 1]}
 					citation={citation}
 					feedbackRecommendations={feedbackRecommendations}
+					messageModels={messageModels}
+					showTimestamps={showTimestamps}
 				/>
 			))}
 		</div>
@@ -113,28 +137,54 @@ const MessageGroupReadonly = ({
 
 const MessageBlockReadonly = ({
 	message,
+	previousMessage,
 	citation,
 	feedbackRecommendations,
+	messageModels,
+	showTimestamps,
 }: {
 	message: UIMessage;
-	citation: { id: string; citation: string; text: string } | null;
+	previousMessage: UIMessage | undefined;
+	citation: ForkCitation | null;
 	feedbackRecommendations?: FeedbackRecommendationMap;
+	messageModels?: MessageModelMap;
+	showTimestamps: boolean;
 }) => {
 	if (message.isForked && citation?.id === message.id) {
 		return <CitationBlockReadonly citation={citation} />;
 	}
 
+	const showTimestamp = showTimestamps && hasOriginalTimestamp(message);
+
 	if (message.role === 'user') {
-		return <UserMessageReadonly message={message} />;
+		return <UserMessageReadonly message={message} showTimestamp={showTimestamp} />;
 	}
 
-	return <AssistantMessageReadonly message={message} linkedRecommendation={feedbackRecommendations?.[message.id]} />;
+	return (
+		<AssistantMessageReadonly
+			message={message}
+			linkedRecommendation={feedbackRecommendations?.[message.id]}
+			model={messageModels?.[message.id]}
+			answerStartedAt={
+				previousMessage && hasOriginalTimestamp(previousMessage) ? previousMessage.createdAt : undefined
+			}
+			showTimestamp={showTimestamp}
+		/>
+	);
 };
 
-const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
+/** Forked messages are copies stamped with the fork time, so their timestamps say nothing about the original chat. */
+function hasOriginalTimestamp(message: UIMessage): boolean {
+	return !message.isForked;
+}
+
+const UserMessageReadonly = memo(({ message, showTimestamp }: { message: UIMessage; showTimestamp: boolean }) => {
 	return (
 		<div className='flex flex-col gap-2 items-end w-full p-2' data-replay-target-id={message.id}>
 			<UserMessageBubble message={message} />
+			{showTimestamp && message.createdAt != null && (
+				<MessageDateTime timestamp={message.createdAt} className='px-1 text-xs text-muted-foreground' />
+			)}
 		</div>
 	);
 });
@@ -143,9 +193,15 @@ const AssistantMessageReadonly = memo(
 	({
 		message,
 		linkedRecommendation,
+		model,
+		answerStartedAt,
+		showTimestamp,
 	}: {
 		message: UIMessage;
 		linkedRecommendation?: { id: string; title: string; status: string };
+		model?: MessageModel;
+		answerStartedAt: number | undefined;
+		showTimestamp: boolean;
 	}) => {
 		const [toolCallDensity] = useToolCallDensity();
 		const messageParts = useMemo(
@@ -154,6 +210,7 @@ const AssistantMessageReadonly = memo(
 		);
 		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
 		const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
+		const finishedAt = showTimestamp ? message.createdAt : undefined;
 
 		if (!message.parts.length) {
 			return null;
@@ -163,6 +220,16 @@ const AssistantMessageReadonly = memo(
 			<AssistantMessageProvider isSettled={true}>
 				<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')} data-replay-target-id={message.id}>
 					<MessageParts parts={messageParts} />
+
+					{(model || finishedAt != null) && (
+						<div className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+							{model && <MessageModelLabel model={model} />}
+							{model && finishedAt != null && <span aria-hidden>·</span>}
+							{finishedAt != null && (
+								<AnswerDuration startedAt={answerStartedAt} finishedAt={finishedAt} />
+							)}
+						</div>
+					)}
 
 					{message.feedback && (
 						<div
@@ -177,11 +244,9 @@ const AssistantMessageReadonly = memo(
 								<ThumbsDown className='size-3.5 text-red-500 dark:text-red-400' />
 							)}
 							<span>Feedback</span>
-							{message.feedback.vote === 'down' &&
-								message.feedback.explanation != null &&
-								message.feedback.explanation.trim() !== '' && (
-									<span className='text-xs font-semibold'> : {message.feedback.explanation}</span>
-								)}
+							{message.feedback.explanation != null && message.feedback.explanation.trim() !== '' && (
+								<span className='text-xs font-semibold'> : {message.feedback.explanation}</span>
+							)}
 							{message.feedback.vote === 'down' && linkedRecommendation && (
 								<Link
 									to='/settings/recommendations'
@@ -206,10 +271,12 @@ const AssistantMessageReadonly = memo(
 	},
 );
 
-const CitationBlockReadonly = ({ citation }: { citation: { id: string; citation: string; text: string } }) => {
+type ForkCitation = CitationData & { id: string };
+
+const CitationBlockReadonly = ({ citation }: { citation: ForkCitation }) => {
 	return (
-		<div className='px-4 py-3 border border-border bg-background shrink-0 rounded-xl'>
-			<SelectionCitationExcerpt label={citation.citation} text={citation.text} maxLength={0} />
+		<div className='flex shrink-0 justify-end'>
+			<CitationPill citation={citation} />
 		</div>
 	);
 };

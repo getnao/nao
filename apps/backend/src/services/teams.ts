@@ -4,17 +4,19 @@ import { createTeamsAdapter } from '@chat-adapter/teams';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 import { stripAssistantTags } from '@nao/shared';
+import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
-import { TeamsConfig } from '../queries/project-teams-config.queries';
+import type { TeamsConfig } from '../queries/project-teams-config.queries';
 import { getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
@@ -34,8 +36,9 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
-import { posthog, PostHogEvent } from './posthog';
-
+import { triggerChatFeedbackAutomations } from './automation-feedback-trigger.service';
+import { getAppName } from './branding.service';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 interface TeamsRawMessage {
 	from?: { aadObjectId?: string };
 	conversation?: { tenantId?: string };
@@ -43,6 +46,10 @@ interface TeamsRawMessage {
 }
 
 const UPDATE_INTERVAL_MS = 200;
+
+type TeamsConversationContext = ConversationContext & {
+	config: TeamsConfig;
+};
 
 class TeamsService {
 	private _bot: Chat | null = null;
@@ -101,11 +108,11 @@ class TeamsService {
 				return;
 			}
 			await thread.subscribe();
-			await this._handleWorkFlow(thread, message);
+			await this._handleWorkFlow(thread, message, config);
 		});
 
 		this._bot.onSubscribedMessage(async (thread, message) => {
-			await this._handleWorkFlow(thread, message);
+			await this._handleWorkFlow(thread, message, config);
 		});
 
 		this._bot.onAction('stop_generation', async (event) => {
@@ -121,10 +128,8 @@ class TeamsService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'up' });
-			const completion = this._lastCompletionCard.get(event.thread?.id || '');
-			if (completion) {
-				await completion.card.edit(createCompletionCard(completion.chatUrl, 'up'));
-			}
+			void triggerChatFeedbackAutomations({ messageId, vote: 'up' });
+			await this._updateCompletionCardVote(event.thread?.id || '', 'up');
 		});
 
 		this._bot.onAction('feedback_negative', async (event) => {
@@ -133,19 +138,27 @@ class TeamsService {
 				return;
 			}
 			await feedbackQueries.upsertFeedback({ messageId, vote: 'down' });
-			const completion = this._lastCompletionCard.get(event.thread?.id || '');
-			if (completion) {
-				await completion.card.edit(createCompletionCard(completion.chatUrl, 'down'));
-			}
+			void triggerChatFeedbackAutomations({ messageId, vote: 'down' });
+			await this._updateCompletionCardVote(event.thread?.id || '', 'down');
 		});
 	}
 
-	private async _handleWorkFlow(thread: Thread, userMessage: Message): Promise<void> {
+	private async _updateCompletionCardVote(threadId: string, vote: 'up' | 'down'): Promise<void> {
+		const completion = this._lastCompletionCard.get(threadId);
+		if (!completion) {
+			return;
+		}
+		const appName = await getAppName();
+		await completion.card.edit(createCompletionCard(completion.chatUrl, { vote, appName }));
+	}
+
+	private async _handleWorkFlow(thread: Thread, userMessage: Message, config: TeamsConfig): Promise<void> {
 		userMessage.text = userMessage.text.replace(/(?:<at>[^<]*<\/at>|@\S+)\s*/g, '').trim();
 
-		const ctx: ConversationContext = {
+		const ctx: TeamsConversationContext = {
 			thread,
 			userMessage,
+			config,
 			user: null,
 			chatId: '',
 			convMessage: null,
@@ -160,7 +173,8 @@ class TeamsService {
 		await this._validateUserAccess(ctx);
 
 		try {
-			ctx.convMessage = await ctx.thread.post('✨ nao is answering...');
+			await assertProjectCloudBillingAccess(ctx.config.projectId);
+			ctx.convMessage = await ctx.thread.post(`✨ ${await getAppName()} is answering...`);
 			await this._saveOrUpdateUserMessage(ctx);
 
 			const [chat] = await chatQueries.getChat(ctx.chatId);
@@ -180,12 +194,12 @@ class TeamsService {
 		}
 	}
 
-	private async _validateUserAccess(ctx: ConversationContext): Promise<void> {
+	private async _validateUserAccess(ctx: TeamsConversationContext): Promise<void> {
 		await this._getUser(ctx);
 		await this._checkUserBelongsToProject(ctx);
 	}
 
-	private async _getUser(ctx: ConversationContext): Promise<void> {
+	private async _getUser(ctx: TeamsConversationContext): Promise<void> {
 		const raw = ctx.userMessage.raw as TeamsRawMessage;
 		const aadObjectId = raw?.from?.aadObjectId;
 
@@ -195,7 +209,7 @@ class TeamsService {
 			throw new Error('Could not retrieve identity or tenant from Teams message');
 		}
 
-		const rawEmail = await this._getEmailByAadId(aadObjectId, senderTenantId);
+		const rawEmail = await this._getEmailByAadId(aadObjectId, senderTenantId, ctx.config);
 		if (!rawEmail) {
 			throw new Error('Could not retrieve user email from Teams');
 		}
@@ -204,15 +218,19 @@ class TeamsService {
 		const user = await getUser({ email });
 		if (!user) {
 			await ctx.thread.post(
-				`❌ No user found. Create an account with \`${email}\` on ${this._redirectUrl} to sign up.`,
+				`❌ No user found. Create an account with \`${email}\` on ${ctx.config.redirectUrl} to sign up.`,
 			);
 			throw new Error('User not found');
 		}
 		ctx.user = user;
 	}
 
-	private async _getEmailByAadId(aadObjectId: string, senderTenantId: string): Promise<string | null> {
-		const credential = new ClientSecretCredential(senderTenantId, this._appId, this._appPassword);
+	private async _getEmailByAadId(
+		aadObjectId: string,
+		senderTenantId: string,
+		config: TeamsConfig,
+	): Promise<string | null> {
+		const credential = new ClientSecretCredential(senderTenantId, config.appId, config.appPassword);
 
 		const authProvider = new TokenCredentialAuthenticationProvider(credential, {
 			scopes: ['https://graph.microsoft.com/.default'],
@@ -222,8 +240,8 @@ class TeamsService {
 		return (user.mail as string) || (user.userPrincipalName as string) || null;
 	}
 
-	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
-		const role = await projectQueries.getUserRoleInProject(this._projectId, ctx.user!.id);
+	private async _checkUserBelongsToProject(ctx: TeamsConversationContext): Promise<void> {
+		const role = await projectQueries.getUserRoleInProject(ctx.config.projectId, ctx.user!.id);
 		if (role !== 'admin' && role !== 'user' && role !== 'context_admin') {
 			await ctx.thread.post(
 				"❌ You don't have permission to use nao in this project. Please contact an administrator.",
@@ -232,7 +250,7 @@ class TeamsService {
 		}
 	}
 
-	private async _saveOrUpdateUserMessage(ctx: ConversationContext): Promise<void> {
+	private async _saveOrUpdateUserMessage(ctx: TeamsConversationContext): Promise<void> {
 		const text = ctx.userMessage.text;
 
 		const existingChat = await chatQueries.getChatByTeamsThread(ctx.thread.id);
@@ -241,6 +259,7 @@ class TeamsService {
 				role: 'user',
 				parts: [{ type: 'text', text }],
 				chatId: existingChat.id,
+				senderUserId: ctx.user!.id,
 				source: 'teams',
 			});
 			ctx.chatId = existingChat.id;
@@ -248,7 +267,7 @@ class TeamsService {
 		} else {
 			const title = createChatTitle({ text });
 			const [createdChat] = await chatQueries.createChat(
-				{ title, userId: ctx.user!.id, projectId: this._projectId, teamsThreadId: ctx.thread.id },
+				{ title, userId: ctx.user!.id, projectId: ctx.config.projectId, teamsThreadId: ctx.thread.id },
 				{ text, source: 'teams' },
 			);
 			ctx.chatId = createdChat.id;
@@ -256,7 +275,7 @@ class TeamsService {
 		}
 	}
 
-	private async _handleStreamAgent(chat: UIChat, ctx: ConversationContext): Promise<void> {
+	private async _handleStreamAgent(chat: UIChat, ctx: TeamsConversationContext): Promise<void> {
 		const stream = await this._createAgentStream(chat, ctx);
 		const stopCard = await ctx.thread.post(createStopButtonCard());
 
@@ -264,36 +283,32 @@ class TeamsService {
 
 		await stopCard.delete();
 		await this._lastCompletionCard.get(ctx.thread.id)?.card.delete();
-		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		const card = await ctx.thread.post(createCompletionCard(chatUrl));
+		const chatUrl = new URL(ctx.chatId, ctx.config.redirectUrl).toString();
+		const appName = await getAppName();
+		const card = await ctx.thread.post(createCompletionCard(chatUrl, { appName }));
 		this._lastCompletionCard.set(ctx.thread.id, { card, chatUrl });
-
-		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: this._projectId,
-			chat_id: ctx.chatId,
-			model_id: ctx.modelId,
-			is_new_chat: ctx.isNewChat,
-			source: 'teams',
-			domain_host: new URL(this._redirectUrl).host,
-		});
 	}
 
 	private async _createAgentStream(
 		chat: UIChat,
-		ctx: ConversationContext,
+		ctx: TeamsConversationContext,
 	): Promise<ReadableStream<InferUIMessageChunk<UIMessage>>> {
 		const agent = await agentService.create(
-			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
-			this._modelSelection,
-			{ supportsCustomCharts: false },
+			{ ...chat, userId: ctx.user!.id, projectId: ctx.config.projectId },
+			ctx.config.modelSelection,
+			messagingAgent('teams'),
+			{ billingAccessVerifiedProjectId: ctx.config.projectId },
 		);
 		ctx.modelId = agent.getModelId();
-		return agent.stream(chat.messages, { provider: 'teams', timezone: ctx.timezone });
+		return agent.stream(chat.messages, {
+			timezone: ctx.timezone,
+			tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(ctx.config.redirectUrl).host },
+		});
 	}
 
 	private async _readStreamAndUpdateMessage(
 		stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
-		ctx: ConversationContext,
+		ctx: TeamsConversationContext,
 	): Promise<StreamState & { lastMessage: UIMessage | null }> {
 		const state: StreamState = {
 			renderedToolCallIds: new Set(),
@@ -320,7 +335,7 @@ class TeamsService {
 			if (part.type === 'text') {
 				this._flushToolGroup(state, ctx);
 				await this._handleTextPart(part, state, ctx);
-			} else if (part.type === 'tool-execute_sql') {
+			} else if (isQueryResultPart(part)) {
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
 				await this._handleChartPart(part, state, ctx);
@@ -360,7 +375,7 @@ class TeamsService {
 		state.lastUpdateAt = Date.now();
 	}
 
-	private _handleSqlPart(part: Extract<UIMessagePart, { type: 'tool-execute_sql' }>, state: StreamState): void {
+	private _handleSqlPart(part: Extract<UIMessagePart, { type: QueryResultPartType }>, state: StreamState): void {
 		if (part.state !== 'output-available') {
 			return;
 		}
@@ -372,7 +387,7 @@ class TeamsService {
 	private async _handleChartPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_chart' }>,
 		state: StreamState,
-		ctx: ConversationContext,
+		ctx: TeamsConversationContext,
 	): Promise<void> {
 		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
 			return;
@@ -388,7 +403,7 @@ class TeamsService {
 			return;
 		}
 		try {
-			const displaySettings = await projectQueries.getDisplaySettings(this._projectId);
+			const displaySettings = await projectQueries.getDisplaySettings(ctx.config.projectId);
 			const png = generateChartImage({
 				config: part.input,
 				data: sqlOutput.rows,
@@ -397,7 +412,7 @@ class TeamsService {
 			state.renderedToolCallIds.add(part.toolCallId);
 
 			const chartId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
-			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, this._redirectUrl).toString();
+			const imageUrl = new URL(`c/${ctx.chatId}/${chartId}.png`, ctx.config.redirectUrl).toString();
 			ctx.textBlockIndex = -1;
 			ctx.blocks.push(createImageBlock(imageUrl));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
@@ -412,7 +427,7 @@ class TeamsService {
 	private async _handleMapPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 		state: StreamState,
-		ctx: ConversationContext,
+		ctx: TeamsConversationContext,
 	): Promise<void> {
 		if (
 			part.state !== 'output-available' ||
@@ -422,7 +437,7 @@ class TeamsService {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
-		const png = await renderMapImage(part, state, this._projectId, {
+		const png = await renderMapImage(part, state, ctx.config.projectId, {
 			chatId: ctx.chatId,
 			toolCallId: part.toolCallId,
 		});
@@ -432,7 +447,7 @@ class TeamsService {
 		}
 		try {
 			const mapId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
-			const imageUrl = new URL(`c/${ctx.chatId}/${mapId}.png`, this._redirectUrl).toString();
+			const imageUrl = new URL(`c/${ctx.chatId}/${mapId}.png`, ctx.config.redirectUrl).toString();
 			ctx.textBlockIndex = -1;
 			ctx.blocks.push(createImageBlock(imageUrl));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
@@ -447,15 +462,16 @@ class TeamsService {
 
 	private async _pushMapLinkCard(
 		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
-		ctx: ConversationContext,
+		ctx: TeamsConversationContext,
 	): Promise<void> {
 		if (part.state !== 'output-available') {
 			return;
 		}
 		try {
-			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
+			const chatUrl = new URL(ctx.chatId, ctx.config.redirectUrl).toString();
+			const appName = await getAppName();
 			ctx.textBlockIndex = -1;
-			ctx.blocks.push(...createMapLinkCard(part.input.title, chatUrl));
+			ctx.blocks.push(...createMapLinkCard(part.input.title, chatUrl, appName));
 			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
 		} catch (error) {
 			logger.error(`Map link card failed: ${String(error)}`, {

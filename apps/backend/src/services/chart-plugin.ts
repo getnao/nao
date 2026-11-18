@@ -2,9 +2,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 
-import type { ChartPluginManifestEntry } from '@nao/shared';
-import { displayChart } from '@nao/shared/tools';
+import { capitalizeWords, type ChartPluginManifestEntry } from '@nao/shared';
+import { isBuiltinChartType } from '@nao/shared/chart-types';
 import { z } from 'zod';
+
+import * as projectQueries from '../queries/project.queries';
+import * as storyQueries from '../queries/story.queries';
 
 const PLUGIN_FILE_PATTERN = /^([a-z][a-z0-9_-]*)\.(js|mjs)$/;
 const MetadataSchema = z.object({
@@ -29,6 +32,32 @@ export function hasChartPlugin(projectFolder: string, type: string): boolean {
 	return readChartPlugin(projectFolder, type) !== null;
 }
 
+/** A story draws with its own project's plugins, whichever project its viewer has selected. */
+export async function readStoryChartPluginSources(storyId: string): Promise<Record<string, string>> {
+	const projectFolder = await findStoryProjectFolder(storyId);
+	const plugins = projectFolder ? discoverChartPlugins(projectFolder) : [];
+	return Object.fromEntries(plugins.map((plugin) => [plugin.entry.type, plugin.source]));
+}
+
+export async function readCustomStoryChartPluginSources(
+	chatId: string,
+	storySlug: string,
+): Promise<Record<string, string>> {
+	const story = await storyQueries.getStoryByChatAndSlug(chatId, storySlug);
+	return story ? readStoryChartPluginSources(story.id) : {};
+}
+
+export async function listStoryChartPlugins(storyId: string): Promise<ChartPluginManifestEntry[]> {
+	const projectFolder = await findStoryProjectFolder(storyId);
+	return projectFolder ? listChartPlugins(projectFolder) : [];
+}
+
+async function findStoryProjectFolder(storyId: string): Promise<string | null> {
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	const project = projectId ? await projectQueries.getProjectById(projectId) : null;
+	return project?.path ?? null;
+}
+
 function discoverChartPlugins(projectFolder: string): DiscoveredChartPlugin[] {
 	const chartsFolder = resolveChartsFolder(projectFolder);
 	if (!chartsFolder) {
@@ -43,7 +72,7 @@ function discoverChartPlugins(projectFolder: string): DiscoveredChartPlugin[] {
 	)) {
 		const match = entry.isFile() ? entry.name.match(PLUGIN_FILE_PATTERN) : null;
 		const type = match?.[1];
-		if (!type || type === 'table' || displayChart.isBuiltinChartType(type)) {
+		if (!type || type === 'table' || isBuiltinChartType(type)) {
 			continue;
 		}
 		if (filesByType.has(type)) {
@@ -137,5 +166,5 @@ function parseMetadata(source: string | null): z.infer<typeof MetadataSchema> {
 }
 
 function titleize(type: string): string {
-	return type.replace(/[-_]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+	return capitalizeWords(type.replace(/[-_]+/g, ' '));
 }

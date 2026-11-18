@@ -6,7 +6,7 @@ export function SettingsPageWrapper({ children, wide }: { children: React.ReactN
 			<div
 				className={cn(
 					'flex flex-col w-full px-4 py-6 md:p-8 mx-auto min-h-full',
-					wide ? 'w-full gap-6' : 'max-w-4xl gap-8 md:gap-12',
+					wide ? 'max-w-6xl gap-6' : 'max-w-4xl gap-8 md:gap-12',
 				)}
 			>
 				{children}
@@ -19,7 +19,7 @@ interface SettingsCardProps {
 	icon?: React.ReactNode;
 	title?: string;
 	titleSize?: 'md' | 'lg';
-	description?: string;
+	description?: React.ReactNode;
 	action?: React.ReactNode;
 	children: React.ReactNode;
 	rootClassName?: string;

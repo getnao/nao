@@ -1,62 +1,75 @@
 /* @license Enterprise */
 
-import type { UserRole } from '@nao/shared/types';
-import { decodeJwt } from 'jose';
-
 import { env } from '../env';
-import * as accountQueries from '../queries/account.queries';
 import * as orgQueries from '../queries/organization.queries';
-import * as projectQueries from '../queries/project.queries';
 import type { OrgRole } from '../types/organization';
 import { logger, serializeError } from '../utils/logger';
 import {
-	decideGroupRoleMapping,
+	decideGroupOrganizationRoleMapping,
 	extractGroups,
-	parseGroupRoleMapping,
-	resolveRoleFromGroups,
+	parseEntraGroupOrganizationRoleMapping,
+	parseGroupOrganizationRoleMapping,
+	resolveOrganizationRoleFromGroups,
 } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { isMicrosoftConfigured } from './microsoft-auth.service';
 import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
+import { readDecodedIdTokenClaims, readVerifiedOidcIdTokenClaims } from './sso-token.service';
 
-const DEFAULT_GROUPS_CLAIM = 'groups';
+export const DEFAULT_GROUPS_CLAIM = 'groups';
 
-/** When active the identity provider owns roles, so nao must not let them be edited by hand. */
-export async function isGroupRoleMappingActive(): Promise<boolean> {
-	if (!isOidcConfigured() || parseGroupRoleMapping(env.OIDC_GROUP_ROLE_MAPPING).size === 0) {
+/** When active the identity provider owns organization roles, so nao must not let them be edited by hand. */
+export async function isOrganizationRoleMappingActive(): Promise<boolean> {
+	if (!hasConfiguredOrganizationRoleMapping()) {
+		return false;
+	}
+	return hasFeature(LICENSE_FEATURES.sso);
+}
+
+export async function isOidcOrganizationRoleMappingActive(): Promise<boolean> {
+	if (!isOidcConfigured() || parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING).size === 0) {
+		return false;
+	}
+	return hasFeature(LICENSE_FEATURES.sso);
+}
+
+export async function isMicrosoftOrganizationRoleMappingActive(): Promise<boolean> {
+	const parsed = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
+	if (!isMicrosoftConfigured() || parsed.status !== 'valid' || parsed.mapping.size === 0) {
 		return false;
 	}
 	return hasFeature(LICENSE_FEATURES.sso);
 }
 
 /**
- * Re-applies the identity provider's group memberships to a user's nao roles.
+ * Re-applies the identity provider's group memberships to a user's organization role.
  * Runs on every sign-in, so a group change in the IdP takes effect at the user's next login.
  * Never throws: a mapping failure must not stop someone from signing in.
  */
-export async function syncRolesFromSsoGroups(userId: string): Promise<void> {
-	if (!(await isGroupRoleMappingActive())) {
-		return;
-	}
-
+export async function syncOrganizationRoleFromSsoGroups(userId: string): Promise<void> {
 	try {
-		const token = await readClaimsFromIdToken(userId);
+		if (!(await isOidcOrganizationRoleMappingActive())) {
+			return;
+		}
+
+		const token = await readVerifiedOidcIdTokenClaims(userId);
 		if (token.status === 'no-token') {
 			return;
 		}
 
-		if (token.status === 'undecodable') {
-			logger.warn('Could not decode the SSO ID token, leaving roles untouched', {
+		if (token.status !== 'verified') {
+			logger.warn('Could not verify the SSO ID token, leaving roles untouched', {
 				source: 'system',
-				context: { userId },
+				context: { userId, problem: token.status },
 			});
 			return;
 		}
 
 		const claimName = env.OIDC_GROUPS_CLAIM ?? DEFAULT_GROUPS_CLAIM;
-		const decision = decideGroupRoleMapping(
+		const decision = decideGroupOrganizationRoleMapping(
 			token.claims,
 			claimName,
-			parseGroupRoleMapping(env.OIDC_GROUP_ROLE_MAPPING),
+			parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING),
 		);
 		if (!decision.claimPresent) {
 			logger.warn('The SSO groups claim is missing from the ID token, leaving roles untouched', {
@@ -66,11 +79,32 @@ export async function syncRolesFromSsoGroups(userId: string): Promise<void> {
 			return;
 		}
 
-		if (decision.role) {
-			await applyRole(userId, decision.role);
+		if (decision.organizationRole) {
+			await applyOrganizationRole(userId, decision.organizationRole);
 		}
 	} catch (error) {
-		logger.error('Failed to sync roles from SSO groups', {
+		logger.error('Failed to sync organization role from SSO groups', {
+			source: 'system',
+			context: { userId, error: serializeError(error) },
+		});
+	}
+}
+
+export async function syncOrganizationRoleFromMicrosoftGroups(userId: string, groupIds: string[]): Promise<void> {
+	try {
+		if (!(await isMicrosoftOrganizationRoleMappingActive())) {
+			return;
+		}
+		const parsed = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
+		if (parsed.status !== 'valid') {
+			return;
+		}
+		const organizationRole = resolveOrganizationRoleFromGroups(groupIds, parsed.mapping);
+		if (organizationRole) {
+			await applyOrganizationRole(userId, organizationRole);
+		}
+	} catch (error) {
+		logger.error('Failed to sync organization role from Microsoft Entra groups', {
 			source: 'system',
 			context: { userId, error: serializeError(error) },
 		});
@@ -85,8 +119,8 @@ export interface SsoTokenInspection {
 	expiresAt: Date | null;
 	groups: string[];
 	matchedGroups: string[];
-	resolvedRole: UserRole | null;
-	mapping: Array<{ group: string; role: UserRole }>;
+	resolvedOrganizationRole: OrgRole | null;
+	mapping: Array<{ group: string; organizationRole: OrgRole }>;
 	problem: SsoTokenProblem | null;
 }
 
@@ -98,8 +132,8 @@ export type SsoTokenProblem = 'no-token' | 'undecodable' | 'claim-missing' | 'no
  */
 export async function inspectSsoToken(userId: string): Promise<SsoTokenInspection> {
 	const claimName = env.OIDC_GROUPS_CLAIM ?? DEFAULT_GROUPS_CLAIM;
-	const roleMapping = parseGroupRoleMapping(env.OIDC_GROUP_ROLE_MAPPING);
-	const mapping = [...roleMapping].map(([group, role]) => ({ group, role }));
+	const roleMapping = parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING);
+	const mapping = [...roleMapping].map(([group, organizationRole]) => ({ group, organizationRole }));
 	const base = {
 		providerId: getOidcProviderId(),
 		claimName,
@@ -109,20 +143,17 @@ export async function inspectSsoToken(userId: string): Promise<SsoTokenInspectio
 		expiresAt: null,
 		groups: [],
 		matchedGroups: [],
-		resolvedRole: null,
+		resolvedOrganizationRole: null,
 	};
 
-	const idToken = await accountQueries.getIdToken(userId, getOidcProviderId());
-	if (!idToken) {
+	const token = await readDecodedIdTokenClaims(userId, getOidcProviderId());
+	if (token.status === 'no-token') {
 		return { ...base, problem: 'no-token' };
 	}
-
-	let claims: Record<string, unknown>;
-	try {
-		claims = decodeJwt(idToken);
-	} catch {
+	if (token.status === 'undecodable') {
 		return { ...base, problem: 'undecodable' };
 	}
+	const claims = token.claims;
 
 	const groups = extractGroups(claims, claimName);
 	const matchedGroups = groups.filter((group) => roleMapping.has(group.trim().toLowerCase()));
@@ -134,7 +165,7 @@ export async function inspectSsoToken(userId: string): Promise<SsoTokenInspectio
 		expiresAt: toDate(claims.exp),
 		groups,
 		matchedGroups,
-		resolvedRole: resolveRoleFromGroups(groups, roleMapping),
+		resolvedOrganizationRole: resolveOrganizationRoleFromGroups(groups, roleMapping),
 		problem: diagnose(claims, claimName, matchedGroups),
 	};
 }
@@ -153,74 +184,23 @@ function toDate(seconds: unknown): Date | null {
 	return typeof seconds === 'number' ? new Date(seconds * 1000) : null;
 }
 
-type IdTokenClaims =
-	| { status: 'no-token' }
-	| { status: 'undecodable' }
-	| { status: 'decoded'; claims: Record<string, unknown> };
-
-async function readClaimsFromIdToken(userId: string): Promise<IdTokenClaims> {
-	const idToken = await accountQueries.getIdToken(userId, getOidcProviderId());
-	if (!idToken) {
-		return { status: 'no-token' };
-	}
-
-	try {
-		return { status: 'decoded', claims: decodeJwt(idToken) };
-	} catch {
-		return { status: 'undecodable' };
-	}
-}
-
-/**
- * Organization membership has no `context_admin`, so it is stored as the closest equivalent
- * while the project membership keeps the full role.
- */
-async function applyRole(userId: string, role: UserRole): Promise<void> {
+async function applyOrganizationRole(userId: string, role: OrgRole): Promise<void> {
 	const membership = await orgQueries.getUserOrgMembership(userId);
-	if (!membership) {
+	if (!membership || membership.role === role) {
 		return;
 	}
 
-	const orgRole: OrgRole = role === 'context_admin' ? 'user' : role;
-	if (membership.role !== orgRole && (await canDemoteOrgMember(membership.orgId, membership.role, orgRole))) {
-		await orgQueries.updateOrgMemberRole(membership.orgId, userId, orgRole);
-	}
-
-	for (const { projectId, projectPath, role: currentRole } of await projectQueries.listProjectMembershipsForUser(
-		userId,
-	)) {
-		if (currentRole !== role && (await canDemoteProjectMember(projectId, currentRole, role))) {
-			await projectQueries.updateProjectMemberRole(projectId, userId, role);
-			await cleanupWorktreeAfterDemotion(projectId, projectPath, userId, currentRole, role);
-		}
+	if (await canDemoteOrgMember(membership.orgId, membership.role, role)) {
+		await orgQueries.updateOrgMemberRole(membership.orgId, userId, role);
 	}
 }
 
-async function cleanupWorktreeAfterDemotion(
-	projectId: string,
-	projectPath: string | null,
-	userId: string,
-	currentRole: UserRole,
-	nextRole: UserRole,
-): Promise<void> {
-	if (
-		!projectPath ||
-		(currentRole !== 'admin' && currentRole !== 'context_admin') ||
-		nextRole === 'admin' ||
-		nextRole === 'context_admin'
-	) {
-		return;
+function hasConfiguredOrganizationRoleMapping(): boolean {
+	if (isOidcConfigured() && parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING).size > 0) {
+		return true;
 	}
-
-	try {
-		const { cleanupContextWorktree } = await import('./context-explorer-git.service');
-		await cleanupContextWorktree(projectId, projectPath, userId);
-	} catch (error) {
-		logger.warn('Failed to clean up context worktree after SSO group demotion', {
-			source: 'system',
-			context: { projectId, userId, error: serializeError(error) },
-		});
-	}
+	const entraMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
+	return isMicrosoftConfigured() && entraMapping.status === 'valid' && entraMapping.mapping.size > 0;
 }
 
 /** Guards the invariant that an organization keeps at least one admin. */
@@ -236,23 +216,6 @@ async function canDemoteOrgMember(orgId: string, currentRole: OrgRole, nextRole:
 	logger.warn('Skipped SSO group demotion of the last organization admin', {
 		source: 'system',
 		context: { orgId, nextRole },
-	});
-	return false;
-}
-
-/** Guards the invariant that a project keeps at least one admin. */
-async function canDemoteProjectMember(projectId: string, currentRole: UserRole, nextRole: UserRole): Promise<boolean> {
-	if (currentRole !== 'admin' || nextRole === 'admin') {
-		return true;
-	}
-
-	if (await projectQueries.checkProjectHasMoreThanOneAdmin(projectId)) {
-		return true;
-	}
-
-	logger.warn('Skipped SSO group demotion of the last project admin', {
-		source: 'system',
-		context: { projectId, nextRole },
 	});
 	return false;
 }

@@ -105,8 +105,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Create non-root user and required directories
 RUN useradd -m -s /bin/bash nao \
-    && mkdir -p /var/log/supervisor /app/context /app/projects \
-    && chown nao:nao /var/log/supervisor /app /app/context /app/projects
+    && mkdir -p /var/log/supervisor /app/context /app/projects /app/storage \
+    && chown nao:nao /var/log/supervisor /app /app/context /app/projects /app/storage
 
 WORKDIR /app
 
@@ -126,6 +126,7 @@ RUN --mount=type=bind,source=docker/install-duckdb-extensions.mjs,target=/app/in
 # Copy backend and shared source (no build needed — Bun runs TS directly)
 COPY --chown=nao:nao apps/backend ./apps/backend
 COPY --chown=nao:nao apps/shared ./apps/shared
+COPY --chown=nao:nao skills/write-context-rules ./skills/write-context-rules
 
 # Lock down the license public key for production: strip the dev override
 # branch from apps/backend/src/services/license-public-key.ts so the
@@ -154,7 +155,6 @@ ENV FASTAPI_PORT=8005
 ENV APP_VERSION=$APP_VERSION
 ENV APP_COMMIT=$APP_COMMIT
 ENV APP_BUILD_DATE=$APP_BUILD_DATE
-ENV NAO_DEFAULT_PROJECT_PATH=/app/example
 ENV NAO_CONTEXT_SOURCE=local
 ENV DOCKER=1
 ENV DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions

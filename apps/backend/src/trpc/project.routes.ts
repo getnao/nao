@@ -1,19 +1,18 @@
 import { BACKGROUND_MODEL_CATEGORIES, type CustomBoundarySet } from '@nao/shared';
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
-import {
-	type LlmProvider,
-	MAX_PYTHON_EXECUTION_DURATION_SECS,
-	MIN_PYTHON_EXECUTION_DURATION_SECS,
-} from '@nao/shared/types';
+import { type LlmProvider, type LlmSelectedModel, SEMANTIC_LAYER_MODES } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
+import { getProviderAuth, isManagedProvider, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
+import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
 import * as projectQueries from '../queries/project.queries';
+import * as discordConfigQueries from '../queries/project-discord-config.queries';
+import * as discordLinkQueries from '../queries/project-discord-link.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as mattermostConfigQueries from '../queries/project-mattermost-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
@@ -22,20 +21,42 @@ import * as teamsConfigQueries from '../queries/project-teams-config.queries';
 import * as telegramConfigQueries from '../queries/project-telegram-config.queries';
 import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queries';
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
+import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
-import { cleanupContextWorktree } from '../services/context-explorer-git.service';
+import {
+	type DefaultModelsOverview,
+	getDefaultModelsOverview,
+	type IntegrationModel,
+	listIntegrationModels,
+	MODEL_INTEGRATIONS,
+	updateIntegrationModel,
+} from '../services/default-models.service';
+import { discordService } from '../services/discord';
+import { canUseDiscordInProject, DiscordConnectionError, validateDiscordConnection } from '../services/discord-helpers';
+import { deleteBoundaryFile, saveBoundaryFile } from '../services/map-boundary-files';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
+import { mcpService } from '../services/mcp';
+import { removeProjectMember } from '../services/membership.service';
 import { posthog, PostHogEvent } from '../services/posthog';
+import { getMissingProjectEnvVars, reconcileProjectReadiness, updateProjectEnvVars } from '../services/project.service';
+import { isProjectSetupComplete } from '../services/project-readiness.service';
+import { listShareableMembers } from '../services/project-sharing.service';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
+import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
+import {
+	getProjectWarehouseCredentialsSummary,
+	updateProjectWarehouseCredentials,
+} from '../services/warehouse-credentials';
 import { AgentSettings } from '../types/agent-settings';
-import type { ContextUsage } from '../types/chat';
+import type { ContextUsage, MessageModel } from '../types/chat';
 import {
 	configLlmProviderSchema,
 	customModelMetadataSchema,
 	llmConfigSchema,
 	llmProviderSchema,
+	llmSelectedModelSchema,
 	modelSettingsMapSchema,
 } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
@@ -46,13 +67,18 @@ import {
 	getEnvProviders,
 	getProjectAvailableModels,
 	getProjectConfigLlm,
+	getProjectModelNameResolver,
+	resolveDefaultChatModel,
 } from '../utils/llm';
-import { extractRequiredEnvVars } from '../utils/nao-config';
+import { extractConfiguredSemanticLayer, extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
+import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
-import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
+import { buildCredentialPreviews, getProcessEnvSourcedVarNames, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
+	advancedSettingsProtectedProcedure,
+	assertCanManageUserAccount,
 	contextAdminProtectedProcedure,
 	projectProtectedProcedure,
 	protectedProcedure,
@@ -74,15 +100,102 @@ const backgroundModelCategoriesSchema = z.object(
 	) as Record<(typeof BACKGROUND_MODEL_CATEGORIES)[number], z.ZodOptional<typeof backgroundModelSelectionSchema>>,
 );
 
-const backgroundModelSettingsSchema = z.object({
+const defaultModelSettingsSchema = z.object({
 	mode: z.enum(['single', 'perCategory']),
+	chat: backgroundModelSelectionSchema.optional(),
 	single: backgroundModelSelectionSchema.optional(),
 	categories: backgroundModelCategoriesSchema.optional(),
 });
 
+const integrationModelInputSchema = z.object({
+	modelProvider: llmProviderSchema.optional(),
+	modelId: z.string().optional(),
+});
+
+function toIntegrationModelSelection(input: z.infer<typeof integrationModelInputSchema>): LlmSelectedModel | null {
+	return input.modelProvider && input.modelId ? { provider: input.modelProvider, modelId: input.modelId } : null;
+}
+
 const httpUrlSchema = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
 	message: 'Enter a valid HTTP or HTTPS URL',
 });
+
+function toDiscordConfigResponse(config: discordConfigQueries.DiscordConfig) {
+	return {
+		applicationId: config.applicationId,
+		botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+		publicKey: config.publicKey,
+		modelSelection: config.modelSelection,
+		mentionRoleIds: config.mentionRoleIds ?? [],
+		respondToChannelIds: config.respondToChannelIds ?? [],
+		fallbackUserEmail: config.fallbackUserEmail ?? '',
+		hideAnswerLink: config.hideAnswerLink ?? false,
+	};
+}
+
+async function resolveDiscordFallbackUser(projectId: string, email: string) {
+	const user = await userQueries.getUser({ email });
+	if (!user) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: `No user found with the email ${email}.` });
+	}
+	const role = await projectQueries.getUserRoleInProject(projectId, user.id);
+	if (!canUseDiscordInProject(role)) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: `${email} does not have access to this project.` });
+	}
+	return user;
+}
+
+async function listProjectMembersToShareWith(projectId: string | null | undefined, userId: string) {
+	if (!projectId) {
+		return [];
+	}
+	await getRoleInProjectOrThrow(projectId, userId);
+	return listShareableMembers(projectId, userId);
+}
+
+async function listProjectMembersToShareStoryWith(storyId: string, userId: string) {
+	const projectId = await storyQueries.getStoryProjectId(storyId);
+	if (!projectId) {
+		return [];
+	}
+	const role = await getRoleInProjectOrThrow(projectId, userId);
+	if (role !== 'admin' && !(await storyQueries.canUserAccessStory(storyId, userId))) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
+	}
+	return listShareableMembers(projectId, userId);
+}
+
+async function getRoleInProjectOrThrow(projectId: string, userId: string) {
+	const role = await projectQueries.getUserRoleInProject(projectId, userId);
+	if (!role) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
+	}
+	return role;
+}
+
+const boundaryUploadSchema = z.object({ fileName: z.string().trim().min(1).max(255), geojson: z.unknown() });
+
+const BOUNDARY_SOURCE_MESSAGE = 'Provide either a GeoJSON URL or an uploaded GeoJSON file.';
+
+type BoundarySource = Pick<CustomBoundarySet, 'url' | 'file' | 'featureCount'>;
+
+async function storeBoundarySource(
+	projectId: string,
+	input: { url?: string; upload?: z.infer<typeof boundaryUploadSchema> },
+): Promise<BoundarySource> {
+	if (input.upload) {
+		try {
+			return await saveBoundaryFile(projectId, input.upload);
+		} catch (error) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Could not save the GeoJSON file: ${error instanceof Error ? error.message : String(error)}`,
+			});
+		}
+	}
+	const url = input.url ?? '';
+	return { url, featureCount: await validateBoundarySource(url) };
+}
 
 async function validateBoundarySource(url: string): Promise<number> {
 	try {
@@ -107,6 +220,7 @@ export const projectRoutes = {
 			path: project.path,
 			createdAt: project.createdAt,
 			updatedAt: project.updatedAt,
+			deployedAt: project.deployedAt,
 			userRole,
 		}));
 	}),
@@ -118,6 +232,26 @@ export const projectRoutes = {
 		}
 		const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
 		return { id: project.id, name: project.name, path: project.path, userRole };
+	}),
+
+	rename: adminProtectedProcedure
+		.input(z.object({ projectId: z.string(), name: z.string().trim().min(1).max(100) }))
+		.mutation(async ({ ctx, input }) => {
+			if (input.projectId !== ctx.project.id) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'The selected project changed. Reload the page and try again.',
+				});
+			}
+			const renamed = await projectQueries.renameProject(ctx.project.id, ctx.project.orgId, input.name);
+			if (!renamed) {
+				throw new TRPCError({ code: 'CONFLICT', message: `A project named "${input.name}" already exists.` });
+			}
+		}),
+
+	isCurrentSetupComplete: protectedProcedure.query(async ({ ctx }) => {
+		const project = await projectQueries.getProjectByUserId(ctx.user.id, ctx.selectedProjectId);
+		return project ? isProjectSetupComplete(project) : false;
 	}),
 
 	getDatabaseObjects: projectProtectedProcedure
@@ -132,11 +266,12 @@ export const projectRoutes = {
 				}),
 			),
 		)
-		.query(({ ctx }) => {
+		.query(async ({ ctx }) => {
 			if (!ctx.project?.path) {
 				return [];
 			}
-			return getDatabaseObjects(ctx.project.path);
+			const access = await resolveWarehouseTableAccess(ctx.project.id, ctx.user.id, ctx.project.path);
+			return getDatabaseObjects(ctx.project.path).filter((object) => isDatabaseObjectAllowed(access, object));
 		}),
 
 	getLlmConfigs: projectProtectedProcedure
@@ -220,6 +355,9 @@ export const projectRoutes = {
 		)
 		.output(llmConfigSchema.omit({ createdAt: true, updatedAt: true }))
 		.mutation(async ({ ctx, input }) => {
+			if (isManagedProvider(input.provider)) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'The nao-managed provider is configured by nao.' });
+			}
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
 			const inheritedConfig = existingConfig
 				? null
@@ -314,6 +452,8 @@ export const projectRoutes = {
 					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
 					replyMode: config.replyMode,
+					dmScopeMissing: config.dmScopeMissing,
+					dmThreadsEnabled: config.dmThreadsEnabled,
 				}
 			: null;
 
@@ -378,21 +518,10 @@ export const projectRoutes = {
 		}),
 
 	updateSlackModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await slackConfigQueries.updateProjectSlackModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
-			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'slack', toIntegrationModelSelection(input)),
+		),
 
 	updateSlackReplyMode: adminProtectedProcedure
 		.input(z.object({ replyMode: z.enum(['thread', 'mention']) }))
@@ -401,6 +530,15 @@ export const projectRoutes = {
 			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
 			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
 			return { replyMode: input.replyMode };
+		}),
+
+	updateSlackDmThreads: adminProtectedProcedure
+		.input(z.object({ enabled: z.boolean() }))
+		.mutation(async ({ ctx, input }) => {
+			await slackConfigQueries.updateProjectSlackDmThreads(ctx.project.id, input.enabled);
+			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
+			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
+			return { dmThreadsEnabled: input.enabled };
 		}),
 
 	updateSlackAutoCreateUsers: adminProtectedProcedure
@@ -430,7 +568,7 @@ export const projectRoutes = {
 		return { success: true };
 	}),
 
-	getTeamsConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getTeamsConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '' };
 		}
@@ -490,26 +628,17 @@ export const projectRoutes = {
 		}),
 
 	updateTeamsModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await teamsConfigQueries.updateProjectTeamsModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'teams', toIntegrationModelSelection(input)),
+		),
 
 	deleteTeamsConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await teamsConfigQueries.deleteProjectTeamsConfig(ctx.project.id);
 		return { success: true };
 	}),
 
-	getTelegramConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getTelegramConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '' };
 		}
@@ -560,26 +689,17 @@ export const projectRoutes = {
 		}),
 
 	updateTelegramModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await telegramConfigQueries.updateProjectTelegramModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'telegram', toIntegrationModelSelection(input)),
+		),
 
 	deleteTelegramConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await telegramConfigQueries.deleteProjectTelegramConfig(ctx.project.id);
 		return { success: true };
 	}),
 
-	getMattermostConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getMattermostConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '', connected: false };
 		}
@@ -664,25 +784,99 @@ export const projectRoutes = {
 		}),
 
 	updateMattermostModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await mattermostConfigQueries.updateProjectMattermostModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-			const refreshedConfig = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
-			await mattermostService.syncProject(refreshedConfig, ctx.project.id);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'mattermost', toIntegrationModelSelection(input)),
+		),
 
 	deleteMattermostConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await mattermostConfigQueries.deleteProjectMattermostConfig(ctx.project.id);
 		await mattermostService.stopProject(ctx.project.id);
+		return { success: true };
+	}),
+
+	getDiscordConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '', connected: false, webhookUrl: '' };
+		}
+
+		const config = await discordConfigQueries.getProjectDiscordConfig(ctx.project.id);
+		const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3000';
+		return {
+			projectConfig: config ? toDiscordConfigResponse(config) : null,
+			projectId: ctx.project.id,
+			connected: discordService.getAdapter(ctx.project.id) !== null,
+			webhookUrl: `${baseUrl}/api/webhooks/discord/${ctx.project.id}`,
+		};
+	}),
+
+	upsertDiscordConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				botToken: z.string().trim().min(1),
+				applicationId: z.string().trim().min(1),
+				publicKey: z
+					.string()
+					.trim()
+					.regex(/^[0-9a-f]{64}$/i, 'Enter the 64-character hex public key from the Discord application.'),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+				mentionRoleIds: z.array(z.string()).optional(),
+				respondToChannelIds: z.array(z.string()).optional(),
+				fallbackUserEmail: z.string().trim().toLowerCase().optional(),
+				hideAnswerLink: z.boolean().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			try {
+				await validateDiscordConnection({ botToken: input.botToken });
+			} catch (error) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message:
+						error instanceof DiscordConnectionError
+							? error.message
+							: 'Could not verify the Discord connection. Try again.',
+				});
+			}
+
+			const fallbackUser = input.fallbackUserEmail
+				? await resolveDiscordFallbackUser(ctx.project.id, input.fallbackUserEmail)
+				: null;
+			const config = await discordConfigQueries.upsertProjectDiscordConfig({
+				...input,
+				projectId: ctx.project.id,
+				fallbackUserId: fallbackUser?.id,
+				fallbackUserEmail: fallbackUser?.email,
+			});
+			try {
+				await discordService.syncProject(config, ctx.project.id);
+			} catch {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Discord connected, but the bot could not start. Try again.',
+				});
+			}
+
+			posthog.capture(ctx.user.id, PostHogEvent.DiscordConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+			});
+
+			return toDiscordConfigResponse(config);
+		}),
+
+	updateDiscordModelConfig: adminProtectedProcedure
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'discord', toIntegrationModelSelection(input)),
+		),
+
+	deleteDiscordConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await discordConfigQueries.deleteProjectDiscordConfig(ctx.project.id);
+		await discordService.stopProject(ctx.project.id);
+		await discordLinkQueries.deleteLinkedDiscordUsers(ctx.project.id);
 		return { success: true };
 	}),
 
@@ -694,6 +888,12 @@ export const projectRoutes = {
 			if (!isMember) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
 			}
+			await assertCanManageUserAccount(
+				ctx.user.id,
+				input.userId,
+				ctx.project.orgId,
+				'regenerate their messaging code',
+			);
 			return await userQueries.regenerateMessagingProviderCode(input.userId);
 		}),
 
@@ -709,7 +909,7 @@ export const projectRoutes = {
 		return await userQueries.regenerateMessagingProviderCode(ctx.user.id);
 	}),
 
-	getWhatsappConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+	getWhatsappConfig: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return { projectConfig: null, projectId: '' };
 		}
@@ -776,19 +976,10 @@ export const projectRoutes = {
 		}),
 
 	updateWhatsappModelConfig: adminProtectedProcedure
-		.input(
-			z.object({
-				modelProvider: llmProviderSchema.optional(),
-				modelId: z.string().optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			await whatsappConfigQueries.updateProjectWhatsappModel(
-				ctx.project.id,
-				input.modelProvider ?? null,
-				input.modelId ?? null,
-			);
-		}),
+		.input(integrationModelInputSchema)
+		.mutation(({ ctx, input }) =>
+			updateIntegrationModel(ctx.project.id, 'whatsapp', toIntegrationModelSelection(input)),
+		),
 
 	deleteWhatsappConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await whatsappConfigQueries.deleteProjectWhatsappConfig(ctx.project.id);
@@ -810,30 +1001,26 @@ export const projectRoutes = {
 			return { success: true };
 		}),
 
-	listAllUsersWithRoles: projectProtectedProcedure.query(async ({ ctx }) => {
+	listAllUsersWithRoles: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
 			return [];
 		}
 		return projectQueries.listProjectMembersWithRoles(ctx.project.id);
 	}),
 
-	listUsersWithAccess: projectProtectedProcedure.query(async ({ ctx }) => {
-		return projectQueries.listUsersWithProjectAccess(ctx.project.id);
+	listUsersWithAccess: advancedSettingsProtectedProcedure.query(async ({ ctx }) => {
+		return projectQueries.listUsersWithProjectAccessDetails(ctx.project.id);
 	}),
 
 	getProjectMembersByChatId: protectedProcedure
 		.input(z.object({ chatId: z.string() }))
-		.query(async ({ ctx, input }) => {
-			const projectId = await chatQueries.getChatProjectId(input.chatId);
-			if (!projectId) {
-				return [];
-			}
-			const role = await projectQueries.getUserRoleInProject(projectId, ctx.user.id);
-			if (!role) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this project.' });
-			}
-			return projectQueries.listUsersWithProjectAccess(projectId);
-		}),
+		.query(async ({ ctx, input }) =>
+			listProjectMembersToShareWith(await chatQueries.getChatProjectId(input.chatId), ctx.user.id),
+		),
+
+	getProjectMembersByStoryId: protectedProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(async ({ ctx, input }) => listProjectMembersToShareStoryWith(input.storyId, ctx.user.id)),
 
 	getKnownModels: publicProcedure.query(() => {
 		return KNOWN_MODELS;
@@ -850,21 +1037,21 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const role = await projectQueries.getUserRoleInProject(ctx.project!.id, input.userId);
-			if (role === 'admin') {
-				throw new Error('Cannot remove an admin from the project.');
-			}
-
-			await projectQueries.removeProjectMember(ctx.project.id, input.userId);
-			const remainingRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
-			if (ctx.project.path && remainingRole !== 'admin' && remainingRole !== 'context_admin') {
-				await cleanupContextWorktree(ctx.project.id, ctx.project.path, input.userId);
-			}
+			await removeProjectMember(ctx.project.id, input.userId);
 		}),
 
 	getSavedPrompts: projectProtectedProcedure.query(async ({ ctx }) => {
 		return savedPromptQueries.listSavedPrompts(ctx.project.id);
 	}),
+
+	getProjectSavedPrompts: protectedProcedure
+		.input(z.object({ projectId: z.string() }))
+		.query(async ({ ctx, input }) => {
+			if (!(await projectQueries.getUserRoleInProject(input.projectId, ctx.user.id))) {
+				return [];
+			}
+			return savedPromptQueries.listSavedPrompts(input.projectId);
+		}),
 
 	createSavedPrompt: adminProtectedProcedure
 		.input(
@@ -922,14 +1109,14 @@ export const projectRoutes = {
 			return null;
 		}
 
-		const { isPythonAvailable, isSandboxAvailable } = await import('../agents/tools');
+		const { isSandboxAvailable } = await import('../agents/tools');
 		const settings = await projectQueries.getAgentSettings(ctx.project.id);
 
 		return {
 			...settings,
 			capabilities: {
-				pythonSandbox: isPythonAvailable,
 				sandbox: isSandboxAvailable,
+				semanticLayer: ctx.project.path ? extractConfiguredSemanticLayer(ctx.project.path) !== null : false,
 			},
 		};
 	}),
@@ -939,7 +1126,7 @@ export const projectRoutes = {
 			z.object({
 				experimental: z
 					.object({
-						pythonSandboxing: z.boolean().optional(),
+						codemode: z.boolean().optional(),
 						sandboxes: z.boolean().optional(),
 					})
 					.optional(),
@@ -957,21 +1144,21 @@ export const projectRoutes = {
 						enforceExcludedColumns: z.boolean().optional(),
 					})
 					.optional(),
-				pythonExecution: z
-					.object({
-						maxDurationSecs: z
-							.number()
-							.int()
-							.min(MIN_PYTHON_EXECUTION_DURATION_SECS)
-							.max(MAX_PYTHON_EXECUTION_DURATION_SECS)
-							.optional(),
-					})
-					.optional(),
 				memoryEnabled: z.boolean().optional(),
 				webSearch: z
 					.object({
 						enabled: z.boolean().optional(),
 						mode: z.enum(['provider']).optional(),
+					})
+					.optional(),
+				semanticLayer: z
+					.object({
+						mode: z.enum(SEMANTIC_LAYER_MODES).optional(),
+					})
+					.optional(),
+				subagent: z
+					.object({
+						model: llmSelectedModelSchema.nullable().optional(),
 					})
 					.optional(),
 			}),
@@ -984,8 +1171,9 @@ export const projectRoutes = {
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
-				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
+				semanticLayer: { ...existing.semanticLayer, ...input.semanticLayer },
+				subagent: { ...existing.subagent, ...input.subagent },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,
@@ -994,12 +1182,12 @@ export const projectRoutes = {
 				transcribe_model_id: merged.transcribe?.modelId,
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				sql_enforce_excluded_columns: merged.sql?.enforceExcludedColumns,
-				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
-				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
+				codemode_enabled: merged.experimental?.codemode,
 				map_enabled: merged.mapEnabled,
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
+				semantic_layer_mode: merged.semanticLayer?.mode,
 			});
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),
@@ -1034,18 +1222,52 @@ export const projectRoutes = {
 
 	getDefaultModels: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { settings: null, availableModels: [] };
+			const empty: DefaultModelsOverview = {
+				settings: null,
+				availableModels: [],
+				chatModel: null,
+				builtInDefaults: { chat: null, categories: {} },
+			};
+			return {
+				...empty,
+				integrations: [] as IntegrationModel[],
+				mcpEndpointEnabled: false,
+				mcpSubAgentModel: null as LlmSelectedModel | null,
+			};
 		}
-		const [settings, availableModels] = await Promise.all([
-			projectQueries.getDefaultModelSettings(ctx.project.id),
-			getProjectAvailableModels(ctx.project.id),
+		const [overview, integrations, mcpEndpoint] = await Promise.all([
+			getDefaultModelsOverview(ctx.project.id),
+			listIntegrationModels(ctx.project.id),
+			mcpEndpointQueries.getMcpEndpointSettings(ctx.project.id),
 		]);
-		return { settings, availableModels };
+		return {
+			...overview,
+			integrations,
+			mcpEndpointEnabled: mcpEndpoint.enabled && mcpEndpoint.subAgentModeEnabled,
+			mcpSubAgentModel: mcpEndpoint.subAgentModel ?? null,
+		};
+	}),
+
+	/** The model new chats start on, for the chat model picker. */
+	getDefaultChatModel: projectProtectedProcedure.query(({ ctx }) => {
+		if (!ctx.project) {
+			return null;
+		}
+		return resolveDefaultChatModel(ctx.project.id);
 	}),
 
 	updateDefaultModels: adminProtectedProcedure
-		.input(backgroundModelSettingsSchema)
+		.input(defaultModelSettingsSchema)
 		.mutation(({ ctx, input }) => projectQueries.updateDefaultModelSettings(ctx.project.id, input)),
+
+	updateIntegrationModel: adminProtectedProcedure
+		.input(
+			z.object({
+				integration: z.enum(MODEL_INTEGRATIONS),
+				modelSelection: backgroundModelSelectionSchema.nullable(),
+			}),
+		)
+		.mutation(({ ctx, input }) => updateIntegrationModel(ctx.project.id, input.integration, input.modelSelection)),
 
 	getProjectChats: contextAdminProtectedProcedure
 		.input(
@@ -1089,7 +1311,10 @@ export const projectRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 			}
 
-			const [chat, ownerId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
+			const [chat, ownerId] = await chatQueries.getChat(input.chatId, {
+				includeFeedback: true,
+				queryResultPreviews: true,
+			});
 			if (!chat) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 			}
@@ -1112,12 +1337,22 @@ export const projectRoutes = {
 				};
 			}
 
+			const [assistantModels, resolveModelName] = await Promise.all([
+				chatQueries.getAssistantMessageModels(input.chatId),
+				getProjectModelNameResolver(ctx.project.id),
+			]);
+			const messageModels: Record<string, MessageModel> = {};
+			for (const { messageId, provider, modelId } of assistantModels) {
+				messageModels[messageId] = { provider, modelId, name: resolveModelName(provider, modelId) };
+			}
+
 			return {
-				...chat,
+				...withQueryResultPreviewsInChat(chat),
 				ownerId: ownerId ?? null,
 				ownerName,
 				chatOwnerId: ownerId ?? null,
 				feedbackRecommendations,
+				messageModels,
 			};
 		}),
 
@@ -1145,19 +1380,38 @@ export const projectRoutes = {
 			return usage;
 		}),
 
+	getMissingEnvVars: projectProtectedProcedure.query(({ ctx }) => getMissingProjectEnvVars(ctx.project)),
+
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {
-		const requiredVars = ctx.project.path ? extractRequiredEnvVars(ctx.project.path) : [];
-		const storedVars = await projectQueries.getEnvVars(ctx.project.id);
+		const [storedVars, warehouseCredentials] = await Promise.all([
+			projectQueries.getEnvVars(ctx.project.id),
+			getProjectWarehouseCredentialsSummary(ctx.project.id),
+		]);
+		const warehouseCredentialNames = new Set(warehouseCredentials?.fields.map((field) => field.name));
+		const requiredVars = (ctx.project.path ? extractRequiredEnvVars(ctx.project.path) : []).filter(
+			(name) => !warehouseCredentialNames.has(name),
+		);
 		return {
 			required: requiredVars,
 			values: storedVars,
+			setFromProcessEnv: getProcessEnvSourcedVarNames(requiredVars, storedVars),
+			warehouseCredentials,
 		};
 	}),
+
+	updateWarehouseCredentials: adminProtectedProcedure
+		.input(z.object({ values: z.record(z.string(), z.string().min(1)) }))
+		.mutation(async ({ ctx, input }) => {
+			await updateProjectWarehouseCredentials(ctx.project.id, input.values);
+			await reconcileProjectReadiness(ctx.project.id);
+			void mcpService.refreshProjectConfig(ctx.project.id);
+		}),
 
 	updateEnvVars: adminProtectedProcedure
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
 		.mutation(async ({ ctx, input }) => {
-			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
+			await updateProjectEnvVars(ctx.project.id, input.envVars);
+			void mcpService.refreshProjectConfig(ctx.project.id);
 		}),
 
 	getMapBoundaries: projectProtectedProcedure.query(async ({ ctx }) => {
@@ -1174,30 +1428,37 @@ export const projectRoutes = {
 
 	addMapBoundary: adminProtectedProcedure
 		.input(
-			z.object({
-				key: z
-					.string()
-					.trim()
-					.min(1)
-					.max(64)
-					.regex(/^[a-z0-9_]+$/, 'Key must be lowercase letters, digits, or underscores only.'),
-				label: z.string().trim().min(1).max(255),
-				url: z.url(),
-				joinProperty: z.string().trim().min(1).max(255),
-				regionKeyHint: z.string().trim().min(1).max(500),
-				featureCount: z.number().int().nonnegative().optional(),
-			}),
+			z
+				.object({
+					key: z
+						.string()
+						.trim()
+						.min(1)
+						.max(64)
+						.regex(/^[a-z0-9_]+$/, 'Key must be lowercase letters, digits, or underscores only.'),
+					label: z.string().trim().min(1).max(255),
+					url: z.url().optional(),
+					upload: boundaryUploadSchema.optional(),
+					joinProperty: z.string().trim().min(1).max(255),
+					regionKeyHint: z.string().trim().min(1).max(500),
+					featureCount: z.number().int().nonnegative().optional(),
+				})
+				.refine((input) => !input.url !== !input.upload, BOUNDARY_SOURCE_MESSAGE),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const featureCount = await validateBoundarySource(input.url);
-			return projectQueries.addCustomBoundary(ctx.project.id, {
-				key: input.key,
-				label: input.label,
-				url: input.url,
-				joinProperty: input.joinProperty,
-				regionKeyHint: input.regionKeyHint,
-				featureCount,
-			});
+			const source = await storeBoundarySource(ctx.project.id, input);
+			try {
+				return await projectQueries.addCustomBoundary(ctx.project.id, {
+					key: input.key,
+					label: input.label,
+					...source,
+					joinProperty: input.joinProperty,
+					regionKeyHint: input.regionKeyHint,
+				});
+			} catch (error) {
+				await deleteBoundaryFile(source.file);
+				throw error;
+			}
 		}),
 
 	updateMapBoundary: adminProtectedProcedure
@@ -1213,12 +1474,16 @@ export const projectRoutes = {
 					.optional(),
 				label: z.string().trim().min(1).max(255).optional(),
 				url: z.url().optional(),
+				upload: boundaryUploadSchema.optional(),
 				joinProperty: z.string().trim().min(1).max(255).optional(),
 				regionKeyHint: z.string().trim().min(1).max(500).optional(),
 				featureCount: z.number().int().nonnegative().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			if (input.url && input.upload) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: BOUNDARY_SOURCE_MESSAGE });
+			}
 			const patch: Partial<CustomBoundarySet> = {};
 			if (input.newKey) {
 				patch.key = input.newKey;
@@ -1232,16 +1497,38 @@ export const projectRoutes = {
 			if (input.regionKeyHint !== undefined) {
 				patch.regionKeyHint = input.regionKeyHint;
 			}
-			if (input.url !== undefined) {
-				patch.url = input.url;
-				patch.featureCount = await validateBoundarySource(input.url);
+			const changesSource = input.url !== undefined || input.upload !== undefined;
+			if (changesSource) {
+				Object.assign(
+					patch,
+					{ url: undefined, file: undefined },
+					await storeBoundarySource(ctx.project.id, input),
+				);
 			}
-			return projectQueries.updateCustomBoundary(ctx.project.id, input.key, patch);
+			try {
+				const { boundaries, previous } = await projectQueries.updateCustomBoundary(
+					ctx.project.id,
+					input.key,
+					patch,
+				);
+				if (!previous) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: `No map boundary with key "${input.key}".` });
+				}
+				if (changesSource) {
+					await deleteBoundaryFile(previous.file);
+				}
+				return boundaries;
+			} catch (error) {
+				await deleteBoundaryFile(patch.file);
+				throw error;
+			}
 		}),
 
 	deleteMapBoundary: adminProtectedProcedure
 		.input(z.object({ key: z.string().trim().min(1) }))
 		.mutation(async ({ ctx, input }) => {
-			return projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
+			const { boundaries, previous } = await projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
+			await deleteBoundaryFile(previous?.file);
+			return boundaries;
 		}),
 };

@@ -1,11 +1,15 @@
-import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Fuse from 'fuse.js';
+import { useMemo } from 'react';
 
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
-
 import { settingsSearchIndex } from '@/components/settings-search-index';
+import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings';
+import { useCanUseAdvancedContextExplorer } from '@/hooks/use-can-use-advanced-context-explorer';
+import { useLicenseFeatures } from '@/hooks/use-license';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
+import { trpc } from '@/main';
 
 export function useSettingsSearch(query: string): SettingsSearchEntry[] {
 	const visibleEntries = useVisibleSettingsEntries();
@@ -49,8 +53,16 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 }
 
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
-	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
+	const { canViewUsage, isAdmin, isContextAdmin, isOrgAdmin } = usePermissions();
+	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
+	const canUseAdvancedContextExplorer = useCanUseAdvancedContextExplorer();
 	const isCloud = useIsCloud();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const betaSubagentsEnabled = config.data?.betaSubagentsEnabled === true;
+	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
+	const cloudBillingEnabled = config.data?.cloudBillingEnabled;
+	const licenseFeatures = useLicenseFeatures();
+	const enabledLicenseFeatures = licenseFeatures.data as Record<string, boolean> | undefined;
 
 	return useMemo(
 		() =>
@@ -58,13 +70,32 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 				.filter(
 					(entry) =>
 						(!entry.adminOnly || isAdmin) &&
+						(!entry.nonAdminOnly || !isAdmin) &&
+						(!entry.licenseFeature || enabledLicenseFeatures?.[entry.licenseFeature] === true) &&
 						(!entry.orgAdminOnly || isOrgAdmin) &&
 						(!entry.adminOrContextAdmin || isAdmin || isContextAdmin) &&
+						(!entry.requiresAdvancedContextExplorer || canUseAdvancedContextExplorer) &&
+						(!entry.requiresUsageAccess || canViewUsage) &&
 						(!entry.cloudHidden || !isCloud) &&
-						(!entry.cloudOnly || isCloud),
+						(!entry.cloudOnly || isCloud) &&
+						(!entry.cloudBillingOnly || cloudBillingEnabled === true) &&
+						(!entry.betaSubagentsOnly || betaSubagentsEnabled) &&
+						(!entry.betaAutomationsOnly || betaAutomationsEnabled),
 				)
-				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
-		[isAdmin, isCloud, isContextAdmin, isOrgAdmin, isViewer],
+				.filter((entry) => canSeeAdvancedSettings || viewerVisiblePages.includes(entry.page)),
+		[
+			betaAutomationsEnabled,
+			betaSubagentsEnabled,
+			canViewUsage,
+			canSeeAdvancedSettings,
+			canUseAdvancedContextExplorer,
+			cloudBillingEnabled,
+			enabledLicenseFeatures,
+			isAdmin,
+			isCloud,
+			isContextAdmin,
+			isOrgAdmin,
+		],
 	);
 }
 
@@ -90,4 +121,4 @@ const settingsSuggestionPages = [
 	'/settings/usage',
 ];
 
-const viewerVisiblePages = ['/settings/account'];
+const viewerVisiblePages = ['/settings/account', '/settings/usage'];

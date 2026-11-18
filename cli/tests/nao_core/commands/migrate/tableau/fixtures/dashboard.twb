@@ -1,0 +1,49 @@
+<workbook>
+  <worksheets>
+    <worksheet name="Sales Trend">
+      <table>
+        <view>
+          <rows>[sales].[sum:Sales:qk]</rows>
+          <cols>[sales].[none:Month:nk]</cols>
+          <encodings>
+            <encoding attr="color" field="[sales].[none:Region:nk]" />
+          </encodings>
+          <mark class="Line" />
+        </view>
+      </table>
+    </worksheet>
+    <worksheet name="Sales by Region">
+      <table>
+        <view>
+          <rows>[sales].[sum:Sales:qk]</rows>
+          <cols>[sales].[none:Region:nk]</cols>
+          <mark class="Bar" />
+        </view>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name="Overview">
+      <size width="1200" height="800" />
+      <style>
+        <format attr="background-color" value="#ffffff" />
+      </style>
+      <zones>
+        <zone id="1" type-v2="layout-flow" param="horz" x="0" y="0" w="1200" h="800">
+          <zone id="2" type-v2="worksheet" name="Sales Trend" x="0" y="0" w="500" h="800" />
+          <zone id="3" type-v2="worksheet" name="Sales by Region" x="500" y="0" w="700" h="800" />
+        </zone>
+        <zone
+          id="4"
+          type-v2="filter"
+          name="Sales Trend"
+          param="[sales].[none:Region:nk]"
+          x="0"
+          y="0"
+          w="200"
+          h="100"
+        />
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

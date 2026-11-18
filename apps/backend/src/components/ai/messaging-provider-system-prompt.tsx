@@ -18,7 +18,15 @@ export function MessagingProviderSystemPrompt({
 			{provider === 'whatsapp' ? (
 				<WhatsAppSystemPrompt />
 			) : provider === 'mattermost' ? (
-				<MattermostSystemPrompt />
+				<ProviderFormattingPrompt provider='Mattermost'>
+					Mattermost supports standard Markdown, including tables, fenced code blocks, bold text, and links.
+					Use these formats when they make the response clearer.
+				</ProviderFormattingPrompt>
+			) : provider === 'discord' ? (
+				<ProviderFormattingPrompt provider='Discord'>
+					Discord renders standard Markdown: bold, italics, inline code and fenced code blocks. It does not
+					render [label](url) links or tables, so paste bare URLs and prefer short bulleted lists.
+				</ProviderFormattingPrompt>
 			) : (
 				<DefaultSystemPrompt provider={provider} />
 			)}
@@ -36,15 +44,12 @@ export function MessagingProviderSystemPrompt({
 	);
 }
 
-function MattermostSystemPrompt() {
+function ProviderFormattingPrompt({ provider, children }: { provider: string; children: ReactNode }) {
 	return (
 		<>
-			<DefaultSystemPrompt provider='Mattermost' />
-			<Title level={2}>Mattermost Formatting</Title>
-			<Span>
-				Mattermost supports standard Markdown, including tables, fenced code blocks, bold text, and links. Use
-				these formats when they make the response clearer.
-			</Span>
+			<DefaultSystemPrompt provider={provider} />
+			<Title level={2}>{provider} Formatting</Title>
+			<Span>{children}</Span>
 		</>
 	);
 }

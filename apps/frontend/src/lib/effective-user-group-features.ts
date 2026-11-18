@@ -1,0 +1,56 @@
+import type { ToolCallDensityPolicy, UserGroupFeature } from '@nao/shared';
+import type { ToolCallDensity } from '@nao/shared/types';
+
+export type EffectiveUserGroupFeatures = Record<UserGroupFeature, boolean>;
+
+export interface EffectiveUserGroupAccess {
+	features: EffectiveUserGroupFeatures;
+	toolCallDensityPolicy: ToolCallDensityPolicy;
+}
+
+const DENIED_FEATURES: EffectiveUserGroupFeatures = {
+	storyCreation: false,
+	customStoryCreation: false,
+	automationCreation: false,
+};
+
+const LOADING_ACCESS: EffectiveUserGroupAccess = {
+	features: DENIED_FEATURES,
+	toolCallDensityPolicy: {
+		defaultDensity: 'detailed',
+		canChange: false,
+	},
+};
+
+const EXAMPLE_PROJECT_ACCESS: EffectiveUserGroupAccess = {
+	features: {
+		storyCreation: true,
+		customStoryCreation: true,
+		automationCreation: false,
+	},
+	toolCallDensityPolicy: {
+		defaultDensity: 'detailed',
+		canChange: false,
+	},
+};
+
+export function getRenderableUserGroupAccess(
+	access: EffectiveUserGroupAccess | undefined,
+	isAvailable: boolean,
+	isExampleProject = false,
+): EffectiveUserGroupAccess {
+	if (isExampleProject) {
+		return EXAMPLE_PROJECT_ACCESS;
+	}
+	return isAvailable && access ? access : LOADING_ACCESS;
+}
+
+export function getEffectiveToolCallDensity(
+	storedDensity: ToolCallDensity | undefined,
+	policy: ToolCallDensityPolicy,
+): ToolCallDensity {
+	if (!policy.canChange) {
+		return policy.defaultDensity;
+	}
+	return storedDensity ?? policy.defaultDensity;
+}

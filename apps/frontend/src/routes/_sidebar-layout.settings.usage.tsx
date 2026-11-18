@@ -1,20 +1,32 @@
 import { useEffect } from 'react';
-import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import { createFileRoute, Outlet, useRouterState } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
+import type { ReactNode } from 'react';
 import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
+import type { UsageChartData } from '@/components/settings/usage-chart-card';
 import type { displayChart } from '@nao/shared/tools';
+import type { UsageRecord } from '@nao/backend/usage';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
+import { ChatsReplaySearchBar } from '@/components/settings/chats-replay-search-bar';
+import { ExpandReplayToggle } from '@/components/settings/expand-replay-toggle';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
-import { ReplayFilters, UsageFilters, dateFormats } from '@/components/settings/usage-filters';
-import { saveUsageFilters, validateUsageSearchWithStoredFilters } from '@/components/settings/usage-route-search';
+import { ReplayFilters, SourceAndUserFilters, UsageFilters } from '@/components/settings/usage-filters';
+import {
+	saveUsageFilters,
+	validateUsageSearch,
+	validateUsageSearchWithStoredFilters,
+} from '@/components/settings/usage-route-search';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useUsagePeriodSettings } from '@/hooks/use-usage-period-settings';
 import { trpc } from '@/main';
-import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { requireNonViewer } from '@/lib/route-guards';
+import { buildUserUsageChart } from '@/lib/usage-by-user';
+import { formatUsageBucketLabel } from '@/lib/usage-date';
+import { cn } from '@/lib/utils';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
-	beforeLoad: requireContextAdminOrAdmin,
+	beforeLoad: requireNonViewer,
 	validateSearch: validateUsageSearchWithStoredFilters,
 	component: UsagePage,
 });
@@ -24,6 +36,12 @@ const USD_VALUE_FORMAT = {
 	prefix: '$',
 	compact: 'financial',
 } satisfies displayChart.ValueFormat;
+
+interface UsageChart {
+	data: UsageChartData;
+	series: displayChart.SeriesConfig[];
+	showLegend: boolean;
+}
 
 const tokenChartDisplayOptions: { value: TokenChartDisplayMode; label: string }[] = [
 	{ value: 'tokens', label: 'Show in tokens' },
@@ -46,6 +64,9 @@ const costSeries = [
 
 const messageSeries = [
 	{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
+	{ data_key: 'automationEditorMessageCount', color: 'var(--chart-10)', label: 'Web (automations)' },
+	{ data_key: 'contextEditorMessageCount', color: 'var(--chart-11)', label: 'Web (context hub)' },
+	{ data_key: 'automationMessageCount', color: 'var(--chart-12)', label: 'Automations' },
 	{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
 	{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
 	{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
@@ -57,11 +78,13 @@ const messageSeries = [
 		color: 'var(--chart-8)',
 		label: 'Context recommendations',
 	},
+	{ data_key: 'testMessageCount', color: 'var(--chart-9)', label: 'Tests' },
 ] as const;
 
 function UsagePage() {
 	const usageSearch = Route.useSearch();
-	const navigate = useNavigate();
+	const navigate = Route.useNavigate();
+	const { canViewAllUsage, canViewChatReplay, canViewUsage } = usePermissions();
 	const isReplayRoute = useRouterState({
 		select: (state) => state.location.pathname.startsWith('/settings/usage/replay/'),
 	});
@@ -74,24 +97,32 @@ function UsagePage() {
 		return <Outlet />;
 	}
 
+	const updateSearch = (next: Partial<UsageRouteSearch>) => {
+		navigate({
+			to: '/settings/usage',
+			search: (current) => validateUsageSearch({ ...current, ...next }),
+			replace: true,
+		});
+	};
+	const openChatReplay = (chatId: string) => {
+		navigate({
+			to: '/settings/usage/replay/$chatId',
+			params: { chatId },
+			search: usageSearch,
+		});
+	};
+
 	return (
-		<UsageOverview
-			usageSearch={usageSearch}
-			onUpdateSearch={(next) => {
-				navigate({
-					to: '/settings/usage',
-					search: { ...usageSearch, ...next },
-					replace: true,
-				});
-			}}
-			onOpenChatReplay={(chatId) => {
-				navigate({
-					to: '/settings/usage/replay/$chatId',
-					params: { chatId },
-					search: usageSearch,
-				});
-			}}
-		/>
+		<div className='flex min-h-0 flex-1 flex-col overflow-hidden bg-background'>
+			<UsageOverview
+				usageSearch={usageSearch}
+				onUpdateSearch={updateSearch}
+				onOpenChatReplay={openChatReplay}
+				canViewAllUsage={canViewAllUsage}
+				canViewChatReplay={canViewChatReplay}
+				canViewUsage={canViewUsage}
+			/>
+		</div>
 	);
 }
 
@@ -99,13 +130,20 @@ function UsageOverview({
 	usageSearch,
 	onUpdateSearch,
 	onOpenChatReplay,
+	canViewAllUsage,
+	canViewChatReplay,
+	canViewUsage,
 }: {
 	usageSearch: UsageRouteSearch;
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
+	canViewAllUsage: boolean;
+	canViewChatReplay: boolean;
+	canViewUsage: boolean;
 }) {
-	const { granularity, provider, users, feedback, tools, sources, tokenView } = usageSearch;
-	const { canViewUsage } = usePermissions();
+	const { provider, users, feedback, tools, sources, search, splitByUser, tokenView, expandReplay } = usageSearch;
+	const periodState = useUsagePeriodSettings({ canViewUsage, usageSearch, onUpdateSearch });
+	const { period, granularity } = periodState;
 
 	const usedProviders = useQuery({
 		...trpc.usage.getUsedProviders.queryOptions(),
@@ -117,155 +155,252 @@ function UsageOverview({
 			pageSize: 1,
 		}),
 		placeholderData: keepPreviousData,
+		enabled: canViewChatReplay,
 	});
+	const splitUsageByUser = canViewAllUsage && splitByUser;
+	const chartFilter = {
+		period,
+		granularity,
+		provider: provider === 'all' ? undefined : provider,
+		userNames: canViewAllUsage ? users : undefined,
+		sources,
+	};
 	const messagesUsage = useQuery({
-		...trpc.usage.getMessagesUsage.queryOptions({
-			granularity,
-			provider: provider === 'all' ? undefined : provider,
-			userNames: users,
-			sources,
-		}),
+		...trpc.usage.getMessagesUsage.queryOptions(chartFilter),
 		placeholderData: keepPreviousData,
-		enabled: canViewUsage,
+		enabled: canViewUsage && periodState.isReady && !splitUsageByUser,
+	});
+	const usageByUser = useQuery({
+		...trpc.usage.getMessagesUsageByUser.queryOptions(chartFilter),
+		placeholderData: keepPreviousData,
+		enabled: canViewUsage && periodState.isReady && splitUsageByUser,
 	});
 	const totalUsage = useQuery({
 		...trpc.usage.getTotalUsage.queryOptions({
-			granularity,
+			period,
 			provider: provider === 'all' ? undefined : provider,
-			userNames: users,
+			userNames: canViewAllUsage ? users : undefined,
 			sources,
 		}),
 		placeholderData: keepPreviousData,
-		enabled: canViewUsage,
+		enabled: canViewUsage && periodState.isReady,
 	});
 
 	const chartData = messagesUsage.data ?? [];
+	const chartDataByUser = usageByUser.data ?? [];
+	const chartQuery = splitUsageByUser ? usageByUser : messagesUsage;
 	const totalUsageChartData = totalUsage.data ? [totalUsage.data] : [];
 	const showCost = tokenView === 'dollars';
-	const activeMessageSeries = messageSeries.filter(({ data_key }) =>
-		chartData.some((record) => record[data_key] > 0),
-	);
-	const displayedMessageSeries = activeMessageSeries.length > 0 ? activeMessageSeries : [...messageSeries];
-	const showMessageLegend = displayedMessageSeries.some(({ data_key }) => data_key !== 'webMessageCount');
+	const messagesChart: UsageChart = splitUsageByUser
+		? buildUserUsageChart(chartDataByUser, 'messageCount')
+		: buildMessagesBySourceChart(chartData);
+	const tokensChart: UsageChart = splitUsageByUser
+		? buildUserUsageChart(
+				chartDataByUser,
+				showCost ? 'totalCost' : 'totalTokens',
+				showCost ? USD_VALUE_FORMAT : undefined,
+			)
+		: { data: chartData, series: showCost ? costSeries : tokenSeries, showLegend: true };
+
+	const isReplayExpanded = canViewUsage && expandReplay;
 
 	const filtersComponent = (
 		<UsageFilters
 			showUsageControls={canViewUsage}
+			showUserControls={canViewAllUsage}
 			provider={provider}
 			onProviderChange={(value) => onUpdateSearch({ provider: value })}
-			granularity={granularity}
-			onGranularityChange={(value) => onUpdateSearch({ granularity: value })}
+			periodSelection={periodState.selection}
+			onPeriodSelectionChange={periodState.selectPeriod}
+			savedPeriods={periodState.savedPeriods}
+			isPeriodLoading={periodState.isLoading}
+			periodError={periodState.error}
+			onRetryPeriod={periodState.retry}
+			onCreateSavedPeriod={periodState.createSavedPeriod}
+			onUpdateSavedPeriod={periodState.updateSavedPeriod}
+			onDeleteSavedPeriod={periodState.deleteSavedPeriod}
 			availableProviders={usedProviders.data}
 			chatFacets={chatFacets.data?.facets}
 			selectedUserNames={users}
 			onSelectedUserNamesChange={(value) => onUpdateSearch({ users: value })}
 			selectedSources={sources}
 			onSelectedSourcesChange={(value) => onUpdateSearch({ sources: value })}
+			splitByUser={splitByUser}
+			onSplitByUserChange={(value) => onUpdateSearch({ splitByUser: value })}
 		/>
 	);
 
 	return (
 		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden bg-background'>
 			<div className='flex min-h-0 w-full flex-col xl:h-full'>
-				<div className='flex flex-col w-full gap-2 px-4 md:p-8 xl:shrink-0'>
-					{filtersComponent}
+				<CollapsibleUsageOverview isCollapsed={isReplayExpanded}>
+					<div className='flex flex-col w-full gap-2 p-4 md:p-8'>
+						{filtersComponent}
 
-					{canViewUsage && (
-						<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
-							<div className='lg:col-span-2 xl:col-span-1'>
+						{canViewUsage && (
+							<div className='grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_3fr_3fr] gap-2'>
+								<div className='lg:col-span-2 xl:col-span-1'>
+									<UsageChartCard
+										title='Messages'
+										isLoading={periodState.isLoading || totalUsage.isLoading}
+										isFetching={totalUsage.isFetching}
+										isError={totalUsage.isError}
+										data={totalUsageChartData}
+										chartType='kpi_card'
+										series={[
+											{
+												data_key: 'totalMessages',
+												label: 'Total messages',
+												color: 'var(--chart-1)',
+											},
+											...(canViewAllUsage
+												? [
+														{
+															data_key: 'uniqueUsers',
+															label: 'Unique users',
+															color: 'var(--chart-2)',
+														},
+													]
+												: []),
+										]}
+									/>
+								</div>
+
 								<UsageChartCard
 									title='Messages'
-									isLoading={totalUsage.isLoading}
-									isFetching={totalUsage.isFetching}
-									isError={totalUsage.isError}
-									data={totalUsageChartData}
-									chartType='kpi_card'
-									series={[
-										{
-											data_key: 'totalMessages',
-											label: 'Total messages',
-											color: 'var(--chart-1)',
-										},
-										{
-											data_key: 'uniqueUsers',
-											label: 'Unique users',
-											color: 'var(--chart-2)',
-										},
-									]}
+									isLoading={periodState.isLoading || chartQuery.isLoading}
+									isFetching={chartQuery.isFetching}
+									isError={chartQuery.isError}
+									data={messagesChart.data}
+									chartType='stacked_bar'
+									xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
+									titleAccessory={
+										<span className='text-xs text-muted-foreground'>
+											{splitUsageByUser
+												? 'Number of messages by user'
+												: 'Number of messages by source'}
+										</span>
+									}
+									series={messagesChart.series}
+									showLegend={messagesChart.showLegend}
+								/>
+
+								<UsageChartCard
+									title={showCost ? 'Cost' : 'Tokens'}
+									isLoading={periodState.isLoading || chartQuery.isLoading}
+									isFetching={chartQuery.isFetching}
+									isError={chartQuery.isError}
+									data={tokensChart.data}
+									chartType='stacked_bar'
+									xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
+									valueFormatter={showCost ? formatUsd : undefined}
+									series={tokensChart.series}
+									showLegend={tokensChart.showLegend}
+									titleAccessory={
+										<Select
+											value={tokenView}
+											onValueChange={(value) =>
+												onUpdateSearch({ tokenView: value as TokenChartDisplayMode })
+											}
+										>
+											<SelectTrigger size='sm' variant='ghost' className='mt-0 h-4 px-0 text-xs'>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												{tokenChartDisplayOptions.map((option) => (
+													<SelectItem key={option.value} value={option.value}>
+														{option.label}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									}
 								/>
 							</div>
-
-							<UsageChartCard
-								title='Messages'
-								isLoading={messagesUsage.isLoading}
-								isFetching={messagesUsage.isFetching}
-								isError={messagesUsage.isError}
-								data={chartData}
-								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
-								titleAccessory={
-									<span className='text-xs text-muted-foreground'>Number of messages by source</span>
-								}
-								series={displayedMessageSeries}
-								showLegend={showMessageLegend}
-							/>
-
-							<UsageChartCard
-								title={showCost ? 'Cost' : 'Tokens'}
-								isLoading={messagesUsage.isLoading}
-								isFetching={messagesUsage.isFetching}
-								isError={messagesUsage.isError}
-								data={chartData}
-								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
-								valueFormatter={showCost ? formatUsd : undefined}
-								series={showCost ? costSeries : tokenSeries}
-								titleAccessory={
-									<Select
-										value={tokenView}
-										onValueChange={(value) =>
-											onUpdateSearch({ tokenView: value as TokenChartDisplayMode })
-										}
-									>
-										<SelectTrigger size='sm' variant='ghost' className='mt-0 h-4 px-0 text-xs'>
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											{tokenChartDisplayOptions.map((option) => (
-												<SelectItem key={option.value} value={option.value}>
-													{option.label}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								}
-							/>
-						</div>
-					)}
-				</div>
-
-				<section className='flex min-h-[400px] flex-1 flex-col w-full overflow-hidden xl:min-h-0'>
-					<div className='flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8'>
-						<h2 className='text-sm font-semibold'>Chats replay</h2>
-						<ReplayFilters
-							chatFacets={chatFacets.data?.facets}
-							selectedFeedbackStates={feedback}
-							onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
-							selectedToolStates={tools}
-							onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
-						/>
+						)}
 					</div>
-					<ChatsReplayPage
-						selectedUserNames={users}
-						selectedFeedbackStates={feedback}
-						selectedToolStates={tools}
-						selectedSources={sources}
-						onOpenChat={onOpenChatReplay}
-					/>
-				</section>
+				</CollapsibleUsageOverview>
+
+				{canViewChatReplay && (
+					<section className='flex min-h-[400px] flex-1 flex-col w-full overflow-hidden xl:min-h-0'>
+						<div
+							className={cn(
+								'flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 md:px-8 transition-[padding] duration-300',
+								isReplayExpanded && 'pt-4 md:pt-8',
+							)}
+						>
+							<h2 className='text-sm font-semibold'>Chats replay</h2>
+							<div className='flex flex-wrap items-center gap-2'>
+								<ChatsReplaySearchBar
+									value={search}
+									onChange={(value) => onUpdateSearch({ search: value })}
+								/>
+								{isReplayExpanded && (
+									<SourceAndUserFilters
+										chatFacets={chatFacets.data?.facets}
+										selectedUserNames={users}
+										onSelectedUserNamesChange={(value) => onUpdateSearch({ users: value })}
+										selectedSources={sources}
+										onSelectedSourcesChange={(value) => onUpdateSearch({ sources: value })}
+										showUserControls={canViewAllUsage}
+									/>
+								)}
+								<ReplayFilters
+									chatFacets={chatFacets.data?.facets}
+									selectedFeedbackStates={feedback}
+									onSelectedFeedbackStatesChange={(value) => onUpdateSearch({ feedback: value })}
+									selectedToolStates={tools}
+									onSelectedToolStatesChange={(value) => onUpdateSearch({ tools: value })}
+								/>
+								{canViewUsage && (
+									<ExpandReplayToggle
+										isExpanded={expandReplay}
+										onToggle={() => onUpdateSearch({ expandReplay: !expandReplay })}
+									/>
+								)}
+							</div>
+						</div>
+						<ChatsReplayPage
+							search={search}
+							selectedUserNames={canViewAllUsage ? users : undefined}
+							selectedFeedbackStates={feedback}
+							selectedToolStates={tools}
+							selectedSources={sources}
+							onOpenChat={onOpenChatReplay}
+						/>
+					</section>
+				)}
 			</div>
 		</div>
 	);
+}
+
+function CollapsibleUsageOverview({ isCollapsed, children }: { isCollapsed: boolean; children: ReactNode }) {
+	return (
+		<div
+			id='usage-overview'
+			inert={isCollapsed}
+			className={cn(
+				'grid xl:shrink-0 transition-[grid-template-rows,opacity] duration-300 ease-in-out',
+				isCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+			)}
+		>
+			<div className='min-h-0 overflow-hidden'>{children}</div>
+		</div>
+	);
+}
+
+function buildMessagesBySourceChart(chartData: UsageRecord[]): UsageChart {
+	const activeMessageSeries = messageSeries.filter(({ data_key }) =>
+		chartData.some((record) => record[data_key] > 0),
+	);
+	const series = activeMessageSeries.length > 0 ? activeMessageSeries : [...messageSeries];
+
+	return {
+		data: chartData,
+		series,
+		showLegend: series.some(({ data_key }) => data_key !== 'webMessageCount'),
+	};
 }
 
 function formatUsd(value: number): string {

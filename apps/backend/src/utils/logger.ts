@@ -1,18 +1,13 @@
 import * as logQueries from '../queries/log.queries';
 import type { LogLevel, LogSource } from '../types/log';
+import { redactCredentialedUrls } from './credential-redaction';
 import { scheduleTask } from './schedule-task';
 
 interface LogOptions {
 	source: LogSource;
 	projectId?: string;
+	userId?: string;
 	context?: Record<string, unknown>;
-}
-
-/** Matches credentials embedded in a URL, e.g. `https://oauth2:TOKEN@host/...` (git clone/push errors). */
-const CREDENTIALED_URL_PATTERN = /:\/\/[^/\s@]+@/g;
-
-function redactCredentialedUrls(value: string): string {
-	return value.replace(CREDENTIALED_URL_PATTERN, '://***@');
 }
 
 /** Extracts structured error info (name, message, stack) from unknown caught values. */
@@ -27,13 +22,42 @@ export function serializeError(error: unknown): Record<string, unknown> {
 	return { value: redactCredentialedUrls(String(error)) };
 }
 
-const SENSITIVE_KEYS = new Set(['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key']);
+const MAX_CAUSE_DEPTH = 5;
 
-function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Joins an error's message with those of its `cause` chain, so wrapper errors such as
+ * Drizzle's "Failed query" or a tRPC INTERNAL_SERVER_ERROR show the underlying driver error.
+ */
+export function describeError(error: unknown): string {
+	const messages: string[] = [];
+	let current: unknown = error;
+	for (let depth = 0; current !== undefined && current !== null && depth < MAX_CAUSE_DEPTH; depth++) {
+		const message = redactCredentialedUrls(getErrorLikeMessage(current));
+		if (!messages.includes(message)) {
+			messages.push(message);
+		}
+		current = typeof current === 'object' ? (current as { cause?: unknown }).cause : undefined;
+	}
+	return messages.join(' | caused by: ');
+}
+
+function getErrorLikeMessage(value: unknown): string {
+	if (value instanceof Error) {
+		return value.message;
+	}
+	const message = typeof value === 'object' && value !== null ? (value as { message?: unknown }).message : undefined;
+	return typeof message === 'string' ? message : String(value);
+}
+
+export const SENSITIVE_CONTEXT_KEYS = ['password', 'token', 'secret', 'authorization', 'cookie', 'apikey', 'api_key'];
+export const REDACTED_CONTEXT_VALUE = '[REDACTED]';
+const SENSITIVE_KEYS = new Set(SENSITIVE_CONTEXT_KEYS);
+
+export function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {
 	const redacted: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(ctx)) {
 		if (SENSITIVE_KEYS.has(key.toLowerCase())) {
-			redacted[key] = '[REDACTED]';
+			redacted[key] = REDACTED_CONTEXT_VALUE;
 		} else {
 			redacted[key] = value;
 		}
@@ -54,6 +78,7 @@ function writeLog(level: LogLevel, message: string, opts: LogOptions): void {
 			message,
 			source: opts.source,
 			projectId: opts.projectId,
+			userId: opts.userId,
 			context,
 		}),
 	);

@@ -3,7 +3,7 @@ import { tool } from 'ai';
 
 export default tool<suggestFollowUps.Input, suggestFollowUps.Output>({
 	description:
-		'Suggest follow-up messages the user might want to send next. This should be the last tool you call and should only be called once per turn. When using this tool always send your reponses before calling this tool as it will stop the agent.',
+		'Generate 1–3 contextually useful messages that extend an analytical business-data response. Call this tool for analytical responses even when the visible answer is complete; skip it only for simple one-fact lookups, acknowledgements, and clarification requests. It must be the sole and final tool call, and the turn must include a complete visible answer.',
 	inputSchema: suggestFollowUps.InputSchema,
 	outputSchema: suggestFollowUps.OutputSchema,
 
@@ -16,6 +16,6 @@ export default tool<suggestFollowUps.Input, suggestFollowUps.Output>({
 
 	toModelOutput: () => ({
 		type: 'text',
-		value: 'Follow-ups suggested successfully.',
+		value: 'Follow-ups recorded, but this response carried no visible answer: notes written before a tool call are hidden from the user. Write your complete answer now as your final message, following every rule of your instructions, and call no other tool. If you already wrote it as visible text earlier in this turn, end the turn without repeating it.',
 	}),
 });

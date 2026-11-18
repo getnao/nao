@@ -8,6 +8,8 @@ export interface TabBarItem<Id extends string> {
 	label: ReactNode;
 	icon?: ReactNode;
 	count?: number;
+	disabled?: boolean;
+	disabledReason?: string;
 }
 
 interface TabBarProps<Id extends string> {
@@ -17,6 +19,8 @@ interface TabBarProps<Id extends string> {
 	idBase: string;
 	className?: string;
 	fitted?: boolean;
+	size?: 'default' | 'sm';
+	label?: string;
 }
 
 export function tabTriggerId(idBase: string, tabId: string) {
@@ -34,6 +38,8 @@ export function TabBar<Id extends string>({
 	idBase,
 	className,
 	fitted = false,
+	size = 'default',
+	label,
 }: TabBarProps<Id>) {
 	const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -44,13 +50,16 @@ export function TabBar<Id extends string>({
 		event.preventDefault();
 		const currentIndex = tabs.findIndex((tab) => tab.id === activeTab);
 		const delta = event.key === 'ArrowRight' ? 1 : -1;
-		const nextIndex = (currentIndex + delta + tabs.length) % tabs.length;
+		const nextIndex = getNextEnabledTabIndex(tabs, currentIndex, delta);
+		if (nextIndex === null) {
+			return;
+		}
 		onTabChange(tabs[nextIndex].id);
 		buttonsRef.current[nextIndex]?.focus();
 	};
 
 	return (
-		<div role='tablist' className={cn('flex', className)} onKeyDown={handleKeyDown}>
+		<div role='tablist' aria-label={label} className={cn('flex', className)} onKeyDown={handleKeyDown}>
 			{tabs.map((tab, index) => {
 				const isActive = activeTab === tab.id;
 				return (
@@ -64,14 +73,20 @@ export function TabBar<Id extends string>({
 						id={tabTriggerId(idBase, tab.id)}
 						aria-selected={isActive}
 						aria-controls={tabPanelId(idBase, tab.id)}
+						aria-disabled={tab.disabled ? true : undefined}
 						tabIndex={isActive ? 0 : -1}
+						disabled={tab.disabled}
+						title={tab.disabledReason}
 						onClick={() => onTabChange(tab.id)}
 						className={cn(
-							'-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
+							'-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 font-medium transition-colors',
+							size === 'sm' ? 'px-2 py-1.5 text-xs' : 'px-3 py-2.5 text-sm',
 							fitted ? 'w-full justify-center' : 'shrink-0 whitespace-nowrap',
-							isActive
-								? 'border-primary text-foreground'
-								: 'border-transparent text-muted-foreground hover:text-foreground',
+							tab.disabled
+								? 'cursor-not-allowed border-transparent text-muted-foreground/45'
+								: isActive
+									? 'border-primary text-foreground'
+									: 'border-transparent text-muted-foreground hover:text-foreground',
 						)}
 					>
 						{tab.icon}
@@ -89,6 +104,20 @@ export function TabBar<Id extends string>({
 			})}
 		</div>
 	);
+}
+
+function getNextEnabledTabIndex<Id extends string>(
+	tabs: TabBarItem<Id>[],
+	currentIndex: number,
+	delta: 1 | -1,
+): number | null {
+	for (let step = 1; step <= tabs.length; step += 1) {
+		const nextIndex = (currentIndex + step * delta + tabs.length) % tabs.length;
+		if (!tabs[nextIndex].disabled) {
+			return nextIndex;
+		}
+	}
+	return null;
 }
 
 interface TabPanelProps {

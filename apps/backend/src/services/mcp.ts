@@ -1,8 +1,16 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { McpServerConfig, McpServerStatus, McpToolSummary, McpTransport } from '@nao/shared';
-import { debounce } from '@nao/shared';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type {
+	McpAccess,
+	McpOAuthClientConfig,
+	McpServerConfig,
+	McpServerStatus,
+	McpToolSummary,
+	McpTransport,
+} from '@nao/shared';
+import { ALL_MCP_ACCESS, debounce, isMcpServerGranted, isMcpToolGranted } from '@nao/shared';
 import { mcpJsonSchema } from '@nao/shared';
 import type { ErrorObject, ValidateFunction } from 'ajv';
 import Ajv2020 from 'ajv/dist/2020';
@@ -11,21 +19,29 @@ import { mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises';
 import { createRuntime, type Runtime, ServerDefinition } from 'mcporter';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 
+import { isCloud } from '../env';
 import {
 	claimMcpDiscoveryUser,
 	deleteMcpUserToken,
 	getMcpOAuthClient,
 	hasMcpUserToken,
 } from '../queries/mcp-oauth.queries';
-import { getDisabledMcpServers, getDisabledMcpTools, retrieveProjectById } from '../queries/project.queries';
+import {
+	getDisabledMcpServers,
+	getDisabledMcpTools,
+	getEnvVars,
+	retrieveProjectById,
+} from '../queries/project.queries';
 import { logger } from '../utils/logger';
 import { replaceEnvVars } from '../utils/utils';
-import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError } from './mcp-oauth';
+import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError, mcpFetch } from './mcp-oauth';
 import { buildMcpOpenApiDocument, extractToolsFromOpenApi, type McpToolDefinition } from './mcp-openapi';
 
 const HTTP_TRANSPORTS = ['streamable-http', 'sse', 'http'];
 const MCPS_DIR = ['agent', 'mcps'];
 const GITIGNORE_CONTENT = '# nao: discovered MCP tool specs (generated at runtime)\n*/\n';
+const RUNTIME_ENV_PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+const RUNTIME_ENV_DIRECT_PREFIX = '$env:';
 
 type DisabledSets = { servers: Set<string>; tools: Set<string> };
 
@@ -44,6 +60,53 @@ export class McpArgsValidationError extends Error {
 	}
 }
 
+/** Thrown when a server's `oauth` block references environment variables that are not set. */
+export class McpOAuthConfigError extends Error {
+	constructor(
+		public readonly server: string,
+		public readonly missingVariables: string[],
+	) {
+		super(
+			`MCP server "${server}" needs ${missingVariables.join(', ')} to be set. ` +
+				'Add it in Settings > Environment variables or in the server environment.',
+		);
+		this.name = 'McpOAuthConfigError';
+	}
+}
+
+/**
+ * Thrown when a server is declared with a transport this deployment refuses to run. In cloud
+ * mode only HTTP transports are allowed: a stdio server would spawn an arbitrary command on
+ * the shared host, so it is never registered on the runtime.
+ */
+export class McpTransportNotAllowedError extends Error {
+	constructor(public readonly server: string) {
+		super(
+			`MCP server "${server}" uses a command-based (stdio) transport, which is not available in cloud mode. ` +
+				'Use an HTTP transport (streamable-http or sse) instead.',
+		);
+		this.name = 'McpTransportNotAllowedError';
+	}
+}
+
+/**
+ * Thrown in cloud mode when a header still references a variable once the project's own variables
+ * are applied. The MCP runtime would resolve it against the environment of the nao process, which
+ * holds nao's secrets and not the project's.
+ */
+export class McpHeaderVariableError extends Error {
+	constructor(
+		public readonly server: string,
+		public readonly variables: string[],
+	) {
+		super(
+			`MCP server "${server}" has a header referencing ${variables.join(', ')}, which this project does not define. ` +
+				'Add it in Settings > Environment variables and reference it as ${NAME}.',
+		);
+		this.name = 'McpHeaderVariableError';
+	}
+}
+
 /** Turns an Ajv validation error into a short, model-readable sentence. */
 function formatSchemaError(error: ErrorObject): string {
 	const path = error.instancePath ? error.instancePath.replace(/^\//, '').replaceAll('/', '.') : '';
@@ -55,12 +118,47 @@ function formatSchemaError(error: ErrorObject): string {
 	return `${where} ${error.message ?? 'is invalid'}${extra}`;
 }
 
+/** Errors a project admin fixes in `mcp.json`, as opposed to a server that failed to answer. */
+function isServerConfigError(error: unknown): error is Error {
+	return (
+		error instanceof McpTransportNotAllowedError ||
+		error instanceof McpOAuthConfigError ||
+		error instanceof McpHeaderVariableError
+	);
+}
+
 function isWithinDirectory(base: string, target: string): boolean {
 	const relativePath = relative(base, target);
 	return (
 		relativePath === '' ||
 		(!!relativePath && relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath))
 	);
+}
+
+/** Names the MCP runtime would read from the process environment to fill in a header value. */
+function runtimeEnvReferences(headerValue: string): string[] {
+	if (headerValue.startsWith(RUNTIME_ENV_DIRECT_PREFIX)) {
+		return [headerValue.slice(RUNTIME_ENV_DIRECT_PREFIX.length)];
+	}
+	return [...headerValue.matchAll(RUNTIME_ENV_PLACEHOLDER)].map((match) => match[1]);
+}
+
+function resolveConfigEnvVars(value: unknown, envVars: Record<string, string>): unknown {
+	if (typeof value === 'string') {
+		return replaceEnvVars(value, envVars);
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => resolveConfigEnvVars(item, envVars));
+	}
+	if (value && typeof value === 'object') {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [
+				replaceEnvVars(key, envVars),
+				resolveConfigEnvVars(item, envVars),
+			]),
+		);
+	}
+	return value;
 }
 
 /**
@@ -119,8 +217,34 @@ export class McpService {
 		return this._initPromise;
 	}
 
+	public async refreshProjectConfig(projectId: string): Promise<void> {
+		if (!this._initPromise || this._projectId !== projectId) {
+			return;
+		}
+
+		try {
+			await this._initPromise;
+			if (this._projectId !== projectId) {
+				return;
+			}
+
+			this._resetRuntime();
+			this._resetDiscovery();
+			await this._loadConfig();
+			await this._discoverAll();
+		} catch (error) {
+			logger.error(`MCP config refresh failed: ${String(error)}`, {
+				source: 'tool',
+				projectId,
+			});
+		}
+	}
+
+	/** Configured servers whose transport this deployment is allowed to run. */
 	public getConfiguredServerNames(): string[] {
-		return Object.keys(this._mcpServers);
+		return Object.entries(this._mcpServers)
+			.filter(([, config]) => this._isTransportAllowed(config))
+			.map(([name]) => name);
 	}
 
 	public async getConfigError(projectId: string): Promise<string | null> {
@@ -128,11 +252,37 @@ export class McpService {
 		return this._configError;
 	}
 
-	/** Configured servers the agent is currently allowed to call (not disabled by admin). */
-	public async getEnabledServers(projectId: string): Promise<string[]> {
+	/** Configured servers the agent is currently allowed to call (not disabled by admin, granted by the user's groups). */
+	public async getEnabledServers(projectId: string, access: McpAccess = ALL_MCP_ACCESS): Promise<string[]> {
 		await this.initializeMcpState(projectId);
 		const disabled = new Set(await getDisabledMcpServers(projectId));
-		return this.getConfiguredServerNames().filter((name) => !disabled.has(name));
+		return this.getConfiguredServerNames().filter(
+			(name) => !disabled.has(name) && isMcpServerGranted(access, name),
+		);
+	}
+
+	/**
+	 * The tools the agent may call on each enabled server, optionally restricted to `allowedServers`,
+	 * from this session's discovery or the on-disk specs. Servers not discovered yet have no tools.
+	 */
+	public async getCallableTools(
+		projectId: string,
+		allowedServers: string[] | null,
+		access: McpAccess = ALL_MCP_ACCESS,
+	): Promise<{ server: string; tools: string[] }[]> {
+		const servers = (await this.getEnabledServers(projectId, access)).filter(
+			(server) => !allowedServers || allowedServers.includes(server),
+		);
+		const disabled = await this._loadDisabled();
+		return Promise.all(
+			servers.map(async (server) => {
+				const summaries = await this._serverToolSummaries(server, disabled);
+				const tools = summaries
+					.filter((tool) => tool.enabled && isMcpToolGranted(access, server, tool.name))
+					.map((tool) => tool.name);
+				return { server, tools };
+			}),
+		);
 	}
 
 	/** The configured URL for an HTTP server, or null if not an HTTP server. */
@@ -145,13 +295,30 @@ export class McpService {
 		return config.url.toString();
 	}
 
-	public async getServersStatus(projectId: string, userId?: string): Promise<McpServerStatus[]> {
+	/** The pre-registered OAuth client declared for a server in `mcp.json`, if any. */
+	public async getServerOAuthClient(projectId: string, server: string): Promise<McpOAuthClientConfig | undefined> {
+		await this.initializeMcpState(projectId);
+		const config = this._mcpServers[server];
+		return config ? this._staticOAuthClient(server, config) : undefined;
+	}
+
+	public async getServersStatus(
+		projectId: string,
+		userId?: string,
+		access: McpAccess = ALL_MCP_ACCESS,
+	): Promise<McpServerStatus[]> {
 		await this.initializeMcpState(projectId);
 		const disabled = await this._loadDisabled();
+		const grantedServers = Object.entries(this._mcpServers).filter(([name]) => isMcpServerGranted(access, name));
 
 		return Promise.all(
-			Object.entries(this._mcpServers).map(async ([name, config]) => {
-				const tools = await this._serverToolSummaries(name, disabled);
+			grantedServers.map(async ([name, config]) => {
+				if (!this._isTransportAllowed(config)) {
+					return this._blockedServerStatus(name, config, disabled);
+				}
+				const tools = (await this._serverToolSummaries(name, disabled)).filter((tool) =>
+					isMcpToolGranted(access, name, tool.name),
+				);
 				const discovered = this._discovered[name] !== undefined || existsSync(this._serverDir(name));
 				const oauth = await this._ensureOAuthFlag(name, config);
 				const oauthConnected = oauth && userId ? await hasMcpUserToken(userId, projectId, name) : false;
@@ -168,10 +335,29 @@ export class McpService {
 					enabledToolCount: tools.filter((tool) => tool.enabled).length,
 					tools,
 					specPath: this._virtualServerDir(name),
-					error: this._failedConnections[name],
+					error: this._oauthConfigError(name, config)?.message ?? this._failedConnections[name],
 				};
 			}),
 		);
+	}
+
+	/** Status shown for a server whose transport this deployment refuses to run: visible, but never usable. */
+	private _blockedServerStatus(name: string, config: McpServerConfig, disabled: DisabledSets): McpServerStatus {
+		return {
+			name,
+			transport: this._transportOf(config),
+			url: undefined,
+			enabled: !disabled.servers.has(name),
+			discovered: false,
+			connectionOk: false,
+			oauth: false,
+			oauthConnected: false,
+			toolCount: 0,
+			enabledToolCount: 0,
+			tools: [],
+			specPath: this._virtualServerDir(name),
+			error: new McpTransportNotAllowedError(name).message,
+		};
 	}
 
 	/** Whether the server exposes at least one known tool, from this session or an on-disk spec. */
@@ -219,14 +405,23 @@ export class McpService {
 	 * connected the server yet the user's own OAuth token is used for discovery, so a project where
 	 * no admin ever connected still works. Throws `McpAuthRequiredError` when the user must connect.
 	 */
-	public async connectForUser(opts: { projectId: string; userId: string; server: string }): Promise<string[]> {
-		const { projectId, userId, server } = opts;
+	public async connectForUser(opts: {
+		projectId: string;
+		userId: string;
+		server: string;
+		access?: McpAccess;
+	}): Promise<string[]> {
+		const { projectId, userId, server, access = ALL_MCP_ACCESS } = opts;
 		await this.initializeMcpState(projectId);
 
 		const config = this._mcpServers[server];
 		if (!config) {
 			const configured = this.getConfiguredServerNames().join(', ') || '(none)';
 			throw new Error(`MCP server "${server}" is not configured. Configured servers: ${configured}.`);
+		}
+		this._assertTransportAllowed(server, config);
+		if (!isMcpServerGranted(access, server)) {
+			throw new Error(`MCP server "${server}" is not available for your user group.`);
 		}
 		const disabled = await this._loadDisabled();
 		if (disabled.servers.has(server)) {
@@ -243,7 +438,11 @@ export class McpService {
 			throw new Error(error);
 		}
 		return (this._discovered[server] ?? [])
-			.filter((tool) => !disabled.tools.has(this._toolKey(server, tool.name)))
+			.filter(
+				(tool) =>
+					!disabled.tools.has(this._toolKey(server, tool.name)) &&
+					isMcpToolGranted(access, server, tool.name),
+			)
 			.map((tool) => tool.name);
 	}
 
@@ -254,7 +453,13 @@ export class McpService {
 		server: string,
 		config: McpServerConfig,
 	): Promise<string | undefined> {
-		const token = await getValidAccessToken({ userId, projectId, server, serverUrl: config.url!.toString() });
+		const token = await getValidAccessToken({
+			userId,
+			projectId,
+			server,
+			serverUrl: config.url!.toString(),
+			staticClient: this._staticOAuthClient(server, config),
+		});
 		if (!token) {
 			throw new McpAuthRequiredError(server);
 		}
@@ -269,8 +474,11 @@ export class McpService {
 		tool: string;
 		args: Record<string, unknown>;
 		allowedServers?: string[] | null;
+		access?: McpAccess;
+		/** Cancels the request on servers reached over HTTP with the user's OAuth token; others only skip a call not sent yet. */
+		signal?: AbortSignal;
 	}): Promise<unknown> {
-		const { projectId, userId, server, tool, args, allowedServers } = opts;
+		const { projectId, userId, server, tool, args, allowedServers, access = ALL_MCP_ACCESS, signal } = opts;
 		await this.initializeMcpState(projectId);
 
 		const config = this._mcpServers[server];
@@ -278,8 +486,15 @@ export class McpService {
 			const configured = this.getConfiguredServerNames().join(', ') || '(none)';
 			throw new Error(`MCP server "${server}" is not configured. Configured servers: ${configured}.`);
 		}
+		this._assertTransportAllowed(server, config);
 		if (allowedServers && !allowedServers.includes(server)) {
 			throw new Error(`MCP server "${server}" is not available in this context.`);
+		}
+		if (!isMcpServerGranted(access, server)) {
+			throw new Error(`MCP server "${server}" is not available for your user group.`);
+		}
+		if (!isMcpToolGranted(access, server, tool)) {
+			throw new Error(`MCP tool "${tool}" on server "${server}" is not available for your user group.`);
 		}
 		const disabled = await this._loadDisabled();
 		if (disabled.servers.has(server)) {
@@ -293,11 +508,16 @@ export class McpService {
 
 		try {
 			if (await this._ensureOAuthFlag(server, config)) {
-				return await this._callToolOAuth({ projectId, userId, server, tool, args, config });
+				return await this._callToolOAuth({ projectId, userId, server, tool, args, config, signal });
 			}
-			return await this._callToolMcporter(server, tool, args);
+			if (isCloud) {
+				return await this._withPublicHttpClient(server, config, (client) =>
+					client.callTool({ name: tool, arguments: args }, undefined, { signal }),
+				);
+			}
+			return await this._callToolMcporter(server, tool, args, signal);
 		} catch (error) {
-			if (error instanceof McpAuthRequiredError) {
+			if (error instanceof McpAuthRequiredError || signal?.aborted) {
 				throw error;
 			}
 			logger.error(`MCP tool call failed: ${server}/${tool}`, {
@@ -309,8 +529,14 @@ export class McpService {
 		}
 	}
 
-	private async _callToolMcporter(server: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
+	private async _callToolMcporter(
+		server: string,
+		tool: string,
+		args: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<unknown> {
 		const runtime = await this._ensureRegistered(server);
+		signal?.throwIfAborted();
 		return runtime.callTool(server, tool, { args });
 	}
 
@@ -321,17 +547,24 @@ export class McpService {
 		tool: string;
 		args: Record<string, unknown>;
 		config: McpServerConfig;
+		signal?: AbortSignal;
 	}): Promise<unknown> {
-		const { projectId, userId, server, tool, args, config } = opts;
+		const { projectId, userId, server, tool, args, config, signal } = opts;
 		const url = config.url!.toString();
-		const token = await getValidAccessToken({ userId, projectId, server, serverUrl: url });
+		const token = await getValidAccessToken({
+			userId,
+			projectId,
+			server,
+			serverUrl: url,
+			staticClient: this._staticOAuthClient(server, config),
+		});
 		if (!token) {
 			throw new McpAuthRequiredError(server);
 		}
 
 		try {
 			return await this._withHttpClient(config, this._httpHeaders(config, token), (client) =>
-				client.callTool({ name: tool, arguments: args }),
+				client.callTool({ name: tool, arguments: args }, undefined, { signal }),
 			);
 		} catch (error) {
 			if (isUnauthorizedError(error)) {
@@ -483,8 +716,9 @@ export class McpService {
 
 		try {
 			const fileContent = await readFile(this._mcpJsonFilePath, 'utf8');
-			const resolved = replaceEnvVars(fileContent);
-			const parsed = mcpJsonSchema.parse(JSON.parse(resolved));
+			const envVars = this._projectId ? await getEnvVars(this._projectId) : {};
+			const resolved = resolveConfigEnvVars(JSON.parse(fileContent), envVars);
+			const parsed = mcpJsonSchema.parse(resolved);
 			this._mcpServers = parsed.mcpServers;
 			this._configError = null;
 		} catch (error) {
@@ -541,6 +775,8 @@ export class McpService {
 			if (error instanceof McpAuthRequiredError) {
 				this._failedConnections[name] =
 					'OAuth connection required — connect this server to discover its tools.';
+			} else if (isServerConfigError(error)) {
+				this._failedConnections[name] = error.message;
 			} else {
 				if (isUnauthorizedError(error) && !this._hasStaticAuth(config)) {
 					this._oauth[name] = true;
@@ -565,8 +801,7 @@ export class McpService {
 		discoveryUserId?: string,
 	): Promise<McpToolDefinition[]> {
 		if (await this._ensureOAuthFlag(name, config)) {
-			const url = config.url!.toString();
-			const token = await this._discoveryToken(name, url, discoveryUserId);
+			const token = await this._discoveryToken(name, config, discoveryUserId);
 			if (!token) {
 				throw new McpAuthRequiredError(name);
 			}
@@ -580,12 +815,26 @@ export class McpService {
 			});
 		}
 
+		if (isCloud) {
+			return this._withPublicHttpClient(name, config, async (client) => {
+				const result = await client.listTools();
+				return result.tools.map((tool) => ({
+					name: tool.name,
+					description: tool.description,
+					inputSchema: tool.inputSchema,
+				}));
+			});
+		}
 		const runtime = await this._ensureRegistered(name);
 		const tools = await runtime.listTools(name, { includeSchema: true });
 		return tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
 	}
 
-	private async _discoveryToken(server: string, serverUrl: string, preferredUserId?: string): Promise<string | null> {
+	private async _discoveryToken(
+		server: string,
+		config: McpServerConfig,
+		preferredUserId?: string,
+	): Promise<string | null> {
 		if (!this._projectId) {
 			return null;
 		}
@@ -593,24 +842,52 @@ export class McpService {
 		if (!userId) {
 			return null;
 		}
-		return getValidAccessToken({ userId, projectId: this._projectId, server, serverUrl });
+		return getValidAccessToken({
+			userId,
+			projectId: this._projectId,
+			server,
+			serverUrl: config.url!.toString(),
+			staticClient: this._staticOAuthClient(server, config),
+		});
 	}
 
 	/**
 	 * Resolves and caches whether a server needs per-user OAuth. A server that already carries a
 	 * static credential in `mcp.json` (e.g. an `Authorization` or `x-api-key` header) is treated as
 	 * pre-authenticated for everyone — no per-user token is required even if it advertises OAuth.
+	 * A declared `oauth` block wins over static headers: the server is always OAuth, without probing metadata.
 	 */
 	private async _ensureOAuthFlag(name: string, config: McpServerConfig): Promise<boolean> {
 		if (this._oauth[name] !== undefined) {
 			return this._oauth[name];
 		}
-		if (this._transportOf(config) !== 'http' || !config.url || this._hasStaticAuth(config)) {
+		if (this._transportOf(config) !== 'http' || !config.url) {
 			this._oauth[name] = false;
 			return false;
 		}
-		this._oauth[name] = await isOAuthServer(config.url.toString());
+		if (config.oauth) {
+			this._oauth[name] = true;
+			return true;
+		}
+		this._oauth[name] = !this._hasStaticAuth(config) && (await isOAuthServer(config.url.toString()));
 		return this._oauth[name];
+	}
+
+	/** The pre-registered OAuth client of a server, refusing one whose environment variables are not set. */
+	private _staticOAuthClient(name: string, config: McpServerConfig): McpOAuthClientConfig | undefined {
+		const error = this._oauthConfigError(name, config);
+		if (error) {
+			throw error;
+		}
+		return config.oauth;
+	}
+
+	private _oauthConfigError(name: string, config: McpServerConfig): McpOAuthConfigError | undefined {
+		const values = [config.oauth?.clientId, config.oauth?.clientSecret].filter((value) => value !== undefined);
+		const missingVariables = values.flatMap((value) =>
+			[...value.matchAll(/\$\{(\w+)\}/g)].map((match) => match[1]),
+		);
+		return missingVariables.length ? new McpOAuthConfigError(name, missingVariables) : undefined;
 	}
 
 	/** Whether the server config supplies its own credential, removing the need for per-user OAuth. */
@@ -621,22 +898,43 @@ export class McpService {
 		});
 	}
 
+	/**
+	 * Cloud reaches HTTP servers through its own client rather than mcporter, which cannot be given
+	 * the public-only fetch, so a project cannot point a server at an internal address.
+	 */
+	private _withPublicHttpClient<T>(name: string, config: McpServerConfig, fn: (client: Client) => Promise<T>) {
+		this._assertTransportAllowed(name, config);
+		this._assertHeadersResolved(name, config);
+		return this._withHttpClient(config, config.headers ?? {}, fn);
+	}
+
 	private async _withHttpClient<T>(
 		config: McpServerConfig,
 		headers: Record<string, string>,
 		fn: (client: Client) => Promise<T>,
 	): Promise<T> {
-		const url = new URL(config.url!.toString());
-		const transport =
-			config.transport === 'sse'
-				? new SSEClientTransport(url, { requestInit: { headers } })
-				: new StreamableHTTPClientTransport(url, { requestInit: { headers } });
-		const client = new Client({ name: 'nao', version: '1.0.0' }, { capabilities: {} });
-		await client.connect(transport);
+		const client = await this._connectHttpClient(config, { headers });
 		try {
 			return await fn(client);
 		} finally {
 			await client.close().catch(() => undefined);
+		}
+	}
+
+	/** Like mcporter, falls back to SSE when a server refuses streamable HTTP for a reason other than auth. */
+	private async _connectHttpClient(config: McpServerConfig, requestInit: RequestInit): Promise<Client> {
+		const url = new URL(config.url!.toString());
+		const connectSse = () => connectClient(new SSEClientTransport(url, { requestInit, fetch: mcpFetch }));
+		if (config.transport === 'sse') {
+			return connectSse();
+		}
+		try {
+			return await connectClient(new StreamableHTTPClientTransport(url, { requestInit, fetch: mcpFetch }));
+		} catch (error) {
+			if (isUnauthorizedError(error)) {
+				throw error;
+			}
+			return connectSse();
 		}
 	}
 
@@ -698,17 +996,12 @@ export class McpService {
 	}
 
 	private async _serverToolSummaries(name: string, disabled: DisabledSets): Promise<McpToolSummary[]> {
-		const discovered = this._discovered[name];
-		if (discovered) {
-			return discovered.map((tool) => ({
-				name: tool.name,
-				description: tool.description,
-				enabled: !disabled.servers.has(name) && !disabled.tools.has(this._toolKey(name, tool.name)),
-			}));
-		}
-
-		const fromDisk = await this._readSpecTools(name);
-		return (fromDisk ?? []).map((tool) => ({ ...tool, enabled: true }));
+		const tools = this._discovered[name] ?? (await this._readSpecTools(name)) ?? [];
+		return tools.map((tool) => ({
+			name: tool.name,
+			description: tool.description,
+			enabled: !disabled.servers.has(name) && !disabled.tools.has(this._toolKey(name, tool.name)),
+		}));
 	}
 
 	private async _readSpecTools(name: string): Promise<{ name: string; description?: string }[] | null> {
@@ -749,6 +1042,8 @@ export class McpService {
 		if (!config) {
 			throw new Error(`MCP server "${name}" is not configured.`);
 		}
+		this._assertTransportAllowed(name, config);
+		this._assertHeadersResolved(name, config);
 		const session = await this._session();
 		if (!session.registered.has(name)) {
 			session.runtime.registerDefinition(this._toServerDefinition(name, config), { overwrite: true });
@@ -809,6 +1104,26 @@ export class McpService {
 		const isHttp =
 			config.type === 'http' || (config.transport !== undefined && HTTP_TRANSPORTS.includes(config.transport));
 		return isHttp ? 'http' : 'stdio';
+	}
+
+	private _isTransportAllowed(config: McpServerConfig): boolean {
+		return !isCloud || this._transportOf(config) === 'http';
+	}
+
+	private _assertTransportAllowed(name: string, config: McpServerConfig): void {
+		if (!this._isTransportAllowed(config)) {
+			throw new McpTransportNotAllowedError(name);
+		}
+	}
+
+	private _assertHeadersResolved(name: string, config: McpServerConfig): void {
+		if (!isCloud) {
+			return;
+		}
+		const variables = Object.values(config.headers ?? {}).flatMap(runtimeEnvReferences);
+		if (variables.length > 0) {
+			throw new McpHeaderVariableError(name, [...new Set(variables)]);
+		}
 	}
 
 	private _toolKey(server: string, tool: string): string {
@@ -887,3 +1202,14 @@ export class McpService {
 }
 
 export const mcpService = new McpService();
+
+async function connectClient(transport: Transport): Promise<Client> {
+	const client = new Client({ name: 'nao', version: '1.0.0' }, { capabilities: {} });
+	try {
+		await client.connect(transport);
+	} catch (error) {
+		await transport.close().catch(() => undefined);
+		throw error;
+	}
+	return client;
+}

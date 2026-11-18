@@ -2,15 +2,28 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { ArchiveIcon, ArchiveRestoreIcon, Circle, CircleCheck, FolderInput, Pin, Star } from 'lucide-react';
-import { useState } from 'react';
-import type { MouseEvent, ReactNode } from 'react';
+import {
+	ArchiveIcon,
+	ArchiveRestoreIcon,
+	Circle,
+	CircleCheck,
+	FolderInput,
+	MoreHorizontal,
+	Pin,
+	ShieldCheck,
+	Star,
+} from 'lucide-react';
+import { useRef } from 'react';
+import type { DragEvent, MouseEvent, ReactNode } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 
 import type { StoryItem } from '@/lib/stories-page';
+import { invalidateStoryArchiveCaches, invalidateStoryPlacementCaches } from '@/lib/stories-cache';
 import {
 	AuthorDateLabel,
+	CertifiedBadge,
 	GRID_CARD_CLASS,
+	GRID_HOVER_ACTION_GRADIENT_CLASS,
 	GRID_THUMBNAIL_CLASS,
 	GridCardFooter,
 	LINES_CARD_CLASS,
@@ -18,21 +31,49 @@ import {
 	PrivateBadge,
 	SharingBadge,
 } from '@/components/item-card';
-import { ShareStoryDialog } from '@/components/share-dialog.story';
+import { CustomStoryThumbnail } from '@/components/custom-story-thumbnail';
 import { StoryThumbnail } from '@/components/story-thumbnail';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import StoryIcon from '@/components/ui/story-icon';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
+import { useToggleStoryCertification } from '@/hooks/use-toggle-story-certification';
+import { useActiveStoryTheme } from '@/hooks/use-active-story-theme';
+import { useChatActivity } from '@/hooks/use-chat-activity';
 import { usePermissions } from '@/hooks/use-permissions';
+import { hasAnyStoryReference, setStoryDragData } from '@/lib/story-reference';
+import { selectedStoryReferencesStore } from '@/stores/story-references';
 import { formatRelativeDate } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
+const VIEW_COUNT_FORMAT = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+
 export function StoriesNoResults({ query }: { query: string }) {
 	return (
 		<p className='text-muted-foreground text-sm py-12 text-center'>
-			No stories matching &ldquo;{query.trim()}&rdquo;
+			{query.trim() ? <>No stories matching &ldquo;{query.trim()}&rdquo;</> : 'No stories match these filters'}
 		</p>
+	);
+}
+
+export function CertifiedStoriesEmptyState() {
+	const { isAdmin } = usePermissions();
+	return (
+		<div className='flex flex-col items-center justify-center py-24 text-center'>
+			<ShieldCheck className='size-10 text-muted-foreground/40 mb-4' />
+			<p className='text-muted-foreground text-sm'>No certified stories yet.</p>
+			<p className='text-muted-foreground/60 text-sm mt-1'>
+				{isAdmin
+					? 'Certify a story from its card to highlight it as a trusted source.'
+					: 'Admins can certify stories to mark them as trusted sources.'}
+			</p>
+		</div>
 	);
 }
 
@@ -70,25 +111,25 @@ export function StoryCard({
 	selectionActive?: boolean;
 	onToggleSelect?: (storyId: string) => void;
 }) {
-	const { isAdmin, isViewer } = usePermissions();
-	const [pinShareDialogOpen, setPinShareDialogOpen] = useState(false);
+	const { role, isAdmin, isViewer } = usePermissions();
 	const isHomePage = useRouterState({ select: (s) => s.location.pathname === '/' });
+	const storyTheme = useActiveStoryTheme();
+	const { running: isAgentEditingStory } = useChatActivity(item.chatId ?? '');
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
-	const canMove = isOwnedByUser || isAdmin;
+	const canMove = (isOwnedByUser || isAdmin) && !isAgentEditingStory;
+	const isMoveDragDisabled = isViewer || !canMove || (selectionActive && !selected);
 	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
 		id: draggableId,
-		disabled: isViewer || selectionActive || !canMove,
+		disabled: isMoveDragDisabled,
 		data: { type: 'story', isOwnedByUser },
 	});
 	const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 	const moveHandler = canMove ? onMoveToFolder : undefined;
 
-	const canOpenPinShareDialog =
-		isAdmin && !item.sharedStoryId && item.kind === 'own' && !!item.chatId && !!item.storySlug;
-
 	const canSelect =
+		!!role &&
 		!isViewer &&
 		!isHomePage &&
 		((item.kind === 'own' && !!item.chatId && !!item.storySlug) ||
@@ -113,6 +154,18 @@ export function StoryCard({
 		}
 	}
 
+	function handleNativeDragStart(e: DragEvent<HTMLDivElement>) {
+		if (showArchived) {
+			e.preventDefault();
+			return;
+		}
+		const selection = selectedStoryReferencesStore.getSnapshot();
+		setStoryDragData(
+			e,
+			selected && hasAnyStoryReference(selection) ? selection : { storyIds: [item.storyId], folderIds: [] },
+		);
+	}
+
 	function handleLinkClick(e: MouseEvent<HTMLAnchorElement>) {
 		if (canSelect && onToggleSelect && (e.metaKey || e.ctrlKey || selectionActive)) {
 			e.preventDefault();
@@ -124,6 +177,13 @@ export function StoryCard({
 	}
 
 	if (displayMode === 'grid') {
+		const certifiedBadge = item.isCertified && (
+			<div className='absolute top-1.5 right-2 flex h-5 items-center'>
+				<CertifiedBadge certifiedByName={item.certifiedByName} />
+			</div>
+		);
+		const hasPersistentTopIcons = item.isCertified || (!selectionActive && (item.isPinned || item.isFavorited));
+
 		return (
 			<>
 				<div
@@ -133,17 +193,31 @@ export function StoryCard({
 					{...listeners}
 					className={cn(GRID_CARD_CLASS, isDragging && 'opacity-0', selected && 'ring-2 ring-primary')}
 					onClick={handleCardClick}
+					draggable={selectionActive && isMoveDragDisabled}
+					onDragStart={handleNativeDragStart}
 				>
 					<div className={GRID_THUMBNAIL_CLASS}>
-						<StoryThumbnail summary={item.summary} />
+						{item.format === 'custom' ? (
+							<CustomStoryThumbnail
+								storyId={item.storyId}
+								version={item.version}
+								summary={item.summary}
+								theme={storyTheme}
+								queryData={item.kpiPreviewData}
+							/>
+						) : (
+							<StoryThumbnail summary={item.summary} theme={storyTheme} queryData={item.kpiPreviewData} />
+						)}
 					</div>
+					<div className={cn(GRID_HOVER_ACTION_GRADIENT_CLASS, hasPersistentTopIcons && 'opacity-100')} />
 
 					{!selectionActive && (
 						<Link
 							{...item.link}
 							onClick={handleLinkClick}
-							className='absolute inset-0 flex flex-col justify-end p-2.5'
+							className='absolute inset-0 z-[2] flex flex-col justify-end p-2.5'
 						>
+							{certifiedBadge}
 							<div className='flex items-end gap-1.5'>
 								<GridCardFooter
 									title={item.title}
@@ -158,6 +232,7 @@ export function StoryCard({
 
 					{selectionActive && (
 						<div className='absolute inset-0 flex flex-col justify-end p-2.5 pointer-events-none'>
+							{certifiedBadge}
 							<div className='flex items-end gap-1.5'>
 								<GridCardFooter
 									title={item.title}
@@ -182,27 +257,10 @@ export function StoryCard({
 							/>
 						)}
 						{!selectionActive && (
-							<>
-								<StoryQuickActions item={item} onRequestPinShare={() => setPinShareDialogOpen(true)} />
-								<div className='flex items-center max-w-0 overflow-hidden group-hover:max-w-[60px] transition-[max-width] duration-200 ease-out'>
-									{!showArchived && moveHandler && (
-										<StoryMoveToFolderButton item={item} onMoveToFolder={moveHandler} />
-									)}
-									<StoryArchiveButton item={item} showArchived={showArchived} />
-								</div>
-							</>
+							<StoryGridActions item={item} showArchived={showArchived} onMoveToFolder={moveHandler} />
 						)}
 					</div>
 				</div>
-				{canOpenPinShareDialog && item.chatId && item.storySlug && (
-					<ShareStoryDialog
-						open={pinShareDialogOpen}
-						onOpenChange={setPinShareDialogOpen}
-						chatId={item.chatId}
-						storySlug={item.storySlug}
-						intent='pin'
-					/>
-				)}
 			</>
 		);
 	}
@@ -216,6 +274,7 @@ export function StoryCard({
 				{...listeners}
 				className={cn(LINES_CARD_CLASS, isDragging && 'opacity-0', selected && 'bg-accent')}
 				onClick={handleCardClick}
+				onDragStart={handleNativeDragStart}
 			>
 				<div className='flex items-center flex-1 min-w-0'>
 					{canSelect && (
@@ -237,34 +296,23 @@ export function StoryCard({
 						<div className='hidden md:block w-32 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{item.author}
 						</div>
+						<div className='hidden lg:block w-16 shrink-0 pl-1.5 text-xs text-muted-foreground tabular-nums truncate'>
+							{item.viewCount === null ? '—' : VIEW_COUNT_FORMAT.format(item.viewCount)}
+						</div>
 						<div className='hidden sm:block w-24 shrink-0 pl-1.5 text-xs text-muted-foreground truncate'>
 							{formatRelativeDate(item.createdAt)}
 						</div>
 					</Link>
 				</div>
 				<div
-					className='w-20 shrink-0 flex items-center justify-end overflow-hidden'
+					className='w-26 shrink-0 flex items-center justify-end overflow-hidden'
 					onPointerDown={(e) => e.stopPropagation()}
 				>
 					{!selectionActive && (
-						<StoryActions
-							item={item}
-							showArchived={showArchived}
-							onRequestPinShare={() => setPinShareDialogOpen(true)}
-							onMoveToFolder={moveHandler}
-						/>
+						<StoryActions item={item} showArchived={showArchived} onMoveToFolder={moveHandler} />
 					)}
 				</div>
 			</div>
-			{canOpenPinShareDialog && item.chatId && item.storySlug && (
-				<ShareStoryDialog
-					open={pinShareDialogOpen}
-					onOpenChange={setPinShareDialogOpen}
-					chatId={item.chatId}
-					storySlug={item.storySlug}
-					intent='pin'
-				/>
-			)}
 		</>
 	);
 }
@@ -287,7 +335,9 @@ function StoryCheckbox({
 			className={cn(
 				'inline-flex items-center justify-center size-5 transition-all duration-150 cursor-pointer rounded shrink-0',
 				'text-muted-foreground hover:text-foreground',
-				visible ? 'w-5 opacity-100' : 'w-0 opacity-0 overflow-hidden group-hover:w-5 group-hover:opacity-100',
+				visible
+					? 'w-5 opacity-100'
+					: 'w-0 opacity-0 overflow-hidden group-hover:w-5 group-hover:opacity-100 group-has-data-[state=open]:w-5 group-has-data-[state=open]:opacity-100',
 				selected && 'text-primary',
 			)}
 		>
@@ -296,125 +346,204 @@ function StoryCheckbox({
 	);
 }
 
-function StoryActions({
+function StoryGridActions({
 	item,
 	showArchived,
-	onRequestPinShare,
 	onMoveToFolder,
 }: {
 	item: StoryItem;
 	showArchived: boolean;
-	onRequestPinShare: () => void;
 	onMoveToFolder?: (item: StoryItem) => void;
 }) {
+	const pin = useStoryPinToggle(item);
+
 	return (
-		<div className='flex items-center' onPointerDown={(e) => e.stopPropagation()}>
-			<StoryQuickActions item={item} onRequestPinShare={onRequestPinShare} />
-			<div className='flex items-center gap-0.5 max-w-0 overflow-hidden group-hover:max-w-[80px] transition-[max-width] duration-200 ease-out'>
-				{!showArchived && onMoveToFolder && (
-					<StoryMoveToFolderButton item={item} onMoveToFolder={onMoveToFolder} />
+		<>
+			{item.isPinned && <StoryPinButton item={item} pin={pin} />}
+			{item.isFavorited && <StoryFavoriteButton item={item} />}
+			<StoryActionsMenu item={item} pin={pin} showArchived={showArchived} onMoveToFolder={onMoveToFolder} />
+		</>
+	);
+}
+
+function StoryActionsMenu({
+	item,
+	pin,
+	showArchived,
+	onMoveToFolder,
+}: {
+	item: StoryItem;
+	pin: StoryPinToggle;
+	showArchived: boolean;
+	onMoveToFolder?: (item: StoryItem) => void;
+}) {
+	const { isAdmin } = usePermissions();
+	const favorite = useToggleFavorite('story');
+	const certification = useToggleStoryCertification();
+	const archive = useStoryArchiveToggle(item, showArchived);
+	const openedWithPointer = useRef(false);
+
+	function stop(e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+	}
+
+	function skipFocusReturnAfterPointerOpen(e: Event) {
+		if (openedWithPointer.current) {
+			e.preventDefault();
+		}
+	}
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<button
+					type='button'
+					onPointerDown={() => {
+						openedWithPointer.current = true;
+					}}
+					onKeyDown={() => {
+						openedWithPointer.current = false;
+					}}
+					onClick={stop}
+					aria-label='Story options'
+					className='inline-flex items-center justify-center h-5 rounded overflow-hidden transition-all duration-150 cursor-pointer text-muted-foreground hover:text-foreground w-0 opacity-0 group-hover:w-5 group-hover:opacity-100 data-[state=open]:w-5 data-[state=open]:opacity-100 data-[state=open]:text-foreground'
+				>
+					<MoreHorizontal className='size-3' />
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='start' onClick={stop} onCloseAutoFocus={skipFocusReturnAfterPointerOpen}>
+				{isAdmin && (
+					<DropdownMenuItem
+						onSelect={() => certification.toggle(item.storyId)}
+						disabled={certification.isPending}
+						title={
+							item.isCertified && item.certifiedByName
+								? `Certified by ${item.certifiedByName}`
+								: undefined
+						}
+					>
+						<ShieldCheck />
+						{item.isCertified ? 'Remove certification' : 'Certify'}
+					</DropdownMenuItem>
 				)}
-				<StoryArchiveButton item={item} showArchived={showArchived} />
+				{pin.canToggle && (
+					<DropdownMenuItem onSelect={pin.toggle} disabled={pin.isPending}>
+						<Pin />
+						{pin.label}
+					</DropdownMenuItem>
+				)}
+				<DropdownMenuItem onSelect={() => favorite.toggle(item.storyId)} disabled={favorite.isPending}>
+					<Star />
+					{item.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+				</DropdownMenuItem>
+				{!showArchived && onMoveToFolder && (
+					<DropdownMenuItem onSelect={() => onMoveToFolder(item)}>
+						<FolderInput />
+						Move to folder
+					</DropdownMenuItem>
+				)}
+				{archive.canToggle && (
+					<DropdownMenuItem onSelect={archive.toggle} disabled={archive.isPending}>
+						{showArchived ? <ArchiveRestoreIcon /> : <ArchiveIcon />}
+						{showArchived ? 'Unarchive' : 'Archive'}
+					</DropdownMenuItem>
+				)}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function StoryActions({
+	item,
+	showArchived,
+	onMoveToFolder,
+}: {
+	item: StoryItem;
+	showArchived: boolean;
+	onMoveToFolder?: (item: StoryItem) => void;
+}) {
+	const { isAdmin } = usePermissions();
+	const certification = useToggleStoryCertification();
+	const pin = useStoryPinToggle(item);
+	const archive = useStoryArchiveToggle(item, showArchived);
+
+	return (
+		<div className='flex items-center'>
+			{isAdmin && (
+				<QuickActionButton
+					active={item.isCertified}
+					interactive
+					pending={certification.isPending}
+					onClick={() => certification.toggle(item.storyId)}
+					tooltip={
+						item.isCertified
+							? `Remove certification${item.certifiedByName ? ` (by ${item.certifiedByName})` : ''}`
+							: 'Certify story'
+					}
+				>
+					<ShieldCheck className='size-3' />
+				</QuickActionButton>
+			)}
+			<StoryPinButton item={item} pin={pin} />
+			<StoryFavoriteButton item={item} />
+			<div className='flex items-center gap-0.5 max-w-0 overflow-hidden group-hover:max-w-[60px] transition-[max-width] duration-200 ease-out'>
+				{!showArchived && onMoveToFolder && (
+					<QuickActionButton
+						active={false}
+						interactive
+						pending={false}
+						onClick={() => onMoveToFolder(item)}
+						tooltip='Move to folder'
+						fillOnHover={false}
+					>
+						<FolderInput className='size-3' />
+					</QuickActionButton>
+				)}
+				{archive.canToggle && (
+					<QuickActionButton
+						active={false}
+						interactive
+						pending={archive.isPending}
+						onClick={archive.toggle}
+						tooltip={showArchived ? 'Unarchive' : 'Archive'}
+						fillOnHover={false}
+					>
+						{showArchived ? <ArchiveRestoreIcon className='size-3' /> : <ArchiveIcon className='size-3' />}
+					</QuickActionButton>
+				)}
 			</div>
 		</div>
 	);
 }
 
-function StoryMoveToFolderButton({
-	item,
-	onMoveToFolder,
-}: {
-	item: StoryItem;
-	onMoveToFolder: (item: StoryItem) => void;
-}) {
-	function handleClick(e: MouseEvent<HTMLButtonElement>) {
-		e.preventDefault();
-		e.stopPropagation();
-		onMoveToFolder(item);
-	}
-
+function StoryPinButton({ item, pin }: { item: StoryItem; pin: StoryPinToggle }) {
 	return (
 		<QuickActionButton
-			active={false}
-			interactive
-			pending={false}
-			onClick={handleClick}
-			tooltip='Move to folder'
-			fillOnHover={false}
+			active={item.isPinned}
+			interactive={pin.canToggle}
+			pending={pin.isPending}
+			onClick={pin.toggle}
+			tooltip={pin.canToggle ? pin.label : 'Only admins can un.pin stories'}
 		>
-			<FolderInput className='size-3' />
+			<Pin className='size-3' />
 		</QuickActionButton>
 	);
 }
 
-function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onRequestPinShare: () => void }) {
-	const queryClient = useQueryClient();
-	const { isAdmin } = usePermissions();
-
+function StoryFavoriteButton({ item }: { item: StoryItem }) {
 	const favorite = useToggleFavorite('story');
 
-	const pinMutation = useMutation(
-		trpc.storyShare.togglePin.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-			},
-		}),
-	);
-
-	const canOpenPinShareDialog =
-		isAdmin && !item.sharedStoryId && item.kind === 'own' && !!item.chatId && !!item.storySlug;
-	const canTogglePin = isAdmin && !!item.sharedStoryId;
-	const canInteractWithPin = canTogglePin || canOpenPinShareDialog;
-	const showPinSlot = canInteractWithPin || item.isPinned;
-
-	function handleFavorite(e: MouseEvent<HTMLButtonElement>) {
-		e.preventDefault();
-		e.stopPropagation();
-		favorite.toggle(item.storyId);
-	}
-
-	function handlePin(e: MouseEvent<HTMLButtonElement>) {
-		e.preventDefault();
-		e.stopPropagation();
-		if (canTogglePin && item.sharedStoryId) {
-			pinMutation.mutate({ sharedStoryId: item.sharedStoryId });
-			return;
-		}
-		if (canOpenPinShareDialog) {
-			onRequestPinShare();
-		}
-	}
-
 	return (
-		<>
-			{showPinSlot && (
-				<QuickActionButton
-					active={item.isPinned}
-					interactive={canInteractWithPin}
-					pending={pinMutation.isPending}
-					onClick={handlePin}
-					tooltip={
-						canInteractWithPin
-							? item.isPinned
-								? 'Unpin for shared members'
-								: 'Pin for shared members'
-							: 'Only admins can un.pin stories'
-					}
-				>
-					<Pin className='size-3' />
-				</QuickActionButton>
-			)}
-			<QuickActionButton
-				active={item.isFavorited}
-				interactive
-				pending={favorite.isPending}
-				onClick={handleFavorite}
-				tooltip={item.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-			>
-				<Star className='size-3' />
-			</QuickActionButton>
-		</>
+		<QuickActionButton
+			active={item.isFavorited}
+			interactive
+			pending={favorite.isPending}
+			onClick={() => favorite.toggle(item.storyId)}
+			tooltip={item.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+		>
+			<Star className='size-3' />
+		</QuickActionButton>
 	);
 }
 
@@ -430,7 +559,7 @@ function QuickActionButton({
 	active: boolean;
 	interactive: boolean;
 	pending: boolean;
-	onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+	onClick: () => void;
 	tooltip: string;
 	fillOnHover?: boolean;
 	children: ReactNode;
@@ -439,13 +568,19 @@ function QuickActionButton({
 		return null;
 	}
 
+	function handleClick(e: MouseEvent<HTMLButtonElement>) {
+		e.preventDefault();
+		e.stopPropagation();
+		onClick();
+	}
+
 	return (
 		<SimpleTooltip content={tooltip}>
 			<button
 				type='button'
 				aria-label={tooltip}
 				aria-pressed={active}
-				onClick={onClick}
+				onClick={handleClick}
 				disabled={pending || !interactive}
 				className={cn(
 					'inline-flex items-center justify-center h-5 transition-all duration-150 cursor-pointer disabled:cursor-default overflow-hidden',
@@ -463,19 +598,41 @@ function QuickActionButton({
 	);
 }
 
-function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchived: boolean }) {
+type StoryPinToggle = ReturnType<typeof useStoryPinToggle>;
+
+function useStoryPinToggle(item: StoryItem) {
+	const queryClient = useQueryClient();
+	const { isAdmin } = usePermissions();
+	const pinMutation = useMutation(
+		trpc.storyShare.togglePin.mutationOptions({
+			onSuccess: () => {
+				invalidateStoryPlacementCaches(queryClient);
+				void queryClient.invalidateQueries({ queryKey: trpc.storyShare.getShareSettings.queryKey() });
+			},
+		}),
+	);
+
+	const canPinUnshared = isAdmin && !item.isShared && item.kind === 'own';
+	const label = item.isPinned
+		? 'Unpin for shared members'
+		: canPinUnshared
+			? 'Pin for the whole project'
+			: 'Pin for shared members';
+
+	return {
+		canToggle: (isAdmin && item.isShared) || canPinUnshared,
+		label,
+		isPending: pinMutation.isPending,
+		toggle: () => pinMutation.mutate({ storyId: item.storyId }),
+	};
+}
+
+function useStoryArchiveToggle(item: StoryItem, showArchived: boolean) {
 	const queryClient = useQueryClient();
 	const { isViewer, isAdmin } = usePermissions();
 
 	function invalidateAfterArchive() {
-		queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listStandalone.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listStandaloneArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.story.listSharedArchived.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listItems.queryKey() });
-		queryClient.invalidateQueries({ queryKey: trpc.storyFolder.listTree.queryKey() });
+		invalidateStoryArchiveCaches(queryClient);
 	}
 
 	const archiveChatStory = useMutation(trpc.story.archive.mutationOptions({ onSuccess: invalidateAfterArchive }));
@@ -497,15 +654,11 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 	);
 
 	const canArchive =
-		(item.kind === 'own' && item.chatId && item.storySlug) ||
+		(item.kind === 'own' && !!item.chatId && !!item.storySlug) ||
 		item.kind === 'own-standalone' ||
 		(item.kind === 'shared-project' && isAdmin);
 
-	if (!canArchive || isViewer) {
-		return null;
-	}
-
-	const pending =
+	const isPending =
 		archiveChatStory.isPending ||
 		unarchiveChatStory.isPending ||
 		archiveStandalone.isPending ||
@@ -513,9 +666,7 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 		archiveShared.isPending ||
 		unarchiveShared.isPending;
 
-	function handleArchiveToggle(e: MouseEvent<HTMLButtonElement>) {
-		e.preventDefault();
-		e.stopPropagation();
+	function toggle() {
 		if (item.kind === 'own' && item.chatId && item.storySlug) {
 			if (showArchived) {
 				unarchiveChatStory.mutate({ chatId: item.chatId, storySlug: item.storySlug });
@@ -526,9 +677,9 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 		}
 		if (item.kind === 'own-standalone') {
 			if (showArchived) {
-				unarchiveStandalone.mutate({ storyId: item.id });
+				unarchiveStandalone.mutate({ storyId: item.storyId });
 			} else {
-				archiveStandalone.mutate({ storyId: item.id });
+				archiveStandalone.mutate({ storyId: item.storyId });
 			}
 			return;
 		}
@@ -541,35 +692,28 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 		}
 	}
 
-	return (
-		<QuickActionButton
-			active={false}
-			interactive
-			pending={pending}
-			onClick={handleArchiveToggle}
-			tooltip={showArchived ? 'Unarchive' : 'Archive'}
-			fillOnHover={false}
-		>
-			{showArchived ? <ArchiveRestoreIcon className='size-3' /> : <ArchiveIcon className='size-3' />}
-		</QuickActionButton>
-	);
+	return { canToggle: canArchive && !isViewer, isPending, toggle };
 }
 
 function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }) {
-	const live = item.isLive ? <LiveBadge /> : null;
-	const sharing = item.sharing ? (
-		<SharingBadge visibility={item.sharing.visibility} sharedWithCount={item.sharing.sharedWithCount} />
-	) : null;
+	const certified = item.isCertified ? <CertifiedBadge certifiedByName={item.certifiedByName} /> : null;
+	const live = item.isLive ? <LiveBadge iconOnly={mode === 'grid'} /> : null;
+	const sharing =
+		item.sharing?.visibility === 'specific' ? (
+			<SharingBadge
+				visibility={item.sharing.visibility}
+				sharedWithCount={item.sharing.sharedWithCount}
+				sharedWithGroupCount={item.sharing.sharedWithGroupCount}
+			/>
+		) : null;
 
 	if (mode === 'grid') {
-		const showPrivate = item.isInPrivateContext && item.sharing?.visibility !== 'specific';
-		if (!live && !sharing && !showPrivate) {
+		if (!live && !sharing) {
 			return null;
 		}
 		return (
 			<div className='flex items-center gap-2 shrink-0'>
 				{live}
-				{showPrivate && <PrivateBadge />}
 				{sharing}
 			</div>
 		);
@@ -577,6 +721,7 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 
 	return (
 		<>
+			{certified}
 			{item.isInPrivateContext && <PrivateBadge />}
 			{live}
 			{sharing}

@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef } from 'react';
-
-type ShareType = 'chat' | 'story';
+import type { ShareSource } from '@nao/shared/types';
 
 interface SidePanelContext {
 	isVisible: boolean;
@@ -9,9 +8,9 @@ interface SidePanelContext {
 	currentStoryTabIndex: number;
 	setCurrentStoryTabIndex: (index: number) => void;
 	chatId: string | null;
-	shareId: string | null;
-	shareType: ShareType | null;
+	shareSource: ShareSource | null;
 	isReadonlyMode: boolean;
+	isReplay: boolean;
 	open: (content: React.ReactNode, storySlug?: string) => void;
 	close: () => void;
 	registerBeforeChange: (guard: (continueChange: () => void) => void) => () => void;
@@ -26,9 +25,9 @@ const noopSidePanel: SidePanelContext = {
 	currentStoryTabIndex: 0,
 	setCurrentStoryTabIndex: () => {},
 	chatId: null,
-	shareId: null,
-	shareType: null,
+	shareSource: null,
 	isReadonlyMode: false,
+	isReplay: false,
 	open: () => {},
 	close: () => {},
 	registerBeforeChange: () => () => {},
@@ -46,9 +45,9 @@ export const SidePanelProvider = ({
 	currentStoryTabIndex,
 	setCurrentStoryTabIndex,
 	chatId,
-	shareId = null,
-	shareType = null,
+	shareSource = null,
 	isReadonlyMode = false,
+	isReplay = false,
 	open,
 	close,
 }: {
@@ -59,9 +58,9 @@ export const SidePanelProvider = ({
 	currentStoryTabIndex: number;
 	setCurrentStoryTabIndex: (index: number) => void;
 	chatId: string | null;
-	shareId?: string | null;
-	shareType?: ShareType | null;
+	shareSource?: ShareSource | null;
 	isReadonlyMode?: boolean;
+	isReplay?: boolean;
 	open: (content: React.ReactNode, storySlug?: string) => void;
 	close: () => void;
 }) => {
@@ -99,9 +98,9 @@ export const SidePanelProvider = ({
 			currentStoryTabIndex,
 			setCurrentStoryTabIndex,
 			chatId,
-			shareId,
-			shareType,
+			shareSource,
 			isReadonlyMode,
+			isReplay,
 			open: guardedOpen,
 			close: guardedClose,
 			registerBeforeChange,
@@ -113,9 +112,9 @@ export const SidePanelProvider = ({
 			currentStoryTabIndex,
 			setCurrentStoryTabIndex,
 			chatId,
-			shareId,
-			shareType,
+			shareSource,
 			isReadonlyMode,
+			isReplay,
 			guardedOpen,
 			guardedClose,
 			registerBeforeChange,

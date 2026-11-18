@@ -2,6 +2,7 @@ import type { LlmProvider } from '@nao/shared/types';
 import { ModelMessage, Tool } from 'ai';
 
 import { CompactionLLM } from '../agents/compaction';
+import type { ManagedAiUsageContext } from '../agents/managed-ai';
 import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import type { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown, XML } from '../lib/markdown';
@@ -15,12 +16,13 @@ import {
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
 import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { sanitizeToolCalls } from '../utils/model-message';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
 
 const CONTEXT_WINDOW_COMPACTION_THRESHOLD = 0.75;
 
-interface CompactIfNeededOptions extends CompactConversationOptions {
+export interface CompactIfNeededOptions extends CompactConversationOptions {
 	onCompactionStarted: () => void;
 	onCompactionFinished: (result: CompactionPart) => void;
 }
@@ -34,10 +36,17 @@ interface CompactConversationOptions {
 	chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>;
 	provider: LlmProvider;
 	modelId: string;
+	runId?: string;
+	billingMode?: ManagedAiUsageContext['billingMode'];
 	messages: ModelMessage[];
 	tools: Record<string, Tool>;
 	maxOutputTokens: number;
 	contextWindow: number;
+}
+
+interface ResolvedCompactionLLM {
+	llm: ICompactionLLM;
+	provider: LlmProvider;
 }
 
 interface CompactionServiceOptions {
@@ -49,6 +58,42 @@ export class CompactionError extends Error {
 	constructor(message: string) {
 		super(message);
 		this.name = 'CompactionError';
+	}
+}
+
+/**
+ * Compaction state of a single agent run. The AI SDK rebuilds the step input from the original
+ * history on every step, so the summary must be reapplied each step and is computed at most once.
+ */
+export class RunCompaction {
+	private _attempted = false;
+	private _summary: string | undefined;
+
+	constructor(private readonly service: CompactionService) {}
+
+	async apply(opts: CompactIfNeededOptions): Promise<void> {
+		if (this._attempted) {
+			this._reapply(opts.messages);
+			return;
+		}
+
+		await this.service.compactConversationIfNeeded({
+			...opts,
+			onCompactionStarted: () => {
+				this._attempted = true;
+				opts.onCompactionStarted();
+			},
+			onCompactionFinished: (result) => {
+				this._summary = result.error ? undefined : result.summary;
+				opts.onCompactionFinished(result);
+			},
+		});
+	}
+
+	private _reapply(messages: ModelMessage[]): void {
+		if (this._summary !== undefined) {
+			this.service.applySummary(messages, this._summary);
+		}
 	}
 }
 
@@ -82,6 +127,21 @@ export class CompactionService {
 
 		const selectedMessages = messages.slice(userMessageBeforeCompactionIdx);
 		return [this._createSummaryUIMessage(compactionSummary), ...selectedMessages];
+	}
+
+	/** Replaces the history before the latest user message with the summary, in place. */
+	applySummary(messages: ModelMessage[], summary: string): void {
+		const firstNonSystemIndex = findFirstNonSystemMessageIndex(messages);
+		const lastUserIndex = findLastUserMessageIndex(messages);
+		if (firstNonSystemIndex === -1 || lastUserIndex <= firstNonSystemIndex) {
+			return;
+		}
+
+		messages.splice(
+			firstNonSystemIndex,
+			lastUserIndex - firstNonSystemIndex,
+			this._createSummaryModelMessage(summary),
+		);
 	}
 
 	private _createSummaryUIMessage(summary: string): Omit<UIMessage, 'id'> {
@@ -143,13 +203,19 @@ export class CompactionService {
 			throw new CompactionError('User message must come after the first non-system message.');
 		}
 
-		const llm = await this._resolveCompactionLLM(opts.chat.projectId, opts.provider, opts.modelId);
-		if (!llm) {
+		const compaction = await this._resolveCompactionLLM(
+			opts.chat,
+			opts.provider,
+			opts.modelId,
+			opts.runId,
+			opts.billingMode,
+		);
+		if (!compaction) {
 			throw new CompactionError('Failed to resolve LLM.');
 		}
 
-		const result = await this._compactUpToLastUserMessage(llm, opts, firstNonSystemIndex, lastUserIndex);
-		this._trackInference(opts, llm.modelId, result.usage);
+		const result = await this._compactUpToLastUserMessage(compaction, opts, firstNonSystemIndex, lastUserIndex);
+		this._trackInference(opts, compaction.provider, compaction.llm.modelId, result.usage);
 
 		return result;
 	}
@@ -170,26 +236,42 @@ export class CompactionService {
 		return index;
 	}
 
-	private async _resolveCompactionLLM(projectId: string, provider: LlmProvider, selectedModelId: string) {
-		const pinned = await resolveDefaultModelSelection(projectId, 'compaction');
+	private async _resolveCompactionLLM(
+		chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>,
+		provider: LlmProvider,
+		selectedModelId: string,
+		runId?: string,
+		billingMode?: ManagedAiUsageContext['billingMode'],
+	): Promise<ResolvedCompactionLLM | undefined> {
+		const pinned = await resolveDefaultModelSelection(chat.projectId, 'compaction');
 		const effectiveProvider = pinned?.provider ?? provider;
 		const modelId =
 			pinned?.modelId ??
 			(await resolveAnnotationModelId(
-				projectId,
+				chat.projectId,
 				{ provider, modelId: selectedModelId },
 				getProviderMeta(provider).extractorModelId,
 			));
-		const model = await resolveProviderModel(projectId, effectiveProvider, modelId, false);
+		const model = await resolveProviderModel(chat.projectId, effectiveProvider, modelId, false, {
+			userId: chat.userId,
+			projectId: chat.projectId,
+			chatId: chat.id,
+			runId,
+			category: 'compaction',
+			billingMode,
+		});
 		if (!model) {
 			return undefined;
 		}
-		return this.options.createCompactionLlm(disableModelReasoning(effectiveProvider, model), this._tc);
+		return {
+			llm: this.options.createCompactionLlm(disableModelReasoning(effectiveProvider, model), this._tc),
+			provider: effectiveProvider,
+		};
 	}
 
 	/** Summarizes conversation up to the latest user message and replaces that range in-place. */
 	private async _compactUpToLastUserMessage(
-		llm: ICompactionLLM,
+		{ llm, provider }: ResolvedCompactionLLM,
 		opts: CompactConversationOptions,
 		firstNonSystemIndex: number,
 		lastUserIndex: number,
@@ -199,14 +281,8 @@ export class CompactionService {
 		}
 
 		const messagesToSummarize = opts.messages.slice(firstNonSystemIndex, lastUserIndex);
-		const { summary, usage } = await llm.compact(messagesToSummarize);
-
-		this._replaceCompactedMessages(
-			opts.messages,
-			messagesToSummarize,
-			firstNonSystemIndex,
-			this._createSummaryModelMessage(summary),
-		);
+		const { summary, usage } = await llm.compact(sanitizeToolCalls(messagesToSummarize, provider));
+		this.applySummary(opts.messages, summary);
 
 		return { summary, usage };
 	}
@@ -223,23 +299,18 @@ export class CompactionService {
 		};
 	}
 
-	/** Replaces the compacted messages in-place. */
-	private _replaceCompactedMessages(
-		messages: ModelMessage[],
-		compactedMessages: ModelMessage[],
-		startIndex: number,
-		...newMessages: ModelMessage[]
+	private _trackInference(
+		opts: CompactConversationOptions,
+		provider: LlmProvider,
+		modelId: string,
+		usage: TokenUsage,
 	) {
-		messages.splice(startIndex, compactedMessages.length, ...newMessages);
-	}
-
-	private _trackInference(opts: CompactConversationOptions, modelId: string, usage: TokenUsage) {
 		scheduleSaveLlmInferenceRecord({
 			type: 'compaction',
 			projectId: opts.chat.projectId,
 			userId: opts.chat.userId,
 			chatId: opts.chat.id,
-			llmProvider: opts.provider,
+			llmProvider: provider,
 			llmModelId: modelId,
 			...usage,
 		});

@@ -1,11 +1,19 @@
+import { SHARED_WITH_ME_FOLDER_ID } from '@nao/shared';
 import type { FolderVisibility } from '@nao/shared/types';
 import { and, asc, count, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStoryFolder } from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { listLockedUserGroupIds } from './locked-user-groups';
+import { sharedStoryGrantsUser } from './shared-story.queries';
+import type { ReferenceableStoryFilters } from './story-reference.queries';
+
+type FolderStoryFilters = Pick<ReferenceableStoryFilters, 'folderIds' | 'sharedWithMeOnly'>;
 
 type FolderMoveTx = DBTransaction;
+
+const writeTransactionConfig = dbConfig.dialect === Dialect.Sqlite ? { behavior: 'immediate' as const } : undefined;
 
 export class MoveFolderCycleError extends Error {
 	constructor() {
@@ -104,16 +112,39 @@ export async function listFolderTree(
 	return folders;
 }
 
+/**
+ * The filters selecting the stories of a folder and of its subfolders, null when the folder is archived or
+ * out of the user's reach. The stories themselves still have to be checked for access.
+ */
+export async function findReferencedFolder(
+	userId: string,
+	projectId: string,
+	folderId: string,
+): Promise<{ name: string; filters: FolderStoryFilters } | null> {
+	if (folderId === SHARED_WITH_ME_FOLDER_ID) {
+		return { name: 'Shared with me', filters: { sharedWithMeOnly: true } };
+	}
+	const folder = await getFolderById(folderId);
+	if (!folder || folder.projectId !== projectId || folder.archivedAt !== null || !isVisibleTo(folder, userId)) {
+		return null;
+	}
+	return { name: folder.name, filters: { folderIds: await listDescendantFolderIds(folderId) } };
+}
+
+function isVisibleTo(folder: DBStoryFolder, userId: string): boolean {
+	return folder.visibility === 'public' || folder.ownerId === userId;
+}
+
 async function countSharedWithMeStories(userId: string, projectId: string): Promise<number> {
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
 	const [row] = await db
 		.select({ cnt: count(s.sharedStory.id) })
 		.from(s.sharedStory)
-		.innerJoin(s.sharedStoryAccess, eq(s.sharedStoryAccess.sharedStoryId, s.sharedStory.id))
 		.where(
 			and(
 				eq(s.sharedStory.projectId, projectId),
-				eq(s.sharedStoryAccess.userId, userId),
 				eq(s.sharedStory.visibility, 'specific'),
+				sharedStoryGrantsUser(userId, lockedGroupIds),
 			),
 		)
 		.execute();
@@ -280,57 +311,114 @@ export async function moveFolder(
 ): Promise<void> {
 	await assertNotSystemFolder(id);
 
-	await db.transaction(
-		async (tx) => {
-			await serializeFolderMovesInProject(tx, projectId);
+	await db.transaction(async (tx) => {
+		await serializeFolderMovesInProject(tx, projectId);
+		await relocateFolder(userId, projectId, id, newParentId, tx);
+	}, writeTransactionConfig);
+}
 
-			if (newParentId !== null && (await proposedParentChainContains(tx, newParentId, id))) {
-				throw new MoveFolderCycleError();
-			}
+/** All-or-nothing, so a failing item never leaves part of the selection moved. */
+export async function moveItemsToFolder(
+	userId: string,
+	projectId: string,
+	items: { folderIds: string[]; stories: { storyId: string; storyOwnerId: string }[] },
+	targetFolderId: string | null,
+): Promise<void> {
+	for (const folderId of items.folderIds) {
+		await assertNotSystemFolder(folderId);
+	}
 
-			const newVisibility = await resolveFolderVisibility(newParentId, tx);
-			const oldFolder = await getFolderById(id, tx);
-			const oldVisibility = oldFolder?.visibility ?? 'public';
+	await db.transaction(async (tx) => {
+		await serializeFolderMovesInProject(tx, projectId);
+		for (const folderId of items.folderIds) {
+			await relocateFolder(userId, projectId, folderId, targetFolderId, tx);
+		}
+		for (const { storyId, storyOwnerId } of items.stories) {
+			await placeStoryInFolder(storyId, targetFolderId, { storyOwnerId, projectId }, tx);
+		}
+	}, writeTransactionConfig);
+}
 
+async function relocateFolder(
+	userId: string,
+	projectId: string,
+	id: string,
+	newParentId: string | null,
+	tx: FolderMoveTx,
+): Promise<void> {
+	if (newParentId !== null && (await proposedParentChainContains(newParentId, id, tx))) {
+		throw new MoveFolderCycleError();
+	}
+
+	const newVisibility = await resolveFolderVisibility(newParentId, tx);
+	const oldFolder = await getFolderById(id, tx);
+	const oldVisibility = oldFolder?.visibility ?? 'public';
+
+	await tx
+		.update(s.storyFolder)
+		.set({ parentId: newParentId, visibility: newVisibility })
+		.where(eq(s.storyFolder.id, id))
+		.execute();
+
+	if (oldVisibility !== newVisibility) {
+		const descendantIds = await listDescendantFolderIds(id, tx);
+		if (descendantIds.length > 0) {
 			await tx
 				.update(s.storyFolder)
-				.set({ parentId: newParentId, visibility: newVisibility })
-				.where(eq(s.storyFolder.id, id))
+				.set({ visibility: newVisibility })
+				.where(inArray(s.storyFolder.id, descendantIds))
 				.execute();
+		}
 
-			if (oldVisibility !== newVisibility) {
-				const descendantIds = await listDescendantFolderIds(id, tx);
-				if (descendantIds.length > 0) {
-					await tx
-						.update(s.storyFolder)
-						.set({ visibility: newVisibility })
-						.where(inArray(s.storyFolder.id, descendantIds))
-						.execute();
-				}
+		const storyIds = await getStoryIdsInFolders([id, ...descendantIds], tx);
+		if (storyIds.length > 0) {
+			await propagateShareChange(storyIds, projectId, userId, newVisibility, tx);
+		}
+	}
+}
 
-				const storyIds = await getStoryIdsInFolders([id, ...descendantIds], tx);
-				if (storyIds.length > 0) {
-					await propagateShareChange(storyIds, projectId, userId, newVisibility, tx);
-				}
-			}
-		},
-		{ behavior: 'immediate' },
-	);
+export async function ensureStoryPrivate(
+	storyId: string,
+	options: { storyOwnerId: string; projectId: string },
+): Promise<void> {
+	await db.transaction(async (tx) => {
+		const current = await getStoryFolderItem(storyId, tx);
+		const currentVisibility = await resolveFolderVisibility(current?.folderId ?? null, tx);
+		if (currentVisibility === 'private') {
+			return;
+		}
+		const privateFolderId = await ensurePrivateRoot(options.storyOwnerId, options.projectId, tx);
+		await placeStoryInFolder(storyId, privateFolderId, options, tx);
+	}, writeTransactionConfig);
 }
 
 export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
 	options: { storyOwnerId: string; projectId: string },
+	transaction?: DBTransaction,
 ): Promise<void> {
-	await db.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
+	if (transaction) {
+		return placeStoryInFolder(storyId, folderId, options, transaction);
+	}
+	await db.transaction((tx) => placeStoryInFolder(storyId, folderId, options, tx), writeTransactionConfig);
+}
+
+/** Folder placement and share visibility must change together, otherwise a story can sit in a public folder unshared. */
+async function placeStoryInFolder(
+	storyId: string,
+	folderId: string | null,
+	options: { storyOwnerId: string; projectId: string },
+	executor: DBExecutor,
+): Promise<void> {
+	await executor.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
 
 	if (folderId) {
-		await db.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
+		await executor.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
 	}
 
-	const newVisibility = await resolveFolderVisibility(folderId);
-	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility);
+	const newVisibility = await resolveFolderVisibility(folderId, executor);
+	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility, executor);
 }
 
 async function propagateShareChange(
@@ -373,6 +461,10 @@ async function propagateShareChange(
 					.delete(s.sharedStoryAccess)
 					.where(eq(s.sharedStoryAccess.sharedStoryId, row.id))
 					.execute();
+				await executor
+					.delete(s.sharedStoryGroupAccess)
+					.where(eq(s.sharedStoryGroupAccess.sharedStoryId, row.id))
+					.execute();
 			}
 		}
 	} else {
@@ -383,8 +475,11 @@ async function propagateShareChange(
 	}
 }
 
-export async function getStoryFolderItem(storyId: string): Promise<{ folderId: string } | null> {
-	const [row] = await db
+export async function getStoryFolderItem(
+	storyId: string,
+	executor: DBExecutor = db,
+): Promise<{ folderId: string } | null> {
+	const [row] = await executor
 		.select({ folderId: s.storyFolderItem.folderId })
 		.from(s.storyFolderItem)
 		.where(eq(s.storyFolderItem.storyId, storyId))
@@ -476,10 +571,10 @@ async function serializeFolderMovesInProject(tx: FolderMoveTx, projectId: string
 	);
 }
 
-async function proposedParentChainContains(
-	tx: FolderMoveTx,
+export async function proposedParentChainContains(
 	startParentId: string,
 	folderId: string,
+	executor: DBExecutor = db,
 ): Promise<boolean> {
 	let currentId: string | null = startParentId;
 	const visited = new Set<string>();
@@ -490,7 +585,7 @@ async function proposedParentChainContains(
 		}
 		visited.add(currentId);
 
-		const [row] = await tx
+		const [row] = await executor
 			.select({ parentId: s.storyFolder.parentId })
 			.from(s.storyFolder)
 			.where(eq(s.storyFolder.id, currentId))

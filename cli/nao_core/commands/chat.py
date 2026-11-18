@@ -8,6 +8,7 @@ from time import sleep
 from typing import Annotated, Optional
 
 from cyclopts import Parameter
+from rich.markup import escape
 
 from nao_core import __version__, native
 from nao_core.branding import should_show_banner
@@ -18,24 +19,31 @@ from nao_core.tracking import track_command
 from nao_core.ui import UI, console
 
 DEFAULT_SERVER_PORT = 5005
-FASTAPI_PORT = 8005
+DEFAULT_FASTAPI_PORT = 8005
 SECRET_FILE_NAME = ".nao-secret"
 
 
-def validate_port(port: int | None) -> int:
-    """Uses fallback values if port is not set and checks value for conflicts."""
-    try:
-        if port is None:
-            fallback = os.getenv("SERVER_PORT", DEFAULT_SERVER_PORT)
+def resolve_ports(port: int | None, fastapi_port: int | None) -> tuple[int, int]:
+    """Resolve the chat server and FastAPI ports, falling back to env vars, and check they don't conflict."""
+    server_port = resolve_port(port, "SERVER_PORT", DEFAULT_SERVER_PORT)
+    fastapi_port = resolve_port(fastapi_port, "FASTAPI_PORT", DEFAULT_FASTAPI_PORT)
+
+    if server_port == fastapi_port:
+        raise ValueError(f"Port must be different from FASTAPI_PORT ({fastapi_port})")
+
+    return server_port, fastapi_port
+
+
+def resolve_port(port: int | None, env_var: str, default: int) -> int:
+    if port is None:
+        fallback = os.getenv(env_var, default)
+        try:
             port = int(fallback)
-    except (ValueError, TypeError) as e:
-        raise ValueError(f"Port must be a valid integer. Got: {fallback}") from e
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"{env_var} must be a valid integer. Got: {fallback}") from e
 
     if not (1024 <= port <= 65535):
         raise ValueError(f"Port must be between 1024 and 65535. Got: {port}")
-
-    if port == FASTAPI_PORT:
-        raise ValueError(f"Port must be different from FASTAPI_PORT ({FASTAPI_PORT})")
 
     return port
 
@@ -212,6 +220,7 @@ def stop_ngrok():
 def chat(
     port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None,
     *,
+    fastapi_port: Annotated[Optional[int], Parameter(name=["--fastapi-port"])] = None,
     ngrok: Annotated[bool, Parameter(name=["--ngrok"])] = False,
     sandbox: Annotated[bool, Parameter(name=["--sandbox"])] = False,
 ):
@@ -223,7 +232,9 @@ def chat(
     ----------
     port : int
         Sets chat web app port. Defaults to `SERVER_PORT` env var and 5005 if not set.
-        Must be different from FASTAPI_PORT (8005).
+        Must be different from the FastAPI port.
+    fastapi_port : int
+        Sets the internal FastAPI server port. Defaults to `FASTAPI_PORT` env var and 8005 if not set.
     ngrok : bool
         Start an ngrok tunnel to expose the chat server publicly. Useful for
         Slack integration workflows. Requires an ngrok account and authtoken.
@@ -265,7 +276,8 @@ def chat(
 
     try:
         env = os.environ.copy()
-        port = validate_port(port)
+        port, fastapi_port = resolve_ports(port, fastapi_port)
+        env["FASTAPI_PORT"] = str(fastapi_port)
 
         auth_secret = ensure_auth_secret(bin_dir)
         if auth_secret:
@@ -299,15 +311,15 @@ def chat(
 
         fastapi_process = subprocess.Popen(
             [sys.executable, str(fastapi_path)],
-            env=env,
+            env={**env, "PORT": str(fastapi_port)},
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
         console.print("[bold green]✓[/bold green] FastAPI server starting...")
 
-        if wait_for_server(FASTAPI_PORT):
-            console.print(f"[bold green]✓[/bold green] FastAPI server ready at http://localhost:{FASTAPI_PORT}")
+        if wait_for_server(fastapi_port):
+            console.print(f"[bold green]✓[/bold green] FastAPI server ready at http://localhost:{fastapi_port}")
         else:
             console.print("[bold yellow]⚠[/bold yellow] FastAPI server is taking longer than expected to start...")
 
@@ -347,6 +359,6 @@ def chat(
         sys.exit(0)
 
     except Exception as e:
-        console.print(f"[bold red]✗[/bold red] Failed to start servers: {e}")
+        console.print(f"[bold red]✗[/bold red] Failed to start servers: {escape(str(e))}")
         shutdown_servers()
         sys.exit(1)

@@ -1,11 +1,25 @@
+import { execFile } from 'node:child_process';
+
 import { isBinaryDocument } from '@nao/shared/attachments';
 import { readFile } from '@nao/shared/tools';
-import fs from 'fs/promises';
+import { type BigIntStats, constants, realpathSync } from 'fs';
+import fs, { type FileHandle } from 'fs/promises';
+import path from 'path';
+import { promisify } from 'util';
 
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { renderProjectTextForAgent } from '../../services/agent-visible-project-file.service';
 import { toReadableText } from '../../services/file-text';
+import { assertProjectContextPathAllowed } from '../../services/project-context-path-access.service';
+import { toProjectPathError } from '../../services/project-path-error.service';
 import { readUserFile } from '../../services/storage/user-files';
-import { isStoragePath, toRealPath, toStorageRelativePath, toStorageScope } from '../../utils/tools';
+import { readStoryLibraryFile } from '../../services/story-library';
+import { readStoryMountFile } from '../../services/story-mount';
+import { findTableAnnotations } from '../../services/table-annotations.service';
+import type { ToolContext } from '../../types/tools';
+import { isStoryLibraryPath } from '../../utils/story-library';
+import { isStoriesPath } from '../../utils/story-mount';
+import { isStoragePath, resolveCanonicalProjectPath, toStorageRelativePath, toStorageScope } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
 export default createTool<readFile.Input, readFile.Output>({
@@ -13,25 +27,182 @@ export default createTool<readFile.Input, readFile.Output>({
 	inputSchema: readFile.InputSchema,
 	outputSchema: readFile.OutputSchema,
 	execute: async ({ file_path }, context) => {
-		const content = isStoragePath(file_path)
-			? await readUserFile(toStorageScope(context), toStorageRelativePath(file_path))
-			: await readProjectFile(toRealPath(file_path, context.projectFolder));
+		const content = await readAnywhere(file_path, context);
+		const annotations = await findTableAnnotations(file_path, (siblingPath) =>
+			readProjectFile(siblingPath, context),
+		);
 
 		return {
 			_version: '1' as const,
 			content,
 			numberOfTotalLines: content.split('\n').length,
+			...(annotations && { annotations }),
 		};
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(ReadOutput({ output }), output),
 });
 
-/** Only non-text formats need their bytes inspected, so plain files keep the cheaper path. */
-const readProjectFile = async (realPath: string): Promise<string> => {
-	if (!isBinaryDocument(realPath)) {
-		return fs.readFile(realPath, 'utf-8');
+const readAnywhere = (filePath: string, context: ToolContext): Promise<string> => {
+	if (isStoriesPath(filePath)) {
+		return readStoryMountFile(context, filePath);
+	}
+	if (isStoryLibraryPath(filePath)) {
+		return readStoryLibraryFile(context, filePath);
+	}
+	if (isStoragePath(filePath)) {
+		return readUserFile(toStorageScope(context), toStorageRelativePath(filePath));
+	}
+	return readProjectFile(filePath, context);
+};
+
+const readProjectFile = async (filePath: string, context: ToolContext): Promise<string> => {
+	const allowedFile = resolveAllowedProjectPath(filePath, context);
+	const handle = await openProjectFile(allowedFile.realPath, filePath, context);
+
+	try {
+		const openedStats = await handle.stat({ bigint: true });
+		const validatedFile = await validateOpenedProjectFile(handle, openedStats, filePath, context, allowedFile);
+		const bytes = await handle.readFile();
+		await assertHandleUnchanged(handle, openedStats, filePath);
+
+		if (isBinaryDocument(validatedFile.realPath)) {
+			return toReadableText(validatedFile.realPath, bytes);
+		}
+		const content = renderProjectTextForAgent(validatedFile.virtualPath, bytes.toString('utf-8'), context);
+		if (content === null) {
+			throw new Error('RULES.md could not be rendered safely.');
+		}
+		return content;
+	} finally {
+		await handle.close();
+	}
+};
+
+async function openProjectFile(realPath: string, filePath: string, context: ToolContext): Promise<FileHandle> {
+	try {
+		return await fs.open(realPath, projectReadFlags());
+	} catch (error) {
+		throw toProjectPathError(error, filePath, 'file', context);
+	}
+}
+
+type AllowedProjectPath = { projectRoot: string; realPath: string };
+type ValidatedProjectPath = { realPath: string; virtualPath: string };
+
+function resolveAllowedProjectPath(filePath: string, context: ToolContext): AllowedProjectPath {
+	const projectRoot = realpathSync.native(path.resolve(context.projectFolder));
+	const canonical = resolveCanonicalProjectPath(filePath, context.projectFolder);
+	if (!isWithinPath(canonical.realPath, projectRoot)) {
+		throw new Error(`Access denied: '${filePath}' changed while being read`);
+	}
+	assertProjectContextPathAllowed(context, filePath, canonical.virtualPath, 'file');
+	return { projectRoot, realPath: canonical.realPath };
+}
+
+async function validateOpenedProjectFile(
+	handle: FileHandle,
+	openedStats: BigIntStats,
+	filePath: string,
+	context: ToolContext,
+	allowedFile: AllowedProjectPath,
+): Promise<ValidatedProjectPath> {
+	await assertHandleUnchanged(handle, openedStats, filePath);
+	const descriptorPath = await resolveDescriptorPath(handle, filePath);
+	return authorizeDescriptorPath(descriptorPath, filePath, context, allowedFile.projectRoot);
+}
+
+async function assertHandleUnchanged(handle: FileHandle, openedStats: BigIntStats, filePath: string): Promise<void> {
+	const currentHandleStats = await handle.stat({ bigint: true });
+	if (currentHandleStats.nlink === 0n) {
+		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
+	}
+	if (!isSameFile(openedStats, currentHandleStats)) {
+		throw new Error(`Access denied: '${filePath}' changed while being read`);
+	}
+}
+
+async function resolveDescriptorPath(handle: FileHandle, filePath: string): Promise<string> {
+	if (process.platform === 'linux') {
+		return readLinuxDescriptorPath(handle.fd, filePath);
+	}
+	if (process.platform === 'darwin') {
+		return readDarwinDescriptorPath(handle.fd, filePath);
+	}
+	if (process.platform === 'win32') {
+		return readWindowsDescriptorPath(handle.fd, filePath);
+	}
+	throw new Error(
+		`Access denied: descriptor-bound file verification is unavailable on '${process.platform}' for '${filePath}'`,
+	);
+}
+
+async function readWindowsDescriptorPath(descriptor: number, filePath: string): Promise<string> {
+	try {
+		const { resolveWindowsDescriptorPath } = await import('./windows-descriptor-path');
+		return await resolveWindowsDescriptorPath(descriptor);
+	} catch {
+		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
+	}
+}
+
+async function readLinuxDescriptorPath(descriptor: number, filePath: string): Promise<string> {
+	try {
+		return await fs.readlink(`/proc/self/fd/${descriptor}`);
+	} catch {
+		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
+	}
+}
+
+async function readDarwinDescriptorPath(descriptor: number, filePath: string): Promise<string> {
+	try {
+		const { stdout } = await promisify(execFile)(
+			'/usr/sbin/lsof',
+			['-a', '-p', String(process.pid), '-d', String(descriptor), '-F0n'],
+			{ encoding: 'utf8' },
+		);
+		const nameField = stdout
+			.split('\0')
+			.map((field) => field.replace(/^\n/, ''))
+			.find((field) => field.startsWith('n'));
+		if (nameField === undefined) {
+			throw new Error('Missing descriptor path');
+		}
+		return nameField.slice(1);
+	} catch {
+		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
+	}
+}
+
+function authorizeDescriptorPath(
+	descriptorPath: string,
+	filePath: string,
+	context: ToolContext,
+	projectRoot: string,
+): ValidatedProjectPath {
+	if (!path.isAbsolute(descriptorPath)) {
+		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
 	}
 
-	return toReadableText(realPath, await fs.readFile(realPath));
-};
+	if (!isWithinPath(descriptorPath, projectRoot)) {
+		throw new Error(`Access denied: '${filePath}' changed while being read`);
+	}
+
+	const relativePath = path.relative(projectRoot, descriptorPath);
+	const virtualPath = relativePath ? `/${relativePath.replaceAll(path.sep, '/')}` : '/';
+	assertProjectContextPathAllowed(context, filePath, virtualPath, 'file');
+	return { realPath: descriptorPath, virtualPath };
+}
+
+function isWithinPath(candidatePath: string, rootPath: string): boolean {
+	const relativePath = path.relative(rootPath, candidatePath);
+	return relativePath !== '..' && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath);
+}
+
+function isSameFile(left: { dev: bigint; ino: bigint }, right: { dev: bigint; ino: bigint }): boolean {
+	return left.dev === right.dev && left.ino === right.ino;
+}
+
+function projectReadFlags(): number {
+	return process.platform === 'win32' ? constants.O_RDONLY : constants.O_RDONLY | constants.O_NOFOLLOW;
+}

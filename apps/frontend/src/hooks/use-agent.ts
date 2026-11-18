@@ -1,5 +1,5 @@
 import { Chat as Agent, useChat } from '@ai-sdk/react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { DefaultChatTransport } from 'ai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -13,9 +13,9 @@ import type { ImageUploadData } from '@nao/shared/attachments';
 import type { CitationData, LlmSelectedModel } from '@nao/shared/types';
 import type { DocumentAttachment } from '@/lib/attachments';
 import type { FileUIPart, InferUIMessageChunk } from 'ai';
-import type { MentionOption } from 'prompt-mentions';
+import type { MentionOption, SelectedMention } from 'prompt-mentions';
 
-import { getActiveProjectId } from '@/lib/active-project';
+import { getProjectRequestHeaders } from '@/lib/active-project';
 import {
 	checkIsAgentRunning,
 	extractDocumentPathsFromMessage,
@@ -27,8 +27,12 @@ import {
 	getTextFromUserMessageOrThrow,
 	NEW_CHAT_ID,
 	parseBudgetError,
+	parseChatAllowanceExhaustedError,
+	parseManagedCreditsError,
 	resolveImagesFromMessage,
+	usesChatAllowance,
 } from '@/lib/ai';
+import { useSession } from '@/lib/auth-client';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
 import { useChatQuery, useSetChat } from '@/queries/use-chat-query';
@@ -39,23 +43,34 @@ import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { chatInputRestoreStore } from '@/stores/chat-input-restore';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 
+export type AgentMode = 'default' | 'onboarding' | 'example';
+
+/** Extra fields of every request the agent sends, read when the message is sent. */
+export type AgentRequestBodyGetter = () => Record<string, unknown>;
+
 export interface AgentHelpers {
 	chatId: string | undefined;
+	mode: AgentMode;
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
 	editMessage: (
-		args: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents'>,
+		args: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents' | 'citations'>,
 	) => Promise<void | UIMessage>;
 	resendMessage: (args: { messageId: string }) => Promise<void | UIMessage>;
 	switchMessageVersion: (args: { messageId: string }) => Promise<void>;
 	submitQueuedMessageNow: (messageId: string) => Promise<void>;
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
+	/** The chat reconnects to an answer the server is still writing, and has not received any of it yet. */
+	isCatchingUp: boolean;
 	isLoadingMessages: boolean;
 	cancelAgent: () => Promise<void>;
 	error: Error | undefined;
 	clearError: UseChatHelpers<UIMessage>['clearError'];
+	/** The model the next message will run on: the user's pick, or the admin default when none is pinned. */
 	selectedModel: LlmSelectedModel | null;
+	usesDefaultModel: boolean;
+	/** Pass `null` to follow the admin default. */
 	setSelectedModel: React.Dispatch<React.SetStateAction<LlmSelectedModel | null>>;
 	setMentions: (mentions: MentionOption[]) => void;
 	adminMode: boolean;
@@ -72,36 +87,76 @@ export interface SendMessageArgs {
 	images?: ImageUploadData[];
 	/** Files already uploaded to permanent storage, so the message only has to name them. */
 	documents?: DocumentAttachment[];
-	citation?: CitationData;
+	citations?: CitationData[];
+}
+
+/** A message as a chat input hands it over, with the context it mentions. */
+export interface SubmittedMessage extends SendMessageArgs {
+	mentions: SelectedMention[];
 }
 
 export const selectedModelStorage = createLocalStorage<LlmSelectedModel>('nao-selected-model');
 
-const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData | undefined>();
+export const getOnboardingChatIdStorage = (userId: string) =>
+	createLocalStorage<string>(`nao-onboarding-chat-id:${userId}`);
+
+const agentCitationStore = new WeakMap<Agent<UIMessage>, CitationData[] | undefined>();
 /** Admin mode captured at send time, so an ack-time toggle cannot mislabel the message. */
 const agentAdminModeStore = new WeakMap<Agent<UIMessage>, boolean>();
 
 interface AgentSendRefs {
 	adminModeRef: { current: boolean };
+	modeRef: { current: AgentMode };
 	selectedModelRef: { current: LlmSelectedModel | null };
 	mentionsRef: { current: MentionOption[] };
+	requestBodyRef: { current: AgentRequestBodyGetter | undefined };
 }
 const agentSendRefsStore = new WeakMap<Agent<UIMessage>, AgentSendRefs>();
 
-export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentState => {
+export const useAgent = ({
+	disableNavigation = false,
+	mode = 'default',
+	getRequestBody,
+}: {
+	disableNavigation?: boolean;
+	mode?: AgentMode;
+	getRequestBody?: AgentRequestBodyGetter;
+} = {}): AgentState => {
 	const navigate = useNavigate();
-	const chatId = useChatId();
+	const contextChatId = useChatId();
+	const [chatId, setChatId] = useState(contextChatId);
+	const [previousContextChatId, setPreviousContextChatId] = useState(contextChatId);
+	if (contextChatId !== previousContextChatId) {
+		setPreviousContextChatId(contextChatId);
+		setChatId(contextChatId);
+	}
 	const chat = useChatQuery({ chatId });
+	const { data: session } = useSession();
 
-	const [selectedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
+	// A null pick means "nao default": no model is sent and the server resolves the admin default.
+	const [pinnedModel, setSelectedModel] = useLocalStorage(selectedModelStorage);
+	const currentProject = useQuery(trpc.project.getCurrent.queryOptions());
+	const hasProject = currentProject.data != null;
+	const defaultChatModel = useQuery({
+		...trpc.project.getDefaultChatModel.queryOptions(),
+		enabled: hasProject,
+	});
+	const usesDefaultModel = pinnedModel === null;
+	const selectedModel = hasProject ? (pinnedModel ?? defaultChatModel.data ?? null) : null;
 	const setChat = useSetChat();
 	const queryClient = useQueryClient();
 
+	const userIdRef = useRef(session?.user.id);
+	userIdRef.current = session?.user.id;
 	const chatIdRef = useRef(chatId);
 	chatIdRef.current = chatId;
 	const selectedModelRef = useRef<LlmSelectedModel | null>(null);
-	selectedModelRef.current = selectedModel;
+	selectedModelRef.current = hasProject ? pinnedModel : null;
+	const modeRef = useRef(mode);
+	modeRef.current = mode;
 	const mentionsRef = useRef<MentionOption[]>([]);
+	const requestBodyRef = useRef(getRequestBody);
+	requestBodyRef.current = getRequestBody;
 	const [adminMode, setAdminModeState] = useState(false);
 	const adminModeRef = useRef(false);
 	/** Set to the server id of a chat that was just created, so the upcoming chatId change is treated as the same conversation continuing rather than opening a different chat. */
@@ -117,7 +172,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	}, []);
 
 	const agentInstance = useMemo(() => {
-		let agentId = chatId ?? NEW_CHAT_ID;
+		let agentId = contextChatId ?? NEW_CHAT_ID;
 
 		if (!disableNavigation) {
 			const existingAgent = agentService.getAgent(agentId);
@@ -127,11 +182,18 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		}
 
 		const handleAgentDataPart = (dataPart: InferUIMessageChunk<UIMessage>, agent: Agent<UIMessage>) => {
+			const activeMode = agentSendRefsStore.get(agent)?.modeRef.current ?? modeRef.current;
 			if (dataPart.type === 'data-newChat') {
 				const newChat = dataPart.data;
+				setChatId(newChat.id);
+				if (activeMode === 'onboarding' && userIdRef.current) {
+					getOnboardingChatIdStorage(userIdRef.current).set(newChat.id);
+				}
 				if (agentId !== newChat.id) {
 					messageQueueStore.moveQueue(agentId, newChat.id);
-					agentService.moveAgent(agentId, newChat.id);
+					if (!disableNavigation) {
+						agentService.moveAgent(agentId, newChat.id);
+					}
 					agentId = newChat.id;
 					continuationChatIdRef.current = newChat.id;
 					setChat({ chatId: newChat.id }, { ...newChat, messages: [] });
@@ -140,6 +202,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 					}
 				}
 				queryClient.invalidateQueries({ queryKey: [['chat', 'listGrouped']] });
+				queryClient.invalidateQueries({ queryKey: [['user', 'getGithubStarPrompt']] });
 				return;
 			}
 
@@ -152,7 +215,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 			if (dataPart.type === 'data-newUserMessage') {
 				const { newId } = dataPart.data;
-				const citation = agentCitationStore.get(newAgent);
+				const citations = agentCitationStore.get(newAgent);
 				agentCitationStore.delete(newAgent);
 				const sentInAdminMode = agentAdminModeStore.get(newAgent) ?? false;
 				agentAdminModeStore.delete(newAgent);
@@ -162,47 +225,64 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 						? {
 								...message,
 								id: newId,
-								...(citation && { citation }),
-								...(sentInAdminMode && { source: 'admin' as const }),
+								...(citations && { citations }),
+								...(activeMode === 'onboarding'
+									? { source: 'onboarding' as const }
+									: sentInAdminMode && { source: 'admin' as const }),
 							}
 						: message,
 				);
 			}
 		};
 
+		let activeRequestProvider: LlmSelectedModel['provider'] | undefined;
 		const newAgent = new Agent<UIMessage>({
 			transport: new DefaultChatTransport({
 				api: '/api/agent',
+				prepareReconnectToStreamRequest: () => ({
+					api: `/api/agent/${agentId}/stream`,
+					headers: getProjectRequestHeaders(),
+				}),
 				prepareSendMessagesRequest: ({ body, messages }) => {
 					const messageToSend = messages.at(-1);
 					if (!messageToSend) {
 						throw new Error('No message to send.');
 					}
 
+					agentsReadingServerStream.add(newAgent);
 					const liveRefs = agentSendRefsStore.get(newAgent);
 					const activeMentionsRef = liveRefs?.mentionsRef ?? mentionsRef;
+					const activeModeRef = liveRefs?.modeRef ?? modeRef;
 					const activeSelectedModelRef = liveRefs?.selectedModelRef ?? selectedModelRef;
 					const activeAdminModeRef = liveRefs?.adminModeRef ?? adminModeRef;
+					const activeRequestBodyRef = liveRefs?.requestBodyRef ?? requestBodyRef;
 
 					const mentions = activeMentionsRef.current;
 					activeMentionsRef.current = [];
-					const citation = agentCitationStore.get(newAgent);
+					const citations = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
 					const documents = extractDocumentPathsFromMessage(messageToSend);
+					const model =
+						activeModeRef.current === 'onboarding'
+							? undefined
+							: (activeSelectedModelRef.current ?? undefined);
 					const adminModeAtSend = activeAdminModeRef.current;
 					agentAdminModeStore.set(newAgent, adminModeAtSend);
+					activeRequestProvider = model?.provider;
 					return {
-						headers: getActiveProjectId() ? { 'x-nao-project-id': getActiveProjectId()! } : undefined,
+						headers: getProjectRequestHeaders(),
 						body: {
 							...body,
+							...activeRequestBodyRef.current?.(),
+							mode: activeModeRef.current,
 							chatId: agentId === NEW_CHAT_ID ? undefined : agentId,
 							message: {
 								text: getTextFromUserMessageOrThrow(messageToSend),
 								images: images.length > 0 ? images : undefined,
 								documents: documents.length > 0 ? documents : undefined,
-								citation,
+								citations,
 							},
-							model: activeSelectedModelRef.current ?? undefined,
+							model,
 							mentions: mentions.length > 0 ? mentions : undefined,
 							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 							adminMode: adminModeAtSend || undefined,
@@ -212,10 +292,22 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}),
 			onData: (dataPart) => handleAgentDataPart(dataPart, newAgent),
 			onFinish: ({ isAbort, isError, isDisconnect }) => {
+				const finishedRequestProvider = activeRequestProvider;
+				activeRequestProvider = undefined;
+				if (finishedRequestProvider === 'nao') {
+					queryClient.invalidateQueries({ queryKey: trpc.account.getManagedCreditStatus.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.getCreditSummary.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.listCreditLedger.queryKey() });
+					queryClient.invalidateQueries({ queryKey: trpc.account.listManagedAiUsage.queryKey() });
+					queryClient.invalidateQueries({
+						queryKey: trpc.project.listAvailableTranscribeModels.queryKey(),
+					});
+				}
 				const canSendNextMessage = !isAbort && !isError && !isDisconnect;
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
 					mentionsRef.current = next.mentions;
+					agentCitationStore.set(newAgent, next.citations);
 					const files = attachmentsToFileUIParts(next);
 					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 				} else {
@@ -239,9 +331,9 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		}
 
 		return agentService.registerAgent(agentId, newAgent);
-	}, [chatId, disableNavigation, navigate, setChat, queryClient]);
+	}, [contextChatId, disableNavigation, navigate, setChat, queryClient]);
 
-	agentSendRefsStore.set(agentInstance, { adminModeRef, selectedModelRef, mentionsRef });
+	agentSendRefsStore.set(agentInstance, { adminModeRef, modeRef, selectedModelRef, mentionsRef, requestBodyRef });
 
 	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
 		chat: agentInstance,
@@ -255,11 +347,27 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const switchMessageVersionMutation = useMutation(trpc.chat.switchMessageVersion.mutationOptions());
 	const isRunning = checkIsAgentRunning({ status });
 
+	const refetchSavedMessages = useCallback(
+		async (chatIdToRefetch: string) => {
+			const queryKey = trpc.chat.get.queryKey({ chatId: chatIdToRefetch });
+			await queryClient.invalidateQueries({ queryKey });
+			return queryClient.getQueryData(queryKey)?.messages;
+		},
+		[queryClient],
+	);
+	const isCatchingUp = useResumeRunningAnswer({
+		agent: agentInstance,
+		chatId,
+		loadedMessages: chat.data?.messages,
+		status,
+		refetchSavedMessages,
+	});
+
 	useEffect(() => {
 		if (chatId) {
-			chatActivityStore.setRunning(chatId, isRunning);
+			chatActivityStore.setRunning(chatId, isRunning || isCatchingUp);
 		}
-	}, [chatId, isRunning]);
+	}, [chatId, isRunning, isCatchingUp]);
 
 	useEffect(() => {
 		if (chatId) {
@@ -268,7 +376,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	}, [chatId]);
 
 	useEffect(() => {
-		if (!parseBudgetError(error)) {
+		if (!parseBudgetError(error) && !parseManagedCreditsError(error) && !parseChatAllowanceExhaustedError(error)) {
 			return;
 		}
 		const lastMsg = messages.at(-1);
@@ -295,14 +403,18 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			syncedAdminChatRef.current = chatId;
 			return;
 		}
-		if (chat.isLoading || messages.length === 0 || syncedAdminChatRef.current === chatId) {
+		if (chat.isLoading || syncedAdminChatRef.current === chatId) {
+			return;
+		}
+		const settledUserMessages = getSettledUserMessages(messages, isRunning);
+		if (settledUserMessages.length === 0) {
 			return;
 		}
 		syncedAdminChatRef.current = chatId;
-		const userMessages = messages.filter((m) => m.role === 'user');
-		const conversationIsAdmin = userMessages.at(0)?.source === 'admin' || userMessages.at(-1)?.source === 'admin';
+		const conversationIsAdmin =
+			settledUserMessages.at(0)?.source === 'admin' || settledUserMessages.at(-1)?.source === 'admin';
 		setAdminMode(conversationIsAdmin);
-	}, [chatId, chat.isLoading, messages, setAdminMode]);
+	}, [chatId, chat.isLoading, messages, isRunning, setAdminMode]);
 
 	const stopCurrentGeneration = useCallback(async () => {
 		if (!chatId) {
@@ -347,7 +459,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 						text: getMessageText(lastUserMessage),
 						images: getMessageImages(lastUserMessage),
 						documents: getMessageDocuments(lastUserMessage),
-						citation: lastUserMessage.citation,
+						citations: lastUserMessage.citations,
 					}
 				: undefined;
 
@@ -365,23 +477,29 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		}
 	}, [chatId, agentInstance, cancelAgentMutation.mutateAsync, setMessages, navigate, queryClient]); // eslint-disable-line
 
+	const chatAllowanceExhausted =
+		usesChatAllowance(hasProject, mode) && parseChatAllowanceExhaustedError(error) !== null;
+
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
+			if (chatAllowanceExhausted) {
+				return;
+			}
 			clearError();
 			return sendMessage(...args);
 		},
-		[sendMessage, clearError],
+		[sendMessage, clearError, chatAllowanceExhausted],
 	);
 
 	const queueOrSendMessage = useCallback(
-		async ({ text, images, documents, citation }: SendMessageArgs) => {
+		async ({ text, images, documents, citations }: SendMessageArgs) => {
 			const prompt = text.trim() || defaultAttachmentPrompt({ images, documents });
 			if (!prompt) {
 				return;
 			}
 
 			if (!isRunning) {
-				agentCitationStore.set(agentInstance, citation);
+				agentCitationStore.set(agentInstance, citations);
 				const files = attachmentsToFileUIParts({ images, documents });
 				return handleSendMessage({ text: prompt, files: files.length > 0 ? files : undefined });
 			}
@@ -394,6 +512,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				mentions,
 				images,
 				documents,
+				citations,
 			});
 		},
 		[isRunning, handleSendMessage, agentInstance],
@@ -406,11 +525,12 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			const next = messageQueueStore.dequeue(chatIdRef.current ?? NEW_CHAT_ID);
 			if (next) {
 				mentionsRef.current = next.mentions;
+				agentCitationStore.set(agentInstance, next.citations);
 				const files = attachmentsToFileUIParts(next);
 				await handleSendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 			}
 		},
-		[stopCurrentGeneration, handleSendMessage],
+		[stopCurrentGeneration, handleSendMessage, agentInstance],
 	);
 
 	const editMessage = useCallback(
@@ -419,8 +539,9 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			text,
 			images: newImages,
 			documents: newDocuments,
-		}: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents'>) => {
-			if (isRunning) {
+			citations,
+		}: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents' | 'citations'>) => {
+			if (isRunning || chatAllowanceExhausted) {
 				return;
 			}
 
@@ -439,7 +560,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				return;
 			}
 
-			agentCitationStore.set(agentInstance, original.citation);
+			agentCitationStore.set(agentInstance, citations);
 			setMessages(currentMessages.slice(0, messageIndex));
 			const files = attachmentsToFileUIParts({ images, documents });
 			return handleSendMessage(
@@ -447,12 +568,12 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[setMessages, isRunning, handleSendMessage, agentInstance],
+		[setMessages, isRunning, chatAllowanceExhausted, handleSendMessage, agentInstance],
 	);
 
 	const resendMessage = useCallback(
 		async ({ messageId }: { messageId: string }) => {
-			if (isRunning) {
+			if (isRunning || chatAllowanceExhausted) {
 				return;
 			}
 
@@ -470,7 +591,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				return;
 			}
 
-			agentCitationStore.set(agentInstance, original.citation);
+			agentCitationStore.set(agentInstance, original.citations);
 			setMessages(currentMessages.slice(0, messageIndex));
 			const files = attachmentsToFileUIParts({ images, documents });
 			return handleSendMessage(
@@ -478,7 +599,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[setMessages, isRunning, handleSendMessage, agentInstance],
+		[setMessages, isRunning, chatAllowanceExhausted, handleSendMessage, agentInstance],
 	);
 
 	const switchMessageVersion = useCallback(
@@ -496,6 +617,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 	return useMemoObject({
 		chatId,
+		mode,
 		messages,
 		setMessages,
 		queueOrSendMessage,
@@ -505,11 +627,13 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		submitQueuedMessageNow,
 		status,
 		isRunning,
+		isCatchingUp,
 		isLoadingMessages: chat.isLoading,
 		cancelAgent,
 		error,
 		clearError,
 		selectedModel,
+		usesDefaultModel,
 		setSelectedModel,
 		setMentions,
 		adminMode,
@@ -519,18 +643,19 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 /** Sync the messages between the useChat hook and the query client. */
 export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
-	const chatId = useChatId();
+	const contextChatId = useChatId();
+	const chatId = agent.mode === 'onboarding' ? agent.chatId : contextChatId;
 	const chat = useChatQuery({ chatId });
 	const setChat = useSetChat();
+	const agentMessagesRef = useRef(agent.messages);
+	agentMessagesRef.current = agent.messages;
 
 	useEffect(() => {
-		if (chat.data?.messages && !agent.isRunning) {
+		if (chat.data?.messages && !agent.isRunning && chat.data.messages !== agentMessagesRef.current) {
 			agent.setMessages(chat.data.messages);
 		}
 	}, [chat.data?.messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	const agentMessagesRef = useRef(agent.messages);
-	agentMessagesRef.current = agent.messages;
 	const chatDataRef = useRef(chat.data);
 	chatDataRef.current = chat.data;
 
@@ -557,6 +682,100 @@ export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 		wasRunningRef.current = agent.isRunning;
 	}, [agent.isRunning, setChat, chatId]);
 };
+
+/** Agents that already read their chat's stream, by sending a message or by resuming, so they never resume again. */
+const agentsReadingServerStream = new WeakSet<Agent<UIMessage>>();
+
+const RESUME_ATTEMPTS = 2;
+const RESUME_RETRY_DELAY_MS = 1_000;
+
+/**
+ * After a reload, follows the answer the server is still writing, and returns whether it is still waiting
+ * for the server to answer. The saved messages only hold an answer once it is complete, so a chat whose
+ * last saved message is the user's may have one running.
+ */
+function useResumeRunningAnswer({
+	agent,
+	chatId,
+	loadedMessages,
+	status,
+	refetchSavedMessages,
+}: {
+	agent: Agent<UIMessage>;
+	chatId: string | undefined;
+	loadedMessages: UIMessage[] | undefined;
+	status: UseChatHelpers<UIMessage>['status'];
+	refetchSavedMessages: (chatId: string) => Promise<UIMessage[] | undefined>;
+}): boolean {
+	const [catchingUpAgent, setCatchingUpAgent] = useState<Agent<UIMessage>>();
+	const hasServerAnswered = status !== 'ready';
+
+	useEffect(() => {
+		if (hasServerAnswered) {
+			setCatchingUpAgent(undefined);
+		}
+	}, [hasServerAnswered]);
+
+	useEffect(() => {
+		if (
+			!chatId ||
+			!loadedMessages ||
+			!isAwaitingAnswer(loadedMessages) ||
+			agentsReadingServerStream.has(agent) ||
+			checkIsAgentRunning(agent)
+		) {
+			return;
+		}
+
+		agentsReadingServerStream.add(agent);
+		agent.messages = loadedMessages;
+		setCatchingUpAgent(agent);
+		void followRunningAnswer(agent, () => refetchSavedMessages(chatId)).finally(() =>
+			setCatchingUpAgent((current) => (current === agent ? undefined : current)),
+		);
+	}, [agent, chatId, loadedMessages, refetchSavedMessages]);
+
+	return catchingUpAgent === agent && !hasServerAnswered;
+}
+
+/**
+ * Reconnects to the running answer. When the server has no run, a complete answer is in the saved messages,
+ * fetched again to show it. A run that just started on another instance may not be announced yet, hence
+ * the second attempt.
+ */
+async function followRunningAnswer(
+	agent: Agent<UIMessage>,
+	refetchSavedMessages: () => Promise<UIMessage[] | undefined>,
+): Promise<void> {
+	for (let attempt = 1; attempt <= RESUME_ATTEMPTS; attempt++) {
+		await agent.resumeStream();
+		if (!isAwaitingAnswer(agent.messages)) {
+			return;
+		}
+		const savedMessages = await refetchSavedMessages();
+		if (!savedMessages || !isAwaitingAnswer(savedMessages) || attempt === RESUME_ATTEMPTS) {
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, RESUME_RETRY_DELAY_MS));
+		if (checkIsAgentRunning(agent)) {
+			return;
+		}
+	}
+}
+
+function isAwaitingAnswer(messages: UIMessage[]): boolean {
+	return messages.at(-1)?.role === 'user';
+}
+
+/**
+ * User messages without the optimistic copy the server has not acknowledged yet: while the agent
+ * runs, a last user message without a source may still be that copy.
+ */
+function getSettledUserMessages(messages: UIMessage[], isRunning: boolean): UIMessage[] {
+	const userMessages = messages.filter((message) => message.role === 'user');
+	const isAwaitingAcknowledgement = isRunning && userMessages.at(-1)?.source === undefined;
+	return isAwaitingAcknowledgement ? userMessages.slice(0, -1) : userMessages;
+}
 
 /** What to ask when someone attaches files without typing anything. */
 function defaultAttachmentPrompt({

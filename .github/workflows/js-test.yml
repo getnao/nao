@@ -1,0 +1,65 @@
+name: JS Tests
+
+on:
+    push:
+        paths:
+            - 'apps/**'
+            - 'package.json'
+            - 'package-lock.json'
+            - '.npmrc'
+            - '.nvmrc'
+            - 'scripts/use-pinned-npm.sh'
+            - '.github/workflows/js-test.yml'
+    pull_request:
+        paths:
+            - 'apps/**'
+            - 'package.json'
+            - 'package-lock.json'
+            - '.npmrc'
+            - '.nvmrc'
+            - 'scripts/use-pinned-npm.sh'
+            - '.github/workflows/js-test.yml'
+
+jobs:
+    test:
+        name: Vitest (${{ matrix.workspace }})
+        runs-on: ubuntu-latest
+
+        strategy:
+            fail-fast: false
+            matrix:
+                workspace: [backend, frontend, shared]
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+
+            - name: Use the pinned npm
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Restore test durations
+              uses: actions/cache@v4
+              with:
+                  path: apps/${{ matrix.workspace }}/node_modules/.vite/vitest
+                  key: vitest-results-${{ matrix.workspace }}-${{ github.sha }}
+                  restore-keys: vitest-results-${{ matrix.workspace }}-
+
+            - name: Apply SQLite migrations
+              if: matrix.workspace == 'backend'
+              run: npm run -w @nao/backend db:migrate
+
+            - name: Test ${{ matrix.workspace }}
+              run: npm run -w @nao/${{ matrix.workspace }} test

@@ -6,13 +6,14 @@ import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from
 import { llmTelemetry } from '../agents/telemetry';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { sanitizeCron } from '../utils/cron';
+import { ManagedCreditsExhaustedError } from '../utils/error';
 import { resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 
 /** Reasoning models spend most of the budget thinking before writing the expression. */
 const MAX_OUTPUT_TOKENS = 1024;
 
-export async function naturalLanguageToCron(projectId: string, text: string): Promise<string | null> {
-	const modelConfig = await resolveModelForProject(projectId);
+export async function naturalLanguageToCron(projectId: string, userId: string, text: string): Promise<string | null> {
+	const modelConfig = await resolveModelForProject(projectId, userId);
 	if (!modelConfig) {
 		return null;
 	}
@@ -44,13 +45,17 @@ export async function naturalLanguageToCron(projectId: string, text: string): Pr
 
 		CronExpressionParser.parse(cron);
 		return cron;
-	} catch {
+	} catch (error) {
+		if (error instanceof ManagedCreditsExhaustedError) {
+			throw error;
+		}
 		return null;
 	}
 }
 
 async function resolveModelForProject(
 	projectId: string,
+	userId: string,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
 	const pinned = await resolveDefaultModelSelection(projectId, 'other');
 	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
@@ -59,6 +64,10 @@ async function resolveModelForProject(
 	}
 
 	const modelId = pinned?.modelId ?? getProviderMeta(provider).extractorModelId;
-	const model = await resolveProviderModel(projectId, provider, modelId, false);
+	const model = await resolveProviderModel(projectId, provider, modelId, false, {
+		userId,
+		projectId,
+		category: 'cron',
+	});
 	return model ? { provider, model } : null;
 }

@@ -77,7 +77,7 @@ export function buildPointsSvg(args: {
 	return { viewBox: viewBox(), backdrop: backdropPaths(args.backdrop, fit), circles };
 }
 
-function longitudeUnwrapper(longitudes: number[]): (lng: number) => number {
+export function longitudeUnwrapper(longitudes: number[]): (lng: number) => number {
 	const bounds = computeMapBounds(longitudes.map((longitude) => ({ latitude: 0, longitude, row: {} })));
 	if (!bounds || bounds.east <= 180) {
 		return (lng) => lng;

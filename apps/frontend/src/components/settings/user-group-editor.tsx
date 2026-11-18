@@ -1,0 +1,1331 @@
+import {
+	DEFAULT_GROUP_SHARE_TARGETS,
+	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	EMPTY_DATABASE_CONTEXT_ACCESS,
+	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_FILES_CONTEXT_ACCESS,
+	EMPTY_MCP_ACCESS,
+	EMPTY_PROJECT_ROW_SECURITY,
+	EMPTY_SKILLS_ACCESS,
+	EMPTY_USER_GROUP_ROW_POLICIES,
+	EMPTY_USER_GROUP_SSO_MAPPINGS,
+	extractConditionalGroupContent,
+	filterProjectRowSecurityByDatabaseContext,
+	filterUserGroupRowPoliciesByDatabaseContext,
+	normalizeDatabaseContextAccess,
+	normalizeFileTreeAccess,
+	normalizeMcpAccess,
+	normalizeSkillsAccess,
+	normalizeUserGroupRowPolicies,
+	normalizeUserGroupSsoMappings,
+	USER_GROUP_FEATURE_DEFINITIONS,
+} from '@nao/shared';
+import { DEFAULT_MEMBER_BUDGET_PERIOD } from '@nao/shared/member-budget';
+import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy, Lock } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+	DatabaseContextAccess,
+	DocsContextAccess,
+	FilesContextAccess,
+	FileTreeAccess,
+	GroupShareTargets,
+	McpAccess,
+	ProjectSharingPermission,
+	SkillsAccess,
+	UserGroupFeatureDefinition,
+	UserGroupRowPolicies,
+	UserGroupSsoMappings,
+} from '@nao/shared';
+import type { ToolCallDensity, UserRole } from '@nao/shared/types';
+import type { QueryClient } from '@tanstack/react-query';
+
+import type { TabBarItem } from '@/components/ui/tab-bar';
+import type { ShareTargetGroupOption } from '@/components/settings/user-group-project-sharing';
+import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
+import { UserGroupAdvancedSettings } from '@/components/settings/user-group-advanced-settings';
+import { UserGroupBudget } from '@/components/settings/user-group-budget';
+import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
+import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
+import { UserGroupMcpAccess } from '@/components/settings/user-group-mcp-access';
+import { UserGroupProjectSharing } from '@/components/settings/user-group-project-sharing';
+import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
+import { UserGroupSkills } from '@/components/settings/user-group-skills';
+import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
+import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
+import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TabBar, TabPanel } from '@/components/ui/tab-bar';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useLicenseFeatures } from '@/hooks/use-license';
+import { useOfferedUserGroupFeatures } from '@/hooks/use-offered-user-group-features';
+import { trpc } from '@/main';
+
+type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
+
+interface ToolCallDensityPolicy {
+	defaultDensity: ToolCallDensity;
+	canChange: boolean;
+}
+
+interface ProjectWideShareRevocation {
+	chatCount: number;
+	storyCount: number;
+}
+
+export interface UserGroupEditorGroup {
+	id: string;
+	name: string;
+	isDefault: boolean;
+	isLocked?: false;
+	featureGrants: UserGroupFeature[];
+	toolCallDensityPolicy: ToolCallDensityPolicy;
+	projectSharing: ProjectSharingPermission;
+	shareTargets?: GroupShareTargets;
+	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
+	preloadedSkills: string[];
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
+	filesAccess: FilesContextAccess;
+	mcpAccess: McpAccess;
+	skillsAccess: SkillsAccess;
+	ssoMappings: UserGroupSsoMappings;
+	rowPolicies?: UserGroupRowPolicies;
+}
+
+export type UserGroupEditorTab = 'features' | 'context' | 'mcp' | 'skills' | 'security' | 'budget' | 'advanced' | 'sso';
+
+interface UserGroupEditorProps {
+	group: UserGroupEditorGroup | 'new';
+	activeTab: UserGroupEditorTab;
+	onTabChange: (tab: UserGroupEditorTab) => void;
+	onCancelNew: () => void;
+	onCreated: (group: UserGroupEditorGroup) => void;
+	onDeleted: (groupId: string) => void;
+}
+
+const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
+	{ id: 'features', label: 'Features' },
+	{ id: 'context', label: 'Context' },
+	{ id: 'mcp', label: 'MCP' },
+	{ id: 'skills', label: 'Skills' },
+	{ id: 'security', label: 'Security' },
+	{ id: 'budget', label: 'Budget' },
+	{ id: 'advanced', label: 'Advanced settings' },
+];
+
+const defaultProjectRoleOptions: readonly UserRole[] = [...USER_ROLES.filter((role) => role !== 'admin'), 'admin'];
+
+export function UserGroupEditor({
+	group,
+	activeTab,
+	onTabChange,
+	onCancelNew,
+	onCreated,
+	onDeleted,
+}: UserGroupEditorProps) {
+	const queryClient = useQueryClient();
+	const existingGroup = group === 'new' ? null : group;
+	const existingRowPolicies = useMemo(
+		() =>
+			existingGroup
+				? filterUserGroupRowPoliciesByDatabaseContext(
+						existingGroup.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
+						existingGroup.databaseAccess,
+					)
+				: EMPTY_USER_GROUP_ROW_POLICIES,
+		[existingGroup],
+	);
+	const editorGroup = useMemo(
+		() => (existingGroup ? { ...existingGroup, rowPolicies: existingRowPolicies } : null),
+		[existingGroup, existingRowPolicies],
+	);
+	const [name, setName] = useState(existingGroup?.name ?? '');
+	const [featureGrants, setFeatureGrants] = useState<UserGroupFeature[]>(existingGroup?.featureGrants ?? []);
+	const [toolCallDensityPolicy, setToolCallDensityPolicy] = useState<ToolCallDensityPolicy>(
+		existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	);
+	const [showAllSettings, setShowAllSettings] = useState(existingGroup?.showAllSettings ?? false);
+	const [advancedContextExplorer, setAdvancedContextExplorer] = useState(
+		existingGroup?.advancedContextExplorer ?? false,
+	);
+	const [databaseAccess, setDatabaseAccess] = useState<DatabaseContextAccess>(
+		existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS,
+	);
+	const [docsAccess, setDocsAccess] = useState<DocsContextAccess>(
+		existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS,
+	);
+	const [filesAccess, setFilesAccess] = useState<FilesContextAccess>(
+		existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS,
+	);
+	const [mcpAccess, setMcpAccess] = useState<McpAccess>(existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS);
+	const [ssoMappings, setSsoMappings] = useState<UserGroupSsoMappings>(
+		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
+	);
+	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
+	const [projectSharing, setProjectSharing] = useState<ProjectSharingPermission>(
+		existingGroup?.projectSharing ?? 'inherit',
+	);
+	const [shareTargets, setShareTargets] = useState<GroupShareTargets>(
+		existingGroup?.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS,
+	);
+	const [preloadedSkills, setPreloadedSkills] = useState<string[]>(existingGroup?.preloadedSkills ?? []);
+	const [skillsAccess, setSkillsAccess] = useState<SkillsAccess>(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
+	const [shareRevocation, setShareRevocation] = useState<ProjectWideShareRevocation | null>(null);
+	const [isShareRevocationOpen, setIsShareRevocationOpen] = useState(false);
+	const [isRevokingShares, setIsRevokingShares] = useState(false);
+	const [formError, setFormError] = useState<string | null>(null);
+	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
+	const [confirmDelete, setConfirmDelete] = useState(false);
+	const previousGroupRef = useRef(editorGroup);
+	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
+	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
+	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
+	const licenseFeatures = useLicenseFeatures();
+	const hasSso = licenseFeatures.data?.sso === true;
+	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
+	const hasMemberBudget = licenseFeatures.data?.['user-budget'] === true;
+	const memberBudgetTabUnavailable = !licenseFeatures.isLoading && !hasMemberBudget;
+	const memberBudgetOverview = useQuery({
+		...trpc.memberBudget.getOverview.queryOptions(),
+		enabled: hasMemberBudget,
+	});
+	const userGroupOverview = useQuery(trpc.userGroup.overview.queryOptions());
+	const groupBudgetMembers = useMemo(
+		() => buildGroupBudgetMembers(memberBudgetOverview.data?.members ?? [], userGroupOverview.data),
+		[memberBudgetOverview.data?.members, userGroupOverview.data],
+	);
+	const savedGroupBudgetUsd = hasMemberBudget
+		? resolveSavedGroupBudget(existingGroup, memberBudgetOverview.data)
+		: null;
+	const [groupBudgetUsd, setGroupBudgetUsd] = useState<number | null>(savedGroupBudgetUsd);
+	const hasGroupBudgetChanges = hasMemberBudget && groupBudgetUsd !== savedGroupBudgetUsd;
+	const defaultGroup = userGroupOverview.data?.groups.find((candidate) => candidate.isDefault);
+	const allUsersGroup = defaultGroup && !defaultGroup.isLocked ? defaultGroup : null;
+	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
+	const rowSecurityState = rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready';
+	const rowSecurityRegistry =
+		rowSecurity.data && Array.isArray(rowSecurity.data.tables) ? rowSecurity.data : EMPTY_PROJECT_ROW_SECURITY;
+	const accessibleRowSecurityRegistry = filterProjectRowSecurityByDatabaseContext(
+		rowSecurityRegistry,
+		databaseAccess,
+	);
+	const needsRowSecurityMetadata =
+		hasRowLevelSecurity && rowPolicies.policies.some((policy) => policy.access === 'predicate');
+	const oidcConfig = useQuery({
+		...trpc.authConfig.oidc.getConfig.queryOptions(),
+		enabled: hasSso,
+	});
+	const microsoftConfig = useQuery({
+		...trpc.authConfig.microsoft.isSetup.queryOptions(),
+		enabled: hasSso,
+	});
+	const effectiveOidcEnvMappings = useQuery({
+		...trpc.userGroup.effectiveOidcEnvMappings.queryOptions(),
+		enabled: hasSso && existingGroup !== null,
+	});
+	const effectiveMicrosoftEnvMappings = useQuery({
+		...trpc.userGroup.effectiveMicrosoftEnvMappings.queryOptions(),
+		enabled: hasSso && existingGroup !== null,
+	});
+	const ssoLicenseState = licenseFeatures.isLoading
+		? 'loading'
+		: licenseFeatures.isError
+			? 'error'
+			: hasSso
+				? 'ready'
+				: 'unavailable';
+	const oidcConfigurationState = resolveSsoConfigurationState(
+		ssoLicenseState,
+		oidcConfig,
+		oidcConfig.data !== null && oidcConfig.data !== undefined,
+	);
+	const microsoftConfigurationState = resolveSsoConfigurationState(
+		ssoLicenseState,
+		microsoftConfig,
+		microsoftConfig.data === true,
+	);
+	const hasStoredOidcMappings = ssoMappings.providers.oidc.length > 0;
+	const hasStoredMicrosoftMappings = ssoMappings.providers.microsoft.length > 0;
+	const oidcEnvMappingsState =
+		existingGroup === null || effectiveOidcEnvMappings.isSuccess
+			? 'ready'
+			: effectiveOidcEnvMappings.isError
+				? 'error'
+				: 'loading';
+	const microsoftEnvMappingsState =
+		existingGroup === null || effectiveMicrosoftEnvMappings.isSuccess
+			? 'ready'
+			: effectiveMicrosoftEnvMappings.isError
+				? 'error'
+				: 'loading';
+	const hasConfiguredSsoProvider = oidcConfigurationState === 'ready' || microsoftConfigurationState === 'ready';
+	const isSsoConfigLoading =
+		ssoLicenseState === 'loading' ||
+		oidcConfigurationState === 'loading' ||
+		microsoftConfigurationState === 'loading';
+	const hasSsoTab = hasConfiguredSsoProvider;
+	const mcpTabUnavailable = !licenseFeatures.isLoading && !hasRowLevelSecurity;
+	const lockedTabs = new Set<UserGroupEditorTab>([
+		...(memberBudgetTabUnavailable ? (['budget'] as const) : []),
+		...(mcpTabUnavailable ? (['mcp'] as const) : []),
+	]);
+	const tabs = (hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs).map((tab) =>
+		lockedTabs.has(tab.id) ? { ...tab, label: <LockedTabLabel label={tab.label} /> } : tab,
+	);
+	const hasProjectSharingChanges = existingGroup !== null && projectSharing !== existingGroup.projectSharing;
+	const hasUnsavedChanges =
+		editorGroup === null ||
+		hasGroupBudgetChanges ||
+		hasUserGroupEditorChanges(editorGroup, {
+			name,
+			featureGrants,
+			toolCallDensityPolicy,
+			projectSharing,
+			shareTargets,
+			showAllSettings,
+			advancedContextExplorer,
+			preloadedSkills,
+			databaseAccess,
+			docsAccess,
+			filesAccess,
+			mcpAccess,
+			skillsAccess,
+			ssoMappings,
+			rowPolicies,
+		});
+
+	const resetForm = useCallback(() => {
+		setName(existingGroup?.name ?? '');
+		setFeatureGrants(existingGroup?.featureGrants ?? []);
+		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
+		setProjectSharing(existingGroup?.projectSharing ?? 'inherit');
+		setShareTargets(existingGroup?.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS);
+		setShowAllSettings(existingGroup?.showAllSettings ?? false);
+		setAdvancedContextExplorer(existingGroup?.advancedContextExplorer ?? false);
+		setPreloadedSkills(existingGroup?.preloadedSkills ?? []);
+		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
+		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
+		setFilesAccess(existingGroup?.filesAccess ?? EMPTY_FILES_CONTEXT_ACCESS);
+		setMcpAccess(existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS);
+		setSkillsAccess(existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS);
+		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
+		setRowPolicies(existingRowPolicies);
+		setFormError(null);
+		setShowRowPolicyValidationErrors(false);
+		setConfirmDelete(false);
+	}, [existingGroup, existingRowPolicies]);
+
+	useEffect(() => {
+		const previousGroup = previousGroupRef.current;
+		previousGroupRef.current = editorGroup;
+		const switchedGroups = previousGroup?.id !== editorGroup?.id;
+		const previousGroupWasClean =
+			previousGroup !== null &&
+			!hasUserGroupEditorChanges(previousGroup, {
+				name,
+				featureGrants,
+				toolCallDensityPolicy,
+				projectSharing,
+				shareTargets,
+				showAllSettings,
+				advancedContextExplorer,
+				preloadedSkills,
+				databaseAccess,
+				docsAccess,
+				filesAccess,
+				mcpAccess,
+				skillsAccess,
+				ssoMappings,
+				rowPolicies,
+			});
+
+		if (switchedGroups || previousGroupWasClean) {
+			resetForm();
+		}
+	}, [
+		advancedContextExplorer,
+		databaseAccess,
+		docsAccess,
+		editorGroup,
+		featureGrants,
+		filesAccess,
+		mcpAccess,
+		name,
+		preloadedSkills,
+		projectSharing,
+		resetForm,
+		rowPolicies,
+		shareTargets,
+		showAllSettings,
+		skillsAccess,
+		ssoMappings,
+		toolCallDensityPolicy,
+	]);
+
+	useEffect(() => {
+		setGroupBudgetUsd(savedGroupBudgetUsd);
+	}, [existingGroup?.id, savedGroupBudgetUsd]);
+
+	useEffect(() => {
+		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
+			onTabChange('features');
+		}
+	}, [activeTab, hasSsoTab, isSsoConfigLoading, onTabChange]);
+
+	const handleDatabaseAccessChange = (nextAccess: DatabaseContextAccess) => {
+		const normalizedAccess = normalizeDatabaseContextAccess(nextAccess);
+		setDatabaseAccess(normalizedAccess);
+		setRowPolicies((current) => filterUserGroupRowPoliciesByDatabaseContext(current, normalizedAccess));
+	};
+
+	const handleSkillsChange = (change: { skillsAccess: SkillsAccess; preloadedSkills: string[] }) => {
+		setSkillsAccess(change.skillsAccess);
+		setPreloadedSkills(change.preloadedSkills);
+	};
+
+	const handleSave = async () => {
+		setFormError(null);
+		if (needsRowSecurityMetadata && rowSecurityState !== 'ready') {
+			onTabChange('security');
+			return;
+		}
+		if (hasRowLevelSecurity && !areUserGroupRowPolicyDraftsValid(accessibleRowSecurityRegistry, rowPolicies)) {
+			setShowRowPolicyValidationErrors(true);
+			onTabChange('security');
+			return;
+		}
+		if (existingGroup && hasProjectSharingChanges) {
+			try {
+				const revocation = await queryClient.fetchQuery({
+					...trpc.userGroup.previewProjectSharingRevocation.queryOptions({
+						groupId: existingGroup.id,
+						projectSharing,
+					}),
+					staleTime: 0,
+				});
+				if (revocation.chatCount + revocation.storyCount > 0) {
+					setShareRevocation(revocation);
+					setIsShareRevocationOpen(true);
+					return;
+				}
+			} catch (error) {
+				setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
+				return;
+			}
+		}
+		await saveGroup();
+	};
+
+	const saveGroup = async (): Promise<boolean> => {
+		const budgetInput = hasGroupBudgetChanges ? { budgetLimitUsd: groupBudgetUsd } : {};
+		try {
+			if (existingGroup) {
+				await updateGroup.mutateAsync({
+					groupId: existingGroup.id,
+					...(existingGroup.isDefault ? {} : { name }),
+					featureGrants,
+					toolCallDensityPolicy,
+					projectSharing,
+					shareTargets,
+					showAllSettings,
+					advancedContextExplorer,
+					preloadedSkills,
+					databaseAccess,
+					docsAccess,
+					filesAccess,
+					mcpAccess,
+					skillsAccess,
+					ssoMappings,
+					...(hasRowLevelSecurity ? { rowPolicies } : {}),
+					...budgetInput,
+				});
+				await invalidateUserGroupQueries(queryClient);
+			} else {
+				const createdGroup = await createGroup.mutateAsync({
+					name,
+					featureGrants,
+					toolCallDensityPolicy,
+					projectSharing,
+					shareTargets,
+					showAllSettings,
+					advancedContextExplorer,
+					preloadedSkills,
+					databaseAccess,
+					docsAccess,
+					filesAccess,
+					mcpAccess,
+					skillsAccess,
+					ssoMappings,
+					...(hasRowLevelSecurity ? { rowPolicies } : {}),
+					...budgetInput,
+				});
+				await invalidateUserGroupQueries(queryClient);
+				onCreated(createdGroup);
+			}
+			setShowRowPolicyValidationErrors(false);
+			return true;
+		} catch (error) {
+			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
+			return false;
+		}
+	};
+
+	const handleConfirmShareRevocation = async () => {
+		setIsRevokingShares(true);
+		const saved = await saveGroup();
+		if (saved) {
+			await invalidateShareQueries(queryClient);
+		}
+		setIsRevokingShares(false);
+		setIsShareRevocationOpen(false);
+	};
+
+	const handleDelete = async () => {
+		if (!existingGroup || existingGroup.isDefault) {
+			return;
+		}
+		try {
+			await deleteGroup.mutateAsync({ groupId: existingGroup.id });
+			await invalidateUserGroupQueries(queryClient);
+			setConfirmDelete(false);
+			onDeleted(existingGroup.id);
+		} catch (error) {
+			setConfirmDelete(false);
+			setFormError(error instanceof Error ? error.message : 'Failed to delete the group.');
+		}
+	};
+
+	const handleCancel = () => {
+		if (group === 'new') {
+			setShowRowPolicyValidationErrors(false);
+			onCancelNew();
+			return;
+		}
+		resetForm();
+		setGroupBudgetUsd(savedGroupBudgetUsd);
+	};
+	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
+		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
+
+	return (
+		<>
+			<div className='flex min-w-0 flex-1 flex-col gap-6'>
+				<div className='flex max-w-xl flex-col gap-2'>
+					<label htmlFor='user-group-name' className='text-sm font-medium'>
+						Group name
+					</label>
+					<Input
+						id='user-group-name'
+						value={name}
+						onChange={(event) => setName(event.target.value)}
+						disabled={existingGroup?.isDefault}
+						required
+						maxLength={80}
+					/>
+				</div>
+				<div>
+					<TabBar
+						tabs={tabs}
+						activeTab={activeTab}
+						onTabChange={onTabChange}
+						idBase='user-group-editor'
+						className='border-b'
+					/>
+					<TabPanel idBase='user-group-editor' tabId={activeTab} className='pt-5'>
+						{activeTab === 'features' && (
+							<UserGroupFeatures
+								featureGrants={featureGrants}
+								onFeatureGrantsChange={setFeatureGrants}
+								isDefaultGroup={existingGroup?.isDefault === true}
+								defaultAllowsProjectSharing={isProjectSharingAllowedByDefault(
+									userGroupOverview.data?.groups,
+								)}
+								projectSharing={projectSharing}
+								onProjectSharingChange={setProjectSharing}
+								groupName={name}
+								shareTargets={shareTargets}
+								shareTargetGroups={listShareTargetGroups(
+									userGroupOverview.data?.groups,
+									existingGroup?.id,
+								)}
+								onShareTargetsChange={setShareTargets}
+								toolCallDensityPolicy={toolCallDensityPolicy}
+								onToolCallDensityPolicyChange={setToolCallDensityPolicy}
+							/>
+						)}
+						{activeTab === 'context' && (
+							<div className='flex flex-col gap-5'>
+								<UserGroupContextAccess
+									databaseAccess={databaseAccess}
+									docsAccess={docsAccess}
+									filesAccess={filesAccess}
+									onDatabaseAccessChange={handleDatabaseAccessChange}
+									onDocsAccessChange={setDocsAccess}
+									onFilesAccessChange={setFilesAccess}
+								/>
+								<ConditionalRulesHelp groupName={name} />
+							</div>
+						)}
+						{activeTab === 'mcp' && (
+							<UserGroupMcpAccess
+								mcpAccess={mcpAccess}
+								savedMcpAccess={existingGroup?.mcpAccess ?? EMPTY_MCP_ACCESS}
+								isLicensed={hasRowLevelSecurity}
+								onMcpAccessChange={setMcpAccess}
+							/>
+						)}
+						{activeTab === 'skills' && (
+							<UserGroupSkills
+								isDefaultGroup={existingGroup?.isDefault === true}
+								isLicensed={hasRowLevelSecurity}
+								skillsAccess={skillsAccess}
+								savedSkillsAccess={existingGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
+								preloadedSkills={preloadedSkills}
+								allUsersSkillsAccess={allUsersGroup?.skillsAccess ?? EMPTY_SKILLS_ACCESS}
+								allUsersPreloadedSkills={allUsersGroup?.preloadedSkills ?? []}
+								onChange={handleSkillsChange}
+							/>
+						)}
+						{activeTab === 'security' && (
+							<div className='min-h-64'>
+								{hasRowLevelSecurity && rowSecurityState === 'loading' ? (
+									<RowSecurityStatus message='Loading row-level security...' />
+								) : hasRowLevelSecurity && rowSecurityState === 'error' ? (
+									<RowSecurityStatus
+										message='Failed to load row-level security'
+										onRetry={() => void rowSecurity.refetch()}
+									/>
+								) : (
+									<UserGroupRowSecurity
+										registry={rowSecurityRegistry}
+										databaseAccess={databaseAccess}
+										policies={rowPolicies}
+										isLicensed={hasRowLevelSecurity}
+										showValidationErrors={showRowPolicyValidationErrors}
+										onChange={setRowPolicies}
+									/>
+								)}
+							</div>
+						)}
+						{activeTab === 'budget' && (
+							<UserGroupBudget
+								groupId={existingGroup?.id ?? null}
+								isLicensed={hasMemberBudget}
+								isDefaultGroup={existingGroup?.isDefault === true}
+								isLoading={memberBudgetOverview.isLoading || userGroupOverview.isLoading}
+								isError={memberBudgetOverview.isError || userGroupOverview.isError}
+								limitUsd={groupBudgetUsd}
+								defaultLimitUsd={memberBudgetOverview.data?.defaultLimitUsd ?? 0}
+								period={memberBudgetOverview.data?.period ?? DEFAULT_MEMBER_BUDGET_PERIOD}
+								members={groupBudgetMembers}
+								groups={memberBudgetOverview.data?.groups ?? []}
+								onLimitChange={setGroupBudgetUsd}
+							/>
+						)}
+						{activeTab === 'advanced' && (
+							<UserGroupAdvancedSettings
+								showAllSettings={showAllSettings}
+								onShowAllSettingsChange={setShowAllSettings}
+								advancedContextExplorer={advancedContextExplorer}
+								onAdvancedContextExplorerChange={setAdvancedContextExplorer}
+								isDefaultGroup={existingGroup?.isDefault === true}
+								allUsersGroup={allUsersGroup}
+							/>
+						)}
+						{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (
+							<div className='flex min-h-64 flex-col gap-5'>
+								{existingGroup?.isDefault ? (
+									<DefaultGroupSsoStatus
+										licenseState={ssoLicenseState}
+										oidcState={oidcConfigurationState}
+										microsoftState={microsoftConfigurationState}
+										onRetryOidc={() => retrySsoConfiguration(oidcConfig)}
+										onRetryMicrosoft={() => retrySsoConfiguration(microsoftConfig)}
+									/>
+								) : (
+									<>
+										{ssoLicenseState !== 'ready' && (
+											<SsoAvailabilityStatus
+												state={ssoLicenseState}
+												onRetry={() => void licenseFeatures.refetch()}
+											/>
+										)}
+										{ssoLicenseState === 'ready' &&
+											!hasConfiguredSsoProvider &&
+											isSsoConfigLoading && (
+												<p className='text-sm text-muted-foreground'>
+													Loading SSO configuration...
+												</p>
+											)}
+										{hasConfiguredSsoProvider && (
+											<>
+												{(hasStoredOidcMappings ||
+													oidcConfigurationState !== 'unavailable') && (
+													<UserGroupSsoMapping
+														key={`${existingGroup?.id ?? 'new'}:oidc`}
+														identifiers={ssoMappings.providers.oidc}
+														provider='oidc'
+														providerName={oidcConfig.data?.providerName ?? 'OIDC'}
+														currentGroupId={existingGroup?.id}
+														effectiveEnvMappings={
+															effectiveOidcEnvMappings.isSuccess
+																? effectiveOidcEnvMappings.data
+																: []
+														}
+														envMappingsState={oidcEnvMappingsState}
+														onRetryEnvMappings={() =>
+															void effectiveOidcEnvMappings.refetch()
+														}
+														configurationState={oidcConfigurationState}
+														onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
+														onChange={(oidc) =>
+															setSsoMappings(
+																normalizeUserGroupSsoMappings({
+																	...ssoMappings,
+																	providers: { ...ssoMappings.providers, oidc },
+																}),
+															)
+														}
+													/>
+												)}
+												{(hasStoredMicrosoftMappings ||
+													microsoftConfigurationState !== 'unavailable') && (
+													<UserGroupSsoMapping
+														key={`${existingGroup?.id ?? 'new'}:microsoft`}
+														identifiers={ssoMappings.providers.microsoft}
+														provider='microsoft'
+														providerName='Microsoft Entra'
+														currentGroupId={existingGroup?.id}
+														effectiveEnvMappings={
+															effectiveMicrosoftEnvMappings.isSuccess
+																? effectiveMicrosoftEnvMappings.data
+																: []
+														}
+														envMappingsState={microsoftEnvMappingsState}
+														onRetryEnvMappings={() =>
+															void effectiveMicrosoftEnvMappings.refetch()
+														}
+														configurationState={microsoftConfigurationState}
+														onRetryConfiguration={() =>
+															retrySsoConfiguration(microsoftConfig)
+														}
+														onChange={(microsoft) =>
+															setSsoMappings(
+																normalizeUserGroupSsoMappings({
+																	...ssoMappings,
+																	providers: {
+																		...ssoMappings.providers,
+																		microsoft,
+																	},
+																}),
+															)
+														}
+													/>
+												)}
+												<DefaultProjectRole
+													value={ssoMappings.defaultProjectRole ?? null}
+													onChange={(defaultProjectRole) =>
+														setSsoMappings(
+															normalizeUserGroupSsoMappings({
+																...ssoMappings,
+																defaultProjectRole,
+															}),
+														)
+													}
+												/>
+											</>
+										)}
+									</>
+								)}
+							</div>
+						)}
+					</TabPanel>
+				</div>
+				{formError && <p className='text-sm text-destructive'>{formError}</p>}
+				<div className='flex flex-wrap justify-between gap-2'>
+					{existingGroup && !existingGroup.isDefault ? (
+						<Button variant='destructive' className='rounded-full' onClick={() => setConfirmDelete(true)}>
+							Delete group
+						</Button>
+					) : (
+						<span />
+					)}
+					{hasUnsavedChanges && (
+						<div className='ml-auto flex gap-2'>
+							<Button variant='ghost' className='rounded-full border' onClick={handleCancel}>
+								Cancel
+							</Button>
+							<Button
+								variant='primary-gradient'
+								className='rounded-full'
+								onClick={handleSave}
+								disabled={!existingGroup?.isDefault && name.trim().length === 0}
+								isLoading={createGroup.isPending || updateGroup.isPending}
+							>
+								Save
+							</Button>
+						</div>
+					)}
+				</div>
+			</div>
+
+			<ConfirmationDialog
+				open={confirmDelete}
+				onOpenChange={setConfirmDelete}
+				title={`Delete ${existingGroup?.name}?`}
+				description='This removes the group and all of its user memberships.'
+				confirmLabel='Delete'
+				onConfirm={handleDelete}
+				isPending={deleteGroup.isPending}
+				preventCloseWhilePending
+			/>
+
+			<ConfirmationDialog
+				open={isShareRevocationOpen}
+				onOpenChange={setIsShareRevocationOpen}
+				title='Unshare content shared with everyone?'
+				description={shareRevocation ? describeShareRevocation(shareRevocation) : ''}
+				confirmLabel='Unshare and save'
+				onConfirm={handleConfirmShareRevocation}
+				isPending={isRevokingShares}
+				preventCloseWhilePending
+			/>
+		</>
+	);
+}
+
+function LockedTabLabel({ label }: { label: TabBarItem<UserGroupEditorTab>['label'] }) {
+	return (
+		<span className='flex items-center gap-1.5'>
+			{label}
+			<span
+				aria-hidden='true'
+				className='inline-flex size-5 items-center justify-center rounded-full bg-primary/10 text-primary'
+			>
+				<Lock className='size-3' />
+			</span>
+		</span>
+	);
+}
+
+function describeShareRevocation({ chatCount, storyCount }: ProjectWideShareRevocation): string {
+	const items = [pluralize(chatCount, 'chat'), pluralize(storyCount, 'story', 'stories')]
+		.filter((item): item is string => item !== null)
+		.join(' and ');
+	return `Turning off sharing to the entire project unshares ${items} currently shared with all project members. Their owners can share them again with their groups.`;
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string | null {
+	if (count === 0) {
+		return null;
+	}
+	return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function listShareTargetGroups(
+	groups: ReadonlyArray<{ id: string; name: string; isDefault: boolean; isLocked?: boolean }> | undefined,
+	currentGroupId: string | undefined,
+): ShareTargetGroupOption[] {
+	return (groups ?? [])
+		.filter((group) => !group.isDefault && !group.isLocked && group.id !== currentGroupId)
+		.map((group) => ({ id: group.id, name: group.name }));
+}
+
+function isProjectSharingAllowedByDefault(
+	groups: ReadonlyArray<{ isDefault: boolean; projectSharing?: ProjectSharingPermission }> | undefined,
+): boolean | undefined {
+	const defaultGroup = groups?.find((group) => group.isDefault);
+	return defaultGroup ? defaultGroup.projectSharing !== 'blocked' : undefined;
+}
+
+function RowSecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
+	return (
+		<div className='flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2'>
+			<p className='text-sm text-muted-foreground'>{message}</p>
+			{onRetry && (
+				<Button type='button' size='sm' variant='outline' className='rounded-full' onClick={onRetry}>
+					Retry
+				</Button>
+			)}
+		</div>
+	);
+}
+
+type SsoConfigurationState = 'ready' | 'loading' | 'error' | 'unavailable';
+
+function resolveSsoConfigurationState(
+	licenseState: SsoConfigurationState,
+	query: { isLoading: boolean; isError: boolean },
+	isConfigured: boolean,
+): SsoConfigurationState {
+	if (licenseState !== 'ready') {
+		return licenseState;
+	}
+	if (query.isLoading) {
+		return 'loading';
+	}
+	if (query.isError) {
+		return 'error';
+	}
+	return isConfigured ? 'ready' : 'unavailable';
+}
+
+export function DefaultProjectRole({
+	value,
+	onChange,
+}: {
+	value: UserRole | null;
+	onChange: (role: UserRole | null) => void;
+}) {
+	return (
+		<div className='flex max-w-sm flex-col gap-2'>
+			<label htmlFor='user-group-default-project-role' className='text-sm font-medium'>
+				Default project role
+			</label>
+			<p className='text-xs text-muted-foreground'>Will assign this project role to users signing up with SSO</p>
+			<Select
+				value={value ?? 'none'}
+				onValueChange={(role) => onChange(role === 'none' ? null : (role as UserRole))}
+			>
+				<SelectTrigger id='user-group-default-project-role' className='w-56'>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value='none'>Use organization role</SelectItem>
+					{defaultProjectRoleOptions.map((role) => (
+						<SelectItem key={role} value={role}>
+							{USER_ROLE_LABELS[role]}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
+
+function SsoAvailabilityStatus({
+	state,
+	onRetry,
+}: {
+	state: Exclude<SsoConfigurationState, 'ready'>;
+	onRetry: () => void;
+}) {
+	if (state === 'unavailable') {
+		return null;
+	}
+	return (
+		<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
+			<p className={state === 'error' ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>
+				{state === 'loading' ? 'Loading SSO availability...' : 'Failed to load SSO availability.'}
+			</p>
+			{state === 'error' && (
+				<Button type='button' variant='outline' size='sm' onClick={onRetry}>
+					Retry
+				</Button>
+			)}
+		</div>
+	);
+}
+
+function DefaultGroupSsoStatus({
+	licenseState,
+	oidcState,
+	microsoftState,
+	onRetryOidc,
+	onRetryMicrosoft,
+}: {
+	licenseState: SsoConfigurationState;
+	oidcState: SsoConfigurationState;
+	microsoftState: SsoConfigurationState;
+	onRetryOidc: () => void;
+	onRetryMicrosoft: () => void;
+}) {
+	if (licenseState === 'loading') {
+		return <p className='text-sm text-muted-foreground'>Loading SSO availability...</p>;
+	}
+	if (oidcState === 'loading' || microsoftState === 'loading') {
+		return <p className='text-sm text-muted-foreground'>Loading SSO configuration...</p>;
+	}
+	if (oidcState === 'error' || microsoftState === 'error') {
+		return (
+			<div className='flex flex-wrap items-center gap-2 rounded-lg border p-3'>
+				<p className='mr-auto text-sm text-destructive'>
+					{licenseState === 'error'
+						? 'Failed to load SSO availability.'
+						: 'Failed to load SSO configuration.'}
+				</p>
+				{oidcState === 'error' && (
+					<Button type='button' variant='outline' size='sm' onClick={onRetryOidc}>
+						Retry OIDC
+					</Button>
+				)}
+				{microsoftState === 'error' && (
+					<Button type='button' variant='outline' size='sm' onClick={onRetryMicrosoft}>
+						Retry Microsoft Entra
+					</Button>
+				)}
+			</div>
+		);
+	}
+	if (oidcState !== 'ready' && microsoftState !== 'ready') {
+		return null;
+	}
+	return (
+		<p className='rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground'>
+			All Users already includes everyone with project access and cannot be mapped.
+		</p>
+	);
+}
+
+export function ConditionalRulesHelp({ groupName }: { groupName: string }) {
+	const { isCopied, copy } = useCopyToClipboard();
+	const normalizedName = groupName.trim();
+	const rulesFile = useQuery(trpc.contextExplorer.readFile.queryOptions({ path: 'RULES.md' }));
+	const groupSpecificRules = useMemo(() => {
+		if (!normalizedName || !rulesFile.data?.content) {
+			return '';
+		}
+		try {
+			return extractConditionalGroupContent(rulesFile.data.content, normalizedName);
+		} catch {
+			return '';
+		}
+	}, [normalizedName, rulesFile.data?.content]);
+	const exampleSnippet = normalizedName
+		? `{% if group(${JSON.stringify(normalizedName)}) %}\nGroup-specific instructions...\n{% endif %}`
+		: null;
+	const snippet = groupSpecificRules || exampleSnippet;
+
+	return (
+		<section className='flex min-w-0 flex-col gap-3 border-t pt-5'>
+			<div>
+				<h3 className='text-sm font-medium'>Conditional Rules</h3>
+				{normalizedName && !rulesFile.isLoading && (
+					<p className='text-xs text-muted-foreground'>
+						{groupSpecificRules
+							? 'This group has specific rules in RULES.md.'
+							: 'Add a conditional block to RULES.md to give this group specific rules.'}
+					</p>
+				)}
+			</div>
+			{!normalizedName ? (
+				<p className='text-xs text-muted-foreground'>Enter a group name to generate a snippet.</p>
+			) : rulesFile.isLoading ? (
+				<p className='text-xs text-muted-foreground'>Loading RULES.md...</p>
+			) : snippet ? (
+				<div className='relative min-w-0 rounded-md bg-muted p-3 pr-12'>
+					<pre className='whitespace-pre-wrap break-words text-xs [overflow-wrap:anywhere]'>
+						<code>{snippet}</code>
+					</pre>
+					<Button
+						type='button'
+						variant='ghost'
+						size='icon-sm'
+						className='absolute right-2 top-2'
+						aria-label='Copy conditional rules snippet'
+						onClick={() => void copy(snippet)}
+					>
+						{isCopied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
+					</Button>
+				</div>
+			) : null}
+		</section>
+	);
+}
+
+export function hasUserGroupEditorChanges(
+	group: UserGroupEditorGroup,
+	values: {
+		name: string;
+		featureGrants: UserGroupFeature[];
+		toolCallDensityPolicy: ToolCallDensityPolicy;
+		projectSharing?: ProjectSharingPermission;
+		shareTargets?: GroupShareTargets;
+		showAllSettings?: boolean;
+		advancedContextExplorer?: boolean;
+		preloadedSkills?: string[];
+		databaseAccess: DatabaseContextAccess;
+		docsAccess?: DocsContextAccess;
+		filesAccess?: FilesContextAccess;
+		mcpAccess?: McpAccess;
+		skillsAccess?: SkillsAccess;
+		ssoMappings?: UserGroupSsoMappings;
+		rowPolicies?: UserGroupRowPolicies;
+	},
+): boolean {
+	return (
+		(!group.isDefault && values.name.trim() !== group.name.trim()) ||
+		!haveSameItems(values.featureGrants, group.featureGrants) ||
+		values.toolCallDensityPolicy.defaultDensity !== group.toolCallDensityPolicy.defaultDensity ||
+		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
+		(values.projectSharing ?? group.projectSharing) !== group.projectSharing ||
+		!haveSameShareTargets(
+			values.shareTargets ?? group.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS,
+			group.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS,
+		) ||
+		(values.showAllSettings ?? group.showAllSettings) !== group.showAllSettings ||
+		(values.advancedContextExplorer ?? group.advancedContextExplorer) !== group.advancedContextExplorer ||
+		!haveSameOrderedItems(values.preloadedSkills ?? group.preloadedSkills, group.preloadedSkills) ||
+		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
+		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
+		!haveSameFileTreeAccess(values.filesAccess ?? group.filesAccess, group.filesAccess) ||
+		!haveSameMcpAccess(values.mcpAccess ?? group.mcpAccess, group.mcpAccess) ||
+		!haveSameSkillsAccess(values.skillsAccess ?? group.skillsAccess, group.skillsAccess) ||
+		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
+		!haveSameRowPolicies(
+			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
+			group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
+		)
+	);
+}
+
+export function invalidateUserGroupQueries(queryClient: QueryClient) {
+	return Promise.all([
+		queryClient.invalidateQueries({ queryKey: trpc.userGroup.overview.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccess.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccessForUser.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveOidcEnvMappings.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveMicrosoftEnvMappings.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.project.getDatabaseObjects.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: [['memberBudget']] }),
+	]);
+}
+
+function invalidateShareQueries(queryClient: QueryClient) {
+	return Promise.all([
+		queryClient.invalidateQueries({ queryKey: [['sharedChat']] }),
+		queryClient.invalidateQueries({ queryKey: [['storyShare']] }),
+	]);
+}
+
+function resolveSavedGroupBudget(
+	group: UserGroupEditorGroup | null,
+	overview: { defaultLimitUsd: number; groups: Array<{ id: string; limitUsd: number | null }> } | undefined,
+): number | null {
+	if (!group || !overview) {
+		return null;
+	}
+	if (group.isDefault) {
+		return overview.defaultLimitUsd;
+	}
+	return overview.groups.find((candidate) => candidate.id === group.id)?.limitUsd ?? null;
+}
+
+function buildGroupBudgetMembers(
+	budgetMembers: Array<{
+		id: string;
+		name: string;
+		email: string;
+		spendUsd: number;
+		personalLimitUsd: number | null;
+		groupIds: string[];
+	}>,
+	userGroups:
+		| {
+				users: Array<{ id: string; name: string; email: string }>;
+				memberships: Array<{ groupId: string; userId: string }>;
+		  }
+		| undefined,
+) {
+	if (!userGroups) {
+		return budgetMembers;
+	}
+
+	const budgetByUserId = new Map(budgetMembers.map((member) => [member.id, member]));
+	const groupIdsByUserId = new Map<string, string[]>();
+	for (const membership of userGroups.memberships) {
+		groupIdsByUserId.set(membership.userId, [
+			...(groupIdsByUserId.get(membership.userId) ?? []),
+			membership.groupId,
+		]);
+	}
+
+	return userGroups.users.map((user) => {
+		const budget = budgetByUserId.get(user.id);
+		return {
+			id: user.id,
+			name: user.name,
+			email: user.email,
+			spendUsd: budget?.spendUsd ?? 0,
+			personalLimitUsd: budget?.personalLimitUsd ?? null,
+			groupIds: groupIdsByUserId.get(user.id) ?? [],
+		};
+	});
+}
+
+function UserGroupFeatures({
+	featureGrants,
+	onFeatureGrantsChange,
+	isDefaultGroup,
+	defaultAllowsProjectSharing,
+	projectSharing,
+	onProjectSharingChange,
+	groupName,
+	shareTargets,
+	shareTargetGroups,
+	onShareTargetsChange,
+	toolCallDensityPolicy,
+	onToolCallDensityPolicyChange,
+}: {
+	featureGrants: UserGroupFeature[];
+	onFeatureGrantsChange: (featureGrants: UserGroupFeature[]) => void;
+	isDefaultGroup: boolean;
+	defaultAllowsProjectSharing: boolean | undefined;
+	projectSharing: ProjectSharingPermission;
+	onProjectSharingChange: (value: ProjectSharingPermission) => void;
+	groupName: string;
+	shareTargets: GroupShareTargets;
+	shareTargetGroups: ShareTargetGroupOption[];
+	onShareTargetsChange: (shareTargets: GroupShareTargets) => void;
+	toolCallDensityPolicy: ToolCallDensityPolicy;
+	onToolCallDensityPolicyChange: (policy: ToolCallDensityPolicy) => void;
+}) {
+	const offeredFeatures = useOfferedUserGroupFeatures();
+	return (
+		<div className='flex flex-col gap-6'>
+			<div className='flex flex-col gap-3'>
+				<div>
+					<h3 className='text-sm font-medium'>Allowed features</h3>
+					<p className='text-xs text-muted-foreground'>Choose which product features this group can use.</p>
+				</div>
+				<div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+					{offeredFeatures.map((feature) => (
+						<UserGroupFeatureCard
+							key={feature.key}
+							feature={feature}
+							selected={featureGrants.includes(feature.key)}
+							disabledReason={
+								featureGrants.includes(feature.key)
+									? undefined
+									: missingPrerequisiteReason(feature, featureGrants)
+							}
+							onSelectedChange={(selected) =>
+								onFeatureGrantsChange(toggleFeatureGrant(featureGrants, feature.key, selected))
+							}
+						/>
+					))}
+				</div>
+			</div>
+
+			<UserGroupProjectSharing
+				isDefaultGroup={isDefaultGroup}
+				groupName={groupName}
+				defaultAllowed={defaultAllowsProjectSharing}
+				value={projectSharing}
+				onChange={onProjectSharingChange}
+				shareTargets={shareTargets}
+				shareTargetGroups={shareTargetGroups}
+				onShareTargetsChange={onShareTargetsChange}
+			/>
+
+			<div className='flex flex-col gap-3'>
+				<div>
+					<h3 className='text-sm font-medium'>Tool call density</h3>
+					<p className='text-xs text-muted-foreground'>Set how tool calls appear for this group.</p>
+				</div>
+				<div className='flex items-center justify-between gap-4 rounded-lg border p-3'>
+					<div>
+						<p className='text-sm font-medium'>Default density</p>
+						<p className='text-xs text-muted-foreground'>
+							{toolCallDensityPolicy.canChange
+								? 'Members start with this setting.'
+								: 'Members always use this setting.'}
+						</p>
+					</div>
+					<ToolCallDensitySlider
+						value={toolCallDensityPolicy.defaultDensity}
+						onValueChange={(defaultDensity) =>
+							onToolCallDensityPolicyChange({ ...toolCallDensityPolicy, defaultDensity })
+						}
+					/>
+				</div>
+				<UserGroupSwitchRow
+					id='user-group-density-can-change'
+					label='Let users choose'
+					description='Members can override the default in their account settings.'
+					checked={toolCallDensityPolicy.canChange}
+					onCheckedChange={(canChange) =>
+						onToolCallDensityPolicyChange({ ...toolCallDensityPolicy, canChange })
+					}
+				/>
+			</div>
+		</div>
+	);
+}
+
+function haveSameItems<T>(left: T[], right: T[]): boolean {
+	const leftItems = new Set(left);
+	const rightItems = new Set(right);
+	return leftItems.size === rightItems.size && [...leftItems].every((item) => rightItems.has(item));
+}
+
+function haveSameOrderedItems<T>(left: readonly T[], right: readonly T[]): boolean {
+	return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function haveSameShareTargets(left: GroupShareTargets, right: GroupShareTargets): boolean {
+	return left.includeOwnGroup === right.includeOwnGroup && haveSameItems(left.groupIds, right.groupIds);
+}
+
+function haveSameDatabaseAccess(left: DatabaseContextAccess, right: DatabaseContextAccess): boolean {
+	return (
+		JSON.stringify(normalizeDatabaseContextAccess(left)) === JSON.stringify(normalizeDatabaseContextAccess(right))
+	);
+}
+
+function haveSameFileTreeAccess(left: FileTreeAccess, right: FileTreeAccess): boolean {
+	return JSON.stringify(normalizeFileTreeAccess(left)) === JSON.stringify(normalizeFileTreeAccess(right));
+}
+
+function haveSameMcpAccess(left: McpAccess, right: McpAccess): boolean {
+	return JSON.stringify(normalizeMcpAccess(left)) === JSON.stringify(normalizeMcpAccess(right));
+}
+
+function haveSameSkillsAccess(left: SkillsAccess, right: SkillsAccess): boolean {
+	return JSON.stringify(normalizeSkillsAccess(left)) === JSON.stringify(normalizeSkillsAccess(right));
+}
+
+function haveSameSsoMappings(left: UserGroupSsoMappings, right: UserGroupSsoMappings): boolean {
+	return JSON.stringify(normalizeUserGroupSsoMappings(left)) === JSON.stringify(normalizeUserGroupSsoMappings(right));
+}
+
+function haveSameRowPolicies(left: UserGroupRowPolicies, right: UserGroupRowPolicies): boolean {
+	try {
+		return (
+			JSON.stringify(normalizeUserGroupRowPolicies(left)) === JSON.stringify(normalizeUserGroupRowPolicies(right))
+		);
+	} catch {
+		return false;
+	}
+}
+
+/** Unchecking a feature also unchecks the ones that require it, so a group never grants a dependent feature alone. */
+function toggleFeatureGrant(
+	grants: UserGroupFeature[],
+	feature: UserGroupFeature,
+	selected: boolean,
+): UserGroupFeature[] {
+	if (selected) {
+		return [...grants, feature];
+	}
+	const dependents = USER_GROUP_FEATURE_DEFINITIONS.filter((definition) => definition.requires === feature).map(
+		(definition) => definition.key,
+	);
+	return grants.filter((key) => key !== feature && !dependents.includes(key));
+}
+
+function missingPrerequisiteReason(
+	feature: UserGroupFeatureDefinition,
+	grants: UserGroupFeature[],
+): string | undefined {
+	if (!feature.requires || grants.includes(feature.requires)) {
+		return undefined;
+	}
+	const prerequisite = USER_GROUP_FEATURE_DEFINITIONS.find((definition) => definition.key === feature.requires);
+	return `Requires ${prerequisite?.label ?? feature.requires}.`;
+}

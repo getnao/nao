@@ -1,33 +1,43 @@
 import {
 	Activity,
 	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
 	Code,
-	Copy,
 	Ellipsis,
 	Eye,
-	Globe,
+	Info,
 	Loader2,
 	Maximize2,
 	Pencil,
-	RefreshCw,
 	RotateCcw,
 	Save,
-	ScanText,
-	Star,
-	Upload,
 	X,
 } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { ShareSource } from '@nao/shared/types';
 import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
+import type { StoryDownloadOptions } from '@/components/story-download';
+import type { CustomStoryViewModeControls } from '@/components/custom-story/custom-story-view-mode';
+import type { StoryVersionEntry } from '@/components/story-version-nav';
+import {
+	CustomStoryElementSelectionToggle,
+	CustomStoryViewModeToggle,
+	isCustomStoryViewMode,
+} from '@/components/custom-story/custom-story-view-mode';
+import { useMentionedStoriesContext } from '@/contexts/mentioned-stories';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useIsMobile } from '@/hooks/use-is-mobile';
-import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
-import { StoryDownload } from '@/components/story-download';
-import { useStoryCopy } from '@/hooks/use-story-copy';
+import { StoryDownloadMenu, canDownloadStory } from '@/components/story-download';
+import {
+	ShareButton,
+	StoryDuplicateMenuItem,
+	StoryFavoriteMenuItem,
+	StoryFavoritedButton,
+	StoryFeedbackButtons,
+} from '@/components/story-header-actions';
+import { describeViewedVersion, StoryVersionNav } from '@/components/story-version-nav';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
@@ -36,40 +46,46 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
-import { LiveStoryTimestamp, StoryRefreshFailureBanner } from '@/components/story-page-header';
+import { LiveStoryTimestamp, StoryRefreshButton, StoryRefreshFailureBanner } from '@/components/story-page-header';
 import { cn } from '@/lib/utils';
 
-export interface StoryHeaderProps {
+interface StoryViewModeControls {
+	viewMode: StoryViewMode;
+	onViewModeChange: (mode: StoryViewMode) => void;
+}
+
+interface StoryHeaderBaseProps {
 	title: string;
 	chatId: string;
 	storySlug: string;
 	storyId?: string | null;
-	shareId?: string | null;
-	shareType?: 'chat' | 'story' | null;
+	shareSource?: ShareSource | null;
 	allStories: StorySummary[];
 	onSwitchStory: (id: string) => void;
-	viewMode: StoryViewMode;
-	onViewModeChange: (mode: StoryViewMode) => void;
 	currentVersion: number;
-	totalVersions: number;
+	versions: StoryVersionEntry[];
 	versionNumber?: number;
-	onPreviousVersion: () => void;
-	onNextVersion: () => void;
+	versionDate?: string | Date | null;
+	onSelectVersion: (version: number) => void;
 	isViewingLatest: boolean;
 	onRestore: () => void;
-	onSave: () => void;
-	onCancel: () => void;
+	onSave?: () => void;
+	onCancel?: () => void;
 	onShare: () => void;
 	onOpenAnalytics: () => void;
 	onEnlarge: () => void;
 	isShared: boolean;
 	isAgentRunning: boolean;
+	isEditLocked?: boolean;
 	isStoryUpdating: boolean;
 	isSaving?: boolean;
 	isReadonlyMode: boolean;
+	isReplay?: boolean;
 	isLive: boolean;
 	isLiveUpdating: boolean;
 	isRefreshing: boolean;
@@ -80,7 +96,10 @@ export interface StoryHeaderProps {
 	isCodeValid?: boolean;
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
+	onDownload?: StoryDownloadOptions['onDownload'];
 }
+
+export type StoryHeaderProps = StoryHeaderBaseProps & (StoryViewModeControls | CustomStoryViewModeControls);
 
 function mergeStorySummaries(
 	messageStories: StorySummary[],
@@ -100,17 +119,14 @@ export const StoryHeader = memo(function StoryHeader({
 	chatId,
 	storySlug,
 	storyId,
-	shareId,
-	shareType,
+	shareSource,
 	allStories,
 	onSwitchStory,
-	viewMode,
-	onViewModeChange,
 	currentVersion,
-	totalVersions,
+	versions,
 	versionNumber,
-	onPreviousVersion,
-	onNextVersion,
+	versionDate,
+	onSelectVersion,
 	isViewingLatest,
 	onRestore,
 	onSave,
@@ -120,9 +136,11 @@ export const StoryHeader = memo(function StoryHeader({
 	onEnlarge,
 	isShared,
 	isAgentRunning,
+	isEditLocked = false,
 	isStoryUpdating,
 	isSaving = false,
 	isReadonlyMode,
+	isReplay = false,
 	isLive,
 	isLiveUpdating,
 	isRefreshing,
@@ -133,65 +151,71 @@ export const StoryHeader = memo(function StoryHeader({
 	isCodeValid = true,
 	cachedAt,
 	lastRefreshFailure,
+	onDownload,
+	...viewModeControls
 }: StoryHeaderProps) {
+	const { viewMode } = viewModeControls;
 	const isMobile = useIsMobile();
-	const { toggle: toggleFavorite, isPending: isFavoritePending } = useToggleFavorite('story');
-	const { data: favorites } = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: !!storyId });
-	const isFavorited = !!storyId && (favorites?.storyIds.includes(storyId) ?? false);
-	const { data: persistedStories = [] } = useQuery({
-		...trpc.story.listStories.queryOptions({ chatId }),
-		enabled: !isReadonlyMode,
-	});
-	const {
-		canCopy,
-		copyStory,
-		isCopying,
-		error: copyError,
-	} = useStoryCopy({
+	const { customStoryCreationEnabled } = useEffectiveUserGroupFeatures();
+	const { otherStories, switchToStory, mentionedStories, openMentionedStory } = useSwitchableStories({
 		chatId,
 		storySlug,
-		shareId: shareId ?? undefined,
-		shareType: shareType ?? undefined,
-		isOwner: !isReadonlyMode,
-		versionNumber,
+		allStories,
+		onSwitchStory,
+		isReadonlyMode,
 	});
-	const stories = useMemo(() => mergeStorySummaries(allStories, persistedStories), [allStories, persistedStories]);
-	const otherStories = useMemo(() => stories.filter((story) => story.id !== storySlug), [stories, storySlug]);
-	const hasMultiple = otherStories.length > 0;
+	const hasMultiple = otherStories.length > 0 || mentionedStories.length > 0;
 	const isEditingCode = viewMode === 'code' && isCodeDirty && !isReadonlyMode;
 	const showSubHeader = viewMode === 'edit' || isEditingCode || !isViewingLatest;
 
 	const titleElement = hasMultiple ? (
-		<div className='flex min-w-0 flex-1 items-center gap-1'>
+		<div className='flex min-w-20 flex-1 items-center gap-1'>
 			<EditableStoryTitle
 				storyId={storyId}
 				title={title}
-				canEdit={!isReadonlyMode}
+				canEdit={!isReadonlyMode && !isEditLocked}
 				heading='h3'
 				className='min-w-0 truncate text-sm font-medium'
 				inputClassName='text-sm font-medium'
 			/>
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button type='button' variant='ghost-muted' size='icon-sm' aria-label='Switch story'>
+					<Button
+						type='button'
+						variant='ghost-muted'
+						className='hover:rounded-full'
+						size='icon-sm'
+						aria-label='Switch story'
+					>
 						<ChevronDown className='size-3.5' strokeWidth={2.25} />
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align='start'>
 					{otherStories.map((story) => (
-						<DropdownMenuItem key={story.id} onClick={() => onSwitchStory(story.id)}>
+						<DropdownMenuItem key={story.id} onClick={() => switchToStory(story.id)}>
 							<span className='truncate'>{story.title}</span>
 						</DropdownMenuItem>
 					))}
+					{mentionedStories.length > 0 && (
+						<>
+							{otherStories.length > 0 && <DropdownMenuSeparator />}
+							<DropdownMenuLabel className='text-xs text-muted-foreground'>Mention</DropdownMenuLabel>
+							{mentionedStories.map((story) => (
+								<DropdownMenuItem key={story.storyId} onClick={() => openMentionedStory(story)}>
+									<span className='truncate'>{story.title}</span>
+								</DropdownMenuItem>
+							))}
+						</>
+					)}
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
 	) : (
-		<div className='min-w-0 flex-1'>
+		<div className='min-w-20 flex-1'>
 			<EditableStoryTitle
 				storyId={storyId}
 				title={title}
-				canEdit={!isReadonlyMode}
+				canEdit={!isReadonlyMode && !isEditLocked}
 				heading='h3'
 				className='truncate text-sm font-medium'
 				inputClassName='text-sm font-medium'
@@ -206,102 +230,30 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const versionNav = totalVersions > 1 && (
-		<div className='flex items-center gap-1'>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full'
-				onClick={onPreviousVersion}
-				disabled={currentVersion <= 1}
-			>
-				<ChevronLeft className='size-3' strokeWidth={2.25} />
-			</Button>
-			<span className='text-xs text-muted-foreground tabular-nums min-w-6 text-center'>
-				{currentVersion}/{totalVersions}
-			</span>
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full'
-				onClick={onNextVersion}
-				disabled={currentVersion >= totalVersions}
-			>
-				<ChevronRight className='size-3' strokeWidth={2.25} />
-			</Button>
-		</div>
-	);
-
-	const viewModeToggle = (
-		<div className='flex items-center rounded-full border p-0.5 gap-1.5'>
-			<Button
-				variant='ghost'
-				className={cn(viewMode === 'preview' && 'bg-accent rounded-full', 'hover:rounded-full')}
-				size='icon-xs'
-				onClick={() => onViewModeChange('preview')}
-				disabled={isSaving}
-			>
-				<Eye className='size-3' strokeWidth={2.25} />
-			</Button>
-			{!isReadonlyMode && (
-				<Button
-					variant='ghost'
-					className={cn(viewMode === 'edit' && 'bg-accent rounded-full', 'hover:rounded-full')}
-					size='icon-xs'
-					onClick={() => onViewModeChange('edit')}
-					disabled={isAgentRunning || isSaving}
-				>
-					<Pencil className='size-3' strokeWidth={2.25} />
-				</Button>
-			)}
-			<Button
-				variant='ghost'
-				className={cn(viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
-				size='icon-xs'
-				onClick={() => onViewModeChange('code')}
-				disabled={isSaving}
-			>
-				<Code className='size-3' strokeWidth={2.25} />
-			</Button>
-		</div>
-	);
-
-	const downloadButton = (
-		<StoryDownload
-			iconOnly
-			chatId={chatId}
-			storySlug={storySlug}
-			shareId={shareId ?? undefined}
-			shareType={shareType ?? undefined}
-			isOwner={!isReadonlyMode}
-			isAgentRunning={isAgentRunning}
-			isSaving={isSaving}
-			versionNumber={versionNumber}
+	const versionNav = (
+		<StoryVersionNav
+			storyId={storyId}
+			currentVersion={currentVersion}
+			versions={versions}
+			onSelectVersion={onSelectVersion}
 		/>
 	);
 
-	const starButton = storyId && (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Button
-					variant='ghost'
-					size='icon-sm'
-					className='hover:rounded-full'
-					onClick={() => toggleFavorite(storyId)}
-					disabled={isFavoritePending}
-					aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-				>
-					<Star
-						className={cn('size-3.5', isFavorited && 'fill-foreground text-foreground')}
-						strokeWidth={2.25}
-					/>
-				</Button>
-			</TooltipTrigger>
-			<TooltipContent>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</TooltipContent>
-		</Tooltip>
+	const viewModeToggle = (
+		<ViewModeToggle
+			controls={viewModeControls}
+			isReadonlyMode={isReadonlyMode}
+			isAgentRunning={isAgentRunning}
+			isEditLocked={isEditLocked}
+			isSaving={isSaving}
+		/>
 	);
 
-	const liveControls = !isReadonlyMode && (
+	const shareButton = !isReadonlyMode && (
+		<ShareButton isShared={isShared} onShare={onShare} disabled={isAgentRunning} />
+	);
+
+	const liveControls = (!isReadonlyMode || isReplay) && (
 		<>
 			<Tooltip>
 				<TooltipTrigger asChild>
@@ -309,7 +261,7 @@ export const StoryHeader = memo(function StoryHeader({
 						<button
 							type='button'
 							onClick={onOpenLiveSettings}
-							disabled={isAgentRunning || isLiveUpdating}
+							disabled={isReadonlyMode || isAgentRunning || isLiveUpdating}
 							className={cn(
 								'flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border hover:bg-secondary rounded-full px-2 py-0.75',
 								isLiveUpdating && 'pointer-events-none',
@@ -326,37 +278,64 @@ export const StoryHeader = memo(function StoryHeader({
 					</span>
 				</TooltipTrigger>
 				<TooltipContent>
-					{isLiveUpdating ? 'Updating...' : isLive ? 'Live story settings' : 'Enable live mode'}
+					{isLiveUpdating
+						? 'Updating...'
+						: isReadonlyMode
+							? isLive
+								? 'Live mode on'
+								: 'Live mode off'
+							: isLive
+								? 'Live story settings'
+								: 'Enable live mode'}
 				</TooltipContent>
 			</Tooltip>
 			{isLive && (
 				<>
 					{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant='ghost'
-								size='icon-sm'
-								className='hover:rounded-full'
-								onClick={onRefreshData}
-								disabled={isRefreshing}
-								aria-label='Refresh data'
-							>
-								{isRefreshing ? (
-									<Loader2 className='size-3 animate-spin' strokeWidth={2.25} />
-								) : (
-									<RefreshCw className='size-3' strokeWidth={2.25} />
-								)}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Refresh data</TooltipContent>
-					</Tooltip>
+					{!isReadonlyMode && <StoryRefreshButton isRefreshing={isRefreshing} onRefresh={onRefreshData} />}
 				</>
 			)}
 		</>
 	);
 
-	const actionButtons = (!isReadonlyMode || canCopy) && (
+	const replayAnalyticsButton = isReplay && isReadonlyMode && (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					className='hover:rounded-full'
+					onClick={onOpenAnalytics}
+					aria-label='Analytics'
+				>
+					<Info className='size-3' />
+				</Button>
+			</TooltipTrigger>
+			<TooltipContent>Analytics</TooltipContent>
+		</Tooltip>
+	);
+
+	const downloadOptions = {
+		chatId,
+		storySlug,
+		shareSource: shareSource ?? undefined,
+		isOwner: !isReadonlyMode,
+		versionNumber,
+		onDownload,
+	};
+	const showActionsMenu = !isReadonlyMode || canDownloadStory(downloadOptions);
+	const canFavorite = !isReadonlyMode && !!storyId;
+	const canDuplicate =
+		!isReadonlyMode && (customStoryCreationEnabled || !isCustomStoryViewModeControls(viewModeControls));
+
+	const feedbackButtons = storyId ? <StoryFeedbackButtons storyId={storyId} /> : null;
+	const favoritedButton = canFavorite && <StoryFavoritedButton storyId={storyId} />;
+
+	const elementSelectionToggle = isCustomStoryViewModeControls(viewModeControls) && (
+		<CustomStoryElementSelectionToggle {...viewModeControls} />
+	);
+
+	const actionButtons = showActionsMenu && (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<Button variant='ghost' size='icon-sm' className='hover:rounded-full' aria-label='More actions'>
@@ -364,37 +343,21 @@ export const StoryHeader = memo(function StoryHeader({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' className='w-auto min-w-20'>
+				<StoryDownloadMenu {...downloadOptions} isAgentRunning={isAgentRunning} isSaving={isSaving} />
+				{canFavorite && <StoryFavoriteMenuItem storyId={storyId} />}
 				{!isReadonlyMode && (
-					<DropdownMenuItem onSelect={onShare} disabled={isAgentRunning}>
-						{isShared ? (
-							<Globe className='text-primary' strokeWidth={2.25} />
-						) : (
-							<Upload strokeWidth={2.25} />
-						)}
-						<span>Share</span>
-					</DropdownMenuItem>
+					<>
+						<DropdownMenuItem onSelect={onOpenAnalytics}>
+							<Info strokeWidth={2.25} />
+							<span>Analytics</span>
+						</DropdownMenuItem>
+						<DropdownMenuItem onSelect={onEnlarge} disabled={!storyId}>
+							<Maximize2 strokeWidth={2.25} />
+							<span>Expand</span>
+						</DropdownMenuItem>
+					</>
 				)}
-				{canCopy && (
-					<DropdownMenuItem
-						onSelect={() => void copyStory()}
-						disabled={isAgentRunning || isSaving || isCopying}
-					>
-						<Copy strokeWidth={2.25} />
-						<span>Copy</span>
-					</DropdownMenuItem>
-				)}
-				{!isReadonlyMode && (
-					<DropdownMenuItem onSelect={onOpenAnalytics}>
-						<ScanText className='size-3' />
-						<span>Analytics</span>
-					</DropdownMenuItem>
-				)}
-				{!isReadonlyMode && (
-					<DropdownMenuItem onSelect={onEnlarge}>
-						<Maximize2 strokeWidth={2.25} />
-						<span>Expand</span>
-					</DropdownMenuItem>
-				)}
+				{canDuplicate && storyId && <StoryDuplicateMenuItem storyId={storyId} versionNumber={versionNumber} />}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -416,8 +379,11 @@ export const StoryHeader = memo(function StoryHeader({
 						<div className='flex-1' />
 						{viewModeToggle}
 						{liveControls}
-						{downloadButton}
-						{starButton}
+						{feedbackButtons}
+						{favoritedButton}
+						{shareButton}
+						{replayAnalyticsButton}
+						{elementSelectionToggle}
 						{actionButtons}
 					</div>
 					<div className='flex items-center gap-2 border-b px-4 py-2'>
@@ -442,18 +408,16 @@ export const StoryHeader = memo(function StoryHeader({
 					{versionNav}
 					{viewModeToggle}
 					{liveControls}
-					{downloadButton}
-					{starButton}
+					{feedbackButtons}
+					{favoritedButton}
+					{shareButton}
+					{replayAnalyticsButton}
+					{elementSelectionToggle}
 					{actionButtons}
 				</div>
 			)}
 
-			{copyError && (
-				<p role='alert' className='border-b bg-destructive/10 px-4 py-2 text-xs text-destructive'>
-					{copyError}
-				</p>
-			)}
-			{lastRefreshFailure && <StoryRefreshFailureBanner failure={lastRefreshFailure} />}
+			{lastRefreshFailure && <StoryRefreshFailureBanner failure={lastRefreshFailure} isRetrying={isRefreshing} />}
 			{showSubHeader && (
 				<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2'>
 					{viewMode === 'edit' ? (
@@ -503,14 +467,14 @@ export const StoryHeader = memo(function StoryHeader({
 					) : (
 						<>
 							<span className='text-xs text-muted-foreground'>
-								Viewing v{currentVersion} of {totalVersions}
+								{describeViewedVersion(versionDate, currentVersion)}
 							</span>
 							<Button
 								variant='outline'
 								size='sm'
 								onClick={onRestore}
-								disabled={isSaving}
-								className='gap-1.5'
+								disabled={isSaving || isEditLocked}
+								className='gap-1.5 rounded-full'
 							>
 								<RotateCcw className='size-3' strokeWidth={2.25} />
 								<span>Restore</span>
@@ -522,3 +486,105 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 });
+
+interface SwitchableStoriesParams {
+	chatId: string;
+	storySlug: string;
+	allStories: StorySummary[];
+	onSwitchStory: (id: string) => void;
+	isReadonlyMode: boolean;
+}
+
+/** The stories of the conversation and the ones it mentions, even when the viewed story comes from another chat. */
+function useSwitchableStories({
+	chatId,
+	storySlug,
+	allStories,
+	onSwitchStory,
+	isReadonlyMode,
+}: SwitchableStoriesParams) {
+	const mentioned = useMentionedStoriesContext();
+	const conversationChatId = mentioned.conversationChatId ?? chatId;
+	const isConversationStory = conversationChatId === chatId;
+	const { data: persistedStories = [] } = useQuery({
+		...trpc.story.listStories.queryOptions({ chatId: conversationChatId }),
+		enabled: !isReadonlyMode,
+	});
+	const messageStories = isConversationStory ? allStories : mentioned.conversationStories;
+	const otherStories = useMemo(() => {
+		const stories = mergeStorySummaries(messageStories, persistedStories);
+		return isConversationStory ? stories.filter((story) => story.id !== storySlug) : stories;
+	}, [messageStories, persistedStories, isConversationStory, storySlug]);
+	const mentionedStories = useMemo(
+		() => mentioned.stories.filter((story) => story.chatId !== chatId || story.slug !== storySlug),
+		[mentioned.stories, chatId, storySlug],
+	);
+
+	return {
+		otherStories,
+		switchToStory: isConversationStory ? onSwitchStory : mentioned.openConversationStory,
+		mentionedStories,
+		openMentionedStory: mentioned.open,
+	};
+}
+
+interface ViewModeToggleProps {
+	controls: StoryViewModeControls | CustomStoryViewModeControls;
+	isReadonlyMode: boolean;
+	isAgentRunning: boolean;
+	isEditLocked: boolean;
+	isSaving: boolean;
+}
+
+function ViewModeToggle({ controls, isReadonlyMode, isAgentRunning, isEditLocked, isSaving }: ViewModeToggleProps) {
+	if (isCustomStoryViewModeControls(controls)) {
+		return <CustomStoryViewModeToggle {...controls} />;
+	}
+
+	const { viewMode, onViewModeChange } = controls;
+
+	return (
+		<div className='flex items-center rounded-full border p-0.5 gap-1.5'>
+			<Button
+				variant='ghost'
+				className={cn(
+					'size-5.5 px-2',
+					viewMode === 'preview' && 'bg-accent rounded-full',
+					'hover:rounded-full',
+				)}
+				onClick={() => onViewModeChange('preview')}
+				disabled={isSaving}
+			>
+				<Eye className='size-3' strokeWidth={2.25} />
+			</Button>
+			{!isReadonlyMode && (
+				<Button
+					variant='ghost'
+					className={cn(
+						'size-5.5 px-2',
+						viewMode === 'edit' && 'bg-accent rounded-full',
+						'hover:rounded-full',
+					)}
+					onClick={() => onViewModeChange('edit')}
+					disabled={isAgentRunning || isSaving || isEditLocked}
+				>
+					<Pencil className='size-3' strokeWidth={2.25} />
+				</Button>
+			)}
+			<Button
+				variant='ghost'
+				className={cn('size-5.5 px-2', viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
+				onClick={() => onViewModeChange('code')}
+				disabled={isSaving}
+			>
+				<Code className='size-3' strokeWidth={2.25} />
+			</Button>
+		</div>
+	);
+}
+
+function isCustomStoryViewModeControls(
+	controls: StoryViewModeControls | CustomStoryViewModeControls,
+): controls is CustomStoryViewModeControls {
+	return isCustomStoryViewMode(controls.viewMode);
+}

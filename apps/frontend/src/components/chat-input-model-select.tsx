@@ -1,38 +1,70 @@
-import { useCallback, useEffect } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Settings, TriangleAlert } from 'lucide-react';
-import { providerLabel, providerName } from '@nao/shared/types';
-import type { LlmProvider } from '@nao/shared/types';
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { LockKeyhole, Settings, TriangleAlert } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { isSameModel, providerLabel, providerName } from '@nao/shared/types';
+
+import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import type { KeyboardEvent } from 'react';
+
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
-import { SimpleTooltip } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
-import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
-import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { getShortcut, getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { matchesShortcut } from '@/lib/platform';
+import { cn } from '@/lib/utils';
 
 /** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
 const MANAGE_MODELS_VALUE = 'manage-models';
+/** Follows the default chat model set by the admin instead of pinning a model. */
+const NAO_DEFAULT_VALUE = 'nao-default';
+const NAO_DEFAULT_LABEL = 'Auto';
+const EXAMPLE_MODEL_VALUE = 'example-model';
+const PROJECT_SETUP_VALUE = 'project-setup';
+const EXAMPLE_MODEL_NAME = 'GPT 6 Sol';
+const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
-export function ChatInputModelSelect() {
+export function ChatInputModelSelect({
+	isExample = false,
+	managedCreditsExhausted = false,
+}: {
+	isExample?: boolean;
+	managedCreditsExhausted?: boolean;
+}) {
 	const navigate = useNavigate();
 	const { isAdmin } = usePermissions();
-	const { availableModels, selectedModel, setSelectedModel, isPending, canCycleModels } = useModelSelection();
+	const {
+		availableModels,
+		defaultModel,
+		selectedModel,
+		usesDefaultModel,
+		setSelectedModel,
+		isPending,
+		canCycleModels,
+		cycleModel,
+		hasProject,
+	} = useModelSelection();
+	const { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange } = useSelectTriggerTooltip();
 
-	// Set default model when available models load, or reset if current selection is no longer available
+	// Fall back to the nao default when the pinned model is no longer available
 	useEffect(() => {
-		if (!availableModels || availableModels.length === 0) {
+		if (usesDefaultModel || !availableModels || availableModels.length === 0) {
 			return;
 		}
-
-		if (!availableModels.some((model) => isSameModel(model, selectedModel))) {
-			setSelectedModel(availableModels[0]);
+		if (!selectedModel || !availableModels.some((model) => isSameModel(model, selectedModel))) {
+			setSelectedModel(null);
 		}
-	}, [availableModels, selectedModel, setSelectedModel]);
+	}, [usesDefaultModel, availableModels, selectedModel, setSelectedModel]);
 
 	const handleModelValueChange = useCallback(
 		(value: string) => {
 			if (value === MANAGE_MODELS_VALUE) {
 				navigate({ to: '/settings/project/models' });
+				return;
+			}
+			if (value === NAO_DEFAULT_VALUE) {
+				setSelectedModel(null);
 				return;
 			}
 			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
@@ -42,53 +74,87 @@ export function ChatInputModelSelect() {
 		},
 		[availableModels, navigate, setSelectedModel],
 	);
+	const handleCycleModelShortcut = useCallback(
+		(event: KeyboardEvent<HTMLButtonElement>) => {
+			if (!matchesShortcut(event.nativeEvent, cycleModelShortcut)) {
+				return;
+			}
+			event.preventDefault();
+			if (managedCreditsExhausted) {
+				const nextConfiguredModel = availableModels?.find((model) => model.provider !== 'nao');
+				if (nextConfiguredModel) {
+					setSelectedModel(nextConfiguredModel);
+				}
+				return;
+			}
+			cycleModel();
+		},
+		[availableModels, cycleModel, managedCreditsExhausted, setSelectedModel],
+	);
 
 	const selectedAvailableModel = selectedModel
 		? availableModels?.find((model) => isSameModel(model, selectedModel))
 		: undefined;
-	const selectedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId ?? 'Select model';
+	const defaultAvailableModel = defaultModel
+		? availableModels?.find((model) => isSameModel(model, defaultModel))
+		: undefined;
+	const isDefaultManagedModel = defaultModel?.provider === 'nao';
+	const resolvedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId;
+	const selectedModelName = usesDefaultModel ? NAO_DEFAULT_LABEL : (resolvedModelName ?? 'Select model');
+	const selectValue = usesDefaultModel ? NAO_DEFAULT_VALUE : selectedModel ? modelValue(selectedModel) : undefined;
+
+	if (isExample) {
+		return <ExampleModel />;
+	}
 
 	if (isPending) {
 		return null;
 	}
 
 	if (!availableModels?.length) {
+		if (!hasProject) {
+			return <ExampleModel />;
+		}
 		return (
 			<Link
 				to='/settings/project/models'
-				className='flex items-center gap-1.5 text-sm text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300 transition-colors'
+				className='flex min-w-0 items-center gap-1.5 text-sm text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300 transition-colors'
 			>
-				<TriangleAlert className='size-3.5' />
-				<span>Configure a model</span>
+				<TriangleAlert className='size-3.5 shrink-0' />
+				<span className='truncate'>Configure a model</span>
 			</Link>
 		);
 	}
 
-	if (!canCycleModels) {
-		const singleModel = (
-			<>
-				{selectedModel && (
-					<LlmProviderIcon
-						provider={selectedModel.provider}
-						baseUrl={selectedAvailableModel?.baseUrl}
-						className='size-4'
-					/>
-				)}
-				<span>{selectedModelName}</span>
+	const singleModel = (
+		<>
+			{selectedModel && (
+				<LlmProviderIcon
+					provider={selectedModel.provider}
+					baseUrl={selectedAvailableModel?.baseUrl}
+					className='size-4 shrink-0'
+				/>
+			)}
+			<span className={cn('flex min-w-0 items-center gap-2', selectedModel && '@max-xs:sr-only')}>
+				<span className='truncate'>{selectedModelName}</span>
 				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
-			</>
-		);
+			</span>
+		</>
+	);
 
+	if (!canCycleModels) {
 		if (!isAdmin) {
 			return (
-				<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>{singleModel}</div>
+				<div className='flex min-w-0 items-center gap-2 text-sm font-normal text-muted-foreground'>
+					{singleModel}
+				</div>
 			);
 		}
 
 		return (
 			<Link
 				to='/settings/project/models'
-				className='flex items-center gap-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors'
+				className='flex min-w-0 items-center gap-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors'
 			>
 				{singleModel}
 			</Link>
@@ -96,31 +162,71 @@ export function ChatInputModelSelect() {
 	}
 
 	return (
-		<Select
-			value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
-			onValueChange={handleModelValueChange}
-		>
-			<SimpleTooltip side='top' content={`Cycle models with ${getShortcutLabel('cycle-model')}`}>
-				<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm'>
-					<SelectValue>
-						<div className='flex items-center gap-2'>
-							{selectedModel && (
-								<LlmProviderIcon
-									provider={selectedModel.provider}
-									baseUrl={selectedAvailableModel?.baseUrl}
-									className='size-4'
-								/>
-							)}
-							<span className='leading-none'>{selectedModelName}</span>
-							{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
-						</div>
-					</SelectValue>
-				</SelectTrigger>
-			</SimpleTooltip>
+		<Select value={selectValue} onValueChange={handleModelValueChange} onOpenChange={onSelectOpenChange}>
+			<Tooltip open={isTooltipOpen} onOpenChange={onTooltipOpenChange}>
+				<TooltipTrigger asChild>
+					<SelectTrigger
+						variant='ghost'
+						className='p-0 gap-1 text-sm min-w-0'
+						size='sm'
+						onKeyDown={handleCycleModelShortcut}
+					>
+						<SelectValue>
+							<div className='flex min-w-0 items-center gap-2'>
+								{selectedModel && (
+									<LlmProviderIcon
+										provider={selectedModel.provider}
+										baseUrl={selectedAvailableModel?.baseUrl}
+										className='size-4'
+									/>
+								)}
+								<span
+									className={cn(
+										'flex min-w-0 items-center gap-2',
+										selectedModel && '@max-xs:sr-only',
+									)}
+								>
+									<span className={usesDefaultModel ? 'leading-none shrink-0' : 'truncate'}>
+										{selectedModelName}
+									</span>
+									{usesDefaultModel
+										? resolvedModelName && (
+												<span className='truncate text-muted-foreground'>
+													{resolvedModelName}
+												</span>
+											)
+										: selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
+								</span>
+							</div>
+						</SelectValue>
+					</SelectTrigger>
+				</TooltipTrigger>
+				<TooltipContent side='top'>Cycle models with {getShortcutLabel('cycle-model')}</TooltipContent>
+			</Tooltip>
 
 			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
-				{availableModels.map((model) => (
-					<SelectItem key={`${model.provider}-${model.modelId}`} value={`${model.provider}:${model.modelId}`}>
+				<SelectItem value={NAO_DEFAULT_VALUE} disabled={managedCreditsExhausted && isDefaultManagedModel}>
+					{defaultModel && (
+						<LlmProviderIcon
+							provider={defaultModel.provider}
+							baseUrl={defaultAvailableModel?.baseUrl}
+							className='size-4 opacity-100'
+						/>
+					)}
+					{NAO_DEFAULT_LABEL}
+					{defaultAvailableModel && (
+						<span className='text-muted-foreground'>{defaultAvailableModel.name}</span>
+					)}
+					{managedCreditsExhausted && isDefaultManagedModel && <ManagedCreditsLock />}
+				</SelectItem>
+				<SelectSeparator />
+
+				{availableModels?.map((model) => (
+					<SelectItem
+						key={`${model.provider}-${model.modelId}`}
+						value={modelValue(model)}
+						disabled={managedCreditsExhausted && model.provider === 'nao'}
+					>
 						<LlmProviderIcon
 							provider={model.provider}
 							baseUrl={model.baseUrl}
@@ -128,6 +234,7 @@ export function ChatInputModelSelect() {
 						/>
 						{model.name}
 						<NamedProviderHint provider={model.provider} />
+						{managedCreditsExhausted && model.provider === 'nao' && <ManagedCreditsLock />}
 					</SelectItem>
 				))}
 
@@ -145,10 +252,68 @@ export function ChatInputModelSelect() {
 	);
 }
 
+function ExampleModel() {
+	return (
+		<Select value={EXAMPLE_MODEL_VALUE}>
+			<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm min-w-0' size='sm' aria-label='Model'>
+				<SelectValue>
+					<div className='flex items-center gap-2'>
+						<LlmProviderIcon provider='nao' className='size-4' />
+						<span className='leading-none @max-xs:sr-only'>{EXAMPLE_MODEL_NAME}</span>
+					</div>
+				</SelectValue>
+			</SelectTrigger>
+			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
+				<SelectItem value={EXAMPLE_MODEL_VALUE}>
+					<LlmProviderIcon provider='nao' className='size-4 opacity-100' />
+					{EXAMPLE_MODEL_NAME}
+				</SelectItem>
+				<SelectSeparator />
+				<SelectItem value={PROJECT_SETUP_VALUE} disabled className='text-muted-foreground'>
+					<Settings className='size-4' />
+					Set up a project to switch models
+				</SelectItem>
+			</SelectContent>
+		</Select>
+	);
+}
+
+/**
+ * Closing the select returns focus to its trigger, which would otherwise open the
+ * tooltip and keep it visible. The open request caused by that focus is skipped.
+ */
+function useSelectTriggerTooltip() {
+	const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+	const skipNextOpenRef = useRef(false);
+
+	const onSelectOpenChange = useCallback((open: boolean) => {
+		setIsTooltipOpen(false);
+		skipNextOpenRef.current = !open;
+	}, []);
+
+	const onTooltipOpenChange = useCallback((open: boolean) => {
+		if (open && skipNextOpenRef.current) {
+			skipNextOpenRef.current = false;
+			return;
+		}
+		setIsTooltipOpen(open);
+	}, []);
+
+	return { isTooltipOpen, onTooltipOpenChange, onSelectOpenChange };
+}
+
+function modelValue(model: LlmSelectedModel): string {
+	return `${model.provider}:${model.modelId}`;
+}
+
 function NamedProviderHint({ provider }: { provider: LlmProvider }) {
 	const name = providerName(provider);
 	if (!name) {
 		return null;
 	}
-	return <span className='text-muted-foreground'>{providerLabel(provider)}</span>;
+	return <span className='truncate text-muted-foreground'>{providerLabel(provider)}</span>;
+}
+
+function ManagedCreditsLock() {
+	return <LockKeyhole className='size-3.5' aria-label='Unavailable: nao credits exhausted' />;
 }

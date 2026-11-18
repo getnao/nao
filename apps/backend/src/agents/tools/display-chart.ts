@@ -1,3 +1,4 @@
+import { chartTypeRequiresXAxisKey, isBuiltinChartType, isPieChart, isStackedChartType } from '@nao/shared/chart-types';
 import { displayChart } from '@nao/shared/tools';
 
 import { DisplayChartOutput, renderToModelOutput } from '../../components/tool-outputs';
@@ -26,7 +27,7 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		}
 
 		const { chart_type: chartType, x_axis_key: xAxisKey, series } = input;
-		if (!displayChart.isBuiltinChartType(chartType)) {
+		if (!isBuiltinChartType(chartType)) {
 			if (!context.supportsCustomCharts) {
 				return {
 					_version: '1',
@@ -45,12 +46,12 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		}
 
 		// Validate xAxisKey is provided for cartesian and polar charts
-		if (displayChart.chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
+		if (chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
 			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
 		}
 
 		// Validate pie and donut charts have exactly one series
-		if (displayChart.isPieChart(chartType) && series.length !== 1) {
+		if (isPieChart(chartType) && series.length !== 1) {
 			return {
 				_version: '1',
 				success: false,
@@ -64,7 +65,7 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		}
 
 		// Stacked charts require at least two series
-		if (displayChart.isStackedChartType(chartType) && chartType !== 'horizontal_bar' && series.length < 2) {
+		if (isStackedChartType(chartType) && chartType !== 'horizontal_bar' && series.length < 2) {
 			return {
 				_version: '1',
 				success: false,

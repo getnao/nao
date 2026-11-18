@@ -22,25 +22,12 @@ export function OrgApiKeys({
 	description = 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 }: OrgApiKeysProps) {
 	const queryClient = useQueryClient();
-	const [name, setName] = useState('Deploy key');
 	const [latestPlaintextKey, setLatestPlaintextKey] = useState<string | null>(null);
-	const { isCopied: isKeyCopied, copy: copyKey } = useCopyToClipboard();
-	const { isCopied: isCommandCopied, copy: copyCommand } = useCopyToClipboard();
 
 	const apiKeys = useQuery({
 		...trpc.apiKey.list.queryOptions(),
 		enabled: isAdmin,
 	});
-
-	const createApiKey = useMutation(
-		trpc.apiKey.create.mutationOptions({
-			onSuccess: async (result) => {
-				setLatestPlaintextKey(result.plaintext);
-				setName('Deploy key');
-				await queryClient.invalidateQueries({ queryKey: trpc.apiKey.list.queryOptions().queryKey });
-			},
-		}),
-	);
 
 	const revokeApiKey = useMutation(
 		trpc.apiKey.revoke.mutationOptions({
@@ -50,17 +37,90 @@ export function OrgApiKeys({
 		}),
 	);
 
-	const deployCommand = useMemo(() => {
-		if (!deployUrl) {
-			return null;
-		}
-
-		return `nao deploy ${deployUrl} --api-key ${latestPlaintextKey ?? '<your-api-key>'}`;
-	}, [deployUrl, latestPlaintextKey]);
-
 	if (!isAdmin) {
 		return null;
 	}
+
+	return (
+		<SettingsCard title={title} description={description}>
+			<DeployKeyGenerator
+				deployUrl={deployUrl}
+				latestPlaintextKey={latestPlaintextKey}
+				onPlaintextKeyCreated={setLatestPlaintextKey}
+			/>
+
+			<div className='space-y-3'>
+				<div className='text-sm font-medium text-foreground'>Existing keys</div>
+				{apiKeys.isLoading ? (
+					<div className='text-sm text-muted-foreground'>Loading API keys...</div>
+				) : apiKeys.data?.length ? (
+					<div className='space-y-2'>
+						{apiKeys.data.map((apiKey) => (
+							<div
+								key={apiKey.id}
+								className='flex flex-col gap-3 rounded-lg border border-border/60 bg-background p-3 sm:flex-row sm:items-center sm:justify-between'
+							>
+								<div className='min-w-0 space-y-1'>
+									<div className='text-sm font-medium text-foreground'>
+										{apiKey.name}{' '}
+										<span className='text-xs font-mono text-muted-foreground'>
+											{apiKey.keyPrefix}...
+										</span>
+									</div>
+									<div className='text-xs text-muted-foreground'>
+										Created {formatDate(apiKey.createdAt)}
+										{apiKey.lastUsedAt
+											? ` • Last used ${formatDate(apiKey.lastUsedAt)}`
+											: ' • Never used'}
+									</div>
+								</div>
+								<Button
+									variant='outline'
+									size='sm'
+									onClick={() => revokeApiKey.mutate({ id: apiKey.id })}
+									disabled={revokeApiKey.isPending}
+								>
+									<Trash2 className='size-3.5' />
+									Revoke
+								</Button>
+							</div>
+						))}
+					</div>
+				) : (
+					<div className='text-sm text-muted-foreground'>No API keys created yet.</div>
+				)}
+			</div>
+		</SettingsCard>
+	);
+}
+
+interface DeployKeyGeneratorProps {
+	deployUrl?: string;
+	latestPlaintextKey: string | null;
+	onPlaintextKeyCreated: (plaintextKey: string) => void;
+}
+
+export function DeployKeyGenerator({ deployUrl, latestPlaintextKey, onPlaintextKeyCreated }: DeployKeyGeneratorProps) {
+	const queryClient = useQueryClient();
+	const [name, setName] = useState('Deploy key');
+	const { isCopied: isKeyCopied, copy: copyKey } = useCopyToClipboard();
+	const { isCopied: isCommandCopied, copy: copyCommand } = useCopyToClipboard();
+	const createApiKey = useMutation(
+		trpc.apiKey.create.mutationOptions({
+			onSuccess: async (result) => {
+				onPlaintextKeyCreated(result.plaintext);
+				setName('Deploy key');
+				await queryClient.invalidateQueries({ queryKey: trpc.apiKey.list.queryOptions().queryKey });
+			},
+		}),
+	);
+	const deployCommand = useMemo(() => {
+		if (!deployUrl || !latestPlaintextKey) {
+			return null;
+		}
+
+		return `nao deploy ${deployUrl} --api-key ${latestPlaintextKey}`;
+	}, [deployUrl, latestPlaintextKey]);
 
 	const handleCreate = async () => {
 		const trimmedName = name.trim();
@@ -72,7 +132,7 @@ export function OrgApiKeys({
 	};
 
 	return (
-		<SettingsCard title={title} description={description}>
+		<div className='flex flex-col gap-4'>
 			<div className='flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/30 p-4'>
 				<div className='flex items-start gap-3'>
 					<div className='flex size-9 items-center justify-center rounded-md bg-background text-muted-foreground'>
@@ -162,49 +222,7 @@ export function OrgApiKeys({
 					</code>
 				</div>
 			)}
-
-			<div className='space-y-3'>
-				<div className='text-sm font-medium text-foreground'>Existing keys</div>
-				{apiKeys.isLoading ? (
-					<div className='text-sm text-muted-foreground'>Loading API keys...</div>
-				) : apiKeys.data?.length ? (
-					<div className='space-y-2'>
-						{apiKeys.data.map((apiKey) => (
-							<div
-								key={apiKey.id}
-								className='flex flex-col gap-3 rounded-lg border border-border/60 bg-background p-3 sm:flex-row sm:items-center sm:justify-between'
-							>
-								<div className='min-w-0 space-y-1'>
-									<div className='text-sm font-medium text-foreground'>
-										{apiKey.name}{' '}
-										<span className='text-xs font-mono text-muted-foreground'>
-											{apiKey.keyPrefix}...
-										</span>
-									</div>
-									<div className='text-xs text-muted-foreground'>
-										Created {formatDate(apiKey.createdAt)}
-										{apiKey.lastUsedAt
-											? ` • Last used ${formatDate(apiKey.lastUsedAt)}`
-											: ' • Never used'}
-									</div>
-								</div>
-								<Button
-									variant='outline'
-									size='sm'
-									onClick={() => revokeApiKey.mutate({ id: apiKey.id })}
-									disabled={revokeApiKey.isPending}
-								>
-									<Trash2 className='size-3.5' />
-									Revoke
-								</Button>
-							</div>
-						))}
-					</div>
-				) : (
-					<div className='text-sm text-muted-foreground'>No API keys created yet.</div>
-				)}
-			</div>
-		</SettingsCard>
+		</div>
 	);
 }
 

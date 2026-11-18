@@ -1,23 +1,39 @@
-import { CHAT_FILTER_OPTIONS, CHAT_GROUP_BY_OPTIONS, type GroupedChatListResponse } from '@nao/shared/types';
+import {
+	CHAT_FILTER_OPTIONS,
+	CHAT_GROUP_BY_OPTIONS,
+	DOWNLOAD_FORMATS,
+	type GroupedChatListResponse,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as automationQueries from '../queries/automation.queries';
 import type { SearchChatResult } from '../queries/chat.queries';
 import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import { agentService } from '../services/agent';
+import { agentStreamService } from '../services/agent-stream';
 import { posthog, PostHogEvent } from '../services/posthog';
+import { getQueryRowsPage, type QueryRowsPage } from '../services/query-rows.service';
 import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { canUserViewChatContent } from '../utils/chat-access';
 import { getChatContextUsage } from '../utils/chat-context-usage';
-import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
+import { buildChatDownloadResponse } from '../utils/chat-download';
+import { withQueryResultPreviewsInChat } from '../utils/query-result-preview';
+import { ownedResourceProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
+const MAX_QUERY_ROWS_PAGE_SIZE = 1000;
+const CANCEL_WAIT_MS = 10_000;
 
 export const chatRoutes = {
 	get: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
-		const [chat, userId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
+		const [chat, userId] = await chatQueries.getChat(input.chatId, {
+			includeFeedback: true,
+			queryResultPreviews: true,
+		});
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}
@@ -36,12 +52,81 @@ export const chatRoutes = {
 		}
 
 		return {
-			...chat,
+			...withQueryResultPreviewsInChat(chat),
 			automationRun: (await automationQueries.getAutomationRunByChatId(input.chatId)) ?? undefined,
 		};
 	}),
 
-	listGrouped: projectProtectedProcedure
+	getQueryRows: protectedProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				toolCallId: z.string(),
+				queryId: z.string(),
+				offset: z.number().int().min(0).default(0),
+				limit: z.number().int().positive().max(MAX_QUERY_ROWS_PAGE_SIZE).optional(),
+				sort: z.object({ column: z.string(), direction: z.enum(['asc', 'desc']) }).optional(),
+			}),
+		)
+		.query(async ({ input, ctx }): Promise<QueryRowsPage> => {
+			const projectId = await chatQueries.getActiveChatProjectId(input.chatId);
+			if (!projectId || !(await canUserViewChatContent(input.chatId, projectId, ctx.user.id))) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+
+			const page = await getQueryRowsPage(input);
+			if (!page) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Query ${input.queryId} not found.` });
+			}
+			return page;
+		}),
+
+	download: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS).default('pdf'),
+				includeErrors: z.boolean().default(false),
+				includeSql: z.boolean().default(true),
+				includeCode: z.boolean().default(true),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const [chat] = await chatQueries.getChat(input.chatId);
+			if (!chat) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+
+			const displaySettings = chat.projectId ? await projectQueries.getDisplaySettings(chat.projectId) : null;
+
+			const response = await buildChatDownloadResponse({
+				chatId: chat.id,
+				title: chat.title,
+				createdAt: chat.createdAt,
+				updatedAt: chat.updatedAt,
+				messages: chat.messages,
+				format: input.format,
+				includeErrors: input.includeErrors,
+				includeSql: input.includeSql,
+				includeCode: input.includeCode,
+				dateFormat: displaySettings?.dateFormat,
+			});
+
+			if (chat.projectId) {
+				logAnalyticsEvent({
+					projectId: chat.projectId,
+					type: 'download',
+					assetType: 'chat',
+					actorUserId: ctx.user.id,
+					chatId: chat.id,
+					metadata: { type: 'download', format: input.format, title: chat.title },
+				});
+			}
+
+			return response;
+		}),
+
+	listGrouped: protectedProcedure
 		.input(
 			z.object({
 				groupBy: z.enum(CHAT_GROUP_BY_OPTIONS).default('none'),
@@ -65,16 +150,20 @@ export const chatRoutes = {
 			posthog.capture(ctx.user.id, PostHogEvent.ChatDeleted, { project_id: projectId, chat_id: input.chatId });
 		}),
 
+	listRunning: protectedProcedure.query(
+		({ ctx }): Promise<string[]> => agentStreamService.listRunningChatIds(ctx.user.id),
+	),
+
 	stop: protectedProcedure.input(z.object({ chatId: z.string() })).mutation(async ({ input, ctx }): Promise<void> => {
 		const agent = agentService.get(input.chatId);
-		if (!agent) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: `Agent with id ${input.chatId} not found.` });
-		}
-		if (!agent.checkIsUserOwner(ctx.user.id)) {
+		if (agent && !agent.checkIsUserOwner(ctx.user.id)) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not allowed to stop this agent.' });
 		}
-
-		agent.stop();
+		if (agent) {
+			agent.stop();
+		} else if (!(await stopAgentOnAnotherInstance(input.chatId, ctx.user.id))) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Agent with id ${input.chatId} not found.` });
+		}
 
 		const projectId = await chatQueries.getChatProjectId(input.chatId);
 		posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, { project_id: projectId, chat_id: input.chatId });
@@ -95,7 +184,9 @@ export const chatRoutes = {
 					project_id: agent.chat.projectId,
 					chat_id: input.chatId,
 				});
-				await Promise.race([agent.waitUntilFinished(), delay(10_000)]);
+				await Promise.race([agent.waitUntilFinished(), delay(CANCEL_WAIT_MS)]);
+			} else if (await agentStreamService.requestStopElsewhere(input.chatId)) {
+				await agentStreamService.waitUntilEndedElsewhere(input.chatId, CANCEL_WAIT_MS);
 			}
 
 			return chatQueries.deleteLastEmptyTurn(input.chatId);
@@ -157,6 +248,13 @@ export const chatRoutes = {
 			return usage;
 		}),
 };
+
+async function stopAgentOnAnotherInstance(chatId: string, userId: string): Promise<boolean> {
+	if ((await chatQueries.getChatOwnerId(chatId)) !== userId) {
+		return false;
+	}
+	return agentStreamService.requestStopElsewhere(chatId);
+}
 
 const delay = (milliseconds: number): Promise<void> =>
 	new Promise((resolve) => {

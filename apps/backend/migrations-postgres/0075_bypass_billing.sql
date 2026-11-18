@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "bypass_billing" boolean DEFAULT false NOT NULL;

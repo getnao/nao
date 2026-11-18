@@ -6,6 +6,7 @@ import zodV3 from 'zod/v3';
 
 import displayChartTool from '../../agents/tools/display-chart';
 import * as storyQueries from '../../queries/story.queries';
+import { unscheduleStoryRefreshJob } from '../../services/story-refresh.service';
 import {
 	buildAgentRenderedChartText,
 	CHART_DATA_MODE_DISPLAY_CHART_ADDENDUM,
@@ -20,6 +21,7 @@ import {
 import { CHART_APP_URI, MAP_APP_URI, STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
+import { getCustomStoryForMcp } from './custom-story-mcp';
 import {
 	buildChartEmbedFromArtifact,
 	buildMapEmbedFromArtifact,
@@ -49,6 +51,8 @@ const GET_STORY_DESCRIPTION =
 	'Fetch a single story with its latest content (`code`), version metadata, `url`, `chatUrl`, ' +
 	'and a rendered HTML embed.\n\n' +
 	"Useful when you need the actual markdown of a story to get it's latest content and metadata.\n\n" +
+	'A custom story (`format: "custom"`) is an interactive app that only renders in nao: it returns its `url` ' +
+	'(share that link with the user, there is no embed) and its source files in `sourceFiles`.\n\n' +
 	'`story_id` must be the UUID (returned by `list_stories.id` or `ask_nao.stories[].id`), not the kebab-case slug.';
 
 const ARCHIVE_STORY_DESCRIPTION =
@@ -301,7 +305,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				limit,
 			});
 			const result = stories.map((story) =>
-				toStoryListItem(story, { url: storyUrl(story), chatUrl: storyChatUrl(story) }),
+				toStoryListItem(story, { url: storyUrl(story.id), chatUrl: storyChatUrl(story) }),
 			);
 			const output = { stories: result };
 			return {
@@ -318,7 +322,12 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		inputSchema: { story_id: STORY_ID_INPUT },
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
+		errorMessage: (error) => (error instanceof Error ? error.message : 'get_story failed. Please try again.'),
 		handler: async ({ story_id }) => {
+			const customStoryResult = await getCustomStoryForMcp(story_id, ctx);
+			if (customStoryResult) {
+				return customStoryResult;
+			}
 			const story = await resolveStory(story_id, ctx);
 			const version = await fetchLatestStoryVersion(story);
 
@@ -336,7 +345,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 				archived: story.archivedAt !== null,
 				createdAt: story.createdAt,
 				updatedAt: story.updatedAt,
-				url: storyUrl(story),
+				url: storyUrl(story.id),
 				chatUrl: storyChatUrl(story),
 			};
 			return buildStoryMcpResultWithSandbox(output, ctx, version?.code ?? null, story.chatId);
@@ -355,6 +364,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
 			await storyQueries.archiveByStoryId(story.id);
+			await unscheduleStoryRefreshJob(story.id);
 			const output = { id: story.id, archived: true as const };
 			return {
 				content: [{ type: 'text' as const, text: JSON.stringify(output) }],
@@ -374,6 +384,7 @@ function registerStoryManagementTools(server: McpServer, ctx: McpContext): void 
 		},
 		handler: async ({ story_id }) => {
 			const story = await resolveStory(story_id, ctx);
+			await unscheduleStoryRefreshJob(story.id);
 			await storyQueries.deleteStory(story.id);
 			const output = { id: story.id, deleted: true as const };
 			return {

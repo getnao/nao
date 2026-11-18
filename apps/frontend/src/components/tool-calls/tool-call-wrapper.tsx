@@ -8,11 +8,14 @@ import { Expandable } from '@/components/ui/expandable';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { useIsInToolGroup } from '@/contexts/tool-group';
 import { ToolCallActionsProvider } from '@/contexts/tool-call-actions';
+import { useMemoObject } from '@/hooks/useMemoObject';
+import { useExpandOnToolCallReveal } from '@/hooks/use-tool-call-reveal';
 import { ExportDataMenu } from '@/components/export-data-menu';
 
 interface ExportAction {
 	columns: string[];
 	data: Record<string, unknown>[];
+	loadAllRows?: () => Promise<Record<string, unknown>[]>;
 	filename: string;
 	onExport?: (format: DataExportFormat) => void;
 }
@@ -57,13 +60,14 @@ export const ToolCallWrapper = ({
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [isHovering, setIsHovering] = useState(false);
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
+	const toolCallActions = useMemoObject({ setMenuOpen: setIsMenuOpen });
 	const canExpand = Boolean(children || toolPart.errorText || toolPart.output);
 	const hasInitialized = useRef(false);
 
 	const hasActions = !!actions;
-	// Inside a tool group, bordered tools render without border/padding to avoid overflowing the group container.
+	// Inside a tool group, bordered tools render like their inline neighbours while keeping their actions.
 	const isBordered = hasActions && !isInToolGroup;
-	const variant = isBordered ? 'bordered' : hasActions ? 'plain' : 'inline';
+	const variant = isBordered ? 'bordered' : hasActions ? 'grouped' : 'inline';
 
 	useEffect(() => {
 		if (hasActions && !hasInitialized.current && canExpand && defaultExpanded) {
@@ -71,6 +75,8 @@ export const ToolCallWrapper = ({
 			hasInitialized.current = true;
 		}
 	}, [hasActions, canExpand, defaultExpanded, setIsExpanded]);
+
+	useExpandOnToolCallReveal(canExpand ? [toolPart.toolCallId] : [], setIsExpanded);
 
 	const hasError = !!toolPart.errorText;
 	const showChevron = isSettled && (!hasError || isHovering);
@@ -135,7 +141,7 @@ export const ToolCallWrapper = ({
 	const contentToShow = toolPart.errorText && !overrideError ? errorContent : children;
 
 	return (
-		<ToolCallActionsProvider value={{ setMenuOpen: setIsMenuOpen }}>
+		<ToolCallActionsProvider value={toolCallActions}>
 			<div
 				onMouseEnter={() => setIsHovering(true)}
 				onMouseLeave={() => setIsHovering(false)}

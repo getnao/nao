@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 
 import s, { DBProjectLlmConfig, NewProjectLlmConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { getDefaultEnvProvider, getDefaultModelId } from '../utils/llm';
+import { getDefaultEnvProvider, getDefaultModelId, getProjectAvailableModels } from '../utils/llm';
 
 export const getProjectLlmConfigs = async (projectId: string): Promise<DBProjectLlmConfig[]> => {
 	return db.select().from(s.projectLlmConfig).where(eq(s.projectLlmConfig.projectId, projectId)).execute();
@@ -73,8 +73,8 @@ export const getProjectModelProvider = async (projectId: string): Promise<LlmPro
 		return 'openai';
 	}
 
-	// Fall back to env providers
-	return getDefaultEnvProvider();
+	// Fall back to env providers, then to whatever the project can still reach (e.g. nao-managed access)
+	return getDefaultEnvProvider() ?? (await getProjectAvailableModels(projectId)).at(0)?.provider;
 };
 
 /** Get the config to use for a specific model selection */

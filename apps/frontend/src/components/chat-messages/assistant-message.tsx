@@ -6,10 +6,16 @@ import {
 	areGroupedMessagePartsEqual,
 	checkAssistantMessageHasContent,
 	groupToolCalls,
+	isQueryGroupPart,
+	isStoryQueryGroupPart,
+	isStoryStatusPart,
 	isToolGroupPart,
 	isToolUIPart,
 } from '@/lib/ai';
 import { ToolCallsGroup } from '@/components/tool-calls/tool-calls-group';
+import { QueryGroup } from '@/components/tool-calls/query-group';
+import { StoryStatus } from '@/components/tool-calls/story-status';
+import { StoryQueryGroup } from '@/components/tool-calls/story-query-group';
 import { ToolCall } from '@/components/tool-calls';
 import { AssistantReasoning } from '@/components/chat-messages/assistant-reasoning';
 import { AssistantCompaction } from '@/components/chat-messages/assistant-compaction';
@@ -21,6 +27,7 @@ import { useChatId } from '@/hooks/use-chat-id';
 import { useIsCancellingMessage } from '@/hooks/use-is-cancelling-message-store';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { AssistantMessageProvider, useAssistantMessage } from '@/contexts/assistant-message';
+import { useAgentContext } from '@/contexts/agent.provider';
 
 export const AssistantMessage = memo(
 	({
@@ -39,6 +46,7 @@ export const AssistantMessage = memo(
 		storyIntroMessageId: string | undefined;
 	}) => {
 		const chatId = useChatId();
+		const { error } = useAgentContext();
 		const [toolCallDensity] = useToolCallDensity();
 		const messageParts = useMemo(
 			() => groupToolCalls(message.parts, toolCallDensity),
@@ -63,7 +71,7 @@ export const AssistantMessage = memo(
 				<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
 					<MessageParts parts={messageParts} />
 
-					{isSettled && !hasContent && (
+					{isSettled && !hasContent && !(isLastMessage && error) && (
 						<div className='text-muted-foreground italic text-sm'>No response</div>
 					)}
 
@@ -105,6 +113,18 @@ export const MessagePart = memo(
 	({ part, isPartSettled }: { part: GroupedMessagePart; isPartSettled: boolean }) => {
 		if (isToolGroupPart(part)) {
 			return <ToolCallsGroup parts={part.parts} isSettled={isPartSettled} />;
+		}
+
+		if (isQueryGroupPart(part)) {
+			return <QueryGroup parts={part.parts} isSettled={isPartSettled} />;
+		}
+
+		if (isStoryStatusPart(part)) {
+			return <StoryStatus toolPart={part.part} />;
+		}
+
+		if (isStoryQueryGroupPart(part)) {
+			return <StoryQueryGroup parts={part.parts} isSettled={isPartSettled} />;
 		}
 
 		if (isToolUIPart(part)) {

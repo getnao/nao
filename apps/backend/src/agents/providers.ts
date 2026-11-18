@@ -22,13 +22,16 @@ import { createOllama } from 'ai-sdk-ollama';
 
 import type {
 	ActiveEffort,
+	ExtraParamKey,
 	LlmProvidersType,
 	ModelCapabilities,
 	ModelInferenceSettings,
 	ProviderConfigMap,
 	ProviderSettings,
 	ReasoningEffort,
+	ThinkingDisplay,
 } from '../types/llm';
+import { withProgressUpdates } from './anthropic-progress-updates';
 import {
 	DEFAULT_TEMPERATURE_MAX,
 	EFFORT_OPTIONS,
@@ -36,53 +39,43 @@ import {
 	EFFORT_TO_BEDROCK,
 	EFFORT_TO_GEMINI_LEVEL,
 	EFFORT_TO_OPENAI,
+	findKnownModel,
 	getModelCapabilities,
 	isAnthropicApiModel,
 	OPENAI_COMPATIBLE_BASE_URLS,
 	PROVIDER_META,
 } from './provider-meta';
+import { TOOL_RESULT_CLEARING_EDIT } from './tool-result-clearing';
+import { withWellFormedPrompt } from './well-formed-prompt';
 
 export {
 	getDefaultModelId,
 	getProviderApiKeyRequirement,
 	getProviderAuth,
 	getProviderMeta,
+	isManagedProvider,
 	KNOWN_MODELS,
 	PROVIDER_META,
 } from './provider-meta';
+
+/** Assumed for models missing from the catalogue, such as custom models behind an OpenAI-compatible endpoint. */
+const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export const CACHE_1H = { type: 'ephemeral', ttl: '1h' } as const;
 export const CACHE_5M = { type: 'ephemeral' } as const;
 
 export const LLM_PROVIDERS: LlmProvidersType = {
+	nao: {
+		...PROVIDER_META.nao,
+		create: (settings, modelId) => createOpenAI(settings).responses(modelId),
+		defaultOptions: { store: false, truncation: 'auto', reasoningSummary: 'auto' },
+	},
 	anthropic: {
 		...PROVIDER_META.anthropic,
-		create: (settings, modelId) => createAnthropic(settings).chat(modelId),
+		create: (settings, modelId) => withProgressUpdates(createAnthropic(settings).chat(modelId)),
 		defaultOptions: {
 			disableParallelToolUse: false,
-			contextManagement: {
-				edits: [
-					{
-						type: 'clear_tool_uses_20250919',
-						trigger: {
-							type: 'input_tokens',
-							value: 180_000,
-						},
-						clearToolInputs: false,
-						excludeTools: [
-							'display_chart',
-							'execute_python',
-							'execute_sql',
-							'execute_sandboxed_code',
-							'grep',
-							'list',
-							'read',
-							'search',
-							'story',
-						],
-					},
-				],
-			},
+			contextManagement: { edits: [TOOL_RESULT_CLEARING_EDIT] },
 		} satisfies AnthropicProviderOptions,
 	},
 	openai: {
@@ -154,7 +147,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			const config = { project, location, baseURL: settings.baseURL, googleAuthOptions };
 
 			if (modelId.startsWith('claude-')) {
-				return createVertexAnthropic(config)(modelId);
+				return createVertexAnthropic({ ...config, fetch: fetchWithUnforcedToolChoice })(modelId);
 			}
 			return createVertex(config)(modelId);
 		},
@@ -189,6 +182,14 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		...PROVIDER_META.moonshot,
 		create: (settings, modelId) => createCompatibleModel('moonshot', settings, modelId),
 	},
+	meta: {
+		...PROVIDER_META.meta,
+		create: (settings, modelId) => createCompatibleModel('meta', settings, modelId),
+	},
+	requesty: {
+		...PROVIDER_META.requesty,
+		create: (settings, modelId) => createCompatibleModel('requesty', settings, modelId),
+	},
 	openaiCompatible: {
 		...PROVIDER_META.openaiCompatible,
 		create: (settings, modelId) => createCompatibleModel('openaiCompatible', settings, modelId),
@@ -220,9 +221,10 @@ function createCompatibleModel(provider: LlmProvider, settings: ProviderSettings
 
 /** Named instances all speak the OpenAI-compatible API, so they skip their kind's own factory. */
 function createModel(provider: LlmProvider, settings: ProviderSettings, modelId: string): LanguageModelV3 {
-	return providerName(provider)
+	const model = providerName(provider)
 		? createCompatibleModel(provider, settings, modelId)
 		: LLM_PROVIDERS[providerKind(provider)].create(settings, modelId);
+	return withWellFormedPrompt(model);
 }
 
 export type ModelCallSettings = {
@@ -245,7 +247,11 @@ export type ProviderModelResult = {
 
 export function disableModelReasoning(provider: LlmProvider, modelResult: ProviderModelResult): ProviderModelResult {
 	const optionKey =
-		providerKind(provider) === 'vertex' && modelResult.model.modelId.startsWith('claude-') ? 'anthropic' : provider;
+		providerKind(provider) === 'vertex' && modelResult.model.modelId.startsWith('claude-')
+			? 'anthropic'
+			: providerKind(provider) === 'nao'
+				? 'openai'
+				: provider;
 	const options = { ...(modelResult.providerOptions[optionKey] ?? {}) } as Record<string, unknown>;
 
 	delete options.thinking;
@@ -259,10 +265,16 @@ export function disableModelReasoning(provider: LlmProvider, modelResult: Provid
 	delete options.sendReasoning;
 
 	switch (providerKind(provider)) {
+		case 'nao':
 		case 'openai':
 		case 'azure':
+		case 'requesty':
 		case 'openaiCompatible':
 			options.reasoningEffort = 'none';
+			break;
+		case 'meta':
+			// Muse models always reason and reject `none` with a 400.
+			options.reasoningEffort = 'minimal';
 			break;
 		case 'openrouter':
 			options.reasoning = { enabled: false };
@@ -291,12 +303,13 @@ export function createProviderModel(
 	const providerConfig = LLM_PROVIDERS[kind];
 	const defaultOptions = resolveDefaultOptions(provider, modelId, providerConfig.defaultOptions ?? {});
 	const modelConfig = getProviderModelConfig(kind, modelId);
-	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
+	const contextWindow = getContextWindow(provider, modelId);
 
 	const { callSettings, providerOverrides } = resolveInferenceOptions(provider, modelId, inferenceSettings);
 
 	// Claude-on-Vertex keys provider options under `anthropic`, not `vertex`.
-	const optionKey: LlmProvider = kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
+	const optionKey: LlmProvider =
+		kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : kind === 'nao' ? 'openai' : provider;
 
 	return {
 		model: createModel(provider, settings, modelId),
@@ -306,6 +319,10 @@ export function createProviderModel(
 		contextWindow,
 		callSettings,
 	};
+}
+
+export function getContextWindow(provider: LlmProvider, modelId: string): number {
+	return findKnownModel(provider, modelId)?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
 }
 
 function resolveDefaultOptions(provider: LlmProvider, modelId: string, defaultOptions: object): object {
@@ -319,12 +336,8 @@ function resolveDefaultOptions(provider: LlmProvider, modelId: string, defaultOp
 function resolveInferenceOptions(
 	provider: LlmProvider,
 	modelId: string,
-	settings?: ModelInferenceSettings,
+	settings: ModelInferenceSettings = {},
 ): { callSettings?: ModelCallSettings; providerOverrides?: Record<string, unknown> } {
-	if (!settings) {
-		return {};
-	}
-
 	const capabilities = getModelCapabilities(provider, modelId);
 	const thinking = resolveThinking(provider, modelId, capabilities, settings);
 	const extraOverrides = resolveExtraOptions(provider, modelId, capabilities, settings);
@@ -345,7 +358,7 @@ function resolveInferenceOptions(
 			callSettings.temperature = clampNumber(settings.temperature, 0, temperatureMax);
 		}
 		if (settings.topP !== undefined) {
-			callSettings.topP = clampNumber(settings.topP, 0, 1);
+			callSettings.topP = clampNumber(settings.topP, capabilities?.topPMin ?? 0, 1);
 		}
 		if (settings.topK !== undefined && capabilities?.topK !== false) {
 			callSettings.topK = settings.topK;
@@ -389,7 +402,13 @@ export function fitThinkingBudget(
 
 	const anthropic = fitted.anthropic;
 	const thinking = anthropic?.thinking;
-	if (anthropic && thinking?.type === 'enabled' && thinking.budgetTokens !== undefined) {
+	if (
+		anthropic &&
+		thinking &&
+		'type' in thinking &&
+		thinking.type === 'enabled' &&
+		thinking.budgetTokens !== undefined
+	) {
 		const budget = fitBudget(thinking.budgetTokens, maxOutputTokens);
 		const rest = { ...anthropic };
 		delete rest.thinking;
@@ -415,7 +434,7 @@ type ThinkingResult = { providerOverrides?: Record<string, unknown>; thinkingAct
 const THINKING_INACTIVE: ThinkingResult = { thinkingActive: false };
 
 /** Snap a stored effort to the nearest option the model declares, so a stale setting can't error. */
-function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
+export function clampEffort(effort: ActiveEffort, options: ReasoningEffort[] | undefined): ActiveEffort {
 	if (!options || options.includes(effort)) {
 		return effort;
 	}
@@ -455,17 +474,16 @@ function resolveThinking(
 					(e) => ({ reasoningConfig: { type: 'adaptive', maxReasoningEffort: EFFORT_TO_BEDROCK[e] } }),
 					(b) => ({ reasoningConfig: { type: 'enabled', budgetTokens: b } }),
 				)
-			: resolveClaudeThinking(
-					capabilities,
-					effort,
-					settings,
-					(e) => ({ thinking: { type: 'adaptive' }, effort: EFFORT_TO_ANTHROPIC[e] }),
-					(b) => ({ thinking: { type: 'enabled', budgetTokens: b } }),
-				);
+			: resolveAnthropicThinking(capabilities, effort, settings);
 	}
 
 	switch (kind) {
+		case 'nao':
 		case 'openai':
+			return resolveEffortThinking(effort, (e) => ({
+				reasoningEffort: (capabilities?.effortMap ?? EFFORT_TO_OPENAI)[e],
+				forceReasoning: true,
+			}));
 		case 'azure':
 			return resolveEffortThinking(effort, (e) => ({
 				reasoningEffort: (capabilities?.effortMap ?? EFFORT_TO_OPENAI)[e],
@@ -478,10 +496,12 @@ function resolveThinking(
 		case 'vertex':
 			return resolveGeminiThinking(capabilities, effort, settings);
 		case 'moonshot':
-			// Kimi's own effort vocabulary, so the clamped value goes out as-is.
+		case 'meta':
+			// Kimi and Muse speak nao's effort vocabulary, so the clamped value goes out as-is.
 			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: e }));
 		case 'qwen':
 			return resolveQwenThinking(capabilities, settings);
+		case 'requesty':
 		case 'openaiCompatible':
 			// The SDK turns this into the `reasoning_effort` field of the OpenAI chat API.
 			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: EFFORT_TO_OPENAI[e] }));
@@ -502,6 +522,40 @@ function resolveQwenThinking(
 		providerOverrides: { enable_thinking: true, thinking_budget: settings.thinkingBudgetTokens },
 		thinkingActive: true,
 	};
+}
+
+/**
+ * Anthropic Messages API (direct or Vertex). The thinking display is the admin's choice, else the
+ * model's default (`updates` on models that hide thinking text); models that always think receive
+ * it even with effort off. Only models exposing the control send it, as Vertex rejects the field.
+ */
+function resolveAnthropicThinking(
+	capabilities: ModelCapabilities | undefined,
+	effort: ActiveEffort | undefined,
+	settings: ModelInferenceSettings,
+): ThinkingResult {
+	const display = resolveThinkingDisplay(capabilities, settings);
+	const adaptive = { type: 'adaptive', ...(display && { display }) };
+	if (capabilities?.thinking === 'adaptive' && !effort && capabilities.thinkingAlwaysOn) {
+		return { providerOverrides: { thinking: adaptive }, thinkingActive: true };
+	}
+	return resolveClaudeThinking(
+		capabilities,
+		effort,
+		settings,
+		(e) => ({ thinking: adaptive, effort: EFFORT_TO_ANTHROPIC[e] }),
+		(b) => ({ thinking: { type: 'enabled', budgetTokens: b } }),
+	);
+}
+
+function resolveThinkingDisplay(
+	capabilities: ModelCapabilities | undefined,
+	settings: ModelInferenceSettings,
+): ThinkingDisplay | undefined {
+	if (!capabilities?.extraParams?.includes('thinkingDisplay')) {
+		return undefined;
+	}
+	return settings.thinkingDisplay ?? capabilities.thinkingDisplay;
 }
 
 function resolveClaudeThinking(
@@ -558,6 +612,11 @@ function resolveEffortThinking(
 	return { providerOverrides: toOverrides(effort), thinkingActive: true };
 }
 
+/** Sent when the admin leaves the param unset: Gemini bills its thinking but only returns it when asked. */
+const EXTRA_PARAM_DEFAULTS: Partial<Pick<ModelInferenceSettings, ExtraParamKey>> = {
+	includeThoughts: true,
+};
+
 function resolveExtraOptions(
 	provider: LlmProvider,
 	modelId: string,
@@ -571,8 +630,8 @@ function resolveExtraOptions(
 
 	const overrides: Record<string, unknown> = {};
 	for (const key of extraParams) {
-		const value = settings[key];
-		if (value === undefined) {
+		const value = settings[key] ?? EXTRA_PARAM_DEFAULTS[key];
+		if (value === undefined || key === 'thinkingDisplay') {
 			continue;
 		}
 		if (key === 'parallelToolCalls' && isAnthropicApiModel(provider, modelId)) {
@@ -606,6 +665,18 @@ function mergeProviderOverrides(
 	}
 	return merged;
 }
+
+/**
+ * The newest Claude models reject a forced tool call, which the SDK sends for `toolChoice: 'required'` and, on
+ * Vertex, for every structured output. Every Claude model accepts the same request with `auto`.
+ */
+const fetchWithUnforcedToolChoice = ((input, init) => {
+	const body = JSON.parse(init?.body as string);
+	if (body.tool_choice?.type === 'any') {
+		body.tool_choice.type = 'auto';
+	}
+	return fetch(input, { ...init, body: JSON.stringify(body) });
+}) as typeof fetch;
 
 function getProviderModelConfig<P extends LlmProviderKind>(provider: P, modelId: string): ProviderConfigMap[P] {
 	const model = LLM_PROVIDERS[provider].models.find((m) => m.id === modelId);
@@ -646,6 +717,10 @@ function resolveBedrockModelId(modelId: string, region: string): string {
 	const firstSegment = modelId.split('.')[0];
 	if (BEDROCK_REGION_PREFIXES.has(firstSegment)) {
 		const rest = modelId.slice(firstSegment.length + 1);
+		// OpenAI profile geography is explicit; equivalent EU/AP profiles may not exist.
+		if (rest.startsWith('openai.')) {
+			return modelId;
+		}
 		return firstSegment === prefix ? modelId : `${prefix}.${rest}`;
 	}
 	if (BEDROCK_CROSS_REGION_PROVIDERS.has(firstSegment)) {

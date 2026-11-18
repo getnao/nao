@@ -28,8 +28,15 @@ export const contextRecommendationsHandler: JobHandler<ContextRecommendationsJob
 		);
 		return;
 	}
-	await runContextRecommendations(payload.projectId);
+	await runContextRecommendations(payload.projectId, { billingAccessVerifiedProjectId: payload.projectId });
 };
+
+export function resolveContextRecommendationsProjectId(payload: ContextRecommendationsJobPayload): string {
+	if (typeof payload.projectId !== 'string') {
+		throw new Error('Context recommendations job is missing a projectId payload.');
+	}
+	return payload.projectId;
+}
 
 /**
  * Register (or update) the recurring analysis job for the given frequency. Pass

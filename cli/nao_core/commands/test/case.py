@@ -1,11 +1,27 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from nao_core.ui import UI
 
+from .assertions import Assertion, parse_assertions
+
 TESTS_FOLDER = "tests/"
+
+
+class _TestFileLoader(yaml.SafeLoader):
+    """Keeps unquoted dates as strings, the way the agent sends them in tool call args."""
+
+
+_TestFileLoader.yaml_implicit_resolvers = {
+    first_char: [(tag, regexp) for tag, regexp in resolvers if tag != "tag:yaml.org,2002:timestamp"]
+    for first_char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+class InvalidTestFileError(Exception):
+    """Raised when one or more test YAML files cannot be loaded."""
 
 
 @dataclass
@@ -15,14 +31,15 @@ class TestCase:
     name: str
     prompt: str
     file_path: Path
-    sql: str
+    sql: str | None = None
     database: str | None = None
+    assertions: list[Assertion] = field(default_factory=list)
 
     @classmethod
     def from_yaml(cls, file_path: Path) -> "TestCase":
         """Load a test case from a YAML file."""
         with open(file_path) as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f, Loader=_TestFileLoader)
 
         return cls(
             name=data.get("name", file_path.stem),
@@ -30,11 +47,16 @@ class TestCase:
             sql=data.get("sql"),
             database=data.get("database"),
             file_path=file_path,
+            assertions=parse_assertions(data.get("assertions")),
         )
 
 
 def discover_tests(project_path: Path) -> list[TestCase]:
-    """Discover all test cases in the tests/ folder."""
+    """Discover all test cases in the tests/ folder.
+
+    Raises ``InvalidTestFileError`` when any test file fails to load, so that a malformed
+    test cannot be silently skipped and leave the run green.
+    """
     tests_dir = project_path / TESTS_FOLDER
 
     if not tests_dir.exists():
@@ -51,12 +73,17 @@ def discover_tests(project_path: Path) -> list[TestCase]:
         UI.warn(f"No test files found in {tests_dir}")
         return []
 
-    test_cases = []
+    test_cases: list[TestCase] = []
+    load_errors: list[str] = []
     for file_path in sorted(test_files):
         try:
-            test_case = TestCase.from_yaml(file_path)
-            test_cases.append(test_case)
+            test_cases.append(TestCase.from_yaml(file_path))
         except Exception as e:
-            UI.error(f"Failed to load {file_path.name}: {e}")
+            load_errors.append(f"{file_path.relative_to(tests_dir)}: {e}")
+
+    if load_errors:
+        raise InvalidTestFileError(
+            "Failed to load test file(s):\n" + "\n".join(f"  - {error}" for error in load_errors)
+        )
 
     return test_cases

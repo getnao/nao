@@ -69,17 +69,23 @@ export const GrepToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 								{/* Context before */}
 								{match.context_before && match.context_before.length > 0 && (
 									<div className='px-3 py-1 bg-foreground/[0.01]'>
-										{match.context_before.map((line, i) => (
-											<div
-												key={i}
-												className='font-mono text-xs text-foreground/30 leading-relaxed'
-											>
-												<span className='inline-block w-8 text-right mr-2 text-foreground/20 select-none'>
-													{match.line_number - match.context_before!.length + i}
-												</span>
-												{line}
-											</div>
-										))}
+										{match.context_before.map((line, contextIndex) => {
+											const contextLine = normalizeContextLine(
+												line,
+												match.line_number - match.context_before!.length + contextIndex,
+											);
+											return (
+												<div
+													key={`${contextLine.line_number}-${contextIndex}`}
+													className='font-mono text-xs text-foreground/30 leading-relaxed'
+												>
+													<span className='inline-block w-8 text-right mr-2 text-foreground/20 select-none'>
+														{contextLine.line_number}
+													</span>
+													{contextLine.line_content}
+												</div>
+											);
+										})}
 									</div>
 								)}
 
@@ -96,17 +102,23 @@ export const GrepToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 								{/* Context after */}
 								{match.context_after && match.context_after.length > 0 && (
 									<div className='px-3 py-1 bg-foreground/[0.01]'>
-										{match.context_after.map((line, i) => (
-											<div
-												key={i}
-												className='font-mono text-xs text-foreground/30 leading-relaxed'
-											>
-												<span className='inline-block w-8 text-right mr-2 text-foreground/20 select-none'>
-													{match.line_number + 1 + i}
-												</span>
-												{line}
-											</div>
-										))}
+										{match.context_after.map((line, contextIndex) => {
+											const contextLine = normalizeContextLine(
+												line,
+												match.line_number + 1 + contextIndex,
+											);
+											return (
+												<div
+													key={`${contextLine.line_number}-${contextIndex}`}
+													className='font-mono text-xs text-foreground/30 leading-relaxed'
+												>
+													<span className='inline-block w-8 text-right mr-2 text-foreground/20 select-none'>
+														{contextLine.line_number}
+													</span>
+													{contextLine.line_content}
+												</div>
+											);
+										})}
 									</div>
 								)}
 							</div>
@@ -120,6 +132,13 @@ export const GrepToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 			)}
 		</ToolCallWrapper>
 	);
+};
+
+const normalizeContextLine = (
+	line: string | { line_number: number; line_content: string },
+	fallbackLineNumber: number,
+) => {
+	return typeof line === 'string' ? { line_number: fallbackLineNumber, line_content: line } : line;
 };
 
 /**

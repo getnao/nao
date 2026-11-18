@@ -11,7 +11,9 @@ from nao_core.commands.sync.providers import (
 from nao_core.commands.sync.providers.confluence.provider import ConfluenceSyncProvider
 from nao_core.commands.sync.providers.databases.provider import DatabaseSyncProvider
 from nao_core.commands.sync.providers.notion.provider import NotionSyncProvider
+from nao_core.commands.sync.providers.obsidian.provider import ObsidianSyncProvider
 from nao_core.commands.sync.providers.repositories.provider import RepositorySyncProvider
+from nao_core.commands.sync.providers.semantic_layer.provider import SemanticLayerSyncProvider
 
 
 class TestSyncResult:
@@ -23,19 +25,10 @@ class TestSyncResult:
         )
         assert result.get_summary() == "Custom summary message"
 
-    def test_get_summary_with_default_summary(self):
-        result = SyncResult(
-            provider_name="Test",
-            items_synced=5,
-        )
-        assert result.get_summary() == "5 synced"
-
-    def test_get_summary_zero_items(self):
-        result = SyncResult(
-            provider_name="Test",
-            items_synced=0,
-        )
-        assert result.get_summary() == "0 synced"
+    @pytest.mark.parametrize("items_synced", [5, 0], ids=["with_default_summary", "zero_items"])
+    def test_get_summary_defaults_to_synced_count(self, items_synced):
+        result = SyncResult(provider_name="Test", items_synced=items_synced)
+        assert result.get_summary() == f"{items_synced} synced"
 
     def test_result_with_details(self):
         result = SyncResult(
@@ -52,11 +45,13 @@ class TestGetAllProviders:
     def test_returns_list_of_providers(self):
         providers = get_all_providers()
 
-        assert len(providers) == 4
+        assert len(providers) == 6
         assert any(isinstance(p.provider, RepositorySyncProvider) for p in providers)
         assert any(isinstance(p.provider, DatabaseSyncProvider) for p in providers)
         assert any(isinstance(p.provider, NotionSyncProvider) for p in providers)
         assert any(isinstance(p.provider, ConfluenceSyncProvider) for p in providers)
+        assert any(isinstance(p.provider, ObsidianSyncProvider) for p in providers)
+        assert any(isinstance(p.provider, SemanticLayerSyncProvider) for p in providers)
 
     def test_returns_copy_of_providers(self):
         providers1 = get_all_providers()

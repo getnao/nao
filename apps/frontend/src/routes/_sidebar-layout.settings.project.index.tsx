@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 
-import { BudgetSettings } from '@/components/settings/budget-settings';
+import { EditableProjectName } from '@/components/settings/editable-project-name';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
+import { ProjectIdentifier } from '@/components/settings/project-identifier';
+import { WarehouseCredentialsSection } from '@/components/settings/warehouse-credentials-section';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -26,23 +28,34 @@ function ProjectSettingsPage() {
 					<>
 						<DetailRow label='Name' value={<Skeleton className='h-4 w-40' />} />
 						<DetailRow label='Path' value={<Skeleton className='h-3 w-96 max-w-full' />} />
+						<DetailRow label='Project ID' value={<Skeleton className='h-3 w-72 max-w-full' />} />
 					</>
 				) : project.data ? (
 					<>
-						<DetailRow label='Name' value={project.data.name} />
+						<DetailRow
+							label='Name'
+							value={
+								<EditableProjectName
+									key={project.data.id}
+									projectId={project.data.id}
+									name={project.data.name}
+									canEdit={isAdmin}
+								/>
+							}
+						/>
 						{project.data.path && (
 							<DetailRow
 								label='Path'
 								value={<code className='font-mono text-xs'>{project.data.path}</code>}
 							/>
 						)}
+						<DetailRow label='Project ID' value={<ProjectIdentifier projectId={project.data.id} />} />
 					</>
 				) : null}
 			</SettingsCard>
 
+			<WarehouseCredentialsSection isAdmin={isAdmin} />
 			<EnvVarsSection isAdmin={isAdmin} />
-
-			<BudgetSettings />
 		</>
 	);
 }

@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { usePrevRef } from './use-prev';
 import { useChatId } from './use-chat-id';
 import { createLocalStorage } from '@/lib/local-storage';
 
@@ -35,27 +34,16 @@ const playNotificationSound = () => {
 
 export const useStreamEndSound = (isRunning: boolean) => {
 	const chatId = useChatId();
-	const prevIsRunningRef = usePrevRef(isRunning);
-	const prevChatIdRef = usePrevRef(chatId);
-	const mountedRef = useRef(true);
+	const previousStateRef = useRef({ isRunning, chatId });
 
 	useEffect(() => {
-		mountedRef.current = true;
-		return () => {
-			mountedRef.current = false;
-		};
-	}, []);
+		const previous = previousStateRef.current;
+		previousStateRef.current = { isRunning, chatId };
 
-	useEffect(() => {
-		const chatChanged = prevChatIdRef.current !== chatId;
-		if (
-			prevIsRunningRef.current &&
-			!isRunning &&
-			!chatChanged &&
-			mountedRef.current &&
-			soundNotificationStorage.get()
-		) {
+		const streamEnded = previous.isRunning && !isRunning;
+		const sameChat = previous.chatId === chatId;
+		if (streamEnded && sameChat && soundNotificationStorage.get()) {
 			playNotificationSound();
 		}
-	}, [isRunning, chatId, prevIsRunningRef, prevChatIdRef]);
+	}, [isRunning, chatId]);
 };

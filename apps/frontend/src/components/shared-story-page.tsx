@@ -1,0 +1,336 @@
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useCallback, useMemo, useRef } from 'react';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+
+import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
+import type { StoryPageHeaderProps } from '@/components/story-page-header';
+import { SharedCustomStoryPage } from '@/components/custom-story/custom-story-page';
+import { HighlightBubble } from '@/components/highlight-bubble';
+import { SharedStoryHeader } from '@/components/shared-story-header';
+import { SidePanel } from '@/components/side-panel/side-panel';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { STORY_ASK_BAR_INSET_STYLE, StoryAskBar } from '@/components/story-ask-bar';
+import { StoryElementPicker } from '@/components/story-element-picker';
+import { StoryPageBody } from '@/components/story-page-body';
+import { StoryTabbedContent } from '@/components/story-tabbed-content';
+import { useStoryThemeForCurrentMode } from '@/components/story-theme-provider';
+import { SidePanelProvider } from '@/contexts/side-panel';
+import { SelectionProvider } from '@/contexts/text-selection';
+import { useIsStoryRefreshing } from '@/hooks/use-is-story-refreshing';
+import { useRetryStaleStoryRefresh } from '@/hooks/use-retry-stale-story-refresh';
+import { useResolvedStory } from '@/hooks/use-mentioned-stories';
+import { useSidePanel } from '@/hooks/use-side-panel';
+import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
+import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
+import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { useElementSelectionMode } from '@/hooks/use-element-selection-mode';
+import { StoryEditPresenceBanner } from '@/components/story-edit-presence-banner';
+import { useStoryEditSession } from '@/hooks/use-story-edit-session';
+import { useSession } from '@/lib/auth-client';
+import { trpc } from '@/main';
+import { requestAskAboutElement, requestAskAboutSelection } from '@/stores/ask-bar';
+
+export function SharedStoryPage({ storyId }: { storyId: string }) {
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
+	if (story.format === 'custom') {
+		return <SharedCustomStory storyId={storyId} />;
+	}
+	return <SharedClassicStoryPage storyId={storyId} />;
+}
+
+function SharedCustomStory({ storyId }: { storyId: string }) {
+	const { data: session } = useSession();
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
+	const resolvedStory = useResolvedStory(storyId).data;
+	const access = { isOwner: resolvedStory?.isOwner === true, canEdit: resolvedStory?.canEdit === true };
+
+	useTrackViewDuration({
+		assetType: 'story',
+		storyId,
+		chatId: story.chatId ?? undefined,
+		storySlug: story.slug,
+	});
+
+	return (
+		<SharedCustomStoryPage
+			storyId={storyId}
+			isSignedIn={Boolean(session?.user?.id)}
+			title={story.title}
+			authorName={story.authorName}
+			isLive={story.isLive}
+			canRefresh={story.canRefresh}
+			storyChatHeader={toStoryChatHeader(storyId, story, access)}
+		/>
+	);
+}
+
+function SharedClassicStoryPage({ storyId }: { storyId: string }) {
+	const { data: session } = useSession();
+	const queryClient = useQueryClient();
+
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ storyId }));
+	const presence = useStoryEditSession({ target: session?.user?.id ? { storyId } : null, isEditing: false });
+
+	const containerRef = useRef<HTMLDivElement>(null);
+	const sidePanelRef = useRef<HTMLDivElement>(null);
+	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
+	const shareSource = useMemo(() => ({ type: 'story' as const, storyId }), [storyId]);
+
+	const refreshMutation = useMutation(
+		trpc.storyShare.refreshData.mutationOptions({
+			onSettled: async () => {
+				await queryClient.invalidateQueries({ queryKey: trpc.storyShare.get.queryKey({ storyId }) });
+			},
+		}),
+	);
+	const { mutate: refreshStory } = refreshMutation;
+	const handleRefresh = useCallback(() => {
+		refreshStory({ storyId });
+	}, [refreshStory, storyId]);
+	const isRefreshing = useIsStoryRefreshing(trpc.storyShare.refreshData.mutationKey(), { storyId });
+	useRetryStaleStoryRefresh({
+		storyKey: storyId,
+		needsRefresh: story.needsRefresh,
+		isRefreshing,
+		refresh: handleRefresh,
+	});
+
+	const resolvedStory = useResolvedStory(storyId).data;
+	const isOwner = resolvedStory?.isOwner === true;
+	const storyChatHeader = toStoryChatHeader(storyId, story, {
+		isOwner,
+		canEdit: resolvedStory?.canEdit === true,
+	});
+	const canAsk = storyChatHeader.storyChat?.canChat === true;
+	const [isSelectingElements, setIsSelectingElements] = useElementSelectionMode();
+
+	useTrackViewDuration({
+		assetType: 'story',
+		storyId,
+		chatId: story?.chatId ?? undefined,
+		storySlug: story?.slug,
+	});
+
+	const editor = useStoryPageEditor({
+		chatId: story?.chatId ?? '',
+		storySlug: story?.slug ?? '',
+		storyTitle: story?.title ?? '',
+		latestCode: story?.code ?? '',
+		isReadonlyMode: true,
+	});
+	const { queryData, isPending: isQueryDataPending } = useStoryVersionQueryData({
+		chatId: story?.chatId ?? '',
+		storySlug: story?.slug ?? '',
+		versionNumber: editor.versionNav.storedVersionNumber,
+		isViewingLatest: editor.versionNav.isViewingLatest,
+		latestQueryData: (story?.queryData as QueryDataMap | null | undefined) ?? null,
+		sharedStoryId: storyId,
+	});
+	const storyTheme = useStoryThemeForCurrentMode(story.theme);
+
+	return (
+		<SidePanelProvider
+			isVisible={sidePanel.isVisible}
+			currentStorySlug={sidePanel.currentStorySlug}
+			setCurrentStorySlug={sidePanel.setCurrentStorySlug}
+			currentStoryTabIndex={sidePanel.currentStoryTabIndex}
+			setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
+			chatId={story.chatId}
+			shareSource={shareSource}
+			isReadonlyMode
+			open={sidePanel.open}
+			close={sidePanel.close}
+		>
+			<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0' ref={containerRef}>
+				<SharedStoryHeader
+					title={story.title}
+					authorName={story.authorName}
+					storyChatHeader={storyChatHeader}
+					isLive={story.isLive}
+					cachedAt={story.cachedAt}
+					lastRefreshFailure={story.lastRefreshFailure}
+					isRefreshing={isRefreshing}
+					canRefresh={story.canRefresh}
+					onRefresh={handleRefresh}
+					storyId={session?.user?.id && story.userRole ? storyId : null}
+					download={{ chatId: story.chatId!, storySlug: story.slug, shareSource, isOwner: false }}
+					elementSelection={
+						canAsk
+							? { isSelecting: isSelectingElements, onSelectingChange: setIsSelectingElements }
+							: undefined
+					}
+				/>
+				<StoryEditPresenceBanner presence={presence} />
+
+				<SelectionProvider key={storyId}>
+					{canAsk && <HighlightBubble onAsk={requestAskAboutSelection} />}
+					<div className='flex flex-1 min-h-0 min-w-0'>
+						<div
+							className='relative flex flex-col flex-1 min-w-0 min-h-0'
+							style={canAsk ? STORY_ASK_BAR_INSET_STYLE : undefined}
+						>
+							<StoryPageBody
+								editor={editor}
+								queryData={queryData}
+								theme={storyTheme}
+								preview={
+									<StoryElementPicker
+										isPicking={canAsk && isSelectingElements}
+										storySlug={story.slug}
+										onPick={(ask) => requestAskAboutElement(ask)}
+									>
+										<SharedStoryContent
+											code={editor.code}
+											queryData={queryData}
+											theme={storyTheme}
+											storyId={storyId}
+											cacheSchedule={story.cacheSchedule}
+											isDataPending={isQueryDataPending}
+											isViewingLatest={editor.versionNav.isViewingLatest}
+										/>
+									</StoryElementPicker>
+								}
+							/>
+							{canAsk && <StoryAskBar storyId={storyId} canEdit={resolvedStory?.canEdit === true} />}
+						</div>
+
+						{sidePanel.content && (
+							<SidePanel
+								containerRef={containerRef}
+								isAnimating={sidePanel.isAnimating}
+								sidePanelRef={sidePanelRef}
+								resizeHandleRef={sidePanel.resizeHandleRef}
+							>
+								{sidePanel.content}
+							</SidePanel>
+						)}
+					</div>
+				</SelectionProvider>
+			</div>
+		</SidePanelProvider>
+	);
+}
+
+function SharedStoryContent({
+	code,
+	queryData,
+	theme,
+	storyId,
+	cacheSchedule,
+	isDataPending,
+	isViewingLatest,
+}: {
+	code: string;
+	queryData: QueryDataMap | null;
+	theme: ReturnType<typeof useStoryThemeForCurrentMode>;
+	storyId: string;
+	cacheSchedule?: string | null;
+	isDataPending: boolean;
+	isViewingLatest: boolean;
+}) {
+	const isNoCacheMode = cacheSchedule === 'no-cache';
+	const useLiveUnfiltered = isViewingLatest && isNoCacheMode;
+	const filterApi = useMemo(() => ({ kind: 'shared' as const, storyId }), [storyId]);
+
+	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
+		() =>
+			useLiveUnfiltered
+				? { queryOptions: (queryId) => trpc.storyShare.getLiveQueryData.queryOptions({ storyId, queryId }) }
+				: undefined,
+		[useLiveUnfiltered, storyId],
+	);
+
+	const renderChart = useCallback(
+		(
+			chart: ParsedChartBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: {
+				queryData: QueryDataMap | null;
+				hasActiveFilters: boolean;
+				isRefreshing: boolean;
+			},
+		) => (
+			<StoryChartEmbed
+				chart={chart}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
+			/>
+		),
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
+	);
+
+	const renderTable = useCallback(
+		(
+			table: ParsedTableBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryTableEmbed
+				table={table}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
+			/>
+		),
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
+	);
+
+	const renderMap = useCallback(
+		(
+			map: ParsedMapBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryMapEmbed
+				map={map}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
+				allowExpand
+			/>
+		),
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
+	);
+
+	return (
+		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
+			<StoryTabbedContent
+				code={code}
+				baselineQueryData={queryData}
+				filterApi={filterApi}
+				theme={theme}
+				renderChart={renderChart}
+				renderTable={renderTable}
+				renderMap={renderMap}
+			/>
+		</div>
+	);
+}
+
+/** Archived stories cannot be referenced or duplicated, and viewers cannot chat. */
+function toStoryChatHeader(
+	storyId: string,
+	story: { userRole: string | null; canFork: boolean; isArchived: boolean },
+	access: { isOwner: boolean; canEdit: boolean },
+): Pick<StoryPageHeaderProps, 'storyChat' | 'canDuplicate'> {
+	return {
+		storyChat: { storyId, ...access, canChat: story.userRole !== 'viewer' && !story.isArchived },
+		canDuplicate: story.canFork && !story.isArchived,
+	};
+}

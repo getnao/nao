@@ -27,6 +27,8 @@ class _DatabaseConfigLike(Protocol):
 
     def get_database_name(self) -> str: ...
 
+    def get_catalog_names(self) -> list[str]: ...
+
     def column_matches_pattern(self, schema: str, table: str, column: str) -> bool: ...
 
 
@@ -39,6 +41,8 @@ _SQLGLOT_DIALECTS = {
     "fabric": "tsql",
     "snowflake": "snowflake",
     "mssql": "tsql",
+    "motherduck": "duckdb",
+    "ducklake": "duckdb",
     "mysql": "mysql",
     "postgres": "postgres",
     "redshift": "redshift",
@@ -51,6 +55,8 @@ _STAR_EXCLUSION_KEYWORDS = {
     "clickhouse": "EXCEPT",
     "databricks": "EXCEPT",
     "duckdb": "EXCLUDE",
+    "ducklake": "EXCLUDE",
+    "motherduck": "EXCLUDE",
     "redshift": "EXCLUDE",
     "snowflake": "EXCLUDE",
     "starrocks": "EXCLUDE",
@@ -61,6 +67,7 @@ def validate_column_access(
     sql: str,
     db_config: _DatabaseConfigLike,
     project_path: Path,
+    database_folder: str | None = None,
 ) -> str:
     if not db_config.exclude_columns:
         return sql
@@ -74,7 +81,7 @@ def validate_column_access(
         return sql
 
     try:
-        table_infos = _load_table_infos(expression, project_path, db_config)
+        table_infos = _load_table_infos(expression, project_path, db_config, database_folder)
         qualified = _qualify_query(expression, dialect, table_infos)
         analyzer = _ColumnAccessAnalyzer(qualified, table_infos, db_config)
         analyzer.validate_star_locations()
@@ -128,8 +135,9 @@ def _load_table_infos(
     expression: exp.Query,
     project_path: Path,
     db_config: _DatabaseConfigLike,
+    database_folder: str | None,
 ) -> TableInfos:
-    database_folder = get_database_folder_names([db_config])[0]
+    database_folder = database_folder or get_database_folder_names([db_config])[0]
     path = column_catalog_path(project_path, db_config.type, database_folder)
     catalog = load_column_catalog(path)
     infos: TableInfos = {}
@@ -152,14 +160,16 @@ def _resolve_table(
 
     requested_catalog = table_expression.catalog
     if requested_catalog:
-        database_name = db_config.get_database_name()
-        if not _catalog_matches_database(requested_catalog, database_name):
-            raise _blocked(f"catalog '{requested_catalog}' does not match the configured database '{database_name}'")
+        catalog_names = db_config.get_catalog_names()
+        if not any(_catalog_matches_database(requested_catalog, name) for name in catalog_names):
+            raise _blocked(
+                f"catalog '{requested_catalog}' does not match the configured database '{', '.join(catalog_names)}'"
+            )
 
     requested_schema = table_expression.db
     if requested_schema:
         schema_candidates = [requested_schema]
-        if requested_catalog:
+        if requested_catalog and _catalog_matches_database(requested_catalog, db_config.get_database_name()):
             schema_candidates.insert(0, f"{requested_catalog}.{requested_schema}")
         schema = next(
             (

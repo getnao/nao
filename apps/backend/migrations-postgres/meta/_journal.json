@@ -456,6 +456,328 @@
       "when": 1787660347486,
       "tag": "0064_add_mattermost",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1789474730783,
+      "tag": "0065_user_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1790001489883,
+      "tag": "0066_notification_system",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1790175948081,
+      "tag": "0067_llm_inference_created_at_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1790587021527,
+      "tag": "0068_sandbox_secrets",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1790616313495,
+      "tag": "0069_message_sender_user_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1790691342292,
+      "tag": "0070_shared_story_group_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1790775949653,
+      "tag": "0071_story_certification",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1790932957188,
+      "tag": "0072_custom_stories",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1790932958188,
+      "tag": "0073_story_fork_metadata_story_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1791204013795,
+      "tag": "0074_organization_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1791306214210,
+      "tag": "0075_bypass_billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1791358973879,
+      "tag": "0076_member_budgets",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1791358974879,
+      "tag": "0077_story_app_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792154736384,
+      "tag": "0078_add_discord",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1792400347933,
+      "tag": "0079_warehouse_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1792400359891,
+      "tag": "0080_warehouse_sync_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1792426293707,
+      "tag": "0081_story_delivery_recipient_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792482052113,
+      "tag": "0082_add_story_bundle_thumbnail",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792583257419,
+      "tag": "0083_organization_license",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792588144855,
+      "tag": "0084_story_theme_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1792596154812,
+      "tag": "0085_story_feedback",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792696735762,
+      "tag": "0086_story_view_counts_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792939237860,
+      "tag": "0087_user_deactivated_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793008947122,
+      "tag": "0088_managed_ai_usage_wallet",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1793009163470,
+      "tag": "0089_example_chat_allowance",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1793020748918,
+      "tag": "0090_managed_ai_credit_ledger_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1793197360141,
+      "tag": "0091_onboarding_funnel",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793275903231,
+      "tag": "0092_onboarding_setup_tracing",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1793281513485,
+      "tag": "0093_log_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793727408407,
+      "tag": "0094_test_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1793802715843,
+      "tag": "0095_test_run_reasoning_effort",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1793808043313,
+      "tag": "0096_project_deployed_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1793883302427,
+      "tag": "0097_chat_message_citations",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1793956748335,
+      "tag": "0098_story_version_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1793965270432,
+      "tag": "0099_story_filter_options_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1794262121434,
+      "tag": "0100_automation_event_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794297263754,
+      "tag": "0101_automation_run_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794307823056,
+      "tag": "0102_story_multi_editors",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794608573692,
+      "tag": "0103_project_menu_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794665362220,
+      "tag": "0104_shared_github_access_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1794824545395,
+      "tag": "0105_story_queries",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1794936825739,
+      "tag": "0106_story_transferred_from",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795005230933,
+      "tag": "0107_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795008907744,
+      "tag": "0108_sso_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1795027131609,
+      "tag": "0109_agent_stream_relay",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1795044833610,
+      "tag": "0110_query_result_previews",
+      "breakpoints": true
     }
   ]
 }

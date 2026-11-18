@@ -5,6 +5,10 @@
  * `formula` rule) can be added later without breaking existing consumers.
  */
 
+import { interpolate, type Rgb } from 'culori';
+
+import { cssColorToHex, parseCssColor } from './color';
+
 export interface ColorScaleRule {
 	type: 'color-scale';
 	/**
@@ -63,58 +67,6 @@ export const DEFAULT_THRESHOLD_COLOR = 'rgba(34, 197, 94, 0.32)';
 /** Alpha applied to the low/high ends when deriving a scale from a single main color. */
 const SCALE_MIN_ALPHA = 0.04;
 const SCALE_MAX_ALPHA = 0.55;
-
-/** Common CSS named colors, so an AI-supplied `"red"`/`"green"` renders instead of silently failing. */
-const NAMED_COLORS: Record<string, string> = {
-	black: '#000000',
-	white: '#ffffff',
-	red: '#ff0000',
-	green: '#008000',
-	blue: '#0000ff',
-	yellow: '#ffff00',
-	orange: '#ffa500',
-	purple: '#800080',
-	pink: '#ffc0cb',
-	brown: '#a52a2a',
-	gray: '#808080',
-	grey: '#808080',
-	silver: '#c0c0c0',
-	gold: '#ffd700',
-	cyan: '#00ffff',
-	aqua: '#00ffff',
-	magenta: '#ff00ff',
-	fuchsia: '#ff00ff',
-	lime: '#00ff00',
-	teal: '#008080',
-	navy: '#000080',
-	maroon: '#800000',
-	olive: '#808000',
-	indigo: '#4b0082',
-	violet: '#ee82ee',
-	turquoise: '#40e0d0',
-	salmon: '#fa8072',
-	coral: '#ff7f50',
-	crimson: '#dc143c',
-	khaki: '#f0e68c',
-	lavender: '#e6e6fa',
-	plum: '#dda0dd',
-	orchid: '#da70d6',
-	tan: '#d2b48c',
-	beige: '#f5f5dc',
-	ivory: '#fffff0',
-	azure: '#f0ffff',
-	tomato: '#ff6347',
-	chocolate: '#d2691e',
-	darkgreen: '#006400',
-	lightgreen: '#90ee90',
-	darkblue: '#00008b',
-	lightblue: '#add8e6',
-	darkred: '#8b0000',
-	darkgray: '#a9a9a9',
-	darkgrey: '#a9a9a9',
-	lightgray: '#d3d3d3',
-	lightgrey: '#d3d3d3',
-};
 
 const THRESHOLD_OPERATORS: readonly ThresholdOperator[] = ['>=', '>', '<=', '<', '='];
 const STRING_OPERATORS: readonly StringOperator[] = ['equals', 'in', 'like'];
@@ -198,6 +150,34 @@ export function computeColumnRange(rows: Record<string, unknown>[], column: stri
 	}
 
 	return min === Number.POSITIVE_INFINITY ? null : { min, max };
+}
+
+/** Resolves each cell's background from a table's conditional formats, precomputing colour-scale ranges once. */
+export function createCellBackgroundResolver(
+	data: Record<string, unknown>[],
+	conditionalFormats?: ColumnConditionalFormats,
+): ((column: string, value: unknown) => string | undefined) | undefined {
+	if (!conditionalFormats) {
+		return undefined;
+	}
+	const ranges = computeFormattedColumnRanges(data, conditionalFormats);
+	return (column, value) => {
+		const rule = conditionalFormats[column];
+		return isConditionalFormatRule(rule) ? resolveCellBackground(rule, value, ranges[column] ?? null) : undefined;
+	};
+}
+
+function computeFormattedColumnRanges(
+	data: Record<string, unknown>[],
+	conditionalFormats: ColumnConditionalFormats,
+): Record<string, ColumnRange | null> {
+	const ranges: Record<string, ColumnRange | null> = {};
+	for (const [column, rule] of Object.entries(conditionalFormats)) {
+		if (isConditionalFormatRule(rule) && rule.type === 'color-scale') {
+			ranges[column] = computeColumnRange(data, column);
+		}
+	}
+	return ranges;
 }
 
 export function resolveCellBackground(
@@ -307,143 +287,34 @@ function resolveColorScale(rule: ColorScaleRule, value: number, range: ColumnRan
  * So `color` + a single explicit endpoint keeps the `color`-derived other end.
  */
 function scaleEndpoints(rule: ColorScaleRule): { minColor: string; maxColor: string } {
-	const derived = rule.color ? parseColor(rule.color) : null;
+	const derived = rule.color ? parseCssColor(rule.color) : null;
 	return {
 		minColor: rule.minColor ?? (derived ? toRgbaString(derived, SCALE_MIN_ALPHA) : DEFAULT_SCALE_MIN_COLOR),
 		maxColor: rule.maxColor ?? (derived ? toRgbaString(derived, SCALE_MAX_ALPHA) : DEFAULT_SCALE_MAX_COLOR),
 	};
 }
 
-function toRgbaString(rgba: Rgba, alpha: number): string {
-	return `rgba(${rgba.r}, ${rgba.g}, ${rgba.b}, ${alpha})`;
-}
-
-interface Rgba {
-	r: number;
-	g: number;
-	b: number;
-	a: number;
-}
-
 /**
- * Converts any supported color (hex, rgb, rgba) to an opaque `#rrggbb` string
- * for `<input type="color">`. Alpha is dropped since the picker cannot represent
- * it. Returns null when the color cannot be parsed.
+ * Converts any CSS color to an opaque `#rrggbb` string for `<input type="color">`.
+ * Alpha is dropped since the picker cannot represent it. Returns null when the
+ * color cannot be parsed.
  */
 export function colorToHex(color: string): string | null {
-	const rgba = parseColor(color);
-	if (!rgba) {
-		return null;
-	}
-	return `#${channelToHex(rgba.r)}${channelToHex(rgba.g)}${channelToHex(rgba.b)}`;
-}
-
-function channelToHex(value: number): string {
-	const clamped = Math.min(255, Math.max(0, Math.round(value)));
-	return clamped.toString(16).padStart(2, '0');
+	return cssColorToHex(color, 0);
 }
 
 function interpolateColor(from: string, to: string, ratio: number): string | undefined {
-	const start = parseColor(from);
-	const end = parseColor(to);
+	const start = parseCssColor(from);
+	const end = parseCssColor(to);
 	if (!start || !end) {
 		return undefined;
 	}
-
-	const r = Math.round(start.r + (end.r - start.r) * ratio);
-	const g = Math.round(start.g + (end.g - start.g) * ratio);
-	const b = Math.round(start.b + (end.b - start.b) * ratio);
-	const a = roundAlpha(start.a + (end.a - start.a) * ratio);
-	return `rgba(${r}, ${g}, ${b}, ${a})`;
+	return toRgbaString(interpolate([start, end], 'rgb')(ratio));
 }
 
-function parseColor(input: string): Rgba | null {
-	const value = input.trim();
-
-	if (value.startsWith('#')) {
-		return parseHexColor(value);
-	}
-
-	const rgbMatch = value.match(/^rgba?\(([^)]+)\)$/i);
-	if (rgbMatch) {
-		const parts = rgbMatch[1].split(',').map((part) => Number.parseFloat(part.trim()));
-		if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
-			return { r: parts[0], g: parts[1], b: parts[2], a: Number.isFinite(parts[3]) ? parts[3] : 1 };
-		}
-	}
-
-	const hslMatch = value.match(/^hsla?\(([^)]+)\)$/i);
-	if (hslMatch) {
-		const parts = hslMatch[1].split(',').map((part) => Number.parseFloat(part.trim()));
-		const [h, s, l, a] = parts;
-		if (parts.length >= 3 && [h, s, l].every(Number.isFinite)) {
-			return { ...hslToRgb(h, s / 100, l / 100), a: Number.isFinite(a) ? a : 1 };
-		}
-	}
-
-	const named = NAMED_COLORS[value.toLowerCase()];
-	if (named) {
-		return parseHexColor(named);
-	}
-
-	return null;
-}
-
-function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
-	const hue = (((h % 360) + 360) % 360) / 360;
-	const saturation = clamp01(s);
-	const lightness = clamp01(l);
-	if (saturation === 0) {
-		const value = Math.round(lightness * 255);
-		return { r: value, g: value, b: value };
-	}
-	const q = lightness < 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation;
-	const p = 2 * lightness - q;
-	return {
-		r: Math.round(hueToChannel(p, q, hue + 1 / 3) * 255),
-		g: Math.round(hueToChannel(p, q, hue) * 255),
-		b: Math.round(hueToChannel(p, q, hue - 1 / 3) * 255),
-	};
-}
-
-function hueToChannel(p: number, q: number, t: number): number {
-	let tt = t;
-	if (tt < 0) {
-		tt += 1;
-	}
-	if (tt > 1) {
-		tt -= 1;
-	}
-	if (tt < 1 / 6) {
-		return p + (q - p) * 6 * tt;
-	}
-	if (tt < 1 / 2) {
-		return q;
-	}
-	if (tt < 2 / 3) {
-		return p + (q - p) * (2 / 3 - tt) * 6;
-	}
-	return p;
-}
-
-function parseHexColor(value: string): Rgba | null {
-	let hex = value.slice(1);
-	if (hex.length === 3) {
-		hex = hex
-			.split('')
-			.map((char) => char + char)
-			.join('');
-	}
-	if ((hex.length !== 6 && hex.length !== 8) || !/^[0-9a-fA-F]+$/.test(hex)) {
-		return null;
-	}
-
-	return {
-		r: Number.parseInt(hex.slice(0, 2), 16),
-		g: Number.parseInt(hex.slice(2, 4), 16),
-		b: Number.parseInt(hex.slice(4, 6), 16),
-		a: hex.length === 8 ? roundAlpha(Number.parseInt(hex.slice(6, 8), 16) / 255) : 1,
-	};
+function toRgbaString(color: Rgb, alpha = color.alpha ?? 1): string {
+	const channel = (value: number) => Math.round(value * 255);
+	return `rgba(${channel(color.r)}, ${channel(color.g)}, ${channel(color.b)}, ${roundAlpha(alpha)})`;
 }
 
 function clamp01(value: number): number {

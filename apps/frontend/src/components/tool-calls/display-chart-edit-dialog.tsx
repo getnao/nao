@@ -1,35 +1,47 @@
 import { computeKpiComparison, DEFAULT_COLORS } from '@nao/shared';
+import {
+	chartTypeSupportsAxisLabels,
+	chartTypeSupportsComboSeries,
+	isBuiltinChartType,
+	isPercentStackedChartType,
+	isStackedChartType,
+	resolveShowDataLabels,
+} from '@nao/shared/chart-types';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChartArea, ChartBar, ChartColumn, ChartColumnIncreasing, ChartLine, Plus, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { usePanelRef } from 'react-resizable-panels';
 
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
+import { ResizablePanel, ResizablePanelGroup, ResizableSeparator } from '../ui/resizable';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { ChartEditorDataPanel, ChartEditorDataRail } from './chart-editor-data-panel';
+import { ChartEditorPreview } from './chart-editor-preview';
+import { ChartEditorQueryPane } from './chart-editor-query-pane';
+import { ChartTypePicker, chartTypeLabel } from './chart-type-picker';
+import type { ChartEditorQuerySource } from './chart-editor-data-panel';
+import type { ColumnValueKind } from '@/lib/chart-selection-summary';
+import type { SourceQuery } from '@/lib/execute-sql-messages';
 import type { LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
+import type { executeSql } from '@nao/shared/tools';
+import type { ChartType } from '@nao/shared/chart-types';
+import type { StoryTheme } from '@nao/shared/story-theme';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
+import { acceptNumericKind, useColumnDropTarget, useDraggedColumnKind } from '@/hooks/use-column-drag';
+import { describeSemanticQueryFreshness, useSemanticQueryFreshness } from '@/hooks/use-semantic-query-freshness';
+import { isSemanticSourceQuery } from '@/lib/execute-sql-messages';
 import { trpc } from '@/main';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { cn } from '@/lib/utils';
-
-const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
-	{ value: 'bar', label: 'Bar' },
-	{ value: 'stacked_bar', label: 'Stacked bar' },
-	{ value: 'horizontal_bar', label: 'Horizontal bar' },
-	{ value: 'line', label: 'Line' },
-	{ value: 'area', label: 'Area' },
-	{ value: 'stacked_area', label: 'Stacked area' },
-	{ value: 'mixed', label: 'Mixed' },
-	{ value: 'pie', label: 'Pie' },
-	{ value: 'donut', label: 'Donut' },
-	{ value: 'kpi_card', label: 'KPI card' },
-	{ value: 'scatter', label: 'Scatter' },
-	{ value: 'radar', label: 'Radar' },
-];
+import { resolveCssVariableColorHex } from '@/lib/css-color';
+import { summarizeChartSelection } from '@/lib/chart-selection-summary';
+import { useAgentContext, useAgentMessages, useOptionalAgentContext } from '@/contexts/agent.provider';
 
 const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'; label: string }[] = [
 	{ value: 'auto', label: 'Auto' },
@@ -51,7 +63,7 @@ const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon
 	{ value: 'area', label: 'Area', icon: ChartArea },
 ];
 
-const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>([
+const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<ChartType>([
 	'pie',
 	'kpi_card',
 	'radar',
@@ -61,10 +73,10 @@ const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>([
 
 type UnitPlacement = 'prefix' | 'suffix';
 
-type EditableChartInput = Omit<displayChart.KpiCardInput, 'chart_type'> & { chart_type: displayChart.ChartType };
+type EditableChartInput = Omit<displayChart.KpiCardInput, 'chart_type'> & { chart_type: ChartType };
 
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
-function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
+function baseChartType(type: ChartType): ChartType {
 	if (type === 'stacked_bar_100') {
 		return 'stacked_bar';
 	}
@@ -78,7 +90,7 @@ function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
 }
 
 /** Maps a stacked type to its 100% (normalized) counterpart. */
-function percentChartType(type: displayChart.ChartType): displayChart.ChartType {
+function percentChartType(type: ChartType): ChartType {
 	if (type === 'stacked_bar' || type === 'stacked_bar_100') {
 		return 'stacked_bar_100';
 	}
@@ -103,28 +115,224 @@ function remapOpenIndexesAfterRemoval(openIndexes: Set<number>, removedIndex: nu
 	return next;
 }
 
-interface ChartConfigEditDialogProps {
+interface ChartConfigEditDialogProps extends Omit<
+	ChartConfigEditFormProps,
+	'id' | 'onSaved' | 'onDraftChange' | 'className'
+> {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	config: EditableChartInput;
-	availableColumns: string[];
-	onSave: (next: EditableChartInput) => Promise<void>;
 	isSaving?: boolean;
 	description?: string;
-	data?: Record<string, unknown>[];
+	sourceQuery?: SourceQuery | null;
+	initialView?: ChartEditorView;
+	previewTheme?: StoryTheme;
 }
 
-/** Presentational edit dialog for `display_chart` configuration. */
+export type ChartEditorView = 'chart' | 'query';
+
+type QueryEditorState = 'unopened' | 'open' | 'hidden';
+
+const EMPTY_ROWS: Record<string, unknown>[] = [];
+
+const DATA_PANEL_DEFAULT_WIDTH = 256;
+const DATA_PANEL_MIN_WIDTH = 200;
+const DATA_PANEL_MAX_WIDTH = 480;
+const DATA_PANEL_COLLAPSED_WIDTH = 44;
+const FORM_PANEL_DEFAULT_WIDTH = 416;
+const FORM_PANEL_MIN_WIDTH = 320;
+const FORM_PANEL_MAX_WIDTH = 720;
+const CHART_PANEL_MIN_WIDTH = 320;
+const PANEL_OVERFLOW_HIDDEN = { overflow: 'hidden' } as const;
+const PANEL_SCROLL_Y = { overflowY: 'auto' } as const;
+
+/**
+ * Chart editor dialog: the query result columns on the left, the configuration form in the
+ * middle and the chart space on the right. Editing the SQL swaps the form and chart space for
+ * the query editor.
+ */
 export function ChartConfigEditDialog({
 	open,
 	onOpenChange,
+	isSaving = false,
+	description = 'Tweak the chart parameters.',
+	sourceQuery,
+	initialView = 'chart',
+	previewTheme,
+	...form
+}: ChartConfigEditDialogProps) {
+	const formId = useId();
+	const agent = useOptionalAgentContext();
+	const [draft, setDraft] = useState<EditableChartInput>(form.config);
+	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
+	const [editedOutput, setEditedOutput] = useState<executeSql.Output | null>(null);
+	const [queryEditorState, setQueryEditorState] = useState<QueryEditorState>('unopened');
+	const data = useMemo(
+		() => (editedOutput?.data as Record<string, unknown>[] | undefined) ?? form.data ?? EMPTY_ROWS,
+		[editedOutput, form.data],
+	);
+	const columns = editedOutput?.columns ?? form.availableColumns;
+	const summary = useMemo(() => summarizeChartSelection(draft, data, paletteHexes), [draft, data, paletteHexes]);
+	const unsupportedNumberFormat = findUnsupportedNumberFormat(draft.series, form.enforceExportSafeFormats ?? true);
+	const editableQuery = sourceQuery && isEditableSourceQuery(sourceQuery) ? sourceQuery : null;
+	const canEditQuery = Boolean(editableQuery && !agent?.isReadonly && !agent?.isRunning);
+	const querySource = useChartEditorQuerySource(open && canEditQuery ? editableQuery : null);
+	const dataPanelRef = usePanelRef();
+	const [isDataPanelCollapsed, setIsDataPanelCollapsed] = useState(false);
+	const openQueryEditor = canEditQuery ? () => setQueryEditorState('open') : undefined;
+	const isEditingQuery = canEditQuery && queryEditorState === 'open';
+
+	useEffect(() => {
+		if (open) {
+			setPaletteHexes(form.palette ?? resolveChartPaletteHexes());
+			setEditedOutput(null);
+			setQueryEditorState(initialView === 'query' ? 'open' : 'unopened');
+			setIsDataPanelCollapsed(false);
+		}
+	}, [open, form.palette, initialView]);
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className='flex h-[min(92vh,60rem)] w-[min(96vw,100rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[100rem]'>
+				<DialogHeader className='shrink-0 border-b px-6 py-4'>
+					<DialogTitle>Edit chart</DialogTitle>
+					<DialogDescription className='text-sm text-muted-foreground font-medium'>
+						{description}
+					</DialogDescription>
+				</DialogHeader>
+				<ResizablePanelGroup orientation='horizontal' className='min-h-0 flex-1'>
+					<ResizablePanel
+						id='data'
+						panelRef={dataPanelRef}
+						defaultSize={DATA_PANEL_DEFAULT_WIDTH}
+						minSize={DATA_PANEL_MIN_WIDTH}
+						maxSize={DATA_PANEL_MAX_WIDTH}
+						collapsible
+						collapsedSize={DATA_PANEL_COLLAPSED_WIDTH}
+						onResize={() => setIsDataPanelCollapsed(dataPanelRef.current?.isCollapsed() ?? false)}
+						className='flex flex-col'
+						style={PANEL_OVERFLOW_HIDDEN}
+					>
+						{isDataPanelCollapsed ? (
+							<ChartEditorDataRail
+								onExpand={() => dataPanelRef.current?.expand()}
+								onEditQuery={openQueryEditor}
+								isEditingQuery={isEditingQuery}
+								querySource={querySource}
+							/>
+						) : (
+							<ChartEditorDataPanel
+								className='flex h-full'
+								columns={columns}
+								data={data}
+								summary={summary}
+								onCollapse={() => dataPanelRef.current?.collapse()}
+								onEditQuery={openQueryEditor}
+								isEditingQuery={isEditingQuery}
+								querySource={querySource}
+							/>
+						)}
+					</ResizablePanel>
+					<ResizableSeparator />
+					<ResizablePanel id='workspace' className='flex flex-col' style={PANEL_OVERFLOW_HIDDEN}>
+						{canEditQuery && editableQuery && queryEditorState !== 'unopened' && (
+							<ChartEditorQueryPane
+								className={cn(queryEditorState === 'hidden' && 'hidden')}
+								sourceQuery={editableQuery}
+								onOutputChange={setEditedOutput}
+								onClose={() => setQueryEditorState('hidden')}
+							/>
+						)}
+						<div className={cn('flex min-h-0 flex-1', isEditingQuery && 'hidden')}>
+							<ResizablePanelGroup orientation='horizontal' className='min-h-0 flex-1'>
+								<ResizablePanel
+									id='form'
+									defaultSize={FORM_PANEL_DEFAULT_WIDTH}
+									minSize={FORM_PANEL_MIN_WIDTH}
+									maxSize={FORM_PANEL_MAX_WIDTH}
+									className='select-none'
+									style={PANEL_SCROLL_Y}
+								>
+									<ChartConfigEditForm
+										{...form}
+										availableColumns={columns}
+										data={data}
+										id={formId}
+										className='p-6'
+										onDraftChange={setDraft}
+										onSaved={() => onOpenChange(false)}
+									/>
+								</ResizablePanel>
+								<ResizableSeparator />
+								<ResizablePanel
+									id='chart'
+									minSize={CHART_PANEL_MIN_WIDTH}
+									className='flex flex-col'
+									style={PANEL_OVERFLOW_HIDDEN}
+								>
+									<ThemedPreview theme={previewTheme}>
+										<ChartEditorPreview
+											draft={draft}
+											data={data}
+											columns={columns}
+											summary={summary}
+											palette={form.palette}
+										/>
+									</ThemedPreview>
+								</ResizablePanel>
+							</ResizablePanelGroup>
+						</div>
+					</ResizablePanel>
+				</ResizablePanelGroup>
+				<ChartConfigEditActions
+					formId={formId}
+					className='shrink-0 border-t px-6 py-3'
+					isSaving={isSaving}
+					canSave={!unsupportedNumberFormat}
+					onCancel={() => onOpenChange(false)}
+				/>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+/** Only wraps when a theme is given, so a chart already inside a themed story keeps the style it inherits. */
+function ThemedPreview({ theme, children }: { theme?: StoryTheme; children: ReactNode }) {
+	if (!theme) {
+		return children;
+	}
+	return (
+		<StoryThemeProvider theme={theme} className='flex flex-col'>
+			{children}
+		</StoryThemeProvider>
+	);
+}
+
+interface ChartConfigEditFormProps {
+	config: EditableChartInput;
+	availableColumns: string[];
+	onSave: (next: EditableChartInput) => Promise<void>;
+	onSaved: () => void;
+	onDraftChange?: (draft: EditableChartInput) => void;
+	data?: Record<string, unknown>[];
+	palette?: string[];
+	enforceExportSafeFormats?: boolean;
+	id?: string;
+	className?: string;
+}
+
+/** The chart editing fields and their validation, submitted by the dialog's footer. */
+function ChartConfigEditForm({
 	config,
 	availableColumns,
 	onSave,
-	isSaving = false,
-	description = 'Tweak the chart parameters.',
+	onSaved,
+	onDraftChange,
 	data,
-}: ChartConfigEditDialogProps) {
+	palette,
+	enforceExportSafeFormats = true,
+	id,
+	className,
+}: ChartConfigEditFormProps) {
 	const [draft, setDraft] = useState<EditableChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
@@ -136,40 +344,43 @@ export function ChartConfigEditDialog({
 	// the same swatch the chart draws for it. Refreshed on open for the theme.
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
-	const supportsAxisLabels = displayChart.chartTypeSupportsAxisLabels(draft.chart_type);
-	const isPercentNormalized = displayChart.isPercentStackedChartType(draft.chart_type);
+	const supportsAxisLabels = chartTypeSupportsAxisLabels(draft.chart_type);
+	const isPercentNormalized = isPercentStackedChartType(draft.chart_type);
 	const isHorizontalBar = baseChartType(draft.chart_type) === 'horizontal_bar';
 	const showNormalizeToggle =
-		displayChart.isStackedChartType(draft.chart_type) &&
-		(!isHorizontalBar || isPercentNormalized || draft.series.length >= 2);
+		isStackedChartType(draft.chart_type) && (!isHorizontalBar || isPercentNormalized || draft.series.length >= 2);
 	const canEnableNormalize = !isHorizontalBar || draft.series.length >= 2;
 	const unsupportedNumberFormat = useMemo(
-		() =>
-			draft.series
-				.map((series) => series.value_format?.d3_format)
-				.find((format) => Boolean(format) && !isExportSafeNumberFormat(format as string)),
-		[draft.series],
+		() => findUnsupportedNumberFormat(draft.series, enforceExportSafeFormats),
+		[draft.series, enforceExportSafeFormats],
 	);
 	const canShowComparisonPill = useMemo(
 		() => draft.chart_type === 'kpi_card' && hasRenderableKpiComparison(data, draft.x_axis_key, draft.series),
 		[draft.chart_type, draft.x_axis_key, draft.series, data],
 	);
-	const isCombo = displayChart.chartTypeSupportsComboSeries(draft.chart_type);
+	const isCombo = chartTypeSupportsComboSeries(draft.chart_type);
 	const hasRightAxis = isCombo && displayChart.hasRightAxisSeries(draft.series);
 	const hasLeftAxis = !isCombo || draft.series.some((s) => s.y_axis !== 'right');
+	const draggedColumnKind = useDraggedColumnKind();
+	const isDraggingSeriesColumn = draggedColumnKind !== null && acceptNumericKind(draggedColumnKind);
 
 	useEffect(() => {
-		if (open) {
-			setDraft(config);
-			setYAxisMinText(toRangeString(config.y_axis_min));
-			setYAxisMaxText(toRangeString(config.y_axis_max));
-			setYAxisRightMinText(toRangeString(config.y_axis_right_min));
-			setYAxisRightMaxText(toRangeString(config.y_axis_right_max));
-			setPaletteHexes(resolveChartPaletteHexes());
-			setError(null);
-			setOpenValueFormatIndexes(new Set());
-		}
-	}, [open, config]);
+		setDraft(config);
+		setYAxisMinText(toRangeString(config.y_axis_min));
+		setYAxisMaxText(toRangeString(config.y_axis_max));
+		setYAxisRightMinText(toRangeString(config.y_axis_right_min));
+		setYAxisRightMaxText(toRangeString(config.y_axis_right_max));
+		setError(null);
+		setOpenValueFormatIndexes(new Set());
+	}, [config]);
+
+	useEffect(() => {
+		setPaletteHexes(palette ?? resolveChartPaletteHexes());
+	}, [palette]);
+
+	useEffect(() => {
+		onDraftChange?.(draft);
+	}, [draft, onDraftChange]);
 
 	const xAxisOptions = useMemo(() => {
 		if (availableColumns.length === 0) {
@@ -198,14 +409,14 @@ export function ChartConfigEditDialog({
 			setError('Invalid chart configuration.');
 			return;
 		}
-		if (!displayChart.isBuiltinChartType(parsed.data.chart_type)) {
+		if (!isBuiltinChartType(parsed.data.chart_type)) {
 			setError('Custom charts cannot be edited here.');
 			return;
 		}
 
 		try {
 			await onSave({ ...parsed.data, chart_type: parsed.data.chart_type });
-			onOpenChange(false);
+			onSaved();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to update chart.');
 		}
@@ -256,11 +467,17 @@ export function ChartConfigEditDialog({
 		setOpenValueFormatIndexes((previous) => remapOpenIndexesAfterRemoval(previous, index));
 	};
 
-	const addSeries = () => {
-		const used = new Set(draft.series.map((s) => s.data_key));
-		const selectableColumns = getSelectableColumns(availableColumns);
-		const fallback = selectableColumns.find((c) => c !== draft.x_axis_key && !used.has(c)) ?? selectableColumns[0];
-		if (!fallback) {
+	const usedSeriesKeys = new Set(draft.series.map((s) => s.data_key));
+	const nextUnusedSeriesColumn = getSelectableColumns(availableColumns).find(
+		(column) => column !== draft.x_axis_key && !usedSeriesKeys.has(column),
+	);
+
+	const addSeries = (column?: string) => {
+		if (column && (column === draft.x_axis_key || usedSeriesKeys.has(column))) {
+			return;
+		}
+		const nextColumn = column ?? nextUnusedSeriesColumn;
+		if (!nextColumn) {
 			setError('No columns are available to add as a series.');
 			return;
 		}
@@ -268,7 +485,7 @@ export function ChartConfigEditDialog({
 		setError(null);
 		setDraft((prev) => ({
 			...prev,
-			series: [...prev.series, { data_key: fallback }],
+			series: [...prev.series, { data_key: nextColumn }],
 		}));
 	};
 
@@ -297,51 +514,348 @@ export function ChartConfigEditDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
-				<DialogHeader>
-					<DialogTitle>Edit chart</DialogTitle>
-					<DialogDescription className='text-sm text-muted-foreground font-medium'>
-						{description}
-					</DialogDescription>
-				</DialogHeader>
+		<form id={id} onSubmit={handleSubmit} className={cn('flex flex-col gap-4', className)}>
+			<div className='grid gap-2'>
+				<label htmlFor='chart-title' className='text-sm font-semibold text-foreground'>
+					Title
+				</label>
+				<Input
+					id='chart-title'
+					className='h-8 bg-panel'
+					value={draft.title}
+					onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
+					placeholder='Chart title'
+				/>
+			</div>
 
-				<form onSubmit={handleSubmit} className='flex flex-col gap-4'>
-					<div className='grid gap-2'>
-						<label htmlFor='chart-title' className='text-sm font-semibold text-foreground'>
-							Title
+			<div className='grid gap-2'>
+				<div className='flex items-baseline justify-between gap-2'>
+					<span className='text-sm font-semibold text-foreground'>Chart type</span>
+					<span className='text-xs text-muted-foreground'>
+						{chartTypeLabel(baseChartType(draft.chart_type))}
+					</span>
+				</div>
+				<ChartTypePicker
+					value={baseChartType(draft.chart_type)}
+					onValueChange={(nextBase) =>
+						setDraft((prev) => {
+							const keepPercent =
+								isPercentStackedChartType(prev.chart_type) && isStackedChartType(nextBase);
+							return {
+								...prev,
+								chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
+							};
+						})
+					}
+				/>
+			</div>
+
+			{showNormalizeToggle && (
+				<div className='flex items-center justify-between gap-3'>
+					<div className='grid gap-0.5'>
+						<label htmlFor='chart-normalize' className='text-sm font-semibold text-foreground'>
+							Normalize to 100%
 						</label>
-						<Input
-							id='chart-title'
-							className='h-8 bg-panel'
-							value={draft.title}
-							onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
-							placeholder='Chart title'
-						/>
+						<span className='text-xs text-muted-foreground'>
+							Show each series as a share of the category total.
+						</span>
 					</div>
+					<Switch
+						id='chart-normalize'
+						checked={isPercentNormalized}
+						disabled={!isPercentNormalized && !canEnableNormalize}
+						onCheckedChange={(checked) =>
+							setDraft((prev) => ({
+								...prev,
+								chart_type: checked
+									? percentChartType(prev.chart_type)
+									: baseChartType(prev.chart_type),
+							}))
+						}
+					/>
+				</div>
+			)}
 
-					<div className='grid gap-2'>
-						<span className='text-sm font-semibold text-foreground'>Chart type</span>
-						<Select
-							value={baseChartType(draft.chart_type)}
-							onValueChange={(value) =>
-								setDraft((prev) => {
-									const nextBase = value as displayChart.ChartType;
-									const keepPercent =
-										displayChart.isPercentStackedChartType(prev.chart_type) &&
-										displayChart.isStackedChartType(nextBase);
-									return {
+			{draft.chart_type !== 'kpi_card' && (
+				<div className='grid gap-3 py-2'>
+					<span className='text-sm font-semibold text-foreground'>X-axis</span>
+					<div
+						className={`grid gap-3 items-end ${supportsAxisLabels ? 'grid-cols-[1fr_1fr_1fr]' : 'grid-cols-[1fr_1fr]'}`}
+					>
+						<div className='grid gap-1'>
+							<span className='text-xs text-muted-foreground'>Column</span>
+							<ColumnSelect
+								value={draft.x_axis_key ?? ''}
+								columns={xAxisOptions}
+								onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
+								draggedColumnKind={draggedColumnKind}
+							/>
+						</div>
+						{supportsAxisLabels && (
+							<div className='grid gap-1'>
+								<span className='text-xs text-muted-foreground'>Label</span>
+								<Input
+									className='h-8 bg-panel'
+									placeholder='Label (optional)'
+									value={draft.x_axis_label ?? ''}
+									onChange={(e) =>
+										setDraft((prev) => ({
+											...prev,
+											x_axis_label: e.target.value || undefined,
+										}))
+									}
+								/>
+							</div>
+						)}
+						<div className='grid gap-1'>
+							<span className='text-xs text-muted-foreground'>Type</span>
+							<Select
+								value={draft.x_axis_type ?? 'auto'}
+								onValueChange={(value) =>
+									setDraft((prev) => ({
 										...prev,
-										chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
-									};
-								})
+										x_axis_type: value === 'auto' ? null : (value as displayChart.XAxisType),
+									}))
+								}
+							>
+								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+									{X_AXIS_TYPE_OPTIONS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					</div>
+				</div>
+			)}
+
+			<div className='grid gap-2'>
+				<div className='flex items-center justify-between py-2'>
+					<span className='text-sm font-semibold text-foreground'>Series</span>
+					<Button
+						type='button'
+						size='sm'
+						variant='outline'
+						className='rounded-full text-xs'
+						onClick={() => addSeries()}
+						disabled={!nextUnusedSeriesColumn}
+						title={nextUnusedSeriesColumn ? undefined : 'All columns are already used'}
+					>
+						<Plus className='size-3.5' /> Add series
+					</Button>
+				</div>
+				<div className='flex flex-col gap-3'>
+					{draft.series.map((series, index) => {
+						const placement: UnitPlacement = series.value_format?.prefix ? 'prefix' : 'suffix';
+						const unit =
+							placement === 'prefix'
+								? (series.value_format?.prefix ?? '')
+								: (series.value_format?.suffix ?? '');
+						const isOpen = openValueFormatIndexes.has(index);
+						const row = (
+							<div
+								className={`grid ${isCombo ? 'grid-cols-[1fr_1fr_auto_auto_auto_auto]' : 'grid-cols-[1fr_1fr_auto_auto_auto]'} gap-2 items-center`}
+							>
+								<ColumnSelect
+									value={series.data_key}
+									columns={availableColumns.length > 0 ? availableColumns : [series.data_key]}
+									onChange={(value) => updateSeriesAt(index, { data_key: value })}
+									draggedColumnKind={draggedColumnKind}
+									acceptsKind={acceptNumericKind}
+								/>
+								<Input
+									value={series.label ?? ''}
+									onChange={(e) => updateSeriesAt(index, { label: e.target.value || undefined })}
+									placeholder='Label (optional)'
+									className='h-8 rounded-lg text-sm bg-panel'
+								/>
+								{isCombo && (
+									<YAxisSideToggle
+										value={series.y_axis ?? 'left'}
+										onChange={(value) => updateSeriesAt(index, { y_axis: value })}
+									/>
+								)}
+								<ValueFormatToggle unit={unit} open={isOpen} onClick={() => toggleValueFormat(index)} />
+								<input
+									type='color'
+									aria-label='Series color'
+									value={normalizeHexColor(series.color, paletteHexes[index % paletteHexes.length])}
+									onChange={(e) => updateSeriesAt(index, { color: e.target.value })}
+									className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
+								/>
+								<Button
+									type='button'
+									size='icon-sm'
+									variant='ghost-muted'
+									className='size-8'
+									onClick={() => removeSeriesAt(index)}
+									disabled={draft.series.length <= 1}
+									title='Remove series'
+								>
+									<Trash2 className='size-4' />
+								</Button>
+							</div>
+						);
+
+						if (!isCombo) {
+							return (
+								<div key={index} className='flex flex-col gap-2 rounded-md'>
+									{row}
+									{isOpen && (
+										<SeriesValueFormatFields
+											d3Format={series.value_format?.d3_format ?? ''}
+											unit={unit}
+											placement={placement}
+											onD3FormatChange={(value) =>
+												updateSeriesValueFormatAt(index, 'd3_format', value)
+											}
+											onUnitChange={(nextUnit, nextPlacement) =>
+												setSeriesUnit(index, {
+													unit: nextUnit,
+													placement: nextPlacement,
+												})
+											}
+										/>
+									)}
+								</div>
+							);
+						}
+
+						return (
+							<fieldset key={index} className='rounded-md border border-border px-3 pt-1 pb-3'>
+								<legend className='ml-1'>
+									<SeriesTypeSelect
+										value={series.series_type ?? 'bar'}
+										onChange={(value) => updateSeriesAt(index, { series_type: value })}
+									/>
+								</legend>
+								<div className='flex flex-col gap-2'>
+									{row}
+									{isOpen && (
+										<SeriesValueFormatFields
+											d3Format={series.value_format?.d3_format ?? ''}
+											unit={unit}
+											placement={placement}
+											onD3FormatChange={(value) =>
+												updateSeriesValueFormatAt(index, 'd3_format', value)
+											}
+											onUnitChange={(nextUnit, nextPlacement) =>
+												setSeriesUnit(index, {
+													unit: nextUnit,
+													placement: nextPlacement,
+												})
+											}
+										/>
+									)}
+								</div>
+							</fieldset>
+						);
+					})}
+					{isDraggingSeriesColumn && <SeriesDropZone onDrop={addSeries} />}
+				</div>
+			</div>
+
+			{isCombo
+				? (hasLeftAxis || hasRightAxis) && (
+						<div className='grid gap-3 py-2'>
+							<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
+							{hasLeftAxis && (
+								<AxisFields
+									name='Left label'
+									showRange={supportsYAxisRange}
+									labelPlaceholder='Label (optional)'
+									labelValue={draft.y_axis_label ?? ''}
+									onLabelChange={(value) =>
+										setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
+									}
+									minId='chart-y-axis-min'
+									maxId='chart-y-axis-max'
+									minValue={yAxisMinText}
+									maxValue={yAxisMaxText}
+									onMinChange={updateYAxisMin}
+									onMaxChange={updateYAxisMax}
+								/>
+							)}
+							{hasRightAxis && (
+								<AxisFields
+									name='Right label'
+									showRange={supportsYAxisRange}
+									labelPlaceholder='Label (optional)'
+									labelValue={draft.y_axis_right_label ?? ''}
+									onLabelChange={(value) =>
+										setDraft((prev) => ({
+											...prev,
+											y_axis_right_label: value || undefined,
+										}))
+									}
+									minId='chart-y-axis-right-min'
+									maxId='chart-y-axis-right-max'
+									minValue={yAxisRightMinText}
+									maxValue={yAxisRightMaxText}
+									onMinChange={updateYAxisRightMin}
+									onMaxChange={updateYAxisRightMax}
+								/>
+							)}
+						</div>
+					)
+				: (supportsAxisLabels || supportsYAxisRange) && (
+						<div className='grid gap-3 py-2'>
+							<span className='text-sm font-semibold text-foreground'>Y-axis</span>
+							{supportsAxisLabels ? (
+								<AxisFields
+									name='Label'
+									showRange={supportsYAxisRange}
+									labelPlaceholder='Label (optional)'
+									labelValue={draft.y_axis_label ?? ''}
+									onLabelChange={(value) =>
+										setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
+									}
+									minId='chart-y-axis-min'
+									maxId='chart-y-axis-max'
+									minValue={yAxisMinText}
+									maxValue={yAxisMaxText}
+									onMinChange={updateYAxisMin}
+									onMaxChange={updateYAxisMax}
+								/>
+							) : (
+								<div className='grid grid-cols-[1fr_1fr] gap-3 items-end'>
+									<MinMaxFields
+										minId='chart-y-axis-min'
+										maxId='chart-y-axis-max'
+										minValue={yAxisMinText}
+										maxValue={yAxisMaxText}
+										onMinChange={updateYAxisMin}
+										onMaxChange={updateYAxisMax}
+									/>
+								</div>
+							)}
+						</div>
+					)}
+
+			<div className='grid gap-2'>
+				<span className='text-sm font-semibold text-foreground'>Options</span>
+				{canShowComparisonPill && (
+					<div className='grid gap-2'>
+						<span className='text-sm font-semibold text-foreground'>Comparison pill</span>
+						<Select
+							value={'comparison_mode' in draft ? (draft.comparison_mode ?? 'none') : 'none'}
+							onValueChange={(value) =>
+								setDraft((prev) => ({
+									...prev,
+									comparison_mode: value as displayChart.ComparisonMode,
+								}))
 							}
 						>
 							<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-								{CHART_TYPE_OPTIONS.map((option) => (
+								{COMPARISON_MODE_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
@@ -349,363 +863,63 @@ export function ChartConfigEditDialog({
 							</SelectContent>
 						</Select>
 					</div>
-
-					{showNormalizeToggle && (
-						<div className='flex items-center justify-between gap-3'>
-							<div className='grid gap-0.5'>
-								<label htmlFor='chart-normalize' className='text-sm font-semibold text-foreground'>
-									Normalize to 100%
-								</label>
-								<span className='text-xs text-muted-foreground'>
-									Show each series as a share of the category total.
-								</span>
-							</div>
-							<Switch
-								id='chart-normalize'
-								checked={isPercentNormalized}
-								disabled={!isPercentNormalized && !canEnableNormalize}
-								onCheckedChange={(checked) =>
-									setDraft((prev) => ({
-										...prev,
-										chart_type: checked
-											? percentChartType(prev.chart_type)
-											: baseChartType(prev.chart_type),
-									}))
-								}
-							/>
-						</div>
-					)}
-
-					{draft.chart_type !== 'kpi_card' && (
-						<div className='grid gap-3 py-2'>
-							<span className='text-sm font-semibold text-foreground'>X-axis</span>
-							<div
-								className={`grid gap-3 items-end ${supportsAxisLabels ? 'grid-cols-[1fr_1fr_1fr]' : 'grid-cols-[1fr_1fr]'}`}
-							>
-								<div className='grid gap-1'>
-									<span className='text-xs text-muted-foreground'>Column</span>
-									<ColumnSelect
-										value={draft.x_axis_key ?? ''}
-										columns={xAxisOptions}
-										onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
-									/>
-								</div>
-								{supportsAxisLabels && (
-									<div className='grid gap-1'>
-										<span className='text-xs text-muted-foreground'>Label</span>
-										<Input
-											className='h-8 bg-panel'
-											placeholder='Label (optional)'
-											value={draft.x_axis_label ?? ''}
-											onChange={(e) =>
-												setDraft((prev) => ({
-													...prev,
-													x_axis_label: e.target.value || undefined,
-												}))
-											}
-										/>
-									</div>
-								)}
-								<div className='grid gap-1'>
-									<span className='text-xs text-muted-foreground'>Type</span>
-									<Select
-										value={draft.x_axis_type ?? 'auto'}
-										onValueChange={(value) =>
-											setDraft((prev) => ({
-												...prev,
-												x_axis_type:
-													value === 'auto' ? null : (value as displayChart.XAxisType),
-											}))
-										}
-									>
-										<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-											{X_AXIS_TYPE_OPTIONS.map((option) => (
-												<SelectItem key={option.value} value={option.value}>
-													{option.label}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								</div>
-							</div>
-						</div>
-					)}
-
-					<div className='grid gap-2'>
-						<div className='flex items-center justify-between py-2'>
-							<span className='text-sm font-semibold text-foreground'>Series</span>
-							<Button
-								type='button'
-								size='sm'
-								variant='outline'
-								className='rounded-full text-xs'
-								onClick={addSeries}
-							>
-								<Plus className='size-3.5' /> Add series
-							</Button>
-						</div>
-						<div className='flex flex-col gap-3'>
-							{draft.series.map((series, index) => {
-								const placement: UnitPlacement = series.value_format?.prefix ? 'prefix' : 'suffix';
-								const unit =
-									placement === 'prefix'
-										? (series.value_format?.prefix ?? '')
-										: (series.value_format?.suffix ?? '');
-								const isOpen = openValueFormatIndexes.has(index);
-								const row = (
-									<div
-										className={`grid ${isCombo ? 'grid-cols-[1fr_1fr_auto_auto_auto_auto]' : 'grid-cols-[1fr_1fr_auto_auto_auto]'} gap-2 items-center`}
-									>
-										<ColumnSelect
-											value={series.data_key}
-											columns={availableColumns.length > 0 ? availableColumns : [series.data_key]}
-											onChange={(value) => updateSeriesAt(index, { data_key: value })}
-										/>
-										<Input
-											value={series.label ?? ''}
-											onChange={(e) =>
-												updateSeriesAt(index, { label: e.target.value || undefined })
-											}
-											placeholder='Label (optional)'
-											className='h-8 rounded-lg text-sm bg-panel'
-										/>
-										{isCombo && (
-											<YAxisSideToggle
-												value={series.y_axis ?? 'left'}
-												onChange={(value) => updateSeriesAt(index, { y_axis: value })}
-											/>
-										)}
-										<ValueFormatToggle
-											unit={unit}
-											open={isOpen}
-											onClick={() => toggleValueFormat(index)}
-										/>
-										<input
-											type='color'
-											aria-label='Series color'
-											value={normalizeHexColor(
-												series.color,
-												paletteHexes[index % paletteHexes.length],
-											)}
-											onChange={(e) => updateSeriesAt(index, { color: e.target.value })}
-											className='h-8 w-8 cursor-pointer overflow-hidden rounded-lg border-none bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-none'
-										/>
-										<Button
-											type='button'
-											size='icon-sm'
-											variant='ghost-muted'
-											className='size-8'
-											onClick={() => removeSeriesAt(index)}
-											disabled={draft.series.length <= 1}
-											title='Remove series'
-										>
-											<Trash2 className='size-4' />
-										</Button>
-									</div>
-								);
-
-								if (!isCombo) {
-									return (
-										<div key={index} className='flex flex-col gap-2 rounded-md'>
-											{row}
-											{isOpen && (
-												<SeriesValueFormatFields
-													d3Format={series.value_format?.d3_format ?? ''}
-													unit={unit}
-													placement={placement}
-													onD3FormatChange={(value) =>
-														updateSeriesValueFormatAt(index, 'd3_format', value)
-													}
-													onUnitChange={(nextUnit, nextPlacement) =>
-														setSeriesUnit(index, {
-															unit: nextUnit,
-															placement: nextPlacement,
-														})
-													}
-												/>
-											)}
-										</div>
-									);
-								}
-
-								return (
-									<fieldset key={index} className='rounded-md border border-border px-3 pt-1 pb-3'>
-										<legend className='ml-1'>
-											<SeriesTypeSelect
-												value={series.series_type ?? 'bar'}
-												onChange={(value) => updateSeriesAt(index, { series_type: value })}
-											/>
-										</legend>
-										<div className='flex flex-col gap-2'>
-											{row}
-											{isOpen && (
-												<SeriesValueFormatFields
-													d3Format={series.value_format?.d3_format ?? ''}
-													unit={unit}
-													placement={placement}
-													onD3FormatChange={(value) =>
-														updateSeriesValueFormatAt(index, 'd3_format', value)
-													}
-													onUnitChange={(nextUnit, nextPlacement) =>
-														setSeriesUnit(index, {
-															unit: nextUnit,
-															placement: nextPlacement,
-														})
-													}
-												/>
-											)}
-										</div>
-									</fieldset>
-								);
-							})}
-						</div>
+				)}
+				<div className='flex h-8 items-center justify-between'>
+					<label htmlFor='show-data-labels' className='text-sm text-foreground'>
+						Show data labels
+					</label>
+					<Switch
+						id='show-data-labels'
+						checked={resolveShowDataLabels(draft.chart_type, draft.show_data_labels)}
+						onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
+					/>
+				</div>
+				{draft.chart_type !== 'kpi_card' && (
+					<div className='flex h-8 items-center justify-between'>
+						<label htmlFor='show-legend' className='text-sm text-foreground'>
+							Show legend
+						</label>
+						<Switch
+							id='show-legend'
+							checked={draft.show_legend ?? true}
+							onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_legend: v }))}
+						/>
 					</div>
+				)}
+			</div>
 
-					{isCombo
-						? (hasLeftAxis || hasRightAxis) && (
-								<div className='grid gap-3 py-2'>
-									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
-									{hasLeftAxis && (
-										<AxisFields
-											name='Left label'
-											showRange={supportsYAxisRange}
-											labelPlaceholder='Label (optional)'
-											labelValue={draft.y_axis_label ?? ''}
-											onLabelChange={(value) =>
-												setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
-											}
-											minId='chart-y-axis-min'
-											maxId='chart-y-axis-max'
-											minValue={yAxisMinText}
-											maxValue={yAxisMaxText}
-											onMinChange={updateYAxisMin}
-											onMaxChange={updateYAxisMax}
-										/>
-									)}
-									{hasRightAxis && (
-										<AxisFields
-											name='Right label'
-											showRange={supportsYAxisRange}
-											labelPlaceholder='Label (optional)'
-											labelValue={draft.y_axis_right_label ?? ''}
-											onLabelChange={(value) =>
-												setDraft((prev) => ({
-													...prev,
-													y_axis_right_label: value || undefined,
-												}))
-											}
-											minId='chart-y-axis-right-min'
-											maxId='chart-y-axis-right-max'
-											minValue={yAxisRightMinText}
-											maxValue={yAxisRightMaxText}
-											onMinChange={updateYAxisRightMin}
-											onMaxChange={updateYAxisRightMax}
-										/>
-									)}
-								</div>
-							)
-						: (supportsAxisLabels || supportsYAxisRange) && (
-								<div className='grid gap-3 py-2'>
-									<span className='text-sm font-semibold text-foreground'>Y-axis</span>
-									{supportsAxisLabels ? (
-										<AxisFields
-											name='Label'
-											showRange={supportsYAxisRange}
-											labelPlaceholder='Label (optional)'
-											labelValue={draft.y_axis_label ?? ''}
-											onLabelChange={(value) =>
-												setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
-											}
-											minId='chart-y-axis-min'
-											maxId='chart-y-axis-max'
-											minValue={yAxisMinText}
-											maxValue={yAxisMaxText}
-											onMinChange={updateYAxisMin}
-											onMaxChange={updateYAxisMax}
-										/>
-									) : (
-										<div className='grid grid-cols-[1fr_1fr] gap-3 items-end'>
-											<MinMaxFields
-												minId='chart-y-axis-min'
-												maxId='chart-y-axis-max'
-												minValue={yAxisMinText}
-												maxValue={yAxisMaxText}
-												onMinChange={updateYAxisMin}
-												onMaxChange={updateYAxisMax}
-											/>
-										</div>
-									)}
-								</div>
-							)}
+			{(error || unsupportedNumberFormat) && (
+				<p className='text-xs text-destructive'>{error ?? UNSUPPORTED_NUMBER_FORMAT_MESSAGE}</p>
+			)}
+		</form>
+	);
+}
 
-					<div className='grid gap-2'>
-						<span className='text-sm font-semibold text-foreground'>Options</span>
-						{canShowComparisonPill && (
-							<div className='grid gap-2'>
-								<span className='text-sm font-semibold text-foreground'>Comparison pill</span>
-								<Select
-									value={'comparison_mode' in draft ? (draft.comparison_mode ?? 'none') : 'none'}
-									onValueChange={(value) =>
-										setDraft((prev) => ({
-											...prev,
-											comparison_mode: value as displayChart.ComparisonMode,
-										}))
-									}
-								>
-									<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-										{COMPARISON_MODE_OPTIONS.map((option) => (
-											<SelectItem key={option.value} value={option.value}>
-												{option.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-						)}
-						<div className='flex h-8 items-center justify-between'>
-							<label htmlFor='show-data-labels' className='text-sm text-foreground'>
-								Show data labels
-							</label>
-							<Switch
-								id='show-data-labels'
-								checked={displayChart.resolveShowDataLabels(draft.chart_type, draft.show_data_labels)}
-								onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
-							/>
-						</div>
-					</div>
+interface ChartConfigEditActionsProps {
+	isSaving: boolean;
+	canSave: boolean;
+	onCancel: () => void;
+	formId?: string;
+	className?: string;
+}
 
-					{(error || unsupportedNumberFormat) && (
-						<p className='text-xs text-destructive'>{error ?? UNSUPPORTED_NUMBER_FORMAT_MESSAGE}</p>
-					)}
-
-					<DialogFooter>
-						<Button
-							type='button'
-							variant='ghost'
-							className='rounded-full border'
-							onClick={() => onOpenChange(false)}
-						>
-							Cancel
-						</Button>
-						<Button
-							variant='primary-gradient'
-							type='submit'
-							className='rounded-full'
-							isLoading={isSaving}
-							disabled={isSaving || Boolean(unsupportedNumberFormat)}
-						>
-							Save
-						</Button>
-					</DialogFooter>
-				</form>
-			</DialogContent>
-		</Dialog>
+function ChartConfigEditActions({ isSaving, canSave, onCancel, formId, className }: ChartConfigEditActionsProps) {
+	return (
+		<DialogFooter className={className}>
+			<Button type='button' variant='ghost' className='rounded-full border' onClick={onCancel}>
+				Cancel
+			</Button>
+			<Button
+				variant='primary-gradient'
+				type='submit'
+				form={formId}
+				className='rounded-full'
+				isLoading={isSaving}
+				disabled={isSaving || !canSave}
+			>
+				Save
+			</Button>
+		</DialogFooter>
 	);
 }
 
@@ -716,6 +930,7 @@ interface DisplayChartEditDialogProps {
 	config: EditableChartInput;
 	availableColumns: string[];
 	data?: Record<string, unknown>[];
+	sourceQuery?: SourceQuery;
 }
 
 /** Edit dialog bound to a `tool-display_chart` message part: persists through `chart.updateConfig`. */
@@ -726,6 +941,7 @@ export function DisplayChartEditDialog({
 	config,
 	availableColumns,
 	data,
+	sourceQuery,
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
 	const { setMessages } = useAgentContext();
@@ -760,6 +976,7 @@ export function DisplayChartEditDialog({
 			onSave={handleSave}
 			isSaving={updateMutation.isPending}
 			description='Tweak the chart parameters. Changes are saved to the chat.'
+			sourceQuery={sourceQuery}
 		/>
 	);
 }
@@ -768,24 +985,52 @@ interface ColumnSelectProps {
 	value: string;
 	columns: string[];
 	onChange: (value: string) => void;
+	draggedColumnKind: ColumnValueKind | null;
+	acceptsKind?: (kind: ColumnValueKind) => boolean;
 }
 
-function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
+function ColumnSelect({ value, columns, onChange, draggedColumnKind, acceptsKind }: ColumnSelectProps) {
+	const { isOver, dropTargetProps } = useColumnDropTarget({ onDrop: onChange, acceptsKind });
+	const isDropCandidate = draggedColumnKind !== null && (acceptsKind?.(draggedColumnKind) ?? true);
 	const columnsWithValues = getSelectableColumns(columns);
 	const items = value && !columnsWithValues.includes(value) ? [value, ...columnsWithValues] : columnsWithValues;
 	return (
-		<Select value={value} onValueChange={onChange} disabled={items.length === 0}>
-			<SelectTrigger className='w-full text-sm bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-				<SelectValue placeholder='Select column' />
-			</SelectTrigger>
-			<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-				{items.map((column) => (
-					<SelectItem key={column} value={column}>
-						{column}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
+		<div
+			{...dropTargetProps}
+			className={cn(
+				'rounded-md',
+				isDropCandidate && 'outline-2 outline-offset-2 outline-primary/40 outline-dashed',
+				isOver && 'outline-primary outline-solid',
+			)}
+		>
+			<Select value={value} onValueChange={onChange} disabled={items.length === 0}>
+				<SelectTrigger className='w-full text-sm bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+					<SelectValue placeholder='Select column' />
+				</SelectTrigger>
+				<SelectContent className='bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+					{items.map((column) => (
+						<SelectItem key={column} value={column}>
+							{column}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
+
+function SeriesDropZone({ onDrop }: { onDrop: (column: string) => void }) {
+	const { isOver, dropTargetProps } = useColumnDropTarget({ onDrop, acceptsKind: acceptNumericKind });
+	return (
+		<div
+			{...dropTargetProps}
+			className={cn(
+				'flex h-10 items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 text-xs text-muted-foreground transition-colors',
+				isOver && 'border-primary bg-accent text-foreground',
+			)}
+		>
+			<Plus className='size-3.5' /> Drop to add a series
+		</div>
 	);
 }
 
@@ -1119,6 +1364,43 @@ const UNSUPPORTED_NUMBER_FORMAT_MESSAGE =
  */
 const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~?s$/];
 
+type EditableSourceQuery = SourceQuery & { input: executeSql.Input };
+
+/** A semantic query is edited through its metric query, never through the SQL the layer compiled. */
+function isEditableSourceQuery(sourceQuery: SourceQuery): sourceQuery is EditableSourceQuery {
+	if (!sourceQuery.input || !sourceQuery.output.id) {
+		return false;
+	}
+	return isSemanticSourceQuery(sourceQuery) || !('compiled_sql' in sourceQuery.output);
+}
+
+function useChartEditorQuerySource(editableQuery: EditableSourceQuery | null): ChartEditorQuerySource {
+	const semanticQuery = editableQuery && isSemanticSourceQuery(editableQuery) ? editableQuery : null;
+	const freshness = useSemanticQueryFreshness(
+		semanticQuery && {
+			queryId: semanticQuery.output.id,
+			semanticQuery: semanticQuery.semanticQuery,
+			compiledSql: semanticQuery.input.sql_query,
+		},
+	);
+	if (semanticQuery) {
+		return { kind: 'semantic', warning: describeSemanticQueryFreshness(freshness) };
+	}
+	return { kind: 'sql', dialect: editableQuery?.output.dialect };
+}
+
+function findUnsupportedNumberFormat(
+	series: displayChart.SeriesConfig[],
+	enforceExportSafeFormats: boolean,
+): string | undefined {
+	if (!enforceExportSafeFormats) {
+		return undefined;
+	}
+	return series
+		.map((entry) => entry.value_format?.d3_format)
+		.find((format): format is string => format !== undefined && !isExportSafeNumberFormat(format));
+}
+
 function isExportSafeNumberFormat(format: string): boolean {
 	return format === '' || EXPORT_SAFE_NUMBER_FORMATS.some((pattern) => pattern.test(format));
 }
@@ -1131,31 +1413,10 @@ function normalizeHexColor(color: string | undefined, fallback: string): string 
 	return HEX_RE.test(fallback) ? fallback : DEFAULT_COLORS[0];
 }
 
-function resolveChartPaletteHexes(): string[] {
-	if (typeof document === 'undefined') {
-		return DEFAULT_COLORS;
-	}
-	const context = document.createElement('canvas').getContext('2d');
-	const rootStyle = getComputedStyle(document.documentElement);
-	return DEFAULT_COLORS.map((fallback, index) => {
-		const value = rootStyle.getPropertyValue(`--chart-${index + 1}`).trim();
-		if (!value || !context) {
-			return fallback;
-		}
-		return cssColorToHex(context, value) ?? fallback;
-	});
-}
-
-function cssColorToHex(context: CanvasRenderingContext2D, color: string): string | null {
-	const sentinel = '#010203';
-	context.fillStyle = sentinel;
-	context.fillStyle = color;
-	if (context.fillStyle === sentinel && color.toLowerCase() !== sentinel) {
-		return null;
-	}
-	context.fillRect(0, 0, 1, 1);
-	const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
-	return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+export function resolveChartPaletteHexes(element?: HTMLElement | null): string[] {
+	return DEFAULT_COLORS.map((fallback, index) =>
+		resolveCssVariableColorHex(`--chart-${index + 1}`, fallback, element),
+	);
 }
 
 function applyChartConfigToMessages(

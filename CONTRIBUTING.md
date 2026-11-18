@@ -82,6 +82,15 @@ npm run dev
 
 This will start the project in development mode. It will start the frontend and backend in development mode.
 
+### Metabase migrations
+
+From a nao project directory, run `nao migrate metabase configure` to save the Metabase URL and API key
+under `metabase` in `nao_config.yaml`, then use the `nao migrate metabase` CLI commands to export dashboards,
+collections, or saved questions. Agents consume the exported manifests and use nao MCP to
+execute SQL and create charts or stories. Add `--allow-query-execution` when an item requires Metabase to
+compile its SQL; this executes the saved question in Metabase and should only be used when you trust it.
+Without the option, the manifest records the item as non-executable instead.
+
 ## Project Structure
 
 ```
@@ -96,7 +105,7 @@ chat/
 
 Some files in this repo are part of the commercial nao Enterprise Edition.
 They are clearly marked with `/* @license Enterprise */` at the top of the
-file and are subject to the commercial terms in [LICENSE](LICENSE) rather
+file and are subject to the commercial terms in [LICENSE-ENTERPRISE](LICENSE-ENTERPRISE) rather
 than Apache 2.0.
 
 Every EE feature is gated behind a signed `NAO_LICENSE` token (JWS / Ed25519),

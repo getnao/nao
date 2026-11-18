@@ -1,29 +1,45 @@
-export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
-import type { CustomBoundarySet } from '@nao/shared';
+import { ALL_MCP_ACCESS, type CustomBoundarySet, isMcpServerGranted, type McpAccess } from '@nao/shared';
+import { writeFile } from '@nao/shared/tools';
+import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
+import { env } from '../../env';
 import { mcpService } from '../../services/mcp';
+import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
+import { isCustomStoriesEnabled } from '../../services/story-mount';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
+import { createCodemodeTool } from './codemode';
 import displayChart from './display-chart';
 import { createDisplayMapTool } from './display-map';
-import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
-import executeSql from './execute-sql';
+import executeSemanticQuery from './execute-semantic-query';
+import executeSql, { localOnlyExecuteSql } from './execute-sql';
+import generateOnboardingRules from './generate-onboarding-rules';
 import grep from './grep';
 import list from './list';
 import loadSkill from './load-skill';
 import { createMcpCallTool } from './mcp-call';
 import { createMcpConnectTool } from './mcp-connect';
+import onboardingAgentPrompt from './onboarding-agent-prompt';
+import onboardingCommand from './onboarding-command';
+import onboardingProgress from './onboarding-progress';
+import pageQueryResult from './page-query-result';
 import read from './read';
-import readQueryResult from './read-query-result';
+import requestWarehouseCredentials from './request-warehouse-credentials';
+import requestWarehouseSelection from './request-warehouse-selection';
+import restartOnboarding from './restart-onboarding';
+import retryWarehouseSetup from './retry-warehouse-setup';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
+import strReplace, { buildStrReplaceToolDescription } from './str-replace';
 import suggestFollowUps from './suggest-follow-ups';
-import write from './write';
+import task from './task';
+import waitForWarehouseSetup from './wait-for-warehouse-setup';
+import write, { buildWriteToolDescription } from './write';
 
 /**
  * Tools excluded from the MCP sub-agent (`ask_nao`): it returns a text summary to the calling client,
@@ -36,16 +52,28 @@ export const tools = {
 	story,
 	clarification,
 	display_chart: displayChart,
-	...(executePython && { execute_python: executePython }),
+	codemode: createCodemodeTool({ mcpServers: null }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
-	read_query_result: readQueryResult,
+	execute_semantic_query: executeSemanticQuery,
+	page_query_result: pageQueryResult,
 	grep,
 	list,
 	load_skill: loadSkill,
+	onboarding_agent_prompt: onboardingAgentPrompt,
+	onboarding_command: onboardingCommand,
+	onboarding_progress: onboardingProgress,
+	request_warehouse_credentials: requestWarehouseCredentials,
+	request_warehouse_selection: requestWarehouseSelection,
+	wait_for_warehouse_setup: waitForWarehouseSetup,
+	retry_warehouse_setup: retryWarehouseSetup,
+	generate_onboarding_rules: generateOnboardingRules,
+	restart_onboarding: restartOnboarding,
 	read,
 	search,
+	task,
 	write,
+	str_replace: strReplace,
 	suggest_follow_ups: suggestFollowUps,
 };
 
@@ -55,15 +83,16 @@ export const getTools = (
 	agentSettings: AgentSettings | null,
 	extraTools?: Record<string, unknown>,
 	options: {
-		testMode?: boolean;
 		mcpEnabled?: boolean;
 		mcpServers?: string[] | null;
+		/** MCP servers the run's user may reach through their groups; the MCP tools are dropped when none is. */
+		mcpAccess?: McpAccess;
 		excludeFollowUps?: boolean;
+		onboarding?: boolean;
 		/**
-		 * Restricts the built-in tools to this allowlist (by tool name). MCP, python,
-		 * sandboxing and clarification tools are dropped entirely. `extraTools` are
-		 * always kept. Used by focused runs (e.g. context recommendations) that should
-		 * only discover context, not query the warehouse or render charts.
+		 * Restricts generated tools to this allowlist by tool name. `extraTools` are always
+		 * kept. Used by focused runs (e.g. context recommendations) that should only discover
+		 * context, not query the warehouse or render charts.
 		 */
 		builtinToolAllowlist?: string[];
 		/**
@@ -74,40 +103,89 @@ export const getTools = (
 		excludeBuiltinTools?: string[];
 		/** Custom GeoJSON boundary sets defined by the project admin. */
 		customBoundaries?: CustomBoundarySet[];
+		/**
+		 * Semantic layer mode of the run (`ToolContext.semanticLayerMode`). `execute_semantic_query`
+		 * is only exposed for the querying modes, and `exclusive` restricts `execute_sql` to the
+		 * local database; omit when the project has no semantic layer.
+		 */
+		semanticLayerMode?: SemanticLayerMode | null;
+		/**
+		 * Whether the run's user may author custom stories. Tool descriptions only mention
+		 * `/stories` when they can; omit to follow the instance flag alone.
+		 */
+		customStoryAuthoring?: boolean;
 	} = {},
 ) => {
-	const configuredServers = new Set(mcpService.getConfiguredServerNames());
+	const customStoryAuthoring = options.customStoryAuthoring ?? isCustomStoriesEnabled();
+	const mcpAccess = options.mcpAccess ?? ALL_MCP_ACCESS;
+	const grantedServers = new Set(
+		mcpService.getConfiguredServerNames().filter((server) => isMcpServerGranted(mcpAccess, server)),
+	);
 	const includeMcp =
 		options.mcpEnabled !== false &&
 		(options.mcpServers == null
-			? configuredServers.size > 0
-			: options.mcpServers.some((server) => configuredServers.has(server)));
+			? grantedServers.size > 0
+			: options.mcpServers.some((server) => grantedServers.has(server)));
+	const includeCodemode = agentSettings?.experimental?.codemode !== false && isBuiltinToolKept('codemode', options);
 	const mcpTools: Record<string, Tool> = includeMcp
 		? {
-				mcp_call: createMcpCallTool(options.mcpServers ?? null),
+				mcp_call: createMcpCallTool(options.mcpServers ?? null, { codemode: includeCodemode }),
 				mcp_connect: createMcpConnectTool(options.mcpServers ?? null),
 			}
 		: {};
 
 	const {
-		execute_python,
+		codemode: _codemode,
 		execute_sandboxed_code,
-		clarification: clarificationTool,
+		execute_semantic_query,
+		execute_sql,
+		onboarding_agent_prompt: onboardingAgentPromptTool,
+		onboarding_command: onboardingCommandTool,
+		onboarding_progress: onboardingProgressTool,
+		request_warehouse_credentials: requestWarehouseCredentialsTool,
+		request_warehouse_selection: requestWarehouseSelectionTool,
+		wait_for_warehouse_setup: waitForWarehouseSetupTool,
+		retry_warehouse_setup: retryWarehouseSetupTool,
+		generate_onboarding_rules: generateOnboardingRulesTool,
+		restart_onboarding: restartOnboardingTool,
 		suggest_follow_ups,
+		task: taskTool,
 		write: writeTool,
+		str_replace: strReplaceTool,
 		...rest
 	} = tools;
 	const baseTools = {
 		...rest,
-		...(isStorageEnabled() && { write: writeTool }),
+		...(env.BETA_SUBAGENTS_ENABLED && { task: taskTool }),
+		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
+		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
+		...((isStorageEnabled() || customStoryAuthoring) && {
+			write: writeTool,
+			str_replace: {
+				...strReplaceTool,
+				description: buildStrReplaceToolDescription({ customStories: customStoryAuthoring }),
+			},
+		}),
 		...(!options.excludeFollowUps && { suggest_follow_ups }),
 	};
 
 	const allTools = {
 		...baseTools,
-		...(!options.testMode && { clarification: clarificationTool }),
+		...(options.onboarding && {
+			onboarding_agent_prompt: onboardingAgentPromptTool,
+			onboarding_command: onboardingCommandTool,
+			onboarding_progress: onboardingProgressTool,
+			request_warehouse_credentials: requestWarehouseCredentialsTool,
+			request_warehouse_selection: requestWarehouseSelectionTool,
+			wait_for_warehouse_setup: waitForWarehouseSetupTool,
+			retry_warehouse_setup: retryWarehouseSetupTool,
+			generate_onboarding_rules: generateOnboardingRulesTool,
+			restart_onboarding: restartOnboardingTool,
+		}),
 		...mcpTools,
-		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
+		...(includeCodemode && {
+			codemode: createCodemodeTool({ mcpServers: includeMcp ? (options.mcpServers ?? null) : false }),
+		}),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
 		...(agentSettings?.mapEnabled !== false && {
 			display_map: createDisplayMapTool(options.customBoundaries ?? []),
@@ -125,15 +203,38 @@ export const getTools = (
 		result = keepTools(result, extraTools, (name) => !excluded.has(name));
 	}
 
-	if ('story' in result) {
-		const mapsEnabled = 'display_map' in result;
+	const canReplace = 'str_replace' in result;
+	if ('write' in result) {
 		result = {
 			...result,
-			story: { ...result.story, description: buildStoryToolDescription({ mapsEnabled }) },
+			write: {
+				...writeTool,
+				description: buildWriteToolDescription({ customStories: customStoryAuthoring, canReplace }),
+				inputSchema: writeFile.buildInputSchema({ customStories: customStoryAuthoring }),
+			},
+		};
+	}
+	if ('story' in result) {
+		const mapsEnabled = 'display_map' in result;
+		const customStories = customStoryAuthoring && 'write' in result;
+		result = {
+			...result,
+			story: {
+				...result.story,
+				description: buildStoryToolDescription({ mapsEnabled, customStories, canReplace }),
+			},
 		};
 	}
 
 	return result;
+};
+
+const isBuiltinToolKept = (
+	name: string,
+	options: { builtinToolAllowlist?: string[]; excludeBuiltinTools?: string[] },
+): boolean => {
+	const allowed = !options.builtinToolAllowlist || options.builtinToolAllowlist.includes(name);
+	return allowed && !options.excludeBuiltinTools?.includes(name);
 };
 
 const keepTools = <T extends Record<string, unknown>>(

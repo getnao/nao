@@ -3,12 +3,15 @@ from pathlib import Path
 
 import pytest
 
+from nao_core.config.databases.athena import AthenaConfig
 from nao_core.config.databases.column_access import ColumnAccessError, validate_column_access
 from nao_core.config.databases.column_catalog import column_catalog_path, write_column_catalog
 
+STAR_INCLUDES_EMAIL = r"SELECT \* would include excluded column\(s\): main\.users\.email"
+HIVE_ANALYTICS_SCHEMAS = {"hive1.analytics": {"orders": ["id", "email"]}}
+
 
 class FakeDatabaseConfig:
-    type = "duckdb"
     name = "test-database"
 
     def __init__(
@@ -26,6 +29,9 @@ class FakeDatabaseConfig:
 
     def get_database_name(self) -> str:
         return self.database_name
+
+    def get_catalog_names(self) -> list[str]:
+        return [self.get_database_name()]
 
     def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
         name = f"{schema}.{table}.{column}"
@@ -107,10 +113,7 @@ def test_explicit_excluded_column_outside_select_is_blocked(project_path: Path, 
 def test_select_star_with_excluded_column_is_blocked(project_path: Path):
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(
-        ColumnAccessError,
-        match=r"SELECT \* would include excluded column\(s\): main\.users\.email",
-    ):
+    with pytest.raises(ColumnAccessError, match=STAR_INCLUDES_EMAIL):
         validate_column_access("SELECT * FROM users", config, project_path)
 
 
@@ -132,8 +135,7 @@ def test_bigquery_star_except_excluded_column_is_allowed(
     tmp_path: Path,
     schemas: dict[str, dict[str, list[str]]],
 ):
-    config = FakeDatabaseConfig(["*.email"], database_type="bigquery")
-    write_catalog(tmp_path, config, schemas)
+    config = cataloged_config(tmp_path, schemas, ["*.email"], "bigquery")
     sql = "SELECT * EXCEPT (email) FROM users"
 
     assert validate_column_access(sql, config, tmp_path) == sql
@@ -145,19 +147,55 @@ def test_star_exclude_excluded_column_is_allowed(
     schemas: dict[str, dict[str, list[str]]],
     database_type: str,
 ):
-    config = FakeDatabaseConfig(["*.email"], database_type=database_type)
-    write_catalog(tmp_path, config, schemas)
+    config = cataloged_config(tmp_path, schemas, ["*.email"], database_type)
     sql = "SELECT * EXCLUDE (email) FROM users"
 
     assert validate_column_access(sql, config, tmp_path) == sql
+
+
+def test_motherduck_uses_duckdb_excluded_column_rules(
+    tmp_path: Path,
+    schemas: dict[str, dict[str, list[str]]],
+):
+    config = cataloged_config(tmp_path, schemas, ["*.email"], "motherduck")
+
+    assert validate_column_access("SELECT 1", config, tmp_path) == "SELECT 1"
+    assert (
+        validate_column_access(
+            "SELECT * EXCLUDE (email) FROM users",
+            config,
+            tmp_path,
+        )
+        == "SELECT * EXCLUDE (email) FROM users"
+    )
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access("SELECT * FROM users", config, tmp_path)
+
+
+def test_ducklake_uses_duckdb_excluded_column_rules(
+    tmp_path: Path,
+    schemas: dict[str, dict[str, list[str]]],
+):
+    config = FakeDatabaseConfig(["*.email"], database_type="ducklake")
+    write_catalog(tmp_path, config, schemas)
+
+    assert (
+        validate_column_access(
+            "SELECT * EXCLUDE (email) FROM users",
+            config,
+            tmp_path,
+        )
+        == "SELECT * EXCLUDE (email) FROM users"
+    )
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access("SELECT * FROM users", config, tmp_path)
 
 
 def test_star_exclusion_missing_excluded_column_names_only_uncovered_column(
     tmp_path: Path,
     schemas: dict[str, dict[str, list[str]]],
 ):
-    config = FakeDatabaseConfig(["*.email", "*.secret"], database_type="bigquery")
-    write_catalog(tmp_path, config, schemas)
+    config = cataloged_config(tmp_path, schemas, ["*.email", "*.secret"], "bigquery")
 
     with pytest.raises(ColumnAccessError) as error:
         validate_column_access("SELECT * EXCEPT (email) FROM users", config, tmp_path)
@@ -181,8 +219,7 @@ def test_star_replace_or_rename_does_not_bypass_exclusion(
     database_type: str,
     sql: str,
 ):
-    config = FakeDatabaseConfig(["*.email"], database_type=database_type)
-    write_catalog(tmp_path, config, schemas)
+    config = cataloged_config(tmp_path, schemas, ["*.email"], database_type)
 
     with pytest.raises(ColumnAccessError):
         validate_column_access(sql, config, tmp_path)
@@ -202,8 +239,7 @@ def test_select_star_block_message_uses_dialect_advice(
     database_type: str,
     advice: str,
 ):
-    config = FakeDatabaseConfig(["*.email"], database_type=database_type)
-    write_catalog(tmp_path, config, schemas)
+    config = cataloged_config(tmp_path, schemas, ["*.email"], database_type)
 
     with pytest.raises(ColumnAccessError) as error:
         validate_column_access("SELECT * FROM users", config, tmp_path)
@@ -225,10 +261,7 @@ def test_cte_star_exclusion_is_preserved(
 def test_cte_star_with_excluded_column_is_blocked(project_path: Path):
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(
-        ColumnAccessError,
-        match=r"SELECT \* would include excluded column\(s\): main\.users\.email",
-    ):
+    with pytest.raises(ColumnAccessError, match=STAR_INCLUDES_EMAIL):
         validate_column_access(
             "WITH selected_users AS (SELECT * FROM users) SELECT * FROM selected_users",
             config,
@@ -337,11 +370,7 @@ def test_matching_catalog_resolves_local_schema(project_path: Path):
 
 def test_multi_part_database_name_resolves_catalog_schema(tmp_path: Path):
     config = FakeDatabaseConfig(["*.email"], database_name="hive1.analytics")
-    write_catalog(
-        tmp_path,
-        config,
-        {"hive1.analytics": {"orders": ["id", "email"]}},
-    )
+    write_catalog(tmp_path, config, HIVE_ANALYTICS_SCHEMAS)
     safe_sql = "SELECT id FROM hive1.analytics.orders"
 
     assert validate_column_access(safe_sql, config, tmp_path) == safe_sql
@@ -442,3 +471,34 @@ def test_unqualified_join_column_checks_every_missing_catalog_table(tmp_path: Pa
             config,
             tmp_path,
         )
+
+
+class FakeAthenaConfig(FakeDatabaseConfig):
+    def get_catalog_names(self) -> list[str]:
+        return AthenaConfig(name="athena", s3_staging_dir="s3://results", region_name="us-east-1").get_catalog_names()
+
+
+def test_athena_default_catalog_is_accepted(tmp_path: Path):
+    config = FakeAthenaConfig(["analytics.events.email"], database_name="default", database_type="athena")
+    write_catalog(tmp_path, config, {"analytics": {"events": ["id", "email"]}})
+    sql = 'SELECT id FROM "awsdatacatalog"."analytics"."events"'
+
+    assert validate_column_access(sql, config, tmp_path) == sql
+
+
+def test_athena_default_catalog_keeps_excluded_columns_blocked_without_column_catalog(tmp_path: Path):
+    config = FakeAthenaConfig(["analytics.events.email"], database_name="default", database_type="athena")
+
+    with pytest.raises(ColumnAccessError, match=r"analytics\.events\.email"):
+        validate_column_access("SELECT email FROM awsdatacatalog.analytics.events", config, tmp_path)
+
+
+def cataloged_config(
+    project_path: Path,
+    schemas: dict[str, dict[str, list[str]]],
+    exclude_columns: list[str],
+    database_type: str,
+) -> FakeDatabaseConfig:
+    config = FakeDatabaseConfig(exclude_columns, database_type=database_type)
+    write_catalog(project_path, config, schemas)
+    return config

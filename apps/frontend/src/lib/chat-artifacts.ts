@@ -1,0 +1,156 @@
+import { extractStoryReferenceIds, extractStoryReferenceTags } from '@nao/shared';
+import { isQueryResultPart } from '@nao/shared/execute-sql-parts';
+import { getMessageDocuments } from './ai';
+import { findStories } from './story.utils';
+import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
+import type { StorySummary } from './story.utils';
+
+export interface FileArtifact {
+	path: string;
+	filename: string;
+	mediaType: string;
+}
+
+export interface QueryArtifact {
+	id: string;
+	title?: string;
+	columns: string[];
+	rowCount: number;
+	toolCallId: string;
+}
+
+/** An existing story of another conversation, handed over by the agent or mentioned by the user. */
+export interface MentionedStoryArtifact {
+	storyId: string;
+	title?: string;
+}
+
+export interface ChatArtifacts {
+	stories: StorySummary[];
+	mentionedStories: MentionedStoryArtifact[];
+	files: FileArtifact[];
+	queries: QueryArtifact[];
+}
+
+const artifactsByMessages = new WeakMap<UIMessage[], ChatArtifacts>();
+
+/**
+ * Everything a conversation produced or received that outlives a single message.
+ * Messages carried over from a forked chat are hidden from the thread, so they are left out too.
+ */
+export function collectChatArtifacts(messages: UIMessage[]): ChatArtifacts {
+	const cached = artifactsByMessages.get(messages);
+	if (cached) {
+		return cached;
+	}
+	const visibleMessages = messages.filter((message) => !message.isForked);
+	const artifacts: ChatArtifacts = {
+		stories: findStories(visibleMessages),
+		mentionedStories: collectMentionedStories(visibleMessages),
+		files: collectFileArtifacts(visibleMessages),
+		queries: collectQueryArtifacts(visibleMessages),
+	};
+	artifactsByMessages.set(messages, artifacts);
+	return artifacts;
+}
+
+/** The tool call of the latest run of a query, which is the one the conversation shows for it. */
+export function findQueryToolCallId(messages: UIMessage[], queryId: string): string | undefined {
+	return collectChatArtifacts(messages).queries.find((query) => query.id === queryId)?.toolCallId;
+}
+
+export function countChatArtifacts(artifacts: ChatArtifacts, includeQueries: boolean): number {
+	return artifacts.stories.length + artifacts.files.length + (includeQueries ? artifacts.queries.length : 0);
+}
+
+export function areChatArtifactsEqual(left: ChatArtifacts, right: ChatArtifacts): boolean {
+	return (
+		left === right ||
+		(areListsEqual(left.stories, right.stories, (a, b) => a.id === b.id && a.title === b.title) &&
+			areListsEqual(
+				left.mentionedStories,
+				right.mentionedStories,
+				(a, b) => a.storyId === b.storyId && a.title === b.title,
+			) &&
+			areListsEqual(left.files, right.files, (a, b) => a.path === b.path && a.filename === b.filename) &&
+			areListsEqual(left.queries, right.queries, areQueryArtifactsEqual))
+	);
+}
+
+/** In order of first reference; the agent's title wins over a mention, which has none. */
+function collectMentionedStories(messages: UIMessage[]): MentionedStoryArtifact[] {
+	const byStoryId = new Map<string, MentionedStoryArtifact>();
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (part.type !== 'text') {
+				continue;
+			}
+			const references =
+				message.role === 'user'
+					? extractStoryReferenceIds(part.text).map((storyId) => ({ storyId, title: undefined }))
+					: extractStoryReferenceTags(part.text);
+			for (const reference of references) {
+				byStoryId.set(reference.storyId, {
+					...reference,
+					title: reference.title ?? byStoryId.get(reference.storyId)?.title,
+				});
+			}
+		}
+	}
+	return [...byStoryId.values()];
+}
+
+function collectFileArtifacts(messages: UIMessage[]): FileArtifact[] {
+	const byPath = new Map<string, FileArtifact>();
+	for (const message of messages) {
+		if (message.role !== 'user') {
+			continue;
+		}
+		for (const document of getMessageDocuments(message)) {
+			byPath.set(document.path, document);
+		}
+	}
+	return [...byPath.values()];
+}
+
+/** A query id re-run in place keeps its position but takes the shape of its latest run. */
+function collectQueryArtifacts(messages: UIMessage[]): QueryArtifact[] {
+	const byId = new Map<string, QueryArtifact>();
+	for (const message of messages) {
+		for (const part of message.parts) {
+			const artifact = toQueryArtifact(part);
+			if (artifact) {
+				byId.set(artifact.id, artifact);
+			}
+		}
+	}
+	return [...byId.values()];
+}
+
+function toQueryArtifact(part: UIMessagePart): QueryArtifact | undefined {
+	if (!isQueryResultPart(part) || part.state !== 'output-available' || !part.output) {
+		return undefined;
+	}
+	const input = part.input as { name?: string } | undefined;
+	return {
+		id: part.output.id,
+		title: input?.name,
+		columns: part.output.columns,
+		rowCount: part.output.row_count,
+		toolCallId: part.toolCallId,
+	};
+}
+
+function areQueryArtifactsEqual(left: QueryArtifact, right: QueryArtifact): boolean {
+	return (
+		left.id === right.id &&
+		left.title === right.title &&
+		left.rowCount === right.rowCount &&
+		left.toolCallId === right.toolCallId &&
+		areListsEqual(left.columns, right.columns, (a, b) => a === b)
+	);
+}
+
+function areListsEqual<T>(left: T[], right: T[], isEqual: (a: T, b: T) => boolean): boolean {
+	return left.length === right.length && left.every((item, index) => isEqual(item, right[index]));
+}

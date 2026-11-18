@@ -56,6 +56,7 @@ export const createMcpConnectTool = (allowedServers: string[] | null) =>
 					projectId: context.projectId,
 					userId: context.userId,
 					server,
+					access: context.mcpAccess,
 				});
 				return { server, tools } satisfies McpConnectedOutput;
 			} catch (error) {

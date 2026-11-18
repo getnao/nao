@@ -1,4 +1,8 @@
 import type { DocumentExtension } from './attachments';
+import type { StoryBlockPart } from './story-parts';
+import type { ValueFormat } from './tools/display-chart';
+
+export type { StoryBlockPart, StoryBlockPartKind } from './story-parts';
 
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
@@ -22,9 +26,145 @@ export const TOOL_CALL_DENSITIES = ['compact', 'detailed'] as const;
 /** How much detail to show for tool calls in the chat. */
 export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 
-export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
-export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
-export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
+export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
+	budget: 'Budget alerts',
+	feedback: 'Feedback alerts',
+	story_refresh: 'Story refreshes',
+	shared: 'Shared with you',
+	subscription: 'Subscriptions',
+};
+
+export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
+	budget: 'Alerts when a provider or member budget limit is reached.',
+	feedback: 'Alerts when users leave positive or negative feedback.',
+	story_refresh: 'Results of your story refreshes.',
+	shared: 'When someone shares a story or chat with you.',
+	subscription: "When you're added to a story's scheduled delivery.",
+};
+
+export const FEEDBACK_VOTES = ['up', 'down'] as const;
+export type FeedbackVote = (typeof FEEDBACK_VOTES)[number];
+
+export const FEEDBACK_SOURCES = ['chat', 'story'] as const;
+export type FeedbackSource = (typeof FEEDBACK_SOURCES)[number];
+
+/** Runs an automation whenever a matching thumbs up/down is left on a chat answer or a story. */
+export type AutomationFeedbackTrigger = {
+	enabled: boolean;
+	votes: FeedbackVote[];
+	sources: FeedbackSource[];
+};
+
+export const NAO_EVENT_TYPES = ['feedback'] as const;
+export type NaoEventType = (typeof NAO_EVENT_TYPES)[number];
+
+/** nao events an automation listens to, keyed by event type. */
+export type AutomationEventTriggers = {
+	feedback?: AutomationFeedbackTrigger;
+};
+
+export type SharedItemLabel = 'story' | 'chat';
+
+export type ShareSource = { type: 'chat'; shareId: string } | { type: 'story'; storyId: string };
+
+export type FeedbackNotificationPayload = {
+	kind: 'feedback';
+	vote: 'up' | 'down';
+	submitterName: string;
+	chatTitle: string | null;
+	storyTitle?: string;
+	explanation: string | null;
+};
+
+export type SharedNotificationPayload = {
+	kind: 'shared';
+	sharerName: string;
+	itemLabel: SharedItemLabel;
+	itemTitle: string;
+	visibility: Visibility;
+	role?: ShareRole;
+	isRoleChange?: boolean;
+};
+
+export type StoryRefreshNotificationPayload = {
+	kind: 'story_refresh';
+	storyId: string;
+	status: 'refreshed' | 'failed';
+	queriesRefreshed?: number;
+	trigger?: 'manual' | 'schedule';
+	ownerName?: string;
+	storyTitle?: string;
+};
+
+export type StorySubscriptionNotificationPayload = {
+	kind: 'story_subscription';
+	storyId: string;
+	storyTitle: string;
+	ownerName: string;
+};
+
+/** `storyId` and `storyTitle` are set when a single story was handed over. */
+export type StoryTransferNotificationPayload = {
+	kind: 'story_transfer';
+	senderName: string;
+	storyCount: number;
+	storyId: string | null;
+	storyTitle: string | null;
+	previousOwnerName: string | null;
+};
+
+export const MAX_PRELOADED_SKILLS = 50;
+
+/** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
+export const SANDBOX_SECRET_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
+export const SANDBOX_SECRET_NAME_MAX_LENGTH = 64;
+/** Anything shorter is not a secret, and would be masked from sandbox output far too eagerly. */
+export const SANDBOX_SECRET_VALUE_MIN_LENGTH = 4;
+export const SANDBOX_SECRET_VALUE_MAX_LENGTH = 8192;
+export const SANDBOX_SECRET_DESCRIPTION_MAX_LENGTH = 200;
+
+/** Environment variables the guest runtime relies on; a secret shadowing one would break the sandbox. */
+export const SANDBOX_SECRET_RESERVED_NAMES = new Set([
+	'PATH',
+	'HOME',
+	'USER',
+	'SHELL',
+	'PWD',
+	'TERM',
+	'LANG',
+	'LC_ALL',
+	'TMPDIR',
+	'HOSTNAME',
+	'LD_PRELOAD',
+	'LD_LIBRARY_PATH',
+	'PYTHONPATH',
+	'PYTHONHOME',
+	'PYTHONSTARTUP',
+	'NODE_OPTIONS',
+	'NODE_PATH',
+]);
+
+export function isReservedSandboxSecretName(name: string): boolean {
+	return SANDBOX_SECRET_RESERVED_NAMES.has(name) || name.startsWith('LD_') || name.startsWith('LC_');
+}
+
+export const SEMANTIC_LAYER_MODES = ['exclusive', 'prioritized', 'disabled'] as const;
+
+/**
+ * How the agent routes metric questions when the project declares a semantic layer.
+ * - `exclusive`: every question goes through the layer; raw SQL is not exposed at all.
+ * - `prioritized` (default): try the layer first, fall back to SQL when it cannot answer.
+ * - `disabled`: definitions stay readable as context, but the semantic tool is not exposed.
+ */
+export type SemanticLayerMode = (typeof SEMANTIC_LAYER_MODES)[number];
+
+export const DEFAULT_SEMANTIC_LAYER_MODE: SemanticLayerMode = 'prioritized';
 
 export interface UserPreferences {
 	toolCallDensity?: ToolCallDensity;
@@ -41,11 +181,13 @@ export type ChatReplayFeedbackState = (typeof CHAT_REPLAY_FEEDBACK_STATES)[numbe
 export const NO_CACHE_SCHEDULE = 'no-cache';
 
 export const LLM_PROVIDERS = [
+	'nao',
 	'openai',
 	'anthropic',
 	'google',
 	'mistral',
 	'openrouter',
+	'requesty',
 	'ollama',
 	'bedrock',
 	'vertex',
@@ -53,15 +195,18 @@ export const LLM_PROVIDERS = [
 	'qwen',
 	'minimax',
 	'moonshot',
+	'meta',
 	'openaiCompatible',
 ] as const;
 
 export const providerLabels: Record<LlmProviderKind, string> = {
+	nao: 'nao',
 	openai: 'OpenAI',
 	anthropic: 'Anthropic',
 	google: 'Google',
 	mistral: 'Mistral',
 	openrouter: 'OpenRouter',
+	requesty: 'Requesty',
 	ollama: 'Ollama',
 	bedrock: 'Amazon Bedrock',
 	vertex: 'Vertex AI',
@@ -69,6 +214,7 @@ export const providerLabels: Record<LlmProviderKind, string> = {
 	qwen: 'Qwen',
 	minimax: 'MiniMax',
 	moonshot: 'Moonshot',
+	meta: 'Meta',
 	openaiCompatible: 'OpenAI Compatible',
 };
 
@@ -135,11 +281,32 @@ export type LlmSelectedModel = {
 	modelId: string;
 };
 
+export function isSameModel(model: LlmSelectedModel, other: LlmSelectedModel): boolean {
+	return model.provider === other.provider && model.modelId === other.modelId;
+}
+
+/** The model a stored result names in its own columns, under the shape of a selected model. */
+export function resultModel(result: { llmProvider: LlmProvider; llmModelId: string }): LlmSelectedModel {
+	return { provider: result.llmProvider, modelId: result.llmModelId };
+}
+
 export type SummarySegment =
 	| { type: 'text'; content: string }
-	| { type: 'chart'; chartType: string; title: string; kpiCount?: number }
+	| {
+			type: 'chart';
+			chartType: string;
+			title: string;
+			kpiCount?: number;
+			colors?: string[];
+			queryId?: string;
+			series?: {
+				dataKey: string;
+				label?: string;
+				valueFormat?: ValueFormat;
+			}[];
+	  }
 	| { type: 'table'; title: string }
-	| { type: 'map'; mapType: string; title: string }
+	| { type: 'map'; mapType: string; title: string; color?: string }
 	| { type: 'grid'; cols: number; widths: number[] | null; children: SummarySegment[] };
 
 export type StorySummary = {
@@ -151,11 +318,13 @@ export type FileTreeEntry = {
 	path: string;
 	type: 'file' | 'directory';
 	children?: FileTreeEntry[];
+	readOnly?: boolean;
 };
 
 export type ContextGitUnavailableReason =
 	| 'github-unavailable'
 	| 'git-unavailable'
+	| 'repository-mismatch'
 	| 'no-token'
 	| 'no-repo'
 	| 'unsupported-provider'
@@ -167,7 +336,9 @@ export type FileEditabilityReason =
 	| 'generated'
 	| 'rendered-template'
 	| 'synced-source'
-	| 'not-tracked';
+	| 'not-tracked'
+	| 'production-only'
+	| 'branch-of-others';
 
 export type FileEditabilityGuidance =
 	| {
@@ -214,13 +385,45 @@ export type ContextChangedFile = {
 	deletions: number | null;
 };
 
+/** A commit of the current branch, as listed among those not pushed yet. */
+export type ContextCommit = {
+	hash: string;
+	subject: string;
+	committedAt: string;
+};
+
 export type ContextBranchInfo = {
 	currentBranch: string | null;
 	defaultBranch: string;
 	aheadCommitCount: number;
 	unpushedCommitCount: number;
+	/** The newest commits not pushed yet, at most 20, newest first; `unpushedCommitCount` counts them all. */
+	unpushedCommits: ContextCommit[];
 	branches: string[];
 	suggestedBranch: string;
+	/** False on a branch of another user, which the File Explorer only shows: commits go to a branch of one's own. */
+	isCurrentBranchOwned: boolean;
+};
+
+/** A branch of a git repository, with who last committed to it when the git provider or git tells. */
+export type RepoBranch = {
+	name: string;
+	commit: string;
+	author: RepoBranchAuthor | null;
+	committedAt: string | null;
+	isMine: boolean;
+};
+
+export type RepoBranchAuthor = {
+	name: string;
+	/** The account on the git provider, when the commit email is linked to one. */
+	login: string | null;
+};
+
+export type RepoBranchList = {
+	branches: RepoBranch[];
+	/** Whether `isMine` is known, which needs the user's own GitHub or GitLab account. */
+	canFilterMine: boolean;
 };
 
 export type ContextBranchCreationResult = ContextBranchInfo & {
@@ -238,12 +441,23 @@ export const MAX_BUDGET_LIMIT_USD = 200_000;
 export const BUDGET_PERIODS = ['day', 'week', 'month'] as const;
 export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
 
+export const MEMBER_BUDGET_PERIODS = ['week', 'month', 'year'] as const;
+export type MemberBudgetPeriod = (typeof MEMBER_BUDGET_PERIODS)[number];
+
+export type CalendarPeriod = BudgetPeriod | MemberBudgetPeriod;
+
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
+
+export const SHARE_ROLES = ['viewer', 'editor'] as const;
+export type ShareRole = (typeof SHARE_ROLES)[number];
+
+export type StoryAccessRole = 'owner' | ShareRole;
 
 export type StorySharingInfo = {
 	visibility: Visibility;
 	sharedWithCount: number;
+	sharedWithGroupCount: number;
 	isPinned: boolean;
 };
 
@@ -252,6 +466,26 @@ export type FolderVisibility = (typeof FOLDER_VISIBILITY)[number];
 
 export const FOLDER_SYSTEM_TYPE = ['private_folder', 'shared_with_me'] as const;
 export type FolderSystemType = (typeof FOLDER_SYSTEM_TYPE)[number];
+
+export const STORY_ACTIONS = ['create', 'update', 'replace', 'publish'] as const;
+export type StoryAction = (typeof STORY_ACTIONS)[number];
+
+export const STORY_SOURCES = ['assistant', 'user'] as const;
+export type StorySource = (typeof STORY_SOURCES)[number];
+
+export const STORY_VERSION_ORIGINS = ['agent', 'editor', 'mcp', 'copy'] as const;
+export type StoryVersionOrigin = (typeof STORY_VERSION_ORIGINS)[number];
+
+export type StoryVersionVia = 'original_chat' | 'quick_question' | 'chat' | 'agent' | 'editor' | 'mcp' | 'copy';
+
+export interface StoryVersionChange {
+	author: { id: string; name: string } | null;
+	via: StoryVersionVia;
+	chat: { id: string; title: string } | null;
+}
+
+export const STORY_FORMATS = ['classic', 'custom'] as const;
+export type StoryFormat = (typeof STORY_FORMATS)[number];
 
 export type ProjectChatReplayFacets<R extends string = string> = {
 	userNames: string[];
@@ -284,8 +518,8 @@ export type ProjectChatListItem = {
 	toolAvailableCount: number;
 };
 
-export type DownloadFormat = 'pdf' | 'html' | 'markdown';
-export const DOWNLOAD_FORMATS = ['pdf', 'html', 'markdown'] as const satisfies readonly DownloadFormat[];
+export type DownloadFormat = 'pdf' | 'html';
+export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
 export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
 export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
@@ -293,7 +527,15 @@ export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const sa
 /** A file taken out of permanent storage is recorded under its own extension. */
 export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
 
-export const ANALYTICS_EVENT_TYPES = ['page_view', 'download', 'fork', 'favorite', 'refresh', 'view_duration'] as const;
+export const ANALYTICS_EVENT_TYPES = [
+	'page_view',
+	'download',
+	'fork',
+	'favorite',
+	'feedback',
+	'refresh',
+	'view_duration',
+] as const;
 export const ANALYTICS_ASSET_TYPES = ['chat', 'story'] as const;
 
 export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number];
@@ -304,14 +546,42 @@ export type AnalyticsEventMetadata =
 	| { type: 'download'; format: AnalyticsDownloadFormat; queryId?: string; versionNumber?: number; title?: string }
 	| { type: 'fork'; resultId: string; scope: 'full' | 'selection'; versionNumber?: number }
 	| { type: 'favorite'; favorited: boolean }
+	| { type: 'feedback'; vote: 'up' | 'down'; explanation?: string }
 	| { type: 'refresh'; trigger: 'manual' | 'scheduled'; queriesRefreshed?: number }
 	| { type: 'view_duration'; durationMs: number; startedAt: number; versionNumber?: number };
+
+export const MAX_CITATIONS_PER_MESSAGE = 100;
+export const MAX_CITATION_TEXT_LENGTH = 10_000;
 
 export interface CitationData {
 	start: number;
 	end: number;
 	text: string;
 	storySlug?: string;
+	/** The chat the cited story belongs to, which can differ from the chat that quotes it. */
+	storyChatId?: string;
+	block?: StoryBlockReference;
+	intent?: StoryCitationIntent;
+}
+
+export type StoryCitationIntent = 'ask' | 'edit';
+
+/** Code cited from a story's source or a file of a custom story, whose path is the reference's title. */
+export const CODE_CITATION_KIND = 'code';
+
+export interface StoryBlockReference {
+	kind: string;
+	title?: string;
+	queryId?: string;
+	/** Position among the blocks sharing this kind, title and query, set only past the first. */
+	occurrence?: number;
+	lines?: StoryCodeLines;
+	part?: StoryBlockPart;
+}
+
+export interface StoryCodeLines {
+	start: number;
+	end: number;
 }
 
 export type MessageBubble = { role: 'user' | 'assistant'; charCount: number };
@@ -327,6 +597,7 @@ export interface GroupedChatItem {
 	projectId: string;
 	title: string;
 	isStarred: boolean;
+	isOnboarding: boolean;
 	createdAt: number;
 	updatedAt: number;
 	kind: 'own' | 'shared';
@@ -361,6 +632,9 @@ export type EmbedTokenPayload = {
 };
 
 export type StoryPanelDisplayMode = 'grid' | 'lines';
+
+export const RECIPIENT_MODES = ['all', 'specific'] as const;
+export type RecipientMode = (typeof RECIPIENT_MODES)[number];
 
 export const REPO_PROVIDERS = ['github', 'gitlab'] as const;
 export const BULK_ITEMS_LIMIT = 100;

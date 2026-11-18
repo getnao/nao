@@ -1,8 +1,9 @@
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from collections.abc import Callable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, cast
@@ -15,13 +16,28 @@ from cyclopts import Parameter
 from nao_core import native
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import ModelCosts
-from nao_core.config.test import ComparisonConfig, TestConfig
+from nao_core.config.test import ComparisonConfig, TestConfig, TestModelConfig
 from nao_core.ui import UI
 
-from .case import TESTS_FOLDER, TestCase, discover_tests
-from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
+from .assertions import combine_check_messages, evaluate_assertions
+from .case import TESTS_FOLDER, InvalidTestFileError, TestCase, discover_tests
+from .client import BACKEND_URL, AgentClient, AgentClientError, TestVerdict, VerificationResult, get_client
+from .client import TestResult as AgentTestResult
 from .compare import normalize_dataframe_numbers
-from .summary import ModelSummary, summarize, summarize_by_model
+from .summary import (
+    ModelSummary,
+    group_by_test_and_model,
+    pass_metrics_for_group,
+    summarize,
+    summarize_by_model,
+    summarize_pass_metrics,
+)
+
+INTERRUPTED_EXIT_CODE = 130
+
+
+class AbandonedTestRunsError(KeyboardInterrupt):
+    """Interrupted again while tests were still running: their requests cannot be stopped, only left behind."""
 
 
 @dataclass
@@ -30,6 +46,7 @@ class ModelConfig:
 
     provider: str
     model_id: str
+    reasoning_effort: str | None = None
 
     @classmethod
     def parse(cls, model_str: str) -> "ModelConfig":
@@ -40,7 +57,39 @@ class ModelConfig:
         return cls(provider=provider, model_id=model_id)
 
     def __str__(self) -> str:
-        return f"{self.provider}:{self.model_id}"
+        name = f"{self.provider}:{self.model_id}"
+        return f"{name} · {self.reasoning_effort}" if self.reasoning_effort else name
+
+
+def resolve_model_configs(models: list[str | TestModelConfig], client: AgentClient) -> list[ModelConfig]:
+    """Expand the configured models into one model per reasoning effort each runs at."""
+    return [model for entry in models for model in expand_model_entry(entry, client)]
+
+
+def expand_model_entry(entry: str | TestModelConfig, client: AgentClient) -> list[ModelConfig]:
+    if isinstance(entry, str):
+        return [ModelConfig.parse(entry)]
+    model = ModelConfig.parse(entry.model)
+    if entry.reasoning_efforts is None:
+        return [model]
+    supported = client.get_reasoning_efforts(model.provider, model.model_id)
+    efforts = select_reasoning_efforts(str(model), entry.reasoning_efforts, supported)
+    return [replace(model, reasoning_effort=effort) for effort in efforts]
+
+
+def select_reasoning_efforts(model_name: str, requested: Sequence[str] | str, supported: list[str]) -> list[str]:
+    """The requested efforts in the order the model supports them, the same check the app makes on nao_config.yaml."""
+    if not supported:
+        raise ValueError(f"{model_name} has no reasoning efforts to pick in test.models.")
+    if requested == "all":
+        return supported
+    unsupported = [effort for effort in requested if effort not in supported]
+    if unsupported:
+        raise ValueError(
+            f"{model_name} does not support the reasoning efforts {', '.join(unsupported)}, "
+            f"expected some of {', '.join(supported)}."
+        )
+    return [effort for effort in supported if effort in requested]
 
 
 @dataclass
@@ -70,6 +119,7 @@ class TestRunResult:
     tool_call_count: int | None = None
     error: str | None = None
     details: TestRunDetails | None = None
+    attempt: int | None = None
 
 
 def check_dataframe(
@@ -190,6 +240,8 @@ def run_test(
     model: ModelConfig,
     email: str | None = None,
     password: str | None = None,
+    api_key: str | None = None,
+    project_name: str | None = None,
     costs: ModelCosts | None = None,
     comparison: ComparisonConfig | None = None,
 ) -> TestRunResult:
@@ -197,10 +249,17 @@ def run_test(
     UI.print(f"[bold]Running:[/bold] {test_case.name} [dim]({model})[/dim]")
     UI.print(f"[dim]  Prompt: {test_case.prompt}[/dim]")
 
-    client = get_client(email=email, password=password)
+    client = get_client(email=email, password=password, api_key=api_key, project_name=project_name)
 
     try:
-        result = client.run_test(test_case, provider=model.provider, model_id=model.model_id, costs=costs)
+        result = client.run_test(
+            test_case,
+            provider=model.provider,
+            model_id=model.model_id,
+            costs=costs,
+            comparison=comparison,
+            reasoning_effort=model.reasoning_effort,
+        )
 
         if result.text:
             UI.print(f"[dim]  Response: {result.text[:200]}...[/dim]")
@@ -214,16 +273,23 @@ def run_test(
         UI.print(f"[dim]  Cost: ${result.cost.totalCost}[/dim]")
         UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
 
+        if result.verdict:
+            return server_verdict_result(test_case, model, result, result.verdict, tool_call_count)
+
+        assertions_passed, assertions_msg = evaluate_assertions(test_case.assertions, result.tool_calls)
+
         if result.verification:
             tolerances = comparison or ComparisonConfig()
             if result.verification.sql:
                 UI.print(f"[dim]  Verification SQL: {result.verification.sql}[/dim]")
-            passed, msg, diff = check_dataframe(
+            data_passed, data_msg, diff = check_dataframe(
                 result.verification,
                 rtol=tolerances.rtol,
                 atol=tolerances.atol,
                 decimals=tolerances.decimals,
             )
+            passed = assertions_passed and data_passed
+            msg = combine_check_messages(assertions_msg, data_msg)
             status = "[green]✓[/green]" if passed else "[red]✗[/red]"
             UI.print(f"  {status} {msg}")
             return TestRunResult(
@@ -246,6 +312,44 @@ def run_test(
                 ),
             )
 
+        if test_case.assertions and not test_case.sql:
+            status = "[green]✓[/green]" if assertions_passed else "[red]✗[/red]"
+            UI.print(f"  {status} {assertions_msg}")
+            return TestRunResult(
+                name=test_case.name,
+                model=str(model),
+                passed=assertions_passed,
+                message=assertions_msg,
+                tokens=result.usage.totalTokens,
+                cost=result.cost.totalCost,
+                duration_ms=result.duration_ms,
+                tool_call_count=tool_call_count,
+                details=TestRunDetails(
+                    response_text=result.text,
+                    tool_calls=result.tool_calls,
+                    reference_sql=test_case.sql,
+                ),
+            )
+
+        if test_case.assertions and test_case.sql:
+            msg = combine_check_messages(assertions_msg, "no verification data")
+            UI.print(f"  [red]✗[/red] {msg}")
+            return TestRunResult(
+                name=test_case.name,
+                model=str(model),
+                passed=False,
+                message=msg,
+                tokens=result.usage.totalTokens,
+                cost=result.cost.totalCost,
+                duration_ms=result.duration_ms,
+                tool_call_count=tool_call_count,
+                details=TestRunDetails(
+                    response_text=result.text,
+                    tool_calls=result.tool_calls,
+                    reference_sql=test_case.sql,
+                ),
+            )
+
         UI.print("[yellow]  ⚠ no verification data[/yellow]")
         return TestRunResult(
             name=test_case.name,
@@ -264,15 +368,58 @@ def run_test(
         )
 
     except AgentClientError as e:
-        UI.error(str(e))
-        return TestRunResult(
-            name=test_case.name,
-            model=str(model),
-            passed=False,
-            message="error",
-            error=str(e),
-            details=TestRunDetails(reference_sql=test_case.sql),
-        )
+        return errored_result(test_case, model, str(e))
+    except Exception as e:
+        return errored_result(test_case, model, f"{type(e).__name__}: {e}")
+
+
+def errored_result(test_case: TestCase, model: ModelConfig, error: str) -> TestRunResult:
+    """One test that cannot finish fails on its own, so the run keeps the results of the others."""
+    UI.error(error)
+    return TestRunResult(
+        name=test_case.name,
+        model=str(model),
+        passed=False,
+        message="error",
+        error=error,
+        details=TestRunDetails(reference_sql=test_case.sql),
+    )
+
+
+def server_verdict_result(
+    test_case: TestCase,
+    model: ModelConfig,
+    result: AgentTestResult,
+    verdict: TestVerdict,
+    tool_call_count: int,
+) -> TestRunResult:
+    """Build the run result from the pass/fail decision the backend computed."""
+    verification = result.verification
+    if verification and verification.sql:
+        UI.print(f"[dim]  Verification SQL: {verification.sql}[/dim]")
+    if verdict.comparison:
+        UI.print(f"[dim]{verdict.comparison}[/dim]")
+    UI.print(f"  {status_icon(verdict.passed)} {verdict.message}")
+
+    return TestRunResult(
+        name=test_case.name,
+        model=str(model),
+        passed=verdict.passed,
+        message=verdict.message,
+        tokens=result.usage.totalTokens,
+        cost=result.cost.totalCost,
+        duration_ms=result.duration_ms,
+        tool_call_count=tool_call_count,
+        details=TestRunDetails(
+            response_text=result.text,
+            actual_data=verification.data if verification else None,
+            expected_data=verification.expectedData if verification else None,
+            comparison=verdict.comparison,
+            tool_calls=result.tool_calls,
+            reference_sql=test_case.sql,
+            verification_sql=verification.sql if verification else None,
+        ),
+    )
 
 
 def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | None:
@@ -281,6 +428,90 @@ def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | N
         return None
 
     return config.llm.costs(model.provider, model.model_id)
+
+
+def execute_test_runs(
+    test_runs: list[tuple[TestCase, ModelConfig, int]],
+    run_one: Callable[[TestCase, ModelConfig], TestRunResult],
+    thread_count: int,
+    completed: dict[int, TestRunResult],
+) -> None:
+    """Fills `completed` by submission index as each run finishes, so the summaries stay grouped by model."""
+    if thread_count == 1:
+        for index, (test_case, model, attempt) in enumerate(test_runs):
+            record_result(completed, index, attempt, run_one(test_case, model))
+        return
+
+    executor = ThreadPoolExecutor(max_workers=thread_count)
+    futures = [
+        submit_test_run(executor, run_one, completed, index, test_case, model, attempt)
+        for index, (test_case, model, attempt) in enumerate(test_runs)
+    ]
+    try:
+        for future in as_completed(futures):
+            future.result()
+    except BaseException:
+        stop_test_runs(executor, futures)
+        raise
+    executor.shutdown()
+
+
+def submit_test_run(
+    executor: ThreadPoolExecutor,
+    run_one: Callable[[TestCase, ModelConfig], TestRunResult],
+    completed: dict[int, TestRunResult],
+    index: int,
+    test_case: TestCase,
+    model: ModelConfig,
+    attempt: int,
+) -> Future[TestRunResult]:
+    """Records the result as soon as the run finishes, even while the run as a whole is stopping."""
+    future = executor.submit(run_one, test_case, model)
+
+    def record_when_done(done: Future[TestRunResult]) -> None:
+        if not done.cancelled() and done.exception() is None:
+            record_result(completed, index, attempt, done.result())
+
+    future.add_done_callback(record_when_done)
+    return future
+
+
+def stop_test_runs(executor: ThreadPoolExecutor, futures: list[Future[TestRunResult]]) -> None:
+    """Drops the queued runs and waits for the running ones, unless interrupted again, so their results are kept."""
+    executor.shutdown(wait=False, cancel_futures=True)
+    running = [future for future in futures if not future.done()]
+    if not running:
+        return
+    UI.warn(f"Stopping: waiting for {len(running)} running test(s) to finish. Press Ctrl+C again to stop now.")
+    try:
+        wait(running)
+    except KeyboardInterrupt as error:
+        raise AbandonedTestRunsError from error
+
+
+def record_result(completed: dict[int, TestRunResult], index: int, attempt: int, result: TestRunResult) -> None:
+    result.attempt = attempt
+    completed[index] = result
+    UI.print("")
+
+
+def ordered_results(completed: dict[int, TestRunResult]) -> list[TestRunResult]:
+    return [completed[index] for index in sorted(completed)]
+
+
+def exit_now(code: int) -> None:
+    """Exits without waiting for the test threads, whose requests may hang until their timeout."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
+
+def save_interrupted_results(completed: dict[int, TestRunResult], total_runs: int, output_dir: Path) -> None:
+    """A run stopped early, such as with Ctrl+C, keeps the results of the tests that finished."""
+    if not completed:
+        return
+    output_file = save_results(ordered_results(completed), output_dir)
+    UI.warn(f"Run stopped after {len(completed)} of {total_runs} run(s). Their results are saved to: {output_file}")
 
 
 def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
@@ -295,6 +526,7 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
         "results": runs,
         "summary": summarize(runs),
         "by_model": [asdict(s) for s in summarize_by_model(runs)],
+        "pass_metrics": summarize_pass_metrics(runs),
     }
 
     output_file.write_text(json.dumps(data, indent=2))
@@ -302,52 +534,98 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
 
 
 def print_run_table(results: list[TestRunResult]) -> None:
-    """Print one row per run, i.e. per (test, model) pair."""
+    """Print one row per (test, model), aggregating all attempts for that pair."""
+    run_dicts = [asdict(r) for r in results]
+    rows = []
+    for (name, model), group in sorted(group_by_test_and_model(run_dicts).items()):
+        metrics = pass_metrics_for_group(group)
+        row = {
+            "Test": name,
+            "Model": model,
+            "Status": status_icon(float(metrics["pass_hat_k"]) == 1.0),
+            "Success %": format_pass_fraction(float(metrics["pass_at_1"])),
+        }
+        if int(metrics["k"]) > 1:
+            row["Pass@k"] = format_pass_fraction(float(metrics["pass_at_k"]))
+        row.update(
+            {
+                "Tokens": sum(run.get("tokens") or 0 for run in group),
+                "Cost": sum(run.get("cost") or 0 for run in group),
+                "Time (s)": round(sum(run.get("duration_ms") or 0 for run in group) / 1000, 1),
+                "Tools": sum(run.get("tool_call_count") or 0 for run in group),
+            }
+        )
+        rows.append(row)
+
+    UI.table(pd.DataFrame(rows), title="Test Results")
+
+
+def print_legacy_run_table(results: list[TestRunResult]) -> None:
+    """Print the original one-row-per-run table used when k equals one."""
     df = pd.DataFrame(
         [
             {
-                "Test": r.name,
-                "Model": r.model,
-                "Status": status_icon(r.passed),
-                "Message": r.message,
-                "Tokens": r.tokens or 0,
-                "Cost": r.cost or 0,
-                "Time (s)": round((r.duration_ms or 0) / 1000, 1),
-                "Tools": r.tool_call_count or 0,
+                "Test": result.name,
+                "Model": result.model,
+                "Status": status_icon(result.passed),
+                "Message": result.message,
+                "Tokens": result.tokens or 0,
+                "Cost": result.cost or 0,
+                "Time (s)": round((result.duration_ms or 0) / 1000, 1),
+                "Tools": result.tool_call_count or 0,
             }
-            for r in results
+            for result in results
         ]
     )
-
     UI.table(df, title="Test Results", sum_columns={"Tokens": "", "Cost": "$", "Time (s)": "", "Tools": ""})
 
 
 def print_model_table(summaries: list[ModelSummary]) -> None:
-    """Print one row per model, ranked from best to worst pass rate."""
+    """Print the original per-model summary table used when k equals one."""
     df = pd.DataFrame(
         [
             {
-                "Model": column_label(s.model),
-                "Pass Rate": format_pass_rate(s.pass_rate),
-                "Passed": f"{s.passed}/{s.total}",
-                "Tokens": s.total_tokens,
-                "Cost": s.total_cost,
-                "Avg Time (s)": round(s.avg_duration_ms / 1000, 1),
-                "Avg Tools": s.avg_tool_calls,
+                "Model": column_label(summary.model),
+                "Pass Rate": format_pass_rate(summary.pass_rate),
+                "Passed": f"{summary.passed}/{summary.total}",
+                "Tokens": summary.total_tokens,
+                "Cost": summary.total_cost,
+                "Avg Time (s)": round(summary.avg_duration_ms / 1000, 1),
+                "Avg Tools": summary.avg_tool_calls,
             }
-            for s in summaries
+            for summary in summaries
         ]
     )
-
     UI.table(df, title="Performance by Model", sum_columns={"Tokens": "", "Cost": "$"}, fixed_columns={"Model"})
+
+
+def print_summary_table(results: list[TestRunResult]) -> None:
+    """Print one totals row across all test/model pairs and attempts."""
+    run_dicts = [asdict(r) for r in results]
+    groups = group_by_test_and_model(run_dicts)
+    total = len(run_dicts)
+    passed = sum(1 for run in run_dicts if run.get("passed"))
+    always_passed = sum(1 for group in groups.values() if all(run.get("passed") for run in group))
+    total_duration_ms = sum(run.get("duration_ms") or 0 for run in run_dicts)
+
+    row = {
+        "Tests": len(groups),
+        "Success %": format_pass_fraction(passed / total if total else 0.0),
+        "Always Pass %": format_pass_fraction(always_passed / len(groups) if groups else 0.0),
+        "Tokens": sum(run.get("tokens") or 0 for run in run_dicts),
+        "Cost": f"${sum(run.get('cost') or 0 for run in run_dicts):.4f}",
+        "Time (s)": round(total_duration_ms / 1000, 1),
+        "Tools": sum(run.get("tool_call_count") or 0 for run in run_dicts),
+    }
+    UI.table(pd.DataFrame([row]), title="Summary")
 
 
 def print_model_matrix(results: list[TestRunResult]) -> None:
     """Print a test × model grid to show which model passes which test."""
     models = list(dict.fromkeys(r.model for r in results))
     statuses: dict[tuple[str, str], list[str]] = {}
-    for result in results:
-        statuses.setdefault((result.name, result.model), []).append(status_icon(result.passed))
+    for key, group in group_by_test_and_model([asdict(result) for result in results]).items():
+        statuses[key] = [status_icon(all(bool(run.get("passed")) for run in group))]
 
     rows = [
         {"Test": name}
@@ -368,8 +646,15 @@ def status_icon(passed: bool) -> str:
     return "[green]✓[/green]" if passed else "[red]✗[/red]"
 
 
+def format_pass_fraction(rate: float) -> str:
+    """Colour a 0-1 pass metric (pass@k / pass^k) for terminal tables."""
+    pct = round(rate * 100, 1)
+    color = "green" if pct == 100 else "red" if pct < 50 else "yellow"
+    return f"[{color}]{pct}%[/{color}]"
+
+
 def format_pass_rate(pass_rate: float) -> str:
-    """Colour a pass rate from green (all passing) to red (mostly failing)."""
+    """Colour a legacy 0-100 pass rate for the k=1 model table."""
     color = "green" if pass_rate == 100 else "red" if pass_rate < 50 else "yellow"
     return f"[{color}]{pass_rate}%[/{color}]"
 
@@ -452,6 +737,13 @@ def test(
             help="Number of parallel threads for running tests. Overrides test.threads.",
         ),
     ] = None,
+    k: Annotated[
+        int | None,
+        Parameter(
+            name=["-k", "--k"],
+            help="Number of times to run each test case, used to compute pass@k and pass^k. Overrides test.k.",
+        ),
+    ] = None,
     select: Annotated[
         str | None,
         Parameter(
@@ -473,6 +765,13 @@ def test(
             help="Password for authentication. Falls back to NAO_PASSWORD env var.",
         ),
     ] = None,
+    api_key: Annotated[
+        str | None,
+        Parameter(
+            name=["--api-key"],
+            help="Organization API key for authentication, replaces the login. Falls back to NAO_API_KEY env var.",
+        ),
+    ] = None,
 ):
     """Run tests from the tests/ folder.
 
@@ -483,12 +782,15 @@ def test(
         nao test -m openai:gpt-4.1
         nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
         nao test --threads 4
+        nao test --k 5
         nao test -s test_name
         nao test -s 12,13,14
         nao test -u user@example.com --password secret
+        nao test --api-key nao_xxx
     """
     email = username or os.environ.get("NAO_USERNAME")
     pwd = password or os.environ.get("NAO_PASSWORD")
+    key = api_key or os.environ.get("NAO_API_KEY")
 
     UI.info("\n🧪 Running nao tests...\n")
 
@@ -497,20 +799,33 @@ def test(
 
     test_config = config.test or TestConfig()
     thread_count = threads if threads is not None else test_config.threads
+    k_count = k if k is not None else test_config.k
 
+    if k_count < 1:
+        UI.error(f"k must be >= 1, got {k_count}")
+        sys.exit(1)
+
+    client = get_client(email=email, password=pwd, api_key=key, project_name=config.project_name)
     try:
-        model_configs = [ModelConfig.parse(m) for m in models or test_config.models]
-    except ValueError as e:
+        model_configs = resolve_model_configs(list(models or test_config.models), client)
+    except (ValueError, AgentClientError) as e:
         UI.error(str(e))
-        return
+        sys.exit(1)
 
     project_path = Path.cwd()
     tests_dir = project_path / TESTS_FOLDER
     UI.print(f"[dim]Project: {config.project_name}[/dim]")
     UI.print(f"[dim]Tests folder: {tests_dir}[/dim]")
-    UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]\n")
+    UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]")
+    if k_count > 1:
+        UI.print(f"[dim] Attempts: {k_count}[/dim]")
+    UI.print("")
 
-    test_cases = discover_tests(project_path)
+    try:
+        test_cases = discover_tests(project_path)
+    except InvalidTestFileError as e:
+        UI.error(str(e))
+        sys.exit(1)
 
     if not test_cases:
         UI.warn("No tests to run.")
@@ -524,65 +839,68 @@ def test(
 
     ensure_verification_engine(test_cases)
 
-    total_runs = len(test_cases) * len(model_configs)
-    UI.print(f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]")
+    total_runs = len(test_cases) * len(model_configs) * k_count
+    UI.print(
+        f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) × {k_count} attempt(s) = {total_runs} run(s)[/bold]"
+        if k_count > 1
+        else f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]"
+    )
     if thread_count > 1:
         UI.print(f"[dim]Running with {thread_count} threads (output may be interleaved)[/dim]")
     UI.print("")
 
-    # Build list of (test_case, model) pairs
-    test_runs = [(test_case, model) for model in model_configs for test_case in test_cases]
+    # Build list of (test_case, model, attempt) triples — attempt is 1-indexed
+    test_runs = [
+        (test_case, model, attempt)
+        for model in model_configs
+        for test_case in test_cases
+        for attempt in range(1, k_count + 1)
+    ]
 
-    results: list[TestRunResult] = []
-    if thread_count == 1:
-        for test_case, model in test_runs:
-            result = run_test(
-                test_case,
-                model,
-                email=email,
-                password=pwd,
-                costs=resolve_model_costs(config, model),
-                comparison=test_config.comparison,
-            )
-            results.append(result)
-            UI.print("")
-    else:
-        # Results are collected by submission order so the summaries stay grouped by model.
-        completed: dict[int, TestRunResult] = {}
-        with ThreadPoolExecutor(max_workers=thread_count) as executor:
-            futures = {
-                executor.submit(
-                    run_test,
-                    tc,
-                    m,
-                    email=email,
-                    password=pwd,
-                    costs=resolve_model_costs(config, m),
-                    comparison=test_config.comparison,
-                ): index
-                for index, (tc, m) in enumerate(test_runs)
-            }
-            for future in as_completed(futures):
-                completed[futures[future]] = future.result()
-                UI.print("")
-        results = [completed[index] for index in sorted(completed)]
+    def run_one(test_case: TestCase, model: ModelConfig) -> TestRunResult:
+        return run_test(
+            test_case,
+            model,
+            email=email,
+            password=pwd,
+            api_key=key,
+            project_name=config.project_name,
+            costs=resolve_model_costs(config, model),
+            comparison=test_config.comparison,
+        )
 
-    # Save results to JSON
-    output_file = save_results(results, project_path / TESTS_FOLDER / "outputs")
+    output_dir = project_path / TESTS_FOLDER / "outputs"
+    completed: dict[int, TestRunResult] = {}
+    try:
+        execute_test_runs(test_runs, run_one, thread_count, completed)
+    except BaseException as error:
+        save_interrupted_results(completed, total_runs, output_dir)
+        if isinstance(error, AbandonedTestRunsError):
+            exit_now(INTERRUPTED_EXIT_CODE)
+        raise
+    results = ordered_results(completed)
+
+    output_file = save_results(results, output_dir)
     UI.print(f"[dim]Results saved to: {output_file}[/dim]\n")
 
-    print_run_table(results)
+    run_dicts = [asdict(r) for r in results]
+    model_summaries = summarize_by_model(run_dicts)
 
-    model_summaries = summarize_by_model([asdict(r) for r in results])
-    if len(model_summaries) > 1:
-        print_model_table(model_summaries)
-        print_model_matrix(results)
+    if k_count == 1:
+        print_legacy_run_table(results)
+        if len(model_summaries) > 1:
+            print_model_table(model_summaries)
+            print_model_matrix(results)
+    else:
+        print_run_table(results)
+        print_summary_table(results)
+        if len(model_summaries) > 1:
+            print_model_matrix(results)
 
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
     total = len(results)
-    unit = "run" if len(model_summaries) > 1 else "test"
-
+    unit = "run" if len(model_summaries) > 1 or k_count > 1 else "test"
     UI.print("")
     if failed == 0:
         UI.success(f"All {total} {unit}(s) passed")

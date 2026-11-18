@@ -1,3 +1,4 @@
+import { ADD_SELECTION_TO_CHAT_SHORTCUT } from '@nao/shared/keyboard-shortcut';
 import type { Shortcut } from '@/lib/platform';
 import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
 
@@ -10,8 +11,13 @@ export type ShortcutId =
 	| 'toggle-story-chat'
 	| 'keyboard-help'
 	| 'stop-generation'
-	| 'cycle-model';
-export type ShortcutGroup = 'General' | 'Navigation' | 'Chat';
+	| 'cycle-model'
+	| 'go-to-file'
+	| 'toggle-test-drawer'
+	| 'run-tests'
+	| 'add-selection-to-chat'
+	| 'add-block-to-chat';
+export type ShortcutGroup = 'General' | 'Navigation' | 'Chat' | 'File Explorer';
 
 export type ShortcutDefinition = {
 	id: ShortcutId;
@@ -20,6 +26,8 @@ export type ShortcutDefinition = {
 	shortcut: Shortcut;
 	alternateShortcuts?: readonly Shortcut[];
 	allowInInput?: boolean;
+	isHandledInStory?: boolean;
+	isSettingsOnly?: boolean;
 };
 
 export const SHORTCUTS: readonly ShortcutDefinition[] = [
@@ -79,6 +87,39 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		group: 'Chat',
 		shortcut: { shift: true, key: 'Tab' },
 	},
+	{
+		id: 'go-to-file',
+		label: 'Go to file',
+		group: 'File Explorer',
+		shortcut: { mod: true, key: 'p' },
+		isSettingsOnly: true,
+	},
+	{
+		id: 'toggle-test-drawer',
+		label: 'Show or hide the tests',
+		group: 'File Explorer',
+		shortcut: { mod: true, key: 'j' },
+	},
+	{
+		id: 'run-tests',
+		label: 'Run the tests',
+		group: 'File Explorer',
+		shortcut: { mod: true, key: 'e' },
+	},
+	{
+		id: 'add-selection-to-chat',
+		label: 'Add selection to chat',
+		group: 'Chat',
+		shortcut: ADD_SELECTION_TO_CHAT_SHORTCUT,
+		isHandledInStory: true,
+	},
+	{
+		id: 'add-block-to-chat',
+		label: 'Add story block to chat',
+		group: 'Chat',
+		shortcut: { mod: true, key: 'Click' },
+		isHandledInStory: true,
+	},
 ];
 
 export function getShortcut(id: ShortcutId): ShortcutDefinition {
@@ -91,6 +132,12 @@ export function getShortcut(id: ShortcutId): ShortcutDefinition {
 
 export function getShortcutTokens(id: ShortcutId): string[] {
 	return formatShortcut(getShortcut(id).shortcut);
+}
+
+export function getAppWideShortcuts(): Shortcut[] {
+	return SHORTCUTS.filter((entry) => entry.shortcut.mod && !entry.isHandledInStory && !entry.isSettingsOnly).flatMap(
+		(entry) => [entry.shortcut, ...(entry.alternateShortcuts ?? [])],
+	);
 }
 
 export function getShortcutLabel(id: ShortcutId): string {

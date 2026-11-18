@@ -4,8 +4,12 @@ import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
+import { getActiveProjectPaths } from '../services/multi-project.service';
 import { OrgRole } from '../types/organization';
+import { getConfiguredProjectPaths, getProjectNameFromPath } from '../utils/project-paths';
+import { isDomainCoveredBy } from '../utils/utils';
 import * as projectQueries from './project.queries';
+import * as ssoProviderQueries from './sso-provider.queries';
 import * as userQueries from './user.queries';
 
 export const getOrganizationById = async (id: string): Promise<DBOrganization | null> => {
@@ -16,6 +20,23 @@ export const getOrganizationById = async (id: string): Promise<DBOrganization | 
 export const getOrganizationBySlug = async (slug: string): Promise<DBOrganization | null> => {
 	const [org] = await db.select().from(s.organization).where(eq(s.organization.slug, slug)).execute();
 	return org ?? null;
+};
+
+export const getEarliestOrganizationAdmin = async (
+	orgId: string,
+): Promise<{ id: string; email: string; name: string } | null> => {
+	const [admin] = await db
+		.select({ id: s.user.id, email: s.user.email, name: s.user.name })
+		.from(s.orgMember)
+		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.orgMember.role, 'admin')))
+		.orderBy(asc(s.orgMember.createdAt), asc(s.orgMember.userId))
+		.limit(1)
+		.execute();
+	if (!admin?.email.trim()) {
+		return null;
+	}
+	return { ...admin, email: admin.email.trim() };
 };
 
 export const getFirstOrganization = async (): Promise<DBOrganization | null> => {
@@ -46,9 +67,34 @@ export const addOrgMemberIfMissing = async (member: NewOrgMember): Promise<void>
 	await db.insert(s.orgMember).values(member).onConflictDoNothing().execute();
 };
 
+type UserOrgMembership = DBOrgMember & { organization: DBOrganization };
+
 export const getUserOrgMembership = async (
 	userId: string,
-): Promise<(DBOrgMember & { organization: DBOrganization }) | null> => {
+	selectedOrganizationId?: string | null,
+): Promise<UserOrgMembership | null> => {
+	if (selectedOrganizationId) {
+		return findUserOrgMembership(userId, selectedOrganizationId);
+	}
+
+	return findUserOrgMembership(userId);
+};
+
+export const listUserOrgMemberships = async (userId: string) => {
+	return db
+		.select({
+			id: s.organization.id,
+			name: s.organization.name,
+			role: s.orgMember.role,
+		})
+		.from(s.orgMember)
+		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
+		.where(eq(s.orgMember.userId, userId))
+		.orderBy(asc(s.organization.name), asc(s.organization.id))
+		.execute();
+};
+
+const findUserOrgMembership = async (userId: string, organizationId?: string): Promise<UserOrgMembership | null> => {
 	const [result] = await db
 		.select({
 			orgId: s.orgMember.orgId,
@@ -59,7 +105,33 @@ export const getUserOrgMembership = async (
 		})
 		.from(s.orgMember)
 		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
-		.where(eq(s.orgMember.userId, userId))
+		.where(
+			organizationId
+				? and(eq(s.orgMember.userId, userId), eq(s.orgMember.orgId, organizationId))
+				: eq(s.orgMember.userId, userId),
+		)
+		.orderBy(asc(s.orgMember.createdAt))
+		.limit(1)
+		.execute();
+	return result ?? null;
+};
+
+export const getUserOrgMembershipByProject = async (
+	userId: string,
+	projectId: string,
+): Promise<UserOrgMembership | null> => {
+	const [result] = await db
+		.select({
+			orgId: s.orgMember.orgId,
+			userId: s.orgMember.userId,
+			role: s.orgMember.role,
+			createdAt: s.orgMember.createdAt,
+			organization: s.organization,
+		})
+		.from(s.orgMember)
+		.innerJoin(s.organization, eq(s.orgMember.orgId, s.organization.id))
+		.innerJoin(s.project, eq(s.project.orgId, s.organization.id))
+		.where(and(eq(s.orgMember.userId, userId), eq(s.project.id, projectId)))
 		.limit(1)
 		.execute();
 	return result ?? null;
@@ -122,6 +194,14 @@ export const updateOrganizationName = async (orgId: string, name: string): Promi
 	await db.update(s.organization).set({ name }).where(eq(s.organization.id, orgId)).execute();
 };
 
+export const updateOrganizationBypassBilling = async (orgId: string, bypassBilling: boolean): Promise<void> => {
+	await db.update(s.organization).set({ bypassBilling }).where(eq(s.organization.id, orgId)).execute();
+};
+
+export const updateOrganizationLicense = async (orgId: string, license: string | null): Promise<void> => {
+	await db.update(s.organization).set({ license }).where(eq(s.organization.id, orgId)).execute();
+};
+
 export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {
 	await db.update(s.organization).set({ googleAuthDomains: domains }).where(eq(s.organization.id, orgId)).execute();
 };
@@ -148,12 +228,40 @@ export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<
 	return domains;
 };
 
-/** Cloud mode: whether another organization has already claimed the given email domain. */
-export const isEmailDomainClaimedByAnotherOrg = async (domain: string, orgId: string): Promise<boolean> => {
+/**
+ * Cloud mode: whether another organization has already claimed the given email domain, for Google or SSO sign-in.
+ * An SSO claim also covers subdomains, so it conflicts with Google claims on them.
+ */
+export const isEmailDomainClaimedByAnotherOrg = async (
+	domain: string,
+	orgId: string,
+	{ includeSubdomains = false }: { includeSubdomains?: boolean } = {},
+): Promise<boolean> => {
 	const normalized = domain.trim().toLowerCase();
-	const orgs = await db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute();
-	return orgs.some((org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized));
+	const [orgs, ssoProviders] = await Promise.all([
+		db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute(),
+		ssoProviderQueries.listSsoProviderSummaries(),
+	]);
+	const claimedForGoogle = orgs.some(
+		(org) =>
+			org.id !== orgId &&
+			parseEmailDomains(org.googleAuthDomains).some((claimed) =>
+				includeSubdomains ? isDomainCoveredBy(claimed, [normalized]) : claimed === normalized,
+			),
+	);
+	const claimedForSso = ssoProviders.some(
+		(provider) =>
+			provider.organizationId !== orgId && areDomainsOverlapping(normalized, parseEmailDomains(provider.domain)),
+	);
+	return claimedForGoogle || claimedForSso;
 };
+
+function areDomainsOverlapping(domain: string, claimedDomains: string[]): boolean {
+	return (
+		isDomainCoveredBy(domain, claimedDomains) ||
+		claimedDomains.some((claimed) => isDomainCoveredBy(claimed, [domain]))
+	);
+}
 
 function parseEmailDomains(domains: string | null): string[] {
 	if (!domains) {
@@ -207,6 +315,8 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 		return;
 	}
 
+	const projectPaths = await getActiveProjectPaths();
+
 	await db.transaction(async (tx) => {
 		// Create organization
 		const [org] = await tx
@@ -218,8 +328,7 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 		// Add user as org admin
 		await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
 
-		const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-		if (projectPath) {
+		for (const projectPath of projectPaths) {
 			const [existingProject] = await tx
 				.select()
 				.from(s.project)
@@ -227,16 +336,32 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 				.execute();
 
 			if (!existingProject) {
-				const projectName = projectPath.split('/').pop() || 'Default Project';
-				const [project] = await tx
-					.insert(s.project)
-					.values({ name: projectName, type: 'local', path: projectPath, orgId: org.id })
-					.returning()
-					.execute();
+				const project = await projectQueries.createProject(
+					{ name: getProjectNameFromPath(projectPath), type: 'local', path: projectPath, orgId: org.id },
+					tx,
+				);
 
 				await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'admin' }).execute();
 			}
 		}
+	});
+};
+
+export const addUserToDefaultOrganizationIfExists = async (userId: string): Promise<void> => {
+	const existingMembership = await getUserOrgMembership(userId);
+	if (existingMembership) {
+		return;
+	}
+
+	const org = await getFirstOrganization();
+	if (!org) {
+		return;
+	}
+
+	await addOrgMemberIfMissing({
+		orgId: org.id,
+		userId,
+		role: env.DEFAULT_USER_ROLE,
 	});
 };
 
@@ -300,7 +425,7 @@ export const initializePersonalOrganization = async (userId: string): Promise<vo
  * Startup check: Ensures organization structure is valid.
  * - If there are users but no organization, creates one and assigns first user as org_admin
  * - If there are projects without an org, assigns them to the default org
- * - If NAO_DEFAULT_PROJECT_PATH is set, ensures a project exists for that path
+ * - Ensures a project exists for each configured project path (NAO_DEFAULT_PROJECT_PATH, NAO_PROJECT_PATHS)
  */
 export const ensureOrganizationSetup = async (): Promise<void> => {
 	const firstUser = await userQueries.getFirstUser();
@@ -339,16 +464,15 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 	// Assign any orphaned projects (projects without org) to the default org
 	await db.update(s.project).set({ orgId: org.id }).where(isNull(s.project.orgId)).execute();
 
-	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
-	await ensureDefaultProject(org);
+	await ensureConfiguredProjects(org);
 };
-
 export interface OrgMemberWithUser {
 	id: string;
 	name: string;
 	email: string;
 	role: OrgRole;
 	status: MemberStatus;
+	twoFactorEnabled: boolean;
 }
 
 export interface OrgProjectWithAccess {
@@ -360,6 +484,33 @@ export interface OrgProjectWithAccess {
 	updatedAt: Date;
 }
 
+/**
+ * Everyone who can reach the organization: its members plus project-only members, who are added
+ * from a project's Users & Groups page or auto-provisioned by Slack. Both kinds consume a licensed seat.
+ */
+export const countOrgUsers = async (orgId: string): Promise<number> => {
+	const people = db.$with('org_people').as(
+		db
+			.select({ userId: s.orgMember.userId })
+			.from(s.orgMember)
+			.where(eq(s.orgMember.orgId, orgId))
+			.unionAll(
+				db
+					.select({ userId: s.projectMember.userId })
+					.from(s.projectMember)
+					.innerJoin(s.project, eq(s.projectMember.projectId, s.project.id))
+					.where(eq(s.project.orgId, orgId)),
+			),
+	);
+
+	const rows = await db
+		.with(people)
+		.select({ total: sql<number>`count(distinct ${people.userId})` })
+		.from(people);
+
+	return Number(rows[0]?.total ?? 0);
+};
+
 export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberWithUser[]> => {
 	const rows = await db
 		.select({
@@ -368,6 +519,7 @@ export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberW
 			email: s.user.email,
 			role: s.orgMember.role,
 			status: userQueries.userMemberStatus,
+			twoFactorEnabled: s.user.twoFactorEnabled,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
@@ -446,25 +598,34 @@ export const countOrgAdmins = async (orgId: string): Promise<number> => {
 };
 
 /**
- * Ensures a project exists for the current NAO_DEFAULT_PROJECT_PATH.
- * When users change the project path and restart, the DB may not have a record for the new path.
+ * Ensures a project exists for each configured project path.
+ * When users change the project paths and restart, the DB may not have a record for the new paths.
  */
-const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
+const ensureConfiguredProjects = async (org: DBOrganization): Promise<void> => {
+	const projectPaths = await getActiveProjectPaths();
+	warnIfMultiProjectUnlicensed(projectPaths);
+
+	for (const projectPath of projectPaths) {
+		const existing = await projectQueries.getProjectByPath(projectPath);
+		if (existing) {
+			continue;
+		}
+
+		await projectQueries.createProject({
+			name: getProjectNameFromPath(projectPath),
+			type: 'local',
+			path: projectPath,
+			orgId: org.id,
+		});
+	}
+};
+
+const warnIfMultiProjectUnlicensed = (activeProjectPaths: string[]): void => {
+	const configuredProjectPaths = getConfiguredProjectPaths();
+	if (activeProjectPaths.length >= configuredProjectPaths.length) {
 		return;
 	}
-
-	const existing = await projectQueries.getProjectByPath(projectPath);
-	if (existing) {
-		return;
-	}
-
-	const projectName = projectPath.split('/').pop() || 'Default Project';
-	await projectQueries.createProject({
-		name: projectName,
-		type: 'local',
-		path: projectPath,
-		orgId: org.id,
-	});
+	console.warn(
+		`[projects] ${configuredProjectPaths.length} project paths are configured but running several projects requires an Enterprise license with the multi-project feature. Only ${activeProjectPaths[0]} is loaded.`,
+	);
 };

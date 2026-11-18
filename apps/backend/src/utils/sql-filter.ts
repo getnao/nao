@@ -3,13 +3,55 @@ const WRITE_STATEMENT_RE =
 const SELECT_RE = /^\s*SELECT\b/i;
 const WITH_RE = /^\s*WITH\b/i;
 
+/**
+ * DuckDB table/scalar functions that open a live connection to whatever server
+ * a database extension (postgres, mysql, sqlite) or `json_execute_serialized_sql`
+ * is attached to, and run arbitrary SQL there — including against catalogs like
+ * DuckLake's Postgres metadata store that nao attaches internally and never
+ * intends to expose. Because they are functions, a statement that calls them
+ * still starts with SELECT/WITH and passes the read-only keyword check above,
+ * so they need their own denylist. Matched case-insensitively; DuckDB itself
+ * is case-insensitive about function names, and both plain and double-quoted
+ * identifiers resolve to the same function.
+ */
+const BLOCKED_PASSTHROUGH_FUNCTIONS = [
+	'postgres_query',
+	'postgres_execute',
+	'postgres_scan',
+	'postgres_scan_pushdown',
+	'mysql_query',
+	'mysql_execute',
+	'sqlite_query',
+	'sqlite_scan',
+	'json_execute_serialized_sql',
+];
+
+const BLOCKED_PASSTHROUGH_RE = new RegExp(`(?<![\\w"])"?(${BLOCKED_PASSTHROUGH_FUNCTIONS.join('|')})"?\\s*\\(`, 'i');
+
 export async function isReadOnlySqlQuery(sql: string): Promise<boolean> {
 	const cleaned = stripComments(sql);
+	if (containsBlockedPassthroughCall(cleaned)) {
+		return false;
+	}
 	const statements = splitStatements(cleaned);
 	if (statements.length === 0) {
 		return false;
 	}
 	return statements.every(isStatementReadOnly);
+}
+
+/**
+ * Rejects catalog/server-passthrough function calls independently of the
+ * read-only check above, so callers can enforce it even when write SQL is
+ * otherwise permitted. These functions do not write to the connected
+ * database — they open a side channel to whatever server the postgres/mysql/
+ * sqlite extension is attached to, including catalogs nao attaches
+ * internally (e.g. DuckLake's Postgres metadata store) and never intends to
+ * expose. Allowing writes to a user's own data was never meant to also grant
+ * a passthrough into unrelated servers, so this check applies unconditionally.
+ */
+export function containsBlockedPassthroughCall(sql: string): boolean {
+	return BLOCKED_PASSTHROUGH_RE.test(maskSingleQuotedStrings(stripComments(sql)));
 }
 
 function isStatementReadOnly(statement: string): boolean {
@@ -28,6 +70,43 @@ function isStatementReadOnly(statement: string): boolean {
 		return mainKeyword === 'SELECT';
 	}
 	return false;
+}
+
+/**
+ * Replace the contents of single-quoted string literals with spaces, leaving
+ * double-quoted identifiers intact — DuckDB accepts a double-quoted function
+ * name (e.g. `"postgres_query"(...)`) as a call, so those must stay visible
+ * to the passthrough-function check above.
+ */
+function maskSingleQuotedStrings(sql: string): string {
+	let result = '';
+	let inString = false;
+
+	for (let i = 0; i < sql.length; i++) {
+		const ch = sql[i];
+
+		if (inString) {
+			if (ch === "'" && sql[i + 1] === "'") {
+				result += '  ';
+				i++;
+				continue;
+			}
+			if (ch === "'") {
+				inString = false;
+			}
+			result += ' ';
+			continue;
+		}
+
+		if (ch === "'") {
+			inString = true;
+			result += ' ';
+		} else {
+			result += ch;
+		}
+	}
+
+	return result;
 }
 
 /**
@@ -164,6 +243,10 @@ function splitStatements(sql: string): string[] {
 /**
  * For `WITH ... AS (...) <operation>` statements, skip past all CTE
  * definitions (balanced parentheses) and return the main operation keyword.
+ *
+ * A write keyword at the start of a CTE body is returned as the statement's
+ * keyword: data-modifying CTEs (`WITH cte AS (DELETE ... RETURNING *) SELECT ...`)
+ * execute the write even though the outer statement is a SELECT.
  */
 function getWithMainKeyword(sql: string): string | null {
 	let pos = sql.search(/\bWITH\b/i);
@@ -179,6 +262,9 @@ function getWithMainKeyword(sql: string): string | null {
 
 	let depth = 0;
 	let quote: string | null = null;
+	// Index just after the `(` that opened the current depth-0 group, so the
+	// group's own first keyword (the CTE body's operation) can be classified.
+	let groupStart = -1;
 
 	while (pos < sql.length) {
 		const ch = sql[pos];
@@ -194,13 +280,31 @@ function getWithMainKeyword(sql: string): string | null {
 		if (ch === "'" || ch === '"') {
 			quote = ch;
 		} else if (ch === '(') {
+			if (depth === 0) {
+				groupStart = pos + 1;
+			}
 			depth++;
 		} else if (ch === ')') {
 			depth--;
 			if (depth === 0) {
+				// The group that just closed is either a CTE column list (`(n)`,
+				// not a statement) or a CTE body. A body that starts with a write
+				// keyword performs that write, so classify it as the statement's
+				// keyword instead of skipping over it.
+				const firstWord = sql.slice(groupStart, pos).match(/^\s*(\w+)/);
+				if (firstWord && WRITE_STATEMENT_RE.test(firstWord[1])) {
+					return firstWord[1].toUpperCase();
+				}
 				const rest = sql.slice(pos + 1).trimStart();
 				if (rest.startsWith(',')) {
 					pos = sql.indexOf(',', pos + 1) + 1;
+					continue;
+				}
+				// A CTE name with an explicit column list `WITH t(n) AS (...)` has
+				// its `(n)` closed as a depth-0 group right before `AS`. Skip past
+				// it so the keyword after the CTE body gets classified instead.
+				if (/^AS\b/i.test(rest)) {
+					pos++;
 					continue;
 				}
 				const match = rest.match(/^(\w+)/);

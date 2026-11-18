@@ -33,12 +33,14 @@ export function Span({ children }: { children: ReactNode }) {
 	return <Block separator=''>{children}</Block>;
 }
 
+/** The fence is longer than any backtick run of a string content, so the content cannot close it early. */
 export function CodeBlock({ children, header }: { children: ReactNode; header?: string | string[] }) {
+	const fence = fenceFor(children);
 	return (
 		<Block separator={'\n'}>
-			{'```' + (Array.isArray(header) ? header.join(' ') : (header ?? ''))}
+			{fence + (Array.isArray(header) ? header.join(' ') : (header ?? ''))}
 			{children}
-			{'```'}
+			{fence}
 		</Block>
 	);
 }
@@ -141,4 +143,10 @@ export const isRenderable = (node: ReactNode): boolean => {
 
 export function Quote({ children }: { children?: ReactNode }) {
 	return <Span data-indent='> '>{children}</Span>;
+}
+
+function fenceFor(content: ReactNode): string {
+	const longestRun =
+		typeof content === 'string' ? Math.max(0, ...(content.match(/`+/g) ?? []).map((run) => run.length)) : 0;
+	return '`'.repeat(Math.max(3, longestRun + 1));
 }

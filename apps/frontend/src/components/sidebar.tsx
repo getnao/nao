@@ -1,71 +1,105 @@
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useMatchRoute, useNavigate, useRouterState } from '@tanstack/react-router';
-import {
-	ArrowLeftFromLine,
-	ArrowRightToLine,
-	ChevronRight,
-	NewspaperIcon,
-	PlusIcon,
-	SearchIcon,
-	X,
-} from 'lucide-react';
+import { ChevronRight, PanelLeft, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
 import { ChatListItem } from './sidebar-chat-list-item';
+import { SidebarBackToApp } from './sidebar-back-to-app';
 import { SidebarCommunity } from './sidebar-community';
+import { SidebarMenuNav } from './sidebar-menu-nav';
 import { SidebarSettingsNav } from './sidebar-settings-nav';
 import { SidebarUserMenu } from './sidebar-user-menu';
 import { SidebarVersionNotice } from './sidebar-version-notice';
 import { Spinner } from './ui/spinner';
-import StoryIcon from './ui/story-icon';
-import type { ChatFilterType, ChatGroup, ChatGroupBy, GroupedChatItem } from '@nao/shared/types';
-import type { LucideIcon } from 'lucide-react';
+import type {
+	AutomationEventTriggers,
+	ChatFilterType,
+	ChatGroup,
+	ChatGroupBy,
+	GroupedChatItem,
+} from '@nao/shared/types';
 
 import NaoLogo from '@/components/icons/nao-logo.svg';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
+import { TrialOnboardingBanner } from '@/components/trial-onboarding-banner';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useGroupedChats } from '@/hooks/use-grouped-chats';
+import { useCloudSetupState } from '@/hooks/use-cloud-setup-state';
+import { resetLastAppLocation, useTrackLastAppLocation } from '@/hooks/use-last-app-location';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
+import { getEnabledNaoEvents, isAutomationActive, NAO_EVENT_LABELS } from '@/lib/automation-triggers';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
-import { invalidateStoriesCaches } from '@/lib/stories-cache';
-import { cn, hideIf } from '@/lib/utils';
+import { SIDE_PANEL_ANIMATION_DURATION, SIDE_PANEL_ANIMATION_EASING } from '@/lib/side-panel';
+import { capitalize, cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useCanSeeAdvancedSettings } from '@/hooks/use-can-see-advanced-settings';
+import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
+import { useSession } from '@/lib/auth-client';
+
+const SIDEBAR_TRANSITION_STYLE: React.CSSProperties = {
+	transitionDuration: `${SIDE_PANEL_ANIMATION_DURATION}ms`,
+	transitionTimingFunction: SIDE_PANEL_ANIMATION_EASING,
+};
 
 export function Sidebar() {
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const matchRoute = useMatchRoute();
-	const { isCollapsed, isMobile, isMobileOpen, closeMobile, toggle: toggleSidebar } = useSidebar();
+	const {
+		isCollapsed,
+		isMobile,
+		isMobileOpen,
+		closeMobile,
+		toggle: toggleSidebar,
+		expand: expandSidebar,
+	} = useSidebar();
 	const [toggleHintOpen, setToggleHintOpen] = useState(false);
-	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const switchProject = useProjectSwitch(project.data?.id);
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const branding = useBranding();
 	const customColor = branding.enabled ? branding.brandColor : null;
-	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
+	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
+	const canSeeAdvancedSettings = useCanSeeAdvancedSettings();
+	const showContextHub = isAdmin || isContextAdmin;
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
+	const showAutomations = project.data != null && !isViewer && betaAutomationsEnabled;
+	const unreadCount = useUnreadCount(project.data?.id).data ?? 0;
+	const unreadAutomationRunCount = useUnreadAutomationRunCount(showAutomations, project.data?.id).data ?? 0;
+	const hasInboxActivity = unreadCount > 0 || unreadAutomationRunCount > 0;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
 	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
-	const isInSettings = !!isSettingsRoute && !isViewer;
+	const isInSettings = !!isSettingsRoute && (!isViewer || (isCloud && isOrgAdmin));
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
+	const { limbo } = useCloudSetupState();
+	const showTrialOnboarding =
+		isCloud &&
+		locationPath === '/' &&
+		!effectiveIsCollapsed &&
+		((project.isSuccess && project.data === null) || limbo);
+	useTrackLastAppLocation();
 
 	useEffect(() => {
 		setToggleHintOpen(false);
 	}, [effectiveIsCollapsed]);
+
+	useEffect(() => {
+		if (isInSettings) {
+			expandSidebar();
+		}
+	}, [isInSettings, expandSidebar]);
 
 	useEffect(() => {
 		if (isMobile && isMobileOpen) {
@@ -80,28 +114,6 @@ export function Sidebar() {
 		}
 	}, [navigate, isMobile, closeMobile]);
 
-	const handleNavigateStories = useCallback(() => {
-		invalidateStoriesCaches(queryClient);
-		navigate({ to: '/stories', search: { folderId: null } });
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [navigate, isMobile, closeMobile, queryClient]);
-
-	const handleNavigateFeed = useCallback(() => {
-		navigate({ to: '/feed' });
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [navigate, isMobile, closeMobile]);
-
-	const handleSearchChats = useCallback(() => {
-		openCommandMenu();
-		if (isMobile) {
-			closeMobile();
-		}
-	}, [openCommandMenu, isMobile, closeMobile]);
-
 	useEffect(() => {
 		if (!project.data?.id) {
 			return;
@@ -115,7 +127,11 @@ export function Sidebar() {
 	const handleProjectChange = useCallback(
 		async (projectId: string) => {
 			const didSwitch = await switchProject(projectId);
-			if (didSwitch && isMobile) {
+			if (!didSwitch) {
+				return;
+			}
+			resetLastAppLocation();
+			if (isMobile) {
 				closeMobile();
 			}
 		},
@@ -129,10 +145,11 @@ export function Sidebar() {
 				isMobile
 					? 'w-72'
 					: cn(
-							'border-r border-sidebar-border transition-[width,background-color] duration-300',
+							'border-r border-sidebar-border transition-[width,background-color]',
 							effectiveIsCollapsed ? 'w-13' : 'w-72',
 						),
 			)}
+			style={isMobile ? undefined : SIDEBAR_TRANSITION_STYLE}
 		>
 			<div className='p-2 flex flex-col'>
 				<div className='flex items-center relative'>
@@ -162,92 +179,71 @@ export function Sidebar() {
 						)}
 					</button>
 
-					{isMobile ? (
-						<Button
-							variant='ghost'
-							size='icon-md'
-							onClick={closeMobile}
-							className='text-muted-foreground ml-auto z-10'
-						>
-							<X className='size-4' />
-						</Button>
-					) : (
-						<Tooltip open={toggleHintOpen} onOpenChange={setToggleHintOpen}>
-							<TooltipTrigger asChild>
-								<Button
-									variant='ghost'
-									size='icon-md'
-									onClick={() => toggleSidebar()}
-									className='text-muted-foreground ml-auto z-10'
-									aria-label='Toggle sidebar'
-								>
-									{effectiveIsCollapsed ? (
-										<ArrowRightToLine className='size-4' />
-									) : (
-										<ArrowLeftFromLine className='size-4' />
-									)}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent side='right'>
-								<span className='flex items-center gap-2'>
-									Toggle sidebar
-									<kbd className='text-[10px] opacity-60 font-sans'>
-										{getShortcutLabel('toggle-sidebar')}
-									</kbd>
-								</span>
-							</TooltipContent>
-						</Tooltip>
-					)}
+					<div className={cn('ml-auto z-10 flex items-center gap-1', effectiveIsCollapsed && 'flex-col')}>
+						{isMobile ? (
+							<Button
+								variant='ghost'
+								size='icon-md'
+								onClick={closeMobile}
+								className='text-muted-foreground'
+							>
+								<X className='size-4' />
+							</Button>
+						) : (
+							<Tooltip open={toggleHintOpen} onOpenChange={setToggleHintOpen}>
+								<TooltipTrigger asChild>
+									<Button
+										variant='ghost'
+										size='icon-md'
+										onClick={() => toggleSidebar()}
+										className='text-muted-foreground'
+										aria-label='Toggle sidebar'
+									>
+										<PanelLeft className='size-4' />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent side='right'>
+									<span className='flex items-center gap-2'>
+										Toggle sidebar
+										<kbd className='text-[10px] opacity-60 font-sans'>
+											{getShortcutLabel('toggle-sidebar')}
+										</kbd>
+									</span>
+								</TooltipContent>
+							</Tooltip>
+						)}
+					</div>
 				</div>
 				{isInSettings && (
-					<ProjectSwitcher
-						projects={projects.data ?? []}
-						currentProjectId={project.data?.id}
-						onChange={handleProjectChange}
-						variant='sidebar'
-						className={cn(
-							'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
-							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
-							hideIf(effectiveIsCollapsed),
-						)}
-					/>
+					<>
+						<div className='pt-4'>
+							<SidebarBackToApp isCollapsed={effectiveIsCollapsed} />
+						</div>
+						<ProjectSwitcher
+							projects={projects.data ?? []}
+							currentProjectId={project.data?.id}
+							onChange={handleProjectChange}
+							variant='sidebar'
+							className={cn(
+								'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
+								effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
+								hideIf(effectiveIsCollapsed),
+							)}
+						/>
+					</>
 				)}
 				{!isInSettings && (
 					<>
-						<div className='py-4'>
-							{!isViewer && (
-								<SidebarMenuButton
-									icon={PlusIcon}
-									label='New chat'
-									shortcut={getShortcutLabel('new-chat')}
-									isCollapsed={effectiveIsCollapsed}
-									onClick={handleNavigateHome}
-								/>
-							)}
-							<SidebarMenuButton
-								icon={SearchIcon}
-								label='Search chats'
-								shortcut={getShortcutLabel('command-menu')}
-								isCollapsed={effectiveIsCollapsed}
-								onClick={handleSearchChats}
-							/>
-							<SidebarMenuButton
-								icon={StoryIcon as unknown as LucideIcon}
-								label='Stories'
-								shortcut={getShortcutLabel('go-to-stories')}
-								isCollapsed={effectiveIsCollapsed}
-								onClick={handleNavigateStories}
-							/>
-							{!isViewer && betaAutomationsEnabled && (
-								<SidebarMenuButton
-									icon={NewspaperIcon as unknown as LucideIcon}
-									label='Feed'
-									shortcut=''
-									isCollapsed={effectiveIsCollapsed}
-									onClick={handleNavigateFeed}
-								/>
-							)}
-						</div>
+						<SidebarMenuNav
+							isCollapsed={effectiveIsCollapsed}
+							hasProject={project.data != null}
+							access={{
+								canCreateChat: !isViewer,
+								canSeeAutomations: showAutomations,
+								canSeeContextHub: showContextHub,
+								hasInboxActivity,
+							}}
+						/>
 					</>
 				)}
 			</div>
@@ -255,17 +251,19 @@ export function Sidebar() {
 			{isInSettings ? (
 				<SidebarSettingsNav
 					isCollapsed={effectiveIsCollapsed}
+					canSeeAdvancedSettings={canSeeAdvancedSettings}
 					isAdmin={isAdmin}
+					isAutomationsEnabled={betaAutomationsEnabled}
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}
+					isCloudBillingEnabled={config.data?.cloudBillingEnabled === true}
+					isOrgAdmin={isOrgAdmin}
+					isTrial={project.data === null}
 				/>
 			) : (
 				<>
-					<SidebarAutomationsNav
-						isCollapsed={effectiveIsCollapsed}
-						enabled={!isViewer && betaAutomationsEnabled}
-					/>
+					<SidebarAutomationsNav isCollapsed={effectiveIsCollapsed} enabled={showAutomations} />
 					<SidebarChatHeader
 						isCollapsed={effectiveIsCollapsed}
 						groupBy={groupBy}
@@ -278,10 +276,16 @@ export function Sidebar() {
 						groupBy={groupBy}
 						filters={filters}
 						isViewer={isViewer}
+						isTrial={project.isSuccess && project.data === null}
+						resumeOnboarding={(project.isSuccess && project.data === null) || limbo}
 					/>
 				</>
 			)}
-
+			{showTrialOnboarding && (
+				<div className='mx-2 mb-2'>
+					<TrialOnboardingBanner variant='card' />
+				</div>
+			)}
 			{!isInSettings && <div className='border-b border-sidebar-border mx-2'></div>}
 
 			<div className={cn('mt-auto transition-[padding] duration-300', effectiveIsCollapsed ? 'p-1' : 'p-2')}>
@@ -309,39 +313,6 @@ export function Sidebar() {
 	}
 
 	return sidebarContent;
-}
-
-function SidebarMenuButton({
-	icon: Icon,
-	label,
-	shortcut,
-	isCollapsed,
-	onClick,
-}: {
-	icon: LucideIcon;
-	label: string;
-	shortcut: string;
-	isCollapsed: boolean;
-	onClick: () => void;
-}) {
-	return (
-		<Button
-			variant='ghost'
-			className={cn(
-				'w-full justify-start relative group shadow-none transition-[padding,height,background-color] duration-300 p-[10px_!important] gap-4',
-				isCollapsed ? 'h-9' : '',
-			)}
-			onClick={onClick}
-		>
-			<Icon className='size-4' />
-			<div className={cn('flex items-center transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
-				<span>{label}</span>
-				<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity hidden md:inline'>
-					{shortcut}
-				</kbd>
-			</div>
-		</Button>
-	);
 }
 
 function SidebarChatHeader({
@@ -384,18 +355,44 @@ function SidebarNav({
 	groupBy,
 	filters,
 	isViewer,
+	isTrial,
+	resumeOnboarding,
 }: {
 	isCollapsed: boolean;
 	groupBy: ChatGroupBy;
 	filters: ChatFilterType[];
 	isViewer: boolean;
+	isTrial: boolean;
+	resumeOnboarding: boolean;
 }) {
-	const groupedChats = useQuery({
-		...trpc.chat.listGrouped.queryOptions({ groupBy, filters }),
-		placeholderData: keepPreviousData,
+	const groupedChats = useGroupedChats(groupBy, filters);
+	const unfilteredChats = useQuery(trpc.chat.listGrouped.queryOptions({ groupBy: 'none', filters: ['all'] }));
+	const onboardingChat = unfilteredChats.data?.groups
+		.flatMap((group) => group.chats)
+		.find((chat) => chat.isOnboarding);
+	const onboardingChatId = onboardingChat?.id;
+	const activeOnboardingJob = useQuery({
+		...trpc.onboarding.getActiveWarehouseProvisioningJob.queryOptions({
+			onboardingChatId: onboardingChatId ?? '',
+		}),
+		enabled: Boolean(onboardingChatId),
+		refetchInterval: (query) => {
+			const status = query.state.data?.status;
+			return status && status !== 'awaiting_context' ? 2000 : false;
+		},
+		refetchOnWindowFocus: 'always',
 	});
-	const groups = groupedChats.data?.groups;
-	const isEmpty = groups?.every((group) => group.chats.length === 0);
+	const onboardingNeedsAttention = activeOnboardingJob.data?.status === 'awaiting_context';
+
+	const groups = groupedChats?.groups.map((group) => ({
+		...group,
+		chats: group.chats.filter((chat) => !(onboardingNeedsAttention && chat.id === onboardingChatId)),
+	}));
+
+	const showAttentionChat = onboardingNeedsAttention ? onboardingChat : undefined;
+	const isEmpty = !showAttentionChat && groups?.every((group) => group.chats.length === 0);
+	const { data: session } = useSession();
+	const username = session?.user?.name;
 	return (
 		<div
 			className={cn(
@@ -403,14 +400,34 @@ function SidebarNav({
 				hideIf(isCollapsed),
 			)}
 		>
+			{showAttentionChat && (
+				<div className='px-2 space-y-1'>
+					<ChatListItem chat={showAttentionChat} needsAttention resumeOnboarding={resumeOnboarding} />
+				</div>
+			)}
 			{groups?.map((group) => (
-				<GroupSection key={group.label} group={group} groupBy={groupBy} />
+				<GroupSection
+					key={group.label}
+					group={group}
+					groupBy={groupBy}
+					attentionChatId={onboardingNeedsAttention ? onboardingChatId : undefined}
+					resumeOnboardingChatId={resumeOnboarding ? onboardingChatId : undefined}
+				/>
 			))}
 
 			{isEmpty && (
-				<p className='text-sm text-muted-foreground text-center p-4'>
+				<div className='p-4 text-center text-sm text-muted-foreground'>
 					{isViewer ? (
 						'No chats shared with you.'
+					) : isTrial ? (
+						<>
+							{username && <span className='mb-3 block'>Welcome to nao, {capitalize(username)}!</span>}
+							<span className='block'>
+								Your chat history will appear here.
+								<br />
+								Start a new chat!
+							</span>
+						</>
 					) : (
 						<>
 							No chats yet.
@@ -418,7 +435,7 @@ function SidebarNav({
 							Start a new chat!
 						</>
 					)}
-				</p>
+				</div>
 			)}
 		</div>
 	);
@@ -451,6 +468,7 @@ function AutomationsSection({
 		enabled: boolean;
 		cron: string;
 		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
 		updatedAt: Date;
 	}>;
 }) {
@@ -497,19 +515,13 @@ function AutomationListItem({
 		enabled: boolean;
 		cron: string;
 		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
 		updatedAt: Date;
 	};
 }) {
 	const timeAgo = useTimeAgo(new Date(item.updatedAt).getTime());
-	const hasSchedule = Boolean(item.cron);
-	const isActive = hasSchedule ? item.enabled : item.webhookEnabled;
-	const statusLabel = hasSchedule
-		? item.enabled
-			? timeAgo.humanReadable
-			: 'paused'
-		: item.webhookEnabled
-			? 'webhook'
-			: 'paused';
+	const isActive = isAutomationActive(item);
+	const statusLabel = getAutomationStatusLabel(item, timeAgo.humanReadable);
 
 	return (
 		<Link
@@ -534,7 +546,17 @@ function AutomationListItem({
 
 const GROUP_INITIAL_COUNT = 10;
 
-function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroupBy }) {
+function GroupSection({
+	group,
+	groupBy,
+	attentionChatId,
+	resumeOnboardingChatId,
+}: {
+	group: ChatGroup;
+	groupBy: ChatGroupBy;
+	attentionChatId?: string;
+	resumeOnboardingChatId?: string;
+}) {
 	const { isOpen, toggle } = useSidebarSectionOpen(`section:chat-group:${group.label}`);
 	const [expanded, setExpanded] = useState(false);
 	const hasMore = group.chats.length > GROUP_INITIAL_COUNT;
@@ -560,7 +582,12 @@ function GroupSection({ group, groupBy }: { group: ChatGroup; groupBy: ChatGroup
 						item.kind === 'shared' ? (
 							<SharedChatGroupItem key={`shared-${item.shareId}`} item={item} groupBy={groupBy} />
 						) : (
-							<ChatListItem key={item.id} chat={item} />
+							<ChatListItem
+								key={item.id}
+								chat={item}
+								needsAttention={item.id === attentionChatId}
+								resumeOnboarding={item.id === resumeOnboardingChatId}
+							/>
 						),
 					)}
 
@@ -634,4 +661,23 @@ function SidebarSectionHeader({
 			</div>
 		</button>
 	);
+}
+
+function getAutomationStatusLabel(
+	item: {
+		cron: string;
+		enabled: boolean;
+		webhookEnabled: boolean;
+		eventTriggers: AutomationEventTriggers;
+	},
+	lastUpdatedLabel: string,
+): string {
+	if (item.cron) {
+		return item.enabled ? lastUpdatedLabel : 'paused';
+	}
+	if (item.webhookEnabled) {
+		return 'webhook';
+	}
+	const [firstEvent] = getEnabledNaoEvents(item.eventTriggers);
+	return firstEvent ? NAO_EVENT_LABELS[firstEvent].toLowerCase() : 'paused';
 }

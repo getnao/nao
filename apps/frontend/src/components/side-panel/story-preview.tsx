@@ -2,16 +2,27 @@ import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { memo, useCallback, useMemo, useRef } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { StoryTheme } from '@nao/shared/story-theme';
 
-import type { QueryDataMap } from '@/components/story-embeds';
+import type { LiveQueryConfig, QueryDataMap } from '@/components/story-embeds';
 import {
 	StoryChartEmbed as LiveChartEmbed,
 	StoryMapEmbed as LiveMapEmbed,
 	StoryTableEmbed as LiveTableEmbed,
 } from '@/components/story-embeds';
 import { StoryFilterBar } from '@/components/story-filter-bar';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
+import {
+	chartBlockReference,
+	mapBlockReference,
+	StoryBlock,
+	StoryMapFrame,
+	StoryTableFrame,
+	tableBlockReference,
+} from '@/components/story-block';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
+import { useCitedElementHighlight } from '@/hooks/use-cited-element-highlight';
 import { useStoryFilters } from '@/hooks/use-story-filters';
 import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { trpc } from '@/main';
@@ -28,6 +39,7 @@ interface StoryPreviewProps {
 	isStreaming?: boolean;
 	isDataPending?: boolean;
 	isViewingLatest?: boolean;
+	theme?: StoryTheme | null;
 }
 
 export const StoryPreview = memo(function StoryPreview({
@@ -42,13 +54,11 @@ export const StoryPreview = memo(function StoryPreview({
 	isStreaming = false,
 	isDataPending = false,
 	isViewingLatest = true,
+	theme,
 }: StoryPreviewProps) {
+	const contentRef = useRef<HTMLDivElement>(null);
+	useCitedElementHighlight(contentRef, storySlug);
 	const previousSegmentsRef = useRef<ReturnType<typeof splitCodeIntoSegments>>([]);
-	const segments = useMemo(() => {
-		const nextSegments = stabilizeStorySegments(splitCodeIntoSegments(code), previousSegmentsRef.current);
-		previousSegmentsRef.current = nextSegments;
-		return nextSegments;
-	}, [code]);
 	const isNoCacheMode = cacheSchedule === NO_CACHE_SCHEDULE;
 	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
 	const storyFilters = useStoryFilters({
@@ -57,10 +67,24 @@ export const StoryPreview = memo(function StoryPreview({
 		api: filterApi,
 		enabled: filtersEnabled,
 	});
+	const segments = useMemo(() => {
+		const nextSegments = stabilizeStorySegments(
+			splitCodeIntoSegments(code, storyFilters.resolvedParameters),
+			previousSegmentsRef.current,
+		);
+		previousSegmentsRef.current = nextSegments;
+		return nextSegments;
+	}, [code, storyFilters.resolvedParameters]);
 
-	const noCacheQuery = useMemo(
-		() => (isNoCacheMode ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),
-		[isNoCacheMode, chatId],
+	const noCacheQuery = useMemo<LiveQueryConfig | undefined>(
+		() =>
+			isNoCacheMode
+				? {
+						queryOptions: (queryId) =>
+							trpc.story.getLiveQueryData.queryOptions({ chatId, queryId, storySlug }),
+					}
+				: undefined,
+		[isNoCacheMode, chatId, storySlug],
 	);
 
 	const effectiveQueryData = storyFilters.queryData;
@@ -79,15 +103,17 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderChart = useCallback(
 		(chart: ParsedChartBlock) => (
-			<LiveChartEmbed
-				chart={chart}
-				queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
-				liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
-				hasActiveFilters={storyFilters.hasActiveFilters}
-				isRefreshing={storyFilters.isFiltering}
-				isStreaming={isStreaming}
-				isDataPending={isDataPending}
-			/>
+			<StoryBlock block={chartBlockReference(chart)}>
+				<LiveChartEmbed
+					chart={chart}
+					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+					hasActiveFilters={storyFilters.hasActiveFilters}
+					isRefreshing={storyFilters.isFiltering}
+					isStreaming={isStreaming}
+					isDataPending={isDataPending}
+				/>
+			</StoryBlock>
 		),
 		[
 			effectiveQueryData,
@@ -102,15 +128,17 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderTable = useCallback(
 		(table: ParsedTableBlock) => (
-			<LiveTableEmbed
-				table={table}
-				queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
-				liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
-				hasActiveFilters={storyFilters.hasActiveFilters}
-				isRefreshing={storyFilters.isFiltering}
-				isStreaming={isStreaming}
-				isDataPending={isDataPending}
-			/>
+			<StoryTableFrame block={tableBlockReference(table)}>
+				<LiveTableEmbed
+					table={table}
+					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+					hasActiveFilters={storyFilters.hasActiveFilters}
+					isRefreshing={storyFilters.isFiltering}
+					isStreaming={isStreaming}
+					isDataPending={isDataPending}
+				/>
+			</StoryTableFrame>
 		),
 		[
 			effectiveQueryData,
@@ -125,15 +153,17 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const renderMap = useCallback(
 		(map: ParsedMapBlock) => (
-			<LiveMapEmbed
-				map={map}
-				queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
-				liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
-				hasActiveFilters={storyFilters.hasActiveFilters}
-				isRefreshing={storyFilters.isFiltering}
-				isStreaming={isStreaming}
-				isDataPending={isDataPending}
-			/>
+			<StoryMapFrame block={mapBlockReference(map)}>
+				<LiveMapEmbed
+					map={map}
+					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+					hasActiveFilters={storyFilters.hasActiveFilters}
+					isRefreshing={storyFilters.isFiltering}
+					isStreaming={isStreaming}
+					isDataPending={isDataPending}
+				/>
+			</StoryMapFrame>
 		),
 		[
 			effectiveQueryData,
@@ -148,22 +178,31 @@ export const StoryPreview = memo(function StoryPreview({
 
 	return (
 		<StoryQuerySqlProvider value={querySqlSource}>
-			<div data-story-content className='p-6 flex flex-col gap-4'>
-				<StoryFilterBar
-					filters={storyFilters.filters}
-					selections={storyFilters.selections}
-					onSelectionChange={storyFilters.setSelection}
-					onClear={storyFilters.clearSelections}
-					api={filterApi}
-				/>
-				<SegmentList
-					segments={segments}
-					versionKey={versionKey}
-					renderChart={renderChart}
-					renderTable={renderTable}
-					renderMap={renderMap}
-				/>
-			</div>
+			<StoryThemeProvider theme={theme ?? null} className='h-auto min-h-full bg-background text-foreground'>
+				<div
+					ref={contentRef}
+					data-story-content
+					data-story-chat-id={chatId}
+					className='p-6 flex flex-col gap-4'
+				>
+					<StoryFilterBar
+						filters={storyFilters.filters}
+						parameters={storyFilters.parameters}
+						skippedFilters={storyFilters.skippedFilters}
+						selections={storyFilters.selections}
+						onSelectionChange={storyFilters.setSelection}
+						onClear={storyFilters.clearSelections}
+						api={filterApi}
+					/>
+					<SegmentList
+						segments={segments}
+						versionKey={versionKey}
+						renderChart={renderChart}
+						renderTable={renderTable}
+						renderMap={renderMap}
+					/>
+				</div>
+			</StoryThemeProvider>
 		</StoryQuerySqlProvider>
 	);
 });

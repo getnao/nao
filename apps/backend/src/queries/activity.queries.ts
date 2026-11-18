@@ -9,11 +9,13 @@ import s, {
 	type StoryVisibility,
 } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { listLockedUserGroupIds } from './locked-user-groups';
 
 export const storyRefreshJobUniqueKey = (storyId: string): string => `story-refresh:${storyId}`;
 
 const ACTIVITY_RUN_STALE_MS = 30 * 60 * 1_000;
 const ACTIVITY_RUN_STALE_MESSAGE = 'Activity did not finish before the timeout.';
+const CONTEXT_PULL_HISTORY_LIMIT = 100;
 
 export interface CreateActivityInput {
 	projectId: string;
@@ -26,6 +28,16 @@ export interface CreateActivityInput {
 	sharedStoryId?: string | null;
 	sharedChatId?: string | null;
 	payload?: Record<string, unknown> | null;
+}
+
+export interface ContextPullActivityRow {
+	id: string;
+	status: DBActivity['status'];
+	payload: Record<string, unknown> | null;
+	errorMessage: string | null;
+	startedAt: Date;
+	completedAt: Date | null;
+	actorName: string | null;
 }
 
 export const createActivity = async (input: CreateActivityInput): Promise<DBActivity> => {
@@ -43,6 +55,43 @@ export const createActivity = async (input: CreateActivityInput): Promise<DBActi
 	};
 	const [created] = await db.insert(s.activity).values(values).returning().execute();
 	return created;
+};
+
+export const startContextPullActivity = async (projectId: string, userId: string): Promise<DBActivity> => {
+	return createActivity({
+		projectId,
+		userId,
+		type: 'context.pulled',
+		trigger: 'manual',
+		status: 'running',
+	});
+};
+
+export const listContextPullActivities = async (projectId: string): Promise<ContextPullActivityRow[]> => {
+	await failStaleActivities();
+
+	return db
+		.select({
+			id: s.activity.id,
+			status: s.activity.status,
+			payload: s.activity.payload,
+			errorMessage: s.activity.errorMessage,
+			startedAt: s.activity.startedAt,
+			completedAt: s.activity.completedAt,
+			actorName: s.user.name,
+		})
+		.from(s.activity)
+		.leftJoin(s.user, eq(s.user.id, s.activity.userId))
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'context.pulled'),
+				eq(s.activity.trigger, 'manual'),
+			),
+		)
+		.orderBy(desc(s.activity.startedAt))
+		.limit(CONTEXT_PULL_HISTORY_LIMIT)
+		.execute();
 };
 
 /**
@@ -128,10 +177,7 @@ export const linkStoryScheduledJob = async (storyId: string, scheduledJobId: str
 	await db.update(s.story).set({ scheduledJobId }).where(eq(s.story.id, storyId)).execute();
 };
 
-export type StoryOpenLink =
-	| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
-	| { to: '/stories/shared/$shareId'; params: { shareId: string } }
-	| { to: '/stories/standalone/$storyId'; params: { storyId: string } };
+export type StoryOpenLink = { to: '/stories/$storyId'; params: { storyId: string } };
 
 export interface ListActivityRow {
 	activity: DBActivity;
@@ -161,25 +207,15 @@ export interface ListActivityRow {
 
 function buildStoryOpenLink(input: {
 	storyId: string;
-	chatId: string | null;
-	storySlug: string;
 	ownerId: string | null;
 	shareId: string | null;
 	viewerId: string;
 }): StoryOpenLink | null {
 	const isOwner = input.ownerId !== null && input.ownerId === input.viewerId;
-	if (isOwner) {
-		return input.chatId
-			? {
-					to: '/stories/preview/$chatId/$storySlug',
-					params: { chatId: input.chatId, storySlug: input.storySlug },
-				}
-			: { to: '/stories/standalone/$storyId', params: { storyId: input.storyId } };
+	if (!isOwner && !input.shareId) {
+		return null;
 	}
-	if (input.shareId) {
-		return { to: '/stories/shared/$shareId', params: { shareId: input.shareId } };
-	}
-	return null;
+	return { to: '/stories/$storyId', params: { storyId: input.storyId } };
 }
 
 /**
@@ -206,7 +242,8 @@ export const listRecentActivities = async (
 ): Promise<ListActivityRow[]> => {
 	await failStaleActivities();
 
-	const filters = [eq(s.activity.projectId, projectId), visibleToUser(projectId, userId)];
+	const lockedGroupIds = await listLockedUserGroupIds(projectId);
+	const filters = [eq(s.activity.projectId, projectId), visibleToUser(projectId, userId, lockedGroupIds)];
 	if (types && types.length > 0) {
 		filters.push(inArray(s.activity.type, [...types]));
 	}
@@ -263,8 +300,6 @@ export const listRecentActivities = async (
 		storyLink: row.storyId
 			? buildStoryOpenLink({
 					storyId: row.storyId,
-					chatId: row.storyChatId,
-					storySlug: row.storySlug!,
 					ownerId: row.storyChatOwnerId ?? row.storyUserId,
 					shareId: row.storyShareId ?? row.storyProjectShareId,
 					viewerId: userId,
@@ -302,7 +337,7 @@ export const listRecentActivities = async (
  *   - `story.shared` / `chat.shared`: the recipients of the share, excluding
  *     the sharer themselves.
  */
-function visibleToUser(projectId: string, userId: string) {
+function visibleToUser(projectId: string, userId: string, lockedGroupIds: readonly string[]) {
 	const userIsActor = eq(s.activity.userId, userId);
 
 	const userOwnsStory = sql`EXISTS (
@@ -323,6 +358,13 @@ function visibleToUser(projectId: string, userId: string) {
 			INNER JOIN ${s.sharedStoryAccess} ssa ON ssa.shared_story_id = ss.id
 			WHERE ss.story_id = ${s.activity.storyId} AND ssa.user_id = ${userId}
 		)`,
+		sql`EXISTS (
+			SELECT 1 FROM ${s.sharedStory} ss
+			INNER JOIN ${s.sharedStoryGroupAccess} ssga ON ssga.shared_story_id = ss.id
+			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = ssga.group_id
+			WHERE ss.story_id = ${s.activity.storyId} AND ugm.user_id = ${userId}
+				${andGroupIsActive('ssga', lockedGroupIds)}
+		)`,
 	);
 
 	const storyShareIncludesUser = or(
@@ -336,6 +378,13 @@ function visibleToUser(projectId: string, userId: string) {
 			SELECT 1 FROM ${s.sharedStoryAccess} ssa
 			WHERE ssa.shared_story_id = ${s.activity.sharedStoryId}
 				AND ssa.user_id = ${userId}
+		)`,
+		sql`EXISTS (
+			SELECT 1 FROM ${s.sharedStoryGroupAccess} ssga
+			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = ssga.group_id
+			WHERE ssga.shared_story_id = ${s.activity.sharedStoryId}
+				AND ugm.user_id = ${userId}
+				${andGroupIsActive('ssga', lockedGroupIds)}
 		)`,
 	);
 
@@ -352,6 +401,13 @@ function visibleToUser(projectId: string, userId: string) {
 			WHERE sca.shared_chat_id = ${s.activity.sharedChatId}
 				AND sca.user_id = ${userId}
 		)`,
+		sql`EXISTS (
+			SELECT 1 FROM ${s.sharedChatGroupAccess} scga
+			INNER JOIN ${s.userGroupMember} ugm ON ugm.group_id = scga.group_id
+			WHERE scga.shared_chat_id = ${s.activity.sharedChatId}
+				AND ugm.user_id = ${userId}
+				${andGroupIsActive('scga', lockedGroupIds)}
+		)`,
 	);
 
 	return or(
@@ -359,4 +415,15 @@ function visibleToUser(projectId: string, userId: string) {
 		and(eq(s.activity.type, 'story.shared'), ne(s.activity.userId, userId), storyShareIncludesUser),
 		and(eq(s.activity.type, 'chat.shared'), ne(s.activity.userId, userId), chatShareIncludesUser),
 	);
+}
+
+function andGroupIsActive(groupAccessAlias: 'ssga' | 'scga', lockedGroupIds: readonly string[]) {
+	if (lockedGroupIds.length === 0) {
+		return sql``;
+	}
+	const lockedIds = sql.join(
+		lockedGroupIds.map((groupId) => sql`${groupId}`),
+		sql`, `,
+	);
+	return sql`AND ${sql.raw(groupAccessAlias)}.group_id NOT IN (${lockedIds})`;
 }

@@ -1,7 +1,10 @@
 import { execFileSync } from 'node:child_process';
 
+import type { RepoBranch } from '@nao/shared/types';
+
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { escapeRegExp, sliceHead } from '../utils/utils';
 import {
 	configDir,
 	isContextConfigFile,
@@ -12,8 +15,25 @@ import {
 
 export { NAO_CO_AUTHOR };
 
-const GITHUB_API = 'https://api.github.com';
-const GITHUB_OAUTH_URL = 'https://github.com/login/oauth';
+const GITHUB_DOTCOM_URL = 'https://github.com';
+const MAX_LISTED_BRANCHES = 1_000;
+const LIST_BRANCHES_QUERY = `
+query ($owner: String!, $name: String!, $after: String) {
+	viewer { login }
+	repository(owner: $owner, name: $name) {
+		refs(refPrefix: "refs/heads/", first: 100, after: $after, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) {
+			pageInfo { hasNextPage endCursor }
+			nodes {
+				name
+				target {
+					oid
+					... on Commit { committedDate author { name user { login } } }
+				}
+			}
+		}
+	}
+}`;
+const GITHUB_DOTCOM_API_URL = 'https://api.github.com';
 
 export interface GitHubRepo {
 	id: number;
@@ -59,6 +79,38 @@ export function isGithubSsoEnabled(): boolean {
 	return env.GITHUB_SSO && githubOAuthConfig() !== null;
 }
 
+export function githubBaseUrl(): string {
+	return env.GITHUB_BASE_URL?.replace(/\/+$/, '') || GITHUB_DOTCOM_URL;
+}
+
+/** Defaults to `/api/v3` on GitHub Enterprise Server and the dedicated host on github.com. */
+export function githubApiUrl(): string {
+	if (env.GITHUB_API_URL) {
+		return env.GITHUB_API_URL.replace(/\/+$/, '');
+	}
+	return isGithubEnterprise() ? `${githubBaseUrl()}/api/v3` : GITHUB_DOTCOM_API_URL;
+}
+
+export function githubOAuthUrl(): string {
+	return `${githubBaseUrl()}/login/oauth`;
+}
+
+export function isGithubEnterprise(): boolean {
+	return githubBaseUrl() !== GITHUB_DOTCOM_URL;
+}
+
+export function githubNoreplyEmail(login: string, userId?: number | string): string {
+	const localPart = userId === undefined ? login : `${userId}+${login}`;
+	return `${localPart}@users.noreply.${new URL(githubBaseUrl()).hostname}`;
+}
+
+/** Matches `owner/repo` in HTTPS or SSH remotes pointing at the configured GitHub host. */
+export function parseGithubRemoteRepoFullName(remoteUrl: string): string | null {
+	const host = escapeRegExp(githubBaseUrl().replace(/^https?:\/\//, ''));
+	const match = remoteUrl.match(new RegExp(`${host}[:/]([^/\\s]+)/([^/\\s#?]+?)(?:\\.git)?/?(?:[#?].*)?$`, 'i'));
+	return match ? `${match[1]}/${match[2]}` : null;
+}
+
 export function buildAuthorizationUrl(state: string): string {
 	const config = githubOAuthConfig();
 	if (!config) {
@@ -69,7 +121,7 @@ export function buildAuthorizationUrl(state: string): string {
 		scope: 'repo',
 		state,
 	});
-	return `${GITHUB_OAUTH_URL}/authorize?${params.toString()}`;
+	return `${githubOAuthUrl()}/authorize?${params.toString()}`;
 }
 
 export async function exchangeCodeForToken(code: string): Promise<string> {
@@ -77,7 +129,7 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
 	if (!config) {
 		throw new Error('GitHub integration is not configured');
 	}
-	const res = await fetch(`${GITHUB_OAUTH_URL}/access_token`, {
+	const res = await fetch(`${githubOAuthUrl()}/access_token`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -97,12 +149,18 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
 	return data.access_token;
 }
 
+export class GithubApiError extends Error {
+	constructor(readonly status: number) {
+		super(`GitHub API error: ${status}`);
+	}
+}
+
 export async function getUser(token: string): Promise<GitHubUser> {
-	const res = await fetch(`${GITHUB_API}/user`, {
+	const res = await fetch(`${githubApiUrl()}/user`, {
 		headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
 	});
 	if (!res.ok) {
-		throw new Error(`GitHub API error: ${res.status}`);
+		throw new GithubApiError(res.status);
 	}
 	return res.json() as Promise<GitHubUser>;
 }
@@ -125,7 +183,7 @@ export async function listRepos(
 		page: String(page),
 	});
 
-	const res = await fetch(`${GITHUB_API}/user/repos?${params}`, {
+	const res = await fetch(`${githubApiUrl()}/user/repos?${params}`, {
 		headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
 	});
 	if (!res.ok) {
@@ -159,7 +217,7 @@ async function searchRepos(
 			page: String(fetchPage),
 		});
 
-		const res = await fetch(`${GITHUB_API}/user/repos?${params}`, {
+		const res = await fetch(`${githubApiUrl()}/user/repos?${params}`, {
 			headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
 		});
 		if (!res.ok) {
@@ -187,11 +245,15 @@ async function searchRepos(
 }
 
 export function authenticatedRepoUrl(token: string, repoFullName: string): string {
-	return `https://x-access-token:${token}@github.com/${repoFullName}.git`;
+	const baseWithCredentials = githubBaseUrl().replace(
+		/^https?:\/\//,
+		(scheme) => `${scheme}x-access-token:${token}@`,
+	);
+	return `${baseWithCredentials}/${repoFullName}.git`;
 }
 
 export function publicRepoUrl(repoFullName: string): string {
-	return `https://github.com/${repoFullName}.git`;
+	return `${githubBaseUrl()}/${repoFullName}.git`;
 }
 
 export function cloneRepo(token: string, fullName: string, targetDir: string, branch?: string): void {
@@ -231,15 +293,15 @@ export function getGitInfo(projectDir: string): GitInfo {
 		const opts = { cwd: projectDir, stdio: 'pipe' as const, timeout: 5_000 };
 
 		const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], opts).toString().trim();
-		const githubMatch = remoteUrl.match(/github\.com[/:]([^/]+\/[^/.]+)/);
+		const repoFullName = parseGithubRemoteRepoFullName(remoteUrl);
 		const branch = readCurrentBranch(projectDir);
 		const lastCommitMessage = readOptionalGitValue(projectDir, ['log', '-1', '--format=%s']);
 		const lastCommitDate = readOptionalGitValue(projectDir, ['log', '-1', '--format=%cI']);
 
 		return {
 			isGitRepo: true,
-			isGithub: !!githubMatch,
-			repoFullName: githubMatch?.[1] ?? null,
+			isGithub: !!repoFullName,
+			repoFullName,
 			branch,
 			lastCommitMessage,
 			lastCommitDate,
@@ -280,7 +342,7 @@ export async function getUserGitIdentity(token: string): Promise<GitIdentity> {
 	const user = await getUser(token);
 	return {
 		name: user.name ?? user.login,
-		email: `${user.id}+${user.login}@users.noreply.github.com`,
+		email: githubNoreplyEmail(user.login, user.id),
 	};
 }
 
@@ -680,16 +742,22 @@ export async function createIssue(
 /** Extracts the `owner/repo` and PR number from a GitHub pull request URL. */
 export function parsePullRequestUrl(url: string): { repo: string; number: number } | null {
 	let parsedUrl: URL;
+	let parsedBase: URL;
 	try {
 		parsedUrl = new URL(url);
+		parsedBase = new URL(githubBaseUrl());
 	} catch {
 		return null;
 	}
-	if (parsedUrl.hostname !== 'github.com') {
+	if (parsedUrl.protocol !== parsedBase.protocol || parsedUrl.host !== parsedBase.host) {
 		return null;
 	}
 
-	const match = parsedUrl.pathname.match(/^\/([^/]+\/[^/]+)\/pull\/(\d+)$/);
+	const basePath = parsedBase.pathname.replace(/\/+$/, '');
+	if (!parsedUrl.pathname.startsWith(`${basePath}/`)) {
+		return null;
+	}
+	const match = parsedUrl.pathname.slice(basePath.length).match(/^\/([^/]+\/[^/]+)\/pull\/(\d+)$/);
 	if (!match) {
 		return null;
 	}
@@ -700,7 +768,7 @@ export async function createPullRequest(
 	token: string,
 	repo: string,
 	input: CreatePullRequestInput,
-	apiBaseUrl = GITHUB_API,
+	apiBaseUrl = githubApiUrl(),
 ): Promise<{ number: number; html_url: string }> {
 	const data = await githubFetchJson<{ number: number; html_url: string }>(
 		token,
@@ -717,7 +785,7 @@ export async function findOpenPullRequest(
 	token: string,
 	repo: string,
 	branch: string,
-	apiBaseUrl = GITHUB_API,
+	apiBaseUrl = githubApiUrl(),
 ): Promise<{ url: string } | null> {
 	const owner = repo.split('/')[0];
 	const params = new URLSearchParams({
@@ -751,6 +819,58 @@ export async function findPullRequestByBranch(
 		state: pullRequest.merged_at ? 'merged' : pullRequest.state,
 		mergedAt: pullRequest.merged_at,
 		closedAt: pullRequest.closed_at,
+	};
+}
+
+/**
+ * The branches of a repository, most recently committed first, with the account that made each last commit. GitHub
+ * links commit emails to accounts, which tells the user's branches apart better than comparing emails. Null when the
+ * repository has too many branches to list them all.
+ */
+export async function listBranches(token: string, repoFullName: string): Promise<RepoBranch[] | null> {
+	const [owner, name] = repoFullName.split('/');
+	const branches: RepoBranch[] = [];
+	let after: string | null = null;
+	do {
+		const data: RawBranchesQueryResult = await githubGraphql(token, LIST_BRANCHES_QUERY, { owner, name, after });
+		const refs = data.repository?.refs;
+		if (!refs) {
+			throw new Error(`GitHub repository not found: ${repoFullName}`);
+		}
+		branches.push(...refs.nodes.map((ref) => toRepoBranch(ref, data.viewer.login)));
+		after = refs.pageInfo.hasNextPage ? refs.pageInfo.endCursor : null;
+	} while (after && branches.length < MAX_LISTED_BRANCHES);
+	return after ? null : branches;
+}
+
+export function githubGraphqlUrl(): string {
+	if (env.GITHUB_API_URL) {
+		return `${env.GITHUB_API_URL.replace(/\/+$/, '').replace(/\/v3$/, '')}/graphql`;
+	}
+	return isGithubEnterprise() ? `${githubBaseUrl()}/api/graphql` : `${GITHUB_DOTCOM_API_URL}/graphql`;
+}
+
+async function githubGraphql<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
+	const res = await githubFetch(token, githubGraphqlUrl(), {
+		method: 'POST',
+		body: JSON.stringify({ query, variables }),
+	});
+	const result = (await res.json()) as { data?: T; errors?: { message: string }[] };
+	if (!result.data || result.errors?.length) {
+		throw new Error(`GitHub API error: ${result.errors?.map((error) => error.message).join('; ') ?? 'no data'}`);
+	}
+	return result.data;
+}
+
+function toRepoBranch(ref: RawBranchRef, viewerLogin: string): RepoBranch {
+	const author = ref.target.author;
+	const login = author?.user?.login ?? null;
+	return {
+		name: ref.name,
+		commit: ref.target.oid,
+		author: author ? { name: author.name ?? login ?? '', login } : null,
+		committedAt: ref.target.committedDate ?? null,
+		isMine: login !== null && login.toLowerCase() === viewerLogin.toLowerCase(),
 	};
 }
 
@@ -794,7 +914,7 @@ async function githubFetchJson<T>(token: string, path: string, init: RequestInit
 }
 
 async function githubFetch(token: string, path: string, init: RequestInit = {}): Promise<Response> {
-	const url = path.startsWith('http') ? path : `${GITHUB_API}${path}`;
+	const url = path.startsWith('http') ? path : `${githubApiUrl()}${path}`;
 	const res = await fetch(url, {
 		...init,
 		signal: AbortSignal.timeout(GITHUB_API_TIMEOUT_MS),
@@ -815,6 +935,25 @@ async function githubFetch(token: string, path: string, init: RequestInit = {}):
 
 interface RawUser {
 	login: string;
+}
+
+interface RawBranchesQueryResult {
+	viewer: { login: string };
+	repository: {
+		refs: {
+			pageInfo: { hasNextPage: boolean; endCursor: string | null };
+			nodes: RawBranchRef[];
+		} | null;
+	} | null;
+}
+
+interface RawBranchRef {
+	name: string;
+	target: {
+		oid: string;
+		committedDate?: string;
+		author?: { name: string | null; user: { login: string } | null } | null;
+	};
 }
 
 interface RawLabel {
@@ -933,7 +1072,8 @@ function truncate(text: string, max: number): string {
 	if (text.length <= max) {
 		return text;
 	}
-	return `${text.slice(0, max)}\n... [truncated ${text.length - max} characters]`;
+	const kept = sliceHead(text, max);
+	return `${kept}\n... [truncated ${text.length - kept.length} characters]`;
 }
 
 function encodePath(path: string): string {

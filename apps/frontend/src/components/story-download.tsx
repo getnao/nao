@@ -1,49 +1,59 @@
-import { Download, FileCode, FileDown, FileText, Loader2 } from 'lucide-react';
+import { Download, FileCode, FileText, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
-import type { DownloadFormat } from '@nao/shared/types';
-import { Button } from '@/components/ui/button';
+import type { DownloadFormat, ShareSource } from '@nao/shared/types';
 import {
-	DropdownMenu,
-	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuTrigger,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import { trpcClient } from '@/main';
 
-interface StoryDownloadOptions {
+export interface StoryDownloadFile {
+	data: string;
+	filename: string;
+	mimeType: string;
+}
+
+export interface StoryDownloadOptions {
 	storyId?: string;
 	chatId?: string;
 	storySlug?: string;
-	shareId?: string;
-	shareType?: 'chat' | 'story';
+	shareSource?: ShareSource;
 	isOwner?: boolean;
 	versionNumber?: number;
+	/** Replaces the server-rendered export, e.g. a custom story downloads a snapshot of its rendered frame. */
+	onDownload?: (format: DownloadFormat) => Promise<StoryDownloadFile>;
+}
+
+export function canDownloadStory({ storyId, shareSource, isOwner = true, onDownload }: StoryDownloadOptions) {
+	return isOwner || !!shareSource || !!storyId || !!onDownload;
 }
 
 function useStoryDownload({
 	storyId,
 	chatId,
 	storySlug,
-	shareId,
-	shareType = 'story',
+	shareSource,
 	isOwner = true,
 	versionNumber,
+	onDownload,
 }: StoryDownloadOptions) {
 	const [isDownloading, setIsDownloading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const canDownload = isOwner || !!shareId || !!storyId;
+	const canDownload = canDownloadStory({ storyId, shareSource, isOwner, onDownload });
 
 	const handleDownload = async (format: DownloadFormat) => {
 		if (!canDownload) {
 			return;
 		}
 		setIsDownloading(true);
-		setError(null);
 		try {
 			let result;
-			if (storyId) {
-				result = await trpcClient.story.downloadStandalone.query({ storyId, format });
+			if (onDownload) {
+				result = await onDownload(format);
+			} else if (storyId) {
+				result = await trpcClient.story.downloadStandalone.query({ storyId, format, versionNumber });
 			} else if (isOwner) {
 				result = await trpcClient.story.download.query({
 					chatId: chatId!,
@@ -51,15 +61,19 @@ function useStoryDownload({
 					format,
 					versionNumber,
 				});
-			} else if (shareType === 'chat') {
+			} else if (shareSource?.type === 'chat') {
 				result = await trpcClient.sharedChat.downloadStory.query({
-					shareId: shareId!,
+					shareId: shareSource.shareId,
 					storySlug: storySlug!,
 					format,
 					versionNumber,
 				});
 			} else {
-				result = await trpcClient.storyShare.download.query({ shareId: shareId!, format, versionNumber });
+				result = await trpcClient.storyShare.download.query({
+					storyId: shareSource!.storyId,
+					format,
+					versionNumber,
+				});
 			}
 			const bytes = Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));
 			const blob = new Blob([bytes], { type: result.mimeType });
@@ -70,25 +84,22 @@ function useStoryDownload({
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Download failed';
-			setError(message);
 			console.error('Story download failed:', err);
 		} finally {
 			setIsDownloading(false);
 		}
 	};
 
-	return { isDownloading, error, canDownload, handleDownload };
+	return { isDownloading, canDownload, handleDownload };
 }
 
-interface StoryDownloadProps extends StoryDownloadOptions {
+interface StoryDownloadMenuProps extends StoryDownloadOptions {
 	isAgentRunning?: boolean;
 	isSaving?: boolean;
-	iconOnly?: boolean;
 }
 
-export function StoryDownload({ isAgentRunning, isSaving, iconOnly = false, ...downloadOptions }: StoryDownloadProps) {
-	const { isDownloading, error, canDownload, handleDownload } = useStoryDownload(downloadOptions);
+export function StoryDownloadMenu({ isAgentRunning, isSaving, ...downloadOptions }: StoryDownloadMenuProps) {
+	const { isDownloading, canDownload, handleDownload } = useStoryDownload(downloadOptions);
 
 	if (!canDownload) {
 		return null;
@@ -97,58 +108,23 @@ export function StoryDownload({ isAgentRunning, isSaving, iconOnly = false, ...d
 	const isDisabled = isAgentRunning || isDownloading || isSaving;
 
 	return (
-		<>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					{iconOnly ? (
-						<Button
-							variant='ghost'
-							size='icon-sm'
-							className='hover:rounded-full'
-							disabled={isDisabled}
-							aria-label='Download story'
-							title='Download story'
-						>
-							{isDownloading ? (
-								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-							) : (
-								<Download className='size-3.5' strokeWidth={2.25} />
-							)}
-						</Button>
-					) : (
-						<Button
-							variant='outline'
-							size='sm'
-							disabled={isDisabled}
-							aria-label='Download story'
-							title='Download story'
-						>
-							{isDownloading ? (
-								<Loader2 className='size-3.5 animate-spin' />
-							) : (
-								<Download className='size-3.5' />
-							)}
-							<span>Download</span>
-						</Button>
-					)}
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align='end' className='w-auto min-w-20'>
-					<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
-						<FileText /> <span>PDF</span>
-					</DropdownMenuItem>
-					<DropdownMenuItem onSelect={() => handleDownload('html')}>
-						<FileCode /> <span>HTML</span>
-					</DropdownMenuItem>
-					<DropdownMenuItem onSelect={() => handleDownload('markdown')}>
-						<FileDown /> <span>Markdown</span>
-					</DropdownMenuItem>
-				</DropdownMenuContent>
-			</DropdownMenu>
-			{error && (
-				<p className='text-xs text-destructive mt-1 max-w-48 truncate' title={error}>
-					{error}
-				</p>
-			)}
-		</>
+		<DropdownMenuSub>
+			<DropdownMenuSubTrigger disabled={isDisabled}>
+				{isDownloading ? (
+					<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+				) : (
+					<Download className='size-3.5' strokeWidth={2.25} />
+				)}
+				<span>Download</span>
+			</DropdownMenuSubTrigger>
+			<DropdownMenuSubContent>
+				<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
+					<FileText /> <span>PDF</span>
+				</DropdownMenuItem>
+				<DropdownMenuItem onSelect={() => handleDownload('html')}>
+					<FileCode /> <span>HTML</span>
+				</DropdownMenuItem>
+			</DropdownMenuSubContent>
+		</DropdownMenuSub>
 	);
 }

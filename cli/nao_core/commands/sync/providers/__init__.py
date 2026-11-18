@@ -6,14 +6,18 @@ from .base import SyncProvider, SyncResult
 from .confluence.provider import ConfluenceSyncProvider
 from .databases.provider import DatabaseSyncProvider
 from .notion.provider import NotionSyncProvider
+from .obsidian.provider import ObsidianSyncProvider
 from .repositories.provider import RepositorySyncProvider
+from .semantic_layer.provider import SemanticLayerSyncProvider
 
 # Provider registry mapping CLI-friendly names to provider instances
 PROVIDER_REGISTRY: dict[str, SyncProvider] = {
     "notion": NotionSyncProvider(),
     "confluence": ConfluenceSyncProvider(),
+    "obsidian": ObsidianSyncProvider(),
     "repositories": RepositorySyncProvider(),
     "databases": DatabaseSyncProvider(),
+    "semantics": SemanticLayerSyncProvider(),
 }
 
 # Aliases mapping shortcut names to canonical provider names
@@ -25,6 +29,10 @@ PROVIDER_ALIASES: dict[str, str] = {
     "dbs": "databases",
     "database": "databases",
     "wiki": "confluence",
+    "semantic": "semantics",
+    "semantic_layer": "semantics",
+    "semantic-layer": "semantics",
+    "sl": "semantics",
 }
 
 # Default providers in order of execution
@@ -89,6 +97,7 @@ __all__ = [
     "ConfluenceSyncProvider",
     "DatabaseSyncProvider",
     "RepositorySyncProvider",
+    "SemanticLayerSyncProvider",
     "PROVIDER_REGISTRY",
     "PROVIDER_ALIASES",
     "PROVIDER_CHOICES",

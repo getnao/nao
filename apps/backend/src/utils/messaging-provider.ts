@@ -1,14 +1,17 @@
-import { cardToBlockKit } from '@chat-adapter/slack';
+import { cardToBlockKit, type SlackBlock } from '@chat-adapter/slack';
 import { pluralize, stripAssistantTags, TOOL_LABELS } from '@nao/shared';
 import type { CardChild, CardElement, ModalElement, PostableMarkdown } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton, Table } from 'chat';
 
 import { generateMapImage } from '../components/generate-map';
+import * as executeSqlQueries from '../queries/execute-sql.queries';
 import * as projectQueries from '../queries/project.queries';
+import { DEFAULT_APP_NAME } from '../services/branding.service';
 import { UIMessagePart } from '../types/chat';
-import { StreamState, ToolCallEntry } from '../types/messaging-provider';
+import { SqlOutput, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { BudgetExceededError } from './error';
 import { logger } from './logger';
+import { resolveSqlOutput } from './markdown-messaging';
 
 export const EXCLUDED_TOOLS = [
 	'tool-suggest_follow_ups',
@@ -59,8 +62,8 @@ export const createFeedbackModal = (): ModalElement => ({
 	],
 });
 
-export const createStopButtonActions = (): CardChild =>
-	Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })]);
+export const createStopButtonActions = (disabled = false): CardChild =>
+	Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary', disabled })]);
 
 export const createStopButtonCard = (): CardElement =>
 	Card({
@@ -80,18 +83,25 @@ export const createTelegramStopButtonCard = (): CardElement =>
 		],
 	});
 
-export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down', hiddenTables = 0): CardElement =>
-	Card({
+export type CompletionCardOptions = {
+	vote?: 'up' | 'down';
+	hiddenTables?: number;
+	appName?: string;
+};
+
+export const createCompletionCard = (chatUrl: string, options: CompletionCardOptions = {}): CardElement => {
+	const { vote, hiddenTables = 0, appName = DEFAULT_APP_NAME } = options;
+	return Card({
 		children: [
 			Actions([
 				LinkButton({
 					url: chatUrl,
 					label:
 						hiddenTables === 0
-							? 'Open in nao'
+							? `Open in ${appName}`
 							: hiddenTables === 1
-								? 'Open the other table in nao'
-								: `Open the other ${hiddenTables} tables in nao`,
+								? `Open the other table in ${appName}`
+								: `Open the other ${hiddenTables} tables in ${appName}`,
 					...(hiddenTables > 0 ? { style: 'primary' } : {}),
 				}),
 				Button({ id: 'feedback_positive', label: '👍', style: vote === 'up' ? 'primary' : 'default' }),
@@ -99,16 +109,18 @@ export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down', hidd
 			]),
 		],
 	});
+};
 
-export const createTelegramCompletionCard = (chatUrl: string, vote?: 'up' | 'down') =>
-	Card({
+export const createTelegramCompletionCard = (chatUrl: string, options: CompletionCardOptions = {}) => {
+	const { vote, appName = DEFAULT_APP_NAME } = options;
+	return Card({
 		children: [
 			CardText('What do you think about this response?'),
 
 			Actions([
 				LinkButton({
 					url: chatUrl,
-					label: 'Open in nao',
+					label: `Open in ${appName}`,
 				}),
 				Button({
 					id: 'feedback_positive',
@@ -121,15 +133,25 @@ export const createTelegramCompletionCard = (chatUrl: string, vote?: 'up' | 'dow
 			]),
 		],
 	});
+};
 
-export const createMattermostAnswerMessage = (markdown: string, chatUrl?: string): PostableMarkdown => {
+export const createMarkdownAnswerMessage = (
+	markdown: string,
+	chatUrl?: string,
+	appName = DEFAULT_APP_NAME,
+): PostableMarkdown => {
 	if (!chatUrl) {
 		return { markdown };
 	}
 	const body = markdown.trim();
-	const link = `**[Open in nao](${chatUrl})**`;
+	const link = `**[Open in ${escapeMarkdownText(appName)}](${chatUrl})**`;
 	return { markdown: body ? `${body}\n\n${link}` : link };
 };
+
+/** Escapes punctuation that would otherwise break a Markdown link label or emphasis span. */
+export function escapeMarkdownText(text: string): string {
+	return text.replace(/[\\`*_[\]()~<>|]/g, '\\$&');
+}
 
 export const createTextBlock = (text: string): CardChild => {
 	const rendered = mdToMrkdwn(text);
@@ -158,12 +180,14 @@ type CreateTextBlocksOptions = {
 	balanceIncompleteCodeFence?: boolean;
 	truncation?: TruncationNotice;
 	tableState?: SlackTableRenderState;
+	appName?: string;
 };
 
 export const createTextBlocks = (text: string, options: CreateTextBlocksOptions = {}): CardChild[] => {
 	const blocks: CardChild[] = [];
 	const tableState = options.tableState ?? createSlackTableRenderState();
 	const truncation = options.truncation ?? { kind: 'note' };
+	const appName = options.appName ?? DEFAULT_APP_NAME;
 	const renderedText = options.balanceIncompleteCodeFence ? balanceSlackStreamingCodeFence(text) : text;
 	for (const segment of splitMarkdownSegments(renderedText)) {
 		if (segment.type === 'table') {
@@ -181,13 +205,20 @@ export const createTextBlocks = (text: string, options: CreateTextBlocksOptions 
 			tableState.hasNativeTable = true;
 
 			if (fittedTable.headers.length > 0) {
-				blocks.push(Table({ headers: fittedTable.headers, rows: fittedTable.rows }));
+				blocks.push(
+					Table({
+						headers: fittedTable.headers,
+						rows: fittedTable.rows,
+						pageSize: Math.max(fittedTable.rows.length, 1),
+					}),
+				);
 			}
 
 			const truncationNotice = createTableTruncationNotice(
 				truncation,
 				fittedTable.hiddenColumns,
 				fittedTable.hiddenRows,
+				appName,
 			);
 			if (truncationNotice) {
 				blocks.push(truncationNotice);
@@ -206,12 +237,13 @@ function createTableTruncationNotice(
 	truncation: TruncationNotice,
 	hiddenColumns: number,
 	hiddenRows: number,
+	appName: string,
 ): CardChild | null {
 	if (truncation.kind === 'hidden' || (hiddenColumns === 0 && hiddenRows === 0)) {
 		return null;
 	}
 	if (truncation.kind === 'link') {
-		return Actions([LinkButton({ url: truncation.url, label: 'Open in nao to see full table' })]);
+		return Actions([LinkButton({ url: truncation.url, label: `Open in ${appName} to see full table` })]);
 	}
 
 	const hiddenParts: string[] = [];
@@ -221,7 +253,7 @@ function createTableTruncationNotice(
 	if (hiddenColumns > 0) {
 		hiddenParts.push(`${hiddenColumns} more ${pluralize('column', hiddenColumns)}`);
 	}
-	return CardText(`_…${hiddenParts.join(' and ')}, open in nao_`, { style: 'muted' });
+	return CardText(`_…${hiddenParts.join(' and ')}, open in ${appName}_`, { style: 'muted' });
 }
 
 const HIDDEN_TABLE_NOTICE_INDENT = '\u00a0'.repeat(4);
@@ -239,17 +271,17 @@ export function countHiddenTableNotices(children: CardChild[]): number {
 }
 
 const SLACK_CARD_NOTIFICATION_MAX_CHARS = 1000;
-const SLACK_TABLE_NOTIFICATION_TEXT = 'Results table (open in nao for full data)';
 
-export function buildSlackCardNotificationText(children: CardChild[]): string {
+export function buildSlackCardNotificationText(children: CardChild[], appName = DEFAULT_APP_NAME): string {
 	const { hasTable, text } = collectSlackCardNotificationContent(children);
 	const joinedText = text.join(' ').replace(/\s+/g, ' ').trim();
 	if (hasTable) {
-		const textBudget = SLACK_CARD_NOTIFICATION_MAX_CHARS - SLACK_TABLE_NOTIFICATION_TEXT.length - 1;
+		const tableNotice = `Results table (open in ${appName} for full data)`;
+		const textBudget = SLACK_CARD_NOTIFICATION_MAX_CHARS - tableNotice.length - 1;
 		const fittedText = joinedText ? truncateSlackText(joinedText, textBudget) : '';
-		return fittedText ? `${fittedText}\n${SLACK_TABLE_NOTIFICATION_TEXT}` : SLACK_TABLE_NOTIFICATION_TEXT;
+		return fittedText ? `${fittedText}\n${tableNotice}` : tableNotice;
 	}
-	return joinedText ? truncateSlackText(joinedText, SLACK_CARD_NOTIFICATION_MAX_CHARS) : 'nao answer';
+	return joinedText ? truncateSlackText(joinedText, SLACK_CARD_NOTIFICATION_MAX_CHARS) : `${appName} answer`;
 }
 
 function collectSlackCardNotificationContent(children: CardChild[]): {
@@ -277,6 +309,8 @@ const SLACK_TABLE_MAX_DATA_ROWS = 99;
 const SLACK_TABLE_MAX_COLUMNS = 20;
 const SLACK_TABLE_MAX_CELL_CHARS = 300;
 const SLACK_TABLE_MAX_TOTAL_CHARS = 9000;
+/** Slack rejects table cells with empty text, so blank cells are sent as this placeholder. */
+const SLACK_TABLE_EMPTY_CELL = '-';
 
 type FittedTable = {
 	headers: string[];
@@ -291,9 +325,11 @@ const clampCell = (cell: string): string =>
 
 const rowCharCount = (row: string[]): number => row.reduce((total, cell) => total + Math.max(cell.length, 1), 0);
 
+const fillEmptyCell = (cell: string): string => (cell.trim() ? cell : SLACK_TABLE_EMPTY_CELL);
+
 function fitTableToSlackLimits(rawHeaders: string[], rawRows: string[][], characterBudget: number): FittedTable {
 	const columnCount = Math.min(rawHeaders.length, SLACK_TABLE_MAX_COLUMNS);
-	const headers = fitRowToBudget(rawHeaders.slice(0, columnCount).map(clampCell), characterBudget);
+	const headers = fitRowToBudget(rawHeaders.slice(0, columnCount).map(clampCell), characterBudget).map(fillEmptyCell);
 	if (headers.length === 0) {
 		return {
 			headers: [],
@@ -315,7 +351,7 @@ function fitTableToSlackLimits(rawHeaders: string[], rawRows: string[][], charac
 			break;
 		}
 		totalChars += cost;
-		rows.push(row);
+		rows.push(row.map(fillEmptyCell));
 	}
 	return {
 		headers,
@@ -340,14 +376,35 @@ function fitRowToBudget(row: string[], characterBudget: number): string[] {
 	});
 }
 
-export function buildSlackTableBlocks(text: string): ReturnType<typeof cardToBlockKit> | null {
+export function buildSlackTableBlocks(text: string, appName = DEFAULT_APP_NAME): SlackBlock[] | null {
 	const sanitized = stripAssistantTags(text);
-	const children = createTextBlocks(sanitized);
+	const children = createTextBlocks(sanitized, { appName });
 	if (!children.some((child) => child.type === 'table')) {
 		return null;
 	}
-	return cardToBlockKit(Card({ children }));
+	return toSlackBlocks(children);
 }
+
+/** Slack collapses long sections behind "See more"; answers are always shown in full. */
+export function toSlackBlocks(children: CardChild[]): SlackBlock[] {
+	return cardToBlockKit(Card({ children })).map(expandSectionText);
+}
+
+function expandSectionText(block: SlackBlock): SlackBlock {
+	return block.type === 'section' && block.text ? { ...block, expand: true } : block;
+}
+
+export const createNotificationCard = (
+	text: string,
+	buttons: { url: string; label: string }[],
+	appName = DEFAULT_APP_NAME,
+): CardElement =>
+	Card({
+		children: [
+			...createTextBlocks(text, { appName }),
+			Actions(buttons.map((button) => LinkButton({ url: button.url, label: button.label }))),
+		],
+	});
 
 export function formatSlackMessageText(text: string): string {
 	const sanitized = stripAssistantTags(text);
@@ -419,21 +476,42 @@ export function formatClarificationText(question: string, options?: string[]): s
 }
 
 /** Interactive maps cannot be rendered by messaging providers, so they degrade to a link to the nao chat. */
-export const createMapLinkCard = (title: string, chatUrl: string): CardChild[] => [
+export const createMapLinkCard = (title: string, chatUrl: string, appName = DEFAULT_APP_NAME): CardChild[] => [
 	CardText(`🗺️ **${title}**`),
-	Actions([LinkButton({ url: chatUrl, label: 'View interactive map in nao' })]),
+	Actions([LinkButton({ url: chatUrl, label: `View interactive map in ${appName}` })]),
 ];
 
-export const createTelegramMapLinkCard = (title: string, chatUrl: string): CardChild[] => [
+export const createTelegramMapLinkCard = (title: string, chatUrl: string, appName = DEFAULT_APP_NAME): CardChild[] => [
 	createPlainTextBlock(`🗺️ ${title}`),
-	Actions([LinkButton({ url: chatUrl, label: 'View interactive map in nao' })]),
+	Actions([LinkButton({ url: chatUrl, label: `View interactive map in ${appName}` })]),
 ];
 
 /** WhatsApp has no interactive card UI, so a map degrades to a plain-text link to the nao chat. */
-export const createWhatsappMapLink = (title: string, chatUrl: string): string =>
-	`🗺️ ${title}\nView interactive map in nao: ${chatUrl}`;
+export const createWhatsappMapLink = (title: string, chatUrl: string, appName = DEFAULT_APP_NAME): string =>
+	`🗺️ ${title}\nView interactive map in ${appName}: ${chatUrl}`;
 
 /** Renders an interactive map tool call to a static PNG. */
+/** Rows behind a chart or map: from this answer's queries, or from an earlier answer in the same chat. */
+export function resolveChatSqlOutput(
+	state: StreamState,
+	chatId: string,
+	queryId: string,
+): Promise<SqlOutput | undefined> {
+	return resolveSqlOutput({
+		queryId,
+		sqlOutputs: state.sqlOutputs,
+		loadPersisted: (persistedQueryId) => loadPersistedSqlOutput(chatId, persistedQueryId),
+	});
+}
+
+async function loadPersistedSqlOutput(chatId: string, queryId: string): Promise<SqlOutput | null> {
+	const persisted = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
+	if (!persisted?.toolOutput.data) {
+		return null;
+	}
+	return { name: persisted.toolInput.name ?? null, rows: persisted.toolOutput.data };
+}
+
 export async function renderMapImage(
 	part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 	state: StreamState,
@@ -774,5 +852,5 @@ export function formatMessagingError(error: unknown): string {
 		return `🚦 ${error.message}`;
 	}
 	const detail = error instanceof Error ? error.message : 'Unknown error';
-	return `❌ An error occurred while processing your message. ${detail}.`;
+	return `❌ An error occurred while processing your message. ${detail}${/[.!?]$/.test(detail) ? '' : '.'}`;
 }

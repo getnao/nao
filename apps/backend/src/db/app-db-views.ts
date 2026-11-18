@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, or, type SQL, sql } from 'drizzle-orm';
 import { alias as pgAlias, pgTable, QueryBuilder as PgQueryBuilder, text as pgText } from 'drizzle-orm/pg-core';
 import {
 	alias as sqliteAlias,
@@ -79,6 +79,10 @@ function buildScopedViews(
 		mcpCallLog,
 		project,
 		analyticsEvent,
+		story,
+		storyFeedback,
+		testRun,
+		testRunResult,
 	} = schema;
 	const scopedProjectIds = () => qb.select({ projectId: scope.projectId }).from(scope);
 
@@ -181,6 +185,69 @@ function buildScopedViews(
 		created_at: timestamp(analyticsEvent.createdAt, 'created_at'),
 	};
 
+	const storyOwner = alias(schema.user, 'story_owner');
+	const storyOwnerId = sql<string>`coalesce(${chat.userId}, ${story.userId})`;
+	const storyFeedbackSelection = {
+		story_id: storyFeedback.storyId,
+		story_title: sql<string>`${story.title}`.as('story_title'),
+		story_owner_id: storyOwnerId.as('story_owner_id'),
+		story_owner_name: sql<string>`${storyOwner.name}`.as('story_owner_name'),
+		user_id: storyFeedback.userId,
+		user_name: sql<string>`${user.name}`.as('user_name'),
+		vote: storyFeedback.vote,
+		explanation: storyFeedback.explanation,
+		created_at: timestamp(storyFeedback.createdAt, 'created_at'),
+		updated_at: timestamp(storyFeedback.updatedAt, 'updated_at'),
+	};
+
+	const triggeredBy = alias(schema.user, 'triggered_by');
+	const testRunSelection = {
+		id: testRun.id,
+		trigger: testRun.trigger,
+		status: testRun.status,
+		triggered_by_user_id: testRun.triggeredByUserId,
+		triggered_by_user_name: sql<string>`${triggeredBy.name}`.as('triggered_by_user_name'),
+		context_ref: testRun.contextRef,
+		context_commit: testRun.contextCommit,
+		models: testRun.models,
+		attempts: testRun.attempts,
+		selection: testRun.selection,
+		total_attempts: testRun.totalAttempts,
+		completed_attempts: testRun.completedAttempts,
+		passed_attempts: testRun.passedAttempts,
+		total_tokens: testRun.totalTokens,
+		total_cost: testRun.totalCost,
+		error_message: testRun.errorMessage,
+		created_at: timestamp(testRun.createdAt, 'created_at'),
+		started_at: timestamp(testRun.startedAt, 'started_at'),
+		completed_at: timestamp(testRun.completedAt, 'completed_at'),
+	};
+
+	const testResultSelection = {
+		id: testRunResult.id,
+		run_id: testRunResult.runId,
+		run_trigger: sql<string>`${testRun.trigger}`.as('run_trigger'),
+		run_status: sql<string>`${testRun.status}`.as('run_status'),
+		test_path: testRunResult.testPath,
+		test_name: testRunResult.testName,
+		test_hash: testRunResult.testHash,
+		tags: testRunResult.tags,
+		llm_provider: testRunResult.llmProvider,
+		llm_model_id: testRunResult.llmModelId,
+		reasoning_effort: testRunResult.reasoningEffort,
+		context_variant: testRunResult.contextVariant,
+		attempt: testRunResult.attempt,
+		passed: testRunResult.passed,
+		message: testRunResult.message,
+		error_message: testRunResult.errorMessage,
+		chat_id: testRunResult.chatId,
+		total_tokens: testRunResult.totalTokens,
+		total_cost: testRunResult.totalCost,
+		duration_ms: testRunResult.durationMs,
+		tool_call_count: testRunResult.toolCallCount,
+		created_at: timestamp(testRunResult.createdAt, 'created_at'),
+	};
+
 	return [
 		toView(
 			'v_messages',
@@ -242,6 +309,36 @@ function buildScopedViews(
 				.from(analyticsEvent)
 				.leftJoin(user, eq(user.id, analyticsEvent.actorUserId))
 				.where(inArray(analyticsEvent.projectId, scopedProjectIds())),
+		),
+		toView(
+			'v_story_feedback',
+			storyFeedbackSelection,
+			qb
+				.select(storyFeedbackSelection)
+				.from(storyFeedback)
+				.innerJoin(story, eq(story.id, storyFeedback.storyId))
+				.leftJoin(chat, eq(chat.id, story.chatId))
+				.leftJoin(user, eq(user.id, storyFeedback.userId))
+				.leftJoin(storyOwner, eq(storyOwner.id, storyOwnerId))
+				.where(or(inArray(story.projectId, scopedProjectIds()), inArray(chat.projectId, scopedProjectIds()))),
+		),
+		toView(
+			'v_test_runs',
+			testRunSelection,
+			qb
+				.select(testRunSelection)
+				.from(testRun)
+				.leftJoin(triggeredBy, eq(triggeredBy.id, testRun.triggeredByUserId))
+				.where(inArray(testRun.projectId, scopedProjectIds())),
+		),
+		toView(
+			'v_test_results',
+			testResultSelection,
+			qb
+				.select(testResultSelection)
+				.from(testRunResult)
+				.innerJoin(testRun, eq(testRun.id, testRunResult.runId))
+				.where(inArray(testRun.projectId, scopedProjectIds())),
 		),
 	];
 }

@@ -7,7 +7,8 @@ import { useAuthRoute } from '@/hooks/use-auth-route';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { trpc } from '@/main';
 
-const AUTH_ROUTES = ['/login', '/forgot-password', '/reset-password'];
+const AUTH_ENTRY_ROUTES = ['/login', '/forgot-password', '/reset-password'];
+const PUBLIC_AUTH_ROUTES = [...AUTH_ENTRY_ROUTES, '/email-verified'];
 
 export const useSessionOrNavigateToIndexPage = () => {
 	const navigate = useNavigate();
@@ -25,7 +26,7 @@ export const useSessionOrNavigateToIndexPage = () => {
 		}
 
 		const canStayUnauthenticated =
-			AUTH_ROUTES.includes(pathname) || (pathname === '/signup' && isUserSignupEnabled);
+			PUBLIC_AUTH_ROUTES.includes(pathname) || (pathname === '/signup' && isUserSignupEnabled);
 
 		if (!session.data && !canStayUnauthenticated) {
 			const redirect = getSafeRedirectPath(`${pathname}${searchStr ?? ''}`) ?? undefined;
@@ -36,7 +37,7 @@ export const useSessionOrNavigateToIndexPage = () => {
 			}
 		}
 
-		if (session.data && (AUTH_ROUTES.includes(pathname) || pathname === '/signup')) {
+		if (session.data && (AUTH_ENTRY_ROUTES.includes(pathname) || pathname === '/signup')) {
 			const redirect = getSafeRedirectPath(new URLSearchParams(searchStr ?? '').get('redirect'));
 			if (redirect) {
 				router.history.push(redirect);

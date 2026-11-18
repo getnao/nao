@@ -1,0 +1,418 @@
+import { memo, type ReactNode, useEffect, useMemo, useState } from 'react';
+
+import { type ClassNameMerger, joinClassNames } from './class-names';
+import type { DateFormatSettings } from './date';
+import { partAttributes } from './story-parts';
+import {
+	formatCellValue,
+	formatColumnLabel,
+	isNumericColumn,
+	type SortDirection,
+	sortTableRows,
+} from './story-table-utils';
+
+type TableRow = Record<string, unknown>;
+
+export interface TablePaginationProps {
+	totalRows: number;
+	pageIndex: number;
+	pageSize: number;
+	pageCount: number;
+	onPageChange: (page: number) => void;
+	onPageSizeChange: (size: number) => void;
+}
+
+export type TableSort = { column: string; direction: SortDirection };
+
+/** Rows paged and sorted by the server: `data` then only holds the current page, already sorted. */
+export interface TableServerPagination {
+	totalRows: number;
+	pageIndex: number;
+	pageSize: number;
+	sort: TableSort | null;
+	onPageChange: (page: number) => void;
+	onPageSizeChange: (size: number) => void;
+	onSortChange: (sort: TableSort | null) => void;
+}
+
+export interface TableDisplayProps {
+	data: TableRow[];
+	serverPagination?: TableServerPagination;
+	columns?: string[];
+	columnLabels?: Record<string, string>;
+	title?: string;
+	className?: string;
+	tableContainerClassName?: string;
+	emptyLabel?: string;
+	showRowCount?: boolean;
+	maxRowsBeforePagination?: number;
+	compactFooter?: boolean;
+	cellBackground?: (column: string, value: unknown) => string | undefined;
+	headerBackground?: (column: string) => string | undefined;
+	humanizeColumnLabels?: boolean;
+	dateFormat?: DateFormatSettings | null;
+	renderPagination: (pagination: TablePaginationProps & { compact: boolean }) => ReactNode;
+	cn?: ClassNameMerger;
+}
+
+interface TablePaging {
+	pageData: TableRow[];
+	totalRows: number;
+	showPagination: boolean;
+	pageIndex: number;
+	pageSize: number;
+	pageCount: number;
+	sort: TableSort | null;
+	setPageIndex: (page: number) => void;
+	setPageSize: (size: number) => void;
+	toggleSort: (column: string) => void;
+}
+
+/** `nao-table-display__*` classes let surfaces without Tailwind (sandboxed custom stories) style the same markup. */
+export const TableDisplay = memo(function TableDisplay({
+	data,
+	serverPagination,
+	columns,
+	columnLabels,
+	title,
+	className,
+	tableContainerClassName,
+	emptyLabel = 'No rows returned',
+	showRowCount = true,
+	maxRowsBeforePagination = 100,
+	compactFooter = false,
+	cellBackground,
+	headerBackground,
+	humanizeColumnLabels = false,
+	dateFormat,
+	renderPagination,
+	cn = joinClassNames,
+}: TableDisplayProps) {
+	const resolvedColumns = useMemo(
+		() => (columns && columns.length > 0 ? columns : inferColumns(data)),
+		[columns, data],
+	);
+	const numericColumns = useMemo(
+		() => new Set(resolvedColumns.filter((column) => isNumericColumn(data, column))),
+		[data, resolvedColumns],
+	);
+	const hasRows = data.length > 0;
+	const paging = useTablePaging(data, resolvedColumns, maxRowsBeforePagination, serverPagination);
+	const { pageData, pageIndex, pageSize, sort: activeSort } = paging;
+
+	const columnMinWidths = useMemo(
+		() => computeColumnMinWidths(data, resolvedColumns, dateFormat),
+		[data, resolvedColumns, dateFormat],
+	);
+
+	function columnLabel(column: string) {
+		return columnLabels?.[column] ?? (humanizeColumnLabels ? formatColumnLabel(column) : column);
+	}
+
+	return (
+		<div className={cn('nao-table-display flex min-h-0 flex-col', className)}>
+			{title ? <span className='nao-table-display__title text-sm font-medium'>{title}</span> : null}
+
+			<div
+				className={cn(
+					'nao-table-display__scroll overflow-auto border-t bg-background min-h-0',
+					tableContainerClassName,
+				)}
+			>
+				<table className='w-full min-w-max border-collapse text-xs'>
+					<thead className='sticky top-0 z-10 border-b bg-panel'>
+						<tr>
+							<th className='nao-table-display__index shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 text-center font-medium whitespace-nowrap text-foreground w-4' />
+							{resolvedColumns.map((column) => {
+								const alignRight = numericColumns.has(column);
+								const sortDirection = activeSort?.column === column ? activeSort.direction : null;
+								const background = headerBackground?.(column);
+								return (
+									<th
+										key={column}
+										style={background ? { backgroundColor: background } : undefined}
+										aria-sort={
+											sortDirection
+												? sortDirection === 'asc'
+													? 'ascending'
+													: 'descending'
+												: 'none'
+										}
+										{...partAttributes({
+											kind: 'column',
+											label: columnLabel(column),
+											series: column,
+										})}
+										className={cn(
+											'shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-2 font-medium whitespace-nowrap text-foreground',
+											alignRight && 'nao-table-display__numeric text-right tabular-nums',
+										)}
+									>
+										<button
+											type='button'
+											onClick={() => paging.toggleSort(column)}
+											className='group flex w-full cursor-pointer items-center justify-between gap-3'
+										>
+											<span className={cn(alignRight && 'ml-auto')}>{columnLabel(column)}</span>
+											<SortIndicator direction={sortDirection} cn={cn} />
+										</button>
+									</th>
+								);
+							})}
+						</tr>
+					</thead>
+
+					<tbody>
+						{hasRows ? (
+							pageData.map((row, rowIndex) => (
+								<tr
+									key={rowIndex}
+									className='border-b last:border-b-0 border-border/50 bg-background  hover:bg-accent/30'
+								>
+									<td className='nao-table-display__index shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap text-center w-4 bg-panel'>
+										<span className='px-1 py-2 font-[Geist] font-medium text-foreground'>
+											{pageIndex * pageSize + rowIndex + 1}
+										</span>
+									</td>
+									{resolvedColumns.map((column) => {
+										const value = row[column];
+										const isNull = value === null || value === undefined;
+										const background = cellBackground?.(column, value);
+										const cellText = isNull ? 'NULL' : formatCellValue(value, dateFormat);
+										return (
+											<td
+												key={`${rowIndex}-${column}`}
+												{...partAttributes({
+													kind: 'cell',
+													label: columnLabel(column),
+													series: column,
+													category: rowCategory(row, resolvedColumns, dateFormat),
+													value: cellText,
+												})}
+												style={{
+													minWidth: columnMinWidths[column],
+													...(background ? { backgroundColor: background } : {}),
+												}}
+												className={cn(
+													'nao-table-display__cell shadow-[inset_-1px_0_0_0_var(--border)] last:shadow-none px-3 py-1 align-top font-mono text-[11px] leading-5 whitespace-nowrap',
+													numericColumns.has(column) &&
+														'nao-table-display__numeric text-right tabular-nums',
+												)}
+											>
+												{isNull ? (
+													<span className='nao-table-display__null italic text-muted-foreground/60'>
+														NULL
+													</span>
+												) : (
+													cellText
+												)}
+											</td>
+										);
+									})}
+								</tr>
+							))
+						) : (
+							<tr>
+								<td
+									colSpan={resolvedColumns.length + 1}
+									className='nao-table-display__empty px-3 py-6 text-center text-sm text-muted-foreground'
+								>
+									{emptyLabel}
+								</td>
+							</tr>
+						)}
+					</tbody>
+				</table>
+			</div>
+
+			{paging.showPagination ? (
+				renderPagination({
+					compact: compactFooter,
+					totalRows: paging.totalRows,
+					pageIndex,
+					pageSize,
+					pageCount: paging.pageCount,
+					onPageChange: paging.setPageIndex,
+					onPageSizeChange: paging.setPageSize,
+				})
+			) : showRowCount ? (
+				<div
+					className={cn(
+						'nao-table-display__row-count flex px-4 py-2 border-t',
+						compactFooter ? 'justify-start' : 'justify-end',
+					)}
+				>
+					<span className={cn('text-muted-foreground', compactFooter ? 'text-xs' : 'text-sm')}>
+						{paging.totalRows} rows
+					</span>
+				</div>
+			) : null}
+		</div>
+	);
+});
+
+function useTablePaging(
+	data: TableRow[],
+	columns: string[],
+	maxRowsBeforePagination: number,
+	serverPagination: TableServerPagination | undefined,
+): TablePaging {
+	const localPaging = useLocalTablePaging(data, columns, maxRowsBeforePagination);
+	if (!serverPagination) {
+		return localPaging;
+	}
+
+	const { totalRows, pageIndex, pageSize, sort } = serverPagination;
+	return {
+		pageData: data,
+		totalRows,
+		showPagination: totalRows > maxRowsBeforePagination,
+		pageIndex,
+		pageSize,
+		pageCount: Math.ceil(totalRows / pageSize),
+		sort,
+		setPageIndex: serverPagination.onPageChange,
+		setPageSize: serverPagination.onPageSizeChange,
+		toggleSort: (column) => serverPagination.onSortChange(nextSort(sort, column)),
+	};
+}
+
+function useLocalTablePaging(data: TableRow[], columns: string[], maxRowsBeforePagination: number): TablePaging {
+	const [pageIndex, setPageIndex] = useState(0);
+	const [pageSize, setPageSize] = useState(maxRowsBeforePagination);
+	const [defaultPageSize, setDefaultPageSize] = useState(maxRowsBeforePagination);
+	const [sort, setSort] = useState<TableSort | null>(null);
+
+	if (defaultPageSize !== maxRowsBeforePagination) {
+		setDefaultPageSize(maxRowsBeforePagination);
+		setPageSize(maxRowsBeforePagination);
+		setPageIndex(0);
+	}
+
+	useEffect(() => setPageIndex(0), [data]);
+
+	const activeSort = sort && columns.includes(sort.column) ? sort : null;
+	const sortedData = useMemo(
+		() => (activeSort ? sortTableRows(data, activeSort.column, activeSort.direction) : data),
+		[data, activeSort],
+	);
+	const showPagination = data.length > 0 && data.length > maxRowsBeforePagination;
+	const pageData = useMemo(
+		() => (showPagination ? sortedData.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize) : sortedData),
+		[sortedData, pageIndex, pageSize, showPagination],
+	);
+
+	return {
+		pageData,
+		totalRows: data.length,
+		showPagination,
+		pageIndex,
+		pageSize,
+		pageCount: Math.ceil(sortedData.length / pageSize),
+		sort: activeSort,
+		setPageIndex,
+		setPageSize: (size) => {
+			setPageSize(size);
+			setPageIndex(0);
+		},
+		toggleSort: (column) => {
+			setPageIndex(0);
+			setSort(nextSort(activeSort, column));
+		},
+	};
+}
+
+function SortIndicator({ direction, cn }: { direction: SortDirection | null; cn: ClassNameMerger }) {
+	return (
+		<span className='nao-table-display__sort inline-flex shrink-0 flex-col -space-y-1'>
+			<ChevronIcon
+				path='m18 15-6-6-6 6'
+				className={cn(
+					'size-3',
+					direction === 'asc'
+						? 'nao-table-display__sort--active text-foreground'
+						: 'text-muted-foreground/50',
+				)}
+			/>
+			<ChevronIcon
+				path='m6 9 6 6 6-6'
+				className={cn(
+					'size-3',
+					direction === 'desc'
+						? 'nao-table-display__sort--active text-foreground'
+						: 'text-muted-foreground/50',
+				)}
+			/>
+		</span>
+	);
+}
+
+/** Same glyphs as lucide's ChevronUp/ChevronDown, inlined so shared code does not depend on an icon package. */
+function ChevronIcon({ path, className }: { path: string; className: string }) {
+	return (
+		<svg
+			xmlns='http://www.w3.org/2000/svg'
+			viewBox='0 0 24 24'
+			fill='none'
+			stroke='currentColor'
+			strokeWidth='2'
+			strokeLinecap='round'
+			strokeLinejoin='round'
+			aria-hidden='true'
+			className={className}
+		>
+			<path d={path} />
+		</svg>
+	);
+}
+
+function nextSort(current: TableSort | null, column: string): TableSort | null {
+	if (!current || current.column !== column) {
+		return { column, direction: 'asc' };
+	}
+	if (current.direction === 'asc') {
+		return { column, direction: 'desc' };
+	}
+	return null;
+}
+
+function computeColumnMinWidths(
+	data: TableRow[],
+	columns: string[],
+	dateFormat?: DateFormatSettings | null,
+): Record<string, string> {
+	const widths: Record<string, string> = {};
+	for (const column of columns) {
+		let maxChars = 0;
+		for (const row of data) {
+			const chars = formatCellValue(row[column], dateFormat).length;
+			if (chars > maxChars) {
+				maxChars = chars;
+			}
+		}
+		widths[column] = `calc(${maxChars}ch + 1.5rem)`;
+	}
+	return widths;
+}
+
+function rowCategory(row: TableRow, columns: string[], dateFormat?: DateFormatSettings | null): string | undefined {
+	const firstValue = row[columns[0]];
+	return firstValue === null || firstValue === undefined ? undefined : formatCellValue(firstValue, dateFormat);
+}
+
+function inferColumns(data: TableRow[]): string[] {
+	const seen = new Set<string>();
+	const columns: string[] = [];
+
+	for (const row of data) {
+		for (const column of Object.keys(row)) {
+			if (seen.has(column)) {
+				continue;
+			}
+			seen.add(column);
+			columns.push(column);
+		}
+	}
+
+	return columns;
+}

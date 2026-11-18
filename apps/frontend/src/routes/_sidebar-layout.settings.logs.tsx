@@ -15,7 +15,7 @@ import { LogsDateRangeFilter } from '@/components/settings/logs-date-range-filte
 import { cn } from '@/lib/utils';
 import { trpc, trpcClient } from '@/main';
 
-import { requireAdminNonCloud } from '@/lib/require-admin';
+import { requireAdminNonCloud } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/logs')({
 	beforeLoad: requireAdminNonCloud,
@@ -247,7 +247,7 @@ function LogsPage() {
 					<SettingsCard>
 						<div className='flex items-center gap-2 flex-wrap'>
 							<Select value={level} onValueChange={(v) => setLevel(v as LogLevel | 'all')}>
-								<SelectTrigger size='sm'>
+								<SelectTrigger className='h-7 min-w-36 font-normal'>
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
@@ -260,7 +260,7 @@ function LogsPage() {
 							</Select>
 
 							<Select value={source} onValueChange={(v) => setSource(v as LogSource | 'all')}>
-								<SelectTrigger size='sm'>
+								<SelectTrigger className='h-7 min-w-36 font-normal'>
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>

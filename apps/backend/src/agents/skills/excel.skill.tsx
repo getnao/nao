@@ -220,6 +220,15 @@ SELECT last_value(region IGNORE NULLS) OVER (ORDER BY sheet_row) AS region, amou
 					sheet to get it into your context: it will be truncated somewhere arbitrary, and you will reason
 					over half a table without knowing it.
 				</Span>
+				<Title level={2}>When the file does not contain what the question needs</Title>
+				<Span>
+					Once you have seen the columns, check that they can support the definition the user asked for before
+					computing anything. A request for a numeric threshold cannot be answered from a sheet that only
+					holds a categorical classification, and a request per customer cannot be answered from a sheet
+					aggregated per region. When the data falls short, say so first, offer the closest thing the sheet
+					can actually compute, and let the user choose. Never substitute your own definition silently and
+					present the result as the one they asked for.
+				</Span>
 				<Title level={2}>Reporting back</Title>
 				<Span>
 					Name the sheet and the header row you used (&quot;from the <Code>FY26</Code> sheet, taking row 4 as

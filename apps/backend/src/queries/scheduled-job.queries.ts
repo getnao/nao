@@ -1,7 +1,8 @@
 import { and, eq, lte, sql } from 'drizzle-orm';
 
 import s, { type DBScheduledJob, type NewScheduledJob } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 
 export interface UpsertRecurringInput {
 	name: string;
@@ -20,6 +21,17 @@ export interface UpsertRecurringInput {
  * cadence, but `cron` is refreshed so code-level changes propagate.
  */
 export const upsertRecurringJob = async (input: UpsertRecurringInput): Promise<DBScheduledJob> => {
+	const [existing] = await db
+		.select()
+		.from(s.scheduledJob)
+		.where(eq(s.scheduledJob.uniqueKey, input.uniqueKey))
+		.limit(1)
+		.execute();
+
+	if (existing?.status === 'running') {
+		return refreshRunningJobDefinition(existing.id, input);
+	}
+
 	const values: NewScheduledJob = {
 		name: input.name,
 		cron: input.cron,
@@ -61,6 +73,20 @@ export const upsertRecurringJob = async (input: UpsertRecurringInput): Promise<D
 	return row;
 };
 
+const refreshRunningJobDefinition = async (id: string, input: UpsertRecurringInput): Promise<DBScheduledJob> => {
+	const set: Partial<NewScheduledJob> = {
+		cron: input.cron,
+		name: input.name,
+		payload: input.payload,
+	};
+	if (input.maxAttempts !== undefined) {
+		set.maxAttempts = input.maxAttempts;
+	}
+
+	const [row] = await db.update(s.scheduledJob).set(set).where(eq(s.scheduledJob.id, id)).returning().execute();
+	return row;
+};
+
 export interface EnqueueOnceInput {
 	name: string;
 	payload?: Record<string, unknown>;
@@ -69,7 +95,10 @@ export interface EnqueueOnceInput {
 	maxAttempts?: number;
 }
 
-export const enqueueOnceJob = async (input: EnqueueOnceInput): Promise<DBScheduledJob | null> => {
+export const enqueueOnceJob = (
+	input: EnqueueOnceInput,
+	executor: DBExecutor = db,
+): DBScheduledJob | null | Promise<DBScheduledJob | null> => {
 	const values: NewScheduledJob = {
 		name: input.name,
 		payload: input.payload,
@@ -79,12 +108,20 @@ export const enqueueOnceJob = async (input: EnqueueOnceInput): Promise<DBSchedul
 	};
 
 	if (!input.uniqueKey) {
-		const [row] = await db.insert(s.scheduledJob).values(values).returning().execute();
-		return row;
+		const query = executor.insert(s.scheduledJob).values(values).returning();
+		if (dbConfig.dialect === Dialect.Postgres) {
+			return query.execute().then(([row]) => row);
+		}
+		const row = query.all()[0];
+		return executor === db ? Promise.resolve(row) : row;
 	}
 
-	const [row] = await db.insert(s.scheduledJob).values(values).onConflictDoNothing().returning().execute();
-	return row ?? null;
+	const query = executor.insert(s.scheduledJob).values(values).onConflictDoNothing().returning();
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return query.execute().then(([row]) => row ?? null);
+	}
+	const row = query.all()[0] ?? null;
+	return executor === db ? Promise.resolve(row) : row;
 };
 
 /**
@@ -95,7 +132,7 @@ export const enqueueOnceJob = async (input: EnqueueOnceInput): Promise<DBSchedul
  */
 export const claimDueJobs = async (now: Date, limit: number, lockedBy: string): Promise<DBScheduledJob[]> => {
 	const candidates = await db
-		.select({ id: s.scheduledJob.id })
+		.select({ id: s.scheduledJob.id, name: s.scheduledJob.name })
 		.from(s.scheduledJob)
 		.where(and(eq(s.scheduledJob.status, 'pending'), lte(s.scheduledJob.runAt, now)))
 		.orderBy(s.scheduledJob.runAt)
@@ -103,7 +140,7 @@ export const claimDueJobs = async (now: Date, limit: number, lockedBy: string): 
 		.execute();
 
 	const claimed: DBScheduledJob[] = [];
-	for (const { id } of candidates) {
+	for (const { id, name } of candidates) {
 		const [row] = await db
 			.update(s.scheduledJob)
 			.set({
@@ -112,7 +149,7 @@ export const claimDueJobs = async (now: Date, limit: number, lockedBy: string): 
 				lockedBy,
 				attempts: sql`${s.scheduledJob.attempts} + 1`,
 			})
-			.where(and(eq(s.scheduledJob.id, id), eq(s.scheduledJob.status, 'pending')))
+			.where(and(eq(s.scheduledJob.id, id), eq(s.scheduledJob.name, name), eq(s.scheduledJob.status, 'pending')))
 			.returning()
 			.execute();
 		if (row) {
@@ -136,6 +173,11 @@ export const reclaimStaleJobs = async (now: Date, leaseDurationMs: number): Prom
 		.returning({ id: s.scheduledJob.id })
 		.execute();
 	return result.length;
+};
+
+export const getJobById = async (id: string): Promise<DBScheduledJob | null> => {
+	const [row] = await db.select().from(s.scheduledJob).where(eq(s.scheduledJob.id, id)).limit(1).execute();
+	return row ?? null;
 };
 
 export const deleteJob = async (id: string): Promise<void> => {
@@ -173,4 +215,8 @@ export const markJobFailed = async (id: string, error: string, nextRunAt: Date |
 		})
 		.where(eq(s.scheduledJob.id, id))
 		.execute();
+};
+
+export const updateJobPayload = async (id: string, payload: Record<string, unknown>): Promise<void> => {
+	await db.update(s.scheduledJob).set({ payload }).where(eq(s.scheduledJob.id, id)).execute();
 };

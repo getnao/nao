@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { filterSupersededExecuteSqlParts, markSupersededExecuteSqlParts } from '../src/execute-sql-parts';
+import {
+	filterSupersededExecuteSqlParts,
+	isQueryResultPart,
+	markSupersededExecuteSqlParts,
+} from '../src/execute-sql-parts';
 
 type TestPart = {
 	type: string;
@@ -20,6 +24,15 @@ function executeSqlPart(queryId: string, rowCount: number): TestPart {
 function message(id: string, parts: TestPart[]): TestMessage {
 	return { id, parts };
 }
+
+describe('isQueryResultPart', () => {
+	it('matches both query tools and nothing else', () => {
+		expect(isQueryResultPart({ type: 'tool-execute_sql' })).toBe(true);
+		expect(isQueryResultPart({ type: 'tool-execute_semantic_query' })).toBe(true);
+		expect(isQueryResultPart({ type: 'tool-display_chart' })).toBe(false);
+		expect(isQueryResultPart({ type: 'text' })).toBe(false);
+	});
+});
 
 describe('markSupersededExecuteSqlParts', () => {
 	it('flags all but the last occurrence of a duplicated query id', () => {

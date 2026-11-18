@@ -7,13 +7,23 @@
  */
 export const LICENSE_FEATURES = {
 	excludeColumns: 'exclude-columns',
+	rowLevelSecurity: 'row-level-security',
 	sso: 'sso',
 	whiteLabel: 'white-label',
 	userBudget: 'user-budget',
+	userGroups: 'user-groups',
 	multiProject: 'multi-project',
 } as const;
 
 export type LicenseFeature = (typeof LICENSE_FEATURES)[keyof typeof LICENSE_FEATURES];
+
+/**
+ * Wildcard entitlement. A license whose `features` claim contains `"*"` is
+ * granted every entry of `LICENSE_FEATURES`, including features added after
+ * the license was issued — the wildcard is expanded against the running
+ * build's feature list at verification time, not when the license is signed.
+ */
+export const LICENSE_ALL_FEATURES = '*';
 
 /**
  * Result states surfaced by `license.getStatus`. Shared across backend and
@@ -29,9 +39,14 @@ export type LicenseFeature = (typeof LICENSE_FEATURES)[keyof typeof LICENSE_FEAT
 export const LICENSE_STATUSES = ['active', 'expired', 'invalid', 'unlicensed'] as const;
 export type LicenseStatus = (typeof LICENSE_STATUSES)[number];
 
+/** The organization or project a feature check runs for, so a cloud organization's Enterprise grant applies. */
+export type LicenseScope = { orgId: string } | { projectId: string };
+
 export interface NaoLicense {
 	subscriptionId: string;
 	companyName: string;
+	/** Set on licenses issued for a single nao Cloud organization; they never license a whole instance. */
+	orgId: string | null;
 	isOffline: boolean;
 	expiresAt: Date;
 	issuedAt: Date;

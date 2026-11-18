@@ -8,9 +8,13 @@ from enum import Enum
 from typing import TYPE_CHECKING, cast
 
 import questionary
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from nao_core.config.databases.context import DEFAULT_PREVIEW_MAX_VALUE_LENGTH, MIN_PREVIEW_MAX_VALUE_LENGTH
 
 if TYPE_CHECKING:
+    from concurrent.futures import Executor
+
     import pandas as pd
     from ibis import BaseBackend
 
@@ -22,6 +26,7 @@ class DatabaseType(str, Enum):
     BIGQUERY = "bigquery"
     CLICKHOUSE = "clickhouse"
     DUCKDB = "duckdb"
+    DUCKLAKE = "ducklake"
     MOTHERDUCK = "motherduck"
     DATABRICKS = "databricks"
     FABRIC = "fabric"
@@ -39,6 +44,7 @@ class DatabaseType(str, Enum):
         labels = {
             cls.BIGQUERY: "BigQuery",
             cls.DUCKDB: "DuckDB",
+            cls.DUCKLAKE: "DuckLake",
             cls.MOTHERDUCK: "MotherDuck",
             cls.MSSQL: "MSSQL",
             cls.STARROCKS: "StarRocks",
@@ -59,6 +65,12 @@ class DatabaseTemplate(str, Enum):
     PROFILING = "profiling"
     AI_SUMMARY = "ai_summary"
     QUERY_HISTORY = "query_history"
+
+
+DEFAULT_DATABASE_TEMPLATES = [
+    DatabaseTemplate.COLUMNS,
+    DatabaseTemplate.PREVIEW,
+]
 
 
 # Backward-compatible alias
@@ -105,6 +117,10 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
+    allow_listed_only: bool = Field(
+        default=False,
+        description="When enabled, SQL may only query tables present in synced context for this database.",
+    )
     exclude_columns: list[str] = Field(
         default_factory=list,
         description=(
@@ -113,16 +129,22 @@ class DatabaseConfig(BaseModel, ABC):
             "'analytics.events.*_id'). Empty means no columns are excluded."
         ),
     )
+    preview_max_value_length: int = Field(
+        default=DEFAULT_PREVIEW_MAX_VALUE_LENGTH,
+        ge=0,
+        description=(
+            "Maximum length of a single value in preview rows. Longer values are truncated "
+            "in the middle so one large column (e.g. a GeoJSON polygon) cannot bloat the "
+            "generated docs or the ai_summary prompt. 0 disables truncation, otherwise "
+            f"the minimum is {MIN_PREVIEW_MAX_VALUE_LENGTH}."
+        ),
+    )
     templates: list[DatabaseTemplate] = Field(
-        default_factory=lambda: [
-            DatabaseTemplate.COLUMNS,
-            DatabaseTemplate.QUERY_HISTORY,
-            DatabaseTemplate.PREVIEW,
-        ],
+        default_factory=lambda: list(DEFAULT_DATABASE_TEMPLATES),
         description=(
             "Which default templates to render per table "
-            "(e.g., ['columns', 'query_history', 'profiling', 'ai_summary']). "
-            "Defaults to ['columns', 'query_history', 'preview']."
+            "(e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). "
+            "Defaults to ['columns', 'preview']; an empty list uses this default."
         ),
     )
     query_history_days: int | None = Field(
@@ -145,6 +167,14 @@ class DatabaseConfig(BaseModel, ABC):
             "Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)')."
         ),
     )
+
+    @field_validator("preview_max_value_length")
+    @classmethod
+    def _validate_preview_max_value_length(cls, value: int) -> int:
+        """Reject caps too small to hold the truncation marker alongside part of the value."""
+        if 0 < value < MIN_PREVIEW_MAX_VALUE_LENGTH:
+            raise ValueError(f"must be 0 (no cap) or at least {MIN_PREVIEW_MAX_VALUE_LENGTH}, got {value}")
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -181,6 +211,8 @@ class DatabaseConfig(BaseModel, ABC):
                 if template != "description"
             ]
             data["templates"] = list(dict.fromkeys(migrated_templates))
+            if not data["templates"]:
+                data["templates"] = list(DEFAULT_DATABASE_TEMPLATES)
         return data
 
     profiling: ProfilingConfig = Field(
@@ -203,11 +235,13 @@ class DatabaseConfig(BaseModel, ABC):
         """Create an Ibis connection for this database."""
         ...
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
+    def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
         """Execute arbitrary SQL and return results as a DataFrame."""
         import pandas as pd  # noqa: F811
 
-        conn = self.connect()
+        owns_connection = conn is None
+        if conn is None:
+            conn = self.connect()
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
 
@@ -232,7 +266,23 @@ class DatabaseConfig(BaseModel, ABC):
                 "Expected cursor with fetchdf, to_dataframe, to_pandas, result_rows/column_names, or description/fetchall."
             )
         finally:
-            conn.disconnect()
+            if owns_connection:
+                conn.disconnect()
+
+    def requires_user_access_token(self) -> bool:
+        """Whether runtime queries must run as the signed-in user, with the access token of their identity provider.
+
+        The configured credentials then only serve nao sync and SQL validation.
+        """
+        return False
+
+    def has_sync_credentials(self) -> bool:
+        """Whether connect() has credentials to validate a query against the live schema."""
+        return True
+
+    def execute_sql_with_token(self, sql: str, access_token: str) -> pd.DataFrame:
+        """Execute SQL as the end user identified by an identity provider access token."""
+        raise NotImplementedError(f"{self.type} does not support running queries with a user access token")
 
     def matches_pattern(self, schema: str, table: str) -> bool:
         """Check if a schema.table matches the include/exclude patterns.
@@ -277,6 +327,9 @@ class DatabaseConfig(BaseModel, ABC):
         """Get the database name for this database type."""
         ...
 
+    def get_catalog_names(self) -> list[str]:
+        return [self.get_database_name()]
+
     def get_schemas(self, conn: BaseBackend) -> list[str]:
         """Return the list of schemas to sync. Override in subclasses for custom behavior."""
         # Prefer schemas (dataset-like) when available.
@@ -301,7 +354,24 @@ class DatabaseConfig(BaseModel, ABC):
         """Create a DatabaseContext for this table. Override in subclasses for custom metadata."""
         from nao_core.config.databases.context import DatabaseContext
 
-        return DatabaseContext(conn, schema, table_name, exclude_columns=self.exclude_columns)
+        return DatabaseContext(
+            conn,
+            schema,
+            table_name,
+            exclude_columns=self.exclude_columns,
+            preview_max_value_length=self.preview_max_value_length,
+        )
+
+    def prepare_sync_metadata(
+        self,
+        conn: BaseBackend,
+        schema_tables: dict[str, list[str]],
+        pool: Executor | None = None,
+    ) -> None:
+        """Preload metadata needed by table contexts. Backends can override this with a bulk path."""
+
+    def clear_sync_metadata(self) -> None:
+        """Discard metadata preloaded for one sync."""
 
     def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
         """Fetch semantic views for a schema. Override in subclasses that support semantic views."""

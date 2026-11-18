@@ -1,0 +1,1 @@
+ALTER TABLE `story_delivery` ADD `recipient_group_ids` text DEFAULT '[]' NOT NULL;

@@ -28,6 +28,7 @@ export const embedStoryDownloadRoutes = async (app: App) => {
 				story.code,
 				story.queryData,
 				story.dateFormat,
+				story.theme,
 			);
 
 			const safeName = filename.replace(/[^\x20-\x7E]+/g, '_');

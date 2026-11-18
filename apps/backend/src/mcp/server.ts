@@ -1,29 +1,23 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { getCustomBoundaries, listUserProjects } from '../queries/project.queries';
-import type { McpEndpointSettings } from '../types/mcp-endpoint';
+import { getCustomBoundaries, getProjectById } from '../queries/project.queries';
+import { resolveSemanticLayerMode } from '../services/semantic-layer.service';
+import { isCustomStoriesEnabled } from '../services/story-mount';
+import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
+import type { McpEndpointSettings, McpUserRole } from '../types/mcp-endpoint';
+import { extractConfiguredDatabases } from '../utils/nao-config';
 import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
 import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
+import { registerContextAdminTools } from './tools/context-admin-tools';
 import { registerContextLayerTools } from './tools/context-layer';
+import { registerMemberBudgetTools } from './tools/member-budget';
 import { registerSubAgentTools } from './tools/sub-agent';
-
-export async function resolveProjectId(userId: string): Promise<string> {
-	const projects = await listUserProjects(userId);
-	if (projects.length === 0) {
-		throw new Error('No projects found for this user. Create or join a project first.');
-	}
-	if (projects.length === 1) {
-		return projects[0].id;
-	}
-
-	const listing = projects.map((p) => `  - ${p.name} (${p.id})`).join('\n');
-	throw new Error(`MCP only supports single-project workspaces. Multiple projects found for this user:\n${listing}`);
-}
 
 export async function createMcpServer(
 	userId: string,
 	projectId: string,
+	role: McpUserRole,
 	settings: McpEndpointSettings,
 	chartDataMode = false,
 ): Promise<McpServer> {
@@ -34,13 +28,21 @@ export async function createMcpServer(
 			instructions: chartDataMode ? DATA_MODE_SERVER_INSTRUCTIONS : BASE_SERVER_INSTRUCTIONS,
 		},
 	);
-	const ctx = { userId, projectId, settings, chartDataMode };
+	const storyCreationEnabled = await hasUserGroupFeature(projectId, userId, 'storyCreation');
+	const customStoryCreationEnabled =
+		storyCreationEnabled &&
+		isCustomStoriesEnabled() &&
+		(await hasUserGroupFeature(projectId, userId, 'customStoryCreation'));
+	const ctx = { userId, projectId, role, settings, chartDataMode, storyCreationEnabled, customStoryCreationEnabled };
 
 	if (settings.subAgentModeEnabled) {
-		registerSubAgentTools(server, ctx);
+		await registerSubAgentTools(server, ctx);
 	}
 	if (settings.contextLayerModeEnabled) {
-		registerContextLayerTools(server, ctx);
+		const project = await getProjectById(projectId);
+		const configuredDatabases = project?.path ? extractConfiguredDatabases(project.path) : [];
+		const semanticLayerMode = project?.path ? resolveSemanticLayerMode(project.path, project.agentSettings) : null;
+		registerContextLayerTools(server, ctx, configuredDatabases, semanticLayerMode);
 	}
 
 	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
@@ -48,6 +50,8 @@ export async function createMcpServer(
 		registerAssetTools(server, ctx, customBoundaries);
 	}
 
+	registerContextAdminTools(server, ctx);
+	await registerMemberBudgetTools(server, ctx);
 	registerNaoMcpApps(server);
 
 	return server;

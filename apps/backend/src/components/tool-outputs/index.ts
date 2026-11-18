@@ -5,13 +5,16 @@ import { renderToMarkdown } from '../../lib/markdown/render-to-markdown';
 
 export { DisplayChartOutput } from './display-chart';
 export { DisplayMapOutput } from './display-map';
+export { ExecuteSemanticQueryOutput } from './execute-semantic-query';
 export { ExecuteSqlOutput } from './execute-sql';
 export { GrepOutput } from './grep';
 export { ListOutput } from './list';
+export { PageQueryResultOutput } from './page-query-result';
+export { QueryAppDbOutput } from './query-app-db';
 export { ReadOutput } from './read';
-export { ReadQueryResultOutput } from './read-query-result';
 export { SearchOutput } from './search';
 export { StoryOutput } from './story';
+export { StrReplaceOutput } from './str-replace';
 export { WriteOutput } from './write';
 
 /** Renders a tool output component to markdown for the model, falling back to JSON if the result is empty. */

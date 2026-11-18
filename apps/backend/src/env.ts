@@ -5,12 +5,111 @@ import { isLlmProvider, LLM_PROVIDERS, NAMED_PROVIDER_KIND } from '@nao/shared/t
 import dotenv from 'dotenv';
 import { z } from 'zod/v4';
 
+import {
+	parseEntraGroupNaoGroupMapping,
+	parseEntraGroupOrganizationRoleMapping,
+	parseOidcGroupNaoGroupMapping,
+} from './utils/sso-group-mapping';
+
 // Loads .env file at the root of the repository
 dotenv.config({
 	path: path.join(process.cwd(), '..', '..', '.env'),
 });
 
-const baseEnvSchema = z.object({
+const optionalNonEmptyString = z
+	.string()
+	.optional()
+	.transform((value) => value?.trim() || undefined);
+
+function parseCommaSeparatedList(value: string | undefined): string[] {
+	return (value ?? '')
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+}
+
+function blankToUndefined(value: unknown): unknown {
+	return typeof value === 'string' && value.trim() === '' ? undefined : value;
+}
+
+const emittedDeprecationWarnings = new Set<string>();
+
+function resolveOidcGroupNaoRoleMapping(
+	canonicalMapping: string | undefined,
+	deprecatedMapping: string | undefined,
+): string | undefined {
+	return resolveDeprecatedEnvAlias(
+		canonicalMapping,
+		deprecatedMapping,
+		'OIDC_GROUP_NAO_ROLE_MAPPING',
+		'OIDC_GROUP_ROLE_MAPPING',
+	);
+}
+
+function resolveAzureAdGroupNaoRoleMapping(
+	canonicalMapping: string | undefined,
+	deprecatedMapping: string | undefined,
+): string | undefined {
+	return resolveDeprecatedEnvAlias(
+		canonicalMapping,
+		deprecatedMapping,
+		'AZURE_AD_GROUP_NAO_ROLE_MAPPING',
+		'AZURE_AD_GROUP_ROLE_MAPPING',
+	);
+}
+
+function resolveDeprecatedEnvAlias(
+	canonicalValue: string | undefined,
+	deprecatedValue: string | undefined,
+	canonicalName: string,
+	deprecatedName: string,
+): string | undefined {
+	if (deprecatedValue !== undefined && !emittedDeprecationWarnings.has(deprecatedName)) {
+		const ignoredSuffix =
+			canonicalValue !== undefined ? ` ${deprecatedName} is ignored because ${canonicalName} is set.` : '';
+		console.warn(
+			`${deprecatedName} is deprecated; use ${canonicalName} instead. Support for the old name will be removed in a future release.${ignoredSuffix}`,
+		);
+		emittedDeprecationWarnings.add(deprecatedName);
+	}
+
+	return canonicalValue ?? deprecatedValue;
+}
+
+function resolveDeprecatedEnvAliases(value: unknown): unknown {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		return value;
+	}
+
+	const resolved = { ...(value as Record<string, unknown>) };
+	setResolvedEnvValue(
+		resolved,
+		'AZURE_AD_GROUP_NAO_ROLE_MAPPING',
+		resolveAzureAdGroupNaoRoleMapping(
+			resolved.AZURE_AD_GROUP_NAO_ROLE_MAPPING as string | undefined,
+			resolved.AZURE_AD_GROUP_ROLE_MAPPING as string | undefined,
+		),
+	);
+	setResolvedEnvValue(
+		resolved,
+		'OIDC_GROUP_NAO_ROLE_MAPPING',
+		resolveOidcGroupNaoRoleMapping(
+			resolved.OIDC_GROUP_NAO_ROLE_MAPPING as string | undefined,
+			resolved.OIDC_GROUP_ROLE_MAPPING as string | undefined,
+		),
+	);
+	return resolved;
+}
+
+function setResolvedEnvValue(resolved: Record<string, unknown>, name: string, value: string | undefined): void {
+	if (value === undefined) {
+		delete resolved[name];
+		return;
+	}
+	resolved[name] = value;
+}
+
+const baseRawEnvSchema = z.object({
 	MODE: z.enum(['dev', 'prod', 'test']).default('dev'),
 
 	DB_URI: z.string().default('sqlite:./db.sqlite'),
@@ -37,11 +136,26 @@ const baseEnvSchema = z.object({
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
+	/**
+	 * GitHub access token every project commits, pushes and opens pull requests with, as when an admin saves one in
+	 * Settings > Git. It takes over from a saved token, and nao Cloud ignores it, as each project saves its own.
+	 */
+	GITHUB_ACCESS_TOKEN: optionalNonEmptyString,
 	GITHUB_SSO: z
 		.enum(['true', 'false'])
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	GITHUB_BASE_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_BASE_URL must be a valid URL' }).optional()),
+	GITHUB_API_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'GITHUB_API_URL must be a valid URL' }).optional()),
 
 	GITLAB_CLIENT_ID: z.string().optional(),
 	GITLAB_CLIENT_SECRET: z.string().optional(),
@@ -62,10 +176,29 @@ const baseEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'GITLAB_REDIRECT_URI must be a valid URL' }).optional()),
 
+	CLOUD_GITHUB_PROJECT_ORG: optionalNonEmptyString,
+	CLOUD_GITHUB_PROJECT_APP_ID: optionalNonEmptyString,
+	CLOUD_GITHUB_PROJECT_INSTALLATION_ID: optionalNonEmptyString,
+	CLOUD_GITHUB_PROJECT_PRIVATE_KEY: optionalNonEmptyString,
+
 	AZURE_AD_CLIENT_ID: z.string().optional(),
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
 	AZURE_AD_TENANT_ID: z.string().optional(),
 	AZURE_AD_TOKEN_SCOPE: z.string().optional(),
+	AZURE_AD_GROUP_NAO_GROUP_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseEntraGroupNaoGroupMapping(value).status === 'valid', {
+			message:
+				'AZURE_AD_GROUP_NAO_GROUP_MAPPING must use Entra-group-object-id:project-scope:nao-user-group entries',
+		}),
+	AZURE_AD_GROUP_NAO_ROLE_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseEntraGroupOrganizationRoleMapping(value).status === 'valid', {
+			message: 'AZURE_AD_GROUP_NAO_ROLE_MAPPING must use Entra-group-object-id:organization-role entries',
+		}),
+	AZURE_AD_GROUP_ROLE_MAPPING: z.string().optional(),
 
 	ENABLE_USER_LOGIN: z
 		.enum(['true', 'false'])
@@ -88,25 +221,82 @@ const baseEnvSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_PROMPT: z.preprocess(
+		blankToUndefined,
+		z.enum(['select_account', 'login', 'consent', 'none', 'omit']).optional(),
+	),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
+	OIDC_GROUP_NAO_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
+	OIDC_GROUP_NAO_GROUP_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseOidcGroupNaoGroupMapping(value).status === 'valid', {
+			message:
+				'OIDC_GROUP_NAO_GROUP_MAPPING must be comma-separated oidc-group:project-scope:nao-user-group entries without commas or colons in values',
+		}),
 	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
-	SMTP_PASSWORD: z.string().optional(),
-	SMTP_HOST: z.string().optional(),
-	SMTP_PORT: z.string().optional(),
-	SMTP_USER: z.string().optional(),
-	SMTP_MAIL_FROM: z.string().optional(),
-	SMTP_SSL: z.enum(['true', 'false']).optional(),
+	SMTP_PASSWORD: z
+		.string()
+		.optional()
+		.transform((value) => value || undefined),
+	SMTP_HOST: optionalNonEmptyString,
+	SMTP_PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65_535).default(587)),
+	SMTP_USER: optionalNonEmptyString,
+	SMTP_MAIL_FROM: optionalNonEmptyString,
+	SMTP_SSL: z.preprocess(
+		blankToUndefined,
+		z
+			.enum(['true', 'false'])
+			.default('false')
+			.transform((value) => value === 'true'),
+	),
+
+	/**
+	 * Declarative Slack setup: when SLACK_BOT_TOKEN is set, these seed the default project's Slack
+	 * settings on boot (see seedSlackConfigFromEnv), replacing the manual Settings > Slack form.
+	 * SLACK_TRANSPORT_MODE defaults to socket when SLACK_APP_TOKEN is present, webhook otherwise.
+	 */
+	SLACK_BOT_TOKEN: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_SIGNING_SECRET: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_APP_TOKEN: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_TRANSPORT_MODE: z.enum(['webhook', 'socket']).optional(),
 
 	FASTAPI_PORT: z.coerce.number().default(8005),
+	/** On SIGTERM, how long /api/health reports unhealthy while still serving, so a load balancer can move traffic away. */
+	SHUTDOWN_DRAIN_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
 	APP_VERSION: z.string().default('dev'),
 	APP_COMMIT: z.string().default('unknown'),
 	APP_BUILD_DATE: z.string().default(''),
 
 	NAO_DEFAULT_PROJECT_PATH: z.string().optional(),
+	/**
+	 * Comma-separated project paths a self-hosted instance starts with, shown in the project selector.
+	 * Loading more than one project requires the Enterprise `multi-project` feature.
+	 */
+	NAO_PROJECT_PATHS: z
+		.string()
+		.optional()
+		.transform((val) => parseCommaSeparatedList(val)),
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
+	/** Enables the internal cloud backoffice API and is only honoured when NAO_MODE=cloud. */
+	NAO_BACKOFFICE_API_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.string().min(32).optional()),
+	NAO_MANAGED_OPENAI_API_KEY: optionalNonEmptyString,
 	NAO_CORE_VERSION: z.string().optional(),
 	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
 	NAO_CONTEXT_GIT_URL: z.string().optional(),
@@ -115,6 +305,61 @@ const baseEnvSchema = z.object({
 	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
 	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
+	/**
+	 * Set to false to turn off branch management of the repositories `nao sync` copies into the context: their branches
+	 * can no longer be picked in the Context Hub changes or tested. Their files stay in the context.
+	 */
+	NAO_CONTEXT_SYNCED_REPOS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
+
+	CLOUD_BILLING_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
+	STRIPE_SECRET_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_WEBHOOK_SECRET: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TRIAL_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CREDIT_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_PORTAL_CONFIGURATION_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 
 	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3']).default('local'),
 	NAO_STORAGE_LOCAL_PATH: z.string().default('./storage'),
@@ -230,12 +475,7 @@ const baseEnvSchema = z.object({
 	DISABLED_PROVIDERS: z
 		.string()
 		.optional()
-		.transform((val) =>
-			(val ?? '')
-				.split(',')
-				.map((entry) => entry.trim())
-				.filter(Boolean),
-		)
+		.transform((val) => parseCommaSeparatedList(val))
 		.refine((providers) => providers.every(isLlmProvider), {
 			message: `DISABLED_PROVIDERS must be a comma-separated list of provider kinds (${LLM_PROVIDERS.join(', ')}) or named instances (${NAMED_PROVIDER_KIND}/<name>)`,
 		}),
@@ -263,22 +503,111 @@ const baseEnvSchema = z.object({
 	BETA_CONTEXT_RECOMMENDATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
-		.default('false')
+		.default('true')
 		.transform((val) => val === 'true'),
 
 	BETA_STORY_FILTERS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
+
+	BETA_CUSTOM_STORIES_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
+
+	BETA_SUBAGENTS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
 });
 
-// Refresh tokens must outlive access tokens, otherwise a client can hold a valid
-// access token it can no longer renew once the refresh token has expired.
-const envSchema = baseEnvSchema.refine((e) => e.MCP_REFRESH_TOKEN_TTL > e.MCP_ACCESS_TOKEN_TTL, {
-	message: 'MCP_REFRESH_TOKEN_TTL must be greater than MCP_ACCESS_TOKEN_TTL so refresh tokens outlive access tokens',
-	path: ['MCP_REFRESH_TOKEN_TTL'],
-});
+const rawEnvSchema = z.preprocess(resolveDeprecatedEnvAliases, baseRawEnvSchema);
+const envSchema = rawEnvSchema
+	.superRefine((data, ctx) => {
+		if (isCloudBillingEnabled(data)) {
+			for (const variable of [
+				'STRIPE_SECRET_KEY',
+				'STRIPE_WEBHOOK_SECRET',
+				'STRIPE_CLOUD_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRODUCT_ID',
+				'STRIPE_CLOUD_TRIAL_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CLOUD_YEARLY_PRICE_LOOKUP_KEY',
+				'STRIPE_CREDIT_PRODUCT_ID',
+				'STRIPE_CREDIT_PLATFORM_FEE_PRODUCT_ID',
+			] as const) {
+				if (!data[variable]) {
+					ctx.addIssue({
+						code: 'custom',
+						path: [variable],
+						message: `${variable} is required when cloud billing is enabled`,
+					});
+				}
+			}
+		}
+
+		if (!data.SLACK_BOT_TOKEN) {
+			if (data.SLACK_SIGNING_SECRET || data.SLACK_APP_TOKEN || data.SLACK_TRANSPORT_MODE) {
+				ctx.addIssue({
+					code: 'custom',
+					path: ['SLACK_BOT_TOKEN'],
+					message: 'SLACK_BOT_TOKEN is required when other SLACK_* variables are set',
+				});
+			}
+			return;
+		}
+		const transport = data.SLACK_TRANSPORT_MODE ?? (data.SLACK_APP_TOKEN ? 'socket' : 'webhook');
+		if (transport === 'socket' && !data.SLACK_APP_TOKEN) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['SLACK_APP_TOKEN'],
+				message: 'SLACK_APP_TOKEN (xapp-...) is required when SLACK_TRANSPORT_MODE=socket',
+			});
+		}
+		if (transport === 'webhook' && !data.SLACK_SIGNING_SECRET) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['SLACK_SIGNING_SECRET'],
+				message: 'SLACK_SIGNING_SECRET is required when Slack runs in webhook mode',
+			});
+		}
+	})
+	.superRefine((data, ctx) => {
+		const fields = [
+			'CLOUD_GITHUB_PROJECT_ORG',
+			'CLOUD_GITHUB_PROJECT_APP_ID',
+			'CLOUD_GITHUB_PROJECT_INSTALLATION_ID',
+			'CLOUD_GITHUB_PROJECT_PRIVATE_KEY',
+		] as const;
+		const managedGithubIsConfigured = fields.some((field) => !!data[field]);
+		if (data.NAO_MODE !== 'cloud' && !managedGithubIsConfigured) {
+			return;
+		}
+
+		for (const field of fields) {
+			if (!data[field]) {
+				ctx.addIssue({
+					code: 'custom',
+					path: [field],
+					message:
+						data.NAO_MODE === 'cloud'
+							? `${field} is required when NAO_MODE=cloud`
+							: `${field} is required when managed GitHub project provisioning is configured`,
+				});
+			}
+		}
+	})
+	// Refresh tokens must outlive access tokens, otherwise a client can hold a valid
+	// access token it can no longer renew once the refresh token has expired.
+	.refine((e) => e.MCP_REFRESH_TOKEN_TTL > e.MCP_ACCESS_TOKEN_TTL, {
+		message:
+			'MCP_REFRESH_TOKEN_TTL must be greater than MCP_ACCESS_TOKEN_TTL so refresh tokens outlive access tokens',
+		path: ['MCP_REFRESH_TOKEN_TTL'],
+	});
 
 const result = envSchema.safeParse(process.env);
 
@@ -292,6 +621,16 @@ if (!result.success) {
 
 if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 	console.error('NAO_DEFAULT_PROJECT_PATH and NAO_MODE=cloud cannot be set at the same time.');
+	process.exit(1);
+}
+
+if (result.data.NAO_PROJECT_PATHS.length > 0 && result.data.NAO_MODE === 'cloud') {
+	console.error('NAO_PROJECT_PATHS and NAO_MODE=cloud cannot be set at the same time.');
+	process.exit(1);
+}
+
+if (result.data.NAO_CONTEXT_SOURCE === 'git' && result.data.NAO_MODE === 'cloud') {
+	console.error('NAO_CONTEXT_SOURCE=git cannot be set when NAO_MODE=cloud.');
 	process.exit(1);
 }
 
@@ -325,10 +664,27 @@ export function __reloadEnvForTesting(): void {
 export const isCloud = env.NAO_MODE === 'cloud';
 export const isSelfHosted = env.NAO_MODE === 'self-hosted';
 
+export function isCloudBillingEnabled(
+	data: Pick<z.output<typeof baseRawEnvSchema>, 'NAO_MODE' | 'CLOUD_BILLING_ENABLED'> = env,
+): boolean {
+	return data.NAO_MODE === 'cloud' && data.CLOUD_BILLING_ENABLED;
+}
+
+export function isCloudWelcomeEmailEnabled(
+	data: Pick<
+		z.output<typeof baseRawEnvSchema>,
+		'NAO_MODE' | 'CLOUD_BILLING_ENABLED' | 'SMTP_HOST' | 'SMTP_MAIL_FROM' | 'SMTP_PASSWORD'
+	> = env,
+): boolean {
+	return isCloudBillingEnabled(data) && Boolean(data.SMTP_HOST && data.SMTP_MAIL_FROM && data.SMTP_PASSWORD);
+}
+
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
 
 const normalizedMcpPublicUrl = env.MCP_PUBLIC_URL?.replace(/\/+$/, '');
+/** The public MCP origin (MCP_PUBLIC_URL without a trailing slash), when set. */
+export const MCP_PUBLIC_ORIGIN = normalizedMcpPublicUrl;
 /** The `/mcp` URL on the public host, when MCP_PUBLIC_URL is set. */
 export const MCP_PUBLIC_SERVER_URL = normalizedMcpPublicUrl ? `${normalizedMcpPublicUrl}/mcp` : undefined;
 /** OAuth resource identifiers the token endpoint accepts (RFC 8707 audiences). */
@@ -349,14 +705,19 @@ const mcpPublicHost = normalizedMcpPublicUrl ? new URL(normalizedMcpPublicUrl).h
  * on it, else BETTER_AUTH_URL — never an arbitrary Host header, so only known origins are advertised.
  */
 export function resolveMcpFacingOrigin(requestHost: string | undefined): string {
-	if (normalizedMcpPublicUrl && requestHost && requestHost.toLowerCase() === mcpPublicHost) {
+	if (normalizedMcpPublicUrl && isMcpPublicHost(requestHost)) {
 		return normalizedMcpPublicUrl;
 	}
 	return normalizedBaseUrl;
 }
 
+/** Whether the request came in on the public MCP host (MCP_PUBLIC_URL). */
+export function isMcpPublicHost(requestHost: string | undefined): boolean {
+	return Boolean(mcpPublicHost && requestHost && requestHost.toLowerCase() === mcpPublicHost);
+}
+
 export function noProjectMessage(): string {
 	return isCloud
 		? 'No project configured. Create a project or ask your organization admin to add you to one.'
-		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH environment variable.';
+		: 'No project configured. Set NAO_DEFAULT_PROJECT_PATH or NAO_PROJECT_PATHS environment variable.';
 }

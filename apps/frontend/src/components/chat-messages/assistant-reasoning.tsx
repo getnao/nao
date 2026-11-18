@@ -4,6 +4,7 @@ import { Conversation, ConversationContent } from '../ui/conversation';
 import { StreamingMarkdown } from '@/components/chat-messages/streaming-markdown';
 import { Expandable } from '@/components/ui/expandable';
 import { markdownPlugins } from '@/lib/markdown';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 interface AssistantReasoningProps {
 	text: string;
@@ -23,20 +24,28 @@ export const AssistantReasoning = memo(({ text, isStreaming }: AssistantReasonin
 		wasStreamingRef.current = isStreaming;
 	}, [isStreaming]);
 
+	const hasText = text.trim() !== '';
+	if (!isStreaming && !hasText) {
+		return null;
+	}
+
 	return (
 		<Expandable
 			title={isStreaming ? 'Thinking' : 'Thought'}
-			expanded={isExpanded}
+			expanded={isExpanded && hasText}
 			onExpandedChange={setIsExpanded}
+			disabled={!hasText}
 			isLoading={isStreaming}
 		>
 			<div className='text-muted-foreground markdown-small'>
 				<Conversation className='p-0'>
-					<ConversationContent className='p-0 max-h-[200px]'>
+					<ConversationContent className='p-0' scrollClassName='max-h-[200px]'>
 						{isStreaming ? (
 							<StreamingMarkdown text={text} />
 						) : (
 							<Streamdown
+								linkSafety={markdownLinkSafety}
+								dir='auto'
 								isAnimating={isStreaming}
 								mode={isStreaming ? 'streaming' : 'static'}
 								plugins={markdownPlugins}

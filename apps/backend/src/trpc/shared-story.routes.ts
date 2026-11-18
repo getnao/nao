@@ -1,146 +1,169 @@
-import { DOWNLOAD_FORMATS, SHARE_VISIBILITY } from '@nao/shared/types';
+import { extractQueryIds } from '@nao/shared/story-segments';
+import { DOWNLOAD_FORMATS, SHARE_ROLES, SHARE_VISIBILITY, type StoryFormat, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import type { DBStory } from '../db/abstractSchema';
 import * as activityQueries from '../queries/activity.queries';
-import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import * as storyFolderQueries from '../queries/story-folder.queries';
-import { logActivity } from '../services/activity';
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import { readStoryChartPluginSources } from '../services/chart-plugin';
+import {
+	assertCustomStoryExists,
+	getActiveThemeForProject,
+	getActiveThemeForStory,
+	getCustomStoryNarratives,
+	getCustomStoryVersion,
+	getSharedCustomStoryQueryData,
+	getSharedCustomStoryQuerySql,
+	getStandaloneCustomStoryNarratives,
+	getStandaloneCustomStoryQueryData,
+	getStandaloneCustomStoryQuerySql,
+	getStandaloneCustomStoryVersion,
+} from '../services/custom-story';
+import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-story-model';
+import { runCustomStorySql } from '../services/custom-story-sql';
+import {
+	getCustomStoryState,
+	getCustomStoryStateByStoryId,
+	setCustomStoryState,
+	setCustomStoryStateByStoryId,
+} from '../services/custom-story-state';
+import {
+	executeLiveQuery,
+	executeStoryLiveQuery,
+	getStandaloneStoryLiveQueryData,
+	getStoryQueryData,
+	refreshStoryById,
+} from '../services/live-story';
+import { listShareableGroups } from '../services/project-sharing.service';
+import { filterShareableUserGroupIds } from '../services/shareable-user-groups.service';
+import { unshareStory } from '../services/shared-story.service';
+import {
+	filterOptionsRequestSchema,
+	getStoryFilterOptions,
+	getStoryFilterOptionsByStoryId,
+} from '../services/story-filter-options';
 import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
-	getStoryFilterOptions,
+	getFilteredStoryQueryDataByStoryId,
 	getStoryQuerySql,
+	getStoryQuerySqlByStoryId,
 } from '../services/story-filters';
+import { readStoryMapBoundary } from '../services/story-map-boundary';
+import { assertStoryCanRefresh } from '../services/story-refresh.service';
+import {
+	assertCanManageStoryShare,
+	getStoryShareSettings,
+	saveStoryShareSettings,
+	type ShareActor,
+} from '../services/story-share-settings.service';
+import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { notifySharedItemRecipients } from '../utils/email';
+import {
+	mapBoundaryKey,
+	STANDALONE_SQL_UNAVAILABLE,
+	storyModelRequest,
+	storyQueryInputs,
+	storySnapshotHtml,
+	storySqlRequest,
+	storyStateChange,
+	toCustomStoryQueryTrpcError,
+	toCustomStoryTrpcError,
+} from '../utils/custom-story-trpc';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
+import { themeFontStylesheets } from '../utils/story-headless-page';
+import { getStandaloneStoryQueryData, withKpiPreviewData } from '../utils/story-query-data';
+import { buildStorySnapshotDownload } from '../utils/story-snapshot';
 import { extractStorySummary } from '../utils/story-summary';
 import {
 	adminProtectedProcedure,
 	canSendProcedure,
+	cloudBillingMiddleware,
 	projectProtectedProcedure,
 	protectedProcedure,
 	resourceProjectProcedure,
 } from './trpc';
 
-const chatProcedure = resourceProjectProcedure('chatId', chatQueries.getChatInfo, 'Chat');
-const shareProcedure = resourceProjectProcedure('shareId', sharedStoryQueries.getSharedStory, 'Shared story');
+const shareGrantInput = z.object({ id: z.string(), role: z.enum(SHARE_ROLES) });
+const storyToShareInput = z.union([
+	z.object({ chatId: z.string(), storySlug: z.string() }),
+	z.object({ storyId: z.string() }),
+]);
+type StoryToShare = z.infer<typeof storyToShareInput>;
+
+const shareProcedure = resourceProjectProcedure('storyId', sharedStoryQueries.getSharedStoryByStoryId, 'Shared story');
 const shareAccessProcedure = resourceProjectProcedure(
+	'storyId',
+	sharedStoryQueries.getSharedStoryByStoryId,
+	'Shared story',
+	canUserAccessShare,
+);
+const cloudBillingShareAccessProcedure = shareAccessProcedure.use(
+	cloudBillingMiddleware<{ resource: { projectId: string } }>(({ resource }) => ({
+		projectId: resource.projectId,
+	})),
+);
+const legacyShareAccessProcedure = resourceProjectProcedure(
 	'shareId',
 	sharedStoryQueries.getSharedStory,
 	'Shared story',
-	async (item, userId) =>
-		item.visibility !== 'specific' ||
-		item.userId === userId ||
-		sharedStoryQueries.canUserAccessSharedStory(item.id, userId),
+	canUserAccessShare,
 );
 
 export const sharedStoryRoutes = {
 	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
-		const projects = await projectQueries.listUserProjects(ctx.user.id);
-		const projectIds = projects.map((p) => p.id);
-		const stories = await sharedStoryQueries.listUserSharedStories(projectIds, ctx.user.id, input.projectId);
-		return stories.map((story) => ({
+		if (!(await projectQueries.getUserRoleInProject(input.projectId, ctx.user.id))) {
+			return [];
+		}
+		const stories = await sharedStoryQueries.listUserSharedStories(input.projectId, ctx.user.id);
+		const items = stories.map(({ id: _shareId, ...story }) => ({
 			...story,
 			storySlug: story.slug,
 			summary: extractStorySummary(story.code),
 			sharing: {
 				visibility: story.visibility,
 				sharedWithCount: story.sharedWithCount,
+				sharedWithGroupCount: story.sharedWithGroupCount,
 				isPinned: story.isPinned,
 			},
 		}));
+		return withKpiPreviewData(items, (story) => story.storyId);
 	}),
 
-	create: canSendProcedure
-		.input(
-			z.object({
-				chatId: z.string(),
-				storySlug: z.string(),
-				visibility: z.enum(SHARE_VISIBILITY).default('project'),
-				allowedUserIds: z.array(z.string()).optional(),
-				pinAfterCreate: z.boolean().optional(),
-				notify: z.boolean().default(false),
-			}),
-		)
-		.mutation(async ({ input, ctx }) => {
-			if (input.pinAfterCreate && ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can pin stories.' });
-			}
+	getStoryIdByShareId: legacyShareAccessProcedure
+		.input(z.object({ shareId: z.string() }))
+		.query(({ ctx }) => ({ storyId: ctx.resource.storyId })),
 
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			if (!story) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-			}
-
-			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
-			if (storyProjectId !== ctx.project.id) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
-			}
-
-			if (input.visibility === 'project') {
-				await storyFolderQueries.moveStoryToFolder(story.id, null, {
-					storyOwnerId: ctx.user.id,
-					projectId: ctx.project.id,
-				});
-			}
-
-			const created = await sharedStoryQueries.createSharedStory(
-				{
-					storyId: story.id,
-					projectId: ctx.project.id,
-					userId: ctx.user.id,
-					visibility: input.visibility,
-				},
-				input.allowedUserIds,
-				{ pinned: input.pinAfterCreate === true },
-			);
-
-			await logActivity({
-				projectId: ctx.project.id,
-				userId: ctx.user.id,
-				type: 'story.shared',
-				storyId: story.id,
-				sharedStoryId: created.id,
-			});
-
-			if (input.notify) {
-				notifySharedItemRecipients({
-					projectId: ctx.project.id,
-					sharerId: ctx.user.id,
-					sharerName: ctx.user.name,
-					shareId: created.id,
-					itemLabel: 'story',
-					itemTitle: story.title,
-					visibility: input.visibility,
-					allowedUserIds: input.allowedUserIds,
-				}).catch((err) => console.error('Failed to notify shared story recipients', err));
-			}
-
-			return created;
-		}),
-
-	get: shareAccessProcedure.input(z.object({ shareId: z.string() })).query(async ({ ctx }) => {
-		const shared = ctx.resource;
-		const storyRow = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
+	get: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
+		const { id: shareId, ...shared } = ctx.resource;
+		const storyRow = await storyQueries.getStoryById(shared.storyId);
 		const isLive = storyRow?.isLive ?? false;
 		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
 		const cacheSchedule = storyRow?.cacheSchedule ?? null;
 		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
+		const { canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
+		const canFork = await getStoryForkAccess(shared, ctx.user.id, ctx.userRole);
 
-		const { queryData, cachedAt } = await getStoryQueryData(
-			shared.chatId!,
-			shared.slug,
-			shared.code,
-			isLive,
-			cacheSchedule,
-		);
-		const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(shared.storyId);
+		const [lastRefreshFailure, theme] = await Promise.all([
+			activityQueries.getLatestStoryRefreshFailure(shared.storyId),
+			getActiveThemeForStory(shared.storyId),
+		]);
+		const { queryData, cachedAt, code, needsRefresh } =
+			shared.format === 'custom'
+				? { queryData: null, cachedAt: null, code: shared.code, needsRefresh: false }
+				: shared.chatId
+					? await getStoryQueryData(shared.chatId, shared.slug, shared.code, isLive, cacheSchedule, {
+							deferRefresh: canRefresh && lastRefreshFailure !== null,
+							deferFirstRefresh: canRefresh,
+						})
+					: await getStandaloneStoryLiveQueryData(shared.storyId, shared.code, isLive, cacheSchedule, {
+							deferRefresh: canRefresh && lastRefreshFailure !== null,
+							deferFirstRefresh: canRefresh,
+						});
 
 		if (ctx.user.id !== shared.userId) {
 			logAnalyticsEvent({
@@ -150,13 +173,13 @@ export const sharedStoryRoutes = {
 				actorUserId: ctx.user.id,
 				storyId: shared.storyId,
 				chatId: shared.chatId,
-				sharedStoryId: shared.id,
+				sharedStoryId: shareId,
 			});
 		}
 
 		return {
 			...shared,
-			storyId: shared.storyId,
+			code,
 			queryData,
 			isLive,
 			isLiveTextDynamic,
@@ -164,214 +187,432 @@ export const sharedStoryRoutes = {
 			cacheScheduleDescription,
 			cachedAt,
 			lastRefreshFailure,
+			needsRefresh: needsRefresh ?? false,
+			theme,
 			userRole: ctx.userRole,
+			canRefresh,
+			canFork,
+			isArchived: Boolean(storyRow?.archivedAt),
 		};
 	}),
 
-	getVersionQueryData: shareAccessProcedure
-		.input(z.object({ shareId: z.string(), versionNumber: z.number().int().positive() }))
+	getCustomVersion: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), versionNumber: z.number().int().positive().optional() }))
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
+			try {
+				return shared.chatId
+					? await getCustomStoryVersion(shared.chatId, shared.slug, input.versionNumber)
+					: await getStandaloneCustomStoryVersion(shared.storyId, input.versionNumber);
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryQuerySql: shareAccessProcedure
+		.input(
+			z.object({
+				storyId: z.string(),
+				queryId: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				const sqlQuery = shared.chatId
+					? await getSharedCustomStoryQuerySql(shared.chatId, shared.slug, input.queryId, input.versionNumber)
+					: await getStandaloneCustomStoryQuerySql(shared.storyId, input.queryId, input.versionNumber);
+				return { sqlQuery };
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryQueryData: shareAccessProcedure
+		.input(
+			z.object({
+				storyId: z.string(),
+				queryId: z.string(),
+				versionNumber: z.number().int().positive().optional(),
+				inputs: storyQueryInputs,
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				return shared.chatId
+					? await getSharedCustomStoryQueryData(
+							shared.chatId,
+							shared.slug,
+							input.queryId,
+							input.versionNumber,
+							{ inputs: input.inputs, viewerId: ctx.user.id },
+						)
+					: await getStandaloneCustomStoryQueryData(shared.storyId, input.queryId, input.versionNumber, {
+							rerun: { inputs: input.inputs, viewerId: ctx.user.id },
+						});
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	listCustomStoryModels: shareAccessProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(({ ctx }) => listCustomStoryModels(ctx.resource.projectId, ctx.user.id)),
+
+	runCustomStoryModel: cloudBillingShareAccessProcedure
+		.input(z.object({ storyId: z.string(), request: storyModelRequest }))
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				return await runCustomStoryModel(
+					{
+						projectId: shared.projectId,
+						storyId: shared.storyId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: shared.projectId,
+					},
+					input.request,
+				);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	runCustomStorySql: cloudBillingShareAccessProcedure
+		.input(z.object({ storyId: z.string(), request: storySqlRequest }))
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
 			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+				throw new TRPCError({ code: 'BAD_REQUEST', message: STANDALONE_SQL_UNAVAILABLE });
+			}
+			try {
+				await assertCustomStoryExists(shared.chatId, shared.slug);
+				return await runCustomStorySql(
+					{
+						projectId: shared.projectId,
+						chatId: shared.chatId,
+						viewerId: ctx.user.id,
+						billingAccessVerifiedProjectId: shared.projectId,
+					},
+					input.request,
+				);
+			} catch (error) {
+				throw toCustomStoryQueryTrpcError(error);
+			}
+		}),
+
+	getCustomStoryNarratives: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
+		const shared = ctx.resource;
+		try {
+			return shared.chatId
+				? await getCustomStoryNarratives(shared.chatId, shared.slug)
+				: await getStandaloneCustomStoryNarratives(shared.storyId);
+		} catch (error) {
+			throw toCustomStoryTrpcError(error);
+		}
+	}),
+
+	getCustomStoryChartPlugins: shareAccessProcedure
+		.input(z.object({ storyId: z.string() }))
+		.query(({ ctx }) => readStoryChartPluginSources(ctx.resource.storyId)),
+
+	getCustomStoryMapBoundary: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), key: mapBoundaryKey }))
+		.query(({ ctx, input }) => readStoryMapBoundary(ctx.resource.storyId, input.key)),
+
+	getCustomStoryState: shareAccessProcedure.input(z.object({ storyId: z.string() })).query(async ({ ctx }) => {
+		const shared = ctx.resource;
+		try {
+			return shared.chatId
+				? await getCustomStoryState(shared.chatId, shared.slug, ctx.user.id)
+				: await getCustomStoryStateByStoryId(shared.storyId, ctx.user.id);
+		} catch (error) {
+			throw toCustomStoryTrpcError(error);
+		}
+	}),
+
+	setCustomStoryState: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), change: storyStateChange }))
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			try {
+				if (shared.chatId) {
+					await setCustomStoryState(shared.chatId, shared.slug, ctx.user.id, input.change);
+				} else {
+					await setCustomStoryStateByStoryId(shared.storyId, ctx.user.id, input.change);
+				}
+			} catch (error) {
+				throw toCustomStoryTrpcError(error);
+			}
+		}),
+
+	downloadCustom: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS), html: storySnapshotHtml }))
+		.mutation(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			if (shared.format !== 'custom') {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
-			const version = await storyQueries.getVersionByNumber(shared.chatId, shared.slug, input.versionNumber);
+			logAnalyticsEvent({
+				projectId: shared.projectId,
+				type: 'download',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: shared.storyId,
+				chatId: shared.chatId,
+				sharedStoryId: shared.id,
+				metadata: {
+					type: 'download',
+					format: input.format,
+					versionNumber: shared.version,
+					title: shared.title,
+				},
+			});
+
+			const fontStylesheets = themeFontStylesheets(await getActiveThemeForStory(shared.storyId));
+			return buildStorySnapshotDownload(input.format, shared.title, input.html, fontStylesheets);
+		}),
+
+	getVersionQueryData: shareAccessProcedure
+		.input(z.object({ storyId: z.string(), versionNumber: z.number().int().positive() }))
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			const version = await storyQueries.getVersionByStoryIdAndNumber(shared.storyId, input.versionNumber);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const queryData = await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code);
+			const queryData = shared.chatId
+				? await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code)
+				: (await getStandaloneStoryQueryData(shared.storyId, version.code)).queryData;
 			return { queryData };
 		}),
 
-	getLiveQueryData: chatProcedure
-		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
-			return executeLiveQuery(input.chatId, input.queryId);
+	getLiveQueryData: cloudBillingShareAccessProcedure
+		.input(z.object({ storyId: z.string(), queryId: z.string() }))
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			if (!extractQueryIds(shared.code).has(input.queryId)) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Query not found in this story.' });
+			}
+			const options = { billingAccessVerifiedProjectId: shared.projectId, storyCode: shared.code };
+			return shared.chatId
+				? executeLiveQuery(shared.chatId, input.queryId, options)
+				: executeStoryLiveQuery({ id: shared.storyId, chatId: null }, input.queryId, options);
 		}),
 
-	getFilterOptions: shareAccessProcedure
-		.input(z.object({ shareId: z.string(), filterId: z.string() }))
+	getFilterOptions: cloudBillingShareAccessProcedure
+		.input(z.object({ storyId: z.string(), filterId: z.string(), ...filterOptionsRequestSchema.shape }))
 		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-			}
-			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId);
+			const { filterId, search, parentSelection } = input;
+			const request = { search, parentSelection };
+			const options = { billingAccessVerifiedProjectId: shared.projectId };
+			return shared.chatId
+				? getStoryFilterOptions(shared.chatId, shared.slug, filterId, request, options)
+				: getStoryFilterOptionsByStoryId(shared.storyId, filterId, request, options);
 		}),
 
-	getFilteredQueryData: shareAccessProcedure
+	getFilteredQueryData: cloudBillingShareAccessProcedure
 		.input(
 			z.object({
-				shareId: z.string(),
+				storyId: z.string(),
 				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-			}
-			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections);
+			const options = { billingAccessVerifiedProjectId: shared.projectId };
+			return shared.chatId
+				? getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, options)
+				: getFilteredStoryQueryDataByStoryId(shared.storyId, input.selections, options);
 		}),
 
 	getQuerySql: shareAccessProcedure
 		.input(
 			z.object({
-				shareId: z.string(),
+				storyId: z.string(),
 				queryId: z.string(),
 				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])).default({}),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
-			if (!shared.chatId) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
-			}
-			return getStoryQuerySql(shared.chatId, shared.slug, input.queryId, input.selections);
+			return shared.chatId
+				? getStoryQuerySql(shared.chatId, shared.slug, input.queryId, input.selections)
+				: getStoryQuerySqlByStoryId(shared.storyId, input.queryId, input.selections);
 		}),
 
-	refreshData: shareAccessProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ ctx }) => {
+	refreshData: cloudBillingShareAccessProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ ctx }) => {
 		const shared = ctx.resource;
-		const story = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
-		const storyOwnerId = story ? await storyQueries.getStoryOwnerId(story.id) : undefined;
-		const activity =
-			story && storyOwnerId
-				? await activityQueries.startStoryRefreshActivity({
-						projectId: shared.projectId,
-						userId: storyOwnerId,
-						storyId: story.id,
-						chatId: story.chatId,
-						trigger: 'manual',
-					})
-				: null;
+		const { storyOwnerId, canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
+		if (!storyOwnerId) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Live Story has no execution owner.' });
+		}
+		if (!canRefresh) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the Story owner or an admin can refresh this.' });
+		}
+		const story = await storyQueries.getStoryById(shared.storyId);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		assertStoryCanRefresh(story);
+		const activity = await activityQueries.startStoryRefreshActivity({
+			projectId: shared.projectId,
+			userId: storyOwnerId,
+			storyId: shared.storyId,
+			chatId: shared.chatId,
+			trigger: 'manual',
+		});
 		try {
-			const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
-			if (activity) {
-				await activityQueries.completeActivity(activity.id, {
-					queriesRefreshed: Object.keys(queryData).length,
+			return await withKeyedLock(`story:${shared.storyId}`, async () => {
+				const { queryData, queriesRefreshed } = await refreshStoryById(shared.storyId, {
+					billingAccessVerifiedProjectId: shared.projectId,
 				});
-			}
-			if (story?.id) {
+				await activityQueries.completeActivity(activity.id, { queriesRefreshed });
 				logAnalyticsEvent({
 					projectId: shared.projectId,
 					type: 'refresh',
 					assetType: 'story',
 					actorUserId: ctx.user.id,
-					storyId: story.id,
+					storyId: shared.storyId,
 					chatId: shared.chatId,
 					sharedStoryId: shared.id,
-					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
+					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed },
 				});
-			}
-			return { queryData, cachedAt: new Date() };
+				return { queryData, cachedAt: new Date() };
+			});
 		} catch (err) {
-			if (activity) {
-				await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
-			}
+			await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
 			throw err;
 		}
 	}),
 
-	getSharedStoryInfo: projectProtectedProcedure
-		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
-		.query(async ({ input, ctx }) => {
-			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-			if (!story) {
-				return { shareId: null, visibility: null, allowedUserIds: [] };
-			}
+	getSharedStoryInfo: projectProtectedProcedure.input(storyToShareInput).query(async ({ input, ctx }) => {
+		const notShared = {
+			isShared: false as const,
+			storyId: null,
+			visibility: null,
+			allowedUserIds: [],
+			allowedGroupIds: [],
+		};
+		const story = await findStoryToShare(input);
+		if (!story) {
+			return notShared;
+		}
+		const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+		if (storyProjectId !== ctx.project.id) {
+			return notShared;
+		}
+		const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
+		if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
+			return notShared;
+		}
+		const access = await sharedStoryQueries.getStoryShareAccess(story.id, ctx.project.id);
+		if (!access) {
+			return notShared;
+		}
 
-			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.project.id);
-			if (!share) {
-				return { shareId: null, visibility: null, allowedUserIds: [] };
-			}
+		return {
+			isShared: true as const,
+			storyId: story.id,
+			visibility: access.visibility,
+			allowedUserIds: access.allowedUserIds,
+			allowedGroupIds: await filterShareableUserGroupIds(ctx.project.id, access.allowedGroupIds),
+		};
+	}),
 
-			const allowedUserIds =
-				share.visibility === 'specific' ? await sharedStoryQueries.getSharedStoryAllowedUserIds(share.id) : [];
+	listShareableGroups: projectProtectedProcedure.query(async ({ ctx }) => {
+		return listShareableGroups(ctx.project.id, ctx.user.id);
+	}),
 
-			return { shareId: share.id, visibility: share.visibility, allowedUserIds };
-		}),
+	getShareSettings: projectProtectedProcedure.input(storyToShareInput).query(async ({ input, ctx }) => {
+		const story = await findStoryToShare(input);
+		const projectId = story && (story.projectId ?? (await storyQueries.getStoryProjectId(story.id)));
+		if (!story || projectId !== ctx.project.id) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		return getStoryShareSettings(story, toShareActor(ctx));
+	}),
 
-	updateAccess: shareProcedure
-		.input(z.object({ shareId: z.string(), allowedUserIds: z.array(z.string()) }))
+	saveShareSettings: canSendProcedure
+		.input(
+			z.object({
+				storyId: z.string(),
+				visibility: z.enum(SHARE_VISIBILITY),
+				projectRole: z.enum(SHARE_ROLES).default('viewer'),
+				users: z.array(shareGrantInput).default([]),
+				groups: z.array(shareGrantInput).default([]),
+				notify: z.boolean().default(false),
+			}),
+		)
 		.mutation(async ({ input, ctx }) => {
-			const shared = ctx.resource;
-
-			if (shared.userId !== ctx.user.id && ctx.userRole !== 'admin') {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
-			}
-
-			const previousAllowedUserIds = await sharedStoryQueries.getSharedStoryAllowedUserIds(input.shareId);
-			await sharedStoryQueries.updateSharedStoryAllowedUsers(input.shareId, input.allowedUserIds);
-
-			const newlyAddedUserIds = input.allowedUserIds.filter((id) => !previousAllowedUserIds.includes(id));
-			if (newlyAddedUserIds.length > 0) {
-				await notifySharedItemRecipients({
-					projectId: shared.projectId,
-					sharerId: shared.userId,
-					sharerName: shared.authorName,
-					shareId: input.shareId,
-					itemLabel: 'story',
-					itemTitle: shared.title,
-					visibility: 'specific',
-					allowedUserIds: newlyAddedUserIds,
-				});
-			}
+			const { story, actor } = await loadManagedStory(input.storyId, ctx);
+			await saveStoryShareSettings(story, actor, input);
 		}),
 
-	togglePin: adminProtectedProcedure
-		.input(z.object({ sharedStoryId: z.string() }))
-		.mutation(async ({ input, ctx }) => {
-			const share = await sharedStoryQueries.getSharedStory(input.sharedStoryId);
-			if (!share) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Shared story not found.' });
-			}
-			if (share.projectId !== ctx.project.id) {
-				throw new TRPCError({
-					code: 'FORBIDDEN',
-					message: 'This story does not belong to the current project.',
-				});
-			}
-			await sharedStoryQueries.toggleSharedStoryPin(input.sharedStoryId);
-		}),
+	togglePin: adminProtectedProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ input, ctx }) => {
+		const share = await sharedStoryQueries.getSharedStoryByStoryId(input.storyId);
+		if (!share) {
+			const { story, actor } = await loadManagedStory(input.storyId, ctx);
+			await saveStoryShareSettings(story, actor, {
+				visibility: 'project',
+				projectRole: 'viewer',
+				users: [],
+				groups: [],
+				notify: false,
+			});
+			await sharedStoryQueries.pinSharedStory(story.id);
+			return;
+		}
+		if (share.projectId !== ctx.project.id) {
+			throw new TRPCError({
+				code: 'FORBIDDEN',
+				message: 'This story does not belong to the current project.',
+			});
+		}
+		await sharedStoryQueries.toggleSharedStoryPin(share.id);
+	}),
 
-	delete: shareProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ input, ctx }) => {
+	delete: shareProcedure.input(z.object({ storyId: z.string() })).mutation(async ({ ctx }) => {
 		if (ctx.resource.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can delete this.' });
 		}
-
-		await sharedStoryQueries.deleteSharedStory(input.shareId);
+		await unshareStory(ctx.resource);
 	}),
 
 	download: shareAccessProcedure
 		.input(
 			z.object({
-				shareId: z.string(),
+				storyId: z.string(),
 				format: z.enum(DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
-				clipboardChartUrls: z.boolean().optional(),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
 			const shared = ctx.resource;
 
 			const version = input.versionNumber
-				? await storyQueries.getVersionByNumber(shared.chatId!, shared.slug, input.versionNumber)
-				: await storyQueries.getLatestVersionByChatAndSlug(shared.chatId!, shared.slug);
+				? await storyQueries.getVersionByStoryIdAndNumber(shared.storyId, input.versionNumber)
+				: await storyQueries.getLatestVersionByStoryId(shared.storyId);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const { queryData } = await getStoryQueryData(
-				shared.chatId!,
-				shared.slug,
-				version.code,
-				version.isLive,
-				version.cacheSchedule,
-			);
+			const { queryData, code } = shared.chatId
+				? await getStoryQueryData(
+						shared.chatId,
+						shared.slug,
+						version.code,
+						version.isLive,
+						version.cacheSchedule,
+					)
+				: await getStandaloneDownloadData(shared.storyId, version, input.versionNumber !== undefined);
 
 			logAnalyticsEvent({
 				projectId: shared.projectId,
@@ -389,15 +630,97 @@ export const sharedStoryRoutes = {
 				},
 			});
 
-			const displaySettings = shared.projectId ? await projectQueries.getDisplaySettings(shared.projectId) : null;
+			const [displaySettings, theme] = shared.projectId
+				? await Promise.all([
+						projectQueries.getDisplaySettings(shared.projectId),
+						getActiveThemeForProject(shared.projectId),
+					])
+				: [null, null];
 
 			return buildDownloadResponse(
 				input.format,
 				version.title,
-				version.code,
+				code,
 				queryData,
 				displaySettings?.dateFormat,
-				{ clipboardChartUrls: input.clipboardChartUrls },
+				theme,
 			);
 		}),
 };
+
+/** A story with a chat is found by its chat and slug; a standalone story, which has none, by its id. */
+function findStoryToShare(input: StoryToShare): Promise<DBStory | null> {
+	return 'storyId' in input
+		? storyQueries.getStoryById(input.storyId)
+		: storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+}
+
+async function canUserAccessShare(
+	share: { id: string; visibility: string; userId: string },
+	userId: string,
+): Promise<boolean> {
+	return (
+		share.visibility !== 'specific' ||
+		share.userId === userId ||
+		sharedStoryQueries.canUserAccessSharedStory(share.id, userId)
+	);
+}
+
+async function getStoryRefreshAccess(
+	storyId: string,
+	userId: string,
+	userRole: UserRole | null,
+): Promise<{ storyOwnerId: string | undefined; canRefresh: boolean }> {
+	const storyOwnerId = await storyQueries.getStoryOwnerId(storyId);
+	return {
+		storyOwnerId,
+		canRefresh: Boolean(storyOwnerId && (userId === storyOwnerId || userRole === 'admin')),
+	};
+}
+
+async function getStoryForkAccess(
+	shared: { projectId: string; userId: string; format: StoryFormat },
+	userId: string,
+	userRole: UserRole | null,
+): Promise<boolean> {
+	if (userRole === 'viewer') {
+		return false;
+	}
+	const [canCreateStory, canCreateCustomStory] = await Promise.all([
+		shared.userId === userId || hasUserGroupFeature(shared.projectId, userId, 'storyCreation'),
+		shared.format !== 'custom' || hasUserGroupFeature(shared.projectId, userId, 'customStoryCreation'),
+	]);
+	return canCreateStory && canCreateCustomStory;
+}
+
+function toShareActor(ctx: {
+	user: { id: string; name: string };
+	userRole: UserRole | null;
+	project: { id: string };
+}): ShareActor {
+	return { id: ctx.user.id, name: ctx.user.name, role: ctx.userRole, projectId: ctx.project.id };
+}
+
+async function loadManagedStory(
+	storyId: string,
+	ctx: Parameters<typeof toShareActor>[0],
+): Promise<{ story: DBStory; actor: ShareActor }> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (!story) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+	const actor = toShareActor(ctx);
+	await assertCanManageStoryShare(story, actor);
+	return { story, actor };
+}
+
+/** An older version is downloaded as it was saved: only the latest one is refreshed when live. */
+async function getStandaloneDownloadData(
+	storyId: string,
+	version: { code: string; isLive: boolean; cacheSchedule: string | null },
+	isPickedVersion: boolean,
+) {
+	return isPickedVersion
+		? getStandaloneStoryQueryData(storyId, version.code)
+		: getStandaloneStoryLiveQueryData(storyId, version.code, version.isLive, version.cacheSchedule);
+}

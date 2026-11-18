@@ -4,14 +4,16 @@ import { McpTitle } from './mcp-title';
 import type { ToolCallComponentProps } from '.';
 import type { McpTarget } from '@/lib/mcp';
 import { getMcpTarget } from '@/lib/mcp';
+import { getFileName, getReadContextLabel } from '@/lib/file-path';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { markdownPlugins } from '@/lib/markdown';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentProps<'read'>) => {
 	const { isSettled } = useToolCallContext();
 
 	const filePath = input?.file_path;
-	const fileName = filePath?.split('/').pop() ?? filePath;
+	const fileName = getFileName(filePath);
 	const mcpTarget = getMcpTarget(filePath);
 	const contextLabel = getReadContextLabel(filePath);
 	const titleContext = contextLabel ? (
@@ -61,15 +63,41 @@ export const ReadToolCall = ({ toolPart: { output, input } }: ToolCallComponentP
 						</div>
 					)}
 					<div className='overflow-auto max-h-200 hide-code-header markdown-small'>
-						<Streamdown mode='static' controls={false} plugins={markdownPlugins} className='py-10 px-24'>
+						<Streamdown
+							linkSafety={markdownLinkSafety}
+							mode='static'
+							controls={false}
+							plugins={markdownPlugins}
+							className='py-10 px-24'
+						>
 							{toMarkdown(output.content, filePath)}
 						</Streamdown>
 					</div>
+					{output.annotations && <AnnotationsSection annotations={output.annotations} />}
 				</div>
 			)}
 		</ToolCallWrapper>
 	);
 };
+
+const AnnotationsSection = ({ annotations }: { annotations: { path: string; content: string } }) => (
+	<div className='border-t'>
+		<div className='px-3 py-2 border-b text-[11px] text-muted-foreground'>
+			Annotations attached from <span className='font-mono'>{getFileName(annotations.path)}</span>
+		</div>
+		<div className='overflow-auto max-h-100 hide-code-header markdown-small'>
+			<Streamdown
+				linkSafety={markdownLinkSafety}
+				mode='static'
+				controls={false}
+				plugins={markdownPlugins}
+				className='py-6 px-24'
+			>
+				{annotations.content}
+			</Streamdown>
+		</div>
+	</div>
+);
 
 const McpReadTitle = ({ target, isSettled }: { target: McpTarget; isSettled: boolean }) => (
 	<McpTitle server={target.server}>
@@ -176,28 +204,4 @@ const FilePathBreadcrumb = ({ filePath }: { filePath: string }) => {
 			))}
 		</span>
 	);
-};
-
-const getReadContextLabel = (filePath?: string): string | null => {
-	if (!filePath) {
-		return null;
-	}
-
-	const schemaMatch = filePath.match(/\/schema=([^/]+)/);
-	const tableMatch = filePath.match(/\/table=([^/]+)/);
-	if (schemaMatch && tableMatch) {
-		return `${schemaMatch[1]}.${tableMatch[1]}`;
-	}
-
-	const pathSegments = filePath.split('/').filter(Boolean);
-	if (pathSegments.length < 2) {
-		return null;
-	}
-
-	const parentDir = pathSegments[pathSegments.length - 2];
-	if (!parentDir || parentDir.includes('=')) {
-		return null;
-	}
-
-	return parentDir;
 };

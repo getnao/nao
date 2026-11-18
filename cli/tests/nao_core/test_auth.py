@@ -1,0 +1,169 @@
+import json
+import threading
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
+
+import pytest
+import requests
+
+from nao_core import auth
+
+BASE_URL = "http://localhost:5005"
+
+
+@pytest.fixture(autouse=True)
+def isolated_auth_file(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "auth.json")
+
+
+@pytest.fixture
+def mock_open():
+    with patch("nao_core.auth.webbrowser.open") as browser_open:
+        yield browser_open
+
+
+@pytest.fixture
+def mock_post():
+    with patch("nao_core.auth.requests.post") as token_exchange:
+        yield token_exchange
+
+
+def test_token_storage_round_trip():
+    assert auth.get_stored_token() is None
+
+    auth.store_token("my-token")
+    assert auth.get_stored_token() == "my-token"
+
+    auth.clear_stored_auth()
+    assert auth.get_stored_token() is None
+
+
+def test_auth_file_is_owner_only():
+    auth.store_token("my-token")
+
+    assert auth.AUTH_FILE.stat().st_mode & 0o777 == 0o600
+
+
+def test_stored_cookies_still_readable():
+    auth.AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    auth.AUTH_FILE.write_text(json.dumps({"cookies": {"session": "abc"}}))
+
+    assert auth.get_stored_cookies() == {"session": "abc"}
+    assert auth.get_stored_token() is None
+
+
+def test_apply_stored_auth_prefers_bearer_token():
+    auth.store_token("my-token")
+    session = requests.Session()
+
+    assert auth.apply_stored_auth(session) is True
+    assert session.headers["Authorization"] == "Bearer my-token"
+
+
+def test_apply_stored_auth_falls_back_to_cookies():
+    auth.store_cookies({"session": "abc"})
+    session = requests.Session()
+
+    assert auth.apply_stored_auth(session) is True
+    assert session.cookies.get("session") == "abc"
+
+
+def test_apply_stored_auth_without_credentials():
+    assert auth.apply_stored_auth(requests.Session()) is False
+
+
+def _open_browser_and_callback(query_builder):
+    """Simulate the browser: hit the CLI callback with the given query params."""
+
+    def fake_open(url: str) -> bool:
+        params = parse_qs(urlparse(url).query)
+        port = params["port"][0]
+        state = params["state"][0]
+
+        def callback():
+            try:
+                urlopen(f"http://127.0.0.1:{port}/callback?{query_builder(state)}")
+            except OSError:
+                pass
+
+        threading.Thread(target=callback, daemon=True).start()
+        return True
+
+    return fake_open
+
+
+def test_browser_login_success(mock_open, mock_post):
+    mock_open.side_effect = _open_browser_and_callback(lambda state: f"code=one-time-code&state={state}")
+    mock_post.return_value = MagicMock(status_code=200, json=lambda: {"token": "session-token"})
+
+    token = auth.browser_login(BASE_URL, timeout=10)
+
+    assert token == "session-token"
+    assert auth.get_stored_token() == "session-token"
+    mock_post.assert_called_once_with(
+        f"{BASE_URL}/api/cli-auth/token",
+        json={"code": "one-time-code"},
+        timeout=auth.REQUEST_TIMEOUT_SECONDS,
+    )
+
+
+def test_browser_login_denied(mock_open, mock_post):
+    mock_open.side_effect = _open_browser_and_callback(lambda state: f"error=access_denied&state={state}")
+
+    assert auth.browser_login(BASE_URL, timeout=10) is None
+    assert auth.get_stored_token() is None
+    mock_post.assert_not_called()
+
+
+def test_browser_login_rejects_invalid_state(mock_open, mock_post):
+    mock_open.side_effect = _open_browser_and_callback(lambda state: "code=stolen-code&state=wrong-state")
+
+    assert auth.browser_login(BASE_URL, timeout=1) is None
+    mock_post.assert_not_called()
+
+
+def test_browser_login_raises_when_browser_unavailable(mock_open):
+    mock_open.return_value = False
+
+    with pytest.raises(auth.BrowserUnavailableError):
+        auth.browser_login(BASE_URL, timeout=10)
+
+
+@patch("nao_core.auth.prompt_password_login")
+@patch("nao_core.auth.browser_login")
+def test_interactive_login_falls_back_to_password_without_browser(mock_browser_login, mock_password_login):
+    mock_browser_login.side_effect = auth.BrowserUnavailableError
+    mock_password_login.return_value = {"session": "abc"}
+
+    assert auth.interactive_login(BASE_URL) is True
+    mock_password_login.assert_called_once()
+
+
+@patch("nao_core.auth.prompt_password_login")
+@patch("nao_core.auth.browser_login")
+def test_interactive_login_does_not_fall_back_when_denied(mock_browser_login, mock_password_login):
+    mock_browser_login.return_value = None
+
+    assert auth.interactive_login(BASE_URL) is False
+    mock_password_login.assert_not_called()
+
+
+def test_browser_login_exchange_failure(mock_open, mock_post):
+    mock_open.side_effect = _open_browser_and_callback(lambda state: f"code=expired-code&state={state}")
+    mock_post.return_value = MagicMock(status_code=400)
+
+    assert auth.browser_login(BASE_URL, timeout=10) is None
+    assert auth.get_stored_token() is None
+
+
+def test_password_login_does_not_store_a_pending_two_factor_cookie(mock_post):
+    mock_post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"twoFactorRedirect": True},
+        cookies={"better-auth.two_factor": "pending"},
+    )
+
+    assert auth.login(BASE_URL, "member@example.com", "password") is None
+    assert auth.get_stored_cookies() is None

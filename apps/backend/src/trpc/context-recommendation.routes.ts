@@ -17,6 +17,7 @@ import {
 	ProviderNotConnectedError,
 	resolveRecommendationRepo,
 } from '../services/context-pr.service';
+import { applyRecommendationToChanges } from '../services/context-recommendation-apply.service';
 import { buildAgentPrompt } from '../services/context-recommendation-prompt';
 import {
 	repairRecommendationTriggerRefs,
@@ -24,6 +25,7 @@ import {
 } from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
+import { resolveRepositoryToken } from '../services/shared-github-token.service';
 import {
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
 	CONTEXT_RECOMMENDATION_STATUSES,
@@ -31,17 +33,21 @@ import {
 	MIN_AUTO_PRS_PER_RUN,
 } from '../types/context-recommendation';
 import { llmProviderSchema } from '../types/llm';
+import { redactCredentialedUrls } from '../utils/credential-redaction';
 import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
-import { contextAdminProtectedProcedure } from './trpc';
+import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
 
 const recommendationsProcedure = contextAdminProtectedProcedure.use(async ({ next }) => {
-	if (!env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'Context recommendations are disabled on this instance.' });
-	}
+	assertContextRecommendationsEnabled();
+	return next();
+});
+
+const recommendationMutationProcedure = cloudBillingContextAdminProcedure.use(async ({ next }) => {
+	assertContextRecommendationsEnabled();
 	return next();
 });
 
@@ -54,7 +60,7 @@ function toPullRequestTrpcError(err: unknown): TRPCError {
 	}
 	return new TRPCError({
 		code: 'INTERNAL_SERVER_ERROR',
-		message: err instanceof Error ? err.message : 'Failed to create pull request',
+		message: err instanceof Error ? redactCredentialedUrls(err.message) : 'Failed to create pull request',
 	});
 }
 
@@ -81,12 +87,16 @@ export const contextRecommendationRoutes = {
 		crQueries.getLatestSuccessfulRun(ctx.project.id),
 	),
 
-	run: recommendationsProcedure.mutation(async ({ ctx }) => {
+	run: recommendationMutationProcedure.mutation(async ({ ctx }) => {
 		const latestRun = await crQueries.getLatestRun(ctx.project.id);
 		if (latestRun?.status === 'running') {
 			throw new TRPCError({ code: 'CONFLICT', message: 'A recommendations run is already in progress.' });
 		}
-		void runContextRecommendations(ctx.project.id, { trigger: 'manual' }).catch((err) => {
+		void runContextRecommendations(ctx.project.id, {
+			billingAccessVerifiedProjectId: ctx.project.id,
+			trigger: 'manual',
+			triggeredByUserId: ctx.user.id,
+		}).catch((err) => {
 			logger.error(`Manual context recommendations run failed: ${String(err)}`, { source: 'agent' });
 		});
 		return { started: true };
@@ -111,13 +121,20 @@ export const contextRecommendationRoutes = {
 		return { ...fresh, alreadyTerminal: !cancelled };
 	}),
 
-	listAvailableModels: recommendationsProcedure.query(async ({ ctx }) => getProjectAvailableModels(ctx.project.id)),
-
-	getConfig: recommendationsProcedure.query(async ({ ctx }) => {
-		return crQueries.getConfig(ctx.project.id);
+	listAvailableModels: recommendationsProcedure.query(async ({ ctx }) => {
+		return getProjectAvailableModels(ctx.project.id);
 	}),
 
-	setConfig: recommendationsProcedure
+	getConfig: recommendationsProcedure.query(async ({ ctx }) => {
+		const config = await crQueries.getConfig(ctx.project.id);
+		if (!config) {
+			return null;
+		}
+		const { encryptedGithubAccessToken: _encryptedGithubAccessToken, ...publicConfig } = config;
+		return publicConfig;
+	}),
+
+	setConfig: recommendationMutationProcedure
 		.input(
 			z.object({
 				modelProvider: llmProviderSchema.optional(),
@@ -159,7 +176,7 @@ export const contextRecommendationRoutes = {
 		return extractConfiguredRepos(ctx.project.path);
 	}),
 
-	setRepo: recommendationsProcedure
+	setRepo: recommendationMutationProcedure
 		.input(
 			z.object({
 				repoFullName: z
@@ -176,7 +193,7 @@ export const contextRecommendationRoutes = {
 			});
 		}),
 
-	setStatus: recommendationsProcedure
+	setStatus: recommendationMutationProcedure
 		.input(
 			z.object({
 				id: z.string(),
@@ -192,6 +209,17 @@ export const contextRecommendationRoutes = {
 			});
 		}),
 
+	applyToChanges: recommendationMutationProcedure
+		.input(z.object({ id: z.string() }))
+		.mutation(async ({ ctx, input }) =>
+			applyRecommendationToChanges({
+				projectId: ctx.project.id,
+				projectFolder: ctx.project.path,
+				editor: ctx.user,
+				recommendationId: input.id,
+			}),
+		),
+
 	getPrStatus: recommendationsProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
 		const rec = await crQueries.getRecommendationById(ctx.project.id, input.id);
 		if (!rec?.prUrl) {
@@ -200,7 +228,7 @@ export const contextRecommendationRoutes = {
 
 		const githubParsed = github.parsePullRequestUrl(rec.prUrl);
 		if (githubParsed) {
-			const token = await userQueries.getGithubToken(ctx.user.id);
+			const token = await resolveRepositoryToken(ctx.project.id, 'github', ctx.user.id);
 			if (!token) {
 				return null;
 			}
@@ -241,15 +269,17 @@ export const contextRecommendationRoutes = {
 		return null;
 	}),
 
-	createPullRequest: recommendationsProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-		try {
-			return await createRecommendationPullRequest(ctx.project.id, input.id, ctx.user.id);
-		} catch (err) {
-			throw toPullRequestTrpcError(err);
-		}
-	}),
+	createPullRequest: recommendationMutationProcedure
+		.input(z.object({ id: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				return await createRecommendationPullRequest(ctx.project.id, input.id, ctx.user.id);
+			} catch (err) {
+				throw toPullRequestTrpcError(err);
+			}
+		}),
 
-	createBatchPullRequest: recommendationsProcedure
+	createBatchPullRequest: recommendationMutationProcedure
 		.input(z.object({ ids: z.array(z.string()).min(1).max(20) }))
 		.mutation(async ({ ctx, input }) => {
 			try {
@@ -280,6 +310,12 @@ export const contextRecommendationRoutes = {
 		.input(z.object({ chatIds: z.array(z.string()).max(MAX_TRIGGER_CHATS) }))
 		.query(async ({ ctx, input }) => crQueries.getRecommendationChatMetadata(ctx.project.id, input.chatIds)),
 };
+
+function assertContextRecommendationsEnabled(): void {
+	if (!env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Context recommendations are disabled on this instance.' });
+	}
+}
 
 async function setContextRecommendationModel(projectId: string, selection: LlmSelectedModel): Promise<void> {
 	const settings = await projectQueries.getDefaultModelSettings(projectId);

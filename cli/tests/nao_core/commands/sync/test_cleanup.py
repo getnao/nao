@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
+import pytest
+
 from nao_core.commands.sync.cleanup import (
     DatabaseSyncState,
     cleanup_stale_databases,
@@ -68,17 +70,13 @@ class TestDatabaseSyncState:
         assert state.synced_schemas == {"public", "analytics"}
         assert state.schemas_synced == 2
 
-    def test_add_table_also_adds_schema(self, tmp_path: Path):
-        """add_table implicitly adds the schema."""
-        state = DatabaseSyncState(db_path=tmp_path)
-
-        state.add_table("public", "users")
-
-        assert "public" in state.synced_schemas
-
 
 class TestCleanupStalePaths:
     """Tests for cleanup_stale_paths function."""
+
+    @pytest.fixture
+    def db_path(self, tmp_path: Path) -> Path:
+        return tmp_path / "type=duckdb" / "database=test"
 
     def test_no_cleanup_when_db_path_does_not_exist(self, tmp_path: Path):
         """Returns 0 when database path doesn't exist."""
@@ -88,18 +86,13 @@ class TestCleanupStalePaths:
 
         assert removed == 0
 
-    def test_removes_stale_table_directory(self, tmp_path: Path):
+    def test_removes_stale_table_directory(self, db_path: Path):
         """Removes table directories not in synced state."""
-        # Create directory structure
-        db_path = tmp_path / "type=duckdb" / "database=test"
         schema_path = db_path / "schema=public"
         (schema_path / "table=users").mkdir(parents=True)
         (schema_path / "table=stale_table").mkdir(parents=True)
 
-        # Create state that only includes 'users' table
-        state = DatabaseSyncState(db_path=db_path)
-        state.add_schema("public")
-        state.add_table("public", "users")
+        state = _public_schema_state(db_path, "users")
 
         removed = cleanup_stale_paths(state)
 
@@ -107,17 +100,12 @@ class TestCleanupStalePaths:
         assert (schema_path / "table=users").exists()
         assert not (schema_path / "table=stale_table").exists()
 
-    def test_removes_stale_schema_directory(self, tmp_path: Path):
+    def test_removes_stale_schema_directory(self, db_path: Path):
         """Removes schema directories not in synced state."""
-        # Create directory structure
-        db_path = tmp_path / "type=duckdb" / "database=test"
         (db_path / "schema=public" / "table=users").mkdir(parents=True)
         (db_path / "schema=stale_schema" / "table=old_table").mkdir(parents=True)
 
-        # Create state that only includes 'public' schema
-        state = DatabaseSyncState(db_path=db_path)
-        state.add_schema("public")
-        state.add_table("public", "users")
+        state = _public_schema_state(db_path, "users")
 
         removed = cleanup_stale_paths(state)
 
@@ -125,80 +113,59 @@ class TestCleanupStalePaths:
         assert (db_path / "schema=public").exists()
         assert not (db_path / "schema=stale_schema").exists()
 
-    def test_removes_multiple_stale_tables(self, tmp_path: Path):
+    def test_removes_multiple_stale_tables(self, db_path: Path):
         """Removes multiple stale table directories."""
-        # Create directory structure
-        db_path = tmp_path / "type=duckdb" / "database=test"
         schema_path = db_path / "schema=public"
         (schema_path / "table=users").mkdir(parents=True)
         (schema_path / "table=stale1").mkdir(parents=True)
         (schema_path / "table=stale2").mkdir(parents=True)
         (schema_path / "table=stale3").mkdir(parents=True)
 
-        # Create state that only includes 'users' table
-        state = DatabaseSyncState(db_path=db_path)
-        state.add_schema("public")
-        state.add_table("public", "users")
+        state = _public_schema_state(db_path, "users")
 
         removed = cleanup_stale_paths(state)
 
         assert removed == 3
         assert (schema_path / "table=users").exists()
 
-    def test_ignores_non_schema_directories(self, tmp_path: Path):
+    def test_ignores_non_schema_directories(self, db_path: Path):
         """Ignores directories that don't start with 'schema='."""
-        # Create directory structure
-        db_path = tmp_path / "type=duckdb" / "database=test"
         (db_path / "schema=public" / "table=users").mkdir(parents=True)
         (db_path / "other_dir").mkdir(parents=True)  # Should be ignored
 
-        state = DatabaseSyncState(db_path=db_path)
-        state.add_schema("public")
-        state.add_table("public", "users")
+        state = _public_schema_state(db_path, "users")
 
         removed = cleanup_stale_paths(state)
 
         assert removed == 0
         assert (db_path / "other_dir").exists()
 
-    def test_ignores_non_table_directories(self, tmp_path: Path):
+    def test_ignores_non_table_directories(self, db_path: Path):
         """Ignores directories that don't start with 'table='."""
-        # Create directory structure
-        db_path = tmp_path / "type=duckdb" / "database=test"
         schema_path = db_path / "schema=public"
         (schema_path / "table=users").mkdir(parents=True)
         (schema_path / "metadata").mkdir(parents=True)  # Should be ignored
 
-        state = DatabaseSyncState(db_path=db_path)
-        state.add_schema("public")
-        state.add_table("public", "users")
+        state = _public_schema_state(db_path, "users")
 
         removed = cleanup_stale_paths(state)
 
         assert removed == 0
         assert (schema_path / "metadata").exists()
 
-    def test_no_cleanup_when_everything_synced(self, tmp_path: Path):
+    def test_no_cleanup_when_everything_synced(self, db_path: Path):
         """Returns 0 when all existing paths are in sync state."""
-        # Create directory structure
-        db_path = tmp_path / "type=duckdb" / "database=test"
         (db_path / "schema=public" / "table=users").mkdir(parents=True)
         (db_path / "schema=public" / "table=orders").mkdir(parents=True)
 
-        # Create state that includes both tables
-        state = DatabaseSyncState(db_path=db_path)
-        state.add_schema("public")
-        state.add_table("public", "users")
-        state.add_table("public", "orders")
+        state = _public_schema_state(db_path, "users", "orders")
 
         removed = cleanup_stale_paths(state)
 
         assert removed == 0
 
-    def test_removes_table_with_files(self, tmp_path: Path):
+    def test_removes_table_with_files(self, db_path: Path):
         """Removes table directory including all files inside."""
-        # Create directory structure with files
-        db_path = tmp_path / "type=duckdb" / "database=test"
         schema_path = db_path / "schema=public"
         table_path = schema_path / "table=stale"
         table_path.mkdir(parents=True)
@@ -206,9 +173,7 @@ class TestCleanupStalePaths:
         (table_path / "preview.md").write_text("# Preview")
         (schema_path / "table=users").mkdir()
 
-        state = DatabaseSyncState(db_path=db_path)
-        state.add_schema("public")
-        state.add_table("public", "users")
+        state = _public_schema_state(db_path, "users")
 
         removed = cleanup_stale_paths(state)
 
@@ -287,8 +252,7 @@ class TestCleanupStaleDatabases:
             DBConfig(type="clickhouse", name="last", database="default"),
             DBConfig(type="clickhouse", name="numia", database="default"),
             DBConfig(type="clickhouse", name="unique", database="analytics"),
-            DBConfig(type="duckdb", name="analytics-copy", path="/tmp/analytics.db"),
-            DBConfig(type="duckdb", name="analytics-copy-2", path="/tmp/analytics.db"),
+            DBConfig(type="duckdb", name="analytics-local", path="/tmp/analytics.db"),
         ]
 
         folders = get_database_folder_names(active_dbs)
@@ -298,8 +262,40 @@ class TestCleanupStaleDatabases:
             "database=numia",
             "database=unique",
             "database=analytics",
-            "database=analytics",
         ]
+
+    def test_database_folder_names_use_config_name_for_shared_database_name(self):
+        active_dbs: List[DBConfig] = [
+            DBConfig(type="mssql", name="shop_a_ro", database="retaildb"),
+            DBConfig(type="mssql", name="shop_b_ro", database="RetailDB"),
+            DBConfig(type="mssql", name="warehouse", database="warehouse_db"),
+            DBConfig(type="postgres", name="retail_pg", database="retaildb"),
+            DBConfig(type="duckdb", name="copy/1", path="/tmp/one/analytics.duckdb"),
+            DBConfig(type="duckdb", name="copy/2", path="/tmp/two/analytics.duckdb"),
+        ]
+
+        folders = get_database_folder_names(active_dbs)
+
+        assert folders == [
+            "database=shop_a_ro",
+            "database=shop_b_ro",
+            "database=warehouse_db",
+            "database=retaildb",
+            "database=copy_1",
+            "database=copy_2",
+        ]
+
+    def test_removes_folder_shared_by_connections_with_same_database_name(self, tmp_path: Path):
+        (tmp_path / "type=mssql" / "database=retaildb").mkdir(parents=True)
+
+        active_dbs: List[DBConfig] = [
+            DBConfig(type="mssql", name="shop_a_ro", database="retaildb"),
+            DBConfig(type="mssql", name="shop_b_ro", database="retaildb"),
+        ]
+
+        cleanup_stale_databases(active_dbs, tmp_path)
+
+        assert not (tmp_path / "type=mssql" / "database=retaildb").exists()
 
     def test_no_cleanup_when_base_path_does_not_exist(self, tmp_path: Path):
         missing = tmp_path / "databases"
@@ -339,3 +335,11 @@ def create_repo_dir(base: Path, name: str) -> Path:
     repo.mkdir(parents=True)
     (repo / "README.md").write_text("dummy")
     return repo
+
+
+def _public_schema_state(db_path: Path, *tables: str) -> DatabaseSyncState:
+    state = DatabaseSyncState(db_path=db_path)
+    state.add_schema("public")
+    for table in tables:
+        state.add_table("public", table)
+    return state

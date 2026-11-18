@@ -1,10 +1,23 @@
-import { CircleAlert, CircleHelp, Globe2, Lightbulb, Shield, ThumbsDown, ThumbsUp } from 'lucide-react';
+import {
+	Bot,
+	CircleAlert,
+	CircleHelp,
+	FlaskConical,
+	Globe2,
+	Library,
+	Lightbulb,
+	Shield,
+	ThumbsDown,
+	ThumbsUp,
+	Workflow,
+} from 'lucide-react';
 import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
 import type { ColumnDef } from '@tanstack/react-table';
 
 import type { ProjectChatListItem } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import DiscordIcon from '@/components/icons/discord.svg';
 import MattermostIcon from '@/components/icons/mattermost.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
@@ -14,10 +27,14 @@ import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 
 const sourceConfig = {
 	web: { label: 'Web', icon: <Globe2 className='size-3.5' /> },
+	automationEditor: { label: 'Web (automations)', icon: <Workflow className='size-3.5' /> },
+	contextEditor: { label: 'Web (context hub)', icon: <Library className='size-3.5' /> },
+	automation: { label: 'Automations', icon: <Bot className='size-3.5' /> },
 	slack: { label: 'Slack', icon: <SlackIcon className='size-3.5' /> },
 	teams: { label: 'Teams', icon: <TeamsIcon className='size-3.5' /> },
 	telegram: { label: 'Telegram', icon: <TelegramIcon className='size-3.5' /> },
 	mattermost: { label: 'Mattermost', icon: <MattermostIcon className='size-3.5' /> },
+	discord: { label: 'Discord', icon: <DiscordIcon className='size-3.5' /> },
 	whatsapp: { label: 'WhatsApp', icon: <WhatsAppIcon className='size-3.5' /> },
 	admin: { label: 'Admin mode', icon: <Shield className='size-3.5' /> },
 	mcp: { label: 'MCP', icon: <McpIcon className='size-3.5' /> },
@@ -25,6 +42,7 @@ const sourceConfig = {
 		label: 'Context recommendations',
 		icon: <Lightbulb className='size-3.5' />,
 	},
+	test: { label: 'Tests', icon: <FlaskConical className='size-3.5' /> },
 } as const;
 
 export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {
@@ -193,8 +211,8 @@ const exactTokenFormatter = new Intl.NumberFormat('en-US');
 const costFormatter = new Intl.NumberFormat('en-US', {
 	style: 'currency',
 	currency: 'USD',
-	minimumFractionDigits: 1,
-	maximumFractionDigits: 1,
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 2,
 });
 
 function formatCompactTokens(value: number): string {

@@ -15,10 +15,19 @@ import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ReactNode } from 'react';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
+import {
+	chartBlockReference,
+	mapBlockReference,
+	StoryBlock,
+	StoryMapFrame,
+	StoryTableFrame,
+	tableBlockReference,
+} from '@/components/story-block';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 import { markdownPlugins } from '@/lib/markdown';
 import { cn } from '@/lib/utils';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 const markdownComponents = { table: ({ node, className }: any) => <MarkdownTable node={node} className={className} /> };
 
@@ -37,33 +46,44 @@ function renderColumnContent(
 	switch (segment.type) {
 		case 'markdown':
 			return (
-				<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+				<Streamdown
+					linkSafety={markdownLinkSafety}
+					mode='static'
+					plugins={markdownPlugins}
+					components={markdownComponents}
+				>
 					{segment.content}
 				</Streamdown>
 			);
 		case 'chart':
 			return (
 				<EditorStoryChartEditProvider onReplaceTag={onReplaceTag}>
-					<StoryChartEmbed
-						chart={segment.chart}
-						dragHandle={dragHandle}
-						dragHandlePlacement={dragHandlePlacement}
-						isSelected={isSelected}
-					/>
+					<StoryBlock block={chartBlockReference(segment.chart)}>
+						<StoryChartEmbed
+							chart={segment.chart}
+							dragHandle={dragHandle}
+							dragHandlePlacement={dragHandlePlacement}
+							isSelected={isSelected}
+						/>
+					</StoryBlock>
 				</EditorStoryChartEditProvider>
 			);
 		case 'table':
 			return (
-				<StoryTableEmbed
-					table={segment.table}
-					dragHandle={dragHandle}
-					dragHandlePlacement={dragHandlePlacement}
-				/>
+				<StoryTableFrame block={tableBlockReference(segment.table)}>
+					<StoryTableEmbed
+						table={segment.table}
+						dragHandle={dragHandle}
+						dragHandlePlacement={dragHandlePlacement}
+					/>
+				</StoryTableFrame>
 			);
 		case 'map':
 			return (
 				<EditorStoryMapEditProvider onReplaceTag={onReplaceTag}>
-					<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
+					<StoryMapFrame block={mapBlockReference(segment.map)}>
+						<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
+					</StoryMapFrame>
 				</EditorStoryMapEditProvider>
 			);
 		case 'grid':

@@ -124,10 +124,13 @@ projectsPersistence:
 | `config.enableUserSignup` | `false` | Allow self sign-up |
 | `config.defaultUserRole` | `"user"` | Role for new users: `admin` \| `user` \| `viewer` |
 | `config.githubSso` | `false` | Enable "Sign in with GitHub" |
+| `config.githubBaseUrl` | `""` | GitHub Enterprise Server instance URL |
+| `config.githubApiUrl` | `""` | GitHub REST API URL override (defaults to `<githubBaseUrl>/api/v3` on Enterprise) |
 | `config.gitlabSso` | `false` | Enable "Sign in with GitLab" |
 | `config.gitlabBaseUrl` | `""` | Self-hosted GitLab instance URL |
 | `config.betaAutomationsEnabled` | `true` | Recurring prompt automations |
-| `config.betaContextRecommendationsEnabled` | `false` | Context recommendations |
+| `config.betaContextRecommendationsEnabled` | `true` | Context recommendations |
+| `config.betaCustomStoriesEnabled` | `false` | Custom story theming |
 | `existingSecret` | `""` | Load all secret env vars from a pre-existing Secret instead of rendering one (the `secrets.*` block is then ignored). Rotations of that Secret need an external rollout trigger |
 | `extraEnv` | `[]` | Extra env vars appended verbatim to the nao container |
 | `extraEnvFrom` | `[]` | Extra `envFrom` sources appended after the chart's ConfigMap/Secret |

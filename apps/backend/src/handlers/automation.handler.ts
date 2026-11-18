@@ -1,7 +1,7 @@
 import type { InferUIMessageChunk } from 'ai';
 import { getToolName, isToolUIPart, readUIMessageStream } from 'ai';
 
-import { getTools } from '../agents/tools';
+import { automationAgent } from '../agents/profiles/automation';
 import { renderAutomationRunPrompt } from '../components/ai/automation-run-prompt';
 import type { DBAutomationRun, DBScheduledJob } from '../db/abstractSchema';
 import type { AutomationWithSchedule } from '../queries/automation.queries';
@@ -15,10 +15,11 @@ import {
 	createAutomationTools,
 	getAutomationIntegrationToolNames,
 	isGithubAutomationTool,
+	type SlackChannelDelivery,
 } from '../services/automation-tools';
 import { mcpService } from '../services/mcp';
 import { skillService } from '../services/skill';
-import type { AutomationIntegrationResult } from '../types/automation';
+import type { AutomationIntegrationResult, AutomationRunTrigger, AutomationTriggerEvent } from '../types/automation';
 import type { UIMessage, UIMessagePart } from '../types/chat';
 import { logger } from '../utils/logger';
 
@@ -29,8 +30,17 @@ type AutomationJobPayload = {
 	automationId?: string;
 };
 
+type IntegrationToolOutput = {
+	ok?: boolean;
+	url?: string;
+	deliveries?: SlackChannelDelivery[];
+};
+
 type RunAutomationOptions = {
+	trigger: AutomationRunTrigger;
+	billingAccessVerifiedProjectId?: string;
 	requireEnabled?: boolean;
+	triggerEvent?: AutomationTriggerEvent;
 };
 
 export async function automationHandler(payload: AutomationJobPayload, _job?: DBScheduledJob): Promise<void> {
@@ -38,29 +48,49 @@ export async function automationHandler(payload: AutomationJobPayload, _job?: DB
 	if (!automationId) {
 		throw new Error('automationId is required.');
 	}
-	await runAutomation(automationId, { requireEnabled: true });
+	const automation = await automationQueries.getAutomationById(automationId);
+	if (!automation) {
+		throw new Error(`Automation not found: ${automationId}`);
+	}
+	await runAutomation(automationId, {
+		billingAccessVerifiedProjectId: automation.projectId,
+		requireEnabled: true,
+		trigger: 'schedule',
+	});
+}
+
+export async function resolveAutomationProjectId(payload: AutomationJobPayload): Promise<string> {
+	const automationId = payload.automationId;
+	if (!automationId) {
+		throw new Error('automationId is required.');
+	}
+	const automation = await automationQueries.getAutomationById(automationId);
+	if (!automation) {
+		throw new Error(`Automation not found: ${automationId}`);
+	}
+	return automation.projectId;
 }
 
 export async function runAutomation(
 	automationId: string,
-	{ requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false, trigger, triggerEvent }: RunAutomationOptions,
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, { requireEnabled });
-	return finishAutomationRun(automation, run);
+	const { automation, run } = await createAutomationRun(automationId, { requireEnabled, trigger });
+	return finishAutomationRun(automation, run, { billingAccessVerifiedProjectId, triggerEvent });
 }
 
 export async function startAutomationRun(
 	automationId: string,
-	{ requireEnabled = false }: RunAutomationOptions = {},
+	{ billingAccessVerifiedProjectId, requireEnabled = false, trigger, triggerEvent }: RunAutomationOptions,
 ): Promise<DBAutomationRun> {
-	const { automation, run } = await createAutomationRun(automationId, { requireEnabled });
-	void finishAutomationRun(automation, run).catch(() => undefined);
+	const { automation, run } = await createAutomationRun(automationId, { requireEnabled, trigger });
+	void finishAutomationRun(automation, run, { billingAccessVerifiedProjectId, triggerEvent }).catch(() => undefined);
 	return run;
 }
 
 async function createAutomationRun(
 	automationId: string,
-	{ requireEnabled }: Required<RunAutomationOptions>,
+	{ requireEnabled, trigger }: { requireEnabled: boolean; trigger: AutomationRunTrigger },
 ): Promise<{ automation: AutomationWithSchedule; run: DBAutomationRun }> {
 	const automation = await automationQueries.getAutomationById(automationId);
 	if (!automation) {
@@ -69,17 +99,24 @@ async function createAutomationRun(
 	if (requireEnabled && !automation.enabled) {
 		throw new Error(`Automation is disabled: ${automationId}`);
 	}
-
 	const run = await automationQueries.createAutomationRun({
 		automationId,
 		status: 'running',
+		trigger,
 		integrationResults: [],
 	});
 
 	return { automation, run };
 }
 
-async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAutomationRun): Promise<DBAutomationRun> {
+async function finishAutomationRun(
+	automation: AutomationWithSchedule,
+	run: DBAutomationRun,
+	{
+		billingAccessVerifiedProjectId,
+		triggerEvent,
+	}: Pick<RunAutomationOptions, 'billingAccessVerifiedProjectId' | 'triggerEvent'>,
+): Promise<DBAutomationRun> {
 	const automationId = automation.id;
 	try {
 		const automationUser = await userQueries.getUser({ id: automation.userId });
@@ -98,8 +135,9 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 					prompt: automation.prompt,
 					integrations: automation.integrations,
 					userEmail: automationUser.email,
+					triggerEvent,
 				}),
-				source: 'web',
+				source: 'automation',
 			},
 		);
 		await automationQueries.attachRunChat(run.id, chat.id);
@@ -116,36 +154,21 @@ async function finishAutomationRun(automation: AutomationWithSchedule, run: DBAu
 
 		const githubToken = await userQueries.getGithubToken(automation.userId);
 		const expectedTools = getAutomationIntegrationToolNames(automation.integrations);
+		const integrationTools = createAutomationTools({
+			automationId: automation.id,
+			currentRunId: run.id,
+			projectId: automation.projectId,
+			chatId: chat.id,
+			githubToken,
+			integrations: automation.integrations,
+		});
 		const agent = await agentService.create(
 			{ ...uiChat, userId: automation.userId, projectId: automation.projectId },
 			automation.modelProvider && automation.modelId
 				? { provider: automation.modelProvider, modelId: automation.modelId }
 				: undefined,
-			{
-				excludeFollowUps: true,
-				supportsCustomCharts: false,
-				tools: ({ chat: agentChat, agentSettings, webTools }) =>
-					getTools(
-						agentSettings,
-						{
-							...(webTools ?? {}),
-							...createAutomationTools({
-								automationId: automation.id,
-								currentRunId: run.id,
-								projectId: automation.projectId,
-								chatId: chat.id,
-								githubToken,
-								integrations: automation.integrations,
-							}),
-						},
-						{
-							testMode: agentChat.testMode,
-							mcpEnabled: automation.mcpEnabled,
-							mcpServers: automation.mcpServers,
-							excludeFollowUps: true,
-						},
-					),
-			},
+			automationAgent(automation, integrationTools),
+			{ billingAccessVerifiedProjectId },
 		);
 
 		logger.info('Automation run starting', {
@@ -257,11 +280,21 @@ function extractIntegrationResults(parts: UIMessagePart[]): AutomationIntegratio
 		if (!isAutomationIntegrationTool(name)) {
 			return [];
 		}
-		const output = part.state === 'output-available' ? (part.output as { ok?: boolean; url?: string }) : undefined;
+		const output = part.state === 'output-available' ? (part.output as IntegrationToolOutput) : undefined;
+		const type = integrationTypeFromTool(name);
+		if (output?.deliveries) {
+			return output.deliveries.map((delivery) => ({
+				type,
+				label: name,
+				ok: delivery.ok,
+				message: delivery.error,
+				destination: delivery.channel,
+			}));
+		}
 		const ok = part.state === 'output-error' ? false : output?.ok !== false;
 		return [
 			{
-				type: integrationTypeFromTool(name),
+				type,
 				label: name,
 				ok,
 				url: output?.url,

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { PROVIDER_META } from '@nao/backend/provider-meta';
+import { isManagedProvider, PROVIDER_META } from '@nao/backend/provider-meta';
 import {
 	LLM_PROVIDERS,
 	NAMED_PROVIDER_KIND,
@@ -18,6 +18,7 @@ export interface EditingState {
 	provider: LlmProvider;
 	isEditing: boolean;
 	inheritedKeySource: InheritedKeySource | null;
+	focusedModelId?: string;
 	initialValues?: {
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
@@ -50,10 +51,11 @@ export function useLlmProviders() {
 	// Kinds that accept several instances stay on offer: each new one is added under its own name.
 	const availableProvidersToAdd: LlmProviderKind[] = LLM_PROVIDERS.filter(
 		(p) =>
-			p === NAMED_PROVIDER_KIND ||
-			(!projectConfiguredProviders.includes(p) &&
-				!envProviders.includes(p) &&
-				!configProviders.some((c) => c.provider === p)),
+			!isManagedProvider(p) &&
+			(p === NAMED_PROVIDER_KIND ||
+				(!projectConfiguredProviders.includes(p) &&
+					!envProviders.includes(p) &&
+					!configProviders.some((c) => c.provider === p))),
 	);
 
 	// Names already in use, so that adding an endpoint cannot silently overwrite one of them.
@@ -87,6 +89,9 @@ export function useLlmProviders() {
 			}),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getKnownTranscribeModels.queryOptions().queryKey }),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultChatModel.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.budget.getUnpricedModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.budget.getProvidersCostSupport.queryOptions().queryKey }),
 		]);
 	};
 
@@ -183,6 +188,28 @@ export function useLlmProviders() {
 		});
 	};
 
+	/** Open a provider's form, optionally on one of its models, wherever the provider is declared. */
+	const handleEditProvider = (provider: LlmProvider, focusedModelId?: string) => {
+		openProviderForm(provider);
+		setEditingState((state) => (state?.provider === provider ? { ...state, focusedModelId } : state));
+	};
+
+	const openProviderForm = (provider: LlmProvider) => {
+		const projectConfig = projectConfigs.find((c) => c.provider === provider);
+		if (projectConfig) {
+			handleEditConfig(projectConfig);
+			return;
+		}
+		const configProvider = configProviders.find((c) => c.provider === provider);
+		if (configProvider) {
+			handleOverrideConfigProvider(configProvider);
+			return;
+		}
+		if (envProviders.includes(provider)) {
+			handleConfigureEnvProvider(provider);
+		}
+	};
+
 	const getModelDisplayName = (provider: LlmProvider, modelId: string) => {
 		const models = knownModels.data?.[providerKind(provider)] ?? [];
 		const knownName = models.find((m) => m.id === modelId)?.name;
@@ -214,6 +241,7 @@ export function useLlmProviders() {
 		unconfiguredEnvProviders,
 		unconfiguredConfigProviders,
 		currentModels,
+		isLoaded: llmConfigs.isSuccess && knownModels.isSuccess,
 
 		// State
 		editingState,
@@ -231,6 +259,7 @@ export function useLlmProviders() {
 		handleDeleteConfig,
 		handleSelectProvider,
 		handleConfigureEnvProvider,
+		handleEditProvider,
 		getModelDisplayName,
 	};
 }

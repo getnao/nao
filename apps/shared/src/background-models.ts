@@ -28,14 +28,19 @@ export const BACKGROUND_MODEL_CATEGORY_DESCRIPTIONS: Record<BackgroundModelCateg
 
 export type BackgroundModelMode = 'single' | 'perCategory';
 
-export interface BackgroundModelSettings {
+/**
+ * Project-wide model defaults: the model new chats start on (also used by every surface that
+ * runs without an explicit selection, such as the MCP `ask_nao` tool) and the background tasks.
+ */
+export interface DefaultModelSettings {
 	mode: BackgroundModelMode;
+	chat?: LlmSelectedModel;
 	single?: LlmSelectedModel;
 	categories?: Partial<Record<BackgroundModelCategory, LlmSelectedModel>>;
 }
 
 export function selectBackgroundModel(
-	settings: BackgroundModelSettings | null | undefined,
+	settings: DefaultModelSettings | null | undefined,
 	category: BackgroundModelCategory,
 ): LlmSelectedModel | null {
 	if (!settings) {
@@ -47,17 +52,36 @@ export function selectBackgroundModel(
 	return settings.categories?.[category] ?? null;
 }
 
+export function setDefaultChatModel(
+	settings: DefaultModelSettings | null | undefined,
+	selection: LlmSelectedModel | null,
+): DefaultModelSettings {
+	return {
+		mode: settings?.mode ?? 'single',
+		chat: selection ?? undefined,
+		single: settings?.single,
+		categories: settings?.categories,
+	};
+}
+
 export function setBackgroundModelMode(
-	settings: BackgroundModelSettings | null | undefined,
+	settings: DefaultModelSettings | null | undefined,
 	mode: BackgroundModelMode,
-): BackgroundModelSettings {
+): DefaultModelSettings {
 	const single = settings?.single;
 	const categories =
 		mode === 'perCategory' && settings?.mode === 'single' && single
 			? Object.fromEntries(BACKGROUND_MODEL_CATEGORIES.map((category) => [category, single]))
 			: settings?.categories;
 
-	return { mode, single, categories };
+	return { mode, chat: settings?.chat, single, categories };
+}
+
+export function setSingleBackgroundModel(
+	settings: DefaultModelSettings | null | undefined,
+	selection: LlmSelectedModel | null,
+): DefaultModelSettings {
+	return { mode: 'single', chat: settings?.chat, single: selection ?? undefined, categories: settings?.categories };
 }
 
 /**
@@ -65,10 +89,10 @@ export function setBackgroundModelMode(
  * applied to every other category, so changing one task never silently changes the rest.
  */
 export function setBackgroundModelForCategory(
-	settings: BackgroundModelSettings | null | undefined,
+	settings: DefaultModelSettings | null | undefined,
 	category: BackgroundModelCategory,
 	selection: LlmSelectedModel | null,
-): BackgroundModelSettings {
+): DefaultModelSettings {
 	const single = settings?.single;
 	const categories: Partial<Record<BackgroundModelCategory, LlmSelectedModel>> =
 		settings?.mode === 'single' && single
@@ -81,5 +105,5 @@ export function setBackgroundModelForCategory(
 		delete categories[category];
 	}
 
-	return { mode: 'perCategory', single, categories };
+	return { mode: 'perCategory', chat: settings?.chat, single, categories };
 }

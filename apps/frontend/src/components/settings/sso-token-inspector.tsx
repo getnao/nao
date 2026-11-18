@@ -18,7 +18,7 @@ const PROBLEM_HINTS: Record<string, string> = {
 	'claim-missing':
 		'The identity provider did not send this claim in the ID token. Check the claim name and that it is included in the ID token, not only in the userinfo endpoint.',
 	'no-group-matched':
-		'The claim was present but none of its groups appear in OIDC_GROUP_ROLE_MAPPING, so this user can no longer sign in through SSO.',
+		'The claim was present but none of its groups appear in OIDC_GROUP_NAO_ROLE_MAPPING, so this user can no longer sign in through SSO.',
 };
 
 export function SsoTokenInspector() {
@@ -42,7 +42,7 @@ export function SsoTokenInspector() {
 	return (
 		<SettingsCard
 			title='Single sign-on token'
-			description={`Shows the claims ${oidc.data.providerName} sent at the selected user's last sign-in, and how they resolved to a role.`}
+			description={`Shows the claims ${oidc.data.providerName} sent at the selected user's last sign-in, and how they resolved to an organization role.`}
 			action={
 				<Select value={userId} onValueChange={setSelectedUserId}>
 					<SelectTrigger size='sm' className='w-56'>
@@ -83,9 +83,11 @@ function InspectionResult({ inspection }: { inspection: Inspection }) {
 				<Row label='Groups received'>
 					<GroupBadges groups={inspection.groups} matched={inspection.matchedGroups} />
 				</Row>
-				<Row label='Resolved role'>
-					{inspection.resolvedRole ? (
-						<Badge variant={inspection.resolvedRole}>{USER_ROLE_LABELS[inspection.resolvedRole]}</Badge>
+				<Row label='Organization role'>
+					{inspection.resolvedOrganizationRole ? (
+						<Badge variant={inspection.resolvedOrganizationRole}>
+							{USER_ROLE_LABELS[inspection.resolvedOrganizationRole]}
+						</Badge>
 					) : (
 						<span className='text-sm text-muted-foreground'>No mapped group matched</span>
 					)}

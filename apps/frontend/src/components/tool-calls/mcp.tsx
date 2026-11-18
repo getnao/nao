@@ -1,16 +1,18 @@
-import { Streamdown } from 'streamdown';
 import { parseChartBlock } from '@nao/shared/story-segments';
+import { Streamdown } from 'streamdown';
 import { ChartDisplay } from './display-chart';
 import { TableDisplay } from './display-table';
-import { ToolCallWrapper } from './tool-call-wrapper';
 import { McpTitle } from './mcp-title';
-import type { ReactNode } from 'react';
-import type { ToolCallComponentProps } from '.';
-import type { displayChart } from '@nao/shared/tools';
+import { ToolCallWrapper } from './tool-call-wrapper';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
-import { getToolName } from '@/lib/ai';
+import type { ChartType } from '@nao/shared/chart-types';
+import type { ReactNode } from 'react';
+
+import type { ToolCallComponentProps } from '.';
 import { useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
+import { getToolName } from '@/lib/ai';
+import { markdownLinkSafety } from '@/components/external-link-dialog';
 
 type McpContent = { type: string; text: string };
 type SqlData = Record<string, unknown>[];
@@ -81,7 +83,7 @@ const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
 			<div className={`w-full ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
 				<ChartDisplay
 					data={data}
-					chartType={chart.chartType as displayChart.ChartType}
+					chartType={chart.chartType as ChartType}
 					xAxisKey={chart.xAxisKey}
 					xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
 					xAxisLabel={chart.xAxisLabel}
@@ -93,6 +95,7 @@ const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
 					yAxisRightMin={chart.yAxisRightMin}
 					yAxisRightMax={chart.yAxisRightMax}
 					yAxisRightLabel={chart.yAxisRightLabel}
+					showLegend={chart.showLegend}
 				/>
 			</div>
 		</div>
@@ -165,7 +168,9 @@ const McpOutputContent = ({ text }: { text: string }) => {
 
 	return (
 		<div className='px-3 py-2 overflow-auto max-h-80 markdown-small'>
-			<Streamdown mode='static'>{text}</Streamdown>
+			<Streamdown linkSafety={markdownLinkSafety} mode='static'>
+				{text}
+			</Streamdown>
 		</div>
 	);
 };

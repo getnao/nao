@@ -1,6 +1,6 @@
-import type { BudgetPeriod } from './types';
+import type { CalendarPeriod } from './types';
 
-export function getCurrentPeriodStart(period: BudgetPeriod): Date {
+export function getCurrentPeriodStart(period: CalendarPeriod): Date {
 	const now = new Date();
 	switch (period) {
 		case 'day':
@@ -12,10 +12,12 @@ export function getCurrentPeriodStart(period: BudgetPeriod): Date {
 		}
 		case 'month':
 			return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+		case 'year':
+			return new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
 	}
 }
 
-export function getNextPeriodStart(period: BudgetPeriod): Date {
+export function getNextPeriodStart(period: CalendarPeriod): Date {
 	const start = getCurrentPeriodStart(period);
 	switch (period) {
 		case 'day':
@@ -24,6 +26,8 @@ export function getNextPeriodStart(period: BudgetPeriod): Date {
 			return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + 7));
 		case 'month':
 			return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+		case 'year':
+			return new Date(Date.UTC(start.getUTCFullYear() + 1, 0, 1));
 	}
 }
 

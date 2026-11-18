@@ -11,6 +11,8 @@ interface UseStoryViewerVersionsParams {
 	isAgentRunning: boolean;
 	latestStoryOutputVersion?: number | null;
 	isReadonlyMode?: boolean;
+	/** A story outside any chat lists its versions by its id. */
+	standaloneStoryId?: string;
 }
 
 interface HistoricalVersionSelection {
@@ -25,12 +27,18 @@ export const useStoryViewerVersions = ({
 	isAgentRunning,
 	latestStoryOutputVersion = null,
 	isReadonlyMode,
+	standaloneStoryId,
 }: UseStoryViewerVersionsParams) => {
 	const queryClient = useQueryClient();
-	const { data, refetch } = useQuery({
+	const chatVersionsQuery = useQuery({
 		...trpc.story.listVersions.queryOptions({ chatId, storySlug }),
-		enabled: !isReadonlyMode,
+		enabled: !isReadonlyMode && !standaloneStoryId,
 	});
+	const standaloneVersionsQuery = useQuery({
+		...trpc.story.listStandaloneVersions.queryOptions({ storyId: standaloneStoryId ?? '' }),
+		enabled: !isReadonlyMode && Boolean(standaloneStoryId),
+	});
+	const { data, refetch } = standaloneStoryId ? standaloneVersionsQuery : chatVersionsQuery;
 	const versions = useMemo(() => data?.versions ?? [], [data?.versions]);
 	const storyId = data?.id ?? null;
 	const storyTitle = data?.title;
@@ -92,30 +100,18 @@ export const useStoryViewerVersions = ({
 	const currentVersion = versions[currentVersionIndex];
 	const currentVersionNumber = currentVersionIndex + 1;
 	const storedVersionNumber = currentVersion?.version ?? 0;
+	const latestVersionNumber = versions.at(-1)?.version;
 	const isViewingLatest = selectedVersionIndex === null;
 
-	const goToPreviousVersion = useCallback(() => {
-		if (currentVersionIndex <= 0) {
-			return;
-		}
-
-		setHistoricalVersionSelection({
-			chatId,
-			storySlug,
-			index: currentVersionIndex - 1,
-		});
-	}, [chatId, currentVersionIndex, storySlug]);
-
-	const goToNextVersion = useCallback(() => {
-		if (selectedVersionIndex === null) {
-			return;
-		}
-
-		const nextVersionIndex = selectedVersionIndex + 1;
-		setHistoricalVersionSelection(
-			nextVersionIndex >= versions.length - 1 ? null : { chatId, storySlug, index: nextVersionIndex },
-		);
-	}, [chatId, selectedVersionIndex, storySlug, versions.length]);
+	const goToVersion = useCallback(
+		(versionNumber: number) => {
+			const versionIndex = versionNumber - 1;
+			setHistoricalVersionSelection(
+				versionIndex >= versions.length - 1 ? null : { chatId, storySlug, index: Math.max(versionIndex, 0) },
+			);
+		},
+		[chatId, storySlug, versions.length],
+	);
 
 	const goToLatestVersion = useCallback(() => {
 		setHistoricalVersionSelection(null);
@@ -129,9 +125,9 @@ export const useStoryViewerVersions = ({
 		currentVersion,
 		currentVersionNumber,
 		storedVersionNumber,
+		latestVersionNumber,
 		isViewingLatest,
-		goToPreviousVersion,
-		goToNextVersion,
+		goToVersion,
 		goToLatestVersion,
 	};
 };

@@ -4,10 +4,12 @@ import { z } from 'zod';
 import { getMcpChartEmbedById, getMcpMapEmbedById } from '../queries/mcp-embed.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { getCustomBoundaries } from '../queries/project.queries';
+import { getActiveThemeForProject } from '../services/custom-story';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { embedStoryOpenPath, loadEmbedStoryContent } from '../utils/embed-story';
+import { loadEmbedStoryContent } from '../utils/embed-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from '../utils/embed-token';
 import { buildDownloadResponse } from '../utils/story-download';
+import { storyPath } from '../utils/story-links';
 import { publicProcedure, router } from './trpc';
 
 const tokenInput = z.object({ token: z.string() });
@@ -44,11 +46,8 @@ export const embedRoutes = router({
 			title: story.title,
 			code: story.code,
 			queryData: story.queryData,
-			openInNaoPath: embedStoryOpenPath({
-				storyId: story.storyId,
-				chatId: story.chatId,
-				slug: story.slug,
-			}),
+			theme: story.theme,
+			openInNaoPath: storyPath(story.storyId),
 		};
 	}),
 
@@ -65,7 +64,10 @@ export const embedRoutes = router({
 
 		await assertProjectMcpEnabled(embed.projectId);
 
-		const queryData = await getMcpQueryData(embed.queryId, embed.projectId);
+		const [queryData, theme] = await Promise.all([
+			getMcpQueryData(embed.queryId, embed.projectId),
+			getActiveThemeForProject(embed.projectId),
+		]);
 		if (!queryData) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Query data not found or expired.' });
 		}
@@ -82,6 +84,7 @@ export const embedRoutes = router({
 			data: queryData.data,
 			sourceChatId,
 			chartConfig: embed.chartConfig,
+			theme,
 		};
 	}),
 
@@ -128,7 +131,7 @@ export const embedRoutes = router({
 	}),
 
 	downloadStory: publicProcedure
-		.input(tokenInput.extend({ storyId: z.string(), format: z.enum(['pdf', 'html', 'markdown']) }))
+		.input(tokenInput.extend({ storyId: z.string(), format: z.enum(['pdf', 'html']) }))
 		.mutation(async ({ input }) => {
 			const story = await loadEmbedStoryContent(input.storyId, input.token);
 			logAnalyticsEvent({
@@ -140,6 +143,13 @@ export const embedRoutes = router({
 				chatId: story.chatId,
 				metadata: { type: 'download', format: input.format, title: story.title },
 			});
-			return buildDownloadResponse(input.format, story.title, story.code, story.queryData, story.dateFormat);
+			return buildDownloadResponse(
+				input.format,
+				story.title,
+				story.code,
+				story.queryData,
+				story.dateFormat,
+				story.theme,
+			);
 		}),
 });

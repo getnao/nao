@@ -2,11 +2,13 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import { createRedisState } from '@chat-adapter/state-redis';
 import { createWhatsAppAdapter } from '@chat-adapter/whatsapp';
 import { stripAssistantTags } from '@nao/shared';
+import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
 
+import { messagingAgent } from '../agents/profiles/messaging';
 import { generateChartImage } from '../components/generate-chart';
 import { env } from '../env';
 import * as chartImageQueries from '../queries/chart-image';
@@ -29,7 +31,8 @@ import {
 	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
-import { posthog, PostHogEvent } from './posthog';
+import { getAppName } from './branding.service';
+import { assertProjectCloudBillingAccess } from './cloud-billing-access.service';
 import * as transcribeService from './transcribe.service';
 
 const SUPPORTED_WHATSAPP_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -129,6 +132,7 @@ class WhatsappService {
 
 		try {
 			await this._validateUserAccess(ctx);
+			await assertProjectCloudBillingAccess(this._projectId);
 			await this._saveOrUpdateUserMessage(ctx);
 
 			const [chat] = await chatQueries.getChat(ctx.chatId);
@@ -306,6 +310,7 @@ class WhatsappService {
 				role: 'user',
 				parts: [{ type: 'text', text }, ...imageParts],
 				chatId: existingChat.id,
+				senderUserId: ctx.user!.id,
 				source: 'whatsapp',
 			});
 			ctx.chatId = existingChat.id;
@@ -455,15 +460,6 @@ class WhatsappService {
 		for (const link of mapLinks) {
 			await ctx.thread.post(link);
 		}
-
-		posthog.capture(ctx.user!.id, PostHogEvent.MessageSent, {
-			project_id: this._projectId,
-			chat_id: ctx.chatId,
-			model_id: ctx.modelId,
-			is_new_chat: ctx.isNewChat,
-			source: 'whatsapp',
-			domain_host: new URL(this._redirectUrl).host,
-		});
 	}
 
 	private async _createAgentStream(
@@ -474,10 +470,14 @@ class WhatsappService {
 		const agent = await agentService.create(
 			{ ...chat, userId: ctx.user!.id, projectId: this._projectId },
 			this._modelSelection,
-			{ supportsCustomCharts: false },
+			messagingAgent('whatsapp'),
 		);
 		ctx.modelId = agent.getModelId();
-		return agent.stream(chat.messages, { provider: 'whatsapp', timezone: ctx.timezone, chatUrl });
+		return agent.stream(chat.messages, {
+			timezone: ctx.timezone,
+			chatUrl,
+			tracking: { isNewChat: ctx.isNewChat, domainHost: new URL(chatUrl).host },
+		});
 	}
 
 	private async _readStreamAndUpdateMessage(
@@ -506,7 +506,7 @@ class WhatsappService {
 			if (part.type.startsWith('tool-') && !EXCLUDED_TOOLS.includes(part.type)) {
 				this._trackToolCall(part as Extract<UIMessagePart, { toolCallId: string }>, state);
 			}
-			if (part.type === 'tool-execute_sql') {
+			if (isQueryResultPart(part)) {
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
 				const url = await this._handleChartPart(part, state, ctx);
@@ -567,7 +567,7 @@ class WhatsappService {
 		}
 
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		return { link: createWhatsappMapLink(part.input.title, chatUrl) };
+		return { link: createWhatsappMapLink(part.input.title, chatUrl, await getAppName()) };
 	}
 
 	private async _handleChartPart(
@@ -657,7 +657,7 @@ class WhatsappService {
 		state.toolGroup.set(part.toolCallId, entry);
 	}
 
-	private _handleSqlPart(part: Extract<UIMessagePart, { type: 'tool-execute_sql' }>, state: StreamState): void {
+	private _handleSqlPart(part: Extract<UIMessagePart, { type: QueryResultPartType }>, state: StreamState): void {
 		if (part.state !== 'output-available') {
 			return;
 		}

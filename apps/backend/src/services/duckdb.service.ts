@@ -24,6 +24,8 @@ export interface LocalQuery {
 	sql: string;
 	/** Exposed as tables named after their query id. */
 	queryResults: Map<string, QueryResult>;
+	/** The only individual files the query may open. */
+	allowedPaths: string[];
 	/** The only directories the query may open files from. */
 	allowedDirectories: string[];
 	/** When set, the result is also written out as a file. */
@@ -36,9 +38,9 @@ export interface LocalQuery {
  * export be joined against warehouse rows without either side leaving the machine.
  *
  * The SQL is untrusted, so DuckDB is confined before it runs: file access is narrowed to
- * `allowedDirectories`, everything else external is switched off, and the configuration is locked
- * so the query cannot widen any of it back. The order matters — `allowed_directories` is only
- * settable while external access is still enabled.
+ * `allowedPaths` and `allowedDirectories`, everything else external is switched off, and the
+ * configuration is locked so the query cannot widen any of it back. The order matters — the
+ * allowlists are only settable while external access is still enabled.
  *
  * `output` writes the result to a file. The query itself stays read-only: the `COPY` is written
  * here, against a path the caller resolved, so the untrusted SQL never names a write target.
@@ -46,6 +48,7 @@ export interface LocalQuery {
 export async function runLocalQuery({
 	sql,
 	queryResults,
+	allowedPaths,
 	allowedDirectories,
 	output,
 }: LocalQuery): Promise<QueryResult> {
@@ -67,7 +70,7 @@ export async function runLocalQuery({
 			await createQueryResultTable(connection, workspace, queryId, queryResult);
 		}
 
-		await restrictToDirectories(connection, allowedDirectories);
+		await restrictFilesystemAccess(connection, allowedPaths, allowedDirectories);
 
 		try {
 			return output
@@ -113,11 +116,18 @@ function asSubquery(sql: string): string {
 }
 
 /**
- * Narrows DuckDB to a set of directories, then takes away its ability to reach anywhere else or to
- * undo either decision. Reads outside the list, HTTP, globbing the filesystem, `COPY TO` and
- * `ATTACH` all fail from here on.
+ * Narrows DuckDB to exact files and scoped directories, then takes away its ability to reach
+ * anywhere else or to undo either decision. Reads outside the lists, HTTP, filesystem globbing,
+ * `COPY TO` and `ATTACH` all fail from here on.
  */
-async function restrictToDirectories(connection: DuckDBConnection, directories: string[]): Promise<void> {
+async function restrictFilesystemAccess(
+	connection: DuckDBConnection,
+	paths: string[],
+	directories: string[],
+): Promise<void> {
+	if (paths.length > 0) {
+		await connection.run(`SET allowed_paths = [${paths.map(quoteLiteral).join(', ')}]`);
+	}
 	if (directories.length > 0) {
 		await connection.run(`SET allowed_directories = [${directories.map(quoteLiteral).join(', ')}]`);
 	}

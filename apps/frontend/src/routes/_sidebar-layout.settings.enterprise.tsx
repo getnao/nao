@@ -15,9 +15,11 @@ import {
 	KeyRound,
 	LifeBuoy,
 	Palette,
+	Plug,
 	ShieldCheck,
 	TriangleAlert,
 	UserCheck,
+	UsersRound,
 } from 'lucide-react';
 import type { LicenseStatus } from '@nao/backend/license-types';
 
@@ -25,7 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { useLicenseFeatures } from '@/hooks/use-license';
-import { requireNonViewerNonCloud } from '@/lib/require-admin';
+import { requireNonViewerNonCloud } from '@/lib/route-guards';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -229,7 +231,7 @@ function LicenseDetails({
 	);
 }
 
-const ENTERPRISE_FEATURES = [
+export const ENTERPRISE_FEATURES = [
 	{
 		key: 'sso',
 		label: 'Company sign-in (SSO)',
@@ -246,8 +248,14 @@ const ENTERPRISE_FEATURES = [
 	{
 		key: 'user-budget',
 		label: 'Spend limits per user',
-		description: 'Cap how much each person can spend on the AI models.',
+		description: 'Cap how much each person can spend on AI models, per provider or across all of them.',
 		icon: CircleDollarSign,
+	},
+	{
+		key: 'user-groups',
+		label: 'Unlimited user groups',
+		description: 'Create more than the 3 custom groups included with the free plan.',
+		icon: UsersRound,
 	},
 	{
 		key: 'multi-project',
@@ -262,9 +270,16 @@ const ENTERPRISE_FEATURES = [
 		icon: Columns3,
 	},
 	{
+		key: 'row-level-security',
 		label: 'Row-level security',
 		description: "Restrict which rows each person can see, using your warehouse's own rules.",
 		icon: ShieldCheck,
+	},
+	{
+		key: 'row-level-security',
+		label: 'MCP access per group',
+		description: 'Choose which MCP servers and tools each group can use.',
+		icon: Plug,
 	},
 	{
 		label: 'Data rights impersonation from warehouse',

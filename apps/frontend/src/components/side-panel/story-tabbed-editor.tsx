@@ -9,6 +9,7 @@ import {
 } from '@nao/shared/story-tabs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getEditorMarkdown, preprocessForEditor, StoryEditor } from './story-editor';
+import { serializeStoryEditorNodes } from './story-editor-utils';
 import {
 	blockSelectionPluginKey,
 	buildDragUnitTransfer,
@@ -270,6 +271,7 @@ export function StoryTabbedEditor({
 				<div className={contentClassName}>
 					<StoryEditor
 						code={tabs[active]?.innerCode ?? ''}
+						parameterCode={bufferCode}
 						editorRef={editorRef}
 						onSave={onSave}
 						onDragControlsChange={handleDragControlsChange}
@@ -282,14 +284,7 @@ export function StoryTabbedEditor({
 }
 
 function serializeMovedNodes(editor: TiptapEditor, nodes: readonly PMNode[]): string {
-	return (
-		editor.markdown
-			?.serialize({
-				type: 'doc',
-				content: nodes.map((node) => node.toJSON()),
-			})
-			.trim() ?? ''
-	);
+	return serializeStoryEditorNodes(editor, nodes);
 }
 
 function getMarkdownBlockCount(editor: TiptapEditor, markdown: string): number {

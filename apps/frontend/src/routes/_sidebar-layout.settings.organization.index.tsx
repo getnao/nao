@@ -1,16 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { Github } from 'lucide-react';
 import { useState } from 'react';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 
+import GithubIcon from '@/components/icons/github-icon.svg';
 import { GitHubRepoPicker } from '@/components/settings/github-repo-picker';
 import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { GoogleConfigSection } from '@/components/settings/google-credentials-section';
 import { EditableOrganizationName } from '@/components/settings/editable-organization-name';
+import { OrganizationHeading } from '@/components/settings/organization-heading';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
+import { OrgTwoFactorSettings } from '@/components/settings/org-two-factor-settings';
+import { OrgSsoSettings } from '@/components/settings/org-sso-settings';
 import { SsoSettingsSection } from '@/components/settings/sso-settings-section';
 import { SsoTokenInspector } from '@/components/settings/sso-token-inspector';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +30,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/organization/')(
 
 function OrganizationSettingsPage() {
 	const org = useQuery(trpc.organization.get.queryOptions());
+	const organizations = useQuery(trpc.organization.listForCurrentUser.queryOptions());
 	const projectsQuery = useQuery(trpc.organization.getProjects.queryOptions());
 	const { isOrgAdmin } = usePermissions();
 	const isCloud = useIsCloud();
@@ -57,13 +61,13 @@ function OrganizationSettingsPage() {
 				{showGithubImport &&
 					(isGithubConnected ? (
 						<Button variant='secondary' size='sm' onClick={() => setRepoPickerOpen(true)}>
-							<Github className='size-3.5' />
+							<GithubIcon className='size-3.5' />
 							Import from GitHub
 						</Button>
 					) : (
 						<Button variant='secondary' size='sm' asChild>
 							<a href='/api/github/connect'>
-								<Github className='size-3.5' />
+								<GithubIcon className='size-3.5' />
 								Import from GitHub
 							</a>
 						</Button>
@@ -88,7 +92,15 @@ function OrganizationSettingsPage() {
 	return (
 		<SettingsPageWrapper>
 			<div className='flex flex-col gap-5'>
-				<EditableOrganizationName name={org.data?.name ?? 'Organization'} canEdit={isOrgAdmin && !!org.data} />
+				{org.data ? (
+					<OrganizationHeading
+						organization={org.data}
+						organizations={organizations.data ?? [org.data]}
+						canEdit={isOrgAdmin}
+					/>
+				) : (
+					<EditableOrganizationName name='Organization' canEdit={false} />
+				)}
 				<div className='flex flex-col gap-12'>
 					<SettingsCard title='Projects' action={projectsAction} flush>
 						{projectsQuery.isLoading ? (
@@ -106,11 +118,7 @@ function OrganizationSettingsPage() {
 										<TableRow key={project.id}>
 											<TableCell>
 												<div className='font-medium'>{project.name}</div>
-												{project.path && (
-													<div className='font-mono text-xs text-muted-foreground'>
-														{project.path}
-													</div>
-												)}
+												<ProjectIdentifier project={project} isCloud={isCloud} />
 											</TableCell>
 											<TableCell>
 												<Badge variant={project.role}>{USER_ROLE_LABELS[project.role]}</Badge>
@@ -129,6 +137,7 @@ function OrganizationSettingsPage() {
 						)}
 					</SettingsCard>
 					{isCloud && <OrgSignInDomains isAdmin={isOrgAdmin} />}
+					{isCloud && isOrgAdmin && <OrgSsoSettings />}
 					{!isCloud && <SsoSettingsSection />}
 					{!isCloud && isOrgAdmin && <SsoTokenInspector />}
 					{!isCloud && (
@@ -136,6 +145,7 @@ function OrganizationSettingsPage() {
 							<GoogleConfigSection isAdmin={isOrgAdmin} />
 						</SettingsCard>
 					)}
+					<OrgTwoFactorSettings isAdmin={isOrgAdmin} />
 					<OrgApiKeys isAdmin={isOrgAdmin} />
 				</div>
 			</div>
@@ -144,4 +154,12 @@ function OrganizationSettingsPage() {
 			<GitLabRepoPicker open={gitlabPickerOpen} onOpenChange={setGitlabPickerOpen} />
 		</SettingsPageWrapper>
 	);
+}
+
+function ProjectIdentifier({ project, isCloud }: { project: { id: string; path: string | null }; isCloud: boolean }) {
+	const identifier = isCloud ? project.id : project.path;
+	if (!identifier) {
+		return null;
+	}
+	return <div className='font-mono text-xs text-muted-foreground'>{identifier}</div>;
 }

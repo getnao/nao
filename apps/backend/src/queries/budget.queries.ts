@@ -1,12 +1,12 @@
 import { getCurrentPeriodStart } from '@nao/shared/date';
-import type { LlmProvider } from '@nao/shared/types';
-import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import type { CalendarPeriod, LlmProvider } from '@nao/shared/types';
+import { and, eq, gte, inArray, notInArray, type SQL, sql } from 'drizzle-orm';
 
 import s, { DBProjectProviderBudget } from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { BudgetPeriod } from '../types/budget';
-import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
+import { createCostLookup, MESSAGE_SENDER_EXPR, TOTAL_COST_EXPR } from './usage.queries';
 
 export const getProviderBudget = async (
 	projectId: string,
@@ -20,15 +20,16 @@ export const getProviderBudget = async (
 	return row ?? null;
 };
 
-export type ProviderPeriod = { provider: LlmProvider; period: BudgetPeriod };
+export type ProviderPeriod = { provider: LlmProvider; period: CalendarPeriod; periodStart?: Date };
 
 export const getProviderBudgetSpend = async (
 	projectId: string,
 	provider: LlmProvider,
 	period: BudgetPeriod,
 	userId?: string,
+	periodStart?: Date,
 ): Promise<{ projectSpend: number; userSpend: number }> => {
-	const rows = await queryProviderPeriodCosts(projectId, [{ provider, period }]);
+	const rows = await queryProviderPeriodCosts(projectId, [{ provider, period, periodStart }]);
 
 	let projectTotal = 0;
 	let userTotal = 0;
@@ -129,9 +130,9 @@ export const setProjectProviderBudgets = async (
 
 type ProviderPeriodCostRow = { provider: LlmProvider | null; userId: string | null; totalCost: number };
 
-const roundCost = (value: number): number => Math.round(value * 100) / 100;
+export const roundCost = (value: number): number => Math.round(value * 100) / 100;
 
-const queryProviderPeriodCosts = async (
+export const queryProviderPeriodCosts = async (
 	projectId: string,
 	budgets: ProviderPeriod[],
 	options: { userId?: string } = {},
@@ -140,36 +141,34 @@ const queryProviderPeriodCosts = async (
 		return [];
 	}
 
-	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
 
 	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
 	const periodStartCases = budgets.map(
-		(b) => sql`WHEN ${b.provider} THEN ${toParam(getCurrentPeriodStart(b.period))}`,
+		(b) => sql`WHEN ${b.provider} THEN ${toParam(b.periodStart ?? getCurrentPeriodStart(b.period))}`,
 	);
 	const periodStartExpr = sql`CASE ${s.chatMessage.llmProvider} ${sql.join(periodStartCases, sql` `)} END`;
 
-	return db
-		.select({
-			provider: s.chatMessage.llmProvider,
-			userId: s.chat.userId,
-			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
-		})
-		.from(s.chatMessage)
-		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
-		.leftJoin(costLookup.table, costLookup.joinCondition)
-		.where(
-			and(
-				eq(s.chat.projectId, projectId),
-				inArray(
-					s.chatMessage.llmProvider,
-					budgets.map((b) => b.provider),
-				),
-				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
-				options.userId ? eq(s.chat.userId, options.userId) : undefined,
+	return queryCostsByProviderAndUser(
+		projectId,
+		and(
+			inArray(
+				s.chatMessage.llmProvider,
+				budgets.map((b) => b.provider),
 			),
-		)
-		.groupBy(s.chatMessage.llmProvider, s.chat.userId);
+			sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
+		),
+		options,
+	);
+};
+
+/** Spend on every provider of the project, named instances included, since `periodStart`. */
+export const queryAllProvidersCostsSince = async (
+	projectId: string,
+	periodStart: Date,
+	options: { userId?: string } = {},
+): Promise<ProviderPeriodCostRow[]> => {
+	return queryCostsByProviderAndUser(projectId, gte(s.chatMessage.createdAt, periodStart), options);
 };
 
 export const getProviderPeriodCosts = async (
@@ -210,25 +209,60 @@ export const getProviderPeriodCostsByUser = async (
 	return result;
 };
 
-export const claimBudgetNotification = async (budget: DBProjectProviderBudget): Promise<boolean> => {
-	const notifiedCondition = budget.notifiedAt
-		? sql`${s.projectProviderBudget.notifiedAt} = ${budget.notifiedAt}`
-		: sql`${s.projectProviderBudget.notifiedAt} IS NULL`;
+export type BudgetNotificationKey = {
+	projectId: string;
+	provider: LlmProvider;
+	scope: string;
+	periodStart: Date;
+};
 
+export const claimBudgetNotification = async (key: BudgetNotificationKey): Promise<boolean> => {
 	const rows = await db
-		.update(s.projectProviderBudget)
-		.set({ notifiedAt: new Date() })
-		.where(and(eq(s.projectProviderBudget.id, budget.id), notifiedCondition))
-		.returning({ id: s.projectProviderBudget.id })
+		.insert(s.budgetNotification)
+		.values(key)
+		.onConflictDoNothing()
+		.returning({ id: s.budgetNotification.id })
 		.execute();
 
 	return rows.length > 0;
 };
 
-export const rollbackBudgetNotification = async (budget: DBProjectProviderBudget): Promise<void> => {
+export const releaseBudgetNotification = async (key: BudgetNotificationKey): Promise<void> => {
 	await db
-		.update(s.projectProviderBudget)
-		.set({ notifiedAt: budget.notifiedAt })
-		.where(eq(s.projectProviderBudget.id, budget.id))
+		.delete(s.budgetNotification)
+		.where(
+			and(
+				eq(s.budgetNotification.projectId, key.projectId),
+				eq(s.budgetNotification.provider, key.provider),
+				eq(s.budgetNotification.scope, key.scope),
+				eq(s.budgetNotification.periodStart, key.periodStart),
+			),
+		)
 		.execute();
 };
+
+async function queryCostsByProviderAndUser(
+	projectId: string,
+	messageCondition: SQL | undefined,
+	options: { userId?: string },
+): Promise<ProviderPeriodCostRow[]> {
+	const costLookup = await createCostLookup(projectId);
+
+	return db
+		.select({
+			provider: s.chatMessage.llmProvider,
+			userId: MESSAGE_SENDER_EXPR,
+			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
+		})
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+		.leftJoin(costLookup.table, costLookup.joinCondition)
+		.where(
+			and(
+				eq(s.chat.projectId, projectId),
+				messageCondition,
+				options.userId ? eq(MESSAGE_SENDER_EXPR, options.userId) : undefined,
+			),
+		)
+		.groupBy(s.chatMessage.llmProvider, MESSAGE_SENDER_EXPR);
+}

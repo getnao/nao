@@ -3,6 +3,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { isCloud } from '../env';
 import {
 	getActiveBranding,
 	isWhiteLabelEnabled,
@@ -71,12 +72,7 @@ export const brandingRoutes = {
 	}),
 
 	update: adminProtectedProcedure.input(updateSchema).mutation(async ({ input }) => {
-		if (!(await isWhiteLabelEnabled())) {
-			throw new TRPCError({
-				code: 'FORBIDDEN',
-				message: 'White-label customization requires the Enterprise white-label feature.',
-			});
-		}
+		await assertCanEditBranding();
 		const normalizedInput = {
 			...input,
 			...(input.logo ? { logo: { ...input.logo, data: normalizeAssetData(input.logo.data) } } : {}),
@@ -87,13 +83,24 @@ export const brandingRoutes = {
 	}),
 
 	removeAsset: adminProtectedProcedure.input(z.object({ kind: assetKindSchema })).mutation(async ({ input }) => {
-		if (!(await isWhiteLabelEnabled())) {
-			throw new TRPCError({
-				code: 'FORBIDDEN',
-				message: 'White-label customization requires the Enterprise white-label feature.',
-			});
-		}
+		await assertCanEditBranding();
 		await removeBrandingAsset(input.kind);
 		return { ok: true };
 	}),
 };
+
+/** Branding is a single deployment-wide record, so on cloud no tenant admin may change it. */
+async function assertCanEditBranding() {
+	if (isCloud) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Branding is managed at the deployment level in cloud mode.',
+		});
+	}
+	if (!(await isWhiteLabelEnabled())) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'White-label customization requires the Enterprise white-label feature.',
+		});
+	}
+}

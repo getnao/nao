@@ -16,6 +16,7 @@ interface UseStoryPageEditorParams {
 	latestCode: string;
 	isAgentRunning?: boolean;
 	isReadonlyMode?: boolean;
+	standaloneStoryId?: string;
 }
 
 export function useStoryPageEditor({
@@ -25,6 +26,7 @@ export function useStoryPageEditor({
 	latestCode,
 	isAgentRunning = false,
 	isReadonlyMode = false,
+	standaloneStoryId,
 }: UseStoryPageEditorParams) {
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 	const {
@@ -33,11 +35,11 @@ export function useStoryPageEditor({
 		currentVersion,
 		currentVersionNumber,
 		storedVersionNumber,
+		latestVersionNumber,
 		isViewingLatest,
-		goToPreviousVersion,
-		goToNextVersion,
+		goToVersion,
 		goToLatestVersion,
-	} = useStoryViewerVersions({ chatId, storySlug, isAgentRunning, isReadonlyMode });
+	} = useStoryViewerVersions({ chatId, storySlug, isAgentRunning, isReadonlyMode, standaloneStoryId });
 
 	const code = currentVersion?.code ?? latestCode;
 
@@ -48,11 +50,14 @@ export function useStoryPageEditor({
 	const storyBuffer = useStoryEditBuffer(code);
 	const isCodeDirty = storyBuffer.isDirty;
 
-	const { handleSave, saveCurrentVersion, handleRestore, isSaving } = useStoryViewerVersionActions({
+	const { handleSave, saveCurrentVersion, handleRestore, isSaving, saveError } = useStoryViewerVersionActions({
 		chatId,
 		storySlug,
 		storyTitle,
 		currentVersionCode: code,
+		currentVersionNumber: storedVersionNumber > 0 ? storedVersionNumber : undefined,
+		latestVersionNumber,
+		hasUnsavedChanges: storyBuffer.isDirty,
 		isViewingLatest,
 		goToLatestVersion,
 		codeViewRef,
@@ -60,6 +65,7 @@ export function useStoryPageEditor({
 		viewMode,
 		setViewMode,
 		onVersionSaved: storyBuffer.markSaved,
+		standaloneStoryId,
 	});
 	const isDirty = storyBuffer.isDirty;
 	const exitGuard = useStoryExitGuard({
@@ -114,14 +120,15 @@ export function useStoryPageEditor({
 		handleSave,
 		handleRestore,
 		isSaving,
+		saveError,
 		exitDialog: exitGuard.dialogProps,
 		versionNav: {
 			currentVersion: currentVersionNumber,
 			storedVersionNumber,
-			totalVersions: versions.length,
+			versions,
+			versionDate: currentVersion?.createdAt,
 			isViewingLatest,
-			goToPrevious: () => exitGuard.requestExit(goToPreviousVersion),
-			goToNext: () => exitGuard.requestExit(goToNextVersion),
+			goToVersion: (versionNumber: number) => exitGuard.requestExit(() => goToVersion(versionNumber)),
 		},
 	};
 }

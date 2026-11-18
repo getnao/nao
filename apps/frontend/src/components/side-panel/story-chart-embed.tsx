@@ -1,23 +1,30 @@
 import { resolveDataKey } from '@nao/shared';
+import { extractParameterIds } from '@nao/shared/story-parameter-template';
+import { partAttributes } from '@nao/shared/story-parts';
 import { Code, Pencil } from 'lucide-react';
-import { memo, useContext, useMemo, useState } from 'react';
+import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { StoryBlockDragContext } from './story-editor-drag-context';
 import { StoryEmbedFallback } from './story-embed-fallback';
+import type { ChartType } from '@nao/shared/chart-types';
 import type { ParsedChartBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
 
+import type { ChartEditorView } from '@/components/tool-calls/display-chart-edit-dialog';
 import { StoryChartQueryView } from '@/components/side-panel/story-chart-query';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
-import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
+import { ChartConfigEditDialog, resolveChartPaletteHexes } from '@/components/tool-calls/display-chart-edit-dialog';
 import { Button } from '@/components/ui/button';
 import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { useStoryQuerySql } from '@/contexts/story-query-sql';
 import { useSourceQuery } from '@/hooks/use-source-query';
+import { useStoryChartSourceQuery } from '@/hooks/use-story-chart-source-query';
 import { sortByDateKey } from '@/lib/charts.utils';
 import { cn } from '@/lib/utils';
 
 const STORY_CHART_HEIGHT_CLASS = 'h-72';
+const EMPTY_ROWS: Record<string, unknown>[] = [];
 
 type ChartBlock = ParsedChartBlock;
 
@@ -76,7 +83,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 		>
 			<ChartDisplay
 				data={data}
-				chartType={chart.chartType as displayChart.ChartType}
+				chartType={chart.chartType as ChartType}
 				xAxisKey={chart.xAxisKey}
 				xAxisType={xAxisType}
 				xAxisLabel={chart.xAxisLabel}
@@ -89,6 +96,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				yAxisRightMax={chart.yAxisRightMax}
 				yAxisRightLabel={chart.yAxisRightLabel}
 				showDataLabels={chart.showDataLabels}
+				showLegend={chart.showLegend}
 				comparisonMode={chart.comparisonMode}
 				normalSize
 				hideTotal={chart.hideTotal}
@@ -123,15 +131,27 @@ export function StoryChartEmbedShell({
 }: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
 	const querySqlSource = useStoryQuerySql();
+	const paletteScopeRef = useRef<HTMLDivElement>(null);
+	const isDarkMode = useIsDarkMode();
 	const [isEditOpen, setIsEditOpen] = useState(false);
+	const [editorView, setEditorView] = useState<ChartEditorView>('chart');
 	const [showQuery, setShowQuery] = useState(false);
-	const canEdit = Boolean(edit && chart.rawTag);
-	const canViewQuery = Boolean(querySqlSource);
+	const [palette, setPalette] = useState<string[] | undefined>();
+	const canEdit = Boolean(edit && chart.rawTag && !usesStoryParameters(chart.rawTag));
+	const sourceQuery = useStoryChartSourceQuery({
+		queryId: chart.queryId,
+		story: edit?.story,
+		columns: availableColumns,
+		data: data ?? EMPTY_ROWS,
+		enabled: canEdit && isEditOpen,
+	});
+	const canOpenQueryEditor = canEdit && (sourceQuery !== null || Boolean(edit?.story));
+	const canViewQuery = canOpenQueryEditor || Boolean(querySqlSource);
 
 	const config = useMemo(
 		() => ({
 			query_id: chart.queryId,
-			chart_type: chart.chartType as displayChart.ChartType,
+			chart_type: chart.chartType as ChartType,
 			x_axis_key: chart.xAxisKey,
 			x_axis_type: (chart.xAxisType || null) as displayChart.XAxisType | null,
 			x_axis_label: chart.xAxisLabel,
@@ -152,6 +172,7 @@ export function StoryChartEmbedShell({
 			y_axis_right_label: chart.yAxisRightLabel,
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
+			show_legend: chart.showLegend,
 			comparison_mode: chart.comparisonMode,
 			hide_total: chart.hideTotal,
 		}),
@@ -159,11 +180,22 @@ export function StoryChartEmbedShell({
 	);
 
 	const isKpi = chart.chartType === 'kpi_card';
+	const openEditor = (view: ChartEditorView) => {
+		setEditorView(view);
+		setPalette(resolveChartPaletteHexes(paletteScopeRef.current));
+		setIsEditOpen(true);
+	};
+
+	useEffect(() => {
+		if (isEditOpen) {
+			setPalette(resolveChartPaletteHexes(paletteScopeRef.current));
+		}
+	}, [isEditOpen, isDarkMode]);
 	const editButton = canEdit ? (
 		<Button
 			variant='ghost-muted'
 			size='icon-xs'
-			onClick={() => setIsEditOpen(true)}
+			onClick={() => openEditor('chart')}
 			title='Edit chart'
 			className='shrink-0 hover:bg-accent hover:rounded-full'
 		>
@@ -174,8 +206,8 @@ export function StoryChartEmbedShell({
 		<Button
 			variant='ghost-muted'
 			size='icon-xs'
-			onClick={() => setShowQuery((current) => !current)}
-			title={showQuery ? 'Hide SQL query' : 'View SQL query'}
+			onClick={() => (canOpenQueryEditor ? openEditor('query') : setShowQuery((current) => !current))}
+			title={canOpenQueryEditor ? 'Edit SQL query' : showQuery ? 'Hide SQL query' : 'View SQL query'}
 			className={cn('shrink-0 hover:bg-accent hover:rounded-full', showQuery && 'bg-accent rounded-full')}
 		>
 			<Code className='size-3.5' />
@@ -183,13 +215,18 @@ export function StoryChartEmbedShell({
 	) : null;
 
 	return (
-		<div className='my-2 flex flex-col gap-4'>
+		<div ref={paletteScopeRef} className='my-2 flex flex-col gap-4'>
 			{!isKpi && (canEdit || canViewQuery || dragHandle != null || chart.title) && (
 				<div className='flex w-full items-center justify-between gap-2'>
 					<div className='flex min-w-0 flex-1 items-center gap-1'>
 						{dragHandlePlacement === 'leading' ? dragHandle : null}
 						{chart.title ? (
-							<span className='text-sm font-medium text-foreground min-w-0 truncate'>{chart.title}</span>
+							<span
+								className='text-sm font-medium text-foreground min-w-0 truncate'
+								{...partAttributes({ kind: 'title' })}
+							>
+								{chart.title}
+							</span>
 						) : null}
 					</div>
 					<div className='flex shrink-0 items-center gap-1'>
@@ -220,11 +257,19 @@ export function StoryChartEmbedShell({
 					config={config}
 					availableColumns={availableColumns}
 					data={data}
+					palette={palette}
 					isSaving={edit.isSaving}
 					onSave={(next) => edit.saveChart(chart.rawTag!, next)}
 					description={edit.saveDescription}
+					sourceQuery={sourceQuery}
+					initialView={editorView}
 				/>
 			)}
 		</div>
 	);
+}
+
+/** The visual editor rebuilds the tag from resolved values, which would drop `{{ params.<id> }}` placeholders. */
+function usesStoryParameters(rawTag: string): boolean {
+	return extractParameterIds(rawTag).length > 0;
 }

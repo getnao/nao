@@ -44,15 +44,18 @@ export function ViewerHome() {
 
 	const allItems: SharedItem[] = useMemo(() => {
 		const storyItems: SharedItem[] = (sharedStories.data ?? []).map((s) => ({
-			id: s.id,
+			id: s.storyId,
 			kind: 'story',
 			title: s.title,
 			authorName: s.authorName,
 			createdAt: new Date(s.createdAt),
 			visibility: s.sharing.visibility,
 			sharedWithCount: s.sharing.sharedWithCount,
+			sharedWithGroupCount: s.sharing.sharedWithGroupCount,
 			isLive: s.isLive,
 			summary: s.summary,
+			format: s.format,
+			version: s.version,
 		}));
 		const chatItems: SharedItem[] = (sharedChats.data ?? [])
 			.filter((c) => c.projectId === projectId)

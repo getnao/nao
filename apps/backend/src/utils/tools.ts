@@ -1,10 +1,12 @@
-import { asSchema, type JSONSchema7, Tool, tool } from 'ai';
+import { asSchema, type JSONSchema7, Tool, tool, type ToolCallOptions } from 'ai';
 import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
 
 import type { StorageScope } from '../services/storage';
 import { McpToolContext, ToolContext } from '../types/tools';
+import { isStoryLibraryPath, STORY_LIBRARY_MOUNT } from './story-library';
+import { isStoriesPath, STORIES_MOUNT } from './story-mount';
 
 const MCP_TOOL_SEPARATOR = '__';
 
@@ -18,16 +20,23 @@ export const STORAGE_MOUNT = 'home';
 /** Shorthand the model is likely to reach for, accepted on input but never emitted. */
 const STORAGE_MOUNT_ALIAS = '~';
 
-/** Creates a tool with a typed execution `context` */
+/**
+ * Creates a tool with a typed execution `context`. An async-generator `execute` streams
+ * preliminary outputs to the client (progress), its last yield being the final output.
+ */
 export const createTool = <TInput, TOutput>(
 	opts: Omit<Tool<TInput, TOutput>, 'execute'> & {
-		execute: (input: TInput, context: ToolContext) => Promise<TOutput>;
+		execute: (
+			input: TInput,
+			context: ToolContext,
+			options: ToolCallOptions,
+		) => Promise<TOutput> | AsyncIterable<TOutput>;
 	},
 ): Tool<TInput, TOutput> => {
 	return tool<TInput, TOutput>({
 		...opts,
-		execute: (input, { experimental_context }) => {
-			return opts.execute(input, experimental_context as ToolContext);
+		execute: (input, options) => {
+			return opts.execute(input, options.experimental_context as ToolContext, options);
 		},
 	} as Tool<TInput, TOutput>);
 };
@@ -65,6 +74,14 @@ const storageMountOf = (virtualPath: string): string | null => {
 export const toStorageVirtualPath = (relativePath: string): string => {
 	const trimmed = trimSlashes(relativePath);
 	return trimmed === '' ? `/${STORAGE_MOUNT}` : `/${STORAGE_MOUNT}/${trimmed}`;
+};
+
+/**
+ * True when a virtual path lives in one of the virtual mounts (`/home`, `/stories`, `/story-library`)
+ * rather than the project folder.
+ */
+export const isMountPath = (virtualPath: string | undefined | null): boolean => {
+	return isStoragePath(virtualPath) || isStoriesPath(virtualPath) || isStoryLibraryPath(virtualPath);
 };
 
 const trimSlashes = (value: string): string => {
@@ -149,11 +166,18 @@ export const clearNaoignoreCache = (): void => {
  * @param projectFolder - The project folder path
  * @returns true if the path should be ignored
  */
-export const isIgnoredByNaoignore = (relativePath: string, projectFolder: string): boolean => {
-	const patterns = loadNaoignorePatterns(projectFolder);
-
+export const isIgnoredByNaoignore = (
+	relativePath: string,
+	projectFolder: string,
+	options: NaoignoreOptions = {},
+): boolean => {
 	// Normalize the path (remove leading slash if present)
 	const normalizedPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+	if (isInNaoignoreExemptFolder(normalizedPath, options)) {
+		return false;
+	}
+
+	const patterns = loadNaoignorePatterns(projectFolder);
 
 	for (const pattern of patterns) {
 		// Handle directory patterns (ending with /)
@@ -186,13 +210,19 @@ export const isIgnoredByNaoignore = (relativePath: string, projectFolder: string
 	return false;
 };
 
+const isInNaoignoreExemptFolder = (normalizedPath: string, options: NaoignoreOptions): boolean => {
+	return (options.naoignoreExemptFolders ?? []).some(
+		(folder) => normalizedPath === folder || normalizedPath.startsWith(`${folder}/`),
+	);
+};
+
 /**
  * Checks if a real filesystem path should be ignored based on .naoignore.
  * @param realPath - Absolute filesystem path
  * @param projectFolder - The project folder path
  * @returns true if the path should be ignored
  */
-export const isIgnoredPath = (realPath: string, projectFolder: string): boolean => {
+export const isIgnoredPath = (realPath: string, projectFolder: string, options: NaoignoreOptions = {}): boolean => {
 	const resolved = path.resolve(realPath);
 	const normalizedFolder = path.resolve(projectFolder);
 	const relativePath = path.relative(normalizedFolder, resolved);
@@ -202,7 +232,7 @@ export const isIgnoredPath = (realPath: string, projectFolder: string): boolean 
 		return false;
 	}
 
-	return isIgnoredByNaoignore(relativePath, normalizedFolder);
+	return isIgnoredByNaoignore(relativePath, normalizedFolder, options);
 };
 
 /**
@@ -236,27 +266,36 @@ const isEnvironmentFileName = (name: string): boolean => {
  * @param projectFolder - The project folder path
  * @returns true if the entry should be excluded
  */
-export const shouldExcludeEntry = (entryName: string, parentPath: string, projectFolder: string): boolean => {
+export const shouldExcludeEntry = (
+	entryName: string,
+	parentPath: string,
+	projectFolder: string,
+	options: NaoignoreOptions = {},
+): boolean => {
 	// First check built-in exclusions
 	if (isExcludedEntry(entryName)) {
 		return true;
 	}
 
-	// The storage mount owns this name at the root of the tree
-	if (parentPath === '' && isStoragePath(entryName)) {
+	// The virtual mounts own these names at the root of the tree
+	if (parentPath === '' && isMountPath(entryName)) {
 		return true;
 	}
 
 	// Then check naoignore patterns
 	const relativePath = parentPath ? `${parentPath}/${entryName}` : entryName;
-	return isIgnoredByNaoignore(relativePath, projectFolder);
+	return isIgnoredByNaoignore(relativePath, projectFolder, options);
 };
 
 /**
  * Checks if a given path is within the project folder, not in an excluded directory,
  * and not ignored by .naoignore.
  */
-export const isWithinProjectFolder = (filePath: string, projectFolder: string): boolean => {
+export const isWithinProjectFolder = (
+	filePath: string,
+	projectFolder: string,
+	options: NaoignoreOptions = {},
+): boolean => {
 	const resolved = path.resolve(filePath);
 	const normalizedFolder = path.resolve(projectFolder);
 	const withinFolder = resolved === normalizedFolder || resolved.startsWith(normalizedFolder + path.sep);
@@ -266,13 +305,23 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 	if (isInExcludedDir(resolved)) {
 		return false;
 	}
-	if (isStoragePath(path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/'))) {
+	if (isMountPath(path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/'))) {
 		return false;
 	}
-	if (isIgnoredPath(resolved, normalizedFolder)) {
+	if (isIgnoredPath(resolved, normalizedFolder, options)) {
 		return false;
 	}
 	return true;
+};
+
+export type NaoignoreOptions = {
+	/** Top-level folders admin tools show despite .naoignore. Agent tools never set it. */
+	naoignoreExemptFolders?: readonly string[];
+};
+
+type ToRealPathOptions = NaoignoreOptions & {
+	/** Set to false when the caller applies its own symlink policy (e.g. `assertNoSymlinkInWritePath`). */
+	resolveSymlinks?: boolean;
 };
 
 /**
@@ -280,52 +329,148 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
  * - `/foo/bar` → `{projectFolder}/foo/bar`
  * - `foo/bar` → `{projectFolder}/foo/bar`
  * - `/` or empty → `{projectFolder}`
+ *
+ * The guards run on the lexical path and again on the symlink-resolved path, so a
+ * symlink inside the project cannot reach outside it or into a protected file.
  * @throws Error if the resolved path escapes the project folder or is ignored by .naoignore
  */
-export const toRealPath = (virtualPath: string, projectFolder: string): string => {
+export const toRealPath = (virtualPath: string, projectFolder: string, options: ToRealPathOptions = {}): string => {
 	const normalizedFolder = path.resolve(projectFolder);
 
-	if (isStoragePath(virtualPath)) {
-		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
-	}
+	assertNotMountPath(virtualPath, virtualPath);
 
 	// Strip leading slash to make it relative to project folder
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;
 
 	// Resolve and normalize (this handles .. and .)
 	const resolvedPath = path.resolve(normalizedFolder, relativePath);
+	assertAllowedProjectPath(resolvedPath, normalizedFolder, virtualPath, options);
 
-	// Check if path is outside project folder
-	const withinFolder = resolvedPath === normalizedFolder || resolvedPath.startsWith(normalizedFolder + path.sep);
-	if (!withinFolder) {
-		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
+	if (options.resolveSymlinks === false) {
+		return resolvedPath;
 	}
 
-	const normalizedRelativePath = path.relative(normalizedFolder, resolvedPath).replaceAll(path.sep, '/');
-	if (isStoragePath(normalizedRelativePath)) {
-		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
-	}
-
-	if (resolvedPath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {
-		throw new Error(`Access denied: path '${virtualPath}' targets protected .git metadata`);
-	}
-
-	if (resolvedPath.split(path.sep).some(isEnvironmentFileName)) {
-		throw new Error(`Access denied: path '${virtualPath}' targets a protected environment file`);
-	}
-
-	// Check if path is in an excluded directory
-	if (isInExcludedDir(resolvedPath)) {
-		throw new Error(`Access denied: path '${virtualPath}' is in an excluded directory`);
-	}
-
-	// Check if path is ignored by .naoignore
-	if (isIgnoredPath(resolvedPath, normalizedFolder)) {
-		throw new Error(`Access denied: path '${virtualPath}' is ignored by .naoignore`);
+	const realPath = resolveSymlinks(resolvedPath);
+	if (realPath !== resolvedPath) {
+		assertAllowedProjectPath(realPath, resolveSymlinks(normalizedFolder), virtualPath, options);
 	}
 
 	return resolvedPath;
 };
+
+const assertAllowedProjectPath = (
+	absolutePath: string,
+	projectFolder: string,
+	virtualPath: string,
+	options: NaoignoreOptions,
+): void => {
+	const withinFolder = absolutePath === projectFolder || absolutePath.startsWith(projectFolder + path.sep);
+	if (!withinFolder) {
+		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
+	}
+
+	assertNotMountPath(path.relative(projectFolder, absolutePath).replaceAll(path.sep, '/'), virtualPath);
+
+	if (absolutePath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {
+		throw new Error(`Access denied: path '${virtualPath}' targets protected .git metadata`);
+	}
+
+	if (absolutePath.split(path.sep).some(isEnvironmentFileName)) {
+		throw new Error(`Access denied: path '${virtualPath}' targets a protected environment file`);
+	}
+
+	if (isInExcludedDir(absolutePath)) {
+		throw new Error(`Access denied: path '${virtualPath}' is in an excluded directory`);
+	}
+
+	if (isIgnoredPath(absolutePath, projectFolder, options)) {
+		throw new Error(`Access denied: path '${virtualPath}' is ignored by .naoignore`);
+	}
+};
+
+const assertNotMountPath = (candidatePath: string, virtualPath: string): void => {
+	if (isStoragePath(candidatePath)) {
+		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
+	}
+	if (isStoriesPath(candidatePath)) {
+		throw new Error(`Path '${virtualPath}' is in /${STORIES_MOUNT}, not in the project folder`);
+	}
+	if (isStoryLibraryPath(candidatePath)) {
+		throw new Error(`Path '${virtualPath}' is in /${STORY_LIBRARY_MOUNT}, not in the project folder`);
+	}
+};
+
+/**
+ * Resolves symlinks in `absolutePath`. Segments that do not exist yet are kept as-is,
+ * appended to the resolved path of their deepest existing ancestor.
+ */
+const resolveSymlinks = (absolutePath: string): string => {
+	const missingSegments: string[] = [];
+	let existingPath = absolutePath;
+
+	while (true) {
+		try {
+			return path.join(fs.realpathSync(existingPath), ...missingSegments);
+		} catch (error) {
+			if (!isMissingPathError(error)) {
+				throw error;
+			}
+		}
+
+		const parentPath = path.dirname(existingPath);
+		if (parentPath === existingPath) {
+			return absolutePath;
+		}
+		missingSegments.unshift(path.basename(existingPath));
+		existingPath = parentPath;
+	}
+};
+
+export const isMissingPathError = (error: unknown): boolean => {
+	const code = (error as NodeJS.ErrnoException).code;
+	return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
+export const resolveCanonicalProjectPath = (
+	virtualPath: string,
+	projectFolder: string,
+): { realPath: string; virtualPath: string } => {
+	const projectRoot = path.resolve(projectFolder);
+	const canonicalProjectRoot = fs.realpathSync.native(projectRoot);
+	const candidatePath = toRealPath(virtualPath, projectFolder);
+	const realPath = resolveExistingAncestor(candidatePath);
+
+	if (!isWithinProjectFolder(realPath, canonicalProjectRoot)) {
+		throw new Error(`Access denied: path '${virtualPath}' resolves outside the project folder`);
+	}
+
+	const relativePath = path.relative(canonicalProjectRoot, realPath).replaceAll(path.sep, '/');
+	return {
+		realPath,
+		virtualPath: relativePath ? `/${relativePath}` : '/',
+	};
+};
+
+function resolveExistingAncestor(candidatePath: string): string {
+	const missingSegments: string[] = [];
+	let existingPath = candidatePath;
+
+	while (true) {
+		try {
+			return path.resolve(fs.realpathSync.native(existingPath), ...missingSegments);
+		} catch (error) {
+			if (!isMissingPathError(error)) {
+				throw error;
+			}
+			const parentPath = path.dirname(existingPath);
+			if (parentPath === existingPath) {
+				throw error;
+			}
+			missingSegments.unshift(path.basename(existingPath));
+			existingPath = parentPath;
+		}
+	}
+}
 
 /**
  * Converts a real filesystem path to a virtual path (where / = project folder).
@@ -333,11 +478,11 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
  * - `{projectFolder}` → `/`
  * @throws Error if the path is outside the project folder
  */
-export const toVirtualPath = (realPath: string, projectFolder: string): string => {
+export const toVirtualPath = (realPath: string, projectFolder: string, options: NaoignoreOptions = {}): string => {
 	const resolved = path.resolve(realPath);
 	const normalizedFolder = path.resolve(projectFolder);
 
-	if (!isWithinProjectFolder(resolved, normalizedFolder)) {
+	if (!isWithinProjectFolder(resolved, normalizedFolder, options)) {
 		throw new Error(`Path '${realPath}' is outside the project folder`);
 	}
 

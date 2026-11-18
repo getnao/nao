@@ -23,6 +23,17 @@ sql: |
 
 # Optional fields:
 # database: <database name from nao_config.yaml — required when several databases are configured>
+# tags: [finance, weekly]       # filter the tests by tag in the Tests drawer
+# owner: data-team@company.com  # who to ask when the test fails, also a filter in the Tests drawer
 # category: revenue | activity | conversion | churn | retention | ...
 # difficulty: easy | medium | hard
 # notes: why this test matters / what failure mode it catches
+#
+# Assert intermediate agent actions (independent of final SQL output):
+# assertions:
+#   - type: tool_call
+#     tool: clarification          # e.g. agent must ask a follow-up
+#   # - type: tool_call
+#   #   tool: execute_sql
+#   #   args: { sql_query: "..." } # optional subset match
+#   #   min_count: 1

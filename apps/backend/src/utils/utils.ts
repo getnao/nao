@@ -1,5 +1,8 @@
 import { IncomingHttpHeaders } from 'node:http';
 
+import { getDeploymentEnvVar } from './deployment-env';
+import { ManagedCreditsExhaustedError } from './error';
+
 /** Convert fastify headers to basic `Headers` for better-auth. */
 export const convertHeaders = (headers: IncomingHttpHeaders) => {
 	const convertedHeaders = new Headers();
@@ -26,9 +29,71 @@ export const getErrorMessage = (error: unknown): string | null => {
 };
 
 export const formatErrorMessageForUI = (error: unknown): string => {
-	const message = error instanceof Error ? getErrorMessage(error)?.trim() : null;
+	if (error instanceof ManagedCreditsExhaustedError) {
+		return JSON.stringify({
+			error: error.message,
+			code: 'MANAGED_CREDITS_EXHAUSTED',
+			requiredBalanceMicroUsd: error.requiredBalanceMicroUsd,
+		});
+	}
+	if (isTypeValidationError(error)) {
+		const payload = error.value;
+		if (isProviderErrorPayload(payload)) {
+			const code = payload.error.code;
+			const requestId = getProviderRequestId(payload);
+			return JSON.stringify({
+				error: {
+					message: `The model provider returned an error${code ? ` (${code})` : ''}. Please retry.`,
+					...(requestId && { requestId }),
+				},
+			});
+		}
+		return 'The model provider returned an error. Please retry.';
+	}
+	const message = error instanceof Error ? error.message.trim() : '';
 	return message || 'An error occurred.';
 };
+
+function isTypeValidationError(error: unknown): error is Error & { value: unknown } {
+	return error instanceof Error && error.name === 'AI_TypeValidationError' && 'value' in error;
+}
+
+function isProviderErrorPayload(
+	value: unknown,
+): value is { error: { message: string; code?: string | number | null } } {
+	if (!value || typeof value !== 'object' || !('error' in value)) {
+		return false;
+	}
+	const nestedError = value.error;
+	return (
+		!!nestedError &&
+		typeof nestedError === 'object' &&
+		'message' in nestedError &&
+		typeof nestedError.message === 'string'
+	);
+}
+
+function getProviderRequestId(payload: { error: { message: string } }): string | undefined {
+	const explicitRequestId =
+		readStringProperty(payload, 'request_id') ??
+		readStringProperty(payload, 'requestId') ??
+		readStringProperty(payload.error, 'request_id') ??
+		readStringProperty(payload.error, 'request ID') ??
+		readStringProperty(payload.error, 'requestId');
+	if (explicitRequestId) {
+		return explicitRequestId;
+	}
+
+	return payload.error.message.match(/\brequest\s+id\s+([a-z0-9][a-z0-9._:-]{5,127})\b/i)?.[1];
+}
+
+function readStringProperty(value: object, property: string): string | undefined {
+	if (!(property in value)) {
+		return undefined;
+	}
+	const result = (value as Record<string, unknown>)[property];
+	return typeof result === 'string' && result.trim() ? result.trim() : undefined;
+}
 
 /** GitHub and GitLab usernames are case-insensitive, so entries are normalized to lowercase. */
 export const buildUsernameAllowlist = (allowedUsers?: string): Set<string> => {
@@ -57,6 +122,12 @@ export const normalizeEmailDomains = (raw: string): string[] => {
 
 export const getEmailDomain = (email: string): string | null => {
 	return email.split('@').at(1)?.trim().toLowerCase() || null;
+};
+
+/** Whether `domain` is one of `claimedDomains` or a subdomain of one, as the SSO plugin matches emails. */
+export const isDomainCoveredBy = (domain: string, claimedDomains: string[]): boolean => {
+	const search = domain.trim().toLowerCase();
+	return claimedDomains.some((claimed) => search === claimed || search.endsWith(`.${claimed}`));
 };
 
 /**
@@ -115,17 +186,25 @@ export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) =>
  * Resolve the auth provider ID from the better-auth callback context.
  * Social providers use `params.id`, the genericOAuth plugin (OIDC) uses `params.providerId`.
  */
-export function resolveProviderId(ctx?: { params?: Record<string, string> } | null): string | undefined {
+export function resolveProviderId(ctx?: { params?: Record<string, string | undefined> } | null): string | undefined {
 	return ctx?.params?.id ?? ctx?.params?.providerId;
 }
 
-export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;
+export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[^A-Za-z0-9\s]).{8,}$/;
 
-export const replaceEnvVars = (fileContent: string) => {
+export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, string> = {}) => {
 	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
-		return process.env[varName] || match;
+		if (Object.hasOwn(extraEnv, varName)) {
+			return extraEnv[varName];
+		}
+		return getDeploymentEnvVar(varName) || match;
 	});
 	return replaced;
+};
+
+/** Names whose effective value comes from the process environment because the project does not override them. */
+export const getProcessEnvSourcedVarNames = (names: string[], projectEnv: Record<string, string>): string[] => {
+	return names.filter((name) => !Object.hasOwn(projectEnv, name) && !!getDeploymentEnvVar(name));
 };
 
 /** Truncate a string to a maximum length and add an ellipsis in the middle. */
@@ -134,15 +213,43 @@ export const truncateMiddle = (str: string, maxLength: number, ellipsis: string 
 		return str;
 	}
 	if (maxLength <= ellipsis.length) {
-		return str.slice(0, maxLength);
+		return sliceHead(str, maxLength);
 	}
 	const half = Math.floor((maxLength - ellipsis.length) / 2);
-	return str.slice(0, half) + ellipsis + str.slice(-half);
+	return sliceHead(str, half) + ellipsis + sliceTail(str, half);
 };
+
+/**
+ * Keeps the first `length` UTF-16 units, one fewer when the cut would split a surrogate pair (emoji):
+ * a lone surrogate makes the whole LLM request body invalid JSON for strict parsers.
+ */
+export const sliceHead = (str: string, length: number): string => {
+	const end = isHighSurrogate(str.charCodeAt(length - 1)) ? length - 1 : length;
+	return str.slice(0, end);
+};
+
+/** Keeps the last `length` UTF-16 units, one fewer when the cut would split a surrogate pair. */
+const sliceTail = (str: string, length: number): string => {
+	if (length <= 0) {
+		return '';
+	}
+	const start = Math.max(str.length - length, 0);
+	return str.slice(isLowSurrogate(str.charCodeAt(start)) ? start + 1 : start);
+};
+
+const isHighSurrogate = (charCode: number): boolean => charCode >= 0xd800 && charCode <= 0xdbff;
+
+const isLowSurrogate = (charCode: number): boolean => charCode >= 0xdc00 && charCode <= 0xdfff;
 
 export const removeNewLine = (str: string): string => {
 	return str.replace(/[\r\n]/g, '');
 };
+
+export function chunk<T>(items: T[], size: number): T[][] {
+	return Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+		items.slice(index * size, (index + 1) * size),
+	);
+}
 
 export function groupBy<T, K extends string>(
 	items: T[],
@@ -188,3 +295,7 @@ export const formatSize = (bytes: number) => {
 	}
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
+
+export function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

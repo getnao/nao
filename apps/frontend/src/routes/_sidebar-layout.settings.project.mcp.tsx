@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { requireNonViewer } from '@/lib/require-admin';
+import { requireNonViewer } from '@/lib/route-guards';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/mcp')({
 	validateSearch: (search: Record<string, unknown>): { tab?: string } => ({

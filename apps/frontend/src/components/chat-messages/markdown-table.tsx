@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { DataTableCard } from '@/components/data-table-card';
+import { markdownTableBlockReference, toBlockAttributes } from '@/components/story-block';
 import { useChatId } from '@/hooks/use-chat-id';
 import { cn } from '@/lib/utils';
 
@@ -18,7 +19,11 @@ export function MarkdownTable({ node, className }: { node?: HastNode; className?
 		[columns, rows],
 	);
 
-	return <DataTableCard columns={columns} data={data} chatId={chatId} className={cn('-mx-3 my-4', className)} />;
+	return (
+		<div {...toBlockAttributes(markdownTableBlockReference(columns))}>
+			<DataTableCard columns={columns} data={data} chatId={chatId} className={cn('-mx-3 my-4', className)} />
+		</div>
+	);
 }
 
 function extractTable(node?: HastNode): { columns: string[]; rows: string[][] } {

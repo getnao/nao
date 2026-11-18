@@ -1,0 +1,383 @@
+import { createHash } from 'node:crypto';
+
+import type { StoryApp } from '@nao/shared/story-app';
+import { and, asc, eq, getTableColumns, inArray, lt, notExists, sql } from 'drizzle-orm';
+
+import s, {
+	type DBStoryBundle,
+	type DBStoryDraftFile,
+	type DBStoryFile,
+	type DBStoryVersion,
+} from '../db/abstractSchema';
+import { db, type DBExecutor, type DBTransaction } from '../db/db';
+import { normalizeStoryFilePath } from '../utils/story-file-path';
+import type { VersionProvenance } from './story.queries';
+
+export interface StoryFileInput {
+	path: string;
+	content: string;
+}
+
+export type StoryFileWithContent = DBStoryFile & { content: string };
+
+export const MAX_STORY_FILE_BYTES = 512 * 1024;
+export const MAX_STORY_FILES = 60;
+
+export class StoryFileLimitError extends Error {}
+
+export function listDraftFiles(storyId: string, executor: DBExecutor = db): Promise<DBStoryDraftFile[]> {
+	return executor
+		.select()
+		.from(s.storyDraftFile)
+		.where(eq(s.storyDraftFile.storyId, storyId))
+		.orderBy(asc(s.storyDraftFile.path))
+		.execute();
+}
+
+export async function getDraftFile(
+	storyId: string,
+	path: string,
+	executor: DBExecutor = db,
+): Promise<DBStoryDraftFile | null> {
+	const [row] = await executor
+		.select()
+		.from(s.storyDraftFile)
+		.where(and(eq(s.storyDraftFile.storyId, storyId), eq(s.storyDraftFile.path, normalizeStoryFilePath(path))))
+		.execute();
+	return row ?? null;
+}
+
+export async function writeDraftFile(
+	storyId: string,
+	file: StoryFileInput,
+	executor: DBExecutor = db,
+): Promise<DBStoryDraftFile> {
+	const path = normalizeStoryFilePath(file.path);
+	assertFileSize(path, file.content);
+	await assertFileCount(storyId, path, executor);
+	assertNoFolderCollision(
+		path,
+		(await listDraftFiles(storyId, executor)).map((draft) => draft.path),
+	);
+
+	const [row] = await executor
+		.insert(s.storyDraftFile)
+		.values({ storyId, path, content: file.content })
+		.onConflictDoUpdate({
+			target: [s.storyDraftFile.storyId, s.storyDraftFile.path],
+			set: { content: file.content, updatedAt: new Date() },
+		})
+		.returning()
+		.execute();
+	return row;
+}
+
+export async function deleteDraftFile(storyId: string, path: string, executor: DBExecutor = db): Promise<boolean> {
+	const deleted = await executor
+		.delete(s.storyDraftFile)
+		.where(and(eq(s.storyDraftFile.storyId, storyId), eq(s.storyDraftFile.path, normalizeStoryFilePath(path))))
+		.returning({ id: s.storyDraftFile.id })
+		.execute();
+	return deleted.length > 0;
+}
+
+export async function replaceDraftFiles(
+	storyId: string,
+	files: StoryFileInput[],
+	transaction?: DBTransaction,
+): Promise<DBStoryDraftFile[]> {
+	const replace = async (tx: DBTransaction) => {
+		await tx.delete(s.storyDraftFile).where(eq(s.storyDraftFile.storyId, storyId)).execute();
+		return seedDraftFiles(storyId, files, tx);
+	};
+	return transaction ? replace(transaction) : db.transaction(replace);
+}
+
+export async function seedDraftFiles(
+	storyId: string,
+	files: StoryFileInput[],
+	executor: DBExecutor = db,
+): Promise<DBStoryDraftFile[]> {
+	const normalized = normalizeFileSet(files);
+	if (normalized.length === 0) {
+		return [];
+	}
+	return executor
+		.insert(s.storyDraftFile)
+		.values(normalized.map((file) => ({ storyId, ...file })))
+		.returning()
+		.execute();
+}
+
+export function listVersionFiles(storyVersionId: string, executor: DBExecutor = db): Promise<StoryFileWithContent[]> {
+	return listFilesOfVersions([storyVersionId], executor);
+}
+
+export function listFilesOfVersions(
+	storyVersionIds: string[],
+	executor: DBExecutor = db,
+): Promise<StoryFileWithContent[]> {
+	if (storyVersionIds.length === 0) {
+		return Promise.resolve([]);
+	}
+	return executor
+		.select({ ...getTableColumns(s.storyFile), content: s.storyFileBlob.content })
+		.from(s.storyFile)
+		.innerJoin(s.storyFileBlob, eq(s.storyFile.contentHash, s.storyFileBlob.contentHash))
+		.where(inArray(s.storyFile.storyVersionId, storyVersionIds))
+		.orderBy(asc(s.storyFile.path))
+		.execute();
+}
+
+export async function getVersionFile(
+	storyVersionId: string,
+	path: string,
+	executor: DBExecutor = db,
+): Promise<StoryFileWithContent | null> {
+	const [row] = await executor
+		.select({ ...getTableColumns(s.storyFile), content: s.storyFileBlob.content })
+		.from(s.storyFile)
+		.innerJoin(s.storyFileBlob, eq(s.storyFile.contentHash, s.storyFileBlob.contentHash))
+		.where(and(eq(s.storyFile.storyVersionId, storyVersionId), eq(s.storyFile.path, normalizeStoryFilePath(path))))
+		.execute();
+	return row ?? null;
+}
+
+type CutVersionInput = {
+	storyId: string;
+	action: DBStoryVersion['action'];
+	source: DBStoryVersion['source'];
+	versionNumber?: number;
+} & VersionProvenance;
+
+/** Runs inside the caller's transaction when given one, so a draft write and its version land together. */
+export async function cutVersionFromDraft(
+	data: CutVersionInput,
+	transaction?: DBTransaction,
+): Promise<{ version: DBStoryVersion; files: DBStoryFile[] }> {
+	return transaction ? cutVersion(data, transaction) : db.transaction((tx) => cutVersion(data, tx));
+}
+
+async function cutVersion(
+	data: CutVersionInput,
+	tx: DBTransaction,
+): Promise<{ version: DBStoryVersion; files: DBStoryFile[] }> {
+	const draft = await listDraftFiles(data.storyId, tx);
+	if (draft.length === 0) {
+		throw new StoryFileLimitError('The story has no draft files to publish.');
+	}
+
+	await upsertFileBlobs(
+		draft.map((file) => file.content),
+		tx,
+	);
+
+	const nextVersion = tx
+		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
+		.from(s.storyVersion)
+		.where(eq(s.storyVersion.storyId, data.storyId));
+
+	const [version] = await tx
+		.insert(s.storyVersion)
+		.values({
+			storyId: data.storyId,
+			code: '',
+			action: data.action,
+			source: data.source,
+			origin: data.origin,
+			authorId: data.authorId,
+			sourceChatId: data.sourceChatId,
+			version: data.versionNumber ?? sql`(${nextVersion})`,
+		})
+		.returning()
+		.execute();
+
+	const files = await tx
+		.insert(s.storyFile)
+		.values(
+			draft.map((file) => ({
+				storyVersionId: version.id,
+				path: file.path,
+				contentHash: hashContent(file.content),
+			})),
+		)
+		.returning()
+		.execute();
+
+	return { version, files };
+}
+
+/**
+ * Blobs are shared by content hash, so deleting a story leaves the ones no other version uses behind.
+ * Only blobs older than `createdBefore` go, so a publish still inserting its files never loses a fresh blob.
+ */
+export async function deleteUnreferencedFileBlobs(createdBefore: Date): Promise<number> {
+	const deleted = await db
+		.delete(s.storyFileBlob)
+		.where(
+			and(
+				lt(s.storyFileBlob.createdAt, createdBefore),
+				notExists(
+					db
+						.select({ contentHash: s.storyFile.contentHash })
+						.from(s.storyFile)
+						.where(eq(s.storyFile.contentHash, s.storyFileBlob.contentHash)),
+				),
+			),
+		)
+		.returning({ contentHash: s.storyFileBlob.contentHash })
+		.execute();
+	return deleted.length;
+}
+
+/** Reusing an existing blob refreshes its age, so the cleanup of old unreferenced blobs cannot take it mid-publish. */
+async function upsertFileBlobs(contents: string[], executor: DBExecutor): Promise<void> {
+	const unique = new Map(contents.map((content) => [hashContent(content), content]));
+	const values = [...unique.entries()].map(([contentHash, content]) => ({
+		contentHash,
+		content,
+		size: Buffer.byteLength(content, 'utf8'),
+	}));
+	if (values.length === 0) {
+		return;
+	}
+	await executor
+		.insert(s.storyFileBlob)
+		.values(values)
+		.onConflictDoUpdate({ target: s.storyFileBlob.contentHash, set: { createdAt: new Date() } })
+		.execute();
+}
+
+export async function restoreDraftFromVersion(storyId: string, storyVersionId: string): Promise<DBStoryDraftFile[]> {
+	const files = await listVersionFiles(storyVersionId);
+	return replaceDraftFiles(
+		storyId,
+		files.map((file) => ({ path: file.path, content: file.content })),
+	);
+}
+
+export type StoryBundleRow = Omit<DBStoryBundle, 'thumbnail' | 'thumbnailTheme'>;
+
+export interface VersionThumbnail {
+	thumbnail: string;
+	renderKey: string | null;
+}
+
+export async function getVersionBundle(storyVersionId: string): Promise<StoryBundleRow | null> {
+	const { thumbnail: _thumbnail, thumbnailTheme: _thumbnailTheme, ...columns } = getTableColumns(s.storyBundle);
+	const [row] = await db
+		.select(columns)
+		.from(s.storyBundle)
+		.where(eq(s.storyBundle.storyVersionId, storyVersionId))
+		.execute();
+	return row ?? null;
+}
+
+export async function setVersionBundle(
+	storyVersionId: string,
+	app: StoryApp,
+	executor: DBExecutor = db,
+): Promise<void> {
+	const row = {
+		kind: app.kind,
+		bundle: app.bundle,
+		pageShell: app.kind === 'html' ? app.pageShell : null,
+		bundleError: null,
+	};
+	await executor
+		.insert(s.storyBundle)
+		.values({ storyVersionId, ...row })
+		.onConflictDoUpdate({
+			target: s.storyBundle.storyVersionId,
+			set: { ...row, thumbnail: null, thumbnailTheme: null, builtAt: new Date() },
+		})
+		.execute();
+}
+
+export async function getVersionThumbnail(storyVersionId: string): Promise<VersionThumbnail | null> {
+	const [row] = await db
+		.select({ thumbnail: s.storyBundle.thumbnail, renderKey: s.storyBundle.thumbnailTheme })
+		.from(s.storyBundle)
+		.where(eq(s.storyBundle.storyVersionId, storyVersionId))
+		.execute();
+	return row?.thumbnail == null ? null : { thumbnail: row.thumbnail, renderKey: row.renderKey };
+}
+
+/** Returns false when the version has no bundle row to hold the thumbnail. */
+export async function setVersionThumbnail(
+	storyVersionId: string,
+	thumbnail: string,
+	renderKey: string | null,
+): Promise<boolean> {
+	const updated = await db
+		.update(s.storyBundle)
+		.set({ thumbnail, thumbnailTheme: renderKey })
+		.where(eq(s.storyBundle.storyVersionId, storyVersionId))
+		.returning({ storyVersionId: s.storyBundle.storyVersionId });
+	return updated.length > 0;
+}
+
+export function storyAppOfBundle(bundle: StoryBundleRow | null): StoryApp | null {
+	if (!bundle || bundle.bundle === null) {
+		return null;
+	}
+	if (bundle.kind === 'react') {
+		return { kind: 'react', bundle: bundle.bundle };
+	}
+	return bundle.pageShell === null ? null : { kind: 'html', bundle: bundle.bundle, pageShell: bundle.pageShell };
+}
+
+export function hasSameFiles(left: StoryFileInput[], right: StoryFileInput[]): boolean {
+	const contents = new Map(right.map((file) => [file.path, file.content]));
+	return left.length === right.length && left.every((file) => contents.get(file.path) === file.content);
+}
+
+export function hashContent(content: string): string {
+	return createHash('sha256').update(content).digest('hex');
+}
+
+function normalizeFileSet(files: StoryFileInput[]): StoryFileInput[] {
+	if (files.length > MAX_STORY_FILES) {
+		throw new StoryFileLimitError(`A story can hold at most ${MAX_STORY_FILES} files.`);
+	}
+	const seen = new Set<string>();
+	return files.map((file) => {
+		const path = normalizeStoryFilePath(file.path);
+		if (seen.has(path)) {
+			throw new StoryFileLimitError(`Duplicate file path "${path}".`);
+		}
+		assertNoFolderCollision(path, [...seen]);
+		seen.add(path);
+		assertFileSize(path, file.content);
+		return { path, content: file.content };
+	});
+}
+
+function assertFileSize(path: string, content: string) {
+	const bytes = Buffer.byteLength(content, 'utf8');
+	if (bytes > MAX_STORY_FILE_BYTES) {
+		throw new StoryFileLimitError(
+			`"${path}" is ${Math.round(bytes / 1024)}KB; files are capped at ${MAX_STORY_FILE_BYTES / 1024}KB.`,
+		);
+	}
+}
+
+function assertNoFolderCollision(path: string, otherPaths: string[]): void {
+	const collision = otherPaths.find((other) => other.startsWith(`${path}/`) || path.startsWith(`${other}/`));
+	if (collision) {
+		throw new StoryFileLimitError(
+			`"${path}" cannot sit next to "${collision}": one would be both a file and a folder.`,
+		);
+	}
+}
+
+async function assertFileCount(storyId: string, path: string, executor: DBExecutor) {
+	const [row] = await executor
+		.select({ count: sql<number>`count(*)` })
+		.from(s.storyDraftFile)
+		.where(and(eq(s.storyDraftFile.storyId, storyId), sql`${s.storyDraftFile.path} <> ${path}`))
+		.execute();
+	if (Number(row?.count ?? 0) >= MAX_STORY_FILES) {
+		throw new StoryFileLimitError(`A story can hold at most ${MAX_STORY_FILES} files.`);
+	}
+}

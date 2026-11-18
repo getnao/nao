@@ -27,6 +27,9 @@ dependencies = [
     "pyyaml>=6.0.0",
     "rich>=14.0.0",
     "ibis-framework>=9.0.0",
+    # ibis's shared SQL compilers import packaging, but most ibis backend extras
+    # (mssql, postgres, mysql, ...) don't declare it.
+    "packaging>=21.3",
     "fastapi>=0.128.0",
     "uvicorn>=0.40.0",
     "cryptography>=46.0.3",
@@ -43,6 +46,7 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "numpy>=1.26.0",
     "pandas>=2.1.0",
+    "orjson>=3.10.0",
     "sqlglot>=26.0.0",
     "httpx>=0.27.0",
 ]
@@ -52,11 +56,15 @@ dependencies = [
 postgres = ["ibis-framework[postgres]>=9.0.0"]
 bigquery = ["ibis-framework[bigquery]>=9.0.0", "google-cloud>=0.34.0"]
 snowflake = ["ibis-framework[snowflake]>=9.0.0", "snowflake-connector-python[secure-local-storage]>=4.2.0"]
-duckdb = ["ibis-framework[duckdb]>=9.0.0"]
+# duckdb>=1.5.2: earlier engines speak DuckLake catalog format 0.4 and refuse to
+# attach a 1.0 catalog outright, so a resolved 1.5.1 fails against any recent lake.
+# duckdb<2: 2.0 removed DuckDBPyConnection.fetch_arrow_table, which ibis 12's DuckDB backend
+# still calls (ibis-project/ibis#12196). Lift once a released ibis supports duckdb 2.
+duckdb = ["ibis-framework[duckdb]>=9.0.0", "duckdb>=1.5.2,<2"]
 clickhouse = ["ibis-framework[clickhouse]>=9.0.0", "clickhouse-driver>=0.2.9"]
 databricks = ["ibis-framework[databricks]>=9.0.0", "certifi>=2024.0.0"]
 mysql = ["ibis-framework[mysql]>=9.0.0"]
-mssql = ["ibis-framework[mssql]>=9.0.0"]
+mssql = ["ibis-framework[mssql]>=9.0.0", "azure-identity>=1.19.0"]
 athena = ["ibis-framework[athena]>=9.0.0"]
 trino = ["ibis-framework[trino]>=9.0.0"]
 redshift = ["ibis-framework[postgres]>=9.0.0", "sshtunnel>=0.4.0", "redshift-connector>=2.1.13"]
@@ -79,6 +87,11 @@ notion = ["notion-client>=3.1.0,<4", "notion2md>=2.9.0,<3"]
 # body Confluence renders into the markdown the context layer stores.
 confluence = ["markdownify>=0.13.0,<2"]
 
+# Semantic layer engines
+# MetricFlow is only used as a SQL compiler (its engine class is an internal API), so the
+# minor version is pinned and bumped deliberately after re-running the compile tests.
+semantic-layer = ["metricflow>=0.213.0,<0.214"]
+
 # Secret resolution backends
 aws-secrets = ["boto3>=1.34.0", "glom>=23.0.0"]
 k8s-secrets = ["kubernetes>=29.0.0"]
@@ -88,7 +101,7 @@ all-databases = [
     "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric,starrocks]",
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
-all = ["nao-core[all-databases,all-llms,notion,confluence,aws-secrets,k8s-secrets]"]
+all = ["nao-core[all-databases,all-llms,notion,confluence,semantic-layer,aws-secrets,k8s-secrets]"]
 dev = ["pytest>=9.0.2", "pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]
@@ -96,10 +109,18 @@ nao = "nao_core.main:main"
 
 [project.urls]
 Homepage = "https://getnao.io"
-Repository = "https://github.com/naolabs/chat"
+Repository = "https://github.com/getnao/nao"
+Issues = "https://github.com/getnao/nao/issues"
+Changelog = "https://github.com/getnao/nao/releases"
 
 [dependency-groups]
-dev = ["pytest>=9.0.2", "ruff>=0.8.0", "ty>=0.0.9", "nao-core[all]"]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.8.0",
+    "ty>=0.0.9",
+    "nao-core[all]",
+    "watchfiles>=1.3.0",
+]
 
 [build-system]
 requires = ["hatchling"]

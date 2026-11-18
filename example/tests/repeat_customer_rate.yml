@@ -1,0 +1,22 @@
+name: repeat_customer_rate
+prompt: >-
+  Among customers who placed at least one order, how many are one-time buyers and
+  how many are repeat buyers (2 or more orders)? For each group give the number of
+  customers, their share of customers as a percentage rounded to 1 decimal, and
+  their total lifetime value.
+sql: |
+  WITH buyers AS (
+    SELECT
+      CASE WHEN number_of_orders >= 2 THEN 'repeat' ELSE 'one-time' END AS buyer_type,
+      customer_lifetime_value
+    FROM customers
+    WHERE number_of_orders >= 1
+  )
+  SELECT
+    buyer_type,
+    COUNT(*) AS customers,
+    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS share_of_customers_pct,
+    SUM(customer_lifetime_value) AS total_lifetime_value
+  FROM buyers
+  GROUP BY buyer_type
+  ORDER BY buyer_type

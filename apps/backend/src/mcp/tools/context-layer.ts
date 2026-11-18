@@ -1,9 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { executeSql, grep, list, readFile } from '@nao/shared/tools';
+import { extractQueryIds } from '@nao/shared/story-segments';
+import { executeSemanticQuery, executeSql, grep, list, LOCAL_DATABASE_ID, readFile } from '@nao/shared/tools';
+import type { SemanticLayerMode } from '@nao/shared/types';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
-import executeSqlTool from '../../agents/tools/execute-sql';
+import executeSemanticQueryTool from '../../agents/tools/execute-semantic-query';
+import executeSqlTool, { localOnlyExecuteSql } from '../../agents/tools/execute-sql';
 import grepTool from '../../agents/tools/grep';
 import listTool from '../../agents/tools/list';
 import readTool from '../../agents/tools/read';
@@ -11,16 +14,38 @@ import * as chatQueries from '../../queries/chat.queries';
 import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
+import {
+	assertWriterAddsNoMarkdownChatQueries,
+	CustomStoryQueryNotAllowedError,
+} from '../../services/custom-story-query-access';
+import {
+	isSemanticQueryToolEnabled,
+	isWarehouseSqlEnabled,
+	SemanticQueryCompileError,
+} from '../../services/semantic-layer.service';
+import { copyMcpQueriesToStory } from '../../services/story-sql-queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
+import type { ConfiguredDatabase } from '../../utils/nao-config';
+import { generateStorySlug } from '../../utils/story-mount';
 import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
 import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
-import type { McpContext } from '../logging';
+import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
+import {
+	CREATE_CUSTOM_STORY_DESCRIPTION,
+	CREATE_CUSTOM_STORY_INPUT,
+	createCustomStoryForMcp,
+	resolveCustomStory,
+	storyEditLockRefusal,
+	UPDATE_CUSTOM_STORY_DESCRIPTION,
+	UPDATE_CUSTOM_STORY_INPUT,
+	updateCustomStoryForMcp,
+} from './custom-story-mcp';
 import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 
-const EXECUTE_SQL_DESCRIPTION =
+const EXECUTE_SQL_BASE_DESCRIPTION =
 	'Run a single SQL query against the connected warehouse. Read-only unless the workspace admin ' +
 	'has enabled write permissions.\n\n' +
 	'USE WHEN: you already know the SQL (or have a precise question that maps to one query).\n' +
@@ -29,6 +54,15 @@ const EXECUTE_SQL_DESCRIPTION =
 	'BEFORE RUNNING: if you have not yet read RULES.md in this session, call ' +
 	'`read_nao_context` on `RULES.md` (or `grep_nao_context`) first to learn the schema, ' +
 	'naming conventions, and business rules. Skip this step only if `ask_nao` already ran the query.';
+
+const EXECUTE_SEMANTIC_QUERY_DESCRIPTION =
+	'Query the governed metrics of the semantic layer. nao compiles the metrics, dimensions and filters ' +
+	'to SQL with the official definitions and runs it on the database the layer is configured for.\n\n' +
+	'USE WHEN: the question maps to metrics in the semantic layer. Prefer it over `execute_sql` for any ' +
+	'number that has to match a governed metric.\n' +
+	'BEFORE RUNNING: find metric names with `ls_nao_context` on `semantics/metrics` and dimension names ' +
+	'in `semantics/dimensions.md`.\n\n' +
+	'The result works like an `execute_sql` result: pass its `query_id` to `display_chart` or embed it in a story.';
 
 const GREP_DESCRIPTION =
 	'Search a regex across the nao project context files.\n\n' +
@@ -66,20 +100,41 @@ const UPDATE_STORY_DESCRIPTION =
 	'stays valid.';
 
 type ExecuteSqlMcpInput = executeSql.Input & { chat_id?: string };
+type ExecuteSemanticQueryMcpInput = executeSemanticQuery.Input & { chat_id?: string };
 
-const EXECUTE_SQL_INPUT_SCHEMA = executeSql.InputSchema.extend({
-	chat_id: zodV3
-		.string()
-		.optional()
+const CHAT_ID_INPUT_SCHEMA = zodV3
+	.string()
+	.optional()
+	.describe(
+		'Chat UUID to associate this query with (e.g. `chatId` from `ask_nao`). ' +
+			"Sets the 'Open in nao' button on any chart later rendered from this `query_id`.",
+	);
+
+const QUERY_ID_OUTPUT_SCHEMA = zodV3
+	.string()
+	.describe('Reusable query ID — pass to `display_chart` as `query_id`, or embed as `<table query_id="..." />`.');
+
+const EXECUTE_SQL_BASE_INPUT_SCHEMA = executeSql.InputSchema.extend({ chat_id: CHAT_ID_INPUT_SCHEMA });
+
+const LOCAL_ONLY_EXECUTE_SQL_INPUT_SCHEMA = EXECUTE_SQL_BASE_INPUT_SCHEMA.extend({
+	database_id: zodV3
+		.literal(LOCAL_DATABASE_ID)
 		.describe(
-			'Chat UUID to associate this query with (e.g. `chatId` from `ask_nao`). ' +
-				"Sets the 'Open in nao' button on any chart later rendered from this `query_id`.",
+			`Must be "${LOCAL_DATABASE_ID}": raw SQL on the warehouse is disabled in this project, so query metrics with \`execute_semantic_query\`.`,
 		),
 });
 
-export function registerContextLayerTools(server: McpServer, ctx: McpContext): void {
+export function registerContextLayerTools(
+	server: McpServer,
+	ctx: McpContext,
+	configuredDatabases: ConfiguredDatabase[],
+	semanticLayerMode: SemanticLayerMode | null = null,
+): void {
 	registerFileTools(server, ctx);
-	registerExecuteSql(server, ctx);
+	registerExecuteSql(server, ctx, configuredDatabases, isWarehouseSqlEnabled(semanticLayerMode));
+	if (isSemanticQueryToolEnabled(semanticLayerMode)) {
+		registerExecuteSemanticQuery(server, ctx);
+	}
 	registerContextStoryTools(server, ctx);
 }
 
@@ -112,102 +167,211 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 	});
 }
 
-function registerExecuteSql(server: McpServer, ctx: McpContext): void {
+function registerExecuteSql(
+	server: McpServer,
+	ctx: McpContext,
+	configuredDatabases: ConfiguredDatabase[],
+	warehouseSqlEnabled: boolean,
+): void {
+	const warehouseDatabaseIds = getWarehouseDatabaseIds(configuredDatabases);
 	registerAgentToolAsMcp<executeSql.Input, executeSql.Output, ExecuteSqlMcpInput>(server, ctx, {
 		name: 'execute_sql',
-		agentTool: executeSqlTool,
+		agentTool: warehouseSqlEnabled ? executeSqlTool : localOnlyExecuteSql,
 		title: 'Execute SQL',
-		description: EXECUTE_SQL_DESCRIPTION,
-		inputSchema: EXECUTE_SQL_INPUT_SCHEMA,
-		outputSchema: executeSql.OutputSchema.extend({
-			query_id: zodV3
-				.string()
-				.describe(
-					'Reusable query ID — pass to `display_chart` as `query_id`, or embed as `<table query_id="..." />`.',
-				),
-		}).shape,
+		description: warehouseSqlEnabled
+			? buildExecuteSqlDescription(warehouseDatabaseIds)
+			: localOnlyExecuteSql.description,
+		inputSchema: warehouseSqlEnabled
+			? buildExecuteSqlInputSchema(warehouseDatabaseIds)
+			: LOCAL_ONLY_EXECUTE_SQL_INPUT_SCHEMA,
+		outputSchema: executeSql.OutputSchema.extend({ query_id: QUERY_ID_OUTPUT_SCHEMA }).shape,
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
-		formatResult: async ({ input, output, callLogId }) => {
-			const queryId = output.id;
-			const validatedSourceChat = await resolveChartChatId(input.chat_id, ctx);
-
-			await upsertMcpQueryData(queryId, callLogId, ctx.projectId, output.columns, output.data, {
-				sourceChatId: validatedSourceChat ?? null,
-			});
-
-			const mcpOutput = { ...output, query_id: queryId };
-			return {
-				content: [{ type: 'text' as const, text: JSON.stringify(mcpOutput) }],
-				structuredContent: mcpOutput,
-			};
+		formatResult: (result) => formatQueryResult(ctx, result),
+		errorMessage: (error) => {
+			return error instanceof Error ? error.message : 'execute_sql failed. Please try again.';
 		},
 	});
 }
 
-function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
-	registerMcpTool(server, ctx, {
-		name: 'create_story',
-		title: 'Create Story',
-		description: CREATE_STORY_DESCRIPTION,
-		inputSchema: {
-			title: z.string().describe('Story title.'),
-			content: z
-				.string()
-				.optional()
-				.describe(
-					'Full nao story markdown (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). Omit to start from a title-only stub.',
-				),
-			query_data: z
-				.record(
-					z.string(),
-					z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
-				)
-				.optional()
-				.describe(
-					"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
-						'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
-				),
-			chat_id: z
-				.string()
-				.optional()
-				.describe(
-					'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
-				),
+function registerExecuteSemanticQuery(server: McpServer, ctx: McpContext): void {
+	registerAgentToolAsMcp<executeSemanticQuery.Input, executeSemanticQuery.Output, ExecuteSemanticQueryMcpInput>(
+		server,
+		ctx,
+		{
+			name: 'execute_semantic_query',
+			agentTool: executeSemanticQueryTool,
+			title: 'Execute Semantic Query',
+			description: EXECUTE_SEMANTIC_QUERY_DESCRIPTION,
+			inputSchema: executeSemanticQuery.InputSchema.extend({ chat_id: CHAT_ID_INPUT_SCHEMA }),
+			outputSchema: executeSemanticQuery.OutputSchema.omit({ compiled_sql: true }).extend({
+				query_id: QUERY_ID_OUTPUT_SCHEMA,
+			}).shape,
+			mapInput: ({ chat_id: _chatId, ...input }) => input,
+			resolveChatId: (input) => input.chat_id ?? null,
+			formatResult: ({ output: { compiled_sql: _compiledSql, ...output }, ...result }) =>
+				formatQueryResult(ctx, { ...result, output }),
+			errorMessage: semanticQueryErrorMessage,
 		},
-		outputSchema: STORY_OUTPUT_SCHEMA,
-		_meta: uiToolMeta(STORY_APP_URI),
-		handler: async ({ title, content, query_data, chat_id }) => {
-			const slug = generateSlug(title);
-			const code = content ?? `# ${title}\n`;
-			const story = chat_id
-				? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
-				: await createStandaloneStory({ slug, title, code, ctx });
+	);
+}
 
-			if ('error' in story) {
-				return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
-			}
+function semanticQueryErrorMessage(error: unknown): string {
+	return error instanceof SemanticQueryCompileError
+		? error.message
+		: 'execute_semantic_query failed. Please try again.';
+}
 
-			await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
+async function formatQueryResult<TOutput extends executeSql.Output>(
+	ctx: McpContext,
+	{ input, output, callLogId }: { input: { chat_id?: string }; output: TOutput; callLogId: string },
+): Promise<ToolResult> {
+	const queryId = output.id;
+	const validatedSourceChat = await resolveChartChatId(input.chat_id, ctx);
 
-			const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
-			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
-			const output: StoryMcpToolPayload = {
-				embedUrl,
-				id: story.id,
-				title: story.title,
-				createdAt: story.createdAt,
-				url: storyUrl(storyForUrl),
-				chatUrl: storyChatUrl(storyForUrl),
-			};
-			return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
-		},
+	await upsertMcpQueryData(queryId, callLogId, ctx.projectId, output.columns, output.data, {
+		sourceChatId: validatedSourceChat ?? null,
 	});
+
+	const mcpOutput = { ...output, query_id: queryId };
+	return {
+		content: [{ type: 'text' as const, text: JSON.stringify(mcpOutput) }],
+		structuredContent: mcpOutput,
+	};
+}
+
+function getWarehouseDatabaseIds(configuredDatabases: ConfiguredDatabase[]): string[] {
+	return [
+		...new Set(
+			configuredDatabases.map((database) => database.id).filter((databaseId) => databaseId !== LOCAL_DATABASE_ID),
+		),
+	];
+}
+
+function buildExecuteSqlDescription(warehouseDatabaseIds: string[]): string {
+	if (warehouseDatabaseIds.length < 2) {
+		return EXECUTE_SQL_BASE_DESCRIPTION;
+	}
+
+	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];
+	return `${EXECUTE_SQL_BASE_DESCRIPTION}\n\nDatabase selection: \`database_id\` is required because multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+}
+
+function buildExecuteSqlInputSchema(warehouseDatabaseIds: string[]) {
+	if (warehouseDatabaseIds.length < 2) {
+		const validDatabaseIds = new Set([...warehouseDatabaseIds, LOCAL_DATABASE_ID]);
+		const databaseIdSchema = EXECUTE_SQL_BASE_INPUT_SCHEMA.shape.database_id.refine(
+			(databaseId) => databaseId === undefined || validDatabaseIds.has(databaseId),
+			{ message: 'Unknown database_id.' },
+		);
+
+		return EXECUTE_SQL_BASE_INPUT_SCHEMA.extend({
+			database_id: databaseIdSchema,
+		});
+	}
+
+	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];
+	const missingDatabaseIdMessage = `database_id is required when multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+	const unknownDatabaseIdMessage = `Unknown database_id. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+	const description = `Required because multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+	const databaseIdSchema = zodV3
+		.enum(validDatabaseIds as [string, ...string[]], {
+			errorMap: (issue) => ({
+				message:
+					issue.code === 'invalid_type' && issue.received === 'undefined'
+						? missingDatabaseIdMessage
+						: unknownDatabaseIdMessage,
+			}),
+		})
+		.describe(description);
+
+	return EXECUTE_SQL_BASE_INPUT_SCHEMA.extend({
+		database_id: databaseIdSchema,
+	});
+}
+
+function formatDatabaseIds(databaseIds: string[]): string {
+	return databaseIds.map((databaseId) => `"${databaseId}"`).join(', ');
+}
+
+function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
+	if (ctx.storyCreationEnabled) {
+		registerMcpTool(server, ctx, {
+			name: 'create_story',
+			title: 'Create Story',
+			description:
+				CREATE_STORY_DESCRIPTION + (ctx.customStoryCreationEnabled ? CREATE_CUSTOM_STORY_DESCRIPTION : ''),
+			inputSchema: {
+				title: z.string().describe('Story title.'),
+				content: z
+					.string()
+					.optional()
+					.describe(
+						'Full nao story markdown (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). Omit to start from a title-only stub.',
+					),
+				query_data: z
+					.record(
+						z.string(),
+						z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
+					)
+					.optional()
+					.describe(
+						"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
+							'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
+					),
+				chat_id: z
+					.string()
+					.optional()
+					.describe(
+						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
+					),
+				...(ctx.customStoryCreationEnabled ? CREATE_CUSTOM_STORY_INPUT : {}),
+			},
+			outputSchema: STORY_OUTPUT_SCHEMA,
+			_meta: uiToolMeta(STORY_APP_URI),
+			handler: async ({ title, content, query_data, chat_id, format, files }) => {
+				if (format === 'custom') {
+					if (content !== undefined) {
+						return errorResult('A custom story takes `files`, not `content`.');
+					}
+					return createCustomStoryForMcp({ chatId: chat_id, title, files, queryData: query_data }, ctx);
+				}
+				if (files !== undefined) {
+					return errorResult('`files` only applies to `format: "custom"`.');
+				}
+				const slug = generateStorySlug(title);
+				const code = content ?? `# ${title}\n`;
+				const story = chat_id
+					? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
+					: await createStandaloneStory({ slug, title, code, ctx });
+
+				if ('error' in story) {
+					return errorResult(story.error);
+				}
+
+				await cacheStoryQueryData({ id: story.id, isLive: false }, code, query_data, chat_id, ctx);
+				await saveStandaloneStoryQuerySql(story, code, ctx);
+
+				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
+				const output: StoryMcpToolPayload = {
+					embedUrl,
+					id: story.id,
+					title: story.title,
+					createdAt: story.createdAt,
+					url: storyUrl(story.id),
+					chatUrl: storyChatUrl(story),
+				};
+				return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
+			},
+		});
+	}
 
 	registerMcpTool(server, ctx, {
 		name: 'update_story',
 		title: 'Update Story',
-		description: UPDATE_STORY_DESCRIPTION,
+		description: ctx.customStoryCreationEnabled
+			? UPDATE_STORY_DESCRIPTION + UPDATE_CUSTOM_STORY_DESCRIPTION
+			: UPDATE_STORY_DESCRIPTION,
 		inputSchema: {
 			story_id: z
 				.string()
@@ -239,26 +403,60 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 					'Chat UUID to associate this revision with (e.g. `chatId` from `ask_nao`). ' +
 						"Sets the 'Open in nao' button on the story's embedded charts.",
 				),
+			...(ctx.customStoryCreationEnabled ? UPDATE_CUSTOM_STORY_INPUT : {}),
 		},
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
-		handler: async ({ story_id, title, content, query_data, chat_id }) => {
+		handler: async ({ story_id, title, content, query_data, chat_id, files, delete_paths }) => {
+			const customStory = ctx.customStoryCreationEnabled ? await resolveCustomStory(story_id, ctx) : null;
+			if (customStory) {
+				if (content !== undefined) {
+					return errorResult('A custom story is edited with `files` and `delete_paths`, not `content`.');
+				}
+				return updateCustomStoryForMcp(
+					customStory,
+					{ title, files: files ?? [], deletePaths: delete_paths ?? [], queryData: query_data },
+					ctx,
+				);
+			}
 			const story = await resolveStory(story_id, ctx);
+			if (story.format === 'custom') {
+				return customStoryUpdateRefusal(story);
+			}
+			if (files !== undefined || delete_paths !== undefined) {
+				return errorResult('`files` and `delete_paths` only apply to custom stories.');
+			}
+			const lockRefusal = await storyEditLockRefusal(story.id, ctx.userId);
+			if (lockRefusal) {
+				return errorResult(lockRefusal);
+			}
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
+			const queryRefusal = await markdownChatQueryRefusal(story, ctx.userId, newCode);
+			if (queryRefusal) {
+				return errorResult(queryRefusal);
+			}
+			const updated = await saveNewVersion(story, ctx, {
+				title: newTitle,
+				code: newCode,
+				basedOnVersion: latestVersion?.version,
+			}).catch(rethrowUnlessVersionConflict);
+			if (!updated) {
+				return errorResult(new storyQueries.StoryVersionConflictError().message);
+			}
 			if (title !== undefined && title !== story.title) {
 				await storyQueries.renameStory(story.id, title);
 			}
-			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
-			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx);
+			await cacheStoryQueryData(story, newCode, query_data, effectiveChatId, ctx);
+			await saveStandaloneStoryQuerySql(story, newCode, ctx);
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
-				url: storyUrl(story),
+				url: storyUrl(story.id),
 				chatUrl: storyChatUrl(story),
 			};
 			return buildStoryMcpResultWithSandbox(output, ctx, newCode, effectiveChatId);
@@ -266,13 +464,27 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 	});
 }
 
+function customStoryUpdateRefusal(story: storyQueries.UserStoryRow): ToolResult {
+	const chatHint = story.chatId
+		? ` Call \`ask_nao\` with \`chatId\` "${story.chatId}" and describe the change instead.`
+		: '';
+	return errorResult(
+		`"${story.title}" is a custom story (an interactive app), which you cannot edit here.${chatHint}`,
+	);
+}
+
+function errorResult(message: string): ToolResult {
+	return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true };
+}
+
 async function cacheStoryQueryData(
-	storyId: string,
+	story: { id: string; isLive: boolean },
 	code: string,
 	queryData: StoryQueryDataMap | undefined,
 	chatId: string | null | undefined,
 	ctx: McpContext,
 ): Promise<void> {
+	const storyId = story.id;
 	const existingCache = await storyQueries.getStoryDataCacheByStoryId(storyId);
 	const seededQueryData: StoryQueryDataMap = {
 		...((existingCache?.queryData as StoryQueryDataMap | null) ?? {}),
@@ -286,19 +498,22 @@ async function cacheStoryQueryData(
 	if (!resolvedQueryData) {
 		return;
 	}
-	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData);
+	const keptQuerySources = story.isLive ? (existingCache?.querySources ?? null) : null;
+	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData, undefined, keptQuerySources);
 	if (chatId) {
 		await pinQueryDataToChat(chatId, resolvedQueryData);
 	}
 }
 
-function generateSlug(title: string): string {
-	return (
-		title
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-|-$/g, '') || 'untitled'
-	);
+/** A standalone story keeps the SQL of its MCP queries, so it can go live without a chat to read it from. */
+async function saveStandaloneStoryQuerySql(
+	story: { id: string; chatId: string | null },
+	code: string,
+	ctx: McpContext,
+): Promise<void> {
+	if (!story.chatId) {
+		await copyMcpQueriesToStory(story.id, extractQueryIds(code), ctx);
+	}
 }
 
 type CreatedStory = { id: string; title: string; slug: string; chatId: string | null; createdAt: Date };
@@ -317,6 +532,7 @@ async function createStandaloneStory(args: {
 		title: args.title,
 		code: args.code,
 		source: 'user',
+		origin: 'mcp',
 	});
 
 	if (!story) {
@@ -359,6 +575,7 @@ async function createChatLinkedStory(args: {
 		code: args.code,
 		action: 'create',
 		source: 'assistant',
+		...mcpProvenance(args.ctx),
 	});
 	const created = await storyQueries.getStoryByChatAndSlug(args.chatId, args.slug);
 	if (!created) {
@@ -387,8 +604,7 @@ async function createChatLinkedStory(args: {
 async function saveNewVersion(
 	story: { id: string; slug: string; chatId: string | null },
 	ctx: McpContext,
-	title: string,
-	code: string,
+	{ title, code, basedOnVersion }: { title: string; code: string; basedOnVersion: number | undefined },
 ): Promise<{ id: string; title: string; updatedAt: Date }> {
 	if (story.chatId) {
 		await storyQueries.createStoryVersion({
@@ -396,8 +612,10 @@ async function saveNewVersion(
 			slug: story.slug,
 			title,
 			code,
+			basedOnVersion,
 			action: 'update',
 			source: 'user',
+			...mcpProvenance(ctx),
 		});
 		const updated = await storyQueries.getStoryByChatAndSlug(story.chatId, story.slug);
 		if (!updated) {
@@ -414,10 +632,42 @@ async function saveNewVersion(
 		code,
 		action: 'update',
 		source: 'user',
+		origin: 'mcp',
+		basedOnVersion,
 	});
 	const updated = await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, story.slug);
 	if (!updated) {
 		throw new Error(`Failed to retrieve updated story: ${ctx.userId}/${story.slug}`);
 	}
 	return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
+}
+
+async function markdownChatQueryRefusal(
+	story: { slug: string; chatId: string | null },
+	userId: string,
+	code: string,
+): Promise<string | null> {
+	if (!story.chatId) {
+		return null;
+	}
+	try {
+		await assertWriterAddsNoMarkdownChatQueries(story.chatId, story.slug, userId, code);
+		return null;
+	} catch (error) {
+		if (error instanceof CustomStoryQueryNotAllowedError) {
+			return error.message;
+		}
+		throw error;
+	}
+}
+
+function rethrowUnlessVersionConflict(error: unknown): null {
+	if (error instanceof storyQueries.StoryVersionConflictError) {
+		return null;
+	}
+	throw error;
+}
+
+function mcpProvenance(ctx: McpContext): storyQueries.VersionProvenance {
+	return { origin: 'mcp', authorId: ctx.userId, sourceChatId: null };
 }

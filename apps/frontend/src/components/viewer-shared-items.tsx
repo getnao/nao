@@ -14,6 +14,7 @@ import {
 	LiveBadge,
 	SharingBadge,
 } from '@/components/item-card';
+import { CustomStoryThumbnail } from '@/components/custom-story-thumbnail';
 import { PaperSheet, StoryThumbnail } from '@/components/story-thumbnail';
 import StoryIcon from '@/components/ui/story-icon';
 import { formatRelativeDate } from '@/lib/time-ago';
@@ -56,17 +57,27 @@ export function ViewerEmptyState() {
 function SharedStoryCard({ item, displayMode }: { item: SharedItem; displayMode: StoryPanelDisplayMode }) {
 	if (displayMode === 'lines') {
 		return (
-			<Link to='/stories/shared/$shareId' params={{ shareId: item.id }} className={LINES_CARD_CLASS}>
+			<Link to='/stories/$storyId' params={{ storyId: item.id }} className={LINES_CARD_CLASS}>
 				<SharedItemLine item={item} icon={<StoryIcon className='size-3.5 text-muted-foreground shrink-0' />} />
 			</Link>
 		);
 	}
 
 	return (
-		<Link to='/stories/shared/$shareId' params={{ shareId: item.id }} className={GRID_CARD_CLASS}>
+		<Link to='/stories/$storyId' params={{ storyId: item.id }} className={GRID_CARD_CLASS}>
 			<SharedItemGrid
 				item={item}
-				thumbnail={<StoryThumbnail summary={item.summary as StoryThumbnailSummary} />}
+				thumbnail={
+					item.format === 'custom' ? (
+						<CustomStoryThumbnail
+							storyId={item.id}
+							version={item.version}
+							summary={item.summary as StoryThumbnailSummary | undefined}
+						/>
+					) : (
+						<StoryThumbnail summary={item.summary as StoryThumbnailSummary} />
+					)
+				}
 			/>
 		</Link>
 	);
@@ -98,7 +109,7 @@ function SharedItemLine({ item, icon }: { item: SharedItem; icon: ReactNode }) {
 		<>
 			{icon}
 			<span className='text-sm font-medium truncate'>{item.title}</span>
-			<SharedItemBadges item={item} />
+			<SharedItemBadges item={item} mode='lines' />
 			<span className='ml-auto text-xs text-muted-foreground whitespace-nowrap'>
 				{`${item.authorName} · ${formatRelativeDate(item.createdAt)}`}
 			</span>
@@ -116,22 +127,29 @@ function SharedItemGrid({ item, thumbnail }: { item: SharedItem; thumbnail: Reac
 						title={item.title}
 						subtitle={<AuthorDateLabel author={item.authorName} createdAt={item.createdAt} />}
 					/>
-					<SharedItemBadges item={item} />
+					<SharedItemBadges item={item} mode='grid' />
 				</div>
 			</div>
 		</>
 	);
 }
 
-function SharedItemBadges({ item }: { item: SharedItem }) {
-	if (!item.isLive && !item.visibility) {
+function SharedItemBadges({ item, mode }: { item: SharedItem; mode: 'grid' | 'lines' }) {
+	const showSharing = mode === 'grid' ? item.visibility === 'specific' : !!item.visibility;
+	if (!item.isLive && !showSharing) {
 		return null;
 	}
 
 	return (
 		<div className='flex items-center gap-2 shrink-0'>
-			{item.isLive && <LiveBadge />}
-			{item.visibility && <SharingBadge visibility={item.visibility} sharedWithCount={item.sharedWithCount} />}
+			{item.isLive && <LiveBadge iconOnly={mode === 'grid'} />}
+			{showSharing && item.visibility && (
+				<SharingBadge
+					visibility={item.visibility}
+					sharedWithCount={item.sharedWithCount}
+					sharedWithGroupCount={item.sharedWithGroupCount}
+				/>
+			)}
 		</div>
 	);
 }

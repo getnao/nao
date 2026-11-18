@@ -11,6 +11,7 @@ const FALLBACK_TITLE = 'Untitled automation';
 
 export async function inferAutomationTitle(
 	projectId: string,
+	userId: string,
 	prompt: string,
 	modelSelection?: LlmSelectedModel,
 ): Promise<string> {
@@ -19,7 +20,7 @@ export async function inferAutomationTitle(
 		return FALLBACK_TITLE;
 	}
 
-	const modelConfig = await resolveModelForProject(projectId, modelSelection);
+	const modelConfig = await resolveModelForProject(projectId, userId, modelSelection);
 	if (!modelConfig) {
 		return fallbackTitleFromPrompt(trimmedPrompt);
 	}
@@ -41,6 +42,7 @@ export async function inferAutomationTitle(
 
 async function resolveModelForProject(
 	projectId: string,
+	userId: string,
 	modelSelection?: LlmSelectedModel,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
 	const pinned = modelSelection ? null : await resolveDefaultModelSelection(projectId, 'title');
@@ -54,7 +56,11 @@ async function resolveModelForProject(
 	const modelId = modelSelection
 		? await resolveAnnotationModelId(projectId, modelSelection, defaultModelId)
 		: (pinned?.modelId ?? defaultModelId);
-	const model = await resolveProviderModel(projectId, provider, modelId, false);
+	const model = await resolveProviderModel(projectId, provider, modelId, false, {
+		userId,
+		projectId,
+		category: 'automation',
+	});
 	return model ? { provider, model } : null;
 }
 

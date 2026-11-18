@@ -2,16 +2,18 @@ import { useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 
 interface UseStoryViewerEnlargeParams {
-	chatId: string;
-	storySlug: string;
+	storyId: string | null;
 }
 
-export const useStoryViewerEnlarge = ({ chatId, storySlug }: UseStoryViewerEnlargeParams) => {
+export const useStoryViewerEnlarge = ({ storyId }: UseStoryViewerEnlargeParams) => {
 	const navigate = useNavigate();
 
 	const handleEnlarge = useCallback(() => {
-		navigate({ to: '/stories/preview/$chatId/$storySlug', params: { chatId, storySlug } });
-	}, [chatId, storySlug, navigate]);
+		if (!storyId) {
+			return;
+		}
+		navigate({ to: '/stories/$storyId', params: { storyId } });
+	}, [storyId, navigate]);
 
 	return {
 		handleEnlarge,

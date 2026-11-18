@@ -2,9 +2,19 @@ import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-r
 import { useForm } from '@tanstack/react-form';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { signIn } from '@/lib/auth-client';
+import type { ChallengeMethod } from '@/components/two-factor-challenge';
+import { handleSsoSignIn, sendVerificationEmail, signIn, twoFactor } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { EmailVerificationPending } from '@/components/email-verification-pending';
+import { TwoFactorChallenge } from '@/components/two-factor-challenge';
 import { useIsCloud } from '@/hooks/use-nao-mode';
+import {
+	buildEmailVerificationCallbackUrl,
+	getSignInErrorMessage,
+	isEmailNotVerifiedError,
+} from '@/lib/email-verification';
 import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
 import { trpc } from '@/main';
@@ -25,11 +35,14 @@ function buildOAuthAuthorizeUrl() {
 	return `/api/auth/oauth2/authorize${window.location.search}`;
 }
 
-function Login() {
+export function Login() {
 	const navigate = useNavigate();
 	const router = useRouter();
 	const { error: oauthError, redirect } = Route.useSearch();
-	const [serverError, setServerError] = useState<string | undefined>(oauthError);
+	const [serverError, setServerError] = useState<string | undefined>(getSignInErrorMessage(oauthError));
+	const [pendingEmail, setPendingEmail] = useState<string>();
+	const [challengeMethod, setChallengeMethod] = useState<ChallengeMethod>();
+	const [isSsoMode, setIsSsoMode] = useState(false);
 	const isSmtpSetup = useQuery(trpc.authConfig.smtp.isSetup.queryOptions());
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const isCloud = useIsCloud();
@@ -38,6 +51,18 @@ function Login() {
 
 	const oauthAuthorizeUrl = buildOAuthAuthorizeUrl();
 	const safeRedirect = getSafeRedirectPath(redirect);
+	const verificationCallbackURL = buildEmailVerificationCallbackUrl(oauthAuthorizeUrl ?? safeRedirect);
+
+	const redirectAfterSignIn = () => {
+		rememberSignInMethod('email');
+		if (oauthAuthorizeUrl) {
+			window.location.href = oauthAuthorizeUrl;
+		} else if (safeRedirect) {
+			router.history.push(safeRedirect);
+		} else {
+			navigate({ to: '/' });
+		}
+	};
 
 	const form = useForm({
 		defaultValues: { email: '', password: '' },
@@ -46,43 +71,98 @@ function Login() {
 				return;
 			}
 			setServerError(undefined);
-			await signIn.email(value, {
-				onSuccess: () => {
-					rememberSignInMethod('email');
-					if (oauthAuthorizeUrl) {
-						window.location.href = oauthAuthorizeUrl;
-					} else if (safeRedirect) {
-						router.history.push(safeRedirect);
-					} else {
-						navigate({ to: '/' });
+			const { data, error } = await signIn.email(value);
+			if (error) {
+				if (isEmailNotVerifiedError(error)) {
+					try {
+						const { error: verificationError } = await sendVerificationEmail({
+							email: value.email,
+							callbackURL: verificationCallbackURL,
+						});
+						if (verificationError) {
+							setServerError(
+								verificationError.status === 429
+									? 'Too many requests. Wait a minute before trying again.'
+									: 'We could not send a verification email. Please try again.',
+							);
+							return;
+						}
+					} catch {
+						setServerError('We could not send a verification email. Please try again.');
+						return;
 					}
-				},
-				onError: (err) => setServerError(err.error.message),
-			});
+					setPendingEmail(value.email);
+					return;
+				}
+				setServerError(error.message);
+				return;
+			}
+
+			if (data && 'twoFactorRedirect' in data) {
+				const method = readChallengeMethod(data);
+				if (method === 'email') {
+					await twoFactor.sendOtp();
+				}
+				setChallengeMethod(method);
+				return;
+			}
+
+			redirectAfterSignIn();
 		},
 	});
+	const isFirstStep = !pendingEmail && !challengeMethod;
 
 	return (
 		<AuthForm
 			form={form}
-			title='Log in'
+			title={
+				pendingEmail
+					? 'Check your inbox'
+					: challengeMethod
+						? 'Two-factor authentication'
+						: isSsoMode
+							? 'Log in with SSO'
+							: 'Log in'
+			}
 			submitText='Log in'
 			serverError={serverError}
-			displaySocialProviders={true}
+			displaySocialProviders={isFirstStep && !isSsoMode}
 			socialCallbackUrl={oauthAuthorizeUrl ?? safeRedirect ?? undefined}
 			displayEmailPasswordForm={isUserLoginEnabled}
 			emailPasswordDisabledMessage='Email and password login is disabled. Use a configured sign-in provider to continue.'
+			content={
+				pendingEmail ? (
+					<EmailVerificationPending
+						email={pendingEmail}
+						callbackURL={verificationCallbackURL}
+						onChangeEmail={() => setPendingEmail(undefined)}
+					/>
+				) : challengeMethod ? (
+					<TwoFactorChallenge
+						method={challengeMethod}
+						onVerified={redirectAfterSignIn}
+						onCancel={() => {
+							setChallengeMethod(undefined);
+						}}
+					/>
+				) : isSsoMode ? (
+					<SsoSignInForm callbackURL={oauthAuthorizeUrl ?? safeRedirect ?? '/'} onError={setServerError} />
+				) : undefined
+			}
 			footer={
-				isCloud && isUserSignupEnabled ? (
+				isFirstStep && isCloud ? (
 					<>
-						Don&apos;t have an account?{' '}
-						<Link
-							to='/signup'
-							search={{ error: undefined, redirect: safeRedirect ?? undefined }}
-							className='text-violet underline underline-offset-2'
+						<button
+							type='button'
+							onClick={() => {
+								setServerError(undefined);
+								setIsSsoMode(!isSsoMode);
+							}}
+							className='mb-3 block w-full underline underline-offset-2'
 						>
-							Create an account
-						</Link>
+							{isSsoMode ? 'Use another sign-in method' : 'Log in with SSO'}
+						</button>
+						{isUserSignupEnabled && <SignupLink redirect={safeRedirect} />}
 					</>
 				) : undefined
 			}
@@ -113,5 +193,59 @@ function Login() {
 				</div>
 			)}
 		</AuthForm>
+	);
+}
+
+/** The sign-in answer lists `totp` only for accounts set up with an authenticator app. */
+function readChallengeMethod(challenge: object): ChallengeMethod {
+	const methods = (challenge as { twoFactorMethods?: string[] }).twoFactorMethods;
+	return methods?.includes('totp') ? 'totp' : 'email';
+}
+
+function SignupLink({ redirect }: { redirect: string | null }) {
+	return (
+		<>
+			Don&apos;t have an account?{' '}
+			<Link
+				to='/signup'
+				search={{ error: undefined, redirect: redirect ?? undefined }}
+				className='text-violet underline underline-offset-2'
+			>
+				Create an account
+			</Link>
+		</>
+	);
+}
+
+function SsoSignInForm({ callbackURL, onError }: { callbackURL: string; onError: (error?: string) => void }) {
+	const [email, setEmail] = useState('');
+	const [isPending, setIsPending] = useState(false);
+
+	return (
+		<form
+			className='flex flex-col gap-3'
+			onSubmit={async (event) => {
+				event.preventDefault();
+				setIsPending(true);
+				onError(undefined);
+				const error = await handleSsoSignIn(email.trim(), callbackURL);
+				if (error) {
+					onError(error);
+					setIsPending(false);
+				}
+			}}
+		>
+			<Input
+				type='email'
+				required
+				autoFocus
+				placeholder='you@company.com'
+				value={email}
+				onChange={(event) => setEmail(event.target.value)}
+			/>
+			<Button type='submit' variant='primary-gradient' className='h-11 w-full rounded-full' isLoading={isPending}>
+				Continue with SSO
+			</Button>
+		</form>
 	);
 }
