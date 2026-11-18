@@ -1311,7 +1311,10 @@ export const projectRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 			}
 
-			const [chat, ownerId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
+			const [chat, ownerId] = await chatQueries.getChat(input.chatId, {
+				includeFeedback: true,
+				queryResultPreviews: true,
+			});
 			if (!chat) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 			}

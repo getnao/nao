@@ -1,15 +1,17 @@
+import { isQueryResultPartType } from '@nao/shared/execute-sql-parts';
 import type { executeSql } from '@nao/shared/tools';
 import type { InferUIMessageChunk } from 'ai';
 
-import { QUERY_TOOL_NAMES } from '../queries/execute-sql.queries';
 import type { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 
 export const QUERY_RESULT_PREVIEW_ROWS = 100;
 
 type UIMessageChunk = InferUIMessageChunk<UIMessage>;
 
-const QUERY_TOOL_NAME_SET = new Set<string>(QUERY_TOOL_NAMES);
-const QUERY_TOOL_PART_TYPES = new Set<string>(QUERY_TOOL_NAMES.map((toolName) => `tool-${toolName}`));
+export type QueryPartColumns = {
+	queryId: string | null;
+	toolOutputPreview: unknown;
+};
 
 /**
  * Query results can hold hundreds of thousands of rows. The web app only receives the first ones
@@ -53,8 +55,23 @@ export function toQueryResultPreview<T>(output: T): T {
 	return { ...output, data: output.data.slice(0, QUERY_RESULT_PREVIEW_ROWS), is_preview: true };
 }
 
+/**
+ * Stored next to a query tool output so the result can be found by its id, and a chat can load
+ * with the first rows of a large result instead of all of them.
+ */
+export function toQueryPartColumns(toolName: string, output: unknown): QueryPartColumns {
+	if (!isQueryResultPartType(`tool-${toolName}`)) {
+		return { queryId: null, toolOutputPreview: null };
+	}
+	const preview = toQueryResultPreview(output);
+	return {
+		queryId: readQueryId(output),
+		toolOutputPreview: preview === output ? null : preview,
+	};
+}
+
 function toQueryResultPreviewPart(part: UIMessagePart): UIMessagePart {
-	if (!QUERY_TOOL_PART_TYPES.has(part.type) || !('output' in part) || !part.output) {
+	if (!isQueryResultPartType(part.type) || !('output' in part) || !part.output) {
 		return part;
 	}
 	return { ...part, output: toQueryResultPreview(part.output) } as UIMessagePart;
@@ -65,10 +82,15 @@ function isQueryToolInputChunk(
 ): chunk is Extract<UIMessageChunk, { type: 'tool-input-start' | 'tool-input-available' }> {
 	return (
 		(chunk.type === 'tool-input-start' || chunk.type === 'tool-input-available') &&
-		QUERY_TOOL_NAME_SET.has(chunk.toolName)
+		isQueryResultPartType(`tool-${chunk.toolName}`)
 	);
 }
 
 function isQueryOutput(output: unknown): output is executeSql.Output {
 	return typeof output === 'object' && output !== null && Array.isArray((output as executeSql.Output).data);
+}
+
+function readQueryId(output: unknown): string | null {
+	const id = (output as { id?: unknown } | null | undefined)?.id;
+	return typeof id === 'string' ? id : null;
 }

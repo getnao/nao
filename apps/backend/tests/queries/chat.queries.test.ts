@@ -4,7 +4,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { getLatestContextEditChatId, listGroupedChats } from '../../src/queries/chat.queries';
+import {
+	getChat,
+	getChatMessages,
+	getLatestContextEditChatId,
+	getQueryResultByQueryId,
+	listGroupedChats,
+	upsertMessage,
+} from '../../src/queries/chat.queries';
+import { QUERY_RESULT_PREVIEW_ROWS } from '../../src/utils/query-result-preview';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDbWithInlineTransactions } = await import('../helpers/in-memory-db');
@@ -16,12 +24,12 @@ const OTHER_PROJECT_ID = 'context-hub-other-project';
 const USER_ID = 'context-hub-user';
 const CONTEXT_EDIT = { type: 'context_edit' as const, id: PROJECT_ID, title: 'Context Hub', authorName: '' };
 
+afterAll(() => {
+	db.$client.close();
+});
+
 describe('Context Hub chats', () => {
 	beforeAll(seed);
-
-	afterAll(() => {
-		db.$client.close();
-	});
 
 	it.each([
 		{ projectId: PROJECT_ID, expected: 'latest-context-chat' },
@@ -38,6 +46,61 @@ describe('Context Hub chats', () => {
 		expect(historyIds).not.toContain('latest-context-chat');
 	});
 });
+
+describe('large query results', () => {
+	const chatId = 'large-result-chat';
+	const queryId = 'query_large_result';
+	const rowCount = 5_000;
+
+	beforeAll(async () => {
+		await db.insert(s.user).values({ id: 'large-result-user', name: 'User', email: 'large-result@example.com' });
+		await db.insert(s.project).values({ id: 'large-result-project', name: 'Orders', type: 'local', path: '/tmp' });
+		await db
+			.insert(s.chat)
+			.values({ id: chatId, userId: 'large-result-user', projectId: 'large-result-project', title: 'Orders' });
+		await upsertMessage({
+			chatId,
+			role: 'assistant',
+			parts: [
+				{
+					type: 'tool-execute_sql',
+					toolCallId: 'large-result-call',
+					state: 'output-available',
+					input: { sql_query: 'select * from orders' },
+					output: {
+						_version: '1',
+						id: queryId,
+						columns: ['id'],
+						data: Array.from({ length: rowCount }, (_, index) => ({ id: index })),
+						row_count: rowCount,
+					},
+				},
+			],
+		});
+	});
+
+	it('loads only the first rows of a large result with the chat', async () => {
+		const [chat] = await getChat(chatId, { includeFeedback: true, queryResultPreviews: true });
+		const messages = await getChatMessages(chatId, { queryResultPreviews: true });
+
+		for (const part of [chat?.messages[0].parts[0], messages[0].parts[0]]) {
+			expect(part).toMatchObject({ output: { id: queryId, row_count: rowCount, is_preview: true } });
+			expect(queryRows(part)).toHaveLength(QUERY_RESULT_PREVIEW_ROWS);
+		}
+	});
+
+	it('keeps every row for the callers that need them', async () => {
+		const [chat] = await getChat(chatId);
+		const result = await getQueryResultByQueryId(chatId, queryId);
+
+		expect(queryRows(chat?.messages[0].parts[0])).toHaveLength(rowCount);
+		expect(result?.data).toHaveLength(rowCount);
+	});
+});
+
+function queryRows(part: unknown): unknown[] | undefined {
+	return (part as { output?: { data?: unknown[] } } | undefined)?.output?.data;
+}
 
 async function seed() {
 	await db.insert(s.user).values({ id: USER_ID, name: 'User', email: 'context-hub-user@example.com' });

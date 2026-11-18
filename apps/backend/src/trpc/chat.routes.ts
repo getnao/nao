@@ -30,7 +30,10 @@ const CANCEL_WAIT_MS = 10_000;
 
 export const chatRoutes = {
 	get: protectedProcedure.input(z.object({ chatId: z.string() })).query(async ({ input, ctx }): Promise<UIChat> => {
-		const [chat, userId] = await chatQueries.getChat(input.chatId, { includeFeedback: true });
+		const [chat, userId] = await chatQueries.getChat(input.chatId, {
+			includeFeedback: true,
+			queryResultPreviews: true,
+		});
 		if (!chat) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
 		}

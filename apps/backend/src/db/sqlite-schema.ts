@@ -618,6 +618,10 @@ export const messagePart = sqliteTable(
 		toolOutput: text('tool_output', { mode: 'json' }).$type<unknown>(),
 		// tool_md_output: text('tool_md_output'),
 
+		// query tool columns: the result id, and its first rows when the result is too large to load with the chat
+		queryId: text('query_id'),
+		toolOutputPreview: text('tool_output_preview', { mode: 'json' }).$type<unknown>(),
+
 		// tool approval columns
 		toolApprovalId: text('tool_approval_id'),
 		toolApprovalApproved: integer('tool_approval_approved', { mode: 'boolean' }),
@@ -636,6 +640,7 @@ export const messagePart = sqliteTable(
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
 		index('parts_message_id_order_idx').on(t.messageId, t.order),
+		index('parts_query_id_idx').on(t.queryId),
 		check('text_required_if_type_is_text', sql`CASE WHEN type = 'text' THEN text IS NOT NULL ELSE TRUE END`),
 		check(
 			'reasoning_text_required_if_type_is_reasoning',
