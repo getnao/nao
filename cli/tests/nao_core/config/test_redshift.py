@@ -1,7 +1,25 @@
 from typing import Any
 from unittest.mock import MagicMock
 
-from nao_core.config.databases.redshift import RedshiftConfig, RedshiftDatabaseContext
+import pytest
+
+from nao_core.config.databases.redshift import RedshiftAuthMode, RedshiftConfig, RedshiftDatabaseContext
+
+
+@pytest.mark.parametrize(
+    ("overrides", "requires_token", "has_sync_credentials"),
+    [
+        ({}, False, True),
+        ({"auth_mode": RedshiftAuthMode.AZURE_ENTRA_ID}, True, True),
+        ({"auth_mode": RedshiftAuthMode.AZURE_ENTRA_ID, "user": None, "password": None}, True, False),
+        ({"auth_mode": RedshiftAuthMode.IAM, "password": None, "region_name": "us-east-1"}, False, True),
+    ],
+)
+def test_user_access_token_mode(overrides: dict[str, Any], requires_token: bool, has_sync_credentials: bool):
+    cfg = _redshift_config(**overrides)
+
+    assert cfg.requires_user_access_token() is requires_token
+    assert cfg.has_sync_credentials() is has_sync_credentials
 
 
 def test_get_schemas_uses_datashare_visible_catalog_view():
