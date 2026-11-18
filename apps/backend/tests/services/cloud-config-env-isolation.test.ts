@@ -37,6 +37,15 @@ vi.mock('mcporter', () => ({
 	createRuntime: async () => new FakeRuntime(),
 }));
 
+vi.mock(
+	'@modelcontextprotocol/sdk/client/index.js',
+	async () => (await import('../helpers/mcp-project')).mcpSdkClientMock,
+);
+vi.mock(
+	'@modelcontextprotocol/sdk/client/streamableHttp.js',
+	async () => (await import('../helpers/mcp-project')).mcpSdkStreamableHttpMock,
+);
+vi.mock('@modelcontextprotocol/sdk/client/sse.js', async () => (await import('../helpers/mcp-project')).mcpSdkSseMock);
 vi.mock('../../src/db/db', () => ({ db: {} }));
 vi.mock('../../src/services/warehouse-credentials', () => ({
 	getProjectWarehouseEnvVars: async () => ({}),
@@ -66,6 +75,7 @@ vi.mock('../../src/services/mcp-oauth', async (importOriginal) => ({
 import { McpHeaderVariableError, McpService } from '../../src/services/mcp';
 import { readProjectConfigLlm } from '../../src/utils/nao-config-llm';
 import { getProcessEnvSourcedVarNames, replaceEnvVars } from '../../src/utils/utils';
+import { builtHttpTransports } from '../helpers/mcp-project';
 import { useTemporaryFolders } from '../helpers/temporary-folders';
 
 const DEPLOYMENT_SECRET = 'postgres://nao:deployment-secret@db/nao';
@@ -96,6 +106,7 @@ beforeEach(() => {
 	mocks.isCloud = true;
 	mocks.projectEnvVars = {};
 	registeredDefinitions.length = 0;
+	builtHttpTransports.length = 0;
 	vi.stubEnv('DB_URI', DEPLOYMENT_SECRET);
 });
 
@@ -162,7 +173,7 @@ describe('MCP server headers in cloud mode', () => {
 
 		const service = await discover();
 
-		expect(registeredDefinitions).toEqual([]);
+		expect(builtHttpTransports).toEqual([]);
 		const [status] = await service.getServersStatus('project-1');
 		expect(status.error).toBe(new McpHeaderVariableError('leaky', ['DB_URI']).message);
 	});
@@ -181,7 +192,7 @@ describe('MCP server headers in cloud mode', () => {
 		await expect(
 			service.callTool({ projectId: 'project-1', userId: 'user-1', server: 'leaky', tool: 'any', args: {} }),
 		).rejects.toBeInstanceOf(McpHeaderVariableError);
-		expect(registeredDefinitions).toEqual([]);
+		expect(builtHttpTransports).toEqual([]);
 	});
 
 	it('does not expand a placeholder used as a server name', async () => {
@@ -194,7 +205,7 @@ describe('MCP server headers in cloud mode', () => {
 		expect((await service.getServersStatus('project-1')).map((status) => status.name)).toEqual(['${DB_URI}']);
 	});
 
-	it('registers a server whose header resolves from the project variables', async () => {
+	it('connects to a server with its header resolved from the project variables', async () => {
 		mocks.projectEnvVars = { DB_URI: 'from-project' };
 		projectPath = createMcpProject({
 			remote: {
@@ -206,9 +217,10 @@ describe('MCP server headers in cloud mode', () => {
 
 		await discover();
 
-		expect(registeredDefinitions.map((definition) => definition.command.headers)).toEqual([
-			{ Authorization: 'Bearer from-project' },
-		]);
+		const authorizations = builtHttpTransports.map(({ options }) =>
+			new Headers(options.requestInit?.headers).get('authorization'),
+		);
+		expect(new Set(authorizations)).toEqual(new Set(['Bearer from-project']));
 	});
 
 	it('leaves header resolution to the runtime when self-hosted', async () => {

@@ -161,6 +161,44 @@ export async function safeFetchWithUrl(url: string, options: SafeFetchOptions = 
 	return fetchFollowingRedirects(url, options, 0);
 }
 
+/**
+ * A `fetch` that only reaches public addresses. It follows redirects itself, checking every hop,
+ * so a public server cannot bounce the request onto an internal one.
+ */
+export async function fetchPublicUrl(input: string | URL, init: RequestInit = {}): Promise<Response> {
+	let url = new URL(input);
+	let hopInit = init;
+	for (let redirectCount = 0; ; redirectCount++) {
+		if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+			throw new Error('Only http and https URLs are allowed.');
+		}
+		await resolveSafeAddress(url.hostname);
+		const response = await fetch(url, { ...hopInit, redirect: 'manual' });
+		const location = response.headers.get('location');
+		if (response.status < 300 || response.status >= 400 || !location) {
+			return response;
+		}
+		if (redirectCount >= MAX_REDIRECTS) {
+			throw new Error(`Too many redirects (more than ${MAX_REDIRECTS}).`);
+		}
+		await response.body?.cancel();
+		const nextUrl = new URL(location, url);
+		hopInit = redirectedInit(hopInit, response.status, nextUrl.origin !== url.origin);
+		url = nextUrl;
+	}
+}
+
+/** Mirrors what `fetch` does on a redirect: 301-303 turn into a GET, and credentials stay on their origin. */
+function redirectedInit(init: RequestInit, status: number, crossesOrigin: boolean): RequestInit {
+	const headers = new Headers(init.headers);
+	if (crossesOrigin) {
+		headers.delete('authorization');
+		headers.delete('cookie');
+	}
+	const keepsMethod = status === 307 || status === 308;
+	return keepsMethod ? { ...init, headers } : { ...init, headers, method: 'GET', body: undefined };
+}
+
 async function fetchFollowingRedirects(
 	url: string,
 	options: SafeFetchOptions,

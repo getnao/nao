@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { isPrivateAddress, isPrivateHostname, resolveSafeAddress } from '../../src/utils/safe-fetch';
+import { fetchPublicUrl, isPrivateAddress, isPrivateHostname, resolveSafeAddress } from '../../src/utils/safe-fetch';
 
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('dns/promises', () => ({ default: { lookup } }));
@@ -91,3 +91,58 @@ describe('resolveSafeAddress', () => {
 		expect(lookup).not.toHaveBeenCalled();
 	});
 });
+
+describe('fetchPublicUrl', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it.each([
+		['the metadata server', 'http://169.254.169.254/computeMetadata/v1/', 'private address'],
+		['localhost', 'http://127.0.0.1:3000/api/health', 'private address'],
+		['a non-http protocol', 'file:///etc/passwd', 'Only http and https'],
+	])('refuses %s without sending a request', async (_target, url, message) => {
+		const fetchMock = stubFetch(new Response('ok'));
+
+		await expect(fetchPublicUrl(url)).rejects.toThrow(message);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('refuses a public server that redirects onto a private address', async () => {
+		resolvesTo('93.184.215.14');
+		const fetchMock = stubFetch(redirectTo('http://169.254.169.254/computeMetadata/v1/'));
+
+		await expect(fetchPublicUrl('https://mcp.example.com/mcp')).rejects.toThrow('private address');
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('follows a public redirect and keeps credentials on their origin', async () => {
+		resolvesTo('93.184.215.14');
+		const fetchMock = stubFetch(redirectTo('https://other.example.com/mcp', 307), new Response('done'));
+
+		const response = await fetchPublicUrl('https://mcp.example.com/mcp', {
+			method: 'POST',
+			headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
+		});
+
+		expect(await response.text()).toBe('done');
+		const [url, init] = fetchMock.mock.calls[1] as [URL, RequestInit];
+		expect(url.toString()).toBe('https://other.example.com/mcp');
+		expect(init.method).toBe('POST');
+		expect(new Headers(init.headers).get('authorization')).toBeNull();
+		expect(new Headers(init.headers).get('content-type')).toBe('application/json');
+	});
+});
+
+function stubFetch(...responses: Response[]) {
+	const fetchMock = vi.fn();
+	for (const response of responses) {
+		fetchMock.mockResolvedValueOnce(response);
+	}
+	vi.stubGlobal('fetch', fetchMock);
+	return fetchMock;
+}
+
+function redirectTo(location: string, status = 302): Response {
+	return new Response(null, { status, headers: { location } });
+}
