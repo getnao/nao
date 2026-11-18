@@ -25,6 +25,7 @@ interface TransferOwnershipDialogProps {
 	description: ReactNode;
 	recipients: TransferRecipient[] | undefined;
 	canTransfer?: boolean;
+	hasNothingToTransfer?: boolean;
 	isPending: boolean;
 	error?: string;
 	onTransfer: (recipientId: string) => void;
@@ -37,6 +38,7 @@ export function TransferOwnershipDialog({
 	description,
 	recipients,
 	canTransfer = true,
+	hasNothingToTransfer = false,
 	isPending,
 	error,
 	onTransfer,
@@ -63,64 +65,79 @@ export function TransferOwnershipDialog({
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
-				<form
-					className='grid gap-4'
-					onSubmit={(event) => {
-						event.preventDefault();
-						if (recipientId) {
-							onTransfer(recipientId);
-						}
-					}}
-				>
-					<div className='grid gap-2'>
-						<label htmlFor='transfer-ownership-recipient' className='text-sm font-medium'>
-							New owner
-						</label>
-						<Select value={recipientId} onValueChange={setRecipientId} disabled={!recipients?.length}>
-							<SelectTrigger id='transfer-ownership-recipient' size='input'>
-								<SelectValue placeholder={recipients ? 'Choose a member' : 'Loading members…'} />
-							</SelectTrigger>
-							<SelectContent>
-								{recipients?.map((recipient) => (
-									<SelectItem key={recipient.id} value={recipient.id}>
-										<span className='truncate'>{recipient.name}</span>
-										<span className='truncate text-xs text-muted-foreground'>
-											{recipient.email}
-										</span>
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						{recipients?.length === 0 && (
-							<p className='text-xs text-muted-foreground'>No other member who can edit is available.</p>
-						)}
-					</div>
-					{error && (
-						<p className='text-sm text-destructive' role='alert'>
-							{error}
-						</p>
-					)}
+				{hasNothingToTransfer ? (
 					<DialogFooter>
 						<Button
 							type='button'
 							variant='ghost'
 							className='rounded-full border'
-							disabled={isPending}
 							onClick={() => handleOpenChange(false)}
 						>
-							Cancel
-						</Button>
-						<Button
-							type='submit'
-							variant='primary-gradient'
-							className='rounded-full'
-							disabled={!recipientId || !canTransfer || isPending}
-							isLoading={isPending}
-						>
-							Transfer
+							Close
 						</Button>
 					</DialogFooter>
-				</form>
+				) : (
+					<form
+						className='grid gap-4'
+						onSubmit={(event) => {
+							event.preventDefault();
+							if (recipientId) {
+								onTransfer(recipientId);
+							}
+						}}
+					>
+						<div className='grid gap-2'>
+							<label htmlFor='transfer-ownership-recipient' className='text-sm font-medium'>
+								New owner
+							</label>
+							<Select value={recipientId} onValueChange={setRecipientId} disabled={!recipients?.length}>
+								<SelectTrigger id='transfer-ownership-recipient' size='input'>
+									<SelectValue placeholder={recipients ? 'Choose a member' : 'Loading members…'} />
+								</SelectTrigger>
+								<SelectContent>
+									{recipients?.map((recipient) => (
+										<SelectItem key={recipient.id} value={recipient.id}>
+											<span className='truncate'>{recipient.name}</span>
+											<span className='truncate text-xs text-muted-foreground'>
+												{recipient.email}
+											</span>
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							{recipients?.length === 0 && (
+								<p className='text-xs text-muted-foreground'>
+									No other member who can edit is available.
+								</p>
+							)}
+						</div>
+						{error && (
+							<p className='text-sm text-destructive' role='alert'>
+								{error}
+							</p>
+						)}
+						<DialogFooter>
+							<Button
+								type='button'
+								variant='ghost'
+								className='rounded-full border'
+								disabled={isPending}
+								onClick={() => handleOpenChange(false)}
+							>
+								Cancel
+							</Button>
+							<Button
+								type='submit'
+								variant='primary-gradient'
+								className='rounded-full'
+								disabled={!recipientId || !canTransfer || isPending}
+								isLoading={isPending}
+							>
+								Transfer
+							</Button>
+						</DialogFooter>
+					</form>
+				)}
 			</DialogContent>
 		</Dialog>
 	);

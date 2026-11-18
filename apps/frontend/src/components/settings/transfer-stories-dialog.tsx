@@ -46,6 +46,7 @@ export function TransferStoriesDialog({ member, recipients, onOpenChange }: Tran
 			}
 			recipients={recipients}
 			canTransfer={!!storyCount}
+			hasNothingToTransfer={storyCount === 0}
 			isPending={transfer.isPending}
 			error={transfer.error?.message ?? describeFailedTransfers(transfer.data?.failedCount)}
 			onTransfer={(recipientId) => member && transfer.mutate({ fromUserId: member.id, recipientId })}

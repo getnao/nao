@@ -84,6 +84,10 @@ vi.mock('@/main', () => ({
 		account: {
 			resetPassword: { mutationOptions: vi.fn() },
 		},
+		automation: {
+			countOwnedByUser: { queryOptions: vi.fn(() => ({ queryKey: ['owned-automations'] })) },
+			transferAllFromUser: { mutationOptions: vi.fn() },
+		},
 		authConfig: {
 			microsoft: { isSetup: { queryOptions: vi.fn(() => ({ queryKey: ['microsoft-config'] })) } },
 			oidc: { getConfig: { queryOptions: vi.fn(() => ({ queryKey: ['oidc-config'] })) } },
