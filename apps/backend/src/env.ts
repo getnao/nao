@@ -168,6 +168,11 @@ const baseRawEnvSchema = z.object({
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
 	GITHUB_ALLOWED_USERS: z.string().optional(),
+	/**
+	 * GitHub access token every project commits, pushes and opens pull requests with, as when an admin saves one in
+	 * Settings > Git. It takes over from a saved token, and nao Cloud ignores it, as each project saves its own.
+	 */
+	GITHUB_ACCESS_TOKEN: optionalNonEmptyString,
 	GITHUB_SSO: z
 		.enum(['true', 'false'])
 		.optional()
@@ -334,6 +339,15 @@ const baseRawEnvSchema = z.object({
 	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
 	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
+	/**
+	 * Set to false to turn off branch management of the repositories `nao sync` copies into the context: their branches
+	 * can no longer be picked in the Context Hub changes or tested. Their files stay in the context.
+	 */
+	NAO_CONTEXT_SYNCED_REPOS_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
 
 	CLOUD_BILLING_ENABLED: z
 		.enum(['true', 'false'])

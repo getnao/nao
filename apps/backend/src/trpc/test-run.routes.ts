@@ -9,8 +9,6 @@ import {
 	MAX_CONTEXT_FILE_SIZE,
 } from '../services/context-explorer.service';
 import { createSafeFileAccess, createStrictFileAccess } from '../services/context-explorer-access.service';
-import { type DraftSource, hasContextWorktree, readGitDraft } from '../services/draft-context.service';
-import { hasContextRepository, readNaoDraft } from '../services/nao-draft.service';
 import {
 	getLatestOutcomesByTest,
 	getModelStats,
@@ -18,13 +16,11 @@ import {
 	getTestHistory,
 	listRunsWithTestTotals,
 } from '../services/test-history.service';
+import { MissingDraftError, readUserDraft, startRunInMode } from '../services/test-run-start.service';
 import {
 	cancelTestRun,
 	failStaleTestRuns,
 	listDefaultReasoningEfforts,
-	startChangesRun,
-	startComparisonRun,
-	startTestRun,
 	TestRunConflictError,
 	TestRunInputError,
 } from '../services/test-runner.service';
@@ -51,18 +47,12 @@ import {
 } from '../types/test-run';
 import { logger, serializeError } from '../utils/logger';
 import { extractConfiguredTestSettings } from '../utils/nao-config';
-import { compareContextVariants } from '../utils/test-comparison';
+import { compareContextVariants, listAddedTestPaths, listComparedResults } from '../utils/test-comparison';
 import { summarizeModels } from '../utils/test-model-summary';
-import { draftOwnerOf, requireProjectPath } from './route-context';
+import { requireProjectPath } from './route-context';
 import { cloudBillingContextAdminProcedure, contextAdminProtectedProcedure } from './trpc';
 
-const NO_DRAFT_MESSAGE = 'Edit context files in the File Explorer to compare your changes with the default branch.';
 const NOT_A_TEST_FILE_MESSAGE = `Tests are YAML files in the ${TESTS_FOLDER}/ folder.`;
-
-interface TestRunRouteContext {
-	project: { id: string };
-	user: { id: string; name: string; email: string };
-}
 
 const upstreamBranchSchema = z.object({ repo: z.string().min(1), branch: z.string().min(1) });
 
@@ -114,14 +104,16 @@ export const testRunRoutes = {
 		const { mode, target, upstream, ...settings } = input;
 		const runInput = { ...settings, ...parseRunTarget(target), projectId: ctx.project.id, userId: ctx.user.id };
 		try {
-			if (mode === 'production') {
-				return await startTestRun(runInput);
-			}
-			const startContextChangesRun = mode === 'compare' ? startComparisonRun : startChangesRun;
-			if (upstream) {
-				return await startContextChangesRun({ ...runInput, upstream });
-			}
-			return await startContextChangesRun({ ...runInput, draft: await requireUserDraft(ctx) });
+			return await startRunInMode({
+				mode,
+				run: runInput,
+				upstream,
+				reader: {
+					projectId: ctx.project.id,
+					projectFolder: requireProjectPath(ctx.project.path),
+					user: ctx.user,
+				},
+			});
 		} catch (error) {
 			throw toTestRunTrpcError(error, ctx.project.id);
 		}
@@ -162,7 +154,10 @@ export const testRunRoutes = {
 	getDraftContext: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const projectFolder = requireProjectPath(ctx.project.path);
 		try {
-			const draft = await readUserDraft(ctx, projectFolder, createSafeFileAccess);
+			const draft = await readUserDraft(
+				{ projectId: ctx.project.id, projectFolder, user: ctx.user },
+				createSafeFileAccess,
+			);
 			if ('message' in draft) {
 				return { status: 'unavailable' as const, message: draft.message };
 			}
@@ -180,12 +175,15 @@ export const testRunRoutes = {
 	getRun: contextAdminProtectedProcedure.input(z.object({ runId: z.string() })).query(async ({ ctx, input }) => {
 		const run = await getProjectRun(ctx.project.id, input.runId);
 		const results = await testRunQueries.listResultOutcomes(run.id);
+		const isComparison = run.trigger === 'comparison';
+		const addedTestPaths = isComparison ? listAddedTestPaths(run.contextChanges) : new Set<string>();
 		return {
 			...run,
 			results,
-			comparison:
-				run.trigger === 'comparison' ? compareContextVariants(results, run.models.length * run.attempts) : null,
-			modelSummaries: summarizeModels(results),
+			comparison: isComparison
+				? compareContextVariants(results, run.models.length * run.attempts, addedTestPaths)
+				: null,
+			modelSummaries: summarizeModels(listComparedResults(results, addedTestPaths)),
 			previousModelSummaries: await getPreviousModelSummaries(run, results),
 		};
 	}),
@@ -239,34 +237,6 @@ export const testRunRoutes = {
 
 function parseRunTarget(target: z.infer<typeof startRunSchema>['target']) {
 	return 'testFile' in target ? { tests: [parseValidDraftTest(target.testFile)] } : { paths: target.paths };
-}
-
-async function requireUserDraft(ctx: TestRunRouteContext & { project: { path: string | null } }): Promise<DraftSource> {
-	const projectFolder = requireProjectPath(ctx.project.path);
-	const draft = await readUserDraft(ctx, projectFolder, createStrictFileAccess);
-	if ('message' in draft) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: draft.message });
-	}
-	return draft;
-}
-
-/** Without a context repository nao keeps the draft, otherwise it is the user's File Explorer worktree. */
-async function readUserDraft(
-	ctx: TestRunRouteContext,
-	projectFolder: string,
-	createFileAccess: typeof createSafeFileAccess,
-): Promise<DraftSource | { message: string }> {
-	if (!(await hasContextRepository(ctx.project.id))) {
-		return readNaoDraft(draftOwnerOf(ctx), projectFolder);
-	}
-	if (!hasContextWorktree(ctx.project.id, projectFolder, ctx.user.id)) {
-		return { message: NO_DRAFT_MESSAGE };
-	}
-	const access = await createFileAccess(ctx.project.id, projectFolder, ctx.user);
-	if (access.git.status === 'unavailable') {
-		return { message: access.git.message };
-	}
-	return readGitDraft(access.git.repo, projectFolder);
 }
 
 function parseDraftTest(testFile: z.infer<typeof draftTestFileSchema>) {
@@ -323,7 +293,11 @@ function toTestRunTrpcError(error: unknown, projectId: string): TRPCError {
 	if (error instanceof TestRunConflictError) {
 		return new TRPCError({ code: 'CONFLICT', message: error.message });
 	}
-	if (error instanceof TestRunInputError || error instanceof UpstreamContextError) {
+	if (
+		error instanceof TestRunInputError ||
+		error instanceof UpstreamContextError ||
+		error instanceof MissingDraftError
+	) {
 		return new TRPCError({ code: 'BAD_REQUEST', message: error.message });
 	}
 	logger.error('Failed to start the test run', { source: 'agent', projectId, context: serializeError(error) });

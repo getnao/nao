@@ -697,6 +697,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'shared token',
 			'co-author',
 			'pull request author',
+			'GITHUB_ACCESS_TOKEN',
+			'environment variable',
 		],
 		adminOrContextAdmin: true,
 	},

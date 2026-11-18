@@ -21,9 +21,12 @@ const mocks = vi.hoisted(() => ({
 	findMissingQueryIds: vi.fn(),
 	backfillMissingQueryData: vi.fn(),
 	generateText: vi.fn(),
-	getProjectModelProvider: vi.fn(),
+	resolveDefaultChatModel: vi.fn(),
 	resolveDefaultModelSelection: vi.fn(),
 	resolveProviderModel: vi.fn(),
+	extractCustomStoryQueryIds: vi.fn(),
+	listVersionFiles: vi.fn(),
+	getLatestSqlQueriesByIds: vi.fn(),
 }));
 
 vi.mock('ai', async (importOriginal) => ({
@@ -39,10 +42,6 @@ vi.mock('../../src/queries/chat.queries', () => ({
 	getChatInfo: mocks.getChatInfo,
 	getChatOwnerId: mocks.getChatOwnerId,
 	getChatProjectId: mocks.getChatProjectId,
-}));
-
-vi.mock('../../src/queries/project-llm-config.queries', () => ({
-	getProjectModelProvider: mocks.getProjectModelProvider,
 }));
 
 vi.mock('../../src/queries/story.queries', () => ({
@@ -77,9 +76,14 @@ vi.mock('../../src/services/excluded-columns.service', () => ({
 }));
 
 vi.mock('../../src/utils/llm', () => ({
-	getDefaultModelId: vi.fn(),
+	resolveDefaultChatModel: mocks.resolveDefaultChatModel,
 	resolveDefaultModelSelection: mocks.resolveDefaultModelSelection,
 	resolveProviderModel: mocks.resolveProviderModel,
+}));
+
+vi.mock('../../src/utils/logger', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../src/utils/logger')>()),
+	logger: (await import('../helpers/logger-mock')).logger,
 }));
 
 vi.mock('../../src/utils/schedule-task', () => ({
@@ -89,7 +93,15 @@ vi.mock('../../src/utils/schedule-task', () => ({
 vi.mock('../../src/utils/story-query-data', () => ({
 	backfillMissingQueryData: mocks.backfillMissingQueryData,
 	findMissingQueryIds: mocks.findMissingQueryIds,
-	extractCustomStoryQueryIds: () => new Set<string>(),
+	extractCustomStoryQueryIds: mocks.extractCustomStoryQueryIds,
+}));
+
+vi.mock('../../src/queries/story-file.queries', () => ({
+	listVersionFiles: mocks.listVersionFiles,
+}));
+
+vi.mock('../../src/queries/execute-sql.queries', () => ({
+	getLatestSqlQueriesByIds: mocks.getLatestSqlQueriesByIds,
 }));
 
 import { assertProjectCloudBillingAccess } from '../../src/services/cloud-billing-access.service';
@@ -100,6 +112,7 @@ import {
 	getStoryQueryData,
 	refreshStoryData,
 } from '../../src/services/live-story';
+import { logger } from '../../src/utils/logger';
 
 const WAREHOUSE_STORY_CODE = '<table query_id="query_warehouse" />';
 
@@ -158,7 +171,8 @@ describe('live story SQL execution', () => {
 		mocks.upsertStoryDataCache.mockResolvedValue({});
 		mocks.updateLatestVersionCode.mockResolvedValue(undefined);
 		mocks.resolveDefaultModelSelection.mockResolvedValue(null);
-		mocks.getProjectModelProvider.mockResolvedValue(null);
+		mocks.resolveDefaultChatModel.mockResolvedValue(null);
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set());
 	});
 
 	afterEach(() => {
@@ -220,6 +234,124 @@ describe('live story SQL execution', () => {
 				query_admin: querySource('SELECT * FROM v_messages', null, true),
 			},
 			{},
+		);
+	});
+
+	it.each([
+		{
+			case: 'the pinned live story model',
+			pinned: { provider: 'anthropic', modelId: 'claude-pinned' },
+			chatDefault: { provider: 'openrouter', modelId: 'openai/gpt-chat' },
+			expected: { provider: 'anthropic', modelId: 'claude-pinned' },
+		},
+		{
+			case: 'the default chat model when no live story model is pinned',
+			pinned: null,
+			chatDefault: { provider: 'openrouter', modelId: 'openai/gpt-chat' },
+			expected: { provider: 'openrouter', modelId: 'openai/gpt-chat' },
+		},
+	])('rewrites a dynamic story with $case', async ({ pinned, chatDefault, expected }) => {
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code: '<table query_id="query_admin" />',
+			title: 'Usage',
+			isLiveTextDynamic: true,
+			format: 'classic',
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT * FROM v_messages', adminMode: true },
+		});
+		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['chat_id'], rows: [], rowCount: 0 });
+		mocks.resolveDefaultModelSelection.mockResolvedValue(pinned);
+		mocks.resolveDefaultChatModel.mockResolvedValue(chatDefault);
+		mocks.resolveProviderModel.mockResolvedValue(null);
+
+		await refreshStoryData('chat-1', 'usage');
+
+		expect(mocks.resolveDefaultModelSelection).toHaveBeenCalledWith('project-1', 'live_story');
+		expect(mocks.resolveProviderModel).toHaveBeenCalledWith(
+			'project-1',
+			expected.provider,
+			expected.modelId,
+			true,
+			expect.objectContaining({ chatId: 'chat-1', category: 'story' }),
+		);
+		expect(mocks.generateText).not.toHaveBeenCalled();
+	});
+
+	it('keeps the current text and still caches the fresh data when the model fails to rewrite it', async () => {
+		const code = '<table query_id="query_admin" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code,
+			title: 'Usage',
+			isLiveTextDynamic: true,
+			format: 'classic',
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT * FROM v_messages', adminMode: true },
+		});
+		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['n'], rows: [{ n: 1 }], rowCount: 1 });
+		mocks.resolveDefaultModelSelection.mockResolvedValue({ provider: 'openrouter', modelId: 'some/model' });
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'some/model' } });
+		mocks.generateText.mockRejectedValue(new Error('No object generated: could not parse the response.'));
+
+		await expect(refreshStoryData('chat-1', 'usage')).resolves.toEqual({
+			queryData: { query_admin: { columns: ['n'], data: [{ n: 1 }] } },
+			narratives: {},
+		});
+
+		expect(mocks.generateText).toHaveBeenCalledOnce();
+		expect(mocks.updateLatestVersionCode).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryDataCache).toHaveBeenCalledWith(
+			'chat-1',
+			'usage',
+			{ query_admin: { columns: ['n'], data: [{ n: 1 }] } },
+			expect.anything(),
+			{},
+		);
+		expect(logger.warn).toHaveBeenCalledWith(
+			expect.stringContaining('could not parse the response'),
+			expect.objectContaining({ projectId: 'project-1' }),
+		);
+	});
+
+	it('keeps the narratives of the last refresh when the model fails to rewrite a custom story', async () => {
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			id: 'version-1',
+			code: '',
+			title: 'Usage',
+			isLiveTextDynamic: true,
+			format: 'custom',
+		});
+		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set(['query_admin']));
+		mocks.getLatestSqlQueriesByIds.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT * FROM v_messages', adminMode: true },
+		});
+		mocks.listVersionFiles.mockResolvedValue([
+			{
+				path: 'src/App.tsx',
+				content: [
+					"import { Narrative } from '@nao/story-kit';",
+					'export default () => <Narrative id="summary">Usage is flat</Narrative>;',
+				].join('\n'),
+			},
+		]);
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue({ analysisResults: { summary: 'Usage grew 12%' } });
+		mocks.queryAppDb.mockResolvedValue({ _version: '1', columns: ['n'], rows: [{ n: 1 }], rowCount: 1 });
+		mocks.resolveDefaultModelSelection.mockResolvedValue({ provider: 'openrouter', modelId: 'some/model' });
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'some/model' } });
+		mocks.generateText.mockRejectedValue(new Error('No object generated: could not parse the response.'));
+
+		await expect(refreshStoryData('chat-1', 'usage')).resolves.toMatchObject({
+			narratives: { summary: 'Usage grew 12%' },
+		});
+
+		expect(mocks.generateText).toHaveBeenCalledOnce();
+		expect(mocks.upsertStoryDataCache).toHaveBeenCalledWith(
+			'chat-1',
+			'usage',
+			{ query_admin: { columns: ['n'], data: [{ n: 1 }] } },
+			expect.anything(),
+			{ summary: 'Usage grew 12%' },
 		);
 	});
 

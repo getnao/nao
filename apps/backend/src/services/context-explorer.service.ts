@@ -415,9 +415,17 @@ function getReadPath(
 	repo: ResolvedContextRepo | null,
 	trackedPaths: Set<string>,
 ): string {
-	return repo && (trackedPaths.has(normalizeProjectPath(filePath)) || isWorktreeDraft(filePath, livePath, repo))
+	return repo && shouldReadFromWorktree(filePath, repo, trackedPaths)
 		? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
 		: livePath;
+}
+
+function shouldReadFromWorktree(filePath: string, repo: ResolvedContextRepo, trackedPaths: Set<string>): boolean {
+	if (trackedPaths.has(normalizeProjectPath(filePath))) {
+		return true;
+	}
+	const worktreePath = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath;
+	return fsSync.lstatSync(worktreePath, { throwIfNoEntry: false })?.isFile() ?? false;
 }
 
 function readHeadAt(
@@ -621,10 +629,7 @@ export async function searchFileContents(
 	}
 	const worktreeRoot = getWorktreeProjectRoot(repo);
 	const trackedPaths = getCommittedProjectPaths(repo);
-	const isLiveOnly = (virtualPath: string) => {
-		const projectPath = normalizeProjectPath(virtualPath);
-		return !trackedPaths.has(projectPath) && !fsSync.existsSync(path.join(worktreeRoot, projectPath));
-	};
+	const isLiveOnly = (virtualPath: string) => !shouldReadFromWorktree(virtualPath, repo, trackedPaths);
 	const [worktree, live] = await Promise.all([
 		searchFolder(query, worktreeRoot),
 		searchFolder(query, access.projectFolder, isLiveOnly),

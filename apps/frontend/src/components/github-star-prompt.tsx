@@ -69,12 +69,12 @@ function useGithubStarPromptState() {
 	}, [phase, hasStarred]);
 
 	const star = () => {
-		dismiss.mutate();
+		dismiss.mutate({ starred: true });
 		setHasStarred(true);
 	};
 
 	const close = () => {
-		dismiss.mutate();
+		dismiss.mutate({ starred: false });
 		setPhase('leaving');
 	};
 
