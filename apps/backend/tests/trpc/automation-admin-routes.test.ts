@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getAutomationById: vi.fn(),
 	linkAutomationJob: vi.fn(),
 	listProjectAutomations: vi.fn(),
+	listShareableMembers: vi.fn(),
 	listUsersWithProjectAccess: vi.fn(),
 	setAutomationEventTriggers: vi.fn(),
 	transferAutomationOwnership: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock('../../src/queries/project.queries', () => ({
 	listUsersWithProjectAccess: mocks.listUsersWithProjectAccess,
 }));
 vi.mock('../../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
+vi.mock('../../src/services/project-sharing.service', () => ({ listShareableMembers: mocks.listShareableMembers }));
 vi.mock('../../src/services/cloud-billing-access.service', () => ({
 	assertOrganizationCloudBillingAccess: mocks.assertOrganizationCloudBillingAccess,
 	assertProjectCloudBillingAccess: vi.fn(),
@@ -335,6 +337,30 @@ describe('automation Slack channel validation', () => {
 		});
 
 		expect(mocks.updateAutomation).toHaveBeenCalled();
+	});
+});
+
+describe('automation email recipients', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.roles = { 'owner-id': 'user', 'viewer-id': 'viewer' };
+		mocks.listShareableMembers.mockResolvedValue([
+			{ id: 'member-id', name: 'Ada', email: 'ada@example.com', role: 'user', status: 'active' },
+		]);
+	});
+
+	it('lists the name and email of the members the caller can share with', async () => {
+		const recipients = await createCaller('owner-id').automation.listEmailRecipients();
+
+		expect(recipients).toEqual([{ email: 'ada@example.com', name: 'Ada' }]);
+		expect(mocks.listShareableMembers).toHaveBeenCalledWith('project-id', 'owner-id');
+	});
+
+	it('hides the members from viewers, who cannot run automations', async () => {
+		await expect(createCaller('viewer-id').automation.listEmailRecipients()).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.listShareableMembers).not.toHaveBeenCalled();
 	});
 });
 
