@@ -4,7 +4,9 @@ import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
+import { getActiveProjectPaths } from '../services/multi-project.service';
 import { OrgRole } from '../types/organization';
+import { getConfiguredProjectPaths, getProjectNameFromPath } from '../utils/project-paths';
 import * as projectQueries from './project.queries';
 import * as userQueries from './user.queries';
 
@@ -198,29 +200,6 @@ export const updateOrganizationLicense = async (orgId: string, license: string |
 	await db.update(s.organization).set({ license }).where(eq(s.organization.id, orgId)).execute();
 };
 
-export type OrganizationLicenseToken = { orgId: string; license: string | null };
-
-export const getOrganizationLicenseToken = async (orgId: string): Promise<OrganizationLicenseToken | null> => {
-	const [row] = await db
-		.select({ orgId: s.organization.id, license: s.organization.license })
-		.from(s.organization)
-		.where(eq(s.organization.id, orgId))
-		.execute();
-	return row ?? null;
-};
-
-export const getProjectOrganizationLicenseToken = async (
-	projectId: string,
-): Promise<OrganizationLicenseToken | null> => {
-	const [row] = await db
-		.select({ orgId: s.organization.id, license: s.organization.license })
-		.from(s.project)
-		.innerJoin(s.organization, eq(s.organization.id, s.project.orgId))
-		.where(eq(s.project.id, projectId))
-		.execute();
-	return row ?? null;
-};
-
 export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {
 	await db.update(s.organization).set({ googleAuthDomains: domains }).where(eq(s.organization.id, orgId)).execute();
 };
@@ -306,6 +285,8 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 		return;
 	}
 
+	const projectPaths = await getActiveProjectPaths();
+
 	await db.transaction(async (tx) => {
 		// Create organization
 		const [org] = await tx
@@ -317,8 +298,7 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 		// Add user as org admin
 		await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
 
-		const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-		if (projectPath) {
+		for (const projectPath of projectPaths) {
 			const [existingProject] = await tx
 				.select()
 				.from(s.project)
@@ -326,9 +306,8 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 				.execute();
 
 			if (!existingProject) {
-				const projectName = projectPath.split('/').pop() || 'Default Project';
 				const project = await projectQueries.createProject(
-					{ name: projectName, type: 'local', path: projectPath, orgId: org.id },
+					{ name: getProjectNameFromPath(projectPath), type: 'local', path: projectPath, orgId: org.id },
 					tx,
 				);
 
@@ -416,7 +395,7 @@ export const initializePersonalOrganization = async (userId: string): Promise<vo
  * Startup check: Ensures organization structure is valid.
  * - If there are users but no organization, creates one and assigns first user as org_admin
  * - If there are projects without an org, assigns them to the default org
- * - If NAO_DEFAULT_PROJECT_PATH is set, ensures a project exists for that path
+ * - Ensures a project exists for each configured project path (NAO_DEFAULT_PROJECT_PATH, NAO_PROJECT_PATHS)
  */
 export const ensureOrganizationSetup = async (): Promise<void> => {
 	const firstUser = await userQueries.getFirstUser();
@@ -455,8 +434,7 @@ export const ensureOrganizationSetup = async (): Promise<void> => {
 	// Assign any orphaned projects (projects without org) to the default org
 	await db.update(s.project).set({ orgId: org.id }).where(isNull(s.project.orgId)).execute();
 
-	// Ensure a project exists for the current NAO_DEFAULT_PROJECT_PATH
-	await ensureDefaultProject(org);
+	await ensureConfiguredProjects(org);
 };
 export interface OrgMemberWithUser {
 	id: string;
@@ -588,25 +566,34 @@ export const countOrgAdmins = async (orgId: string): Promise<number> => {
 };
 
 /**
- * Ensures a project exists for the current NAO_DEFAULT_PROJECT_PATH.
- * When users change the project path and restart, the DB may not have a record for the new path.
+ * Ensures a project exists for each configured project path.
+ * When users change the project paths and restart, the DB may not have a record for the new paths.
  */
-const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
-	const projectPath = env.NAO_DEFAULT_PROJECT_PATH;
-	if (!projectPath) {
+const ensureConfiguredProjects = async (org: DBOrganization): Promise<void> => {
+	const projectPaths = await getActiveProjectPaths();
+	warnIfMultiProjectUnlicensed(projectPaths);
+
+	for (const projectPath of projectPaths) {
+		const existing = await projectQueries.getProjectByPath(projectPath);
+		if (existing) {
+			continue;
+		}
+
+		await projectQueries.createProject({
+			name: getProjectNameFromPath(projectPath),
+			type: 'local',
+			path: projectPath,
+			orgId: org.id,
+		});
+	}
+};
+
+const warnIfMultiProjectUnlicensed = (activeProjectPaths: string[]): void => {
+	const configuredProjectPaths = getConfiguredProjectPaths();
+	if (activeProjectPaths.length >= configuredProjectPaths.length) {
 		return;
 	}
-
-	const existing = await projectQueries.getProjectByPath(projectPath);
-	if (existing) {
-		return;
-	}
-
-	const projectName = projectPath.split('/').pop() || 'Default Project';
-	await projectQueries.createProject({
-		name: projectName,
-		type: 'local',
-		path: projectPath,
-		orgId: org.id,
-	});
+	console.warn(
+		`[projects] ${configuredProjectPaths.length} project paths are configured but running several projects requires an Enterprise license with the multi-project feature. Only ${activeProjectPaths[0]} is loaded.`,
+	);
 };

@@ -27,10 +27,6 @@ export function isTestFileName(fileName: string): boolean {
 	return TEST_FILE_NAME_PATTERN.test(fileName);
 }
 
-export function isInTestsFolder(projectPath: string): boolean {
-	return projectPath.replace(/^\/+/, '').startsWith(`${TESTS_FOLDER}/`);
-}
-
 export function toExplorerTestPath(testPath: string): string {
 	return `/${TESTS_FOLDER}/${testPath}`;
 }

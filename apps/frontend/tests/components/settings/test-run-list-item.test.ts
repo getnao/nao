@@ -103,6 +103,32 @@ describe('describeRunListItem', () => {
 		expect(view.chips).toEqual([{ label: 'master', isBranch: true, isComparedBranch: true }]);
 	});
 
+	it('counts the tests the changes add on their side only', () => {
+		const view = describeRunListItem(
+			run({
+				trigger: 'comparison',
+				production: totals({ testCount: 2, passedTests: 2 }),
+				draft: totals({ testCount: 3, passedTests: 3 }),
+			}),
+			CONTEXT,
+		);
+
+		expect(view.result?.tooltip).toBe('2 of 2 tests pass on master, 3 of 3 with your changes');
+	});
+
+	it('calls a single compared test the changes add new', () => {
+		const view = describeRunListItem(
+			run({
+				trigger: 'comparison',
+				selection: ['margin.yml'],
+				draft: totals({ testCount: 1, passedTests: 1 }),
+			}),
+			CONTEXT,
+		);
+
+		expect(view.result).toEqual({ label: 'new', tooltip: 'New test, not on master' });
+	});
+
 	it.each([
 		[true, false, 'regressed'],
 		[false, true, 'fixed'],

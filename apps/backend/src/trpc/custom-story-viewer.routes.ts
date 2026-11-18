@@ -23,6 +23,7 @@ import { listCustomStoryModels, runCustomStoryModel } from '../services/custom-s
 import { runCustomStorySql } from '../services/custom-story-sql';
 import { getCustomStoryState, setCustomStoryState } from '../services/custom-story-state';
 import { readCustomStoryMapBoundary } from '../services/story-map-boundary';
+import { describeTransferredStory } from '../services/story-transfer.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import {
 	mapBoundaryKey,
@@ -61,7 +62,10 @@ const viewerProcedure = protectedProcedure
 export const customStoryViewerRoutes = {
 	getFormat: viewerProcedure.query(async ({ ctx, input }) => {
 		const story = await storyQueries.getStoryByChatAndSlug(ctx.viewer.chatId, input.storySlug);
-		return { format: story?.format ?? null };
+		return {
+			format: story?.format ?? null,
+			movedStory: story ? null : await describeTransferredStory(ctx.viewer.chatId, input.storySlug, ctx.user.id),
+		};
 	}),
 
 	getTheme: viewerProcedure.query(({ ctx }) => getActiveThemeForProject(ctx.viewer.projectId)),

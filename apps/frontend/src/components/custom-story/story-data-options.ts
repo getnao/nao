@@ -137,7 +137,11 @@ export function querySqlOptions(dataSource: CustomStoryDataSource, queryId: stri
 		});
 	}
 	if (dataSource.kind === 'standalone') {
-		return trpc.standaloneCustomStory.getQuerySql.queryOptions({ storyId: dataSource.storyId, queryId });
+		return trpc.standaloneCustomStory.getQuerySql.queryOptions({
+			storyId: dataSource.storyId,
+			queryId,
+			versionNumber: dataSource.versionNumber,
+		});
 	}
 	const { chatId, storySlug, versionNumber } = dataSource;
 	return trpc.story.getCustomStoryQuerySql.queryOptions({ chatId, storySlug, queryId, versionNumber });

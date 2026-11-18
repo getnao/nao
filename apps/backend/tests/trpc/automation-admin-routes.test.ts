@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	listUsersWithProjectAccess: vi.fn(),
 	setAutomationEventTriggers: vi.fn(),
 	transferAutomationOwnership: vi.fn(),
+	transferProjectAutomationsOfUser: vi.fn(),
 	updateAutomation: vi.fn(),
 	upsertRecurringJob: vi.fn(),
 	roles: {} as Record<string, 'admin' | 'user' | 'viewer' | null>,
@@ -33,6 +34,7 @@ vi.mock('../../src/queries/automation.queries', () => ({
 	listProjectAutomations: mocks.listProjectAutomations,
 	setAutomationEventTriggers: mocks.setAutomationEventTriggers,
 	transferAutomationOwnership: mocks.transferAutomationOwnership,
+	transferProjectAutomationsOfUser: mocks.transferProjectAutomationsOfUser,
 	updateAutomation: mocks.updateAutomation,
 }));
 vi.mock('../../src/queries/scheduled-job.queries', () => ({
@@ -229,7 +231,27 @@ describe('automation admin routes', () => {
 		await expect(
 			createCaller('admin-id').automation.transferOwnership({ id: 'scheduled-id', newOwnerId: 'stranger-id' }),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'The new owner must have access to this project.' });
+		await expect(
+			createCaller('admin-id').automation.transferAllFromUser({
+				fromUserId: 'owner-id',
+				recipientId: 'viewer-id',
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Viewers cannot own automations.' });
 		expect(mocks.transferAutomationOwnership).not.toHaveBeenCalled();
+		expect(mocks.transferProjectAutomationsOfUser).not.toHaveBeenCalled();
+	});
+
+	it("transfers all of a member's automations in the project to another member", async () => {
+		mocks.transferProjectAutomationsOfUser.mockResolvedValue(2);
+
+		await expect(
+			createCaller('admin-id').automation.transferAllFromUser({
+				fromUserId: 'owner-id',
+				recipientId: 'admin-id',
+			}),
+		).resolves.toEqual({ transferredCount: 2 });
+
+		expect(mocks.transferProjectAutomationsOfUser).toHaveBeenCalledWith('project-id', 'owner-id', 'admin-id');
 	});
 
 	it("deletes another user's automation along with its schedule", async () => {

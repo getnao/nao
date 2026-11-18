@@ -1,5 +1,5 @@
 {
-  "id": "20feb338-e850-4d79-9cd5-567b23a1dcf6",
+  "id": "9d15a0ef-da4d-4de4-b3a8-5d4ded948fed",
   "prevId": "0cb21762-d6ba-4068-8eb1-68fb120a9c6c",
   "version": "7",
   "dialect": "postgresql",
@@ -417,121 +417,6 @@
             "id"
           ],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.agent_stream_chunk": {
-      "name": "agent_stream_chunk",
-      "schema": "",
-      "columns": {
-        "stream_id": {
-          "name": "stream_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "seq": {
-          "name": "seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "chunks": {
-          "name": "chunks",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "is_final": {
-          "name": "is_final",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "agent_stream_chunk_createdAt_idx": {
-          "name": "agent_stream_chunk_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "agent_stream_chunk_stream_id_seq_pk": {
-          "name": "agent_stream_chunk_stream_id_seq_pk",
-          "columns": [
-            "stream_id",
-            "seq"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.agent_stream_run": {
-      "name": "agent_stream_run",
-      "schema": "",
-      "columns": {
-        "chat_id": {
-          "name": "chat_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "stream_id": {
-          "name": "stream_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "heartbeat_at": {
-          "name": "heartbeat_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "agent_stream_run_chat_id_chat_id_fk": {
-          "name": "agent_stream_run_chat_id_chat_id_fk",
-          "tableFrom": "agent_stream_run",
-          "tableTo": "chat",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -10583,6 +10468,98 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.story_query": {
+      "name": "story_query",
+      "schema": "",
+      "columns": {
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "query_id": {
+          "name": "query_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sql_query": {
+          "name": "sql_query",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "database_id": {
+          "name": "database_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dialect": {
+          "name": "dialect",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "admin_mode": {
+          "name": "admin_mode",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "semantic_query": {
+          "name": "semantic_query",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "story_query_story_id_story_id_fk": {
+          "name": "story_query_story_id_story_id_fk",
+          "tableFrom": "story_query",
+          "tableTo": "story",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "story_query_story_id_query_id_pk": {
+          "name": "story_query_story_id_query_id_pk",
+          "columns": [
+            "story_id",
+            "query_id"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

@@ -697,6 +697,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'shared token',
 			'co-author',
 			'pull request author',
+			'GITHUB_ACCESS_TOKEN',
+			'environment variable',
 		],
 		adminOrContextAdmin: true,
 	},
@@ -1067,6 +1069,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'bulk assign',
 			'add to group',
 			'filter users',
+			'transfer stories',
+			'story ownership',
+			'offboarding',
 		],
 	},
 	{
