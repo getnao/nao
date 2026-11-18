@@ -3,7 +3,7 @@ import dns from 'dns/promises';
 import http from 'http';
 import https from 'https';
 import net from 'net';
-import { Readable } from 'stream';
+import { pipeline, Readable } from 'stream';
 import zlib from 'zlib';
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -346,16 +346,22 @@ function requestPinnedAddress(
 	});
 }
 
+/** Ties the connection and its decoder together, so a dropped connection fails the body and closing the body closes the connection. */
 function decodedBody(response: http.IncomingMessage): Readable {
-	switch (response.headers['content-encoding']?.toLowerCase()) {
+	const decoder = decoderFor(response.headers['content-encoding']);
+	return decoder ? pipeline(response, decoder, () => undefined) : response;
+}
+
+function decoderFor(contentEncoding: string | undefined): zlib.Gunzip | zlib.Inflate | zlib.BrotliDecompress | null {
+	switch (contentEncoding?.toLowerCase()) {
 		case 'gzip':
-			return response.pipe(zlib.createGunzip());
+			return zlib.createGunzip();
 		case 'deflate':
-			return response.pipe(zlib.createInflate());
+			return zlib.createInflate();
 		case 'br':
-			return response.pipe(zlib.createBrotliDecompress());
+			return zlib.createBrotliDecompress();
 		default:
-			return response;
+			return null;
 	}
 }
 

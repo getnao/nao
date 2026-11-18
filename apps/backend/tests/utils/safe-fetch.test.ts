@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { RequestOptions } from 'node:http';
 import { Readable } from 'node:stream';
+import { gzipSync } from 'node:zlib';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,7 +10,7 @@ import { fetchPublicUrl, isPrivateAddress, isPrivateHostname, resolveSafeAddress
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('dns/promises', () => ({ default: { lookup } }));
 
-type Reply = { status: number; headers?: Record<string, string>; body?: string };
+type Reply = { status: number; headers?: Record<string, string>; body?: string | Buffer; dropsAfterBody?: boolean };
 const pinned = vi.hoisted(() => ({
 	requests: [] as { options: RequestOptions; body: unknown }[],
 	replies: [] as Reply[],
@@ -137,6 +138,21 @@ describe('fetchPublicUrl', () => {
 		expect(body).toBe('{"jsonrpc":"2.0"}');
 	});
 
+	it('fails a compressed reply whose connection drops midway instead of hanging', async () => {
+		resolvesTo('93.184.215.14');
+		const compressed = gzipSync('x'.repeat(10_000));
+		pinned.replies.push({
+			status: 200,
+			headers: { 'content-encoding': 'gzip' },
+			body: compressed.subarray(0, compressed.length / 2),
+			dropsAfterBody: true,
+		});
+
+		const response = await fetchPublicUrl('https://mcp.example.com/.well-known/oauth-protected-resource');
+
+		await expect(response.text()).rejects.toThrow();
+	});
+
 	it('refuses a public server that redirects onto a private address', async () => {
 		resolvesTo('93.184.215.14');
 		pinned.replies.push({ status: 302, headers: { location: 'http://169.254.169.254/computeMetadata/v1/' } });
@@ -169,7 +185,7 @@ function fakeRequest(options: RequestOptions, onResponse: (response: Readable) =
 		end(body?: unknown) {
 			pinned.requests.push({ options, body });
 			const reply = pinned.replies.shift() ?? { status: 200 };
-			const response = Object.assign(Readable.from(reply.body ? [Buffer.from(reply.body)] : []), {
+			const response = Object.assign(replyStream(reply), {
 				statusCode: reply.status,
 				headers: reply.headers ?? {},
 			});
@@ -177,4 +193,21 @@ function fakeRequest(options: RequestOptions, onResponse: (response: Readable) =
 		},
 	});
 	return request;
+}
+
+function replyStream(reply: Reply): Readable {
+	const chunks = reply.body ? [Buffer.from(reply.body)] : [];
+	if (!reply.dropsAfterBody) {
+		return Readable.from(chunks);
+	}
+	return new Readable({
+		read() {
+			const chunk = chunks.shift();
+			if (chunk) {
+				this.push(chunk);
+			} else {
+				this.destroy(new Error('socket hang up'));
+			}
+		},
+	});
 }
