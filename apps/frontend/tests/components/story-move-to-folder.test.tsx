@@ -13,11 +13,15 @@ const mocks = vi.hoisted(() => ({
 	moveStory: vi.fn(),
 	permissions: { isAdmin: false, isViewer: false },
 	isAgentRunning: false,
+	areFoldersLoaded: true,
 	story: {} as { isOwner: boolean; isArchived: boolean; projectId: string; chatId: string | null },
 }));
 
 vi.mock('@tanstack/react-query', () => ({
-	useQuery: (options: { queryKey?: string }) => ({ data: queryResults()[options.queryKey ?? ''] }),
+	useQuery: (options: { queryKey?: string }) => {
+		const data = queryResults()[options.queryKey ?? ''];
+		return { data, isSuccess: data !== undefined };
+	},
 	useMutation: (options: { mutationKey?: string }) => ({
 		mutate: options.mutationKey === 'moveStory' ? mocks.moveStory : vi.fn(),
 		isPending: false,
@@ -46,6 +50,7 @@ describe('StoryMoveToFolderButton', () => {
 		vi.clearAllMocks();
 		mocks.permissions = { isAdmin: false, isViewer: false };
 		mocks.isAgentRunning = false;
+		mocks.areFoldersLoaded = true;
 		mocks.story = { isOwner: true, isArchived: false, projectId: 'project-1', chatId: 'chat-1' };
 	});
 
@@ -83,6 +88,15 @@ describe('StoryMoveToFolderButton', () => {
 
 		expect(mocks.moveStory).toHaveBeenCalledWith({ storyId: 'story-1', folderId: 'team' });
 	});
+
+	it('keeps the move disabled while the folders are loading', () => {
+		mocks.areFoldersLoaded = false;
+		renderButton();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Move to folder' }));
+
+		expect(screen.getByRole('button', { name: 'Move here' })).toHaveProperty('disabled', true);
+	});
 });
 
 function renderButton() {
@@ -97,7 +111,7 @@ function queryResults(): Record<string, unknown> {
 	return {
 		resolve: { storyId: 'story-1', ...mocks.story },
 		project: { id: 'project-1' },
-		tree: [PRIVATE_FOLDER, TEAM_FOLDER],
-		items: [{ storyId: 'story-1', folderId: PRIVATE_FOLDER.id }],
+		tree: mocks.areFoldersLoaded ? [PRIVATE_FOLDER, TEAM_FOLDER] : undefined,
+		items: mocks.areFoldersLoaded ? [{ storyId: 'story-1', folderId: PRIVATE_FOLDER.id }] : undefined,
 	};
 }

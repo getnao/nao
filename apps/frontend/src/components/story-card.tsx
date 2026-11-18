@@ -73,7 +73,7 @@ export function StoryCard({
 					)}
 				</div>
 
-				<div className='flex flex-col gap-1 min-w-0 flex-1 pl-5 py-3 @max-3xs/story-card:hidden'>
+				<div className='flex flex-col gap-1 min-w-0 flex-1 pl-5 py-3 @max-3xs/story-card:sr-only'>
 					<span className='text-sm font-medium truncate'>{title}</span>
 					<div className='flex items-center gap-2 overflow-hidden whitespace-nowrap @max-xs/story-card:hidden'>
 						{status}

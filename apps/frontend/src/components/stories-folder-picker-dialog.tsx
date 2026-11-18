@@ -33,8 +33,11 @@ export function FolderPickerDialog({
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const queryClient = useQueryClient();
 
-	const { data: tree = [] } = useQuery(trpc.storyFolder.listTree.queryOptions());
-	const { data: folderItems = [] } = useQuery(trpc.storyFolder.listItems.queryOptions());
+	const { data: tree = [], isSuccess: isTreeLoaded } = useQuery(trpc.storyFolder.listTree.queryOptions());
+	const { data: folderItems = [], isSuccess: areFolderItemsLoaded } = useQuery(
+		trpc.storyFolder.listItems.queryOptions(),
+	);
+	const isFolderDataLoaded = isTreeLoaded && areFolderItemsLoaded;
 
 	function handleMoved() {
 		invalidateStoryPlacementCaches(queryClient);
@@ -113,7 +116,7 @@ export function FolderPickerDialog({
 						variant='primary-gradient'
 						className='rounded-full'
 						onClick={handleMove}
-						disabled={isPending}
+						disabled={isPending || !isFolderDataLoaded}
 					>
 						Move here
 					</Button>
