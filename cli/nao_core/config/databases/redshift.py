@@ -30,26 +30,48 @@ class RedshiftDatabaseContext(DatabaseContext):
     def columns(self) -> list[dict[str, Any]]:
         if self._columns_cache is None:
             col_descs = self._fetch_column_descriptions()
-            query = f"""
-                SELECT
-                    column_name, data_type, is_nullable,
-                    character_maximum_length, numeric_precision, numeric_scale
-                FROM information_schema.columns
-                WHERE table_schema = '{self._schema}'
-                AND table_name = '{self._table_name}'
-                ORDER BY ordinal_position
-            """
-            result = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            rows = self._fetch_local_columns() or self._fetch_all_columns()
+
             self._columns_cache = [
                 {
                     "name": row[0],
                     "type": self._format_redshift_type(row[1], row[2] == "YES", row[3], row[4], row[5]),
                     "nullable": row[2] == "YES",
-                    "description": col_descs.get(row[0]),
+                    "description": col_descs.get(row[0]) or _clean_remark(row[6] if len(row) > 6 else None),
                 }
-                for row in result
+                for row in rows
             ]
+
         return self._filter_excluded_columns(self._columns_cache)
+
+    def _fetch_local_columns(self) -> list[Any]:
+        query = f"""
+            SELECT
+                column_name, data_type, is_nullable,
+                character_maximum_length, numeric_precision, numeric_scale
+            FROM information_schema.columns
+            WHERE table_schema = '{_quote_literal(self._schema)}'
+            AND table_name = '{_quote_literal(self._table_name)}'
+            ORDER BY ordinal_position
+        """
+        return list(self._fetchall(self._conn.raw_sql(query)))  # type: ignore[union-attr]
+
+    def _fetch_all_columns(self) -> list[Any]:
+        query = f"""
+            SELECT
+                column_name, data_type, is_nullable,
+                character_maximum_length, numeric_precision, numeric_scale,
+                remarks
+            FROM svv_all_columns
+            WHERE database_name = current_database()
+            AND schema_name = '{_quote_literal(self._schema)}'
+            AND table_name = '{_quote_literal(self._table_name)}'
+            ORDER BY ordinal_position
+        """
+        try:
+            return list(self._fetchall(self._conn.raw_sql(query)))  # type: ignore[union-attr]
+        except Exception:
+            return []
 
     def clustering_columns(self) -> list[str]:
         try:
@@ -157,13 +179,94 @@ class RedshiftDatabaseContext(DatabaseContext):
                 return str(row[0]).strip() or None
         except Exception:
             pass
-        return None
+        return self._fetch_all_tables_remark()
+
+    def _fetch_all_tables_remark(self) -> str | None:
+        query = f"""
+            SELECT remarks
+            FROM svv_all_tables
+            WHERE database_name = current_database()
+            AND schema_name = '{_quote_literal(self._schema)}'
+            AND table_name = '{_quote_literal(self._table_name)}'
+        """
+        try:
+            row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
+            return _clean_remark(row[0] if row else None)
+        except Exception:
+            return None
 
     def _cast_float(self, expr: str) -> str:
         return f"{expr}::float"
 
     def _cast_complex_to_string(self, col_sql: str) -> str:
         return f"JSON_SERIALIZE({col_sql})"
+
+
+class _RedshiftBackend:
+    def __init__(self, backend: BaseBackend):
+        self._backend = backend
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._backend, name)
+
+    def list_tables(
+        self,
+        *args: Any,
+        database: str | None = None,
+        **kwargs: Any,
+    ) -> list[str]:
+        tables = self._backend.list_tables(*args, database=database, **kwargs)
+        if database is None or args or kwargs:
+            return tables
+
+        shared_tables = [table for table in _list_all_tables(self._backend, database) if table not in tables]
+        return [*tables, *sorted(shared_tables)]
+
+    def list_live_columns(self, table: str, *, database: str) -> list[str]:
+        columns = _list_all_columns(self._backend, database, table)
+
+        if columns:
+            return columns
+
+        ibis_schema = self._backend.table(table, database=database).schema()
+
+        return [str(name) for name, _ in ibis_schema.items()]
+
+
+def _list_all_tables(conn: BaseBackend, schema: str) -> list[str]:
+    query = f"""
+        SELECT table_name
+        FROM svv_all_tables
+        WHERE database_name = current_database()
+          AND schema_name = '{_quote_literal(schema)}'
+    """
+    try:
+        return [row[0] for row in conn.raw_sql(query).fetchall()]  # type: ignore[union-attr]
+    except Exception:
+        return []
+
+
+def _list_all_columns(
+    conn: BaseBackend,
+    schema: str,
+    table: str,
+) -> list[str]:
+    query = f"""
+        SELECT column_name
+        FROM svv_all_columns
+        WHERE database_name = current_database()
+          AND schema_name = '{_quote_literal(schema)}'
+          AND table_name = '{_quote_literal(table)}'
+        ORDER BY ordinal_position
+    """
+    try:
+        return [row[0] for row in conn.raw_sql(query).fetchall()]  # type: ignore[union-attr]
+    except Exception:
+        return []
+
+
+def _clean_remark(remark: Any) -> str | None:
+    return str(remark).strip() or None if remark else None
 
 
 def _quote_literal(value: str) -> str:
@@ -418,9 +521,7 @@ class RedshiftConfig(DatabaseConfig):
         if self.schema_name:
             kwargs["schema"] = self.schema_name
 
-        return ibis.postgres.connect(
-            **kwargs,
-        )
+        return _RedshiftBackend(ibis.postgres.connect(**kwargs))  # type: ignore[return-value]
 
     def _get_iam_credentials(self) -> tuple[str, str]:
         from nao_core.deps import require_dependency
