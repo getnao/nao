@@ -720,7 +720,7 @@ function buildWarehouseSqlOptions(executionContext: StoryExecutionContext, datab
 		projectFolder: context.projectFolder,
 		databaseId,
 		envVars: context.envVars,
-		azureAccessToken: context.azureAccessToken,
+		warehouseAccessToken: context.warehouseAccessToken,
 		enforceExcludedColumns: executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
 		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },

@@ -75,6 +75,14 @@ vi.mock('../../src/queries/user.queries', () => ({
 vi.mock('../../src/services/auth-user-onboarding.service', () => ({
 	initializeSelfHostedUserAfterCreation: vi.fn(),
 }));
+vi.mock('../../src/services/cloud-sso-auth.service', () => ({
+	assertCloudSsoSignInAllowed: vi.fn(),
+	augmentPluginsWithCloudSso: vi.fn(),
+	CLOUD_SSO_SIGN_IN_PATH: '/sign-in/sso',
+	findCloudSsoOrganizationId: vi.fn().mockResolvedValue(null),
+	getCloudSsoDisabledPaths: vi.fn(() => []),
+	isCloudSsoEmailTrusted: vi.fn().mockResolvedValue(false),
+}));
 vi.mock('../../src/services/credit-grant.service', () => ({
 	activateUserJoinCandidates: vi.fn(),
 }));

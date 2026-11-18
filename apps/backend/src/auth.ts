@@ -40,6 +40,14 @@ import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
 import { DEACTIVATED_ACCOUNT_MESSAGE } from './services/account-status.service';
 import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
+import {
+	assertCloudSsoSignInAllowed,
+	augmentPluginsWithCloudSso,
+	CLOUD_SSO_SIGN_IN_PATH,
+	findCloudSsoOrganizationId,
+	getCloudSsoDisabledPaths,
+	isCloudSsoEmailTrusted,
+} from './services/cloud-sso-auth.service';
 import { activateUserJoinCandidates } from './services/credit-grant.service';
 import { emailService } from './services/email';
 import { githubApiUrl, githubNoreplyEmail, githubOAuthConfig } from './services/github';
@@ -55,6 +63,7 @@ import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc }
 import { enqueueOnce } from './services/scheduler.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
+import { isTwoFactorSetupRequired, twoFactorPlugin } from './services/two-factor.service';
 import { CLOUD_WELCOME_EMAIL_JOB_NAME } from './types/email';
 import { buildAccountExistsEmail, buildForgotPasswordEmail, buildVerifyEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
@@ -83,13 +92,16 @@ export const getAuth = () => defaultAuth.get();
 export const getSession = async (headers: Headers) => {
 	const auth = await getAuth();
 	const session = await auth.api.getSession({ headers });
-	if (!session?.session || !(await shouldExpireSsoSession(session.session))) {
-		return session;
+	if (!session) {
+		return null;
+	}
+	if (await shouldExpireSsoSession(session.session)) {
+		const context = await auth.$context;
+		await context.internalAdapter.deleteSession(session.session.token);
+		return null;
 	}
 
-	const context = await auth.$context;
-	await context.internalAdapter.deleteSession(session.session.token);
-	return null;
+	return { ...session, twoFactorSetupRequired: await isTwoFactorSetupRequired(session.user) };
 };
 
 export function updateAuth() {
@@ -235,6 +247,7 @@ async function createAuthInstance(baseURL: string) {
 		augmentSocialProvidersWithMicrosoft(socialProviders);
 		augmentPluginsWithOidc(ssoPlugins);
 	}
+	augmentPluginsWithCloudSso(ssoPlugins);
 
 	const trustedProviders = [
 		'google',
@@ -263,8 +276,10 @@ async function createAuthInstance(baseURL: string) {
 				allowUnauthenticatedClientRegistration: env.ALLOW_UNAUTHENTICATED_DCR,
 				validAudiences: MCP_VALID_AUDIENCES,
 			}),
+			twoFactorPlugin(),
 			...ssoPlugins,
 		],
+		disabledPaths: getCloudSsoDisabledPaths(),
 		trustedOrigins: baseURL ? [baseURL, ...(env.MODE === 'dev' ? ['http://localhost:3000'] : [])] : undefined,
 		emailVerification: emailVerificationEnabled
 			? {
@@ -316,6 +331,11 @@ async function createAuthInstance(baseURL: string) {
 			},
 		},
 		hooks: {
+			before: createAuthMiddleware(async (ctx) => {
+				if (ctx.path === CLOUD_SSO_SIGN_IN_PATH) {
+					await assertCloudSsoSignInAllowed(ctx.body);
+				}
+			}),
 			after: createAuthMiddleware(async (ctx) => {
 				const publicIssuerResponse = await applyPublicIssuer(ctx);
 				const returned = publicIssuerResponse ?? ctx.context.returned;
@@ -378,6 +398,10 @@ async function createAuthInstance(baseURL: string) {
 							});
 						}
 
+						if (await isCloudSsoEmailTrusted(providerId, user.email)) {
+							return { data: { ...user, emailVerified: true } };
+						}
+
 						return true;
 					},
 					async after(user, ctx) {
@@ -385,13 +409,10 @@ async function createAuthInstance(baseURL: string) {
 
 						try {
 							if (isCloud) {
-								const matchedOrg =
-									providerId === 'google'
-										? await orgQueries.findOrganizationByEmailDomain(user.email)
-										: null;
-								if (matchedOrg) {
+								const matchedOrgId = await findOrganizationIdForNewCloudUser(user.email, providerId);
+								if (matchedOrgId) {
 									await addOrganizationMemberIfMissing({
-										orgId: matchedOrg.id,
+										orgId: matchedOrgId,
 										userId: user.id,
 										role: env.DEFAULT_USER_ROLE,
 									});
@@ -456,6 +477,20 @@ async function createAuthInstance(baseURL: string) {
 			},
 		},
 	});
+}
+
+async function findOrganizationIdForNewCloudUser(
+	email: string,
+	providerId: string | undefined,
+): Promise<string | null> {
+	const ssoOrganizationId = await findCloudSsoOrganizationId(providerId);
+	if (ssoOrganizationId) {
+		return ssoOrganizationId;
+	}
+	if (providerId !== 'google') {
+		return null;
+	}
+	return (await orgQueries.findOrganizationByEmailDomain(email))?.id ?? null;
 }
 
 async function emailExistingAccountOwner(
