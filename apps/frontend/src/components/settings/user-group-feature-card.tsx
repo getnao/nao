@@ -16,6 +16,7 @@ interface UserGroupFeatureCardProps {
 	feature: UserGroupFeatureDefinition;
 	selected: boolean;
 	inherited?: boolean;
+	effectiveSelected?: boolean;
 	onSelectedChange: (selected: boolean) => void;
 	disabledReason?: string;
 }
@@ -24,11 +25,11 @@ export function UserGroupFeatureCard({
 	feature,
 	selected,
 	inherited = false,
+	effectiveSelected = selected || inherited,
 	onSelectedChange,
 	disabledReason,
 }: UserGroupFeatureCardProps) {
 	const inheritedOnly = inherited && !selected;
-	const effectiveSelected = selected || inherited;
 	const inheritanceLabel = inherited ? (selected ? 'Also from All Users' : 'From All Users') : null;
 	const disabled = inheritedOnly || disabledReason !== undefined;
 	return (
