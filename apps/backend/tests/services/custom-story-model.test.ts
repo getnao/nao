@@ -168,6 +168,38 @@ describe('runCustomStoryModel', () => {
 		);
 	});
 
+	it('accepts a legacy model id when only one credential matches', async () => {
+		mocks.getAvailableModelsForUser.mockResolvedValue([CREDENTIAL_MODELS[0]]);
+
+		await expect(
+			runCustomStoryModel(TARGET, {
+				kind: 'llm',
+				model: 'openai:gpt-5',
+				prompt: 'Hi',
+			}),
+		).resolves.toMatchObject({ model: 'openai:gpt-5:config-a' });
+
+		expect(mocks.resolveModelSelection).toHaveBeenCalledWith(
+			'project-1',
+			{ provider: 'openai', modelId: 'gpt-5', llmConfigId: 'config-a' },
+			'viewer-1',
+		);
+	});
+
+	it('requires a credential-qualified id when a legacy model id is ambiguous', async () => {
+		mocks.getAvailableModelsForUser.mockResolvedValue(CREDENTIAL_MODELS);
+
+		await expect(
+			runCustomStoryModel(TARGET, {
+				kind: 'llm',
+				model: 'openai:gpt-5',
+				prompt: 'Hi',
+			}),
+		).rejects.toThrow('multiple credentials');
+
+		expect(mocks.resolveModelSelection).not.toHaveBeenCalled();
+	});
+
 	it('asks the agent for a structured answer when a JSON schema is given', async () => {
 		mocks.streamToCompletion.mockResolvedValue({ text: '{"risk":"high"}', output: { risk: 'high' } });
 

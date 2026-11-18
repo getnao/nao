@@ -130,9 +130,15 @@ async function findRequestedLlm(projectId: string, viewerId: string, modelId: st
 	if (modelId === undefined) {
 		return undefined;
 	}
-	const model = (await getAvailableModelsForUser(projectId, viewerId)).find(
-		(candidate) => toStoryModelId(candidate) === modelId,
+	const available = await getAvailableModelsForUser(projectId, viewerId);
+	const qualified = available.find((candidate) => candidate.llmConfigId && toStoryModelId(candidate) === modelId);
+	const legacyMatches = available.filter(
+		(candidate) => toStoryModelId({ provider: candidate.provider, modelId: candidate.modelId }) === modelId,
 	);
+	if (!qualified && legacyMatches.length > 1) {
+		throw new CustomStoryModelError(`Model ${modelId} has multiple credentials. Choose one from useModels().`);
+	}
+	const model = qualified ?? legacyMatches[0];
 	if (!model) {
 		throw new CustomStoryModelError(
 			`Model ${modelId} is not available in this project. List them with useModels().`,
