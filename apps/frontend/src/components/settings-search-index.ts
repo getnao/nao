@@ -197,6 +197,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/organization',
 		pageLabel: 'Organization Settings',
+		title: 'Single sign-on (Okta)',
+		description:
+			'Connect your Okta or other OIDC identity provider once nao has activated SSO for your organization.',
+		keywords: ['sso', 'okta', 'oidc', 'identity provider', 'idp', 'saml', 'issuer', 'client id'],
+		orgAdminOnly: true,
+		cloudOnly: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
 		title: 'Organization API Keys',
 		description: 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 		keywords: ['api key', 'deploy key', 'token', 'credentials'],

@@ -127,6 +127,7 @@ import {
 	type WarehouseProvisioningModelSelection,
 	type WarehouseProvisioningStep,
 } from '../types/warehouse';
+import { sqliteEncryptedText } from './encrypted-text';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -2300,6 +2301,31 @@ export const oauthConsent = sqliteTable(
 	},
 	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
 );
+
+/** OIDC providers of the better-auth SSO plugin, one per cloud organization, written by the backoffice only. */
+export const ssoProvider = sqliteTable('sso_provider', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	providerId: text('provider_id').notNull().unique(),
+	issuer: text('issuer').notNull(),
+	domain: text('domain').notNull(),
+	domainVerified: integer('domain_verified', { mode: 'boolean' }).default(false).notNull(),
+	oidcConfig: sqliteEncryptedText('oidc_config'),
+	samlConfig: text('saml_config'),
+	userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+	organizationId: text('organization_id')
+		.notNull()
+		.unique()
+		.references(() => organization.id, { onDelete: 'cascade' }),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
 
 export const projectStoryTheme = sqliteTable(
 	'project_story_theme',

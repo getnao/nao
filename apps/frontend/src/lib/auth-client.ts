@@ -74,4 +74,16 @@ const handleOidcSignIn = async (providerId: string, callbackURL = '/') => {
 	});
 };
 
-export { handleGithubSignIn, handleGitlabSignIn, handleGoogleSignIn, handleOidcSignIn };
+/** Redirects to the identity provider of the organization that owns the email's domain, or returns the refusal. */
+const handleSsoSignIn = async (email: string, callbackURL = '/'): Promise<string | undefined> => {
+	const { data, error } = await authClient.$fetch<{ url: string }>('/sign-in/sso', {
+		method: 'POST',
+		body: { email, callbackURL, errorCallbackURL: '/login' },
+	});
+	if (error) {
+		return error.message;
+	}
+	window.location.href = data.url;
+};
+
+export { handleGithubSignIn, handleGitlabSignIn, handleGoogleSignIn, handleOidcSignIn, handleSsoSignIn };

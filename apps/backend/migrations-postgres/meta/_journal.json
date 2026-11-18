@@ -757,6 +757,13 @@
       "when": 1795005230933,
       "tag": "0107_two_factor",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795008907744,
+      "tag": "0108_sso_provider",
+      "breakpoints": true
     }
   ]
 }

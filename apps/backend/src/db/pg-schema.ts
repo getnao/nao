@@ -131,6 +131,7 @@ import {
 	type WarehouseProvisioningModelSelection,
 	type WarehouseProvisioningStep,
 } from '../types/warehouse';
+import { pgEncryptedText } from './encrypted-text';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -2151,6 +2152,29 @@ export const oauthConsent = pgTable(
 	},
 	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
 );
+
+/** OIDC providers of the better-auth SSO plugin, one per cloud organization, written by the backoffice only. */
+export const ssoProvider = pgTable('sso_provider', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	providerId: text('provider_id').notNull().unique(),
+	issuer: text('issuer').notNull(),
+	domain: text('domain').notNull(),
+	domainVerified: boolean('domain_verified').default(false).notNull(),
+	oidcConfig: pgEncryptedText('oidc_config'),
+	samlConfig: text('saml_config'),
+	userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+	organizationId: text('organization_id')
+		.notNull()
+		.unique()
+		.references(() => organization.id, { onDelete: 'cascade' }),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
 
 export const projectStoryTheme = pgTable(
 	'project_story_theme',

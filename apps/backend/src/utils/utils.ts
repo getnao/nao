@@ -124,6 +124,12 @@ export const getEmailDomain = (email: string): string | null => {
 	return email.split('@').at(1)?.trim().toLowerCase() || null;
 };
 
+/** Whether `domain` is one of `claimedDomains` or a subdomain of one, as the SSO plugin matches emails. */
+export const isDomainCoveredBy = (domain: string, claimedDomains: string[]): boolean => {
+	const search = domain.trim().toLowerCase();
+	return claimedDomains.some((claimed) => search === claimed || search.endsWith(`.${claimed}`));
+};
+
 /**
  * Free / consumer email providers. These can never be claimed for organization
  * sign-in routing, since anyone can hold an address on them.
