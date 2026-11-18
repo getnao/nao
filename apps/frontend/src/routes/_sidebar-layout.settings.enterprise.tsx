@@ -14,6 +14,7 @@ import {
 	FileCheck,
 	KeyRound,
 	LifeBuoy,
+	MessageCircleQuestion,
 	Palette,
 	Plug,
 	ShieldCheck,
@@ -262,6 +263,12 @@ export const ENTERPRISE_FEATURES = [
 		label: 'Multiple projects',
 		description: 'Keep separate data contexts for different teams and use cases.',
 		icon: Boxes,
+	},
+	{
+		key: 'conversation-feedback',
+		label: 'Required conversation feedback',
+		description: 'Keep conversation rating controls visible in chat headers until users rate the latest answer.',
+		icon: MessageCircleQuestion,
 	},
 	{
 		key: 'exclude-columns',

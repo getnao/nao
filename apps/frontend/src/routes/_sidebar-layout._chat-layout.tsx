@@ -2,6 +2,7 @@ import { createFileRoute, Outlet, useRouterState } from '@tanstack/react-router'
 
 import { SYSTEM_EXAMPLE_PROJECT_ID } from '@nao/shared';
 
+import { ConversationFeedbackGuard } from '@/components/conversation-feedback-guard';
 import { AgentProvider } from '@/contexts/agent.provider';
 import { SetChatInputCallbackProvider } from '@/contexts/set-chat-input-callback';
 import { StoryBeforeAgentSendProvider } from '@/contexts/story-before-agent-send';
@@ -32,6 +33,7 @@ function RouteComponent() {
 		<SetChatInputCallbackProvider>
 			<StoryBeforeAgentSendProvider>
 				<AgentProvider mode={mode}>
+					{chatId && <ConversationFeedbackGuard chatId={chatId} />}
 					<Outlet />
 				</AgentProvider>
 			</StoryBeforeAgentSendProvider>
