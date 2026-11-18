@@ -31,7 +31,8 @@ export type ContextPresence = {
 	notionDocs: boolean;
 	databases: boolean;
 };
-const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+/** Accepts the same spacing as the CLI, which resolves a reference left unfilled here to an empty string. */
+const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(\s*['"]([^'"]+)['"]\s*\)\s*\}\}/g;
 const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const TEST_MODEL_FORMAT = "'provider:model_id'";
 const TEST_MODEL_OBJECT_FORMAT = "{ model: 'provider:model_id', reasoning_efforts: [low, high] or all }";

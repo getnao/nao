@@ -73,6 +73,11 @@ describe('resolveEnvReferences', () => {
 	it.each([
 		['leaves an aws reference to the CLI', "{{ aws('prod/git/token') }}", "{{ aws('prod/git/token') }}"],
 		[
+			'fills in a reference written with spaces',
+			"https://{{ env( 'GIT_TOKEN' ) }}@git.example/repo.git",
+			'https://abc@git.example/repo.git',
+		],
+		[
 			'empties a reference to an unknown variable',
 			"https://{{ env('MISSING_GIT_TOKEN') }}@git.example/repo.git",
 			'https://@git.example/repo.git',
