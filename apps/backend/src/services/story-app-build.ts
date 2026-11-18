@@ -34,6 +34,7 @@ export type StoryBuildResult = { ok: true; app: StoryApp; entry: string } | { ok
 
 const BUILD_TIMEOUT_MS = 20_000;
 const STDERR_TAIL_CHARS = 600;
+const WORKER_INHERITED_ENV_NAMES = ['PATH', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot'];
 const REMOTE_STYLE_IMPORT = /@import\s+(?:url\(\s*)?["']?(https?:\/\/[^"')\s;]+)/gi;
 
 export async function buildStoryApp(files: StorySourceFile[]): Promise<StoryBuildResult> {
@@ -152,7 +153,7 @@ const WORKER_SOURCE = `(${storyBuildWorker.toString()})()`;
 function runBuildWorker(request: StoryBuildRequest): Promise<StoryBuildResponse> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(bunExecutable(), ['--smol', '-e', WORKER_SOURCE], {
-			env: { ...process.env, BUN_BE_BUN: '1', NODE_ENV: 'production' },
+			env: buildWorkerEnvironment(),
 			stdio: ['pipe', 'pipe', 'pipe'],
 			timeout: BUILD_TIMEOUT_MS,
 			killSignal: 'SIGKILL',
@@ -190,6 +191,12 @@ function runBuildWorker(request: StoryBuildRequest): Promise<StoryBuildResponse>
 		child.stdin.on('error', () => undefined);
 		child.stdin.end(JSON.stringify(request));
 	});
+}
+
+/** The worker bundles untrusted story code, so it gets what `bun` needs to start and none of the server's secrets. */
+function buildWorkerEnvironment(): NodeJS.ProcessEnv {
+	const inherited = WORKER_INHERITED_ENV_NAMES.map((name) => [name, process.env[name]]);
+	return { ...Object.fromEntries(inherited), BUN_BE_BUN: '1', NODE_ENV: 'production' };
 }
 
 /** Under Bun the running binary is the runtime (also for `bun --compile` builds, via BUN_BE_BUN); elsewhere fall back to PATH. */
