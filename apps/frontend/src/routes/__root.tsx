@@ -4,7 +4,7 @@ import { BrandColor } from '../components/brand-color';
 import { BrandingHead } from '../components/branding-head';
 import { ModifyPassword } from '../components/modify-password';
 import { TwoFactorGate } from '../components/two-factor-gate';
-import { Spinner } from '@/components/ui/spinner';
+import { PageLoader } from '@/components/page-loader';
 import { useDisposeInactiveAgents } from '@/hooks/use-agent';
 import { useSessionOrNavigateToIndexPage } from '@/hooks/use-session-or-navigate-to-index-page';
 import { useNavigateToResetPasswordPageIfNeeded } from '@/hooks/useNavigateToResetPasswordPageIfNeeded';
@@ -36,12 +36,12 @@ function AuthenticatedRoot() {
 	}
 
 	if (!hasLoadedSession) {
-		return <RootLoadingState />;
+		return <PageLoader />;
 	}
 
 	return (
 		<>
-			{session.isPending && <RootLoadingState />}
+			{session.isPending && <PageLoader />}
 			<div className={cn('flex h-screen', session.isPending && 'hidden')}>
 				<BrandingHead />
 				<BrandColor />
@@ -63,12 +63,4 @@ function useHasLoadedOnce(isPending: boolean): boolean {
 		setHasLoaded(true);
 	}
 	return hasLoaded || !isPending;
-}
-
-function RootLoadingState() {
-	return (
-		<div className='flex h-screen items-center justify-center bg-background'>
-			<Spinner className='size-6' />
-		</div>
-	);
 }

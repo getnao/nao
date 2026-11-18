@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { TwoFactorSetupDialog } from '@/components/settings/two-factor-setup-dialog';
 import { Button } from '@/components/ui/button';
+import { clearLastSeen } from '@/hooks/use-last-seen';
 import { signOut, useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
@@ -23,6 +24,7 @@ export function TwoFactorGate({ children }: { children: React.ReactNode }) {
 
 	const handleSignOut = async () => {
 		queryClient.clear();
+		clearLastSeen();
 		await signOut();
 	};
 
