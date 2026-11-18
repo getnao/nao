@@ -54,6 +54,7 @@ describe('getOidcAccessTokenForUser', () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		vi.unstubAllGlobals();
 	});
 
@@ -99,16 +100,43 @@ describe('getOidcAccessTokenForUser', () => {
 			},
 		],
 		['the user never signed in with OIDC', () => db.delete(s.account).execute()],
-		[
-			'the provider rejects the refresh token',
-			() => fetchMock.mockImplementation(respondLikeOkta({ error: 'invalid_grant' }, 400)),
-		],
 		['no refresh token was stored', () => db.update(s.account).set({ refreshToken: null }).execute()],
 	])('returns null when %s', async (_label, arrange) => {
 		await insertAccount({ accessTokenExpiresAt: new Date(Date.now() - 1000) });
 		await arrange();
 
 		await expect(getOidcAccessTokenForUser(USER_ID)).resolves.toBeNull();
+	});
+
+	it('uses the token another replica saved after redeeming the same refresh token first', async () => {
+		await insertAccount({ accessTokenExpiresAt: new Date(Date.now() - 1000) });
+		fetchMock.mockImplementation(async (input) => {
+			if (String(input) === DISCOVERY_URL) {
+				return Response.json({ token_endpoint: TOKEN_ENDPOINT });
+			}
+			await db
+				.update(s.account)
+				.set({
+					accessToken: 'other-replica-token',
+					accessTokenExpiresAt: new Date(Date.now() + ONE_HOUR_MS),
+					refreshToken: 'other-replica-refresh',
+				})
+				.execute();
+			return Response.json({ error: 'invalid_grant' }, { status: 400 });
+		});
+
+		await expect(getOidcAccessTokenForUser(USER_ID)).resolves.toBe('other-replica-token');
+	});
+
+	it('returns null when the provider rejects the refresh token and no replica rotated it', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout'] });
+		fetchMock.mockImplementation(respondLikeOkta({ error: 'invalid_grant' }, 400));
+		await insertAccount({ accessTokenExpiresAt: new Date(Date.now() - 1000) });
+
+		const token = getOidcAccessTokenForUser(USER_ID);
+		await vi.runAllTimersAsync();
+
+		await expect(token).resolves.toBeNull();
 	});
 });
 

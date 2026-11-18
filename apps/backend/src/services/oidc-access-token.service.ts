@@ -12,6 +12,9 @@ import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
 
 /** Refreshed this early so the token outlives the warehouse queries of a long agent run. */
 export const MIN_ACCESS_TOKEN_VALIDITY_MS = 5 * 60 * 1000;
+/** How long a rejected refresh waits for another replica to save the token it rotated. */
+const ROTATION_WAIT_ATTEMPTS = 6;
+const ROTATION_WAIT_DELAY_MS = 500;
 
 interface OidcAccount {
 	id: string;
@@ -19,6 +22,13 @@ interface OidcAccount {
 	accessTokenExpiresAt: Date | null;
 	refreshToken: string | null;
 }
+
+const ACCOUNT_TOKEN_COLUMNS = {
+	id: s.account.id,
+	accessToken: s.account.accessToken,
+	accessTokenExpiresAt: s.account.accessTokenExpiresAt,
+	refreshToken: s.account.refreshToken,
+};
 
 const pendingRefreshes = new Map<string, Promise<string | null>>();
 
@@ -47,15 +57,15 @@ export async function getOidcAccessTokenForUser(userId: string): Promise<string 
 
 async function findOidcAccount(userId: string): Promise<OidcAccount | undefined> {
 	const [account] = await db
-		.select({
-			id: s.account.id,
-			accessToken: s.account.accessToken,
-			accessTokenExpiresAt: s.account.accessTokenExpiresAt,
-			refreshToken: s.account.refreshToken,
-		})
+		.select(ACCOUNT_TOKEN_COLUMNS)
 		.from(s.account)
 		.where(and(eq(s.account.userId, userId), eq(s.account.providerId, getOidcProviderId())))
 		.limit(1);
+	return account;
+}
+
+async function findAccountById(accountId: string): Promise<OidcAccount | undefined> {
+	const [account] = await db.select(ACCOUNT_TOKEN_COLUMNS).from(s.account).where(eq(s.account.id, accountId));
 	return account;
 }
 
@@ -63,7 +73,7 @@ function isValidLongEnough(expiresAt: Date | null): boolean {
 	return !expiresAt || expiresAt.getTime() - Date.now() > MIN_ACCESS_TOKEN_VALIDITY_MS;
 }
 
-/** Concurrent runs share one refresh: a rotated refresh token can only be redeemed once. */
+/** Concurrent runs of this replica share one refresh: a rotated refresh token can only be redeemed once. */
 function refreshOnce(accountId: string, refreshToken: string): Promise<string | null> {
 	const pending = pendingRefreshes.get(accountId);
 	if (pending) {
@@ -97,12 +107,40 @@ async function refreshAndStore(accountId: string, refreshToken: string): Promise
 			.execute();
 		return tokens.accessToken;
 	} catch (error) {
+		const rotatedElsewhere = await waitForTokenRotatedElsewhere(accountId, refreshToken);
+		if (rotatedElsewhere) {
+			return rotatedElsewhere;
+		}
 		logger.warn('Could not refresh the OIDC access token', {
 			source: 'system',
 			context: { error: serializeError(error) },
 		});
 		return null;
 	}
+}
+
+/**
+ * Another replica may have redeemed the same rotating refresh token first, making the provider reject ours.
+ * The token it saves is then valid for this run too.
+ */
+async function waitForTokenRotatedElsewhere(accountId: string, usedRefreshToken: string): Promise<string | null> {
+	for (let attempt = 0; attempt < ROTATION_WAIT_ATTEMPTS; attempt++) {
+		const account = await findAccountById(accountId);
+		if (!account) {
+			return null;
+		}
+		if (
+			account.refreshToken !== usedRefreshToken &&
+			account.accessToken &&
+			isValidLongEnough(account.accessTokenExpiresAt)
+		) {
+			return account.accessToken;
+		}
+		await new Promise((resolve) => {
+			setTimeout(resolve, ROTATION_WAIT_DELAY_MS);
+		});
+	}
+	return null;
 }
 
 async function fetchTokenEndpoint(): Promise<string> {
