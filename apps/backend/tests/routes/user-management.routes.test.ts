@@ -1,11 +1,11 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../src/db/db', async () => {
+vi.mock('../../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
 	const { generateSQLiteDrizzleJson, generateSQLiteMigration } = await import('drizzle-kit/api');
-	const sqliteSchema = await import('../src/db/sqlite-schema');
+	const sqliteSchema = await import('../../src/db/sqlite-schema');
 	const sqlite = new Database(':memory:');
 	const statements = await generateSQLiteMigration(
 		await generateSQLiteDrizzleJson({}),
@@ -18,11 +18,11 @@ vi.mock('../src/db/db', async () => {
 	return { db: drizzle(sqlite, { schema: sqliteSchema }) };
 });
 
-vi.mock('../src/services/email', () => ({
+vi.mock('../../src/services/email', () => ({
 	emailService: { sendEmail: vi.fn(async () => undefined) },
 }));
 
-vi.mock('../src/services/context-explorer-git.service', () => ({
+vi.mock('../../src/services/context-explorer-git.service', () => ({
 	cleanupContextWorktree: vi.fn(),
 }));
 
@@ -34,8 +34,8 @@ const hooks = vi.hoisted(() => ({
 	beforeGroupUpdate: null as null | (() => Promise<void>),
 }));
 
-vi.mock('../src/queries/user.queries', async (importOriginal) => {
-	const mod = await importOriginal<typeof import('../src/queries/user.queries')>();
+vi.mock('../../src/queries/user.queries', async (importOriginal) => {
+	const mod = await importOriginal<typeof import('../../src/queries/user.queries')>();
 	return {
 		...mod,
 		isUserConfinedToOrganization: async (userId: string, orgId: string | null) => {
@@ -47,8 +47,8 @@ vi.mock('../src/queries/user.queries', async (importOriginal) => {
 	};
 });
 
-vi.mock('../src/queries/user-group.queries', async (importOriginal) => {
-	const mod = await importOriginal<typeof import('../src/queries/user-group.queries')>();
+vi.mock('../../src/queries/user-group.queries', async (importOriginal) => {
+	const mod = await importOriginal<typeof import('../../src/queries/user-group.queries')>();
 	return {
 		...mod,
 		updateUserGroup: async (
@@ -62,19 +62,19 @@ vi.mock('../src/queries/user-group.queries', async (importOriginal) => {
 	};
 });
 
-vi.mock('../src/services/sso-group-mapping.service', async (importOriginal) => {
-	const mod = await importOriginal<typeof import('../src/services/sso-group-mapping.service')>();
+vi.mock('../../src/services/sso-group-mapping.service', async (importOriginal) => {
+	const mod = await importOriginal<typeof import('../../src/services/sso-group-mapping.service')>();
 	return { ...mod, isOrganizationRoleMappingActive: async () => idp.rolesManagedByIdp };
 });
 
 import { and, eq } from 'drizzle-orm';
 
-import s from '../src/db/abstractSchema';
-import { db } from '../src/db/db';
-import { userManagementRoutes } from '../src/routes/user-management';
-import { checkApiKey, hashKey } from '../src/services/api-key.service';
-import { emailService } from '../src/services/email';
-import { deleteUserIfConfinedToOrganization } from '../src/services/membership.service';
+import s from '../../src/db/abstractSchema';
+import { db } from '../../src/db/db';
+import { userManagementRoutes } from '../../src/routes/user-management';
+import { checkApiKey, hashKey } from '../../src/services/api-key.service';
+import { emailService } from '../../src/services/email';
+import { deleteUserIfConfinedToOrganization } from '../../src/services/membership.service';
 
 const ORG_ID = 'org-gehb';
 const OTHER_ORG_ID = 'org-other';

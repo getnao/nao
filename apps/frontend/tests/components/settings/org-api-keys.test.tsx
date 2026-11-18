@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
-import { OrgApiKeys } from './org-api-keys';
+import { OrgApiKeys } from '@/components/settings/org-api-keys';
 
 type ApiKey = {
 	id: string;
