@@ -15,7 +15,6 @@ import type { ToolContext } from '../types/tools';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse, type QueryDataMap } from '../utils/story-download';
 import { createTool } from '../utils/tools';
-import { getNonMemberAutomationEmailRecipients } from './automation-email-policy';
 import { getActiveThemeForProject } from './custom-story';
 import { emailService } from './email';
 import {
@@ -25,6 +24,7 @@ import {
 	GITHUB_TOOL_NAMES,
 	type GithubToolName,
 } from './github-automation-tools';
+import { listShareableMembers } from './project-sharing.service';
 import { getQueryResult } from './query-result.service';
 import { type SlackFileUpload, slackService } from './slack';
 
@@ -164,12 +164,11 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 				if (invalidRecipients.length > 0) {
 					throw new Error(`Invalid email recipient(s): ${invalidRecipients.join(', ')}`);
 				}
-				await assertAutomationEmailRecipientsAreProjectMembers(projectId, resolvedRecipients);
 				const attachments = await buildGeneratedArtifactAttachments(projectId, context);
 				const content = appendInlineImages(html ?? `<pre>${escapeHtml(text ?? '')}</pre>`, attachments);
 				const emailAttachments = attachments.map(toEmailAttachment);
 				const resolvedSubject = config.subject ?? subject ?? 'nao automation report';
-				await assertAutomationEmailRecipientsAreProjectMembers(projectId, resolvedRecipients);
+				await assertOwnerCanEmailRecipients(projectId, context.userId, resolvedRecipients);
 				await Promise.all(
 					resolvedRecipients.map((recipient) =>
 						emailService.sendEmail(
@@ -189,14 +188,14 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 	};
 }
 
-async function assertAutomationEmailRecipientsAreProjectMembers(
-	projectId: string,
-	recipients: string[],
-): Promise<void> {
-	const nonMemberRecipients = await getNonMemberAutomationEmailRecipients(projectId, recipients);
-	if (nonMemberRecipients.length > 0) {
+/** Checked right before delivery, so a member removed while the report was rendering no longer receives it. */
+async function assertOwnerCanEmailRecipients(projectId: string, ownerId: string, recipients: string[]): Promise<void> {
+	const members = await listShareableMembers(projectId, ownerId);
+	const memberEmails = new Set(members.map((member) => member.email.toLowerCase()));
+	const rejectedRecipients = recipients.filter((recipient) => !memberEmails.has(recipient.toLowerCase()));
+	if (rejectedRecipients.length > 0) {
 		throw new Error(
-			`Email wasn't sent because these recipients aren't members of this project: ${nonMemberRecipients.join(', ')}. Please remove or replace them.`,
+			`Email wasn't sent because these recipients aren't project members the automation owner can share with: ${rejectedRecipients.join(', ')}. Please remove or replace them.`,
 		);
 	}
 }
@@ -394,7 +393,7 @@ function formatDeliveryErrors(deliveries: SlackChannelDelivery[]): string {
 }
 
 function getEmailToolDescription(): string {
-	return `Send an email to a list of recipients. Provide html (preferred) or text, and optionally a subject. If you generated charts with display_chart or maps with display_map, they will be embedded as images. If you generated a story, it will be attached as a PDF.`;
+	return `Send an email to a list of recipients, who must all be members of this project. Provide html (preferred) or text, and optionally a subject. If you generated charts with display_chart or maps with display_map, they will be embedded as images. If you generated a story, it will be attached as a PDF.`;
 }
 
 function getSlackToolDescription(channelIds: string): string {
