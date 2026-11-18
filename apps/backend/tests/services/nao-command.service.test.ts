@@ -95,15 +95,17 @@ describe('runNaoCommandInSandbox', () => {
 			}),
 		);
 		expect(boxlite.create.mock.calls[0][0]).not.toHaveProperty('volumes');
-		expect(box.copyIn).toHaveBeenCalledWith(expect.stringMatching(/[\\/]\.$/), '/project', {
+		expect(box.copyIn).toHaveBeenCalledWith(expect.any(String), '/project', {
 			recursive: true,
 			overwrite: true,
 			followSymlinks: false,
+			includeParent: false,
 		});
-		expect(box.copyOut).toHaveBeenCalledWith('/project/.', expect.any(String), {
+		expect(box.copyOut).toHaveBeenCalledWith('/project', expect.any(String), {
 			recursive: true,
 			overwrite: true,
 			followSymlinks: false,
+			includeParent: false,
 		});
 		expect(box.exec).toHaveBeenCalledWith(
 			'nao',
@@ -354,11 +356,11 @@ function useFakeBox({
 		execution,
 		mountPath: () => mountPath,
 		start: vi.fn(async () => undefined),
-		copyIn: vi.fn(async (hostPath: string) =>
-			copyDirectory(hostPath, mountPath, hostPath.endsWith(`${path.sep}.`)),
+		copyIn: vi.fn(async (hostPath: string, _guestPath: string, options?: { includeParent?: boolean }) =>
+			copyDirectory(hostPath, mountPath, options?.includeParent),
 		),
-		copyOut: vi.fn(async (guestPath: string, hostPath: string) =>
-			copyDirectory(mountPath, hostPath, guestPath.endsWith('/.')),
+		copyOut: vi.fn(async (_guestPath: string, hostPath: string, options?: { includeParent?: boolean }) =>
+			copyDirectory(mountPath, hostPath, options?.includeParent),
 		),
 		exec: vi.fn(async () => {
 			if (box.start.mock.calls.length === 0) {
@@ -373,8 +375,8 @@ function useFakeBox({
 	return box;
 }
 
-function copyDirectory(source: string, destination: string, copyContents: boolean): void {
-	if (!copyContents) {
+function copyDirectory(source: string, destination: string, includeParent = true): void {
+	if (includeParent) {
 		fs.cpSync(source, path.join(destination, path.basename(source)), {
 			recursive: true,
 			dereference: false,

@@ -108,10 +108,11 @@ export async function runNaoCommandInSandbox(
 		await box.start();
 		throwIfStopped();
 		await buffer.addLine('Copying the project into the secure sync environment.');
-		await box.copyIn(`${stagingDir}${path.sep}.`, SANDBOX_PROJECT_DIR, {
+		await box.copyIn(stagingDir, SANDBOX_PROJECT_DIR, {
 			recursive: true,
 			overwrite: true,
 			followSymlinks: false,
+			includeParent: false,
 		});
 		throwIfStopped();
 		await buffer.addLine('Starting nao sync...');
@@ -139,10 +140,11 @@ export async function runNaoCommandInSandbox(
 		throwIfStopped();
 		fs.rmSync(stagingDir, { recursive: true, force: true });
 		fs.mkdirSync(stagingDir);
-		await box.copyOut(`${SANDBOX_PROJECT_DIR}/.`, stagingDir, {
+		await box.copyOut(SANDBOX_PROJECT_DIR, stagingDir, {
 			recursive: true,
 			overwrite: true,
 			followSymlinks: false,
+			includeParent: false,
 		});
 		throwIfStopped();
 		await stopBox();
