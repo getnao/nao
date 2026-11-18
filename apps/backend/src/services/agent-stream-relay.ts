@@ -120,7 +120,6 @@ export class AgentStreamRelay {
 		return agentStreamQueries.listLiveStreamChatIds(userId, this._timings.heartbeatTtlMs);
 	}
 
-	/** Returns whether a live run of the chat was there to stop. */
 	async requestStop(chatId: string): Promise<boolean> {
 		const streamId = await agentStreamQueries.getLiveStreamId(chatId, this._timings.heartbeatTtlMs);
 		if (!streamId) {
@@ -220,7 +219,7 @@ export class AgentStreamRelay {
 			if (rows.length > 0) {
 				return { rows, runState: 'live' };
 			}
-			if (await this._waitForChunks(streamId, signal)) {
+			if (await this._isNotifiedOfChunks(streamId, signal)) {
 				continue;
 			}
 			const runState = await agentStreamQueries.getStreamRunState(streamId, this._timings.heartbeatTtlMs);
@@ -232,8 +231,7 @@ export class AgentStreamRelay {
 		return { rows: [], runState: 'gone' };
 	}
 
-	/** Resolves `true` when a notification announces new chunks, `false` when the poll interval passes first. */
-	private _waitForChunks(streamId: string, signal: AbortSignal): Promise<boolean> {
+	private _isNotifiedOfChunks(streamId: string, signal: AbortSignal): Promise<boolean> {
 		return new Promise((resolve) => {
 			const waiters = this._chunkWaiters.get(streamId) ?? new Set();
 			this._chunkWaiters.set(streamId, waiters);

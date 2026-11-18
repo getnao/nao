@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, lt } from 'drizzle-orm';
+import { and, asc, eq, gt, lt, notInArray } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -74,9 +74,14 @@ export async function deleteStreamChunks(streamId: string): Promise<void> {
 	await db.delete(s.agentStreamChunk).where(eq(s.agentStreamChunk.streamId, streamId));
 }
 
-/** Clears what instances that died mid-run left behind. */
+/** Clears what instances that died mid-run left behind. A run still going keeps its chunks, however old. */
 export async function deleteExpiredStreams(olderThanMs: number): Promise<void> {
 	const cutoff = databaseTimeIn(-olderThanMs);
-	await db.delete(s.agentStreamChunk).where(lt(s.agentStreamChunk.createdAt, cutoff));
 	await db.delete(s.agentStreamRun).where(lt(s.agentStreamRun.heartbeatAt, cutoff));
+	const remainingStreamIds = db.select({ streamId: s.agentStreamRun.streamId }).from(s.agentStreamRun);
+	await db
+		.delete(s.agentStreamChunk)
+		.where(
+			and(lt(s.agentStreamChunk.createdAt, cutoff), notInArray(s.agentStreamChunk.streamId, remainingStreamIds)),
+		);
 }

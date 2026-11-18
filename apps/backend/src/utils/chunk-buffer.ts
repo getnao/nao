@@ -22,7 +22,7 @@ export class ChunkBuffer<T> {
 		this._wakeWaiters();
 	}
 
-	/** Waits until chunks exist past `fromIndex` or the buffer closes, then returns them. */
+	/** Resolves once chunks exist past `fromIndex`, or the buffer closes. */
 	async next(fromIndex: number): Promise<ChunkBatch<T>> {
 		while (fromIndex >= this._chunks.length && !this._isClosed) {
 			await new Promise<void>((resolve) => this._waiters.add(resolve));

@@ -65,7 +65,7 @@ export class AgentStreamService {
 		return [...new Set([...localChatIds, ...relayedChatIds])];
 	}
 
-	/** Asks the instance running the chat's agent to stop it, and returns whether one was running. */
+	/** Asks the instance running the chat's agent to stop it. */
 	async requestStopElsewhere(chatId: string): Promise<boolean> {
 		return (await this._relay?.requestStop(chatId)) ?? false;
 	}
