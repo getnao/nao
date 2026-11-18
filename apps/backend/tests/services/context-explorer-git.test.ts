@@ -1814,6 +1814,20 @@ describe('context explorer worktrees', { timeout: 15_000 }, () => {
 		]);
 	});
 
+	it('reads the same untracked worktree copy that content search uses', async () => {
+		const fixture = createFixture();
+		fs.writeFileSync(path.join(fixture.live, 'synced.md'), 'live-only text\n');
+		const access = await fileAccess(fixture.context);
+		const repo = await ensureContextWorktree(fixture.context);
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'synced.md'), 'working-copy text\n');
+
+		expect((await searchFileContents('working-copy', access)).results.map((result) => result.path)).toEqual([
+			'/synced.md',
+		]);
+		expect((await searchFileContents('live-only', access)).results).toEqual([]);
+		expect((await readFileContent('/synced.md', access)).content).toBe('working-copy text\n');
+	});
+
 	it('finds live-only files even when tracked live files fill the search limit', async () => {
 		const trackedFiles = Object.fromEntries(
 			Array.from({ length: 300 }, (_, index) => [`databases/table_${index}.md`, 'shared term\n']),
