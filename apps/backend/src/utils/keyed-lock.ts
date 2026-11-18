@@ -15,6 +15,10 @@ export async function withKeyedLock<T>(key: string, fn: () => Promise<T>): Promi
 	if (dbConfig.dialect !== Dialect.Postgres) {
 		return withInMemoryLock(key, fn);
 	}
+	return withDatabaseKeyedLock(key, fn);
+}
+
+export function withDatabaseKeyedLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	return withDatabaseLock(key, fn);
 }
 

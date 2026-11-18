@@ -91,6 +91,30 @@ describe('sharing a story with user groups', () => {
 		expect(await getSharedStoryRecipientUserIds(shared.id)).not.toContain(OUTSIDER_ID);
 	});
 
+	it('revokes group access for inactive memberships and archived groups', async () => {
+		const shared = await shareWithGroupAndDirectUser();
+		await db
+			.update(s.userGroupMember)
+			.set({ active: false })
+			.where(and(eq(s.userGroupMember.groupId, GROUP_ID), eq(s.userGroupMember.userId, GROUP_MEMBER_ID)));
+		expect(await canUserAccessSharedStory(shared.id, GROUP_MEMBER_ID)).toBe(false);
+
+		await db
+			.update(s.userGroupMember)
+			.set({ active: true })
+			.where(and(eq(s.userGroupMember.groupId, GROUP_ID), eq(s.userGroupMember.userId, GROUP_MEMBER_ID)));
+		await db
+			.update(s.userGroup)
+			.set({ archivedAt: new Date(), archivedName: 'Analysts', name: `__archived__${GROUP_ID}` })
+			.where(eq(s.userGroup.id, GROUP_ID));
+		expect(await canUserAccessSharedStory(shared.id, GROUP_MEMBER_ID)).toBe(false);
+
+		await db
+			.update(s.userGroup)
+			.set({ archivedAt: null, archivedName: null, name: 'Analysts' })
+			.where(eq(s.userGroup.id, GROUP_ID));
+	});
+
 	it('lists group shares for members with user and group counts', async () => {
 		await shareWithGroupAndDirectUser();
 

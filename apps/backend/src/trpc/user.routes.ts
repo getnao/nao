@@ -17,6 +17,7 @@ import { dismissGithubStarPrompt, shouldShowGithubStarPrompt } from '../services
 import { addProjectMember } from '../services/membership.service';
 import { addTeamMember } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
+import { assertUserGroupsUiManaged } from '../services/user-group-management.service';
 import type { StoredUserPreferences } from '../types/usage';
 import { type DiscordLinkTokenPayload, verifyDiscordLinkToken } from '../utils/discord-link-token';
 import { buildUserAddedEmail } from '../utils/email-builders';
@@ -105,6 +106,7 @@ export const userRoutes = {
 			const projectId = ctx.project.id;
 			const groupIds = unique(input.groupIds);
 			if (groupIds.length > 0) {
+				await handleUserGroupQuery(() => assertUserGroupsUiManaged(projectId));
 				await handleUserGroupQuery(() => validateAssignableUserGroupIds(projectId, groupIds));
 			}
 

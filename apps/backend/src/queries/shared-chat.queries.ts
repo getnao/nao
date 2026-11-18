@@ -4,6 +4,7 @@ import { and, asc, countDistinct, desc, eq, inArray, isNull, type SQL, sql, type
 import s, { type DBSharedChat } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import { type ForkMetadata } from '../types/chat';
+import { activeUserGroupCondition, activeUserGroupMembershipCondition } from './active-user-group.queries';
 import { listLockedUserGroupIds, listLockedUserGroupIdsOfMember } from './locked-user-groups';
 import { excludeLockedGroups } from './shared-story.queries';
 
@@ -25,8 +26,11 @@ export function sharedChatGrantsUser(userId: string, lockedGroupIds: readonly st
 	) or (exists (
 		select 1 from ${s.sharedChatGroupAccess}
 		inner join ${s.userGroupMember} on ${s.userGroupMember.groupId} = ${s.sharedChatGroupAccess.groupId}
+		inner join ${s.userGroup} on ${s.userGroup.id} = ${s.userGroupMember.groupId}
 		where ${s.sharedChatGroupAccess.sharedChatId} = ${s.sharedChat.id}
 		  and ${s.userGroupMember.userId} = ${userId}
+		  and ${activeUserGroupMembershipCondition}
+		  and ${activeUserGroupCondition}
 		  and ${excludeLockedGroups(s.sharedChatGroupAccess.groupId, lockedGroupIds)}
 	) and ${canEnterSharedChatProject(userId)}))`;
 }
@@ -301,8 +305,11 @@ export async function listSharedChatGroupGrants(shareId: string): Promise<Shared
 		.select({ id: s.userGroup.id, name: s.userGroup.name, memberCount: countDistinct(s.userGroupMember.userId) })
 		.from(s.sharedChatGroupAccess)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.sharedChatGroupAccess.groupId))
-		.leftJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.userGroup.id))
-		.where(eq(s.sharedChatGroupAccess.sharedChatId, shareId))
+		.leftJoin(
+			s.userGroupMember,
+			and(eq(s.userGroupMember.groupId, s.userGroup.id), activeUserGroupMembershipCondition),
+		)
+		.where(and(eq(s.sharedChatGroupAccess.sharedChatId, shareId), activeUserGroupCondition))
 		.groupBy(s.userGroup.id, s.userGroup.name)
 		.orderBy(s.userGroup.name)
 		.execute();
@@ -328,11 +335,14 @@ export async function getSharedChatRecipientUserIds(shareId: string): Promise<st
 			.from(s.sharedChatGroupAccess)
 			.innerJoin(s.sharedChat, eq(s.sharedChat.id, s.sharedChatGroupAccess.sharedChatId))
 			.innerJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.sharedChatGroupAccess.groupId))
+			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 			.where(
 				and(
 					eq(s.sharedChatGroupAccess.sharedChatId, shareId),
 					canEnterSharedChatProject(s.userGroupMember.userId),
 					excludeLockedGroups(s.sharedChatGroupAccess.groupId, lockedGroupIds),
+					activeUserGroupCondition,
+					activeUserGroupMembershipCondition,
 				),
 			)
 			.execute(),

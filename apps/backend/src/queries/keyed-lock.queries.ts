@@ -33,7 +33,8 @@ export const renewLock = async (key: string, owner: string, leaseMs: number): Pr
 
 export const releaseLock = async (key: string, owner: string): Promise<void> => {
 	await db
-		.delete(s.keyedLock)
+		.update(s.keyedLock)
+		.set({ expiresAt: databaseTimeIn(-1) })
 		.where(and(eq(s.keyedLock.key, key), eq(s.keyedLock.owner, owner)))
 		.execute();
 };

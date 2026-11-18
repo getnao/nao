@@ -31,6 +31,11 @@ export interface ProjectWideShareRevocation {
 	storyCount: number;
 }
 
+export interface ProjectSharingConfigProjection {
+	allUsersProjectSharing: ProjectSharingPermission;
+	groups: Array<{ projectSharing: ProjectSharingPermission; userIds: string[] }>;
+}
+
 interface ProjectSharingState {
 	groups: Array<Pick<userGroupQueries.UserGroup, 'id' | 'name' | 'isDefault' | 'projectSharing' | 'shareTargets'>>;
 	users: UserWithRole[];
@@ -107,6 +112,34 @@ export async function previewProjectWideShareRevocation(
 	return { chatCount: chatShareIds.length, storyCount: storyShares.length };
 }
 
+export async function previewProjectWideShareRevocationForConfig(
+	projectId: string,
+	projection: ProjectSharingConfigProjection,
+): Promise<ProjectWideShareRevocation> {
+	const users = await projectQueries.listUsersWithProjectAccess(projectId);
+	const projectSharingByUserId = new Map<string, ProjectSharingPermission[]>();
+	for (const group of projection.groups) {
+		for (const userId of group.userIds) {
+			projectSharingByUserId.set(userId, [...(projectSharingByUserId.get(userId) ?? []), group.projectSharing]);
+		}
+	}
+	const restrictedUserIds = users
+		.filter(
+			(user) =>
+				user.role !== 'admin' &&
+				!resolveProjectSharingPermission([
+					{ isDefault: true, projectSharing: projection.allUsersProjectSharing },
+					...(projectSharingByUserId.get(user.id) ?? []).map((projectSharing) => ({
+						isDefault: false,
+						projectSharing,
+					})),
+				]),
+		)
+		.map((user) => user.id);
+	const { chatShareIds, storyShares } = await findProjectWideSharesForUsers(projectId, restrictedUserIds);
+	return { chatCount: chatShareIds.length, storyCount: storyShares.length };
+}
+
 /** Unshares project-wide chats and stories of users who are no longer allowed to share with the entire project. */
 export async function revokeUnauthorizedProjectWideShares(projectId: string): Promise<void> {
 	const state = await loadProjectSharingState(projectId);
@@ -171,6 +204,10 @@ async function findUnauthorizedProjectWideShares(projectId: string, state: Proje
 	const restrictedUserIds = state.users
 		.filter((user) => !canUserShareToProject(state, user.id))
 		.map((user) => user.id);
+	return findProjectWideSharesForUsers(projectId, restrictedUserIds);
+}
+
+async function findProjectWideSharesForUsers(projectId: string, restrictedUserIds: string[]) {
 	const [chatShareIds, storyShares] = await Promise.all([
 		sharedChatQueries.listProjectWideSharedChatIds(projectId, restrictedUserIds),
 		sharedStoryQueries.listProjectWideSharedStories(projectId, restrictedUserIds),

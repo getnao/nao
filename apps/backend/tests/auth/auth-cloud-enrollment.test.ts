@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 	findOrganizationByEmailDomain: vi.fn(),
 	getUser: vi.fn(),
 	markEmailVerified: vi.fn(),
+	reconcileUserGroupConfigMembershipsForUser: vi.fn(),
 }));
 
 vi.mock('better-auth', () => ({
@@ -71,6 +72,9 @@ vi.mock('../../src/queries/user.queries', () => ({
 	countUsers: vi.fn().mockResolvedValue(0),
 	getUser: mocks.getUser,
 	markEmailVerified: mocks.markEmailVerified,
+}));
+vi.mock('../../src/services/user-group-config-membership.service', () => ({
+	reconcileUserGroupConfigMembershipsForUser: mocks.reconcileUserGroupConfigMembershipsForUser,
 }));
 vi.mock('../../src/services/auth-user-onboarding.service', () => ({
 	initializeSelfHostedUserAfterCreation: vi.fn(),

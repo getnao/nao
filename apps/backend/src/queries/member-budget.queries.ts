@@ -9,6 +9,7 @@ import s, { DBProjectGroupBudget, DBProjectMemberBudget, DBProjectMemberBudgetSe
 import { db, type DBExecutor } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { SetMemberBudgetsInput } from '../types/member-budget';
+import { activeUserGroupCondition, activeUserGroupMembershipCondition } from './active-user-group.queries';
 import { queryAllProvidersCostsSince, roundCost } from './budget.queries';
 
 type SQLiteRunnable = { run(): unknown };
@@ -37,7 +38,25 @@ export const getPersonalBudget = async (projectId: string, userId: string): Prom
 };
 
 export const listGroupBudgets = async (projectId: string): Promise<DBProjectGroupBudget[]> => {
-	return db.select().from(s.projectGroupBudget).where(eq(s.projectGroupBudget.projectId, projectId)).execute();
+	return db
+		.select({
+			groupId: s.projectGroupBudget.groupId,
+			projectId: s.projectGroupBudget.projectId,
+			limitUsd: s.projectGroupBudget.limitUsd,
+			active: s.projectGroupBudget.active,
+			createdAt: s.projectGroupBudget.createdAt,
+			updatedAt: s.projectGroupBudget.updatedAt,
+		})
+		.from(s.projectGroupBudget)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.projectGroupBudget.groupId))
+		.where(
+			and(
+				eq(s.projectGroupBudget.projectId, projectId),
+				eq(s.projectGroupBudget.active, true),
+				activeUserGroupCondition,
+			),
+		)
+		.execute();
 };
 
 export const listGroupBudgetsForMember = async (
@@ -48,7 +67,16 @@ export const listGroupBudgetsForMember = async (
 		.selectDistinct({ groupId: s.projectGroupBudget.groupId, limitUsd: s.projectGroupBudget.limitUsd })
 		.from(s.projectGroupBudget)
 		.innerJoin(s.userGroupMember, eq(s.userGroupMember.groupId, s.projectGroupBudget.groupId))
-		.where(and(eq(s.projectGroupBudget.projectId, projectId), eq(s.userGroupMember.userId, userId)))
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.projectGroupBudget.groupId))
+		.where(
+			and(
+				eq(s.projectGroupBudget.projectId, projectId),
+				eq(s.projectGroupBudget.active, true),
+				eq(s.userGroupMember.userId, userId),
+				activeUserGroupCondition,
+				activeUserGroupMembershipCondition,
+			),
+		)
 		.execute();
 };
 
@@ -179,11 +207,12 @@ function writePersonalBudget(executor: DBExecutor, projectId: string, userId: st
 		});
 }
 
-/** Upserts the budget, or deletes it when `limitUsd` is null. */
+/** Upserts the budget, or deactivates it when `limitUsd` is null. */
 function writeGroupBudget(executor: DBExecutor, projectId: string, groupId: string, limitUsd: number | null) {
 	if (limitUsd === null) {
 		return executor
-			.delete(s.projectGroupBudget)
+			.update(s.projectGroupBudget)
+			.set({ active: false, updatedAt: new Date() })
 			.where(and(eq(s.projectGroupBudget.projectId, projectId), eq(s.projectGroupBudget.groupId, groupId)));
 	}
 	return executor
@@ -191,7 +220,7 @@ function writeGroupBudget(executor: DBExecutor, projectId: string, groupId: stri
 		.values({ projectId, groupId, limitUsd })
 		.onConflictDoUpdate({
 			target: s.projectGroupBudget.groupId,
-			set: { limitUsd, updatedAt: new Date() },
+			set: { limitUsd, active: true, updatedAt: new Date() },
 		});
 }
 

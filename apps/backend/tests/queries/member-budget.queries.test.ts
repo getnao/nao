@@ -1,10 +1,15 @@
 import '../../src/env';
 
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { getPeriodCostsByUser, getUserPeriodCost } from '../../src/queries/member-budget.queries';
+import {
+	getPeriodCostsByUser,
+	getUserPeriodCost,
+	listGroupBudgetsForMember,
+} from '../../src/queries/member-budget.queries';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
@@ -82,5 +87,27 @@ describe('member budget spend', () => {
 
 	it('enforces the member budget against named provider spend', async () => {
 		await expect(getUserPeriodCost(PROJECT_ID, NAMED_PROVIDER_USER_ID, 'month')).resolves.toBe(2);
+	});
+
+	it('ignores inactive memberships and archived groups when resolving group budgets', async () => {
+		await db.insert(s.userGroup).values({ id: 'budget-group', projectId: PROJECT_ID, name: 'Budget Group' });
+		await db.insert(s.userGroupMember).values({ groupId: 'budget-group', userId: BUILT_IN_USER_ID });
+		await db
+			.insert(s.projectGroupBudget)
+			.values({ projectId: PROJECT_ID, groupId: 'budget-group', limitUsd: 100, active: true });
+
+		await expect(listGroupBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([
+			{ groupId: 'budget-group', limitUsd: 100 },
+		]);
+
+		await db.update(s.userGroupMember).set({ active: false }).where(eq(s.userGroupMember.groupId, 'budget-group'));
+		await expect(listGroupBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([]);
+
+		await db.update(s.userGroupMember).set({ active: true }).where(eq(s.userGroupMember.groupId, 'budget-group'));
+		await db
+			.update(s.userGroup)
+			.set({ archivedAt: new Date(), archivedName: 'Budget Group', name: '__archived__budget-group' })
+			.where(eq(s.userGroup.id, 'budget-group'));
+		await expect(listGroupBudgetsForMember(PROJECT_ID, BUILT_IN_USER_ID)).resolves.toEqual([]);
 	});
 });

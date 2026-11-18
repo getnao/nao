@@ -5,7 +5,7 @@ import {
 	type SsoGroupProvider,
 } from '@nao/shared';
 import type { UserRole } from '@nao/shared/types';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
 import type { DBUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -20,6 +20,7 @@ import {
 	resolveOidcGroupNaoGroupMappingTargets,
 	resolveStrongestUserRole,
 } from '../utils/sso-group-mapping';
+import { activeUserGroupCondition, activeUserGroupMembershipCondition } from './active-user-group.queries';
 
 export interface SsoUserGroupMapping {
 	groupId: string;
@@ -43,7 +44,13 @@ export async function hasSsoUserGroupSyncState(userId: string, provider: SsoGrou
 		db
 			.select({ groupId: s.userGroupMember.groupId })
 			.from(s.userGroupMember)
-			.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, provider)))
+			.where(
+				and(
+					eq(s.userGroupMember.userId, userId),
+					eq(s.userGroupMember.provider, provider),
+					activeUserGroupMembershipCondition,
+				),
+			)
 			.limit(1)
 			.execute(),
 	]);
@@ -77,13 +84,20 @@ export async function reconcileSsoUserGroupMemberships(
 				const existingGroupIds = transaction
 					.select({ groupId: s.userGroupMember.groupId })
 					.from(s.userGroupMember)
-					.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, provider)))
+					.where(
+						and(
+							eq(s.userGroupMember.userId, userId),
+							eq(s.userGroupMember.provider, provider),
+							activeUserGroupMembershipCondition,
+						),
+					)
 					.all()
 					.map(({ groupId }) => groupId);
 				const changes = diffMemberships(existingGroupIds, desired.groupIds);
 				if (changes.stale.length > 0) {
 					transaction
-						.delete(s.userGroupMember)
+						.update(s.userGroupMember)
+						.set({ active: false })
 						.where(
 							and(
 								eq(s.userGroupMember.userId, userId),
@@ -97,7 +111,10 @@ export async function reconcileSsoUserGroupMemberships(
 					transaction
 						.insert(s.userGroupMember)
 						.values(changes.added.map((groupId) => ({ groupId, userId, provider })))
-						.onConflictDoNothing()
+						.onConflictDoUpdate({
+							target: [s.userGroupMember.groupId, s.userGroupMember.userId, s.userGroupMember.provider],
+							set: { active: true, createdAt: new Date() },
+						})
 						.run();
 				}
 			},
@@ -127,13 +144,20 @@ export async function reconcileSsoUserGroupMemberships(
 		const existingGroupIds = await transaction
 			.select({ groupId: s.userGroupMember.groupId })
 			.from(s.userGroupMember)
-			.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, provider)))
+			.where(
+				and(
+					eq(s.userGroupMember.userId, userId),
+					eq(s.userGroupMember.provider, provider),
+					activeUserGroupMembershipCondition,
+				),
+			)
 			.execute()
 			.then((memberships) => memberships.map(({ groupId }) => groupId));
 		const changes = diffMemberships(existingGroupIds, desired.groupIds);
 		if (changes.stale.length > 0) {
 			await transaction
-				.delete(s.userGroupMember)
+				.update(s.userGroupMember)
+				.set({ active: false })
 				.where(
 					and(
 						eq(s.userGroupMember.userId, userId),
@@ -147,7 +171,10 @@ export async function reconcileSsoUserGroupMemberships(
 			await transaction
 				.insert(s.userGroupMember)
 				.values(changes.added.map((groupId) => ({ groupId, userId, provider })))
-				.onConflictDoNothing()
+				.onConflictDoUpdate({
+					target: [s.userGroupMember.groupId, s.userGroupMember.userId, s.userGroupMember.provider],
+					set: { active: true, createdAt: new Date() },
+				})
 				.execute();
 		}
 	});
@@ -188,7 +215,14 @@ function buildSsoUserGroupMappingsQuery(executor: DBExecutor, userId: string) {
 		.from(s.userGroup)
 		.innerJoin(s.project, eq(s.project.id, s.userGroup.projectId))
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
-		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)));
+		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
+		.where(
+			and(
+				eq(s.project.userGroupManagementMode, 'ui'),
+				activeUserGroupCondition,
+				isNull(s.userGroup.ssoMappingsSuspendedAt),
+			),
+		);
 }
 
 function normalizeSsoUserGroupMappings(
@@ -261,7 +295,14 @@ async function resolveProjectIdsToLock(
 		.select({ projectId: s.userGroup.projectId })
 		.from(s.userGroupMember)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-		.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, provider)))
+		.where(
+			and(
+				eq(s.userGroupMember.userId, userId),
+				eq(s.userGroupMember.provider, provider),
+				activeUserGroupCondition,
+				activeUserGroupMembershipCondition,
+			),
+		)
 		.execute();
 	for (const { projectId } of existingMemberships) {
 		projectIds.add(projectId);

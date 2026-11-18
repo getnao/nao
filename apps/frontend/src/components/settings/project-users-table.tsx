@@ -71,6 +71,7 @@ interface GroupAccess {
 	groups: AssignableUserGroup[];
 	membershipKeys: Set<string>;
 	ssoMembershipKeys: Set<string>;
+	canManageGroups: boolean;
 }
 
 interface BulkMembershipChange {
@@ -158,6 +159,7 @@ function ManagedProjectUsersTable({
 	groups,
 	membershipKeys,
 	ssoMembershipKeys,
+	canManageGroups,
 	onOpenUser,
 }: ManagedProjectUsersTableProps) {
 	const { data: session } = useSession();
@@ -273,7 +275,7 @@ function ManagedProjectUsersTable({
 	};
 
 	const management: UserAccessManagement = {
-		groupAccess: { groups, membershipKeys, ssoMembershipKeys },
+		groupAccess: { groups, membershipKeys, ssoMembershipKeys, canManageGroups },
 		memberActions: {
 			onEdit: setEditMember,
 			onRemove: setRemoveMember,
@@ -287,7 +289,11 @@ function ManagedProjectUsersTable({
 		<>
 			<SettingsCard
 				title='Members'
-				description='Add members to the project and assign them to groups.'
+				description={
+					canManageGroups
+						? 'Add members to the project and assign them to groups.'
+						: 'Add members to the project. Group memberships are managed by user_groups.yaml.'
+				}
 				flush
 				className='gap-0'
 				action={
@@ -330,7 +336,7 @@ function ManagedProjectUsersTable({
 				onOpenChange={setIsAddOpen}
 				title='Add User to Project'
 				onSubmit={handleAdd}
-				groupOptions={groups}
+				groupOptions={canManageGroups ? groups : undefined}
 			/>
 
 			<EditMemberDialog
@@ -466,7 +472,7 @@ function UserAccessTableContent({
 	emptyMessage: string;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
-	const columnCount = management ? 5 : 2;
+	const columnCount = management ? (management.groupAccess.canManageGroups ? 5 : 4) : 2;
 
 	return (
 		<div className='overflow-x-auto'>
@@ -475,9 +481,11 @@ function UserAccessTableContent({
 					<TableRow className='hover:bg-transparent [&_th]:h-10 [&_th]:text-xs [&_th]:text-muted-foreground'>
 						{management ? (
 							<>
-								<TableHead className='w-10 [&>[role=checkbox]]:translate-y-0'>
-									<SelectAllUsersCheckbox selection={management.selection} />
-								</TableHead>
+								{management.groupAccess.canManageGroups && (
+									<TableHead className='w-10 [&>[role=checkbox]]:translate-y-0'>
+										<SelectAllUsersCheckbox selection={management.selection} />
+									</TableHead>
+								)}
 								<TableHead className='w-[32%]'>User</TableHead>
 								<TableHead className='w-1/5'>Role</TableHead>
 								<TableHead className='w-[38%]'>Groups</TableHead>
@@ -590,13 +598,15 @@ function ManagedUserAccessRow({
 			data-state={isSelected ? 'selected' : undefined}
 			onClick={() => onOpenUser(user.id)}
 		>
-			<TableCell className='[&>[role=checkbox]]:translate-y-0' onClick={(event) => event.stopPropagation()}>
-				<Checkbox
-					checked={isSelected}
-					onCheckedChange={(checked) => selection.onToggleUser(user.id, checked === true)}
-					aria-label={`Select ${user.name}`}
-				/>
-			</TableCell>
+			{groupAccess.canManageGroups && (
+				<TableCell className='[&>[role=checkbox]]:translate-y-0' onClick={(event) => event.stopPropagation()}>
+					<Checkbox
+						checked={isSelected}
+						onCheckedChange={(checked) => selection.onToggleUser(user.id, checked === true)}
+						aria-label={`Select ${user.name}`}
+					/>
+				</TableCell>
+			)}
 			<TableCell className='min-w-0 overflow-hidden'>
 				<UserIdentity
 					user={user}
@@ -707,7 +717,13 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 	};
 	const tokens = groups
 		.filter((group) => group.isDefault || membershipKeys.has(`${group.id}:${user.id}`))
-		.map((group) => toGroupToken(group, ssoMembershipKeys.has(`${group.id}:${user.id}`), setGroupMembership));
+		.map((group) =>
+			toGroupToken(
+				group,
+				ssoMembershipKeys.has(`${group.id}:${user.id}`),
+				groupAccess.canManageGroups ? setGroupMembership : undefined,
+			),
+		);
 	const selectedGroupLabel = tokens.length > 0 ? tokens.map((token) => token.name).join(', ') : 'No groups';
 	const hasGroupsToAdd = tokens.length < groups.length;
 
@@ -716,6 +732,7 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 			tokens={tokens}
 			triggerLabel={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
 			placeholder={hasGroupsToAdd ? 'Add groups' : ''}
+			readOnly={!groupAccess.canManageGroups}
 			isRemoveDisabled={setMembership.isPending}
 		>
 			<DropdownMenuContent
@@ -752,7 +769,7 @@ function UserGroupsCell({ user, groupAccess }: { user: ProjectUser; groupAccess:
 function toGroupToken(
 	group: AssignableUserGroup,
 	isManagedBySso: boolean,
-	setGroupMembership: (groupId: string, isMember: boolean) => void,
+	setGroupMembership?: (groupId: string, isMember: boolean) => void,
 ): UserGroupToken {
 	if (group.isDefault) {
 		return { key: group.id, name: group.name, title: 'Added automatically' };
@@ -760,5 +777,7 @@ function toGroupToken(
 	if (isManagedBySso) {
 		return { key: group.id, name: group.name, title: 'Managed by SSO' };
 	}
-	return { key: group.id, name: group.name, onRemove: () => setGroupMembership(group.id, false) };
+	return setGroupMembership
+		? { key: group.id, name: group.name, onRemove: () => setGroupMembership(group.id, false) }
+		: { key: group.id, name: group.name, title: 'Managed by user_groups.yaml' };
 }

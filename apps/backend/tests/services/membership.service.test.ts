@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	getOrganizationById: vi.fn(),
 	getProjectById: vi.fn(),
 	getUser: vi.fn(),
+	reconcileUserGroupConfigMembershipsForUser: vi.fn(),
 	recordOrganizationJoinCandidate: vi.fn(),
 	recordProjectJoinCandidate: vi.fn(),
 }));
@@ -31,6 +32,9 @@ vi.mock('../../src/services/credit-grant.service', () => ({
 }));
 vi.mock('../../src/services/project-user-group-membership.service', () => ({
 	addProjectMemberWithUserGroups: mocks.addProjectMemberWithUserGroups,
+}));
+vi.mock('../../src/services/user-group-config-membership.service', () => ({
+	reconcileUserGroupConfigMembershipsForUser: mocks.reconcileUserGroupConfigMembershipsForUser,
 }));
 
 import { addOrganizationMemberIfMissing, addProjectMember } from '../../src/services/membership.service';

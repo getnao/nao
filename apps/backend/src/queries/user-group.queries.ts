@@ -41,12 +41,13 @@ import {
 	type UserGroupSsoMappings,
 	withSatisfiedFeatureDependencies,
 } from '@nao/shared';
-import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 
 import type { DBUserGroup, NewUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import { activeUserGroupCondition, activeUserGroupMembershipCondition } from './active-user-group.queries';
 import {
 	listUsersWithProjectAccess,
 	listUsersWithProjectAccessDetails,
@@ -107,6 +108,9 @@ export class UserGroupQueryError extends Error {
 	}
 }
 
+export const CODE_MANAGED_USER_GROUPS_MESSAGE =
+	'User groups are managed by user_groups.yaml. Deploy an updated file to change them.';
+
 export const getUserGroupOverview = async (projectId: string): Promise<UserGroupOverview> => {
 	const [users, groups, manualMemberships, ssoMemberships] = await Promise.all([
 		listUsersWithProjectAccessDetails(projectId),
@@ -137,12 +141,23 @@ export const resolveUserGroupAccess = async (
 	activeGroupIds?: ReadonlySet<string>,
 ): Promise<EffectiveUserGroupAccess> => {
 	const [groups, memberships] = await Promise.all([
-		db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
+		db
+			.select()
+			.from(s.userGroup)
+			.where(and(eq(s.userGroup.projectId, projectId), activeUserGroupCondition))
+			.execute(),
 		db
 			.select({ groupId: s.userGroupMember.groupId, createdAt: s.userGroupMember.createdAt })
 			.from(s.userGroupMember)
 			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.userId, userId)))
+			.where(
+				and(
+					eq(s.userGroup.projectId, projectId),
+					eq(s.userGroupMember.userId, userId),
+					activeUserGroupCondition,
+					activeUserGroupMembershipCondition,
+				),
+			)
 			.execute(),
 	]);
 	const membershipDates = new Map<string, Date>();
@@ -245,7 +260,7 @@ export const listUserGroups = async (projectId: string): Promise<UserGroup[]> =>
 	db
 		.select()
 		.from(s.userGroup)
-		.where(eq(s.userGroup.projectId, projectId))
+		.where(and(eq(s.userGroup.projectId, projectId), activeUserGroupCondition))
 		.orderBy(desc(s.userGroup.isDefault), asc(s.userGroup.name))
 		.execute()
 		.then((groups) => groups.map(normalizeUserGroup));
@@ -254,7 +269,7 @@ export const countCustomUserGroups = async (projectId: string): Promise<number> 
 	const [result] = await db
 		.select({ count: count() })
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false), activeUserGroupCondition))
 		.execute();
 	return result?.count ?? 0;
 };
@@ -277,6 +292,7 @@ export const createUserGroup = async (
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	advancedContextExplorer = false,
 ): Promise<UserGroup> => {
+	await assertProjectUserGroupsUiManaged(projectId);
 	const values = createUserGroupValues(
 		projectId,
 		name,
@@ -335,6 +351,7 @@ export const createUserGroupWithinLimit = async (
 	shareTargets: GroupShareTargets = DEFAULT_GROUP_SHARE_TARGETS,
 	advancedContextExplorer = false,
 ): Promise<UserGroup> => {
+	await assertProjectUserGroupsUiManaged(projectId);
 	const values = createUserGroupValues(
 		projectId,
 		name,
@@ -361,7 +378,13 @@ export const createUserGroupWithinLimit = async (
 					const [{ count: existingCount }] = transaction
 						.select({ count: count() })
 						.from(s.userGroup)
-						.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+						.where(
+							and(
+								eq(s.userGroup.projectId, projectId),
+								eq(s.userGroup.isDefault, false),
+								activeUserGroupCondition,
+							),
+						)
 						.all();
 					assertCustomUserGroupLimit(existingCount, limit);
 					return transaction.insert(s.userGroup).values(values).returning().get();
@@ -376,7 +399,13 @@ export const createUserGroupWithinLimit = async (
 			const [{ count: existingCount }] = await transaction
 				.select({ count: count() })
 				.from(s.userGroup)
-				.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+				.where(
+					and(
+						eq(s.userGroup.projectId, projectId),
+						eq(s.userGroup.isDefault, false),
+						activeUserGroupCondition,
+					),
+				)
 				.execute();
 			assertCustomUserGroupLimit(existingCount, limit);
 			const [created] = await transaction.insert(s.userGroup).values(values).returning().execute();
@@ -408,6 +437,7 @@ export const updateUserGroup = async (
 		preloadedSkills?: string[];
 	},
 ): Promise<UserGroup> => {
+	await assertProjectUserGroupsUiManaged(projectId);
 	const group = await getUserGroup(projectId, groupId);
 	const rowPoliciesRegistry =
 		dbConfig.dialect === Dialect.Postgres && data.rowPolicies !== undefined
@@ -460,7 +490,9 @@ export const updateUserGroup = async (
 						skillsAccess: data.skillsAccess ?? currentContext.skillsAccess,
 					}),
 				}),
-		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
+		...(serializedSsoMappings === undefined
+			? {}
+			: { ssoMappings: serializedSsoMappings, ssoMappingsSuspendedAt: null }),
 		rowPolicies: serializeUserGroupRowPolicies(resultingRowPolicies),
 		updatedAt: new Date(),
 	};
@@ -520,6 +552,7 @@ export const updateUserGroup = async (
 };
 
 export const deleteUserGroup = async (projectId: string, groupId: string): Promise<void> => {
+	await assertProjectUserGroupsUiManaged(projectId);
 	const group = await getUserGroup(projectId, groupId);
 	if (group.isDefault) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be deleted.');
@@ -540,7 +573,14 @@ export const listUserGroupMemberships = async (
 		})
 		.from(s.userGroupMember)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.provider, 'manual')))
+		.where(
+			and(
+				eq(s.userGroup.projectId, projectId),
+				inArray(s.userGroupMember.provider, ['manual', 'config']),
+				activeUserGroupCondition,
+				activeUserGroupMembershipCondition,
+			),
+		)
 		.execute();
 
 export const listUserGroupSsoMemberships = async (
@@ -554,7 +594,14 @@ export const listUserGroupSsoMemberships = async (
 		})
 		.from(s.userGroupMember)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-		.where(and(eq(s.userGroup.projectId, projectId), ne(s.userGroupMember.provider, 'manual')))
+		.where(
+			and(
+				eq(s.userGroup.projectId, projectId),
+				inArray(s.userGroupMember.provider, ['oidc', 'microsoft']),
+				activeUserGroupCondition,
+				activeUserGroupMembershipCondition,
+			),
+		)
 		.execute();
 
 export const validateAssignableUserGroupIds = async (projectId: string, groupIds: string[]): Promise<string[]> => {
@@ -566,7 +613,13 @@ export const validateAssignableUserGroupIds = async (projectId: string, groupIds
 	const groups = await db
 		.select({ id: s.userGroup.id, isDefault: s.userGroup.isDefault })
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.projectId, projectId), inArray(s.userGroup.id, uniqueGroupIds)))
+		.where(
+			and(
+				eq(s.userGroup.projectId, projectId),
+				inArray(s.userGroup.id, uniqueGroupIds),
+				activeUserGroupCondition,
+			),
+		)
 		.execute();
 	const groupsById = new Map(groups.map((group) => [group.id, group]));
 	if (uniqueGroupIds.some((groupId) => !groupsById.has(groupId) || groupsById.get(groupId)?.isDefault)) {
@@ -585,10 +638,21 @@ export const addUserGroupMemberships = async (
 	if (uniqueGroupIds.length === 0) {
 		return;
 	}
+	const projects = await executor
+		.selectDistinct({ projectId: s.userGroup.projectId })
+		.from(s.userGroup)
+		.where(inArray(s.userGroup.id, uniqueGroupIds))
+		.execute();
+	for (const project of projects) {
+		await assertProjectUserGroupsUiManaged(project.projectId, executor);
+	}
 	await executor
 		.insert(s.userGroupMember)
 		.values(uniqueGroupIds.map((groupId) => ({ groupId, userId, provider: 'manual' as const })))
-		.onConflictDoNothing()
+		.onConflictDoUpdate({
+			target: [s.userGroupMember.groupId, s.userGroupMember.userId, s.userGroupMember.provider],
+			set: { active: true, createdAt: new Date() },
+		})
 		.execute();
 };
 
@@ -607,6 +671,7 @@ export const setUserGroupMemberships = async (
 	userIds: string[],
 	isMember: boolean,
 ): Promise<void> => {
+	await assertProjectUserGroupsUiManaged(projectId);
 	const uniqueUserIds = [...new Set(userIds)];
 	const group = await getUserGroup(projectId, groupId);
 	if (group.isDefault) {
@@ -629,12 +694,16 @@ export const setUserGroupMemberships = async (
 		await db
 			.insert(s.userGroupMember)
 			.values(uniqueUserIds.map((userId) => ({ groupId, userId, provider: 'manual' as const })))
-			.onConflictDoNothing()
+			.onConflictDoUpdate({
+				target: [s.userGroupMember.groupId, s.userGroupMember.userId, s.userGroupMember.provider],
+				set: { active: true, createdAt: new Date() },
+			})
 			.execute();
 		return;
 	}
 	await db
-		.delete(s.userGroupMember)
+		.update(s.userGroupMember)
+		.set({ active: false })
 		.where(
 			and(
 				eq(s.userGroupMember.groupId, groupId),
@@ -649,7 +718,7 @@ const getUserGroup = async (projectId: string, groupId: string, executor: DBExec
 	const [group] = await executor
 		.select()
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId), activeUserGroupCondition))
 		.limit(1)
 		.execute();
 	if (!group) {
@@ -667,7 +736,7 @@ const assertNameAvailable = async (
 	const groups = await executor
 		.select({ id: s.userGroup.id, name: s.userGroup.name })
 		.from(s.userGroup)
-		.where(eq(s.userGroup.projectId, projectId))
+		.where(and(eq(s.userGroup.projectId, projectId), activeUserGroupCondition))
 		.execute();
 	assertNameAvailableInGroups(groups, name, excludedGroupId);
 };
@@ -681,7 +750,7 @@ function assertNameAvailableSqlite(
 	const groups = transaction
 		.select({ id: s.userGroup.id, name: s.userGroup.name })
 		.from(s.userGroup)
-		.where(eq(s.userGroup.projectId, projectId))
+		.where(and(eq(s.userGroup.projectId, projectId), activeUserGroupCondition))
 		.all();
 	assertNameAvailableInGroups(groups, name, excludedGroupId);
 }
@@ -808,7 +877,8 @@ function deleteChangedSsoMembershipsSqlite(
 		return;
 	}
 	transaction
-		.delete(s.userGroupMember)
+		.update(s.userGroupMember)
+		.set({ active: false })
 		.where(and(eq(s.userGroupMember.groupId, groupId), inArray(s.userGroupMember.provider, providers)))
 		.run();
 }
@@ -822,7 +892,8 @@ async function deleteChangedSsoMembershipsPostgres(
 		return;
 	}
 	await transaction
-		.delete(s.userGroupMember)
+		.update(s.userGroupMember)
+		.set({ active: false })
 		.where(and(eq(s.userGroupMember.groupId, groupId), inArray(s.userGroupMember.provider, providers)))
 		.execute();
 }
@@ -862,6 +933,10 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		projectId: group.projectId,
 		name: group.name,
 		isDefault: group.isDefault,
+		configKey: group.configKey,
+		archivedAt: group.archivedAt,
+		archivedName: group.archivedName,
+		ssoMappingsSuspendedAt: group.ssoMappingsSuspendedAt,
 		createdAt: group.createdAt,
 		updatedAt: group.updatedAt,
 		featureGrants: config.features,
@@ -907,7 +982,7 @@ async function updatePostgresProjectRowSecurity(
 	const groups = await transaction
 		.select({ id: s.userGroup.id, rowPolicies: s.userGroup.rowPolicies })
 		.from(s.userGroup)
-		.where(eq(s.userGroup.projectId, projectId))
+		.where(and(eq(s.userGroup.projectId, projectId), activeUserGroupCondition))
 		.execute();
 	for (const group of groups) {
 		const rowPolicies = pruneInvalidRowPolicies(group.rowPolicies, project.rowSecurity, rowSecurity);
@@ -941,7 +1016,7 @@ function updateSqliteProjectRowSecurity(
 	const groups = transaction
 		.select({ id: s.userGroup.id, rowPolicies: s.userGroup.rowPolicies })
 		.from(s.userGroup)
-		.where(eq(s.userGroup.projectId, projectId))
+		.where(and(eq(s.userGroup.projectId, projectId), activeUserGroupCondition))
 		.all();
 	for (const group of groups) {
 		const rowPolicies = pruneInvalidRowPolicies(group.rowPolicies, project.rowSecurity, rowSecurity);
@@ -995,6 +1070,21 @@ function assertProjectExists(project: { id: string } | undefined): asserts proje
 	}
 }
 
+async function assertProjectUserGroupsUiManaged(projectId: string, executor: DBExecutor = db): Promise<void> {
+	const [project] = await executor
+		.select({ mode: s.project.userGroupManagementMode })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1)
+		.execute();
+	if (!project) {
+		throw new UserGroupQueryError('NOT_FOUND', 'Project not found.');
+	}
+	if (project.mode === 'code') {
+		throw new UserGroupQueryError('FORBIDDEN', CODE_MANAGED_USER_GROUPS_MESSAGE);
+	}
+}
+
 function deduplicateMemberships(
 	memberships: Array<{ groupId: string; userId: string }>,
 ): Array<{ groupId: string; userId: string }> {
@@ -1010,7 +1100,14 @@ export async function listUserIdsInGroups(groupIds: string[]): Promise<string[]>
 	const rows = await db
 		.selectDistinct({ userId: s.userGroupMember.userId })
 		.from(s.userGroupMember)
-		.where(inArray(s.userGroupMember.groupId, groupIds))
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+		.where(
+			and(
+				inArray(s.userGroupMember.groupId, groupIds),
+				activeUserGroupCondition,
+				activeUserGroupMembershipCondition,
+			),
+		)
 		.execute();
 	return rows.map((row) => row.userId);
 }
@@ -1021,7 +1118,7 @@ export async function listCustomUserGroupSummaries(projectId: string): Promise<C
 	return db
 		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId, createdAt: s.userGroup.createdAt })
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false), activeUserGroupCondition))
 		.execute();
 }
 
@@ -1031,10 +1128,23 @@ export async function listCustomUserGroupSummariesAroundMember(userId: string): 
 		.selectDistinct({ projectId: s.userGroup.projectId })
 		.from(s.userGroupMember)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-		.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroup.isDefault, false)));
+		.where(
+			and(
+				eq(s.userGroupMember.userId, userId),
+				eq(s.userGroup.isDefault, false),
+				activeUserGroupCondition,
+				activeUserGroupMembershipCondition,
+			),
+		);
 	return db
 		.select({ id: s.userGroup.id, projectId: s.userGroup.projectId, createdAt: s.userGroup.createdAt })
 		.from(s.userGroup)
-		.where(and(inArray(s.userGroup.projectId, memberProjectIds), eq(s.userGroup.isDefault, false)))
+		.where(
+			and(
+				inArray(s.userGroup.projectId, memberProjectIds),
+				eq(s.userGroup.isDefault, false),
+				activeUserGroupCondition,
+			),
+		)
 		.execute();
 }

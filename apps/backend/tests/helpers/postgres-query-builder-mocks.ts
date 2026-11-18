@@ -55,6 +55,7 @@ export function mockMutationQuery({
 		where: () => builder,
 		returning: () => builder,
 		onConflictDoNothing: () => builder,
+		onConflictDoUpdate: () => builder,
 		execute: vi.fn(async () => {
 			await beforeExecute?.();
 			return result;

@@ -239,6 +239,19 @@ describe('ProjectUsersTable member management', () => {
 		expect(screen.getByRole('menuitem', { name: 'Edit user' })).toBeTruthy();
 		expect(screen.queryByRole('menuitem', { name: 'Reset password' })).toBeNull();
 	});
+
+	it('shows code-managed memberships without group assignment controls', () => {
+		renderTable(vi.fn(), new Set(), false);
+
+		expect(screen.getByRole('row', { name: /Project User/ }).textContent).toContain('Analysts');
+		expect(screen.getByRole('combobox', { name: 'Filter by group' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: /Manage groups for/ })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove group Analysts' })).toBeNull();
+		expect(screen.queryByRole('checkbox')).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add member' }));
+		expect(screen.queryByRole('button', { name: /Select user groups/ })).toBeNull();
+	});
 });
 
 describe('ReadOnlyProjectUsers', () => {
@@ -476,6 +489,7 @@ function renderManyManagedUsers() {
 			groups={groups}
 			membershipKeys={new Set()}
 			ssoMembershipKeys={new Set()}
+			canManageGroups
 			onOpenUser={vi.fn()}
 		/>,
 	);
@@ -486,7 +500,7 @@ function selectGroupFilter(optionName: string) {
 	fireEvent.click(screen.getByRole('option', { name: optionName }));
 }
 
-function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>()) {
+function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>(), canManageGroups = true) {
 	return render(
 		<ProjectUsersTable
 			canManage
@@ -502,6 +516,7 @@ function renderTable(onOpenUser = vi.fn(), ssoMembershipKeys = new Set<string>()
 				])
 			}
 			ssoMembershipKeys={ssoMembershipKeys}
+			canManageGroups={canManageGroups}
 			onOpenUser={onOpenUser}
 		/>,
 	);
