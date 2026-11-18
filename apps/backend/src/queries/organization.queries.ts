@@ -7,7 +7,9 @@ import { env } from '../env';
 import { getActiveProjectPaths } from '../services/multi-project.service';
 import { OrgRole } from '../types/organization';
 import { getConfiguredProjectPaths, getProjectNameFromPath } from '../utils/project-paths';
+import { isDomainCoveredBy } from '../utils/utils';
 import * as projectQueries from './project.queries';
+import * as ssoProviderQueries from './sso-provider.queries';
 import * as userQueries from './user.queries';
 
 export const getOrganizationById = async (id: string): Promise<DBOrganization | null> => {
@@ -226,12 +228,40 @@ export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<
 	return domains;
 };
 
-/** Cloud mode: whether another organization has already claimed the given email domain. */
-export const isEmailDomainClaimedByAnotherOrg = async (domain: string, orgId: string): Promise<boolean> => {
+/**
+ * Cloud mode: whether another organization has already claimed the given email domain, for Google or SSO sign-in.
+ * An SSO claim also covers subdomains, so it conflicts with Google claims on them.
+ */
+export const isEmailDomainClaimedByAnotherOrg = async (
+	domain: string,
+	orgId: string,
+	{ includeSubdomains = false }: { includeSubdomains?: boolean } = {},
+): Promise<boolean> => {
 	const normalized = domain.trim().toLowerCase();
-	const orgs = await db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute();
-	return orgs.some((org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized));
+	const [orgs, ssoProviders] = await Promise.all([
+		db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute(),
+		ssoProviderQueries.listSsoProviderSummaries(),
+	]);
+	const claimedForGoogle = orgs.some(
+		(org) =>
+			org.id !== orgId &&
+			parseEmailDomains(org.googleAuthDomains).some((claimed) =>
+				includeSubdomains ? isDomainCoveredBy(claimed, [normalized]) : claimed === normalized,
+			),
+	);
+	const claimedForSso = ssoProviders.some(
+		(provider) =>
+			provider.organizationId !== orgId && areDomainsOverlapping(normalized, parseEmailDomains(provider.domain)),
+	);
+	return claimedForGoogle || claimedForSso;
 };
+
+function areDomainsOverlapping(domain: string, claimedDomains: string[]): boolean {
+	return (
+		isDomainCoveredBy(domain, claimedDomains) ||
+		claimedDomains.some((claimed) => isDomainCoveredBy(claimed, [domain]))
+	);
+}
 
 function parseEmailDomains(domains: string | null): string[] {
 	if (!domains) {
@@ -442,6 +472,7 @@ export interface OrgMemberWithUser {
 	email: string;
 	role: OrgRole;
 	status: MemberStatus;
+	twoFactorEnabled: boolean;
 }
 
 export interface OrgProjectWithAccess {
@@ -488,6 +519,7 @@ export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberW
 			email: s.user.email,
 			role: s.orgMember.role,
 			status: userQueries.userMemberStatus,
+			twoFactorEnabled: s.user.twoFactorEnabled,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
