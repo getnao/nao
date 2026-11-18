@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fsSync from 'node:fs';
 import path from 'node:path';
 
+import { hasUnclosedContextFileHeader } from '@nao/shared/context-file-header';
 import { TESTS_FOLDER } from '@nao/shared/test-paths';
 import type {
 	ContextGitUnavailableReason,
@@ -18,6 +19,7 @@ import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
 import type { DBContextDraftFile } from '../db/abstractSchema';
+import { isContextBranchOwnedByUser } from '../queries/context-branch-ownership.queries';
 import type { DraftOwner } from '../queries/context-draft.queries';
 import * as contextDraftQueries from '../queries/context-draft.queries';
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
@@ -34,6 +36,7 @@ import {
 	toVirtualPath,
 } from '../utils/tools';
 import type { ContextExplorerGitResolution } from './context-explorer-git.service';
+import { readCurrentBranch, readDefaultBranch } from './context-explorer-git/git-guards';
 import { isProductionOnly } from './draft-context.service';
 import { getRepoProviderDisplayName } from './review-request-provider';
 
@@ -95,11 +98,10 @@ export async function readFileContent(
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const repo = availableRepo(access.git);
 	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
-	const editability = getFileEditability(filePath, livePath, access, repo, trackedPaths);
-	const readPath =
-		repo && (trackedPaths.has(normalizeProjectPath(filePath)) || isWorktreeDraft(filePath, livePath, repo))
-			? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
-			: livePath;
+	const editability =
+		(repo && (await readBranchEditability(repo, access))) ??
+		getFileEditability(filePath, livePath, access, repo, trackedPaths);
+	const readPath = getReadPath(filePath, livePath, repo, trackedPaths);
 	const contentBuffer = await readValidatedFile(readPath, filePath);
 	return {
 		content: decodeTextContent(contentBuffer),
@@ -108,6 +110,28 @@ export async function readFileContent(
 		reason: editability.reason,
 		guidance: editability.guidance ?? undefined,
 	};
+}
+
+/**
+ * The start of each file, read where the explorer reads it, long enough to hold its frontmatter: a frontmatter that
+ * does not close within the first bytes is read to its end. Files that cannot be read are left out.
+ */
+export async function readFileHeads(
+	filePaths: string[],
+	access: ContextExplorerFileAccess,
+): Promise<{ path: string; content: string }[]> {
+	const draftContents = isNaoDraftAccess(access)
+		? new Map(
+				(await contextDraftQueries.listDraftFiles(access.draftOwner)).map((file) => [file.path, file.content]),
+			)
+		: new Map<string, string>();
+	const repo = availableRepo(access.git);
+	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
+	return filePaths.flatMap((filePath) => {
+		const draftContent = draftContents.get(normalizeProjectPath(filePath));
+		const content = draftContent ?? readHeadAt(filePath, access, repo, trackedPaths);
+		return content === null ? [] : [{ path: filePath, content }];
+	});
 }
 
 export async function writeFileContent(
@@ -132,6 +156,7 @@ export async function writeFileContent(
 	const repo = access.git.repo;
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const trackedPaths = getCommittedProjectPaths(repo);
+	await assertBranchEditable(repo, access);
 	assertFileEditable(filePath, livePath, access, repo, trackedPaths);
 	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
 	const currentContent = await readValidatedFile(realPath, filePath);
@@ -237,6 +262,7 @@ export async function createDraftFile(
 		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
 	}
 
+	await assertBranchEditable(access.git.repo, access);
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
 	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(access.git.repo));
 	assertFileDoesNotExist(livePath, filePath);
@@ -353,6 +379,35 @@ function getNaoDraftEditability(filePath: string, livePath: string): FileEditabi
 	return EDITABLE;
 }
 
+function getReadPath(
+	filePath: string,
+	livePath: string,
+	repo: ResolvedContextRepo | null,
+	trackedPaths: Set<string>,
+): string {
+	return repo && (trackedPaths.has(normalizeProjectPath(filePath)) || isWorktreeDraft(filePath, livePath, repo))
+		? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
+		: livePath;
+}
+
+function readHeadAt(
+	filePath: string,
+	access: ContextExplorerFileAccess,
+	repo: ResolvedContextRepo | null,
+	trackedPaths: Set<string>,
+): string | null {
+	try {
+		const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+		const readPath = getReadPath(filePath, livePath, repo, trackedPaths);
+		const head = readFileHead(readPath);
+		return head !== null && hasUnclosedContextFileHeader(head)
+			? readValidatedContextFileSync(readPath, filePath).toString('utf-8')
+			: head;
+	} catch {
+		return null;
+	}
+}
+
 /** A file the user created in their worktree that the live context does not have yet. */
 function isWorktreeDraft(filePath: string, livePath: string, repo: ResolvedContextRepo): boolean {
 	if (fsSync.existsSync(livePath)) {
@@ -376,6 +431,29 @@ export function assertFileEditable(
 	trackedPaths: Set<string>,
 ): void {
 	assertEditability(getFileEditability(filePath, realPath, access, repo, trackedPaths));
+}
+
+async function assertBranchEditable(repo: ResolvedContextRepo, access: ContextExplorerFileAccess): Promise<void> {
+	const editability = await readBranchEditability(repo, access);
+	if (editability) {
+		assertEditability(editability);
+	}
+}
+
+/** A branch of another user is only shown, as its edits could not be committed to it. */
+async function readBranchEditability(
+	repo: ResolvedContextRepo,
+	access: ContextExplorerFileAccess,
+): Promise<FileEditability | null> {
+	const branch = readCurrentBranch(repo);
+	if (!branch || branch === readDefaultBranch(repo)) {
+		return null;
+	}
+	const { projectId, userId } = access.draftOwner;
+	if (await isContextBranchOwnedByUser(projectId, branch, userId)) {
+		return null;
+	}
+	return readOnly('branch-of-others', guidanceForReason('branch-of-others'));
 }
 
 function assertEditability(editability: FileEditability): void {
@@ -723,19 +801,23 @@ export function hashContent(content: Buffer): string {
 }
 
 function hasGeneratedFrontmatter(filePath: string): boolean {
+	const prefix = readFileHead(filePath);
+	if (prefix === null || (!prefix.startsWith('---\n') && !prefix.startsWith('---\r\n'))) {
+		return false;
+	}
+	const frontmatter = prefix.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+	return frontmatter?.split(/\r?\n/).some((line) => /^type:\s*generated\s*$/.test(line.trim())) ?? false;
+}
+
+function readFileHead(filePath: string): string | null {
 	let fileDescriptor: number | null = null;
 	try {
 		fileDescriptor = fsSync.openSync(filePath, fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW);
 		const buffer = Buffer.alloc(FRONTMATTER_READ_SIZE);
 		const bytesRead = fsSync.readSync(fileDescriptor, buffer, 0, buffer.byteLength, 0);
-		const prefix = buffer.subarray(0, bytesRead).toString('utf-8');
-		if (!prefix.startsWith('---\n') && !prefix.startsWith('---\r\n')) {
-			return false;
-		}
-		const frontmatter = prefix.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
-		return frontmatter?.split(/\r?\n/).some((line) => /^type:\s*generated\s*$/.test(line.trim())) ?? false;
+		return buffer.subarray(0, bytesRead).toString('utf-8');
 	} catch {
-		return false;
+		return null;
 	} finally {
 		if (fileDescriptor !== null) {
 			fsSync.closeSync(fileDescriptor);
@@ -834,6 +916,12 @@ function guidanceForReason(
 		'not-tracked': {
 			message:
 				"This file can't be edited because it isn't in the connected repository. Add it there to make it editable.",
+			actionKind: null,
+			actionPath: null,
+			actionLabel: null,
+		},
+		'branch-of-others': {
+			message: 'This branch belongs to another user, so it is read-only here. Switch to one of yours to edit.',
 			actionKind: null,
 			actionPath: null,
 			actionLabel: null,

@@ -9,6 +9,7 @@ import { ToolGroupProvider } from '@/contexts/tool-group';
 import { isReasoningPart } from '@/lib/ai';
 import { groupMcpToolCalls } from '@/lib/mcp';
 import { useToolGroupSummaryTitle } from '@/hooks/use-tool-group-summary-title';
+import { getToolCallIds, useExpandOnToolCallReveal } from '@/hooks/use-tool-call-reveal';
 
 interface Props {
 	parts: GroupablePart[];
@@ -26,6 +27,8 @@ export const ToolCallsGroup = memo(({ parts, isSettled }: Props) => {
 			setIsExpanded(true);
 		}
 	}, [expandOnError, hasError]);
+
+	useExpandOnToolCallReveal(getToolCallIds(parts), setIsExpanded);
 
 	const title = useToolGroupSummaryTitle({ parts, isLoading, isExpanded });
 	const groupedParts = useMemo(() => groupMcpToolCalls(parts), [parts]);

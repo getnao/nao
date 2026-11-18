@@ -22,6 +22,7 @@ export const COMPARISON_CHANGES: Record<TestComparisonChange, { tone: Tone; labe
 	worsened: { tone: 'fail', label: 'Less reliable', title: 'Less reliable with your changes' },
 	fixed: { tone: 'pass', label: 'Fixed', title: 'Fixed by your changes' },
 	improved: { tone: 'pass', label: 'More reliable', title: 'More reliable with your changes' },
+	new: { tone: 'neutral', label: 'New', title: 'New test, only run with your changes' },
 	unchanged: { tone: 'neutral', label: 'No change', title: 'Same results on both' },
 	pending: { tone: 'neutral', label: 'Incomplete', title: 'Incomplete' },
 };
@@ -31,7 +32,7 @@ export const COMPARISON_CHANGES: Record<TestComparisonChange, { tone: Tone; labe
  * as the outcome of each side shows next to it.
  */
 export function describeRun(run: TestHistoryRun): RunVerdict {
-	const expectedAttempts = run.attemptsPerVariant * (run.trigger === 'comparison' ? 2 : 1);
+	const expectedAttempts = run.attemptsPerVariant * run.variantCount;
 	if (isActiveRun(run)) {
 		return { tone: 'pending', title: `Running ${run.results.length}/${expectedAttempts}`, detail: null };
 	}
@@ -102,8 +103,12 @@ function describeModels(run: TestHistoryRun): RunVerdict {
 }
 
 function describeComparison(comparison: NonNullable<TestHistoryRun['comparison']>): RunVerdict {
+	const draftTone = outcomeTone(comparison.draft.passedAttempts, comparison.draft.totalAttempts);
 	if (comparison.change === 'unchanged') {
-		return describeUnchanged(outcomeTone(comparison.draft.passedAttempts, comparison.draft.totalAttempts));
+		return describeUnchanged(draftTone);
+	}
+	if (comparison.change === 'new') {
+		return { tone: draftTone, title: COMPARISON_CHANGES.new.title, detail: null };
 	}
 	const { tone, title } = COMPARISON_CHANGES[comparison.change];
 	return { tone, title, detail: null };

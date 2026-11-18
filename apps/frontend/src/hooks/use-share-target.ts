@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ShareRole } from '@nao/shared/types';
 import type { TrpcRouter } from '@nao/backend/trpc';
@@ -10,7 +10,12 @@ import { formatMemberCount, shareSubjectKey, toShareSelection } from '@/lib/shar
 import { isShareDraftEmpty, toSavedGrants } from '@/lib/share-draft';
 import { trpc } from '@/main';
 
-export type ShareTarget = { kind: 'chat'; chatId: string } | { kind: 'story'; chatId: string; storySlug: string };
+export type ShareTarget =
+	| { kind: 'chat'; chatId: string }
+	| { kind: 'story'; chatId: string; storySlug: string }
+	| { kind: 'standalone-story'; storyId: string };
+
+type StoryShareLookup = { chatId: string; storySlug: string } | { storyId: string };
 
 export interface ShareModel {
 	itemLabel: 'chat' | 'story';
@@ -39,7 +44,7 @@ export interface ShareTargetState {
 /** Chats and stories expose the same sharing model so one dialog can manage both. */
 export function useShareTarget(target: ShareTarget, enabled: boolean): ShareTargetState {
 	const chat = useChatShareTarget(target.kind === 'chat' ? target : null, enabled);
-	const story = useStoryShareTarget(target.kind === 'story' ? target : null, enabled);
+	const story = useStoryShareTarget(target.kind === 'chat' ? null : target, enabled);
 	return target.kind === 'chat' ? chat : story;
 }
 
@@ -83,12 +88,11 @@ function useChatShareTarget(target: { chatId: string } | null, enabled: boolean)
 	};
 }
 
-function useStoryShareTarget(target: { chatId: string; storySlug: string } | null, enabled: boolean): ShareTargetState {
-	const chatId = target?.chatId ?? '';
-	const storySlug = target?.storySlug ?? '';
+function useStoryShareTarget(target: StoryShareLookup | null, enabled: boolean): ShareTargetState {
+	const lookup = useStoryShareLookup(target);
 	const queryClient = useQueryClient();
 	const query = useQuery({
-		...trpc.storyShare.getShareSettings.queryOptions({ chatId, storySlug }),
+		...trpc.storyShare.getShareSettings.queryOptions(lookup),
 		enabled: enabled && target !== null,
 	});
 	const storyId = query.data?.storyId ?? '';
@@ -97,15 +101,11 @@ function useStoryShareTarget(target: { chatId: string; storySlug: string } | nul
 	const invalidate = useCallback(
 		() =>
 			Promise.all([
-				queryClient.invalidateQueries({
-					queryKey: trpc.storyShare.getShareSettings.queryKey({ chatId, storySlug }),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: trpc.storyShare.getSharedStoryInfo.queryKey({ chatId, storySlug }),
-				}),
+				queryClient.invalidateQueries({ queryKey: trpc.storyShare.getShareSettings.queryKey(lookup) }),
+				queryClient.invalidateQueries({ queryKey: trpc.storyShare.getSharedStoryInfo.queryKey(lookup) }),
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.list.queryKey() }),
 			]),
-		[queryClient, chatId, storySlug],
+		[queryClient, lookup],
 	);
 
 	return {
@@ -128,6 +128,13 @@ function useStoryShareTarget(target: { chatId: string; storySlug: string } | nul
 			invalidate,
 		},
 	};
+}
+
+function useStoryShareLookup(target: StoryShareLookup | null): StoryShareLookup {
+	const storyId = target && 'storyId' in target ? target.storyId : null;
+	const chatId = target && 'chatId' in target ? target.chatId : '';
+	const storySlug = target && 'storySlug' in target ? target.storySlug : '';
+	return useMemo(() => (storyId ? { storyId } : { chatId, storySlug }), [storyId, chatId, storySlug]);
 }
 
 function toChatModel(settings: ChatShareSettings): ShareModel {

@@ -88,6 +88,7 @@ export interface UserGroupEditorGroup {
 	projectSharing: ProjectSharingPermission;
 	shareTargets?: GroupShareTargets;
 	showAllSettings: boolean;
+	advancedContextExplorer: boolean;
 	preloadedSkills: string[];
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
@@ -163,6 +164,9 @@ export function UserGroupEditor({
 		existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	);
 	const [showAllSettings, setShowAllSettings] = useState(existingGroup?.showAllSettings ?? false);
+	const [advancedContextExplorer, setAdvancedContextExplorer] = useState(
+		existingGroup?.advancedContextExplorer ?? false,
+	);
 	const [databaseAccess, setDatabaseAccess] = useState<DatabaseContextAccess>(
 		existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS,
 	);
@@ -318,6 +322,7 @@ export function UserGroupEditor({
 			projectSharing,
 			shareTargets,
 			showAllSettings,
+			advancedContextExplorer,
 			preloadedSkills,
 			databaseAccess,
 			docsAccess,
@@ -337,6 +342,7 @@ export function UserGroupEditor({
 		setProjectSharing(existingGroup?.projectSharing ?? 'inherit');
 		setShareTargets(existingGroup?.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS);
 		setShowAllSettings(existingGroup?.showAllSettings ?? false);
+		setAdvancedContextExplorer(existingGroup?.advancedContextExplorer ?? false);
 		setPreloadedSkills(existingGroup?.preloadedSkills ?? []);
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
@@ -374,6 +380,7 @@ export function UserGroupEditor({
 				projectSharing,
 				shareTargets,
 				showAllSettings,
+				advancedContextExplorer,
 				preloadedSkills,
 				databaseAccess,
 				docsAccess,
@@ -390,6 +397,7 @@ export function UserGroupEditor({
 			resetForm();
 		}
 	}, [
+		advancedContextExplorer,
 		databaseAccess,
 		docsAccess,
 		editorGroup,
@@ -551,6 +559,7 @@ export function UserGroupEditor({
 					projectSharing,
 					shareTargets,
 					showAllSettings,
+					advancedContextExplorer,
 					preloadedSkills,
 					databaseAccess,
 					docsAccess,
@@ -571,6 +580,7 @@ export function UserGroupEditor({
 					projectSharing,
 					shareTargets,
 					showAllSettings,
+					advancedContextExplorer,
 					preloadedSkills,
 					databaseAccess,
 					docsAccess,
@@ -775,6 +785,8 @@ export function UserGroupEditor({
 							<UserGroupAdvancedSettings
 								showAllSettings={showAllSettings}
 								onShowAllSettingsChange={setShowAllSettings}
+								advancedContextExplorer={advancedContextExplorer}
+								onAdvancedContextExplorerChange={setAdvancedContextExplorer}
 								isDefaultGroup={existingGroup?.isDefault === true}
 								allUsersGroup={allUsersGroup}
 							/>
@@ -1189,6 +1201,7 @@ export function hasUserGroupEditorChanges(
 		projectSharing?: ProjectSharingPermission;
 		shareTargets?: GroupShareTargets;
 		showAllSettings?: boolean;
+		advancedContextExplorer?: boolean;
 		preloadedSkills?: string[];
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
@@ -1212,6 +1225,7 @@ export function hasUserGroupEditorChanges(
 			group.shareTargets ?? DEFAULT_GROUP_SHARE_TARGETS,
 		) ||
 		(values.showAllSettings ?? group.showAllSettings) !== group.showAllSettings ||
+		(values.advancedContextExplorer ?? group.advancedContextExplorer) !== group.advancedContextExplorer ||
 		!haveSameOrderedItems(values.preloadedSkills ?? group.preloadedSkills, group.preloadedSkills) ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameFileTreeAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||

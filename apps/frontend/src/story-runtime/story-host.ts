@@ -6,6 +6,7 @@ import {
 	STORY_PRINT_FLAG,
 } from '@nao/shared/story-app';
 import { STORY_THEME_STYLE_ID, storyThemeStyles } from '@nao/shared/story-document';
+import { hasStoryQueryInputs, storyQueryRequestKey, storySqlRequestKey } from '@nao/shared/story-query-inputs';
 import { Component, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -13,6 +14,7 @@ import { resolveBlockColors } from './story-colors';
 import { highlightStoryElement } from './story-highlight';
 import { configureStoryInspector } from './story-inspector';
 import { initStoryState, readStoryState, writeStoryState } from './story-state';
+import type { StoryModel, StoryModelRequest, StoryModelResult } from '@nao/shared/story-models';
 import type { ErrorInfo, ReactNode } from 'react';
 import type { Shortcut } from '@nao/shared/keyboard-shortcut';
 import type { StoryTheme } from '@nao/shared/story-theme';
@@ -27,8 +29,11 @@ import type {
 	StoryHostMessage,
 	StoryHtmlApi,
 	StoryHtmlStateApi,
+	StoryMapBoundary,
 	StoryNarratives,
+	StoryQueryRequestOptions,
 	StoryQueryResult,
+	StorySqlRequestOptions,
 	StoryStateSnapshot,
 	StoryTableExportFormat,
 } from '@nao/shared/story-app';
@@ -48,10 +53,16 @@ interface PendingRequest<T> {
 }
 
 const HOST_REPLY_TIMEOUT_MS = 120_000;
+const OFFLINE_MODEL_MESSAGE = 'This copy of the story cannot call models: open it in nao to ask them.';
+const OFFLINE_QUERY_MESSAGE =
+	'This copy of the story only holds the rows it was saved with: open it in nao to filter or query them.';
 
 const pendingQueries = new Map<string, PendingRequest<StoryQueryResult>>();
 const pendingQuerySql = new Map<string, PendingRequest<string>>();
 const pendingChartPlugins = new Map<string, PendingRequest<string>>();
+const pendingMapBoundaries = new Map<string, PendingRequest<StoryMapBoundary>>();
+const pendingModels = new Map<string, PendingRequest<StoryModel[]>>();
+const pendingModelCalls = new Map<string, PendingRequest<StoryModelResult>>();
 const pendingNarratives = new Map<string, PendingRequest<StoryNarratives>>();
 const editingListeners = new Set<() => void>();
 const themeListeners = new Set<() => void>();
@@ -111,8 +122,12 @@ async function runHtmlStory(source: string): Promise<void> {
 function exposeHtmlApi(): void {
 	const api: StoryHtmlApi = {
 		query: requestQueryData,
+		sql: requestSql,
+		models: requestModels,
+		model: requestModel,
 		querySql: requestQuerySql,
 		narratives: requestNarratives,
+		mapBoundary: requestMapBoundary,
 		theme: getStoryTheme,
 		onTheme: (listener) =>
 			subscribeToTheme(() => {
@@ -130,12 +145,57 @@ function exposeHtmlApi(): void {
 
 export function requestQueryData(
 	queryId: string,
-	{ fresh = false }: { fresh?: boolean } = {},
+	{ fresh = false, filters, params }: StoryQueryRequestOptions = {},
+): Promise<StoryQueryResult> {
+	const inputs = { filters, params };
+	if (exportData) {
+		return hasStoryQueryInputs(inputs)
+			? readExportedRequest(exportData, storyQueryRequestKey(queryId, inputs))
+			: readExportedQuery(exportData, queryId);
+	}
+	return awaitReply(pendingQueries, (requestId) => ({
+		type: 'nao-story:query',
+		requestId,
+		queryId,
+		fresh,
+		...(hasStoryQueryInputs(inputs) && { inputs }),
+	}));
+}
+
+/** SQL the story writes itself runs as its viewer, with what nao lets that viewer read. */
+export function requestSql(
+	sql: string,
+	{ databaseId, filters, fresh = false }: StorySqlRequestOptions = {},
 ): Promise<StoryQueryResult> {
 	if (exportData) {
-		return readExportedQuery(exportData, queryId);
+		return readExportedRequest(exportData, storySqlRequestKey({ sql, databaseId, filters }));
 	}
-	return awaitReply(pendingQueries, (requestId) => ({ type: 'nao-story:query', requestId, queryId, fresh }));
+	return awaitReply(pendingQueries, (requestId) => ({
+		type: 'nao-story:sql',
+		requestId,
+		sql,
+		databaseId,
+		filters,
+		fresh,
+	}));
+}
+
+/** A downloaded story lists no model: it has nobody to call one as. */
+export function requestModels(): Promise<StoryModel[]> {
+	if (exportData) {
+		return Promise.resolve([]);
+	}
+	return awaitReply(pendingModels, (requestId) => ({ type: 'nao-story:models', requestId }));
+}
+
+export function requestModel(
+	request: StoryModelRequest,
+	{ fresh = false }: { fresh?: boolean } = {},
+): Promise<StoryModelResult> {
+	if (exportData) {
+		return Promise.reject(new Error(OFFLINE_MODEL_MESSAGE));
+	}
+	return awaitReply(pendingModelCalls, (requestId) => ({ type: 'nao-story:model', requestId, request, fresh }));
 }
 
 export function requestNarratives(): Promise<StoryNarratives> {
@@ -231,6 +291,13 @@ export function requestChartPlugin(chartType: string): Promise<string> {
 	return awaitReply(pendingChartPlugins, (requestId) => ({ type: 'nao-story:chart-plugin', requestId, chartType }));
 }
 
+export function requestMapBoundary(key: string): Promise<StoryMapBoundary> {
+	if (exportData) {
+		return readExportedMapBoundary(exportData, key);
+	}
+	return awaitReply(pendingMapBoundaries, (requestId) => ({ type: 'nao-story:map-boundary', requestId, key }));
+}
+
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
 	const isConnect =
 		event.source === window.parent &&
@@ -294,8 +361,28 @@ function handleHostMessage(message: unknown): void {
 		settleQuerySql(message);
 		return;
 	}
+	if (message.type === 'nao-story:models-result') {
+		resolvePending(pendingModels, message.requestId, message.models);
+		return;
+	}
+	if (message.type === 'nao-story:model-result') {
+		resolvePending(pendingModelCalls, message.requestId, message.result);
+		return;
+	}
+	if (message.type === 'nao-story:models-error') {
+		rejectPending(pendingModels, message.requestId, message.message);
+		return;
+	}
+	if (message.type === 'nao-story:model-error') {
+		rejectPending(pendingModelCalls, message.requestId, message.message);
+		return;
+	}
 	if (message.type === 'nao-story:chart-plugin-result' || message.type === 'nao-story:chart-plugin-error') {
 		settleChartPlugin(message);
+		return;
+	}
+	if (message.type === 'nao-story:map-boundary-result' || message.type === 'nao-story:map-boundary-error') {
+		settleMapBoundary(message);
 		return;
 	}
 	const pending = pendingQueries.get(message.requestId);
@@ -357,6 +444,28 @@ function settleChartPlugin(
 	}
 }
 
+function settleMapBoundary(
+	message: Extract<StoryHostMessage, { type: 'nao-story:map-boundary-result' | 'nao-story:map-boundary-error' }>,
+): void {
+	const pending = pendingMapBoundaries.get(message.requestId);
+	pendingMapBoundaries.delete(message.requestId);
+	if (message.type === 'nao-story:map-boundary-result') {
+		pending?.resolve(message.boundary);
+	} else {
+		pending?.reject(new Error(message.message));
+	}
+}
+
+function resolvePending<T>(pending: Map<string, PendingRequest<T>>, requestId: string, answer: T): void {
+	pending.get(requestId)?.resolve(answer);
+	pending.delete(requestId);
+}
+
+function rejectPending<T>(pending: Map<string, PendingRequest<T>>, requestId: string, message: string): void {
+	pending.get(requestId)?.reject(new Error(message));
+	pending.delete(requestId);
+}
+
 /** A reply that never comes (host navigated away, message dropped) fails the request instead of loading forever. */
 function awaitReply<T>(
 	pending: Map<string, PendingRequest<T>>,
@@ -412,11 +521,25 @@ function readExportedQuery(data: StoryExportData, queryId: string): Promise<Stor
 	return result ? Promise.resolve(result) : Promise.reject(new Error(`Query ${queryId} is not part of this export.`));
 }
 
+function readExportedRequest(data: StoryExportData, requestKey: string): Promise<StoryQueryResult> {
+	const result = data.requests?.[requestKey];
+	return result ? Promise.resolve(result) : Promise.reject(new Error(OFFLINE_QUERY_MESSAGE));
+}
+
 function readExportedChartPlugin(data: StoryExportData, chartType: string): Promise<string> {
 	const source = data.chartPlugins?.[chartType];
 	return source !== undefined
 		? Promise.resolve(source)
 		: Promise.reject(new Error(`Custom chart "${chartType}" is not available.`));
+}
+
+function readExportedMapBoundary(data: StoryExportData, key: string): Promise<StoryMapBoundary> {
+	const boundary = data.mapBoundaries?.[key];
+	return boundary
+		? Promise.resolve(boundary)
+		: Promise.reject(
+				new Error(`Map boundary "${key}" is not part of this download. It may be too large to include.`),
+			);
 }
 
 function toJsonSafe<T>(value: T): T {

@@ -1,5 +1,5 @@
 import type { LlmProvider } from '@nao/shared/types';
-import { and, eq, inArray, isNotNull, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, notInArray, or, SQL, sql, SQLWrapper, sum } from 'drizzle-orm';
 
 import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
@@ -68,6 +68,8 @@ const INFERENCE_COST_EXPR = {
 	inputCacheWrite: sql<number>`coalesce(${s.llmInference.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0`,
 	output: sql<number>`coalesce(${s.llmInference.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0`,
 };
+
+const HIDDEN_BY_DEFAULT_USAGE_SOURCES: UsageSource[] = ['test'];
 
 export const TOTAL_COST_EXPR = sql<number>`${COST_EXPR.inputNoCache} + ${COST_EXPR.inputCacheRead} + ${COST_EXPR.inputCacheWrite} + ${COST_EXPR.output}`;
 
@@ -154,6 +156,18 @@ export const getMessagesUsage = async (
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'web' then ${s.chatMessage.id} end)`.as(
 						'web_message_count',
 					),
+				automationEditorMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'automationEditor' then ${s.chatMessage.id} end)`.as(
+						'automation_editor_message_count',
+					),
+				contextEditorMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'contextEditor' then ${s.chatMessage.id} end)`.as(
+						'context_editor_message_count',
+					),
+				automationMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'automation' then ${s.chatMessage.id} end)`.as(
+						'automation_message_count',
+					),
 				slackMessageCount:
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'slack' then ${s.chatMessage.id} end)`.as(
 						'slack_message_count',
@@ -217,6 +231,9 @@ export const getMessagesUsage = async (
 				date: inferenceDateExpr.as('date'),
 				messageCount: sql<number>`0`.as('message_count'),
 				webMessageCount: sql<number>`0`.as('web_message_count'),
+				automationEditorMessageCount: sql<number>`0`.as('automation_editor_message_count'),
+				contextEditorMessageCount: sql<number>`0`.as('context_editor_message_count'),
+				automationMessageCount: sql<number>`0`.as('automation_message_count'),
 				slackMessageCount: sql<number>`0`.as('slack_message_count'),
 				teamsMessageCount: sql<number>`0`.as('teams_message_count'),
 				telegramMessageCount: sql<number>`0`.as('telegram_message_count'),
@@ -257,6 +274,9 @@ export const getMessagesUsage = async (
 			date: combinedUsage.date,
 			messageCount: sum(combinedUsage.messageCount),
 			webMessageCount: sum(combinedUsage.webMessageCount),
+			automationEditorMessageCount: sum(combinedUsage.automationEditorMessageCount),
+			contextEditorMessageCount: sum(combinedUsage.contextEditorMessageCount),
+			automationMessageCount: sum(combinedUsage.automationMessageCount),
 			slackMessageCount: sum(combinedUsage.slackMessageCount),
 			teamsMessageCount: sum(combinedUsage.teamsMessageCount),
 			telegramMessageCount: sum(combinedUsage.telegramMessageCount),
@@ -444,6 +464,9 @@ function normalizeMessageUsageRow(row: {
 	date: string;
 	messageCount: unknown;
 	webMessageCount: unknown;
+	automationEditorMessageCount: unknown;
+	contextEditorMessageCount: unknown;
+	automationMessageCount: unknown;
 	slackMessageCount: unknown;
 	teamsMessageCount: unknown;
 	telegramMessageCount: unknown;
@@ -473,6 +496,9 @@ function normalizeMessageUsageRow(row: {
 		date: row.date,
 		messageCount: Number(row.messageCount ?? 0),
 		webMessageCount: Number(row.webMessageCount ?? 0),
+		automationEditorMessageCount: Number(row.automationEditorMessageCount ?? 0),
+		contextEditorMessageCount: Number(row.contextEditorMessageCount ?? 0),
+		automationMessageCount: Number(row.automationMessageCount ?? 0),
 		slackMessageCount: Number(row.slackMessageCount ?? 0),
 		teamsMessageCount: Number(row.teamsMessageCount ?? 0),
 		telegramMessageCount: Number(row.telegramMessageCount ?? 0),
@@ -575,22 +601,22 @@ function addUserNameFilter(whereConditions: SQL<unknown>[], userNames: string[] 
 }
 
 function addSourceFilter(whereConditions: SQL<unknown>[], sources: UsageSource[] | undefined) {
-	if (!sources?.length) {
-		return;
-	}
-
-	const expr = or(...sources.map((source) => eq(MESSAGE_USAGE_SOURCE_EXPR, source)));
-	if (expr) {
-		whereConditions.push(expr);
-	}
+	addSourceCondition(whereConditions, MESSAGE_USAGE_SOURCE_EXPR, sources);
 }
 
 function addInferenceSourceFilter(whereConditions: SQL<unknown>[], sources: UsageSource[] | undefined) {
-	if (!sources?.length) {
-		return;
-	}
+	addSourceCondition(whereConditions, INFERENCE_USAGE_SOURCE_EXPR, sources);
+}
 
-	const expr = or(...sources.map((source) => eq(INFERENCE_USAGE_SOURCE_EXPR, source)));
+/** Without an explicit source selection, sources such as test runs are left out so they don't inflate real usage. */
+function addSourceCondition(
+	whereConditions: SQL<unknown>[],
+	sourceExpr: SQL<UsageSource | null>,
+	sources: UsageSource[] | undefined,
+) {
+	const expr = sources?.length
+		? or(...sources.map((source) => eq(sourceExpr, source)))
+		: notInArray(sql`coalesce(${sourceExpr}, '')`, HIDDEN_BY_DEFAULT_USAGE_SOURCES);
 	if (expr) {
 		whereConditions.push(expr);
 	}

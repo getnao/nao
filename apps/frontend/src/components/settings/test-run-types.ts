@@ -1,9 +1,9 @@
 import { EFFORT_OPTIONS } from '@nao/backend/provider-meta';
 import { testModelColorIndex } from '@nao/backend/test-run';
-import { isInTestsFolder } from '@nao/shared/test-paths';
 import { isSameModel } from '@nao/shared/types';
-import type { TrpcRouter } from '@nao/backend/trpc';
+
 import type { TestModel } from '@nao/backend/test-run';
+import type { TrpcRouter } from '@nao/backend/trpc';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { KeyboardEvent } from 'react';
 
@@ -139,11 +139,6 @@ export function isActiveRun(run: Pick<TestRunSummary, 'status'>): boolean {
 /** The context a run that is not a comparison ran its tests against. */
 export function getSingleRunVariant(run: Pick<TestRunSummary, 'trigger'>): ContextVariant {
 	return run.trigger === 'changes' ? 'draft' : 'production';
-}
-
-/** The changed files that are context, as edited tests alone answer the same on production and on the draft. */
-export function getContextChanges(draft: DraftContext | null): DraftContext['changes'] {
-	return draft?.changes.filter((change) => !isInTestsFolder(change.path)) ?? [];
 }
 
 export function formatPassRate(passed: number, total: number): string {

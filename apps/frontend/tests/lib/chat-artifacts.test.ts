@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { UIMessage, UIMessagePart } from '@nao/backend/chat';
-import { areChatArtifactsEqual, collectChatArtifacts, countChatArtifacts } from '@/lib/chat-artifacts';
+import {
+	areChatArtifactsEqual,
+	collectChatArtifacts,
+	countChatArtifacts,
+	findQueryToolCallId,
+} from '@/lib/chat-artifacts';
 
 function queryPart(id: string, name: string | undefined, columns: string[], rowCount: number): UIMessagePart {
 	return {
@@ -115,5 +120,17 @@ describe('collectChatArtifacts', () => {
 		expect(areChatArtifactsEqual(build(), build(2))).toBe(false);
 		expect(areChatArtifactsEqual(build(), build(1, 'Renamed'))).toBe(false);
 		expect(areChatArtifactsEqual(build(), build(1, 'S', 'renamed.csv'))).toBe(false);
+	});
+});
+
+describe('findQueryToolCallId', () => {
+	it('points a query id at the tool call of its latest run', () => {
+		const messages = [
+			message('a1', 'assistant', queryPart('query_revenue', 'Revenue', ['month'], 3)),
+			message('a2', 'assistant', queryPart('query_revenue', 'Revenue', ['month'], 5)),
+		];
+
+		expect(findQueryToolCallId(messages, 'query_revenue')).toBe('call_query_revenue_5');
+		expect(findQueryToolCallId(messages, 'query_unknown')).toBeUndefined();
 	});
 });

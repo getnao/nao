@@ -138,7 +138,7 @@ async function finishAutomationRun(
 					userEmail: automationUser.email,
 					triggerEvent,
 				}),
-				source: 'web',
+				source: 'automation',
 			},
 		);
 		await automationQueries.attachRunChat(run.id, chat.id);

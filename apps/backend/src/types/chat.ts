@@ -29,7 +29,9 @@ export interface ForkMetadata {
 		| 'story'
 		| 'story_selection'
 		| 'story_question'
-		| 'automation_edit';
+		| 'automation_edit'
+		| 'context_edit'
+		| 'story_model';
 	id: string;
 	title: string;
 	authorName: string;
@@ -78,11 +80,15 @@ export const MESSAGE_SOURCES = [
 	'discord',
 	'whatsapp',
 	'web',
+	'automationEditor',
+	'contextEditor',
+	'automation',
 	'mcp',
 	'contextRecommendations',
 	'admin',
 	'onboarding',
 	'test',
+	'storyModel',
 ] as const;
 
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];
@@ -250,6 +256,8 @@ export const AgentRequestSchema = z.object({
 	mode: z.enum(['default', 'onboarding', 'example']).default('default'),
 	/** The automation open beside an automation editing chat, as it stands in its form. */
 	automationDraft: automationDraftSchema.optional(),
+	/** Sent by the chat beside the Context Hub, with the context file the user has open there. */
+	contextHub: z.object({ openPath: z.string().max(2_000).nullable() }).optional(),
 });
 
 export interface StoryOriginTurn {

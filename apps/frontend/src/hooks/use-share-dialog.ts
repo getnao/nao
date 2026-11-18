@@ -24,12 +24,12 @@ export function useShareAudience() {
 }
 
 export function useShareCandidates({
-	chatId,
+	source,
 	withGroups,
 	excludedKeys,
 	enabled,
 }: {
-	chatId: string;
+	source: { chatId: string } | { storyId: string };
 	withGroups: boolean;
 	excludedKeys: Set<string>;
 	enabled: boolean;
@@ -38,10 +38,16 @@ export function useShareCandidates({
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projectId = project.data?.id;
 	const hasProject = projectId != null && (!activeProjectId || activeProjectId === projectId);
-	const membersQuery = useQuery({
-		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId }),
-		enabled: enabled && hasProject,
+	const storyId = 'storyId' in source ? source.storyId : null;
+	const chatMembersQuery = useQuery({
+		...trpc.project.getProjectMembersByChatId.queryOptions({ chatId: 'chatId' in source ? source.chatId : '' }),
+		enabled: enabled && hasProject && storyId === null,
 	});
+	const storyMembersQuery = useQuery({
+		...trpc.project.getProjectMembersByStoryId.queryOptions({ storyId: storyId ?? '' }),
+		enabled: enabled && hasProject && storyId !== null,
+	});
+	const membersQuery = storyId === null ? chatMembersQuery : storyMembersQuery;
 	const groupsQuery = useQuery({
 		...trpc.storyShare.listShareableGroups.queryOptions(),
 		enabled: enabled && withGroups && hasProject,

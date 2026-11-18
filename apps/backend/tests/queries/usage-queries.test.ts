@@ -45,6 +45,7 @@ const USER_ID = 'usage-user';
 const OTHER_USER_ID = 'usage-user-other';
 const CHAT_ID = 'usage-chat';
 const OTHER_USER_CHAT_ID = 'usage-chat-other-user';
+const TEST_RUN_CHAT_ID = 'usage-chat-test-run';
 
 describe('usage query results', () => {
 	beforeAll(async () => {
@@ -59,6 +60,7 @@ describe('usage query results', () => {
 		await db.insert(s.chat).values([
 			{ id: CHAT_ID, projectId: PROJECT_ID, userId: USER_ID },
 			{ id: OTHER_USER_CHAT_ID, projectId: PROJECT_ID, userId: OTHER_USER_ID },
+			{ id: TEST_RUN_CHAT_ID, projectId: PROJECT_ID, userId: USER_ID },
 		]);
 	});
 
@@ -191,9 +193,12 @@ describe('usage query results', () => {
 		).resolves.toHaveLength(13);
 	});
 
-	it('counts messages by source, including context recommendations and tests', async () => {
+	it('counts messages by source, including the editor panels, automations, context recommendations and tests', async () => {
 		const sources = [
 			'web',
+			'automationEditor',
+			'contextEditor',
+			'automation',
 			'slack',
 			'teams',
 			'telegram',
@@ -216,12 +221,18 @@ describe('usage query results', () => {
 			})),
 		);
 
-		const records = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } });
+		const records = await getMessagesUsage(PROJECT_ID, {
+			period: { value: 15, unit: 'day' },
+			sources: [...sources],
+		});
 		const record = records.find((item) => item.date === formatDate(now, 'day'));
 
 		expect(record).toMatchObject({
-			messageCount: 11,
+			messageCount: 14,
 			webMessageCount: 1,
+			automationEditorMessageCount: 1,
+			contextEditorMessageCount: 1,
+			automationMessageCount: 1,
 			slackMessageCount: 1,
 			teamsMessageCount: 1,
 			telegramMessageCount: 1,
@@ -234,6 +245,58 @@ describe('usage query results', () => {
 			testMessageCount: 1,
 		});
 	});
+
+	it.each([
+		{ sources: undefined, webMessageCount: 1, testMessageCount: 0, totalTokens: 10 },
+		{ sources: ['test' as const], webMessageCount: 0, testMessageCount: 1, totalTokens: 300 },
+	])(
+		'hides test runs unless the test source is selected (sources: $sources)',
+		async ({ sources, webMessageCount, testMessageCount, totalTokens }) => {
+			const now = new Date();
+			const earlier = new Date(now.getTime() - 1_000);
+			await db.insert(s.chatMessage).values([
+				{ id: 'hidden-web-user', chatId: CHAT_ID, role: 'user', source: 'web', createdAt: earlier },
+				{ id: 'hidden-web-assistant', chatId: CHAT_ID, role: 'assistant', totalTokens: 10, createdAt: now },
+				{ id: 'hidden-test-user', chatId: TEST_RUN_CHAT_ID, role: 'user', source: 'test', createdAt: earlier },
+				{
+					id: 'hidden-test-assistant',
+					chatId: TEST_RUN_CHAT_ID,
+					role: 'assistant',
+					totalTokens: 200,
+					createdAt: now,
+				},
+			]);
+			await db.insert(s.llmInference).values({
+				id: 'hidden-test-inference',
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+				chatId: TEST_RUN_CHAT_ID,
+				type: 'compaction',
+				llmProvider: 'openai',
+				llmModelId: 'gpt-4o',
+				totalTokens: 100,
+				createdAt: now,
+			});
+			const filter = { period: { value: 15, unit: 'day' as const }, sources };
+
+			const records = await getMessagesUsage(PROJECT_ID, filter);
+			const usersRecords = await getMessagesUsageByUser(PROJECT_ID, filter);
+
+			expect(records.find((item) => item.date === formatDate(now, 'day'))).toMatchObject({
+				messageCount: 1,
+				webMessageCount,
+				testMessageCount,
+				totalTokens,
+			});
+			expect(usersRecords.find((item) => item.date === formatDate(now, 'day'))?.users).toEqual([
+				expect.objectContaining({ messageCount: 1, totalTokens }),
+			]);
+			await expect(getTotalUsage(PROJECT_ID, filter)).resolves.toEqual({
+				totalMessages: 1,
+				uniqueUsers: 1,
+			});
+		},
+	);
 
 	it('unions auxiliary inference usage with message usage across dates', async () => {
 		const now = new Date();

@@ -26,6 +26,9 @@ describe('UsageFilters', () => {
 	});
 
 	it('disables creation when the saved period limit is reached', () => {
+		stubResizeObserver();
+		stubScrollIntoView();
+
 		const savedPeriodsAtLimit: SavedUsagePeriod[] = Array.from({ length: MAX_SAVED_USAGE_PERIODS }, (_, index) => ({
 			id: `saved-period-${index}`,
 			days: index + 1,
@@ -41,6 +44,21 @@ describe('UsageFilters', () => {
 		expect(addSavedPeriod.hasAttribute('disabled')).toBe(true);
 		fireEvent.click(addSavedPeriod);
 		expect(screen.queryByRole('dialog', { name: 'Create period filter' })).toBeNull();
+	});
+
+	it.each([
+		['keeps only the clicked source', ['Only Slack'], ['slack']],
+		['starts from an empty selection', ['Deselect all', 'Web', 'MCP'], ['web', 'mcp']],
+	])('%s and applies the source filter right away', (_case, clicks, expected) => {
+		const onSelectedSourcesChange = vi.fn();
+		renderUsageFilters({ onSelectedSourcesChange });
+
+		fireEvent.click(screen.getByRole('button', { name: 'Source' }));
+		for (const name of clicks) {
+			fireEvent.click(screen.queryByRole('button', { name }) ?? screen.getByRole('option', { name }));
+		}
+
+		expect(onSelectedSourcesChange).toHaveBeenLastCalledWith(expected);
 	});
 
 	it('toggles the split per user view from the toolbar', () => {
@@ -83,7 +101,6 @@ describe('UsageFilters', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Credentials' }));
 		fireEvent.click(screen.getByText('Client B'));
-		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
 		expect(onSelectedCredentialIdsChange).toHaveBeenCalledWith(['client-a']);
 	});

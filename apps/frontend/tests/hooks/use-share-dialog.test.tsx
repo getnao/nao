@@ -42,6 +42,7 @@ vi.mock('@/main', () => ({
 		project: {
 			getCurrent: { queryOptions: () => ({ queryKey: ['project'] }) },
 			getProjectMembersByChatId: { queryOptions: () => ({ queryKey: ['members'] }) },
+			getProjectMembersByStoryId: { queryOptions: () => ({ queryKey: ['story-members'] }) },
 		},
 		storyShare: {
 			listShareableGroups: { queryOptions: () => ({ queryKey: ['groups'] }) },
@@ -63,7 +64,7 @@ it('hides cached sharing access and members when no project is active', () => {
 	const { result } = renderHook(() => ({
 		audience: useShareAudience(),
 		candidates: useShareCandidates({
-			chatId: 'chat-id',
+			source: { chatId: 'chat-id' },
 			withGroups: false,
 			excludedKeys: new Set(),
 			enabled: true,
@@ -84,7 +85,7 @@ it('hides previous project sharing data while the selected project refetches', (
 	const { result } = renderHook(() => ({
 		audience: useShareAudience(),
 		candidates: useShareCandidates({
-			chatId: 'chat-id',
+			source: { chatId: 'chat-id' },
 			withGroups: false,
 			excludedKeys: new Set(),
 			enabled: true,
@@ -102,7 +103,7 @@ it('hides the groups of the previous project while the selected project refetche
 	mocks.project = { id: 'new-project' };
 
 	const { result } = renderHook(() =>
-		useShareCandidates({ chatId: 'chat-id', withGroups: true, excludedKeys: new Set(), enabled: true }),
+		useShareCandidates({ source: { chatId: 'chat-id' }, withGroups: true, excludedKeys: new Set(), enabled: true }),
 	);
 
 	expect(result.current.candidates).toEqual([]);
@@ -111,7 +112,7 @@ it('hides the groups of the previous project while the selected project refetche
 
 it('does not ask for groups before a project is active', () => {
 	renderHook(() =>
-		useShareCandidates({ chatId: 'chat-id', withGroups: true, excludedKeys: new Set(), enabled: true }),
+		useShareCandidates({ source: { chatId: 'chat-id' }, withGroups: true, excludedKeys: new Set(), enabled: true }),
 	);
 
 	expect(mocks.queries.find((query) => query.queryKey[0] === 'groups')?.enabled).toBe(false);

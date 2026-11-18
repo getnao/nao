@@ -22,6 +22,14 @@ interface UseStoryViewerVersionActionsParams {
 	viewMode: StoryViewMode;
 	setViewMode: (mode: StoryViewMode) => void;
 	onVersionSaved?: (code: string) => void;
+	/** A story outside any chat saves its versions by its id. */
+	standaloneStoryId?: string;
+}
+
+interface StoryVersionDraft {
+	title: string;
+	code: string;
+	basedOnVersion: number;
 }
 
 interface StoryIdentity {
@@ -44,10 +52,9 @@ export const useStoryViewerVersionActions = ({
 	viewMode,
 	setViewMode,
 	onVersionSaved,
+	standaloneStoryId,
 }: UseStoryViewerVersionActionsParams) => {
 	const queryClient = useQueryClient();
-	const latestStoryQueryKey = trpc.story.getLatest.queryKey({ chatId, storySlug });
-	const listVersionsQueryKey = trpc.story.listVersions.queryKey({ chatId, storySlug });
 	const identity = { chatId, storySlug };
 	const currentIdentityRef = useRef(identity);
 	const baselineRef = useRef({ identity, code: currentVersionCode, version: currentVersionNumber });
@@ -56,8 +63,6 @@ export const useStoryViewerVersionActions = ({
 	const [isSavingVersion, setIsSavingVersion] = useState(false);
 	const paramsRef = useRef({
 		identity,
-		chatId,
-		storySlug,
 		storyTitle,
 		currentVersionCode,
 		getCurrentCode,
@@ -71,8 +76,6 @@ export const useStoryViewerVersionActions = ({
 	}
 	paramsRef.current = {
 		identity,
-		chatId,
-		storySlug,
 		storyTitle,
 		currentVersionCode,
 		getCurrentCode,
@@ -80,16 +83,40 @@ export const useStoryViewerVersionActions = ({
 		onVersionSaved,
 	};
 
-	const createVersionMutation = useMutation(trpc.story.createVersion.mutationOptions());
-	const mutationRef = useRef(createVersionMutation);
-	mutationRef.current = createVersionMutation;
+	const { mutateAsync: createVersion, isPending: isCreatingVersion } = useMutation(
+		trpc.story.createVersion.mutationOptions(),
+	);
+	const { mutateAsync: createStandaloneVersion, isPending: isCreatingStandaloneVersion } = useMutation(
+		trpc.story.createStandaloneVersion.mutationOptions(),
+	);
+	const persistVersion = useCallback(
+		(draft: StoryVersionDraft) =>
+			standaloneStoryId
+				? createStandaloneVersion({
+						storyId: standaloneStoryId,
+						code: draft.code,
+						basedOnVersion: draft.basedOnVersion,
+					})
+				: createVersion({ chatId, storySlug, ...draft, action: 'replace' }),
+		[chatId, createStandaloneVersion, createVersion, standaloneStoryId, storySlug],
+	);
+	const persistVersionRef = useRef(persistVersion);
+	persistVersionRef.current = persistVersion;
+	const isPersistingVersion = isCreatingVersion || isCreatingStandaloneVersion;
 	const refreshQueries = useCallback(async () => {
-		await Promise.all([
-			queryClient.invalidateQueries({ queryKey: listVersionsQueryKey }),
-			queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() }),
-			queryClient.invalidateQueries({ queryKey: latestStoryQueryKey }),
-		]);
-	}, [latestStoryQueryKey, listVersionsQueryKey, queryClient]);
+		const queryKeys = standaloneStoryId
+			? [
+					trpc.story.listStandaloneVersions.queryKey({ storyId: standaloneStoryId }),
+					trpc.story.listStandalone.queryKey(),
+					trpc.story.getStandalone.queryKey({ storyId: standaloneStoryId }),
+				]
+			: [
+					trpc.story.listVersions.queryKey({ chatId, storySlug }),
+					trpc.story.listAll.queryKey(),
+					trpc.story.getLatest.queryKey({ chatId, storySlug }),
+				];
+		await Promise.all(queryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+	}, [chatId, queryClient, standaloneStoryId, storySlug]);
 	const refreshQueriesRef = useRef(refreshQueries);
 	refreshQueriesRef.current = refreshQueries;
 
@@ -156,11 +183,9 @@ export const useStoryViewerVersionActions = ({
 
 		const saveTarget = {
 			identity: saveIdentity,
-			chatId: params.chatId,
-			storySlug: params.storySlug,
 			storyTitle: params.storyTitle,
 			onVersionSaved: params.onVersionSaved,
-			persist: mutationRef.current.mutateAsync,
+			persist: persistVersionRef.current,
 			refreshQueries: refreshQueriesRef.current,
 		};
 		const isSaveIdentityActive = () => isSameStoryIdentity(currentIdentityRef.current, saveTarget.identity);
@@ -193,12 +218,9 @@ export const useStoryViewerVersionActions = ({
 						}
 						try {
 							const created = await saveTarget.persist({
-								chatId: saveTarget.chatId,
-								storySlug: saveTarget.storySlug,
 								title: saveTarget.storyTitle,
 								code: snapshot.code,
-								action: 'replace',
-								basedOnVersion: baselineRef.current.version,
+								basedOnVersion: savedVersion,
 							});
 							savedVersion = created.version;
 							setSaveError(null);
@@ -267,38 +289,27 @@ export const useStoryViewerVersionActions = ({
 	const handleRestore = useCallback(() => {
 		const hasVersionData =
 			storyTitle !== undefined && currentVersionCode !== undefined && latestVersionNumber !== undefined;
-		if (!hasVersionData || isViewingLatest || createVersionMutation.isPending) {
+		if (!hasVersionData || isViewingLatest || isPersistingVersion) {
 			return;
 		}
 
-		createVersionMutation.mutate(
-			{
-				chatId,
-				storySlug,
-				title: storyTitle,
-				code: currentVersionCode,
-				action: 'replace',
-				basedOnVersion: latestVersionNumber,
+		persistVersion({ title: storyTitle, code: currentVersionCode, basedOnVersion: latestVersionNumber }).then(
+			async () => {
+				setSaveError(null);
+				await refreshQueries();
+				goToLatestVersion();
 			},
-			{
-				onSuccess: async () => {
-					setSaveError(null);
-					await refreshQueries();
-					goToLatestVersion();
-				},
-				onError: (error) => {
-					setSaveError(error.message);
-				},
+			(error: Error) => {
+				setSaveError(error.message);
 			},
 		);
 	}, [
-		chatId,
-		storySlug,
 		storyTitle,
 		currentVersionCode,
 		latestVersionNumber,
 		isViewingLatest,
-		createVersionMutation,
+		isPersistingVersion,
+		persistVersion,
 		refreshQueries,
 		goToLatestVersion,
 	]);
@@ -307,7 +318,7 @@ export const useStoryViewerVersionActions = ({
 		handleSave,
 		saveCurrentVersion,
 		handleRestore,
-		isSaving: createVersionMutation.isPending || isSavingVersion,
+		isSaving: isPersistingVersion || isSavingVersion,
 		saveError,
 	};
 };

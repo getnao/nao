@@ -14,11 +14,19 @@ import {
 	replaceExistingProject,
 } from '../services/project-import.service';
 import {
+	getSharedGithubTokenStatus,
+	readSharedGithubToken,
+	removeSharedGithubToken,
+	saveSharedGithubToken,
+} from '../services/shared-github-token.service';
+import {
 	cloudBillingAdminProcedure,
 	cloudBillingProjectImportProcedure,
 	contextAdminProtectedProcedure,
 	protectedProcedure,
 } from './trpc';
+
+const repositoryPageSchema = z.object({ page: z.number().default(1), search: z.string().optional() });
 
 export const githubRoutes = {
 	isAvailable: protectedProcedure.query(() => {
@@ -43,22 +51,36 @@ export const githubRoutes = {
 		await userQueries.updateGithubToken(ctx.user.id, null);
 	}),
 
-	listRepos: protectedProcedure
-		.input(z.object({ page: z.number().default(1), search: z.string().optional() }))
-		.query(async ({ ctx, input }) => {
-			const token = await userQueries.getGithubToken(ctx.user.id);
-			if (!token) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub is not connected' });
-			}
+	listRepos: protectedProcedure.input(repositoryPageSchema).query(async ({ ctx, input }) => {
+		const token = await userQueries.getGithubToken(ctx.user.id);
+		if (!token) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub is not connected' });
+		}
+		return listRepositoryPage(token, input);
+	}),
 
-			try {
-				return await githubService.listRepos(token, { page: input.page, search: input.search });
-			} catch (err) {
-				throw new TRPCError({
-					code: 'INTERNAL_SERVER_ERROR',
-					message: err instanceof Error ? err.message : 'Failed to list repos',
-				});
+	getSharedAccessToken: contextAdminProtectedProcedure.query(({ ctx }) => {
+		return getSharedGithubTokenStatus(ctx.project.id);
+	}),
+
+	saveSharedAccessToken: cloudBillingAdminProcedure
+		.input(z.object({ token: z.string().trim().min(1, 'Paste an access token.') }))
+		.mutation(({ ctx, input }) => {
+			return saveSharedGithubToken(ctx.project.id, input.token);
+		}),
+
+	removeSharedAccessToken: cloudBillingAdminProcedure.mutation(async ({ ctx }) => {
+		await removeSharedGithubToken(ctx.project.id);
+	}),
+
+	listSharedAccessTokenRepos: contextAdminProtectedProcedure
+		.input(repositoryPageSchema)
+		.query(async ({ ctx, input }) => {
+			const token = await readSharedGithubToken(ctx.project.id);
+			if (!token) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No shared GitHub access token is saved.' });
 			}
+			return listRepositoryPage(token, input);
 		}),
 
 	createProjectFromRepo: cloudBillingProjectImportProcedure
@@ -152,3 +174,14 @@ export const githubRoutes = {
 		}
 	}),
 };
+
+async function listRepositoryPage(token: string, input: z.infer<typeof repositoryPageSchema>) {
+	try {
+		return await githubService.listRepos(token, { page: input.page, search: input.search });
+	} catch (err) {
+		throw new TRPCError({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: err instanceof Error ? err.message : 'Failed to list repos',
+		});
+	}
+}

@@ -1,8 +1,8 @@
 import * as branchOwnershipQueries from '../queries/context-branch-ownership.queries';
 import * as projectQueries from '../queries/project.queries';
 import { deleteOwnedContextBranch } from '../services/context-explorer-git.service';
-import { REVIEW_REQUEST_PROVIDERS } from '../services/review-request-provider';
 import type { JobHandler } from '../services/scheduler.service';
+import { resolveRepositoryProvider } from '../services/shared-github-token.service';
 import { resolveContextRepository } from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
 
@@ -46,7 +46,7 @@ async function cleanOwnedContextBranch(
 	projectFolder: string,
 	repo: NonNullable<Awaited<ReturnType<typeof resolveContextRepository>>>,
 ): Promise<void> {
-	const provider = REVIEW_REQUEST_PROVIDERS[repo.provider];
+	const provider = await resolveRepositoryProvider(ownership.projectId, repo.provider);
 	const token = await provider.getToken(ownership.userId);
 	if (token === null) {
 		logSkip(ownership, 'provider token unavailable');

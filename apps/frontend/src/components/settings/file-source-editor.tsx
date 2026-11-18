@@ -8,6 +8,7 @@ import { CodeSelectionAsk } from '@/components/code-selection-ask';
 import { useRevealCitedLines } from '@/hooks/use-code-reveal';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
+import { useQueryIdLinks } from '@/hooks/use-query-id-links';
 import { isMac } from '@/lib/platform';
 
 interface FileSourceEditorProps {
@@ -67,6 +68,7 @@ export function FileSourceEditor({
 	searchQueryRef.current = searchQuery;
 	onSaveRef.current = onSave;
 	useRevealCitedLines(codeEditor, { storySlug, filePath });
+	useQueryIdLinks(codeEditor);
 
 	const handleBeforeMount = useCallback((monaco: Monaco) => {
 		defineCustomThemes(monaco);

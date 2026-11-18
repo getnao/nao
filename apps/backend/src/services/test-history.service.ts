@@ -11,7 +11,7 @@ import type {
 	TestRunResultDetails,
 } from '../types/test-run';
 import { isSameTestModel, testModelColorIndex, testResultModel } from '../types/test-run';
-import { compareContextVariants } from '../utils/test-comparison';
+import { compareContextVariants, listAddedTestPaths } from '../utils/test-comparison';
 import { buildTestDataDiff } from '../utils/test-data-comparison';
 import { type SummarizedTestResult, summarizeModels } from '../utils/test-model-summary';
 import { summarizeRunTests, type TestAttemptTotals, toAttemptCounts } from '../utils/test-run-totals';
@@ -140,14 +140,17 @@ export async function getTestHistory(
 	return runs.map((run) => {
 		const results = resultsByRun.get(run.id) ?? [];
 		const attemptsPerVariant = run.models.length * run.attempts;
+		const addedTestPaths = listAddedTestPaths(run.contextChanges);
+		const isComparedWithProduction = run.trigger === 'comparison' && !addedTestPaths.has(testPath);
 		return {
 			...run,
 			results,
 			testTotals: summarizeRunTests(results.map(toAttemptTotals), run.models),
 			attemptsPerVariant,
+			variantCount: isComparedWithProduction ? 2 : 1,
 			comparison:
 				run.trigger === 'comparison'
-					? (compareContextVariants(results, attemptsPerVariant).tests.at(0) ?? null)
+					? (compareContextVariants(results, attemptsPerVariant, addedTestPaths).tests.at(0) ?? null)
 					: null,
 		};
 	});
