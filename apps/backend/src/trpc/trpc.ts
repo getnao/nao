@@ -92,12 +92,21 @@ const withHandlerErrors = t.middleware(async ({ next }) => {
 
 export const publicProcedure = t.procedure.use(withHandlerErrors);
 
-export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
+/** Signed in, and still reachable by members who must set up two-factor authentication first. */
+export const sessionProcedure = publicProcedure.use(async ({ ctx, next }) => {
 	if (!ctx.session?.user) {
 		throw new TRPCError({ code: 'UNAUTHORIZED' });
 	}
 
 	return next({ ctx: { user: ctx.session.user } });
+});
+
+export const protectedProcedure = sessionProcedure.use(async ({ ctx, next }) => {
+	if (ctx.session?.twoFactorSetupRequired) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Set up two-factor authentication to continue.' });
+	}
+
+	return next();
 });
 
 export async function resolveOrganizationMembership(
