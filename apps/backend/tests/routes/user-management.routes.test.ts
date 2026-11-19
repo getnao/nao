@@ -7,13 +7,15 @@ vi.mock('../../src/db/db', async () => {
 	return { db: createInMemoryDb() };
 });
 
+const licence = vi.hoisted(() => ({ licensed: true }));
+
 vi.mock('../../src/services/license.service', async (importOriginal) => {
 	const mod = await importOriginal<typeof import('../../src/services/license.service')>();
 	return {
 		...mod,
 		hasFeature: vi.fn(
 			async (_feature: Parameters<typeof mod.hasFeature>[0], scope?: Parameters<typeof mod.hasFeature>[1]) =>
-				Boolean(scope && 'projectId' in scope),
+				licence.licensed && Boolean(scope && 'projectId' in scope),
 		),
 	};
 });
@@ -106,6 +108,7 @@ describe('user management API', () => {
 	});
 
 	beforeEach(async () => {
+		licence.licensed = true;
 		idp.rolesManagedByIdp = false;
 		hooks.afterConfinedCheck = null;
 		hooks.pendingInvitation = null;
@@ -639,6 +642,20 @@ describe('user management API', () => {
 		const created = await post(`/user-management/projects/${PROJECT_ID}/groups`, { name: 'Licensed' });
 
 		expect(created.statusCode).toBe(201);
+	});
+
+	it('refuses a group past the free limit when the project is unlicensed', async () => {
+		licence.licensed = false;
+		for (let index = 0; index < FREE_CUSTOM_USER_GROUP_LIMIT; index += 1) {
+			await db
+				.insert(s.userGroup)
+				.values({ id: `group-unlicensed-${index}`, projectId: PROJECT_ID, name: `Free ${index}` })
+				.execute();
+		}
+
+		const created = await post(`/user-management/projects/${PROJECT_ID}/groups`, { name: 'Over Limit' });
+
+		expect(created.statusCode).toBe(403);
 	});
 
 	it('manages groups and their members', async () => {
