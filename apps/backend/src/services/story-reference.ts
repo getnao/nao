@@ -34,6 +34,7 @@ import { isViewableStoryFile } from '../utils/story-file-path';
 import { toStoryLibraryVirtualPath } from '../utils/story-library';
 import { extractCustomStoryQueryIds } from '../utils/story-query-data';
 import { truncateMiddle } from '../utils/utils';
+import { getFolderViewer } from './story-folder-viewer.service';
 
 export type StoryReferenceScope = { userId: string; projectId: string };
 
@@ -352,7 +353,8 @@ async function loadFolderReferences(
 
 /** Only the most trusted stories of a large folder are referenced. */
 async function resolveFolderReference(scope: StoryReferenceScope, folderId: string): Promise<FolderReference | null> {
-	const folder = await storyFolderQueries.findReferencedFolder(scope.userId, scope.projectId, folderId);
+	const viewer = await getFolderViewer(scope.projectId, scope.userId);
+	const folder = await storyFolderQueries.findReferencedFolder(viewer, scope.projectId, folderId);
 	if (!folder) {
 		return null;
 	}
