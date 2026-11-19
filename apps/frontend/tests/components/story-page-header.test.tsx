@@ -3,12 +3,14 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { openDropdownMenu } from '../helpers/dropdown-menu';
 import type { ComponentProps } from 'react';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-const { favoritesQuery, submitStoryFeedback } = vi.hoisted(() => ({
+const { favoritesQuery, movableStory, submitStoryFeedback } = vi.hoisted(() => ({
 	favoritesQuery: { data: undefined as { storyIds: string[] } | undefined },
+	movableStory: { value: undefined as { storyId: string; isOwner: boolean } | undefined },
 	submitStoryFeedback: vi.fn(),
 }));
 
@@ -24,6 +26,10 @@ vi.mock('@/components/editable-story-title', () => ({
 vi.mock('@/components/story-download', () => ({
 	StoryDownloadMenu: () => null,
 	canDownloadStory: () => true,
+}));
+
+vi.mock('@/hooks/use-movable-story', () => ({
+	useMovableStory: () => movableStory.value,
 }));
 
 vi.mock('@/hooks/use-toggle-favorite', () => ({
@@ -100,6 +106,19 @@ describe('StoryPageHeader refresh failure banner', () => {
 describe('StoryPageHeader actions', () => {
 	beforeEach(() => {
 		favoritesQuery.data = undefined;
+		movableStory.value = undefined;
+	});
+
+	it.each([
+		['can move the story', { storyId: 'story-1', isOwner: true }, 1],
+		['cannot move the story', undefined, 0],
+	])('offers to move the story to a folder only when the user %s', (_, story, expectedCount) => {
+		movableStory.value = story;
+		renderPageHeader({ title: 'Revenue', storyId: 'story-1' });
+
+		openDropdownMenu('More actions');
+
+		expect(screen.queryAllByRole('menuitem', { name: 'Move to folder' })).toHaveLength(expectedCount);
 	});
 
 	it('renders a share button that calls onShare', () => {

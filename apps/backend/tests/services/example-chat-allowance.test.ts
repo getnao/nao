@@ -360,7 +360,7 @@ describe('example chat allowance', () => {
 
 async function getAgentRouteHandler(): Promise<(request: unknown) => Promise<unknown>> {
 	const post = vi.fn();
-	await agentRoutes({ addHook: vi.fn(), post } as never);
+	await agentRoutes({ addHook: vi.fn(), post, get: vi.fn() } as never);
 	const handler = post.mock.calls[0][2] as (request: unknown, reply: unknown) => Promise<unknown>;
 	return (request) => handler(request, {});
 }

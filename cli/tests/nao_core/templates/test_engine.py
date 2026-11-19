@@ -129,6 +129,13 @@ class TestTemplateEngine:
         mock_db.columns.return_value = [
             {"name": "id", "type": "int64", "nullable": False, "description": None},
             {"name": "email", "type": "string", "nullable": True, "description": "User email"},
+            {
+                "name": "items",
+                "type": "ARRAY<STRUCT<amount NUMERIC>>",
+                "nullable": True,
+                "description": None,
+                "fields": [{"path": "items.amount", "type": "NUMERIC", "description": "Original currency"}],
+            },
         ]
         mock_db.description.return_value = None
         mock_db.row_count.return_value = 2
@@ -145,9 +152,10 @@ class TestTemplateEngine:
 
         assert "# users" in result
         assert "**Dataset:** `main`" in result
-        assert "## Columns (2)" in result
-        assert "- id (int64)" in result
+        assert "## Columns (3)" in result
+        assert "- id (int64)\n" in result
         assert "- email (string" in result
+        assert '- items (ARRAY<STRUCT<amount NUMERIC>>)\n  - items.amount (NUMERIC, "Original currency")\n' in result
 
     def test_render_preview_template(self):
         """Engine renders preview template with rows correctly via db context."""

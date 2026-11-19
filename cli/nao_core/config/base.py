@@ -23,6 +23,7 @@ from .mcp import McpConfig
 from .metabase import MetabaseConfig
 from .notion import NotionConfig
 from .obsidian import ObsidianConfig
+from .query_tag import QueryTagConfig
 from .repos import RepoConfig
 from .secrets import process_secrets
 from .semantic_layer import SemanticLayerConfig
@@ -54,6 +55,7 @@ OPTIONAL_SECTIONS = (
     "test",
     "semantic_layer",
     "tableau",
+    "query_tag",
 )
 
 
@@ -77,6 +79,9 @@ class NaoConfig(BaseModel):
         default=None, description="The semantic layer (dbt MetricFlow) the agent can query"
     )
     tableau: TableauConfig | None = Field(default=None, description="The Tableau connection")
+    query_tag: QueryTagConfig | None = Field(
+        default=None, description="The comment added to every SQL query sent to a warehouse"
+    )
 
     _missing_secrets: dict[str, None] = {}
 

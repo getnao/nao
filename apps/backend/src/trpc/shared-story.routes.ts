@@ -1,5 +1,12 @@
 import { extractQueryIds } from '@nao/shared/story-segments';
-import { DOWNLOAD_FORMATS, SHARE_ROLES, SHARE_VISIBILITY, type StoryFormat, type UserRole } from '@nao/shared/types';
+import {
+	DOWNLOAD_FORMATS,
+	SHARE_ROLES,
+	SHARE_VISIBILITY,
+	STORY_DOWNLOAD_FORMATS,
+	type StoryFormat,
+	type UserRole,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -590,7 +597,7 @@ export const sharedStoryRoutes = {
 		.input(
 			z.object({
 				storyId: z.string(),
-				format: z.enum(DOWNLOAD_FORMATS),
+				format: z.enum(STORY_DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
 			}),
 		)

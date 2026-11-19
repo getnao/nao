@@ -98,6 +98,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/account',
 		pageLabel: 'Account',
+		title: 'Two-factor authentication',
+		description: 'Require a code from an authenticator app or your email after your password.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'authenticator', 'backup codes', 'security'],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
 		title: 'Danger Zone',
 		description: 'Delete your account or perform other destructive actions.',
 		keywords: ['delete account', 'remove'],
@@ -190,6 +197,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/organization',
 		pageLabel: 'Organization Settings',
+		title: 'Single sign-on (Okta)',
+		description:
+			'Connect your Okta or other OIDC identity provider once nao has activated SSO for your organization.',
+		keywords: ['sso', 'okta', 'oidc', 'identity provider', 'idp', 'saml', 'issuer', 'client id'],
+		orgAdminOnly: true,
+		cloudOnly: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
 		title: 'Organization API Keys',
 		description: 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 		keywords: ['api key', 'deploy key', 'token', 'credentials'],
@@ -259,6 +276,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['google', 'bigquery', 'service account', 'gcp', 'sso', 'client id', 'auth domain'],
 		orgAdminOnly: true,
 		cloudHidden: true,
+	},
+
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Two-factor authentication',
+		title: 'Require two-factor authentication',
+		description: 'Require a second step from members who log in with a password, and allow or forbid email codes.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'authenticator', 'email code', 'enforce', 'mandatory', 'security'],
+		orgAdminOnly: true,
 	},
 
 	// ── Project Settings ─────────────────────────────────────
@@ -544,8 +571,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Capabilities',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Semantic layer',
 		description: 'Choose whether the agent queries metrics through the dbt MetricFlow semantic layer.',
 		keywords: [
@@ -613,8 +640,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Experimental',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Dangerous write permissions',
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
@@ -622,11 +649,32 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Capabilities',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Exclude columns',
 		description: 'Prevent the agent from querying columns listed in exclude_columns.',
 		keywords: ['enforce excluded columns', 'sql', 'query', 'column access'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'SQL',
+		search: { tab: 'sql' },
+		title: 'Query tagging',
+		description: 'Add a comment to every SQL query nao sends to your warehouse.',
+		keywords: [
+			'query tag',
+			'query comment',
+			'sql comment',
+			'query_tag',
+			'query history',
+			'warehouse monitoring',
+			'cost attribution',
+			'user email',
+			'user groups',
+			'source',
+		],
 		adminOnly: true,
 	},
 

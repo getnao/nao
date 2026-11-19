@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+	DEFAULT_SQL_QUERY_TAG_POSITION,
+	isSqlQueryTagPosition,
+	SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH,
+	type SqlQueryTagConfig,
+} from '@nao/shared/sql-query-tag';
 import { isLlmProvider, type LlmSelectedModel, type RepoProvider } from '@nao/shared/types';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
@@ -310,6 +316,19 @@ export function extractConfiguredSemanticLayer(projectFolder: string): Configure
 		manifestPath,
 		database: normalizeString(semanticLayer.database),
 	};
+}
+
+/** The `query_tag` section of nao_config.yaml, or null when the project declares none or an invalid one. */
+export function extractConfiguredSqlQueryTag(projectFolder: string): SqlQueryTagConfig | null {
+	const config = loadProjectConfig(projectFolder);
+	if (!isRecord(config) || !isRecord(config.query_tag)) {
+		return null;
+	}
+
+	const { template, position = DEFAULT_SQL_QUERY_TAG_POSITION } = config.query_tag;
+	const isValidTemplate =
+		typeof template === 'string' && template.trim() !== '' && template.length <= SQL_QUERY_TAG_TEMPLATE_MAX_LENGTH;
+	return isValidTemplate && isSqlQueryTagPosition(position) ? { template, position } : null;
 }
 
 /** The `test` section of nao_config.yaml, read with the same defaults and validation as `nao test`. */

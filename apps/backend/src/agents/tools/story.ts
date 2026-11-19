@@ -56,7 +56,13 @@ export function buildStoryToolDescription({
 		'For kpi_card charts you may add comparison_mode="percentage|variation|absolute" to show a period-over-period change pill; this requires the query to return at least two time-ordered rows (one per period) for the metric, and kpi_card does not need x_axis_key.',
 		'SQL result tables are embedded via <table query_id="..." title="..." />.',
 		...(mapsEnabled
-			? ['Maps are embedded via <map query_id="..." map_type="points|scatter_bubble|choropleth" title="..." />.']
+			? [
+					'Maps are embedded via <map query_id="..." map_type="..." title="..." /> with the same column attributes as display_map:',
+					'map_type="points" needs latitude_key and longitude_key, "scatter_bubble" also needs size_key,',
+					'and "choropleth" needs value_key plus region_key with region_boundaries or boundaries_url, or geometry_key.',
+					'E.g. <map query_id="..." map_type="scatter_bubble" latitude_key="lat" longitude_key="lng" size_key="revenue" title="..." />.',
+					'A point map without its coordinate columns renders a placeholder instead of the map.',
+				]
 			: []),
 		...(env.BETA_STORY_FILTERS_ENABLED ? [STORY_FILTER_DESCRIPTION] : []),
 		`Use <grid>...</grid> to place 2–4 charts/tables${mapsEnabled ? '/maps' : ''} side by side; its direct <chart>/<table>${mapsEnabled ? '/<map>' : ''} blocks are the columns.`,

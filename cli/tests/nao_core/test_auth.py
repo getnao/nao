@@ -156,3 +156,14 @@ def test_browser_login_exchange_failure(mock_open, mock_post):
 
     assert auth.browser_login(BASE_URL, timeout=10) is None
     assert auth.get_stored_token() is None
+
+
+def test_password_login_does_not_store_a_pending_two_factor_cookie(mock_post):
+    mock_post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"twoFactorRedirect": True},
+        cookies={"better-auth.two_factor": "pending"},
+    )
+
+    assert auth.login(BASE_URL, "member@example.com", "password") is None
+    assert auth.get_stored_cookies() is None

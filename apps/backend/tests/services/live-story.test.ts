@@ -191,7 +191,7 @@ describe('live story SQL execution', () => {
 			chatId: 'chat-1',
 			queryResults: new Map(),
 			envVars: { TOKEN: 'secret' },
-			azureAccessToken: 'owner-token',
+			warehouseAccessToken: 'owner-token',
 			agentSettings: null,
 			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 			warehouseRowSecurity: {
@@ -231,6 +231,7 @@ describe('live story SQL execution', () => {
 			projectId: 'project-1',
 			userId: 'owner-1',
 			chatId: 'chat-1',
+			querySource: 'story',
 		});
 	});
 
@@ -429,9 +430,10 @@ describe('live story SQL execution', () => {
 			projectId: 'project-1',
 			userId: 'owner-1',
 			chatId: 'chat-1',
+			querySource: 'story',
 		});
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
-			azure_access_token: 'owner-token',
+			user_access_token: 'owner-token',
 			table_access: { enforced: true, tables: [] },
 			row_security: {
 				enforced: true,
@@ -849,7 +851,11 @@ describe('live story SQL execution', () => {
 		});
 
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ sql: 'SELECT * FROM orders' });
-		expect(mocks.buildChatlessToolContext).toHaveBeenCalledWith({ projectId: 'project-1', userId: 'owner-1' });
+		expect(mocks.buildChatlessToolContext).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'owner-1',
+			querySource: 'story',
+		});
 		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 		expect(mocks.getLatestSqlQueriesByIds).not.toHaveBeenCalled();
 		expect(mocks.upsertStoryDataCacheByStoryId).toHaveBeenCalledWith(

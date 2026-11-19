@@ -1628,6 +1628,133 @@ describe('UserGroupEditor', () => {
 		expect(customStories.getAttribute('aria-pressed')).toBe('false');
 	});
 
+	it('preserves an unrelated saved grant when another feature changes', async () => {
+		mocks.useCustomStoriesEnabled.mockReturnValue(true);
+		mocks.mutateAsync.mockResolvedValue({});
+		renderEditor('features', vi.fn(), { ...analysts, featureGrants: ['customStoryCreation'] });
+
+		fireEvent.click(screen.getByRole('button', { name: /^Automations\./ }));
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ featureGrants: ['customStoryCreation', 'automationCreation'] }),
+			),
+		);
+	});
+
+	it.each([
+		['new', 'new' as const],
+		['existing', analysts],
+	])('shows All Users feature grants while configuring a %s custom group', (_case, group) => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [{ ...allUsers, featureGrants: ['storyCreation'] }, analysts],
+			},
+		});
+
+		renderEditor('features', vi.fn(), group);
+
+		const stories = screen.getByRole('button', { name: /^Stories\..*From All Users$/ });
+		expect(stories.getAttribute('aria-pressed')).toBe('true');
+		expect((stories as HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it('does not treat All Users own grants as inherited', () => {
+		const grantedAllUsers = { ...allUsers, featureGrants: ['storyCreation' as const] };
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups: [grantedAllUsers, analysts] },
+		});
+
+		renderEditor('features', vi.fn(), grantedAllUsers);
+
+		const stories = screen.getByRole('button', { name: /^Stories\./ });
+		expect(stories.getAttribute('aria-pressed')).toBe('true');
+		expect((stories as HTMLButtonElement).disabled).toBe(false);
+		expect(screen.queryByText(/From All Users/)).toBeNull();
+	});
+
+	it('removes a redundant direct prerequisite while preserving its dependent direct grant', async () => {
+		mocks.useCustomStoriesEnabled.mockReturnValue(true);
+		mocks.mutateAsync.mockResolvedValue({});
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [{ ...allUsers, featureGrants: ['storyCreation'] }, analysts],
+			},
+		});
+		renderEditor('features', vi.fn(), {
+			...analysts,
+			featureGrants: ['storyCreation', 'customStoryCreation'],
+		});
+
+		fireEvent.click(screen.getByRole('button', { name: /^Stories\..*Also from All Users$/ }));
+
+		const customStories = screen.getByRole('button', { name: /^Custom stories\./ });
+		expect(customStories.getAttribute('aria-pressed')).toBe('true');
+		expect((customStories as HTMLButtonElement).disabled).toBe(false);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		await waitFor(() =>
+			expect(mocks.mutateAsync).toHaveBeenCalledWith(
+				expect.objectContaining({ featureGrants: ['customStoryCreation'] }),
+			),
+		);
+	});
+
+	it('does not present an inherited feature whose combined prerequisites are unsatisfied', () => {
+		mocks.useCustomStoriesEnabled.mockReturnValue(true);
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [{ ...allUsers, featureGrants: ['customStoryCreation'] }, analysts],
+			},
+		});
+
+		renderEditor('features', vi.fn(), analysts);
+
+		const customStories = screen.getByRole('button', { name: /^Custom stories\./ }) as HTMLButtonElement;
+		expect(customStories.getAttribute('aria-pressed')).toBe('false');
+		expect(customStories.disabled).toBe(true);
+		expect(customStories.title).toBe('Requires Stories.');
+		expect(screen.queryByText(/From All Users/)).toBeNull();
+	});
+
+	it('blocks feature edits until All Users access resolves and offers retry after failure', () => {
+		const refetch = vi.fn();
+		mocks.useQuery.mockReturnValue({
+			isLoading: true,
+			isError: false,
+			data: undefined,
+			refetch,
+		});
+		const view = renderEditor('features', vi.fn(), analysts);
+
+		expect(screen.getByText('Loading All Users feature access...')).toBeTruthy();
+		expect((screen.getByRole('button', { name: /^Stories\./ }) as HTMLButtonElement).disabled).toBe(true);
+
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: true,
+			data: undefined,
+			refetch,
+		});
+		view.rerender(createEditor('features', vi.fn(), analysts));
+
+		expect(screen.getByText('Failed to load All Users feature access.')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		expect(refetch).toHaveBeenCalledOnce();
+	});
+
 	it('hides Custom stories while the instance does not offer them', () => {
 		renderEditor('features');
 
