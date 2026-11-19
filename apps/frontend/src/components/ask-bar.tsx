@@ -60,6 +60,7 @@ export function AskBar({
 	resumedQuestion,
 	onAsk,
 	onEnd,
+	onChatChange,
 	children,
 }: {
 	placeholder: string;
@@ -71,6 +72,8 @@ export function AskBar({
 	/** Creates the chat of a new question and returns its id. */
 	onAsk: (citations: CitationData[]) => Promise<string>;
 	onEnd?: () => void;
+	/** Told the chat of the open question, or null once there is none. */
+	onChatChange?: (chatId: string | null) => void;
 	/** Rendered within the agent of the question, to react to its answers. */
 	children?: ReactNode;
 }) {
@@ -97,6 +100,11 @@ export function AskBar({
 		}
 		isFocusRequested.current = true;
 	}, [request]);
+
+	useEffect(() => {
+		onChatChange?.(session.chatId);
+		return () => onChatChange?.(null);
+	}, [onChatChange, session.chatId]);
 
 	useEffect(() => {
 		if (!isFocusRequested.current || isInputHidden) {

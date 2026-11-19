@@ -104,9 +104,11 @@ function StandaloneStoryView({ storyId, story }: { storyId: string; story: Stand
 			editor.setViewMode('preview');
 		}
 	});
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
 	const presence = useStoryEditSession({
 		target: { storyId },
 		isEditing: editor.viewMode !== 'preview' || editor.isCodeDirty,
+		conversationChatId: questionChatId,
 	});
 	useCloseWhenUneditable(presence.canEdit || editor.isCodeDirty, () => {
 		if (editor.viewMode !== 'preview') {
@@ -219,7 +221,14 @@ function StandaloneStoryView({ storyId, story }: { storyId: string; story: Stand
 						}
 					/>
 
-					{!isArchived && <StoryAskBar storyId={storyId} canEdit isInputHidden={isAskInputHidden} />}
+					{!isArchived && (
+						<StoryAskBar
+							storyId={storyId}
+							canEdit
+							isInputHidden={isAskInputHidden}
+							onChatChange={setQuestionChatId}
+						/>
+					)}
 				</SelectionProvider>
 			</div>
 

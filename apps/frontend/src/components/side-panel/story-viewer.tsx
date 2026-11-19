@@ -323,6 +323,7 @@ function ClassicStoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const presence = useStoryEditSession({
 		target: !isReadonlyMode && storyId ? { storyId, chatId, storySlug: resolvedStorySlug } : null,
 		isEditing: viewMode !== 'preview' || isCodeDirty,
+		conversationChatId: citingChatId,
 	});
 	useCloseWhenUneditable(presence.canEdit || isDirty, () => {
 		if (viewMode !== 'preview') {

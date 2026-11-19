@@ -129,9 +129,11 @@ export function OwnedStoryPage({
 		}
 	});
 	const isEditing = editor.viewMode !== 'preview' || editor.isCodeDirty;
+	const [questionChatId, setQuestionChatId] = useState<string | null>(null);
 	const presence = useStoryEditSession({
 		target: storyId ? { storyId, chatId, storySlug } : null,
 		isEditing,
+		conversationChatId: questionChatId,
 	});
 	useCloseWhenUneditable(presence.canEdit || editor.isCodeDirty, () => {
 		if (editor.viewMode !== 'preview') {
@@ -262,7 +264,12 @@ export function OwnedStoryPage({
 					/>
 
 					{showAskBar && storyId && (
-						<StoryAskBar storyId={storyId} canEdit isInputHidden={isAskInputHidden} />
+						<StoryAskBar
+							storyId={storyId}
+							canEdit
+							isInputHidden={isAskInputHidden}
+							onChatChange={setQuestionChatId}
+						/>
 					)}
 				</SelectionProvider>
 			</div>
