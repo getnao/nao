@@ -355,8 +355,12 @@ async function fetchQueryOptionValues(
 			sqlQuery: buildQueryOptionsSql(renderedSql, databaseType, search, offset),
 			semanticQuery: undefined,
 		};
+		const scope = await context.resolveScope();
+		const effectiveScope = executionOptions.viewerUserId
+			? { ...scope, ownerId: executionOptions.viewerUserId }
+			: scope;
 		const queryData = await executeStoryQueries(
-			await context.resolveScope(),
+			effectiveScope,
 			{ [source.queryId]: optionsQuery },
 			{
 				executionContext,
@@ -365,8 +369,8 @@ async function fetchQueryOptionValues(
 				billingAccessVerifiedProjectId: executionOptions.billingAccessVerifiedProjectId,
 			},
 		);
-		const result = queryData[source.queryId]!;
-		if (result.accessDenied) {
+		const result = queryData[source.queryId];
+		if (!result || result.accessDenied) {
 			return [];
 		}
 		if (!result.columns.some((column) => column.toLowerCase() === 'value')) {

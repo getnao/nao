@@ -232,7 +232,10 @@ describe('live story SQL execution', () => {
 			chatId: 'chat-1',
 			slug,
 		}));
-		mocks.getStoryById.mockResolvedValue({ id: 'story-standalone', chatId: null });
+		mocks.getStoryById.mockImplementation(async (storyId) => ({
+			id: storyId,
+			chatId: storyId === 'story-standalone' ? null : 'chat-1',
+		}));
 		mocks.getStoryProjectId.mockResolvedValue('project-1');
 		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
@@ -243,10 +246,10 @@ describe('live story SQL execution', () => {
 		mocks.getSqlQueriesByIds.mockResolvedValue({});
 		mocks.extractCustomStoryQueryIds.mockReturnValue(new Set());
 		mocks.listVersionFiles.mockResolvedValue([]);
-		mocks.buildChatlessToolContext.mockImplementation(async () => ({
+		mocks.buildChatlessToolContext.mockImplementation(async ({ userId }: { userId: string }) => ({
 			projectFolder: '/project',
 			projectId: 'project-1',
-			userId: 'owner-1',
+			userId,
 			chatId: null,
 			queryResults: new Map(),
 			envVars: {},
@@ -1141,7 +1144,7 @@ describe('live story SQL execution', () => {
 		});
 
 		await expect(
-			refreshStoryDataForDelivery('chat-1', 'customers', {
+			refreshStoryDataForDelivery('story-1', {
 				viewerUserId: 'viewer-1',
 				generateViewerCode: true,
 			}),
@@ -1209,7 +1212,7 @@ describe('live story SQL execution', () => {
 		});
 
 		await expect(
-			refreshStoryDataForDelivery('chat-1', 'revenue', {
+			refreshStoryDataForDelivery('story-1', {
 				viewerUserId: 'viewer-1',
 				generateViewerCode: true,
 			}),
@@ -1267,7 +1270,7 @@ describe('live story SQL execution', () => {
 		});
 
 		await expect(
-			refreshStoryDataForDelivery('chat-1', 'customers', {
+			refreshStoryDataForDelivery('story-1', {
 				viewerUserId: 'viewer-1',
 			}),
 		).resolves.toMatchObject({
@@ -1312,7 +1315,7 @@ describe('live story SQL execution', () => {
 		});
 
 		await expect(
-			refreshStoryDataForDelivery('chat-1', 'customers', {
+			refreshStoryDataForDelivery('story-1', {
 				viewerUserId: 'viewer-1',
 			}),
 		).resolves.toMatchObject({
@@ -1352,7 +1355,7 @@ describe('live story SQL execution', () => {
 		mocks.generateText.mockRejectedValue(new Error('Generation failed'));
 
 		await expect(
-			refreshStoryDataForDelivery('chat-1', 'orders', {
+			refreshStoryDataForDelivery('story-1', {
 				viewerUserId: 'viewer-1',
 				generateViewerCode: true,
 			}),
@@ -1643,6 +1646,35 @@ describe('live story SQL execution', () => {
 			undefined,
 			{ query_warehouse: querySource('SELECT * FROM orders', 'analytics') },
 		);
+	});
+
+	it('refreshes a standalone delivery snapshot with the viewer context and without a chat', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			...storyVersion(WAREHOUSE_STORY_CODE),
+			storyId: 'story-standalone',
+		});
+		mocks.listStoryQueries.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', databaseId: 'analytics', adminMode: false },
+		});
+		stubWarehouseFetch({ columns: ['order_id'], data: [{ order_id: 1 }] });
+
+		await expect(
+			refreshStoryDataForDelivery('story-standalone', {
+				viewerUserId: 'viewer-1',
+				generateViewerCode: true,
+			}),
+		).resolves.toEqual({
+			queryData: { query_warehouse: { columns: ['order_id'], data: [{ order_id: 1 }] } },
+			narratives: {},
+			code: `${STORY_VIEWER_RESTRICTED_CODE_MARKER}\n${WAREHOUSE_STORY_CODE}`,
+		});
+
+		expect(mocks.buildChatlessToolContext).toHaveBeenCalledWith({
+			projectId: 'project-1',
+			userId: 'viewer-1',
+			querySource: 'story',
+		});
+		expect(mocks.buildToolContext).not.toHaveBeenCalled();
 	});
 
 	it('runs the SQL of a chat story from its chat and reads only the queries the chat lacks from the story', async () => {

@@ -215,10 +215,10 @@ async function deliverRecipientSnapshots(
 
 		let snapshot: Awaited<ReturnType<typeof refreshStoryDataForDelivery>>;
 		try {
-			snapshot = await refreshStoryDataForDelivery(context.story.chatId!, context.story.slug, {
+			snapshot = await refreshStoryDataForDelivery(context.story.id, {
+				viewerUserId: recipientUserId,
 				billingAccessVerifiedProjectId: context.projectId,
 				generateViewerCode: true,
-				viewerUserId: recipientUserId,
 			});
 		} catch (error) {
 			failedRecipientUserIds.push(recipientUserId);

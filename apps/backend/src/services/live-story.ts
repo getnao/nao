@@ -174,12 +174,11 @@ export async function refreshStoryData(
 }
 
 export async function refreshStoryDataForDelivery(
-	chatId: string,
-	slug: string,
+	storyId: string,
 	options: StoryRefreshOptions = {},
 ): Promise<Omit<RefreshResult, 'queriesRefreshed'> & { code: string }> {
-	const { queryData, narratives, code } = await refreshStory(await requireStoryByChatAndSlug(chatId, slug), options);
-	return { queryData, narratives, code };
+	const result = await refreshStory(await requireStoryById(storyId), options);
+	return { queryData: result.queryData, narratives: result.narratives, code: result.code };
 }
 
 async function refreshStoryDataWithContext(
@@ -230,10 +229,7 @@ async function refreshStory(
 	const ownerScope = await resolveStoryQueryScope(story);
 	const scope = options.viewerUserId ? { ...ownerScope, ownerId: options.viewerUserId } : ownerScope;
 	const executionContext =
-		existingExecutionContext ??
-		(options.viewerUserId && story.chatId
-			? await createStoryExecutionContext(story.chatId, options.viewerUserId)
-			: undefined);
+		existingExecutionContext ?? (options.viewerUserId ? await createOwnerExecutionContext(scope, true) : undefined);
 	const freshData = await executeStoryQueries(scope, sqlQueries, {
 		renderSql: stripSqlFilterBlocks,
 		semanticBindings: semanticBindingsFromCode(version.code),
@@ -241,7 +237,7 @@ async function refreshStory(
 		billingAccessVerifiedProjectId: options.billingAccessVerifiedProjectId,
 	});
 	if (options.viewerUserId) {
-		if (!story.chatId || !executionContext) {
+		if (!executionContext) {
 			throw new Error('Viewer story refresh has no execution context');
 		}
 		const queryData = availableStoryQueryData(freshData);
@@ -265,8 +261,7 @@ async function refreshStory(
 				? await regenerateCustomStoryNarratives(target, version, queryData, true)
 				: await redactCustomStoryNarratives(version.id);
 		}
-		const currentPermissionRevision = (await createStoryExecutionContext(story.chatId, options.viewerUserId))
-			.permissionRevision;
+		const currentPermissionRevision = (await createOwnerExecutionContext(scope, true)).permissionRevision;
 		if (currentPermissionRevision !== executionContext.permissionRevision) {
 			throw new Error('Viewer permissions changed during story refresh');
 		}
