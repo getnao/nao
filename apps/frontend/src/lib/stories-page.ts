@@ -137,6 +137,10 @@ export function isSystemFolder(folder: FolderItem): boolean {
 	return folder.systemType != null;
 }
 
+export function isTeamFolder(folder: FolderItem): boolean {
+	return folder.teamGroupIds.length > 0;
+}
+
 function isPrivateContext(folderId: string | null, folders: FolderItem[]): boolean {
 	if (folderId === null) {
 		return false;

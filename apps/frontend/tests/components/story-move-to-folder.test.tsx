@@ -6,8 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StoryMoveToFolderButton } from '@/components/story-move-to-folder';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-const PRIVATE_FOLDER = { id: 'private-root', parentId: null, name: 'My private folder', visibility: 'private' };
-const TEAM_FOLDER = { id: 'team', parentId: null, name: 'Team', visibility: 'public' };
+const PRIVATE_FOLDER = {
+	id: 'private-root',
+	parentId: null,
+	name: 'My private folder',
+	visibility: 'private',
+	teamGroupIds: [],
+};
+const TEAM_FOLDER = { id: 'team', parentId: null, name: 'Team', visibility: 'public', teamGroupIds: [] };
 
 const mocks = vi.hoisted(() => ({
 	moveStory: vi.fn(),

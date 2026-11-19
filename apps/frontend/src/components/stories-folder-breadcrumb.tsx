@@ -1,10 +1,10 @@
-import { ChevronRight, Lock } from 'lucide-react';
+import { ChevronRight, Lock, Users } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
 import { useDndContext, useDroppable } from '@dnd-kit/core';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type BreadcrumbNode = { id: string | null; name: string; isPrivate?: boolean };
+export type BreadcrumbNode = { id: string | null; name: string; isPrivate?: boolean; isTeam?: boolean };
 
 export function FolderBreadcrumb({ path, rootIcon }: { path: BreadcrumbNode[]; rootIcon: LucideIcon }) {
 	const root = path[0];
@@ -64,6 +64,7 @@ function DroppableCrumb({
 		>
 			{node.id === null ? <RootIcon className='size-4' /> : node.name}
 			{node.isPrivate && <Lock className='size-2.5 shrink-0 text-muted-foreground' />}
+			{node.isTeam && <Users className='size-2.5 shrink-0 text-muted-foreground' />}
 		</span>
 	);
 

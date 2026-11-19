@@ -9,16 +9,18 @@ import {
 	Folder,
 	FolderInput,
 	FolderLock,
+	FolderUsers,
 	Lock,
 	MoreHorizontal,
 	Pencil,
 	Star,
 	Trash2,
+	Users,
 } from 'lucide-react';
 import type { DragEvent, MouseEvent } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { FolderItem } from '@/lib/stories-page';
-import { isSystemFolder } from '@/lib/stories-page';
+import { isSystemFolder, isTeamFolder } from '@/lib/stories-page';
 import { GRID_CARD_CLASS, GridCardFooter, LINES_CARD_CLASS } from '@/components/item-card';
 import { FolderThumbnail } from '@/components/story-thumbnail';
 import {
@@ -250,6 +252,13 @@ export function FolderCard({
 									</span>
 								</SimpleTooltip>
 							)}
+							{isTeamFolder(folder) && (
+								<SimpleTooltip content='Group folder'>
+									<span className='inline-flex items-center text-muted-foreground shrink-0'>
+										<Users className='size-3' />
+									</span>
+								</SimpleTooltip>
+							)}
 						</div>
 					</div>
 				</Link>
@@ -461,6 +470,9 @@ function FolderStoryCount({ count }: { count: number }) {
 function FolderIcon({ folder }: { folder: FolderItem }) {
 	if (folder.systemType === 'shared_with_me' || folder.visibility === 'private') {
 		return <FolderLock className='size-4 shrink-0 text-muted-foreground' />;
+	}
+	if (isTeamFolder(folder)) {
+		return <FolderUsers className='size-4 shrink-0 text-muted-foreground' />;
 	}
 	return <Folder className='size-4 shrink-0 text-muted-foreground' />;
 }

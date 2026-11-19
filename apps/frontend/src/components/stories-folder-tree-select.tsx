@@ -1,6 +1,7 @@
-import { ChevronRight, Folder, FolderLock, Globe, Home, Lock } from 'lucide-react';
+import { ChevronRight, Folder, FolderLock, FolderUsers, Globe, Home, Lock, Users } from 'lucide-react';
 
 import type { FolderItem } from '@/lib/stories-page';
+import { isTeamFolder } from '@/lib/stories-page';
 import { cn } from '@/lib/utils';
 
 export type FolderTreeSelectProps = {
@@ -73,11 +74,14 @@ function FolderTreeNode({
 				icon={
 					folder.visibility === 'private' ? (
 						<FolderLock className='size-3.5' />
+					) : isTeamFolder(folder) ? (
+						<FolderUsers className='size-3.5' />
 					) : (
 						<Folder className='size-3.5' />
 					)
 				}
 				visibility={folder.visibility ?? 'public'}
+				isTeam={isTeamFolder(folder)}
 				selected={selectedId === folder.id}
 				disabled={disabled}
 				depth={depth}
@@ -102,6 +106,7 @@ function FolderTreeItem({
 	label,
 	icon,
 	visibility,
+	isTeam = false,
 	selected,
 	disabled,
 	depth,
@@ -110,6 +115,7 @@ function FolderTreeItem({
 	label: string;
 	icon: React.ReactNode;
 	visibility: string;
+	isTeam?: boolean;
 	selected: boolean;
 	disabled: boolean;
 	depth: number;
@@ -133,6 +139,8 @@ function FolderTreeItem({
 			<span className='truncate flex-1'>{label}</span>
 			{visibility === 'private' ? (
 				<Lock className='size-3 shrink-0 text-muted-foreground/60' />
+			) : isTeam ? (
+				<Users className='size-3 shrink-0 text-muted-foreground/60' />
 			) : (
 				<Globe className='size-3 shrink-0 text-muted-foreground/30' />
 			)}
