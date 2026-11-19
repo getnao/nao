@@ -10,7 +10,7 @@ import {
 	stripSqlFilterBlocks,
 } from '@nao/shared/sql-template';
 import { resolveSemanticQueryParameters } from '@nao/shared/story-parameter-template';
-import { getStoryFiltersFromCode, type ParsedFilterBlock } from '@nao/shared/story-segments';
+import { extractQueryIds, getStoryFiltersFromCode, type ParsedFilterBlock } from '@nao/shared/story-segments';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -23,16 +23,21 @@ import * as filterOptionsCacheQueries from '../queries/story-filter-options-cach
 import { logger } from '../utils/logger';
 import { toSafeSqlIdentifier } from '../utils/sql-identifiers';
 import {
+	createOwnerExecutionContext,
 	createStoryExecutionContext,
 	executeRawSql,
 	executeStoryQueries,
 	isCacheExpired,
 	requiresViewerStoryData,
+	resolveChatQueryScope,
 	resolveRawSqlDatabaseType,
+	resolveStoryQueryScope,
 	type StoryExecutionContext,
+	type StoryQueryScope,
 } from './live-story';
 import { compileSemanticQuery, describeSemanticLayerCached, type SemanticQuery } from './semantic-layer.service';
 import { canFilterMetrics, dimensionExpression, semanticBindingsFromCode } from './semantic-story-bindings';
+import { loadStorySqlQueries } from './story-sql-queries';
 
 const FILTER_OPTIONS_LIMIT = 100;
 const FILTER_OPTIONS_MAX_AGE_MS = 60 * 60 * 1000;
@@ -68,11 +73,14 @@ interface FilterOptionsExecutionOptions {
 }
 
 interface StoryFilterContext {
-	chatId: string;
+	chatId: string | null;
 	story: DBStory;
 	code: string;
 	filters: ParsedFilterBlock[];
 	sqlQueries: Record<string, StoredSqlQuery>;
+	/** Option queries run with the access of the story owner. */
+	createExecutionContext: (viewerUserId?: string) => Promise<StoryExecutionContext>;
+	resolveScope: () => Promise<StoryQueryScope>;
 }
 
 type FilterOptionsSource = QueryOptionsSource | WarehouseOptionsSource | SemanticOptionsSource;
@@ -107,13 +115,42 @@ export async function getStoryFilterOptions(
 	executionOptions: FilterOptionsExecutionOptions = {},
 ): Promise<FilterOptionsResult> {
 	const context = await loadStoryFilterContext(chatId, storySlug);
+	return getFilterOptions(context, filterId, request, executionOptions);
+}
+
+export async function getStoryFilterOptionsByStoryId(
+	storyId: string,
+	filterId: string,
+	request: FilterOptionsRequest = {},
+	executionOptions: FilterOptionsExecutionOptions = {},
+): Promise<FilterOptionsResult> {
+	const context = await loadStoryFilterContextByStoryId(storyId);
+	return getFilterOptions(context, filterId, request, executionOptions);
+}
+
+/** Precomputes option lists of filters without a parent so the first visitor after a refresh doesn't wait. */
+export async function warmStoryFilterOptionsByStoryId(
+	storyId: string,
+	executionOptions: FilterOptionsExecutionOptions = {},
+): Promise<void> {
+	await warmFilterOptions(await loadStoryFilterContextByStoryId(storyId), executionOptions);
+}
+
+async function getFilterOptions(
+	context: StoryFilterContext,
+	filterId: string,
+	request: FilterOptionsRequest,
+	executionOptions: FilterOptionsExecutionOptions,
+): Promise<FilterOptionsResult> {
 	const filter = context.filters.find((candidate) => candidate.id === filterId);
 	if (!filter) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Filter "${filterId}" not found in story.` });
 	}
 
 	const viewerUserId =
-		executionOptions.viewerUserId && (await requiresViewerStoryData(chatId, executionOptions.viewerUserId))
+		executionOptions.viewerUserId &&
+		context.chatId &&
+		(await requiresViewerStoryData(context.chatId, executionOptions.viewerUserId))
 			? executionOptions.viewerUserId
 			: undefined;
 	if (filter.options?.length && !viewerUserId && !filter.optionsQueryId) {
@@ -127,7 +164,7 @@ export async function getStoryFilterOptions(
 	const searchText = request.search?.trim().toLocaleLowerCase();
 	const searchPattern = normalizeSearchTerm(request.search);
 	if (viewerUserId) {
-		const executionContext = await createStoryExecutionContext(chatId, viewerUserId);
+		const executionContext = await context.createExecutionContext(viewerUserId);
 		const result = await queryFilterOptions(
 			context,
 			filter.id,
@@ -140,7 +177,7 @@ export async function getStoryFilterOptions(
 		return restrictConfiguredOptions(result, filter.options);
 	}
 	if (searchText) {
-		const executionContext = await createStoryExecutionContext(chatId);
+		const executionContext = await context.createExecutionContext();
 		return queryFilterOptions(
 			context,
 			filter.id,
@@ -155,13 +192,10 @@ export async function getStoryFilterOptions(
 	return getCachedFilterOptions(context, filter.id, source, executionOptions);
 }
 
-/** Precomputes option lists of filters without a parent so the first visitor after a refresh doesn't wait. */
-export async function warmStoryFilterOptions(
-	chatId: string,
-	storySlug: string,
-	executionOptions: FilterOptionsExecutionOptions = {},
+async function warmFilterOptions(
+	context: StoryFilterContext,
+	executionOptions: FilterOptionsExecutionOptions,
 ): Promise<void> {
-	const context = await loadStoryFilterContext(chatId, storySlug);
 	const topLevelFilters = context.filters.filter(
 		(filter) => !filter.options?.length && hasRemoteOptions(filter) && !filter.dependsOn,
 	);
@@ -227,7 +261,7 @@ async function queryAndCacheFilterOptions(
 	cacheKey: string,
 	executionOptions: FilterOptionsExecutionOptions,
 ): Promise<FilterOptionsResult> {
-	const executionContext = await createStoryExecutionContext(context.chatId);
+	const executionContext = await context.createExecutionContext();
 	const result = await queryFilterOptions(context, filterId, source, executionContext, executionOptions);
 	await filterOptionsCacheQueries.upsertFilterOptionsCache(
 		context.story.id,
@@ -322,7 +356,7 @@ async function fetchQueryOptionValues(
 			semanticQuery: undefined,
 		};
 		const queryData = await executeStoryQueries(
-			context.chatId,
+			await context.resolveScope(),
 			{ [source.queryId]: optionsQuery },
 			{
 				executionContext,
@@ -594,6 +628,28 @@ async function loadStoryFilterContext(chatId: string, storySlug: string): Promis
 		code: version.code,
 		filters: getStoryFiltersFromCode(version.code),
 		sqlQueries: await storyQueries.getSqlQueriesFromCode(chatId, version.code),
+		createExecutionContext: (viewerUserId) => createStoryExecutionContext(chatId, viewerUserId),
+		resolveScope: () => resolveChatQueryScope(chatId),
+	};
+}
+
+async function loadStoryFilterContextByStoryId(storyId: string): Promise<StoryFilterContext> {
+	const [story, version] = await Promise.all([
+		storyQueries.getStoryById(storyId),
+		storyQueries.getLatestVersionByStoryId(storyId),
+	]);
+	if (!story || !version) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+	}
+
+	return {
+		chatId: story.chatId,
+		story,
+		code: version.code,
+		filters: getStoryFiltersFromCode(version.code),
+		sqlQueries: await loadStorySqlQueries(story, extractQueryIds(version.code)),
+		createExecutionContext: async () => createOwnerExecutionContext(await resolveStoryQueryScope(story)),
+		resolveScope: () => resolveStoryQueryScope(story),
 	};
 }
 

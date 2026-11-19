@@ -1,10 +1,12 @@
 import '../../src/env';
 
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import s from '../../src/db/abstractSchema';
 import { db } from '../../src/db/db';
-import { getLatestSqlQueriesByChats } from '../../src/queries/execute-sql.queries';
+import { getLatestSqlQueriesByChats, updateExecuteSqlPart } from '../../src/queries/execute-sql.queries';
+import { QUERY_RESULT_PREVIEW_ROWS } from '../../src/utils/query-result-preview';
 
 vi.mock('../../src/db/db', async () => {
 	const { createInMemoryDb } = await import('../helpers/in-memory-db');
@@ -14,13 +16,13 @@ vi.mock('../../src/db/db', async () => {
 const CHAT_IDS = ['batch-chat-a', 'batch-chat-b', 'batch-chat-c'];
 const QUERIES_PER_CHAT = 400;
 
+beforeAll(seedQueries);
+
+afterAll(() => {
+	db.$client.close();
+});
+
 describe('getLatestSqlQueriesByChats', () => {
-	beforeAll(seedQueries);
-
-	afterAll(() => {
-		db.$client.close();
-	});
-
 	it('looks up more query ids than SQLite accepts in one expression', async () => {
 		const queryIdsByChat = new Map(CHAT_IDS.map((chatId) => [chatId, new Set(queryIdsOf(chatId))]));
 
@@ -48,6 +50,29 @@ describe('getLatestSqlQueriesByChats', () => {
 	});
 });
 
+describe('updateExecuteSqlPart', () => {
+	it.each([
+		{ rowCount: QUERY_RESULT_PREVIEW_ROWS + 1, previewRows: QUERY_RESULT_PREVIEW_ROWS },
+		{ rowCount: 3, previewRows: undefined },
+	])('refreshes the stored preview of a query re-run with $rowCount rows', async ({ rowCount, previewRows }) => {
+		const toolCallId = 'batch-chat-c-q0-call';
+		const data = Array.from({ length: rowCount }, (_, index) => ({ id: index }));
+
+		await updateExecuteSqlPart(
+			toolCallId,
+			{ sql_query: 'select id from orders' },
+			{ _version: '1', id: 'batch-chat-c-q0', columns: ['id'], data, row_count: rowCount },
+		);
+
+		const [part] = await db
+			.select({ queryId: s.messagePart.queryId, preview: s.messagePart.toolOutputPreview })
+			.from(s.messagePart)
+			.where(eq(s.messagePart.toolCallId, toolCallId));
+		expect(part.queryId).toBe('batch-chat-c-q0');
+		expect((part.preview as { data: unknown[] } | null)?.data.length).toBe(previewRows);
+	});
+});
+
 function queryIdsOf(chatId: string): string[] {
 	return Array.from({ length: QUERIES_PER_CHAT }, (_, index) => `${chatId}-q${index}`);
 }
@@ -71,6 +96,7 @@ async function seedQueries() {
 						toolState: 'output-available',
 						toolInput: { sql_query: `select ${index} from ${chatId}` },
 						toolOutput: { id: queryId },
+						queryId,
 					}) as typeof s.messagePart.$inferInsert,
 			),
 		);

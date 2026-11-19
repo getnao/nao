@@ -14,6 +14,8 @@ export interface SettingsSearchEntry {
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
+	/** Hidden from context admins whose groups do not grant the file tree view of the Context Hub. */
+	requiresAdvancedContextExplorer?: boolean;
 	/** Hidden unless the current project role can view usage analytics. */
 	requiresUsageAccess?: boolean;
 	cloudHidden?: boolean;
@@ -92,6 +94,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Your memory',
 		description: 'What nao remembers about you. Only you can see and manage these.',
 		keywords: ['remember', 'learn', 'personalization', 'preferences', 'remembered facts', 'memory list'],
+	},
+	{
+		page: '/settings/account',
+		pageLabel: 'Account',
+		title: 'Two-factor authentication',
+		description: 'Require a code from an authenticator app or your email after your password.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'authenticator', 'backup codes', 'security'],
 	},
 	{
 		page: '/settings/account',
@@ -188,6 +197,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/organization',
 		pageLabel: 'Organization Settings',
+		title: 'Single sign-on (Okta)',
+		description:
+			'Connect your Okta or other OIDC identity provider once nao has activated SSO for your organization.',
+		keywords: ['sso', 'okta', 'oidc', 'identity provider', 'idp', 'saml', 'issuer', 'client id'],
+		orgAdminOnly: true,
+		cloudOnly: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
 		title: 'Organization API Keys',
 		description: 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 		keywords: ['api key', 'deploy key', 'token', 'credentials'],
@@ -257,6 +276,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['google', 'bigquery', 'service account', 'gcp', 'sso', 'client id', 'auth domain'],
 		orgAdminOnly: true,
 		cloudHidden: true,
+	},
+
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Two-factor authentication',
+		title: 'Require two-factor authentication',
+		description: 'Require a second step from members who log in with a password, and allow or forbid email codes.',
+		keywords: ['2fa', 'mfa', 'otp', 'totp', 'authenticator', 'email code', 'enforce', 'mandatory', 'security'],
+		orgAdminOnly: true,
 	},
 
 	// ── Project Settings ─────────────────────────────────────
@@ -535,15 +564,15 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Capabilities',
 		search: { tab: 'tools' },
 		title: 'GeoJSON Boundary Library',
-		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
-		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],
+		description: 'Add custom GeoJSON boundary sets, from a URL or an uploaded file, for choropleth maps.',
+		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon', 'upload', 'file'],
 		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Capabilities',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Semantic layer',
 		description: 'Choose whether the agent queries metrics through the dbt MetricFlow semantic layer.',
 		keywords: [
@@ -611,8 +640,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Experimental',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Dangerous write permissions',
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
@@ -620,11 +649,32 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Capabilities',
-		search: { tab: 'tools' },
+		section: 'SQL',
+		search: { tab: 'sql' },
 		title: 'Exclude columns',
 		description: 'Prevent the agent from querying columns listed in exclude_columns.',
 		keywords: ['enforce excluded columns', 'sql', 'query', 'column access'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'SQL',
+		search: { tab: 'sql' },
+		title: 'Query tagging',
+		description: 'Add a comment to every SQL query nao sends to your warehouse.',
+		keywords: [
+			'query tag',
+			'query comment',
+			'sql comment',
+			'query_tag',
+			'query history',
+			'warehouse monitoring',
+			'cost attribution',
+			'user email',
+			'user groups',
+			'source',
+		],
 		adminOnly: true,
 	},
 
@@ -677,6 +727,26 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'pull request author',
 			'merge request',
 			'merge request author',
+		],
+		adminOrContextAdmin: true,
+	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
+		title: 'GitHub access token',
+		description:
+			'Use one GitHub personal access token, such as a bot account, for everyone instead of personal accounts.',
+		keywords: [
+			'github',
+			'personal access token',
+			'pat',
+			'fine-grained token',
+			'bot account',
+			'shared token',
+			'co-author',
+			'pull request author',
+			'GITHUB_ACCESS_TOKEN',
+			'environment variable',
 		],
 		adminOrContextAdmin: true,
 	},
@@ -1047,6 +1117,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'bulk assign',
 			'add to group',
 			'filter users',
+			'transfer stories',
+			'story ownership',
+			'offboarding',
 		],
 	},
 	{
@@ -1122,6 +1195,25 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'auto-load',
 			'load_skill',
 			'playbook',
+			'groups',
+		],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'Users & Groups',
+		section: 'Manage Groups',
+		search: { tab: 'groups' },
+		title: 'Context Hub file tree',
+		description: 'Choose whether context admins can switch the Context Hub from the doc view to the file tree.',
+		keywords: [
+			'file explorer',
+			'file tree',
+			'doc view',
+			'context hub',
+			'simplified',
+			'context admin',
+			'non technical',
 			'groups',
 		],
 		adminOnly: true,
@@ -1408,6 +1500,33 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 
+	// ── Appearance > Menu ────────────────────────────────────
+	{
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
+		search: { tab: 'menu' },
+		section: 'Menu',
+		title: 'Sidebar menu',
+		description:
+			'Rename, hide and reorder the sidebar menu entries, and add entries that open a story, a filtered Stories page or a link. Enterprise feature.',
+		keywords: [
+			'menu',
+			'sidebar',
+			'navigation',
+			'nav',
+			'entries',
+			'links',
+			'rename',
+			'hide',
+			'reorder',
+			'apps',
+			'custom page',
+			'shortcut',
+			'enterprise',
+		],
+		adminOnly: true,
+	},
+
 	// ── Appearance > Stories ─────────────────────────────────
 	{
 		page: '/settings/appearance',
@@ -1626,25 +1745,39 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	// ── Context Explorer ─────────────────────────────────────
 	{
 		page: '/settings/context-explorer',
-		pageLabel: 'File Explorer',
-		title: 'File Explorer',
-		description: 'Browse and inspect the files and context available to the agent.',
-		keywords: ['files', 'context', 'documents', 'knowledge base'],
+		pageLabel: 'Context Hub',
+		title: 'Context Hub',
+		description: 'Browse the tables, docs and files the agent knows, edit them and add skills.',
+		keywords: [
+			'context',
+			'tables',
+			'docs',
+			'documentation',
+			'skills',
+			'rules',
+			'metrics',
+			'knowledge base',
+			'files',
+			'file explorer',
+			'file tree',
+			'doc view',
+		],
 		adminOrContextAdmin: true,
 	},
 
 	{
 		page: '/settings/context-explorer',
-		pageLabel: 'File Explorer',
+		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Tests',
 		description: 'Run the context tests from the Tests drawer of the File Explorer and review their results.',
 		keywords: ['tests', 'evaluation', 'eval', 'nao test', 'run tests', 'pass rate', 'reliability'],
 		adminOrContextAdmin: true,
+		requiresAdvancedContextExplorer: true,
 	},
 	{
 		page: '/settings/context-explorer',
-		pageLabel: 'File Explorer',
+		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Compare models',
 		description: 'Run the tests on several models and compare their accuracy, cost, tool calls and time.',
@@ -1659,10 +1792,11 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'leaderboard',
 		],
 		adminOrContextAdmin: true,
+		requiresAdvancedContextExplorer: true,
 	},
 	{
 		page: '/settings/context-explorer',
-		pageLabel: 'File Explorer',
+		pageLabel: 'Context Hub',
 		search: { tests: 'open' },
 		title: 'Compare your changes with the default branch',
 		description: 'Run the tests on your File Explorer changes and on the default branch side by side.',
@@ -1679,5 +1813,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'branch',
 		],
 		adminOrContextAdmin: true,
+		requiresAdvancedContextExplorer: true,
 	},
 ];

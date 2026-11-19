@@ -428,6 +428,50 @@ describe('cloud backoffice routes', () => {
 		}
 	});
 
+	it('activates, updates and deactivates SSO for an organization', async () => {
+		const activated = await request('PUT', `/organizations/${ORG_ID}/sso`, { domains: [' @Acme.com ', 'acme.io'] });
+		expect(activated.statusCode).toBe(200);
+		expect(activated.json().sso).toMatchObject({
+			providerId: 'sso-backoffice-org',
+			domains: ['acme.com', 'acme.io'],
+			issuer: null,
+			redirectUri: 'http://localhost:5005/api/auth/sso/callback/sso-backoffice-org',
+			ssoLicensed: false,
+		});
+
+		await db
+			.update(s.ssoProvider)
+			.set({ issuer: 'https://acme.okta.com', oidcConfig: '{"clientId":"okta-client"}' })
+			.where(eq(s.ssoProvider.organizationId, ORG_ID));
+		const updated = await request('PUT', `/organizations/${ORG_ID}/sso`, { domains: ['acme.com'] });
+		expect(updated.json().sso).toMatchObject({
+			domains: ['acme.com'],
+			issuer: 'https://acme.okta.com',
+			clientId: 'okta-client',
+		});
+
+		expect((await get(`/organizations/${ORG_ID}/sso`)).json().sso).toMatchObject({ domains: ['acme.com'] });
+		expect((await request('DELETE', `/organizations/${ORG_ID}/sso`)).statusCode).toBe(204);
+		expect((await get(`/organizations/${ORG_ID}/sso`)).json()).toEqual({ sso: null });
+		expect((await request('DELETE', `/organizations/${ORG_ID}/sso`)).statusCode).toBe(404);
+	});
+
+	it.each([
+		{ domain: 'gmail.com', status: 400, error: '"gmail.com" is a public email provider' },
+		{ domain: 'not a domain', status: 400, error: '"not a domain" is not a valid email domain.' },
+		{ domain: 'claimed-by-google.com', status: 409, error: 'already claimed by another organization' },
+		{ domain: 'eu.claimed-by-sso.com', status: 409, error: 'already claimed by another organization' },
+		{ domain: 'parent-of-google.com', status: 409, error: 'already claimed by another organization' },
+	])('refuses to route $domain to an organization SSO provider', async ({ domain, status, error }) => {
+		await seedOtherOrganizationClaimingDomains();
+
+		const response = await request('PUT', `/organizations/${ORG_ID}/sso`, { domains: [domain] });
+
+		expect(response.statusCode).toBe(status);
+		expect(response.json().error).toContain(error);
+		expect(await db.select().from(s.ssoProvider).where(eq(s.ssoProvider.organizationId, ORG_ID))).toEqual([]);
+	});
+
 	it('updates organizations, users, and memberships', async () => {
 		const renamedOrg = await request('PATCH', `/organizations/${ORG_ID}`, { name: 'Renamed Organization' });
 		expect(renamedOrg.statusCode).toBe(200);
@@ -686,6 +730,7 @@ async function seedOnboarding(projectPath: string) {
 }
 
 async function clearData() {
+	await db.delete(s.ssoProvider);
 	await db.delete(s.warehouseConnectionCheck);
 	await db.delete(s.warehouseProvisioningJob);
 	await db.delete(s.session);
@@ -706,6 +751,22 @@ async function clearData() {
 	await db.delete(s.organizationBilling);
 	await db.delete(s.organization);
 	await db.delete(s.user);
+}
+
+async function seedOtherOrganizationClaimingDomains() {
+	await db.insert(s.organization).values({
+		id: 'org-other',
+		name: 'Other',
+		slug: 'other',
+		googleAuthDomains: 'claimed-by-google.com,eu.parent-of-google.com',
+	});
+	await db.insert(s.ssoProvider).values({
+		organizationId: 'org-other',
+		providerId: 'sso-other',
+		issuer: 'https://other.okta.com',
+		domain: 'claimed-by-sso.com',
+		domainVerified: true,
+	});
 }
 
 async function seedData(projectPath: string) {

@@ -17,7 +17,7 @@ vi.mock('../../src/env', async (importOriginal) => {
 		},
 	};
 });
-vi.mock('../../src/queries/organization.queries', () => ({
+vi.mock('../../src/queries/organization-license.queries', () => ({
 	getOrganizationLicenseToken: mocks.getOrganizationLicenseToken,
 	getProjectOrganizationLicenseToken: mocks.getProjectOrganizationLicenseToken,
 }));

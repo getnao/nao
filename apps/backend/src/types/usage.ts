@@ -203,6 +203,9 @@ export interface UsageRecord {
 	date: string;
 	messageCount: number;
 	webMessageCount: number;
+	automationEditorMessageCount: number;
+	contextEditorMessageCount: number;
+	automationMessageCount: number;
 	slackMessageCount: number;
 	teamsMessageCount: number;
 	telegramMessageCount: number;

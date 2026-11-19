@@ -43,6 +43,7 @@ vi.mock('@/main', () => ({
 		},
 		testRun: {
 			getModelStats: { queryOptions: () => ({ queryKey: ['model-stats'], queryFn: () => [] }) },
+			listUpstreamRepos: { queryOptions: () => ({ queryKey: ['upstream-repos'], queryFn: () => [] }) },
 			getDefaultReasoningEfforts: {
 				queryOptions: () => ({ queryKey: ['default-reasoning-efforts'], queryFn: () => [] }),
 			},
@@ -76,6 +77,9 @@ vi.mock('@/main', () => ({
 		},
 		contextExplorer: {
 			getChangedFiles: { queryOptions: () => ({ queryKey: ['changed-files'], queryFn: () => [] }) },
+			getRepositoryStatus: {
+				queryOptions: () => ({ queryKey: ['repository-status'], queryFn: () => ({ branches: null }) }),
+			},
 		},
 	},
 }));

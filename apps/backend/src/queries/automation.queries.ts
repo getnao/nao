@@ -11,7 +11,7 @@ import s, {
 	type NewAutomation,
 	type NewAutomationRun,
 } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBTransaction } from '../db/db';
 import type { AutomationIntegrationResult } from '../types/automation';
 
 export const automationJobUniqueKey = (automationId: string): string => `automation:${automationId}`;
@@ -243,15 +243,25 @@ export const setAutomationEventTriggers = async (
 
 /** Also hands over the chats of past runs so the new owner can open the run history. */
 export const transferAutomationOwnership = async (id: string, newOwnerId: string): Promise<void> => {
-	await db.transaction(async (tx) => {
-		await tx.update(s.automation).set({ userId: newOwnerId }).where(eq(s.automation.id, id)).execute();
+	await db.transaction((tx) => moveAutomationsToOwner(tx, eq(s.automation.id, id), newOwnerId));
+};
 
-		const runChatIds = tx
-			.select({ chatId: s.automationRun.chatId })
-			.from(s.automationRun)
-			.where(and(eq(s.automationRun.automationId, id), isNotNull(s.automationRun.chatId)));
-		await tx.update(s.chat).set({ userId: newOwnerId }).where(inArray(s.chat.id, runChatIds)).execute();
-	});
+export const transferProjectAutomationsOfUser = async (
+	projectId: string,
+	fromUserId: string,
+	newOwnerId: string,
+): Promise<number> => {
+	const ownedByUser = and(eq(s.automation.projectId, projectId), eq(s.automation.userId, fromUserId));
+	return db.transaction((tx) => moveAutomationsToOwner(tx, ownedByUser, newOwnerId));
+};
+
+export const countProjectAutomationsOfUser = async (projectId: string, userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ count: count() })
+		.from(s.automation)
+		.where(and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId)))
+		.execute();
+	return row?.count ?? 0;
 };
 
 export const deleteAutomation = async (projectId: string, userId: string, id: string): Promise<void> => {
@@ -717,4 +727,32 @@ function parseChartPart(
 		config: config.data,
 		data: sqlOutput.data,
 	};
+}
+
+/** The new owner also gets the chats of past runs, so they can read them. */
+async function moveAutomationsToOwner(tx: DBTransaction, where: SQL | undefined, newOwnerId: string): Promise<number> {
+	const moved = await tx
+		.update(s.automation)
+		.set({ userId: newOwnerId })
+		.where(where)
+		.returning({ id: s.automation.id })
+		.execute();
+	if (moved.length === 0) {
+		return 0;
+	}
+
+	const runChatIds = tx
+		.select({ chatId: s.automationRun.chatId })
+		.from(s.automationRun)
+		.where(
+			and(
+				inArray(
+					s.automationRun.automationId,
+					moved.map((automation) => automation.id),
+				),
+				isNotNull(s.automationRun.chatId),
+			),
+		);
+	await tx.update(s.chat).set({ userId: newOwnerId }).where(inArray(s.chat.id, runChatIds)).execute();
+	return moved.length;
 }

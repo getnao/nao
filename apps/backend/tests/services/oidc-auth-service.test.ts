@@ -86,6 +86,17 @@ describe('oidc-auth.service', () => {
 			expect(plugins).toHaveLength(2);
 			expect(plugins[0]).toBe(existing);
 		});
+
+		it.each([
+			{ configured: undefined, sent: 'select_account' },
+			{ configured: 'login', sent: 'login' },
+			{ configured: 'omit', sent: undefined },
+		])('sends prompt $sent when OIDC_PROMPT is $configured', ({ configured, sent }) => {
+			setOidcEnv(configured ? { OIDC_PROMPT: configured } : {});
+			const plugins: { options: { config: { prompt?: string }[] } }[] = [];
+			augmentPluginsWithOidc(plugins as never[]);
+			expect(plugins[0].options.config[0].prompt).toBe(sent);
+		});
 	});
 
 	describe('getTrustedProvidersForOidc', () => {

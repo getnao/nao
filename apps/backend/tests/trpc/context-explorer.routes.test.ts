@@ -6,8 +6,10 @@ const mocks = vi.hoisted(() => ({
 	ContextProjectResolutionError: class ContextProjectResolutionError extends Error {},
 	completeActivity: vi.fn(),
 	connectContextRepository: vi.fn(),
+	createDraftFile: vi.fn(),
 	failActivity: vi.fn(),
 	getContextFileDiff: vi.fn(),
+	getContextRecommendationConfig: vi.fn(),
 	getFileTree: vi.fn(),
 	getGithubToken: vi.fn(),
 	getGitlabToken: vi.fn(),
@@ -53,6 +55,9 @@ vi.mock('../../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
 
+vi.mock('../../src/queries/context-recommendation.queries', () => ({
+	getConfig: mocks.getContextRecommendationConfig,
+}));
 vi.mock('../../src/queries/user.queries', () => ({
 	getGithubToken: mocks.getGithubToken,
 	getGitlabToken: mocks.getGitlabToken,
@@ -72,6 +77,7 @@ vi.mock('../../src/services/sso-group-mapping.service', () => ({
 }));
 
 vi.mock('../../src/services/context-explorer.service', () => ({
+	createDraftFile: mocks.createDraftFile,
 	getFileTree: mocks.getFileTree,
 	MAX_CONTEXT_FILE_SIZE: 1024 * 1024,
 	readFileContent: mocks.readFileContent,
@@ -113,6 +119,7 @@ vi.mock('../../src/utils/context-repo', () => ({
 
 import { contextExplorerRoutes } from '../../src/trpc/context-explorer.routes';
 import { router } from '../../src/trpc/trpc';
+import { encryptSecret } from '../../src/utils/encryption';
 
 const testRouter = router(contextExplorerRoutes);
 const caller = createTestCaller(testRouter);
@@ -124,6 +131,7 @@ beforeEach(() => {
 	vi.resetAllMocks();
 	mocks.getUserRoleInProject.mockResolvedValue('admin');
 	mocks.getGithubToken.mockResolvedValue('github-token');
+	mocks.getContextRecommendationConfig.mockResolvedValue(null);
 	mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
 });
 
@@ -150,6 +158,19 @@ describe('context explorer repository connection', () => {
 				repoFullName: 'nao/context',
 				token: 'github-token',
 			}),
+		);
+	});
+
+	it("connects a GitHub repository with the project's shared token instead of the user's", async () => {
+		mocks.getContextRecommendationConfig.mockResolvedValue({
+			encryptedGithubAccessToken: encryptSecret('shared-token'),
+		});
+
+		await caller.connectRepository({ provider: 'github', repoFullName: 'nao/context' });
+
+		expect(mocks.getGithubToken).not.toHaveBeenCalled();
+		expect(mocks.connectContextRepository).toHaveBeenCalledWith(
+			expect.objectContaining({ provider: 'github', token: 'shared-token' }),
 		);
 	});
 
@@ -245,6 +266,29 @@ describe('context explorer file access', () => {
 		);
 	});
 
+	it('creates a skill owned by its author in the user changes', async () => {
+		const availableGit = { status: 'available', repo: {}, context: {} };
+		mocks.resolveContextExplorerGit.mockResolvedValue(availableGit);
+		mocks.createDraftFile.mockResolvedValue({ hash: 'hash' });
+
+		await expect(caller.createSkill({ name: 'weekly-sales', description: 'Weekly: sales' })).resolves.toEqual({
+			path: '/agent/skills/weekly-sales.md',
+		});
+
+		expect(mocks.createDraftFile).toHaveBeenCalledWith(
+			'/agent/skills/weekly-sales.md',
+			expect.stringMatching(
+				/^---\nname: weekly-sales\ndescription: "Weekly: sales"\nowner: user-id@example\.com\n---\n/,
+			),
+			expect.objectContaining({ git: availableGit }),
+		);
+	});
+
+	it.each(['../RULES', 'Weekly Sales', 'skills/nested', '-leading'])('rejects the skill name %s', async (name) => {
+		await expect(caller.createSkill({ name, description: '' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.createDraftFile).not.toHaveBeenCalled();
+	});
+
 	it('passes validated historical commit ranges to the file diff service', async () => {
 		const from = OLD_COMMIT;
 		const to = 'B'.repeat(64);
@@ -301,6 +345,13 @@ describe('context explorer file access', () => {
 	])('rejects invalid or partial historical commit ranges', async (input) => {
 		await expect(caller.getFileDiff(input)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
 		expect(mocks.getContextFileDiff).not.toHaveBeenCalled();
+	});
+
+	it.each(['', '   ', `${'a'.repeat(310)}@example.com`])('rejects %j as the owner of a table', async (owner) => {
+		await expect(
+			caller.applyOwnerToTableFiles({ path: '/databases/table=orders/columns.md', owner }),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.resolveContextExplorerGit).not.toHaveBeenCalled();
 	});
 });
 

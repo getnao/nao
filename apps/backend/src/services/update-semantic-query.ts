@@ -87,6 +87,7 @@ async function resolveStoredSemanticQuery(opts: StoredSemanticQueryOptions) {
 		projectId: existing.projectId,
 		userId: opts.userId,
 		chatId: existing.chatId,
+		querySource: 'sqlEditor',
 		adminMode: existing.adminMode,
 	});
 

@@ -109,7 +109,9 @@ nao = "nao_core.main:main"
 
 [project.urls]
 Homepage = "https://getnao.io"
-Repository = "https://github.com/naolabs/chat"
+Repository = "https://github.com/getnao/nao"
+Issues = "https://github.com/getnao/nao/issues"
+Changelog = "https://github.com/getnao/nao/releases"
 
 [dependency-groups]
 dev = [

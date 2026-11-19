@@ -24,9 +24,6 @@ export const storySnapshotHtml = z
 		message: `The story snapshot exceeds ${MAX_STORY_SNAPSHOT_BYTES / 1024 / 1024} MB.`,
 	});
 
-export const STANDALONE_QUERY_SQL_UNAVAILABLE =
-	'This story keeps the rows of its queries but not their SQL. Edit it in a chat to work on its queries.';
-
 export const STANDALONE_SQL_UNAVAILABLE = 'Only stories built in a chat can run their own SQL.';
 
 export const storyStateChange = z.object({
@@ -34,6 +31,8 @@ export const storyStateChange = z.object({
 	value: z.unknown(),
 	shared: z.boolean(),
 });
+
+export const mapBoundaryKey = z.string().min(1).max(64);
 
 const MAX_FILTER_TEXT_LENGTH = 1_000;
 const MAX_FILTER_LIST_LENGTH = 500;

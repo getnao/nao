@@ -24,6 +24,11 @@ export interface StoryBuildDiagnostic {
 	lineText?: string;
 }
 
+interface BuildLog {
+	message: string;
+	position?: { file?: string; line?: number; column?: number; lineText?: string } | null;
+}
+
 export type StoryBuildResponse =
 	| { ok: true; bundle: string; pageShell: string | null }
 	| { ok: false; diagnostics: StoryBuildDiagnostic[] };
@@ -100,8 +105,33 @@ export async function storyBuildWorker(): Promise<void> {
 		return null;
 	};
 
-	/** Reports every bad import across the story at once, before the bundler stops at the first one. */
-	const scanImports = (): StoryBuildDiagnostic[] => {
+	/**
+	 * A macro (`import … with { type: "macro" }`) would run on the server while the story builds, outside the frame
+	 * that confines story code. `macro: false` makes Bun refuse a macro call, though its types only know the macro map.
+	 */
+	const createScriptTranspiler = (extension: string): InstanceType<typeof Bun.Transpiler> => {
+		const options = { loader: extension, define: PRODUCTION_DEFINE, macro: false };
+		return new Bun.Transpiler(options as unknown as ConstructorParameters<typeof Bun.Transpiler>[0]);
+	};
+
+	const toDiagnostic = (log: BuildLog, filePath: string | undefined): StoryBuildDiagnostic => ({
+		message: log.message,
+		file: displayFileName(filePath),
+		line: log.position?.line || undefined,
+		column: log.position?.column || undefined,
+		lineText: log.position?.lineText || undefined,
+	});
+
+	const describeScriptError = (filePath: string, error: unknown): StoryBuildDiagnostic[] => {
+		const causes = (error as { errors?: BuildLog[] }).errors ?? [error as BuildLog];
+		return causes.map((cause) => toDiagnostic(cause, filePath));
+	};
+
+	/**
+	 * Reports every unreadable script and bad import across the story at once, before the bundler stops at the first
+	 * one. The bundler cannot turn macros off, so a script that does not transpile with them off never reaches it.
+	 */
+	const scanScripts = (): StoryBuildDiagnostic[] => {
 		const diagnostics: StoryBuildDiagnostic[] = [];
 		for (const [filePath, content] of Object.entries(files)) {
 			const extension = extensionOf(filePath);
@@ -109,10 +139,8 @@ export async function storyBuildWorker(): Promise<void> {
 				continue;
 			}
 			try {
-				const transpiler = new Bun.Transpiler({
-					loader: extension as 'jsx' | 'tsx' | 'js' | 'ts',
-					define: PRODUCTION_DEFINE,
-				});
+				const transpiler = createScriptTranspiler(extension);
+				transpiler.transformSync(content);
 				for (const found of transpiler.scanImports(content)) {
 					if (JSX_RUNTIME_IMPORTS.includes(found.path)) {
 						continue;
@@ -122,8 +150,8 @@ export async function storyBuildWorker(): Promise<void> {
 						diagnostics.push({ file: displayFileName(filePath), message });
 					}
 				}
-			} catch {
-				// A file the scanner cannot parse is reported by the bundler with a position.
+			} catch (error) {
+				diagnostics.push(...describeScriptError(filePath, error));
 			}
 		}
 		return diagnostics;
@@ -350,8 +378,7 @@ export async function storyBuildWorker(): Promise<void> {
 			];
 		}
 		try {
-			const transpiler = new Bun.Transpiler({ loader: extension as 'jsx' | 'tsx' | 'js' | 'ts' });
-			if (transpiler.scan(files[request.entry]).exports.includes('default')) {
+			if (createScriptTranspiler(extension).scan(files[request.entry]).exports.includes('default')) {
 				return [];
 			}
 			return [
@@ -377,9 +404,9 @@ export async function storyBuildWorker(): Promise<void> {
 		buildEntry = HTML_BUILD_ENTRY;
 	}
 
-	const importDiagnostics = [...scanImports(), ...(isHtmlEntry ? [] : scanEntryExport())];
-	if (importDiagnostics.length > 0) {
-		respond({ ok: false, diagnostics: importDiagnostics });
+	const scriptDiagnostics = [...scanScripts(), ...(isHtmlEntry ? [] : scanEntryExport())];
+	if (scriptDiagnostics.length > 0) {
+		respond({ ok: false, diagnostics: scriptDiagnostics });
 		return;
 	}
 
@@ -435,13 +462,9 @@ export async function storyBuildWorker(): Promise<void> {
 	if (!result.success) {
 		respond({
 			ok: false,
-			diagnostics: result.logs.map((log) => ({
-				message: log.message,
-				file: displayFileName(log.position?.file?.replace(new RegExp(`^${NAMESPACE}:`), '') || undefined),
-				line: log.position?.line || undefined,
-				column: log.position?.column || undefined,
-				lineText: log.position?.lineText || undefined,
-			})),
+			diagnostics: result.logs.map((log) =>
+				toDiagnostic(log, log.position?.file?.replace(new RegExp(`^${NAMESPACE}:`), '') || undefined),
+			),
 		});
 		return;
 	}
